@@ -32,6 +32,7 @@ CODEX_NATIVE_AUTO_UPDATE_MODE="${CODEX_NATIVE_AUTO_UPDATE_MODE:-prompt}"
 CODEX_NATIVE_AUTO_UPDATE_INTERVAL_SECONDS="${CODEX_NATIVE_AUTO_UPDATE_INTERVAL_SECONDS:-21600}"
 CODEX_NATIVE_AUTO_UPDATE_TIMEOUT_SECONDS="${CODEX_NATIVE_AUTO_UPDATE_TIMEOUT_SECONDS:-4}"
 CODEX_NATIVE_AUTO_UPDATE_STAMP="${CODEX_NATIVE_AUTO_UPDATE_STAMP:-$CODEX_NATIVE_STATE_DIR/last-auto-update-check}"
+CODEX_NATIVE_AUTO_UPDATE_PENDING="${CODEX_NATIVE_AUTO_UPDATE_PENDING:-$CODEX_NATIVE_STATE_DIR/pending-auto-update-version}"
 
 codex_say() { printf 'codex: %s\n' "$*" >&2; }
 codex_fail() { printf 'codex: ERROR: %s\n' "$*" >&2; return 1; }
@@ -434,16 +435,31 @@ codex_mark_auto_update_checked() {
     date +%s >"$CODEX_NATIVE_AUTO_UPDATE_STAMP"
 }
 
+codex_read_pending_auto_update() {
+    cat "$CODEX_NATIVE_AUTO_UPDATE_PENDING" 2>/dev/null || true
+}
+
+codex_write_pending_auto_update() {
+    local version="$1"
+    mkdir -p "$CODEX_NATIVE_STATE_DIR"
+    printf '%s\n' "$version" >"$CODEX_NATIVE_AUTO_UPDATE_PENDING"
+}
+
+codex_clear_pending_auto_update() {
+    rm -f "$CODEX_NATIVE_AUTO_UPDATE_PENDING"
+}
+
 codex_prompt_update() {
     local current="$1" latest="$2" choice
     [ -t 0 ] && [ -t 2 ] || return 1
     printf 'codex: update available: %s -> %s\n' "$current" "$latest" >&2
     printf '  1) Run current patched runtime (default)\n' >&2
-    printf '  2) Update now, patch, and run latest\n' >&2
-    printf 'codex update [1/2]> ' >&2
-    IFS= read -r choice || return 1
+    printf '  0) Update now, patch, and run latest\n' >&2
+    printf 'codex update [1/0]> ' >&2
+    IFS= read -r -n 1 choice || return 1
+    printf '\n' >&2
     case "$choice" in
-        2|u|U|update|UPDATE|y|Y|yes|YES)
+        0|u|U|update|UPDATE|y|Y|yes|YES)
             return 0
             ;;
         *)
@@ -457,24 +473,43 @@ codex_install_auto_update() {
     local current="$1" latest="$2"
     codex_say "updating: $current -> $latest"
     codex_refresh_support_from_source
-    codex_update "$latest" || codex_say "update failed; continuing with $current"
+    if codex_update "$latest"; then
+        codex_clear_pending_auto_update
+    else
+        codex_say "update failed; continuing with $current"
+        return 1
+    fi
 }
 
 codex_auto_update_if_needed() {
-    local current latest mode
+    local current latest mode pending
     codex_runtime_ok || return 0
-    codex_auto_update_due || return 0
-    codex_mark_auto_update_checked
+    [ "$CODEX_NATIVE_AUTO_UPDATE" = "0" ] && return 0
+    [ "$(codex_auto_update_mode)" != "off" ] || return 0
     current="$(codex_read_state_field version)"
-    latest="$(codex_latest_linux_arm64_version || true)"
+    pending="$(codex_read_pending_auto_update)"
+    if [ -n "$pending" ] && [ "$pending" = "$current" ]; then
+        codex_clear_pending_auto_update
+        pending=""
+    fi
+    if [ -n "$pending" ] && [ "$pending" != "$current" ]; then
+        latest="$pending"
+    else
+        codex_auto_update_due || return 0
+        codex_mark_auto_update_checked
+        latest="$(codex_latest_linux_arm64_version || true)"
+    fi
     [ -n "$latest" ] || return 0
     if [ "$latest" != "$current" ]; then
+        codex_write_pending_auto_update "$latest"
         mode="$(codex_auto_update_mode)"
         if [ "$mode" = "force" ]; then
             codex_install_auto_update "$current" "$latest"
         elif codex_prompt_update "$current" "$latest"; then
             codex_install_auto_update "$current" "$latest"
         fi
+    else
+        codex_clear_pending_auto_update
     fi
 }
 

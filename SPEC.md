@@ -32,11 +32,12 @@ Existing non-managed `codex` launchers are backed up under
 - `--` forces upstream passthrough.
 - `doctor --upstream` runs upstream `doctor`.
 - Plain upstream execution checks the npm `linux-arm64` dist-tag at most once
-  every six hours. When a newer runtime exists, the default interactive choice
-  is to keep running the current patched runtime; option `2` updates, patches,
-  and then continues on the latest runtime. Non-interactive execution never
-  prompts. `CODEX_NATIVE_AUTO_UPDATE_MODE=force` restores forced updating, and
-  `CODEX_NATIVE_AUTO_UPDATE=0` disables the check.
+  every six hours while the installed runtime is current. Once a newer runtime
+  is detected, interactive execution prompts every time until the runtime is
+  updated. Pressing `1` keeps running the current patched runtime; pressing `0`
+  updates, patches, and then continues on the latest runtime. Non-interactive
+  execution never prompts. `CODEX_NATIVE_AUTO_UPDATE_MODE=force` restores forced
+  updating, and `CODEX_NATIVE_AUTO_UPDATE=0` disables the check.
 - Runtime drift is self-repaired from the cached raw vendor package when
   possible. This covers support-tool changes such as bwrap/rg shim updates
   without requiring another npm download.
