@@ -28,6 +28,7 @@ CODEX_NATIVE_PUBLIC_CODEX="${CODEX_NATIVE_PUBLIC_CODEX:-$CODEX_NATIVE_PREFIX/bin
 CODEX_NATIVE_PUBLIC_BWRAP="${CODEX_NATIVE_PUBLIC_BWRAP:-$CODEX_NATIVE_PREFIX/bin/bwrap}"
 CODEX_NATIVE_RUNTIME_BUILDER="${CODEX_NATIVE_RUNTIME_BUILDER:-$CODEX_NATIVE_RUNTIME_DIR/build-runtime.py}"
 CODEX_NATIVE_AUTO_UPDATE="${CODEX_NATIVE_AUTO_UPDATE:-1}"
+CODEX_NATIVE_AUTO_UPDATE_MODE="${CODEX_NATIVE_AUTO_UPDATE_MODE:-prompt}"
 CODEX_NATIVE_AUTO_UPDATE_INTERVAL_SECONDS="${CODEX_NATIVE_AUTO_UPDATE_INTERVAL_SECONDS:-21600}"
 CODEX_NATIVE_AUTO_UPDATE_TIMEOUT_SECONDS="${CODEX_NATIVE_AUTO_UPDATE_TIMEOUT_SECONDS:-4}"
 CODEX_NATIVE_AUTO_UPDATE_STAMP="${CODEX_NATIVE_AUTO_UPDATE_STAMP:-$CODEX_NATIVE_STATE_DIR/last-auto-update-check}"
@@ -115,7 +116,7 @@ codex_record_registry() {
     wrapper_version="$(codex_current_wrapper_version)"
     wrapper_commit="$(codex_current_wrapper_commit)"
     mkdir -p "$CODEX_NATIVE_STATE_DIR"
-    python3 - "$CODEX_NATIVE_REGISTRY_FILE" "$version" "$raw_sha" "$runtime_sha" "$package_spec" "$runtime_path" "$wrapper_version" "$wrapper_commit" "$(codex_now)" <<'PY'
+    python3 - "$CODEX_NATIVE_REGISTRY_FILE" "$version" "$raw_sha" "$runtime_sha" "$package_spec" "$runtime_path" "$wrapper_version" "$wrapper_commit" "$CODEX_NATIVE_STORE_DIR/runtime" "$(codex_now)" <<'PY'
 import json, os, sys
 from pathlib import Path
 import re
@@ -133,10 +134,25 @@ package_spec = sys.argv[5]
 runtime_path = sys.argv[6]
 wrapper_version = sys.argv[7]
 wrapper_commit = sys.argv[8]
-updated_at = sys.argv[9]
+store_runtime_root = Path(sys.argv[9]).resolve()
+updated_at = sys.argv[10]
 raw_id = f"raw-{component(version)}-{component(raw_sha[:12])}"
 wrapper_id = f"wrapper-{component(wrapper_version)}-{component(wrapper_commit[:12])}"
 tuple_id = f"{raw_id}__{wrapper_id}"
+
+def managed_runtime_path(value: str) -> bool:
+    if not value:
+        return False
+    try:
+        path_value = Path(value).resolve()
+    except Exception:
+        return False
+    return (
+        path_value.exists()
+        and (path_value / "codex").exists()
+        and (path_value == store_runtime_root or store_runtime_root in path_value.parents)
+    )
+
 entry = {
     "version": version,
     "raw_sha256": raw_sha,
@@ -160,6 +176,14 @@ data.setdefault("installs", [])
 data.setdefault("raw", {})
 data.setdefault("wrapper", {})
 data.setdefault("runtime", {})
+data["installs"] = [
+    item for item in data.get("installs", [])
+    if managed_runtime_path(item.get("runtime_path", ""))
+]
+data["runtime"] = {
+    key: value for key, value in data.get("runtime", {}).items()
+    if managed_runtime_path(value.get("path", ""))
+}
 data["raw"][raw_id] = {
     "version": version,
     "sha256": raw_sha,
@@ -378,9 +402,28 @@ codex_latest_linux_arm64_version() {
     fi
 }
 
+codex_auto_update_mode() {
+    local mode="${CODEX_NATIVE_AUTO_UPDATE_MODE:-prompt}"
+    case "$mode" in
+        0|off|false|no|none)
+            printf 'off\n'
+            ;;
+        force|auto|always)
+            printf 'force\n'
+            ;;
+        1|prompt|ask|"")
+            printf 'prompt\n'
+            ;;
+        *)
+            printf 'prompt\n'
+            ;;
+    esac
+}
+
 codex_auto_update_due() {
     local now last
     [ "$CODEX_NATIVE_AUTO_UPDATE" = "0" ] && return 1
+    [ "$(codex_auto_update_mode)" != "off" ] || return 1
     now="$(date +%s)"
     last="$(cat "$CODEX_NATIVE_AUTO_UPDATE_STAMP" 2>/dev/null || printf '0')"
     [ $((now - last)) -ge "$CODEX_NATIVE_AUTO_UPDATE_INTERVAL_SECONDS" ]
@@ -391,8 +434,34 @@ codex_mark_auto_update_checked() {
     date +%s >"$CODEX_NATIVE_AUTO_UPDATE_STAMP"
 }
 
+codex_prompt_update() {
+    local current="$1" latest="$2" choice
+    [ -t 0 ] && [ -t 2 ] || return 1
+    printf 'codex: update available: %s -> %s\n' "$current" "$latest" >&2
+    printf '  1) Run current patched runtime (default)\n' >&2
+    printf '  2) Update now, patch, and run latest\n' >&2
+    printf 'codex update [1/2]> ' >&2
+    IFS= read -r choice || return 1
+    case "$choice" in
+        2|u|U|update|UPDATE|y|Y|yes|YES)
+            return 0
+            ;;
+        *)
+            codex_say "continuing with current patched runtime ($current)"
+            return 1
+            ;;
+    esac
+}
+
+codex_install_auto_update() {
+    local current="$1" latest="$2"
+    codex_say "updating: $current -> $latest"
+    codex_refresh_support_from_source
+    codex_update "$latest" || codex_say "update failed; continuing with $current"
+}
+
 codex_auto_update_if_needed() {
-    local current latest
+    local current latest mode
     codex_runtime_ok || return 0
     codex_auto_update_due || return 0
     codex_mark_auto_update_checked
@@ -400,9 +469,12 @@ codex_auto_update_if_needed() {
     latest="$(codex_latest_linux_arm64_version || true)"
     [ -n "$latest" ] || return 0
     if [ "$latest" != "$current" ]; then
-        codex_say "auto-update: $current -> $latest"
-        codex_refresh_support_from_source
-        codex_update "$latest" || codex_say "auto-update failed; continuing with $current"
+        mode="$(codex_auto_update_mode)"
+        if [ "$mode" = "force" ]; then
+            codex_install_auto_update "$current" "$latest"
+        elif codex_prompt_update "$current" "$latest"; then
+            codex_install_auto_update "$current" "$latest"
+        fi
     fi
 }
 
@@ -792,18 +864,32 @@ codex_use() {
 codex_use_list() {
     local latest
     latest="$(codex_latest_linux_arm64_version || true)"
-    python3 - "$CODEX_NATIVE_REGISTRY_FILE" "$latest" <<'PY'
+    python3 - "$CODEX_NATIVE_REGISTRY_FILE" "$latest" "$CODEX_NATIVE_STORE_DIR/runtime" <<'PY'
 import json, os, sys
 from pathlib import Path
 path = Path(sys.argv[1])
 latest = sys.argv[2]
+store_runtime_root = Path(sys.argv[3]).resolve()
 data = json.loads(path.read_text()) if path.exists() else {"installs": []}
+
+def managed_runtime_path(value: str) -> bool:
+    if not value:
+        return False
+    try:
+        runtime_path = Path(value).resolve()
+    except Exception:
+        return False
+    return (
+        (runtime_path / "codex").exists()
+        and (runtime_path == store_runtime_root or store_runtime_root in runtime_path.parents)
+    )
+
 seen = set()
 rows = []
 for entry in data.get("installs", []):
     runtime_path = entry.get("runtime_path", "")
     key = (entry.get("version", ""), entry.get("runtime_sha256", ""), runtime_path)
-    if key in seen or not runtime_path or not Path(runtime_path, "codex").exists():
+    if key in seen or not managed_runtime_path(runtime_path):
         continue
     seen.add(key)
     rows.append(entry)
@@ -836,19 +922,33 @@ codex_use_select() {
     local choice="$1" selected tuple_id
     local latest
     latest="$(codex_latest_linux_arm64_version || true)"
-    selected="$(python3 - "$CODEX_NATIVE_REGISTRY_FILE" "$choice" "$latest" <<'PY'
+    selected="$(python3 - "$CODEX_NATIVE_REGISTRY_FILE" "$choice" "$latest" "$CODEX_NATIVE_STORE_DIR/runtime" <<'PY'
 import json, sys
 from pathlib import Path
 path = Path(sys.argv[1])
 choice = sys.argv[2]
 latest = sys.argv[3]
+store_runtime_root = Path(sys.argv[4]).resolve()
 data = json.loads(path.read_text()) if path.exists() else {"installs": []}
+
+def managed_runtime_path(value: str) -> bool:
+    if not value:
+        return False
+    try:
+        runtime_path = Path(value).resolve()
+    except Exception:
+        return False
+    return (
+        (runtime_path / "codex").exists()
+        and (runtime_path == store_runtime_root or store_runtime_root in runtime_path.parents)
+    )
+
 rows = []
 seen = set()
 for entry in data.get("installs", []):
     runtime_path = entry.get("runtime_path", "")
     key = (entry.get("version", ""), entry.get("runtime_sha256", ""), runtime_path)
-    if key in seen or not runtime_path or not Path(runtime_path, "codex").exists():
+    if key in seen or not managed_runtime_path(runtime_path):
         continue
     seen.add(key)
     rows.append(("cached", entry))
