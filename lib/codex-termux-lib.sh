@@ -384,7 +384,7 @@ codex_update() {
 
 codex_refresh_support_from_source() {
     if [ -n "${CODEX_NATIVE_INSTALL_RUNTIME_SOURCE:-}" ] && [ -x "$CODEX_NATIVE_INSTALL_RUNTIME_SOURCE" ]; then
-        "$CODEX_NATIVE_INSTALL_RUNTIME_SOURCE" support || codex_say "support refresh failed; keeping current wrapper"
+        bash "$CODEX_NATIVE_INSTALL_RUNTIME_SOURCE" support || codex_say "support refresh failed; keeping current wrapper"
     fi
 }
 
@@ -1014,7 +1014,7 @@ codex_bootstrap_store() {
 
 codex_setup_public() {
     if [ -n "${CODEX_NATIVE_INSTALL_RUNTIME_SOURCE:-}" ] && [ -x "$CODEX_NATIVE_INSTALL_RUNTIME_SOURCE" ]; then
-        exec "$CODEX_NATIVE_INSTALL_RUNTIME_SOURCE" setup "$@"
+        exec bash "$CODEX_NATIVE_INSTALL_RUNTIME_SOURCE" setup "$@"
     fi
     codex_update "${1:-}"
 }
