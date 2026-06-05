@@ -67,19 +67,25 @@ codex_with_lock() {
 }
 
 codex_write_json_state() {
-    local version="$1" raw_sha="$2" runtime_sha="$3" package_spec="$4"
+    local version="$1" raw_sha="$2" runtime_sha="$3" package_spec="$4" active_tuple_id="${5:-}"
+    local wrapper_version wrapper_commit
+    wrapper_version="$(codex_current_wrapper_version)"
+    wrapper_commit="$(codex_current_wrapper_commit)"
     mkdir -p "$CODEX_NATIVE_STATE_DIR"
-    python3 - "$CODEX_NATIVE_STATE_FILE" "$version" "$raw_sha" "$runtime_sha" "$package_spec" "$(codex_now)" <<'PY'
+    python3 - "$CODEX_NATIVE_STATE_FILE" "$version" "$raw_sha" "$runtime_sha" "$package_spec" "$active_tuple_id" "$wrapper_version" "$wrapper_commit" "$(codex_now)" <<'PY'
 import json, os, sys
 from pathlib import Path
 path = Path(sys.argv[1])
 data = {
-    "schema": 1,
+    "schema": 2,
     "version": sys.argv[2],
     "raw_sha256": sys.argv[3],
     "runtime_sha256": sys.argv[4],
     "package_spec": sys.argv[5],
-    "updated_at": sys.argv[6],
+    "active_tuple_id": sys.argv[6],
+    "wrapper_version": sys.argv[7],
+    "wrapper_commit": sys.argv[8],
+    "updated_at": sys.argv[9],
 }
 tmp = path.with_name("." + path.name + ".tmp")
 path.parent.mkdir(parents=True, exist_ok=True)
@@ -105,34 +111,84 @@ PY
 
 codex_record_registry() {
     local version="$1" raw_sha="$2" runtime_sha="$3" package_spec="$4" runtime_path="${5:-}"
+    local wrapper_version wrapper_commit
+    wrapper_version="$(codex_current_wrapper_version)"
+    wrapper_commit="$(codex_current_wrapper_commit)"
     mkdir -p "$CODEX_NATIVE_STATE_DIR"
-    python3 - "$CODEX_NATIVE_REGISTRY_FILE" "$version" "$raw_sha" "$runtime_sha" "$package_spec" "$runtime_path" "$(codex_now)" <<'PY'
+    python3 - "$CODEX_NATIVE_REGISTRY_FILE" "$version" "$raw_sha" "$runtime_sha" "$package_spec" "$runtime_path" "$wrapper_version" "$wrapper_commit" "$(codex_now)" <<'PY'
 import json, os, sys
 from pathlib import Path
+import re
+
+def component(value: str, fallback: str = "unknown") -> str:
+    value = value or fallback
+    value = re.sub(r"[^A-Za-z0-9._+-]+", "_", value)
+    return value or fallback
+
 path = Path(sys.argv[1])
+version = sys.argv[2]
+raw_sha = sys.argv[3]
+runtime_sha = sys.argv[4]
+package_spec = sys.argv[5]
+runtime_path = sys.argv[6]
+wrapper_version = sys.argv[7]
+wrapper_commit = sys.argv[8]
+updated_at = sys.argv[9]
+raw_id = f"raw-{component(version)}-{component(raw_sha[:12])}"
+wrapper_id = f"wrapper-{component(wrapper_version)}-{component(wrapper_commit[:12])}"
+tuple_id = f"{raw_id}__{wrapper_id}"
 entry = {
-    "version": sys.argv[2],
-    "raw_sha256": sys.argv[3],
-    "runtime_sha256": sys.argv[4],
-    "package_spec": sys.argv[5],
-    "runtime_path": sys.argv[6],
-    "updated_at": sys.argv[7],
+    "version": version,
+    "raw_sha256": raw_sha,
+    "runtime_sha256": runtime_sha,
+    "package_spec": package_spec,
+    "runtime_path": runtime_path,
+    "updated_at": updated_at,
+    "raw_id": raw_id,
+    "wrapper_id": wrapper_id,
+    "tuple_id": tuple_id,
 }
 if path.exists():
     try:
         data = json.loads(path.read_text())
     except Exception:
-        data = {"schema": 1, "installs": []}
+        data = {"schema": 2, "installs": []}
 else:
-    data = {"schema": 1, "installs": []}
-data.setdefault("schema", 1)
+    data = {"schema": 2, "installs": []}
+data["schema"] = 2
 data.setdefault("installs", [])
+data.setdefault("raw", {})
+data.setdefault("wrapper", {})
+data.setdefault("runtime", {})
+data["raw"][raw_id] = {
+    "version": version,
+    "sha256": raw_sha,
+    "package_spec": package_spec,
+    "path": "raw/vendor/aarch64-unknown-linux-musl/bin/codex",
+    "updated_at": updated_at,
+}
+data["wrapper"][wrapper_id] = {
+    "version": wrapper_version,
+    "commit": wrapper_commit,
+    "repo": "local/codex",
+    "updated_at": updated_at,
+}
+data["runtime"][tuple_id] = {
+    "raw_id": raw_id,
+    "wrapper_id": wrapper_id,
+    "runtime_sha256": runtime_sha,
+    "path": runtime_path,
+    "smoke_tested_at": updated_at,
+    "updated_at": updated_at,
+}
+data["active_tuple_id"] = tuple_id
 data["installs"].insert(0, entry)
 data["installs"] = data["installs"][:20]
 tmp = path.with_name("." + path.name + ".tmp")
 tmp.write_text(json.dumps(data, ensure_ascii=True, sort_keys=True) + "\n")
 os.chmod(tmp, 0o600)
 os.replace(tmp, path)
+print(tuple_id)
 PY
 }
 
@@ -249,16 +305,35 @@ codex_install_raw_vendor() {
 }
 
 codex_rebuild_runtime_unlocked() {
-    local version="${1:-unknown}" package_spec="${2:-local}" report raw_sha runtime_sha runtime_path
+    local version="${1:-unknown}" package_spec="${2:-local}" report build_stdout raw_sha runtime_sha runtime_path tuple_id
     [ -x "$CODEX_NATIVE_RAW_VENDOR/bin/codex" ] || return 1
     mkdir -p "$CODEX_NATIVE_STATE_DIR" "$CODEX_NATIVE_DOCTOR_DIR"
     report="$CODEX_NATIVE_DOCTOR_DIR/last-build-report.json"
-    "$CODEX_NATIVE_RUNTIME_BUILDER" "$CODEX_NATIVE_RAW_VENDOR" --runtime-dir "$CODEX_NATIVE_RUNTIME_DIR" --report-json "$report" || return 1
+    build_stdout="$CODEX_NATIVE_DOCTOR_DIR/last-build-report.stdout"
+    if [ "${CODEX_NATIVE_BUILD_VERBOSE:-0}" = "1" ]; then
+        "$CODEX_NATIVE_RUNTIME_BUILDER" "$CODEX_NATIVE_RAW_VENDOR" --runtime-dir "$CODEX_NATIVE_RUNTIME_DIR" --report-json "$report" || return 1
+    else
+        "$CODEX_NATIVE_RUNTIME_BUILDER" "$CODEX_NATIVE_RAW_VENDOR" --runtime-dir "$CODEX_NATIVE_RUNTIME_DIR" --report-json "$report" >"$build_stdout" || return 1
+    fi
     raw_sha="$(codex_sha256 "$CODEX_NATIVE_RAW_VENDOR/bin/codex")"
     runtime_sha="$(codex_sha256 "$CODEX_NATIVE_RUNTIME")"
     runtime_path="$(codex_store_runtime_payload "$version" "$runtime_sha")"
-    codex_write_json_state "$version" "$raw_sha" "$runtime_sha" "$package_spec"
-    codex_record_registry "$version" "$raw_sha" "$runtime_sha" "$package_spec" "$runtime_path"
+    tuple_id="$(codex_record_registry "$version" "$raw_sha" "$runtime_sha" "$package_spec" "$runtime_path")"
+    codex_write_json_state "$version" "$raw_sha" "$runtime_sha" "$package_spec" "$tuple_id"
+}
+
+codex_repair_runtime_from_raw_unlocked() {
+    local version package_spec
+    version="$(codex_read_state_field version)"
+    package_spec="$(codex_read_state_field package_spec)"
+    [ -n "$version" ] || version="unknown"
+    [ -n "$package_spec" ] || package_spec="local"
+    codex_rebuild_runtime_unlocked "$version" "$package_spec" || return $?
+    codex_say "runtime repaired from cached raw package ($version)"
+}
+
+codex_repair_runtime_from_raw() {
+    codex_with_lock codex_repair_runtime_from_raw_unlocked
 }
 
 codex_update_unlocked() {
@@ -283,10 +358,14 @@ codex_update() {
     codex_with_lock codex_update_unlocked "${1:-}"
 }
 
-codex_update_public() {
+codex_refresh_support_from_source() {
     if [ -n "${CODEX_NATIVE_INSTALL_RUNTIME_SOURCE:-}" ] && [ -x "$CODEX_NATIVE_INSTALL_RUNTIME_SOURCE" ]; then
         "$CODEX_NATIVE_INSTALL_RUNTIME_SOURCE" support || codex_say "support refresh failed; keeping current wrapper"
     fi
+}
+
+codex_update_public() {
+    codex_refresh_support_from_source
     codex_update "${1:-}"
     codex_version
 }
@@ -322,8 +401,14 @@ codex_auto_update_if_needed() {
     [ -n "$latest" ] || return 0
     if [ "$latest" != "$current" ]; then
         codex_say "auto-update: $current -> $latest"
+        codex_refresh_support_from_source
         codex_update "$latest" || codex_say "auto-update failed; continuing with $current"
     fi
+}
+
+codex_support_tools_match() {
+    cmp -s "$CODEX_NATIVE_RUNTIME_DIR/bwrap-termux-compat.py" "$CODEX_NATIVE_RUNTIME_DIR/codex-path/bwrap" &&
+    cmp -s "$CODEX_NATIVE_RUNTIME_DIR/rg-termux-shim.sh" "$CODEX_NATIVE_RUNTIME_DIR/codex-path/rg"
 }
 
 codex_runtime_ok() {
@@ -334,7 +419,19 @@ codex_runtime_ok() {
     [ -x "$CODEX_NATIVE_RUNTIME_DIR/codex-path/bwrap" ] &&
     [ -x "$CODEX_NATIVE_RUNTIME_DIR/codex-path/rg" ] &&
     [ -x "$CODEX_NATIVE_RUNTIME_DIR/codex-path/rg.real" ] &&
+    codex_support_tools_match &&
     [ -r "$CODEX_NATIVE_STATE_FILE" ]
+}
+
+codex_ensure_runtime_ready() {
+    codex_runtime_ok && return 0
+    if [ -x "$CODEX_NATIVE_RAW_VENDOR/bin/codex" ]; then
+        codex_say "runtime drift detected; rebuilding from cached raw package"
+        codex_repair_runtime_from_raw
+        return $?
+    fi
+    codex_fail "runtime missing and no cached raw package is available; run codex setup"
+    return 127
 }
 
 codex_detect_upstream_commands() {
@@ -391,7 +488,12 @@ codex_open_fd33_and_exec() {
 codex_prepare_runtime_env() {
     export SSL_CERT_FILE="${SSL_CERT_FILE:-$CODEX_NATIVE_CERT_FILE}"
     [ -d "$CODEX_NATIVE_CERT_DIR" ] && export SSL_CERT_DIR="${SSL_CERT_DIR:-$CODEX_NATIVE_CERT_DIR}"
-    unset CODEX_MANAGED_BY_NPM CODEX_MANAGED_BY_BUN CODEX_MANAGED_PACKAGE_ROOT CODEX_SELF_EXE LD_PRELOAD
+    if [ -z "${BROWSER:-}" ] && command -v termux-open-url >/dev/null 2>&1; then
+        export BROWSER=termux-open-url
+    fi
+    export CODEX_SELF_EXE="${CODEX_SELF_EXE:-$CODEX_NATIVE_RUNTIME}"
+    unset CODEX_MANAGED_BY_NPM CODEX_MANAGED_BY_BUN CODEX_MANAGED_PACKAGE_ROOT LD_PRELOAD LD_LIBRARY_PATH
+    export CODEX_NATIVE_BWRAP_COMPAT_QUIET="${CODEX_NATIVE_BWRAP_COMPAT_QUIET:-1}"
     export PATH="$CODEX_NATIVE_PREFIX/bin:$CODEX_NATIVE_RUNTIME_DIR/codex-path:$CODEX_NATIVE_RUNTIME_DIR/codex-resources:$PATH"
     if [ -r "$CODEX_NATIVE_RESOLV_CONF" ]; then
         eval "exec ${CODEX_NATIVE_RESOLVER_FD}<\"\$CODEX_NATIVE_RESOLV_CONF\""
@@ -450,8 +552,8 @@ codex_doctor_json() {
     version="$(codex_read_state_field version)"
     raw_sha="$(codex_read_state_field raw_sha256)"
     runtime_sha="$(codex_read_state_field runtime_sha256)"
-    python3 - "$CODEX_NATIVE_RUNTIME" "$CODEX_NATIVE_RUNTIME_DIR" "$CODEX_NATIVE_RAW_VENDOR" "$CODEX_NATIVE_RESOLV_CONF" "$CODEX_NATIVE_CERT_FILE" "$CODEX_NATIVE_STATE_FILE" "$version" "$raw_sha" "$runtime_sha" "$CODEX_NATIVE_PREFIX" <<'PY'
-import json, os, subprocess, sys
+    python3 - "$CODEX_NATIVE_RUNTIME" "$CODEX_NATIVE_RUNTIME_DIR" "$CODEX_NATIVE_RAW_VENDOR" "$CODEX_NATIVE_RESOLV_CONF" "$CODEX_NATIVE_CERT_FILE" "$CODEX_NATIVE_STATE_FILE" "$CODEX_NATIVE_REGISTRY_FILE" "$version" "$raw_sha" "$runtime_sha" "$CODEX_NATIVE_PREFIX" <<'PY'
+import filecmp, json, os, subprocess, sys
 from pathlib import Path
 runtime = Path(sys.argv[1])
 runtime_dir = Path(sys.argv[2])
@@ -459,10 +561,11 @@ raw_vendor = Path(sys.argv[3])
 resolv = Path(sys.argv[4])
 cert = Path(sys.argv[5])
 state = Path(sys.argv[6])
-version = sys.argv[7]
-raw_sha = sys.argv[8]
-runtime_sha = sys.argv[9]
-prefix = Path(sys.argv[10])
+registry = Path(sys.argv[7])
+version = sys.argv[8]
+raw_sha = sys.argv[9]
+runtime_sha = sys.argv[10]
+prefix = Path(sys.argv[11])
 bwrap = prefix / "bin/bwrap"
 path_bwrap = runtime_dir / "codex-path/bwrap"
 bundled_bwrap = runtime_dir / "codex-resources/bwrap"
@@ -476,11 +579,21 @@ checks = {
     "bwrap_real": (runtime_dir / "codex-resources/bwrap.real").exists(),
     "rg": rg.exists() and os.access(rg, os.X_OK),
     "rg_real": (runtime_dir / "codex-path/rg.real").exists(),
+    "support_bwrap_match": filecmp.cmp(runtime_dir / "bwrap-termux-compat.py", path_bwrap, shallow=False) if (runtime_dir / "bwrap-termux-compat.py").exists() and path_bwrap.exists() else False,
+    "support_rg_match": filecmp.cmp(runtime_dir / "rg-termux-shim.sh", rg, shallow=False) if (runtime_dir / "rg-termux-shim.sh").exists() and rg.exists() else False,
     "zsh": (runtime_dir / "codex-resources/zsh/bin/zsh").exists(),
     "resolv": resolv.exists() and os.access(resolv, os.R_OK),
     "cert": cert.exists() and os.access(cert, os.R_OK),
     "state": state.exists(),
+    "registry": registry.exists(),
 }
+registry_data = {}
+try:
+    registry_data = json.loads(registry.read_text()) if registry.exists() else {}
+except Exception:
+    registry_data = {}
+active_tuple_id = registry_data.get("active_tuple_id", "")
+checks["registry_active_tuple"] = bool(active_tuple_id and active_tuple_id in registry_data.get("runtime", {}))
 try:
     checks["bwrap_exec"] = subprocess.run(
         [str(bwrap), "--ro-bind", "/", "/", "--", str(prefix / "bin/true")],
@@ -514,6 +627,15 @@ print(json.dumps({
         "runtime": str(runtime),
         "raw_vendor": str(raw_vendor),
         "state": str(state),
+        "registry": str(registry),
+    },
+    "activeTupleId": active_tuple_id,
+    "termuxDelta": {
+        "browserLogin": "termux-open-url when available",
+        "bwrap": "quiet no-namespace compatibility launcher",
+        "codexSelfExe": "managed runtime",
+        "ldLibraryPath": "sanitized before runtime execution",
+        "runtimePatch": "official linux-arm64 raw package rebuilt into Termux-managed runtime",
     },
     "checks": checks,
 }, ensure_ascii=True, sort_keys=True))
@@ -571,6 +693,7 @@ codex_profile_exec() {
         codex_fail "profile directory not found: $profile_dir"
         return 2
     fi
+    codex_ensure_runtime_ready || return $?
     codex_auto_update_if_needed
     codex_prepare_runtime_env
     CODEX_HOME="$profile_dir" exec "$CODEX_NATIVE_RUNTIME" "$@"
@@ -710,7 +833,7 @@ PY
 }
 
 codex_use_select() {
-    local choice="$1" selected
+    local choice="$1" selected tuple_id
     local latest
     latest="$(codex_latest_linux_arm64_version || true)"
     selected="$(python3 - "$CODEX_NATIVE_REGISTRY_FILE" "$choice" "$latest" <<'PY'
@@ -770,21 +893,23 @@ EOF
         codex_update "$version" || return $?
     else
         codex_promote_runtime_payload "$runtime_path" || return 1
-        codex_write_json_state "$version" "$raw_sha" "$runtime_sha" "$package_spec"
+        tuple_id="$(codex_record_registry "$version" "$raw_sha" "$runtime_sha" "$package_spec" "$runtime_path")"
+        codex_write_json_state "$version" "$raw_sha" "$runtime_sha" "$package_spec" "$tuple_id"
         codex_say "using Codex $version"
     fi
     codex_version
 }
 
 codex_bootstrap_store() {
-    local version raw_sha runtime_sha package_spec runtime_path
+    local version raw_sha runtime_sha package_spec runtime_path tuple_id
     version="$(codex_read_state_field version)"
     raw_sha="$(codex_read_state_field raw_sha256)"
     runtime_sha="$(codex_read_state_field runtime_sha256)"
     package_spec="$(codex_read_state_field package_spec)"
     [ -n "$version" ] && [ -n "$runtime_sha" ] && [ -x "$CODEX_NATIVE_RUNTIME" ] || return 0
     runtime_path="$(codex_store_runtime_payload "$version" "$runtime_sha")"
-    codex_record_registry "$version" "$raw_sha" "$runtime_sha" "$package_spec" "$runtime_path"
+    tuple_id="$(codex_record_registry "$version" "$raw_sha" "$runtime_sha" "$package_spec" "$runtime_path")"
+    codex_write_json_state "$version" "$raw_sha" "$runtime_sha" "$package_spec" "$tuple_id"
 }
 
 codex_setup_public() {
@@ -829,6 +954,7 @@ codex_main() {
             codex_remove
             ;;
         *)
+            codex_ensure_runtime_ready || return $?
             codex_auto_update_if_needed
             codex_open_fd33_and_exec "$@"
             ;;

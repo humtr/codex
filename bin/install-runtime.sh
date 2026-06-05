@@ -145,7 +145,11 @@ codex_setup() {
     codex_install_support_files
     codex_install_launchers
     if ! codex_runtime_ok; then
-        codex_update "${1:-}"
+        if [ -x "$CODEX_NATIVE_RAW_VENDOR/bin/codex" ]; then
+            codex_repair_runtime_from_raw
+        else
+            codex_update "${1:-}"
+        fi
     fi
     codex_bootstrap_store
     codex_version

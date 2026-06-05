@@ -18,6 +18,15 @@ from pathlib import Path
 TERMUX_DEFAULT_PATH = "/data/data/com.termux/files/usr/bin:/system/bin"
 
 
+def verbose() -> bool:
+    return os.environ.get("CODEX_NATIVE_BWRAP_COMPAT_VERBOSE") == "1"
+
+
+def warn(message: str) -> None:
+    if verbose():
+        print(f"bwrap-termux-compat: {message}", file=sys.stderr)
+
+
 def die(message: str, code: int = 1) -> None:
     print(f"bwrap-termux-compat: {message}", file=sys.stderr)
     raise SystemExit(code)
@@ -124,10 +133,7 @@ def main(argv: list[str]) -> int:
         except OSError as exc:
             if os.environ.get("CODEX_NATIVE_BWRAP_COMPAT_STRICT_CHDIR") == "1":
                 die(f"failed to chdir to {chdir}: {exc}", 1)
-            print(
-                f"bwrap-termux-compat: warning: keeping cwd because --chdir failed: {chdir}: {exc}",
-                file=sys.stderr,
-            )
+            warn(f"keeping cwd because --chdir failed: {chdir}: {exc}")
 
     executable = command[0]
     argv_for_exec = command[:]
