@@ -793,6 +793,49 @@ codex_list_profiles() {
         | LC_ALL=C sort -f
 }
 
+codex_prompt_choice() {
+    local prompt="${1:-choose> }" max_items="${2:-9}" reply rest old_tty status
+    printf '%s' "$prompt" >&2
+    if [ -t 0 ]; then
+        old_tty="$(stty -g 2>/dev/null || true)"
+        [ -z "$old_tty" ] || stty -echo -icanon min 1 time 0 2>/dev/null || true
+        IFS= read -r -N 1 reply
+        status=$?
+        [ -z "$old_tty" ] || stty "$old_tty" 2>/dev/null || true
+        if [ "$status" -ne 0 ]; then
+            printf '\n' >&2
+            return 1
+        fi
+    elif ! IFS= read -r -N 1 reply; then
+        printf '\n' >&2
+        return 1
+    fi
+    case "$reply" in
+        $'\e')
+            printf '\n' >&2
+            return 130
+            ;;
+        $'\n'|$'\r'|'')
+            printf '\n' >&2
+            return 0
+            ;;
+        [0-9])
+            if [ "$max_items" -le 9 ]; then
+                printf '%s\n' "$reply" >&2
+                printf '%s\n' "$reply"
+                return 0
+            fi
+            ;;
+        *)
+            ;;
+    esac
+    rest=""
+    printf '%s' "$reply" >&2
+    IFS= read -r rest || true
+    printf '%s%s\n' "$reply" "$rest"
+    return 0
+}
+
 codex_profile_exec() {
     local profile_dir="$1"
     shift || true
@@ -807,25 +850,33 @@ codex_profile_exec() {
 }
 
 codex_profile_select() {
-    local profiles=() profile choice idx profile_dir
-    while IFS= read -r profile; do
-        profiles+=("$profile")
-    done < <(codex_list_profiles)
+    local profiles=() profile choice idx profile_dir display_limit=0 truncated=0
+    mapfile -t profiles < <(codex_list_profiles)
+    if [ -t 0 ]; then
+        display_limit=9
+    fi
 
-    printf 'Codex profiles\n' >&2
+    printf 'Choose profile\n' >&2
     printf '   0. default\n' >&2
     idx=1
     for profile in "${profiles[@]}"; do
+        if [ "$display_limit" -gt 0 ] && [ "$idx" -gt "$display_limit" ]; then
+            truncated=1
+            break
+        fi
         printf '  %2d. %s\n' "$idx" "$profile" >&2
         idx=$((idx + 1))
     done
+    if [ "$truncated" -eq 1 ]; then
+        printf '  (More options: codex profile NAME)\n' >&2
+    fi
+    printf '\n' >&2
 
     if [ ! -t 0 ]; then
         return 0
     fi
 
-    printf 'codex profile> ' >&2
-    IFS= read -r choice || return 130
+    choice="$(codex_prompt_choice 'choose profile > ' "$(( ${#profiles[@]} < 9 ? ${#profiles[@]} : 9 ))")" || return $?
     [ -n "$choice" ] || return 130
 
     if [ "$choice" = "0" ] || [ "$choice" = "default" ]; then
@@ -846,10 +897,6 @@ codex_profile_select() {
 
 codex_profile_run() {
     local profile="${1:-}"
-    if [ "$#" -gt 1 ]; then
-        codex_fail "profile accepts at most one profile name"
-        return 2
-    fi
     if [ -z "$profile" ]; then
         codex_profile_select
         return $?
@@ -858,7 +905,10 @@ codex_profile_run() {
         codex_fail "invalid profile name: $profile"
         return 2
     }
-    codex_profile_exec "$(codex_profile_dir "$profile")"
+    local profile_dir
+    profile_dir="$(codex_profile_dir "$profile")"
+    shift || true
+    codex_profile_exec "$profile_dir" "$@"
 }
 
 codex_restore_backup() {
@@ -884,28 +934,54 @@ codex_remove() {
 }
 
 codex_use() {
-    local choice runtime_path version raw_sha runtime_sha package_spec
-    if [ "${1:-}" = "--list" ]; then
-        codex_use_list
+    local choice="${1:-}" runtime_path version raw_sha runtime_sha package_spec
+    if [ "$choice" = "--list" ]; then
+        codex_use_list list
         return $?
     fi
-    codex_use_list
-    printf 'codex use> ' >&2
-    IFS= read -r choice || return 130
-    [ -n "$choice" ] || return 130
+    if [ -n "$choice" ]; then
+        codex_use_select "$choice"
+        return $?
+    fi
+    codex_use_list menu
+    if [ ! -t 0 ]; then
+        return 0
+    fi
+    choice="$(codex_prompt_choice 'choose runtime > ' "${CODEX_USE_MENU_COUNT:-0}")" || return $?
+    if [ -z "$choice" ]; then
+        printf 'codex use: cancelled.\n' >&2
+        return 1
+    fi
     codex_use_select "$choice"
 }
 
 codex_use_list() {
-    local latest
+    local mode="${1:-list}" latest interactive_limit=0
     latest="$(codex_latest_linux_arm64_version || true)"
-    python3 - "$CODEX_NATIVE_REGISTRY_FILE" "$latest" "$CODEX_NATIVE_STORE_DIR/runtime" <<'PY'
+    CODEX_USE_LAST_LATEST="$latest"
+    if [ "$mode" = "menu" ] && [ -t 0 ]; then
+        interactive_limit=9
+    fi
+    if [ "$mode" = "list" ]; then
+        CODEX_USE_MENU_COUNT=0
+        codex_use_render "$latest" "$interactive_limit" "$mode"
+    else
+        CODEX_USE_MENU_COUNT="$(codex_use_render "$latest" "$interactive_limit" "$mode")"
+    fi
+}
+
+codex_use_render() {
+    local latest="$1" interactive_limit="$2" mode="$3"
+    python3 - "$CODEX_NATIVE_REGISTRY_FILE" "$latest" "$CODEX_NATIVE_STORE_DIR/runtime" "$interactive_limit" "$mode" <<'PY'
 import json, os, sys
 from pathlib import Path
 path = Path(sys.argv[1])
 latest = sys.argv[2]
 store_runtime_root = Path(sys.argv[3]).resolve()
+interactive_limit = int(sys.argv[4])
+mode = sys.argv[5]
 data = json.loads(path.read_text()) if path.exists() else {"installs": []}
+active_tuple_id = data.get("active_tuple_id", "")
 
 def managed_runtime_path(value: str) -> bool:
     if not value:
@@ -923,40 +999,77 @@ seen = set()
 rows = []
 for entry in data.get("installs", []):
     runtime_path = entry.get("runtime_path", "")
-    key = (entry.get("version", ""), entry.get("runtime_sha256", ""), runtime_path)
+    key = entry.get("tuple_id", "") or runtime_path
     if key in seen or not managed_runtime_path(runtime_path):
         continue
     seen.add(key)
     rows.append(entry)
-for index, entry in enumerate(rows, 1):
-    print("\t".join([
-        str(index),
-        "cached",
-        entry.get("version", "unknown"),
-        entry.get("runtime_sha256", "")[:12],
-        entry.get("package_spec", ""),
-        entry.get("runtime_path", ""),
-    ]))
+
+count = 0
+truncated = False
+
+if mode == "list":
+    for index, entry in enumerate(rows, 1):
+        print("\t".join([
+            str(index),
+            "cached",
+            entry.get("version", "unknown"),
+            entry.get("runtime_sha256", "")[:12],
+            entry.get("package_spec", ""),
+            entry.get("runtime_path", ""),
+        ]))
+    cached_versions = {entry.get("version", "") for entry in rows}
+    if latest and latest not in cached_versions:
+        print("\t".join([
+            str(len(rows) + 1),
+            "remote",
+            latest,
+            "",
+            f"@openai/codex@{latest}",
+            "npm:linux-arm64",
+        ]))
+    if not rows and not latest:
+        print("no cached runtimes", file=sys.stderr)
+        raise SystemExit(1)
+    raise SystemExit(0)
+
+print("Choose runtime", file=sys.stderr)
+for entry in rows:
+    if interactive_limit and count >= interactive_limit:
+        truncated = True
+        continue
+    count += 1
+    version = entry.get("version", "unknown")
+    tuple_id = entry.get("tuple_id", "")
+    wrapper_id = entry.get("wrapper_id", "")
+    wrapper_short = wrapper_id.split("wrapper-", 1)[-1] if wrapper_id else "wrapper-unknown"
+    badges = ["active" if tuple_id == active_tuple_id else None, "cached"]
+    badge_text = ", ".join(item for item in badges if item)
+    print(f"  {count:2d}. {version}  [{wrapper_short}]  {badge_text}", file=sys.stderr)
+
 cached_versions = {entry.get("version", "") for entry in rows}
 if latest and latest not in cached_versions:
-    print("\t".join([
-        str(len(rows) + 1),
-        "remote",
-        latest,
-        "",
-        f"@openai/codex@{latest}",
-        "npm:linux-arm64",
-    ]))
+    if not interactive_limit or count < interactive_limit:
+        count += 1
+        print(f"  {count:2d}. {latest}  [latest wrapper]  remote", file=sys.stderr)
+    else:
+        truncated = True
 if not rows and not latest:
     print("no cached runtimes", file=sys.stderr)
     raise SystemExit(1)
+if truncated:
+    print("  (More options: codex use <version>)", file=sys.stderr)
+print(file=sys.stderr)
+print(count)
 PY
 }
 
 codex_use_select() {
     local choice="$1" selected tuple_id
-    local latest
-    latest="$(codex_latest_linux_arm64_version || true)"
+    local latest="${CODEX_USE_LAST_LATEST:-}"
+    if [ -z "$latest" ]; then
+        latest="$(codex_latest_linux_arm64_version || true)"
+    fi
     selected="$(python3 - "$CODEX_NATIVE_REGISTRY_FILE" "$choice" "$latest" "$CODEX_NATIVE_STORE_DIR/runtime" <<'PY'
 import json, sys
 from pathlib import Path
@@ -982,20 +1095,11 @@ rows = []
 seen = set()
 for entry in data.get("installs", []):
     runtime_path = entry.get("runtime_path", "")
-    key = (entry.get("version", ""), entry.get("runtime_sha256", ""), runtime_path)
+    key = entry.get("tuple_id", "") or runtime_path
     if key in seen or not managed_runtime_path(runtime_path):
         continue
     seen.add(key)
     rows.append(("cached", entry))
-cached_versions = {entry.get("version", "") for _, entry in rows}
-if latest and latest not in cached_versions:
-    rows.append(("remote", {
-        "version": latest,
-        "runtime_sha256": "",
-        "raw_sha256": "",
-        "package_spec": f"@openai/codex@{latest}",
-        "runtime_path": "npm:linux-arm64",
-    }))
 match = None
 if choice.isdigit() and 1 <= int(choice) <= len(rows):
     match = rows[int(choice) - 1]
@@ -1004,6 +1108,21 @@ else:
         if choice in (entry.get("version", ""), entry.get("runtime_sha256", "")[:12]):
             match = (kind, entry)
             break
+if not match:
+    cached_versions = {entry.get("version", "") for _, entry in rows}
+    if latest and latest not in cached_versions:
+        remote_entry = {
+            "version": latest,
+            "runtime_sha256": "",
+            "raw_sha256": "",
+            "package_spec": f"@openai/codex@{latest}",
+            "runtime_path": "npm:linux-arm64",
+        }
+        rows.append(("remote", remote_entry))
+        if choice.isdigit() and int(choice) == len(rows):
+            match = rows[-1]
+        elif choice == latest:
+            match = rows[-1]
 if not match:
     raise SystemExit(1)
 kind, entry = match
