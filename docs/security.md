@@ -1,0 +1,17 @@
+# 보안 정책
+
+보호 대상은 사용자의 Codex 인증·설정 상태, 기존 public launcher, raw/runtime registry, TLS trust path, resolver file 참조다. 설치와 업데이트는 runtime 산출물을 바꾸는 작업이지 사용자의 upstream Codex 계정 상태를 관리하는 작업이 아니다. 인증 파일이나 profile config가 손상되면 runtime update 성공 여부와 무관하게 실패로 취급한다.
+
+이 프로젝트에는 별도 로그인 흐름이 없다. OpenAI 인증과 세션 처리는 upstream Codex가 `CODEX_HOME` 안에서 수행한다. 래퍼가 하는 일은 실행 전 환경을 준비하는 것이며, credential을 읽거나 저장하거나 rotation하지 않는다. 따라서 credential lifetime, revocation, storage format은 upstream Codex의 소유이고 이 repo의 코드가 재정의하면 안 된다.
+
+권한 모델은 단일 Termux 사용자 모델이다. 같은 Android app sandbox 안의 사용자 파일은 그 사용자 권한으로 읽고 쓴다. 관리형 경로는 `~/.local/lib/codex/native`, `~/.local/share/codex/native`, `$PREFIX/bin/codex`, `$PREFIX/bin/bwrap`이며, 그 밖의 Codex auth/config/profile 내용은 명시적으로 profile 실행에 필요한 경우를 제외하고 mutation 대상이 아니다.
+
+public launcher는 marker 기반으로만 소유권을 판단한다. marker가 없는 `$PREFIX/bin/codex`나 `$PREFIX/bin/bwrap`은 외부 도구일 수 있으므로 backup 없이 제거하면 안 된다. marker가 있는 launcher만 같은 관리 주체의 파일로 보고 제자리 교체할 수 있다.
+
+Termux용 `bwrap` 호환 도구는 Linux namespace isolation을 제공하지 않는다. Android에서 bubblewrap namespace setup이 막히는 경우가 일반적이므로, 호환 도구는 Codex가 넘긴 env/cwd/argv 실행 계약을 보존한 뒤 inner command를 실행한다. 이 경로를 sandbox 보안 경계로 설명하면 안 되며, 격리가 필요한 일반 Linux 환경의 보안 모델과 동일하게 취급하면 안 된다.
+
+Termux profile 실행은 network access를 켜는 쪽을 기본값으로 둔다. `approve for me`는 필요한 명령 승인을 자동화할 수 있지만, sandbox profile에서 network access가 꺼져 있으면 DNS 실패처럼 보이는 네트워크 차단이 계속 발생할 수 있다. 이 repo의 Termux `bwrap` 경로는 네트워크 namespace 격리를 제공하지 않으므로, network-off를 보안 경계로 취급하지 않는다. network-off profile이 꼭 필요하면 `CODEX_NATIVE_PROFILE_NETWORK_ACCESS=0`으로 자동 적용을 끈 뒤 profile config를 직접 관리한다.
+
+실행 전 환경에서는 `LD_PRELOAD`, `LD_LIBRARY_PATH`, npm/bun 관리 marker를 제거한다. Termux와 upstream Linux binary의 library 경로가 섞이면 의도하지 않은 shared library가 runtime에 주입될 수 있으므로, Codex runtime 실행에는 관리형 runtime path, Termux prefix, TLS certificate path, resolver fd만 남긴다.
+
+감사 가능한 기록은 state, registry, backup filename, doctor output이다. 민감한 auth token은 이 기록에 들어가면 안 된다. registry는 hash와 경로, wrapper version, package spec을 남겨 runtime provenance를 설명하고, backup directory는 외부 launcher를 복구할 수 있는 최소 증거를 남긴다.

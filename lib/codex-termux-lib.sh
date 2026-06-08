@@ -11,6 +11,7 @@ CODEX_NATIVE_RUNTIME="${CODEX_NATIVE_RUNTIME:-$CODEX_NATIVE_RUNTIME_DIR/codex}"
 CODEX_NATIVE_MANAGED_SHELL="${CODEX_NATIVE_MANAGED_SHELL:-$CODEX_NATIVE_RUNTIME_DIR/managed.sh}"
 CODEX_NATIVE_STATE_DIR="${CODEX_NATIVE_STATE_DIR:-$CODEX_NATIVE_HOME/.local/share/codex/native}"
 CODEX_NATIVE_PROFILE_ROOT="${CODEX_NATIVE_PROFILE_ROOT:-$CODEX_NATIVE_HOME/.codex-profiles}"
+CODEX_NATIVE_SHARED_PLUGINS_DIR="${CODEX_NATIVE_SHARED_PLUGINS_DIR:-$CODEX_NATIVE_HOME/.codex/plugins}"
 CODEX_NATIVE_STATE_FILE="${CODEX_NATIVE_STATE_FILE:-$CODEX_NATIVE_STATE_DIR/state.json}"
 CODEX_NATIVE_REGISTRY_FILE="${CODEX_NATIVE_REGISTRY_FILE:-$CODEX_NATIVE_STATE_DIR/registry.json}"
 CODEX_NATIVE_STORE_DIR="${CODEX_NATIVE_STORE_DIR:-$CODEX_NATIVE_STATE_DIR/store}"
@@ -33,6 +34,7 @@ CODEX_NATIVE_AUTO_UPDATE_INTERVAL_SECONDS="${CODEX_NATIVE_AUTO_UPDATE_INTERVAL_S
 CODEX_NATIVE_AUTO_UPDATE_TIMEOUT_SECONDS="${CODEX_NATIVE_AUTO_UPDATE_TIMEOUT_SECONDS:-4}"
 CODEX_NATIVE_AUTO_UPDATE_STAMP="${CODEX_NATIVE_AUTO_UPDATE_STAMP:-$CODEX_NATIVE_STATE_DIR/last-auto-update-check}"
 CODEX_NATIVE_AUTO_UPDATE_PENDING="${CODEX_NATIVE_AUTO_UPDATE_PENDING:-$CODEX_NATIVE_STATE_DIR/pending-auto-update-version}"
+CODEX_NATIVE_PROFILE_NETWORK_ACCESS="${CODEX_NATIVE_PROFILE_NETWORK_ACCESS:-1}"
 
 codex_say() { printf 'codex: %s\n' "$*" >&2; }
 codex_fail() { printf 'codex: ERROR: %s\n' "$*" >&2; return 1; }
@@ -576,6 +578,7 @@ codex_open_fd33_and_exec() {
         codex_fail "runtime missing; run codex setup"
         return 127
     fi
+    codex_profile_enable_network_access "${CODEX_HOME:-$CODEX_NATIVE_HOME/.codex}"
     codex_prepare_runtime_env
 
     if [ "$first" = "--" ]; then
@@ -784,6 +787,97 @@ codex_profile_dir() {
     fi
 }
 
+codex_profile_share_plugins() {
+    local profile_dir="$1" shared_plugins_dir="$CODEX_NATIVE_SHARED_PLUGINS_DIR" plugins_dir
+    plugins_dir="$profile_dir/plugins"
+    mkdir -p "$shared_plugins_dir"
+    if [ -e "$plugins_dir" ] || [ -L "$plugins_dir" ]; then
+        return 0
+    fi
+    ln -s "$shared_plugins_dir" "$plugins_dir"
+}
+
+codex_profile_network_access_enabled() {
+    case "${CODEX_NATIVE_PROFILE_NETWORK_ACCESS:-1}" in
+        0|off|false|no|none)
+            return 1
+            ;;
+        *)
+            return 0
+            ;;
+    esac
+}
+
+codex_profile_enable_network_access() {
+    local profile_dir="$1" config_file
+    codex_profile_network_access_enabled || return 0
+    config_file="$profile_dir/config.toml"
+    mkdir -p "$profile_dir"
+    python3 - "$config_file" <<'PY'
+import os
+import re
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+text = path.read_text() if path.exists() else ""
+lines = text.splitlines()
+section_re = re.compile(r"^\s*\[([^\]]+)\]\s*(?:#.*)?$")
+network_re = re.compile(r"^\s*network_access\s*=")
+
+out = []
+in_section = False
+found_section = False
+found_key = False
+changed = False
+
+def add_missing_key_if_needed() -> None:
+    global found_key, changed
+    if in_section and not found_key:
+        out.append("network_access = true")
+        found_key = True
+        changed = True
+
+for line in lines:
+    match = section_re.match(line)
+    if match:
+        add_missing_key_if_needed()
+        in_section = match.group(1).strip() == "sandbox_workspace_write"
+        if in_section:
+            found_section = True
+            found_key = False
+        out.append(line)
+        continue
+    if in_section and network_re.match(line):
+        if line.strip() != "network_access = true":
+            out.append("network_access = true")
+            changed = True
+        else:
+            out.append(line)
+        found_key = True
+        continue
+    out.append(line)
+
+add_missing_key_if_needed()
+
+if not found_section:
+    if out and out[-1] != "":
+        out.append("")
+    out.extend(["[sandbox_workspace_write]", "network_access = true"])
+    changed = True
+
+new_text = "\n".join(out) + "\n"
+if not path.exists() or changed or text != new_text:
+    tmp = path.with_name("." + path.name + ".tmp")
+    tmp.write_text(new_text)
+    if path.exists():
+        os.chmod(tmp, path.stat().st_mode & 0o777)
+    else:
+        os.chmod(tmp, 0o600)
+    os.replace(tmp, path)
+PY
+}
+
 codex_list_profiles() {
     local root="$CODEX_NATIVE_PROFILE_ROOT"
     [ -d "$root" ] || return 0
@@ -843,6 +937,8 @@ codex_profile_exec() {
         codex_fail "profile directory not found: $profile_dir"
         return 2
     fi
+    codex_profile_share_plugins "$profile_dir"
+    codex_profile_enable_network_access "$profile_dir"
     codex_ensure_runtime_ready || return $?
     codex_auto_update_if_needed
     codex_prepare_runtime_env

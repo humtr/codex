@@ -1,4 +1,5 @@
 .antigravitycli/
+.dryforge/
 scratch/
 __pycache__/
 *.pyc

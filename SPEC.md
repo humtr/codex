@@ -45,7 +45,12 @@ Existing non-managed `codex` launchers are backed up under
   and promotes the selected snapshot without changing auth/config state.
 - `profile` lists profile directories under `~/.codex-profiles/` and launches
   upstream Codex with `CODEX_HOME` set to the selected profile. `default` maps
-  to `~/.codex`.
+  to `~/.codex`. Named profiles link `plugins` to `~/.codex/plugins` when the
+  profile does not already have its own `plugins` entry.
+- Termux profile execution defaults sandbox workspace-write network access to
+  enabled in the selected `CODEX_HOME/config.toml`. Set
+  `CODEX_NATIVE_PROFILE_NETWORK_ACCESS=0` to preserve a network-off profile
+  policy.
 - `$PREFIX/bin/bwrap` is a managed compatibility launcher. It advertises the
   bwrap flags Codex probes for, ignores namespace/mount setup that Android
   cannot perform, applies execution-relevant env/cwd options, and execs the
@@ -79,6 +84,10 @@ without replacing the official binary with an Android-native fork:
 - bwrap namespace failures are not surfaced during ordinary execution; the
   compatibility launcher provides command execution without pretending to offer
   Linux namespace isolation.
+- Profile network access defaults to enabled because the Termux bwrap
+  compatibility path is not a network isolation boundary. This avoids DNS-like
+  failures caused by sandbox network denial while keeping the behavior explicit
+  and opt-out.
 
 ## Update Source
 
