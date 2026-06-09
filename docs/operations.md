@@ -60,6 +60,13 @@ Shell syntax:
 bash -n install.sh
 bash -n bin/install-runtime.sh
 bash -n lib/codex-termux-lib.sh
+bash -n tests/profile-behavior.sh
+```
+
+Profile 동작 회귀 테스트:
+
+```bash
+bash tests/profile-behavior.sh
 ```
 
 Runtime 진단:
