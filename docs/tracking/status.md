@@ -30,4 +30,4 @@
 
 ## 현재 차이
 
-Profile plugin 공유와 Termux profile network access 기본 허용은 committed 기능이다. 현재 작업은 이 동작을 wrapper `1.0.14`로 표시하고 회귀 테스트로 고정하는 변경이다.
+Wrapper source version은 `1.0.14`다. Profile plugin 공유와 Termux profile network access 기본 허용은 committed 기능이며, `tests/profile-behavior.sh`가 해당 동작을 회귀 검증한다.
