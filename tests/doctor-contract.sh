@@ -85,7 +85,7 @@ codex_prepare_runtime_env() { return 0; }
 codex_wrapper_doctor() { printf 'wrapper\n'; }
 
 human="$(codex_public_doctor)"
-[ "$human" = $'upstream:doctor\n\nTermux Wrapper\nwrapper' ] \
+[ "$human" = $'upstream:doctor\n\nwrapper' ] \
     || fail "default doctor did not compose upstream and wrapper output"
 json="$(codex_public_doctor --json)"
 [ "$json" = "upstream:doctor --json" ] \

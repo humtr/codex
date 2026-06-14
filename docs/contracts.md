@@ -27,7 +27,7 @@
 ## `codex doctor [--json|--summary|--all]`
 
 입력: option이 없으면 combined human doctor, option이 있으면 upstream doctor option.
-출력: option이 없으면 upstream human doctor 뒤에 upstream doctor와 비슷한 section/row 형태의 `Termux Wrapper` 진단을 출력한다. `--json`, `--summary`, `--all` 등 option이 있으면 upstream 출력과 exit code를 그대로 반환한다. Wrapper machine report는 개발자용 `bash bin/install-runtime.sh doctor --json`으로 접근한다.
+출력: option이 없으면 upstream human doctor 뒤에 upstream doctor와 비슷한 section/row 형태의 `Termux Wrapper Doctor` 진단을 출력한다. `--json`, `--summary`, `--all` 등 option이 있으면 upstream 출력과 exit code를 그대로 반환한다. Wrapper machine report는 개발자용 `bash bin/install-runtime.sh doctor --json`으로 접근한다.
 오류: 기본 doctor는 upstream 또는 wrapper 필수 검사 중 하나라도 실패하면 실패한다. 상위 sandbox 때문에 network 경계를 검증할 수 없으면 wrapper report는 `inconclusive`로 기록하지만 그 이유만으로 실패하지 않는다.
 
 ## `codex use [--list|selection]`
