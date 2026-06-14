@@ -16,7 +16,7 @@
 
 증상: upstream Codex가 bubblewrap을 찾거나 namespace 관련 warning을 낸다.  
 원인: Android/Termux에서는 Linux namespace setup이 일반 Linux와 같은 방식으로 동작하지 않는다.  
-대응: `$PREFIX/bin/bwrap`와 runtime path의 `bwrap`은 namespace/mount setup을 수행하지 않고 inner command를 실행하는 compatibility launcher로 유지한다. 문서나 출력에서 Linux sandbox 보안 보장을 제공한다고 표현하면 안 된다.
+대응: Runtime-private `codex-path/bwrap`은 namespace/mount setup을 수행하지 않고 inner command를 실행하는 compatibility launcher로 유지한다. Runtime PATH에서 이 경로를 public Termux tools보다 먼저 두며, 문서나 출력에서 Linux sandbox 보안 보장을 제공한다고 표현하면 안 된다.
 
 ## Auto-update prompt가 반복되는 이유
 

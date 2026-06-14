@@ -19,4 +19,4 @@
 
 ## 변경 검증
 
-`bin/install-runtime.sh`를 바꾸면 최소한 `bash -n bin/install-runtime.sh`를 실행한다. Launcher 작성 경로를 바꾸면 임시 prefix나 live support refresh에서 `$PREFIX/bin/codex`와 `$PREFIX/bin/bwrap`의 marker, executable bit, target command를 확인한다.
+`bin/install-runtime.sh`를 바꾸면 최소한 `bash -n bin/install-runtime.sh`를 실행한다. Launcher 작성 경로를 바꾸면 임시 prefix나 live support refresh에서 `$PREFIX/bin/codex`의 marker, executable bit, target command를 확인하고 `$PREFIX/bin/bwrap`을 만들거나 변경하지 않는지 확인한다.

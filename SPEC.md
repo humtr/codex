@@ -7,9 +7,9 @@ runtime. `$PREFIX/bin/codex` is the managed launcher.
 
 The wrapper preserves the upstream package resource layout, patches the static
 musl DNS resolver path, and keeps existing Codex auth/config state user-owned.
-It installs a managed Termux `bwrap` compatibility launcher in
-`$PREFIX/bin/bwrap` so upstream Codex selects a system bubblewrap path that can
-execute commands on Android without creating Linux namespaces.
+It installs a runtime-private Termux `bwrap` compatibility launcher and places
+that path first only while running Codex, so upstream Codex can execute commands
+on Android without creating Linux namespaces or adding a public `bwrap`.
 
 ## Managed Paths
 
@@ -18,7 +18,6 @@ execute commands on Android without creating Linux namespaces.
 - `~/.local/share/codex/native/state.json`
 - `~/.local/share/codex/native/registry.json`
 - `$PREFIX/bin/codex`
-- `$PREFIX/bin/bwrap`
 
 Existing non-managed `codex` launchers are backed up under
 `~/.local/share/codex/native/backups/` before replacement.
@@ -51,7 +50,8 @@ Existing non-managed `codex` launchers are backed up under
   enabled in the selected `CODEX_HOME/config.toml`. Set
   `CODEX_NATIVE_PROFILE_NETWORK_ACCESS=0` to preserve a network-off profile
   policy.
-- `$PREFIX/bin/bwrap` is a managed compatibility launcher. It advertises the
+- `runtime/codex-path/bwrap` is a managed compatibility launcher selected
+  through the Codex-only runtime PATH. It advertises the
   bwrap flags Codex probes for, ignores namespace/mount setup that Android
   cannot perform, applies execution-relevant env/cwd options, and execs the
   command after `--`. Normal execution is quiet; verbose compat diagnostics are
@@ -98,10 +98,9 @@ The default package source is `@openai/codex@linux-arm64`, which follows the npm
 ## Non-goals
 
 This wrapper does not make Android support Linux bubblewrap namespace
-isolation. The managed `$PREFIX/bin/bwrap` compatibility launcher is a
-deliberate no-namespace execution path for Termux; it preserves Codex command
-execution but does not provide the isolation guarantees of real bubblewrap on
-Linux.
+isolation. The runtime-private compatibility launcher is a deliberate
+no-namespace execution path for Termux; it preserves Codex command execution
+but does not provide the isolation guarantees of real bubblewrap on Linux.
 
 This wrapper also does not claim Android-native Codex binary features that
 require rebuilding the Rust project for Bionic/Termux, such as

@@ -27,8 +27,8 @@
 ## `codex doctor [--json|--upstream]`
 
 입력: wrapper doctor option 또는 `--upstream` 뒤 upstream doctor 인자.  
-출력: `--json`은 machine-readable JSON, option이 없으면 pretty JSON, `--upstream`은 upstream doctor 결과.  
-오류: wrapper doctor의 `overallStatus`는 runtime, raw, bwrap, rg, resolver, cert, state, registry, DNS patch check 중 하나라도 실패하면 `fail`이다.
+출력: `--json`은 schema 2 machine-readable JSON, option이 없으면 pretty JSON, `--upstream`은 upstream doctor 결과. Schema 2는 runtime-private bwrap을 검사하며 public bwrap check를 포함하지 않는다.
+오류: wrapper doctor의 `overallStatus`는 runtime, raw, runtime-private bwrap, rg, resolver, cert, state, registry, DNS patch check 중 하나라도 실패하면 `fail`이다.
 
 ## `codex use [--list|selection]`
 

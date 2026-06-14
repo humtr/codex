@@ -18,7 +18,7 @@
 - Runtime tree 교체는 temporary build directory에서 완성한 뒤 원자적으로 교체한다.
 - `bwrap-termux-compat.py`는 `--args`, `--clearenv`, `--setenv`, `--unsetenv`, `--chdir`, `--argv0`의 실행 의미를 보존한다.
 - Compatibility bwrap은 namespace 격리 성공을 주장하지 않는다.
-- `CODEX_NATIVE_BWRAP_MODE=real`이나 `upstream`은 `bwrap.real`이 없으면 실패한다.
+- Compatibility bwrap은 runtime-private `codex-path/bwrap`에만 배치하고 public `$PREFIX/bin/bwrap`을 관리하지 않는다.
 
 ## 변경 검증
 

@@ -9,10 +9,10 @@ usage() {
     cat <<'EOF'
 Usage: bash bin/install-runtime.sh [setup|support|update|remove|doctor]
 
-setup        Install support files, public launchers, and upstream runtime.
-support      Refresh support files and public launchers only.
+setup        Install support files, the public Codex launcher, and upstream runtime.
+support      Refresh support files and the public Codex launcher only.
 update       Fetch, patch, and promote the official linux-arm64 Codex runtime.
-remove       Remove managed launchers/runtime and restore launcher backups.
+remove       Remove the managed Codex launcher/runtime and restore a launcher backup.
 doctor       Run wrapper diagnostics.
 EOF
 }
@@ -119,26 +119,12 @@ codex_write_compiled_launcher() {
     mv "$tmp" "$public"
 }
 
-codex_write_bwrap_launcher() {
-    local tmp
-    codex_prepare_launcher_slot "$CODEX_NATIVE_PUBLIC_BWRAP"
-    tmp="$CODEX_NATIVE_STATE_DIR/bwrap.launcher.$$"
-    cat >"$tmp" <<EOF
-#!$CODEX_NATIVE_PREFIX/bin/sh
-# $CODEX_NATIVE_MANAGED_LAUNCHER_MARKER
-exec "$CODEX_NATIVE_RUNTIME_DIR/bwrap-termux-compat.py" "\$@"
-EOF
-    chmod 755 "$tmp"
-    mv "$tmp" "$CODEX_NATIVE_PUBLIC_BWRAP"
-}
-
 codex_install_launchers() {
     if codex_launcher_available; then
         codex_write_compiled_launcher "$CODEX_NATIVE_PUBLIC_CODEX"
     else
         codex_write_shell_launcher "$CODEX_NATIVE_PUBLIC_CODEX"
     fi
-    codex_write_bwrap_launcher
 }
 
 codex_setup() {

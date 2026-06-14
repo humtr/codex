@@ -8,6 +8,6 @@
 - `CODEX_HOME` profile 실행은 profile auth를 runtime 상태와 분리해야 한다. 허용되는 profile config 변경은 `CODEX_NATIVE_PROFILE_NETWORK_ACCESS=0`이 아닐 때 workspace-write network access를 true로 보장하는 것뿐이며, auth migration이나 다른 config rewrite로 확장하면 안 된다.
 - Named profile의 plugin 공유는 profile-local `plugins` 항목이 없을 때만 symlink를 만든다. 이미 존재하는 file, directory, symlink를 공유 symlink로 바꾸면 profile-local plugin 선택권을 침해한다.
 - Termux `bwrap` 호환 도구는 env, cwd, argv0, `--args` 실행 계약을 보존해야 한다. namespace/mount option은 Android에서 실행 보장 대상이 아니지만, inner command 실행에 영향을 주는 option은 무시하면 안 된다.
-- `CODEX_NATIVE_BWRAP_MODE=real`이나 `upstream`은 real bwrap가 존재할 때만 exec해야 한다. real bwrap가 없는데 compat mode와 같은 방식으로 조용히 진행하면 사용자가 실제 격리를 요청했다는 신호를 잃는다.
+- Termux compatibility bwrap은 runtime-private `codex-path/bwrap`에만 배치하고 runtime 실행 PATH에서 public Termux tools보다 먼저 선택해야 한다.
 - Verification은 변경 범위에 맞춰 실제 소비 경로를 확인해야 한다. Shell 변경은 `bash -n`으로 syntax를 확인하고, Python 도구 변경은 해당 entrypoint의 help 또는 smoke path를 실행하며, runtime 배치 변경은 `doctor --json`의 relevant check를 통과시켜야 한다.
 - 네트워크 문제 수정은 resolver file 변경만으로 완료했다고 판단하면 안 된다. sandbox network denial, external resolver 응답, profile `network_access` 설정을 분리해 확인해야 한다.

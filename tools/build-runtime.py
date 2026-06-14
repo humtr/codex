@@ -41,7 +41,6 @@ def copy_tree(src: Path, dst: Path) -> None:
 
 def install_termux_compat_tools(runtime_dir: Path) -> None:
     bundled_bwrap = runtime_dir / "codex-resources" / "bwrap"
-    bwrap_real = runtime_dir / "codex-resources" / "bwrap.real"
     bwrap = runtime_dir / "codex-path" / "bwrap"
     rg = runtime_dir / "codex-path" / "rg"
     rg_real = runtime_dir / "codex-path" / "rg.real"
@@ -50,15 +49,13 @@ def install_termux_compat_tools(runtime_dir: Path) -> None:
         if not source.exists():
             raise RuntimeError(f"missing compat tool source: {source}")
 
-    if bundled_bwrap.exists() and not bwrap_real.exists():
-        shutil.copy2(bundled_bwrap, bwrap_real)
     shutil.copy2(BWRAP_COMPAT_SOURCE, bwrap)
 
     if rg.exists() and not rg_real.exists():
         os.replace(rg, rg_real)
     shutil.copy2(RG_SHIM_SOURCE, rg)
 
-    for executable in (bundled_bwrap, bwrap_real, bwrap, rg, rg_real):
+    for executable in (bundled_bwrap, bwrap, rg, rg_real):
         executable.chmod(executable.stat().st_mode | 0o755)
 
 
@@ -126,7 +123,6 @@ def build(raw_vendor: Path, runtime_dir: Path) -> dict[str, object]:
     for executable in [
         tmp_dir / "codex",
         tmp_dir / "codex-resources" / "bwrap",
-        tmp_dir / "codex-resources" / "bwrap.real",
         tmp_dir / "codex-resources" / "zsh" / "bin" / "zsh",
         tmp_dir / "codex-path" / "bwrap",
         tmp_dir / "codex-path" / "rg",
@@ -164,7 +160,6 @@ def build(raw_vendor: Path, runtime_dir: Path) -> dict[str, object]:
         "resources": {
             "bwrap": str(runtime_dir / "codex-path" / "bwrap"),
             "bundled_bwrap": str(runtime_dir / "codex-resources" / "bwrap"),
-            "bwrap_real": str(runtime_dir / "codex-resources" / "bwrap.real"),
             "zsh": str(runtime_dir / "codex-resources" / "zsh" / "bin" / "zsh"),
             "rg": str(runtime_dir / "codex-path" / "rg"),
             "rg_real": str(runtime_dir / "codex-path" / "rg.real"),

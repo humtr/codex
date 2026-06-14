@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import os
 import sys
-from pathlib import Path
 
 
 TERMUX_DEFAULT_PATH = "/data/data/com.termux/files/usr/bin:/system/bin"
@@ -98,16 +97,6 @@ def parse_launch_options(options: list[str]) -> tuple[dict[str, str], str | None
     return env, chdir, argv0
 
 
-def maybe_run_real_bwrap(argv: list[str]) -> None:
-    mode = os.environ.get("CODEX_NATIVE_BWRAP_MODE", "compat")
-    if mode not in {"real", "upstream"}:
-        return
-    real = Path(argv[0]).with_name("bwrap.real")
-    if not real.exists():
-        die(f"requested real bwrap but {real} is missing", 127)
-    os.execv(str(real), [str(real), *argv[1:]])
-
-
 def main(argv: list[str]) -> int:
     if len(argv) == 2 and argv[1] in {"--version", "version"}:
         print("bubblewrap termux compat for Codex")
@@ -119,7 +108,6 @@ def main(argv: list[str]) -> int:
         print("Termux compat mode ignores namespace/mount options and execs COMMAND.")
         return 0
 
-    maybe_run_real_bwrap(argv)
     expanded = expand_args(argv)
     sep = find_separator(expanded)
     command = expanded[sep + 1 :]

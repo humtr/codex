@@ -26,7 +26,6 @@ CODEX_NATIVE_RESOLVER_FD="${CODEX_NATIVE_RESOLVER_FD:-33}"
 CODEX_NATIVE_PACKAGE_SPEC_DEFAULT="${CODEX_NATIVE_PACKAGE_SPEC_DEFAULT:-@openai/codex@linux-arm64}"
 CODEX_NATIVE_MANAGED_LAUNCHER_MARKER="${CODEX_NATIVE_MANAGED_LAUNCHER_MARKER:-codex native managed launcher}"
 CODEX_NATIVE_PUBLIC_CODEX="${CODEX_NATIVE_PUBLIC_CODEX:-$CODEX_NATIVE_PREFIX/bin/codex}"
-CODEX_NATIVE_PUBLIC_BWRAP="${CODEX_NATIVE_PUBLIC_BWRAP:-$CODEX_NATIVE_PREFIX/bin/bwrap}"
 CODEX_NATIVE_RUNTIME_BUILDER="${CODEX_NATIVE_RUNTIME_BUILDER:-$CODEX_NATIVE_RUNTIME_DIR/build-runtime.py}"
 CODEX_NATIVE_AUTO_UPDATE="${CODEX_NATIVE_AUTO_UPDATE:-1}"
 CODEX_NATIVE_AUTO_UPDATE_MODE="${CODEX_NATIVE_AUTO_UPDATE_MODE:-prompt}"
@@ -259,10 +258,10 @@ codex_promote_runtime_payload() {
         cp -R "$src/$name" "$target"
         rm -rf "$old"
     done
+    rm -f "$CODEX_NATIVE_RUNTIME_DIR/codex-resources/bwrap.real"
     chmod 755 "$CODEX_NATIVE_RUNTIME"
     chmod 755 \
         "$CODEX_NATIVE_RUNTIME_DIR/codex-resources/bwrap" \
-        "$CODEX_NATIVE_RUNTIME_DIR/codex-resources/bwrap.real" \
         "$CODEX_NATIVE_RUNTIME_DIR/codex-path/bwrap" \
         "$CODEX_NATIVE_RUNTIME_DIR/codex-path/rg" \
         "$CODEX_NATIVE_RUNTIME_DIR/codex-path/rg.real" 2>/dev/null || true
@@ -523,8 +522,6 @@ codex_support_tools_match() {
 codex_runtime_ok() {
     [ -x "$CODEX_NATIVE_RUNTIME" ] &&
     [ -x "$CODEX_NATIVE_RUNTIME_DIR/codex-resources/bwrap" ] &&
-    [ -x "$CODEX_NATIVE_RUNTIME_DIR/codex-resources/bwrap.real" ] &&
-    [ -x "$CODEX_NATIVE_PUBLIC_BWRAP" ] &&
     [ -x "$CODEX_NATIVE_RUNTIME_DIR/codex-path/bwrap" ] &&
     [ -x "$CODEX_NATIVE_RUNTIME_DIR/codex-path/rg" ] &&
     [ -x "$CODEX_NATIVE_RUNTIME_DIR/codex-path/rg.real" ] &&
@@ -604,7 +601,7 @@ codex_prepare_runtime_env() {
     export CODEX_SELF_EXE="${CODEX_SELF_EXE:-$CODEX_NATIVE_RUNTIME}"
     unset CODEX_MANAGED_BY_NPM CODEX_MANAGED_BY_BUN CODEX_MANAGED_PACKAGE_ROOT LD_PRELOAD LD_LIBRARY_PATH
     export CODEX_NATIVE_BWRAP_COMPAT_QUIET="${CODEX_NATIVE_BWRAP_COMPAT_QUIET:-1}"
-    export PATH="$CODEX_NATIVE_PREFIX/bin:$CODEX_NATIVE_RUNTIME_DIR/codex-path:$CODEX_NATIVE_RUNTIME_DIR/codex-resources:$PATH"
+    export PATH="$CODEX_NATIVE_RUNTIME_DIR/codex-path:$CODEX_NATIVE_RUNTIME_DIR/codex-resources:$CODEX_NATIVE_PREFIX/bin:$PATH"
     if [ -r "$CODEX_NATIVE_RESOLV_CONF" ]; then
         eval "exec ${CODEX_NATIVE_RESOLVER_FD}<\"\$CODEX_NATIVE_RESOLV_CONF\""
     fi
@@ -676,17 +673,14 @@ version = sys.argv[8]
 raw_sha = sys.argv[9]
 runtime_sha = sys.argv[10]
 prefix = Path(sys.argv[11])
-bwrap = prefix / "bin/bwrap"
 path_bwrap = runtime_dir / "codex-path/bwrap"
 bundled_bwrap = runtime_dir / "codex-resources/bwrap"
 rg = runtime_dir / "codex-path/rg"
 checks = {
     "runtime": runtime.exists() and os.access(runtime, os.X_OK),
     "raw": (raw_vendor / "bin/codex").exists(),
-    "bwrap": bwrap.exists() and os.access(bwrap, os.X_OK),
     "path_bwrap": path_bwrap.exists() and os.access(path_bwrap, os.X_OK),
     "bundled_bwrap": bundled_bwrap.exists() and os.access(bundled_bwrap, os.X_OK),
-    "bwrap_real": (runtime_dir / "codex-resources/bwrap.real").exists(),
     "rg": rg.exists() and os.access(rg, os.X_OK),
     "rg_real": (runtime_dir / "codex-path/rg.real").exists(),
     "support_bwrap_match": filecmp.cmp(runtime_dir / "bwrap-termux-compat.py", path_bwrap, shallow=False) if (runtime_dir / "bwrap-termux-compat.py").exists() and path_bwrap.exists() else False,
@@ -706,7 +700,7 @@ active_tuple_id = registry_data.get("active_tuple_id", "")
 checks["registry_active_tuple"] = bool(active_tuple_id and active_tuple_id in registry_data.get("runtime", {}))
 try:
     checks["bwrap_exec"] = subprocess.run(
-        [str(bwrap), "--ro-bind", "/", "/", "--", str(prefix / "bin/true")],
+        [str(path_bwrap), "--ro-bind", "/", "/", "--", str(prefix / "bin/true")],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         timeout=10,
@@ -728,7 +722,7 @@ try:
 except Exception:
     checks["dns_patch"] = False
 print(json.dumps({
-    "schema": 1,
+    "schema": 2,
     "overallStatus": "ok" if all(checks.values()) else "fail",
     "version": version,
     "raw_sha256": raw_sha,
@@ -742,7 +736,7 @@ print(json.dumps({
     "activeTupleId": active_tuple_id,
     "termuxDelta": {
         "browserLogin": "termux-open-url when available",
-        "bwrap": "quiet no-namespace compatibility launcher",
+        "bwrap": "runtime-private quiet no-namespace compatibility launcher",
         "codexSelfExe": "managed runtime",
         "ldLibraryPath": "sanitized before runtime execution",
         "runtimePatch": "official linux-arm64 raw package rebuilt into Termux-managed runtime",
@@ -1010,7 +1004,7 @@ codex_profile_run() {
 codex_restore_backup() {
     local public="$1" base latest
     base="$(basename "$public")"
-    latest="$(ls -t "$CODEX_NATIVE_BACKUP_DIR"/"$base".*.bak 2>/dev/null | sed -n '1p')"
+    latest="$(ls -t "$CODEX_NATIVE_BACKUP_DIR"/"$base".*.bak 2>/dev/null | sed -n '1p' || true)"
     if [ -n "$latest" ]; then
         cp -Pp "$latest" "$public"
         codex_say "restored $public from $latest"
@@ -1018,13 +1012,10 @@ codex_restore_backup() {
 }
 
 codex_remove() {
-    local public
-    for public in "$CODEX_NATIVE_PUBLIC_CODEX" "$CODEX_NATIVE_PUBLIC_BWRAP"; do
-        if codex_file_has_marker "$public"; then
-            rm -f "$public"
-            codex_restore_backup "$public"
-        fi
-    done
+    if codex_file_has_marker "$CODEX_NATIVE_PUBLIC_CODEX"; then
+        rm -f "$CODEX_NATIVE_PUBLIC_CODEX"
+        codex_restore_backup "$CODEX_NATIVE_PUBLIC_CODEX"
+    fi
     rm -rf "$CODEX_NATIVE_NATIVE_ROOT"
     codex_say "removed managed runtime; state kept at $CODEX_NATIVE_STATE_DIR for backups"
 }
