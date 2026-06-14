@@ -1182,7 +1182,7 @@ codex_public_doctor() {
     codex_ensure_runtime_ready || return $?
     codex_prepare_runtime_env
     "$CODEX_NATIVE_RUNTIME" doctor || upstream_status=$?
-    printf '\n'
+    printf '\n%s\n\n' '─────────────────────────────────────────────────────────────'
     codex_wrapper_doctor || wrapper_status=$?
     [ "$upstream_status" -eq 0 ] && [ "$wrapper_status" -eq 0 ]
 }
