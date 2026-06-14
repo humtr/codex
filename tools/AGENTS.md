@@ -19,7 +19,8 @@
 - `bwrap-termux-compat.py`는 `--args`, `--clearenv`, `--setenv`, `--unsetenv`, `--chdir`, `--argv0`의 실행 의미를 보존한다.
 - Compatibility bwrap은 namespace 격리 성공을 주장하지 않는다.
 - Compatibility bwrap은 runtime-private `codex-path/bwrap`에만 배치하고 public `$PREFIX/bin/bwrap`을 관리하지 않는다.
+- Runtime binary patch는 resolver path 치환만 허용하며 build manifest에 builder/raw/runtime hash와 patch count를 기록한다.
 
 ## 변경 검증
 
-`build-runtime.py`를 바꾸면 raw vendor fixture나 live raw package로 runtime build를 실행하고 report JSON에서 resolver source/target count와 resource paths를 확인한다. `bwrap-termux-compat.py`를 바꾸면 `--version`, `--help`, `--setenv`, `--chdir`, `--args`, missing `--` error를 최소 smoke test한다. `codex-launcher.c`를 바꾸면 compiled binary에 marker 문자열이 남아 있는지 확인한다.
+`build-runtime.py`를 바꾸면 raw vendor fixture나 live raw package로 runtime build를 실행하고 DNS-only byte equality, build manifest, resolver source/target count와 resource paths를 확인한다. `bwrap-termux-compat.py`를 바꾸면 `--version`, `--help`, `--setenv`, `--chdir`, `--args`, missing `--` error를 최소 smoke test한다. `codex-launcher.c`를 바꾸면 compiled binary에 marker 문자열이 남아 있는지 확인한다.

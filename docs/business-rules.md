@@ -14,4 +14,6 @@ runtime drift는 cached raw package가 있을 때만 자동 repair 대상이다.
 
 DNS resolver 경로는 공식 musl binary가 Termux의 resolver file을 읽을 수 있게 하는 호환 규칙이다. raw binary 안의 `/etc/resolv.conf` 문자열은 같은 byte length의 `/proc/self/fd/33`으로 바뀌어야 하고, 실행 전 fd 33은 Termux resolver file로 열려 있어야 한다. 이 규칙은 외부 DNS 장애를 해결하는 정책이 아니라 Android 파일 경로 차이를 해결하는 실행 호환 규칙이다.
 
-Termux profile 실행은 workspace-write sandbox의 network access를 켠 상태를 기본값으로 만든다. Termux `bwrap` 호환 경로가 namespace 기반 네트워크 격리를 제공하지 않으므로, network-off 기본값은 실질적인 격리 보장보다 DNS-like 실패와 반복 승인을 더 많이 만든다. 사용자가 network-off profile을 보존하려면 `CODEX_NATIVE_PROFILE_NETWORK_ACCESS=0`으로 이 기본값 적용을 꺼야 한다.
+Wrapper는 default 또는 named profile의 `config.toml`을 수정하지 않는다. Network-off에서 upstream Codex가 적용하는 seccomp socket 차단은 Termux에서도 유효한 제한 경계이며, network 허용과 approval 요청 생성은 upstream Codex와 사용자 설정의 책임이다.
+
+Runtime binary는 raw binary에 resolver path 치환만 적용한 결과여야 한다. Build manifest가 없거나 현재 patch policy·builder·실제 hash와 맞지 않는 runtime은 실행하거나 cache에서 승격할 수 없다. Compatible runtime store는 활성 runtime을 포함해 최신 세 개를 기본으로 보존한다.

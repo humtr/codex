@@ -18,7 +18,7 @@
 - Prompt-like 첫 인자는 upstream command가 아닐 때만 `exec`로 라우팅한다.
 - Profile name은 path traversal, hidden name, option-like name, whitespace를 허용하지 않는다.
 - Named profile plugin symlink는 `plugins` 항목이 없을 때만 만든다.
-- Termux profile 실행은 `CODEX_NATIVE_PROFILE_NETWORK_ACCESS=0`이 아닌 한 selected profile의 workspace-write network access를 true로 보장한다.
+- Termux profile 실행은 selected profile의 config, network, approval policy를 수정하지 않는다.
 
 ## 변경 검증
 

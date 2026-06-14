@@ -39,7 +39,7 @@ project-root/
 - 공식 `@openai/codex` Linux ARM64 패키지가 원본이어야 하며 Android-native fork의 동작을 이 repo의 현재 목표로 섞지 않는다.
 - 기존 Codex 인증·설정 상태와 비관리형 public launcher는 덮어쓰기 전에 보존한다.
 - Termux용 `bwrap` 호환 경로는 Linux namespace 격리를 제공한다고 말하거나 문서화하지 않는다.
-- Termux profile 실행은 network access를 켠 상태를 기본값으로 만들되, 이를 격리 보장으로 설명하지 않는다.
+- Termux profile 실행은 사용자의 network access 설정을 보존한다. Wrapper가 profile config를 자동 변경하지 않는다.
 - DNS 문제를 고칠 때는 resolver 파일, upstream sandbox 네트워크 정책, Android 실행 제한을 분리해 검증한다.
 
 ## 작업 전 확인

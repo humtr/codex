@@ -128,6 +128,7 @@ codex_install_launchers() {
 }
 
 codex_setup() {
+    codex_validate_runtime_retention || return $?
     codex_install_support_files
     codex_install_launchers
     if ! codex_runtime_ok; then
@@ -138,6 +139,7 @@ codex_setup() {
         fi
     fi
     codex_bootstrap_store
+    codex_refresh_runtime_metadata
     codex_version
 }
 
@@ -159,7 +161,7 @@ case "${1:-setup}" in
         ;;
     doctor)
         shift || true
-        codex_doctor "$@"
+        codex_wrapper_doctor "$@"
         ;;
     -h|--help|help)
         usage

@@ -4,7 +4,7 @@
 
 대표 설치 흐름은 `install.sh` -> `bin/install-runtime.sh setup` -> support file 설치 -> launcher 설치 -> raw package 확보 또는 cached raw로 repair -> runtime rebuild -> state/registry 기록 순서다. 의존성 설치가 먼저 끝나야 `npm pack`, `python3`, `tar`, `curl`, `bash`를 신뢰할 수 있고, support file 설치가 먼저 끝나야 runtime rebuild가 최신 `bwrap`/`rg` 호환 도구를 runtime tree에 넣을 수 있다.
 
-대표 실행 흐름은 `$PREFIX/bin/codex` -> 관리형 shell -> `codex_main` -> runtime readiness check -> auto-update check -> resolver fd 준비 -> upstream Codex exec 순서다. prompt처럼 보이는 첫 인자는 upstream에 직접 넘기지 않고 `exec` 하위 명령으로 라우팅하며, `--`는 이 라우팅을 끄는 명시적 passthrough다.
+대표 실행 흐름은 `$PREFIX/bin/codex` -> 관리형 shell -> `codex_main` -> runtime manifest/hash readiness check -> auto-update check -> resolver fd 준비 -> upstream Codex exec 순서다. prompt처럼 보이는 첫 인자는 upstream에 직접 넘기지 않고 `exec` 하위 명령으로 라우팅하며, `--`는 이 라우팅을 끄는 명시적 passthrough다.
 
 런타임 저장소는 raw, wrapper, runtime의 세 층으로 나뉜다. raw는 공식 npm package의 vendor tree이고, wrapper는 이 repo의 support 도구와 버전 정보이며, runtime은 raw와 wrapper를 합쳐 만든 실행 산출물이다. registry는 이 세 값을 tuple로 묶어 “어떤 upstream 바이너리를 어떤 wrapper 코드로 패치했는지”를 추적한다.
 

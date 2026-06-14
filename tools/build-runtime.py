@@ -14,11 +14,7 @@ from pathlib import Path
 
 RESOLV_CONF_SOURCE = b"/etc/resolv.conf"
 RESOLV_CONF_TARGET = b"/proc/self/fd/33"
-SANDBOX_WARNING_STRINGS = (
-    b"Codex could not find bubblewrap on PATH. Install bubblewrap with your OS package manager. See the sandbox prerequisites: https://developers.openai.com/codex/concepts/sandboxing#prerequisites. Codex will use the bundled bubblewrap in the meantime.",
-    b"Codex's Linux sandbox uses bubblewrap and needs access to create user namespaces.",
-    b"Codex's Linux sandbox uses bubblewrap, which is not supported on WSL1 because WSL1 cannot create the required user namespaces. Use WSL2 for sandboxed shell commands.",
-)
+PATCH_POLICY = "dns-fd33-only-v1"
 CHUNK_SIZE = 1024 * 1024
 TOOL_DIR = Path(__file__).resolve().parent
 BWRAP_COMPAT_SOURCE = TOOL_DIR / "bwrap-termux-compat.py"
@@ -60,7 +56,8 @@ def install_termux_compat_tools(runtime_dir: Path) -> None:
 
 
 def patch_codex_binary(src: Path, dst: Path) -> dict[str, object]:
-    data = bytearray(src.read_bytes())
+    raw = src.read_bytes()
+    data = bytearray(raw)
     source_count = data.count(RESOLV_CONF_SOURCE)
     target_count_before = data.count(RESOLV_CONF_TARGET)
     if len(RESOLV_CONF_SOURCE) != len(RESOLV_CONF_TARGET):
@@ -74,12 +71,9 @@ def patch_codex_binary(src: Path, dst: Path) -> dict[str, object]:
             f"raw binary already contains {RESOLV_CONF_TARGET!r}; refusing to patch"
         )
     data[:] = data.replace(RESOLV_CONF_SOURCE, RESOLV_CONF_TARGET)
-    warning_counts: dict[str, int] = {}
-    for warning in SANDBOX_WARNING_STRINGS:
-        count = data.count(warning)
-        warning_counts[warning.decode("utf-8", errors="replace")[:80]] = count
-        if count:
-            data[:] = data.replace(warning, b" " * len(warning))
+    expected = raw.replace(RESOLV_CONF_SOURCE, RESOLV_CONF_TARGET)
+    if data != expected:
+        raise RuntimeError("runtime binary differs from the DNS-only patch policy")
     tmp = dst.with_name(f".{dst.name}.building")
     tmp.write_bytes(data)
     os.chmod(tmp, 0o755)
@@ -88,7 +82,7 @@ def patch_codex_binary(src: Path, dst: Path) -> dict[str, object]:
         "resolver_source_count": source_count,
         "resolver_target_count_before": target_count_before,
         "resolver_target_count_after": data.count(RESOLV_CONF_TARGET),
-        "suppressed_sandbox_warning_counts": warning_counts,
+        "changed_byte_count": sum(left != right for left, right in zip(raw, data)),
     }
 
 
@@ -119,6 +113,19 @@ def build(raw_vendor: Path, runtime_dir: Path) -> dict[str, object]:
     copy_tree(raw_path_tools, tmp_dir / "codex-path")
     shutil.copy2(raw_package, tmp_dir / "codex-package.json")
     install_termux_compat_tools(tmp_dir)
+    runtime_sha = sha256(tmp_dir / "codex")
+    raw_sha = sha256(raw_bin)
+    build_manifest = {
+        "schema": 2,
+        "patch_policy": PATCH_POLICY,
+        "builder_sha256": sha256(Path(__file__)),
+        "raw_sha256": raw_sha,
+        "runtime_sha256": runtime_sha,
+        **patch_report,
+    }
+    (tmp_dir / "runtime-build.json").write_text(
+        json.dumps(build_manifest, ensure_ascii=True, sort_keys=True) + "\n"
+    )
 
     for executable in [
         tmp_dir / "codex",
@@ -131,7 +138,7 @@ def build(raw_vendor: Path, runtime_dir: Path) -> dict[str, object]:
         executable.chmod(executable.stat().st_mode | 0o755)
 
     runtime_dir.mkdir(parents=True, exist_ok=True)
-    for name in ("codex", "codex-resources", "codex-path", "codex-package.json"):
+    for name in ("codex", "codex-resources", "codex-path", "codex-package.json", "runtime-build.json"):
         target = runtime_dir / name
         source = tmp_dir / name
         old = runtime_dir / f".{name}.old"
@@ -154,8 +161,9 @@ def build(raw_vendor: Path, runtime_dir: Path) -> dict[str, object]:
         "schema": 1,
         "raw_vendor": str(raw_vendor),
         "runtime_dir": str(runtime_dir),
-        "raw_sha256": sha256(raw_bin),
-        "runtime_sha256": sha256(runtime_dir / "codex"),
+        "raw_sha256": raw_sha,
+        "runtime_sha256": runtime_sha,
+        "build_manifest": build_manifest,
         **patch_report,
         "resources": {
             "bwrap": str(runtime_dir / "codex-path" / "bwrap"),

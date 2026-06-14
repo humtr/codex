@@ -29,7 +29,8 @@ Existing non-managed `codex` launchers are backed up under
 - `setup`, `update`, `doctor`, `version`, `help`, `use`, `profile`, and
   `remove` are wrapper lifecycle commands.
 - `--` forces upstream passthrough.
-- `doctor --upstream` runs upstream `doctor`.
+- `doctor` without arguments runs upstream human doctor and then appends wrapper
+  diagnostics. `doctor` with arguments passes them to upstream doctor unchanged.
 - Plain upstream execution checks the npm `linux-arm64` dist-tag at most once
   every six hours while the installed runtime is current. Once a newer runtime
   is detected, interactive execution prompts every time until the runtime is
@@ -46,10 +47,8 @@ Existing non-managed `codex` launchers are backed up under
   upstream Codex with `CODEX_HOME` set to the selected profile. `default` maps
   to `~/.codex`. Named profiles link `plugins` to `~/.codex/plugins` when the
   profile does not already have its own `plugins` entry.
-- Termux profile execution defaults sandbox workspace-write network access to
-  enabled in the selected `CODEX_HOME/config.toml`. Set
-  `CODEX_NATIVE_PROFILE_NETWORK_ACCESS=0` to preserve a network-off profile
-  policy.
+- Profile execution preserves the selected `CODEX_HOME/config.toml` byte for
+  byte. Network and approval policy remain owned by upstream Codex and the user.
 - `runtime/codex-path/bwrap` is a managed compatibility launcher selected
   through the Codex-only runtime PATH. It advertises the
   bwrap flags Codex probes for, ignores namespace/mount setup that Android
@@ -84,10 +83,13 @@ without replacing the official binary with an Android-native fork:
 - bwrap namespace failures are not surfaced during ordinary execution; the
   compatibility launcher provides command execution without pretending to offer
   Linux namespace isolation.
-- Profile network access defaults to enabled because the Termux bwrap
-  compatibility path is not a network isolation boundary. This avoids DNS-like
-  failures caused by sandbox network denial while keeping the behavior explicit
-  and opt-out.
+- The compatibility launcher does not provide filesystem namespace isolation,
+  but upstream Codex network-off execution still applies a seccomp socket
+  boundary. The wrapper preserves that policy and verifies off/on/reset behavior.
+- Runtime binary mutation is limited to the byte-length-preserving resolver path
+  rewrite. Each runtime records a build manifest and is checked before execution.
+- Compatible cached runtimes are capped by `CODEX_NATIVE_RUNTIME_RETENTION`,
+  which defaults to three.
 
 ## Update Source
 

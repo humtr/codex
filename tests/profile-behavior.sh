@@ -9,22 +9,6 @@ fail() {
     exit 1
 }
 
-assert_python_config() {
-    local config_file="$1" expected="$2"
-    python3 - "$config_file" "$expected" <<'PY'
-import sys
-import tomllib
-from pathlib import Path
-
-path = Path(sys.argv[1])
-expected = sys.argv[2] == "true"
-data = tomllib.loads(path.read_text())
-actual = data["sandbox_workspace_write"]["network_access"]
-if actual is not expected:
-    raise SystemExit(f"expected network_access={expected}, got {actual}")
-PY
-}
-
 mkdir -p "$FIXTURE_PARENT"
 FIXTURE_ROOT="$(mktemp -d "$FIXTURE_PARENT/profile-behavior-test.XXXXXX")"
 mkdir -p "$FIXTURE_ROOT/home" "$FIXTURE_ROOT/shared-plugins"
@@ -37,9 +21,13 @@ export CODEX_NATIVE_SHARED_PLUGINS_DIR="$FIXTURE_ROOT/shared-plugins"
 # shellcheck disable=SC1091
 . "$ROOT_DIR/lib/codex-termux-lib.sh"
 
-network_profile="$FIXTURE_ROOT/network-default"
-mkdir -p "$network_profile"
-cat >"$network_profile/config.toml" <<'EOF'
+profile_config="$FIXTURE_ROOT/profile-config"
+mkdir -p "$profile_config"
+cat >"$profile_config/config.toml" <<'EOF'
+sandbox_mode = "workspace-write"
+approval_policy = "on-request"
+approvals_reviewer = "user"
+
 [sandbox_workspace_write]
 network_access = false
 preserved = "yes"
@@ -47,32 +35,23 @@ preserved = "yes"
 [other]
 value = 1
 EOF
-codex_profile_enable_network_access "$network_profile"
-first_config="$(cat "$network_profile/config.toml")"
-codex_profile_enable_network_access "$network_profile"
-[ "$(cat "$network_profile/config.toml")" = "$first_config" ] \
-    || fail "network config changed on repeated application"
-assert_python_config "$network_profile/config.toml" true
-python3 - "$network_profile/config.toml" <<'PY'
-import sys
-import tomllib
-from pathlib import Path
-
-data = tomllib.loads(Path(sys.argv[1]).read_text())
-assert data["sandbox_workspace_write"]["preserved"] == "yes"
-assert data["other"]["value"] == 1
-PY
-
-opt_out_profile="$FIXTURE_ROOT/network-opt-out"
-mkdir -p "$opt_out_profile"
-cat >"$opt_out_profile/config.toml" <<'EOF'
-[sandbox_workspace_write]
-network_access = false
-EOF
-CODEX_NATIVE_PROFILE_NETWORK_ACCESS=0
-codex_profile_enable_network_access "$opt_out_profile"
-assert_python_config "$opt_out_profile/config.toml" false
-CODEX_NATIVE_PROFILE_NETWORK_ACCESS=1
+config_before="$(sha256sum "$profile_config/config.toml")"
+fake_runtime="$FIXTURE_ROOT/fake-runtime"
+printf '#!%s\nprintf '\''%%s\\n'\'' "$CODEX_HOME"\n' "$(command -v sh)" >"$fake_runtime"
+chmod 755 "$fake_runtime"
+profile_output="$(
+    codex_ensure_runtime_ready() { return 0; }
+    codex_auto_update_if_needed() { return 0; }
+    codex_prepare_runtime_env() { return 0; }
+    CODEX_NATIVE_RUNTIME="$fake_runtime"
+    codex_profile_exec "$profile_config"
+)"
+[ "$profile_output" = "$profile_config" ] || fail "profile execution selected the wrong CODEX_HOME"
+[ "$(sha256sum "$profile_config/config.toml")" = "$config_before" ] \
+    || fail "profile execution changed config.toml"
+if declare -F codex_profile_enable_network_access >/dev/null; then
+    fail "legacy profile network mutation function still exists"
+fi
 
 missing_profile="$FIXTURE_ROOT/plugins-missing"
 mkdir -p "$missing_profile"

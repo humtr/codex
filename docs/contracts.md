@@ -26,9 +26,9 @@
 
 ## `codex doctor [--json|--upstream]`
 
-입력: wrapper doctor option 또는 `--upstream` 뒤 upstream doctor 인자.  
-출력: `--json`은 schema 2 machine-readable JSON, option이 없으면 pretty JSON, `--upstream`은 upstream doctor 결과. Schema 2는 runtime-private bwrap을 검사하며 public bwrap check를 포함하지 않는다.
-오류: wrapper doctor의 `overallStatus`는 runtime, raw, runtime-private bwrap, rg, resolver, cert, state, registry, DNS patch check 중 하나라도 실패하면 `fail`이다.
+입력: option이 없으면 combined human doctor, option이 있으면 upstream doctor option.
+출력: option이 없으면 upstream human doctor 뒤에 `Termux Wrapper` 진단을 출력한다. `--json`, `--summary`, `--all` 등 option이 있으면 upstream 출력과 exit code를 그대로 반환한다. Wrapper machine report는 개발자용 `bash bin/install-runtime.sh doctor --json`으로 접근한다.
+오류: 기본 doctor는 upstream 또는 wrapper 필수 검사 중 하나라도 실패하면 실패한다. 상위 sandbox 때문에 network 경계를 검증할 수 없으면 wrapper report는 `inconclusive`로 기록하지만 그 이유만으로 실패하지 않는다.
 
 ## `codex use [--list|selection]`
 
@@ -56,6 +56,6 @@
 
 ## `bash bin/install-runtime.sh <command>`
 
-입력: `setup`, `support`, `update`, `remove`, `doctor`.  
+입력: `setup`, `support`, `update`, `remove`, `doctor`. `doctor --json`은 wrapper machine report다.
 출력: public `codex` wrapper command와 같은 내부 작업 결과.  
 오류: 알 수 없는 command는 usage를 출력하고 exit code 2로 실패한다.

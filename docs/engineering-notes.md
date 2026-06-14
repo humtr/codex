@@ -4,7 +4,7 @@
 
 증상: `curl`이나 upstream Codex 명령이 `Could not resolve host` 또는 DNS 실패처럼 보이는 오류를 낸다.  
 원인: profile sandbox에서 network access가 꺼져 있으면 DNS socket 자체가 막혀 resolver 장애처럼 보일 수 있다. 외부 resolver가 실제로 죽은 경우와 오류 표면이 비슷하다.  
-대응: sandbox 안팎을 분리해 검증한다. sandbox 밖에서 `dig @1.1.1.1 <host> A`, `dig @8.8.8.8 <host> A`, `curl -I <url>`이 성공하면 외부 DNS가 아니라 sandbox/profile network 설정 문제다. 이 wrapper는 profile 실행 때 `[sandbox_workspace_write] network_access = true`를 보장하므로, 같은 증상이 남으면 현재 실행이 wrapper profile 경로를 탔는지와 `CODEX_NATIVE_PROFILE_NETWORK_ACCESS=0` 설정 여부를 먼저 확인한다.
+대응: sandbox 안팎을 분리해 검증한다. Wrapper doctor는 외부 인터넷 없이 socket 생성 기준으로 baseline, network-off, network-on, reset을 확인한다. Wrapper는 profile network 설정을 변경하지 않으므로 실제 외부 접속 필요 시 upstream approval 또는 사용자가 선택한 permission profile을 사용한다.
 
 ## `/etc/resolv.conf` 수정과 fd 33 패치의 역할
 
@@ -17,6 +17,12 @@
 증상: upstream Codex가 bubblewrap을 찾거나 namespace 관련 warning을 낸다.  
 원인: Android/Termux에서는 Linux namespace setup이 일반 Linux와 같은 방식으로 동작하지 않는다.  
 대응: Runtime-private `codex-path/bwrap`은 namespace/mount setup을 수행하지 않고 inner command를 실행하는 compatibility launcher로 유지한다. Runtime PATH에서 이 경로를 public Termux tools보다 먼저 두며, 문서나 출력에서 Linux sandbox 보안 보장을 제공한다고 표현하면 안 된다.
+
+## Runtime binary drift
+
+증상: 일반 실행 전에 runtime drift가 감지되어 cached raw repair가 수행되거나 update를 요구한다.
+원인: 활성 runtime hash, build manifest, 현재 builder policy가 일치하지 않거나 cached raw hash가 state와 다르다.
+대응: Runtime은 DNS resolver path 치환 외 변형을 허용하지 않는다. Runtime drift는 검증된 raw로 repair하지만 raw drift는 fail-closed한다.
 
 ## Auto-update prompt가 반복되는 이유
 

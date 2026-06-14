@@ -33,7 +33,8 @@ CODEX_NATIVE_AUTO_UPDATE_INTERVAL_SECONDS="${CODEX_NATIVE_AUTO_UPDATE_INTERVAL_S
 CODEX_NATIVE_AUTO_UPDATE_TIMEOUT_SECONDS="${CODEX_NATIVE_AUTO_UPDATE_TIMEOUT_SECONDS:-4}"
 CODEX_NATIVE_AUTO_UPDATE_STAMP="${CODEX_NATIVE_AUTO_UPDATE_STAMP:-$CODEX_NATIVE_STATE_DIR/last-auto-update-check}"
 CODEX_NATIVE_AUTO_UPDATE_PENDING="${CODEX_NATIVE_AUTO_UPDATE_PENDING:-$CODEX_NATIVE_STATE_DIR/pending-auto-update-version}"
-CODEX_NATIVE_PROFILE_NETWORK_ACCESS="${CODEX_NATIVE_PROFILE_NETWORK_ACCESS:-1}"
+CODEX_NATIVE_RUNTIME_RETENTION="${CODEX_NATIVE_RUNTIME_RETENTION:-3}"
+CODEX_NATIVE_PATCH_POLICY="${CODEX_NATIVE_PATCH_POLICY:-dns-fd33-only-v1}"
 
 codex_say() { printf 'codex: %s\n' "$*" >&2; }
 codex_fail() { printf 'codex: ERROR: %s\n' "$*" >&2; return 1; }
@@ -80,7 +81,7 @@ import json, os, sys
 from pathlib import Path
 path = Path(sys.argv[1])
 data = {
-    "schema": 2,
+    "schema": 3,
     "version": sys.argv[2],
     "raw_sha256": sys.argv[3],
     "runtime_sha256": sys.argv[4],
@@ -170,10 +171,10 @@ if path.exists():
     try:
         data = json.loads(path.read_text())
     except Exception:
-        data = {"schema": 2, "installs": []}
+        data = {"schema": 3, "installs": []}
 else:
-    data = {"schema": 2, "installs": []}
-data["schema"] = 2
+    data = {"schema": 3, "installs": []}
+data["schema"] = 3
 data.setdefault("installs", [])
 data.setdefault("raw", {})
 data.setdefault("wrapper", {})
@@ -228,6 +229,117 @@ print(f"{version}+{sha}")
 PY
 }
 
+codex_validate_runtime_retention() {
+    case "$CODEX_NATIVE_RUNTIME_RETENTION" in
+        ''|*[!0-9]*|0)
+            codex_fail "CODEX_NATIVE_RUNTIME_RETENTION must be an integer greater than zero"
+            return 2
+            ;;
+    esac
+}
+
+codex_prune_runtime_store() {
+    codex_validate_runtime_retention || return $?
+    python3 - "$CODEX_NATIVE_STORE_DIR/runtime" "$CODEX_NATIVE_REGISTRY_FILE" \
+        "$CODEX_NATIVE_RUNTIME_BUILDER" "$CODEX_NATIVE_PATCH_POLICY" \
+        "$CODEX_NATIVE_RUNTIME_RETENTION" <<'PY'
+import hashlib, json, shutil, sys
+from pathlib import Path
+
+store, registry_path, builder = map(Path, sys.argv[1:4])
+policy = sys.argv[4]
+retention = int(sys.argv[5])
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+builder_sha = sha256(builder)
+try:
+    data = json.loads(registry_path.read_text()) if registry_path.exists() else {}
+except Exception:
+    data = {}
+active_tuple = data.get("active_tuple_id", "")
+active_path = ""
+if active_tuple:
+    active_path = data.get("runtime", {}).get(active_tuple, {}).get("path", "")
+try:
+    active_path = str(Path(active_path).resolve()) if active_path else ""
+except Exception:
+    active_path = ""
+
+compatible = []
+if store.exists():
+    for path in store.iterdir():
+        if not path.is_dir():
+            continue
+        try:
+            manifest = json.loads((path / "runtime-build.json").read_text())
+            ok = (
+                manifest.get("patch_policy") == policy
+                and manifest.get("builder_sha256") == builder_sha
+                and manifest.get("runtime_sha256") == sha256(path / "codex")
+            )
+        except Exception:
+            ok = False
+        if ok:
+            compatible.append(path)
+        else:
+            shutil.rmtree(path)
+
+compatible.sort(key=lambda item: item.stat().st_mtime, reverse=True)
+keep = []
+active = next((path for path in compatible if str(path.resolve()) == active_path), None)
+if active:
+    keep.append(active)
+for path in compatible:
+    if path not in keep and len(keep) < retention:
+        keep.append(path)
+for path in compatible:
+    if path not in keep:
+        shutil.rmtree(path)
+
+kept = {str(path.resolve()) for path in keep}
+runtime = {}
+for key, value in data.get("runtime", {}).items():
+    try:
+        resolved = str(Path(value.get("path", "")).resolve())
+    except Exception:
+        continue
+    if resolved in kept:
+        runtime[key] = value
+data["runtime"] = runtime
+
+installs = []
+seen = set()
+for entry in data.get("installs", []):
+    try:
+        resolved = str(Path(entry.get("runtime_path", "")).resolve())
+    except Exception:
+        continue
+    key = entry.get("tuple_id", "") or resolved
+    if resolved in kept and key not in seen:
+        installs.append(entry)
+        seen.add(key)
+data["installs"] = installs
+referenced_raw = {entry.get("raw_id", "") for entry in installs}
+referenced_wrapper = {entry.get("wrapper_id", "") for entry in installs}
+data["raw"] = {key: value for key, value in data.get("raw", {}).items() if key in referenced_raw}
+data["wrapper"] = {key: value for key, value in data.get("wrapper", {}).items() if key in referenced_wrapper}
+if active_tuple not in runtime:
+    data["active_tuple_id"] = ""
+
+if registry_path.exists():
+    tmp = registry_path.with_name("." + registry_path.name + ".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=True, sort_keys=True) + "\n")
+    tmp.chmod(0o600)
+    tmp.replace(registry_path)
+PY
+}
+
 codex_store_runtime_payload() {
     local version="$1" runtime_sha="$2" store_id dst tmp
     store_id="$(codex_store_id "$version" "$runtime_sha")"
@@ -239,6 +351,7 @@ codex_store_runtime_payload() {
     cp -R "$CODEX_NATIVE_RUNTIME_DIR/codex-resources" "$tmp/codex-resources"
     cp -R "$CODEX_NATIVE_RUNTIME_DIR/codex-path" "$tmp/codex-path"
     cp -R "$CODEX_NATIVE_RUNTIME_DIR/codex-package.json" "$tmp/codex-package.json"
+    cp -R "$CODEX_NATIVE_RUNTIME_DIR/runtime-build.json" "$tmp/runtime-build.json"
     rm -rf "$dst"
     mv "$tmp" "$dst"
     printf '%s\n' "$dst"
@@ -247,10 +360,10 @@ codex_store_runtime_payload() {
 codex_promote_runtime_payload() {
     local src="$1" name target old
     [ -x "$src/codex" ] || return 1
-    for name in codex codex-resources codex-path codex-package.json; do
+    for name in codex codex-resources codex-path codex-package.json runtime-build.json; do
         [ -e "$src/$name" ] || return 1
     done
-    for name in codex codex-resources codex-path codex-package.json; do
+    for name in codex codex-resources codex-path codex-package.json runtime-build.json; do
         target="$CODEX_NATIVE_RUNTIME_DIR/$name"
         old="$CODEX_NATIVE_RUNTIME_DIR/.use-$name.old"
         rm -rf "$old"
@@ -346,10 +459,15 @@ codex_rebuild_runtime_unlocked() {
     runtime_path="$(codex_store_runtime_payload "$version" "$runtime_sha")"
     tuple_id="$(codex_record_registry "$version" "$raw_sha" "$runtime_sha" "$package_spec" "$runtime_path")"
     codex_write_json_state "$version" "$raw_sha" "$runtime_sha" "$package_spec" "$tuple_id"
+    codex_prune_runtime_store
 }
 
 codex_repair_runtime_from_raw_unlocked() {
     local version package_spec
+    codex_raw_integrity_ok || {
+        codex_fail "cached raw package integrity check failed; run codex update"
+        return 1
+    }
     version="$(codex_read_state_field version)"
     package_spec="$(codex_read_state_field package_spec)"
     [ -n "$version" ] || version="unknown"
@@ -381,6 +499,7 @@ EOF
 }
 
 codex_update() {
+    codex_validate_runtime_retention || return $?
     codex_with_lock codex_update_unlocked "${1:-}"
 }
 
@@ -519,6 +638,59 @@ codex_support_tools_match() {
     cmp -s "$CODEX_NATIVE_RUNTIME_DIR/rg-termux-shim.sh" "$CODEX_NATIVE_RUNTIME_DIR/codex-path/rg"
 }
 
+codex_runtime_integrity_ok() {
+    [ -r "$CODEX_NATIVE_RUNTIME_DIR/runtime-build.json" ] || return 1
+    [ -x "$CODEX_NATIVE_RUNTIME_BUILDER" ] || return 1
+    python3 - "$CODEX_NATIVE_RUNTIME" "$CODEX_NATIVE_RUNTIME_DIR/runtime-build.json" \
+        "$CODEX_NATIVE_RUNTIME_BUILDER" "$CODEX_NATIVE_STATE_FILE" "$CODEX_NATIVE_PATCH_POLICY" <<'PY'
+import hashlib, json, sys
+from pathlib import Path
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+runtime, manifest_path, builder, state_path = map(Path, sys.argv[1:5])
+policy = sys.argv[5]
+try:
+    manifest = json.loads(manifest_path.read_text())
+    state = json.loads(state_path.read_text())
+    runtime_sha = sha256(runtime)
+    ok = (
+        manifest.get("patch_policy") == policy
+        and manifest.get("builder_sha256") == sha256(builder)
+        and manifest.get("runtime_sha256") == runtime_sha
+        and state.get("runtime_sha256") == runtime_sha
+    )
+except Exception:
+    ok = False
+raise SystemExit(0 if ok else 1)
+PY
+}
+
+codex_raw_integrity_ok() {
+    [ -x "$CODEX_NATIVE_RAW_VENDOR/bin/codex" ] || return 1
+    python3 - "$CODEX_NATIVE_RAW_VENDOR/bin/codex" "$CODEX_NATIVE_STATE_FILE" <<'PY'
+import hashlib, json, sys
+from pathlib import Path
+
+raw, state_path = map(Path, sys.argv[1:3])
+try:
+    expected = json.loads(state_path.read_text()).get("raw_sha256", "")
+    digest = hashlib.sha256()
+    with raw.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    ok = bool(expected and digest.hexdigest() == expected)
+except Exception:
+    ok = False
+raise SystemExit(0 if ok else 1)
+PY
+}
+
 codex_runtime_ok() {
     [ -x "$CODEX_NATIVE_RUNTIME" ] &&
     [ -x "$CODEX_NATIVE_RUNTIME_DIR/codex-resources/bwrap" ] &&
@@ -526,12 +698,47 @@ codex_runtime_ok() {
     [ -x "$CODEX_NATIVE_RUNTIME_DIR/codex-path/rg" ] &&
     [ -x "$CODEX_NATIVE_RUNTIME_DIR/codex-path/rg.real" ] &&
     codex_support_tools_match &&
-    [ -r "$CODEX_NATIVE_STATE_FILE" ]
+    [ -r "$CODEX_NATIVE_STATE_FILE" ] &&
+    codex_runtime_integrity_ok
+}
+
+codex_refresh_runtime_metadata() {
+    local version raw_sha runtime_sha package_spec runtime_path tuple_id
+    local wrapper_version wrapper_commit state_wrapper_version state_wrapper_commit active_tuple_id
+    version="$(codex_read_state_field version)"
+    raw_sha="$(codex_read_state_field raw_sha256)"
+    runtime_sha="$(codex_read_state_field runtime_sha256)"
+    package_spec="$(codex_read_state_field package_spec)"
+    wrapper_version="$(codex_current_wrapper_version)"
+    wrapper_commit="$(codex_current_wrapper_commit)"
+    state_wrapper_version="$(codex_read_state_field wrapper_version)"
+    state_wrapper_commit="$(codex_read_state_field wrapper_commit)"
+    active_tuple_id="$(codex_read_state_field active_tuple_id)"
+    [ -n "$version" ] && [ -n "$raw_sha" ] && [ -n "$runtime_sha" ] && [ -n "$package_spec" ] || return 0
+    if [ -n "$active_tuple_id" ] &&
+        [ "$state_wrapper_version" = "$wrapper_version" ] &&
+        [ "$state_wrapper_commit" = "$wrapper_commit" ]; then
+        return 0
+    fi
+    runtime_path="$CODEX_NATIVE_STORE_DIR/runtime/$(codex_store_id "$version" "$runtime_sha")"
+    if [ ! -x "$runtime_path/codex" ] || [ ! -r "$runtime_path/runtime-build.json" ]; then
+        runtime_path="$(codex_store_runtime_payload "$version" "$runtime_sha")"
+    fi
+    tuple_id="$(codex_record_registry "$version" "$raw_sha" "$runtime_sha" "$package_spec" "$runtime_path")"
+    codex_write_json_state "$version" "$raw_sha" "$runtime_sha" "$package_spec" "$tuple_id"
+    codex_prune_runtime_store
 }
 
 codex_ensure_runtime_ready() {
-    codex_runtime_ok && return 0
+    if codex_runtime_ok; then
+        codex_refresh_runtime_metadata
+        return 0
+    fi
     if [ -x "$CODEX_NATIVE_RAW_VENDOR/bin/codex" ]; then
+        if ! codex_raw_integrity_ok; then
+            codex_fail "cached raw package integrity check failed; run codex update"
+            return 1
+        fi
         codex_say "runtime drift detected; rebuilding from cached raw package"
         codex_repair_runtime_from_raw
         return $?
@@ -575,7 +782,6 @@ codex_open_fd33_and_exec() {
         codex_fail "runtime missing; run codex setup"
         return 127
     fi
-    codex_profile_enable_network_access "${CODEX_HOME:-$CODEX_NATIVE_HOME/.codex}"
     codex_prepare_runtime_env
 
     if [ "$first" = "--" ]; then
@@ -654,13 +860,93 @@ codex_help() {
     codex_wrapper_help
 }
 
-codex_doctor_json() {
-    local version raw_sha runtime_sha
+codex_network_boundary_json() {
+    local probe baseline off on reset baseline_status=0 off_status=0 on_status=0 reset_status=0
+    mkdir -p "$CODEX_NATIVE_DOCTOR_DIR"
+    probe="$CODEX_NATIVE_DOCTOR_DIR/network-probe.py"
+    cat >"$probe" <<'PY'
+import json, socket
+from pathlib import Path
+
+status = {}
+for line in Path("/proc/self/status").read_text().splitlines():
+    if line.startswith("NoNewPrivs:"):
+        status["no_new_privs"] = int(line.split()[1])
+    elif line.startswith("Seccomp:"):
+        status["seccomp"] = int(line.split()[1])
+try:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.close()
+    status["socket_allowed"] = True
+    status["socket_errno"] = None
+except OSError as exc:
+    status["socket_allowed"] = False
+    status["socket_errno"] = exc.errno
+print(json.dumps(status, sort_keys=True))
+PY
+    baseline="$(python3 "$probe" 2>/dev/null)" || baseline_status=$?
+    off="$("$CODEX_NATIVE_RUNTIME" sandbox -c sandbox_workspace_write.network_access=false \
+        python3 "$probe" 2>/dev/null)" || off_status=$?
+    on="$("$CODEX_NATIVE_RUNTIME" sandbox \
+        -c permissions.wrapper-network.network.enabled=true -P wrapper-network \
+        python3 "$probe" 2>/dev/null)" || on_status=$?
+    reset="$("$CODEX_NATIVE_RUNTIME" sandbox -c sandbox_workspace_write.network_access=false \
+        python3 "$probe" 2>/dev/null)" || reset_status=$?
+    python3 - "$baseline" "$off" "$on" "$reset" \
+        "$baseline_status" "$off_status" "$on_status" "$reset_status" <<'PY'
+import json, sys
+
+names = ("baseline", "off", "on", "reset")
+reports = {}
+statuses = [int(value) for value in sys.argv[5:9]]
+for name, raw, status in zip(names, sys.argv[1:5], statuses):
+    try:
+        reports[name] = json.loads(raw)
+    except Exception:
+        reports[name] = {"parse_error": True, "raw": raw, "exit_code": status}
+
+baseline_ok = statuses[0] == 0 and reports["baseline"].get("socket_allowed") is True
+off_ok = (
+    statuses[1] == 0
+    and reports["off"].get("socket_allowed") is False
+    and reports["off"].get("socket_errno") == 1
+    and reports["off"].get("no_new_privs") == 1
+    and reports["off"].get("seccomp") == 2
+)
+on_ok = statuses[2] == 0 and reports["on"].get("socket_allowed") is True
+reset_ok = (
+    statuses[3] == 0
+    and reports["reset"].get("socket_allowed") is False
+    and reports["reset"].get("socket_errno") == 1
+)
+if not baseline_ok:
+    overall = "inconclusive"
+elif off_ok and on_ok and reset_ok:
+    overall = "ok"
+else:
+    overall = "fail"
+print(json.dumps({
+    "overallStatus": overall,
+    "checks": {
+        "baseline_socket": baseline_ok,
+        "network_off": off_ok,
+        "network_on": on_ok,
+        "network_reset": reset_ok,
+    },
+    "reports": reports,
+}, ensure_ascii=True, sort_keys=True))
+PY
+}
+
+codex_wrapper_doctor_json() {
+    local version raw_sha runtime_sha network_json
     version="$(codex_read_state_field version)"
     raw_sha="$(codex_read_state_field raw_sha256)"
     runtime_sha="$(codex_read_state_field runtime_sha256)"
-    python3 - "$CODEX_NATIVE_RUNTIME" "$CODEX_NATIVE_RUNTIME_DIR" "$CODEX_NATIVE_RAW_VENDOR" "$CODEX_NATIVE_RESOLV_CONF" "$CODEX_NATIVE_CERT_FILE" "$CODEX_NATIVE_STATE_FILE" "$CODEX_NATIVE_REGISTRY_FILE" "$version" "$raw_sha" "$runtime_sha" "$CODEX_NATIVE_PREFIX" <<'PY'
-import filecmp, json, os, subprocess, sys
+    codex_prepare_runtime_env
+    network_json="$(codex_network_boundary_json)"
+    python3 - "$CODEX_NATIVE_RUNTIME" "$CODEX_NATIVE_RUNTIME_DIR" "$CODEX_NATIVE_RAW_VENDOR" "$CODEX_NATIVE_RESOLV_CONF" "$CODEX_NATIVE_CERT_FILE" "$CODEX_NATIVE_STATE_FILE" "$CODEX_NATIVE_REGISTRY_FILE" "$version" "$raw_sha" "$runtime_sha" "$CODEX_NATIVE_PREFIX" "$CODEX_NATIVE_RUNTIME_BUILDER" "$CODEX_NATIVE_PATCH_POLICY" "$network_json" <<'PY'
+import filecmp, hashlib, json, os, subprocess, sys
 from pathlib import Path
 runtime = Path(sys.argv[1])
 runtime_dir = Path(sys.argv[2])
@@ -673,9 +959,39 @@ version = sys.argv[8]
 raw_sha = sys.argv[9]
 runtime_sha = sys.argv[10]
 prefix = Path(sys.argv[11])
+builder = Path(sys.argv[12])
+patch_policy = sys.argv[13]
+network = json.loads(sys.argv[14])
 path_bwrap = runtime_dir / "codex-path/bwrap"
 bundled_bwrap = runtime_dir / "codex-resources/bwrap"
 rg = runtime_dir / "codex-path/rg"
+manifest_path = runtime_dir / "runtime-build.json"
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+try:
+    manifest = json.loads(manifest_path.read_text())
+except Exception:
+    manifest = {}
+try:
+    actual_raw_sha = sha256(raw_vendor / "bin/codex")
+except Exception:
+    actual_raw_sha = ""
+try:
+    actual_runtime_sha = sha256(runtime)
+except Exception:
+    actual_runtime_sha = ""
+try:
+    raw_bytes = (raw_vendor / "bin/codex").read_bytes()
+    runtime_bytes = runtime.read_bytes()
+    dns_only = raw_bytes.replace(b"/etc/resolv.conf", b"/proc/self/fd/33") == runtime_bytes
+except Exception:
+    dns_only = False
 checks = {
     "runtime": runtime.exists() and os.access(runtime, os.X_OK),
     "raw": (raw_vendor / "bin/codex").exists(),
@@ -690,6 +1006,14 @@ checks = {
     "cert": cert.exists() and os.access(cert, os.R_OK),
     "state": state.exists(),
     "registry": registry.exists(),
+    "raw_hash": bool(actual_raw_sha and actual_raw_sha == raw_sha == manifest.get("raw_sha256")),
+    "runtime_hash": bool(actual_runtime_sha and actual_runtime_sha == runtime_sha == manifest.get("runtime_sha256")),
+    "build_manifest": bool(
+        manifest.get("patch_policy") == patch_policy
+        and manifest.get("builder_sha256") == sha256(builder)
+    ),
+    "dns_only_patch": dns_only,
+    "network_boundary": network.get("overallStatus") != "fail",
 }
 registry_data = {}
 try:
@@ -722,7 +1046,7 @@ try:
 except Exception:
     checks["dns_patch"] = False
 print(json.dumps({
-    "schema": 2,
+    "schema": 3,
     "overallStatus": "ok" if all(checks.values()) else "fail",
     "version": version,
     "raw_sha256": raw_sha,
@@ -741,20 +1065,36 @@ print(json.dumps({
         "ldLibraryPath": "sanitized before runtime execution",
         "runtimePatch": "official linux-arm64 raw package rebuilt into Termux-managed runtime",
     },
+    "networkBoundary": network,
+    "buildManifest": manifest,
     "checks": checks,
 }, ensure_ascii=True, sort_keys=True))
 PY
 }
 
-codex_doctor() {
-    if [ "${1:-}" = "--upstream" ]; then
-        shift
-        codex_open_fd33_and_exec doctor "$@"
-    elif [ "${1:-}" = "--json" ]; then
-        codex_doctor_json
+codex_wrapper_doctor() {
+    if [ "${1:-}" = "--json" ]; then
+        codex_wrapper_doctor_json
     else
-        codex_doctor_json | python3 -m json.tool
+        codex_wrapper_doctor_json | python3 -m json.tool
     fi
+}
+
+codex_public_doctor() {
+    if [ $# -gt 0 ]; then
+        codex_ensure_runtime_ready || return $?
+        codex_prepare_runtime_env
+        "$CODEX_NATIVE_RUNTIME" doctor "$@"
+        return $?
+    fi
+
+    local upstream_status=0 wrapper_status=0
+    codex_ensure_runtime_ready || return $?
+    codex_prepare_runtime_env
+    "$CODEX_NATIVE_RUNTIME" doctor || upstream_status=$?
+    printf '\nTermux Wrapper\n'
+    codex_wrapper_doctor || wrapper_status=$?
+    [ "$upstream_status" -eq 0 ] && [ "$wrapper_status" -eq 0 ]
 }
 
 codex_profile_validate_name() {
@@ -789,87 +1129,6 @@ codex_profile_share_plugins() {
         return 0
     fi
     ln -s "$shared_plugins_dir" "$plugins_dir"
-}
-
-codex_profile_network_access_enabled() {
-    case "${CODEX_NATIVE_PROFILE_NETWORK_ACCESS:-1}" in
-        0|off|false|no|none)
-            return 1
-            ;;
-        *)
-            return 0
-            ;;
-    esac
-}
-
-codex_profile_enable_network_access() {
-    local profile_dir="$1" config_file
-    codex_profile_network_access_enabled || return 0
-    config_file="$profile_dir/config.toml"
-    mkdir -p "$profile_dir"
-    python3 - "$config_file" <<'PY'
-import os
-import re
-import sys
-from pathlib import Path
-
-path = Path(sys.argv[1])
-text = path.read_text() if path.exists() else ""
-lines = text.splitlines()
-section_re = re.compile(r"^\s*\[([^\]]+)\]\s*(?:#.*)?$")
-network_re = re.compile(r"^\s*network_access\s*=")
-
-out = []
-in_section = False
-found_section = False
-found_key = False
-changed = False
-
-def add_missing_key_if_needed() -> None:
-    global found_key, changed
-    if in_section and not found_key:
-        out.append("network_access = true")
-        found_key = True
-        changed = True
-
-for line in lines:
-    match = section_re.match(line)
-    if match:
-        add_missing_key_if_needed()
-        in_section = match.group(1).strip() == "sandbox_workspace_write"
-        if in_section:
-            found_section = True
-            found_key = False
-        out.append(line)
-        continue
-    if in_section and network_re.match(line):
-        if line.strip() != "network_access = true":
-            out.append("network_access = true")
-            changed = True
-        else:
-            out.append(line)
-        found_key = True
-        continue
-    out.append(line)
-
-add_missing_key_if_needed()
-
-if not found_section:
-    if out and out[-1] != "":
-        out.append("")
-    out.extend(["[sandbox_workspace_write]", "network_access = true"])
-    changed = True
-
-new_text = "\n".join(out) + "\n"
-if not path.exists() or changed or text != new_text:
-    tmp = path.with_name("." + path.name + ".tmp")
-    tmp.write_text(new_text)
-    if path.exists():
-        os.chmod(tmp, path.stat().st_mode & 0o777)
-    else:
-        os.chmod(tmp, 0o600)
-    os.replace(tmp, path)
-PY
 }
 
 codex_list_profiles() {
@@ -932,7 +1191,6 @@ codex_profile_exec() {
         return 2
     fi
     codex_profile_share_plugins "$profile_dir"
-    codex_profile_enable_network_access "$profile_dir"
     codex_ensure_runtime_ready || return $?
     codex_auto_update_if_needed
     codex_prepare_runtime_env
@@ -1059,16 +1317,20 @@ codex_use_list() {
 
 codex_use_render() {
     local latest="$1" interactive_limit="$2" mode="$3"
-    python3 - "$CODEX_NATIVE_REGISTRY_FILE" "$latest" "$CODEX_NATIVE_STORE_DIR/runtime" "$interactive_limit" "$mode" <<'PY'
-import json, os, sys
+    python3 - "$CODEX_NATIVE_REGISTRY_FILE" "$latest" "$CODEX_NATIVE_STORE_DIR/runtime" "$interactive_limit" "$mode" \
+        "$CODEX_NATIVE_RUNTIME_BUILDER" "$CODEX_NATIVE_PATCH_POLICY" <<'PY'
+import hashlib, json, os, sys
 from pathlib import Path
 path = Path(sys.argv[1])
 latest = sys.argv[2]
 store_runtime_root = Path(sys.argv[3]).resolve()
 interactive_limit = int(sys.argv[4])
 mode = sys.argv[5]
+builder = Path(sys.argv[6])
+policy = sys.argv[7]
 data = json.loads(path.read_text()) if path.exists() else {"installs": []}
 active_tuple_id = data.get("active_tuple_id", "")
+builder_sha = hashlib.sha256(builder.read_bytes()).hexdigest()
 
 def managed_runtime_path(value: str) -> bool:
     if not value:
@@ -1077,10 +1339,18 @@ def managed_runtime_path(value: str) -> bool:
         runtime_path = Path(value).resolve()
     except Exception:
         return False
-    return (
-        (runtime_path / "codex").exists()
-        and (runtime_path == store_runtime_root or store_runtime_root in runtime_path.parents)
-    )
+    if not ((runtime_path / "codex").exists() and store_runtime_root in runtime_path.parents):
+        return False
+    try:
+        manifest = json.loads((runtime_path / "runtime-build.json").read_text())
+        digest = hashlib.sha256((runtime_path / "codex").read_bytes()).hexdigest()
+        return (
+            manifest.get("patch_policy") == policy
+            and manifest.get("builder_sha256") == builder_sha
+            and manifest.get("runtime_sha256") == digest
+        )
+    except Exception:
+        return False
 
 seen = set()
 rows = []
@@ -1157,13 +1427,17 @@ codex_use_select() {
     if [ -z "$latest" ]; then
         latest="$(codex_latest_linux_arm64_version || true)"
     fi
-    selected="$(python3 - "$CODEX_NATIVE_REGISTRY_FILE" "$choice" "$latest" "$CODEX_NATIVE_STORE_DIR/runtime" <<'PY'
-import json, sys
+    selected="$(python3 - "$CODEX_NATIVE_REGISTRY_FILE" "$choice" "$latest" "$CODEX_NATIVE_STORE_DIR/runtime" \
+        "$CODEX_NATIVE_RUNTIME_BUILDER" "$CODEX_NATIVE_PATCH_POLICY" <<'PY'
+import hashlib, json, sys
 from pathlib import Path
 path = Path(sys.argv[1])
 choice = sys.argv[2]
 latest = sys.argv[3]
 store_runtime_root = Path(sys.argv[4]).resolve()
+builder = Path(sys.argv[5])
+policy = sys.argv[6]
+builder_sha = hashlib.sha256(builder.read_bytes()).hexdigest()
 data = json.loads(path.read_text()) if path.exists() else {"installs": []}
 
 def managed_runtime_path(value: str) -> bool:
@@ -1173,10 +1447,18 @@ def managed_runtime_path(value: str) -> bool:
         runtime_path = Path(value).resolve()
     except Exception:
         return False
-    return (
-        (runtime_path / "codex").exists()
-        and (runtime_path == store_runtime_root or store_runtime_root in runtime_path.parents)
-    )
+    if not ((runtime_path / "codex").exists() and store_runtime_root in runtime_path.parents):
+        return False
+    try:
+        manifest = json.loads((runtime_path / "runtime-build.json").read_text())
+        digest = hashlib.sha256((runtime_path / "codex").read_bytes()).hexdigest()
+        return (
+            manifest.get("patch_policy") == policy
+            and manifest.get("builder_sha256") == builder_sha
+            and manifest.get("runtime_sha256") == digest
+        )
+    except Exception:
+        return False
 
 rows = []
 seen = set()
@@ -1236,6 +1518,7 @@ EOF
         codex_promote_runtime_payload "$runtime_path" || return 1
         tuple_id="$(codex_record_registry "$version" "$raw_sha" "$runtime_sha" "$package_spec" "$runtime_path")"
         codex_write_json_state "$version" "$raw_sha" "$runtime_sha" "$package_spec" "$tuple_id"
+        codex_prune_runtime_store
         codex_say "using Codex $version"
     fi
     codex_version
@@ -1243,6 +1526,7 @@ EOF
 
 codex_bootstrap_store() {
     local version raw_sha runtime_sha package_spec runtime_path tuple_id
+    [ -n "$(codex_read_state_field active_tuple_id)" ] && return 0
     version="$(codex_read_state_field version)"
     raw_sha="$(codex_read_state_field raw_sha256)"
     runtime_sha="$(codex_read_state_field runtime_sha256)"
@@ -1272,7 +1556,7 @@ codex_main() {
             ;;
         doctor)
             shift
-            codex_doctor "$@"
+            codex_public_doctor "$@"
             ;;
         version)
             shift

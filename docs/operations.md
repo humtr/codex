@@ -61,6 +61,9 @@ bash -n install.sh
 bash -n bin/install-runtime.sh
 bash -n lib/codex-termux-lib.sh
 bash -n tests/profile-behavior.sh
+bash -n tests/doctor-contract.sh
+bash -n tests/network-boundary.sh
+bash -n tests/runtime-integrity.sh
 ```
 
 Profile 동작 회귀 테스트:
@@ -68,6 +71,9 @@ Profile 동작 회귀 테스트:
 ```bash
 bash tests/profile-behavior.sh
 bash tests/runtime-bwrap-path.sh
+bash tests/doctor-contract.sh
+bash tests/network-boundary.sh
+bash tests/runtime-integrity.sh
 ```
 
 Runtime 진단:
@@ -82,7 +88,7 @@ Repo diff hygiene:
 git diff --check
 ```
 
-`doctor --json`에서 runtime, raw, runtime-private bwrap, rg, resolver, cert, state, registry, DNS patch 관련 check가 모두 true여야 live 설치가 정상이다. 네트워크 증상은 `doctor`만으로 결론 내리지 말고 sandbox 밖 DNS query와 profile network 설정을 같이 확인한다.
+`codex doctor`는 upstream 진단 뒤 wrapper 진단을 출력한다. 개발자용 `bash bin/install-runtime.sh doctor --json`에서 runtime, raw, build manifest, 실제 hash, DNS-only patch, runtime-private bwrap, network off/on/reset 관련 check가 정상이어야 live 설치가 정상이다. 상위 sandbox가 baseline socket을 막으면 network boundary 결과는 `inconclusive`다.
 
 ## 제거
 
@@ -98,6 +104,6 @@ codex remove
 - `CODEX_NATIVE_PREFIX`: Termux prefix이며 기본값은 `$PREFIX` 또는 `/data/data/com.termux/files/usr`다.
 - `CODEX_NATIVE_AUTO_UPDATE`: `0`이면 auto-update check를 끈다.
 - `CODEX_NATIVE_AUTO_UPDATE_MODE`: `prompt`, `force`, `off` 계열 값을 받는다.
-- `CODEX_NATIVE_PROFILE_NETWORK_ACCESS`: 기본값은 `1`이며 profile 실행 때 workspace-write network access를 true로 보장한다. `0`이면 profile config를 자동 변경하지 않는다.
+- `CODEX_NATIVE_RUNTIME_RETENTION`: compatible cached runtime 보존 개수이며 기본값은 `3`이다.
 - `CODEX_NATIVE_SHARED_PLUGINS_DIR`: named profile이 공유할 plugin directory다.
 - `CODEX_NATIVE_RESOLV_CONF`: fd 33으로 열 resolver file path다.
