@@ -1092,28 +1092,37 @@ counts = {"ok": 0, "idle": 0, "warn": 0, "fail": 0}
 def color(code, text):
     return f"\033[{code}m{text}\033[0m" if use_color else text
 
+def fg(code, text):
+    return f"\033[38;5;{code}m{text}\033[39m" if use_color else text
+
+def std_fg(code, text):
+    return f"\033[{code}m{text}\033[39m" if use_color else text
+
+def dim(text):
+    return color("2", text)
+
+def bold(text):
+    return color("1", text)
+
 def warn_mark():
-    return color("33", "⚠")
+    return fg("214", "⚠")
 
 def status_mark(item_status):
     if item_status == "ok":
-        return color("32", "✓")
+        return fg("10", "✓")
     if item_status == "warn":
-        return color("33", "⚠")
+        return fg("214", "⚠")
     if item_status == "idle":
-        return color("37", "○")
-    return color("31", "✗")
-
-def label(text):
-    return color("36", text)
+        return dim("○")
+    return fg("196", "✗")
 
 def section(text):
     print()
-    print(color("1", text))
+    print(bold(text))
 
 def row_status(item_status, name, summary):
     counts[item_status] += 1
-    print("  {} {} {}".format(status_mark(item_status), label("{:<12}".format(name)), summary))
+    print("  {} {:<12} {}".format(status_mark(item_status), name, dim(summary)))
 
 def row(ok, name, summary):
     row_status("ok" if ok else "fail", name, summary)
@@ -1128,7 +1137,7 @@ def probe_detail(name, item_status, value):
 def compact_hash(value):
     return value[:12] if value else "missing"
 
-print("{} · {}".format(color("1", "Termux Wrapper Doctor"), data.get("version", "unknown")))
+print("{} {}".format(bold("Termux Wrapper Doctor"), dim("· {}".format(data.get("version", "unknown")))))
 notes = []
 if network.get("overallStatus") == "inconclusive":
     notes.append(("sandbox", "network boundary baseline was blocked by the outer environment; restricted probes still passed."))
@@ -1136,9 +1145,9 @@ if status != "ok":
     notes.append(("wrapper", "one or more wrapper checks failed."))
 if notes:
     print()
-    print(color("1", "Notes"))
+    print(bold("Notes"))
     for name, summary in notes:
-        print(f"   {warn_mark()} {label(name):<12} {summary}")
+        print("   {} {:<12} {}".format(warn_mark(), name, summary))
 
 section("Runtime")
 row(checks.get("runtime"), "runtime", "managed executable · {}".format(compact_hash(data.get("runtime_sha256", ""))))
@@ -1183,19 +1192,16 @@ for name in ("baseline_socket", "network_off", "network_on", "network_reset"):
     probe_detail(name.replace("_", " "), probe_status, probe_ok)
 print()
 summary_status = "fail" if counts["fail"] else ("degraded" if counts["warn"] else "ok")
-summary = "{ok} ok · {idle} idle · {warn} warn · {fail} fail {status}".format(
-    ok=counts["ok"],
-    idle=counts["idle"],
-    warn=counts["warn"],
-    fail=counts["fail"],
-    status=summary_status,
+summary_tail = bold(std_fg("32", "ok")) if summary_status == "ok" else (
+    bold(std_fg("33", "degraded")) if summary_status == "degraded" else bold(std_fg("31", "fail"))
 )
-if summary_status == "ok":
-    print(color("32", summary))
-elif summary_status == "degraded":
-    print(color("33", summary))
-else:
-    print(color("31", summary))
+print(
+    dim(str(counts["ok"])) + " " + fg("10", "ok") + dim(" · ")
+    + dim(str(counts["idle"])) + dim(" idle · ")
+    + dim(str(counts["warn"])) + " " + fg("214", "warn") + dim(" · ")
+    + dim(str(counts["fail"])) + " " + fg("196", "fail") + " "
+    + summary_tail
+)
 raise SystemExit(0 if status == "ok" else 1)
 '
     fi
