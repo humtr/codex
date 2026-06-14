@@ -82,33 +82,38 @@ codex_prepare_launcher_slot() {
     fi
     if [ -e "$public" ] || [ -L "$public" ]; then
         if codex_file_has_marker "$public"; then
-            rm -f "$public"
             return 0
         fi
         base="$(basename "$public")"
         backup="$CODEX_NATIVE_BACKUP_DIR/$base.$(date +%Y%m%d-%H%M%S).bak"
         cp -Pp "$public" "$backup"
-        rm -f "$public"
     fi
 }
 
 codex_write_shell_launcher() {
     local public="$1" tmp
-    codex_prepare_launcher_slot "$public"
-    tmp="$CODEX_NATIVE_STATE_DIR/$(basename "$public").launcher.$$"
+    tmp="${public}.new.$$"
+    mkdir -p "${public%/*}"
     cat >"$tmp" <<EOF
 #!/bin/sh
 # $CODEX_NATIVE_MANAGED_LAUNCHER_MARKER
 exec "$CODEX_NATIVE_MANAGED_SHELL" "\$@"
 EOF
     chmod 755 "$tmp"
-    mv "$tmp" "$public"
+    if ! codex_prepare_launcher_slot "$public"; then
+        rm -f "$tmp"
+        return 1
+    fi
+    if ! mv -f "$tmp" "$public"; then
+        rm -f "$tmp"
+        return 1
+    fi
 }
 
 codex_write_compiled_launcher() {
     local public="$1" tmp
-    codex_prepare_launcher_slot "$public"
-    tmp="$CODEX_NATIVE_STATE_DIR/$(basename "$public").launcher.$$"
+    tmp="${public}.new.$$"
+    mkdir -p "${public%/*}"
     codex_build_launcher "$tmp"
     if ! grep -a -q "$CODEX_NATIVE_MANAGED_LAUNCHER_MARKER" "$tmp"; then
         rm -f "$tmp"
@@ -116,7 +121,14 @@ codex_write_compiled_launcher() {
         return 1
     fi
     chmod 755 "$tmp"
-    mv "$tmp" "$public"
+    if ! codex_prepare_launcher_slot "$public"; then
+        rm -f "$tmp"
+        return 1
+    fi
+    if ! mv -f "$tmp" "$public"; then
+        rm -f "$tmp"
+        return 1
+    fi
 }
 
 codex_install_launchers() {
@@ -143,31 +155,37 @@ codex_setup() {
     codex_version
 }
 
-case "${1:-setup}" in
-    setup)
-        shift || true
-        codex_setup "${1:-}"
-        ;;
-    support)
-        codex_install_support_files
-        codex_install_launchers
-        ;;
-    update)
-        shift || true
-        codex_update "${1:-}"
-        ;;
-    remove)
-        codex_remove
-        ;;
-    doctor)
-        shift || true
-        codex_wrapper_doctor "$@"
-        ;;
-    -h|--help|help)
-        usage
-        ;;
-    *)
-        usage >&2
-        exit 2
-        ;;
-esac
+main() {
+    case "${1:-setup}" in
+        setup)
+            shift || true
+            codex_setup "${1:-}"
+            ;;
+        support)
+            codex_install_support_files
+            codex_install_launchers
+            ;;
+        update)
+            shift || true
+            codex_update "${1:-}"
+            ;;
+        remove)
+            codex_remove
+            ;;
+        doctor)
+            shift || true
+            codex_wrapper_doctor "$@"
+            ;;
+        -h|--help|help)
+            usage
+            ;;
+        *)
+            usage >&2
+            exit 2
+            ;;
+    esac
+}
+
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+    main "$@"
+fi

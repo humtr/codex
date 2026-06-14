@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CODEX_NATIVE_REQUIRED_PACKAGES="${CODEX_NATIVE_REQUIRED_PACKAGES:-bash curl nodejs python tar coreutils ca-certificates}"
 CODEX_NATIVE_LOG_PREFIX="codex setup"
 export DEBIAN_FRONTEND="${DEBIAN_FRONTEND:-noninteractive}"
@@ -41,8 +42,15 @@ main() {
     say 'checking dependencies'
     install_dependencies
     say 'installing managed runtime'
-    bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/bin/install-runtime.sh" setup "$@"
+    bash "$ROOT_DIR/bin/install-runtime.sh" setup "$@"
+    say 'verifying public launcher'
+    "$PREFIX/bin/codex" version >/dev/null || fail 'public Codex launcher version check failed'
+    say 'verifying wrapper diagnostics'
+    bash "$ROOT_DIR/bin/install-runtime.sh" doctor --json >/dev/null \
+        || fail 'wrapper doctor verification failed'
     say 'ok'
 }
 
-main "$@"
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+    main "$@"
+fi

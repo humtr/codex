@@ -15,14 +15,14 @@
 ## `codex setup [version]`
 
 입력: 선택적 upstream version 또는 dist-tag 의미의 빈 값.  
-출력: support file과 launcher를 갱신하고 runtime이 없으면 설치한 뒤 version 정보를 출력한다.  
+출력: support file과 launcher를 갱신하고 runtime이 없으면 설치한 뒤 version 정보를 출력한다. setup 완료 뒤 public launcher의 `version` 확인과 wrapper doctor 검증이 이어진다.
 오류: Termux dependency나 package fetch가 실패하면 setup은 runtime을 추측해 만들지 않고 실패한다.
 
 ## `codex update [version]`
 
 입력: 선택적 version. `0.137.0`처럼 숫자 version만 주면 Linux ARM64 package spec으로 정규화한다.  
-출력: npm package fetch, raw 저장, runtime rebuild, state/registry 기록 후 installed version을 출력한다.  
-오류: npm pack 실패, tar extract 실패, raw vendor 필수 path 누락, binary patch 실패 중 하나가 발생하면 기존 runtime을 성공으로 표시하지 않는다.
+출력: candidate raw/runtime staging, smoke test, atomic promotion, state/registry 기록 후 installed version을 출력한다.
+오류: npm pack 실패, tar extract 실패, raw vendor 필수 path 누락, tarball safety 실패, binary patch 실패, smoke test 실패, promotion rollback 실패 중 하나가 발생하면 기존 runtime을 성공으로 표시하지 않는다.
 
 ## `codex doctor [--json|--summary|--all]`
 
@@ -51,7 +51,7 @@
 ## `bash install.sh [version]`
 
 입력: 선택적 version.  
-출력: dependency check, dependency install, managed runtime setup 진행 메시지.  
+출력: dependency check, dependency install, managed runtime setup, public launcher `version` 검증, wrapper doctor 검증 진행 메시지.
 오류: Termux가 아니거나 `$PREFIX/bin/pkg`가 없으면 시작 전에 실패한다.
 
 ## `bash bin/install-runtime.sh <command>`

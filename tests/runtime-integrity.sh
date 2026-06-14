@@ -16,7 +16,12 @@ trap 'rm -rf "$FIXTURE_ROOT"' EXIT
 raw_vendor="$FIXTURE_ROOT/raw/vendor/aarch64-unknown-linux-musl"
 runtime_dir="$FIXTURE_ROOT/runtime"
 mkdir -p "$raw_vendor/bin" "$raw_vendor/codex-resources/zsh/bin" "$raw_vendor/codex-path"
-printf 'prefix /etc/resolv.conf middle /etc/resolv.conf suffix\n' >"$raw_vendor/bin/codex"
+cat >"$raw_vendor/bin/codex" <<'EOF'
+#!/bin/sh
+# /etc/resolv.conf /etc/resolv.conf
+[ "${1:-}" != "--version" ] || printf 'codex 0.1.0\n'
+exit 0
+EOF
 printf '#!/bin/sh\nexit 0\n' >"$raw_vendor/codex-resources/bwrap"
 printf '#!/bin/sh\nexit 0\n' >"$raw_vendor/codex-resources/zsh/bin/zsh"
 printf '#!/bin/sh\nexit 0\n' >"$raw_vendor/codex-path/rg"
@@ -53,7 +58,11 @@ export CODEX_NATIVE_STATE_FILE="$CODEX_NATIVE_STATE_DIR/state.json"
 export CODEX_NATIVE_REGISTRY_FILE="$CODEX_NATIVE_STATE_DIR/registry.json"
 export CODEX_NATIVE_STORE_DIR="$CODEX_NATIVE_STATE_DIR/store"
 export CODEX_NATIVE_RUNTIME_RETENTION=3
+export CODEX_NATIVE_RESOLV_CONF="$FIXTURE_ROOT/resolv.conf"
+export CODEX_NATIVE_CERT_FILE="$FIXTURE_ROOT/cert.pem"
 mkdir -p "$CODEX_NATIVE_STATE_DIR"
+printf 'nameserver 127.0.0.1\n' >"$CODEX_NATIVE_RESOLV_CONF"
+printf 'cert\n' >"$CODEX_NATIVE_CERT_FILE"
 python - "$CODEX_NATIVE_STATE_FILE" "$raw_vendor/bin/codex" "$runtime_dir/codex" <<'PY'
 import hashlib, json, sys
 from pathlib import Path
@@ -99,6 +108,8 @@ state = json.loads(state_path.read_text())
 registry = json.loads(registry_path.read_text())
 active = state["active_tuple_id"]
 assert state["wrapper_commit"] == wrapper_commit
+assert state["verified_tuple_id"] == active
+assert state["verified_at"]
 assert wrapper_commit[:12] in active
 assert active in registry["runtime"]
 assert Path(registry["runtime"][active]["path"]).resolve() == runtime_path.resolve()

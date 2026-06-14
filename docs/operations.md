@@ -9,6 +9,7 @@ bash install.sh
 ```
 
 이 명령은 필요한 Termux package를 설치한 뒤 `bin/install-runtime.sh setup`을 실행한다. 의존성 설치가 먼저 끝나야 npm package fetch와 Python runtime build가 가능하므로 순서를 바꾸지 않는다.
+설치가 끝나면 public `$PREFIX/bin/codex version`과 `bash bin/install-runtime.sh doctor --json` 검증이 뒤따른다.
 
 ## Support file만 갱신
 
@@ -31,6 +32,7 @@ bash bin/install-runtime.sh update
 ```
 
 명시 버전이 필요하면 `codex update 0.137.0`처럼 버전만 넘긴다. wrapper는 Linux ARM64 package spec으로 정규화한 뒤 npm package를 받고, raw vendor tree를 저장하고, runtime을 rebuild하고, state/registry를 갱신한다.
+update는 candidate raw/runtime를 smoke test한 뒤 atomic promotion하고, 실패하면 active installation을 rollback한다.
 
 ## Runtime 선택
 
@@ -80,6 +82,19 @@ Runtime 진단:
 
 ```bash
 codex doctor --json
+```
+
+개발자용 wrapper 진단과 install regression:
+
+```bash
+bash tests/runtime-smoke.sh
+bash tests/transactional-update.sh
+bash tests/auto-update-failure.sh
+bash tests/launcher-transaction.sh
+bash tests/tarball-safety.sh
+bash tests/lock-behavior.sh
+bash tests/install-verification.sh
+bash tests/use-cache-activation.sh
 ```
 
 Repo diff hygiene:
