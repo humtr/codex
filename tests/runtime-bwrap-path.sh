@@ -29,7 +29,7 @@ bash "$ROOT_DIR/bin/install-runtime.sh" support
     || fail "support changed the public bwrap"
 
 # shellcheck disable=SC1091
-. "$CODEX_NATIVE_HOME/.local/lib/codex/native/runtime/lib.sh"
+. "$CODEX_NATIVE_HOME/.local/lib/codex/native/manager/lib.sh"
 runtime_dir="$CODEX_NATIVE_RUNTIME_DIR"
 mkdir -p "$runtime_dir/codex-path" "$runtime_dir/codex-resources"
 cp "$ROOT_DIR/tools/bwrap-termux-compat.py" "$runtime_dir/codex-path/bwrap"

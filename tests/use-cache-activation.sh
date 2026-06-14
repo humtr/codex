@@ -15,9 +15,11 @@ trap 'rm -rf "$FIXTURE_ROOT"' EXIT
 
 active_runtime="$FIXTURE_ROOT/native/runtime"
 active_raw="$FIXTURE_ROOT/native/raw/vendor/aarch64-unknown-linux-musl"
+manager_dir="$FIXTURE_ROOT/native/manager"
 store_runtime="$FIXTURE_ROOT/state/store/runtime/cached"
 store_raw="$FIXTURE_ROOT/state/store/raw/cached"
 mkdir -p "$active_runtime/codex-resources/zsh/bin" "$active_runtime/codex-path" "$active_raw/bin" \
+    "$manager_dir" \
     "$store_runtime/codex-resources/zsh/bin" "$store_runtime/codex-path" \
     "$store_raw/vendor/aarch64-unknown-linux-musl/bin" "$FIXTURE_ROOT/state"
 
@@ -36,14 +38,14 @@ printf 'cached raw\n' >"$store_raw/vendor/aarch64-unknown-linux-musl/bin/codex"
 chmod 755 "$active_runtime/codex" "$store_runtime/codex" \
     "$active_raw/bin/codex" "$store_raw/vendor/aarch64-unknown-linux-musl/bin/codex"
 
-printf '#!/bin/sh\nexit 0\n' >"$active_runtime/managed.sh"
-printf 'support-lib\n' >"$active_runtime/lib.sh"
-cp "$ROOT_DIR/tools/build-runtime.py" "$active_runtime/build-runtime.py"
-cp "$ROOT_DIR/tools/bwrap-termux-compat.py" "$active_runtime/bwrap-termux-compat.py"
-cp "$ROOT_DIR/tools/rg-termux-shim.sh" "$active_runtime/rg-termux-shim.sh"
-printf 'CODEX_NATIVE_WRAPPER_VERSION=test\nCODEX_NATIVE_WRAPPER_COMMIT=test\n' >"$active_runtime/wrapper-version.env"
-chmod 755 "$active_runtime/managed.sh" "$active_runtime/build-runtime.py" \
-    "$active_runtime/bwrap-termux-compat.py" "$active_runtime/rg-termux-shim.sh"
+printf '#!/bin/sh\nexit 0\n' >"$manager_dir/managed.sh"
+printf 'support-lib\n' >"$manager_dir/lib.sh"
+cp "$ROOT_DIR/tools/build-runtime.py" "$manager_dir/build-runtime.py"
+cp "$ROOT_DIR/tools/bwrap-termux-compat.py" "$manager_dir/bwrap-termux-compat.py"
+cp "$ROOT_DIR/tools/rg-termux-shim.sh" "$manager_dir/rg-termux-shim.sh"
+printf 'CODEX_NATIVE_WRAPPER_VERSION=test\nCODEX_NATIVE_WRAPPER_COMMIT=test\n' >"$manager_dir/wrapper-version.env"
+chmod 755 "$manager_dir/managed.sh" "$manager_dir/build-runtime.py" \
+    "$manager_dir/bwrap-termux-compat.py" "$manager_dir/rg-termux-shim.sh"
 
 printf '#!/bin/sh\nexit 0\n' >"$store_runtime/codex-path/bwrap"
 printf '#!/bin/sh\nexit 0\n' >"$store_runtime/codex-path/rg"
@@ -58,9 +60,10 @@ chmod 755 "$store_runtime/codex-path/bwrap" "$store_runtime/codex-path/rg" \
 export CODEX_NATIVE_HOME="$FIXTURE_ROOT/home"
 export CODEX_NATIVE_RAW_DIR="$FIXTURE_ROOT/native/raw"
 export CODEX_NATIVE_RAW_VENDOR="$active_raw"
+export CODEX_NATIVE_MANAGER_DIR="$manager_dir"
 export CODEX_NATIVE_RUNTIME_DIR="$active_runtime"
 export CODEX_NATIVE_RUNTIME="$active_runtime/codex"
-export CODEX_NATIVE_RUNTIME_BUILDER="$active_runtime/build-runtime.py"
+export CODEX_NATIVE_RUNTIME_BUILDER="$manager_dir/build-runtime.py"
 export CODEX_NATIVE_STATE_DIR="$FIXTURE_ROOT/state"
 export CODEX_NATIVE_STATE_FILE="$CODEX_NATIVE_STATE_DIR/state.json"
 export CODEX_NATIVE_REGISTRY_FILE="$CODEX_NATIVE_STATE_DIR/registry.json"
@@ -138,10 +141,12 @@ PY
 codex_use_select 1 >/dev/null || fail "cached runtime activation failed"
 
 [ "$(cat "$CODEX_NATIVE_RAW_VENDOR/bin/codex")" = "cached raw" ] || fail "cached activation did not promote matching raw package"
+[ -L "$CODEX_NATIVE_RAW_DIR" ] || fail "cached activation did not create raw pointer"
+[ -L "$CODEX_NATIVE_RUNTIME_DIR" ] || fail "cached activation did not create runtime pointer"
 codex_version | grep -q 'codex cached' || fail "cached activation did not promote cached runtime"
-cmp -s "$CODEX_NATIVE_RUNTIME_DIR/bwrap-termux-compat.py" "$CODEX_NATIVE_RUNTIME_DIR/codex-path/bwrap" \
+cmp -s "$CODEX_NATIVE_MANAGER_DIR/bwrap-termux-compat.py" "$CODEX_NATIVE_RUNTIME_DIR/codex-path/bwrap" \
     || fail "cached activation did not refresh runtime-private bwrap"
-cmp -s "$CODEX_NATIVE_RUNTIME_DIR/rg-termux-shim.sh" "$CODEX_NATIVE_RUNTIME_DIR/codex-path/rg" \
+cmp -s "$CODEX_NATIVE_MANAGER_DIR/rg-termux-shim.sh" "$CODEX_NATIVE_RUNTIME_DIR/codex-path/rg" \
     || fail "cached activation did not refresh runtime-private rg"
 
 python3 - "$CODEX_NATIVE_STATE_FILE" "$raw_sha" "$runtime_sha" <<'PY'

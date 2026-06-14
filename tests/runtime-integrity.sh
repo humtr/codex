@@ -115,7 +115,7 @@ assert active in registry["runtime"]
 assert Path(registry["runtime"][active]["path"]).resolve() == runtime_path.resolve()
 PY
 
-python - "$CODEX_NATIVE_STORE_DIR/runtime" "$CODEX_NATIVE_REGISTRY_FILE" "$CODEX_NATIVE_RUNTIME_BUILDER" <<'PY'
+python - "$CODEX_NATIVE_RUNTIME_STORE_DIR" "$CODEX_NATIVE_REGISTRY_FILE" "$CODEX_NATIVE_RUNTIME_BUILDER" <<'PY'
 import hashlib, json, os, sys
 from pathlib import Path
 
@@ -155,9 +155,9 @@ registry.write_text(json.dumps({
 }) + "\n")
 PY
 codex_prune_runtime_store
-[ -d "$CODEX_NATIVE_STORE_DIR/runtime/runtime-0" ] || fail "active runtime was pruned"
-[ ! -d "$CODEX_NATIVE_STORE_DIR/runtime/runtime-4" ] || fail "incompatible runtime was kept"
-[ "$(find "$CODEX_NATIVE_STORE_DIR/runtime" -mindepth 1 -maxdepth 1 -type d | wc -l)" -eq 3 ] \
+[ -d "$CODEX_NATIVE_RUNTIME_STORE_DIR/runtime-0" ] || fail "active runtime was pruned"
+[ ! -d "$CODEX_NATIVE_RUNTIME_STORE_DIR/runtime-4" ] || fail "incompatible runtime was kept"
+[ "$(find "$CODEX_NATIVE_RUNTIME_STORE_DIR" -mindepth 1 -maxdepth 1 -type d | wc -l)" -eq 3 ] \
     || fail "runtime retention did not keep exactly three entries"
 
 printf 'runtime-integrity: ok\n'

@@ -15,6 +15,7 @@ trap 'rm -rf "$FIXTURE_ROOT"' EXIT
 
 raw_vendor="$FIXTURE_ROOT/raw/vendor/aarch64-unknown-linux-musl"
 runtime_dir="$FIXTURE_ROOT/runtime"
+manager_dir="$FIXTURE_ROOT/native/manager"
 mkdir -p "$raw_vendor/bin" "$raw_vendor/codex-resources/zsh/bin" "$raw_vendor/codex-path"
 cat >"$raw_vendor/bin/codex" <<'EOF'
 #!/bin/sh
@@ -36,15 +37,15 @@ printf '{}\n' >"$raw_vendor/codex-package.json"
 chmod 755 "$raw_vendor/bin/codex" "$raw_vendor/codex-resources/bwrap" \
     "$raw_vendor/codex-resources/zsh/bin/zsh" "$raw_vendor/codex-path/rg"
 
-mkdir -p "$runtime_dir"
-printf '#!/bin/sh\nexit 0\n' >"$runtime_dir/managed.sh"
-printf 'support-lib\n' >"$runtime_dir/lib.sh"
-cp "$ROOT_DIR/tools/build-runtime.py" "$runtime_dir/build-runtime.py"
-cp "$ROOT_DIR/tools/bwrap-termux-compat.py" "$runtime_dir/bwrap-termux-compat.py"
-cp "$ROOT_DIR/tools/rg-termux-shim.sh" "$runtime_dir/rg-termux-shim.sh"
-printf 'CODEX_NATIVE_WRAPPER_VERSION=test\nCODEX_NATIVE_WRAPPER_COMMIT=test\n' >"$runtime_dir/wrapper-version.env"
-chmod 755 "$runtime_dir/managed.sh" "$runtime_dir/build-runtime.py" \
-    "$runtime_dir/bwrap-termux-compat.py" "$runtime_dir/rg-termux-shim.sh"
+mkdir -p "$manager_dir"
+printf '#!/bin/sh\nexit 0\n' >"$manager_dir/managed.sh"
+printf 'support-lib\n' >"$manager_dir/lib.sh"
+cp "$ROOT_DIR/tools/build-runtime.py" "$manager_dir/build-runtime.py"
+cp "$ROOT_DIR/tools/bwrap-termux-compat.py" "$manager_dir/bwrap-termux-compat.py"
+cp "$ROOT_DIR/tools/rg-termux-shim.sh" "$manager_dir/rg-termux-shim.sh"
+printf 'CODEX_NATIVE_WRAPPER_VERSION=test\nCODEX_NATIVE_WRAPPER_COMMIT=test\n' >"$manager_dir/wrapper-version.env"
+chmod 755 "$manager_dir/managed.sh" "$manager_dir/build-runtime.py" \
+    "$manager_dir/bwrap-termux-compat.py" "$manager_dir/rg-termux-shim.sh"
 
 printf 'nameserver 127.0.0.1\n' >"$FIXTURE_ROOT/resolv.conf"
 printf 'cert\n' >"$FIXTURE_ROOT/cert.pem"
@@ -53,9 +54,10 @@ export CODEX_NATIVE_HOME="$FIXTURE_ROOT/home"
 export CODEX_NATIVE_NATIVE_ROOT="$FIXTURE_ROOT/native"
 export CODEX_NATIVE_RAW_DIR="$FIXTURE_ROOT/raw"
 export CODEX_NATIVE_RAW_VENDOR="$raw_vendor"
+export CODEX_NATIVE_MANAGER_DIR="$manager_dir"
 export CODEX_NATIVE_RUNTIME_DIR="$runtime_dir"
 export CODEX_NATIVE_RUNTIME="$runtime_dir/codex"
-export CODEX_NATIVE_RUNTIME_BUILDER="$runtime_dir/build-runtime.py"
+export CODEX_NATIVE_RUNTIME_BUILDER="$manager_dir/build-runtime.py"
 export CODEX_NATIVE_STATE_DIR="$FIXTURE_ROOT/state"
 export CODEX_NATIVE_STATE_FILE="$CODEX_NATIVE_STATE_DIR/state.json"
 export CODEX_NATIVE_REGISTRY_FILE="$CODEX_NATIVE_STATE_DIR/registry.json"
@@ -87,8 +89,18 @@ assert registry["runtime"][active]["smoke_tested_at"]
 PY
 
 codex_version >/dev/null || fail "version failed after smoke-tested rebuild"
-[ "$(cat "$runtime_dir/lib.sh")" = "support-lib" ] || fail "runtime rebuild discarded wrapper support"
-[ -x "$runtime_dir/managed.sh" ] || fail "runtime rebuild discarded managed launcher target"
-[ -x "$runtime_dir/build-runtime.py" ] || fail "runtime rebuild discarded runtime builder"
+[ -L "$runtime_dir" ] || fail "runtime activation did not create current pointer"
+case "$(readlink "$runtime_dir")" in
+    "$CODEX_NATIVE_RUNTIME_STORE_DIR"/*) ;;
+    *) fail "runtime pointer does not target the runtime store" ;;
+esac
+[ "$(cat "$manager_dir/lib.sh")" = "support-lib" ] || fail "manager support was changed during rebuild"
+[ -x "$manager_dir/managed.sh" ] || fail "manager launcher target is missing"
+[ -x "$manager_dir/build-runtime.py" ] || fail "manager runtime builder is missing"
+[ ! -e "$runtime_dir/managed.sh" ] || fail "runtime tuple contains manager launcher"
+cmp -s "$manager_dir/bwrap-termux-compat.py" "$runtime_dir/codex-path/bwrap" \
+    || fail "runtime-private bwrap was not refreshed from manager"
+cmp -s "$manager_dir/rg-termux-shim.sh" "$runtime_dir/codex-path/rg" \
+    || fail "runtime-private rg was not refreshed from manager"
 
 printf 'runtime-smoke: ok\n'

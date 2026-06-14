@@ -26,14 +26,14 @@ codex_source_commit() {
 }
 
 codex_write_managed_shell() {
-    mkdir -p "$CODEX_NATIVE_RUNTIME_DIR"
+    mkdir -p "$CODEX_NATIVE_MANAGER_DIR"
     cat >"$CODEX_NATIVE_MANAGED_SHELL.$$" <<EOF
 #!$CODEX_NATIVE_PREFIX/bin/bash
 # codex native managed shell
 set -euo pipefail
 export CODEX_NATIVE_INSTALL_RUNTIME_SOURCE="$ROOT_DIR/bin/install-runtime.sh"
 # shellcheck disable=SC1091
-. "$CODEX_NATIVE_RUNTIME_DIR/lib.sh"
+. "$CODEX_NATIVE_MANAGER_DIR/lib.sh"
 codex_main "\$@"
 EOF
     chmod 755 "$CODEX_NATIVE_MANAGED_SHELL.$$"
@@ -42,26 +42,26 @@ EOF
 
 codex_install_support_files() {
     local wrapper_commit
-    mkdir -p "$CODEX_NATIVE_RUNTIME_DIR" "$CODEX_NATIVE_STATE_DIR"
-    cp "$ROOT_DIR/lib/codex-termux-lib.sh" "$CODEX_NATIVE_RUNTIME_DIR/lib.sh"
-    chmod 755 "$CODEX_NATIVE_RUNTIME_DIR/lib.sh"
-    cp "$ROOT_DIR/tools/build-runtime.py" "$CODEX_NATIVE_RUNTIME_DIR/build-runtime.py"
-    chmod 755 "$CODEX_NATIVE_RUNTIME_DIR/build-runtime.py"
-    cp "$ROOT_DIR/tools/bwrap-termux-compat.py" "$CODEX_NATIVE_RUNTIME_DIR/bwrap-termux-compat.py"
-    chmod 755 "$CODEX_NATIVE_RUNTIME_DIR/bwrap-termux-compat.py"
-    cp "$ROOT_DIR/tools/rg-termux-shim.sh" "$CODEX_NATIVE_RUNTIME_DIR/rg-termux-shim.sh"
-    chmod 755 "$CODEX_NATIVE_RUNTIME_DIR/rg-termux-shim.sh"
+    mkdir -p "$CODEX_NATIVE_MANAGER_DIR" "$CODEX_NATIVE_STATE_DIR"
+    cp "$ROOT_DIR/lib/codex-termux-lib.sh" "$CODEX_NATIVE_MANAGER_DIR/lib.sh"
+    chmod 755 "$CODEX_NATIVE_MANAGER_DIR/lib.sh"
+    cp "$ROOT_DIR/tools/build-runtime.py" "$CODEX_NATIVE_MANAGER_DIR/build-runtime.py"
+    chmod 755 "$CODEX_NATIVE_MANAGER_DIR/build-runtime.py"
+    cp "$ROOT_DIR/tools/bwrap-termux-compat.py" "$CODEX_NATIVE_MANAGER_DIR/bwrap-termux-compat.py"
+    chmod 755 "$CODEX_NATIVE_MANAGER_DIR/bwrap-termux-compat.py"
+    cp "$ROOT_DIR/tools/rg-termux-shim.sh" "$CODEX_NATIVE_MANAGER_DIR/rg-termux-shim.sh"
+    chmod 755 "$CODEX_NATIVE_MANAGER_DIR/rg-termux-shim.sh"
     if [ -f "$ROOT_DIR/config/wrapper-version.env" ]; then
-        cp "$ROOT_DIR/config/wrapper-version.env" "$CODEX_NATIVE_RUNTIME_DIR/wrapper-version.env"
+        cp "$ROOT_DIR/config/wrapper-version.env" "$CODEX_NATIVE_MANAGER_DIR/wrapper-version.env"
     else
-        printf 'CODEX_NATIVE_WRAPPER_VERSION=unknown\nCODEX_NATIVE_WRAPPER_CHANNEL=unknown\nCODEX_NATIVE_WRAPPER_REPO=local/codex\n' >"$CODEX_NATIVE_RUNTIME_DIR/wrapper-version.env"
+        printf 'CODEX_NATIVE_WRAPPER_VERSION=unknown\nCODEX_NATIVE_WRAPPER_CHANNEL=unknown\nCODEX_NATIVE_WRAPPER_REPO=local/codex\n' >"$CODEX_NATIVE_MANAGER_DIR/wrapper-version.env"
     fi
     wrapper_commit="$(codex_source_commit)"
     {
         printf 'CODEX_NATIVE_WRAPPER_COMMIT=%s\n' "$wrapper_commit"
         printf 'CODEX_NATIVE_WRAPPER_INSTALLED_AT=%s\n' "$(date -Is)"
-    } >>"$CODEX_NATIVE_RUNTIME_DIR/wrapper-version.env"
-    chmod 644 "$CODEX_NATIVE_RUNTIME_DIR/wrapper-version.env"
+    } >>"$CODEX_NATIVE_MANAGER_DIR/wrapper-version.env"
+    chmod 644 "$CODEX_NATIVE_MANAGER_DIR/wrapper-version.env"
     codex_write_managed_shell
 }
 
@@ -143,6 +143,7 @@ codex_setup() {
     codex_validate_runtime_retention || return $?
     codex_install_support_files
     codex_install_launchers
+    codex_migrate_legacy_runtime_layout
     if ! codex_runtime_ok; then
         if [ -x "$CODEX_NATIVE_RAW_VENDOR/bin/codex" ]; then
             codex_repair_runtime_from_raw
