@@ -74,7 +74,7 @@ wrapper_human="$(codex_wrapper_doctor)"
     || fail "wrapper doctor did not render a title"
 [[ "$wrapper_human" == *$'\nRuntime\n'* ]] \
     || fail "wrapper doctor did not render runtime section"
-[[ "$wrapper_human" == *"Wrapper status: ok"* ]] \
+[[ "$wrapper_human" == *"17 ok · 0 idle · 0 warn · 0 fail ok"* ]] \
     || fail "wrapper doctor did not render final status"
 case "$wrapper_human" in
     "{"*) fail "wrapper doctor default output is still raw JSON" ;;

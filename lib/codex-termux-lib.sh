@@ -1087,15 +1087,22 @@ manifest = data.get("buildManifest", {})
 status = data.get("overallStatus", "fail")
 use_color = sys.stdout.isatty() and not bool(__import__("os").environ.get("NO_COLOR"))
 line = "─" * 61
+counts = {"ok": 0, "idle": 0, "warn": 0, "fail": 0}
 
 def color(code, text):
     return f"\033[{code}m{text}\033[0m" if use_color else text
 
-def mark(ok):
-    return color("32", "✓") if ok else color("31", "✗")
-
 def warn_mark():
     return color("33", "⚠")
+
+def status_mark(item_status):
+    if item_status == "ok":
+        return color("32", "✓")
+    if item_status == "warn":
+        return color("33", "⚠")
+    if item_status == "idle":
+        return color("37", "○")
+    return color("31", "✗")
 
 def label(text):
     return color("36", text)
@@ -1104,10 +1111,18 @@ def section(text):
     print()
     print(color("1", text))
 
+def row_status(item_status, name, summary):
+    counts[item_status] += 1
+    print("  {} {} {}".format(status_mark(item_status), label("{:<12}".format(name)), summary))
+
 def row(ok, name, summary):
-    print("  {} {} {}".format(mark(ok), label("{:<12}".format(name)), summary))
+    row_status("ok" if ok else "fail", name, summary)
 
 def detail(name, value):
+    print(f"      {name:<24} {value}")
+
+def probe_detail(name, item_status, value):
+    counts[item_status] += 1
     print(f"      {name:<24} {value}")
 
 def compact_hash(value):
@@ -1155,15 +1170,32 @@ detail("registry", paths.get("registry", "missing"))
 
 section("Sandbox")
 net_status = network.get("overallStatus", "missing")
-row(checks.get("network_boundary"), "network", f"boundary probe {net_status}")
-for name in ("baseline_socket", "network_off", "network_on", "network_reset"):
-    detail(name.replace("_", " "), network.get("checks", {}).get(name, False))
-print()
-if status == "ok":
-    print("{}: ok".format(color("32", "Wrapper status")))
+if net_status == "ok":
+    network_row_status = "ok"
+elif net_status == "inconclusive":
+    network_row_status = "warn"
 else:
-    failed = ", ".join(sorted(name for name, ok in checks.items() if not ok))
-    print("{}: fail ({})".format(color("31", "Wrapper status"), failed))
+    network_row_status = "fail"
+row_status(network_row_status, "network", f"boundary probe {net_status}")
+for name in ("baseline_socket", "network_off", "network_on", "network_reset"):
+    probe_ok = bool(network.get("checks", {}).get(name, False))
+    probe_status = "ok" if probe_ok else ("warn" if net_status == "inconclusive" else "fail")
+    probe_detail(name.replace("_", " "), probe_status, probe_ok)
+print()
+summary_status = "fail" if counts["fail"] else ("degraded" if counts["warn"] else "ok")
+summary = "{ok} ok · {idle} idle · {warn} warn · {fail} fail {status}".format(
+    ok=counts["ok"],
+    idle=counts["idle"],
+    warn=counts["warn"],
+    fail=counts["fail"],
+    status=summary_status,
+)
+if summary_status == "ok":
+    print(color("32", summary))
+elif summary_status == "degraded":
+    print(color("33", summary))
+else:
+    print(color("31", summary))
 raise SystemExit(0 if status == "ok" else 1)
 '
     fi
