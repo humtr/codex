@@ -1085,12 +1085,27 @@ paths = data.get("paths", {})
 network = data.get("networkBoundary", {})
 manifest = data.get("buildManifest", {})
 status = data.get("overallStatus", "fail")
+use_color = sys.stdout.isatty() and not bool(__import__("os").environ.get("NO_COLOR"))
+line = "─" * 61
+
+def color(code, text):
+    return f"\033[{code}m{text}\033[0m" if use_color else text
 
 def mark(ok):
-    return "✓" if ok else "✗"
+    return color("32", "✓") if ok else color("31", "✗")
+
+def warn_mark():
+    return color("33", "⚠")
+
+def label(text):
+    return color("36", text)
+
+def section(text):
+    print()
+    print(color("1", text))
 
 def row(ok, name, summary):
-    print(f"  {mark(ok)} {name:<12} {summary}")
+    print("  {} {} {}".format(mark(ok), label("{:<12}".format(name)), summary))
 
 def detail(name, value):
     print(f"      {name:<24} {value}")
@@ -1098,44 +1113,58 @@ def detail(name, value):
 def compact_hash(value):
     return value[:12] if value else "missing"
 
-print("Termux Wrapper Doctor · {}".format(data.get("version", "unknown")))
-print()
-print("Runtime")
-row(checks.get("runtime"), "runtime", "managed Codex executable · {}".format(compact_hash(data.get("runtime_sha256", ""))))
-row(checks.get("raw"), "raw", "cached official linux-arm64 package · {}".format(compact_hash(data.get("raw_sha256", ""))))
+print("{} · {}".format(color("1", "Termux Wrapper Doctor"), data.get("version", "unknown")))
+notes = []
+if network.get("overallStatus") == "inconclusive":
+    notes.append(("sandbox", "network boundary baseline was blocked by the outer environment; restricted probes still passed."))
+if status != "ok":
+    notes.append(("wrapper", "one or more wrapper checks failed."))
+if notes:
+    print()
+    print(color("1", "Notes"))
+    for name, summary in notes:
+        print(f"   {warn_mark()} {label(name):<12} {summary}")
+print(line)
+
+section("Runtime")
+row(checks.get("runtime"), "runtime", "managed executable · {}".format(compact_hash(data.get("runtime_sha256", ""))))
+detail("executable", paths.get("runtime", "missing"))
+row(checks.get("raw"), "raw", "official linux-arm64 package · {}".format(compact_hash(data.get("raw_sha256", ""))))
+detail("vendor", paths.get("raw_vendor", "missing"))
 row(checks.get("build_manifest"), "manifest", manifest.get("patch_policy", "missing"))
-row(checks.get("dns_only_patch"), "dns patch", "only /etc/resolv.conf is redirected to fd 33")
+detail("builder hash", compact_hash(manifest.get("builder_sha256", "")))
+row(checks.get("dns_only_patch"), "patch", "DNS resolver path redirects to fd 33 only")
+detail("changed bytes", manifest.get("changed_byte_count", "unknown"))
 row(checks.get("runtime_hash") and checks.get("raw_hash"), "integrity", "runtime and raw hashes match recorded state")
-detail("runtime", paths.get("runtime", "missing"))
-detail("raw vendor", paths.get("raw_vendor", "missing"))
 detail("active tuple", data.get("activeTupleId", "missing"))
 
-print()
-print("Support")
-row(checks.get("path_bwrap") and checks.get("bundled_bwrap") and checks.get("bwrap_exec"), "bwrap", "Termux compatibility launcher is installed and executable")
-row(checks.get("rg") and checks.get("rg_real") and checks.get("rg_exec"), "search", "ripgrep shim and original rg are installed")
-row(checks.get("support_bwrap_match") and checks.get("support_rg_match"), "support", "runtime support files match installed wrapper files")
+section("Support")
+row(checks.get("path_bwrap") and checks.get("bundled_bwrap") and checks.get("bwrap_exec"), "bwrap", "Termux compatibility launcher is executable")
+detail("launcher", "codex-path/bwrap")
+row(checks.get("rg") and checks.get("rg_real") and checks.get("rg_exec"), "search", "ripgrep shim and original rg are executable")
+detail("provider", "managed rg shim")
+row(checks.get("support_bwrap_match") and checks.get("support_rg_match"), "support", "installed support files match wrapper files")
 row(checks.get("zsh"), "zsh", "bundled zsh resource is present")
 
-print()
-print("Environment")
-row(checks.get("resolv"), "resolver", "/proc/self/fd/33 source is readable")
+section("Environment")
+row(checks.get("resolv"), "resolver", "fd 33 source is readable")
+detail("source", "/proc/self/fd/33")
 row(checks.get("cert"), "cert", "Termux CA bundle is readable")
-row(checks.get("state") and checks.get("registry") and checks.get("registry_active_tuple"), "state", "state and registry point at the active runtime")
+row(checks.get("state") and checks.get("registry") and checks.get("registry_active_tuple"), "state", "state and registry point at active runtime")
+detail("state", paths.get("state", "missing"))
+detail("registry", paths.get("registry", "missing"))
 
-print()
-print("Sandbox")
+section("Sandbox")
 net_status = network.get("overallStatus", "missing")
 row(checks.get("network_boundary"), "network", f"boundary probe {net_status}")
 for name in ("baseline_socket", "network_off", "network_on", "network_reset"):
     detail(name.replace("_", " "), network.get("checks", {}).get(name, False))
-
 print()
 if status == "ok":
-    print("Wrapper status: ok")
+    print("{}: ok".format(color("32", "Wrapper status")))
 else:
     failed = ", ".join(sorted(name for name, ok in checks.items() if not ok))
-    print(f"Wrapper status: fail ({failed})")
+    print("{}: fail ({})".format(color("31", "Wrapper status"), failed))
 raise SystemExit(0 if status == "ok" else 1)
 '
     fi
