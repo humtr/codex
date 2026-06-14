@@ -1124,7 +1124,6 @@ if notes:
     print(color("1", "Notes"))
     for name, summary in notes:
         print(f"   {warn_mark()} {label(name):<12} {summary}")
-print(line)
 
 section("Runtime")
 row(checks.get("runtime"), "runtime", "managed executable · {}".format(compact_hash(data.get("runtime_sha256", ""))))
