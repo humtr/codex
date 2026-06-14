@@ -1128,7 +1128,10 @@ def row(ok, name, summary):
     row_status("ok" if ok else "fail", name, summary)
 
 def detail(name, value):
-    print(f"      {name:<24} {value}")
+    print("      {} {}".format(fg("240", "{:<24}".format(name)), value))
+
+def path_detail(name, value):
+    print("      {} {}".format(fg("240", "{:<24}".format(name)), fg("117", value)))
 
 def probe_detail(name, item_status, value):
     counts[item_status] += 1
@@ -1137,7 +1140,7 @@ def probe_detail(name, item_status, value):
 def compact_hash(value):
     return value[:12] if value else "missing"
 
-print("{} {}".format(bold("Termux Wrapper Doctor"), dim("· {}".format(data.get("version", "unknown")))))
+print("{} {}".format(bold("Termux Wrapper Doctor"), dim("v{}".format(data.get("version", "unknown")))))
 notes = []
 if network.get("overallStatus") == "inconclusive":
     notes.append(("sandbox", "network boundary baseline was blocked by the outer environment; restricted probes still passed."))
@@ -1148,12 +1151,13 @@ if notes:
     print(bold("Notes"))
     for name, summary in notes:
         print("   {} {:<12} {}".format(warn_mark(), name, summary))
+    print(dim(line))
 
 section("Runtime")
 row(checks.get("runtime"), "runtime", "managed executable · {}".format(compact_hash(data.get("runtime_sha256", ""))))
-detail("executable", paths.get("runtime", "missing"))
+path_detail("executable", paths.get("runtime", "missing"))
 row(checks.get("raw"), "raw", "official linux-arm64 package · {}".format(compact_hash(data.get("raw_sha256", ""))))
-detail("vendor", paths.get("raw_vendor", "missing"))
+path_detail("vendor", paths.get("raw_vendor", "missing"))
 row(checks.get("build_manifest"), "manifest", manifest.get("patch_policy", "missing"))
 detail("builder hash", compact_hash(manifest.get("builder_sha256", "")))
 row(checks.get("dns_only_patch"), "patch", "DNS resolver path redirects to fd 33 only")
@@ -1174,8 +1178,8 @@ row(checks.get("resolv"), "resolver", "fd 33 source is readable")
 detail("source", "/proc/self/fd/33")
 row(checks.get("cert"), "cert", "Termux CA bundle is readable")
 row(checks.get("state") and checks.get("registry") and checks.get("registry_active_tuple"), "state", "state and registry point at active runtime")
-detail("state", paths.get("state", "missing"))
-detail("registry", paths.get("registry", "missing"))
+path_detail("state", paths.get("state", "missing"))
+path_detail("registry", paths.get("registry", "missing"))
 
 section("Sandbox")
 net_status = network.get("overallStatus", "missing")
@@ -1191,6 +1195,7 @@ for name in ("baseline_socket", "network_off", "network_on", "network_reset"):
     probe_status = "ok" if probe_ok else ("warn" if net_status == "inconclusive" else "fail")
     probe_detail(name.replace("_", " "), probe_status, probe_ok)
 print()
+print(dim(line))
 summary_status = "fail" if counts["fail"] else ("degraded" if counts["warn"] else "ok")
 summary_tail = bold(std_fg("32", "ok")) if summary_status == "ok" else (
     bold(std_fg("33", "degraded")) if summary_status == "degraded" else bold(std_fg("31", "fail"))
