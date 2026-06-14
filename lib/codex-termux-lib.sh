@@ -1076,7 +1076,68 @@ codex_wrapper_doctor() {
     if [ "${1:-}" = "--json" ]; then
         codex_wrapper_doctor_json
     else
-        codex_wrapper_doctor_json | python3 -m json.tool
+        codex_wrapper_doctor_json | python3 -c '
+import json, sys
+
+data = json.load(sys.stdin)
+checks = data.get("checks", {})
+paths = data.get("paths", {})
+network = data.get("networkBoundary", {})
+manifest = data.get("buildManifest", {})
+status = data.get("overallStatus", "fail")
+
+def mark(ok):
+    return "✓" if ok else "✗"
+
+def row(ok, name, summary):
+    print(f"  {mark(ok)} {name:<12} {summary}")
+
+def detail(name, value):
+    print(f"      {name:<24} {value}")
+
+def compact_hash(value):
+    return value[:12] if value else "missing"
+
+print("Termux Wrapper Doctor · {}".format(data.get("version", "unknown")))
+print()
+print("Runtime")
+row(checks.get("runtime"), "runtime", "managed Codex executable · {}".format(compact_hash(data.get("runtime_sha256", ""))))
+row(checks.get("raw"), "raw", "cached official linux-arm64 package · {}".format(compact_hash(data.get("raw_sha256", ""))))
+row(checks.get("build_manifest"), "manifest", manifest.get("patch_policy", "missing"))
+row(checks.get("dns_only_patch"), "dns patch", "only /etc/resolv.conf is redirected to fd 33")
+row(checks.get("runtime_hash") and checks.get("raw_hash"), "integrity", "runtime and raw hashes match recorded state")
+detail("runtime", paths.get("runtime", "missing"))
+detail("raw vendor", paths.get("raw_vendor", "missing"))
+detail("active tuple", data.get("activeTupleId", "missing"))
+
+print()
+print("Support")
+row(checks.get("path_bwrap") and checks.get("bundled_bwrap") and checks.get("bwrap_exec"), "bwrap", "Termux compatibility launcher is installed and executable")
+row(checks.get("rg") and checks.get("rg_real") and checks.get("rg_exec"), "search", "ripgrep shim and original rg are installed")
+row(checks.get("support_bwrap_match") and checks.get("support_rg_match"), "support", "runtime support files match installed wrapper files")
+row(checks.get("zsh"), "zsh", "bundled zsh resource is present")
+
+print()
+print("Environment")
+row(checks.get("resolv"), "resolver", "/proc/self/fd/33 source is readable")
+row(checks.get("cert"), "cert", "Termux CA bundle is readable")
+row(checks.get("state") and checks.get("registry") and checks.get("registry_active_tuple"), "state", "state and registry point at the active runtime")
+
+print()
+print("Sandbox")
+net_status = network.get("overallStatus", "missing")
+row(checks.get("network_boundary"), "network", f"boundary probe {net_status}")
+for name in ("baseline_socket", "network_off", "network_on", "network_reset"):
+    detail(name.replace("_", " "), network.get("checks", {}).get(name, False))
+
+print()
+if status == "ok":
+    print("Wrapper status: ok")
+else:
+    failed = ", ".join(sorted(name for name, ok in checks.items() if not ok))
+    print(f"Wrapper status: fail ({failed})")
+raise SystemExit(0 if status == "ok" else 1)
+'
     fi
 }
 
