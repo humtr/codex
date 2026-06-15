@@ -15,7 +15,9 @@ trap 'rm -rf "$FIXTURE_ROOT"' EXIT
 
 raw_vendor="$FIXTURE_ROOT/raw/vendor/aarch64-unknown-linux-musl"
 runtime_dir="$FIXTURE_ROOT/runtime"
-mkdir -p "$raw_vendor/bin" "$raw_vendor/codex-resources/zsh/bin" "$raw_vendor/codex-path"
+manager_dir="$FIXTURE_ROOT/native/manager"
+mkdir -p "$raw_vendor/bin" "$raw_vendor/codex-resources/zsh/bin" "$raw_vendor/codex-path" \
+    "$manager_dir"
 cat >"$raw_vendor/bin/codex" <<'EOF'
 #!/bin/sh
 # /etc/resolv.conf /etc/resolv.conf
@@ -28,6 +30,12 @@ printf '#!/bin/sh\nexit 0\n' >"$raw_vendor/codex-path/rg"
 printf '{}\n' >"$raw_vendor/codex-package.json"
 chmod 755 "$raw_vendor/bin/codex" "$raw_vendor/codex-resources/bwrap" \
     "$raw_vendor/codex-resources/zsh/bin/zsh" "$raw_vendor/codex-path/rg"
+cp "$ROOT_DIR/tools/build-runtime.py" "$manager_dir/build-runtime.py"
+cp "$ROOT_DIR/tools/bwrap-termux-compat.py" "$manager_dir/bwrap-termux-compat.py"
+cp "$ROOT_DIR/tools/rg-termux-shim.sh" "$manager_dir/rg-termux-shim.sh"
+printf 'CODEX_NATIVE_WRAPPER_VERSION=test\nCODEX_NATIVE_WRAPPER_COMMIT=test\n' >"$manager_dir/wrapper-version.env"
+chmod 755 "$manager_dir/build-runtime.py" "$manager_dir/bwrap-termux-compat.py" \
+    "$manager_dir/rg-termux-shim.sh"
 
 python "$ROOT_DIR/tools/build-runtime.py" "$raw_vendor" --runtime-dir "$runtime_dir" >/dev/null
 python - "$raw_vendor/bin/codex" "$runtime_dir/codex" "$runtime_dir/runtime-build.json" <<'PY'
@@ -50,9 +58,10 @@ export CODEX_NATIVE_HOME="$FIXTURE_ROOT/home"
 export CODEX_NATIVE_NATIVE_ROOT="$FIXTURE_ROOT/native"
 export CODEX_NATIVE_RAW_DIR="$FIXTURE_ROOT/raw"
 export CODEX_NATIVE_RAW_VENDOR="$raw_vendor"
+export CODEX_NATIVE_MANAGER_DIR="$manager_dir"
 export CODEX_NATIVE_RUNTIME_DIR="$runtime_dir"
 export CODEX_NATIVE_RUNTIME="$runtime_dir/codex"
-export CODEX_NATIVE_RUNTIME_BUILDER="$ROOT_DIR/tools/build-runtime.py"
+export CODEX_NATIVE_RUNTIME_BUILDER="$manager_dir/build-runtime.py"
 export CODEX_NATIVE_STATE_DIR="$FIXTURE_ROOT/state"
 export CODEX_NATIVE_STATE_FILE="$CODEX_NATIVE_STATE_DIR/state.json"
 export CODEX_NATIVE_REGISTRY_FILE="$CODEX_NATIVE_STATE_DIR/registry.json"
@@ -69,8 +78,17 @@ from pathlib import Path
 
 state, raw, runtime = map(Path, sys.argv[1:4])
 state.write_text(json.dumps({
+    "schema": 3,
+    "version": "0.1.0-linux-arm64",
     "raw_sha256": hashlib.sha256(raw.read_bytes()).hexdigest(),
     "runtime_sha256": hashlib.sha256(runtime.read_bytes()).hexdigest(),
+    "package_spec": "@openai/codex@0.1.0-linux-arm64",
+    "active_tuple_id": "tuple-active",
+    "wrapper_version": "test",
+    "wrapper_commit": "test",
+    "updated_at": "2026-06-15T00:00:00Z",
+    "verified_tuple_id": "tuple-active",
+    "verified_at": "2026-06-15T00:00:00Z",
 }) + "\n")
 PY
 
@@ -115,13 +133,19 @@ assert active in registry["runtime"]
 assert Path(registry["runtime"][active]["path"]).resolve() == runtime_path.resolve()
 PY
 
-python - "$CODEX_NATIVE_RUNTIME_STORE_DIR" "$CODEX_NATIVE_REGISTRY_FILE" "$CODEX_NATIVE_RUNTIME_BUILDER" <<'PY'
+python - "$CODEX_NATIVE_RUNTIME_STORE_DIR" "$CODEX_NATIVE_RAW_STORE_DIR" "$CODEX_NATIVE_REGISTRY_FILE" "$CODEX_NATIVE_STATE_FILE" "$CODEX_NATIVE_RUNTIME_BUILDER" <<'PY'
 import hashlib, json, os, sys
 from pathlib import Path
 
-store, registry, builder = map(Path, sys.argv[1:4])
+store, raw_store, registry, state, builder = map(Path, sys.argv[1:6])
 store.mkdir(parents=True, exist_ok=True)
+raw_store.mkdir(parents=True, exist_ok=True)
 builder_sha = hashlib.sha256(builder.read_bytes()).hexdigest()
+raw_path = raw_store / "raw-0"
+raw_binary = raw_path / "vendor/aarch64-unknown-linux-musl/bin/codex"
+raw_binary.parent.mkdir(parents=True, exist_ok=True)
+raw_binary.write_text("raw-0\n")
+raw_sha = hashlib.sha256(raw_binary.read_bytes()).hexdigest()
 runtime_entries = {}
 installs = []
 for index in range(5):
@@ -138,20 +162,61 @@ for index in range(5):
     (path / "runtime-build.json").write_text(json.dumps(manifest) + "\n")
     os.utime(path, (index + 1, index + 1))
     key = f"tuple-{index}"
-    runtime_entries[key] = {"path": str(path), "raw_id": "raw", "wrapper_id": "wrapper"}
+    runtime_entries[key] = {
+        "path": str(path),
+        "raw_id": "raw",
+        "wrapper_id": "wrapper",
+        "runtime_sha256": digest,
+        "updated_at": "2026-06-15T00:00:00Z",
+    }
     installs.append({
+        "version": f"0.1.{index}",
+        "raw_sha256": raw_sha,
+        "runtime_sha256": digest,
+        "package_spec": f"@openai/codex@0.1.{index}",
         "tuple_id": key,
         "runtime_path": str(path),
+        "raw_path": str(raw_path),
+        "updated_at": "2026-06-15T00:00:00Z",
         "raw_id": "raw",
         "wrapper_id": "wrapper",
     })
 registry.write_text(json.dumps({
-    "schema": 2,
+    "schema": 3,
     "active_tuple_id": "tuple-0",
+    "verified_tuple_id": "tuple-0",
     "runtime": runtime_entries,
     "installs": installs,
-    "raw": {"raw": {}},
-    "wrapper": {"wrapper": {}},
+    "raw": {
+        "raw": {
+            "version": "0.1.0",
+            "sha256": raw_sha,
+            "package_spec": "@openai/codex@0.1.0",
+            "path": str(raw_path),
+            "updated_at": "2026-06-15T00:00:00Z",
+        },
+    },
+    "wrapper": {
+        "wrapper": {
+            "version": "test",
+            "commit": "test",
+            "repo": "local/codex",
+            "updated_at": "2026-06-15T00:00:00Z",
+        },
+    },
+}) + "\n")
+state.write_text(json.dumps({
+    "schema": 3,
+    "version": "0.1.0",
+    "raw_sha256": raw_sha,
+    "runtime_sha256": runtime_entries["tuple-0"]["runtime_sha256"],
+    "package_spec": "@openai/codex@0.1.0",
+    "active_tuple_id": "tuple-0",
+    "wrapper_version": "test",
+    "wrapper_commit": "test",
+    "updated_at": "2026-06-15T00:00:00Z",
+    "verified_tuple_id": "tuple-0",
+    "verified_at": "2026-06-15T00:00:00Z",
 }) + "\n")
 PY
 codex_prune_runtime_store

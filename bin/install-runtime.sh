@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="${BASH_SOURCE[0]%/*}"
+[ "$ROOT_DIR" = "${BASH_SOURCE[0]}" ] && ROOT_DIR="."
+ROOT_DIR="$(cd "$ROOT_DIR/.." && pwd)"
 # shellcheck disable=SC1091
 . "$ROOT_DIR/lib/codex-termux-lib.sh"
 
@@ -45,6 +47,15 @@ codex_install_support_files() {
     mkdir -p "$CODEX_NATIVE_MANAGER_DIR" "$CODEX_NATIVE_STATE_DIR"
     cp "$ROOT_DIR/lib/codex-termux-lib.sh" "$CODEX_NATIVE_MANAGER_DIR/lib.sh"
     chmod 755 "$CODEX_NATIVE_MANAGER_DIR/lib.sh"
+    cp "$ROOT_DIR/lib/codex-termux-interactive.sh" "$CODEX_NATIVE_MANAGER_DIR/codex-termux-interactive.sh"
+    chmod 755 "$CODEX_NATIVE_MANAGER_DIR/codex-termux-interactive.sh"
+    cp "$ROOT_DIR/lib/codex-termux-runtime.sh" "$CODEX_NATIVE_MANAGER_DIR/codex-termux-runtime.sh"
+    chmod 755 "$CODEX_NATIVE_MANAGER_DIR/codex-termux-runtime.sh"
+    if [ -d "$ROOT_DIR/tools/codex_native" ]; then
+        rm -rf "$CODEX_NATIVE_MANAGER_DIR/codex_native"
+        cp -R "$ROOT_DIR/tools/codex_native" "$CODEX_NATIVE_MANAGER_DIR/codex_native"
+        python3 -m py_compile "$CODEX_NATIVE_MANAGER_DIR"/codex_native/*.py
+    fi
     cp "$ROOT_DIR/tools/build-runtime.py" "$CODEX_NATIVE_MANAGER_DIR/build-runtime.py"
     chmod 755 "$CODEX_NATIVE_MANAGER_DIR/build-runtime.py"
     cp "$ROOT_DIR/tools/bwrap-termux-compat.py" "$CODEX_NATIVE_MANAGER_DIR/bwrap-termux-compat.py"

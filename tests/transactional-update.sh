@@ -11,58 +11,81 @@ fail() {
 
 mkdir -p "$FIXTURE_PARENT"
 FIXTURE_ROOT="$(mktemp -d "$FIXTURE_PARENT/transactional-update-test.XXXXXX")"
-trap 'rm -rf "$FIXTURE_ROOT"' EXIT
+trap 'chmod -R u+w "$FIXTURE_ROOT" 2>/dev/null || true; rm -rf "$FIXTURE_ROOT"' EXIT
 
-active_raw="$FIXTURE_ROOT/native/raw/vendor/aarch64-unknown-linux-musl"
-active_runtime="$FIXTURE_ROOT/native/runtime"
-candidate_raw_root="$FIXTURE_ROOT/candidate.raw"
-candidate_raw="$candidate_raw_root/vendor/aarch64-unknown-linux-musl"
-candidate_runtime="$FIXTURE_ROOT/candidate.runtime"
-mkdir -p "$active_raw/bin" "$active_runtime" "$candidate_raw/bin" "$candidate_runtime"
-printf 'old raw\n' >"$active_raw/bin/codex"
-printf 'old runtime\n' >"$active_runtime/codex"
-printf 'new raw\n' >"$candidate_raw/bin/codex"
-printf 'new runtime\n' >"$candidate_runtime/codex"
-chmod 755 "$active_raw/bin/codex" "$candidate_raw/bin/codex" "$candidate_runtime/codex"
-
-export CODEX_NATIVE_RAW_DIR="$FIXTURE_ROOT/native/raw"
-export CODEX_NATIVE_RUNTIME_DIR="$active_runtime"
-export CODEX_NATIVE_STATE_DIR="$FIXTURE_ROOT/state"
-export CODEX_NATIVE_STATE_FILE="$CODEX_NATIVE_STATE_DIR/state.json"
-export CODEX_NATIVE_REGISTRY_FILE="$CODEX_NATIVE_STATE_DIR/registry.json"
-export CODEX_NATIVE_STORE_DIR="$CODEX_NATIVE_STATE_DIR/store"
-mkdir -p "$CODEX_NATIVE_STATE_DIR"
-printf 'old state\n' >"$CODEX_NATIVE_STATE_FILE"
-printf 'old registry\n' >"$CODEX_NATIVE_REGISTRY_FILE"
 # shellcheck disable=SC1091
-. "$ROOT_DIR/lib/codex-termux-lib.sh"
+. "$ROOT_DIR/tests/fixtures/activation-fixture.sh"
 
-active_raw_before="$(cat "$active_raw/bin/codex")"
-active_runtime_before="$(cat "$active_runtime/codex")"
-
-codex_store_runtime_payload() {
-    printf '%s\n' "$FIXTURE_ROOT/store/runtime"
-}
-codex_store_raw_payload() {
-    printf '%s\n' "$FIXTURE_ROOT/store/raw"
-}
-codex_smoke_test_runtime() { return 0; }
-codex_record_registry() {
-    printf 'new registry\n' >"$CODEX_NATIVE_REGISTRY_FILE"
-    printf 'new-tuple\n'
-}
-codex_write_json_state() {
-    printf 'new state\n' >"$CODEX_NATIVE_STATE_FILE"
-    return 1
+prepare_case() {
+    local root="$1"
+    activation_fixture_export_env "$root"
+    # shellcheck disable=SC1091
+    . "$ROOT_DIR/lib/codex-termux-lib.sh"
+    activation_fixture_make_candidate "$root" old healthy
+    activation_fixture_activate_candidate old >/dev/null || fail "initial activation failed"
+    activation_fixture_capture "$root"
 }
 
-if codex_commit_runtime_candidate "$candidate_runtime" "2.0.0" "raw-sha" "runtime-sha" "package" "$candidate_raw_root"; then
-    fail "candidate commit unexpectedly succeeded after state write failure"
-fi
+run_metadata_failure() (
+    local name="$1" root blocked_parent
+    root="$FIXTURE_ROOT/$name"
+    prepare_case "$root"
+    activation_fixture_make_candidate "$root" new healthy
+    if [ "$name" = "state-write" ]; then
+        blocked_parent="$(dirname "$CODEX_NATIVE_STATE_FILE")"
+    else
+        blocked_parent="$(dirname "$CODEX_NATIVE_REGISTRY_FILE")"
+    fi
+    chmod a-w "$blocked_parent"
+    if activation_fixture_activate_candidate new >"$root/failure.log" 2>&1; then
+        fail "$name failure injection unexpectedly activated candidate"
+    fi
+    chmod u+w "$blocked_parent"
+    activation_fixture_assert_unchanged "$root" || fail "$name did not preserve old metadata and pointers"
+    if grep -q 'rollback failed' "$root/failure.log"; then
+        fail "$name caused a secondary rollback failure"
+    fi
+)
 
-[ "$(cat "$active_raw/bin/codex")" = "$active_raw_before" ] || fail "active raw changed during rollback"
-[ "$(cat "$active_runtime/codex")" = "$active_runtime_before" ] || fail "active runtime changed during rollback"
-[ "$(cat "$CODEX_NATIVE_STATE_FILE")" = "old state" ] || fail "state was not restored"
-[ "$(cat "$CODEX_NATIVE_REGISTRY_FILE")" = "old registry" ] || fail "registry was not restored"
+run_cleanup_failure() (
+    local root="$FIXTURE_ROOT/cleanup"
+    prepare_case "$root"
+    activation_fixture_make_candidate "$root" new fail-cleanup
+    if activation_fixture_activate_candidate new >"$root/failure.log" 2>&1; then
+        fail "rollback cleanup failure injection unexpectedly succeeded"
+    fi
+    chmod u+w "$CODEX_NATIVE_RUNTIME_STORE_DIR"
+    activation_fixture_assert_unchanged "$root" || fail "cleanup failure did not otherwise restore old transaction"
+    grep -q 'rollback failed: transaction cleanup:' "$root/failure.log" \
+        || fail "rollback cleanup failure was not aggregated"
+)
+
+run_snapshot_restore_failure() (
+    local root="$FIXTURE_ROOT/snapshot-restore" expected="$FIXTURE_ROOT/snapshot-restore/expected"
+    prepare_case "$root"
+    activation_fixture_make_candidate "$root" new fail-state-restore
+    if activation_fixture_activate_candidate new >"$root/failure.log" 2>&1; then
+        fail "snapshot restore failure injection unexpectedly succeeded"
+    fi
+    chmod u+w "$CODEX_NATIVE_STATE_DIR"
+    [ "$(readlink "$CODEX_NATIVE_CURRENT_LINK")" = "$(cat "$expected/current")" ] \
+        || fail "snapshot restore failure did not restore current pointer"
+    [ "$(readlink "$CODEX_NATIVE_VERIFIED_LINK")" = "$(cat "$expected/verified")" ] \
+        || fail "snapshot restore failure did not restore verified pointer"
+    [ "$(readlink "$CODEX_NATIVE_RAW_DIR")" = "$(cat "$expected/raw")" ] \
+        || fail "snapshot restore failure did not restore raw pointer"
+    cmp -s "$CODEX_NATIVE_REGISTRY_FILE" "$expected/registry.json" \
+        || fail "snapshot restore failure did not restore registry"
+    if cmp -s "$CODEX_NATIVE_STATE_FILE" "$expected/state.json"; then
+        fail "snapshot restore failure injection did not leave state unrestored"
+    fi
+    grep -q 'rollback failed: state:' "$root/failure.log" \
+        || fail "snapshot restore failure was not aggregated"
+)
+
+run_metadata_failure state-write
+run_metadata_failure registry-write
+run_cleanup_failure
+run_snapshot_restore_failure
 
 printf 'transactional-update: ok\n'

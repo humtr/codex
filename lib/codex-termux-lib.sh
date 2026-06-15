@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -u
 
+CODEX_NATIVE_SHELL_DIR="${BASH_SOURCE[0]%/*}"
+[ "$CODEX_NATIVE_SHELL_DIR" = "${BASH_SOURCE[0]}" ] && CODEX_NATIVE_SHELL_DIR="."
+CODEX_NATIVE_SHELL_DIR="$(cd "$CODEX_NATIVE_SHELL_DIR" && pwd)"
+
 CODEX_NATIVE_HOME="${CODEX_NATIVE_HOME:-$HOME}"
 CODEX_NATIVE_PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
 CODEX_NATIVE_NATIVE_ROOT="${CODEX_NATIVE_NATIVE_ROOT:-$CODEX_NATIVE_HOME/.local/lib/codex/native}"
@@ -22,6 +26,8 @@ CODEX_NATIVE_REGISTRY_FILE="${CODEX_NATIVE_REGISTRY_FILE:-$CODEX_NATIVE_STATE_DI
 CODEX_NATIVE_STORE_DIR="${CODEX_NATIVE_STORE_DIR:-$CODEX_NATIVE_NATIVE_ROOT/store}"
 CODEX_NATIVE_RUNTIME_STORE_DIR="${CODEX_NATIVE_RUNTIME_STORE_DIR:-$CODEX_NATIVE_STORE_DIR/runtime}"
 CODEX_NATIVE_RAW_STORE_DIR="${CODEX_NATIVE_RAW_STORE_DIR:-$CODEX_NATIVE_STORE_DIR/raw}"
+CODEX_NATIVE_LEGACY_STORE_DIR="${CODEX_NATIVE_LEGACY_STORE_DIR:-$CODEX_NATIVE_STATE_DIR/store}"
+CODEX_NATIVE_STORE_MIGRATION_REPORT="${CODEX_NATIVE_STORE_MIGRATION_REPORT:-$CODEX_NATIVE_STATE_DIR/legacy-store-migration.json}"
 CODEX_NATIVE_BACKUP_DIR="${CODEX_NATIVE_BACKUP_DIR:-$CODEX_NATIVE_STATE_DIR/backups}"
 CODEX_NATIVE_DOCTOR_DIR="${CODEX_NATIVE_DOCTOR_DIR:-$CODEX_NATIVE_STATE_DIR/doctor}"
 CODEX_NATIVE_LOCK_FILE="${CODEX_NATIVE_LOCK_FILE:-$CODEX_NATIVE_STATE_DIR/native.lock}"
@@ -41,18 +47,187 @@ CODEX_NATIVE_AUTO_UPDATE_TIMEOUT_SECONDS="${CODEX_NATIVE_AUTO_UPDATE_TIMEOUT_SEC
 CODEX_NATIVE_AUTO_UPDATE_STAMP="${CODEX_NATIVE_AUTO_UPDATE_STAMP:-$CODEX_NATIVE_STATE_DIR/last-auto-update-check}"
 CODEX_NATIVE_AUTO_UPDATE_PENDING="${CODEX_NATIVE_AUTO_UPDATE_PENDING:-$CODEX_NATIVE_STATE_DIR/pending-auto-update-version}"
 CODEX_NATIVE_AUTO_UPDATE_FAILED="${CODEX_NATIVE_AUTO_UPDATE_FAILED:-$CODEX_NATIVE_STATE_DIR/failed-auto-update}"
+CODEX_NATIVE_LAST_PROFILE_FILE="${CODEX_NATIVE_LAST_PROFILE_FILE:-$CODEX_NATIVE_STATE_DIR/last-profile}"
 CODEX_NATIVE_RUNTIME_RETENTION="${CODEX_NATIVE_RUNTIME_RETENTION:-3}"
 CODEX_NATIVE_PATCH_POLICY="${CODEX_NATIVE_PATCH_POLICY:-dns-fd33-only-v1}"
 
 codex_say() { printf 'codex: %s\n' "$*" >&2; }
 codex_fail() { printf 'codex: ERROR: %s\n' "$*" >&2; return 1; }
 
+codex_ui_enabled() {
+    [ -t 2 ] && [ -z "${NO_COLOR:-}" ]
+}
+
+codex_ui_color() {
+    local code="$1" text="$2"
+    if codex_ui_enabled; then
+        printf '\033[%sm%s\033[0m' "$code" "$text"
+    else
+        printf '%s' "$text"
+    fi
+}
+
+codex_ui_bold() {
+    printf '%s' "$1"
+}
+
+codex_ui_dim() {
+    codex_ui_color "2" "$1"
+}
+
+codex_ui_number() {
+    codex_ui_color "36" "$(printf '%2s.' "$1")"
+}
+
+codex_ui_badge() {
+    local kind="$1" text code
+    case "$kind" in
+        active)
+            text=" 🟢 active "
+            code="42;30"
+            ;;
+        current)
+            text=" 🟢 current "
+            code="42;30"
+            ;;
+        cached)
+            text=" 📦 cached "
+            code="44;97"
+            ;;
+        run)
+            text=" ▶ run "
+            code="46;30"
+            ;;
+        install)
+            text=" ⬇ install "
+            code="43;30"
+            ;;
+        update)
+            text=" ⬇ update "
+            code="43;30"
+            ;;
+        latest)
+            text=" ⬆ latest "
+            code="45;97"
+            ;;
+        recent)
+            text=" 🕘 recent "
+            code="46;30"
+            ;;
+        keep)
+            text=" ↵ keep "
+            code="100;97"
+            ;;
+        *)
+            text=" $kind "
+            code="2"
+            ;;
+    esac
+    codex_ui_color "$code" "$text"
+}
+
+codex_ui_menu_header() {
+    local title="$1" subtitle="${2:-}"
+    printf '%s\n' "$title" >&2
+    if [ -n "$subtitle" ]; then
+        printf '%s\n' "$(codex_ui_dim "$subtitle")" >&2
+    fi
+}
+
+codex_ui_menu_row() {
+    local key="$1" label="$2"
+    shift 2 || true
+    printf '  %s %s' "$(codex_ui_number "$key")" "$label" >&2
+    while [ "$#" -gt 0 ]; do
+        [ -n "$1" ] && printf ' %s' "$1" >&2
+        shift
+    done
+    printf '\n' >&2
+}
+
+codex_ui_prompt() {
+    codex_ui_dim "$1"
+}
+
+codex_display_version() {
+    local version="${1:-unknown}"
+    case "$version" in
+        *-linux-arm64)
+            printf '%s\n' "${version%-linux-arm64}"
+            ;;
+        *)
+            printf '%s\n' "$version"
+            ;;
+    esac
+}
+
+codex_parent_dir() {
+    local path="$1"
+    path="${path%/*}"
+    [ -n "$path" ] || path="."
+    printf '%s\n' "$path"
+}
+
 codex_sha256() {
-    sha256sum "$1" | awk '{print $1}'
+    codex_native_cmd hash-file --path "$1"
 }
 
 codex_now() {
     date -Is
+}
+
+codex_native_package_root() {
+    local source_dir source_root package_root=""
+    source_dir="${BASH_SOURCE[0]%/*}"
+    [ "$source_dir" = "${BASH_SOURCE[0]}" ] && source_dir="."
+    source_dir="$(cd "$source_dir" && pwd)"
+    source_root="$(cd "$source_dir/.." && pwd)"
+    if [ -d "$source_root/tools/codex_native" ]; then
+        package_root="$source_root/tools"
+    elif [ -n "${ROOT_DIR:-}" ] && [ -d "$ROOT_DIR/tools/codex_native" ]; then
+        package_root="$ROOT_DIR/tools"
+    elif [ -d "$CODEX_NATIVE_MANAGER_DIR/codex_native" ]; then
+        package_root="$CODEX_NATIVE_MANAGER_DIR"
+    else
+        codex_fail "internal helper package is unavailable"
+        return 1
+    fi
+    printf '%s\n' "$package_root"
+}
+
+codex_native_cmd() {
+    local package_root
+    package_root="$(codex_native_package_root)" || return 1
+    PYTHONPATH="$package_root${PYTHONPATH:+:$PYTHONPATH}" python3 -m codex_native.cli "$@"
+}
+
+codex_native_activation_cmd() {
+    local action="$1" shell_lib="${BASH_SOURCE[0]}" wrapper_version wrapper_commit
+    shift
+    wrapper_version="$(codex_current_wrapper_version)" || return 1
+    wrapper_commit="$(codex_current_wrapper_commit)" || return 1
+    codex_native_cmd "$action" \
+        --current-link "$CODEX_NATIVE_CURRENT_LINK" \
+        --verified-link "$CODEX_NATIVE_VERIFIED_LINK" \
+        --raw-link "$CODEX_NATIVE_RAW_DIR" \
+        --state-file "$CODEX_NATIVE_STATE_FILE" \
+        --registry-file "$CODEX_NATIVE_REGISTRY_FILE" \
+        --runtime-store-dir "$CODEX_NATIVE_RUNTIME_STORE_DIR" \
+        --raw-store-dir "$CODEX_NATIVE_RAW_STORE_DIR" \
+        --wrapper-version "$wrapper_version" \
+        --wrapper-commit "$wrapper_commit" \
+        --updated-at "$(codex_now)" \
+        --shell-bin "${BASH:-bash}" \
+        --shell-lib "$shell_lib" \
+        --home "$CODEX_NATIVE_HOME" \
+        --prefix "$CODEX_NATIVE_PREFIX" \
+        --manager-dir "$CODEX_NATIVE_MANAGER_DIR" \
+        --runtime-builder "$CODEX_NATIVE_RUNTIME_BUILDER" \
+        --resolv-conf "$CODEX_NATIVE_RESOLV_CONF" \
+        --cert-file "$CODEX_NATIVE_CERT_FILE" \
+        --cert-dir "$CODEX_NATIVE_CERT_DIR" \
+        --patch-policy "$CODEX_NATIVE_PATCH_POLICY" \
+        "$@"
 }
 
 codex_file_has_marker() {
@@ -95,7 +270,7 @@ codex_runtime_exec() {
     shift || true
     local cert_dir_env=() runtime_env=() run_home runtime_dir
     run_home="${CODEX_NATIVE_HOME:-$HOME}"
-    runtime_dir="$(dirname "$executable")"
+    runtime_dir="$(codex_parent_dir "$executable")"
     if [ -d "$CODEX_NATIVE_CERT_DIR" ]; then
         cert_dir_env=("SSL_CERT_DIR=$CODEX_NATIVE_CERT_DIR")
     fi
@@ -125,29 +300,7 @@ codex_smoke_test_runtime() {
 }
 
 codex_validate_tarball_safe() {
-    local tar_path="$1"
-    python3 - "$tar_path" <<'PY'
-import pathlib
-import sys
-import tarfile
-
-tar_path = sys.argv[1]
-with tarfile.open(tar_path, "r:gz") as tf:
-    for member in tf.getmembers():
-        name = member.name
-        path = pathlib.PurePosixPath(name)
-        if not name or name.startswith("/") or path.is_absolute():
-            raise SystemExit(f"unsafe tar entry path: {name}")
-        if ".." in path.parts:
-            raise SystemExit(f"unsafe tar traversal: {name}")
-        if member.issym():
-            raise SystemExit(f"unsafe tar symlink entry: {name}")
-        if member.islnk():
-            raise SystemExit(f"unsafe tar hardlink entry: {name}")
-        if member.ischr() or member.isblk() or member.isfifo() or member.isdev():
-            raise SystemExit(f"unsafe tar special entry: {name}")
-print("ok")
-PY
+    codex_native_cmd validate-tarball --path "$1"
 }
 
 codex_replace_tree_atomic() {
@@ -181,49 +334,17 @@ codex_support_source_dir() {
 }
 
 codex_resolve_path() {
-    python3 - "$1" <<'PY'
-from pathlib import Path
-import sys
-print(Path(sys.argv[1]).resolve())
-PY
+    codex_native_cmd resolve-path --path "$1"
 }
 
-codex_replace_path_with_symlink_stage() {
-    local target="$1" link="$2" backup="$3" tmp
-    mkdir -p "$(dirname "$link")"
-    rm -rf "$backup"
-    tmp="$link.tmp.$$"
-    rm -rf "$tmp"
-    ln -s "$target" "$tmp" || return 1
-    if [ -e "$link" ] || [ -L "$link" ]; then
-        mv "$link" "$backup" || {
-            rm -f "$tmp"
-            return 1
-        }
-    fi
-    if mv "$tmp" "$link"; then
-        return 0
-    fi
-    rm -f "$tmp"
-    if [ -e "$backup" ] || [ -L "$backup" ]; then
-        mv "$backup" "$link" || true
-    fi
-    return 1
+codex_tree_digest() {
+    codex_native_cmd tree-digest --path "$1"
 }
 
-codex_rollback_path_replacement() {
-    local path="$1" backup="$2" existed="$3"
-    rm -rf "$path"
-    if [ "$existed" -eq 1 ]; then
-        mv "$backup" "$path"
-    else
-        rm -rf "$backup"
-    fi
-}
-
-codex_finish_path_replacement() {
-    local backup="$1"
-    rm -rf "$backup"
+codex_publish_immutable_tree() {
+    codex_native_cmd store-publish-tree \
+        --source-dir "$1" \
+        --target-dir "$2" >/dev/null
 }
 
 codex_write_json_state() {
@@ -232,43 +353,25 @@ codex_write_json_state() {
     wrapper_version="$(codex_current_wrapper_version)"
     wrapper_commit="$(codex_current_wrapper_commit)"
     mkdir -p "$CODEX_NATIVE_STATE_DIR"
-    python3 - "$CODEX_NATIVE_STATE_FILE" "$version" "$raw_sha" "$runtime_sha" "$package_spec" "$active_tuple_id" "$wrapper_version" "$wrapper_commit" "$(codex_now)" "$verified_tuple_id" "$verified_at" <<'PY'
-import json, os, sys
-from pathlib import Path
-path = Path(sys.argv[1])
-data = {
-    "schema": 3,
-    "version": sys.argv[2],
-    "raw_sha256": sys.argv[3],
-    "runtime_sha256": sys.argv[4],
-    "package_spec": sys.argv[5],
-    "active_tuple_id": sys.argv[6],
-    "wrapper_version": sys.argv[7],
-    "wrapper_commit": sys.argv[8],
-    "updated_at": sys.argv[9],
-    "verified_tuple_id": sys.argv[10],
-    "verified_at": sys.argv[11],
-}
-tmp = path.with_name("." + path.name + ".tmp")
-path.parent.mkdir(parents=True, exist_ok=True)
-tmp.write_text(json.dumps(data, ensure_ascii=True, sort_keys=True) + "\n")
-os.chmod(tmp, 0o600)
-os.replace(tmp, path)
-PY
+    codex_native_cmd state-write \
+        --state-file "$CODEX_NATIVE_STATE_FILE" \
+        --version "$version" \
+        --raw-sha256 "$raw_sha" \
+        --runtime-sha256 "$runtime_sha" \
+        --package-spec "$package_spec" \
+        --active-tuple-id "$active_tuple_id" \
+        --wrapper-version "$wrapper_version" \
+        --wrapper-commit "$wrapper_commit" \
+        --updated-at "$(codex_now)" \
+        --verified-tuple-id "$verified_tuple_id" \
+        --verified-at "$verified_at"
 }
 
 codex_read_state_field() {
     local field="$1"
-    python3 - "$CODEX_NATIVE_STATE_FILE" "$field" <<'PY'
-import json, sys
-from pathlib import Path
-path = Path(sys.argv[1])
-field = sys.argv[2]
-if not path.exists():
-    print("")
-else:
-    print(json.loads(path.read_text()).get(field, ""))
-PY
+    codex_native_cmd state-read-field \
+        --state-file "$CODEX_NATIVE_STATE_FILE" \
+        --field "$field"
 }
 
 codex_record_registry() {
@@ -277,118 +380,23 @@ codex_record_registry() {
     wrapper_version="$(codex_current_wrapper_version)"
     wrapper_commit="$(codex_current_wrapper_commit)"
     mkdir -p "$CODEX_NATIVE_STATE_DIR"
-    python3 - "$CODEX_NATIVE_REGISTRY_FILE" "$version" "$raw_sha" "$runtime_sha" "$package_spec" "$runtime_path" "$wrapper_version" "$wrapper_commit" "$CODEX_NATIVE_RUNTIME_STORE_DIR" "$(codex_now)" "$smoke_tested_at" "$raw_path" <<'PY'
-import json, os, sys
-from pathlib import Path
-import re
-
-def component(value: str, fallback: str = "unknown") -> str:
-    value = value or fallback
-    value = re.sub(r"[^A-Za-z0-9._+-]+", "_", value)
-    return value or fallback
-
-path = Path(sys.argv[1])
-version = sys.argv[2]
-raw_sha = sys.argv[3]
-runtime_sha = sys.argv[4]
-package_spec = sys.argv[5]
-runtime_path = sys.argv[6]
-wrapper_version = sys.argv[7]
-wrapper_commit = sys.argv[8]
-store_runtime_root = Path(sys.argv[9]).resolve()
-updated_at = sys.argv[10]
-smoke_tested_at = sys.argv[11]
-raw_path = sys.argv[12]
-raw_id = f"raw-{component(version)}-{component(raw_sha[:12])}"
-wrapper_id = f"wrapper-{component(wrapper_version)}-{component(wrapper_commit[:12])}"
-tuple_id = f"{raw_id}__{wrapper_id}"
-
-def managed_runtime_path(value: str) -> bool:
-    if not value:
-        return False
-    try:
-        path_value = Path(value).resolve()
-    except Exception:
-        return False
-    return (
-        path_value.exists()
-        and (path_value / "codex").exists()
-        and (path_value == store_runtime_root or store_runtime_root in path_value.parents)
-    )
-
-entry = {
-    "version": version,
-    "raw_sha256": raw_sha,
-    "runtime_sha256": runtime_sha,
-    "package_spec": package_spec,
-    "runtime_path": runtime_path,
-    "raw_path": raw_path,
-    "updated_at": updated_at,
-    "raw_id": raw_id,
-    "wrapper_id": wrapper_id,
-    "tuple_id": tuple_id,
-}
-if path.exists():
-    try:
-        data = json.loads(path.read_text())
-    except Exception:
-        data = {"schema": 3, "installs": []}
-else:
-    data = {"schema": 3, "installs": []}
-data["schema"] = 3
-data.setdefault("installs", [])
-data.setdefault("raw", {})
-data.setdefault("wrapper", {})
-data.setdefault("runtime", {})
-data["installs"] = [
-    item for item in data.get("installs", [])
-    if managed_runtime_path(item.get("runtime_path", ""))
-]
-data["runtime"] = {
-    key: value for key, value in data.get("runtime", {}).items()
-    if managed_runtime_path(value.get("path", ""))
-}
-data["raw"][raw_id] = {
-    "version": version,
-    "sha256": raw_sha,
-    "package_spec": package_spec,
-    "path": raw_path,
-    "updated_at": updated_at,
-}
-data["wrapper"][wrapper_id] = {
-    "version": wrapper_version,
-    "commit": wrapper_commit,
-    "repo": "local/codex",
-    "updated_at": updated_at,
-}
-runtime_entry = {
-    "raw_id": raw_id,
-    "wrapper_id": wrapper_id,
-    "runtime_sha256": runtime_sha,
-    "path": runtime_path,
-    "updated_at": updated_at,
-}
-previous_runtime = data["runtime"].get(tuple_id, {})
-if smoke_tested_at:
-    runtime_entry["smoke_tested_at"] = smoke_tested_at
-elif previous_runtime.get("smoke_tested_at"):
-    runtime_entry["smoke_tested_at"] = previous_runtime["smoke_tested_at"]
-data["runtime"][tuple_id] = runtime_entry
-data["active_tuple_id"] = tuple_id
-if smoke_tested_at:
-    data["verified_tuple_id"] = tuple_id
-data["installs"].insert(0, entry)
-data["installs"] = data["installs"][:20]
-tmp = path.with_name("." + path.name + ".tmp")
-tmp.write_text(json.dumps(data, ensure_ascii=True, sort_keys=True) + "\n")
-os.chmod(tmp, 0o600)
-os.replace(tmp, path)
-print(tuple_id)
-PY
+    codex_native_cmd registry-record \
+        --registry-file "$CODEX_NATIVE_REGISTRY_FILE" \
+        --version "$version" \
+        --raw-sha256 "$raw_sha" \
+        --runtime-sha256 "$runtime_sha" \
+        --package-spec "$package_spec" \
+        --runtime-path "$runtime_path" \
+        --wrapper-version "$wrapper_version" \
+        --wrapper-commit "$wrapper_commit" \
+        --runtime-store-dir "$CODEX_NATIVE_RUNTIME_STORE_DIR" \
+        --updated-at "$(codex_now)" \
+        --smoke-tested-at "$smoke_tested_at" \
+        --raw-path "$raw_path"
 }
 
 codex_store_id() {
-    local version="$1" sha="$2" builder_sha="unknown" bwrap_sha="unknown" rg_sha="unknown" support_dir
+    local version="$1" sha="$2" tree_sha="${3:-}" builder_sha="unknown" bwrap_sha="unknown" rg_sha="unknown" support_dir
     support_dir="$(codex_support_source_dir)"
     if [ -r "$CODEX_NATIVE_RUNTIME_BUILDER" ]; then
         builder_sha="$(codex_sha256 "$CODEX_NATIVE_RUNTIME_BUILDER")"
@@ -399,15 +407,13 @@ codex_store_id() {
     if [ -r "$support_dir/rg-termux-shim.sh" ]; then
         rg_sha="$(codex_sha256 "$support_dir/rg-termux-shim.sh")"
     fi
-    python3 - "$version" "$sha" "$builder_sha" "$bwrap_sha" "$rg_sha" <<'PY'
-import re, sys
-version = re.sub(r"[^A-Za-z0-9._+-]+", "_", sys.argv[1] or "unknown")
-sha = (sys.argv[2] or "unknown")[:12]
-builder_sha = (sys.argv[3] or "unknown")[:12]
-bwrap_sha = (sys.argv[4] or "unknown")[:8]
-rg_sha = (sys.argv[5] or "unknown")[:8]
-print(f"{version}+{sha}+{builder_sha}+{bwrap_sha}+{rg_sha}")
-PY
+    codex_native_cmd store-id \
+        --version "$version" \
+        --sha256 "$sha" \
+        --builder-sha256 "$builder_sha" \
+        --bwrap-sha256 "$bwrap_sha" \
+        --rg-sha256 "$rg_sha" \
+        --tree-sha256 "$tree_sha"
 }
 
 codex_validate_runtime_retention() {
@@ -421,167 +427,41 @@ codex_validate_runtime_retention() {
 
 codex_prune_runtime_store() {
     codex_validate_runtime_retention || return $?
-    python3 - "$CODEX_NATIVE_RUNTIME_STORE_DIR" "$CODEX_NATIVE_REGISTRY_FILE" \
-        "$CODEX_NATIVE_RUNTIME_BUILDER" "$CODEX_NATIVE_PATCH_POLICY" \
-        "$CODEX_NATIVE_RUNTIME_RETENTION" "$CODEX_NATIVE_STATE_FILE" <<'PY'
-import hashlib, json, shutil, sys
-from pathlib import Path
-
-store, registry_path, builder = map(Path, sys.argv[1:4])
-policy = sys.argv[4]
-retention = int(sys.argv[5])
-state_path = Path(sys.argv[6])
-
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-builder_sha = sha256(builder)
-try:
-    data = json.loads(registry_path.read_text()) if registry_path.exists() else {}
-except Exception:
-    data = {}
-try:
-    state = json.loads(state_path.read_text()) if state_path.exists() else {}
-except Exception:
-    state = {}
-active_tuple = data.get("active_tuple_id", "")
-verified_tuple = state.get("VERIFIED_TUPLE_ID", "") or state.get("verified_tuple_id", "") or data.get("verified_tuple_id", "")
-active_path = ""
-verified_path = ""
-if active_tuple:
-    active_path = data.get("runtime", {}).get(active_tuple, {}).get("path", "")
-if verified_tuple:
-    verified_path = data.get("runtime", {}).get(verified_tuple, {}).get("path", "")
-try:
-    active_path = str(Path(active_path).resolve()) if active_path else ""
-except Exception:
-    active_path = ""
-try:
-    verified_path = str(Path(verified_path).resolve()) if verified_path else ""
-except Exception:
-    verified_path = ""
-
-compatible = []
-if store.exists():
-    for path in store.iterdir():
-        if not path.is_dir():
-            continue
-        try:
-            manifest = json.loads((path / "runtime-build.json").read_text())
-            ok = (
-                manifest.get("patch_policy") == policy
-                and manifest.get("builder_sha256") == builder_sha
-                and manifest.get("runtime_sha256") == sha256(path / "codex")
-            )
-        except Exception:
-            ok = False
-        if ok:
-            compatible.append(path)
-        else:
-            shutil.rmtree(path)
-
-compatible.sort(key=lambda item: item.stat().st_mtime, reverse=True)
-keep = []
-active = next((path for path in compatible if str(path.resolve()) == active_path), None)
-if active:
-    keep.append(active)
-verified = next((path for path in compatible if str(path.resolve()) == verified_path), None)
-if verified:
-    keep.append(verified)
-for path in compatible:
-    if path not in keep and len(keep) < retention:
-        keep.append(path)
-for path in compatible:
-    if path not in keep:
-        shutil.rmtree(path)
-
-kept = {str(path.resolve()) for path in keep}
-runtime = {}
-for key, value in data.get("runtime", {}).items():
-    try:
-        resolved = str(Path(value.get("path", "")).resolve())
-    except Exception:
-        continue
-    if resolved in kept:
-        runtime[key] = value
-data["runtime"] = runtime
-
-installs = []
-seen = set()
-for entry in data.get("installs", []):
-    try:
-        resolved = str(Path(entry.get("runtime_path", "")).resolve())
-    except Exception:
-        continue
-    key = entry.get("tuple_id", "") or resolved
-    if resolved in kept and key not in seen:
-        installs.append(entry)
-        seen.add(key)
-data["installs"] = installs
-referenced_raw = {entry.get("raw_id", "") for entry in installs}
-referenced_wrapper = {entry.get("wrapper_id", "") for entry in installs}
-data["raw"] = {key: value for key, value in data.get("raw", {}).items() if key in referenced_raw}
-data["wrapper"] = {key: value for key, value in data.get("wrapper", {}).items() if key in referenced_wrapper}
-raw_store = store.parent / "raw"
-kept_raw_paths = set()
-for value in data["raw"].values():
-    try:
-        kept_raw_paths.add(str(Path(value.get("path", "")).resolve()))
-    except Exception:
-        pass
-if raw_store.exists():
-    for path in raw_store.iterdir():
-        if path.is_dir() and str(path.resolve()) not in kept_raw_paths:
-            shutil.rmtree(path)
-if active_tuple not in runtime:
-    data["active_tuple_id"] = ""
-
-if registry_path.exists():
-    tmp = registry_path.with_name("." + registry_path.name + ".tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=True, sort_keys=True) + "\n")
-    tmp.chmod(0o600)
-    tmp.replace(registry_path)
-PY
+    codex_native_cmd store-prune \
+        --runtime-store-dir "$CODEX_NATIVE_RUNTIME_STORE_DIR" \
+        --raw-store-dir "$CODEX_NATIVE_RAW_STORE_DIR" \
+        --registry-file "$CODEX_NATIVE_REGISTRY_FILE" \
+        --state-file "$CODEX_NATIVE_STATE_FILE" \
+        --runtime-builder "$CODEX_NATIVE_RUNTIME_BUILDER" \
+        --patch-policy "$CODEX_NATIVE_PATCH_POLICY" \
+        --retention "$CODEX_NATIVE_RUNTIME_RETENTION" \
+        --current-link "$CODEX_NATIVE_RUNTIME_DIR" \
+        --verified-link "$CODEX_NATIVE_VERIFIED_LINK" \
+        --raw-link "$CODEX_NATIVE_RAW_DIR" >/dev/null
 }
 
 codex_store_runtime_payload() {
-    local version="$1" runtime_sha="$2" src_runtime_dir="${3:-$CODEX_NATIVE_RUNTIME_DIR}" store_id dst tmp
-    store_id="$(codex_store_id "$version" "$runtime_sha")"
+    local version="$1" runtime_sha="$2" src_runtime_dir="${3:-$CODEX_NATIVE_RUNTIME_DIR}" store_id dst
+    local runtime_tree_sha
+    runtime_tree_sha="$(codex_tree_digest "$(codex_resolve_path "$src_runtime_dir")")"
+    store_id="$(codex_store_id "$version" "$runtime_sha" "$runtime_tree_sha")"
     dst="$CODEX_NATIVE_RUNTIME_STORE_DIR/$store_id"
-    tmp="$dst.tmp.$$"
-    rm -rf "$tmp"
-    mkdir -p "$tmp"
-    cp -R "$src_runtime_dir/codex" "$tmp/codex"
-    cp -R "$src_runtime_dir/codex-resources" "$tmp/codex-resources"
-    cp -R "$src_runtime_dir/codex-path" "$tmp/codex-path"
-    cp -R "$src_runtime_dir/codex-package.json" "$tmp/codex-package.json"
-    cp -R "$src_runtime_dir/runtime-build.json" "$tmp/runtime-build.json"
-    if ! codex_replace_tree_atomic "$tmp" "$dst" "$dst.old.$$"; then
-        rm -rf "$tmp"
-        return 1
-    fi
-    printf '%s\n' "$dst"
+    codex_native_cmd store-publish-runtime \
+        --source-dir "$src_runtime_dir" \
+        --target-dir "$dst" \
+        --expected-sha256 "$runtime_sha"
 }
 
 codex_store_raw_payload() {
-    local version="$1" raw_sha="$2" src_raw_dir="${3:-$CODEX_NATIVE_RAW_DIR}" store_id dst tmp
-    store_id="$(codex_store_id "$version" "$raw_sha")"
+    local version="$1" raw_sha="$2" src_raw_dir="${3:-$CODEX_NATIVE_RAW_DIR}" store_id dst
+    local raw_tree_sha
+    raw_tree_sha="$(codex_tree_digest "$(codex_resolve_path "$src_raw_dir")")"
+    store_id="$(codex_store_id "$version" "$raw_sha" "$raw_tree_sha")"
     dst="$CODEX_NATIVE_RAW_STORE_DIR/$store_id"
-    tmp="$dst.tmp.$$"
-    [ -x "$src_raw_dir/vendor/aarch64-unknown-linux-musl/bin/codex" ] || return 1
-    [ "$(codex_sha256 "$src_raw_dir/vendor/aarch64-unknown-linux-musl/bin/codex")" = "$raw_sha" ] || return 1
-    rm -rf "$tmp"
-    mkdir -p "$tmp"
-    cp -R "$src_raw_dir/vendor" "$tmp/vendor"
-    if ! codex_replace_tree_atomic "$tmp" "$dst" "$dst.old.$$"; then
-        rm -rf "$tmp"
-        return 1
-    fi
-    printf '%s\n' "$dst"
+    codex_native_cmd store-publish-raw \
+        --source-dir "$src_raw_dir" \
+        --target-dir "$dst" \
+        --expected-sha256 "$raw_sha"
 }
 
 codex_prepare_complete_runtime_tree() {
@@ -631,13 +511,7 @@ codex_package_spec() {
 }
 
 codex_extract_pack_field() {
-    local json_file="$1" field="$2"
-    python3 - "$json_file" "$field" <<'PY'
-import json, sys
-data = json.loads(open(sys.argv[1]).read())
-item = data[0] if isinstance(data, list) else data
-print(item.get(sys.argv[2], ""))
-PY
+    codex_native_cmd package-field --json-file "$1" --field "$2"
 }
 
 codex_fetch_package() {
@@ -646,6 +520,7 @@ codex_fetch_package() {
     tmp="$(mktemp -d "${TMPDIR:-/tmp}/codex-pack.XXXXXX")" || return 1
     pack_json="$tmp/pack.json"
     codex_say "fetching $package_spec"
+    codex_say "then unpack, build, smoke-test, and publish"
     if ! npm pack "$package_spec" --json --pack-destination "$tmp" >"$pack_json"; then
         rm -rf "$tmp"
         codex_fail "npm pack failed for $package_spec"
@@ -659,12 +534,14 @@ codex_fetch_package() {
         codex_fail "npm pack did not create expected tarball"
         return 1
     fi
+    codex_say "validating package archive"
     mkdir -p "$tmp/package"
     if ! codex_validate_tarball_safe "$tgz" >/dev/null 2>&1; then
         rm -rf "$tmp"
         codex_fail "unsafe tarball contents in $tgz"
         return 1
     fi
+    codex_say "unpacking package archive"
     if ! tar -xzf "$tgz" -C "$tmp/package" --strip-components=1; then
         rm -rf "$tmp"
         codex_fail "failed to extract $tgz"
@@ -693,7 +570,7 @@ codex_build_runtime_tree() {
     local builder="$CODEX_NATIVE_RUNTIME_BUILDER"
     local report_file="${log_file}.report.json"
 
-    mkdir -p "$(dirname "$runtime_dir")"
+    mkdir -p "$(codex_parent_dir "$runtime_dir")"
     if ! python3 "$builder" "$raw_vendor" --runtime-dir "$runtime_dir" --report-json "$report_file" >"$log_file" 2>&1; then
         return 70
     fi
@@ -703,110 +580,30 @@ codex_build_runtime_tree() {
     return 0
 }
 
-codex_restore_file_snapshot() {
-    local path="$1" snapshot="$2" existed="$3"
-    rm -f "$path"
-    if [ "$existed" -eq 1 ]; then
-        mv "$snapshot" "$path"
-    else
-        rm -f "$snapshot"
-    fi
-}
-
 codex_activate_tuple_unlocked() {
     local runtime_src="$1" version="$2" raw_sha="$3" runtime_sha="$4" package_spec="$5" raw_src="${6:-}"
-    local runtime_path raw_path raw_store_src tuple_id verified_at
-    local current_backup="$CODEX_NATIVE_RUNTIME_DIR.rollback.$$"
-    local verified_backup="$CODEX_NATIVE_VERIFIED_LINK.rollback.$$"
-    local raw_backup="$CODEX_NATIVE_RAW_DIR.rollback.$$"
-    local state_snapshot="$CODEX_NATIVE_STATE_FILE.rollback.$$" registry_snapshot="$CODEX_NATIVE_REGISTRY_FILE.rollback.$$"
-    local current_existed=0 verified_existed=0 raw_existed=0 state_existed=0 registry_existed=0
-    local current_changed=0 verified_changed=0 raw_changed=0
-    local runtime_target_resolved current_resolved verified_resolved raw_target_resolved raw_resolved
-
-    codex_smoke_test_runtime "$runtime_src/codex" || return 1
-    runtime_path="$(codex_store_runtime_payload "$version" "$runtime_sha" "$runtime_src")" || return 1
-    raw_store_src="$CODEX_NATIVE_RAW_DIR"
-    [ -z "$raw_src" ] || raw_store_src="$raw_src"
-    raw_path="$(codex_store_raw_payload "$version" "$raw_sha" "$raw_store_src")" || return 1
-    verified_at="$(codex_now)"
-    mkdir -p "$CODEX_NATIVE_STATE_DIR"
-    if [ -e "$CODEX_NATIVE_STATE_FILE" ]; then
-        cp -Pp "$CODEX_NATIVE_STATE_FILE" "$state_snapshot" || return 1
-        state_existed=1
+    local raw_store_src="$CODEX_NATIVE_RAW_DIR" runtime_target raw_target
+    local cleanup_raw=() runtime_tree_sha raw_tree_sha
+    if [ -n "$raw_src" ]; then
+        raw_store_src="$raw_src"
+        cleanup_raw=(--cleanup-raw-source)
     fi
-    if [ -e "$CODEX_NATIVE_REGISTRY_FILE" ]; then
-        cp -Pp "$CODEX_NATIVE_REGISTRY_FILE" "$registry_snapshot" || {
-            rm -f "$state_snapshot"
-            return 1
-        }
-        registry_existed=1
-    fi
-
-    if tuple_id="$(codex_record_registry "$version" "$raw_sha" "$runtime_sha" "$package_spec" "$runtime_path" "$verified_at" "$raw_path")" &&
-        codex_write_json_state "$version" "$raw_sha" "$runtime_sha" "$package_spec" "$tuple_id" "$tuple_id" "$verified_at"; then
-        runtime_target_resolved="$(codex_resolve_path "$runtime_path")"
-        current_resolved="$(codex_resolve_path "$CODEX_NATIVE_RUNTIME_DIR")"
-        if [ "$current_resolved" != "$runtime_target_resolved" ]; then
-            [ ! -e "$CODEX_NATIVE_RUNTIME_DIR" ] && [ ! -L "$CODEX_NATIVE_RUNTIME_DIR" ] || current_existed=1
-            if ! codex_replace_path_with_symlink_stage "$runtime_path" "$CODEX_NATIVE_RUNTIME_DIR" "$current_backup"; then
-                codex_restore_file_snapshot "$CODEX_NATIVE_STATE_FILE" "$state_snapshot" "$state_existed"
-                codex_restore_file_snapshot "$CODEX_NATIVE_REGISTRY_FILE" "$registry_snapshot" "$registry_existed"
-                return 1
-            fi
-            current_changed=1
-        fi
-
-        verified_resolved="$(codex_resolve_path "$CODEX_NATIVE_VERIFIED_LINK")"
-        if [ "$verified_resolved" != "$runtime_target_resolved" ]; then
-            [ ! -e "$CODEX_NATIVE_VERIFIED_LINK" ] && [ ! -L "$CODEX_NATIVE_VERIFIED_LINK" ] || verified_existed=1
-            if ! codex_replace_path_with_symlink_stage "$runtime_path" "$CODEX_NATIVE_VERIFIED_LINK" "$verified_backup"; then
-                [ "$current_changed" -eq 0 ] || codex_rollback_path_replacement "$CODEX_NATIVE_RUNTIME_DIR" "$current_backup" "$current_existed"
-                codex_restore_file_snapshot "$CODEX_NATIVE_STATE_FILE" "$state_snapshot" "$state_existed"
-                codex_restore_file_snapshot "$CODEX_NATIVE_REGISTRY_FILE" "$registry_snapshot" "$registry_existed"
-                return 1
-            fi
-            verified_changed=1
-        fi
-
-        raw_target_resolved="$(codex_resolve_path "$raw_path")"
-        raw_resolved="$(codex_resolve_path "$CODEX_NATIVE_RAW_DIR")"
-        if [ "$raw_resolved" != "$raw_target_resolved" ]; then
-            [ ! -e "$CODEX_NATIVE_RAW_DIR" ] && [ ! -L "$CODEX_NATIVE_RAW_DIR" ] || raw_existed=1
-            if ! codex_replace_path_with_symlink_stage "$raw_path" "$CODEX_NATIVE_RAW_DIR" "$raw_backup"; then
-                [ "$verified_changed" -eq 0 ] || codex_rollback_path_replacement "$CODEX_NATIVE_VERIFIED_LINK" "$verified_backup" "$verified_existed"
-                [ "$current_changed" -eq 0 ] || codex_rollback_path_replacement "$CODEX_NATIVE_RUNTIME_DIR" "$current_backup" "$current_existed"
-                codex_restore_file_snapshot "$CODEX_NATIVE_STATE_FILE" "$state_snapshot" "$state_existed"
-                codex_restore_file_snapshot "$CODEX_NATIVE_REGISTRY_FILE" "$registry_snapshot" "$registry_existed"
-                return 1
-            fi
-            raw_changed=1
-        fi
-
-        if ! codex_runtime_ok; then
-            [ "$raw_changed" -eq 0 ] || codex_rollback_path_replacement "$CODEX_NATIVE_RAW_DIR" "$raw_backup" "$raw_existed"
-            [ "$verified_changed" -eq 0 ] || codex_rollback_path_replacement "$CODEX_NATIVE_VERIFIED_LINK" "$verified_backup" "$verified_existed"
-            [ "$current_changed" -eq 0 ] || codex_rollback_path_replacement "$CODEX_NATIVE_RUNTIME_DIR" "$current_backup" "$current_existed"
-            codex_restore_file_snapshot "$CODEX_NATIVE_STATE_FILE" "$state_snapshot" "$state_existed"
-            codex_restore_file_snapshot "$CODEX_NATIVE_REGISTRY_FILE" "$registry_snapshot" "$registry_existed"
-            return 1
-        fi
-
-        [ "$current_changed" -eq 0 ] || codex_finish_path_replacement "$current_backup"
-        [ "$verified_changed" -eq 0 ] || codex_finish_path_replacement "$verified_backup"
-        [ "$raw_changed" -eq 0 ] || codex_finish_path_replacement "$raw_backup"
-        rm -f "$state_snapshot" "$registry_snapshot"
-        rm -rf "$runtime_src"
-        if [ -n "$raw_src" ] && [ "$(codex_resolve_path "$raw_src")" != "$(codex_resolve_path "$CODEX_NATIVE_RAW_DIR")" ]; then
-            rm -rf "$raw_src"
-        fi
-        codex_prune_runtime_store || codex_say "runtime store prune failed; active runtime remains valid"
-        return 0
-    fi
-
-    codex_restore_file_snapshot "$CODEX_NATIVE_STATE_FILE" "$state_snapshot" "$state_existed"
-    codex_restore_file_snapshot "$CODEX_NATIVE_REGISTRY_FILE" "$registry_snapshot" "$registry_existed"
-    return 1
+    runtime_tree_sha="$(codex_tree_digest "$(codex_resolve_path "$runtime_src")")"
+    raw_tree_sha="$(codex_tree_digest "$(codex_resolve_path "$raw_store_src")")"
+    runtime_target="$CODEX_NATIVE_RUNTIME_STORE_DIR/$(codex_store_id "$version" "$runtime_sha" "$runtime_tree_sha")"
+    raw_target="$CODEX_NATIVE_RAW_STORE_DIR/$(codex_store_id "$version" "$raw_sha" "$raw_tree_sha")"
+    codex_native_activation_cmd activation-commit \
+        --candidate-runtime "$runtime_src" \
+        --candidate-raw "$raw_store_src" \
+        --runtime-target "$runtime_target" \
+        --raw-target "$raw_target" \
+        --version "$version" \
+        --raw-sha256 "$raw_sha" \
+        --runtime-sha256 "$runtime_sha" \
+        --package-spec "$package_spec" \
+        --cleanup-runtime-source \
+        "${cleanup_raw[@]}" >/dev/null || return 1
+    codex_prune_runtime_store
 }
 
 codex_commit_runtime_candidate() {
@@ -832,6 +629,7 @@ codex_rebuild_runtime_unlocked() {
             return 1
         fi
     fi
+    codex_say "preparing runtime bundle"
     if ! codex_prepare_complete_runtime_tree "$runtime_stage" "$runtime_complete"; then
         rm -rf "$runtime_stage" "$runtime_complete"
         return 1
@@ -839,10 +637,12 @@ codex_rebuild_runtime_unlocked() {
     raw_sha="$(codex_sha256 "$CODEX_NATIVE_RAW_VENDOR/bin/codex")"
     runtime_sha="$(codex_sha256 "$runtime_complete/codex")"
     rm -rf "$runtime_stage"
+    codex_say "smoke-testing runtime"
     if ! codex_smoke_test_runtime "$runtime_complete/codex"; then
         rm -rf "$runtime_complete"
         return 1
     fi
+    codex_say "publishing runtime and refreshing pointers"
     codex_commit_runtime_candidate "$runtime_complete" "$version" "$raw_sha" "$runtime_sha" "$package_spec"
 }
 
@@ -874,14 +674,17 @@ EOF
     runtime_stage="$CODEX_NATIVE_RUNTIME_DIR.update.$$"
     runtime_complete="$CODEX_NATIVE_RUNTIME_DIR.complete.$$"
     mkdir -p "$CODEX_NATIVE_DOCTOR_DIR"
+    codex_say "staging raw vendor tree"
     if ! codex_install_raw_vendor "$vendor" "$raw_stage"; then
         rm -rf "$tmp"
         return 1
     fi
+    codex_say "building patched runtime"
     if ! codex_build_runtime_tree "$raw_stage/vendor/aarch64-unknown-linux-musl" "$runtime_stage" "$CODEX_NATIVE_DOCTOR_DIR/last-build-report.stdout"; then
         rm -rf "$tmp" "$raw_stage" "$runtime_stage" "$runtime_complete"
         return 1
     fi
+    codex_say "preparing runtime bundle"
     if ! codex_prepare_complete_runtime_tree "$runtime_stage" "$runtime_complete"; then
         rm -rf "$tmp" "$raw_stage" "$runtime_stage" "$runtime_complete"
         return 1
@@ -889,10 +692,12 @@ EOF
     raw_sha="$(codex_sha256 "$raw_stage/vendor/aarch64-unknown-linux-musl/bin/codex")"
     runtime_sha="$(codex_sha256 "$runtime_complete/codex")"
     rm -rf "$runtime_stage"
+    codex_say "smoke-testing runtime"
     if ! codex_smoke_test_runtime "$runtime_complete/codex"; then
         rm -rf "$tmp" "$raw_stage" "$runtime_complete"
         return 1
     fi
+    codex_say "publishing runtime and refreshing pointers"
     if ! codex_commit_runtime_candidate "$runtime_complete" "$version" "$raw_sha" "$runtime_sha" "$spec" "$raw_stage"; then
         rm -rf "$tmp" "$raw_stage" "$runtime_complete"
         return 1
@@ -907,8 +712,43 @@ codex_update() {
 }
 
 codex_update_public() {
+    local installed_version
     codex_update "${1:-}" || return $?
+    installed_version="$(codex_read_state_field version)"
     codex_version || return $?
+    codex_prompt_update_launch "$installed_version"
+}
+
+codex_update_launch_selected() {
+    local installed_version="${1:-unknown}" recent_profile recent_profile_dir
+    case "${CODEX_PROMPT_CHOICE_RESULT:-}" in
+        y|Y)
+            recent_profile="$(codex_profile_read_recent)"
+            recent_profile_dir="$(codex_profile_dir "$recent_profile")"
+            codex_say "launching Codex $(codex_display_version "$installed_version")"
+            codex_profile_runtime_exec "$recent_profile" "$recent_profile_dir"
+            ;;
+    esac
+    return 0
+}
+
+codex_prompt_update_launch() {
+    local installed_version="$1" display_installed
+    [ -t 0 ] && [ -t 2 ] || return 0
+    display_installed="$(codex_display_version "$installed_version")"
+    codex_ui_menu_header "Codex update complete" "$display_installed is installed"
+    codex_ui_menu_row y "run now" "$(codex_ui_badge run)"
+    codex_ui_menu_row N "stay here" "$(codex_ui_badge keep)"
+    printf '\n' >&2
+    codex_prompt_choice "$(codex_ui_prompt 'run Codex now [y/N]> ')" yn 0
+    case "$?" in
+        0)
+            codex_update_launch_selected "$display_installed"
+            ;;
+        *)
+            return 0
+            ;;
+    esac
 }
 
 codex_latest_linux_arm64_version() {
@@ -995,20 +835,32 @@ EOF
 }
 
 codex_prompt_update() {
-    local current="$1" latest="$2" choice
+    local current="$1" latest="$2" choice display_current display_latest
     [ -t 0 ] && [ -t 2 ] || return 1
-    printf 'codex: update available: %s -> %s\n' "$current" "$latest" >&2
-    printf '  1) Run current patched runtime (default)\n' >&2
-    printf '  0) Update now, patch, and run latest\n' >&2
-    printf 'codex update [1/0]> ' >&2
-    IFS= read -r -n 1 choice || return 1
+    display_current="$(codex_display_version "$current")"
+    display_latest="$(codex_display_version "$latest")"
+    codex_ui_menu_header "Codex update available" "$display_current -> $display_latest"
+    codex_ui_menu_row y "$display_latest" "$(codex_ui_badge update)"
+    codex_ui_menu_row N "$display_current" "$(codex_ui_badge current)" "$(codex_ui_badge keep)"
     printf '\n' >&2
+    codex_prompt_choice "$(codex_ui_prompt 'codex update [y/N]> ')" yn 0
+    case "$?" in
+        130)
+            return 130
+            ;;
+        0)
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+    choice="$CODEX_PROMPT_CHOICE_RESULT"
     case "$choice" in
-        0|u|U|update|UPDATE|y|Y|yes|YES)
+        y|Y)
             return 0
             ;;
         *)
-            codex_say "continuing with current patched runtime ($current)"
+            codex_say "keeping current patched runtime ($(codex_display_version "$current"))"
             return 1
             ;;
     esac
@@ -1038,22 +890,33 @@ codex_auto_update_if_needed() {
         codex_clear_pending_auto_update
         pending=""
     fi
-    if [ -n "$pending" ] && [ "$pending" != "$current" ]; then
+    if [ -n "$pending" ] && [ "$pending" != "$current" ] && ! codex_auto_update_due; then
         latest="$pending"
     else
         codex_auto_update_due || return 0
         codex_mark_auto_update_checked
         latest="$(codex_latest_linux_arm64_version || true)"
+        if [ -z "$latest" ]; then
+            [ -z "$pending" ] || codex_clear_pending_auto_update
+            return 0
+        fi
     fi
-    [ -n "$latest" ] || return 0
     if [ "$latest" != "$current" ]; then
         codex_write_pending_auto_update "$latest"
         codex_failed_auto_update_due "$latest" || return 0
         mode="$(codex_auto_update_mode)"
         if [ "$mode" = "force" ]; then
             codex_install_auto_update "$current" "$latest" || return 0
-        elif codex_prompt_update "$current" "$latest"; then
-            codex_install_auto_update "$current" "$latest" || return 0
+        else
+            codex_prompt_update "$current" "$latest"
+            case "$?" in
+                0)
+                    codex_install_auto_update "$current" "$latest" || return 0
+                    ;;
+                130)
+                    return 130
+                    ;;
+            esac
         fi
     else
         codex_clear_pending_auto_update
@@ -1061,1291 +924,8 @@ codex_auto_update_if_needed() {
     return 0
 }
 
-codex_support_tools_match() {
-    local support_dir
-    support_dir="$(codex_support_source_dir)"
-    cmp -s "$support_dir/bwrap-termux-compat.py" "$CODEX_NATIVE_RUNTIME_DIR/codex-path/bwrap" &&
-    cmp -s "$support_dir/rg-termux-shim.sh" "$CODEX_NATIVE_RUNTIME_DIR/codex-path/rg"
-}
-
-codex_runtime_integrity_ok() {
-    [ -r "$CODEX_NATIVE_RUNTIME_DIR/runtime-build.json" ] || return 1
-    [ -x "$CODEX_NATIVE_RUNTIME_BUILDER" ] || return 1
-    python3 - "$CODEX_NATIVE_RUNTIME" "$CODEX_NATIVE_RUNTIME_DIR/runtime-build.json" \
-        "$CODEX_NATIVE_RUNTIME_BUILDER" "$CODEX_NATIVE_STATE_FILE" "$CODEX_NATIVE_PATCH_POLICY" <<'PY'
-import hashlib, json, sys
-from pathlib import Path
-
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-runtime, manifest_path, builder, state_path = map(Path, sys.argv[1:5])
-policy = sys.argv[5]
-try:
-    manifest = json.loads(manifest_path.read_text())
-    state = json.loads(state_path.read_text())
-    runtime_sha = sha256(runtime)
-    ok = (
-        manifest.get("patch_policy") == policy
-        and manifest.get("builder_sha256") == sha256(builder)
-        and manifest.get("runtime_sha256") == runtime_sha
-        and state.get("runtime_sha256") == runtime_sha
-    )
-except Exception:
-    ok = False
-raise SystemExit(0 if ok else 1)
-PY
-}
-
-codex_raw_integrity_ok() {
-    [ -x "$CODEX_NATIVE_RAW_VENDOR/bin/codex" ] || return 1
-    python3 - "$CODEX_NATIVE_RAW_VENDOR/bin/codex" "$CODEX_NATIVE_STATE_FILE" <<'PY'
-import hashlib, json, sys
-from pathlib import Path
-
-raw, state_path = map(Path, sys.argv[1:3])
-try:
-    expected = json.loads(state_path.read_text()).get("raw_sha256", "")
-    digest = hashlib.sha256()
-    with raw.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    ok = bool(expected and digest.hexdigest() == expected)
-except Exception:
-    ok = False
-raise SystemExit(0 if ok else 1)
-PY
-}
-
-codex_runtime_ok() {
-    [ -x "$CODEX_NATIVE_RUNTIME" ] &&
-    [ -x "$CODEX_NATIVE_RUNTIME_DIR/codex-resources/bwrap" ] &&
-    [ -x "$CODEX_NATIVE_RUNTIME_DIR/codex-path/bwrap" ] &&
-    [ -x "$CODEX_NATIVE_RUNTIME_DIR/codex-path/rg" ] &&
-    [ -x "$CODEX_NATIVE_RUNTIME_DIR/codex-path/rg.real" ] &&
-    codex_support_tools_match &&
-    [ -r "$CODEX_NATIVE_STATE_FILE" ] &&
-    codex_runtime_integrity_ok
-}
-
-codex_refresh_runtime_metadata() {
-    local version raw_sha runtime_sha package_spec runtime_path raw_path tuple_id
-    local wrapper_version wrapper_commit state_wrapper_version state_wrapper_commit active_tuple_id verified_tuple_id verified_at
-    version="$(codex_read_state_field version)"
-    raw_sha="$(codex_read_state_field raw_sha256)"
-    runtime_sha="$(codex_read_state_field runtime_sha256)"
-    package_spec="$(codex_read_state_field package_spec)"
-    wrapper_version="$(codex_current_wrapper_version)"
-    wrapper_commit="$(codex_current_wrapper_commit)"
-    state_wrapper_version="$(codex_read_state_field wrapper_version)"
-    state_wrapper_commit="$(codex_read_state_field wrapper_commit)"
-    active_tuple_id="$(codex_read_state_field active_tuple_id)"
-    verified_tuple_id="$(codex_read_state_field verified_tuple_id)"
-    verified_at="$(codex_read_state_field verified_at)"
-    [ -n "$version" ] && [ -n "$raw_sha" ] && [ -n "$runtime_sha" ] && [ -n "$package_spec" ] || return 0
-    if [ -n "$active_tuple_id" ] &&
-        [ "$state_wrapper_version" = "$wrapper_version" ] &&
-        [ "$state_wrapper_commit" = "$wrapper_commit" ] &&
-        [ "$verified_tuple_id" = "$active_tuple_id" ] &&
-        [ -n "$verified_at" ]; then
-        return 0
-    fi
-    runtime_path="$CODEX_NATIVE_RUNTIME_STORE_DIR/$(codex_store_id "$version" "$runtime_sha")"
-    if [ ! -x "$runtime_path/codex" ] || [ ! -r "$runtime_path/runtime-build.json" ]; then
-        runtime_path="$(codex_store_runtime_payload "$version" "$runtime_sha")"
-    fi
-    raw_path="$(codex_store_raw_payload "$version" "$raw_sha")" || return 1
-    codex_smoke_test_runtime "$CODEX_NATIVE_RUNTIME" || return 1
-    verified_at="$(codex_now)"
-    tuple_id="$(codex_record_registry "$version" "$raw_sha" "$runtime_sha" "$package_spec" "$runtime_path" "$verified_at" "$raw_path")"
-    codex_write_json_state "$version" "$raw_sha" "$runtime_sha" "$package_spec" "$tuple_id" "$tuple_id" "$verified_at"
-    codex_prune_runtime_store
-}
-
-codex_registry_tuple_for_runtime_path() {
-    local runtime_path="$1"
-    python3 - "$CODEX_NATIVE_REGISTRY_FILE" "$runtime_path" <<'PY'
-import json, sys
-from pathlib import Path
-
-registry = Path(sys.argv[1])
-target = Path(sys.argv[2]).resolve()
-try:
-    data = json.loads(registry.read_text())
-except Exception:
-    raise SystemExit(1)
-for tuple_id, entry in data.get("runtime", {}).items():
-    try:
-        if Path(entry.get("path", "")).resolve() == target:
-            print(tuple_id)
-            raise SystemExit(0)
-    except Exception:
-        pass
-raise SystemExit(1)
-PY
-}
-
-codex_registry_tuple_state_fields() {
-    local tuple_id="$1"
-    python3 - "$CODEX_NATIVE_REGISTRY_FILE" "$tuple_id" <<'PY'
-import json, sys
-from pathlib import Path
-
-registry = Path(sys.argv[1])
-tuple_id = sys.argv[2]
-try:
-    data = json.loads(registry.read_text())
-except Exception:
-    raise SystemExit(1)
-runtime = data.get("runtime", {}).get(tuple_id, {})
-install = next((item for item in data.get("installs", []) if item.get("tuple_id") == tuple_id), None)
-if not runtime or not install:
-    raise SystemExit(1)
-print("\x1f".join([
-    install.get("version", "unknown"),
-    install.get("raw_sha256", ""),
-    install.get("runtime_sha256", "") or runtime.get("runtime_sha256", ""),
-    install.get("package_spec", "local"),
-]))
-PY
-}
-
-codex_write_state_from_registry_tuple() {
-    local tuple_id="$1" verified_at="${2:-}" fields version raw_sha runtime_sha package_spec
-    fields="$(codex_registry_tuple_state_fields "$tuple_id")" || return 1
-    IFS=$'\037' read -r version raw_sha runtime_sha package_spec <<EOF
-$fields
-EOF
-    [ -n "$verified_at" ] || verified_at="$(codex_now)"
-    codex_write_json_state "$version" "$raw_sha" "$runtime_sha" "$package_spec" "$tuple_id" "$tuple_id" "$verified_at"
-}
-
-codex_try_verified_rollback() {
-    local verified_target tuple_id verified_at
-    local current_backup="$CODEX_NATIVE_RUNTIME_DIR.verified-rollback.$$"
-    local state_snapshot="$CODEX_NATIVE_STATE_FILE.verified-rollback.$$"
-    local current_existed=0 state_existed=0
-
-    [ -e "$CODEX_NATIVE_VERIFIED_LINK" ] || [ -L "$CODEX_NATIVE_VERIFIED_LINK" ] || return 1
-    verified_target="$(codex_resolve_path "$CODEX_NATIVE_VERIFIED_LINK")"
-    [ -x "$verified_target/codex" ] || return 1
-    [ "$(codex_resolve_path "$CODEX_NATIVE_RUNTIME_DIR")" != "$verified_target" ] || return 1
-    tuple_id="$(codex_registry_tuple_for_runtime_path "$verified_target" 2>/dev/null || true)"
-    [ -n "$tuple_id" ] || return 1
-    verified_at="$(codex_now)"
-
-    mkdir -p "$CODEX_NATIVE_STATE_DIR"
-    if [ -e "$CODEX_NATIVE_STATE_FILE" ]; then
-        cp -Pp "$CODEX_NATIVE_STATE_FILE" "$state_snapshot" || return 1
-        state_existed=1
-    fi
-    codex_write_state_from_registry_tuple "$tuple_id" "$verified_at" || {
-        codex_restore_file_snapshot "$CODEX_NATIVE_STATE_FILE" "$state_snapshot" "$state_existed"
-        return 1
-    }
-
-    [ ! -e "$CODEX_NATIVE_RUNTIME_DIR" ] && [ ! -L "$CODEX_NATIVE_RUNTIME_DIR" ] || current_existed=1
-    if ! codex_replace_path_with_symlink_stage "$verified_target" "$CODEX_NATIVE_RUNTIME_DIR" "$current_backup"; then
-        codex_restore_file_snapshot "$CODEX_NATIVE_STATE_FILE" "$state_snapshot" "$state_existed"
-        return 1
-    fi
-    if codex_runtime_ok; then
-        codex_finish_path_replacement "$current_backup"
-        rm -f "$state_snapshot"
-        codex_say "active runtime restored from verified tuple"
-        return 0
-    fi
-    codex_rollback_path_replacement "$CODEX_NATIVE_RUNTIME_DIR" "$current_backup" "$current_existed"
-    codex_restore_file_snapshot "$CODEX_NATIVE_STATE_FILE" "$state_snapshot" "$state_existed"
-    return 1
-}
-
-codex_migrate_legacy_runtime_layout() {
-    local version raw_sha runtime_sha package_spec runtime_complete raw_src
-    if [ -e "$CODEX_NATIVE_RUNTIME_DIR" ] || [ -L "$CODEX_NATIVE_RUNTIME_DIR" ]; then
-        return 0
-    fi
-    [ -x "$CODEX_NATIVE_LEGACY_RUNTIME_DIR/codex" ] || return 0
-    version="$(codex_read_state_field version 2>/dev/null || true)"
-    raw_sha="$(codex_read_state_field raw_sha256 2>/dev/null || true)"
-    package_spec="$(codex_read_state_field package_spec 2>/dev/null || true)"
-    [ -n "$version" ] || version="unknown"
-    [ -n "$package_spec" ] || package_spec="local"
-    raw_src="$CODEX_NATIVE_LEGACY_RAW_DIR"
-    [ -x "$raw_src/vendor/aarch64-unknown-linux-musl/bin/codex" ] || raw_src="$CODEX_NATIVE_RAW_DIR"
-    [ -x "$raw_src/vendor/aarch64-unknown-linux-musl/bin/codex" ] || return 0
-    [ -n "$raw_sha" ] || raw_sha="$(codex_sha256 "$raw_src/vendor/aarch64-unknown-linux-musl/bin/codex")"
-    runtime_complete="$CODEX_NATIVE_RUNTIME_DIR.migrate.$$"
-    if ! codex_prepare_complete_runtime_tree "$CODEX_NATIVE_LEGACY_RUNTIME_DIR" "$runtime_complete"; then
-        rm -rf "$runtime_complete"
-        return 1
-    fi
-    runtime_sha="$(codex_sha256 "$runtime_complete/codex")"
-    if ! codex_activate_tuple_unlocked "$runtime_complete" "$version" "$raw_sha" "$runtime_sha" "$package_spec" "$raw_src"; then
-        rm -rf "$runtime_complete"
-        return 1
-    fi
-    codex_say "migrated legacy runtime layout to current/verified pointers"
-}
-
-codex_ensure_runtime_ready() {
-    codex_migrate_legacy_runtime_layout || return $?
-    if codex_runtime_ok; then
-        codex_refresh_runtime_metadata
-        return 0
-    fi
-    if codex_try_verified_rollback; then
-        codex_refresh_runtime_metadata
-        return 0
-    fi
-    if [ -x "$CODEX_NATIVE_RAW_VENDOR/bin/codex" ]; then
-        if ! codex_raw_integrity_ok; then
-            codex_fail "cached raw package integrity check failed; run codex update"
-            return 1
-        fi
-        codex_say "runtime drift detected; rebuilding from cached raw package"
-        codex_repair_runtime_from_raw
-        return $?
-    fi
-    codex_fail "runtime missing and no cached raw package is available; run codex setup"
-    return 127
-}
-
-codex_detect_upstream_commands() {
-    "$CODEX_NATIVE_RUNTIME" --help 2>/dev/null | python3 -c '
-import re, sys
-commands = set()
-in_commands = False
-for line in sys.stdin:
-    if not in_commands:
-        if re.match(r"^\s*Commands:\s*$", line):
-            in_commands = True
-        continue
-    if re.match(r"^\s*(Arguments|Options):\s*$", line):
-        break
-    m = re.match(r"^\s{2,}([a-z0-9][a-z0-9-]*)\s{2,}", line, re.I)
-    if not m:
-        continue
-    commands.add(m.group(1))
-    am = re.search(r"\[aliases?: ([^\]]+)\]", line)
-    if am:
-        commands.update(a.strip() for a in am.group(1).split(",") if a.strip())
-print("\n".join(sorted(commands)))
-'
-}
-
-codex_is_upstream_command() {
-    local first="$1"
-    [ -n "$first" ] || return 1
-    codex_detect_upstream_commands | grep -Fxq "$first"
-}
-
-codex_open_fd33_and_exec() {
-    local args=() first="${1:-}"
-    if [ ! -x "$CODEX_NATIVE_RUNTIME" ]; then
-        codex_fail "runtime missing; run codex setup"
-        return 127
-    fi
-    codex_prepare_runtime_env
-
-    if [ "$first" = "--" ]; then
-        shift
-        exec "$CODEX_NATIVE_RUNTIME" "$@"
-    fi
-    if [ $# -gt 0 ]; then
-        if [[ "$first" == -* ]] || codex_is_upstream_command "$first"; then
-            args=("$@")
-        else
-            args=("exec" "$@")
-        fi
-    fi
-    exec "$CODEX_NATIVE_RUNTIME" "${args[@]}"
-}
-
-codex_prepare_runtime_env() {
-    export SSL_CERT_FILE="${SSL_CERT_FILE:-$CODEX_NATIVE_CERT_FILE}"
-    [ -d "$CODEX_NATIVE_CERT_DIR" ] && export SSL_CERT_DIR="${SSL_CERT_DIR:-$CODEX_NATIVE_CERT_DIR}"
-    if [ -z "${BROWSER:-}" ] && command -v termux-open-url >/dev/null 2>&1; then
-        export BROWSER=termux-open-url
-    fi
-    export CODEX_SELF_EXE="${CODEX_SELF_EXE:-$CODEX_NATIVE_RUNTIME}"
-    unset CODEX_MANAGED_BY_NPM CODEX_MANAGED_BY_BUN CODEX_MANAGED_PACKAGE_ROOT LD_PRELOAD LD_LIBRARY_PATH
-    export CODEX_NATIVE_BWRAP_COMPAT_QUIET="${CODEX_NATIVE_BWRAP_COMPAT_QUIET:-1}"
-    export PATH="$CODEX_NATIVE_RUNTIME_DIR/codex-path:$CODEX_NATIVE_RUNTIME_DIR/codex-resources:$CODEX_NATIVE_PREFIX/bin:$PATH"
-    if [ -r "$CODEX_NATIVE_RESOLV_CONF" ]; then
-        eval "exec ${CODEX_NATIVE_RESOLVER_FD}<\"\$CODEX_NATIVE_RESOLV_CONF\""
-    fi
-}
-
-codex_current_wrapper_version() {
-    if [ -f "$CODEX_NATIVE_MANAGER_DIR/wrapper-version.env" ]; then
-        # shellcheck disable=SC1090
-        . "$CODEX_NATIVE_MANAGER_DIR/wrapper-version.env"
-    elif [ -f "$CODEX_NATIVE_RUNTIME_DIR/wrapper-version.env" ]; then
-        # shellcheck disable=SC1090
-        . "$CODEX_NATIVE_RUNTIME_DIR/wrapper-version.env"
-    fi
-    printf '%s\n' "${CODEX_NATIVE_WRAPPER_VERSION:-unknown}"
-}
-
-codex_current_wrapper_commit() {
-    if [ -f "$CODEX_NATIVE_MANAGER_DIR/wrapper-version.env" ]; then
-        # shellcheck disable=SC1090
-        . "$CODEX_NATIVE_MANAGER_DIR/wrapper-version.env"
-    elif [ -f "$CODEX_NATIVE_RUNTIME_DIR/wrapper-version.env" ]; then
-        # shellcheck disable=SC1090
-        . "$CODEX_NATIVE_RUNTIME_DIR/wrapper-version.env"
-    fi
-    printf '%s\n' "${CODEX_NATIVE_WRAPPER_COMMIT:-unknown}"
-}
-
-codex_version() {
-    local upstream wrapper commit status=0
-    if upstream="$("$CODEX_NATIVE_RUNTIME" --version 2>/dev/null)"; then
-        status=0
-    else
-        status=$?
-        upstream=""
-    fi
-    wrapper="$(codex_current_wrapper_version)"
-    commit="$(codex_current_wrapper_commit)"
-    printf 'codex  : %s\n' "${upstream:-missing}"
-    printf 'wrapper: %s (%s)\n' "$wrapper" "$commit"
-    return "$status"
-}
-
-codex_wrapper_help() {
-    printf '\n'
-    printf 'Wrapper commands\n'
-    printf '  %-8s  %s\n' 'codex' 'Managed upstream Codex entrypoint; bare execution may auto-update before launch.'
-    printf '  %-8s  %s\n' 'setup' 'Refresh launcher/support files and ensure raw/runtime are ready.'
-    printf '  %-8s  %s\n' 'update' 'Refresh support, update official linux-arm64 package, patch, and promote.'
-    printf '  %-8s  %s\n' 'use' 'List cached and remote runtimes; promote the selected runtime.'
-    printf '  %-8s  %s\n' 'profile' 'List numbered profiles or enter a named profile with CODEX_HOME switched.'
-    printf '  %-8s  %s\n' 'doctor' 'Check launcher, runtime resources, resolver, CA, DNS patch, and state.'
-    printf '  %-8s  %s\n' 'version' 'Print `codex :` and `wrapper:` version rows.'
-    printf '  %-8s  %s\n' 'remove' 'Remove managed launcher/runtime and restore launcher backups when present.'
-    printf '  %-8s  %s\n' '--' 'Force exact upstream passthrough, e.g. `codex -- doctor --json`.'
-}
-
-codex_help() {
-    if [ -x "$CODEX_NATIVE_RUNTIME" ]; then
-        codex_prepare_runtime_env
-        "$CODEX_NATIVE_RUNTIME" --help
-    fi
-    codex_wrapper_help
-}
-
-codex_network_boundary_json() {
-    local probe baseline off on reset baseline_status=0 off_status=0 on_status=0 reset_status=0
-    mkdir -p "$CODEX_NATIVE_DOCTOR_DIR"
-    probe="$CODEX_NATIVE_DOCTOR_DIR/network-probe.py"
-    cat >"$probe" <<'PY'
-import json, socket
-from pathlib import Path
-
-status = {}
-for line in Path("/proc/self/status").read_text().splitlines():
-    if line.startswith("NoNewPrivs:"):
-        status["no_new_privs"] = int(line.split()[1])
-    elif line.startswith("Seccomp:"):
-        status["seccomp"] = int(line.split()[1])
-try:
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.close()
-    status["socket_allowed"] = True
-    status["socket_errno"] = None
-except OSError as exc:
-    status["socket_allowed"] = False
-    status["socket_errno"] = exc.errno
-print(json.dumps(status, sort_keys=True))
-PY
-    baseline="$(python3 "$probe" 2>/dev/null)" || baseline_status=$?
-    off="$("$CODEX_NATIVE_RUNTIME" sandbox -c sandbox_workspace_write.network_access=false \
-        python3 "$probe" 2>/dev/null)" || off_status=$?
-    on="$("$CODEX_NATIVE_RUNTIME" sandbox \
-        -c permissions.wrapper-network.network.enabled=true -P wrapper-network \
-        python3 "$probe" 2>/dev/null)" || on_status=$?
-    reset="$("$CODEX_NATIVE_RUNTIME" sandbox -c sandbox_workspace_write.network_access=false \
-        python3 "$probe" 2>/dev/null)" || reset_status=$?
-    python3 - "$baseline" "$off" "$on" "$reset" \
-        "$baseline_status" "$off_status" "$on_status" "$reset_status" <<'PY'
-import json, sys
-
-names = ("baseline", "off", "on", "reset")
-reports = {}
-statuses = [int(value) for value in sys.argv[5:9]]
-for name, raw, status in zip(names, sys.argv[1:5], statuses):
-    try:
-        reports[name] = json.loads(raw)
-    except Exception:
-        reports[name] = {"parse_error": True, "raw": raw, "exit_code": status}
-
-baseline_ok = statuses[0] == 0 and reports["baseline"].get("socket_allowed") is True
-off_ok = (
-    statuses[1] == 0
-    and reports["off"].get("socket_allowed") is False
-    and reports["off"].get("socket_errno") == 1
-    and reports["off"].get("no_new_privs") == 1
-    and reports["off"].get("seccomp") == 2
-)
-on_ok = statuses[2] == 0 and reports["on"].get("socket_allowed") is True
-reset_ok = (
-    statuses[3] == 0
-    and reports["reset"].get("socket_allowed") is False
-    and reports["reset"].get("socket_errno") == 1
-)
-if not baseline_ok:
-    overall = "inconclusive"
-elif off_ok and on_ok and reset_ok:
-    overall = "ok"
-else:
-    overall = "fail"
-print(json.dumps({
-    "overallStatus": overall,
-    "checks": {
-        "baseline_socket": baseline_ok,
-        "network_off": off_ok,
-        "network_on": on_ok,
-        "network_reset": reset_ok,
-    },
-    "reports": reports,
-}, ensure_ascii=True, sort_keys=True))
-PY
-}
-
-codex_wrapper_doctor_json() {
-    local version raw_sha runtime_sha network_json
-    version="$(codex_read_state_field version)"
-    raw_sha="$(codex_read_state_field raw_sha256)"
-    runtime_sha="$(codex_read_state_field runtime_sha256)"
-    codex_prepare_runtime_env
-    network_json="$(codex_network_boundary_json)"
-    python3 - "$CODEX_NATIVE_RUNTIME" "$CODEX_NATIVE_RUNTIME_DIR" "$CODEX_NATIVE_MANAGER_DIR" "$CODEX_NATIVE_RAW_VENDOR" "$CODEX_NATIVE_RESOLV_CONF" "$CODEX_NATIVE_CERT_FILE" "$CODEX_NATIVE_STATE_FILE" "$CODEX_NATIVE_REGISTRY_FILE" "$version" "$raw_sha" "$runtime_sha" "$CODEX_NATIVE_PREFIX" "$CODEX_NATIVE_RUNTIME_BUILDER" "$CODEX_NATIVE_PATCH_POLICY" "$network_json" <<'PY'
-import filecmp, hashlib, json, os, subprocess, sys
-from pathlib import Path
-runtime = Path(sys.argv[1])
-runtime_dir = Path(sys.argv[2])
-manager_dir = Path(sys.argv[3])
-raw_vendor = Path(sys.argv[4])
-resolv = Path(sys.argv[5])
-cert = Path(sys.argv[6])
-state = Path(sys.argv[7])
-registry = Path(sys.argv[8])
-version = sys.argv[9]
-raw_sha = sys.argv[10]
-runtime_sha = sys.argv[11]
-prefix = Path(sys.argv[12])
-builder = Path(sys.argv[13])
-patch_policy = sys.argv[14]
-network = json.loads(sys.argv[15])
-path_bwrap = runtime_dir / "codex-path/bwrap"
-bundled_bwrap = runtime_dir / "codex-resources/bwrap"
-rg = runtime_dir / "codex-path/rg"
-manifest_path = runtime_dir / "runtime-build.json"
-
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-try:
-    manifest = json.loads(manifest_path.read_text())
-except Exception:
-    manifest = {}
-try:
-    actual_raw_sha = sha256(raw_vendor / "bin/codex")
-except Exception:
-    actual_raw_sha = ""
-try:
-    actual_runtime_sha = sha256(runtime)
-except Exception:
-    actual_runtime_sha = ""
-try:
-    raw_bytes = (raw_vendor / "bin/codex").read_bytes()
-    runtime_bytes = runtime.read_bytes()
-    dns_only = raw_bytes.replace(b"/etc/resolv.conf", b"/proc/self/fd/33") == runtime_bytes
-except Exception:
-    dns_only = False
-checks = {
-    "runtime": runtime.exists() and os.access(runtime, os.X_OK),
-    "raw": (raw_vendor / "bin/codex").exists(),
-    "path_bwrap": path_bwrap.exists() and os.access(path_bwrap, os.X_OK),
-    "bundled_bwrap": bundled_bwrap.exists() and os.access(bundled_bwrap, os.X_OK),
-    "rg": rg.exists() and os.access(rg, os.X_OK),
-    "rg_real": (runtime_dir / "codex-path/rg.real").exists(),
-    "support_bwrap_match": filecmp.cmp(manager_dir / "bwrap-termux-compat.py", path_bwrap, shallow=False) if (manager_dir / "bwrap-termux-compat.py").exists() and path_bwrap.exists() else False,
-    "support_rg_match": filecmp.cmp(manager_dir / "rg-termux-shim.sh", rg, shallow=False) if (manager_dir / "rg-termux-shim.sh").exists() and rg.exists() else False,
-    "zsh": (runtime_dir / "codex-resources/zsh/bin/zsh").exists(),
-    "resolv": resolv.exists() and os.access(resolv, os.R_OK),
-    "cert": cert.exists() and os.access(cert, os.R_OK),
-    "state": state.exists(),
-    "registry": registry.exists(),
-    "raw_hash": bool(actual_raw_sha and actual_raw_sha == raw_sha == manifest.get("raw_sha256")),
-    "runtime_hash": bool(actual_runtime_sha and actual_runtime_sha == runtime_sha == manifest.get("runtime_sha256")),
-    "build_manifest": bool(
-        manifest.get("patch_policy") == patch_policy
-        and manifest.get("builder_sha256") == sha256(builder)
-    ),
-    "dns_only_patch": dns_only,
-    "network_boundary": network.get("overallStatus") != "fail",
-}
-registry_data = {}
-try:
-    registry_data = json.loads(registry.read_text()) if registry.exists() else {}
-except Exception:
-    registry_data = {}
-active_tuple_id = registry_data.get("active_tuple_id", "")
-checks["registry_active_tuple"] = bool(active_tuple_id and active_tuple_id in registry_data.get("runtime", {}))
-try:
-    checks["bwrap_exec"] = subprocess.run(
-        [str(path_bwrap), "--ro-bind", "/", "/", "--", str(prefix / "bin/true")],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        timeout=10,
-    ).returncode == 0
-except Exception:
-    checks["bwrap_exec"] = False
-try:
-    checks["rg_exec"] = subprocess.run(
-        [str(rg), "--version"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        timeout=10,
-    ).returncode == 0
-except Exception:
-    checks["rg_exec"] = False
-try:
-    strings = subprocess.check_output(["strings", str(runtime)], text=True, errors="replace", timeout=10)
-    checks["dns_patch"] = "/proc/self/fd/33" in strings and "/etc/resolv.conf" not in strings
-except Exception:
-    checks["dns_patch"] = False
-print(json.dumps({
-    "schema": 3,
-    "overallStatus": "ok" if all(checks.values()) else "fail",
-    "version": version,
-    "raw_sha256": raw_sha,
-    "runtime_sha256": runtime_sha,
-    "paths": {
-        "runtime": str(runtime),
-        "manager": str(manager_dir),
-        "raw_vendor": str(raw_vendor),
-        "state": str(state),
-        "registry": str(registry),
-    },
-    "activeTupleId": active_tuple_id,
-    "termuxDelta": {
-        "browserLogin": "termux-open-url when available",
-        "bwrap": "runtime-private quiet no-namespace compatibility launcher",
-        "codexSelfExe": "managed runtime",
-        "ldLibraryPath": "sanitized before runtime execution",
-        "runtimePatch": "official linux-arm64 raw package rebuilt into Termux-managed runtime",
-    },
-    "networkBoundary": network,
-    "buildManifest": manifest,
-    "checks": checks,
-}, ensure_ascii=True, sort_keys=True))
-PY
-}
-
-codex_wrapper_doctor() {
-    if [ "${1:-}" = "--json" ]; then
-        codex_wrapper_doctor_json
-    else
-        codex_wrapper_doctor_json | python3 -c '
-import json, sys
-
-data = json.load(sys.stdin)
-checks = data.get("checks", {})
-paths = data.get("paths", {})
-network = data.get("networkBoundary", {})
-manifest = data.get("buildManifest", {})
-status = data.get("overallStatus", "fail")
-use_color = sys.stdout.isatty() and not bool(__import__("os").environ.get("NO_COLOR"))
-line = "─" * 61
-counts = {"ok": 0, "idle": 0, "warn": 0, "fail": 0}
-
-def color(code, text):
-    return f"\033[{code}m{text}\033[0m" if use_color else text
-
-def fg(code, text):
-    return f"\033[38;5;{code}m{text}\033[39m" if use_color else text
-
-def std_fg(code, text):
-    return f"\033[{code}m{text}\033[39m" if use_color else text
-
-def dim(text):
-    return color("2", text)
-
-def bold(text):
-    return color("1", text)
-
-def warn_mark():
-    return fg("214", "⚠")
-
-def status_mark(item_status):
-    if item_status == "ok":
-        return fg("10", "✓")
-    if item_status == "warn":
-        return fg("214", "⚠")
-    if item_status == "idle":
-        return dim("○")
-    return fg("196", "✗")
-
-def section(text):
-    print()
-    print(bold(text))
-
-def row_status(item_status, name, summary):
-    counts[item_status] += 1
-    print("  {} {:<12} {}".format(status_mark(item_status), name, dim(summary)))
-
-def row(ok, name, summary):
-    row_status("ok" if ok else "fail", name, summary)
-
-def detail(name, value):
-    print("      {} {}".format(fg("240", "{:<24}".format(name)), value))
-
-def path_detail(name, value):
-    print("      {} {}".format(fg("240", "{:<24}".format(name)), fg("117", value)))
-
-def probe_detail(name, item_status, value):
-    counts[item_status] += 1
-    print(f"      {name:<24} {value}")
-
-def compact_hash(value):
-    return value[:12] if value else "missing"
-
-print("{} {}".format(bold("Termux Wrapper Doctor"), dim("v{}".format(data.get("version", "unknown")))))
-notes = []
-if network.get("overallStatus") == "inconclusive":
-    notes.append(("sandbox", "network boundary baseline was blocked by the outer environment; restricted probes still passed."))
-if status != "ok":
-    notes.append(("wrapper", "one or more wrapper checks failed."))
-if notes:
-    print()
-    print(bold("Notes"))
-    for name, summary in notes:
-        print("   {} {:<12} {}".format(warn_mark(), name, summary))
-    print(dim(line))
-
-section("Runtime")
-row(checks.get("runtime"), "runtime", "managed executable · {}".format(compact_hash(data.get("runtime_sha256", ""))))
-path_detail("executable", paths.get("runtime", "missing"))
-row(checks.get("raw"), "raw", "official linux-arm64 package · {}".format(compact_hash(data.get("raw_sha256", ""))))
-path_detail("vendor", paths.get("raw_vendor", "missing"))
-row(checks.get("build_manifest"), "manifest", manifest.get("patch_policy", "missing"))
-detail("builder hash", compact_hash(manifest.get("builder_sha256", "")))
-row(checks.get("dns_only_patch"), "patch", "DNS resolver path redirects to fd 33 only")
-detail("changed bytes", manifest.get("changed_byte_count", "unknown"))
-row(checks.get("runtime_hash") and checks.get("raw_hash"), "integrity", "runtime and raw hashes match recorded state")
-detail("active tuple", data.get("activeTupleId", "missing"))
-
-section("Support")
-row(checks.get("path_bwrap") and checks.get("bundled_bwrap") and checks.get("bwrap_exec"), "bwrap", "Termux compatibility launcher is executable")
-detail("launcher", "codex-path/bwrap")
-row(checks.get("rg") and checks.get("rg_real") and checks.get("rg_exec"), "search", "ripgrep shim and original rg are executable")
-detail("provider", "managed rg shim")
-row(checks.get("support_bwrap_match") and checks.get("support_rg_match"), "support", "installed support files match wrapper files")
-row(checks.get("zsh"), "zsh", "bundled zsh resource is present")
-
-section("Environment")
-row(checks.get("resolv"), "resolver", "fd 33 source is readable")
-detail("source", "/proc/self/fd/33")
-row(checks.get("cert"), "cert", "Termux CA bundle is readable")
-row(checks.get("state") and checks.get("registry") and checks.get("registry_active_tuple"), "state", "state and registry point at active runtime")
-path_detail("state", paths.get("state", "missing"))
-path_detail("registry", paths.get("registry", "missing"))
-
-section("Sandbox")
-net_status = network.get("overallStatus", "missing")
-if net_status == "ok":
-    network_row_status = "ok"
-elif net_status == "inconclusive":
-    network_row_status = "warn"
-else:
-    network_row_status = "fail"
-row_status(network_row_status, "network", f"boundary probe {net_status}")
-for name in ("baseline_socket", "network_off", "network_on", "network_reset"):
-    probe_ok = bool(network.get("checks", {}).get(name, False))
-    probe_status = "ok" if probe_ok else ("warn" if net_status == "inconclusive" else "fail")
-    probe_detail(name.replace("_", " "), probe_status, probe_ok)
-print()
-print(dim(line))
-summary_status = "fail" if counts["fail"] else ("degraded" if counts["warn"] else "ok")
-summary_tail = bold(std_fg("32", "ok")) if summary_status == "ok" else (
-    bold(std_fg("33", "degraded")) if summary_status == "degraded" else bold(std_fg("31", "fail"))
-)
-print(
-    dim(str(counts["ok"])) + " " + fg("10", "ok") + dim(" · ")
-    + dim(str(counts["idle"])) + dim(" idle · ")
-    + dim(str(counts["warn"])) + " " + fg("214", "warn") + dim(" · ")
-    + dim(str(counts["fail"])) + " " + fg("196", "fail") + " "
-    + summary_tail
-)
-raise SystemExit(0 if status == "ok" else 1)
-'
-    fi
-}
-
-codex_public_doctor() {
-    if [ $# -gt 0 ]; then
-        codex_ensure_runtime_ready || return $?
-        codex_prepare_runtime_env
-        "$CODEX_NATIVE_RUNTIME" doctor "$@"
-        return $?
-    fi
-
-    local upstream_status=0 wrapper_status=0
-    codex_ensure_runtime_ready || return $?
-    codex_prepare_runtime_env
-    "$CODEX_NATIVE_RUNTIME" doctor || upstream_status=$?
-    printf '\n%s\n\n' '─────────────────────────────────────────────────────────────'
-    codex_wrapper_doctor || wrapper_status=$?
-    [ "$upstream_status" -eq 0 ] && [ "$wrapper_status" -eq 0 ]
-}
-
-codex_profile_validate_name() {
-    local profile="${1:-}"
-    case "$profile" in
-        ""|default)
-            return 0
-            ;;
-        native|-*|.*|*/*|*..*|*[[:space:]]*)
-            return 1
-            ;;
-        *)
-            return 0
-            ;;
-    esac
-}
-
-codex_profile_dir() {
-    local profile="${1:-default}"
-    if [ -z "$profile" ] || [ "$profile" = "default" ]; then
-        printf '%s\n' "$CODEX_NATIVE_HOME/.codex"
-    else
-        printf '%s/%s\n' "$CODEX_NATIVE_PROFILE_ROOT" "$profile"
-    fi
-}
-
-codex_profile_share_plugins() {
-    local profile_dir="$1" shared_plugins_dir="$CODEX_NATIVE_SHARED_PLUGINS_DIR" plugins_dir
-    plugins_dir="$profile_dir/plugins"
-    mkdir -p "$shared_plugins_dir"
-    if [ -e "$plugins_dir" ] || [ -L "$plugins_dir" ]; then
-        return 0
-    fi
-    ln -s "$shared_plugins_dir" "$plugins_dir"
-}
-
-codex_list_profiles() {
-    local root="$CODEX_NATIVE_PROFILE_ROOT"
-    [ -d "$root" ] || return 0
-    find "$root" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null \
-        | grep -Ev '^(default|native)$' \
-        | grep -Ev '^[.]' \
-        | LC_ALL=C sort -f
-}
-
-codex_prompt_choice() {
-    local prompt="${1:-choose> }" max_items="${2:-9}" reply rest old_tty status
-    printf '%s' "$prompt" >&2
-    if [ -t 0 ]; then
-        old_tty="$(stty -g 2>/dev/null || true)"
-        [ -z "$old_tty" ] || stty -echo -icanon min 1 time 0 2>/dev/null || true
-        IFS= read -r -N 1 reply
-        status=$?
-        [ -z "$old_tty" ] || stty "$old_tty" 2>/dev/null || true
-        if [ "$status" -ne 0 ]; then
-            printf '\n' >&2
-            return 1
-        fi
-    elif ! IFS= read -r -N 1 reply; then
-        printf '\n' >&2
-        return 1
-    fi
-    case "$reply" in
-        $'\e')
-            printf '\n' >&2
-            return 130
-            ;;
-        $'\n'|$'\r'|'')
-            printf '\n' >&2
-            return 0
-            ;;
-        [0-9])
-            if [ "$max_items" -le 9 ]; then
-                printf '%s\n' "$reply" >&2
-                printf '%s\n' "$reply"
-                return 0
-            fi
-            ;;
-        *)
-            ;;
-    esac
-    rest=""
-    printf '%s' "$reply" >&2
-    IFS= read -r rest || true
-    printf '%s%s\n' "$reply" "$rest"
-    return 0
-}
-
-codex_profile_exec() {
-    local profile_dir="$1"
-    shift || true
-    if [ ! -d "$profile_dir" ]; then
-        codex_fail "profile directory not found: $profile_dir"
-        return 2
-    fi
-    codex_profile_share_plugins "$profile_dir"
-    codex_ensure_runtime_ready || return $?
-    codex_auto_update_if_needed
-    codex_prepare_runtime_env
-    CODEX_HOME="$profile_dir" exec "$CODEX_NATIVE_RUNTIME" "$@"
-}
-
-codex_profile_select() {
-    local profiles=() profile choice idx profile_dir display_limit=0 truncated=0
-    mapfile -t profiles < <(codex_list_profiles)
-    if [ -t 0 ]; then
-        display_limit=9
-    fi
-
-    printf 'Choose profile\n' >&2
-    printf '   0. default\n' >&2
-    idx=1
-    for profile in "${profiles[@]}"; do
-        if [ "$display_limit" -gt 0 ] && [ "$idx" -gt "$display_limit" ]; then
-            truncated=1
-            break
-        fi
-        printf '  %2d. %s\n' "$idx" "$profile" >&2
-        idx=$((idx + 1))
-    done
-    if [ "$truncated" -eq 1 ]; then
-        printf '  (More options: codex profile NAME)\n' >&2
-    fi
-    printf '\n' >&2
-
-    if [ ! -t 0 ]; then
-        return 0
-    fi
-
-    choice="$(codex_prompt_choice 'choose profile > ' "$(( ${#profiles[@]} < 9 ? ${#profiles[@]} : 9 ))")" || return $?
-    [ -n "$choice" ] || return 130
-
-    if [ "$choice" = "0" ] || [ "$choice" = "default" ]; then
-        profile="default"
-    elif [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#profiles[@]}" ]; then
-        profile="${profiles[$((choice - 1))]}"
-    else
-        profile="$choice"
-    fi
-
-    codex_profile_validate_name "$profile" || {
-        codex_fail "invalid profile name: $profile"
-        return 2
-    }
-    profile_dir="$(codex_profile_dir "$profile")"
-    codex_profile_exec "$profile_dir"
-}
-
-codex_profile_run() {
-    local profile="${1:-}"
-    if [ -z "$profile" ]; then
-        codex_profile_select
-        return $?
-    fi
-    codex_profile_validate_name "$profile" || {
-        codex_fail "invalid profile name: $profile"
-        return 2
-    }
-    local profile_dir
-    profile_dir="$(codex_profile_dir "$profile")"
-    shift || true
-    codex_profile_exec "$profile_dir" "$@"
-}
-
-codex_restore_backup() {
-    local public="$1" base latest
-    base="$(basename "$public")"
-    latest="$(ls -t "$CODEX_NATIVE_BACKUP_DIR"/"$base".*.bak 2>/dev/null | sed -n '1p' || true)"
-    if [ -n "$latest" ]; then
-        cp -Pp "$latest" "$public"
-        codex_say "restored $public from $latest"
-    fi
-}
-
-codex_remove() {
-    if codex_file_has_marker "$CODEX_NATIVE_PUBLIC_CODEX"; then
-        rm -f "$CODEX_NATIVE_PUBLIC_CODEX"
-        codex_restore_backup "$CODEX_NATIVE_PUBLIC_CODEX"
-    fi
-    rm -rf "$CODEX_NATIVE_NATIVE_ROOT"
-    codex_say "removed managed runtime; state kept at $CODEX_NATIVE_STATE_DIR for backups"
-}
-
-codex_use() {
-    local choice="${1:-}" runtime_path version raw_sha runtime_sha package_spec
-    if [ "$choice" = "--list" ]; then
-        codex_use_list list
-        return $?
-    fi
-    if [ -n "$choice" ]; then
-        codex_use_select "$choice"
-        return $?
-    fi
-    codex_use_list menu
-    if [ ! -t 0 ]; then
-        return 0
-    fi
-    choice="$(codex_prompt_choice 'choose runtime > ' "${CODEX_USE_MENU_COUNT:-0}")" || return $?
-    if [ -z "$choice" ]; then
-        printf 'codex use: cancelled.\n' >&2
-        return 1
-    fi
-    codex_use_select "$choice"
-}
-
-codex_use_list() {
-    local mode="${1:-list}" latest interactive_limit=0
-    latest="$(codex_latest_linux_arm64_version || true)"
-    CODEX_USE_LAST_LATEST="$latest"
-    if [ "$mode" = "menu" ] && [ -t 0 ]; then
-        interactive_limit=9
-    fi
-    if [ "$mode" = "list" ]; then
-        CODEX_USE_MENU_COUNT=0
-        codex_use_render "$latest" "$interactive_limit" "$mode"
-    else
-        CODEX_USE_MENU_COUNT="$(codex_use_render "$latest" "$interactive_limit" "$mode")"
-    fi
-}
-
-codex_use_render() {
-    local latest="$1" interactive_limit="$2" mode="$3"
-    python3 - "$CODEX_NATIVE_REGISTRY_FILE" "$latest" "$CODEX_NATIVE_RUNTIME_STORE_DIR" "$interactive_limit" "$mode" \
-        "$CODEX_NATIVE_RUNTIME_BUILDER" "$CODEX_NATIVE_PATCH_POLICY" <<'PY'
-import hashlib, json, os, sys
-from pathlib import Path
-path = Path(sys.argv[1])
-latest = sys.argv[2]
-store_runtime_root = Path(sys.argv[3]).resolve()
-store_raw_root = store_runtime_root.parent / "raw"
-interactive_limit = int(sys.argv[4])
-mode = sys.argv[5]
-builder = Path(sys.argv[6])
-policy = sys.argv[7]
-data = json.loads(path.read_text()) if path.exists() else {"installs": []}
-active_tuple_id = data.get("active_tuple_id", "")
-builder_sha = hashlib.sha256(builder.read_bytes()).hexdigest()
-
-def managed_runtime_path(value: str) -> bool:
-    if not value:
-        return False
-    try:
-        runtime_path = Path(value).resolve()
-    except Exception:
-        return False
-    if not ((runtime_path / "codex").exists() and store_runtime_root in runtime_path.parents):
-        return False
-    try:
-        manifest = json.loads((runtime_path / "runtime-build.json").read_text())
-        digest = hashlib.sha256((runtime_path / "codex").read_bytes()).hexdigest()
-        return (
-            manifest.get("patch_policy") == policy
-            and manifest.get("builder_sha256") == builder_sha
-            and manifest.get("runtime_sha256") == digest
-        )
-    except Exception:
-        return False
-
-def managed_raw_path(entry: dict) -> bool:
-    raw_id = entry.get("raw_id", "")
-    raw_path_text = data.get("raw", {}).get(raw_id, {}).get("path", "")
-    if not raw_path_text:
-        return False
-    try:
-        raw_path = Path(raw_path_text).resolve()
-        raw_bin = raw_path / "vendor" / "aarch64-unknown-linux-musl" / "bin" / "codex"
-        return (
-            raw_path.parent == store_raw_root.resolve()
-            and raw_bin.exists()
-            and hashlib.sha256(raw_bin.read_bytes()).hexdigest() == entry.get("raw_sha256", "")
-        )
-    except Exception:
-        return False
-
-seen = set()
-rows = []
-for entry in data.get("installs", []):
-    runtime_path = entry.get("runtime_path", "")
-    key = entry.get("tuple_id", "") or runtime_path
-    if key in seen or not managed_runtime_path(runtime_path) or not managed_raw_path(entry):
-        continue
-    seen.add(key)
-    rows.append(entry)
-
-count = 0
-truncated = False
-
-if mode == "list":
-    for index, entry in enumerate(rows, 1):
-        print("\t".join([
-            str(index),
-            "cached",
-            entry.get("version", "unknown"),
-            entry.get("runtime_sha256", "")[:12],
-            entry.get("package_spec", ""),
-            entry.get("runtime_path", ""),
-        ]))
-    cached_versions = {entry.get("version", "") for entry in rows}
-    if latest and latest not in cached_versions:
-        print("\t".join([
-            str(len(rows) + 1),
-            "remote",
-            latest,
-            "",
-            f"@openai/codex@{latest}",
-            "npm:linux-arm64",
-        ]))
-    if not rows and not latest:
-        print("no cached runtimes", file=sys.stderr)
-        raise SystemExit(1)
-    raise SystemExit(0)
-
-print("Choose runtime", file=sys.stderr)
-for entry in rows:
-    if interactive_limit and count >= interactive_limit:
-        truncated = True
-        continue
-    count += 1
-    version = entry.get("version", "unknown")
-    tuple_id = entry.get("tuple_id", "")
-    wrapper_id = entry.get("wrapper_id", "")
-    wrapper_short = wrapper_id.split("wrapper-", 1)[-1] if wrapper_id else "wrapper-unknown"
-    badges = ["active" if tuple_id == active_tuple_id else None, "cached"]
-    badge_text = ", ".join(item for item in badges if item)
-    print(f"  {count:2d}. {version}  [{wrapper_short}]  {badge_text}", file=sys.stderr)
-
-cached_versions = {entry.get("version", "") for entry in rows}
-if latest and latest not in cached_versions:
-    if not interactive_limit or count < interactive_limit:
-        count += 1
-        print(f"  {count:2d}. {latest}  [latest wrapper]  remote", file=sys.stderr)
-    else:
-        truncated = True
-if not rows and not latest:
-    print("no cached runtimes", file=sys.stderr)
-    raise SystemExit(1)
-if truncated:
-    print("  (More options: codex use <version>)", file=sys.stderr)
-print(file=sys.stderr)
-print(count)
-PY
-}
-
-codex_use_select() {
-    local choice="$1" selected
-    local latest="${CODEX_USE_LAST_LATEST:-}"
-    if [ -z "$latest" ]; then
-        latest="$(codex_latest_linux_arm64_version || true)"
-    fi
-    selected="$(python3 - "$CODEX_NATIVE_REGISTRY_FILE" "$choice" "$latest" "$CODEX_NATIVE_RUNTIME_STORE_DIR" \
-        "$CODEX_NATIVE_RUNTIME_BUILDER" "$CODEX_NATIVE_PATCH_POLICY" <<'PY'
-import hashlib, json, sys
-from pathlib import Path
-path = Path(sys.argv[1])
-choice = sys.argv[2]
-latest = sys.argv[3]
-store_runtime_root = Path(sys.argv[4]).resolve()
-store_raw_root = store_runtime_root.parent / "raw"
-builder = Path(sys.argv[5])
-policy = sys.argv[6]
-builder_sha = hashlib.sha256(builder.read_bytes()).hexdigest()
-data = json.loads(path.read_text()) if path.exists() else {"installs": []}
-
-def managed_runtime_path(value: str) -> bool:
-    if not value:
-        return False
-    try:
-        runtime_path = Path(value).resolve()
-    except Exception:
-        return False
-    if not ((runtime_path / "codex").exists() and store_runtime_root in runtime_path.parents):
-        return False
-    try:
-        manifest = json.loads((runtime_path / "runtime-build.json").read_text())
-        digest = hashlib.sha256((runtime_path / "codex").read_bytes()).hexdigest()
-        return (
-            manifest.get("patch_policy") == policy
-            and manifest.get("builder_sha256") == builder_sha
-            and manifest.get("runtime_sha256") == digest
-        )
-    except Exception:
-        return False
-
-def managed_raw_path(entry: dict) -> bool:
-    raw_id = entry.get("raw_id", "")
-    raw_path_text = data.get("raw", {}).get(raw_id, {}).get("path", "")
-    if not raw_path_text:
-        return False
-    try:
-        raw_path = Path(raw_path_text).resolve()
-        raw_bin = raw_path / "vendor" / "aarch64-unknown-linux-musl" / "bin" / "codex"
-        return (
-            raw_path.parent == store_raw_root.resolve()
-            and raw_bin.exists()
-            and hashlib.sha256(raw_bin.read_bytes()).hexdigest() == entry.get("raw_sha256", "")
-        )
-    except Exception:
-        return False
-
-rows = []
-seen = set()
-for entry in data.get("installs", []):
-    runtime_path = entry.get("runtime_path", "")
-    key = entry.get("tuple_id", "") or runtime_path
-    if key in seen or not managed_runtime_path(runtime_path) or not managed_raw_path(entry):
-        continue
-    seen.add(key)
-    rows.append(("cached", entry))
-match = None
-if choice.isdigit() and 1 <= int(choice) <= len(rows):
-    match = rows[int(choice) - 1]
-else:
-    for kind, entry in rows:
-        if choice in (entry.get("version", ""), entry.get("runtime_sha256", "")[:12]):
-            match = (kind, entry)
-            break
-if not match:
-    cached_versions = {entry.get("version", "") for _, entry in rows}
-    if latest and latest not in cached_versions:
-        remote_entry = {
-            "version": latest,
-            "runtime_sha256": "",
-            "raw_sha256": "",
-            "package_spec": f"@openai/codex@{latest}",
-            "runtime_path": "npm:linux-arm64",
-        }
-        rows.append(("remote", remote_entry))
-        if choice.isdigit() and int(choice) == len(rows):
-            match = rows[-1]
-        elif choice == latest:
-            match = rows[-1]
-if not match:
-    raise SystemExit(1)
-kind, entry = match
-print("\x1f".join([
-    kind,
-    entry.get("runtime_path", ""),
-    data.get("raw", {}).get(entry.get("raw_id", ""), {}).get("path", ""),
-    entry.get("version", "unknown"),
-    entry.get("raw_sha256", ""),
-    entry.get("runtime_sha256", ""),
-    entry.get("package_spec", ""),
-]))
-PY
-)" || {
-        codex_fail "unknown cached runtime selection: $choice"
-        return 1
-    }
-    local kind
-    IFS=$'\037' read -r kind runtime_path raw_path version raw_sha runtime_sha package_spec <<EOF
-$selected
-EOF
-    if [ "$kind" = "remote" ]; then
-        codex_update "$version" || return $?
-    else
-        codex_with_lock codex_activate_cached_runtime_unlocked \
-            "$runtime_path" "$raw_path" "$version" "$raw_sha" "$runtime_sha" "$package_spec" || return $?
-    fi
-    codex_version || return $?
-}
-
-codex_activate_cached_runtime_unlocked() {
-    local runtime_path="$1" raw_path="$2" version="$3" raw_sha="$4" runtime_sha="$5" package_spec="$6"
-    local runtime_complete="$CODEX_NATIVE_RUNTIME_DIR.use.$$" raw_complete="$CODEX_NATIVE_RAW_DIR.use.$$"
-    codex_prepare_complete_runtime_tree "$runtime_path" "$runtime_complete" || return 1
-    if ! codex_install_raw_vendor "$raw_path/vendor/aarch64-unknown-linux-musl" "$raw_complete"; then
-        rm -rf "$runtime_complete" "$raw_complete"
-        return 1
-    fi
-    if ! codex_commit_runtime_candidate "$runtime_complete" "$version" "$raw_sha" "$runtime_sha" "$package_spec" "$raw_complete"; then
-        rm -rf "$runtime_complete" "$raw_complete"
-        return 1
-    fi
-    codex_say "using Codex $version"
-}
-
-codex_bootstrap_store() {
-    local version raw_sha runtime_sha package_spec runtime_path raw_path tuple_id now
-    [ -n "$(codex_read_state_field active_tuple_id)" ] && return 0
-    version="$(codex_read_state_field version)"
-    raw_sha="$(codex_read_state_field raw_sha256)"
-    runtime_sha="$(codex_read_state_field runtime_sha256)"
-    package_spec="$(codex_read_state_field package_spec)"
-    [ -n "$version" ] && [ -n "$runtime_sha" ] && [ -x "$CODEX_NATIVE_RUNTIME" ] || return 0
-    codex_smoke_test_runtime "$CODEX_NATIVE_RUNTIME" || return 1
-    runtime_path="$(codex_store_runtime_payload "$version" "$runtime_sha")"
-    raw_path="$(codex_store_raw_payload "$version" "$raw_sha")" || return 1
-    now="$(codex_now)"
-    tuple_id="$(codex_record_registry "$version" "$raw_sha" "$runtime_sha" "$package_spec" "$runtime_path" "$now" "$raw_path")"
-    codex_write_json_state "$version" "$raw_sha" "$runtime_sha" "$package_spec" "$tuple_id" "$tuple_id" "$now"
-}
-
-codex_setup_public() {
-    if [ -n "${CODEX_NATIVE_INSTALL_RUNTIME_SOURCE:-}" ] && [ -x "$CODEX_NATIVE_INSTALL_RUNTIME_SOURCE" ]; then
-        exec bash "$CODEX_NATIVE_INSTALL_RUNTIME_SOURCE" setup "$@"
-    fi
-    codex_update "${1:-}"
-}
-
-codex_main() {
-    case "${1:-}" in
-        setup)
-            shift
-            codex_setup_public "$@"
-            ;;
-        update)
-            shift
-            codex_update_public "${1:-}"
-            ;;
-        doctor)
-            shift
-            codex_public_doctor "$@"
-            ;;
-        version)
-            shift
-            codex_version
-            ;;
-        help|--help|-h)
-            shift || true
-            codex_help "$@"
-            ;;
-        use)
-            shift
-            codex_use "$@"
-            ;;
-        profile)
-            shift
-            codex_profile_run "$@"
-            ;;
-        remove)
-            shift
-            codex_remove
-            ;;
-        *)
-            codex_ensure_runtime_ready || return $?
-            codex_auto_update_if_needed
-            codex_open_fd33_and_exec "$@"
-            ;;
-    esac
-}
+# shellcheck disable=SC1091
+. "$CODEX_NATIVE_SHELL_DIR/codex-termux-runtime.sh"
+
+# shellcheck disable=SC1091
+. "$CODEX_NATIVE_SHELL_DIR/codex-termux-interactive.sh"

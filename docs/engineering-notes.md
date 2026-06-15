@@ -30,6 +30,12 @@
 원인: 새 dist-tag가 발견되었고 사용자가 현재 runtime 실행을 선택하면 pending version을 남긴다. 이 상태는 “알림을 봤지만 update하지 않음”이지 “영구 무시”가 아니다.  
 대응: 현재 runtime을 계속 쓰려면 prompt에서 current 선택을 반복하거나 `CODEX_NATIVE_AUTO_UPDATE=0` 또는 auto-update mode off를 사용한다. 업데이트하려면 prompt에서 update를 선택하거나 `codex update`를 직접 실행한다.
 
+## `codex update`가 오래 멈춘 것처럼 보이는 이유
+
+증상: `codex: fetching @openai/codex@linux-arm64` 뒤에 다음 메시지가 늦게 나온다.
+원인: 그 구간은 `npm pack`의 네트워크 fetch와 tarball 준비가 들어가고, 이후에도 raw vendor staging, runtime rebuild, smoke test, immutable publish, tree digest 계산이 이어진다. 현재는 단계 메시지가 적어서 실제 진행보다 더 멈춘 것처럼 보인다.
+대응: 단계별 진행 문구를 확인하고, update가 끝난 뒤 바로 실행할지 묻는 prompt에서 결정한다.
+
 ## Profile plugin 공유
 
 증상: named profile에서 default profile에 설치된 plugin이나 skill이 보이지 않는다.  
@@ -41,6 +47,24 @@
 증상: runtime binary는 존재하지만 `doctor`에서 `support_bwrap_match`나 `support_rg_match`가 실패한다.  
 원인: wrapper support tool이 업데이트되었지만 runtime tree 안의 복사본은 이전 버전일 수 있다.  
 대응: cached raw package가 있으면 runtime을 다시 rebuild해 support tool 복사본을 맞춘다. raw package가 없으면 runtime을 재구성할 근거가 없으므로 package fetch가 필요한 setup/update를 실행한다.
+
+## Pointer와 registry path drift
+
+증상: current runtime 자체는 실행 가능하지만 `doctor`에서 pointer/registry alignment check가 실패한다.
+원인: state나 registry의 recorded path가 실제 current/verified/raw pointer target과 어긋났을 수 있다.
+대응: readiness는 현재 pointer target과 tuple metadata를 다시 대조하고, active runtime이 건강하면 metadata refresh로 registry/state path를 복구한다. pointer target이 store 바깥이거나 tuple을 찾지 못하면 자동 복구 대상이 아니다.
+
+## Legacy store migration report가 `issues`인 경우
+
+증상: wrapper doctor에서 legacy store migration이 `issues` warning으로 보인다.
+원인: 예전 state-side cache에 invalid runtime, missing raw cache, legacy raw path mismatch, report parse error 같은 항목이 섞여 있을 수 있다.
+대응: 이 warning은 imported되지 못한 legacy cache를 뜻한다. active current/verified/raw pointer와 필수 check가 건강하면 runtime 실행은 계속 성공할 수 있으므로, warning과 active runtime failure를 구분해 해석한다.
+
+## Immutable store collision
+
+증상: 같은 tuple id publish가 거부된다.
+원인: 기존 tuple id와 동일한 version/hash identity를 주장하지만 tree 내용이나 executable permission이 다르다.
+대응: wrapper는 기존 artifact를 보존하고 새 activation을 거부한다. store artifact overwrite로 drift를 숨기지 않는다.
 
 ## Termux `rg` 우선
 

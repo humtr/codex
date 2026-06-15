@@ -21,6 +21,17 @@ export CODEX_NATIVE_SHARED_PLUGINS_DIR="$FIXTURE_ROOT/shared-plugins"
 # shellcheck disable=SC1091
 . "$ROOT_DIR/lib/codex-termux-lib.sh"
 
+mkdir -p "$CODEX_NATIVE_PROFILE_ROOT/alpha" "$CODEX_NATIVE_PROFILE_ROOT/beta" \
+    "$(dirname "$CODEX_NATIVE_LAST_PROFILE_FILE")"
+printf 'beta\n' >"$CODEX_NATIVE_LAST_PROFILE_FILE"
+
+[ "$(codex_profile_display_name default)" = "default" ] || fail "default profile display name changed"
+[ "$(codex_profile_choice_to_name home)" = "default" ] || fail "home alias did not map to default"
+mapfile -t profile_menu < <(codex_profile_menu_ids)
+[ "${profile_menu[0]}" = "default" ] || fail "default profile was not listed first"
+[ "${profile_menu[1]}" = "beta" ] || fail "recent profile was not listed second"
+[ "${profile_menu[2]}" = "alpha" ] || fail "remaining named profile order changed"
+
 profile_config="$FIXTURE_ROOT/profile-config"
 mkdir -p "$profile_config"
 cat >"$profile_config/config.toml" <<'EOF'

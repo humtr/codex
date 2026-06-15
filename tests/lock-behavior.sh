@@ -44,6 +44,10 @@ mkdir -p "${CODEX_NATIVE_LOCK_FILE}.d"
 if codex_with_lock write_locked "$fixture_root/should-not-exist.txt" >/dev/null 2>&1; then
     fail "lock contention did not time out"
 fi
+if codex_with_lock codex_activate_tuple_unlocked \
+    "$fixture_root/blocked-runtime" blocked raw runtime package >/dev/null 2>&1; then
+    fail "activation command bypassed lock contention"
+fi
 rm -rf "${CODEX_NATIVE_LOCK_FILE}.d"
 
 printf 'lock-behavior: ok\n'

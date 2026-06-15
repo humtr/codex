@@ -15,10 +15,12 @@ trap 'rm -rf "$FIXTURE_ROOT"' EXIT
 
 manager_dir="$FIXTURE_ROOT/native/manager"
 runtime_store="$FIXTURE_ROOT/native/store/runtime"
+raw_store="$FIXTURE_ROOT/native/store/raw/good"
 good_runtime="$runtime_store/good"
 bad_runtime="$runtime_store/bad"
 mkdir -p "$manager_dir" "$good_runtime/codex-resources/zsh/bin" "$good_runtime/codex-path" \
-    "$bad_runtime/codex-resources" "$bad_runtime/codex-path" "$FIXTURE_ROOT/state"
+    "$bad_runtime/codex-resources" "$bad_runtime/codex-path" \
+    "$raw_store/vendor/aarch64-unknown-linux-musl/bin" "$FIXTURE_ROOT/state"
 
 cp "$ROOT_DIR/tools/build-runtime.py" "$manager_dir/build-runtime.py"
 cp "$ROOT_DIR/tools/bwrap-termux-compat.py" "$manager_dir/bwrap-termux-compat.py"
@@ -47,19 +49,22 @@ printf '#!/bin/sh\nexit 0\n' >"$bad_runtime/codex-path/bwrap"
 printf '#!/bin/sh\nexit 0\n' >"$bad_runtime/codex-path/rg"
 printf '#!/bin/sh\nexit 0\n' >"$bad_runtime/codex-path/rg.real"
 printf '{}\n' >"$bad_runtime/codex-package.json"
+printf 'raw good\n' >"$raw_store/vendor/aarch64-unknown-linux-musl/bin/codex"
 chmod 755 "$good_runtime/codex" "$good_runtime/codex-resources/bwrap" \
     "$good_runtime/codex-resources/zsh/bin/zsh" "$good_runtime/codex-path/bwrap" \
     "$good_runtime/codex-path/rg" "$good_runtime/codex-path/rg.real" \
     "$bad_runtime/codex" "$bad_runtime/codex-resources/bwrap" \
-    "$bad_runtime/codex-path/bwrap" "$bad_runtime/codex-path/rg" "$bad_runtime/codex-path/rg.real"
+    "$bad_runtime/codex-path/bwrap" "$bad_runtime/codex-path/rg" "$bad_runtime/codex-path/rg.real" \
+    "$raw_store/vendor/aarch64-unknown-linux-musl/bin/codex"
 
 good_sha="$(sha256sum "$good_runtime/codex" | awk '{print $1}')"
 builder_sha="$(sha256sum "$manager_dir/build-runtime.py" | awk '{print $1}')"
-python3 - "$good_runtime/runtime-build.json" "$bad_runtime/runtime-build.json" "$good_sha" "$builder_sha" "$FIXTURE_ROOT/state/registry.json" "$good_runtime" <<'PY'
+python3 - "$good_runtime/runtime-build.json" "$bad_runtime/runtime-build.json" "$good_sha" "$builder_sha" \
+    "$FIXTURE_ROOT/state/registry.json" "$good_runtime" "$raw_store" <<'PY'
 import json, sys
 from pathlib import Path
 
-good_manifest, bad_manifest, good_sha, builder_sha, registry, good_runtime = sys.argv[1:7]
+good_manifest, bad_manifest, good_sha, builder_sha, registry, good_runtime, raw_store = sys.argv[1:8]
 manifest = {
     "patch_policy": "dns-fd33-only-v1",
     "builder_sha256": builder_sha,
@@ -81,7 +86,8 @@ Path(registry).write_text(json.dumps({
         "runtime_sha256": good_sha,
         "package_spec": "@openai/codex@good",
         "runtime_path": str(Path(good_runtime)),
-        "raw_path": "/raw",
+        "raw_path": str(Path(raw_store)),
+        "updated_at": "2026-06-15T00:00:00Z",
     }],
     "runtime": {
         tuple_id: {
@@ -89,10 +95,26 @@ Path(registry).write_text(json.dumps({
             "raw_id": "raw-good",
             "wrapper_id": "wrapper-test",
             "runtime_sha256": good_sha,
+            "updated_at": "2026-06-15T00:00:00Z",
         },
     },
-    "raw": {"raw-good": {"path": "/raw", "sha256": "raw-good"}},
-    "wrapper": {"wrapper-test": {}},
+    "raw": {
+        "raw-good": {
+            "version": "good",
+            "sha256": "raw-good",
+            "package_spec": "@openai/codex@good",
+            "path": str(Path(raw_store)),
+            "updated_at": "2026-06-15T00:00:00Z",
+        },
+    },
+    "wrapper": {
+        "wrapper-test": {
+            "version": "test",
+            "commit": "test",
+            "repo": "local/codex",
+            "updated_at": "2026-06-15T00:00:00Z",
+        },
+    },
 }) + "\n")
 PY
 
@@ -100,6 +122,7 @@ printf 'nameserver 127.0.0.1\n' >"$FIXTURE_ROOT/resolv.conf"
 printf 'cert\n' >"$FIXTURE_ROOT/cert.pem"
 ln -s "$bad_runtime" "$FIXTURE_ROOT/native/current"
 ln -s "$good_runtime" "$FIXTURE_ROOT/native/verified"
+ln -s "$raw_store" "$FIXTURE_ROOT/native/raw"
 
 export CODEX_NATIVE_HOME="$FIXTURE_ROOT/home"
 export CODEX_NATIVE_NATIVE_ROOT="$FIXTURE_ROOT/native"
@@ -107,6 +130,8 @@ export CODEX_NATIVE_MANAGER_DIR="$manager_dir"
 export CODEX_NATIVE_RUNTIME_DIR="$FIXTURE_ROOT/native/current"
 export CODEX_NATIVE_RUNTIME="$CODEX_NATIVE_RUNTIME_DIR/codex"
 export CODEX_NATIVE_VERIFIED_LINK="$FIXTURE_ROOT/native/verified"
+export CODEX_NATIVE_RAW_DIR="$FIXTURE_ROOT/native/raw"
+export CODEX_NATIVE_RAW_VENDOR="$CODEX_NATIVE_RAW_DIR/vendor/aarch64-unknown-linux-musl"
 export CODEX_NATIVE_STATE_DIR="$FIXTURE_ROOT/state"
 export CODEX_NATIVE_STATE_FILE="$CODEX_NATIVE_STATE_DIR/state.json"
 export CODEX_NATIVE_REGISTRY_FILE="$CODEX_NATIVE_STATE_DIR/registry.json"
@@ -121,6 +146,16 @@ export CODEX_NATIVE_CERT_FILE="$FIXTURE_ROOT/cert.pem"
 if codex_runtime_ok; then
     fail "bad current runtime unexpectedly passed readiness"
 fi
+cp "$good_runtime/codex" "$FIXTURE_ROOT/good-codex"
+printf '#!/bin/sh\nexit 1\n' >"$good_runtime/codex"
+chmod 755 "$good_runtime/codex"
+if codex_try_verified_rollback >/dev/null 2>&1; then
+    fail "verified rollback unexpectedly accepted a failing verified runtime"
+fi
+[ "$(readlink "$CODEX_NATIVE_RUNTIME_DIR")" = "$bad_runtime" ] \
+    || fail "failed verified rollback changed current pointer"
+cp "$FIXTURE_ROOT/good-codex" "$good_runtime/codex"
+chmod 755 "$good_runtime/codex"
 codex_try_verified_rollback || fail "verified rollback failed"
 [ "$(readlink "$CODEX_NATIVE_RUNTIME_DIR")" = "$good_runtime" ] || fail "current pointer did not move to verified runtime"
 codex_runtime_ok || fail "verified runtime is not ready after rollback"

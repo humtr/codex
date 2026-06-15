@@ -27,7 +27,7 @@ int main(int argc, char **argv) {
     if (!prefix || !*prefix) prefix = "/data/data/com.termux/files/usr";
     if (!managed || !*managed) {
         if (safe_join(default_managed, sizeof(default_managed), home,
-                ".local/lib/codex/native/runtime/managed.sh") < 0) {
+                ".local/lib/codex/native/manager/managed.sh") < 0) {
             return 125;
         }
         managed = default_managed;
