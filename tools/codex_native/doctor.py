@@ -194,7 +194,11 @@ def render_human(report: dict[str, Any], output: TextIO | None = None) -> int:
     detail("verified tuple", report.get("verifiedTupleId", "missing"))
 
     print(file=out)
-    print(_dim(f"{counts['ok']} ok · {counts['fail']} fail", color), file=out)
+    print(_bold("Summary", color), file=out)
+    if counts["fail"] == 0:
+        print(f"  {_mark(True, color)} All wrapper checks passed ({counts['ok']} checks)", file=out)
+    else:
+        print(f"  {_mark(False, color)} {counts['fail']} wrapper checks failed ({counts['ok']} passed)", file=out)
     return 0 if counts["fail"] == 0 else 1
 
 
