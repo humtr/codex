@@ -14,6 +14,10 @@ from . import registry, schemas
 from .hashing import sha256_file
 
 
+DETAIL_LABEL_WIDTH = 24
+SEPARATOR_WIDTH = 61
+
+
 @dataclass(frozen=True)
 class DoctorInputs:
     runtime: Path
@@ -141,17 +145,20 @@ def render_human(report: dict[str, Any], output: TextIO | None = None) -> int:
     checks = report.get("checks", {})
     paths = report.get("paths", {})
     color = os.environ.get("NO_COLOR") is None and hasattr(out, "isatty") and out.isatty()
-    counts = {"ok": 0, "fail": 0}
+    counts = {"ok": 0, "fail": 0, "idle": 0, "notes": 0, "warn": 0}
 
     def row(ok: bool, name: str, summary: str) -> None:
         counts["ok" if ok else "fail"] += 1
-        print(f"  {_mark(ok, color)} {name:<14} {_dim(summary, color)}", file=out)
+        print(
+            f"  {_status_marker_slot(ok, color)}{name:<14} {_style_description(summary, ok, color)}",
+            file=out,
+        )
 
     def detail(name: str, value: object) -> None:
-        print(f"      {_dim(f'{name:<22}', color)} {value}", file=out)
+        label = f"{name:<{DETAIL_LABEL_WIDTH}}"
+        print(f"    {_detail_marker(False, color)} {_detail_label(label, color)} {_detail_value(str(value), color)}", file=out)
 
-    print(_bold("Codex Termux wrapper doctor", color), file=out)
-    print(_dim(f"version {report.get('version', 'unknown')} · status {report.get('overallStatus', 'unknown')}", color), file=out)
+    print(f"{_bold('Codex Termux wrapper doctor', color)} {_dim(f'version {report.get('version', 'unknown')} · status {report.get('overallStatus', 'unknown')}', color)}", file=out)
 
     print(file=out)
     print(_bold("Runtime", color), file=out)
@@ -194,27 +201,163 @@ def render_human(report: dict[str, Any], output: TextIO | None = None) -> int:
     detail("verified tuple", report.get("verifiedTupleId", "missing"))
 
     print(file=out)
-    print(_summary_rule(color), file=out)
+    print(_dim(_separator(), color), file=out)
     print(_summary_line(counts, color), file=out)
     return 0 if counts["fail"] == 0 else 1
 
 
-def _summary_rule(enabled: bool) -> str:
-    return _dim("─────────────────────────────────────────────────────────────", enabled)
+def _separator() -> str:
+    return "─" * SEPARATOR_WIDTH
 
 
 def _summary_line(counts: dict[str, int], enabled: bool) -> str:
     status_ok = counts["fail"] == 0
-    status = "ok" if status_ok else "fail"
-    return " · ".join(
-        (
-            _fg("10", f"{counts['ok']} ok", enabled),
-            _dim("0 idle", enabled),
-            _fg("14", "0 notes", enabled),
-            _fg("11", "0 warn", enabled),
-            _fg("196", f"{counts['fail']} fail", enabled),
-        )
-    ) + " " + _fg("10" if status_ok else "196", status, enabled)
+    status = "ok" if status_ok else "failed"
+    separator = _dim(" · ", enabled)
+    parts = [_count_label(counts["ok"], "ok", "ok", enabled)]
+    if counts["idle"] > 0:
+        parts.append(_count_label(counts["idle"], "idle", "idle", enabled))
+    if counts["notes"] > 0:
+        parts.append(_count_label(counts["notes"], "notes", "notes", enabled))
+    parts.append(_count_label(counts["warn"], "warn", "warn", enabled))
+    parts.append(_count_label(counts["fail"], "fail", "fail", enabled))
+    return separator.join(parts) + " " + _styled_overall_status(status, status_ok, enabled)
+
+
+def _count_label(count: int, label: str, status: str, enabled: bool) -> str:
+    count_text = _dim(str(count), enabled)
+    if status == "ok":
+        label_text = _green(label, enabled)
+    elif status == "idle":
+        label_text = _dim(label, enabled)
+    elif status in {"notes", "warn"}:
+        label_text = _orange(label, enabled)
+    elif status == "fail":
+        label_text = _red(label, enabled)
+    else:
+        label_text = label
+    return f"{count_text} {label_text}"
+
+
+def _styled_overall_status(status: str, ok: bool, enabled: bool) -> str:
+    return _bold(_green(status, enabled) if ok else _red(status, enabled), enabled)
+
+
+def _status_marker_slot(ok: bool, enabled: bool) -> str:
+    return f"{_status_marker(ok, enabled)} "
+
+
+def _status_marker(ok: bool, enabled: bool) -> str:
+    return _green("✓", enabled) if ok else _red("✗", enabled)
+
+
+def _style_description(description: str, ok: bool, enabled: bool) -> str:
+    highlighted = _highlight_actions(description, enabled)
+    return _dim(highlighted, enabled) if ok else highlighted
+
+
+def _detail_marker(is_issue: bool, enabled: bool) -> str:
+    return _orange("▸", enabled) if is_issue else " "
+
+
+def _detail_label(text: str, enabled: bool) -> str:
+    return _color256(text, 240, enabled)
+
+
+def _detail_value(text: str, enabled: bool) -> str:
+    if not enabled:
+        return text
+    return _style_detail_text(text, enabled)
+
+
+def _style_detail_text(text: str, enabled: bool) -> str:
+    parts = text.split("`")
+    out = [_style_detail_plain_text(parts[0], enabled)]
+    in_code = True
+    for part in parts[1:]:
+        out.append(_cyan(part, enabled) if in_code else _style_detail_plain_text(part, enabled))
+        in_code = not in_code
+    return "".join(out)
+
+
+def _style_detail_plain_text(text: str, enabled: bool) -> str:
+    return "".join(_style_detail_token(token, enabled) for token in _split_inclusive_whitespace(text))
+
+
+def _style_detail_token(token: str, enabled: bool) -> str:
+    trimmed = token.rstrip()
+    suffix = token[len(trimmed):]
+    bare = trimmed.rstrip(",.:;)" )
+    punctuation = trimmed[len(bare):]
+    return f"{_style_detail_bare_token(bare, enabled)}{punctuation}{suffix}"
+
+
+def _style_detail_bare_token(bare: str, enabled: bool) -> str:
+    if not bare:
+        return ""
+    if bare == "<redacted>":
+        return _color256(_italic(bare, enabled), 244, enabled)
+    if "(missing)" in bare or _is_falsy(bare):
+        return _color256(bare, 240, enabled)
+    if ":" in bare:
+        label, value = bare.split(":", 1)
+        if _is_falsy(value):
+            return f"{label}:{_color256(value, 240, enabled)}"
+    if bare == "ok":
+        return _green(bare, enabled)
+    if bare.startswith("--") or _looks_copyable(bare):
+        return _cyan(bare, enabled)
+    if bare in {"B", "KB", "MB", "GB", "TB", "files", "file"}:
+        return _dim(bare, enabled)
+    return bare
+
+
+def _highlight_actions(text: str, enabled: bool) -> str:
+    if not enabled:
+        return text
+    parts = text.split("`")
+    out = [_highlight_flags(parts[0], enabled)]
+    in_code = True
+    for part in parts[1:]:
+        out.append(_cyan(part, enabled) if in_code else _highlight_flags(part, enabled))
+        in_code = not in_code
+    return "".join(out)
+
+
+def _highlight_flags(text: str, enabled: bool) -> str:
+    return "".join(_highlight_flag_token(token, enabled) for token in _split_inclusive_whitespace(text))
+
+
+def _highlight_flag_token(token: str, enabled: bool) -> str:
+    trimmed = token.rstrip()
+    suffix = token[len(trimmed):]
+    bare = trimmed.rstrip(",.:;)" )
+    punctuation = trimmed[len(bare):]
+    if bare.startswith("--"):
+        return f"{_cyan(bare, enabled)}{punctuation}{suffix}"
+    return token
+
+
+def _split_inclusive_whitespace(text: str) -> list[str]:
+    if not text:
+        return []
+    tokens: list[str] = []
+    start = 0
+    for index, char in enumerate(text):
+        if char.isspace():
+            tokens.append(text[start:index + 1])
+            start = index + 1
+    if start < len(text):
+        tokens.append(text[start:])
+    return tokens
+
+
+def _is_falsy(value: str) -> bool:
+    return value.strip().lower() in {"false", "no", "absent", "missing", "not", "not-set", "none", "null", "0", ""}
+
+
+def _looks_copyable(text: str) -> bool:
+    return text.startswith(("http://", "https://", "wss://", "~/", "/", "./", "../"))
 
 
 def _manager_ok(manager_dir: Path) -> bool:
@@ -310,17 +453,37 @@ def _dns_patch_check(runtime: Path) -> bool:
         return False
 
 
-def _mark(ok: bool, enabled: bool) -> str:
-    return _fg("10", "✓", enabled) if ok else _fg("196", "✗", enabled)
-
-
 def _bold(text: str, enabled: bool) -> str:
     return f"\033[1m{text}\033[0m" if enabled else text
+
+
+def _italic(text: str, enabled: bool) -> str:
+    return f"\033[3m{text}\033[0m" if enabled else text
 
 
 def _dim(text: str, enabled: bool) -> str:
     return f"\033[2m{text}\033[0m" if enabled else text
 
 
-def _fg(code: str, text: str, enabled: bool) -> str:
+def _green(text: str, enabled: bool) -> str:
+    return _color256(text, 10, enabled)
+
+
+def _amber(text: str, enabled: bool) -> str:
+    return _color256(text, 220, enabled)
+
+
+def _orange(text: str, enabled: bool) -> str:
+    return _color256(text, 214, enabled)
+
+
+def _red(text: str, enabled: bool) -> str:
+    return _color256(text, 196, enabled)
+
+
+def _cyan(text: str, enabled: bool) -> str:
+    return _color256(text, 117, enabled)
+
+
+def _color256(text: str, code: int, enabled: bool) -> str:
     return f"\033[38;5;{code}m{text}\033[39m" if enabled else text
