@@ -194,13 +194,27 @@ def render_human(report: dict[str, Any], output: TextIO | None = None) -> int:
     detail("verified tuple", report.get("verifiedTupleId", "missing"))
 
     print(file=out)
-    print(_summary_line(counts), file=out)
+    print(_summary_rule(color), file=out)
+    print(_summary_line(counts, color), file=out)
     return 0 if counts["fail"] == 0 else 1
 
 
-def _summary_line(counts: dict[str, int]) -> str:
-    status = "ok" if counts["fail"] == 0 else "fail"
-    return f"{counts['ok']} ok · 0 idle · 0 notes · 0 warn · {counts['fail']} fail {status}"
+def _summary_rule(enabled: bool) -> str:
+    return _dim("─────────────────────────────────────────────────────────────", enabled)
+
+
+def _summary_line(counts: dict[str, int], enabled: bool) -> str:
+    status_ok = counts["fail"] == 0
+    status = "ok" if status_ok else "fail"
+    return " · ".join(
+        (
+            _fg("10", f"{counts['ok']} ok", enabled),
+            _dim("0 idle", enabled),
+            _fg("14", "0 notes", enabled),
+            _fg("11", "0 warn", enabled),
+            _fg("196", f"{counts['fail']} fail", enabled),
+        )
+    ) + " " + _fg("10" if status_ok else "196", status, enabled)
 
 
 def _manager_ok(manager_dir: Path) -> bool:
