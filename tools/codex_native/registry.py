@@ -9,7 +9,6 @@ from . import atomic, paths, schemas
 from .errors import SchemaError
 
 
-UNIT_SEPARATOR = "\x1f"
 
 
 def _component(value: str, fallback: str = "unknown") -> str:
@@ -136,39 +135,6 @@ def record(
     schemas.validate_registry_v3(data)
     atomic.write_json(registry_file, data)
     return tuple_id
-
-
-def tuple_for_runtime_path(registry_file: Path, runtime_path: str) -> str:
-    data = load(registry_file)
-    try:
-        target = Path(runtime_path).resolve()
-    except (OSError, RuntimeError) as exc:
-        raise SchemaError(f"invalid runtime path: {runtime_path}") from exc
-    for tuple_id, entry in data.get("runtime", {}).items():
-        path_value = entry.get("path", "")
-        try:
-            matches = bool(path_value and Path(path_value).resolve() == target)
-        except (OSError, RuntimeError):
-            matches = False
-        if matches:
-            return tuple_id
-    raise SchemaError("runtime path not found in registry")
-
-
-def tuple_state_fields(registry_file: Path, tuple_id: str) -> str:
-    data = load(registry_file)
-    runtime = data.get("runtime", {}).get(tuple_id, {})
-    install = _find_install(data.get("installs", []), tuple_id)
-    if not runtime or install is None:
-        raise SchemaError("tuple not found in registry")
-    return UNIT_SEPARATOR.join(
-        [
-            install.get("version", "unknown"),
-            install.get("raw_sha256", ""),
-            install.get("runtime_sha256", "") or runtime.get("runtime_sha256", ""),
-            install.get("package_spec", "local"),
-        ]
-    )
 
 
 def tuple_activation_entries(

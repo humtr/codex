@@ -76,27 +76,12 @@ class BuildManifestV2(TypedDict, total=False):
     builder_sha256: str
     patch_policy: str
 
-class MigrationReportV1(TypedDict):
-    schema: int
-    completed_at: str
-    legacy_store: str
-    target_store: str
-    imported: list[str]
-    skipped: list[dict[str, str]]
-    error: NotRequired[str]
-
-class NetworkBoundaryReport(TypedDict, total=False):
-    overallStatus: str
-    checks: dict[str, bool]
-    reports: dict[str, dict[str, Any]]
-
-class DoctorReportV4(TypedDict, total=False):
+class DoctorReport(TypedDict, total=False):
     schema: int
     overallStatus: str
     version: str
     checks: dict[str, bool]
     paths: dict[str, str]
-    networkBoundary: NetworkBoundaryReport
 
 @dataclass(frozen=True)
 class ActivationPlan:
@@ -318,22 +303,4 @@ def validate_prune_plan(value: dict[str, Any]) -> PrunePlan:
     if not isinstance(registry_rewrite, dict):
         raise SchemaError("prune plan registry_rewrite must be an object")
     validate_registry_v3(registry_rewrite)
-    return value  # type: ignore[return-value]
-
-
-def validate_migration_report_v1(value: dict[str, Any]) -> MigrationReportV1:
-    if value.get("schema") != 1:
-        raise SchemaError("migration report schema must be 1")
-    for field in ("completed_at", "legacy_store", "target_store"):
-        require_present_string(value, field)
-    imported = value.get("imported")
-    skipped = value.get("skipped")
-    if not isinstance(imported, list) or not all(isinstance(item, str) for item in imported):
-        raise SchemaError("migration report imported must be a list of strings")
-    if not isinstance(skipped, list) or not all(isinstance(item, dict) for item in skipped):
-        raise SchemaError("migration report skipped must be a list of objects")
-    for item in skipped:
-        require_present_string(item, "tuple_id")
-        require_present_string(item, "reason")
-    optional_string(value, "error")
     return value  # type: ignore[return-value]

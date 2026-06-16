@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 
 from . import registry, schemas
@@ -89,23 +88,11 @@ def runtime_metadata_current(
         return False
 
 
-def parse_upstream_commands(help_text: str) -> list[str]:
-    commands: set[str] = set()
-    in_commands = False
-    for line in help_text.splitlines():
-        if not in_commands:
-            if re.match(r"^\s*Commands:\s*$", line):
-                in_commands = True
-            continue
-        if re.match(r"^\s*(Arguments|Options):\s*$", line):
-            break
-        match = re.match(r"^\s{2,}([a-z0-9][a-z0-9-]*)\s{2,}", line, re.I)
-        if not match:
-            continue
-        commands.add(match.group(1))
-        aliases = re.search(r"\[aliases?: ([^\]]+)\]", line)
-        if aliases:
-            commands.update(
-                alias.strip() for alias in aliases.group(1).split(",") if alias.strip()
-            )
-    return sorted(commands)
+def state_field(state_path: Path, field: str) -> str:
+    """Return a string field from state.json, or empty string if unavailable."""
+    try:
+        data = schemas.validate_state_v3(schemas.load_json_object(state_path))
+        value = data.get(field, "")
+        return value if isinstance(value, str) else ""
+    except Exception:
+        return ""
