@@ -158,7 +158,8 @@ def render_human(report: dict[str, Any], output: TextIO | None = None) -> int:
         label = f"{name:<{DETAIL_LABEL_WIDTH}}"
         print(f"    {_detail_marker(False, color)} {_detail_label(label, color)} {_detail_value(str(value), color)}", file=out)
 
-    print(f"{_bold('Codex Termux wrapper doctor', color)} {_dim(f'version {report.get('version', 'unknown')} · status {report.get('overallStatus', 'unknown')}', color)}", file=out)
+    header_suffix = f"version {report.get('version', 'unknown')} · status {report.get('overallStatus', 'unknown')}"
+    print(f"{_bold('Codex Termux wrapper doctor', color)} {_dim(header_suffix, color)}", file=out)
 
     print(file=out)
     print(_bold("Runtime", color), file=out)
