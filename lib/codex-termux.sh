@@ -18,7 +18,6 @@ CODEX_TERMUX_RUNTIME="${CODEX_TERMUX_RUNTIME:-$CODEX_TERMUX_RUNTIME_DIR/codex}"
 CODEX_TERMUX_MANAGED_SHELL="${CODEX_TERMUX_MANAGED_SHELL:-$CODEX_TERMUX_MANAGER_DIR/managed.sh}"
 CODEX_TERMUX_STATE_DIR="${CODEX_TERMUX_STATE_DIR:-$CODEX_TERMUX_HOME/.local/share/codex/termux}"
 CODEX_TERMUX_PROFILE_ROOT="${CODEX_TERMUX_PROFILE_ROOT:-$CODEX_TERMUX_HOME/.codex-profiles}"
-CODEX_TERMUX_SHARED_PLUGINS_DIR="${CODEX_TERMUX_SHARED_PLUGINS_DIR:-$CODEX_TERMUX_HOME/.codex/plugins}"
 CODEX_TERMUX_STATE_FILE="${CODEX_TERMUX_STATE_FILE:-$CODEX_TERMUX_STATE_DIR/state.json}"
 CODEX_TERMUX_REGISTRY_FILE="${CODEX_TERMUX_REGISTRY_FILE:-$CODEX_TERMUX_STATE_DIR/registry.json}"
 CODEX_TERMUX_STORE_DIR="${CODEX_TERMUX_STORE_DIR:-$CODEX_TERMUX_ROOT/store}"
@@ -1188,7 +1187,6 @@ codex_profile_runtime_exec() {
     if codex_profile_is_default "$profile"; then
         exec "$CODEX_TERMUX_RUNTIME" "$@"
     fi
-    codex_profile_share_plugins "$profile_dir"
     CODEX_HOME="$profile_dir" exec "$CODEX_TERMUX_RUNTIME" "$@"
 }
 
@@ -1204,16 +1202,6 @@ codex_profile_menu_ids() {
         [ "$profile" = "$recent" ] && continue
         printf '%s\n' "$profile"
     done < <(codex_list_profiles)
-}
-
-codex_profile_share_plugins() {
-    local profile_dir="$1" shared_plugins_dir="$CODEX_TERMUX_SHARED_PLUGINS_DIR" plugins_dir
-    plugins_dir="$profile_dir/plugins"
-    mkdir -p "$profile_dir" "$shared_plugins_dir"
-    if [ -e "$plugins_dir" ] || [ -L "$plugins_dir" ]; then
-        return 0
-    fi
-    ln -s "$shared_plugins_dir" "$plugins_dir"
 }
 
 codex_list_profiles() {
