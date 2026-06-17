@@ -1495,7 +1495,7 @@ codex_use_select() {
         --runtime-store-dir "$CODEX_TERMUX_RUNTIME_STORE_DIR" \
         --runtime-builder "$CODEX_TERMUX_RUNTIME_BUILDER" \
         --patch-policy "$CODEX_TERMUX_PATCH_POLICY")" || {
-        codex_fail "unknown cached runtime selection: $choice"
+        codex_fail "unknown runtime selection: $choice"
         return 1
     }
     local kind runtime_path raw_path version raw_sha runtime_sha package_spec

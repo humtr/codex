@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 
 from . import registry
 from .errors import SchemaError
@@ -196,5 +197,18 @@ def _color(code: str, text: str, enabled: bool) -> str:
     return f"\033[{code}m{text}\033[0m"
 
 
-def runtime_rows_from_registry(**kwargs: object) -> list[dict[str, str]]:
-    return registry.list_usable_runtimes(**kwargs)  # type: ignore[arg-type]
+def runtime_rows_from_registry(
+    *,
+    registry_file: Path,
+    latest: str,
+    runtime_store_dir: Path,
+    runtime_builder: Path,
+    patch_policy: str,
+) -> list[dict[str, str]]:
+    return registry.list_usable_runtimes(
+        registry_file=registry_file,
+        latest=latest,
+        runtime_store_dir=runtime_store_dir,
+        runtime_builder=runtime_builder,
+        patch_policy=patch_policy,
+    )
