@@ -42,6 +42,27 @@ MANAGED
     mv "$CODEX_TERMUX_MANAGED_SHELL.$$" "$CODEX_TERMUX_MANAGED_SHELL"
 }
 
+codex_remove_python_bytecode() {
+    local python_root="$1"
+    [ -d "$python_root" ] || return 0
+    find "$python_root" \( -type d -name __pycache__ -o -type f -name '*.pyc' \) -exec rm -rf {} +
+}
+
+codex_check_manager_python() {
+    local manager_package="$CODEX_TERMUX_MANAGER_DIR/codex_termux"
+    codex_remove_python_bytecode "$manager_package"
+    python3 - "$manager_package" <<'PYTHON'
+import pathlib
+import sys
+
+package = pathlib.Path(sys.argv[1])
+for path in sorted(package.glob("*.py")):
+    source = path.read_text(encoding="utf-8")
+    compile(source, str(path), "exec")
+PYTHON
+    codex_remove_python_bytecode "$manager_package"
+}
+
 codex_install_support_files() {
     local wrapper_commit
     mkdir -p "$CODEX_TERMUX_MANAGER_DIR" "$CODEX_TERMUX_STATE_DIR"
@@ -49,7 +70,7 @@ codex_install_support_files() {
     chmod 755 "$CODEX_TERMUX_MANAGER_DIR/lib.sh"
     rm -rf "$CODEX_TERMUX_MANAGER_DIR/codex_termux"
     cp -R "$ROOT_DIR/tools/codex_termux" "$CODEX_TERMUX_MANAGER_DIR/codex_termux"
-    python3 -m py_compile "$CODEX_TERMUX_MANAGER_DIR"/codex_termux/*.py
+    codex_check_manager_python
     cp "$ROOT_DIR/tools/build-runtime.py" "$CODEX_TERMUX_MANAGER_DIR/build-runtime.py"
     cp "$ROOT_DIR/tools/bwrap-termux-compat.py" "$CODEX_TERMUX_MANAGER_DIR/bwrap-termux-compat.py"
     cp "$ROOT_DIR/tools/rg-termux-shim.sh" "$CODEX_TERMUX_MANAGER_DIR/rg-termux-shim.sh"
