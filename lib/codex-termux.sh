@@ -30,7 +30,6 @@ CODEX_TERMUX_LOCK_WAIT_SECONDS="${CODEX_TERMUX_LOCK_WAIT_SECONDS:-30}"
 CODEX_TERMUX_RESOLV_CONF="${CODEX_TERMUX_RESOLV_CONF:-$CODEX_TERMUX_PREFIX/etc/resolv.conf}"
 CODEX_TERMUX_CERT_FILE="${CODEX_TERMUX_CERT_FILE:-$CODEX_TERMUX_PREFIX/etc/tls/cert.pem}"
 CODEX_TERMUX_CERT_DIR="${CODEX_TERMUX_CERT_DIR:-$CODEX_TERMUX_PREFIX/etc/tls/certs}"
-CODEX_TERMUX_RESOLVER_FD="${CODEX_TERMUX_RESOLVER_FD:-33}"
 CODEX_TERMUX_PACKAGE_SPEC_DEFAULT="${CODEX_TERMUX_PACKAGE_SPEC_DEFAULT:-@openai/codex@linux-arm64}"
 CODEX_TERMUX_MANAGED_LAUNCHER_MARKER="${CODEX_TERMUX_MANAGED_LAUNCHER_MARKER:-codex termux managed launcher}"
 CODEX_TERMUX_PUBLIC_CODEX="${CODEX_TERMUX_PUBLIC_CODEX:-$CODEX_TERMUX_PREFIX/bin/codex}"
@@ -260,6 +259,13 @@ codex_with_lock() {
     fi
 }
 
+codex_require_runtime_resolver() {
+    if [ ! -r "$CODEX_TERMUX_RESOLV_CONF" ]; then
+        codex_fail "resolver source is unavailable: $CODEX_TERMUX_RESOLV_CONF"
+        return 66
+    fi
+}
+
 codex_runtime_exec() {
     local executable="$1"
     shift || true
@@ -281,10 +287,7 @@ codex_runtime_exec() {
         CODEX_TERMUX_BWRAP_COMPAT_QUIET="${CODEX_TERMUX_BWRAP_COMPAT_QUIET:-1}" \
         PATH="$runtime_dir/codex-path:$runtime_dir/codex-resources:$CODEX_TERMUX_PREFIX/bin:$PATH" \
         "${cert_dir_env[@]}")
-    if [ ! -r "$CODEX_TERMUX_RESOLV_CONF" ]; then
-        codex_fail "resolver source is unavailable: $CODEX_TERMUX_RESOLV_CONF"
-        return 66
-    fi
+    codex_require_runtime_resolver || return $?
     "${runtime_env[@]}" "$executable" "$@" 33<"$CODEX_TERMUX_RESOLV_CONF"
 }
 
@@ -986,9 +989,18 @@ codex_prepare_runtime_env() {
     unset CODEX_MANAGED_BY_NPM CODEX_MANAGED_BY_BUN CODEX_MANAGED_PACKAGE_ROOT LD_PRELOAD LD_LIBRARY_PATH
     export CODEX_TERMUX_BWRAP_COMPAT_QUIET="${CODEX_TERMUX_BWRAP_COMPAT_QUIET:-1}"
     export PATH="$CODEX_TERMUX_RUNTIME_DIR/codex-path:$CODEX_TERMUX_RUNTIME_DIR/codex-resources:$CODEX_TERMUX_PREFIX/bin:$PATH"
-    if [ -r "$CODEX_TERMUX_RESOLV_CONF" ]; then
-        eval "exec ${CODEX_TERMUX_RESOLVER_FD}<\"\$CODEX_TERMUX_RESOLV_CONF\""
-    fi
+}
+
+codex_run_current_runtime() {
+    codex_prepare_runtime_env
+    codex_require_runtime_resolver || return $?
+    "$CODEX_TERMUX_RUNTIME" "$@" 33<"$CODEX_TERMUX_RESOLV_CONF"
+}
+
+codex_exec_current_runtime() {
+    codex_prepare_runtime_env
+    codex_require_runtime_resolver || return $?
+    exec "$CODEX_TERMUX_RUNTIME" "$@" 33<"$CODEX_TERMUX_RESOLV_CONF"
 }
 
 codex_current_wrapper_version() {
@@ -1015,7 +1027,7 @@ codex_current_wrapper_commit() {
 
 codex_version() {
     local upstream wrapper commit status=0
-    if upstream="$("$CODEX_TERMUX_RUNTIME" --version 2>/dev/null)"; then
+    if upstream="$(codex_run_current_runtime --version 2>/dev/null)"; then
         status=0
     else
         status=$?
@@ -1043,8 +1055,7 @@ codex_wrapper_help() {
 
 codex_help() {
     if [ -x "$CODEX_TERMUX_RUNTIME" ]; then
-        codex_prepare_runtime_env
-        "$CODEX_TERMUX_RUNTIME" --help
+        codex_run_current_runtime --help
     fi
     codex_wrapper_help
 }
@@ -1088,14 +1099,12 @@ codex_wrapper_doctor() {
 codex_public_doctor() {
     if [ $# -gt 0 ]; then
         codex_ensure_runtime_ready || return $?
-        codex_prepare_runtime_env
-        "$CODEX_TERMUX_RUNTIME" doctor "$@"
+        codex_run_current_runtime doctor "$@"
         return $?
     fi
     local upstream_status=0 wrapper_status=0
     codex_ensure_runtime_ready || return $?
-    codex_prepare_runtime_env
-    "$CODEX_TERMUX_RUNTIME" doctor || upstream_status=$?
+    codex_run_current_runtime doctor || upstream_status=$?
     printf '\n%s\n\n' '─────────────────────────────────────────────────────────────'
     codex_wrapper_doctor || wrapper_status=$?
     [ "$upstream_status" -eq 0 ] && [ "$wrapper_status" -eq 0 ]
@@ -1183,11 +1192,10 @@ codex_profile_runtime_exec() {
     shift 2 || true
     codex_profile_write_recent "$profile"
     codex_profile_note "$profile"
-    codex_prepare_runtime_env
-    if codex_profile_is_default "$profile"; then
-        exec "$CODEX_TERMUX_RUNTIME" "$@"
+    if ! codex_profile_is_default "$profile"; then
+        export CODEX_HOME="$profile_dir"
     fi
-    CODEX_HOME="$profile_dir" exec "$CODEX_TERMUX_RUNTIME" "$@"
+    codex_exec_current_runtime "$@"
 }
 
 codex_profile_menu_ids() {
