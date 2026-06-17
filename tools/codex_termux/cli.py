@@ -331,9 +331,9 @@ def _use_rows(args: argparse.Namespace) -> list[dict[str, str]]:
     return use.runtime_rows_from_registry(
         registry_file=Path(args.registry_file),
         latest=args.latest,
-        runtime_store=Path(args.runtime_store_dir),
-        builder=Path(args.runtime_builder),
-        policy=args.patch_policy,
+        runtime_store_dir=Path(args.runtime_store_dir),
+        runtime_builder=Path(args.runtime_builder),
+        patch_policy=args.patch_policy,
     )
 
 
@@ -346,7 +346,14 @@ def _use_render(args: argparse.Namespace) -> int:
 
 
 def _use_select(args: argparse.Namespace) -> int:
-    row = registry.resolve_runtime_selection(_use_rows(args), args.choice)
+    row = registry.resolve_runtime_selection(
+        registry_file=Path(args.registry_file),
+        choice=args.choice,
+        latest=args.latest,
+        runtime_store_dir=Path(args.runtime_store_dir),
+        runtime_builder=Path(args.runtime_builder),
+        patch_policy=args.patch_policy,
+    )
     print(use.selection_fields(row))
     return 0
 
