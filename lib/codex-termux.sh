@@ -1136,6 +1136,11 @@ codex_profile_display_name() {
     fi
 }
 
+codex_profile_is_default() {
+    local profile="${1:-default}"
+    [ -z "$profile" ] || [ "$profile" = "default" ]
+}
+
 codex_profile_choice_to_name() {
     local choice="${1:-}"
     case "$choice" in
@@ -1177,10 +1182,13 @@ codex_profile_note() {
 codex_profile_runtime_exec() {
     local profile="$1" profile_dir="$2"
     shift 2 || true
-    codex_profile_share_plugins "$profile_dir"
     codex_profile_write_recent "$profile"
     codex_profile_note "$profile"
     codex_prepare_runtime_env
+    if codex_profile_is_default "$profile"; then
+        exec "$CODEX_TERMUX_RUNTIME" "$@"
+    fi
+    codex_profile_share_plugins "$profile_dir"
     CODEX_HOME="$profile_dir" exec "$CODEX_TERMUX_RUNTIME" "$@"
 }
 
@@ -1335,13 +1343,47 @@ codex_prompt_choice() {
     return 0
 }
 
+codex_profile_create_prompt() {
+    local profile="$1" profile_dir="$2" display status
+    display="$(codex_profile_display_name "$profile")"
+    if [ ! -t 0 ] || [ ! -t 2 ]; then
+        codex_fail "profile does not exist: $display"
+        return 2
+    fi
+    codex_prompt_choice "$(codex_ui_prompt "profile '$display' does not exist. Create it? [y/N] ")" yn 0
+    status=$?
+    if [ "$status" -ne 0 ]; then
+        codex_say "profile creation cancelled"
+        return "$status"
+    fi
+    case "${CODEX_PROMPT_CHOICE_RESULT:-}" in
+        y|Y)
+            mkdir -p "$profile_dir"
+            codex_say "created profile $display"
+            return 0
+            ;;
+        *)
+            codex_say "profile creation cancelled"
+            return 130
+            ;;
+    esac
+}
+
+codex_profile_ensure_dir() {
+    local profile_dir="$1" profile="${2:-default}"
+    if codex_profile_is_default "$profile"; then
+        return 0
+    fi
+    if [ -d "$profile_dir" ]; then
+        return 0
+    fi
+    codex_profile_create_prompt "$profile" "$profile_dir"
+}
+
 codex_profile_exec() {
     local profile_dir="$1" profile="${2:-default}"
     shift 2 || true
-    if [ ! -d "$profile_dir" ]; then
-        codex_fail "profile directory not found: $profile_dir"
-        return 2
-    fi
+    codex_profile_ensure_dir "$profile_dir" "$profile" || return $?
     codex_ensure_runtime_ready || return $?
     codex_auto_update_if_needed || return $?
     codex_profile_runtime_exec "$profile" "$profile_dir" "$@"
