@@ -1,4 +1,4 @@
-"""Schema definitions and validators for Codex native metadata."""
+"""Schema definitions and validators for Codex Termux metadata."""
 
 from __future__ import annotations
 

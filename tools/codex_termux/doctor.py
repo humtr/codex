@@ -1,4 +1,4 @@
-"""Focused diagnostics for the Codex Termux native wrapper."""
+"""Focused diagnostics for the Codex Termux wrapper."""
 
 from __future__ import annotations
 

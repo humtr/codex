@@ -2,16 +2,16 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CODEX_NATIVE_REQUIRED_PACKAGES="${CODEX_NATIVE_REQUIRED_PACKAGES:-bash curl nodejs python tar coreutils ca-certificates}"
-CODEX_NATIVE_LOG_PREFIX="codex setup"
+CODEX_TERMUX_REQUIRED_PACKAGES="${CODEX_TERMUX_REQUIRED_PACKAGES:-bash curl nodejs python tar coreutils ca-certificates}"
+CODEX_TERMUX_LOG_PREFIX="codex setup"
 export DEBIAN_FRONTEND="${DEBIAN_FRONTEND:-noninteractive}"
 
 say() {
-    printf '%s: %s\n' "$CODEX_NATIVE_LOG_PREFIX" "$*" >&2
+    printf '%s: %s\n' "$CODEX_TERMUX_LOG_PREFIX" "$*" >&2
 }
 
 fail() {
-    printf '%s: ERROR: %s\n' "$CODEX_NATIVE_LOG_PREFIX" "$*" >&2
+    printf '%s: ERROR: %s\n' "$CODEX_TERMUX_LOG_PREFIX" "$*" >&2
     exit 1
 }
 
@@ -22,7 +22,7 @@ need_termux() {
 
 install_dependencies() {
     local missing=() package
-    for package in $CODEX_NATIVE_REQUIRED_PACKAGES; do
+    for package in $CODEX_TERMUX_REQUIRED_PACKAGES; do
         if ! dpkg -s "$package" >/dev/null 2>&1; then
             missing+=("$package")
         fi

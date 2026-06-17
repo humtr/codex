@@ -1,4 +1,4 @@
-"""Registry file operations for Codex native metadata."""
+"""Registry file operations for Codex Termux metadata."""
 
 from __future__ import annotations
 

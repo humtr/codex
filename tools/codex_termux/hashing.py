@@ -1,4 +1,4 @@
-"""Hashing primitives for immutable Codex native artifacts."""
+"""Hashing primitives for immutable Codex Termux artifacts."""
 
 from __future__ import annotations
 

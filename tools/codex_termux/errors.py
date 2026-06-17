@@ -1,21 +1,21 @@
-"""Exception hierarchy for internal Codex native helpers."""
+"""Exception hierarchy for internal Codex Termux helpers."""
 
 
-class CodexNativeError(Exception):
+class CodexTermuxError(Exception):
     """Base class for internal wrapper errors."""
 
 
-class SchemaError(CodexNativeError):
+class SchemaError(CodexTermuxError):
     """Raised when structured wrapper data fails validation."""
 
 
-class IntegrityError(CodexNativeError):
+class IntegrityError(CodexTermuxError):
     """Raised when an artifact or metadata integrity check fails."""
 
 
-class TransactionError(CodexNativeError):
+class TransactionError(CodexTermuxError):
     """Raised when an atomic wrapper operation cannot be completed."""
 
 
-class CollisionError(CodexNativeError):
+class CollisionError(CodexTermuxError):
     """Raised when immutable artifact identity collides with content."""

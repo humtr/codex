@@ -1,4 +1,4 @@
-"""Immutable artifact store operations for Codex native runtimes."""
+"""Immutable artifact store operations for Codex Termux runtimes."""
 
 from __future__ import annotations
 
@@ -196,7 +196,7 @@ def _new_staging_path(target: Path) -> Path:
 
 @contextmanager
 def _publish_lock(parent: Path) -> Iterator[None]:
-    lock_path = parent / ".codex-native-publish.lock"
+    lock_path = parent / ".codex-termux-publish.lock"
     try:
         with lock_path.open("a+b") as handle:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX)

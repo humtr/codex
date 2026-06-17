@@ -1,4 +1,4 @@
-"""Single internal CLI for the Termux Codex native wrapper."""
+"""Single internal CLI for the Codex Termux wrapper."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from pathlib import Path, PurePosixPath
 from typing import Protocol
 
 from . import activation, doctor, hashing, paths, prune, registry, runtime_checks, use
-from .errors import CodexNativeError, IntegrityError
+from .errors import CodexTermuxError, IntegrityError
 from .schemas import ActivationPlan
 
 
@@ -20,7 +20,7 @@ class SubparserCollection(Protocol):
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="python3 -m codex_native.cli",
+        prog="python3 -m codex_termux.cli",
         description="Internal helper interface for the Codex Termux wrapper.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
@@ -168,7 +168,7 @@ def _print(value: object) -> int:
 
 
 def _print_ok() -> int:
-    print("codex_native: ok")
+    print("codex_termux: ok")
     return 0
 
 
@@ -301,27 +301,27 @@ def _activation_plan(args: argparse.Namespace, **kwargs: object) -> ActivationPl
         probe_env={
             "HOME": args.home,
             "PREFIX": args.prefix,
-            "CODEX_NATIVE_HOME": args.home,
-            "CODEX_NATIVE_PREFIX": args.prefix,
-            "CODEX_NATIVE_NATIVE_ROOT": str(current.parent),
-            "CODEX_NATIVE_MANAGER_DIR": args.manager_dir,
-            "CODEX_NATIVE_RUNTIME_DIR": str(current),
-            "CODEX_NATIVE_CURRENT_LINK": str(current),
-            "CODEX_NATIVE_VERIFIED_LINK": args.verified_link,
-            "CODEX_NATIVE_RAW_DIR": str(raw),
-            "CODEX_NATIVE_RAW_VENDOR": str(raw / "vendor/aarch64-unknown-linux-musl"),
-            "CODEX_NATIVE_RUNTIME": str(current / "codex"),
-            "CODEX_NATIVE_STATE_DIR": str(Path(args.state_file).parent),
-            "CODEX_NATIVE_STATE_FILE": args.state_file,
-            "CODEX_NATIVE_REGISTRY_FILE": args.registry_file,
-            "CODEX_NATIVE_STORE_DIR": str(Path(args.runtime_store_dir).parent),
-            "CODEX_NATIVE_RUNTIME_STORE_DIR": args.runtime_store_dir,
-            "CODEX_NATIVE_RAW_STORE_DIR": args.raw_store_dir,
-            "CODEX_NATIVE_RUNTIME_BUILDER": args.runtime_builder,
-            "CODEX_NATIVE_RESOLV_CONF": args.resolv_conf,
-            "CODEX_NATIVE_CERT_FILE": args.cert_file,
-            "CODEX_NATIVE_CERT_DIR": args.cert_dir,
-            "CODEX_NATIVE_PATCH_POLICY": args.patch_policy,
+            "CODEX_TERMUX_HOME": args.home,
+            "CODEX_TERMUX_PREFIX": args.prefix,
+            "CODEX_TERMUX_ROOT": str(current.parent),
+            "CODEX_TERMUX_MANAGER_DIR": args.manager_dir,
+            "CODEX_TERMUX_RUNTIME_DIR": str(current),
+            "CODEX_TERMUX_CURRENT_LINK": str(current),
+            "CODEX_TERMUX_VERIFIED_LINK": args.verified_link,
+            "CODEX_TERMUX_RAW_DIR": str(raw),
+            "CODEX_TERMUX_RAW_VENDOR": str(raw / "vendor/aarch64-unknown-linux-musl"),
+            "CODEX_TERMUX_RUNTIME": str(current / "codex"),
+            "CODEX_TERMUX_STATE_DIR": str(Path(args.state_file).parent),
+            "CODEX_TERMUX_STATE_FILE": args.state_file,
+            "CODEX_TERMUX_REGISTRY_FILE": args.registry_file,
+            "CODEX_TERMUX_STORE_DIR": str(Path(args.runtime_store_dir).parent),
+            "CODEX_TERMUX_RUNTIME_STORE_DIR": args.runtime_store_dir,
+            "CODEX_TERMUX_RAW_STORE_DIR": args.raw_store_dir,
+            "CODEX_TERMUX_RUNTIME_BUILDER": args.runtime_builder,
+            "CODEX_TERMUX_RESOLV_CONF": args.resolv_conf,
+            "CODEX_TERMUX_CERT_FILE": args.cert_file,
+            "CODEX_TERMUX_CERT_DIR": args.cert_dir,
+            "CODEX_TERMUX_PATCH_POLICY": args.patch_policy,
         },
         **kwargs,  # type: ignore[arg-type]
     )
@@ -391,8 +391,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return int(args.func(args))
-    except CodexNativeError as exc:
-        print(f"codex_native: {exc}", file=sys.stderr)
+    except CodexTermuxError as exc:
+        print(f"codex_termux: {exc}", file=sys.stderr)
         return 1
 
 

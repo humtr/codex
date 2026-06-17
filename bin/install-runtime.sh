@@ -28,45 +28,45 @@ codex_source_commit() {
 }
 
 codex_write_managed_shell() {
-    mkdir -p "$CODEX_NATIVE_MANAGER_DIR"
-    cat >"$CODEX_NATIVE_MANAGED_SHELL.$$" <<MANAGED
-#!$CODEX_NATIVE_PREFIX/bin/bash
-# codex native managed shell
+    mkdir -p "$CODEX_TERMUX_MANAGER_DIR"
+    cat >"$CODEX_TERMUX_MANAGED_SHELL.$$" <<MANAGED
+#!$CODEX_TERMUX_PREFIX/bin/bash
+# codex termux managed shell
 set -euo pipefail
-export CODEX_NATIVE_INSTALL_RUNTIME_SOURCE="$ROOT_DIR/bin/install-runtime.sh"
+export CODEX_TERMUX_INSTALL_RUNTIME_SOURCE="$ROOT_DIR/bin/install-runtime.sh"
 # shellcheck disable=SC1091
-. "$CODEX_NATIVE_MANAGER_DIR/lib.sh"
+. "$CODEX_TERMUX_MANAGER_DIR/lib.sh"
 codex_main "\$@"
 MANAGED
-    chmod 755 "$CODEX_NATIVE_MANAGED_SHELL.$$"
-    mv "$CODEX_NATIVE_MANAGED_SHELL.$$" "$CODEX_NATIVE_MANAGED_SHELL"
+    chmod 755 "$CODEX_TERMUX_MANAGED_SHELL.$$"
+    mv "$CODEX_TERMUX_MANAGED_SHELL.$$" "$CODEX_TERMUX_MANAGED_SHELL"
 }
 
 codex_install_support_files() {
     local wrapper_commit
-    mkdir -p "$CODEX_NATIVE_MANAGER_DIR" "$CODEX_NATIVE_STATE_DIR"
-    cp "$ROOT_DIR/lib/codex-termux.sh" "$CODEX_NATIVE_MANAGER_DIR/lib.sh"
-    chmod 755 "$CODEX_NATIVE_MANAGER_DIR/lib.sh"
-    rm -rf "$CODEX_NATIVE_MANAGER_DIR/codex_native"
-    cp -R "$ROOT_DIR/tools/codex_native" "$CODEX_NATIVE_MANAGER_DIR/codex_native"
-    python3 -m py_compile "$CODEX_NATIVE_MANAGER_DIR"/codex_native/*.py
-    cp "$ROOT_DIR/tools/build-runtime.py" "$CODEX_NATIVE_MANAGER_DIR/build-runtime.py"
-    cp "$ROOT_DIR/tools/bwrap-termux-compat.py" "$CODEX_NATIVE_MANAGER_DIR/bwrap-termux-compat.py"
-    cp "$ROOT_DIR/tools/rg-termux-shim.sh" "$CODEX_NATIVE_MANAGER_DIR/rg-termux-shim.sh"
-    chmod 755 "$CODEX_NATIVE_MANAGER_DIR/build-runtime.py" \
-        "$CODEX_NATIVE_MANAGER_DIR/bwrap-termux-compat.py" \
-        "$CODEX_NATIVE_MANAGER_DIR/rg-termux-shim.sh"
+    mkdir -p "$CODEX_TERMUX_MANAGER_DIR" "$CODEX_TERMUX_STATE_DIR"
+    cp "$ROOT_DIR/lib/codex-termux.sh" "$CODEX_TERMUX_MANAGER_DIR/lib.sh"
+    chmod 755 "$CODEX_TERMUX_MANAGER_DIR/lib.sh"
+    rm -rf "$CODEX_TERMUX_MANAGER_DIR/codex_termux"
+    cp -R "$ROOT_DIR/tools/codex_termux" "$CODEX_TERMUX_MANAGER_DIR/codex_termux"
+    python3 -m py_compile "$CODEX_TERMUX_MANAGER_DIR"/codex_termux/*.py
+    cp "$ROOT_DIR/tools/build-runtime.py" "$CODEX_TERMUX_MANAGER_DIR/build-runtime.py"
+    cp "$ROOT_DIR/tools/bwrap-termux-compat.py" "$CODEX_TERMUX_MANAGER_DIR/bwrap-termux-compat.py"
+    cp "$ROOT_DIR/tools/rg-termux-shim.sh" "$CODEX_TERMUX_MANAGER_DIR/rg-termux-shim.sh"
+    chmod 755 "$CODEX_TERMUX_MANAGER_DIR/build-runtime.py" \
+        "$CODEX_TERMUX_MANAGER_DIR/bwrap-termux-compat.py" \
+        "$CODEX_TERMUX_MANAGER_DIR/rg-termux-shim.sh"
     if [ -f "$ROOT_DIR/config/wrapper-version.env" ]; then
-        cp "$ROOT_DIR/config/wrapper-version.env" "$CODEX_NATIVE_MANAGER_DIR/wrapper-version.env"
+        cp "$ROOT_DIR/config/wrapper-version.env" "$CODEX_TERMUX_MANAGER_DIR/wrapper-version.env"
     else
-        printf 'CODEX_NATIVE_WRAPPER_VERSION=unknown\nCODEX_NATIVE_WRAPPER_CHANNEL=local\nCODEX_NATIVE_WRAPPER_REPO=local/codex\n' >"$CODEX_NATIVE_MANAGER_DIR/wrapper-version.env"
+        printf 'CODEX_TERMUX_WRAPPER_VERSION=unknown\nCODEX_TERMUX_WRAPPER_CHANNEL=local\nCODEX_TERMUX_WRAPPER_REPO=local/codex\n' >"$CODEX_TERMUX_MANAGER_DIR/wrapper-version.env"
     fi
     wrapper_commit="$(codex_source_commit)"
     {
-        printf 'CODEX_NATIVE_WRAPPER_COMMIT=%s\n' "$wrapper_commit"
-        printf 'CODEX_NATIVE_WRAPPER_INSTALLED_AT=%s\n' "$(date -Is)"
-    } >>"$CODEX_NATIVE_MANAGER_DIR/wrapper-version.env"
-    chmod 644 "$CODEX_NATIVE_MANAGER_DIR/wrapper-version.env"
+        printf 'CODEX_TERMUX_WRAPPER_COMMIT=%s\n' "$wrapper_commit"
+        printf 'CODEX_TERMUX_WRAPPER_INSTALLED_AT=%s\n' "$(date -Is)"
+    } >>"$CODEX_TERMUX_MANAGER_DIR/wrapper-version.env"
+    chmod 644 "$CODEX_TERMUX_MANAGER_DIR/wrapper-version.env"
     codex_write_managed_shell
 }
 
@@ -78,7 +78,7 @@ codex_build_launcher() {
 
 codex_prepare_launcher_slot() {
     local public="$1" backup base
-    mkdir -p "${public%/*}" "$CODEX_NATIVE_BACKUP_DIR"
+    mkdir -p "${public%/*}" "$CODEX_TERMUX_BACKUP_DIR"
     if [ -d "$public" ] && [ ! -L "$public" ]; then
         codex_fail "refusing to replace launcher directory $public"
         return 1
@@ -88,7 +88,7 @@ codex_prepare_launcher_slot() {
             return 0
         fi
         base="$(basename "$public")"
-        backup="$CODEX_NATIVE_BACKUP_DIR/$base.$(date +%Y%m%d-%H%M%S).bak"
+        backup="$CODEX_TERMUX_BACKUP_DIR/$base.$(date +%Y%m%d-%H%M%S).bak"
         cp -Pp "$public" "$backup"
     fi
 }
@@ -99,8 +99,8 @@ codex_write_shell_launcher() {
     mkdir -p "${public%/*}"
     cat >"$tmp" <<LAUNCHER
 #!/bin/sh
-# $CODEX_NATIVE_MANAGED_LAUNCHER_MARKER
-exec "$CODEX_NATIVE_MANAGED_SHELL" "\$@"
+# $CODEX_TERMUX_MANAGED_LAUNCHER_MARKER
+exec "$CODEX_TERMUX_MANAGED_SHELL" "\$@"
 LAUNCHER
     chmod 755 "$tmp"
     if ! codex_prepare_launcher_slot "$public" || ! mv -f "$tmp" "$public"; then
@@ -114,7 +114,7 @@ codex_write_compiled_launcher() {
     tmp="${public}.new.$$"
     mkdir -p "${public%/*}"
     codex_build_launcher "$tmp"
-    if ! grep -a -q "$CODEX_NATIVE_MANAGED_LAUNCHER_MARKER" "$tmp"; then
+    if ! grep -a -q "$CODEX_TERMUX_MANAGED_LAUNCHER_MARKER" "$tmp"; then
         rm -f "$tmp"
         codex_fail "compiled launcher missing managed marker"
         return 1
@@ -128,9 +128,9 @@ codex_write_compiled_launcher() {
 
 codex_install_launchers() {
     if codex_launcher_available; then
-        codex_write_compiled_launcher "$CODEX_NATIVE_PUBLIC_CODEX"
+        codex_write_compiled_launcher "$CODEX_TERMUX_PUBLIC_CODEX"
     else
-        codex_write_shell_launcher "$CODEX_NATIVE_PUBLIC_CODEX"
+        codex_write_shell_launcher "$CODEX_TERMUX_PUBLIC_CODEX"
     fi
 }
 
@@ -139,7 +139,7 @@ codex_setup() {
     codex_install_support_files
     codex_install_launchers
     if ! codex_runtime_ok; then
-        if [ -x "$CODEX_NATIVE_RAW_VENDOR/bin/codex" ]; then
+        if [ -x "$CODEX_TERMUX_RAW_VENDOR/bin/codex" ]; then
             codex_repair_runtime_from_raw
         else
             codex_update "${1:-}"

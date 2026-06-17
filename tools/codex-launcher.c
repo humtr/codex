@@ -6,7 +6,7 @@
 #include <unistd.h>
 
 static const char codex_managed_launcher_marker[] __attribute__((used)) =
-    "codex native managed launcher";
+    "codex termux managed launcher";
 
 static int safe_join(char *out, size_t out_sz, const char *a, const char *b) {
     int n = snprintf(out, out_sz, "%s/%s", a, b);
@@ -16,8 +16,8 @@ static int safe_join(char *out, size_t out_sz, const char *a, const char *b) {
 int main(int argc, char **argv) {
     const char *home = getenv("HOME");
     const char *prefix = getenv("PREFIX");
-    const char *managed = getenv("CODEX_NATIVE_MANAGED_SHELL");
-    const char *bash = getenv("CODEX_NATIVE_BASH");
+    const char *managed = getenv("CODEX_TERMUX_MANAGED_SHELL");
+    const char *bash = getenv("CODEX_TERMUX_BASH");
     char default_managed[PATH_MAX];
     char default_bash[PATH_MAX];
     char **outv;
@@ -27,7 +27,7 @@ int main(int argc, char **argv) {
     if (!prefix || !*prefix) prefix = "/data/data/com.termux/files/usr";
     if (!managed || !*managed) {
         if (safe_join(default_managed, sizeof(default_managed), home,
-                ".local/lib/codex/native/manager/managed.sh") < 0) {
+                ".local/lib/codex/termux/manager/managed.sh") < 0) {
             return 125;
         }
         managed = default_managed;

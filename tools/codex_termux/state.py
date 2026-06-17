@@ -1,4 +1,4 @@
-"""State file operations for Codex native metadata."""
+"""State file operations for Codex Termux metadata."""
 
 from __future__ import annotations
 

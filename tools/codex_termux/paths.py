@@ -1,4 +1,4 @@
-"""Path and identity helpers for managed Codex native stores."""
+"""Path and identity helpers for managed Codex Termux stores."""
 
 from __future__ import annotations
 

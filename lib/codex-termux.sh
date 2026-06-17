@@ -1,51 +1,51 @@
 #!/usr/bin/env bash
 set -u
 
-CODEX_NATIVE_SHELL_DIR="${BASH_SOURCE[0]%/*}"
-[ "$CODEX_NATIVE_SHELL_DIR" = "${BASH_SOURCE[0]}" ] && CODEX_NATIVE_SHELL_DIR="."
-CODEX_NATIVE_SHELL_DIR="$(cd "$CODEX_NATIVE_SHELL_DIR" && pwd)"
+CODEX_TERMUX_SHELL_DIR="${BASH_SOURCE[0]%/*}"
+[ "$CODEX_TERMUX_SHELL_DIR" = "${BASH_SOURCE[0]}" ] && CODEX_TERMUX_SHELL_DIR="."
+CODEX_TERMUX_SHELL_DIR="$(cd "$CODEX_TERMUX_SHELL_DIR" && pwd)"
 
-CODEX_NATIVE_HOME="${CODEX_NATIVE_HOME:-$HOME}"
-CODEX_NATIVE_PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
-CODEX_NATIVE_NATIVE_ROOT="${CODEX_NATIVE_NATIVE_ROOT:-$CODEX_NATIVE_HOME/.local/lib/codex/native}"
-CODEX_NATIVE_MANAGER_DIR="${CODEX_NATIVE_MANAGER_DIR:-$CODEX_NATIVE_NATIVE_ROOT/manager}"
-CODEX_NATIVE_RAW_DIR="${CODEX_NATIVE_RAW_DIR:-$CODEX_NATIVE_NATIVE_ROOT/raw}"
-CODEX_NATIVE_RAW_VENDOR="${CODEX_NATIVE_RAW_VENDOR:-$CODEX_NATIVE_RAW_DIR/vendor/aarch64-unknown-linux-musl}"
-CODEX_NATIVE_RUNTIME_DIR="${CODEX_NATIVE_RUNTIME_DIR:-$CODEX_NATIVE_NATIVE_ROOT/current}"
-CODEX_NATIVE_CURRENT_LINK="${CODEX_NATIVE_CURRENT_LINK:-$CODEX_NATIVE_RUNTIME_DIR}"
-CODEX_NATIVE_VERIFIED_LINK="${CODEX_NATIVE_VERIFIED_LINK:-$CODEX_NATIVE_NATIVE_ROOT/verified}"
-CODEX_NATIVE_RUNTIME="${CODEX_NATIVE_RUNTIME:-$CODEX_NATIVE_RUNTIME_DIR/codex}"
-CODEX_NATIVE_MANAGED_SHELL="${CODEX_NATIVE_MANAGED_SHELL:-$CODEX_NATIVE_MANAGER_DIR/managed.sh}"
-CODEX_NATIVE_STATE_DIR="${CODEX_NATIVE_STATE_DIR:-$CODEX_NATIVE_HOME/.local/share/codex/native}"
-CODEX_NATIVE_PROFILE_ROOT="${CODEX_NATIVE_PROFILE_ROOT:-$CODEX_NATIVE_HOME/.codex-profiles}"
-CODEX_NATIVE_SHARED_PLUGINS_DIR="${CODEX_NATIVE_SHARED_PLUGINS_DIR:-$CODEX_NATIVE_HOME/.codex/plugins}"
-CODEX_NATIVE_STATE_FILE="${CODEX_NATIVE_STATE_FILE:-$CODEX_NATIVE_STATE_DIR/state.json}"
-CODEX_NATIVE_REGISTRY_FILE="${CODEX_NATIVE_REGISTRY_FILE:-$CODEX_NATIVE_STATE_DIR/registry.json}"
-CODEX_NATIVE_STORE_DIR="${CODEX_NATIVE_STORE_DIR:-$CODEX_NATIVE_NATIVE_ROOT/store}"
-CODEX_NATIVE_RUNTIME_STORE_DIR="${CODEX_NATIVE_RUNTIME_STORE_DIR:-$CODEX_NATIVE_STORE_DIR/runtime}"
-CODEX_NATIVE_RAW_STORE_DIR="${CODEX_NATIVE_RAW_STORE_DIR:-$CODEX_NATIVE_STORE_DIR/raw}"
-CODEX_NATIVE_BACKUP_DIR="${CODEX_NATIVE_BACKUP_DIR:-$CODEX_NATIVE_STATE_DIR/backups}"
-CODEX_NATIVE_DOCTOR_DIR="${CODEX_NATIVE_DOCTOR_DIR:-$CODEX_NATIVE_STATE_DIR/doctor}"
-CODEX_NATIVE_LOCK_FILE="${CODEX_NATIVE_LOCK_FILE:-$CODEX_NATIVE_STATE_DIR/native.lock}"
-CODEX_NATIVE_LOCK_WAIT_SECONDS="${CODEX_NATIVE_LOCK_WAIT_SECONDS:-30}"
-CODEX_NATIVE_RESOLV_CONF="${CODEX_NATIVE_RESOLV_CONF:-$CODEX_NATIVE_PREFIX/etc/resolv.conf}"
-CODEX_NATIVE_CERT_FILE="${CODEX_NATIVE_CERT_FILE:-$CODEX_NATIVE_PREFIX/etc/tls/cert.pem}"
-CODEX_NATIVE_CERT_DIR="${CODEX_NATIVE_CERT_DIR:-$CODEX_NATIVE_PREFIX/etc/tls/certs}"
-CODEX_NATIVE_RESOLVER_FD="${CODEX_NATIVE_RESOLVER_FD:-33}"
-CODEX_NATIVE_PACKAGE_SPEC_DEFAULT="${CODEX_NATIVE_PACKAGE_SPEC_DEFAULT:-@openai/codex@linux-arm64}"
-CODEX_NATIVE_MANAGED_LAUNCHER_MARKER="${CODEX_NATIVE_MANAGED_LAUNCHER_MARKER:-codex native managed launcher}"
-CODEX_NATIVE_PUBLIC_CODEX="${CODEX_NATIVE_PUBLIC_CODEX:-$CODEX_NATIVE_PREFIX/bin/codex}"
-CODEX_NATIVE_RUNTIME_BUILDER="${CODEX_NATIVE_RUNTIME_BUILDER:-$CODEX_NATIVE_MANAGER_DIR/build-runtime.py}"
-CODEX_NATIVE_AUTO_UPDATE="${CODEX_NATIVE_AUTO_UPDATE:-1}"
-CODEX_NATIVE_AUTO_UPDATE_MODE="${CODEX_NATIVE_AUTO_UPDATE_MODE:-prompt}"
-CODEX_NATIVE_AUTO_UPDATE_INTERVAL_SECONDS="${CODEX_NATIVE_AUTO_UPDATE_INTERVAL_SECONDS:-21600}"
-CODEX_NATIVE_AUTO_UPDATE_TIMEOUT_SECONDS="${CODEX_NATIVE_AUTO_UPDATE_TIMEOUT_SECONDS:-4}"
-CODEX_NATIVE_AUTO_UPDATE_STAMP="${CODEX_NATIVE_AUTO_UPDATE_STAMP:-$CODEX_NATIVE_STATE_DIR/last-auto-update-check}"
-CODEX_NATIVE_AUTO_UPDATE_PENDING="${CODEX_NATIVE_AUTO_UPDATE_PENDING:-$CODEX_NATIVE_STATE_DIR/pending-auto-update-version}"
-CODEX_NATIVE_AUTO_UPDATE_FAILED="${CODEX_NATIVE_AUTO_UPDATE_FAILED:-$CODEX_NATIVE_STATE_DIR/failed-auto-update}"
-CODEX_NATIVE_LAST_PROFILE_FILE="${CODEX_NATIVE_LAST_PROFILE_FILE:-$CODEX_NATIVE_STATE_DIR/last-profile}"
-CODEX_NATIVE_RUNTIME_RETENTION="${CODEX_NATIVE_RUNTIME_RETENTION:-3}"
-CODEX_NATIVE_PATCH_POLICY="${CODEX_NATIVE_PATCH_POLICY:-dns-fd33-only-v1}"
+CODEX_TERMUX_HOME="${CODEX_TERMUX_HOME:-$HOME}"
+CODEX_TERMUX_PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
+CODEX_TERMUX_ROOT="${CODEX_TERMUX_ROOT:-$CODEX_TERMUX_HOME/.local/lib/codex/termux}"
+CODEX_TERMUX_MANAGER_DIR="${CODEX_TERMUX_MANAGER_DIR:-$CODEX_TERMUX_ROOT/manager}"
+CODEX_TERMUX_RAW_DIR="${CODEX_TERMUX_RAW_DIR:-$CODEX_TERMUX_ROOT/raw}"
+CODEX_TERMUX_RAW_VENDOR="${CODEX_TERMUX_RAW_VENDOR:-$CODEX_TERMUX_RAW_DIR/vendor/aarch64-unknown-linux-musl}"
+CODEX_TERMUX_RUNTIME_DIR="${CODEX_TERMUX_RUNTIME_DIR:-$CODEX_TERMUX_ROOT/current}"
+CODEX_TERMUX_CURRENT_LINK="${CODEX_TERMUX_CURRENT_LINK:-$CODEX_TERMUX_RUNTIME_DIR}"
+CODEX_TERMUX_VERIFIED_LINK="${CODEX_TERMUX_VERIFIED_LINK:-$CODEX_TERMUX_ROOT/verified}"
+CODEX_TERMUX_RUNTIME="${CODEX_TERMUX_RUNTIME:-$CODEX_TERMUX_RUNTIME_DIR/codex}"
+CODEX_TERMUX_MANAGED_SHELL="${CODEX_TERMUX_MANAGED_SHELL:-$CODEX_TERMUX_MANAGER_DIR/managed.sh}"
+CODEX_TERMUX_STATE_DIR="${CODEX_TERMUX_STATE_DIR:-$CODEX_TERMUX_HOME/.local/share/codex/termux}"
+CODEX_TERMUX_PROFILE_ROOT="${CODEX_TERMUX_PROFILE_ROOT:-$CODEX_TERMUX_HOME/.codex-profiles}"
+CODEX_TERMUX_SHARED_PLUGINS_DIR="${CODEX_TERMUX_SHARED_PLUGINS_DIR:-$CODEX_TERMUX_HOME/.codex/plugins}"
+CODEX_TERMUX_STATE_FILE="${CODEX_TERMUX_STATE_FILE:-$CODEX_TERMUX_STATE_DIR/state.json}"
+CODEX_TERMUX_REGISTRY_FILE="${CODEX_TERMUX_REGISTRY_FILE:-$CODEX_TERMUX_STATE_DIR/registry.json}"
+CODEX_TERMUX_STORE_DIR="${CODEX_TERMUX_STORE_DIR:-$CODEX_TERMUX_ROOT/store}"
+CODEX_TERMUX_RUNTIME_STORE_DIR="${CODEX_TERMUX_RUNTIME_STORE_DIR:-$CODEX_TERMUX_STORE_DIR/runtime}"
+CODEX_TERMUX_RAW_STORE_DIR="${CODEX_TERMUX_RAW_STORE_DIR:-$CODEX_TERMUX_STORE_DIR/raw}"
+CODEX_TERMUX_BACKUP_DIR="${CODEX_TERMUX_BACKUP_DIR:-$CODEX_TERMUX_STATE_DIR/backups}"
+CODEX_TERMUX_DOCTOR_DIR="${CODEX_TERMUX_DOCTOR_DIR:-$CODEX_TERMUX_STATE_DIR/doctor}"
+CODEX_TERMUX_LOCK_FILE="${CODEX_TERMUX_LOCK_FILE:-$CODEX_TERMUX_STATE_DIR/termux.lock}"
+CODEX_TERMUX_LOCK_WAIT_SECONDS="${CODEX_TERMUX_LOCK_WAIT_SECONDS:-30}"
+CODEX_TERMUX_RESOLV_CONF="${CODEX_TERMUX_RESOLV_CONF:-$CODEX_TERMUX_PREFIX/etc/resolv.conf}"
+CODEX_TERMUX_CERT_FILE="${CODEX_TERMUX_CERT_FILE:-$CODEX_TERMUX_PREFIX/etc/tls/cert.pem}"
+CODEX_TERMUX_CERT_DIR="${CODEX_TERMUX_CERT_DIR:-$CODEX_TERMUX_PREFIX/etc/tls/certs}"
+CODEX_TERMUX_RESOLVER_FD="${CODEX_TERMUX_RESOLVER_FD:-33}"
+CODEX_TERMUX_PACKAGE_SPEC_DEFAULT="${CODEX_TERMUX_PACKAGE_SPEC_DEFAULT:-@openai/codex@linux-arm64}"
+CODEX_TERMUX_MANAGED_LAUNCHER_MARKER="${CODEX_TERMUX_MANAGED_LAUNCHER_MARKER:-codex termux managed launcher}"
+CODEX_TERMUX_PUBLIC_CODEX="${CODEX_TERMUX_PUBLIC_CODEX:-$CODEX_TERMUX_PREFIX/bin/codex}"
+CODEX_TERMUX_RUNTIME_BUILDER="${CODEX_TERMUX_RUNTIME_BUILDER:-$CODEX_TERMUX_MANAGER_DIR/build-runtime.py}"
+CODEX_TERMUX_AUTO_UPDATE="${CODEX_TERMUX_AUTO_UPDATE:-1}"
+CODEX_TERMUX_AUTO_UPDATE_MODE="${CODEX_TERMUX_AUTO_UPDATE_MODE:-prompt}"
+CODEX_TERMUX_AUTO_UPDATE_INTERVAL_SECONDS="${CODEX_TERMUX_AUTO_UPDATE_INTERVAL_SECONDS:-21600}"
+CODEX_TERMUX_AUTO_UPDATE_TIMEOUT_SECONDS="${CODEX_TERMUX_AUTO_UPDATE_TIMEOUT_SECONDS:-4}"
+CODEX_TERMUX_AUTO_UPDATE_STAMP="${CODEX_TERMUX_AUTO_UPDATE_STAMP:-$CODEX_TERMUX_STATE_DIR/last-auto-update-check}"
+CODEX_TERMUX_AUTO_UPDATE_PENDING="${CODEX_TERMUX_AUTO_UPDATE_PENDING:-$CODEX_TERMUX_STATE_DIR/pending-auto-update-version}"
+CODEX_TERMUX_AUTO_UPDATE_FAILED="${CODEX_TERMUX_AUTO_UPDATE_FAILED:-$CODEX_TERMUX_STATE_DIR/failed-auto-update}"
+CODEX_TERMUX_LAST_PROFILE_FILE="${CODEX_TERMUX_LAST_PROFILE_FILE:-$CODEX_TERMUX_STATE_DIR/last-profile}"
+CODEX_TERMUX_RUNTIME_RETENTION="${CODEX_TERMUX_RUNTIME_RETENTION:-3}"
+CODEX_TERMUX_PATCH_POLICY="${CODEX_TERMUX_PATCH_POLICY:-dns-fd33-only-v1}"
 
 codex_say() { printf 'codex: %s\n' "$*" >&2; }
 codex_fail() { printf 'codex: ERROR: %s\n' "$*" >&2; return 1; }
@@ -165,25 +165,25 @@ codex_parent_dir() {
 }
 
 codex_sha256() {
-    codex_native_cmd hash-file --path "$1"
+    codex_termux_cmd hash-file --path "$1"
 }
 
 codex_now() {
     date -Is
 }
 
-codex_native_package_root() {
+codex_termux_package_root() {
     local source_dir source_root package_root=""
     source_dir="${BASH_SOURCE[0]%/*}"
     [ "$source_dir" = "${BASH_SOURCE[0]}" ] && source_dir="."
     source_dir="$(cd "$source_dir" && pwd)"
     source_root="$(cd "$source_dir/.." && pwd)"
-    if [ -d "$source_root/tools/codex_native" ]; then
+    if [ -d "$source_root/tools/codex_termux" ]; then
         package_root="$source_root/tools"
-    elif [ -n "${ROOT_DIR:-}" ] && [ -d "$ROOT_DIR/tools/codex_native" ]; then
+    elif [ -n "${ROOT_DIR:-}" ] && [ -d "$ROOT_DIR/tools/codex_termux" ]; then
         package_root="$ROOT_DIR/tools"
-    elif [ -d "$CODEX_NATIVE_MANAGER_DIR/codex_native" ]; then
-        package_root="$CODEX_NATIVE_MANAGER_DIR"
+    elif [ -d "$CODEX_TERMUX_MANAGER_DIR/codex_termux" ]; then
+        package_root="$CODEX_TERMUX_MANAGER_DIR"
     else
         codex_fail "internal helper package is unavailable"
         return 1
@@ -191,66 +191,66 @@ codex_native_package_root() {
     printf '%s\n' "$package_root"
 }
 
-codex_native_cmd() {
+codex_termux_cmd() {
     local package_root
-    package_root="$(codex_native_package_root)" || return 1
-    PYTHONPATH="$package_root${PYTHONPATH:+:$PYTHONPATH}" python3 -m codex_native.cli "$@"
+    package_root="$(codex_termux_package_root)" || return 1
+    PYTHONPATH="$package_root${PYTHONPATH:+:$PYTHONPATH}" python3 -m codex_termux.cli "$@"
 }
 
-codex_native_activation_cmd() {
+codex_termux_activation_cmd() {
     local action="$1" shell_lib="${BASH_SOURCE[0]}" wrapper_version wrapper_commit
     shift
     wrapper_version="$(codex_current_wrapper_version)" || return 1
     wrapper_commit="$(codex_current_wrapper_commit)" || return 1
-    codex_native_cmd "$action" \
-        --current-link "$CODEX_NATIVE_CURRENT_LINK" \
-        --verified-link "$CODEX_NATIVE_VERIFIED_LINK" \
-        --raw-link "$CODEX_NATIVE_RAW_DIR" \
-        --state-file "$CODEX_NATIVE_STATE_FILE" \
-        --registry-file "$CODEX_NATIVE_REGISTRY_FILE" \
-        --runtime-store-dir "$CODEX_NATIVE_RUNTIME_STORE_DIR" \
-        --raw-store-dir "$CODEX_NATIVE_RAW_STORE_DIR" \
+    codex_termux_cmd "$action" \
+        --current-link "$CODEX_TERMUX_CURRENT_LINK" \
+        --verified-link "$CODEX_TERMUX_VERIFIED_LINK" \
+        --raw-link "$CODEX_TERMUX_RAW_DIR" \
+        --state-file "$CODEX_TERMUX_STATE_FILE" \
+        --registry-file "$CODEX_TERMUX_REGISTRY_FILE" \
+        --runtime-store-dir "$CODEX_TERMUX_RUNTIME_STORE_DIR" \
+        --raw-store-dir "$CODEX_TERMUX_RAW_STORE_DIR" \
         --wrapper-version "$wrapper_version" \
         --wrapper-commit "$wrapper_commit" \
         --updated-at "$(codex_now)" \
         --shell-bin "${BASH:-bash}" \
         --shell-lib "$shell_lib" \
-        --home "$CODEX_NATIVE_HOME" \
-        --prefix "$CODEX_NATIVE_PREFIX" \
-        --manager-dir "$CODEX_NATIVE_MANAGER_DIR" \
-        --runtime-builder "$CODEX_NATIVE_RUNTIME_BUILDER" \
-        --resolv-conf "$CODEX_NATIVE_RESOLV_CONF" \
-        --cert-file "$CODEX_NATIVE_CERT_FILE" \
-        --cert-dir "$CODEX_NATIVE_CERT_DIR" \
-        --patch-policy "$CODEX_NATIVE_PATCH_POLICY" \
+        --home "$CODEX_TERMUX_HOME" \
+        --prefix "$CODEX_TERMUX_PREFIX" \
+        --manager-dir "$CODEX_TERMUX_MANAGER_DIR" \
+        --runtime-builder "$CODEX_TERMUX_RUNTIME_BUILDER" \
+        --resolv-conf "$CODEX_TERMUX_RESOLV_CONF" \
+        --cert-file "$CODEX_TERMUX_CERT_FILE" \
+        --cert-dir "$CODEX_TERMUX_CERT_DIR" \
+        --patch-policy "$CODEX_TERMUX_PATCH_POLICY" \
         "$@"
 }
 
 codex_file_has_marker() {
     local path="$1"
     [ -e "$path" ] || return 1
-    grep -a -q "$CODEX_NATIVE_MANAGED_LAUNCHER_MARKER" "$path" 2>/dev/null
+    grep -a -q "$CODEX_TERMUX_MANAGED_LAUNCHER_MARKER" "$path" 2>/dev/null
 }
 
 codex_with_lock() {
     local cmd="$1"
     shift
-    mkdir -p "$CODEX_NATIVE_STATE_DIR"
+    mkdir -p "$CODEX_TERMUX_STATE_DIR"
     if command -v flock >/dev/null 2>&1; then
         (
-            if ! flock -w "$CODEX_NATIVE_LOCK_WAIT_SECONDS" -x 9; then
-                codex_fail "another mutation operation is in progress: $CODEX_NATIVE_LOCK_FILE"
+            if ! flock -w "$CODEX_TERMUX_LOCK_WAIT_SECONDS" -x 9; then
+                codex_fail "another mutation operation is in progress: $CODEX_TERMUX_LOCK_FILE"
                 exit 75
             fi
             "$cmd" "$@"
-        ) 9>"$CODEX_NATIVE_LOCK_FILE"
+        ) 9>"$CODEX_TERMUX_LOCK_FILE"
     else
-        local lock_dir="${CODEX_NATIVE_LOCK_FILE}.d" waited=0
+        local lock_dir="${CODEX_TERMUX_LOCK_FILE}.d" waited=0
         while ! mkdir "$lock_dir" 2>/dev/null; do
             sleep 1
             waited=$((waited + 1))
-            if [ "$waited" -ge "$CODEX_NATIVE_LOCK_WAIT_SECONDS" ]; then
-                codex_fail "another mutation operation is in progress: $CODEX_NATIVE_LOCK_FILE"
+            if [ "$waited" -ge "$CODEX_TERMUX_LOCK_WAIT_SECONDS" ]; then
+                codex_fail "another mutation operation is in progress: $CODEX_TERMUX_LOCK_FILE"
                 return 75
             fi
         done
@@ -265,10 +265,10 @@ codex_runtime_exec() {
     local executable="$1"
     shift || true
     local cert_dir_env=() runtime_env=() run_home runtime_dir
-    run_home="${CODEX_NATIVE_HOME:-$HOME}"
+    run_home="${CODEX_TERMUX_HOME:-$HOME}"
     runtime_dir="$(codex_parent_dir "$executable")"
-    if [ -d "$CODEX_NATIVE_CERT_DIR" ]; then
-        cert_dir_env=("SSL_CERT_DIR=$CODEX_NATIVE_CERT_DIR")
+    if [ -d "$CODEX_TERMUX_CERT_DIR" ]; then
+        cert_dir_env=("SSL_CERT_DIR=$CODEX_TERMUX_CERT_DIR")
     fi
     runtime_env=(env -u LD_PRELOAD -u LD_LIBRARY_PATH \
         -u CODEX_MANAGED_BY_NPM -u CODEX_MANAGED_BY_BUN -u CODEX_MANAGED_PACKAGE_ROOT \
@@ -277,16 +277,16 @@ codex_runtime_exec() {
         XDG_CACHE_HOME="${XDG_CACHE_HOME:-$run_home/.cache}" \
         XDG_DATA_HOME="${XDG_DATA_HOME:-$run_home/.local/share}" \
         GODEBUG="${GODEBUG:-netdns=go}" \
-        SSL_CERT_FILE="$CODEX_NATIVE_CERT_FILE" \
+        SSL_CERT_FILE="$CODEX_TERMUX_CERT_FILE" \
         CODEX_SELF_EXE="$executable" \
-        CODEX_NATIVE_BWRAP_COMPAT_QUIET="${CODEX_NATIVE_BWRAP_COMPAT_QUIET:-1}" \
-        PATH="$runtime_dir/codex-path:$runtime_dir/codex-resources:$CODEX_NATIVE_PREFIX/bin:$PATH" \
+        CODEX_TERMUX_BWRAP_COMPAT_QUIET="${CODEX_TERMUX_BWRAP_COMPAT_QUIET:-1}" \
+        PATH="$runtime_dir/codex-path:$runtime_dir/codex-resources:$CODEX_TERMUX_PREFIX/bin:$PATH" \
         "${cert_dir_env[@]}")
-    if [ ! -r "$CODEX_NATIVE_RESOLV_CONF" ]; then
-        codex_fail "resolver source is unavailable: $CODEX_NATIVE_RESOLV_CONF"
+    if [ ! -r "$CODEX_TERMUX_RESOLV_CONF" ]; then
+        codex_fail "resolver source is unavailable: $CODEX_TERMUX_RESOLV_CONF"
         return 66
     fi
-    "${runtime_env[@]}" "$executable" "$@" 33<"$CODEX_NATIVE_RESOLV_CONF"
+    "${runtime_env[@]}" "$executable" "$@" 33<"$CODEX_TERMUX_RESOLV_CONF"
 }
 
 codex_smoke_test_runtime() {
@@ -296,7 +296,7 @@ codex_smoke_test_runtime() {
 }
 
 codex_validate_tarball_safe() {
-    codex_native_cmd validate-tarball --path "$1"
+    codex_termux_cmd validate-tarball --path "$1"
 }
 
 codex_replace_tree_atomic() {
@@ -318,30 +318,30 @@ codex_replace_tree_atomic() {
 }
 
 codex_support_source_dir() {
-    if [ -r "$CODEX_NATIVE_MANAGER_DIR/bwrap-termux-compat.py" ] &&
-        [ -r "$CODEX_NATIVE_MANAGER_DIR/rg-termux-shim.sh" ]; then
-        printf '%s\n' "$CODEX_NATIVE_MANAGER_DIR"
-    elif [ -r "$CODEX_NATIVE_RUNTIME_DIR/bwrap-termux-compat.py" ] &&
-        [ -r "$CODEX_NATIVE_RUNTIME_DIR/rg-termux-shim.sh" ]; then
-        printf '%s\n' "$CODEX_NATIVE_RUNTIME_DIR"
+    if [ -r "$CODEX_TERMUX_MANAGER_DIR/bwrap-termux-compat.py" ] &&
+        [ -r "$CODEX_TERMUX_MANAGER_DIR/rg-termux-shim.sh" ]; then
+        printf '%s\n' "$CODEX_TERMUX_MANAGER_DIR"
+    elif [ -r "$CODEX_TERMUX_RUNTIME_DIR/bwrap-termux-compat.py" ] &&
+        [ -r "$CODEX_TERMUX_RUNTIME_DIR/rg-termux-shim.sh" ]; then
+        printf '%s\n' "$CODEX_TERMUX_RUNTIME_DIR"
     else
-        printf '%s\n' "$CODEX_NATIVE_MANAGER_DIR"
+        printf '%s\n' "$CODEX_TERMUX_MANAGER_DIR"
     fi
 }
 
 codex_resolve_path() {
-    codex_native_cmd resolve-path --path "$1"
+    codex_termux_cmd resolve-path --path "$1"
 }
 
 codex_tree_digest() {
-    codex_native_cmd tree-digest --path "$1"
+    codex_termux_cmd tree-digest --path "$1"
 }
 
 
 codex_read_state_field() {
     local field="$1"
-    codex_native_cmd state-read-field \
-        --state-file "$CODEX_NATIVE_STATE_FILE" \
+    codex_termux_cmd state-read-field \
+        --state-file "$CODEX_TERMUX_STATE_FILE" \
         --field "$field"
 }
 
@@ -349,8 +349,8 @@ codex_read_state_field() {
 codex_store_id() {
     local version="$1" sha="$2" tree_sha="${3:-}" builder_sha="unknown" bwrap_sha="unknown" rg_sha="unknown" support_dir
     support_dir="$(codex_support_source_dir)"
-    if [ -r "$CODEX_NATIVE_RUNTIME_BUILDER" ]; then
-        builder_sha="$(codex_sha256 "$CODEX_NATIVE_RUNTIME_BUILDER")"
+    if [ -r "$CODEX_TERMUX_RUNTIME_BUILDER" ]; then
+        builder_sha="$(codex_sha256 "$CODEX_TERMUX_RUNTIME_BUILDER")"
     fi
     if [ -r "$support_dir/bwrap-termux-compat.py" ]; then
         bwrap_sha="$(codex_sha256 "$support_dir/bwrap-termux-compat.py")"
@@ -358,7 +358,7 @@ codex_store_id() {
     if [ -r "$support_dir/rg-termux-shim.sh" ]; then
         rg_sha="$(codex_sha256 "$support_dir/rg-termux-shim.sh")"
     fi
-    codex_native_cmd store-id \
+    codex_termux_cmd store-id \
         --version "$version" \
         --sha256 "$sha" \
         --builder-sha256 "$builder_sha" \
@@ -368,9 +368,9 @@ codex_store_id() {
 }
 
 codex_validate_runtime_retention() {
-    case "$CODEX_NATIVE_RUNTIME_RETENTION" in
+    case "$CODEX_TERMUX_RUNTIME_RETENTION" in
         ''|*[!0-9]*|0)
-            codex_fail "CODEX_NATIVE_RUNTIME_RETENTION must be an integer greater than zero"
+            codex_fail "CODEX_TERMUX_RUNTIME_RETENTION must be an integer greater than zero"
             return 2
             ;;
     esac
@@ -378,17 +378,17 @@ codex_validate_runtime_retention() {
 
 codex_prune_runtime_store() {
     codex_validate_runtime_retention || return $?
-    codex_native_cmd store-prune \
-        --runtime-store-dir "$CODEX_NATIVE_RUNTIME_STORE_DIR" \
-        --raw-store-dir "$CODEX_NATIVE_RAW_STORE_DIR" \
-        --registry-file "$CODEX_NATIVE_REGISTRY_FILE" \
-        --state-file "$CODEX_NATIVE_STATE_FILE" \
-        --runtime-builder "$CODEX_NATIVE_RUNTIME_BUILDER" \
-        --patch-policy "$CODEX_NATIVE_PATCH_POLICY" \
-        --retention "$CODEX_NATIVE_RUNTIME_RETENTION" \
-        --current-link "$CODEX_NATIVE_RUNTIME_DIR" \
-        --verified-link "$CODEX_NATIVE_VERIFIED_LINK" \
-        --raw-link "$CODEX_NATIVE_RAW_DIR" >/dev/null
+    codex_termux_cmd store-prune \
+        --runtime-store-dir "$CODEX_TERMUX_RUNTIME_STORE_DIR" \
+        --raw-store-dir "$CODEX_TERMUX_RAW_STORE_DIR" \
+        --registry-file "$CODEX_TERMUX_REGISTRY_FILE" \
+        --state-file "$CODEX_TERMUX_STATE_FILE" \
+        --runtime-builder "$CODEX_TERMUX_RUNTIME_BUILDER" \
+        --patch-policy "$CODEX_TERMUX_PATCH_POLICY" \
+        --retention "$CODEX_TERMUX_RUNTIME_RETENTION" \
+        --current-link "$CODEX_TERMUX_RUNTIME_DIR" \
+        --verified-link "$CODEX_TERMUX_VERIFIED_LINK" \
+        --raw-link "$CODEX_TERMUX_RAW_DIR" >/dev/null
 }
 
 
@@ -410,7 +410,7 @@ codex_prepare_complete_runtime_tree() {
         }
         cp -R "$payload_dir/$name" "$complete_dir/$name"
     done
-    [ -x "$CODEX_NATIVE_RUNTIME_BUILDER" ] &&
+    [ -x "$CODEX_TERMUX_RUNTIME_BUILDER" ] &&
         [ -r "$support_dir/bwrap-termux-compat.py" ] &&
         [ -r "$support_dir/rg-termux-shim.sh" ] || {
         rm -rf "$complete_dir"
@@ -428,7 +428,7 @@ codex_prepare_complete_runtime_tree() {
 codex_package_spec() {
     local requested="${1:-}"
     if [ -z "$requested" ] || [ "$requested" = "latest" ] || [ "$requested" = "stable" ]; then
-        printf '%s\n' "$CODEX_NATIVE_PACKAGE_SPEC_DEFAULT"
+        printf '%s\n' "$CODEX_TERMUX_PACKAGE_SPEC_DEFAULT"
     elif [[ "$requested" == @openai/codex@* ]]; then
         printf '%s\n' "$requested"
     elif [[ "$requested" == *linux-arm64 ]]; then
@@ -439,7 +439,7 @@ codex_package_spec() {
 }
 
 codex_extract_pack_field() {
-    codex_native_cmd package-field --json-file "$1" --field "$2"
+    codex_termux_cmd package-field --json-file "$1" --field "$2"
 }
 
 codex_fetch_package() {
@@ -479,7 +479,7 @@ codex_fetch_package() {
 }
 
 codex_install_raw_vendor() {
-    local src_vendor="$1" target_dir="${2:-$CODEX_NATIVE_RAW_DIR}" staged
+    local src_vendor="$1" target_dir="${2:-$CODEX_TERMUX_RAW_DIR}" staged
     staged="$target_dir.new.$$"
     rm -rf "$staged"
     mkdir -p "$staged/vendor"
@@ -495,7 +495,7 @@ codex_build_runtime_tree() {
     local raw_vendor="$1"
     local runtime_dir="$2"
     local log_file="$3"
-    local builder="$CODEX_NATIVE_RUNTIME_BUILDER"
+    local builder="$CODEX_TERMUX_RUNTIME_BUILDER"
     local report_file="${log_file}.report.json"
 
     mkdir -p "$(codex_parent_dir "$runtime_dir")"
@@ -510,7 +510,7 @@ codex_build_runtime_tree() {
 
 codex_activate_tuple_unlocked() {
     local runtime_src="$1" version="$2" raw_sha="$3" runtime_sha="$4" package_spec="$5" raw_src="${6:-}"
-    local raw_store_src="$CODEX_NATIVE_RAW_DIR" runtime_target raw_target
+    local raw_store_src="$CODEX_TERMUX_RAW_DIR" runtime_target raw_target
     local cleanup_raw=() runtime_tree_sha raw_tree_sha
     if [ -n "$raw_src" ]; then
         raw_store_src="$raw_src"
@@ -518,9 +518,9 @@ codex_activate_tuple_unlocked() {
     fi
     runtime_tree_sha="$(codex_tree_digest "$(codex_resolve_path "$runtime_src")")"
     raw_tree_sha="$(codex_tree_digest "$(codex_resolve_path "$raw_store_src")")"
-    runtime_target="$CODEX_NATIVE_RUNTIME_STORE_DIR/$(codex_store_id "$version" "$runtime_sha" "$runtime_tree_sha")"
-    raw_target="$CODEX_NATIVE_RAW_STORE_DIR/$(codex_store_id "$version" "$raw_sha" "$raw_tree_sha")"
-    codex_native_activation_cmd activation-commit \
+    runtime_target="$CODEX_TERMUX_RUNTIME_STORE_DIR/$(codex_store_id "$version" "$runtime_sha" "$runtime_tree_sha")"
+    raw_target="$CODEX_TERMUX_RAW_STORE_DIR/$(codex_store_id "$version" "$raw_sha" "$raw_tree_sha")"
+    codex_termux_activation_cmd activation-commit \
         --candidate-runtime "$runtime_src" \
         --candidate-raw "$raw_store_src" \
         --runtime-target "$runtime_target" \
@@ -540,19 +540,19 @@ codex_commit_runtime_candidate() {
 
 codex_rebuild_runtime_unlocked() {
     local version="${1:-unknown}" package_spec="${2:-local}" report build_stdout raw_sha runtime_sha
-    local runtime_stage="$CODEX_NATIVE_RUNTIME_DIR.build.$$" runtime_complete="$CODEX_NATIVE_RUNTIME_DIR.complete.$$"
-    [ -x "$CODEX_NATIVE_RAW_VENDOR/bin/codex" ] || return 1
-    mkdir -p "$CODEX_NATIVE_STATE_DIR" "$CODEX_NATIVE_DOCTOR_DIR"
-    report="$CODEX_NATIVE_DOCTOR_DIR/last-build-report.json"
-    build_stdout="$CODEX_NATIVE_DOCTOR_DIR/last-build-report.stdout"
+    local runtime_stage="$CODEX_TERMUX_RUNTIME_DIR.build.$$" runtime_complete="$CODEX_TERMUX_RUNTIME_DIR.complete.$$"
+    [ -x "$CODEX_TERMUX_RAW_VENDOR/bin/codex" ] || return 1
+    mkdir -p "$CODEX_TERMUX_STATE_DIR" "$CODEX_TERMUX_DOCTOR_DIR"
+    report="$CODEX_TERMUX_DOCTOR_DIR/last-build-report.json"
+    build_stdout="$CODEX_TERMUX_DOCTOR_DIR/last-build-report.stdout"
     rm -rf "$runtime_stage"
-    if [ "${CODEX_NATIVE_BUILD_VERBOSE:-0}" = "1" ]; then
-        if ! "$CODEX_NATIVE_RUNTIME_BUILDER" "$CODEX_NATIVE_RAW_VENDOR" --runtime-dir "$runtime_stage" --report-json "$report"; then
+    if [ "${CODEX_TERMUX_BUILD_VERBOSE:-0}" = "1" ]; then
+        if ! "$CODEX_TERMUX_RUNTIME_BUILDER" "$CODEX_TERMUX_RAW_VENDOR" --runtime-dir "$runtime_stage" --report-json "$report"; then
             rm -rf "$runtime_stage"
             return 1
         fi
     else
-        if ! "$CODEX_NATIVE_RUNTIME_BUILDER" "$CODEX_NATIVE_RAW_VENDOR" --runtime-dir "$runtime_stage" --report-json "$report" >"$build_stdout" 2>&1; then
+        if ! "$CODEX_TERMUX_RUNTIME_BUILDER" "$CODEX_TERMUX_RAW_VENDOR" --runtime-dir "$runtime_stage" --report-json "$report" >"$build_stdout" 2>&1; then
             rm -rf "$runtime_stage"
             return 1
         fi
@@ -562,7 +562,7 @@ codex_rebuild_runtime_unlocked() {
         rm -rf "$runtime_stage" "$runtime_complete"
         return 1
     fi
-    raw_sha="$(codex_sha256 "$CODEX_NATIVE_RAW_VENDOR/bin/codex")"
+    raw_sha="$(codex_sha256 "$CODEX_TERMUX_RAW_VENDOR/bin/codex")"
     runtime_sha="$(codex_sha256 "$runtime_complete/codex")"
     rm -rf "$runtime_stage"
     codex_say "smoke-testing runtime"
@@ -598,17 +598,17 @@ codex_update_unlocked() {
     IFS=$'\t' read -r tmp vendor version spec <<EOF
 $fetched
 EOF
-    raw_stage="$CODEX_NATIVE_RAW_DIR.update.$$"
-    runtime_stage="$CODEX_NATIVE_RUNTIME_DIR.update.$$"
-    runtime_complete="$CODEX_NATIVE_RUNTIME_DIR.complete.$$"
-    mkdir -p "$CODEX_NATIVE_DOCTOR_DIR"
+    raw_stage="$CODEX_TERMUX_RAW_DIR.update.$$"
+    runtime_stage="$CODEX_TERMUX_RUNTIME_DIR.update.$$"
+    runtime_complete="$CODEX_TERMUX_RUNTIME_DIR.complete.$$"
+    mkdir -p "$CODEX_TERMUX_DOCTOR_DIR"
     codex_say "staging raw vendor tree"
     if ! codex_install_raw_vendor "$vendor" "$raw_stage"; then
         rm -rf "$tmp"
         return 1
     fi
     codex_say "building patched runtime"
-    if ! codex_build_runtime_tree "$raw_stage/vendor/aarch64-unknown-linux-musl" "$runtime_stage" "$CODEX_NATIVE_DOCTOR_DIR/last-build-report.stdout"; then
+    if ! codex_build_runtime_tree "$raw_stage/vendor/aarch64-unknown-linux-musl" "$runtime_stage" "$CODEX_TERMUX_DOCTOR_DIR/last-build-report.stdout"; then
         rm -rf "$tmp" "$raw_stage" "$runtime_stage" "$runtime_complete"
         return 1
     fi
@@ -681,14 +681,14 @@ codex_prompt_update_launch() {
 
 codex_latest_linux_arm64_version() {
     if command -v timeout >/dev/null 2>&1; then
-        timeout "$CODEX_NATIVE_AUTO_UPDATE_TIMEOUT_SECONDS" npm view @openai/codex dist-tags.linux-arm64 --json 2>/dev/null | tr -d '"'
+        timeout "$CODEX_TERMUX_AUTO_UPDATE_TIMEOUT_SECONDS" npm view @openai/codex dist-tags.linux-arm64 --json 2>/dev/null | tr -d '"'
     else
         npm view @openai/codex dist-tags.linux-arm64 --json 2>/dev/null | tr -d '"'
     fi
 }
 
 codex_auto_update_mode() {
-    local mode="${CODEX_NATIVE_AUTO_UPDATE_MODE:-prompt}"
+    local mode="${CODEX_TERMUX_AUTO_UPDATE_MODE:-prompt}"
     case "$mode" in
         0|off|false|no|none)
             printf 'off\n'
@@ -707,44 +707,44 @@ codex_auto_update_mode() {
 
 codex_auto_update_due() {
     local now last
-    [ "$CODEX_NATIVE_AUTO_UPDATE" = "0" ] && return 1
+    [ "$CODEX_TERMUX_AUTO_UPDATE" = "0" ] && return 1
     [ "$(codex_auto_update_mode)" != "off" ] || return 1
     now="$(date +%s)"
-    last="$(cat "$CODEX_NATIVE_AUTO_UPDATE_STAMP" 2>/dev/null || printf '0')"
-    [ $((now - last)) -ge "$CODEX_NATIVE_AUTO_UPDATE_INTERVAL_SECONDS" ]
+    last="$(cat "$CODEX_TERMUX_AUTO_UPDATE_STAMP" 2>/dev/null || printf '0')"
+    [ $((now - last)) -ge "$CODEX_TERMUX_AUTO_UPDATE_INTERVAL_SECONDS" ]
 }
 
 codex_mark_auto_update_checked() {
-    mkdir -p "$CODEX_NATIVE_STATE_DIR"
-    date +%s >"$CODEX_NATIVE_AUTO_UPDATE_STAMP"
+    mkdir -p "$CODEX_TERMUX_STATE_DIR"
+    date +%s >"$CODEX_TERMUX_AUTO_UPDATE_STAMP"
 }
 
 codex_read_pending_auto_update() {
-    cat "$CODEX_NATIVE_AUTO_UPDATE_PENDING" 2>/dev/null || true
+    cat "$CODEX_TERMUX_AUTO_UPDATE_PENDING" 2>/dev/null || true
 }
 
 codex_write_pending_auto_update() {
     local version="$1"
-    mkdir -p "$CODEX_NATIVE_STATE_DIR"
-    printf '%s\n' "$version" >"$CODEX_NATIVE_AUTO_UPDATE_PENDING"
+    mkdir -p "$CODEX_TERMUX_STATE_DIR"
+    printf '%s\n' "$version" >"$CODEX_TERMUX_AUTO_UPDATE_PENDING"
 }
 
 codex_clear_pending_auto_update() {
-    rm -f "$CODEX_NATIVE_AUTO_UPDATE_PENDING"
+    rm -f "$CODEX_TERMUX_AUTO_UPDATE_PENDING"
 }
 
 codex_read_failed_auto_update() {
-    cat "$CODEX_NATIVE_AUTO_UPDATE_FAILED" 2>/dev/null || true
+    cat "$CODEX_TERMUX_AUTO_UPDATE_FAILED" 2>/dev/null || true
 }
 
 codex_write_failed_auto_update() {
     local version="$1"
-    mkdir -p "$CODEX_NATIVE_STATE_DIR"
-    printf '%s\t%s\n' "$version" "$(date +%s)" >"$CODEX_NATIVE_AUTO_UPDATE_FAILED"
+    mkdir -p "$CODEX_TERMUX_STATE_DIR"
+    printf '%s\t%s\n' "$version" "$(date +%s)" >"$CODEX_TERMUX_AUTO_UPDATE_FAILED"
 }
 
 codex_clear_failed_auto_update() {
-    rm -f "$CODEX_NATIVE_AUTO_UPDATE_FAILED"
+    rm -f "$CODEX_TERMUX_AUTO_UPDATE_FAILED"
 }
 
 codex_failed_auto_update_due() {
@@ -759,7 +759,7 @@ EOF
         ''|*[!0-9]*) return 0 ;;
     esac
     now="$(date +%s)"
-    [ $((now - failed_at)) -ge "$CODEX_NATIVE_AUTO_UPDATE_INTERVAL_SECONDS" ]
+    [ $((now - failed_at)) -ge "$CODEX_TERMUX_AUTO_UPDATE_INTERVAL_SECONDS" ]
 }
 
 codex_prompt_update() {
@@ -810,7 +810,7 @@ codex_install_auto_update() {
 codex_auto_update_if_needed() {
     local current latest mode pending
     codex_runtime_ok || return 0
-    [ "$CODEX_NATIVE_AUTO_UPDATE" = "0" ] && return 0
+    [ "$CODEX_TERMUX_AUTO_UPDATE" = "0" ] && return 0
     [ "$(codex_auto_update_mode)" != "off" ] || return 0
     current="$(codex_read_state_field version)"
     pending="$(codex_read_pending_auto_update)"
@@ -857,36 +857,36 @@ codex_auto_update_if_needed() {
 codex_support_tools_match() {
     local support_dir
     support_dir="$(codex_support_source_dir)"
-    cmp -s "$support_dir/bwrap-termux-compat.py" "$CODEX_NATIVE_RUNTIME_DIR/codex-path/bwrap" &&
-    cmp -s "$support_dir/rg-termux-shim.sh" "$CODEX_NATIVE_RUNTIME_DIR/codex-path/rg"
+    cmp -s "$support_dir/bwrap-termux-compat.py" "$CODEX_TERMUX_RUNTIME_DIR/codex-path/bwrap" &&
+    cmp -s "$support_dir/rg-termux-shim.sh" "$CODEX_TERMUX_RUNTIME_DIR/codex-path/rg"
 }
 
 codex_runtime_integrity_ok() {
-    [ -r "$CODEX_NATIVE_RUNTIME_DIR/runtime-build.json" ] || return 1
-    [ -x "$CODEX_NATIVE_RUNTIME_BUILDER" ] || return 1
-    codex_native_cmd runtime-integrity \
-        --runtime "$CODEX_NATIVE_RUNTIME" \
-        --manifest-path "$CODEX_NATIVE_RUNTIME_DIR/runtime-build.json" \
-        --builder "$CODEX_NATIVE_RUNTIME_BUILDER" \
-        --state-path "$CODEX_NATIVE_STATE_FILE" \
-        --patch-policy "$CODEX_NATIVE_PATCH_POLICY"
+    [ -r "$CODEX_TERMUX_RUNTIME_DIR/runtime-build.json" ] || return 1
+    [ -x "$CODEX_TERMUX_RUNTIME_BUILDER" ] || return 1
+    codex_termux_cmd runtime-integrity \
+        --runtime "$CODEX_TERMUX_RUNTIME" \
+        --manifest-path "$CODEX_TERMUX_RUNTIME_DIR/runtime-build.json" \
+        --builder "$CODEX_TERMUX_RUNTIME_BUILDER" \
+        --state-path "$CODEX_TERMUX_STATE_FILE" \
+        --patch-policy "$CODEX_TERMUX_PATCH_POLICY"
 }
 
 codex_raw_integrity_ok() {
-    [ -x "$CODEX_NATIVE_RAW_VENDOR/bin/codex" ] || return 1
-    codex_native_cmd raw-integrity \
-        --raw-binary "$CODEX_NATIVE_RAW_VENDOR/bin/codex" \
-        --state-path "$CODEX_NATIVE_STATE_FILE"
+    [ -x "$CODEX_TERMUX_RAW_VENDOR/bin/codex" ] || return 1
+    codex_termux_cmd raw-integrity \
+        --raw-binary "$CODEX_TERMUX_RAW_VENDOR/bin/codex" \
+        --state-path "$CODEX_TERMUX_STATE_FILE"
 }
 
 codex_runtime_ok() {
-    [ -x "$CODEX_NATIVE_RUNTIME" ] &&
-    [ -x "$CODEX_NATIVE_RUNTIME_DIR/codex-resources/bwrap" ] &&
-    [ -x "$CODEX_NATIVE_RUNTIME_DIR/codex-path/bwrap" ] &&
-    [ -x "$CODEX_NATIVE_RUNTIME_DIR/codex-path/rg" ] &&
-    [ -x "$CODEX_NATIVE_RUNTIME_DIR/codex-path/rg.real" ] &&
+    [ -x "$CODEX_TERMUX_RUNTIME" ] &&
+    [ -x "$CODEX_TERMUX_RUNTIME_DIR/codex-resources/bwrap" ] &&
+    [ -x "$CODEX_TERMUX_RUNTIME_DIR/codex-path/bwrap" ] &&
+    [ -x "$CODEX_TERMUX_RUNTIME_DIR/codex-path/rg" ] &&
+    [ -x "$CODEX_TERMUX_RUNTIME_DIR/codex-path/rg.real" ] &&
     codex_support_tools_match &&
-    [ -r "$CODEX_NATIVE_STATE_FILE" ] &&
+    [ -r "$CODEX_TERMUX_STATE_FILE" ] &&
     codex_runtime_integrity_ok
 }
 
@@ -894,12 +894,12 @@ codex_runtime_metadata_current() {
     local wrapper_version wrapper_commit
     wrapper_version="$(codex_current_wrapper_version)"
     wrapper_commit="$(codex_current_wrapper_commit)"
-    codex_native_cmd runtime-metadata-current \
-        --state-path "$CODEX_NATIVE_STATE_FILE" \
-        --registry-path "$CODEX_NATIVE_REGISTRY_FILE" \
-        --current "$CODEX_NATIVE_RUNTIME_DIR" \
-        --verified "$CODEX_NATIVE_VERIFIED_LINK" \
-        --raw "$CODEX_NATIVE_RAW_DIR" \
+    codex_termux_cmd runtime-metadata-current \
+        --state-path "$CODEX_TERMUX_STATE_FILE" \
+        --registry-path "$CODEX_TERMUX_REGISTRY_FILE" \
+        --current "$CODEX_TERMUX_RUNTIME_DIR" \
+        --verified "$CODEX_TERMUX_VERIFIED_LINK" \
+        --raw "$CODEX_TERMUX_RAW_DIR" \
         --wrapper-version "$wrapper_version" \
         --wrapper-commit "$wrapper_commit"
 }
@@ -913,7 +913,7 @@ codex_refresh_runtime_metadata_unlocked() {
     [ -n "$version" ] && [ -n "$raw_sha" ] && [ -n "$runtime_sha" ] && [ -n "$package_spec" ] || return 0
     codex_runtime_metadata_current && return 0
     codex_activate_tuple_unlocked \
-        "$CODEX_NATIVE_RUNTIME_DIR" "$version" "$raw_sha" "$runtime_sha" "$package_spec"
+        "$CODEX_TERMUX_RUNTIME_DIR" "$version" "$raw_sha" "$runtime_sha" "$package_spec"
 }
 
 codex_refresh_runtime_metadata() {
@@ -923,7 +923,7 @@ codex_refresh_runtime_metadata() {
 
 codex_activate_cached_runtime_unlocked() {
     local runtime_path="$1" raw_path="$2" version="$3" raw_sha="$4" runtime_sha="$5" package_spec="$6"
-    local runtime_complete="$CODEX_NATIVE_RUNTIME_DIR.use.$$" raw_complete="$CODEX_NATIVE_RAW_DIR.use.$$"
+    local runtime_complete="$CODEX_TERMUX_RUNTIME_DIR.use.$$" raw_complete="$CODEX_TERMUX_RAW_DIR.use.$$"
     codex_prepare_complete_runtime_tree "$runtime_path" "$runtime_complete" || return 1
     if ! codex_install_raw_vendor "$raw_path/vendor/aarch64-unknown-linux-musl" "$raw_complete"; then
         rm -rf "$runtime_complete" "$raw_complete"
@@ -938,14 +938,14 @@ codex_activate_cached_runtime_unlocked() {
 
 
 codex_try_verified_rollback_unlocked() {
-    codex_native_activation_cmd activation-restore-verified >/dev/null || return 1
+    codex_termux_activation_cmd activation-restore-verified >/dev/null || return 1
     codex_say "active runtime restored from verified tuple"
 }
 
 codex_verified_rollback_needed() {
-    [ -e "$CODEX_NATIVE_VERIFIED_LINK" ] || [ -L "$CODEX_NATIVE_VERIFIED_LINK" ] || return 1
-    [ -x "$(codex_resolve_path "$CODEX_NATIVE_VERIFIED_LINK")/codex" ] || return 1
-    [ "$(codex_resolve_path "$CODEX_NATIVE_RUNTIME_DIR")" != "$(codex_resolve_path "$CODEX_NATIVE_VERIFIED_LINK")" ]
+    [ -e "$CODEX_TERMUX_VERIFIED_LINK" ] || [ -L "$CODEX_TERMUX_VERIFIED_LINK" ] || return 1
+    [ -x "$(codex_resolve_path "$CODEX_TERMUX_VERIFIED_LINK")/codex" ] || return 1
+    [ "$(codex_resolve_path "$CODEX_TERMUX_RUNTIME_DIR")" != "$(codex_resolve_path "$CODEX_TERMUX_VERIFIED_LINK")" ]
 }
 
 codex_try_verified_rollback() {
@@ -963,7 +963,7 @@ codex_ensure_runtime_ready() {
         codex_refresh_runtime_metadata
         return 0
     fi
-    if [ -x "$CODEX_NATIVE_RAW_VENDOR/bin/codex" ]; then
+    if [ -x "$CODEX_TERMUX_RAW_VENDOR/bin/codex" ]; then
         if ! codex_raw_integrity_ok; then
             codex_fail "cached raw package integrity check failed; run codex update"
             return 1
@@ -978,45 +978,45 @@ codex_ensure_runtime_ready() {
 
 
 codex_prepare_runtime_env() {
-    export SSL_CERT_FILE="${SSL_CERT_FILE:-$CODEX_NATIVE_CERT_FILE}"
-    [ -d "$CODEX_NATIVE_CERT_DIR" ] && export SSL_CERT_DIR="${SSL_CERT_DIR:-$CODEX_NATIVE_CERT_DIR}"
+    export SSL_CERT_FILE="${SSL_CERT_FILE:-$CODEX_TERMUX_CERT_FILE}"
+    [ -d "$CODEX_TERMUX_CERT_DIR" ] && export SSL_CERT_DIR="${SSL_CERT_DIR:-$CODEX_TERMUX_CERT_DIR}"
     if [ -z "${BROWSER:-}" ] && command -v termux-open-url >/dev/null 2>&1; then
         export BROWSER=termux-open-url
     fi
-    export CODEX_SELF_EXE="${CODEX_SELF_EXE:-$CODEX_NATIVE_RUNTIME}"
+    export CODEX_SELF_EXE="${CODEX_SELF_EXE:-$CODEX_TERMUX_RUNTIME}"
     unset CODEX_MANAGED_BY_NPM CODEX_MANAGED_BY_BUN CODEX_MANAGED_PACKAGE_ROOT LD_PRELOAD LD_LIBRARY_PATH
-    export CODEX_NATIVE_BWRAP_COMPAT_QUIET="${CODEX_NATIVE_BWRAP_COMPAT_QUIET:-1}"
-    export PATH="$CODEX_NATIVE_RUNTIME_DIR/codex-path:$CODEX_NATIVE_RUNTIME_DIR/codex-resources:$CODEX_NATIVE_PREFIX/bin:$PATH"
-    if [ -r "$CODEX_NATIVE_RESOLV_CONF" ]; then
-        eval "exec ${CODEX_NATIVE_RESOLVER_FD}<\"\$CODEX_NATIVE_RESOLV_CONF\""
+    export CODEX_TERMUX_BWRAP_COMPAT_QUIET="${CODEX_TERMUX_BWRAP_COMPAT_QUIET:-1}"
+    export PATH="$CODEX_TERMUX_RUNTIME_DIR/codex-path:$CODEX_TERMUX_RUNTIME_DIR/codex-resources:$CODEX_TERMUX_PREFIX/bin:$PATH"
+    if [ -r "$CODEX_TERMUX_RESOLV_CONF" ]; then
+        eval "exec ${CODEX_TERMUX_RESOLVER_FD}<\"\$CODEX_TERMUX_RESOLV_CONF\""
     fi
 }
 
 codex_current_wrapper_version() {
-    if [ -f "$CODEX_NATIVE_MANAGER_DIR/wrapper-version.env" ]; then
+    if [ -f "$CODEX_TERMUX_MANAGER_DIR/wrapper-version.env" ]; then
         # shellcheck disable=SC1090
-        . "$CODEX_NATIVE_MANAGER_DIR/wrapper-version.env"
-    elif [ -f "$CODEX_NATIVE_RUNTIME_DIR/wrapper-version.env" ]; then
+        . "$CODEX_TERMUX_MANAGER_DIR/wrapper-version.env"
+    elif [ -f "$CODEX_TERMUX_RUNTIME_DIR/wrapper-version.env" ]; then
         # shellcheck disable=SC1090
-        . "$CODEX_NATIVE_RUNTIME_DIR/wrapper-version.env"
+        . "$CODEX_TERMUX_RUNTIME_DIR/wrapper-version.env"
     fi
-    printf '%s\n' "${CODEX_NATIVE_WRAPPER_VERSION:-unknown}"
+    printf '%s\n' "${CODEX_TERMUX_WRAPPER_VERSION:-unknown}"
 }
 
 codex_current_wrapper_commit() {
-    if [ -f "$CODEX_NATIVE_MANAGER_DIR/wrapper-version.env" ]; then
+    if [ -f "$CODEX_TERMUX_MANAGER_DIR/wrapper-version.env" ]; then
         # shellcheck disable=SC1090
-        . "$CODEX_NATIVE_MANAGER_DIR/wrapper-version.env"
-    elif [ -f "$CODEX_NATIVE_RUNTIME_DIR/wrapper-version.env" ]; then
+        . "$CODEX_TERMUX_MANAGER_DIR/wrapper-version.env"
+    elif [ -f "$CODEX_TERMUX_RUNTIME_DIR/wrapper-version.env" ]; then
         # shellcheck disable=SC1090
-        . "$CODEX_NATIVE_RUNTIME_DIR/wrapper-version.env"
+        . "$CODEX_TERMUX_RUNTIME_DIR/wrapper-version.env"
     fi
-    printf '%s\n' "${CODEX_NATIVE_WRAPPER_COMMIT:-unknown}"
+    printf '%s\n' "${CODEX_TERMUX_WRAPPER_COMMIT:-unknown}"
 }
 
 codex_version() {
     local upstream wrapper commit status=0
-    if upstream="$("$CODEX_NATIVE_RUNTIME" --version 2>/dev/null)"; then
+    if upstream="$("$CODEX_TERMUX_RUNTIME" --version 2>/dev/null)"; then
         status=0
     else
         status=$?
@@ -1043,9 +1043,9 @@ codex_wrapper_help() {
 }
 
 codex_help() {
-    if [ -x "$CODEX_NATIVE_RUNTIME" ]; then
+    if [ -x "$CODEX_TERMUX_RUNTIME" ]; then
         codex_prepare_runtime_env
-        "$CODEX_NATIVE_RUNTIME" --help
+        "$CODEX_TERMUX_RUNTIME" --help
     fi
     codex_wrapper_help
 }
@@ -1057,32 +1057,32 @@ codex_wrapper_doctor_json() {
     raw_sha="$(codex_read_state_field raw_sha256)"
     runtime_sha="$(codex_read_state_field runtime_sha256)"
     codex_prepare_runtime_env
-    codex_native_cmd doctor-report \
-        --runtime "$CODEX_NATIVE_RUNTIME" \
-        --current-link "$CODEX_NATIVE_RUNTIME_DIR" \
-        --verified-link "$CODEX_NATIVE_VERIFIED_LINK" \
-        --raw-link "$CODEX_NATIVE_RAW_DIR" \
-        --manager-dir "$CODEX_NATIVE_MANAGER_DIR" \
-        --runtime-store-dir "$CODEX_NATIVE_RUNTIME_STORE_DIR" \
-        --raw-store-dir "$CODEX_NATIVE_RAW_STORE_DIR" \
-        --raw-vendor "$CODEX_NATIVE_RAW_VENDOR" \
-        --resolv-conf "$CODEX_NATIVE_RESOLV_CONF" \
-        --cert-file "$CODEX_NATIVE_CERT_FILE" \
-        --state-file "$CODEX_NATIVE_STATE_FILE" \
-        --registry-file "$CODEX_NATIVE_REGISTRY_FILE" \
+    codex_termux_cmd doctor-report \
+        --runtime "$CODEX_TERMUX_RUNTIME" \
+        --current-link "$CODEX_TERMUX_RUNTIME_DIR" \
+        --verified-link "$CODEX_TERMUX_VERIFIED_LINK" \
+        --raw-link "$CODEX_TERMUX_RAW_DIR" \
+        --manager-dir "$CODEX_TERMUX_MANAGER_DIR" \
+        --runtime-store-dir "$CODEX_TERMUX_RUNTIME_STORE_DIR" \
+        --raw-store-dir "$CODEX_TERMUX_RAW_STORE_DIR" \
+        --raw-vendor "$CODEX_TERMUX_RAW_VENDOR" \
+        --resolv-conf "$CODEX_TERMUX_RESOLV_CONF" \
+        --cert-file "$CODEX_TERMUX_CERT_FILE" \
+        --state-file "$CODEX_TERMUX_STATE_FILE" \
+        --registry-file "$CODEX_TERMUX_REGISTRY_FILE" \
         --version "$version" \
         --raw-sha256 "$raw_sha" \
         --runtime-sha256 "$runtime_sha" \
-        --prefix "$CODEX_NATIVE_PREFIX" \
-        --runtime-builder "$CODEX_NATIVE_RUNTIME_BUILDER" \
-        --patch-policy "$CODEX_NATIVE_PATCH_POLICY"
+        --prefix "$CODEX_TERMUX_PREFIX" \
+        --runtime-builder "$CODEX_TERMUX_RUNTIME_BUILDER" \
+        --patch-policy "$CODEX_TERMUX_PATCH_POLICY"
 }
 
 codex_wrapper_doctor() {
     if [ "${1:-}" = "--json" ]; then
         codex_wrapper_doctor_json
     else
-        codex_wrapper_doctor_json | codex_native_cmd doctor-render --mode human
+        codex_wrapper_doctor_json | codex_termux_cmd doctor-render --mode human
     fi
 }
 
@@ -1090,13 +1090,13 @@ codex_public_doctor() {
     if [ $# -gt 0 ]; then
         codex_ensure_runtime_ready || return $?
         codex_prepare_runtime_env
-        "$CODEX_NATIVE_RUNTIME" doctor "$@"
+        "$CODEX_TERMUX_RUNTIME" doctor "$@"
         return $?
     fi
     local upstream_status=0 wrapper_status=0
     codex_ensure_runtime_ready || return $?
     codex_prepare_runtime_env
-    "$CODEX_NATIVE_RUNTIME" doctor || upstream_status=$?
+    "$CODEX_TERMUX_RUNTIME" doctor || upstream_status=$?
     printf '\n%s\n\n' '─────────────────────────────────────────────────────────────'
     codex_wrapper_doctor || wrapper_status=$?
     [ "$upstream_status" -eq 0 ] && [ "$wrapper_status" -eq 0 ]
@@ -1109,7 +1109,7 @@ codex_profile_validate_name() {
         ""|default)
             return 0
             ;;
-        native|-*|.*|*/*|*..*|*[[:space:]]*)
+        termux|-*|.*|*/*|*..*|*[[:space:]]*)
             return 1
             ;;
         *)
@@ -1121,9 +1121,9 @@ codex_profile_validate_name() {
 codex_profile_dir() {
     local profile="${1:-default}"
     if [ -z "$profile" ] || [ "$profile" = "default" ]; then
-        printf '%s\n' "$CODEX_NATIVE_HOME/.codex"
+        printf '%s\n' "$CODEX_TERMUX_HOME/.codex"
     else
-        printf '%s/%s\n' "$CODEX_NATIVE_PROFILE_ROOT" "$profile"
+        printf '%s/%s\n' "$CODEX_TERMUX_PROFILE_ROOT" "$profile"
     fi
 }
 
@@ -1150,13 +1150,13 @@ codex_profile_choice_to_name() {
 
 codex_profile_write_recent() {
     local profile="${1:-default}"
-    mkdir -p "$CODEX_NATIVE_STATE_DIR"
-    printf '%s\n' "$profile" >"$CODEX_NATIVE_LAST_PROFILE_FILE"
+    mkdir -p "$CODEX_TERMUX_STATE_DIR"
+    printf '%s\n' "$profile" >"$CODEX_TERMUX_LAST_PROFILE_FILE"
 }
 
 codex_profile_read_recent() {
     local profile
-    profile="$(cat "$CODEX_NATIVE_LAST_PROFILE_FILE" 2>/dev/null || true)"
+    profile="$(cat "$CODEX_TERMUX_LAST_PROFILE_FILE" 2>/dev/null || true)"
     profile="$(codex_profile_choice_to_name "$profile")"
     codex_profile_validate_name "$profile" || {
         printf 'default\n'
@@ -1181,7 +1181,7 @@ codex_profile_runtime_exec() {
     codex_profile_write_recent "$profile"
     codex_profile_note "$profile"
     codex_prepare_runtime_env
-    CODEX_HOME="$profile_dir" exec "$CODEX_NATIVE_RUNTIME" "$@"
+    CODEX_HOME="$profile_dir" exec "$CODEX_TERMUX_RUNTIME" "$@"
 }
 
 codex_profile_menu_ids() {
@@ -1199,7 +1199,7 @@ codex_profile_menu_ids() {
 }
 
 codex_profile_share_plugins() {
-    local profile_dir="$1" shared_plugins_dir="$CODEX_NATIVE_SHARED_PLUGINS_DIR" plugins_dir
+    local profile_dir="$1" shared_plugins_dir="$CODEX_TERMUX_SHARED_PLUGINS_DIR" plugins_dir
     plugins_dir="$profile_dir/plugins"
     mkdir -p "$profile_dir" "$shared_plugins_dir"
     if [ -e "$plugins_dir" ] || [ -L "$plugins_dir" ]; then
@@ -1209,10 +1209,10 @@ codex_profile_share_plugins() {
 }
 
 codex_list_profiles() {
-    local root="$CODEX_NATIVE_PROFILE_ROOT"
+    local root="$CODEX_TERMUX_PROFILE_ROOT"
     [ -d "$root" ] || return 0
     find "$root" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null \
-        | grep -Ev '^(default|native)$' \
+        | grep -Ev '^(default|termux)$' \
         | grep -Ev '^[.]' \
         | LC_ALL=C sort -f
 }
@@ -1416,7 +1416,7 @@ codex_profile_run() {
 codex_restore_backup() {
     local public="$1" base latest
     base="$(basename "$public")"
-    latest="$(ls -t "$CODEX_NATIVE_BACKUP_DIR"/"$base".*.bak 2>/dev/null | sed -n '1p' || true)"
+    latest="$(ls -t "$CODEX_TERMUX_BACKUP_DIR"/"$base".*.bak 2>/dev/null | sed -n '1p' || true)"
     if [ -n "$latest" ]; then
         cp -Pp "$latest" "$public"
         codex_say "restored $public from $latest"
@@ -1424,12 +1424,12 @@ codex_restore_backup() {
 }
 
 codex_remove() {
-    if codex_file_has_marker "$CODEX_NATIVE_PUBLIC_CODEX"; then
-        rm -f "$CODEX_NATIVE_PUBLIC_CODEX"
-        codex_restore_backup "$CODEX_NATIVE_PUBLIC_CODEX"
+    if codex_file_has_marker "$CODEX_TERMUX_PUBLIC_CODEX"; then
+        rm -f "$CODEX_TERMUX_PUBLIC_CODEX"
+        codex_restore_backup "$CODEX_TERMUX_PUBLIC_CODEX"
     fi
-    rm -rf "$CODEX_NATIVE_NATIVE_ROOT"
-    codex_say "removed managed runtime; state kept at $CODEX_NATIVE_STATE_DIR for backups"
+    rm -rf "$CODEX_TERMUX_ROOT"
+    codex_say "removed managed runtime; state kept at $CODEX_TERMUX_STATE_DIR for backups"
 }
 
 codex_use() {
@@ -1472,12 +1472,12 @@ codex_use_list() {
 
 codex_use_render() {
     local latest="$1" interactive_limit="$2" mode="$3"
-    codex_native_cmd use-render \
-        --registry-file "$CODEX_NATIVE_REGISTRY_FILE" \
+    codex_termux_cmd use-render \
+        --registry-file "$CODEX_TERMUX_REGISTRY_FILE" \
         --latest "$latest" \
-        --runtime-store-dir "$CODEX_NATIVE_RUNTIME_STORE_DIR" \
-        --runtime-builder "$CODEX_NATIVE_RUNTIME_BUILDER" \
-        --patch-policy "$CODEX_NATIVE_PATCH_POLICY" \
+        --runtime-store-dir "$CODEX_TERMUX_RUNTIME_STORE_DIR" \
+        --runtime-builder "$CODEX_TERMUX_RUNTIME_BUILDER" \
+        --patch-policy "$CODEX_TERMUX_PATCH_POLICY" \
         --interactive-limit "$interactive_limit" \
         --mode "$mode"
 }
@@ -1488,13 +1488,13 @@ codex_use_select() {
     if [ -z "$latest" ]; then
         latest="$(codex_latest_linux_arm64_version || true)"
     fi
-    selected="$(codex_native_cmd use-select \
-        --registry-file "$CODEX_NATIVE_REGISTRY_FILE" \
+    selected="$(codex_termux_cmd use-select \
+        --registry-file "$CODEX_TERMUX_REGISTRY_FILE" \
         --choice "$choice" \
         --latest "$latest" \
-        --runtime-store-dir "$CODEX_NATIVE_RUNTIME_STORE_DIR" \
-        --runtime-builder "$CODEX_NATIVE_RUNTIME_BUILDER" \
-        --patch-policy "$CODEX_NATIVE_PATCH_POLICY")" || {
+        --runtime-store-dir "$CODEX_TERMUX_RUNTIME_STORE_DIR" \
+        --runtime-builder "$CODEX_TERMUX_RUNTIME_BUILDER" \
+        --patch-policy "$CODEX_TERMUX_PATCH_POLICY")" || {
         codex_fail "unknown cached runtime selection: $choice"
         return 1
     }
@@ -1512,8 +1512,8 @@ EOF
 }
 
 codex_setup_public() {
-    if [ -n "${CODEX_NATIVE_INSTALL_RUNTIME_SOURCE:-}" ] && [ -x "$CODEX_NATIVE_INSTALL_RUNTIME_SOURCE" ]; then
-        exec bash "$CODEX_NATIVE_INSTALL_RUNTIME_SOURCE" setup "$@"
+    if [ -n "${CODEX_TERMUX_INSTALL_RUNTIME_SOURCE:-}" ] && [ -x "$CODEX_TERMUX_INSTALL_RUNTIME_SOURCE" ]; then
+        exec bash "$CODEX_TERMUX_INSTALL_RUNTIME_SOURCE" setup "$@"
     fi
     codex_update "${1:-}"
 }

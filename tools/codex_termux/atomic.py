@@ -1,4 +1,4 @@
-"""Atomic file helpers for Codex native metadata."""
+"""Atomic file helpers for Codex Termux metadata."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Transactional activation of Codex native runtime tuples."""
+"""Transactional activation of Codex Termux runtime tuples."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Callable
 
 from . import registry, state, store
-from .errors import CodexNativeError, IntegrityError, TransactionError
+from .errors import CodexTermuxError, IntegrityError, TransactionError
 from .schemas import ActivationPlan, ActivationResult
 
 
@@ -151,7 +151,7 @@ def _activate(
         rollback_actions.append(("raw pointer", lambda: _restore_pointer(snapshot.raw)))
         _run_probe(
             plan,
-            'codex_smoke_test_runtime "$CODEX_NATIVE_RUNTIME" && codex_runtime_ok',
+            'codex_smoke_test_runtime "$CODEX_TERMUX_RUNTIME" && codex_runtime_ok',
             None,
         )
         _cleanup_source(plan.candidate_runtime, runtime_path, plan.cleanup_runtime_source)
@@ -268,7 +268,7 @@ def _rollback_or_raise(
     if errors:
         joined = "; ".join(errors)
         raise TransactionError(f"{cause}; rollback failed: {joined}") from cause
-    if isinstance(cause, CodexNativeError):
+    if isinstance(cause, CodexTermuxError):
         raise cause
     raise TransactionError(str(cause)) from cause
 
