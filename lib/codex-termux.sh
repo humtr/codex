@@ -61,10 +61,6 @@ codex_ui_color() {
     fi
 }
 
-codex_ui_bold() {
-    printf '%s' "$1"
-}
-
 codex_ui_dim() {
     codex_ui_color "2" "$1"
 }
@@ -339,14 +335,12 @@ codex_tree_digest() {
     codex_termux_cmd tree-digest --path "$1"
 }
 
-
 codex_read_state_field() {
     local field="$1"
     codex_termux_cmd state-read-field \
         --state-file "$CODEX_TERMUX_STATE_FILE" \
         --field "$field"
 }
-
 
 codex_store_id() {
     local version="$1" sha="$2" tree_sha="${3:-}" builder_sha="unknown" bwrap_sha="unknown" rg_sha="unknown" support_dir
@@ -392,7 +386,6 @@ codex_prune_runtime_store() {
         --verified-link "$CODEX_TERMUX_VERIFIED_LINK" \
         --raw-link "$CODEX_TERMUX_RAW_DIR" >/dev/null
 }
-
 
 codex_prepare_complete_runtime_tree() {
     local payload_dir="$1" complete_dir="$2" name support_dir
