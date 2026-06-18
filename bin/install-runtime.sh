@@ -68,7 +68,7 @@ codex_install_support_files() {
     mkdir -p "$CODEX_TERMUX_MANAGER_DIR" "$CODEX_TERMUX_STATE_DIR"
     cp "$ROOT_DIR/lib/codex-termux.sh" "$CODEX_TERMUX_MANAGER_DIR/lib.sh"
     chmod 755 "$CODEX_TERMUX_MANAGER_DIR/lib.sh"
-    rm -rf "$CODEX_TERMUX_MANAGER_DIR/codex_termux"
+    codex_rm_rf_managed "$CODEX_TERMUX_MANAGER_DIR/codex_termux"
     cp -R "$ROOT_DIR/tools/codex_termux" "$CODEX_TERMUX_MANAGER_DIR/codex_termux"
     codex_check_manager_python
     cp "$ROOT_DIR/tools/build-runtime.py" "$CODEX_TERMUX_MANAGER_DIR/build-runtime.py"

@@ -158,6 +158,76 @@ codex_parent_dir() {
     printf '%s\n' "$path"
 }
 
+codex_strip_trailing_slashes() {
+    local path="$1"
+    while [ "${#path}" -gt 1 ] && [ "${path%/}" != "$path" ]; do
+        path="${path%/}"
+    done
+    printf '%s\n' "$path"
+}
+
+codex_path_is_within() {
+    local path root
+    path="$(codex_strip_trailing_slashes "$1")"
+    root="$(codex_strip_trailing_slashes "$2")"
+    [ -n "$root" ] && [ "$root" != "/" ] || return 1
+    [ "$path" = "$root" ] && return 0
+    case "$path" in
+        "$root"/*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+codex_assert_safe_path() {
+    local path label home prefix tmpdir
+    path="$(codex_strip_trailing_slashes "$1")"
+    label="${2:-path}"
+    [ -n "$path" ] || {
+        codex_fail "$label must not be empty"
+        return 64
+    }
+    case "$path" in
+        /*) ;;
+        *)
+            codex_fail "$label must be absolute: $path"
+            return 64
+            ;;
+    esac
+    home="$(codex_strip_trailing_slashes "${CODEX_TERMUX_HOME:-${HOME:-}}")"
+    prefix="$(codex_strip_trailing_slashes "$CODEX_TERMUX_PREFIX")"
+    tmpdir="$(codex_strip_trailing_slashes "${TMPDIR:-/tmp}")"
+    case "$path" in
+        /|"$home"|"$prefix"|"$tmpdir"|/tmp)
+            codex_fail "$label points to an unsafe path: $path"
+            return 64
+            ;;
+    esac
+}
+
+codex_assert_managed_tree_target() {
+    local path label root state
+    path="$(codex_strip_trailing_slashes "$1")"
+    label="${2:-managed tree target}"
+    root="$(codex_strip_trailing_slashes "$CODEX_TERMUX_ROOT")"
+    state="$(codex_strip_trailing_slashes "$CODEX_TERMUX_STATE_DIR")"
+    codex_assert_safe_path "$path" "$label" || return $?
+    codex_assert_safe_path "$root" CODEX_TERMUX_ROOT || return $?
+    codex_assert_safe_path "$state" CODEX_TERMUX_STATE_DIR || return $?
+    if codex_path_is_within "$path" "$root" || codex_path_is_within "$path" "$state"; then
+        return 0
+    fi
+    codex_fail "$label is outside managed wrapper paths: $path"
+    return 64
+}
+
+codex_rm_rf_managed() {
+    local path
+    for path in "$@"; do
+        codex_assert_managed_tree_target "$path" "destructive target" || return $?
+    done
+    rm -rf "$@"
+}
+
 codex_sha256() {
     codex_termux_cmd hash-file --path "$1"
 }
@@ -300,13 +370,16 @@ codex_validate_tarball_safe() {
 codex_replace_tree_atomic() {
     local source="$1" target="$2" backup="$3"
     local existed=0
-    rm -rf "$backup"
+    codex_assert_managed_tree_target "$source" "replacement source" || return $?
+    codex_assert_managed_tree_target "$target" "replacement target" || return $?
+    codex_assert_managed_tree_target "$backup" "replacement backup" || return $?
+    codex_rm_rf_managed "$backup" || return $?
     if [ -e "$target" ] || [ -L "$target" ]; then
         mv "$target" "$backup" || return 1
         existed=1
     fi
     if mv "$source" "$target"; then
-        rm -rf "$backup"
+        codex_rm_rf_managed "$backup" || return $?
         return 0
     fi
     if [ "$existed" -eq 1 ]; then
@@ -396,11 +469,11 @@ codex_prepare_complete_runtime_tree() {
         support_dir="$payload_dir"
     fi
     [ -x "$payload_dir/codex" ] || return 1
-    rm -rf "$complete_dir"
+    codex_rm_rf_managed "$complete_dir" || return $?
     mkdir -p "$complete_dir"
     for name in codex codex-resources codex-path codex-package.json runtime-build.json; do
         [ -e "$payload_dir/$name" ] || {
-            rm -rf "$complete_dir"
+            codex_rm_rf_managed "$complete_dir" || return $?
             return 1
         }
         cp -R "$payload_dir/$name" "$complete_dir/$name"
@@ -408,7 +481,7 @@ codex_prepare_complete_runtime_tree() {
     [ -x "$CODEX_TERMUX_RUNTIME_BUILDER" ] &&
         [ -r "$support_dir/bwrap-termux-compat.py" ] &&
         [ -r "$support_dir/rg-termux-shim.sh" ] || {
-        rm -rf "$complete_dir"
+        codex_rm_rf_managed "$complete_dir" || return $?
         return 1
     }
     cp -R "$support_dir/bwrap-termux-compat.py" "$complete_dir/codex-path/bwrap"
@@ -476,12 +549,12 @@ codex_fetch_package() {
 codex_install_raw_vendor() {
     local src_vendor="$1" target_dir="${2:-$CODEX_TERMUX_RAW_DIR}" staged
     staged="$target_dir.new.$$"
-    rm -rf "$staged"
+    codex_rm_rf_managed "$staged" || return $?
     mkdir -p "$staged/vendor"
     cp -R "$src_vendor" "$staged/vendor/aarch64-unknown-linux-musl"
     chmod 755 "$staged/vendor/aarch64-unknown-linux-musl/bin/codex"
     if ! codex_replace_tree_atomic "$staged" "$target_dir" "$target_dir.old"; then
-        rm -rf "$staged"
+        codex_rm_rf_managed "$staged" || return $?
         return 1
     fi
 }
@@ -540,29 +613,29 @@ codex_rebuild_runtime_unlocked() {
     mkdir -p "$CODEX_TERMUX_STATE_DIR" "$CODEX_TERMUX_DOCTOR_DIR"
     report="$CODEX_TERMUX_DOCTOR_DIR/last-build-report.json"
     build_stdout="$CODEX_TERMUX_DOCTOR_DIR/last-build-report.stdout"
-    rm -rf "$runtime_stage"
+    codex_rm_rf_managed "$runtime_stage" || return $?
     if [ "${CODEX_TERMUX_BUILD_VERBOSE:-0}" = "1" ]; then
         if ! "$CODEX_TERMUX_RUNTIME_BUILDER" "$CODEX_TERMUX_RAW_VENDOR" --runtime-dir "$runtime_stage" --report-json "$report"; then
-            rm -rf "$runtime_stage"
+            codex_rm_rf_managed "$runtime_stage" || return $?
             return 1
         fi
     else
         if ! "$CODEX_TERMUX_RUNTIME_BUILDER" "$CODEX_TERMUX_RAW_VENDOR" --runtime-dir "$runtime_stage" --report-json "$report" >"$build_stdout" 2>&1; then
-            rm -rf "$runtime_stage"
+            codex_rm_rf_managed "$runtime_stage" || return $?
             return 1
         fi
     fi
     codex_say "preparing runtime bundle"
     if ! codex_prepare_complete_runtime_tree "$runtime_stage" "$runtime_complete"; then
-        rm -rf "$runtime_stage" "$runtime_complete"
+        codex_rm_rf_managed "$runtime_stage" "$runtime_complete" || return $?
         return 1
     fi
     raw_sha="$(codex_sha256 "$CODEX_TERMUX_RAW_VENDOR/bin/codex")"
     runtime_sha="$(codex_sha256 "$runtime_complete/codex")"
-    rm -rf "$runtime_stage"
+    codex_rm_rf_managed "$runtime_stage" || return $?
     codex_say "smoke-testing runtime"
     if ! codex_smoke_test_runtime "$runtime_complete/codex"; then
-        rm -rf "$runtime_complete"
+        codex_rm_rf_managed "$runtime_complete" || return $?
         return 1
     fi
     codex_say "publishing runtime and refreshing pointers"
@@ -604,25 +677,29 @@ EOF
     fi
     codex_say "building patched runtime"
     if ! codex_build_runtime_tree "$raw_stage/vendor/aarch64-unknown-linux-musl" "$runtime_stage" "$CODEX_TERMUX_DOCTOR_DIR/last-build-report.stdout"; then
-        rm -rf "$tmp" "$raw_stage" "$runtime_stage" "$runtime_complete"
+        rm -rf "$tmp"
+        codex_rm_rf_managed "$raw_stage" "$runtime_stage" "$runtime_complete" || return $?
         return 1
     fi
     codex_say "preparing runtime bundle"
     if ! codex_prepare_complete_runtime_tree "$runtime_stage" "$runtime_complete"; then
-        rm -rf "$tmp" "$raw_stage" "$runtime_stage" "$runtime_complete"
+        rm -rf "$tmp"
+        codex_rm_rf_managed "$raw_stage" "$runtime_stage" "$runtime_complete" || return $?
         return 1
     fi
     raw_sha="$(codex_sha256 "$raw_stage/vendor/aarch64-unknown-linux-musl/bin/codex")"
     runtime_sha="$(codex_sha256 "$runtime_complete/codex")"
-    rm -rf "$runtime_stage"
+    codex_rm_rf_managed "$runtime_stage" || return $?
     codex_say "smoke-testing runtime"
     if ! codex_smoke_test_runtime "$runtime_complete/codex"; then
-        rm -rf "$tmp" "$raw_stage" "$runtime_complete"
+        rm -rf "$tmp"
+        codex_rm_rf_managed "$raw_stage" "$runtime_complete" || return $?
         return 1
     fi
     codex_say "publishing runtime and refreshing pointers"
     if ! codex_commit_runtime_candidate "$runtime_complete" "$version" "$raw_sha" "$runtime_sha" "$spec" "$raw_stage"; then
-        rm -rf "$tmp" "$raw_stage" "$runtime_complete"
+        rm -rf "$tmp"
+        codex_rm_rf_managed "$raw_stage" "$runtime_complete" || return $?
         return 1
     fi
     rm -rf "$tmp"
@@ -921,11 +998,11 @@ codex_activate_cached_runtime_unlocked() {
     local runtime_complete="$CODEX_TERMUX_RUNTIME_DIR.use.$$" raw_complete="$CODEX_TERMUX_RAW_DIR.use.$$"
     codex_prepare_complete_runtime_tree "$runtime_path" "$runtime_complete" || return 1
     if ! codex_install_raw_vendor "$raw_path/vendor/aarch64-unknown-linux-musl" "$raw_complete"; then
-        rm -rf "$runtime_complete" "$raw_complete"
+        codex_rm_rf_managed "$runtime_complete" "$raw_complete" || return $?
         return 1
     fi
     if ! codex_commit_runtime_candidate "$runtime_complete" "$version" "$raw_sha" "$runtime_sha" "$package_spec" "$raw_complete"; then
-        rm -rf "$runtime_complete" "$raw_complete"
+        codex_rm_rf_managed "$runtime_complete" "$raw_complete" || return $?
         return 1
     fi
     codex_say "using Codex $version"
@@ -1459,7 +1536,7 @@ codex_remove() {
         rm -f "$CODEX_TERMUX_PUBLIC_CODEX"
         codex_restore_backup "$CODEX_TERMUX_PUBLIC_CODEX"
     fi
-    rm -rf "$CODEX_TERMUX_ROOT"
+    codex_rm_rf_managed "$CODEX_TERMUX_ROOT" || return $?
     codex_say "removed managed runtime; state kept at $CODEX_TERMUX_STATE_DIR for backups"
 }
 
