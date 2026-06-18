@@ -1283,11 +1283,13 @@ codex_profile_menu_ids() {
 }
 
 codex_list_profiles() {
-    local root="$CODEX_TERMUX_PROFILE_ROOT"
+    local root="$CODEX_TERMUX_PROFILE_ROOT" profile
     [ -d "$root" ] || return 0
-    find "$root" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null \
-        | grep -Ev '^(default|termux)$' \
-        | grep -Ev '^[.]' \
+    while IFS= read -r profile; do
+        codex_profile_validate_name "$profile" || continue
+        [ "$profile" = "default" ] && continue
+        printf '%s\n' "$profile"
+    done < <(find "$root" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null) \
         | LC_ALL=C sort -f
 }
 
