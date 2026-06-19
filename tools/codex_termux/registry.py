@@ -110,7 +110,7 @@ def record(
         {
             "version": wrapper_version,
             "commit": wrapper_commit,
-            "repo": "local/codex",
+            "repo": "local/codex-termux",
             "updated_at": updated_at,
         }
     )

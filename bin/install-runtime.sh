@@ -80,7 +80,7 @@ codex_install_support_files() {
     if [ -f "$ROOT_DIR/config/wrapper-version.env" ]; then
         cp "$ROOT_DIR/config/wrapper-version.env" "$CODEX_TERMUX_MANAGER_DIR/wrapper-version.env"
     else
-        printf 'CODEX_TERMUX_WRAPPER_VERSION=unknown\nCODEX_TERMUX_WRAPPER_CHANNEL=local\nCODEX_TERMUX_WRAPPER_REPO=local/codex\n' >"$CODEX_TERMUX_MANAGER_DIR/wrapper-version.env"
+        printf 'CODEX_TERMUX_WRAPPER_VERSION=unknown\nCODEX_TERMUX_WRAPPER_CHANNEL=local\nCODEX_TERMUX_WRAPPER_REPO=local/codex-termux\n' >"$CODEX_TERMUX_MANAGER_DIR/wrapper-version.env"
     fi
     wrapper_commit="$(codex_source_commit)"
     {
