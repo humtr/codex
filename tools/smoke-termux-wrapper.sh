@@ -16,19 +16,33 @@ clean_bytecode_noise() {
     find "$ROOT_DIR" \( -type d -name '__pycache__' -o -type f -name '*.pyc' \) -exec rm -rf {} + 2>/dev/null || true
 }
 
+assert_no_bytecode_noise() {
+    local found
+    found="$(find "$ROOT_DIR" \( -type d -name '__pycache__' -o -type f -name '*.pyc' \) -print -quit 2>/dev/null || true)"
+    [ -z "$found" ] || fail "Python bytecode artifact was created: $found"
+}
+
 run_static_checks() {
     say static
     cd "$ROOT_DIR"
+    clean_bytecode_noise
     bash -n install.sh
     bash -n bin/install-runtime.sh
     bash -n lib/codex-termux.sh
     bash -n tools/rg-termux-shim.sh
     bash -n tools/smoke-termux-wrapper.sh
-    PYTHONPATH=tools python3 -m py_compile tools/*.py tools/codex_termux/*.py
-    clean_bytecode_noise
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=tools python3 -B - <<'PYTHON'
+import pathlib
+
+for pattern in ("tools/*.py", "tools/codex_termux/*.py"):
+    for path in sorted(pathlib.Path(".").glob(pattern)):
+        source = path.read_text(encoding="utf-8")
+        compile(source, str(path), "exec")
+PYTHON
     PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=tools python3 -B -m codex_termux.cli validate --root "$ROOT_DIR"
-    clean_bytecode_noise
+    assert_no_bytecode_noise
 }
+
 
 run_non_installed_check() {
     say non-installed
@@ -86,9 +100,16 @@ mkdir -p \
 list_output="$(codex_list_profiles)"
 printf '%s\n' "$list_output" | grep -Fx -- 'clean' >/dev/null || fail_contract 'valid profile is missing from list'
 printf '%s\n' "$list_output" | grep -Fx -- 'work' >/dev/null || fail_contract 'work profile is missing from list'
+command_output="$(codex_profile_list_command)"
+printf '%s\n' "$command_output" | grep -Fx -- 'default' >/dev/null || fail_contract 'profile list command omitted default'
+printf '%s\n' "$command_output" | grep -Fx -- 'clean' >/dev/null || fail_contract 'profile list command omitted valid profile'
+printf '%s\n' "$command_output" | grep -Fx -- 'work' >/dev/null || fail_contract 'profile list command omitted work profile'
 for invalid_profile in '-bad' 'bad name' 'foo..bar' '.hidden' 'termux'; do
     if printf '%s\n' "$list_output" | grep -Fx -- "$invalid_profile" >/dev/null; then
         fail_contract "invalid profile leaked into list: $invalid_profile"
+    fi
+    if printf '%s\n' "$command_output" | grep -Fx -- "$invalid_profile" >/dev/null; then
+        fail_contract "invalid profile leaked into profile list command: $invalid_profile"
     fi
 done
 

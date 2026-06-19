@@ -258,7 +258,7 @@ codex_termux_package_root() {
 codex_termux_cmd() {
     local package_root
     package_root="$(codex_termux_package_root)" || return 1
-    PYTHONPATH="$package_root${PYTHONPATH:+:$PYTHONPATH}" python3 -m codex_termux.cli "$@"
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$package_root${PYTHONPATH:+:$PYTHONPATH}" python3 -B -m codex_termux.cli "$@"
 }
 
 codex_termux_activation_cmd() {
@@ -1457,6 +1457,11 @@ codex_profile_exec() {
     codex_profile_runtime_exec "$profile" "$profile_dir" "$@"
 }
 
+codex_profile_list_command() {
+    printf 'default\n'
+    codex_list_profiles
+}
+
 codex_profile_select() {
     local profiles=() profile choice idx profile_dir display_limit=0 truncated=0 recent
     recent="$(codex_profile_read_recent)"
@@ -1513,6 +1518,17 @@ codex_profile_run() {
         codex_profile_select
         return $?
     fi
+    case "$profile" in
+        list|ls)
+            shift || true
+            [ "$#" -eq 0 ] || {
+                codex_fail "profile $profile takes no arguments"
+                return 2
+            }
+            codex_profile_list_command
+            return 0
+            ;;
+    esac
     codex_profile_validate_name "$profile" || {
         codex_fail "invalid profile name: $profile"
         return 2
