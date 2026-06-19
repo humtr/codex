@@ -2,7 +2,7 @@
 
 Codex Termux Wrapper installs and runs the official `@openai/codex` linux-arm64 package inside Termux. It keeps upstream Codex behavior intact wherever possible and adds only the Termux compatibility layer needed to launch the upstream runtime reliably.
 
-This repository intentionally contains only runtime/install code. Development-only tests, CI scripts, tracking notes, and agent instruction files are not part of this package.
+Release packages intentionally contain only runtime/install code. Source checkouts may include repository-only tests under `tests/` for development validation; release packages exclude them.
 
 ## Philosophy
 
