@@ -56,4 +56,45 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=tools python3 -B -m codex_termux.cli valida
 bytecode_found="$(find . \( -type d -name '__pycache__' -o -type f -name '*.pyc' \) -print -quit 2>/dev/null || true)"
 [ -z "$bytecode_found" ] || fail "bytecode artifact found: $bytecode_found"
 
+stale_repo_terms=(
+    "\"local/""codex\""
+    "local/""codex\\n"
+)
+for term in "${stale_repo_terms[@]}"; do
+    if grep -RIn --exclude-dir=.git --exclude-dir=__pycache__ --exclude='*.pyc' -- "$term" . >"$TMP_DIR/repo-metadata" 2>/dev/null; then
+        cat "$TMP_DIR/repo-metadata" >&2
+        fail "stale wrapper repo metadata remains: $term"
+    fi
+done
+
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=tools python3 -B - <<'PYTHON'
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from codex_termux import registry
+
+with TemporaryDirectory() as tmp:
+    root = Path(tmp)
+    registry_file = root / "registry.json"
+    runtime_store = root / "runtime-store"
+    runtime_path = runtime_store / "runtime"
+    raw_path = root / "raw-store" / "raw"
+    tuple_id = registry.record(
+        registry_file=registry_file,
+        version="0.0.0-linux-arm64",
+        raw_sha256="a" * 64,
+        runtime_sha256="b" * 64,
+        package_spec="@openai/codex@0.0.0-linux-arm64",
+        runtime_path=str(runtime_path),
+        wrapper_version="1.2.1-slim",
+        wrapper_commit="testcommit",
+        runtime_store_dir=runtime_store,
+        updated_at="2026-01-01T00:00:00+00:00",
+        smoke_tested_at="2026-01-01T00:00:00+00:00",
+        raw_path=str(raw_path),
+    )
+    data = registry.load(registry_file)
+    wrapper_id = data["runtime"][tuple_id]["wrapper_id"]
+    assert data["wrapper"][wrapper_id]["repo"] == "local/codex-termux"
+PYTHON
+
 printf 'invariants: ok\n'
