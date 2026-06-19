@@ -31,7 +31,7 @@ done
 
 grep -Fx 'CODEX_TERMUX_WRAPPER_VERSION=1.2.1' config/wrapper-version.env >/dev/null \
     || fail 'wrapper version mismatch'
-grep -Fx 'CODEX_TERMUX_WRAPPER_CHANNEL=slim' config/wrapper-version.env >/dev/null \
+grep -Fx 'CODEX_TERMUX_WRAPPER_CHANNEL=termux' config/wrapper-version.env >/dev/null \
     || fail 'wrapper channel mismatch'
 grep -Fx 'CODEX_TERMUX_WRAPPER_REPO=local/codex-termux' config/wrapper-version.env >/dev/null \
     || fail 'wrapper repo mismatch'
