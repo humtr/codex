@@ -72,6 +72,12 @@ def _add_hash_and_package(sub: SubparserCollection) -> None:
         func=lambda args: _print(runtime_checks.state_field(Path(args.state_file), args.field))
     )
 
+    runtime_date = sub.add_parser("registry-active-runtime-date")
+    runtime_date.add_argument("--registry-file", required=True)
+    runtime_date.set_defaults(
+        func=lambda args: _print(registry.active_runtime_created_at(Path(args.registry_file)))
+    )
+
 
 def _add_runtime_checks(sub: SubparserCollection) -> None:
     runtime = sub.add_parser("runtime-integrity")
@@ -323,7 +329,7 @@ def _validate_profile_contract(root: Path) -> None:
         raise IntegrityError("custom profile CODEX_HOME guard changed")
     if 'if [ ! -t 0 ] || [ ! -t 2 ]; then' not in shell:
         raise IntegrityError("missing custom profile non-tty guard changed")
-    if 'codex_fail "profile does not exist: $display"' not in shell:
+    if 'codex_fail "$(codex_ui_text_get missing_profile "$display")"' not in shell:
         raise IntegrityError("missing custom profile refusal message changed")
 
 

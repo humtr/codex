@@ -45,6 +45,7 @@ class RuntimeEntry(TypedDict):
     runtime_sha256: str
     path: str
     updated_at: str
+    created_at: NotRequired[str]
     smoke_tested_at: NotRequired[str]
 
 class InstallEntry(TypedDict):
@@ -55,6 +56,7 @@ class InstallEntry(TypedDict):
     runtime_path: str
     raw_path: str
     updated_at: str
+    created_at: NotRequired[str]
     raw_id: str
     wrapper_id: str
     tuple_id: str
@@ -264,6 +266,7 @@ def validate_runtime_entry(value: Any) -> RuntimeEntry:
         raise SchemaError("runtime entry must be an object")
     for field in ("raw_id", "wrapper_id", "runtime_sha256", "path", "updated_at"):
         require_present_string(value, field)
+    optional_string(value, "created_at")
     optional_string(value, "smoke_tested_at")
     return value  # type: ignore[return-value]
 
@@ -284,6 +287,7 @@ def validate_install_entry(value: Any) -> InstallEntry:
     )
     for field in required:
         require_present_string(value, field)
+    optional_string(value, "created_at")
     return value  # type: ignore[return-value]
 
 

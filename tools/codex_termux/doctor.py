@@ -16,6 +16,11 @@ from .hashing import sha256_file
 
 DETAIL_LABEL_WIDTH = 24
 SEPARATOR_WIDTH = 61
+DOCTOR_HEADER = "Codex Termux Wrapper Doctor"
+SECTION_RUNTIME = "Runtime"
+SECTION_SUPPORT = "Support"
+SECTION_STATE = "State"
+SECTION_STORE = "Store"
 
 
 @dataclass(frozen=True)
@@ -44,10 +49,12 @@ def build_report(inputs: DoctorInputs) -> dict[str, Any]:
     manifest = _read_json(inputs.current_link / "runtime-build.json")
     checks = _checks(inputs, manifest)
     active_tuple_id, verified_tuple_id = _registry_checks(inputs, checks)
+    runtime_date = registry.active_runtime_created_at(inputs.registry_file)
     return {
         "schema": 2,
         "overallStatus": "ok" if all(checks.values()) else "fail",
         "version": inputs.version,
+        "runtimeDate": runtime_date,
         "raw_sha256": inputs.raw_sha256,
         "runtime_sha256": inputs.runtime_sha256,
         "activeTupleId": active_tuple_id,
@@ -158,11 +165,15 @@ def render_human(report: dict[str, Any], output: TextIO | None = None) -> int:
         label = f"{name:<{DETAIL_LABEL_WIDTH}}"
         print(f"    {_detail_marker(False, color)} {_detail_label(label, color)} {_detail_value(str(value), color)}", file=out)
 
-    header_suffix = f"version {report.get('version', 'unknown')} · status {report.get('overallStatus', 'unknown')}"
-    print(f"{_bold('Codex Termux Wrapper Doctor', color)} {_dim(header_suffix, color)}", file=out)
+    header_suffix = f"version {report.get('version', 'unknown')}"
+    runtime_date = str(report.get("runtimeDate", "") or "")
+    if runtime_date:
+        header_suffix += f" · runtime {runtime_date}"
+    header_suffix += f" · status {report.get('overallStatus', 'unknown')}"
+    print(f"{_bold(DOCTOR_HEADER, color)} {_dim(header_suffix, color)}", file=out)
 
     print(file=out)
-    print(_bold("Runtime", color), file=out)
+    print(_bold(SECTION_RUNTIME, color), file=out)
     row(bool(checks.get("runtime")), "runtime", "patched runtime executable exists")
     detail("path", paths.get("runtime", "missing"))
     row(bool(checks.get("raw")), "raw", "official raw binary cache exists")
@@ -172,7 +183,7 @@ def render_human(report: dict[str, Any], output: TextIO | None = None) -> int:
     row(bool(checks.get("build_manifest")), "manifest", "runtime-build.json matches builder and patch policy")
 
     print(file=out)
-    print(_bold("Support", color), file=out)
+    print(_bold(SECTION_SUPPORT, color), file=out)
     row(bool(checks.get("manager")), "manager", "managed support files are installed")
     detail("path", paths.get("manager", "missing"))
     row(bool(checks.get("path_bwrap")) and bool(checks.get("bwrap_exec")), "bwrap", "Termux compatibility launcher works")
@@ -181,7 +192,7 @@ def render_human(report: dict[str, Any], output: TextIO | None = None) -> int:
     row(bool(checks.get("zsh")), "zsh", "bundled zsh resource exists")
 
     print(file=out)
-    print(_bold("State", color), file=out)
+    print(_bold(SECTION_STATE, color), file=out)
     row(bool(checks.get("resolv")), "resolver", "Termux resolver source is readable")
     row(bool(checks.get("cert")), "cert", "Termux CA bundle is readable")
     row(bool(checks.get("state")) and bool(checks.get("registry")) and bool(checks.get("registry_active_tuple")), "metadata", "state and registry contain an active tuple")
@@ -189,7 +200,7 @@ def render_human(report: dict[str, Any], output: TextIO | None = None) -> int:
     detail("registry", paths.get("registry", "missing"))
 
     print(file=out)
-    print(_bold("Store", color), file=out)
+    print(_bold(SECTION_STORE, color), file=out)
     row(bool(checks.get("current_pointer")) and bool(checks.get("current_in_store")) and bool(checks.get("registry_current_match")), "current", "current pointer matches registry")
     detail("target", paths.get("current_target", "missing"))
     row(bool(checks.get("verified_pointer")) and bool(checks.get("verified_in_store")) and bool(checks.get("registry_verified_match")), "verified", "verified pointer matches registry")

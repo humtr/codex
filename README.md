@@ -101,7 +101,7 @@ Lists profiles or launches the runtime with a selected profile.
 codex version
 ```
 
-Prints upstream Codex and wrapper version rows.
+Prints upstream Codex and the active runtime creation date.
 
 ```sh
 codex remove

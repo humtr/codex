@@ -45,8 +45,43 @@ CODEX_TERMUX_LAST_PROFILE_FILE="${CODEX_TERMUX_LAST_PROFILE_FILE:-$CODEX_TERMUX_
 CODEX_TERMUX_RUNTIME_RETENTION="${CODEX_TERMUX_RUNTIME_RETENTION:-3}"
 CODEX_TERMUX_PATCH_POLICY="${CODEX_TERMUX_PATCH_POLICY:-dns-fd33-only-v1}"
 
-codex_say() { printf 'codex: %s\n' "$*" >&2; }
-codex_fail() { printf 'codex: ERROR: %s\n' "$*" >&2; return 1; }
+CODEX_STATUS_ACTIVE=0
+
+codex_status_clear() {
+    if [ "${CODEX_STATUS_ACTIVE:-0}" -eq 1 ] && [ -t 2 ]; then
+        printf '\r\033[2K' >&2
+        CODEX_STATUS_ACTIVE=0
+    fi
+}
+
+codex_status() {
+    local message="$*"
+    case "$message" in
+        *...) ;;
+        *) message="$message..." ;;
+    esac
+    if [ -t 2 ]; then
+        printf '\r\033[2K%s' "$message" >&2
+        CODEX_STATUS_ACTIVE=1
+    else
+        printf '%s\n' "$message" >&2
+    fi
+}
+
+codex_say() {
+    codex_status_clear
+    printf '%s\n' "$*" >&2
+}
+
+codex_selection_cancelled() {
+    codex_say "$(codex_ui_text_get selection_cancelled)"
+}
+
+codex_fail() {
+    codex_status_clear
+    printf 'Error: %s\n' "$*" >&2
+    return 1
+}
 
 codex_ui_enabled() {
     [ -t 2 ] && [ -z "${NO_COLOR:-}" ]
@@ -118,10 +153,16 @@ codex_ui_badge() {
 
 codex_ui_menu_header() {
     local title="$1" subtitle="${2:-}"
+    codex_status_clear
     printf '%s\n' "$title" >&2
     if [ -n "$subtitle" ]; then
         printf '%s\n' "$(codex_ui_dim "$subtitle")" >&2
     fi
+}
+
+codex_ui_menu_note() {
+    [ -n "${1:-}" ] || return 0
+    printf '%s\n' "$(codex_ui_dim "$1")" >&2
 }
 
 codex_ui_menu_row() {
@@ -137,6 +178,88 @@ codex_ui_menu_row() {
 
 codex_ui_prompt() {
     codex_ui_dim "$1"
+}
+
+codex_ui_version_row() {
+    local label="$1" value="$2"
+    printf '%-10s %s\n' "$label" "$value" >&2
+}
+
+codex_ui_separator() {
+    local width="${1:-61}" line
+    line="$(printf '%*s' "$width" '')"
+    line="${line// /─}"
+    printf '%s\n' "$(codex_ui_dim "$line")" >&2
+}
+
+codex_ui_text() {
+    local key="$1"
+    shift || true
+    case "$key" in
+        selection_cancelled) printf 'Selection cancelled.\n' ;;
+        profile_create_cancelled) printf 'Profile creation cancelled.\n' ;;
+        choose_profile_title) printf 'Choose profile\n' ;;
+        choose_profile_subtitle) printf 'Select CODEX_HOME target\n' ;;
+        choose_profile_prompt) printf 'Choose profile > \n' ;;
+        choose_profile_more) printf '  (More options: codex profile NAME)\n' ;;
+        choose_runtime_prompt) printf 'Choose runtime > \n' ;;
+        update_complete_title) printf 'Update complete\n' ;;
+        update_ready_subtitle) printf 'Codex %s is ready\n' "$1" ;;
+        update_available_title) printf 'Update available\n' ;;
+        launch_now_prompt) printf 'Launch now [y/N]> \n' ;;
+        apply_update_prompt) printf 'Apply update [y/N]> \n' ;;
+        launch_label) printf 'launch Codex\n' ;;
+        done_label) printf 'done\n' ;;
+        current_kept) printf 'Kept current runtime (%s).\n' "$1" ;;
+        create_profile_prompt) printf "Create profile '%s' [y/N]> \n" "$1" ;;
+        created_profile) printf 'Created profile %s.\n' "$1" ;;
+        installed_codex) printf 'Installed Codex %s.\n' "$1" ;;
+        rebuilt_cached_runtime) printf 'Rebuilt runtime from cached raw package (%s).\n' "$1" ;;
+        update_failed_continue) printf 'Update failed. Continuing with %s.\n' "$1" ;;
+        restored_verified) printf 'Restored the active runtime from the verified copy.\n' ;;
+        restored_backup) printf 'Restored %s from %s.\n' "$1" "$2" ;;
+        removed_runtime) printf 'Removed the managed runtime. State remains at %s.\n' "$1" ;;
+        invalid_profile) printf 'Invalid profile name: %s\n' "$1" ;;
+        missing_profile) printf 'Profile does not exist: %s\n' "$1" ;;
+        profile_arg_error) printf 'Profile %s does not take arguments\n' "$1" ;;
+        doctor_wrapper_title) printf 'Wrapper doctor\n' ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+codex_ui_step_text() {
+    local key="$1"
+    shift || true
+    case "$key" in
+        fetch_package) printf 'Fetching %s\n' "$1" ;;
+        validate_archive) printf 'Validating package archive\n' ;;
+        unpack_archive) printf 'Unpacking package archive\n' ;;
+        stage_raw) printf 'Staging raw package\n' ;;
+        build_runtime) printf 'Building patched runtime\n' ;;
+        assemble_runtime) printf 'Assembling runtime bundle\n' ;;
+        smoke_test_runtime) printf 'Smoke-testing runtime\n' ;;
+        activate_runtime) printf 'Activating runtime\n' ;;
+        update_runtime) printf 'Updating Codex %s -> %s\n' "$1" "$2" ;;
+        switch_runtime) printf 'Switching to Codex %s\n' "$1" ;;
+        launch_codex) printf 'Launching Codex %s\n' "$1" ;;
+        rebuild_cached_runtime) printf 'Rebuilding runtime from the cached raw package\n' ;;
+        open_profile) printf 'Opening profile %s\n' "$1" ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+codex_ui_text_get() {
+    codex_ui_text "$@" | tr -d '\n'
+}
+
+codex_ui_step() {
+    local message
+    message="$(codex_ui_step_text "$@")" || return 1
+    codex_status "${message%$'\n'}"
 }
 
 codex_display_version() {
@@ -249,7 +372,7 @@ codex_termux_package_root() {
     elif [ -d "$CODEX_TERMUX_MANAGER_DIR/codex_termux" ]; then
         package_root="$CODEX_TERMUX_MANAGER_DIR"
     else
-        codex_fail "internal helper package is unavailable"
+        codex_fail "Internal helper package is unavailable"
         return 1
     fi
     printf '%s\n' "$package_root"
@@ -303,7 +426,7 @@ codex_with_lock() {
     if command -v flock >/dev/null 2>&1; then
         (
             if ! flock -w "$CODEX_TERMUX_LOCK_WAIT_SECONDS" -x 9; then
-                codex_fail "another mutation operation is in progress: $CODEX_TERMUX_LOCK_FILE"
+                codex_fail "Another mutation operation is already in progress: $CODEX_TERMUX_LOCK_FILE"
                 exit 75
             fi
             "$cmd" "$@"
@@ -314,7 +437,7 @@ codex_with_lock() {
             sleep 1
             waited=$((waited + 1))
             if [ "$waited" -ge "$CODEX_TERMUX_LOCK_WAIT_SECONDS" ]; then
-                codex_fail "another mutation operation is in progress: $CODEX_TERMUX_LOCK_FILE"
+                codex_fail "Another mutation operation is already in progress: $CODEX_TERMUX_LOCK_FILE"
                 return 75
             fi
         done
@@ -327,7 +450,7 @@ codex_with_lock() {
 
 codex_require_runtime_resolver() {
     if [ ! -r "$CODEX_TERMUX_RESOLV_CONF" ]; then
-        codex_fail "resolver source is unavailable: $CODEX_TERMUX_RESOLV_CONF"
+        codex_fail "Resolver source is unavailable: $CODEX_TERMUX_RESOLV_CONF"
         return 66
     fi
 }
@@ -515,11 +638,10 @@ codex_fetch_package() {
     package_spec="$(codex_package_spec "$requested")"
     tmp="$(mktemp -d "${TMPDIR:-/tmp}/codex-pack.XXXXXX")" || return 1
     pack_json="$tmp/pack.json"
-    codex_say "fetching $package_spec"
-    codex_say "then unpack, build, smoke-test, and publish"
+    codex_ui_step fetch_package "$package_spec"
     if ! npm pack "$package_spec" --json --pack-destination "$tmp" >"$pack_json"; then
         rm -rf "$tmp"
-        codex_fail "npm pack failed for $package_spec"
+        codex_fail "Failed to fetch $package_spec"
         return 1
     fi
     filename="$(codex_extract_pack_field "$pack_json" filename)"
@@ -527,20 +649,20 @@ codex_fetch_package() {
     tgz="$tmp/$filename"
     if [ ! -f "$tgz" ]; then
         rm -rf "$tmp"
-        codex_fail "npm pack did not create expected tarball"
+        codex_fail "Package fetch did not produce the expected tarball"
         return 1
     fi
-    codex_say "validating package archive"
+    codex_ui_step validate_archive
     mkdir -p "$tmp/package"
     if ! codex_validate_tarball_safe "$tgz" >/dev/null 2>&1; then
         rm -rf "$tmp"
-        codex_fail "unsafe tarball contents in $tgz"
+        codex_fail "Package archive contains unsafe paths: $tgz"
         return 1
     fi
-    codex_say "unpacking package archive"
+    codex_ui_step unpack_archive
     if ! tar -xzf "$tgz" -C "$tmp/package" --strip-components=1; then
         rm -rf "$tmp"
-        codex_fail "failed to extract $tgz"
+        codex_fail "Failed to extract $tgz"
         return 1
     fi
     printf '%s\t%s\t%s\t%s\n' "$tmp" "$tmp/package/vendor/aarch64-unknown-linux-musl" "$version" "$package_spec"
@@ -625,7 +747,7 @@ codex_rebuild_runtime_unlocked() {
             return 1
         fi
     fi
-    codex_say "preparing runtime bundle"
+    codex_ui_step assemble_runtime
     if ! codex_prepare_complete_runtime_tree "$runtime_stage" "$runtime_complete"; then
         codex_rm_rf_managed "$runtime_stage" "$runtime_complete" || return $?
         return 1
@@ -633,19 +755,19 @@ codex_rebuild_runtime_unlocked() {
     raw_sha="$(codex_sha256 "$CODEX_TERMUX_RAW_VENDOR/bin/codex")"
     runtime_sha="$(codex_sha256 "$runtime_complete/codex")"
     codex_rm_rf_managed "$runtime_stage" || return $?
-    codex_say "smoke-testing runtime"
+    codex_ui_step smoke_test_runtime
     if ! codex_smoke_test_runtime "$runtime_complete/codex"; then
         codex_rm_rf_managed "$runtime_complete" || return $?
         return 1
     fi
-    codex_say "publishing runtime and refreshing pointers"
+    codex_ui_step activate_runtime
     codex_commit_runtime_candidate "$runtime_complete" "$version" "$raw_sha" "$runtime_sha" "$package_spec"
 }
 
 codex_repair_runtime_from_raw_unlocked() {
     local version package_spec
     codex_raw_integrity_ok || {
-        codex_fail "cached raw package integrity check failed; run codex update"
+        codex_fail "Cached raw package integrity check failed; run codex update"
         return 1
     }
     version="$(codex_read_state_field version)"
@@ -653,11 +775,14 @@ codex_repair_runtime_from_raw_unlocked() {
     [ -n "$version" ] || version="unknown"
     [ -n "$package_spec" ] || package_spec="local"
     codex_rebuild_runtime_unlocked "$version" "$package_spec" || return $?
-    codex_say "runtime repaired from cached raw package ($version)"
+    codex_say "$(codex_ui_text_get rebuilt_cached_runtime "$version")"
 }
 
 codex_repair_runtime_from_raw() {
-    codex_with_lock codex_repair_runtime_from_raw_unlocked
+    local status=0
+    codex_with_lock codex_repair_runtime_from_raw_unlocked || status=$?
+    [ "$status" -eq 0 ] || codex_status_clear
+    return "$status"
 }
 
 codex_update_unlocked() {
@@ -670,18 +795,18 @@ EOF
     runtime_stage="$CODEX_TERMUX_RUNTIME_DIR.update.$$"
     runtime_complete="$CODEX_TERMUX_RUNTIME_DIR.complete.$$"
     mkdir -p "$CODEX_TERMUX_DOCTOR_DIR"
-    codex_say "staging raw vendor tree"
+    codex_ui_step stage_raw
     if ! codex_install_raw_vendor "$vendor" "$raw_stage"; then
         rm -rf "$tmp"
         return 1
     fi
-    codex_say "building patched runtime"
+    codex_ui_step build_runtime
     if ! codex_build_runtime_tree "$raw_stage/vendor/aarch64-unknown-linux-musl" "$runtime_stage" "$CODEX_TERMUX_DOCTOR_DIR/last-build-report.stdout"; then
         rm -rf "$tmp"
         codex_rm_rf_managed "$raw_stage" "$runtime_stage" "$runtime_complete" || return $?
         return 1
     fi
-    codex_say "preparing runtime bundle"
+    codex_ui_step assemble_runtime
     if ! codex_prepare_complete_runtime_tree "$runtime_stage" "$runtime_complete"; then
         rm -rf "$tmp"
         codex_rm_rf_managed "$raw_stage" "$runtime_stage" "$runtime_complete" || return $?
@@ -690,31 +815,35 @@ EOF
     raw_sha="$(codex_sha256 "$raw_stage/vendor/aarch64-unknown-linux-musl/bin/codex")"
     runtime_sha="$(codex_sha256 "$runtime_complete/codex")"
     codex_rm_rf_managed "$runtime_stage" || return $?
-    codex_say "smoke-testing runtime"
+    codex_ui_step smoke_test_runtime
     if ! codex_smoke_test_runtime "$runtime_complete/codex"; then
         rm -rf "$tmp"
         codex_rm_rf_managed "$raw_stage" "$runtime_complete" || return $?
         return 1
     fi
-    codex_say "publishing runtime and refreshing pointers"
+    codex_ui_step activate_runtime
     if ! codex_commit_runtime_candidate "$runtime_complete" "$version" "$raw_sha" "$runtime_sha" "$spec" "$raw_stage"; then
         rm -rf "$tmp"
         codex_rm_rf_managed "$raw_stage" "$runtime_complete" || return $?
         return 1
     fi
     rm -rf "$tmp"
-    codex_say "installed Codex $version"
+    codex_say "$(codex_ui_text_get installed_codex "$(codex_display_version "$version")")"
 }
 
 codex_update() {
+    local status=0
     codex_validate_runtime_retention || return $?
-    codex_with_lock codex_update_unlocked "${1:-}"
+    codex_with_lock codex_update_unlocked "${1:-}" || status=$?
+    [ "$status" -eq 0 ] || codex_status_clear
+    return "$status"
 }
 
 codex_update_public() {
     local installed_version
     codex_update "${1:-}" || return $?
     installed_version="$(codex_read_state_field version)"
+    printf '\n' >&2
     codex_version || return $?
     codex_prompt_update_launch "$installed_version"
 }
@@ -725,7 +854,7 @@ codex_update_launch_selected() {
         y|Y)
             recent_profile="$(codex_profile_read_recent)"
             recent_profile_dir="$(codex_profile_dir "$recent_profile")"
-            codex_say "launching Codex $(codex_display_version "$installed_version")"
+            codex_ui_step launch_codex "$(codex_display_version "$installed_version")"
             codex_profile_runtime_exec "$recent_profile" "$recent_profile_dir"
             ;;
     esac
@@ -736,19 +865,17 @@ codex_prompt_update_launch() {
     local installed_version="$1" display_installed
     [ -t 0 ] && [ -t 2 ] || return 0
     display_installed="$(codex_display_version "$installed_version")"
-    codex_ui_menu_header "Codex update complete" "$display_installed is installed"
-    codex_ui_menu_row y "run now" "$(codex_ui_badge run)"
-    codex_ui_menu_row N "stay here" "$(codex_ui_badge keep)"
-    printf '\n' >&2
-    codex_prompt_choice "$(codex_ui_prompt 'run Codex now [y/N]> ')" yn 0
-    case "$?" in
-        0)
-            codex_update_launch_selected "$display_installed"
-            ;;
-        *)
-            return 0
-            ;;
-    esac
+    codex_confirm_menu \
+        "$(codex_ui_text_get update_complete_title)" \
+        "$(codex_ui_text_get update_ready_subtitle "$display_installed")" \
+        y "$(codex_ui_text_get launch_label)" "$(codex_ui_badge run)" \
+        N "$(codex_ui_text_get done_label)" "$(codex_ui_badge keep)" \
+        "$(codex_ui_text_get launch_now_prompt)" \
+        cancel || {
+        [ "$?" -eq 130 ] && return 130
+        return 0
+    }
+    codex_update_launch_selected "$display_installed"
 }
 
 codex_latest_linux_arm64_version() {
@@ -839,42 +966,40 @@ codex_prompt_update() {
     [ -t 0 ] && [ -t 2 ] || return 1
     display_current="$(codex_display_version "$current")"
     display_latest="$(codex_display_version "$latest")"
-    codex_ui_menu_header "Codex update available" "$display_current -> $display_latest"
-    codex_ui_menu_row y "$display_latest" "$(codex_ui_badge update)"
-    codex_ui_menu_row N "$display_current" "$(codex_ui_badge current)" "$(codex_ui_badge keep)"
-    printf '\n' >&2
-    codex_prompt_choice "$(codex_ui_prompt 'codex update [y/N]> ')" yn 0
-    case "$?" in
-        130)
-            return 130
-            ;;
-        0)
-            ;;
-        *)
-            return 1
-            ;;
-    esac
+    codex_confirm_menu \
+        "$(codex_ui_text_get update_available_title)" \
+        "$display_current -> $display_latest" \
+        y "$display_latest" "$(codex_ui_badge update)" \
+        N "$display_current" "$(codex_ui_badge current) $(codex_ui_badge keep)" \
+        "$(codex_ui_text_get apply_update_prompt)" \
+        cancel || {
+        [ "$?" -eq 130 ] && return 130
+        return 1
+    }
     choice="$CODEX_PROMPT_CHOICE_RESULT"
     case "$choice" in
         y|Y)
             return 0
             ;;
-        *)
-            codex_say "keeping current patched runtime ($(codex_display_version "$current"))"
+        n|N)
+            codex_say "$(codex_ui_text_get current_kept "$(codex_display_version "$current")")"
             return 1
+            ;;
+        *)
+            return 130
             ;;
     esac
 }
 
 codex_install_auto_update() {
     local current="$1" latest="$2"
-    codex_say "updating: $current -> $latest"
+    codex_ui_step update_runtime "$current" "$latest"
     if codex_update "$latest"; then
         codex_clear_pending_auto_update
         codex_clear_failed_auto_update
     else
         codex_write_failed_auto_update "$latest"
-        codex_say "update failed; continuing with $current"
+        codex_say "$(codex_ui_text_get update_failed_continue "$current")"
         return 1
     fi
 }
@@ -1005,13 +1130,13 @@ codex_activate_cached_runtime_unlocked() {
         codex_rm_rf_managed "$runtime_complete" "$raw_complete" || return $?
         return 1
     fi
-    codex_say "using Codex $version"
+    codex_ui_step switch_runtime "$version"
 }
 
 
 codex_try_verified_rollback_unlocked() {
     codex_termux_activation_cmd activation-restore-verified >/dev/null || return 1
-    codex_say "active runtime restored from verified tuple"
+    codex_say "$(codex_ui_text_get restored_verified)"
 }
 
 codex_verified_rollback_needed() {
@@ -1037,14 +1162,14 @@ codex_ensure_runtime_ready() {
     fi
     if [ -x "$CODEX_TERMUX_RAW_VENDOR/bin/codex" ]; then
         if ! codex_raw_integrity_ok; then
-            codex_fail "cached raw package integrity check failed; run codex update"
+            codex_fail "Cached raw package integrity check failed; run codex update"
             return 1
         fi
-        codex_say "runtime drift detected; rebuilding from cached raw package"
+        codex_ui_step rebuild_cached_runtime
         codex_repair_runtime_from_raw
         return $?
     fi
-    codex_fail "runtime missing and no cached raw package is available; run codex setup"
+    codex_fail "Runtime is missing and no cached raw package is available; run codex setup"
     return 127
 }
 
@@ -1062,12 +1187,14 @@ codex_prepare_runtime_env() {
 }
 
 codex_run_current_runtime() {
+    codex_status_clear
     codex_prepare_runtime_env
     codex_require_runtime_resolver || return $?
     "$CODEX_TERMUX_RUNTIME" "$@" 33<"$CODEX_TERMUX_RESOLV_CONF"
 }
 
 codex_exec_current_runtime() {
+    codex_status_clear
     codex_prepare_runtime_env
     codex_require_runtime_resolver || return $?
     exec "$CODEX_TERMUX_RUNTIME" "$@" 33<"$CODEX_TERMUX_RESOLV_CONF"
@@ -1095,22 +1222,28 @@ codex_current_wrapper_commit() {
     printf '%s\n' "${CODEX_TERMUX_WRAPPER_COMMIT:-unknown}"
 }
 
+codex_current_runtime_date() {
+    codex_termux_cmd registry-active-runtime-date \
+        --registry-file "$CODEX_TERMUX_REGISTRY_FILE"
+}
+
 codex_version() {
-    local upstream wrapper commit status=0
+    local upstream runtime_date status=0
+    codex_status_clear
     if upstream="$(codex_run_current_runtime --version 2>/dev/null)"; then
         status=0
     else
         status=$?
         upstream=""
     fi
-    wrapper="$(codex_current_wrapper_version)"
-    commit="$(codex_current_wrapper_commit)"
-    printf 'codex  : %s\n' "${upstream:-missing}"
-    printf 'wrapper: %s (%s)\n' "$wrapper" "$commit"
+    runtime_date="$(codex_current_runtime_date)"
+    codex_ui_version_row "codex-cli" "${upstream#codex-cli }"
+    [ -n "$runtime_date" ] && codex_ui_version_row "runtime" "$runtime_date"
     return "$status"
 }
 
 codex_wrapper_help() {
+    codex_status_clear
     printf '\n'
     printf 'Wrapper commands\n'
     printf '  %-8s  %s\n' 'codex' 'Managed upstream Codex entrypoint; bare execution may auto-update before launch.'
@@ -1119,7 +1252,7 @@ codex_wrapper_help() {
     printf '  %-8s  %s\n' 'use' 'List cached and remote runtimes; promote the selected runtime.'
     printf '  %-8s  %s\n' 'profile' 'List numbered profiles or enter a named profile with CODEX_HOME switched.'
     printf '  %-8s  %s\n' 'doctor' 'Check launcher, runtime resources, resolver, CA, DNS patch, and state.'
-    printf '  %-8s  %s\n' 'version' 'Print `codex :` and `wrapper:` version rows.'
+    printf '  %-8s  %s\n' 'version' 'Print upstream Codex and active runtime date rows.'
     printf '  %-8s  %s\n' 'remove' 'Remove managed launcher/runtime and restore launcher backups when present.'
 }
 
@@ -1159,6 +1292,7 @@ codex_wrapper_doctor_json() {
 }
 
 codex_wrapper_doctor() {
+    codex_status_clear
     if [ "${1:-}" = "--json" ]; then
         codex_wrapper_doctor_json
     else
@@ -1167,6 +1301,7 @@ codex_wrapper_doctor() {
 }
 
 codex_public_doctor() {
+    codex_status_clear
     if [ $# -gt 0 ]; then
         codex_ensure_runtime_ready || return $?
         codex_run_current_runtime doctor "$@"
@@ -1175,7 +1310,9 @@ codex_public_doctor() {
     local upstream_status=0 wrapper_status=0
     codex_ensure_runtime_ready || return $?
     codex_run_current_runtime doctor || upstream_status=$?
-    printf '\n%s\n\n' '─────────────────────────────────────────────────────────────'
+    printf '\n' >&2
+    codex_ui_separator
+    printf '\n' >&2
     codex_wrapper_doctor || wrapper_status=$?
     [ "$upstream_status" -eq 0 ] && [ "$wrapper_status" -eq 0 ]
 }
@@ -1254,7 +1391,7 @@ codex_profile_read_recent() {
 
 codex_profile_note() {
     local profile="${1:-default}"
-    codex_say "entering profile $(codex_profile_display_name "$profile")"
+    codex_ui_step open_profile "$(codex_profile_display_name "$profile")"
 }
 
 codex_profile_runtime_exec() {
@@ -1269,15 +1406,10 @@ codex_profile_runtime_exec() {
 }
 
 codex_profile_menu_ids() {
-    local recent profile
-    recent="$(codex_profile_read_recent)"
+    local profile
     printf 'default\n'
-    if [ "$recent" != "default" ]; then
-        printf '%s\n' "$recent"
-    fi
     while IFS= read -r profile; do
         [ "$profile" = "default" ] && continue
-        [ "$profile" = "$recent" ] && continue
         printf '%s\n' "$profile"
     done < <(codex_list_profiles)
 }
@@ -1298,6 +1430,7 @@ CODEX_PROMPT_CHOICE_RESULT=""
 codex_prompt_choice() {
     local prompt="${1:-choose> }" mode="${2:-freeform}" max_items="${3:-9}" reply rest old_tty status
     CODEX_PROMPT_CHOICE_RESULT=""
+    codex_status_clear
     printf '%s' "$prompt" >&2
     if [ -t 0 ]; then
         old_tty="$(stty -g 2>/dev/null || true)"
@@ -1411,29 +1544,57 @@ codex_prompt_choice() {
     return 0
 }
 
+codex_prompt_interactive() {
+    local prompt="$1" mode="${2:-freeform}" max_items="${3:-9}" empty_policy="${4:-keep}"
+    local cancel_message="${5:-$(codex_ui_text_get selection_cancelled)}" status
+    codex_prompt_choice "$(codex_ui_prompt "$prompt")" "$mode" "$max_items"
+    status=$?
+    case "$status" in
+        130)
+            [ -n "$cancel_message" ] && codex_say "$cancel_message"
+            return 130
+            ;;
+        0)
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+    if [ -z "${CODEX_PROMPT_CHOICE_RESULT:-}" ] && [ "$empty_policy" = "cancel" ]; then
+        [ -n "$cancel_message" ] && codex_say "$cancel_message"
+        return 130
+    fi
+    return 0
+}
+
+codex_confirm_menu() {
+    local title="$1" subtitle="$2" yes_key="$3" yes_label="$4" yes_badges="$5"
+    local no_key="$6" no_label="$7" no_badges="$8" prompt="$9" empty_policy="${10:-cancel}"
+    codex_ui_menu_header "$title" "$subtitle"
+    codex_ui_menu_row "$yes_key" "$yes_label" "$yes_badges"
+    codex_ui_menu_row "$no_key" "$no_label" "$no_badges"
+    printf '\n' >&2
+    codex_prompt_interactive "$prompt" yn 0 "$empty_policy"
+}
+
 codex_profile_create_prompt() {
     local profile="$1" profile_dir="$2" display status
     display="$(codex_profile_display_name "$profile")"
     if [ ! -t 0 ] || [ ! -t 2 ]; then
-        codex_fail "profile does not exist: $display"
+        codex_fail "$(codex_ui_text_get missing_profile "$display")"
         return 2
     fi
-    codex_prompt_choice "$(codex_ui_prompt "profile '$display' does not exist. Create it? [y/N] ")" yn 0
-    status=$?
-    if [ "$status" -ne 0 ]; then
-        codex_say "profile creation cancelled"
+    codex_prompt_interactive "$(codex_ui_text_get create_profile_prompt "$display")" yn 0 cancel "$(codex_ui_text_get profile_create_cancelled)" || {
+        status=$?
         return "$status"
-    fi
+    }
     case "${CODEX_PROMPT_CHOICE_RESULT:-}" in
         y|Y)
             mkdir -p "$profile_dir"
-            codex_say "created profile $display"
+            codex_say "$(codex_ui_text_get created_profile "$display")"
             return 0
             ;;
-        *)
-            codex_say "profile creation cancelled"
-            return 130
-            ;;
+        *) return 130 ;;
     esac
 }
 
@@ -1458,6 +1619,7 @@ codex_profile_exec() {
 }
 
 codex_profile_list_command() {
+    codex_status_clear
     printf 'default\n'
     codex_list_profiles
 }
@@ -1470,8 +1632,7 @@ codex_profile_select() {
         display_limit=9
     fi
 
-    printf '%s\n' "Choose profile" >&2
-    printf '%s\n' "$(codex_ui_dim 'Select CODEX_HOME target')" >&2
+    codex_ui_menu_header "$(codex_ui_text_get choose_profile_title)" "$(codex_ui_text_get choose_profile_subtitle)"
     idx=0
     for profile in "${profiles[@]}"; do
         if [ "$display_limit" -gt 0 ] && [ "$idx" -gt "$display_limit" ]; then
@@ -1486,7 +1647,7 @@ codex_profile_select() {
         idx=$((idx + 1))
     done
     if [ "$truncated" -eq 1 ]; then
-        printf '%s\n' "$(codex_ui_dim '  (More options: codex profile NAME)')" >&2
+        codex_ui_menu_note "$(codex_ui_text_get choose_profile_more)"
     fi
     printf '\n' >&2
 
@@ -1494,9 +1655,8 @@ codex_profile_select() {
         return 0
     fi
 
-    codex_prompt_choice "$(codex_ui_prompt 'choose profile > ')" freeform "$(( ${#profiles[@]} < 9 ? ${#profiles[@]} : 9 ))" || return $?
+    codex_prompt_interactive "$(codex_ui_text_get choose_profile_prompt)" freeform "$(( ${#profiles[@]} < 9 ? ${#profiles[@]} : 9 ))" cancel || return $?
     choice="$CODEX_PROMPT_CHOICE_RESULT"
-    [ -n "$choice" ] || return 130
 
     if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 0 ] && [ "$choice" -lt "${#profiles[@]}" ]; then
         profile="${profiles[$choice]}"
@@ -1505,7 +1665,7 @@ codex_profile_select() {
     fi
 
     codex_profile_validate_name "$profile" || {
-        codex_fail "invalid profile name: $profile"
+        codex_fail "$(codex_ui_text_get invalid_profile "$profile")"
         return 2
     }
     profile_dir="$(codex_profile_dir "$profile")"
@@ -1522,7 +1682,7 @@ codex_profile_run() {
         list|ls)
             shift || true
             [ "$#" -eq 0 ] || {
-                codex_fail "profile $profile takes no arguments"
+                codex_fail "$(codex_ui_text_get profile_arg_error "$profile")"
                 return 2
             }
             codex_profile_list_command
@@ -1530,7 +1690,7 @@ codex_profile_run() {
             ;;
     esac
     codex_profile_validate_name "$profile" || {
-        codex_fail "invalid profile name: $profile"
+        codex_fail "$(codex_ui_text_get invalid_profile "$profile")"
         return 2
     }
     local profile_dir
@@ -1545,7 +1705,7 @@ codex_restore_backup() {
     latest="$(ls -t "$CODEX_TERMUX_BACKUP_DIR"/"$base".*.bak 2>/dev/null | sed -n '1p' || true)"
     if [ -n "$latest" ]; then
         cp -Pp "$latest" "$public"
-        codex_say "restored $public from $latest"
+        codex_say "$(codex_ui_text_get restored_backup "$public" "$latest")"
     fi
 }
 
@@ -1555,7 +1715,7 @@ codex_remove() {
         codex_restore_backup "$CODEX_TERMUX_PUBLIC_CODEX"
     fi
     codex_rm_rf_managed "$CODEX_TERMUX_ROOT" || return $?
-    codex_say "removed managed runtime; state kept at $CODEX_TERMUX_STATE_DIR for backups"
+    codex_say "$(codex_ui_text_get removed_runtime "$CODEX_TERMUX_STATE_DIR")"
 }
 
 codex_use() {
@@ -1572,12 +1732,8 @@ codex_use() {
     if [ ! -t 0 ]; then
         return 0
     fi
-    codex_prompt_choice "$(codex_ui_prompt 'choose runtime > ')" digits "${CODEX_USE_MENU_COUNT:-0}" || return $?
+    codex_prompt_interactive "$(codex_ui_text_get choose_runtime_prompt)" digits "${CODEX_USE_MENU_COUNT:-0}" cancel || return $?
     choice="$CODEX_PROMPT_CHOICE_RESULT"
-    if [ -z "$choice" ]; then
-        printf 'codex use: cancelled.\n' >&2
-        return 1
-    fi
     codex_use_select "$choice"
 }
 
@@ -1598,6 +1754,7 @@ codex_use_list() {
 
 codex_use_render() {
     local latest="$1" interactive_limit="$2" mode="$3"
+    codex_status_clear
     codex_termux_cmd use-render \
         --registry-file "$CODEX_TERMUX_REGISTRY_FILE" \
         --latest "$latest" \
@@ -1621,7 +1778,7 @@ codex_use_select() {
         --runtime-store-dir "$CODEX_TERMUX_RUNTIME_STORE_DIR" \
         --runtime-builder "$CODEX_TERMUX_RUNTIME_BUILDER" \
         --patch-policy "$CODEX_TERMUX_PATCH_POLICY")" || {
-        codex_fail "unknown runtime selection: $choice"
+        codex_fail "Unknown runtime selection: $choice"
         return 1
     }
     local kind runtime_path raw_path version raw_sha runtime_sha package_spec
@@ -1645,7 +1802,7 @@ codex_setup_public() {
 }
 
 codex_main() {
-    local recent_profile recent_profile_dir
+    local recent_profile recent_profile_dir status=0
     case "${1:-}" in
         setup)
             shift
@@ -1680,11 +1837,18 @@ codex_main() {
             codex_remove
             ;;
         *)
-            codex_ensure_runtime_ready || return $?
-            codex_auto_update_if_needed || return $?
-            recent_profile="$(codex_profile_read_recent)"
-            recent_profile_dir="$(codex_profile_dir "$recent_profile")"
-            codex_profile_runtime_exec "$recent_profile" "$recent_profile_dir" "$@"
+            if ! codex_ensure_runtime_ready; then
+                status=$?
+            elif ! codex_auto_update_if_needed; then
+                status=$?
+            else
+                recent_profile="$(codex_profile_read_recent)"
+                recent_profile_dir="$(codex_profile_dir "$recent_profile")"
+                codex_profile_runtime_exec "$recent_profile" "$recent_profile_dir" "$@"
+            fi
             ;;
     esac
+    status=$?
+    codex_status_clear
+    return "$status"
 }

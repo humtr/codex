@@ -90,13 +90,14 @@ unset CODEX_HOME
 work_output="$(codex_profile_exec "$work_dir" work 2>/dev/null)"
 [ "$work_output" = "runtime CODEX_HOME=$work_dir" ] || fail_contract "custom profile did not set CODEX_HOME: $work_output"
 
-mkdir -p \
-    "$CODEX_TERMUX_PROFILE_ROOT/clean" \
-    "$CODEX_TERMUX_PROFILE_ROOT/-bad" \
-    "$CODEX_TERMUX_PROFILE_ROOT/bad name" \
-    "$CODEX_TERMUX_PROFILE_ROOT/foo..bar" \
-    "$CODEX_TERMUX_PROFILE_ROOT/.hidden" \
-    "$CODEX_TERMUX_PROFILE_ROOT/termux"
+    mkdir -p \
+        "$CODEX_TERMUX_PROFILE_ROOT/clean" \
+        "$CODEX_TERMUX_PROFILE_ROOT/beta" \
+        "$CODEX_TERMUX_PROFILE_ROOT/-bad" \
+        "$CODEX_TERMUX_PROFILE_ROOT/bad name" \
+        "$CODEX_TERMUX_PROFILE_ROOT/foo..bar" \
+        "$CODEX_TERMUX_PROFILE_ROOT/.hidden" \
+        "$CODEX_TERMUX_PROFILE_ROOT/termux"
 list_output="$(codex_list_profiles)"
 printf '%s\n' "$list_output" | grep -Fx -- 'clean' >/dev/null || fail_contract 'valid profile is missing from list'
 printf '%s\n' "$list_output" | grep -Fx -- 'work' >/dev/null || fail_contract 'work profile is missing from list'
@@ -112,6 +113,12 @@ for invalid_profile in '-bad' 'bad name' 'foo..bar' '.hidden' 'termux'; do
         fail_contract "invalid profile leaked into profile list command: $invalid_profile"
     fi
 done
+
+    mkdir -p "$CODEX_TERMUX_STATE_DIR"
+    printf 'work\n' >"$CODEX_TERMUX_LAST_PROFILE_FILE"
+    menu_ids="$(codex_profile_menu_ids)"
+    expected_menu_ids="$(printf 'default\nbeta\nclean\nwork\n')"
+    [ "$menu_ids" = "$expected_menu_ids" ] || fail_contract "recent profile changed menu order: $menu_ids"
 
 missing_dir="$(codex_profile_dir missing)"
 set +e

@@ -11,6 +11,9 @@ from .errors import SchemaError
 
 
 UNIT_SEPARATOR = "\x1f"
+MENU_TITLE = "Choose runtime"
+MENU_SUBTITLE = "Select a managed Codex runtime"
+MENU_MORE = "  (More options: codex use <version>)"
 
 
 def render_runtime_rows(
@@ -54,6 +57,9 @@ def _render_list(rows: list[dict[str, str]]) -> None:
                     latest_row.get("runtime_sha256", "")[:12],
                     latest_row.get("package_spec", ""),
                     latest_row.get("runtime_path", ""),
+                    latest_row.get("created_at", ""),
+                    latest_row.get("wrapper_version", ""),
+                    latest_row.get("wrapper_commit", ""),
                 ]
             )
         )
@@ -67,6 +73,9 @@ def _render_list(rows: list[dict[str, str]]) -> None:
                     row.get("runtime_sha256", "")[:12],
                     row.get("package_spec", ""),
                     row.get("runtime_path", ""),
+                    row.get("created_at", ""),
+                    row.get("wrapper_version", ""),
+                    row.get("wrapper_commit", ""),
                 ]
             )
         )
@@ -79,7 +88,8 @@ def _render_menu(rows: list[dict[str, str]], interactive_limit: int) -> None:
     latest_row, remaining = _menu_rows(rows)
     count = 0
     truncated = False
-    print("Choose runtime", file=sys.stderr)
+    print(MENU_TITLE, file=sys.stderr)
+    print(_dim(MENU_SUBTITLE, color_enabled), file=sys.stderr)
     if latest_row is not None:
         print(
             _menu_line("0", latest_row, color_enabled),
@@ -92,23 +102,13 @@ def _render_menu(rows: list[dict[str, str]], interactive_limit: int) -> None:
         count += 1
         print(_menu_line(str(count), row, color_enabled), file=sys.stderr)
     if truncated:
-        print(_dim("  (More options: codex use <version>)", color_enabled), file=sys.stderr)
+        print(_dim(MENU_MORE, color_enabled), file=sys.stderr)
     print(file=sys.stderr)
     print(count)
 
 
 def _menu_rows(rows: list[dict[str, str]]) -> tuple[dict[str, str] | None, list[dict[str, str]]]:
-    latest_version = _latest_version(rows)
-    latest = next(
-        (
-            row
-            for row in rows
-            if latest_version
-            and row.get("active") != "1"
-            and row.get("version") == latest_version
-        ),
-        None,
-    )
+    latest = next((row for row in rows if row.get("kind") == "remote"), None)
     if latest is not None:
         latest["menu_latest"] = "1"
     for row in rows:
@@ -116,33 +116,6 @@ def _menu_rows(rows: list[dict[str, str]]) -> tuple[dict[str, str] | None, list[
             row.pop("menu_latest", None)
     remaining = [row for row in rows if row is not latest]
     return latest, remaining
-
-
-def _latest_version(rows: list[dict[str, str]]) -> str:
-    for row in rows:
-        if row.get("kind") == "remote":
-            return row.get("version", "")
-    if not rows:
-        return ""
-    import re
-    def version_key(v_str: str) -> tuple[tuple[int, int | str], ...]:
-        v_clean = v_str
-        for suffix in ("-linux-arm64", "-linux-x64", "-darwin-arm64", "-darwin-x64"):
-            if v_clean.endswith(suffix):
-                v_clean = v_clean[: -len(suffix)]
-                break
-        parts = re.split(r"[.-]", v_clean)
-        key = []
-        for p in parts:
-            if not p:
-                continue
-            try:
-                key.append((0, int(p)))
-            except ValueError:
-                key.append((1, p))
-        return tuple(key)
-    best_row = max(rows, key=lambda r: version_key(r.get("version", "")))
-    return best_row.get("version", "")
 
 
 def _menu_line(index: str, row: dict[str, str], color_enabled: bool) -> str:
@@ -155,7 +128,16 @@ def _menu_line(index: str, row: dict[str, str], color_enabled: bool) -> str:
 
 
 def _label(label: str, row: dict[str, str], color_enabled: bool) -> str:
-    return label
+    if row.get("kind") == "remote":
+        return label
+    date_text = registry.display_runtime_date(row.get("created_at", "") or row.get("updated_at", ""))
+    if not date_text:
+        return label
+    detail = date_text
+    suffix = row.get("label_suffix", "")
+    if suffix:
+        detail = f"{detail} {suffix}"
+    return f"{label} ({detail})"
 
 
 def _badges(row: dict[str, str], color_enabled: bool) -> str:
@@ -205,10 +187,45 @@ def runtime_rows_from_registry(
     runtime_builder: Path,
     patch_policy: str,
 ) -> list[dict[str, str]]:
-    return registry.list_usable_runtimes(
+    rows = registry.list_usable_runtimes(
         registry_file=registry_file,
         latest=latest,
         runtime_store_dir=runtime_store_dir,
         runtime_builder=runtime_builder,
         patch_policy=patch_policy,
     )
+    _annotate_label_suffixes(rows)
+    return rows
+
+
+def _annotate_label_suffixes(rows: list[dict[str, str]]) -> None:
+    counts: dict[tuple[str, str], int] = {}
+    for row in rows:
+        if row.get("kind") != "cached":
+            continue
+        key = (
+            row.get("version", ""),
+            registry.display_runtime_date(row.get("created_at", "") or row.get("updated_at", "")),
+        )
+        counts[key] = counts.get(key, 0) + 1
+    for row in rows:
+        row.pop("label_suffix", None)
+        if row.get("kind") != "cached":
+            continue
+        key = (
+            row.get("version", ""),
+            registry.display_runtime_date(row.get("created_at", "") or row.get("updated_at", "")),
+        )
+        if counts.get(key, 0) <= 1:
+            continue
+        wrapper_version = row.get("wrapper_version", "")
+        if wrapper_version:
+            row["label_suffix"] = f"· {registry.display_wrapper_version(wrapper_version)}"
+            continue
+        wrapper_date = registry.display_runtime_date(row.get("wrapper_updated_at", ""))
+        if wrapper_date:
+            row["label_suffix"] = f"· {wrapper_date}"
+            continue
+        commit = row.get("wrapper_commit", "")[:7]
+        if commit:
+            row["label_suffix"] = f"· rev {commit}"

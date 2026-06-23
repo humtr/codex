@@ -118,7 +118,7 @@ registry = {
     },
     "wrapper": {
         wrapper_id: {
-            "version": "1.2.1",
+            "version": "20260623-1",
             "commit": "testcommit",
             "repo": "local/codex-termux",
             "updated_at": "2026-01-01T00:00:00+00:00",
@@ -144,7 +144,7 @@ state = {
     "runtime_sha256": runtime_sha,
     "package_spec": package_spec,
     "active_tuple_id": "bad-current",
-    "wrapper_version": "1.2.1",
+    "wrapper_version": "20260623-1",
     "wrapper_commit": "oldcommit",
     "updated_at": "2026-01-01T00:00:00+00:00",
     "verified_tuple_id": tuple_id,
@@ -162,7 +162,7 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" python3 -B -m codex_termu
     --registry-file "$registry_file" \
     --runtime-store-dir "$runtime_store" \
     --raw-store-dir "$raw_store" \
-    --wrapper-version 1.2.1 \
+    --wrapper-version 20260623-1 \
     --wrapper-commit testcommit \
     --updated-at 2026-01-01T00:00:00+00:00 \
     --shell-bin "$shell_bin" \
