@@ -223,6 +223,7 @@ codex_ui_text() {
         missing_profile) printf 'Profile does not exist: %s\n' "$1" ;;
         profile_arg_error) printf 'Profile %s does not take arguments\n' "$1" ;;
         doctor_wrapper_title) printf 'Wrapper doctor\n' ;;
+        session_stub) printf 'codex session is reserved for the upcoming cross-profile session picker.\n' ;;
         *)
             return 1
             ;;
@@ -1250,6 +1251,7 @@ codex_wrapper_help() {
     printf '  %-8s  %s\n' 'setup' 'Refresh launcher/support files and ensure raw/runtime are ready.'
     printf '  %-8s  %s\n' 'update' 'Refresh support, update official linux-arm64 package, patch, and promote.'
     printf '  %-8s  %s\n' 'use' 'List cached and remote runtimes; promote the selected runtime.'
+    printf '  %-8s  %s\n' 'session' 'Reserved surface for the cross-profile Codex session picker.'
     printf '  %-8s  %s\n' 'profile' 'List numbered profiles or enter a named profile with CODEX_HOME switched.'
     printf '  %-8s  %s\n' 'doctor' 'Check launcher, runtime resources, resolver, CA, DNS patch, and state.'
     printf '  %-8s  %s\n' 'version' 'Print upstream Codex and active runtime date rows.'
@@ -1618,6 +1620,17 @@ codex_profile_exec() {
     codex_profile_runtime_exec "$profile" "$profile_dir" "$@"
 }
 
+codex_runtime_exec_with_context() {
+    if [ -n "${CODEX_HOME:-}" ]; then
+        codex_exec_current_runtime "$@"
+        return $?
+    fi
+    local recent_profile recent_profile_dir
+    recent_profile="$(codex_profile_read_recent)"
+    recent_profile_dir="$(codex_profile_dir "$recent_profile")"
+    codex_profile_runtime_exec "$recent_profile" "$recent_profile_dir" "$@"
+}
+
 codex_profile_list_command() {
     codex_status_clear
     printf 'default\n'
@@ -1794,6 +1807,68 @@ EOF
     codex_version || return $?
 }
 
+codex_session() {
+    local target_profile="" target_profile_dir=""
+    if [ "$#" -gt 0 ] && [[ ! "$1" =~ ^- ]]; then
+        target_profile="$1"
+        shift
+        codex_profile_validate_name "$target_profile" || {
+            codex_fail "$(codex_ui_text_get invalid_profile "$target_profile")"
+            return 2
+        }
+        target_profile_dir="$(codex_profile_dir "$target_profile")"
+    fi
+
+    local show_all="false"
+    local arg
+    for arg in "$@"; do
+        if [ "$arg" = "--all" ]; then
+            show_all="true"
+            break
+        fi
+    done
+
+    local tui_args=()
+    if [ "$show_all" = "true" ]; then
+        tui_args+=("--all")
+    fi
+
+    # Run Python session-tui with a temporary file for output to preserve TTY
+    local temp_file
+    temp_file="$(mktemp)"
+    
+    CODEX_SESSION_TUI_DEFAULT_PROFILE="$target_profile" codex_termux_cmd session-tui --output "$temp_file" "${tui_args[@]}" || {
+        local code=$?
+        rm -f "$temp_file"
+        if [ "$code" -eq 130 ]; then
+            return 130
+        fi
+        return "$code"
+    }
+
+    if [ ! -s "$temp_file" ]; then
+        rm -f "$temp_file"
+        return 0
+    fi
+
+    local selected_plan
+    selected_plan="$(cat "$temp_file")"
+    rm -f "$temp_file"
+
+    local native_session_ref source_profile workdir codex_home_env
+    IFS=$'\037' read -r target_profile target_profile_dir native_session_ref source_profile workdir codex_home_env <<EOF
+$selected_plan
+EOF
+
+    # Switch directory if workdir is specified and is a valid directory
+    if [ -n "$workdir" ] && [ -d "$workdir" ]; then
+        cd "$workdir" || true
+    fi
+
+    # Resume the session via wrapper's runtime execution path, forwarding any extra options
+    codex_profile_exec "$target_profile_dir" "$target_profile" resume "$native_session_ref" "$@"
+}
+
 codex_setup_public() {
     if [ -n "${CODEX_TERMUX_INSTALL_RUNTIME_SOURCE:-}" ] && [ -x "$CODEX_TERMUX_INSTALL_RUNTIME_SOURCE" ]; then
         exec bash "$CODEX_TERMUX_INSTALL_RUNTIME_SOURCE" setup "$@"
@@ -1828,6 +1903,10 @@ codex_main() {
             shift
             codex_use "$@"
             ;;
+        session)
+            shift
+            codex_session "$@"
+            ;;
         profile)
             shift
             codex_profile_run "$@"
@@ -1842,9 +1921,7 @@ codex_main() {
             elif ! codex_auto_update_if_needed; then
                 status=$?
             else
-                recent_profile="$(codex_profile_read_recent)"
-                recent_profile_dir="$(codex_profile_dir "$recent_profile")"
-                codex_profile_runtime_exec "$recent_profile" "$recent_profile_dir" "$@"
+                codex_runtime_exec_with_context "$@"
             fi
             ;;
     esac

@@ -127,6 +127,30 @@ missing_status=$?
 set -e
 [ "$missing_status" -eq 2 ] || fail_contract "missing profile status was $missing_status"
 [ ! -e "$missing_dir" ] || fail_contract 'missing profile was created without confirmation'
+
+trace_file="$TMP_DIR/runtime-trace"
+mkdir -p "$CODEX_TERMUX_STATE_DIR"
+printf 'work\n' >"$CODEX_TERMUX_LAST_PROFILE_FILE"
+: >"$trace_file"
+codex_exec_current_runtime() {
+    printf 'runtime CODEX_HOME=%s ARGS=%s\n' "${CODEX_HOME-__UNSET__}" "$*" >>"$trace_file"
+    return 0
+}
+
+unset CODEX_HOME
+codex_main resume s-alpha >/dev/null 2>&1
+bare_trace_output="$(cat "$trace_file")"
+[ "$bare_trace_output" = "runtime CODEX_HOME=$work_dir ARGS=resume s-alpha" ] || fail_contract "bare command stopped using recent profile: $bare_trace_output"
+
+codex_profile_runtime_exec() {
+    printf 'profile-runtime-used\n' >>"$trace_file"
+    codex_exec_current_runtime "$@"
+}
+
+: >"$trace_file"
+CODEX_HOME="$work_dir" codex_main resume s-alpha >/dev/null 2>&1
+explicit_trace_output="$(cat "$trace_file")"
+[ "$explicit_trace_output" = "runtime CODEX_HOME=$work_dir ARGS=resume s-alpha" ] || fail_contract "explicit CODEX_HOME was not preserved: $explicit_trace_output"
 BASH
     chmod +x "$contract_script"
     if CODEX_TERMUX_HOME="$tmp/home" \
