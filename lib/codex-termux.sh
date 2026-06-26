@@ -1477,21 +1477,17 @@ codex_display_dotted_date() {
 }
 
 codex_upstream_release_date() {
-    local version="${1:-}" payload
+    local version="${1:-}"
     [ -n "$version" ] || return 0
     if command -v timeout >/dev/null 2>&1; then
-        payload="$(timeout "$CODEX_TERMUX_AUTO_UPDATE_TIMEOUT_SECONDS" npm view @openai/codex time --json 2>/dev/null)" || return 0
-    else
-        payload="$(npm view @openai/codex time --json 2>/dev/null)" || return 0
-    fi
-    UPSTREAM_TIME_JSON="$payload" python3 - "$version" <<'PY'
+        timeout "$CODEX_TERMUX_AUTO_UPDATE_TIMEOUT_SECONDS" npm view @openai/codex time --json 2>/dev/null | \
+            python3 -c '
 import json
-import os
 import re
 import sys
 
 version = sys.argv[1]
-payload = os.environ.get("UPSTREAM_TIME_JSON", "")
+payload = sys.stdin.read()
 try:
     data = json.loads(payload)
 except Exception:
@@ -1507,7 +1503,33 @@ else:
     digits = "".join(ch for ch in text if ch.isdigit())
     if len(digits) >= 8:
         print(f"{digits[:4]}.{digits[4:6]}.{digits[6:8]}")
-PY
+' "$version"
+    else
+        npm view @openai/codex time --json 2>/dev/null | \
+            python3 -c '
+import json
+import re
+import sys
+
+version = sys.argv[1]
+payload = sys.stdin.read()
+try:
+    data = json.loads(payload)
+except Exception:
+    sys.exit(0)
+value = data.get(version, "")
+if not value:
+    sys.exit(0)
+text = str(value).split("T", 1)[0]
+match = re.match(r"(\d{4})[-.](\d{2})[-.](\d{2})", text)
+if match:
+    print(".".join(match.groups()))
+else:
+    digits = "".join(ch for ch in text if ch.isdigit())
+    if len(digits) >= 8:
+        print(f"{digits[:4]}.{digits[4:6]}.{digits[6:8]}")
+' "$version"
+    fi
 }
 
 codex_version() {
@@ -2221,6 +2243,7 @@ codex_notify_usage() {
 Usage: codex notify [options]
 
 Options:
+  --channel NAME          notification, toast, both
   --hooks LIST            Comma-separated hook list or "all"
   --hook NAME             Append a single hook name
   --all-hooks             Enable every supported hook position
@@ -2332,6 +2355,7 @@ codex_toast_parse_selection() {
 
 codex_notify_public() {
     local config_file="$CODEX_TERMUX_NOTIFY_CONFIG"
+    local channel="${CODEX_TERMUX_NOTIFY_CHANNEL:-notification}"
     local hooks="${CODEX_TERMUX_NOTIFY_HOOKS:-Stop}"
     local pretooluse="${CODEX_TERMUX_NOTIFY_PRETOOLUSE:-0}"
     local content_chars="${CODEX_TERMUX_NOTIFY_CONTENT_CHARS:-140}"
@@ -2352,6 +2376,11 @@ codex_notify_public() {
             --config-file)
                 codex_notify_need_arg "$1" "${2:-}" || return $?
                 config_file="${2:-}"
+                shift 2
+                ;;
+            --channel)
+                codex_notify_need_arg "$1" "${2:-}" || return $?
+                channel="${2:-}"
                 shift 2
                 ;;
             --hooks)
@@ -2428,6 +2457,25 @@ codex_notify_public() {
         codex_fail "Notification config file is unavailable"
         return 66
     }
+    case "$channel" in
+        toast)
+            toast=1
+            notification=0
+            ;;
+        notification)
+            toast=0
+            notification=1
+            ;;
+        both)
+            toast=1
+            notification=1
+            ;;
+        *)
+            channel="notification"
+            toast=0
+            notification=1
+            ;;
+    esac
     hooks="$(codex_notify_hooks_normalize "$hooks")"
     codex_notify_write_config "$config_file" \
         CODEX_TERMUX_NOTIFY_CONTENT_CHARS "$content_chars" \
@@ -2439,6 +2487,7 @@ codex_notify_public() {
         CODEX_TERMUX_NOTIFY_TOAST_COLOR "$toast_color" \
         CODEX_TERMUX_NOTIFY_NOTIFICATION "$notification" \
         CODEX_TERMUX_NOTIFY_GROUP "$group" \
+        CODEX_TERMUX_NOTIFY_CHANNEL "$channel" \
         CODEX_TERMUX_NOTIFY_HOOKS "$hooks" \
         CODEX_TERMUX_NOTIFY_PRETOOLUSE "$pretooluse"
     codex_prepare_system_config || return $?
@@ -2462,7 +2511,7 @@ codex_toast_public() {
         return 130
     fi
     hooks="$(codex_toast_parse_selection "$choice")"
-    codex_notify_public --hooks "$hooks" --toast-gravity top
+    codex_notify_public --channel toast --hooks "$hooks" --toast-gravity top
 }
 
 codex_setup_public() {

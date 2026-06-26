@@ -10,6 +10,7 @@ CODEX_TERMUX_NOTIFY_CONFIG="${CODEX_TERMUX_NOTIFY_CONFIG:-$CODEX_TERMUX_NOTIFY_D
 [ ! -r "$CODEX_TERMUX_NOTIFY_CONFIG" ] || . "$CODEX_TERMUX_NOTIFY_CONFIG"
 CODEX_TERMUX_NOTIFY_CONTENT_CHARS="${CODEX_TERMUX_NOTIFY_CONTENT_CHARS:-140}"
 CODEX_TERMUX_NOTIFY_PRESERVE_NEWLINES="${CODEX_TERMUX_NOTIFY_PRESERVE_NEWLINES:-0}"
+CODEX_TERMUX_NOTIFY_CHANNEL="${CODEX_TERMUX_NOTIFY_CHANNEL:-notification}"
 CODEX_TERMUX_NOTIFY_TOAST="${CODEX_TERMUX_NOTIFY_TOAST:-1}"
 CODEX_TERMUX_NOTIFY_TOAST_GRAVITY="${CODEX_TERMUX_NOTIFY_TOAST_GRAVITY:-top}"
 CODEX_TERMUX_NOTIFY_TOAST_SHORT="${CODEX_TERMUX_NOTIFY_TOAST_SHORT:-0}"
@@ -181,21 +182,27 @@ codex_notify_payload() {
         action="$(codex_notify_escape_action "$0" --open-termux)"
     fi
 
-    if [ "${CODEX_TERMUX_NOTIFY_NO_API:-0}" != 1 ] &&
-        [ "$CODEX_TERMUX_NOTIFY_TOAST" = "1" ] &&
-        command -v termux-toast >/dev/null 2>&1; then
+    codex_notify_show_toast() {
+        if [ "${CODEX_TERMUX_NOTIFY_NO_API:-0}" = 1 ] ||
+            [ "$CODEX_TERMUX_NOTIFY_TOAST" != "1" ] ||
+            ! command -v termux-toast >/dev/null 2>&1; then
+            return 1
+        fi
         toast_args=()
         [ -z "$CODEX_TERMUX_NOTIFY_TOAST_GRAVITY" ] || toast_args+=(-g "$CODEX_TERMUX_NOTIFY_TOAST_GRAVITY")
         [ "$CODEX_TERMUX_NOTIFY_TOAST_SHORT" != "1" ] || toast_args+=(-s)
         [ -z "$CODEX_TERMUX_NOTIFY_TOAST_BACKGROUND" ] || toast_args+=(-b "$CODEX_TERMUX_NOTIFY_TOAST_BACKGROUND")
         [ -z "$CODEX_TERMUX_NOTIFY_TOAST_COLOR" ] || toast_args+=(-c "$CODEX_TERMUX_NOTIFY_TOAST_COLOR")
-        termux-toast "${toast_args[@]}" "$content" >/dev/null 2>&1 || true
-    fi
+        termux-toast "${toast_args[@]}" "$content" >/dev/null 2>&1
+    }
 
-    if [ "${CODEX_TERMUX_NOTIFY_NO_API:-0}" != 1 ] &&
-        [ "$CODEX_TERMUX_NOTIFY_NOTIFICATION" = "1" ] &&
-        command -v termux-notification >/dev/null 2>&1; then
-        if termux-notification \
+    codex_notify_show_notification() {
+        if [ "${CODEX_TERMUX_NOTIFY_NO_API:-0}" = 1 ] ||
+            [ "$CODEX_TERMUX_NOTIFY_NOTIFICATION" != "1" ] ||
+            ! command -v termux-notification >/dev/null 2>&1; then
+            return 1
+        fi
+        termux-notification \
             --id "$notification_id" \
             --group "$CODEX_TERMUX_NOTIFY_GROUP" \
             --priority max \
@@ -203,12 +210,42 @@ codex_notify_payload() {
             --vibrate 300,150,300 \
             --title "$title" \
             --content "$content" \
-            --action "$action" >/dev/null 2>&1; then
-            provider="termux-api"
-        fi
-    fi
+            --action "$action" >/dev/null 2>&1
+    }
 
-    if [ "$provider" != "termux-api" ] && command -v tmux >/dev/null 2>&1; then
+    case "$CODEX_TERMUX_NOTIFY_CHANNEL" in
+        toast)
+            if codex_notify_show_toast; then
+                provider="toast"
+            elif codex_notify_show_notification; then
+                provider="termux-api"
+            fi
+            ;;
+        notification)
+            if codex_notify_show_notification; then
+                provider="termux-api"
+            elif codex_notify_show_toast; then
+                provider="toast"
+            fi
+            ;;
+        both)
+            if codex_notify_show_notification; then
+                provider="termux-api"
+            fi
+            if codex_notify_show_toast; then
+                provider="${provider:+$provider+}toast"
+            fi
+            ;;
+        *)
+            if codex_notify_show_notification; then
+                provider="termux-api"
+            elif codex_notify_show_toast; then
+                provider="toast"
+            fi
+            ;;
+    esac
+
+    if [ "$provider" = "fallback" ] && command -v tmux >/dev/null 2>&1; then
         tmux display-message "$title: $content" >/dev/null 2>&1 || true
         provider="tmux"
     fi
