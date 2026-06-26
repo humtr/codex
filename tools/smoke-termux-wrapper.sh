@@ -151,6 +151,13 @@ codex_profile_runtime_exec() {
 CODEX_HOME="$work_dir" codex_main resume s-alpha >/dev/null 2>&1
 explicit_trace_output="$(cat "$trace_file")"
 [ "$explicit_trace_output" = "runtime CODEX_HOME=$work_dir ARGS=resume s-alpha" ] || fail_contract "explicit CODEX_HOME was not preserved: $explicit_trace_output"
+
+repair_called=0
+codex_repair_public() {
+    repair_called=1
+}
+codex_main repair >/dev/null 2>&1
+[ "$repair_called" -eq 1 ] || fail_contract 'repair command did not route to codex_repair_public'
 BASH
     chmod +x "$contract_script"
     if CODEX_TERMUX_HOME="$tmp/home" \

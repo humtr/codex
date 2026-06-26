@@ -9,10 +9,11 @@ ROOT_DIR="$(cd "$ROOT_DIR/.." && pwd)"
 
 usage() {
     cat <<'USAGE'
-Usage: bash bin/install-runtime.sh [setup|support|update|remove|doctor]
+Usage: bash bin/install-runtime.sh [setup|support|repair|update|remove|doctor]
 
 setup        Install support files, launcher, and a patched upstream Codex runtime.
 support      Refresh support files and the launcher only.
+repair       Rebuild the runtime from the cached raw package without network access.
 update       Fetch, patch, smoke-test, and promote the linux-arm64 Codex runtime.
 remove       Remove the managed launcher/runtime and restore a launcher backup.
 doctor       Run wrapper diagnostics. Use: doctor --json for machine output.
@@ -182,6 +183,9 @@ main() {
         support)
             codex_install_support_files
             codex_install_launchers
+            ;;
+        repair)
+            codex_repair_public
             ;;
         update)
             shift || true

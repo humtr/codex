@@ -248,6 +248,7 @@ codex_ui_step_text() {
         update_runtime) printf 'Updating Codex %s -> %s\n' "$1" "$2" ;;
         switch_runtime) printf 'Switching to Codex %s\n' "$1" ;;
         launch_codex) printf 'Launching Codex %s\n' "$1" ;;
+        repair_runtime) printf 'Repairing runtime from the cached raw package\n' ;;
         rebuild_cached_runtime) printf 'Rebuilding runtime from the cached raw package\n' ;;
         open_profile) printf 'Opening profile %s\n' "$1" ;;
         *)
@@ -812,7 +813,6 @@ codex_repair_runtime_from_raw_unlocked() {
     [ -n "$version" ] || version="unknown"
     [ -n "$package_spec" ] || package_spec="local"
     codex_rebuild_runtime_unlocked "$version" "$package_spec" || return $?
-    codex_ui_step rebuild_cached_runtime
 }
 
 codex_repair_runtime_from_raw() {
@@ -820,6 +820,14 @@ codex_repair_runtime_from_raw() {
     codex_with_lock codex_repair_runtime_from_raw_unlocked || status=$?
     [ "$status" -eq 0 ] || codex_status_clear
     return "$status"
+}
+
+codex_repair_public() {
+    codex_validate_runtime_retention || return $?
+    codex_ui_step repair_runtime
+    codex_repair_runtime_from_raw || return $?
+    codex_refresh_runtime_metadata
+    codex_version
 }
 
 codex_update_unlocked() {
@@ -1206,7 +1214,7 @@ codex_ensure_runtime_ready() {
         codex_repair_runtime_from_raw
         return $?
     fi
-    codex_fail "Runtime is missing and no cached raw package is available; run codex setup"
+    codex_fail "Runtime is missing and no cached raw package is available; run codex update"
     return 127
 }
 
@@ -1290,6 +1298,7 @@ codex_wrapper_help() {
     printf 'Wrapper commands\n'
     printf '  %-8s  %s\n' 'codex' 'Managed upstream Codex entrypoint; bare execution may auto-update before launch.'
     printf '  %-8s  %s\n' 'setup' 'Refresh launcher/support files and ensure raw/runtime are ready.'
+    printf '  %-8s  %s\n' 'repair' 'Rebuild the runtime from the cached raw package without network access.'
     printf '  %-8s  %s\n' 'update' 'Refresh support, update official linux-arm64 package, patch, and promote.'
     printf '  %-8s  %s\n' 'use' 'List cached and remote runtimes; promote the selected runtime.'
     printf '  %-8s  %s\n' 'session' 'Reserved surface for the cross-profile Codex session picker.'
@@ -1959,6 +1968,10 @@ codex_main() {
         update)
             shift
             codex_update_public "${1:-}"
+            ;;
+        repair)
+            shift
+            codex_repair_public
             ;;
         doctor)
             shift
