@@ -199,7 +199,7 @@ codex_ui_prompt() {
 
 codex_ui_version_row() {
     local label="$1" value="$2"
-    printf '%-10s %s\n' "$label" "$value" >&2
+    printf '%-16s %s\n' "$label" "$value" >&2
 }
 
 codex_ui_separator() {
@@ -1455,8 +1455,63 @@ codex_current_runtime_date() {
         --registry-file "$CODEX_TERMUX_REGISTRY_FILE"
 }
 
+codex_display_dotted_date() {
+    local value="${1:-}" digits
+    value="${value%%T*}"
+    case "$value" in
+        ????-??-??*)
+            printf '%s\n' "${value//-/.}"
+            ;;
+        [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]*)
+            printf '%s.%s.%s\n' "${value:0:4}" "${value:4:2}" "${value:6:2}"
+            ;;
+        *)
+            digits="${value//[^0-9]/}"
+            if [ "${#digits}" -ge 8 ]; then
+                printf '%s.%s.%s\n' "${digits:0:4}" "${digits:4:2}" "${digits:6:2}"
+            else
+                printf '%s\n' "$value"
+            fi
+            ;;
+    esac
+}
+
+codex_upstream_release_date() {
+    local version="${1:-}" payload
+    [ -n "$version" ] || return 0
+    if command -v timeout >/dev/null 2>&1; then
+        payload="$(timeout "$CODEX_TERMUX_AUTO_UPDATE_TIMEOUT_SECONDS" npm view @openai/codex time --json 2>/dev/null)" || return 0
+    else
+        payload="$(npm view @openai/codex time --json 2>/dev/null)" || return 0
+    fi
+    UPSTREAM_TIME_JSON="$payload" python3 - "$version" <<'PY'
+import json
+import os
+import re
+import sys
+
+version = sys.argv[1]
+payload = os.environ.get("UPSTREAM_TIME_JSON", "")
+try:
+    data = json.loads(payload)
+except Exception:
+    sys.exit(0)
+value = data.get(version, "")
+if not value:
+    sys.exit(0)
+text = str(value).split("T", 1)[0]
+match = re.match(r"(\d{4})[-.](\d{2})[-.](\d{2})", text)
+if match:
+    print(".".join(match.groups()))
+else:
+    digits = "".join(ch for ch in text if ch.isdigit())
+    if len(digits) >= 8:
+        print(f"{digits[:4]}.{digits[4:6]}.{digits[6:8]}")
+PY
+}
+
 codex_version() {
-    local upstream runtime_date status=0
+    local upstream upstream_version upstream_date runtime_date status=0
     codex_status_clear
     if upstream="$(codex_run_current_runtime --version 2>/dev/null)"; then
         status=0
@@ -1464,9 +1519,12 @@ codex_version() {
         status=$?
         upstream=""
     fi
-    runtime_date="$(codex_current_runtime_date)"
-    codex_ui_version_row "codex-cli" "${upstream#codex-cli }"
-    [ -n "$runtime_date" ] && codex_ui_version_row "runtime" "$runtime_date"
+    upstream_version="${upstream#codex-cli }"
+    upstream_date="$(codex_upstream_release_date "$upstream_version")"
+    runtime_date="$(codex_display_dotted_date "$(codex_current_runtime_date)")"
+    codex_ui_version_row "upstream version" "$upstream"
+    [ -n "$upstream_date" ] && codex_ui_version_row "upstream date" "$upstream_date"
+    [ -n "$runtime_date" ] && codex_ui_version_row "runtime date" "$runtime_date"
     return "$status"
 }
 
@@ -1479,6 +1537,7 @@ codex_wrapper_help() {
     printf '  %-8s  %s\n' 'rebuild' 'Refresh wrapper support and rebuild from cached raw without network access.'
     printf '  %-8s  %s\n' 'repair' 'Rebuild the runtime from the cached raw package without network access.'
     printf '  %-8s  %s\n' 'notify' 'Write notification settings and regenerate hook configuration.'
+    printf '  %-8s  %s\n' 'toast' 'Interactively choose notification hooks and save the toast config.'
     printf '  %-8s  %s\n' 'update' 'Update official linux-arm64 package with the current wrapper.'
     printf '  %-8s  %s\n' 'use' 'List cached and remote runtimes; promote the selected runtime.'
     printf '  %-8s  %s\n' 'session' 'Reserved surface for the cross-profile Codex session picker.'
@@ -2178,6 +2237,15 @@ Options:
 USAGE
 }
 
+codex_toast_usage() {
+    cat <<'USAGE'
+Usage: codex toast
+
+Interactively choose which hook positions should trigger notifications.
+Enter hook numbers or names separated by spaces, or type `all`.
+USAGE
+}
+
 codex_notify_need_arg() {
     [ $# -ge 2 ] || {
         codex_fail "Missing value for $1"
@@ -2195,6 +2263,71 @@ codex_notify_write_config() {
             shift 2
         done
     } >"$config_file"
+}
+
+codex_toast_hook_ids() {
+    codex_notify_all_hooks
+}
+
+codex_toast_render_hooks() {
+    local idx=1 hook
+    codex_ui_menu_header "Choose toast hooks" "Space-separated numbers or names, then Enter"
+    while IFS= read -r hook; do
+        printf '  %s %s\n' "$(codex_ui_number "$idx")" "$hook" >&2
+        idx=$((idx + 1))
+    done <<EOF
+$(codex_toast_hook_ids)
+EOF
+    printf '  %s all\n' "$(codex_ui_number "0")" >&2
+    printf '\n' >&2
+}
+
+codex_toast_parse_selection() {
+    local selection="${1:-}" token hook idx=0 hooks=() all_hooks=() found=0
+    mapfile -t all_hooks < <(codex_toast_hook_ids)
+    case "$selection" in
+        ""|all|ALL)
+            printf 'all\n'
+            return 0
+            ;;
+    esac
+    for token in $selection; do
+        case "$token" in
+            0|all|ALL)
+                printf 'all\n'
+                return 0
+                ;;
+            [0-9]*)
+                if [ "$token" -ge 1 ] && [ "$token" -le "${#all_hooks[@]}" ]; then
+                    hook="${all_hooks[$((token - 1))]}"
+                    case ",${hooks[*]:-}," in
+                        *,"$hook",*) ;;
+                        *) hooks+=("$hook") ;;
+                    esac
+                    found=1
+                fi
+                ;;
+            *)
+                hook="$(codex_notify_hook_canonical "$token")"
+                case "$hook" in
+                    all)
+                        printf 'all\n'
+                        return 0
+                        ;;
+                esac
+                case ",${hooks[*]:-}," in
+                    *,"$hook",*) ;;
+                    *) hooks+=("$hook") ;;
+                esac
+                found=1
+                ;;
+        esac
+    done
+    if [ "$found" -eq 0 ]; then
+        printf 'Stop\n'
+        return 0
+    fi
+    (IFS=,; printf '%s\n' "${hooks[*]}")
 }
 
 codex_notify_public() {
@@ -2312,6 +2445,26 @@ codex_notify_public() {
     codex_say "Saved notification settings to $config_file"
 }
 
+codex_toast_public() {
+    local choice hooks
+    if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
+        codex_toast_usage
+        return 0
+    fi
+    if [ ! -t 0 ] || [ ! -t 2 ]; then
+        codex_fail "codex toast requires an interactive terminal"
+        return 2
+    fi
+    codex_toast_render_hooks
+    printf 'Toast hooks > ' >&2
+    if ! IFS= read -r choice; then
+        codex_selection_cancelled
+        return 130
+    fi
+    hooks="$(codex_toast_parse_selection "$choice")"
+    codex_notify_public --hooks "$hooks" --toast-gravity top
+}
+
 codex_setup_public() {
     codex_status_clear
     printf 'Error: %s\n' "$(codex_ui_text_get setup_reserved)" >&2
@@ -2336,6 +2489,10 @@ codex_main() {
         notify)
             shift
             codex_notify_public "$@"
+            ;;
+        toast)
+            shift
+            codex_toast_public "$@"
             ;;
         update)
             shift

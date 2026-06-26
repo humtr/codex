@@ -278,6 +278,7 @@ codex_install_launchers() {
 
 codex_install() {
     local status=0
+    local print_version="${CODEX_TERMUX_INSTALL_PRINT_VERSION:-1}"
     codex_prepare_fresh_wrapper_source || return $?
     {
         codex_validate_runtime_retention &&
@@ -285,9 +286,10 @@ codex_install() {
         codex_install_launchers &&
         codex_update "${1:-}" &&
         codex_refresh_runtime_metadata &&
-        { [ "${CODEX_TERMUX_INSTALL_PRINT_VERSION:-1}" = "0" ] || codex_version; }
+        { [ "$print_version" = "0" ] && codex_status_clear || codex_version; }
     } || status=$?
     codex_cleanup_fresh_wrapper_source
+    [ "$status" -eq 0 ] && [ "$print_version" = "0" ] && codex_status_clear
     return "$status"
 }
 
