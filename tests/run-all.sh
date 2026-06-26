@@ -7,6 +7,7 @@ for test_script in \
     "$ROOT_DIR/tests/invariants.sh" \
     "$ROOT_DIR/tests/runtime-build.sh" \
     "$ROOT_DIR/tests/package-safety.sh" \
+    "$ROOT_DIR/tests/notify.sh" \
     "$ROOT_DIR/tests/store-rollback.sh" \
     "$ROOT_DIR/tests/session.sh"
 do

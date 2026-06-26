@@ -30,6 +30,7 @@ CODEX_TERMUX_LOCK_WAIT_SECONDS="${CODEX_TERMUX_LOCK_WAIT_SECONDS:-30}"
 CODEX_TERMUX_RESOLV_CONF="${CODEX_TERMUX_RESOLV_CONF:-$CODEX_TERMUX_PREFIX/etc/resolv.conf}"
 CODEX_TERMUX_TMPDIR="${CODEX_TERMUX_TMPDIR:-$CODEX_TERMUX_PREFIX/tmp}"
 CODEX_TERMUX_SYSTEM_CONFIG_DIR="${CODEX_TERMUX_SYSTEM_CONFIG_DIR:-$CODEX_TERMUX_STATE_DIR/system-config}"
+CODEX_TERMUX_TURN_NOTIFY="${CODEX_TERMUX_TURN_NOTIFY:-$CODEX_TERMUX_MANAGER_DIR/codex-turn-notify.sh}"
 CODEX_TERMUX_CERT_FILE="${CODEX_TERMUX_CERT_FILE:-$CODEX_TERMUX_PREFIX/etc/tls/cert.pem}"
 CODEX_TERMUX_CERT_DIR="${CODEX_TERMUX_CERT_DIR:-$CODEX_TERMUX_PREFIX/etc/tls/certs}"
 CODEX_TERMUX_PACKAGE_SPEC_DEFAULT="${CODEX_TERMUX_PACKAGE_SPEC_DEFAULT:-@openai/codex@linux-arm64}"
@@ -459,12 +460,25 @@ codex_require_runtime_resolver() {
 }
 
 codex_prepare_system_config() {
+    local config_file="$CODEX_TERMUX_SYSTEM_CONFIG_DIR/config.toml"
     mkdir -p "$CODEX_TERMUX_TMPDIR" "$CODEX_TERMUX_SYSTEM_CONFIG_DIR" || return $?
-    if [ ! -e "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/config.toml" ]; then
-        cat >"$CODEX_TERMUX_SYSTEM_CONFIG_DIR/config.toml" <<'TOML'
+    if [ ! -e "$config_file" ]; then
+        cat >"$config_file" <<'TOML'
 [sandbox_workspace_write]
 exclude_slash_tmp = true
 exclude_tmpdir_env_var = false
+TOML
+    fi
+    if ! grep -Fqx "command = \"$CODEX_TERMUX_TURN_NOTIFY\"" "$config_file" 2>/dev/null; then
+        cat >>"$config_file" <<TOML
+
+[[hooks.Stop]]
+
+[[hooks.Stop.hooks]]
+type = "command"
+command = "$CODEX_TERMUX_TURN_NOTIFY"
+timeout = 10
+statusMessage = "Notify turn completion"
 TOML
     fi
     [ -e "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/requirements.toml" ] ||
