@@ -6,6 +6,16 @@ CODEX_TERMUX_HOME="${CODEX_TERMUX_HOME:-$HOME}"
 CODEX_TERMUX_STATE_DIR="${CODEX_TERMUX_STATE_DIR:-$CODEX_TERMUX_HOME/.local/share/codex/termux}"
 CODEX_TERMUX_NOTIFY_DIR="${CODEX_TERMUX_NOTIFY_DIR:-$CODEX_TERMUX_STATE_DIR/notify}"
 CODEX_TERMUX_NOTIFY_GROUP="${CODEX_TERMUX_NOTIFY_GROUP:-codex-turns}"
+CODEX_TERMUX_NOTIFY_CONFIG="${CODEX_TERMUX_NOTIFY_CONFIG:-$CODEX_TERMUX_NOTIFY_DIR/config.env}"
+[ ! -r "$CODEX_TERMUX_NOTIFY_CONFIG" ] || . "$CODEX_TERMUX_NOTIFY_CONFIG"
+CODEX_TERMUX_NOTIFY_CONTENT_CHARS="${CODEX_TERMUX_NOTIFY_CONTENT_CHARS:-140}"
+CODEX_TERMUX_NOTIFY_PRESERVE_NEWLINES="${CODEX_TERMUX_NOTIFY_PRESERVE_NEWLINES:-0}"
+CODEX_TERMUX_NOTIFY_TOAST="${CODEX_TERMUX_NOTIFY_TOAST:-1}"
+CODEX_TERMUX_NOTIFY_TOAST_GRAVITY="${CODEX_TERMUX_NOTIFY_TOAST_GRAVITY:-middle}"
+CODEX_TERMUX_NOTIFY_TOAST_SHORT="${CODEX_TERMUX_NOTIFY_TOAST_SHORT:-0}"
+CODEX_TERMUX_NOTIFY_TOAST_BACKGROUND="${CODEX_TERMUX_NOTIFY_TOAST_BACKGROUND:-}"
+CODEX_TERMUX_NOTIFY_TOAST_COLOR="${CODEX_TERMUX_NOTIFY_TOAST_COLOR:-}"
+CODEX_TERMUX_NOTIFY_NOTIFICATION="${CODEX_TERMUX_NOTIFY_NOTIFICATION:-1}"
 
 codex_notify_log() {
     mkdir -p "$CODEX_TERMUX_NOTIFY_DIR" 2>/dev/null || return 0
@@ -54,6 +64,7 @@ codex_notify_escape_action() {
 
 codex_notify_metadata() {
     python3 -c '
+import base64
 import hashlib
 import json
 import os
@@ -61,6 +72,8 @@ import sys
 
 home = sys.argv[1]
 tmux_session = sys.argv[2]
+limit = os.environ.get("CODEX_TERMUX_NOTIFY_CONTENT_CHARS", "140")
+preserve_newlines = os.environ.get("CODEX_TERMUX_NOTIFY_PRESERVE_NEWLINES", "0") == "1"
 payload = sys.stdin.read()
 
 try:
@@ -93,32 +106,49 @@ message = (
     or data.get("event_msg")
     or "Codex turn finished"
 )
-message = " ".join(str(message).split())
-if len(message) > 140:
-    message = message[:137] + "..."
+message = str(message)
+if preserve_newlines:
+    message = "\n".join(line.rstrip() for line in message.splitlines()).strip()
+else:
+    message = " ".join(message.split())
+if limit not in ("0", "full", "none", "unlimited"):
+    try:
+        max_chars = max(int(limit), 1)
+    except ValueError:
+        max_chars = 140
+    if len(message) > max_chars:
+        message = message[: max_chars - 3] + "..." if max_chars > 3 else message[:max_chars]
 
 title = f"Codex: {compact_path(cwd)}"
 if tmux_session:
     title = f"{title} | tmux: {tmux_session}"
 
+def b64(value: str) -> str:
+    return base64.b64encode(value.encode("utf-8", "replace")).decode("ascii")
+
 print(notification_id)
-print(title)
-print(message)
-print(cwd)
-print(session_id)
+print(b64(title))
+print(b64(message))
+print(b64(cwd))
+print(b64(session_id))
 ' "$CODEX_TERMUX_HOME" "${TMUX_SESSION:-}"
+}
+
+codex_notify_b64_decode() {
+    printf '%s' "$1" | base64 -d 2>/dev/null || true
 }
 
 codex_notify_payload() {
     local payload tmux_session meta notification_id title content cwd session_id action provider="fallback"
+    local toast_args=()
     payload="$(cat)"
     tmux_session="$(codex_notify_tmux_session)"
     meta="$(printf '%s' "$payload" | TMUX_SESSION="$tmux_session" codex_notify_metadata)" || meta=""
     notification_id="$(printf '%s\n' "$meta" | sed -n '1p')"
-    title="$(printf '%s\n' "$meta" | sed -n '2p')"
-    content="$(printf '%s\n' "$meta" | sed -n '3p')"
-    cwd="$(printf '%s\n' "$meta" | sed -n '4p')"
-    session_id="$(printf '%s\n' "$meta" | sed -n '5p')"
+    title="$(codex_notify_b64_decode "$(printf '%s\n' "$meta" | sed -n '2p')")"
+    content="$(codex_notify_b64_decode "$(printf '%s\n' "$meta" | sed -n '3p')")"
+    cwd="$(codex_notify_b64_decode "$(printf '%s\n' "$meta" | sed -n '4p')")"
+    session_id="$(codex_notify_b64_decode "$(printf '%s\n' "$meta" | sed -n '5p')")"
     [ -n "$notification_id" ] || notification_id=10000
     [ -n "$title" ] || title="Codex: unknown"
     [ -n "$content" ] || content="Codex turn finished"
@@ -132,11 +162,20 @@ codex_notify_payload() {
         action="$(codex_notify_escape_action "$0" --open-termux)"
     fi
 
-    if [ "${CODEX_TERMUX_NOTIFY_NO_API:-0}" != 1 ] && command -v termux-toast >/dev/null 2>&1; then
-        termux-toast "$content" >/dev/null 2>&1 || true
+    if [ "${CODEX_TERMUX_NOTIFY_NO_API:-0}" != 1 ] &&
+        [ "$CODEX_TERMUX_NOTIFY_TOAST" = "1" ] &&
+        command -v termux-toast >/dev/null 2>&1; then
+        toast_args=()
+        [ -z "$CODEX_TERMUX_NOTIFY_TOAST_GRAVITY" ] || toast_args+=(-g "$CODEX_TERMUX_NOTIFY_TOAST_GRAVITY")
+        [ "$CODEX_TERMUX_NOTIFY_TOAST_SHORT" != "1" ] || toast_args+=(-s)
+        [ -z "$CODEX_TERMUX_NOTIFY_TOAST_BACKGROUND" ] || toast_args+=(-b "$CODEX_TERMUX_NOTIFY_TOAST_BACKGROUND")
+        [ -z "$CODEX_TERMUX_NOTIFY_TOAST_COLOR" ] || toast_args+=(-c "$CODEX_TERMUX_NOTIFY_TOAST_COLOR")
+        termux-toast "${toast_args[@]}" "$content" >/dev/null 2>&1 || true
     fi
 
-    if [ "${CODEX_TERMUX_NOTIFY_NO_API:-0}" != 1 ] && command -v termux-notification >/dev/null 2>&1; then
+    if [ "${CODEX_TERMUX_NOTIFY_NO_API:-0}" != 1 ] &&
+        [ "$CODEX_TERMUX_NOTIFY_NOTIFICATION" = "1" ] &&
+        command -v termux-notification >/dev/null 2>&1; then
         if termux-notification \
             --id "$notification_id" \
             --group "$CODEX_TERMUX_NOTIFY_GROUP" \

@@ -72,6 +72,22 @@ CODEX_TERMUX_WRAPPER_RELEASE_URL=https://example.invalid/codex-termux.tar.gz cod
 
 `CODEX_TERMUX_WRAPPER_RELEASE_SHA256` may be set to pin the archive checksum. Without release settings, the current install source is used and stored under the managed support directory for later `codex install` and `codex rebuild` calls.
 
+Turn-completion notification behavior can be configured in:
+
+```sh
+~/.local/share/codex/termux/notify/config.env
+```
+
+Example:
+
+```sh
+CODEX_TERMUX_NOTIFY_CONTENT_CHARS=0
+CODEX_TERMUX_NOTIFY_PRESERVE_NEWLINES=1
+CODEX_TERMUX_NOTIFY_TOAST_GRAVITY=middle
+```
+
+Use `CODEX_TERMUX_NOTIFY_TOAST_GRAVITY=top`, `middle`, or `bottom` to place the toast. Set `CODEX_TERMUX_NOTIFY_CONTENT_CHARS=0` to pass the full assistant message to the Android notification content.
+
 ```sh
 codex update
 ```
