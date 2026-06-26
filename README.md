@@ -79,6 +79,12 @@ codex use <selection>
 Lists cached and remote runtimes, then promotes the selected runtime. Selection accepts menu numbers and available runtime versions.
 
 ```sh
+codex session
+```
+
+Interactive curses-based TUI picker to resume any discovered Codex session across any target profile.
+
+```sh
 codex doctor
 ```
 

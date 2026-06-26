@@ -9,7 +9,7 @@ import tarfile
 from pathlib import Path, PurePosixPath
 from typing import Protocol
 
-from . import activation, doctor, hashing, paths, prune, registry, runtime_checks, use
+from . import activation, doctor, hashing, paths, prune, registry, runtime_checks, session, use
 from .errors import CodexTermuxError, IntegrityError
 from .schemas import ActivationPlan
 
@@ -33,6 +33,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_activation_commands(sub)
     _add_use_commands(sub)
     _add_doctor_commands(sub)
+    _add_session_commands(sub)
     return parser
 
 
@@ -552,6 +553,41 @@ def _doctor_render(args: argparse.Namespace) -> int:
         print(json.dumps(report, ensure_ascii=True, sort_keys=True))
         return 0
     return doctor.render_human(report)
+
+
+def _add_session_commands(sub: SubparserCollection) -> None:
+    list_cmd = sub.add_parser("session-list")
+    list_cmd.set_defaults(func=_session_list)
+
+    select_cmd = sub.add_parser("session-select")
+    select_cmd.add_argument("--choice", required=True)
+    select_cmd.add_argument("--target-profile", required=True)
+    select_cmd.set_defaults(func=_session_select)
+
+    tui_cmd = sub.add_parser("session-tui")
+    tui_cmd.add_argument("--output", required=True)
+    tui_cmd.add_argument("--all", action="store_true")
+    tui_cmd.set_defaults(func=lambda args: session.session_tui_command(args.output, args.all))
+
+
+def _session_list(args: argparse.Namespace) -> int:
+    rows = session.discover_sessions()
+    for r in rows[:20]:
+        disp_time = session.format_datetime(r.updated_at)
+        fields = [
+            r.native_session_ref,
+            r.source_profile,
+            disp_time,
+            r.workdir,
+            r.title,
+        ]
+        print("\x1f".join(fields))
+    return 0
+
+
+def _session_select(args: argparse.Namespace) -> int:
+    session.session_select(args.choice, args.target_profile)
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
