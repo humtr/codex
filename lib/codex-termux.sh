@@ -1460,15 +1460,15 @@ codex_display_dotted_date() {
     value="${value%%T*}"
     case "$value" in
         ????-??-??*)
-            printf '%s\n' "${value//-/.}"
+            printf '%s\n' "${value%%T*}"
             ;;
         [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]*)
-            printf '%s.%s.%s\n' "${value:0:4}" "${value:4:2}" "${value:6:2}"
+            printf '%s-%s-%s\n' "${value:0:4}" "${value:4:2}" "${value:6:2}"
             ;;
         *)
             digits="${value//[^0-9]/}"
             if [ "${#digits}" -ge 8 ]; then
-                printf '%s.%s.%s\n' "${digits:0:4}" "${digits:4:2}" "${digits:6:2}"
+                printf '%s-%s-%s\n' "${digits:0:4}" "${digits:4:2}" "${digits:6:2}"
             else
                 printf '%s\n' "$value"
             fi
@@ -1498,11 +1498,11 @@ if not value:
 text = str(value).split("T", 1)[0]
 match = re.match(r"(\d{4})[-.](\d{2})[-.](\d{2})", text)
 if match:
-    print(".".join(match.groups()))
+    print("-".join(match.groups()))
 else:
     digits = "".join(ch for ch in text if ch.isdigit())
     if len(digits) >= 8:
-        print(f"{digits[:4]}.{digits[4:6]}.{digits[6:8]}")
+        print(f"{digits[:4]}-{digits[4:6]}-{digits[6:8]}")
 ' "$version"
     else
         npm view @openai/codex time --json 2>/dev/null | \
@@ -1523,11 +1523,11 @@ if not value:
 text = str(value).split("T", 1)[0]
 match = re.match(r"(\d{4})[-.](\d{2})[-.](\d{2})", text)
 if match:
-    print(".".join(match.groups()))
+    print("-".join(match.groups()))
 else:
     digits = "".join(ch for ch in text if ch.isdigit())
     if len(digits) >= 8:
-        print(f"{digits[:4]}.{digits[4:6]}.{digits[6:8]}")
+        print(f"{digits[:4]}-{digits[4:6]}-{digits[6:8]}")
 ' "$version"
     fi
 }
