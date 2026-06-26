@@ -68,8 +68,8 @@ def patch_codex_binary(src: Path, dst: Path) -> dict[str, object]:
             raise RuntimeError(f"rewrite must preserve byte length: {source!r}")
         source_count = data.count(source)
         target_count_before = data.count(target)
-        if source_count != 1:
-            raise RuntimeError(f"expected exactly one {source!r}; found {source_count}")
+        if source_count < 1:
+            raise RuntimeError(f"expected at least one {source!r}; found {source_count}")
         if target_count_before != 0:
             raise RuntimeError(f"raw binary already contains {target!r}; refusing to patch")
         data[:] = data.replace(source, target)

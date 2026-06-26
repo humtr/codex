@@ -16,6 +16,7 @@ mkdir -p "$raw_vendor/bin" "$raw_vendor/codex-resources/zsh/bin" "$raw_vendor/co
 cat >"$raw_vendor/bin/codex" <<'SCRIPT'
 #!/bin/sh
 # /etc/resolv.conf
+# resolver fallback /etc/resolv.conf
 # /etc/codex/config.toml
 # /etc/codex/requirements.toml
 # /etc/codex/managed_config.toml
@@ -62,8 +63,9 @@ assert manifest["runtime_sha256"] == hashlib.sha256(runtime_bytes).hexdigest()
 assert manifest["builder_sha256"] == hashlib.sha256((root / "tools/build-runtime.py").read_bytes()).hexdigest()
 for source, target in rewrites.items():
     entry = manifest["rewrites"][source.decode("ascii")]
-    assert entry["source_count"] == 1
-    assert entry["target_count_after"] == 1
+    expected_count = raw_bytes.count(source)
+    assert entry["source_count"] == expected_count
+    assert entry["target_count_after"] == expected_count
     assert target in runtime_bytes
 for rel in (
     "codex",
