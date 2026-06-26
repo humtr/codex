@@ -64,6 +64,14 @@ codex install
 
 Refreshes wrapper support from the install source, downloads a fresh upstream package, patches a runtime bundle, activates it, and updates the verified rollback baseline.
 
+For fresh wrapper commands, the installer can use a release archive when configured:
+
+```sh
+CODEX_TERMUX_WRAPPER_RELEASE_URL=https://example.invalid/codex-termux.tar.gz codex install
+```
+
+`CODEX_TERMUX_WRAPPER_RELEASE_SHA256` may be set to pin the archive checksum. Without release settings, the current install source is used and stored under the managed support directory for later `codex install` and `codex rebuild` calls.
+
 ```sh
 codex update
 ```

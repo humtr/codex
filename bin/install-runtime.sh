@@ -6,6 +6,8 @@ ROOT_DIR="${BASH_SOURCE[0]%/*}"
 ROOT_DIR="$(cd "$ROOT_DIR/.." && pwd)"
 # shellcheck disable=SC1091
 . "$ROOT_DIR/lib/codex-termux.sh"
+CODEX_TERMUX_WRAPPER_SOURCE_DIR="${CODEX_TERMUX_WRAPPER_SOURCE_DIR:-$ROOT_DIR}"
+CODEX_TERMUX_WRAPPER_SOURCE_TMP=""
 
 usage() {
     cat <<'USAGE'
@@ -22,11 +24,120 @@ USAGE
 }
 
 codex_source_commit() {
-    if command -v git >/dev/null 2>&1 && git -C "$ROOT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-        git -C "$ROOT_DIR" rev-parse --short=12 HEAD 2>/dev/null || printf 'unknown\n'
+    local source_dir="${1:-$CODEX_TERMUX_WRAPPER_SOURCE_DIR}"
+    if command -v git >/dev/null 2>&1 && git -C "$source_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        git -C "$source_dir" rev-parse --short=12 HEAD 2>/dev/null || printf 'unknown\n'
     else
         printf 'unknown\n'
     fi
+}
+
+codex_validate_wrapper_source() {
+    local source_dir="$1"
+    [ -f "$source_dir/install.sh" ] || return 1
+    [ -f "$source_dir/bin/install-runtime.sh" ] || return 1
+    [ -f "$source_dir/lib/codex-termux.sh" ] || return 1
+    [ -f "$source_dir/tools/build-runtime.py" ] || return 1
+    [ -d "$source_dir/tools/codex_termux" ] || return 1
+    [ -f "$source_dir/config/wrapper-version.env" ] || return 1
+}
+
+codex_find_extracted_wrapper_source() {
+    local extract_dir="$1" candidate
+    if codex_validate_wrapper_source "$extract_dir"; then
+        printf '%s\n' "$extract_dir"
+        return 0
+    fi
+    while IFS= read -r candidate; do
+        candidate="${candidate%/bin/install-runtime.sh}"
+        if codex_validate_wrapper_source "$candidate"; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done <<EOF
+$(find "$extract_dir" -maxdepth 3 -type f -path '*/bin/install-runtime.sh' 2>/dev/null)
+EOF
+    return 1
+}
+
+codex_download_wrapper_archive() {
+    local source="$1" target="$2"
+    if [ -r "$source" ]; then
+        cp "$source" "$target"
+        return $?
+    fi
+    curl -fsSL "$source" -o "$target"
+}
+
+codex_fetch_release_wrapper_source() {
+    local url="${CODEX_TERMUX_WRAPPER_RELEASE_URL:-}" repo="${CODEX_TERMUX_WRAPPER_RELEASE_REPO:-}" tag="${CODEX_TERMUX_WRAPPER_RELEASE_TAG:-}"
+    local tmp archive extract source_dir actual_sha expected_sha
+    if [ -z "$url" ] && [ -n "$repo" ] && [ -n "$tag" ]; then
+        url="https://github.com/$repo/archive/refs/tags/$tag.tar.gz"
+    fi
+    [ -n "$url" ] || return 1
+    tmp="$(mktemp -d "${TMPDIR:-/tmp}/codex-wrapper-release.XXXXXX")"
+    archive="$tmp/wrapper.tar.gz"
+    extract="$tmp/extract"
+    mkdir -p "$extract"
+    codex_download_wrapper_archive "$url" "$archive" || {
+        rm -rf "$tmp"
+        return 1
+    }
+    expected_sha="${CODEX_TERMUX_WRAPPER_RELEASE_SHA256:-}"
+    if [ -n "$expected_sha" ]; then
+        actual_sha="$(codex_sha256 "$archive")"
+        [ "$actual_sha" = "$expected_sha" ] || {
+            rm -rf "$tmp"
+            codex_fail "Wrapper release checksum mismatch"
+            return 1
+        }
+    fi
+    tar -xf "$archive" -C "$extract" || {
+        rm -rf "$tmp"
+        return 1
+    }
+    source_dir="$(codex_find_extracted_wrapper_source "$extract")" || {
+        rm -rf "$tmp"
+        codex_fail "Wrapper release archive does not contain a valid wrapper source"
+        return 1
+    }
+    CODEX_TERMUX_WRAPPER_SOURCE_TMP="$tmp"
+    CODEX_TERMUX_WRAPPER_SOURCE_DIR="$source_dir"
+}
+
+codex_release_wrapper_source_configured() {
+    [ -n "${CODEX_TERMUX_WRAPPER_RELEASE_URL:-}" ] ||
+        { [ -n "${CODEX_TERMUX_WRAPPER_RELEASE_REPO:-}" ] && [ -n "${CODEX_TERMUX_WRAPPER_RELEASE_TAG:-}" ]; }
+}
+
+codex_prepare_fresh_wrapper_source() {
+    if codex_release_wrapper_source_configured; then
+        codex_fetch_release_wrapper_source
+        return $?
+    fi
+    CODEX_TERMUX_WRAPPER_SOURCE_DIR="$ROOT_DIR"
+    codex_validate_wrapper_source "$CODEX_TERMUX_WRAPPER_SOURCE_DIR"
+}
+
+codex_cleanup_fresh_wrapper_source() {
+    [ -z "$CODEX_TERMUX_WRAPPER_SOURCE_TMP" ] || rm -rf "$CODEX_TERMUX_WRAPPER_SOURCE_TMP"
+    CODEX_TERMUX_WRAPPER_SOURCE_TMP=""
+}
+
+codex_copy_wrapper_source_snapshot() {
+    local source_dir="$1" target_dir="$2"
+    if [ "$(cd "$source_dir" && pwd)" = "$(mkdir -p "$target_dir" && cd "$target_dir" && pwd)" ]; then
+        return 0
+    fi
+    codex_rm_rf_managed "$target_dir" || return $?
+    mkdir -p "$target_dir" || return $?
+    cp "$source_dir/install.sh" "$target_dir/install.sh"
+    cp -R "$source_dir/bin" "$target_dir/bin"
+    cp -R "$source_dir/lib" "$target_dir/lib"
+    cp -R "$source_dir/tools" "$target_dir/tools"
+    cp -R "$source_dir/config" "$target_dir/config"
+    [ ! -f "$source_dir/README.md" ] || cp "$source_dir/README.md" "$target_dir/README.md"
 }
 
 codex_write_managed_shell() {
@@ -35,7 +146,7 @@ codex_write_managed_shell() {
 #!$CODEX_TERMUX_PREFIX/bin/bash
 # codex termux managed shell
 set -euo pipefail
-export CODEX_TERMUX_INSTALL_RUNTIME_SOURCE="$ROOT_DIR/bin/install-runtime.sh"
+export CODEX_TERMUX_INSTALL_RUNTIME_SOURCE="$CODEX_TERMUX_SOURCE_DIR/bin/install-runtime.sh"
 # shellcheck disable=SC1091
 . "$CODEX_TERMUX_MANAGER_DIR/lib.sh"
 codex_main "\$@"
@@ -66,28 +177,33 @@ PYTHON
 }
 
 codex_install_support_files() {
-    local wrapper_commit
+    local wrapper_commit source_dir="$CODEX_TERMUX_WRAPPER_SOURCE_DIR"
+    codex_validate_wrapper_source "$source_dir" || {
+        codex_fail "Invalid wrapper source: $source_dir"
+        return 1
+    }
     mkdir -p "$CODEX_TERMUX_MANAGER_DIR" "$CODEX_TERMUX_STATE_DIR"
     codex_prepare_system_config
-    cp "$ROOT_DIR/lib/codex-termux.sh" "$CODEX_TERMUX_MANAGER_DIR/lib.sh"
+    codex_copy_wrapper_source_snapshot "$source_dir" "$CODEX_TERMUX_SOURCE_DIR" || return $?
+    cp "$source_dir/lib/codex-termux.sh" "$CODEX_TERMUX_MANAGER_DIR/lib.sh"
     chmod 755 "$CODEX_TERMUX_MANAGER_DIR/lib.sh"
     codex_rm_rf_managed "$CODEX_TERMUX_MANAGER_DIR/codex_termux"
-    cp -R "$ROOT_DIR/tools/codex_termux" "$CODEX_TERMUX_MANAGER_DIR/codex_termux"
+    cp -R "$source_dir/tools/codex_termux" "$CODEX_TERMUX_MANAGER_DIR/codex_termux"
     codex_check_manager_python
-    cp "$ROOT_DIR/tools/build-runtime.py" "$CODEX_TERMUX_MANAGER_DIR/build-runtime.py"
-    cp "$ROOT_DIR/tools/bwrap-termux-compat.py" "$CODEX_TERMUX_MANAGER_DIR/bwrap-termux-compat.py"
-    cp "$ROOT_DIR/tools/rg-termux-shim.sh" "$CODEX_TERMUX_MANAGER_DIR/rg-termux-shim.sh"
-    cp "$ROOT_DIR/tools/codex-turn-notify.sh" "$CODEX_TERMUX_MANAGER_DIR/codex-turn-notify.sh"
+    cp "$source_dir/tools/build-runtime.py" "$CODEX_TERMUX_MANAGER_DIR/build-runtime.py"
+    cp "$source_dir/tools/bwrap-termux-compat.py" "$CODEX_TERMUX_MANAGER_DIR/bwrap-termux-compat.py"
+    cp "$source_dir/tools/rg-termux-shim.sh" "$CODEX_TERMUX_MANAGER_DIR/rg-termux-shim.sh"
+    cp "$source_dir/tools/codex-turn-notify.sh" "$CODEX_TERMUX_MANAGER_DIR/codex-turn-notify.sh"
     chmod 755 "$CODEX_TERMUX_MANAGER_DIR/build-runtime.py" \
         "$CODEX_TERMUX_MANAGER_DIR/bwrap-termux-compat.py" \
         "$CODEX_TERMUX_MANAGER_DIR/rg-termux-shim.sh" \
         "$CODEX_TERMUX_MANAGER_DIR/codex-turn-notify.sh"
-    if [ -f "$ROOT_DIR/config/wrapper-version.env" ]; then
-        cp "$ROOT_DIR/config/wrapper-version.env" "$CODEX_TERMUX_MANAGER_DIR/wrapper-version.env"
+    if [ -f "$source_dir/config/wrapper-version.env" ]; then
+        cp "$source_dir/config/wrapper-version.env" "$CODEX_TERMUX_MANAGER_DIR/wrapper-version.env"
     else
         printf 'CODEX_TERMUX_WRAPPER_VERSION=unknown\nCODEX_TERMUX_WRAPPER_CHANNEL=local\nCODEX_TERMUX_WRAPPER_REPO=local/codex-termux\n' >"$CODEX_TERMUX_MANAGER_DIR/wrapper-version.env"
     fi
-    wrapper_commit="$(codex_source_commit)"
+    wrapper_commit="$(codex_source_commit "$source_dir")"
     {
         printf 'CODEX_TERMUX_WRAPPER_COMMIT=%s\n' "$wrapper_commit"
         printf 'CODEX_TERMUX_WRAPPER_INSTALLED_AT=%s\n' "$(date -Is)"
@@ -99,7 +215,7 @@ codex_install_support_files() {
 codex_launcher_available() { command -v clang >/dev/null 2>&1; }
 
 codex_build_launcher() {
-    clang -O2 -Wall -Wextra -o "$1" "$ROOT_DIR/tools/codex-launcher.c"
+    clang -O2 -Wall -Wextra -o "$1" "$CODEX_TERMUX_WRAPPER_SOURCE_DIR/tools/codex-launcher.c"
 }
 
 codex_prepare_launcher_slot() {
@@ -161,18 +277,30 @@ codex_install_launchers() {
 }
 
 codex_install() {
-    codex_validate_runtime_retention || return $?
-    codex_install_support_files
-    codex_install_launchers
-    codex_update "${1:-}" || return $?
-    codex_refresh_runtime_metadata
-    [ "${CODEX_TERMUX_INSTALL_PRINT_VERSION:-1}" = "0" ] || codex_version
+    local status=0
+    codex_prepare_fresh_wrapper_source || return $?
+    {
+        codex_validate_runtime_retention &&
+        codex_install_support_files &&
+        codex_install_launchers &&
+        codex_update "${1:-}" &&
+        codex_refresh_runtime_metadata &&
+        { [ "${CODEX_TERMUX_INSTALL_PRINT_VERSION:-1}" = "0" ] || codex_version; }
+    } || status=$?
+    codex_cleanup_fresh_wrapper_source
+    return "$status"
 }
 
 codex_rebuild() {
-    codex_install_support_files
-    codex_install_launchers
-    codex_repair_public
+    local status=0
+    codex_prepare_fresh_wrapper_source || return $?
+    {
+        codex_install_support_files &&
+        codex_install_launchers &&
+        codex_repair_public
+    } || status=$?
+    codex_cleanup_fresh_wrapper_source
+    return "$status"
 }
 
 main() {
