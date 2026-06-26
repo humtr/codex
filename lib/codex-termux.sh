@@ -1533,7 +1533,7 @@ else:
 }
 
 codex_version() {
-    local upstream upstream_version upstream_date runtime_date status=0
+    local upstream upstream_version upstream_date runtime_version runtime_date status=0
     codex_status_clear
     if upstream="$(codex_run_current_runtime --version 2>/dev/null)"; then
         status=0
@@ -1542,11 +1542,16 @@ codex_version() {
         upstream=""
     fi
     upstream_version="${upstream#codex-cli }"
-    upstream_date="$(codex_upstream_release_date "$upstream_version")"
-    runtime_date="$(codex_display_dotted_date "$(codex_current_runtime_date)")"
-    codex_ui_version_row "upstream version" "$upstream"
-    [ -n "$upstream_date" ] && codex_ui_version_row "upstream date" "$upstream_date"
-    [ -n "$runtime_date" ] && codex_ui_version_row "runtime date" "$runtime_date"
+    [ -n "$upstream_version" ] || upstream_version="unknown"
+    runtime_version="$(codex_display_version "$(codex_read_state_field version)")"
+    upstream_date="$(codex_upstream_release_date "$upstream_version" || true)"
+    runtime_date="$(codex_display_dotted_date "$(codex_current_runtime_date || true)")"
+    printf '%s' "$upstream" >&2
+    [ -n "$upstream_date" ] && printf ' (%s)' "$upstream_date" >&2
+    printf '\n' >&2
+    printf '%s %s' 'runtime' "$runtime_version" >&2
+    [ -n "$runtime_date" ] && printf ' (%s)' "$runtime_date" >&2
+    printf '\n' >&2
     return "$status"
 }
 
@@ -1565,7 +1570,7 @@ codex_wrapper_help() {
     printf '  %-8s  %s\n' 'session' 'Reserved surface for the cross-profile Codex session picker.'
     printf '  %-8s  %s\n' 'profile' 'List numbered profiles or enter a named profile with CODEX_HOME switched.'
     printf '  %-8s  %s\n' 'doctor' 'Check launcher, runtime resources, resolver, CA, DNS patch, and state.'
-    printf '  %-8s  %s\n' 'version' 'Print upstream Codex and active runtime date rows.'
+    printf '  %-8s  %s\n' 'version' 'Print upstream and runtime version/date rows.'
     printf '  %-8s  %s\n' 'remove' 'Remove managed launcher/runtime and restore launcher backups when present.'
 }
 
