@@ -48,7 +48,7 @@ The wrapper uses these terms consistently:
 - **active runtime**: the runtime currently selected by the managed launcher.
 - **verified runtime**: the rollback baseline kept after a successful activation.
 
-The runtime patch replaces the binary's `/etc/resolv.conf` lookup with `/proc/self/fd/33`. The launcher opens the Termux resolver source on fd 33 before running the runtime. fd 33 is therefore a runtime patch contract, not a configurable user option.
+The runtime patch remaps the binary's Termux-incompatible system paths through inherited file descriptors. The launcher opens the Termux resolver source on fd 33 and the managed Codex system config directory on fd 34 before running the runtime. These descriptors are runtime patch contracts, not configurable user options.
 
 ## Commands
 
@@ -59,16 +59,28 @@ codex
 Runs the managed upstream Codex runtime. The wrapper may repair, update, or roll back the managed runtime before launch. Bare `codex` launches the most recently selected profile, or `default` when no recent profile has been recorded.
 
 ```sh
-codex setup
+codex install
 ```
 
-Refreshes launcher/support files and ensures the raw package and active runtime are ready.
+Refreshes wrapper support from the install source, downloads a fresh upstream package, patches a runtime bundle, activates it, and updates the verified rollback baseline.
 
 ```sh
 codex update
 ```
 
-Downloads the selected or latest upstream package, patches a runtime bundle, activates it, and updates the verified rollback baseline.
+Downloads the selected or latest upstream package and builds it with the current installed wrapper.
+
+```sh
+codex rebuild
+```
+
+Refreshes wrapper support from the install source and rebuilds the runtime from the cached raw package without fetching upstream Codex.
+
+```sh
+codex repair
+```
+
+Rebuilds the runtime from the cached raw package with the current installed wrapper without network access.
 
 ```sh
 codex use

@@ -9,10 +9,11 @@ ROOT_DIR="$(cd "$ROOT_DIR/.." && pwd)"
 
 usage() {
     cat <<'USAGE'
-Usage: bash bin/install-runtime.sh [setup|support|repair|update|remove|doctor]
+Usage: bash bin/install-runtime.sh [install|support|rebuild|repair|update|remove|doctor]
 
-setup        Install support files, launcher, and a patched upstream Codex runtime.
+install      Install support files, launcher, and a fresh upstream Codex runtime.
 support      Refresh support files and the launcher only.
+rebuild      Refresh support files and rebuild the runtime from cached raw.
 repair       Rebuild the runtime from the cached raw package without network access.
 update       Fetch, patch, smoke-test, and promote the linux-arm64 Codex runtime.
 remove       Remove the managed launcher/runtime and restore a launcher backup.
@@ -159,38 +160,44 @@ codex_install_launchers() {
     fi
 }
 
-codex_setup() {
+codex_install() {
     codex_validate_runtime_retention || return $?
     codex_install_support_files
     codex_install_launchers
-    if ! codex_runtime_ok; then
-        if [ -x "$CODEX_TERMUX_RAW_VENDOR/bin/codex" ]; then
-            codex_repair_runtime_from_raw
-        else
-            codex_update "${1:-}"
-        fi
-    fi
+    codex_update "${1:-}" || return $?
     codex_refresh_runtime_metadata
-    [ "${CODEX_TERMUX_SETUP_PRINT_VERSION:-1}" = "0" ] || codex_version
+    [ "${CODEX_TERMUX_INSTALL_PRINT_VERSION:-1}" = "0" ] || codex_version
+}
+
+codex_rebuild() {
+    codex_install_support_files
+    codex_install_launchers
+    codex_repair_public
 }
 
 main() {
-    case "${1:-setup}" in
-        setup)
+    case "${1:-install}" in
+        install)
             shift || true
-            codex_setup "${1:-}"
+            codex_install "${1:-}"
             ;;
         support)
             codex_install_support_files
             codex_install_launchers
+            ;;
+        rebuild)
+            codex_rebuild
             ;;
         repair)
             codex_repair_public
             ;;
         update)
             shift || true
-            codex_install_support_files
             codex_update "${1:-}"
+            ;;
+        setup)
+            printf 'codex setup is reserved for configuration. Use install, update, rebuild, or repair.\n' >&2
+            exit 2
             ;;
         remove)
             codex_remove

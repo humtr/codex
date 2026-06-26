@@ -158,6 +158,26 @@ codex_repair_public() {
 }
 codex_main repair >/dev/null 2>&1
 [ "$repair_called" -eq 1 ] || fail_contract 'repair command did not route to codex_repair_public'
+
+install_called=0
+codex_install_public() {
+    install_called=1
+}
+codex_main install >/dev/null 2>&1
+[ "$install_called" -eq 1 ] || fail_contract 'install command did not route to codex_install_public'
+
+rebuild_called=0
+codex_rebuild_public() {
+    rebuild_called=1
+}
+codex_main rebuild >/dev/null 2>&1
+[ "$rebuild_called" -eq 1 ] || fail_contract 'rebuild command did not route to codex_rebuild_public'
+
+set +e
+codex_main setup >/dev/null 2>&1
+setup_status=$?
+set -e
+[ "$setup_status" -eq 2 ] || fail_contract "setup command status was $setup_status"
 BASH
     chmod +x "$contract_script"
     if CODEX_TERMUX_HOME="$tmp/home" \

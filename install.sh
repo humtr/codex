@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CODEX_TERMUX_REQUIRED_PACKAGES="${CODEX_TERMUX_REQUIRED_PACKAGES:-bash curl nodejs python tar coreutils ca-certificates}"
-CODEX_TERMUX_LOG_PREFIX="codex setup"
+CODEX_TERMUX_LOG_PREFIX="codex install"
 CODEX_TERMUX_INSTALL_VERSION_OUTPUT="${CODEX_TERMUX_INSTALL_VERSION_OUTPUT:-1}"
 export DEBIAN_FRONTEND="${DEBIAN_FRONTEND:-noninteractive}"
 
@@ -43,7 +43,7 @@ main() {
     say 'checking dependencies'
     install_dependencies
     say 'installing managed runtime'
-    CODEX_TERMUX_SETUP_PRINT_VERSION=0 bash "$ROOT_DIR/bin/install-runtime.sh" setup "$@" >/dev/null
+    CODEX_TERMUX_INSTALL_PRINT_VERSION=0 bash "$ROOT_DIR/bin/install-runtime.sh" install "$@" >/dev/null
     say 'verifying public launcher'
     "$PREFIX/bin/codex" version >/dev/null 2>&1 || fail 'public Codex launcher version check failed'
     say 'verifying wrapper diagnostics'

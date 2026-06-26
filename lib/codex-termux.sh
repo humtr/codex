@@ -225,6 +225,7 @@ codex_ui_text() {
         invalid_profile) printf 'Invalid profile name: %s\n' "$1" ;;
         missing_profile) printf 'Profile does not exist: %s\n' "$1" ;;
         profile_arg_error) printf 'Profile %s does not take arguments\n' "$1" ;;
+        setup_reserved) printf 'codex setup is reserved for configuration. Use codex install, update, rebuild, or repair.\n' ;;
         doctor_wrapper_title) printf 'Wrapper doctor\n' ;;
         session_stub) printf 'codex session is reserved for the upcoming cross-profile session picker.\n' ;;
         *)
@@ -248,6 +249,8 @@ codex_ui_step_text() {
         update_runtime) printf 'Updating Codex %s -> %s\n' "$1" "$2" ;;
         switch_runtime) printf 'Switching to Codex %s\n' "$1" ;;
         launch_codex) printf 'Launching Codex %s\n' "$1" ;;
+        install_runtime) printf 'Installing wrapper support and fresh upstream runtime\n' ;;
+        rebuild_runtime) printf 'Rebuilding wrapper support with cached raw runtime\n' ;;
         repair_runtime) printf 'Repairing runtime from the cached raw package\n' ;;
         rebuild_cached_runtime) printf 'Rebuilding runtime from the cached raw package\n' ;;
         open_profile) printf 'Opening profile %s\n' "$1" ;;
@@ -1297,9 +1300,10 @@ codex_wrapper_help() {
     printf '\n'
     printf 'Wrapper commands\n'
     printf '  %-8s  %s\n' 'codex' 'Managed upstream Codex entrypoint; bare execution may auto-update before launch.'
-    printf '  %-8s  %s\n' 'setup' 'Refresh launcher/support files and ensure raw/runtime are ready.'
+    printf '  %-8s  %s\n' 'install' 'Refresh wrapper support and install a fresh upstream runtime.'
+    printf '  %-8s  %s\n' 'rebuild' 'Refresh wrapper support and rebuild from cached raw without network access.'
     printf '  %-8s  %s\n' 'repair' 'Rebuild the runtime from the cached raw package without network access.'
-    printf '  %-8s  %s\n' 'update' 'Refresh support, update official linux-arm64 package, patch, and promote.'
+    printf '  %-8s  %s\n' 'update' 'Update official linux-arm64 package with the current wrapper.'
     printf '  %-8s  %s\n' 'use' 'List cached and remote runtimes; promote the selected runtime.'
     printf '  %-8s  %s\n' 'session' 'Reserved surface for the cross-profile Codex session picker.'
     printf '  %-8s  %s\n' 'profile' 'List numbered profiles or enter a named profile with CODEX_HOME switched.'
@@ -1951,11 +1955,36 @@ EOF
     codex_profile_exec "$target_profile_dir" "$target_profile" resume "$native_session_ref" "$@"
 }
 
-codex_setup_public() {
+codex_install_source_command() {
     if [ -n "${CODEX_TERMUX_INSTALL_RUNTIME_SOURCE:-}" ] && [ -x "$CODEX_TERMUX_INSTALL_RUNTIME_SOURCE" ]; then
-        exec bash "$CODEX_TERMUX_INSTALL_RUNTIME_SOURCE" setup "$@"
+        printf '%s\n' "$CODEX_TERMUX_INSTALL_RUNTIME_SOURCE"
+        return 0
     fi
-    codex_update "${1:-}"
+    return 1
+}
+
+codex_install_public() {
+    local source
+    source="$(codex_install_source_command)" || {
+        codex_fail "Install source is unavailable; run bash install.sh from a wrapper checkout"
+        return 1
+    }
+    exec bash "$source" install "$@"
+}
+
+codex_rebuild_public() {
+    local source
+    source="$(codex_install_source_command)" || {
+        codex_fail "Install source is unavailable; run bash install.sh from a wrapper checkout"
+        return 1
+    }
+    exec bash "$source" rebuild "$@"
+}
+
+codex_setup_public() {
+    codex_status_clear
+    printf 'Error: %s\n' "$(codex_ui_text_get setup_reserved)" >&2
+    return 2
 }
 
 codex_main() {
@@ -1964,6 +1993,14 @@ codex_main() {
         setup)
             shift
             codex_setup_public "$@"
+            ;;
+        install)
+            shift
+            codex_install_public "$@"
+            ;;
+        rebuild)
+            shift
+            codex_rebuild_public "$@"
             ;;
         update)
             shift
