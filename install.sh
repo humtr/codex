@@ -3,7 +3,6 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CODEX_TERMUX_REQUIRED_PACKAGES="${CODEX_TERMUX_REQUIRED_PACKAGES:-bash curl nodejs python tar coreutils ca-certificates}"
-CODEX_TERMUX_LOG_PREFIX="codex install"
 CODEX_TERMUX_INSTALL_VERSION_OUTPUT="${CODEX_TERMUX_INSTALL_VERSION_OUTPUT:-1}"
 export DEBIAN_FRONTEND="${DEBIAN_FRONTEND:-noninteractive}"
 CODEX_TERMUX_INSTALL_STATUS_ACTIVE=0
@@ -22,16 +21,16 @@ say() {
         *) message="$message..." ;;
     esac
     if [ -t 2 ]; then
-        printf '\r\033[2K%s: %s' "$CODEX_TERMUX_LOG_PREFIX" "$message" >&2
+        printf '\r\033[2K%s' "$message" >&2
         CODEX_TERMUX_INSTALL_STATUS_ACTIVE=1
     else
-        printf '%s: %s\n' "$CODEX_TERMUX_LOG_PREFIX" "$*" >&2
+        printf '%s\n' "$*" >&2
     fi
 }
 
 fail() {
     clear_status
-    printf '%s: ERROR: %s\n' "$CODEX_TERMUX_LOG_PREFIX" "$*" >&2
+    printf 'ERROR: %s\n' "$*" >&2
     exit 1
 }
 
@@ -51,7 +50,6 @@ install_dependencies() {
         return 0
     fi
     say "installing dependencies: ${missing[*]}"
-    clear_status
     apt-get install -y \
         -o Dpkg::Options::=--force-confdef \
         -o Dpkg::Options::=--force-confold \
@@ -63,7 +61,6 @@ main() {
     say 'checking dependencies'
     install_dependencies
     say 'installing managed runtime'
-    clear_status
     CODEX_TERMUX_INSTALL_PRINT_VERSION=0 bash "$ROOT_DIR/bin/install-runtime.sh" install "$@" >/dev/null
     say 'verifying public launcher'
     "$PREFIX/bin/codex" version >/dev/null 2>&1 || fail 'public Codex launcher version check failed'
@@ -75,7 +72,7 @@ main() {
         "$PREFIX/bin/codex" version
     fi
     clear_status
-    printf '%s: ok\n' "$CODEX_TERMUX_LOG_PREFIX" >&2
+    printf 'ok\n' >&2
 }
 
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
