@@ -15,7 +15,10 @@ runtime_dir="$TMP_DIR/runtime"
 mkdir -p "$raw_vendor/bin" "$raw_vendor/codex-resources/zsh/bin" "$raw_vendor/codex-path"
 cat >"$raw_vendor/bin/codex" <<'SCRIPT'
 #!/bin/sh
-# /etc/resolv.conf /etc/resolv.conf
+# /etc/resolv.conf
+# /etc/codex/config.toml
+# /etc/codex/requirements.toml
+# /etc/codex/managed_config.toml
 [ "${1:-}" = "--version" ] && printf 'codex test\n'
 exit 0
 SCRIPT
@@ -42,15 +45,26 @@ runtime = runtime_dir / "codex"
 manifest_path = runtime_dir / "runtime-build.json"
 raw_bytes = raw.read_bytes()
 runtime_bytes = runtime.read_bytes()
-expected = raw_bytes.replace(b"/etc/resolv.conf", b"/proc/self/fd/33")
-assert runtime_bytes == expected, "runtime binary is not exactly the fd33 DNS patch"
+rewrites = {
+    b"/etc/resolv.conf": b"/proc/self/fd/33",
+    b"/etc/codex/config.toml": b"/dev/fd/34/config.toml",
+    b"/etc/codex/requirements.toml": b"/dev/fd/34/requirements.toml",
+    b"/etc/codex/managed_config.toml": b"/dev/fd/34/managed_config.toml",
+}
+expected = raw_bytes
+for source, target in rewrites.items():
+    expected = expected.replace(source, target)
+assert runtime_bytes == expected, "runtime binary is not exactly the Termux fd remap patch"
 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-assert manifest["patch_policy"] == "dns-fd33-only-v1"
+assert manifest["patch_policy"] == "termux-fd-remap-v1"
 assert manifest["raw_sha256"] == hashlib.sha256(raw_bytes).hexdigest()
 assert manifest["runtime_sha256"] == hashlib.sha256(runtime_bytes).hexdigest()
 assert manifest["builder_sha256"] == hashlib.sha256((root / "tools/build-runtime.py").read_bytes()).hexdigest()
-assert manifest["resolver_source_count"] == 2
-assert manifest["resolver_target_count_after"] == 2
+for source, target in rewrites.items():
+    entry = manifest["rewrites"][source.decode("ascii")]
+    assert entry["source_count"] == 1
+    assert entry["target_count_after"] == 1
+    assert target in runtime_bytes
 for rel in (
     "codex",
     "codex-resources/bwrap",

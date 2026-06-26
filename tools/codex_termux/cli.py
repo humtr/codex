@@ -299,18 +299,24 @@ def _validate_wrapper_version(root: Path) -> None:
 def _validate_resolver_contract(root: Path) -> None:
     shell = (root / "lib/codex-termux.sh").read_text(encoding="utf-8")
     builder = (root / "tools/build-runtime.py").read_text(encoding="utf-8")
-    shell_policy = 'CODEX_TERMUX_PATCH_POLICY="${CODEX_TERMUX_PATCH_POLICY:-dns-fd33-only-v1}"'
-    builder_policy = 'PATCH_POLICY = "dns-fd33-only-v1"'
-    resolver_target = 'RESOLV_CONF_TARGET = b"/proc/self/fd/33"'
+    shell_policy = 'CODEX_TERMUX_PATCH_POLICY="${CODEX_TERMUX_PATCH_POLICY:-termux-fd-remap-v1}"'
+    builder_policy = 'PATCH_POLICY = "termux-fd-remap-v1"'
+    resolver_target = 'b"/etc/resolv.conf": b"/proc/self/fd/33"'
+    system_config_target = 'b"/etc/codex/config.toml": b"/dev/fd/34/config.toml"'
     runtime_fd = '33<"$CODEX_TERMUX_RESOLV_CONF"'
+    system_config_fd = '34<"$CODEX_TERMUX_SYSTEM_CONFIG_DIR"'
     if shell_policy not in shell:
         raise IntegrityError("shell patch policy contract changed")
     if builder_policy not in builder:
         raise IntegrityError("builder patch policy contract changed")
     if resolver_target not in builder:
         raise IntegrityError("builder resolver target contract changed")
+    if system_config_target not in builder:
+        raise IntegrityError("builder system config target contract changed")
     if runtime_fd not in shell:
         raise IntegrityError("runtime launcher fd33 contract changed")
+    if system_config_fd not in shell:
+        raise IntegrityError("runtime launcher fd34 contract changed")
 
 
 def _validate_profile_contract(root: Path) -> None:

@@ -34,7 +34,10 @@ mkdir -p "$raw_vendor/bin" "$raw_vendor/codex-resources/zsh/bin" "$raw_vendor/co
     "$(dirname "$resolv_conf")" "$(dirname "$cert_file")" "$cert_dir"
 cat >"$raw_vendor/bin/codex" <<'SCRIPT'
 #!/bin/sh
-# /etc/resolv.conf /etc/resolv.conf
+# /etc/resolv.conf
+# /etc/codex/config.toml
+# /etc/codex/requirements.toml
+# /etc/codex/managed_config.toml
 [ "${1:-}" = "--version" ] && printf 'codex good\n'
 exit 0
 SCRIPT
@@ -174,7 +177,7 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" python3 -B -m codex_termu
     --resolv-conf "$resolv_conf" \
     --cert-file "$cert_file" \
     --cert-dir "$cert_dir" \
-    --patch-policy dns-fd33-only-v1 >/dev/null
+    --patch-policy termux-fd-remap-v1 >/dev/null
 
 [ "$(readlink "$current_link")" = "$good_runtime" ] || fail 'current pointer was not restored to verified runtime'
 [ "$(readlink "$verified_link")" = "$good_runtime" ] || fail 'verified pointer changed unexpectedly'
@@ -192,7 +195,7 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" python3 -B -m codex_termu
     --registry-file "$registry_file" \
     --state-file "$state_file" \
     --runtime-builder "$manager_dir/build-runtime.py" \
-    --patch-policy dns-fd33-only-v1 \
+    --patch-policy termux-fd-remap-v1 \
     --retention 1 \
     --current-link "$current_link" \
     --verified-link "$verified_link" \

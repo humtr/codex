@@ -46,10 +46,14 @@ grep -F 'list|ls)' lib/codex-termux.sh >/dev/null \
     || fail 'profile list dispatch missing'
 grep -F '33<"$CODEX_TERMUX_RESOLV_CONF"' lib/codex-termux.sh >/dev/null \
     || fail 'runtime fd33 launcher contract missing'
-grep -F 'PATCH_POLICY = "dns-fd33-only-v1"' tools/build-runtime.py >/dev/null \
+grep -F '34<"$CODEX_TERMUX_SYSTEM_CONFIG_DIR"' lib/codex-termux.sh >/dev/null \
+    || fail 'runtime fd34 launcher contract missing'
+grep -F 'PATCH_POLICY = "termux-fd-remap-v1"' tools/build-runtime.py >/dev/null \
     || fail 'builder patch policy changed'
-grep -F 'RESOLV_CONF_TARGET = b"/proc/self/fd/33"' tools/build-runtime.py >/dev/null \
+grep -F 'b"/etc/resolv.conf": b"/proc/self/fd/33"' tools/build-runtime.py >/dev/null \
     || fail 'builder resolver target changed'
+grep -F 'b"/etc/codex/config.toml": b"/dev/fd/34/config.toml"' tools/build-runtime.py >/dev/null \
+    || fail 'builder system config target changed'
 
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=tools python3 -B -m codex_termux.cli validate --root "$ROOT_DIR" >/dev/null
 
@@ -114,7 +118,7 @@ def make_runtime(path: Path, builder: Path, runtime_bytes: bytes) -> str:
     runtime.write_bytes(runtime_bytes)
     runtime_sha = hashlib.sha256(runtime_bytes).hexdigest()
     manifest = {
-        "patch_policy": "dns-fd33-only-v1",
+        "patch_policy": "termux-fd-remap-v1",
         "builder_sha256": hashlib.sha256(builder.read_bytes()).hexdigest(),
         "runtime_sha256": runtime_sha,
     }
@@ -216,7 +220,7 @@ with TemporaryDirectory() as tmp:
         latest="0.142.0-linux-arm64",
         runtime_store_dir=runtime_store,
         runtime_builder=builder,
-        patch_policy="dns-fd33-only-v1",
+        patch_policy="termux-fd-remap-v1",
     )
     cached_rows = [row for row in rows if row["kind"] == "cached"]
     assert len(cached_rows) == 3, rows
@@ -229,7 +233,7 @@ with TemporaryDirectory() as tmp:
         latest="0.142.0-linux-arm64",
         runtime_store_dir=runtime_store,
         runtime_builder=builder,
-        patch_policy="dns-fd33-only-v1",
+        patch_policy="termux-fd-remap-v1",
     )
     assert latest_row is None
     assert len(remaining) == 3

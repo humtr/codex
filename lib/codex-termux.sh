@@ -28,6 +28,8 @@ CODEX_TERMUX_DOCTOR_DIR="${CODEX_TERMUX_DOCTOR_DIR:-$CODEX_TERMUX_STATE_DIR/doct
 CODEX_TERMUX_LOCK_FILE="${CODEX_TERMUX_LOCK_FILE:-$CODEX_TERMUX_STATE_DIR/termux.lock}"
 CODEX_TERMUX_LOCK_WAIT_SECONDS="${CODEX_TERMUX_LOCK_WAIT_SECONDS:-30}"
 CODEX_TERMUX_RESOLV_CONF="${CODEX_TERMUX_RESOLV_CONF:-$CODEX_TERMUX_PREFIX/etc/resolv.conf}"
+CODEX_TERMUX_TMPDIR="${CODEX_TERMUX_TMPDIR:-$CODEX_TERMUX_PREFIX/tmp}"
+CODEX_TERMUX_SYSTEM_CONFIG_DIR="${CODEX_TERMUX_SYSTEM_CONFIG_DIR:-$CODEX_TERMUX_STATE_DIR/system-config}"
 CODEX_TERMUX_CERT_FILE="${CODEX_TERMUX_CERT_FILE:-$CODEX_TERMUX_PREFIX/etc/tls/cert.pem}"
 CODEX_TERMUX_CERT_DIR="${CODEX_TERMUX_CERT_DIR:-$CODEX_TERMUX_PREFIX/etc/tls/certs}"
 CODEX_TERMUX_PACKAGE_SPEC_DEFAULT="${CODEX_TERMUX_PACKAGE_SPEC_DEFAULT:-@openai/codex@linux-arm64}"
@@ -43,7 +45,7 @@ CODEX_TERMUX_AUTO_UPDATE_PENDING="${CODEX_TERMUX_AUTO_UPDATE_PENDING:-$CODEX_TER
 CODEX_TERMUX_AUTO_UPDATE_FAILED="${CODEX_TERMUX_AUTO_UPDATE_FAILED:-$CODEX_TERMUX_STATE_DIR/failed-auto-update}"
 CODEX_TERMUX_LAST_PROFILE_FILE="${CODEX_TERMUX_LAST_PROFILE_FILE:-$CODEX_TERMUX_STATE_DIR/last-profile}"
 CODEX_TERMUX_RUNTIME_RETENTION="${CODEX_TERMUX_RUNTIME_RETENTION:-3}"
-CODEX_TERMUX_PATCH_POLICY="${CODEX_TERMUX_PATCH_POLICY:-dns-fd33-only-v1}"
+CODEX_TERMUX_PATCH_POLICY="${CODEX_TERMUX_PATCH_POLICY:-termux-fd-remap-v1}"
 
 CODEX_STATUS_ACTIVE=0
 
@@ -456,6 +458,21 @@ codex_require_runtime_resolver() {
     fi
 }
 
+codex_prepare_system_config() {
+    mkdir -p "$CODEX_TERMUX_TMPDIR" "$CODEX_TERMUX_SYSTEM_CONFIG_DIR" || return $?
+    if [ ! -e "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/config.toml" ]; then
+        cat >"$CODEX_TERMUX_SYSTEM_CONFIG_DIR/config.toml" <<'TOML'
+[sandbox_workspace_write]
+exclude_slash_tmp = true
+exclude_tmpdir_env_var = false
+TOML
+    fi
+    [ -e "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/requirements.toml" ] ||
+        : >"$CODEX_TERMUX_SYSTEM_CONFIG_DIR/requirements.toml"
+    [ -e "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/managed_config.toml" ] ||
+        : >"$CODEX_TERMUX_SYSTEM_CONFIG_DIR/managed_config.toml"
+}
+
 codex_runtime_exec() {
     local executable="$1"
     shift || true
@@ -468,6 +485,10 @@ codex_runtime_exec() {
     runtime_env=(env -u LD_PRELOAD -u LD_LIBRARY_PATH \
         -u CODEX_MANAGED_BY_NPM -u CODEX_MANAGED_BY_BUN -u CODEX_MANAGED_PACKAGE_ROOT \
         HOME="$run_home" \
+        TMPDIR="$CODEX_TERMUX_TMPDIR" \
+        TMP="$CODEX_TERMUX_TMPDIR" \
+        TEMP="$CODEX_TERMUX_TMPDIR" \
+        SQLITE_TMPDIR="$CODEX_TERMUX_TMPDIR" \
         XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$run_home/.config}" \
         XDG_CACHE_HOME="${XDG_CACHE_HOME:-$run_home/.cache}" \
         XDG_DATA_HOME="${XDG_DATA_HOME:-$run_home/.local/share}" \
@@ -478,7 +499,8 @@ codex_runtime_exec() {
         PATH="$runtime_dir/codex-path:$runtime_dir/codex-resources:$CODEX_TERMUX_PREFIX/bin:$PATH" \
         "${cert_dir_env[@]}")
     codex_require_runtime_resolver || return $?
-    "${runtime_env[@]}" "$executable" "$@" 33<"$CODEX_TERMUX_RESOLV_CONF"
+    codex_prepare_system_config || return $?
+    "${runtime_env[@]}" "$executable" "$@" 33<"$CODEX_TERMUX_RESOLV_CONF" 34<"$CODEX_TERMUX_SYSTEM_CONFIG_DIR"
 }
 
 codex_smoke_test_runtime() {
@@ -1176,6 +1198,11 @@ codex_ensure_runtime_ready() {
 
 
 codex_prepare_runtime_env() {
+    codex_prepare_system_config || return $?
+    export TMPDIR="$CODEX_TERMUX_TMPDIR"
+    export TMP="$CODEX_TERMUX_TMPDIR"
+    export TEMP="$CODEX_TERMUX_TMPDIR"
+    export SQLITE_TMPDIR="$CODEX_TERMUX_TMPDIR"
     export SSL_CERT_FILE="${SSL_CERT_FILE:-$CODEX_TERMUX_CERT_FILE}"
     [ -d "$CODEX_TERMUX_CERT_DIR" ] && export SSL_CERT_DIR="${SSL_CERT_DIR:-$CODEX_TERMUX_CERT_DIR}"
     if [ -z "${BROWSER:-}" ] && command -v termux-open-url >/dev/null 2>&1; then
@@ -1189,16 +1216,16 @@ codex_prepare_runtime_env() {
 
 codex_run_current_runtime() {
     codex_status_clear
-    codex_prepare_runtime_env
+    codex_prepare_runtime_env || return $?
     codex_require_runtime_resolver || return $?
-    "$CODEX_TERMUX_RUNTIME" "$@" 33<"$CODEX_TERMUX_RESOLV_CONF"
+    "$CODEX_TERMUX_RUNTIME" "$@" 33<"$CODEX_TERMUX_RESOLV_CONF" 34<"$CODEX_TERMUX_SYSTEM_CONFIG_DIR"
 }
 
 codex_exec_current_runtime() {
     codex_status_clear
-    codex_prepare_runtime_env
+    codex_prepare_runtime_env || return $?
     codex_require_runtime_resolver || return $?
-    exec "$CODEX_TERMUX_RUNTIME" "$@" 33<"$CODEX_TERMUX_RESOLV_CONF"
+    exec "$CODEX_TERMUX_RUNTIME" "$@" 33<"$CODEX_TERMUX_RESOLV_CONF" 34<"$CODEX_TERMUX_SYSTEM_CONFIG_DIR"
 }
 
 codex_current_wrapper_version() {

@@ -66,6 +66,7 @@ PYTHON
 codex_install_support_files() {
     local wrapper_commit
     mkdir -p "$CODEX_TERMUX_MANAGER_DIR" "$CODEX_TERMUX_STATE_DIR"
+    codex_prepare_system_config
     cp "$ROOT_DIR/lib/codex-termux.sh" "$CODEX_TERMUX_MANAGER_DIR/lib.sh"
     chmod 755 "$CODEX_TERMUX_MANAGER_DIR/lib.sh"
     codex_rm_rf_managed "$CODEX_TERMUX_MANAGER_DIR/codex_termux"

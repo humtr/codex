@@ -12,9 +12,13 @@ import sys
 from pathlib import Path
 
 
-RESOLV_CONF_SOURCE = b"/etc/resolv.conf"
-RESOLV_CONF_TARGET = b"/proc/self/fd/33"
-PATCH_POLICY = "dns-fd33-only-v1"
+REWRITES = {
+    b"/etc/resolv.conf": b"/proc/self/fd/33",
+    b"/etc/codex/config.toml": b"/dev/fd/34/config.toml",
+    b"/etc/codex/requirements.toml": b"/dev/fd/34/requirements.toml",
+    b"/etc/codex/managed_config.toml": b"/dev/fd/34/managed_config.toml",
+}
+PATCH_POLICY = "termux-fd-remap-v1"
 CHUNK_SIZE = 1024 * 1024
 TOOL_DIR = Path(__file__).resolve().parent
 BWRAP_COMPAT_SOURCE = TOOL_DIR / "bwrap-termux-compat.py"
@@ -58,30 +62,33 @@ def install_termux_compat_tools(runtime_dir: Path) -> None:
 def patch_codex_binary(src: Path, dst: Path) -> dict[str, object]:
     raw = src.read_bytes()
     data = bytearray(raw)
-    source_count = data.count(RESOLV_CONF_SOURCE)
-    target_count_before = data.count(RESOLV_CONF_TARGET)
-    if len(RESOLV_CONF_SOURCE) != len(RESOLV_CONF_TARGET):
-        raise RuntimeError("resolver rewrite must preserve byte length")
-    if source_count < 1:
-        raise RuntimeError(
-            f"expected at least one {RESOLV_CONF_SOURCE!r}; found {source_count}"
-        )
-    if target_count_before != 0:
-        raise RuntimeError(
-            f"raw binary already contains {RESOLV_CONF_TARGET!r}; refusing to patch"
-        )
-    data[:] = data.replace(RESOLV_CONF_SOURCE, RESOLV_CONF_TARGET)
-    expected = raw.replace(RESOLV_CONF_SOURCE, RESOLV_CONF_TARGET)
+    rewrite_report: dict[str, dict[str, int]] = {}
+    for source, target in REWRITES.items():
+        if len(source) != len(target):
+            raise RuntimeError(f"rewrite must preserve byte length: {source!r}")
+        source_count = data.count(source)
+        target_count_before = data.count(target)
+        if source_count != 1:
+            raise RuntimeError(f"expected exactly one {source!r}; found {source_count}")
+        if target_count_before != 0:
+            raise RuntimeError(f"raw binary already contains {target!r}; refusing to patch")
+        data[:] = data.replace(source, target)
+        rewrite_report[source.decode("ascii")] = {
+            "source_count": source_count,
+            "target_count_before": target_count_before,
+            "target_count_after": data.count(target),
+        }
+    expected = raw
+    for source, target in REWRITES.items():
+        expected = expected.replace(source, target)
     if data != expected:
-        raise RuntimeError("runtime binary differs from the DNS-only patch policy")
+        raise RuntimeError("runtime binary differs from the fd remap patch policy")
     tmp = dst.with_name(f".{dst.name}.building")
     tmp.write_bytes(data)
     os.chmod(tmp, 0o755)
     os.replace(tmp, dst)
     return {
-        "resolver_source_count": source_count,
-        "resolver_target_count_before": target_count_before,
-        "resolver_target_count_after": data.count(RESOLV_CONF_TARGET),
+        "rewrites": rewrite_report,
         "changed_byte_count": sum(left != right for left, right in zip(raw, data)),
     }
 

@@ -21,6 +21,12 @@ SECTION_RUNTIME = "Runtime"
 SECTION_SUPPORT = "Support"
 SECTION_STATE = "State"
 SECTION_STORE = "Store"
+FD_REWRITES = {
+    b"/etc/resolv.conf": b"/proc/self/fd/33",
+    b"/etc/codex/config.toml": b"/dev/fd/34/config.toml",
+    b"/etc/codex/requirements.toml": b"/dev/fd/34/requirements.toml",
+    b"/etc/codex/managed_config.toml": b"/dev/fd/34/managed_config.toml",
+}
 
 
 @dataclass(frozen=True)
@@ -61,10 +67,10 @@ def build_report(inputs: DoctorInputs) -> dict[str, Any]:
         "verifiedTupleId": verified_tuple_id,
         "paths": _paths(inputs),
         "termuxDelta": {
-            "runtimePatch": "replace /etc/resolv.conf with /proc/self/fd/33",
+            "runtimePatch": "remap resolver and Codex system config through inherited file descriptors",
             "bwrap": "Termux no-namespace compatibility launcher",
             "rg": "managed shim that preserves the upstream rg binary",
-            "env": "sanitize LD_* and npm/bun management variables before launch",
+            "env": "sanitize LD_*, npm/bun management variables, and temporary directories before launch",
         },
         "buildManifest": manifest,
         "checks": checks,
@@ -107,10 +113,10 @@ def _checks(inputs: DoctorInputs, manifest: dict[str, Any]) -> dict[str, bool]:
         "raw_hash": bool(actual_raw_sha and actual_raw_sha == inputs.raw_sha256 == manifest.get("raw_sha256")),
         "runtime_hash": bool(actual_runtime_sha and actual_runtime_sha == inputs.runtime_sha256 and actual_runtime_sha == manifest.get("runtime_sha256")),
         "build_manifest": bool(manifest.get("patch_policy") == inputs.patch_policy and manifest.get("builder_sha256") == _safe_hash(inputs.runtime_builder)),
-        "dns_only_patch": _dns_only_patch(raw_binary, inputs.runtime),
+        "fd_remap_only_patch": _fd_remap_only_patch(raw_binary, inputs.runtime),
         "bwrap_exec": _run_ok([str(path_bwrap), "--ro-bind", "/", "/", "--", str(inputs.prefix / "bin/true")]),
         "rg_exec": _run_ok([str(rg), "--version"]),
-        "dns_patch": _dns_patch_check(inputs.runtime),
+        "fd_remap_patch": _fd_remap_patch_check(inputs.runtime),
     }
 
 
@@ -179,7 +185,7 @@ def render_human(report: dict[str, Any], output: TextIO | None = None) -> int:
     row(bool(checks.get("raw")), "raw", "official raw binary cache exists")
     detail("vendor", paths.get("raw_vendor", "missing"))
     row(bool(checks.get("runtime_hash")) and bool(checks.get("raw_hash")), "hashes", "state, raw, runtime, and manifest hashes agree")
-    row(bool(checks.get("dns_only_patch")) and bool(checks.get("dns_patch")), "dns patch", "only the resolver fd33 patch is present")
+    row(bool(checks.get("fd_remap_only_patch")) and bool(checks.get("fd_remap_patch")), "fd remap", "resolver and Codex system config paths are fd-remapped")
     row(bool(checks.get("build_manifest")), "manifest", "runtime-build.json matches builder and patch policy")
 
     print(file=out)
@@ -442,10 +448,13 @@ def _files_match(left: Path, right: Path) -> bool:
         return False
 
 
-def _dns_only_patch(raw_binary: Path, runtime: Path) -> bool:
+def _fd_remap_only_patch(raw_binary: Path, runtime: Path) -> bool:
     try:
         raw = raw_binary.read_bytes()
-        return raw.replace(b"/etc/resolv.conf", b"/proc/self/fd/33") == runtime.read_bytes()
+        expected = raw
+        for source, target in FD_REWRITES.items():
+            expected = expected.replace(source, target)
+        return expected == runtime.read_bytes()
     except Exception:
         return False
 
@@ -457,10 +466,12 @@ def _run_ok(argv: list[str]) -> bool:
         return False
 
 
-def _dns_patch_check(runtime: Path) -> bool:
+def _fd_remap_patch_check(runtime: Path) -> bool:
     try:
         data = runtime.read_bytes()
-        return b"/proc/self/fd/33" in data and b"/etc/resolv.conf" not in data
+        return all(target in data for target in FD_REWRITES.values()) and not any(
+            source in data for source in FD_REWRITES
+        )
     except Exception:
         return False
 
