@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/data/data/com.termux/files/usr/bin/bash
 set -u
 
 CODEX_TERMUX_PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
