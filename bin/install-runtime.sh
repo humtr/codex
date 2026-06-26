@@ -170,7 +170,7 @@ codex_setup() {
         fi
     fi
     codex_refresh_runtime_metadata
-    codex_version
+    [ "${CODEX_TERMUX_SETUP_PRINT_VERSION:-1}" = "0" ] || codex_version
 }
 
 main() {

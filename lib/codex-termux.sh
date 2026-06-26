@@ -216,8 +216,8 @@ codex_ui_text() {
         current_kept) printf 'Kept current runtime (%s).\n' "$1" ;;
         create_profile_prompt) printf "Create profile '%s' [y/N]> \n" "$1" ;;
         created_profile) printf 'Created profile %s.\n' "$1" ;;
-        installed_codex) printf 'Installed Codex %s.\n' "$1" ;;
-        rebuilt_cached_runtime) printf 'Rebuilt runtime from cached raw package (%s).\n' "$1" ;;
+        installed_codex) printf 'Installed Codex %s\n' "$1" ;;
+        rebuilt_cached_runtime) printf 'Rebuilt runtime from cached raw package (%s)\n' "$1" ;;
         update_failed_continue) printf 'Update failed. Continuing with %s.\n' "$1" ;;
         restored_verified) printf 'Restored the active runtime from the verified copy.\n' ;;
         restored_backup) printf 'Restored %s from %s.\n' "$1" "$2" ;;
@@ -812,7 +812,7 @@ codex_repair_runtime_from_raw_unlocked() {
     [ -n "$version" ] || version="unknown"
     [ -n "$package_spec" ] || package_spec="local"
     codex_rebuild_runtime_unlocked "$version" "$package_spec" || return $?
-    codex_say "$(codex_ui_text_get rebuilt_cached_runtime "$version")"
+    codex_ui_step rebuild_cached_runtime
 }
 
 codex_repair_runtime_from_raw() {
@@ -865,7 +865,7 @@ EOF
         return 1
     fi
     rm -rf "$tmp"
-    codex_say "$(codex_ui_text_get installed_codex "$(codex_display_version "$version")")"
+    codex_ui_step switch_runtime "$(codex_display_version "$version")"
 }
 
 codex_update() {

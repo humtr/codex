@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CODEX_TERMUX_REQUIRED_PACKAGES="${CODEX_TERMUX_REQUIRED_PACKAGES:-bash curl nodejs python tar coreutils ca-certificates}"
 CODEX_TERMUX_LOG_PREFIX="codex setup"
+CODEX_TERMUX_INSTALL_VERSION_OUTPUT="${CODEX_TERMUX_INSTALL_VERSION_OUTPUT:-1}"
 export DEBIAN_FRONTEND="${DEBIAN_FRONTEND:-noninteractive}"
 
 say() {
@@ -42,12 +43,15 @@ main() {
     say 'checking dependencies'
     install_dependencies
     say 'installing managed runtime'
-    bash "$ROOT_DIR/bin/install-runtime.sh" setup "$@"
+    CODEX_TERMUX_SETUP_PRINT_VERSION=0 bash "$ROOT_DIR/bin/install-runtime.sh" setup "$@" >/dev/null
     say 'verifying public launcher'
-    "$PREFIX/bin/codex" version >/dev/null || fail 'public Codex launcher version check failed'
+    "$PREFIX/bin/codex" version >/dev/null 2>&1 || fail 'public Codex launcher version check failed'
     say 'verifying wrapper diagnostics'
     bash "$ROOT_DIR/bin/install-runtime.sh" doctor --json >/dev/null \
         || fail 'wrapper doctor verification failed'
+    if [ "$CODEX_TERMUX_INSTALL_VERSION_OUTPUT" = "1" ]; then
+        "$PREFIX/bin/codex" version
+    fi
     say 'ok'
 }
 
