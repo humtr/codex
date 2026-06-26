@@ -32,7 +32,19 @@ CODEX_TERMUX_RESOLV_CONF="${CODEX_TERMUX_RESOLV_CONF:-$CODEX_TERMUX_PREFIX/etc/r
 CODEX_TERMUX_TMPDIR="${CODEX_TERMUX_TMPDIR:-$CODEX_TERMUX_PREFIX/tmp}"
 CODEX_TERMUX_SYSTEM_CONFIG_DIR="${CODEX_TERMUX_SYSTEM_CONFIG_DIR:-$CODEX_TERMUX_STATE_DIR/system-config}"
 CODEX_TERMUX_TURN_NOTIFY="${CODEX_TERMUX_TURN_NOTIFY:-$CODEX_TERMUX_MANAGER_DIR/codex-turn-notify.sh}"
+CODEX_TERMUX_NOTIFY_DIR="${CODEX_TERMUX_NOTIFY_DIR:-$CODEX_TERMUX_STATE_DIR/notify}"
+CODEX_TERMUX_NOTIFY_CONFIG="${CODEX_TERMUX_NOTIFY_CONFIG:-$CODEX_TERMUX_NOTIFY_DIR/config.env}"
+CODEX_TERMUX_NOTIFY_GROUP="${CODEX_TERMUX_NOTIFY_GROUP:-codex-turns}"
+CODEX_TERMUX_NOTIFY_CONTENT_CHARS="${CODEX_TERMUX_NOTIFY_CONTENT_CHARS:-140}"
+CODEX_TERMUX_NOTIFY_PRESERVE_NEWLINES="${CODEX_TERMUX_NOTIFY_PRESERVE_NEWLINES:-0}"
+CODEX_TERMUX_NOTIFY_TOAST="${CODEX_TERMUX_NOTIFY_TOAST:-1}"
+CODEX_TERMUX_NOTIFY_TOAST_SHORT="${CODEX_TERMUX_NOTIFY_TOAST_SHORT:-0}"
+CODEX_TERMUX_NOTIFY_TOAST_BACKGROUND="${CODEX_TERMUX_NOTIFY_TOAST_BACKGROUND:-}"
+CODEX_TERMUX_NOTIFY_TOAST_COLOR="${CODEX_TERMUX_NOTIFY_TOAST_COLOR:-}"
+CODEX_TERMUX_NOTIFY_NOTIFICATION="${CODEX_TERMUX_NOTIFY_NOTIFICATION:-1}"
 CODEX_TERMUX_NOTIFY_PRETOOLUSE="${CODEX_TERMUX_NOTIFY_PRETOOLUSE:-0}"
+CODEX_TERMUX_NOTIFY_HOOKS="${CODEX_TERMUX_NOTIFY_HOOKS:-Stop}"
+CODEX_TERMUX_NOTIFY_TOAST_GRAVITY="${CODEX_TERMUX_NOTIFY_TOAST_GRAVITY:-top}"
 CODEX_TERMUX_CERT_FILE="${CODEX_TERMUX_CERT_FILE:-$CODEX_TERMUX_PREFIX/etc/tls/cert.pem}"
 CODEX_TERMUX_CERT_DIR="${CODEX_TERMUX_CERT_DIR:-$CODEX_TERMUX_PREFIX/etc/tls/certs}"
 CODEX_TERMUX_PACKAGE_SPEC_DEFAULT="${CODEX_TERMUX_PACKAGE_SPEC_DEFAULT:-@openai/codex@linux-arm64}"
@@ -227,7 +239,7 @@ codex_ui_text() {
         invalid_profile) printf 'Invalid profile name: %s\n' "$1" ;;
         missing_profile) printf 'Profile does not exist: %s\n' "$1" ;;
         profile_arg_error) printf 'Profile %s does not take arguments\n' "$1" ;;
-        setup_reserved) printf 'codex setup is reserved for configuration. Use codex install, update, rebuild, or repair.\n' ;;
+        setup_reserved) printf 'codex setup is reserved for configuration. Use codex install, update, rebuild, repair, or notify.\n' ;;
         doctor_wrapper_title) printf 'Wrapper doctor\n' ;;
         session_stub) printf 'codex session is reserved for the upcoming cross-profile session picker.\n' ;;
         *)
@@ -465,45 +477,193 @@ codex_require_runtime_resolver() {
     fi
 }
 
-codex_prepare_system_config() {
+codex_notify_load_config() {
+    local config_file="$CODEX_TERMUX_NOTIFY_CONFIG"
+    [ -r "$config_file" ] || return 0
+    # shellcheck disable=SC1090
+    . "$config_file"
+    CODEX_TERMUX_NOTIFY_HOOKS="$(codex_notify_hooks_normalize "${CODEX_TERMUX_NOTIFY_HOOKS:-Stop}")"
+}
+
+codex_notify_all_hooks() {
+    printf '%s\n' \
+        SessionStart \
+        PreToolUse \
+        PermissionRequest \
+        PostToolUse \
+        PreCompact \
+        PostCompact \
+        UserPromptSubmit \
+        SubagentStart \
+        SubagentStop \
+        Stop
+}
+
+codex_notify_hook_canonical() {
+    case "${1:-}" in
+        stop|Stop) printf 'Stop' ;;
+        sessionstart|SessionStart) printf 'SessionStart' ;;
+        pretooluse|PreToolUse) printf 'PreToolUse' ;;
+        permissionrequest|PermissionRequest) printf 'PermissionRequest' ;;
+        posttooluse|PostToolUse) printf 'PostToolUse' ;;
+        precompact|PreCompact) printf 'PreCompact' ;;
+        postcompact|PostCompact) printf 'PostCompact' ;;
+        userpromptsubmit|UserPromptSubmit) printf 'UserPromptSubmit' ;;
+        subagentstart|SubagentStart) printf 'SubagentStart' ;;
+        subagentstop|SubagentStop) printf 'SubagentStop' ;;
+        all|ALL) printf 'all' ;;
+        *) printf '%s' "${1:-}" ;;
+    esac
+}
+
+codex_notify_hooks_normalize() {
+    local hooks="${1:-Stop}" event seen="," normalized="" event_list=()
+    case ",$hooks," in
+        *,all,*|*,ALL,*)
+            printf 'all\n'
+            return 0
+            ;;
+    esac
+    IFS=, read -r -a event_list <<<"$hooks"
+    for event in "${event_list[@]}"; do
+        event="$(codex_notify_hook_canonical "$event")"
+        [ -n "$event" ] || continue
+        case "$event" in
+            all) printf 'all\n'; return 0 ;;
+        esac
+        case "$seen" in
+            *,"$event",*) continue ;;
+        esac
+        seen="$seen$event,"
+        normalized="${normalized:+$normalized,}$event"
+    done
+    [ -n "$normalized" ] || normalized="Stop"
+    printf '%s\n' "$normalized"
+}
+
+codex_notify_event_label() {
+    case "${1:-}" in
+        SessionStart) printf 'session start' ;;
+        PreToolUse) printf 'tool start' ;;
+        PermissionRequest) printf 'permission request' ;;
+        PostToolUse) printf 'tool finished' ;;
+        PreCompact) printf 'before compact' ;;
+        PostCompact) printf 'after compact' ;;
+        UserPromptSubmit) printf 'prompt submitted' ;;
+        SubagentStart) printf 'subagent start' ;;
+        SubagentStop) printf 'subagent finished' ;;
+        Stop) printf 'turn complete' ;;
+        *) printf '%s' "${1:-}" ;;
+    esac
+}
+
+codex_notify_hook_enabled() {
+    local event hooks
+    event="$(codex_notify_hook_canonical "$1")"
+    hooks="$(codex_notify_hooks_normalize "${CODEX_TERMUX_NOTIFY_HOOKS:-Stop}")"
+    case ",$hooks," in
+        *,all,*) return 0 ;;
+        *,"$event",*) return 0 ;;
+    esac
+    case "$event" in
+        PreToolUse)
+            [ "$CODEX_TERMUX_NOTIFY_PRETOOLUSE" = "1" ]
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+codex_notify_hook_list() {
+    local hooks event seen="," event_list=()
+    hooks="$(codex_notify_hooks_normalize "${1:-${CODEX_TERMUX_NOTIFY_HOOKS:-Stop}}")"
+    case ",$hooks," in
+        *,all,*)
+            codex_notify_all_hooks
+            return 0
+            ;;
+    esac
+    case ",$hooks," in
+        *,PreToolUse,*) ;;
+        *)
+            [ "${CODEX_TERMUX_NOTIFY_PRETOOLUSE:-0}" = "1" ] && hooks="${hooks},PreToolUse"
+            ;;
+    esac
+    [ -n "$hooks" ] || hooks="Stop"
+    IFS=, read -r -a event_list <<<"$hooks"
+    for event in "${event_list[@]}"; do
+        event="$(codex_notify_hook_canonical "$event")"
+        [ -n "$event" ] || continue
+        case "$seen" in
+            *,"$event",*) continue ;;
+        esac
+        seen="$seen$event,"
+        printf '%s\n' "$event"
+    done
+}
+
+codex_notify_hook_command() {
+    printf '%s --event %s' "$CODEX_TERMUX_TURN_NOTIFY" "$1"
+}
+
+codex_notify_hook_status_message() {
+    case "$1" in
+        SessionStart) printf 'Notify session start' ;;
+        PreToolUse) printf 'Notify tool start' ;;
+        PermissionRequest) printf 'Notify permission request' ;;
+        PostToolUse) printf 'Notify tool finish' ;;
+        PreCompact) printf 'Notify before compact' ;;
+        PostCompact) printf 'Notify after compact' ;;
+        UserPromptSubmit) printf 'Notify prompt submit' ;;
+        SubagentStart) printf 'Notify subagent start' ;;
+        SubagentStop) printf 'Notify subagent stop' ;;
+        Stop) printf 'Notify turn completion' ;;
+        *) printf 'Notify %s' "$1" ;;
+    esac
+}
+
+codex_notify_config_hook_block() {
+    local event="$1" command="$2" timeout="${3:-10}" status_message="$4" matcher="${5:-}"
+    printf '[[hooks.%s]]\n' "$event"
+    [ -n "$matcher" ] && printf 'matcher = "%s"\n' "$matcher"
+    printf '\n'
+    printf '[[hooks.%s.hooks]]\n' "$event"
+    printf 'type = "command"\n'
+    printf 'command = "%s"\n' "$command"
+    printf 'timeout = %s\n' "$timeout"
+    printf 'statusMessage = "%s"\n' "$status_message"
+}
+
+codex_notify_write_system_config() {
     local config_file="$CODEX_TERMUX_SYSTEM_CONFIG_DIR/config.toml"
-    local pretooluse_block=""
+    local event
     mkdir -p "$CODEX_TERMUX_TMPDIR" "$CODEX_TERMUX_SYSTEM_CONFIG_DIR" || return $?
-    if [ ! -e "$config_file" ]; then
-        cat >"$config_file" <<'TOML'
+    cat >"$config_file" <<'TOML'
 [sandbox_workspace_write]
 exclude_slash_tmp = true
 exclude_tmpdir_env_var = false
 TOML
-    fi
-    if [ "$CODEX_TERMUX_NOTIFY_PRETOOLUSE" = "1" ] && ! grep -Fqx "command = \"$CODEX_TERMUX_TURN_NOTIFY --event PreToolUse\"" "$config_file" 2>/dev/null; then
-        pretooluse_block="
-[[hooks.PreToolUse]]
-
-[[hooks.PreToolUse.hooks]]
-type = \"command\"
-command = \"$CODEX_TERMUX_TURN_NOTIFY --event PreToolUse\"
-timeout = 10
-statusMessage = \"Notify tool start\"
-"
-    fi
-    if ! grep -Fqx "command = \"$CODEX_TERMUX_TURN_NOTIFY\"" "$config_file" 2>/dev/null; then
-        cat >>"$config_file" <<TOML
-
-[[hooks.Stop]]
-
-[[hooks.Stop.hooks]]
-type = "command"
-command = "$CODEX_TERMUX_TURN_NOTIFY"
-timeout = 10
-statusMessage = "Notify turn completion"
-TOML
-    fi
-    [ -z "$pretooluse_block" ] || printf '%s\n' "$pretooluse_block" >>"$config_file"
+    codex_notify_load_config
+    while IFS= read -r event; do
+        codex_notify_hook_enabled "$event" || continue
+        codex_notify_config_hook_block \
+            "$event" \
+            "$(codex_notify_hook_command "$event")" \
+            10 \
+            "$(codex_notify_hook_status_message "$event")" \
+            >>"$config_file"
+    done <<EOF
+$(codex_notify_hook_list)
+EOF
     [ -e "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/requirements.toml" ] ||
         : >"$CODEX_TERMUX_SYSTEM_CONFIG_DIR/requirements.toml"
     [ -e "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/managed_config.toml" ] ||
         : >"$CODEX_TERMUX_SYSTEM_CONFIG_DIR/managed_config.toml"
+}
+
+codex_prepare_system_config() {
+    codex_notify_write_system_config
 }
 
 codex_runtime_exec() {
@@ -1318,6 +1478,7 @@ codex_wrapper_help() {
     printf '  %-8s  %s\n' 'install' 'Refresh wrapper support and install a fresh upstream runtime.'
     printf '  %-8s  %s\n' 'rebuild' 'Refresh wrapper support and rebuild from cached raw without network access.'
     printf '  %-8s  %s\n' 'repair' 'Rebuild the runtime from the cached raw package without network access.'
+    printf '  %-8s  %s\n' 'notify' 'Write notification settings and regenerate hook configuration.'
     printf '  %-8s  %s\n' 'update' 'Update official linux-arm64 package with the current wrapper.'
     printf '  %-8s  %s\n' 'use' 'List cached and remote runtimes; promote the selected runtime.'
     printf '  %-8s  %s\n' 'session' 'Reserved surface for the cross-profile Codex session picker.'
@@ -1996,6 +2157,161 @@ codex_rebuild_public() {
     exec bash "$source" rebuild "$@"
 }
 
+codex_notify_usage() {
+    cat <<'USAGE'
+Usage: codex notify [options]
+
+Options:
+  --hooks LIST            Comma-separated hook list or "all"
+  --hook NAME             Append a single hook name
+  --all-hooks             Enable every supported hook position
+  --pretooluse 0|1        Enable or disable PreToolUse compatibility
+  --content-chars N       Limit notification body to N characters
+  --preserve-newlines 0|1 Keep notification body line breaks
+  --toast 0|1             Enable or disable toast popups
+  --toast-gravity VALUE   top, middle, or bottom
+  --toast-short 0|1      Use short toast duration
+  --toast-background HEX  Toast background color
+  --toast-color HEX       Toast text color
+  --notification 0|1      Enable or disable Android notifications
+  --group NAME            Notification group key
+USAGE
+}
+
+codex_notify_need_arg() {
+    [ $# -ge 2 ] || {
+        codex_fail "Missing value for $1"
+        return 64
+    }
+}
+
+codex_notify_write_config() {
+    local config_file="$1"
+    shift
+    mkdir -p "${config_file%/*}"
+    {
+        while [ $# -gt 1 ]; do
+            printf '%s=%q\n' "$1" "$2"
+            shift 2
+        done
+    } >"$config_file"
+}
+
+codex_notify_public() {
+    local config_file="$CODEX_TERMUX_NOTIFY_CONFIG"
+    local hooks="${CODEX_TERMUX_NOTIFY_HOOKS:-Stop}"
+    local pretooluse="${CODEX_TERMUX_NOTIFY_PRETOOLUSE:-0}"
+    local content_chars="${CODEX_TERMUX_NOTIFY_CONTENT_CHARS:-140}"
+    local preserve_newlines="${CODEX_TERMUX_NOTIFY_PRESERVE_NEWLINES:-0}"
+    local toast="${CODEX_TERMUX_NOTIFY_TOAST:-1}"
+    local toast_gravity="${CODEX_TERMUX_NOTIFY_TOAST_GRAVITY:-top}"
+    local toast_short="${CODEX_TERMUX_NOTIFY_TOAST_SHORT:-0}"
+    local toast_background="${CODEX_TERMUX_NOTIFY_TOAST_BACKGROUND:-}"
+    local toast_color="${CODEX_TERMUX_NOTIFY_TOAST_COLOR:-}"
+    local notification="${CODEX_TERMUX_NOTIFY_NOTIFICATION:-1}"
+    local group="${CODEX_TERMUX_NOTIFY_GROUP:-codex-turns}"
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --help|-h)
+                codex_notify_usage
+                return 0
+                ;;
+            --config-file)
+                codex_notify_need_arg "$1" "${2:-}" || return $?
+                config_file="${2:-}"
+                shift 2
+                ;;
+            --hooks)
+                codex_notify_need_arg "$1" "${2:-}" || return $?
+                hooks="${2:-}"
+                shift 2
+                ;;
+            --hook)
+                codex_notify_need_arg "$1" "${2:-}" || return $?
+                hooks="${hooks:+$hooks,}${2:-}"
+                shift 2
+                ;;
+            --all-hooks)
+                hooks="all"
+                shift
+                ;;
+            --pretooluse)
+                codex_notify_need_arg "$1" "${2:-}" || return $?
+                pretooluse="${2:-}"
+                shift 2
+                ;;
+            --content-chars)
+                codex_notify_need_arg "$1" "${2:-}" || return $?
+                content_chars="${2:-}"
+                shift 2
+                ;;
+            --preserve-newlines)
+                codex_notify_need_arg "$1" "${2:-}" || return $?
+                preserve_newlines="${2:-}"
+                shift 2
+                ;;
+            --toast)
+                codex_notify_need_arg "$1" "${2:-}" || return $?
+                toast="${2:-}"
+                shift 2
+                ;;
+            --toast-gravity)
+                codex_notify_need_arg "$1" "${2:-}" || return $?
+                toast_gravity="${2:-}"
+                shift 2
+                ;;
+            --toast-short)
+                codex_notify_need_arg "$1" "${2:-}" || return $?
+                toast_short="${2:-}"
+                shift 2
+                ;;
+            --toast-background)
+                codex_notify_need_arg "$1" "${2:-}" || return $?
+                toast_background="${2:-}"
+                shift 2
+                ;;
+            --toast-color)
+                codex_notify_need_arg "$1" "${2:-}" || return $?
+                toast_color="${2:-}"
+                shift 2
+                ;;
+            --notification)
+                codex_notify_need_arg "$1" "${2:-}" || return $?
+                notification="${2:-}"
+                shift 2
+                ;;
+            --group)
+                codex_notify_need_arg "$1" "${2:-}" || return $?
+                group="${2:-}"
+                shift 2
+                ;;
+            *)
+                codex_fail "Unknown notify option: $1"
+                return 64
+                ;;
+        esac
+    done
+    [ -n "$config_file" ] || {
+        codex_fail "Notification config file is unavailable"
+        return 66
+    }
+    hooks="$(codex_notify_hooks_normalize "$hooks")"
+    codex_notify_write_config "$config_file" \
+        CODEX_TERMUX_NOTIFY_CONTENT_CHARS "$content_chars" \
+        CODEX_TERMUX_NOTIFY_PRESERVE_NEWLINES "$preserve_newlines" \
+        CODEX_TERMUX_NOTIFY_TOAST "$toast" \
+        CODEX_TERMUX_NOTIFY_TOAST_GRAVITY "$toast_gravity" \
+        CODEX_TERMUX_NOTIFY_TOAST_SHORT "$toast_short" \
+        CODEX_TERMUX_NOTIFY_TOAST_BACKGROUND "$toast_background" \
+        CODEX_TERMUX_NOTIFY_TOAST_COLOR "$toast_color" \
+        CODEX_TERMUX_NOTIFY_NOTIFICATION "$notification" \
+        CODEX_TERMUX_NOTIFY_GROUP "$group" \
+        CODEX_TERMUX_NOTIFY_HOOKS "$hooks" \
+        CODEX_TERMUX_NOTIFY_PRETOOLUSE "$pretooluse"
+    codex_prepare_system_config || return $?
+    codex_say "Saved notification settings to $config_file"
+}
+
 codex_setup_public() {
     codex_status_clear
     printf 'Error: %s\n' "$(codex_ui_text_get setup_reserved)" >&2
@@ -2016,6 +2332,10 @@ codex_main() {
         rebuild)
             shift
             codex_rebuild_public "$@"
+            ;;
+        notify)
+            shift
+            codex_notify_public "$@"
             ;;
         update)
             shift

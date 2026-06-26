@@ -83,11 +83,18 @@ Example:
 ```sh
 CODEX_TERMUX_NOTIFY_CONTENT_CHARS=0
 CODEX_TERMUX_NOTIFY_PRESERVE_NEWLINES=1
-CODEX_TERMUX_NOTIFY_TOAST_GRAVITY=middle
+CODEX_TERMUX_NOTIFY_TOAST_GRAVITY=top
 ```
 
-Use `CODEX_TERMUX_NOTIFY_TOAST_GRAVITY=top`, `middle`, or `bottom` to place the toast. Set `CODEX_TERMUX_NOTIFY_CONTENT_CHARS=0` to pass the full assistant message to the Android notification content.
-Set `CODEX_TERMUX_NOTIFY_PRETOOLUSE=1` if you also want a notification when a tool call starts.
+Use `CODEX_TERMUX_NOTIFY_TOAST_GRAVITY=top`, `middle`, or `bottom` to place the toast. The default is `top`.
+Set `CODEX_TERMUX_NOTIFY_CONTENT_CHARS=0` to pass the full assistant message to the Android notification content.
+Set `CODEX_TERMUX_NOTIFY_PRETOOLUSE=1` if you also want a notification when a tool call starts, or `CODEX_TERMUX_NOTIFY_HOOKS=all` to enable every supported hook position.
+
+```sh
+codex notify --hooks all --toast-gravity top
+```
+
+Writes `~/.local/share/codex/termux/notify/config.env` and regenerates the hook configuration immediately.
 
 ```sh
 codex update

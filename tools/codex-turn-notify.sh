@@ -11,7 +11,7 @@ CODEX_TERMUX_NOTIFY_CONFIG="${CODEX_TERMUX_NOTIFY_CONFIG:-$CODEX_TERMUX_NOTIFY_D
 CODEX_TERMUX_NOTIFY_CONTENT_CHARS="${CODEX_TERMUX_NOTIFY_CONTENT_CHARS:-140}"
 CODEX_TERMUX_NOTIFY_PRESERVE_NEWLINES="${CODEX_TERMUX_NOTIFY_PRESERVE_NEWLINES:-0}"
 CODEX_TERMUX_NOTIFY_TOAST="${CODEX_TERMUX_NOTIFY_TOAST:-1}"
-CODEX_TERMUX_NOTIFY_TOAST_GRAVITY="${CODEX_TERMUX_NOTIFY_TOAST_GRAVITY:-middle}"
+CODEX_TERMUX_NOTIFY_TOAST_GRAVITY="${CODEX_TERMUX_NOTIFY_TOAST_GRAVITY:-top}"
 CODEX_TERMUX_NOTIFY_TOAST_SHORT="${CODEX_TERMUX_NOTIFY_TOAST_SHORT:-0}"
 CODEX_TERMUX_NOTIFY_TOAST_BACKGROUND="${CODEX_TERMUX_NOTIFY_TOAST_BACKGROUND:-}"
 CODEX_TERMUX_NOTIFY_TOAST_COLOR="${CODEX_TERMUX_NOTIFY_TOAST_COLOR:-}"
@@ -138,6 +138,22 @@ codex_notify_b64_decode() {
     printf '%s' "$1" | base64 -d 2>/dev/null || true
 }
 
+codex_notify_event_label() {
+    case "${1:-}" in
+        SessionStart) printf 'session start' ;;
+        PreToolUse) printf 'tool start' ;;
+        PermissionRequest) printf 'permission request' ;;
+        PostToolUse) printf 'tool finished' ;;
+        PreCompact) printf 'before compact' ;;
+        PostCompact) printf 'after compact' ;;
+        UserPromptSubmit) printf 'prompt submitted' ;;
+        SubagentStart) printf 'subagent start' ;;
+        SubagentStop) printf 'subagent finished' ;;
+        Stop) printf 'turn complete' ;;
+        *) printf '%s' "${1:-}" ;;
+    esac
+}
+
 codex_notify_payload() {
     local payload tmux_session meta notification_id title content cwd session_id action provider="fallback"
     local toast_args=()
@@ -152,6 +168,9 @@ codex_notify_payload() {
     [ -n "$notification_id" ] || notification_id=10000
     [ -n "$title" ] || title="Codex: unknown"
     [ -n "$content" ] || content="Codex turn finished"
+    if [ -n "${CODEX_TERMUX_NOTIFY_EVENT:-}" ]; then
+        title="$title · $(codex_notify_event_label "$CODEX_TERMUX_NOTIFY_EVENT")"
+    fi
 
     mkdir -p "$CODEX_TERMUX_NOTIFY_DIR" 2>/dev/null || true
     printf '%s' "$payload" >"$CODEX_TERMUX_NOTIFY_DIR/last-payload.json" 2>/dev/null || true
