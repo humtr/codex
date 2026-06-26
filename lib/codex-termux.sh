@@ -1807,6 +1807,36 @@ EOF
     codex_version || return $?
 }
 
+codex_session_share_source() {
+    local source_path="$1" source_profile="${2:-default}" target_profile="${3:-default}"
+    [ -n "$source_path" ] || return 0
+    [ "$source_profile" = "$target_profile" ] && return 0
+    [ -f "$source_path" ] || return 0
+
+    local source_base target_base rel_path target_path
+    if [ "$source_profile" = "default" ]; then
+        source_base="$CODEX_TERMUX_HOME/.codex/sessions"
+    else
+        source_base="$CODEX_TERMUX_PROFILE_ROOT/$source_profile/sessions"
+    fi
+    if [ "$target_profile" = "default" ]; then
+        target_base="$CODEX_TERMUX_HOME/.codex/sessions"
+    else
+        target_base="$CODEX_TERMUX_PROFILE_ROOT/$target_profile/sessions"
+    fi
+
+    case "$source_path" in
+        "$source_base"/*) rel_path="${source_path#"$source_base"/}" ;;
+        *) rel_path="$(basename "$source_path")" ;;
+    esac
+    target_path="$target_base/$rel_path"
+    if [ -e "$target_path" ]; then
+        return 0
+    fi
+    mkdir -p "$(dirname "$target_path")" || return $?
+    ln -s "$source_path" "$target_path" 2>/dev/null || cp -p "$source_path" "$target_path"
+}
+
 codex_session() {
     local target_profile="" target_profile_dir=""
     if [ "$#" -gt 0 ] && [[ ! "$1" =~ ^- ]]; then
@@ -1855,10 +1885,12 @@ codex_session() {
     selected_plan="$(cat "$temp_file")"
     rm -f "$temp_file"
 
-    local native_session_ref source_profile workdir codex_home_env
-    IFS=$'\037' read -r target_profile target_profile_dir native_session_ref source_profile workdir codex_home_env <<EOF
+    local native_session_ref source_profile workdir codex_home_env source_path
+    IFS=$'\037' read -r target_profile target_profile_dir native_session_ref source_profile workdir codex_home_env source_path <<EOF
 $selected_plan
 EOF
+
+    codex_session_share_source "$source_path" "$source_profile" "$target_profile"
 
     # Switch directory if workdir is specified and is a valid directory
     if [ -n "$workdir" ] && [ -d "$workdir" ]; then

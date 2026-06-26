@@ -224,6 +224,158 @@ def share_session(session_path_str: str, session_profile: str, target_profile: s
             shutil.copy2(src_path, dst_path)
 
 
+def _display_path(path: str) -> str:
+    if not path:
+        return ""
+    home = str(Path.home())
+    if path.startswith(home):
+        return "~" + path[len(home):]
+    return path
+
+
+def _format_session_summary(row: SessionRow) -> str:
+    parts = [
+        row.source_profile,
+        format_datetime(row.updated_at) if row.updated_at else "",
+        _display_path(row.workdir),
+        row.title,
+    ]
+    return "  ·  ".join(part for part in parts if part)
+
+
+def _pick_index(stdscr: curses._CursesWindow, title: str, subtitle: str, items: list[str], selected: int = 0) -> int | None:
+    curses.curs_set(0)
+    h, w = stdscr.getmaxyx()
+    prompt = "Enter select   Esc cancel   ↑/↓ move"
+    idx = max(0, min(selected, len(items) - 1)) if items else 0
+    top = 3
+    while True:
+        stdscr.erase()
+        h, w = stdscr.getmaxyx()
+        try:
+            stdscr.addstr(0, 1, title[: max(1, w - 2)], curses.A_BOLD)
+            if subtitle:
+                stdscr.addstr(1, 1, subtitle[: max(1, w - 2)], curses.A_DIM)
+        except curses.error:
+            pass
+        visible_rows = max(1, h - top - 2)
+        if items:
+            start = max(0, min(idx - visible_rows + 1, max(0, len(items) - visible_rows)))
+            end = min(len(items), start + visible_rows)
+            for row_no, item_idx in enumerate(range(start, end)):
+                attr = curses.A_REVERSE | curses.A_BOLD if item_idx == idx else curses.A_NORMAL
+                marker = "❯ " if item_idx == idx else "  "
+                line = f"{marker}{items[item_idx]}"
+                try:
+                    stdscr.addnstr(top + row_no, 1, clip_to_display_width(line, max(1, w - 2)), max(1, w - 2), attr)
+                except curses.error:
+                    pass
+        else:
+            try:
+                stdscr.addstr(top, 1, "No items found.", curses.A_DIM)
+            except curses.error:
+                pass
+        try:
+            stdscr.addnstr(h - 1, 1, prompt[: max(1, w - 2)], max(1, w - 2), curses.A_DIM)
+        except curses.error:
+            pass
+        stdscr.refresh()
+        ch = stdscr.getch()
+        if ch in (27, 3):
+            return None
+        if ch in (10, 13, curses.KEY_ENTER):
+            return idx if items else None
+        if ch == curses.KEY_UP and items:
+            idx = (idx - 1) % len(items)
+        elif ch == curses.KEY_DOWN and items:
+            idx = (idx + 1) % len(items)
+        elif ch == curses.KEY_HOME and items:
+            idx = 0
+        elif ch == curses.KEY_END and items:
+            idx = len(items) - 1
+        elif ch == curses.KEY_NPAGE and items:
+            idx = min(len(items) - 1, idx + max(1, visible_rows))
+        elif ch == curses.KEY_PPAGE and items:
+            idx = max(0, idx - max(1, visible_rows))
+
+
+def _pick_session_target() -> str | None:
+    homes = find_session_homes()
+    profiles = [h.profile for h in homes] or ["default"]
+    default_profile_env = os.environ.get("CODEX_SESSION_TUI_DEFAULT_PROFILE")
+    if default_profile_env in profiles:
+        recent_profile = default_profile_env
+    else:
+        last_profile_path = os.environ.get("CODEX_TERMUX_LAST_PROFILE_FILE")
+        if not last_profile_path:
+            last_profile_path = get_codex_termux_home() / ".codex" / "last-profile"
+        else:
+            last_profile_path = Path(last_profile_path)
+        recent_profile = "default"
+        if last_profile_path and last_profile_path.is_file():
+            try:
+                recent_profile = last_profile_path.read_text(encoding="utf-8").strip()
+            except Exception:
+                pass
+    profile_idx = profiles.index(recent_profile) if recent_profile in profiles else 0
+
+    def _profile_picker(stdscr: curses._CursesWindow) -> int | None:
+        return _pick_index(
+            stdscr,
+            "Choose target profile",
+            "Select the Codex home to resume the session in.",
+            profiles,
+            profile_idx,
+        )
+
+    try:
+        selected = curses.wrapper(_profile_picker)
+    except KeyboardInterrupt:
+        return None
+    if selected is None:
+        return None
+    return profiles[selected]
+
+
+def _pick_session_row(show_all: bool) -> SessionRow | None:
+    sessions = discover_sessions()
+    if not sessions:
+        return None
+    if not show_all:
+        current_cwd = os.getcwd()
+        filtered = []
+        for s in sessions:
+            if not s.workdir:
+                continue
+            try:
+                if os.path.abspath(os.path.expanduser(s.workdir)) == os.path.abspath(current_cwd):
+                    filtered.append(s)
+            except Exception:
+                pass
+        if filtered:
+            sessions = filtered
+        else:
+            return None
+    labels = [_format_session_summary(s) for s in sessions]
+
+    def _session_picker(stdscr: curses._CursesWindow) -> int | None:
+        return _pick_index(
+            stdscr,
+            "Choose session",
+            "Select any discovered Codex session.",
+            labels,
+            0,
+        )
+
+    try:
+        selected = curses.wrapper(_session_picker)
+    except KeyboardInterrupt:
+        return None
+    if selected is None:
+        return None
+    return sessions[selected]
+
+
 def get_session_plan(idx: int, target_profile: str) -> str:
     sessions = discover_sessions()
     if idx < 0 or idx >= len(sessions):
@@ -234,9 +386,6 @@ def get_session_plan(idx: int, target_profile: str) -> str:
 
 
 def get_session_plan_for_row(session: SessionRow, target_profile: str) -> str:
-    # Perform cross-profile session sharing
-    share_session(session.source_path, session.source_profile, target_profile)
-    
     home_dir = get_codex_termux_home()
     if target_profile == "default":
         target_profile_dir = home_dir / ".codex"
@@ -252,6 +401,7 @@ def get_session_plan_for_row(session: SessionRow, target_profile: str) -> str:
         session.source_profile,
         session.workdir,
         codex_home_env,
+        session.source_path,
     ]
     return "\x1f".join(fields)
 
@@ -410,37 +560,16 @@ def session_tui_command(output_file: str, show_all: bool = False) -> int:
         print("ERROR: Curses TUI requires an interactive terminal (TTY)", file=sys.stderr)
         return 1
 
-    all_sessions = discover_sessions()
-    if not all_sessions:
-        print("No discovered sessions found.", file=sys.stderr)
-        return 1
-
-    if not show_all:
-        current_cwd = os.getcwd()
-        has_matching = False
-        for s in all_sessions:
-            if s.workdir:
-                try:
-                    s_abs = os.path.abspath(os.path.expanduser(s.workdir))
-                    c_abs = os.path.abspath(current_cwd)
-                    if s_abs == c_abs:
-                        has_matching = True
-                        break
-                except Exception:
-                    pass
-        if not has_matching:
-            print("No matching sessions found in the current directory. Run with --all to show all sessions.", file=sys.stderr)
-            return 1
-
-    try:
-        res = curses.wrapper(tui_main, all_sessions, show_all)
-        if res:
-            with open(output_file, "w", encoding="utf-8") as f:
-                f.write(res)
-            return 0
+    target_profile = _pick_session_target()
+    if target_profile is None:
         return 130
-    except KeyboardInterrupt:
+    selected_session = _pick_session_row(show_all=show_all)
+    if selected_session is None:
         return 130
+    plan = get_session_plan_for_row(selected_session, target_profile)
+    with open(output_file, "w", encoding="utf-8") as f:
+        f.write(plan)
+    return 0
 
 
 def tui_main(stdscr: curses._CursesWindow, sessions: list[SessionRow], show_all: bool) -> str | None:
