@@ -32,6 +32,7 @@ CODEX_TERMUX_RESOLV_CONF="${CODEX_TERMUX_RESOLV_CONF:-$CODEX_TERMUX_PREFIX/etc/r
 CODEX_TERMUX_TMPDIR="${CODEX_TERMUX_TMPDIR:-$CODEX_TERMUX_PREFIX/tmp}"
 CODEX_TERMUX_SYSTEM_CONFIG_DIR="${CODEX_TERMUX_SYSTEM_CONFIG_DIR:-$CODEX_TERMUX_STATE_DIR/system-config}"
 CODEX_TERMUX_TURN_NOTIFY="${CODEX_TERMUX_TURN_NOTIFY:-$CODEX_TERMUX_MANAGER_DIR/codex-turn-notify.sh}"
+CODEX_TERMUX_NOTIFY_PRETOOLUSE="${CODEX_TERMUX_NOTIFY_PRETOOLUSE:-0}"
 CODEX_TERMUX_CERT_FILE="${CODEX_TERMUX_CERT_FILE:-$CODEX_TERMUX_PREFIX/etc/tls/cert.pem}"
 CODEX_TERMUX_CERT_DIR="${CODEX_TERMUX_CERT_DIR:-$CODEX_TERMUX_PREFIX/etc/tls/certs}"
 CODEX_TERMUX_PACKAGE_SPEC_DEFAULT="${CODEX_TERMUX_PACKAGE_SPEC_DEFAULT:-@openai/codex@linux-arm64}"
@@ -466,6 +467,7 @@ codex_require_runtime_resolver() {
 
 codex_prepare_system_config() {
     local config_file="$CODEX_TERMUX_SYSTEM_CONFIG_DIR/config.toml"
+    local pretooluse_block=""
     mkdir -p "$CODEX_TERMUX_TMPDIR" "$CODEX_TERMUX_SYSTEM_CONFIG_DIR" || return $?
     if [ ! -e "$config_file" ]; then
         cat >"$config_file" <<'TOML'
@@ -473,6 +475,17 @@ codex_prepare_system_config() {
 exclude_slash_tmp = true
 exclude_tmpdir_env_var = false
 TOML
+    fi
+    if [ "$CODEX_TERMUX_NOTIFY_PRETOOLUSE" = "1" ] && ! grep -Fqx "command = \"$CODEX_TERMUX_TURN_NOTIFY --event PreToolUse\"" "$config_file" 2>/dev/null; then
+        pretooluse_block="
+[[hooks.PreToolUse]]
+
+[[hooks.PreToolUse.hooks]]
+type = \"command\"
+command = \"$CODEX_TERMUX_TURN_NOTIFY --event PreToolUse\"
+timeout = 10
+statusMessage = \"Notify tool start\"
+"
     fi
     if ! grep -Fqx "command = \"$CODEX_TERMUX_TURN_NOTIFY\"" "$config_file" 2>/dev/null; then
         cat >>"$config_file" <<TOML
@@ -486,6 +499,7 @@ timeout = 10
 statusMessage = "Notify turn completion"
 TOML
     fi
+    [ -z "$pretooluse_block" ] || printf '%s\n' "$pretooluse_block" >>"$config_file"
     [ -e "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/requirements.toml" ] ||
         : >"$CODEX_TERMUX_SYSTEM_CONFIG_DIR/requirements.toml"
     [ -e "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/managed_config.toml" ] ||

@@ -87,6 +87,7 @@ CODEX_TERMUX_NOTIFY_TOAST_GRAVITY=middle
 ```
 
 Use `CODEX_TERMUX_NOTIFY_TOAST_GRAVITY=top`, `middle`, or `bottom` to place the toast. Set `CODEX_TERMUX_NOTIFY_CONTENT_CHARS=0` to pass the full assistant message to the Android notification content.
+Set `CODEX_TERMUX_NOTIFY_PRETOOLUSE=1` if you also want a notification when a tool call starts.
 
 ```sh
 codex update

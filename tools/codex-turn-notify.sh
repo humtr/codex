@@ -198,6 +198,12 @@ codex_notify_payload() {
 }
 
 case "${1:-}" in
+    --event)
+        shift
+        export CODEX_TERMUX_NOTIFY_EVENT="${1:-}"
+        shift || true
+        exec "$0" "$@"
+        ;;
     --open-termux)
         codex_notify_open_termux
         ;;
