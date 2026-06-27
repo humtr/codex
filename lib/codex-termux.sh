@@ -1685,7 +1685,7 @@ codex_wrapper_help() {
     printf '  %-8s  %s\n' 'notify' 'Configure notification/toast channels and regenerate hook configuration.'
     printf '  %-8s  %s\n' 'update' 'Refresh wrapper support and install a fresh patched runtime.'
     printf '  %-8s  %s\n' 'use' 'List cached and remote runtimes; promote the selected runtime.'
-    printf '  %-8s  %s\n' 'session' 'Reserved surface for the cross-profile Codex session picker.'
+    printf '  %-8s  %s\n' 'session' 'Resume previous Codex sessions across profiles.'
     printf '  %-8s  %s\n' 'profile' 'List numbered profiles or enter a named profile with CODEX_HOME switched.'
     printf '  %-8s  %s\n' 'doctor' 'Check launcher, runtime resources, resolver, CA, DNS patch, and state.'
     printf '  %-8s  %s\n' 'version' 'Print upstream and runtime version/date rows.'
@@ -2779,7 +2779,18 @@ codex_main() {
             ;;
         version)
             shift
-            codex_version
+            case "${1:-}" in
+                "")
+                    codex_version
+                    ;;
+                -h|--help|help)
+                    codex_wrapper_help
+                    ;;
+                *)
+                    codex_fail "version does not take arguments"
+                    return 2
+                    ;;
+            esac
             ;;
         help|--help|-h)
             shift || true

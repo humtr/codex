@@ -10,6 +10,7 @@ for test_script in \
     "$ROOT_DIR/tests/tmp-paths.sh" \
     "$ROOT_DIR/tests/lock.sh" \
     "$ROOT_DIR/tests/install-dispatch.sh" \
+    "$ROOT_DIR/tests/cli-surface.sh" \
     "$ROOT_DIR/tests/notify.sh" \
     "$ROOT_DIR/tests/store-rollback.sh" \
     "$ROOT_DIR/tests/session.sh"
