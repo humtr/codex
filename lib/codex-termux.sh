@@ -314,6 +314,36 @@ codex_strip_trailing_slashes() {
     printf '%s\n' "$path"
 }
 
+codex_tmp_dir() {
+    local candidate
+    for candidate in "${CODEX_TERMUX_TMPDIR:-}" "${TMPDIR:-}" "$CODEX_TERMUX_PREFIX/tmp"; do
+        [ -n "$candidate" ] || continue
+        case "$candidate" in
+            /tmp) continue ;;
+            /*) ;;
+            *) continue ;;
+        esac
+        if mkdir -p "$candidate" 2>/dev/null && [ -d "$candidate" ] && [ -w "$candidate" ]; then
+            printf '%s\n' "$(codex_strip_trailing_slashes "$candidate")"
+            return 0
+        fi
+    done
+    codex_fail "No writable Termux temporary directory is available"
+    return 1
+}
+
+codex_mktemp_dir() {
+    local prefix="${1:-codex-tmp}" tmpdir
+    tmpdir="$(codex_tmp_dir)" || return $?
+    mktemp -d "$tmpdir/$prefix.XXXXXX"
+}
+
+codex_mktemp_file() {
+    local prefix="${1:-codex-tmp}" tmpdir
+    tmpdir="$(codex_tmp_dir)" || return $?
+    mktemp "$tmpdir/$prefix.XXXXXX"
+}
+
 codex_path_is_within() {
     local path root
     path="$(codex_strip_trailing_slashes "$1")"
@@ -343,7 +373,7 @@ codex_assert_safe_path() {
     esac
     home="$(codex_strip_trailing_slashes "${CODEX_TERMUX_HOME:-${HOME:-}}")"
     prefix="$(codex_strip_trailing_slashes "$CODEX_TERMUX_PREFIX")"
-    tmpdir="$(codex_strip_trailing_slashes "${TMPDIR:-/tmp}")"
+    tmpdir="$(codex_strip_trailing_slashes "$(codex_tmp_dir 2>/dev/null || printf '%s\n' "$CODEX_TERMUX_PREFIX/tmp")")"
     case "$path" in
         /|"$home"|"$prefix"|"$tmpdir"|/tmp)
             codex_fail "$label points to an unsafe path: $path"
@@ -867,7 +897,7 @@ codex_extract_pack_field() {
 codex_fetch_package() {
     local requested="${1:-}" package_spec tmp pack_json tgz filename version
     package_spec="$(codex_package_spec "$requested")"
-    tmp="$(mktemp -d "${TMPDIR:-/tmp}/codex-pack.XXXXXX")" || return 1
+    tmp="$(codex_mktemp_dir codex-pack)" || return 1
     pack_json="$tmp/pack.json"
     codex_ui_step fetch_package "$package_spec"
     if ! npm pack "$package_spec" --json --pack-destination "$tmp" >"$pack_json"; then
@@ -2266,7 +2296,7 @@ codex_session() {
 
     # Run Python session-tui with a temporary file for output to preserve TTY
     local temp_file
-    temp_file="$(mktemp)"
+    temp_file="$(codex_mktemp_file codex-session)" || return $?
     
     CODEX_SESSION_TUI_DEFAULT_PROFILE="$target_profile" codex_termux_cmd session-tui --output "$temp_file" "${tui_args[@]}" || {
         local code=$?

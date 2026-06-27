@@ -78,7 +78,7 @@ codex_fetch_release_wrapper_source() {
         url="https://github.com/$repo/archive/refs/tags/$tag.tar.gz"
     fi
     [ -n "$url" ] || return 1
-    tmp="$(mktemp -d "${TMPDIR:-/tmp}/codex-wrapper-release.XXXXXX")"
+    tmp="$(codex_mktemp_dir codex-wrapper-release)" || return 1
     archive="$tmp/wrapper.tar.gz"
     extract="$tmp/extract"
     mkdir -p "$extract"

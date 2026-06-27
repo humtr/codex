@@ -9,6 +9,23 @@ export DEBIAN_FRONTEND="${DEBIAN_FRONTEND:-noninteractive}"
 CODEX_TERMUX_INSTALL_STATUS_ACTIVE=0
 CODEX_TERMUX_INSTALL_LOG=""
 
+install_tmp_dir() {
+    local candidate
+    for candidate in "${TMPDIR:-}" "${PREFIX:-/data/data/com.termux/files/usr}/tmp"; do
+        [ -n "$candidate" ] || continue
+        case "$candidate" in
+            /tmp) continue ;;
+            /*) ;;
+            *) continue ;;
+        esac
+        if mkdir -p "$candidate" 2>/dev/null && [ -d "$candidate" ] && [ -w "$candidate" ]; then
+            printf '%s\n' "${candidate%/}"
+            return 0
+        fi
+    done
+    fail 'No writable Termux temporary directory is available'
+}
+
 clear_status() {
     if [ "${CODEX_TERMUX_INSTALL_STATUS_ACTIVE:-0}" -eq 1 ] && [ -t 2 ]; then
         printf '\r\033[2K' >&2
@@ -63,7 +80,8 @@ install_dependencies() {
 
 main() {
     need_termux
-    local install_tmp="${TMPDIR:-${PREFIX:-/data/data/com.termux/files/usr}/tmp}"
+    local install_tmp
+    install_tmp="$(install_tmp_dir)"
     CODEX_TERMUX_INSTALL_LOG="$(mktemp "$install_tmp/codex-install.XXXXXX")" || fail 'failed to create install log'
     trap 'rm -f "$CODEX_TERMUX_INSTALL_LOG"' EXIT
     say 'checking dependencies'
