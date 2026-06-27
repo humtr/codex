@@ -64,11 +64,24 @@ EOF
 
 codex_download_wrapper_archive() {
     local source="$1" target="$2"
+    local token accept
+    local curl_args=(-fsSL)
     if [ -r "$source" ]; then
         cp "$source" "$target"
         return $?
     fi
-    curl -fsSL "$source" -o "$target"
+    token="${CODEX_TERMUX_WRAPPER_RELEASE_TOKEN:-${GITHUB_TOKEN:-}}"
+    accept="${CODEX_TERMUX_WRAPPER_RELEASE_ACCEPT:-}"
+    if [ -z "$accept" ]; then
+        case "$source" in
+            https://api.github.com/repos/*/releases/assets/*)
+                accept="application/octet-stream"
+                ;;
+        esac
+    fi
+    [ -z "$token" ] || curl_args+=(-H "Authorization: Bearer $token")
+    [ -z "$accept" ] || curl_args+=(-H "Accept: $accept")
+    curl "${curl_args[@]}" "$source" -o "$target"
 }
 
 codex_fetch_release_wrapper_source() {

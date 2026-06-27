@@ -70,6 +70,14 @@ For fresh wrapper commands, the installer can use a release archive when configu
 CODEX_TERMUX_WRAPPER_RELEASE_URL=https://example.invalid/codex-termux.tar.gz codex install
 ```
 
+For a private GitHub release asset, use the release asset API URL and a fine-grained PAT limited to the wrapper repository with `Contents: read-only`:
+
+```sh
+CODEX_TERMUX_WRAPPER_RELEASE_URL=https://api.github.com/repos/OWNER/REPO/releases/assets/ASSET_ID \
+CODEX_TERMUX_WRAPPER_RELEASE_TOKEN=github_pat_... \
+codex update
+```
+
 `CODEX_TERMUX_WRAPPER_RELEASE_SHA256` may be set to pin the archive checksum. Without release settings, the current install source is used and stored under the managed support directory for later `codex install` calls.
 
 Turn-completion notification behavior can be configured in:

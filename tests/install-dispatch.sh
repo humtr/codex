@@ -2,6 +2,10 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+TMP_PARENT="${TMPDIR:-${PREFIX:-/data/data/com.termux/files/usr}/tmp}"
+TMP_DIR="$TMP_PARENT/codex-install-dispatch-test.$$"
+trap 'rm -rf "$TMP_DIR"' EXIT
+mkdir -p "$TMP_DIR"
 
 fail() {
     printf 'install-dispatch: FAIL: %s\n' "$*" >&2
@@ -128,5 +132,31 @@ CODEX_TERMUX_INSTALL_SURFACE=0 codex_install_dispatch support
 [ -z "$STATUS_LOG" ] || fail "quiet install support emitted status: $STATUS_LOG"
 [ -z "$SAY_LOG" ] || fail "quiet install support emitted completion: $SAY_LOG"
 unset CODEX_TERMUX_INSTALL_SURFACE
+
+curl() {
+    local out="" arg
+    printf '%s\n' "$*" >"$TMP_DIR/curl-args"
+    while [ "$#" -gt 0 ]; do
+        arg="$1"
+        shift
+        if [ "$arg" = "-o" ]; then
+            out="${1:-}"
+            shift || true
+        fi
+    done
+    [ -n "$out" ] || fail 'mock curl did not receive output path'
+    printf 'archive\n' >"$out"
+}
+
+CODEX_TERMUX_WRAPPER_RELEASE_TOKEN="test-token" \
+codex_download_wrapper_archive \
+    "https://api.github.com/repos/example/private/releases/assets/123" \
+    "$TMP_DIR/release.tgz"
+grep -F "Authorization: Bearer test-token" "$TMP_DIR/curl-args" >/dev/null \
+    || fail 'release token was not passed to curl'
+grep -F "Accept: application/octet-stream" "$TMP_DIR/curl-args" >/dev/null \
+    || fail 'GitHub release asset accept header was not passed to curl'
+grep -Fx "archive" "$TMP_DIR/release.tgz" >/dev/null \
+    || fail 'mock release archive was not written'
 
 printf 'install-dispatch: ok\n'
