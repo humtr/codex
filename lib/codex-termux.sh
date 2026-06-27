@@ -266,6 +266,8 @@ codex_ui_step_text() {
         install_runtime) printf 'Installing wrapper support and fresh upstream runtime\n' ;;
         rebuild_runtime) printf 'Rebuilding wrapper support with cached raw runtime\n' ;;
         repair_runtime) printf 'Repairing runtime from the cached raw package\n' ;;
+        repair_support) printf 'Repairing wrapper support and launcher\n' ;;
+        repair_metadata) printf 'Repairing runtime metadata\n' ;;
         rebuild_cached_runtime) printf 'Rebuilding runtime from the cached raw package\n' ;;
         open_profile) printf 'Opening profile %s\n' "$1" ;;
         *)
@@ -1000,11 +1002,67 @@ codex_runtime_install_cached() {
     return "$status"
 }
 
-codex_repair_public() {
-    codex_validate_runtime_retention || return $?
+CODEX_REPAIR_NEEDS_SUPPORT=0
+CODEX_REPAIR_NEEDS_RUNTIME=0
+CODEX_REPAIR_NEEDS_METADATA=0
+CODEX_REPAIR_RAW_OK=0
+
+codex_repair_diagnose() {
+    CODEX_REPAIR_NEEDS_SUPPORT=0
+    CODEX_REPAIR_NEEDS_RUNTIME=0
+    CODEX_REPAIR_NEEDS_METADATA=0
+    CODEX_REPAIR_RAW_OK=0
+
+    codex_support_layer_ok || CODEX_REPAIR_NEEDS_SUPPORT=1
+    codex_raw_integrity_ok && CODEX_REPAIR_RAW_OK=1
+    if codex_runtime_ok; then
+        codex_runtime_metadata_current || CODEX_REPAIR_NEEDS_METADATA=1
+    else
+        CODEX_REPAIR_NEEDS_RUNTIME=1
+    fi
+}
+
+codex_repair_install_support() {
+    local source
+    source="$(codex_install_source_command)" || {
+        codex_fail "Install source is unavailable; run bash install.sh from a wrapper checkout"
+        return 1
+    }
+    codex_ui_step repair_support
+    CODEX_TERMUX_INSTALL_PRINT_VERSION=0 bash "$source" install support >/dev/null
+}
+
+codex_repair_apply() {
+    if [ "$CODEX_REPAIR_NEEDS_SUPPORT" = "1" ]; then
+        codex_repair_install_support || return $?
+    fi
+
+    if codex_runtime_ok; then
+        if ! codex_runtime_metadata_current; then
+            codex_ui_step repair_metadata
+            codex_refresh_runtime_metadata || return $?
+        fi
+        return 0
+    fi
+
+    if codex_try_verified_rollback; then
+        codex_refresh_runtime_metadata || return $?
+        return 0
+    fi
+
+    codex_raw_integrity_ok || {
+        codex_fail "Runtime is damaged and cached raw is unavailable or invalid; run codex update"
+        return 1
+    }
     codex_ui_step repair_runtime
     codex_runtime_install_cached || return $?
     codex_refresh_runtime_metadata
+}
+
+codex_repair_public() {
+    codex_validate_runtime_retention || return $?
+    codex_repair_diagnose
+    codex_repair_apply || return $?
     codex_version
 }
 
@@ -1269,6 +1327,17 @@ codex_runtime_ok() {
     codex_support_tools_match &&
     [ -r "$CODEX_TERMUX_STATE_FILE" ] &&
     codex_runtime_integrity_ok
+}
+
+codex_support_layer_ok() {
+    [ -x "$CODEX_TERMUX_MANAGED_SHELL" ] &&
+    [ -r "$CODEX_TERMUX_MANAGER_DIR/lib.sh" ] &&
+    [ -x "$CODEX_TERMUX_MANAGER_DIR/build-runtime.py" ] &&
+    [ -x "$CODEX_TERMUX_MANAGER_DIR/bwrap-termux-compat.py" ] &&
+    [ -x "$CODEX_TERMUX_MANAGER_DIR/rg-termux-shim.sh" ] &&
+    [ -x "$CODEX_TERMUX_MANAGER_DIR/codex-turn-notify.sh" ] &&
+    [ -e "$CODEX_TERMUX_PUBLIC_CODEX" ] &&
+    codex_file_has_marker "$CODEX_TERMUX_PUBLIC_CODEX"
 }
 
 codex_runtime_metadata_current() {
