@@ -27,6 +27,18 @@ The wrapper does not replace upstream Codex commands. Unknown commands and norma
 
 ## Install
 
+One-line install from GitHub:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/humtr/codex/main/install.sh | bash
+```
+
+This downloads the wrapper source, installs the official upstream `@openai/codex`
+linux-arm64 package, patches it for Termux, and installs the managed `codex`
+launcher.
+
+If you already have a checkout or release archive, run the local installer:
+
 ```sh
 bash install.sh
 ```
@@ -36,6 +48,17 @@ After installation, use the managed launcher:
 ```sh
 codex
 ```
+
+For a private repository, the first `install.sh` download also needs GitHub
+authentication. If GitHub CLI is already authenticated, use:
+
+```sh
+GITHUB_TOKEN="$(gh auth token)" bash -c 'curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" https://raw.githubusercontent.com/humtr/codex/main/install.sh | bash'
+```
+
+The installer also reads `~/.config/codex-termux/wrapper-source.env` when it
+exists, so a previously saved read-only PAT can be reused for bootstrap and
+later `codex update` runs.
 
 ## Runtime model
 
