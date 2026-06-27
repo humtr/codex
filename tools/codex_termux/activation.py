@@ -207,16 +207,30 @@ def _snapshot_runtime_pointer(
     expected_sha256: str,
     backup: Path,
 ) -> PointerSnapshot:
-    validator = lambda value: store.validate_runtime_artifact(value, expected_sha256)
-    return _snapshot_pointer(path, backup, validator)
+    return _snapshot_pointer(path, backup, _validate_existing_runtime_pointer)
 
 def _snapshot_raw_pointer(
     path: Path,
     expected_sha256: str,
     backup: Path,
 ) -> PointerSnapshot:
-    validator = lambda value: store.validate_raw_artifact(value, expected_sha256)
-    return _snapshot_pointer(path, backup, validator)
+    return _snapshot_pointer(path, backup, _validate_existing_raw_pointer)
+
+
+def _validate_existing_runtime_pointer(path: Path) -> None:
+    if path.is_symlink() or not path.is_dir():
+        raise TransactionError(f"runtime pointer must be a directory: {path}")
+    runtime = path / "codex"
+    if runtime.is_symlink() or not runtime.is_file() or not os.access(runtime, os.X_OK):
+        raise TransactionError(f"runtime pointer has no executable codex: {path}")
+
+
+def _validate_existing_raw_pointer(path: Path) -> None:
+    if path.is_symlink() or not path.is_dir():
+        raise TransactionError(f"raw pointer must be a directory: {path}")
+    raw = path / "vendor/aarch64-unknown-linux-musl/bin/codex"
+    if raw.is_symlink() or not raw.is_file() or not os.access(raw, os.X_OK):
+        raise TransactionError(f"raw pointer has no executable raw codex: {path}")
 
 def _snapshot_pointer(
     path: Path,

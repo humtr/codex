@@ -204,4 +204,53 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" python3 -B -m codex_termu
 [ -d "$good_runtime" ] || fail 'protected verified runtime was pruned'
 [ -d "$good_raw" ] || fail 'protected raw store was pruned'
 
+rm -rf "$current_link" "$raw_link"
+cp -a "$good_runtime" "$current_link"
+printf 'physical drift\n' >>"$current_link/codex"
+chmod 755 "$current_link/codex"
+cp -a "$good_raw" "$raw_link"
+printf 'physical raw drift\n' >>"$raw_link/vendor/aarch64-unknown-linux-musl/bin/codex"
+chmod 755 "$raw_link/vendor/aarch64-unknown-linux-musl/bin/codex"
+runtime_candidate="$TMP_DIR/runtime-candidate"
+raw_candidate="$TMP_DIR/raw-candidate"
+cp -a "$good_runtime" "$runtime_candidate"
+cp -a "$good_raw" "$raw_candidate"
+
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" python3 -B -m codex_termux.cli activation-commit \
+    --candidate-runtime "$runtime_candidate" \
+    --candidate-raw "$raw_candidate" \
+    --runtime-target "$runtime_store/physical-migration-runtime" \
+    --raw-target "$raw_store/physical-migration-raw" \
+    --version 0.142.0-linux-arm64 \
+    --raw-sha256 "$raw_sha" \
+    --runtime-sha256 "$runtime_sha" \
+    --package-spec @openai/codex@0.142.0-linux-arm64 \
+    --cleanup-runtime-source \
+    --cleanup-raw-source \
+    --current-link "$current_link" \
+    --verified-link "$verified_link" \
+    --raw-link "$raw_link" \
+    --state-file "$state_file" \
+    --registry-file "$registry_file" \
+    --runtime-store-dir "$runtime_store" \
+    --raw-store-dir "$raw_store" \
+    --wrapper-version 20260623-1 \
+    --wrapper-commit testcommit \
+    --updated-at 2026-01-02T00:00:00+00:00 \
+    --shell-bin "$shell_bin" \
+    --shell-lib "$ROOT_DIR/lib/codex-termux.sh" \
+    --home "$TMP_DIR/home" \
+    --prefix "$TMP_DIR/prefix" \
+    --manager-dir "$manager_dir" \
+    --runtime-builder "$manager_dir/build-runtime.py" \
+    --resolv-conf "$resolv_conf" \
+    --cert-file "$cert_file" \
+    --cert-dir "$cert_dir" \
+    --patch-policy termux-fd-remap-v1 >/dev/null
+
+[ -L "$current_link" ] || fail 'physical current was not migrated to a symlink'
+[ "$(readlink "$current_link")" = "$runtime_store/physical-migration-runtime" ] || fail 'physical current migrated to wrong runtime'
+[ -L "$raw_link" ] || fail 'physical raw was not migrated to a symlink'
+[ "$(readlink "$raw_link")" = "$raw_store/physical-migration-raw" ] || fail 'physical raw migrated to wrong raw'
+
 printf 'store-rollback: ok\n'
