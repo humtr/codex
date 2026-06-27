@@ -38,6 +38,10 @@ def display_runtime_date(value: str) -> str:
 def display_wrapper_version(value: str) -> str:
     if not value:
         return ""
+    match = re.fullmatch(r"(\d{2})(\d{2})(\d{2})-(\d+)", value)
+    if match:
+        year, month, day, rev = match.groups()
+        return f"20{year}-{month}-{day} (r{rev})"
     match = re.fullmatch(r"(\d{4})(\d{2})(\d{2})-(\d+)", value)
     if match:
         year, month, day, rev = match.groups()

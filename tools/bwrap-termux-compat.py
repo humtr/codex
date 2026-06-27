@@ -127,7 +127,12 @@ def main(argv: list[str]) -> int:
     argv_for_exec = command[:]
     if argv0:
         argv_for_exec[0] = argv0
-    os.execvpe(executable, argv_for_exec, env)
+    try:
+        os.execvpe(executable, argv_for_exec, env)
+    except OSError as exc:
+        cwd = os.getcwd()
+        path = env.get("PATH", "")
+        die(f"failed to exec {executable!r}: {exc}; cwd={cwd}; PATH={path}", 127)
     return 127
 
 

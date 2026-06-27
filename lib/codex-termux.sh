@@ -834,7 +834,11 @@ codex_validate_runtime_retention() {
 }
 
 codex_prune_runtime_store() {
+    local protected_runtime_arg=()
     codex_validate_runtime_retention || return $?
+    if [ -n "${CODEX_SELF_EXE:-}" ]; then
+        protected_runtime_arg=(--protect-runtime-path "$(codex_parent_dir "$CODEX_SELF_EXE")")
+    fi
     codex_termux_cmd store-prune \
         --runtime-store-dir "$CODEX_TERMUX_RUNTIME_STORE_DIR" \
         --raw-store-dir "$CODEX_TERMUX_RAW_STORE_DIR" \
@@ -845,6 +849,7 @@ codex_prune_runtime_store() {
         --retention "$CODEX_TERMUX_RUNTIME_RETENTION" \
         --current-link "$CODEX_TERMUX_RUNTIME_DIR" \
         --verified-link "$CODEX_TERMUX_VERIFIED_LINK" \
+        "${protected_runtime_arg[@]}" \
         --raw-link "$CODEX_TERMUX_RAW_DIR" >/dev/null
 }
 
@@ -1660,7 +1665,7 @@ codex_upstream_release_date() {
 }
 
 codex_version() {
-    local upstream upstream_version upstream_date runtime_version runtime_date status=0
+    local upstream upstream_version upstream_date runtime_date wrapper_version wrapper_commit status=0
     codex_status_clear
     if upstream="$(codex_run_current_runtime --version 2>/dev/null)"; then
         status=0
@@ -1670,14 +1675,16 @@ codex_version() {
     fi
     upstream_version="${upstream#codex-cli }"
     [ -n "$upstream_version" ] || upstream_version="unknown"
-    runtime_version="$(codex_display_version "$(codex_read_state_field version)")"
     upstream_date="$(codex_upstream_release_date "$upstream_version" || true)"
     runtime_date="$(codex_display_dotted_date "$(codex_current_runtime_date || true)")"
+    wrapper_version="$(codex_current_wrapper_version)"
+    wrapper_commit="$(codex_current_wrapper_commit)"
     printf '%s' "$upstream" >&2
     [ -n "$upstream_date" ] && printf ' (%s)' "$upstream_date" >&2
     printf '\n' >&2
-    printf '%-9s %s' 'runtime' "$runtime_version" >&2
-    [ -n "$runtime_date" ] && printf ' (%s)' "$runtime_date" >&2
+    printf '%-9s %s\n' 'runtime' "${runtime_date:-unknown}" >&2
+    printf '%-9s %s' 'wrapper' "$wrapper_version" >&2
+    [ -n "$wrapper_commit" ] && [ "$wrapper_commit" != "unknown" ] && printf ' (%s)' "$wrapper_commit" >&2
     printf '\n' >&2
     return "$status"
 }
@@ -2350,13 +2357,28 @@ codex_install_source_command() {
     return 1
 }
 
+codex_run_install_source_command() {
+    local source="$1" command="$2" tmp source_root snapshot status=0
+    shift 2
+    source_root="$(cd "$(dirname "$source")/.." && pwd)" || return 1
+    tmp="$(codex_mktemp_dir codex-install-source)" || return 1
+    snapshot="$tmp/source"
+    cp -R "$source_root" "$snapshot" || {
+        rm -rf "$tmp"
+        return 1
+    }
+    bash "$snapshot/bin/install-runtime.sh" "$command" "$@" || status=$?
+    rm -rf "$tmp"
+    return "$status"
+}
+
 codex_install_public() {
     local source
     source="$(codex_install_source_command)" || {
         codex_fail "Install source is unavailable; run bash install.sh from a wrapper checkout"
         return 1
     }
-    exec bash "$source" install "$@"
+    codex_run_install_source_command "$source" install "$@"
 }
 
 codex_update_full_public() {
@@ -2365,7 +2387,7 @@ codex_update_full_public() {
         codex_fail "Install source is unavailable; run bash install.sh from a wrapper checkout"
         return 1
     }
-    exec bash "$source" update "$@"
+    codex_run_install_source_command "$source" update "$@"
 }
 
 codex_repair_surface_public() {
@@ -2386,7 +2408,7 @@ codex_repair_surface_public() {
         codex_repair_public "$@"
         return $?
     }
-    exec bash "$source" repair "$@"
+    codex_run_install_source_command "$source" repair "$@"
 }
 
 codex_notify_usage() {

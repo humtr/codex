@@ -107,6 +107,7 @@ def _add_store_commands(sub: SubparserCollection) -> None:
         "runtime-builder", "patch-policy", "retention", "current-link", "verified-link", "raw-link",
     ):
         prune_cmd.add_argument(f"--{name}", required=True)
+    prune_cmd.add_argument("--protect-runtime-path", action="append", default=[])
     prune_cmd.set_defaults(func=_prune)
 
 
@@ -292,8 +293,8 @@ def _validate_wrapper_version(root: Path) -> None:
     for key in required:
         if not data.get(key):
             raise IntegrityError(f"wrapper metadata is missing: {key}")
-    if data["CODEX_TERMUX_WRAPPER_REPO"] != "local/codex-termux":
-        raise IntegrityError("wrapper repository metadata is not local/codex-termux")
+    if "/" not in data["CODEX_TERMUX_WRAPPER_REPO"]:
+        raise IntegrityError("wrapper repository metadata must be OWNER/REPO")
 
 
 def _validate_resolver_contract(root: Path) -> None:
@@ -406,6 +407,7 @@ def _prune(args: argparse.Namespace) -> int:
         retention=int(args.retention),
         current_link=Path(args.current_link),
         verified_link=Path(args.verified_link),
+        protected_runtime_paths=[Path(item) for item in args.protect_runtime_path],
         raw_link=Path(args.raw_link),
     )
     print(json.dumps(result, ensure_ascii=True, sort_keys=True))

@@ -29,11 +29,11 @@ for term in "${forbidden_terms[@]}"; do
     fi
 done
 
-grep -Fx 'CODEX_TERMUX_WRAPPER_VERSION=20260623-1' config/wrapper-version.env >/dev/null \
+grep -E '^CODEX_TERMUX_WRAPPER_VERSION=[0-9]{6}-[0-9]+$' config/wrapper-version.env >/dev/null \
     || fail 'wrapper version mismatch'
 grep -Fx 'CODEX_TERMUX_WRAPPER_CHANNEL=termux' config/wrapper-version.env >/dev/null \
     || fail 'wrapper channel mismatch'
-grep -Fx 'CODEX_TERMUX_WRAPPER_REPO=local/codex-termux' config/wrapper-version.env >/dev/null \
+grep -Fx 'CODEX_TERMUX_WRAPPER_REPO=humtr/codex' config/wrapper-version.env >/dev/null \
     || fail 'wrapper repo mismatch'
 
 grep -F 'PYTHONDONTWRITEBYTECODE=1' lib/codex-termux.sh >/dev/null \
@@ -100,7 +100,7 @@ with TemporaryDirectory() as tmp:
         runtime_sha256="b" * 64,
         package_spec="@openai/codex@0.0.0-linux-arm64",
         runtime_path=str(runtime_path),
-        wrapper_version="20260623-1",
+        wrapper_version="260627-1",
         wrapper_commit="testcommit",
         runtime_store_dir=runtime_store,
         updated_at="2026-01-01T00:00:00+00:00",

@@ -23,6 +23,7 @@ def build_prune_plan(
     current_link: Path,
     verified_link: Path,
     raw_link: Path,
+    protected_runtime_paths: list[Path] | None = None,
 ) -> schemas.PrunePlan:
     if retention < 1:
         raise IntegrityError("retention must be greater than zero")
@@ -33,6 +34,8 @@ def build_prune_plan(
         (current_link, verified_link),
         runtime_store,
     )
+    if protected_runtime_paths:
+        protected_runtime.update(_protected_paths(tuple(protected_runtime_paths), runtime_store))
     protected_raw = _protected_paths((raw_link,), raw_store)
     compatible = _compatible_runtimes(runtime_store, builder, policy)
     runtime_children = _store_children(runtime_store)

@@ -43,4 +43,10 @@ CODEX_TERMUX_STATE_DIR="$TMP_DIR/state" \
 CODEX_TERMUX_TMPDIR="$TMP_DIR/tmp" \
 bash -lc '. /data/data/com.termux/files/home/prj/codex/lib/codex-termux.sh; stable="$CODEX_TERMUX_RUNTIME_STORE_DIR/stable-runtime"; codex_prepare_system_config() { return 0; }; codex_resolve_path() { [ "$1" = "$CODEX_TERMUX_RUNTIME_DIR" ] && printf "%s\n" "$stable"; }; CODEX_SELF_EXE="$CODEX_TERMUX_RUNTIME"; codex_prepare_runtime_env; [ "$CODEX_SELF_EXE" = "$stable/codex" ]; case "$PATH" in "$stable/codex-path:$stable/codex-resources:"*) ;; *) exit 1 ;; esac'
 
+CODEX_TERMUX_HOME="$TMP_DIR/home" \
+CODEX_TERMUX_STATE_DIR="$TMP_DIR/state" \
+CODEX_TERMUX_TMPDIR="$TMP_DIR/tmp" \
+TEST_TMP_DIR="$TMP_DIR" \
+bash -lc '. /data/data/com.termux/files/home/prj/codex/lib/codex-termux.sh; source_file="$TEST_TMP_DIR/source/bin/install-runtime.sh"; mkdir -p "$(dirname "$source_file")"; printf "#!/bin/sh\nexit 0\n" >"$source_file"; chmod 755 "$source_file"; ran=""; bash() { ran="$1"; [ "$1" != "$source_file" ]; }; codex_mktemp_dir() { d="$TEST_TMP_DIR/snapshot"; rm -rf "$d"; mkdir -p "$d"; printf "%s\n" "$d"; }; codex_run_install_source_command "$source_file" install; case "$ran" in "$TEST_TMP_DIR/snapshot/source/bin/install-runtime.sh") ;; *) exit 1 ;; esac'
+
 printf 'cli-surface: ok\n'

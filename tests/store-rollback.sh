@@ -188,6 +188,9 @@ for index in 1 2 3; do
     cp -a "$good_runtime" "$extra"
     touch -d "2026-01-0$index UTC" "$extra" 2>/dev/null || touch "$extra"
 done
+running_runtime="$runtime_store/running-runtime"
+cp -a "$good_runtime" "$running_runtime"
+touch -d "2025-12-31 UTC" "$running_runtime" 2>/dev/null || touch "$running_runtime"
 
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" python3 -B -m codex_termux.cli store-prune \
     --runtime-store-dir "$runtime_store" \
@@ -199,9 +202,11 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" python3 -B -m codex_termu
     --retention 1 \
     --current-link "$current_link" \
     --verified-link "$verified_link" \
+    --protect-runtime-path "$running_runtime" \
     --raw-link "$raw_link" >"$TMP_DIR/prune.json"
 
 [ -d "$good_runtime" ] || fail 'protected verified runtime was pruned'
+[ -d "$running_runtime" ] || fail 'protected running runtime was pruned'
 [ -d "$good_raw" ] || fail 'protected raw store was pruned'
 
 rm -rf "$current_link" "$raw_link"

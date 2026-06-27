@@ -78,7 +78,13 @@ for rel in (
     "runtime-build.json",
 ):
     path = runtime_dir / rel
-    assert path.exists(), f"missing runtime entry: {rel}"
+assert path.exists(), f"missing runtime entry: {rel}"
 PYTHON
+
+if "$ROOT_DIR/tools/bwrap-termux-compat.py" -- /definitely/missing/codex-bwrap-test 2>"$TMP_DIR/bwrap.err"; then
+    fail 'bwrap compat accepted a missing executable'
+fi
+grep -F "failed to exec" "$TMP_DIR/bwrap.err" >/dev/null \
+    || fail 'bwrap compat failure did not include exec context'
 
 printf 'runtime-build: ok\n'

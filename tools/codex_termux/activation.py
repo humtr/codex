@@ -268,9 +268,24 @@ def _run_probe(plan: ActivationPlan, command: str, executable: Path | None) -> N
     args = [str(plan.shell_bin), "-c", f'. "$1"; {command}', "activation-probe", str(plan.shell_lib)]
     if executable is not None:
         args.append(str(executable))
-    result = subprocess.run(args, env=env, check=False)
+    result = subprocess.run(args, env=env, check=False, capture_output=True, text=True)
     if result.returncode != 0:
-        raise IntegrityError(f"activation probe failed with exit {result.returncode}")
+        details = _tail_probe_output(result.stdout, result.stderr)
+        message = f"activation probe failed with exit {result.returncode}"
+        if details:
+            message = f"{message}: {details}"
+        raise IntegrityError(message)
+
+
+def _tail_probe_output(stdout: str, stderr: str, limit: int = 20) -> str:
+    lines = []
+    for label, text in (("stdout", stdout), ("stderr", stderr)):
+        if not text:
+            continue
+        tail = text.splitlines()[-limit:]
+        if tail:
+            lines.append(f"{label}: " + " | ".join(tail))
+    return "; ".join(lines)
 
 
 def _rollback_or_raise(
