@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CODEX_TERMUX_REQUIRED_PACKAGES="${CODEX_TERMUX_REQUIRED_PACKAGES:-bash curl nodejs python tar coreutils ca-certificates}"
 CODEX_TERMUX_INSTALL_VERSION_OUTPUT="${CODEX_TERMUX_INSTALL_VERSION_OUTPUT:-1}"
 CODEX_TERMUX_INSTALL_OK_OUTPUT="${CODEX_TERMUX_INSTALL_OK_OUTPUT:-0}"
+CODEX_TERMUX_WRAPPER_SOURCE_CONFIG="${CODEX_TERMUX_WRAPPER_SOURCE_CONFIG:-$HOME/.config/codex-termux/wrapper-source.env}"
 export DEBIAN_FRONTEND="${DEBIAN_FRONTEND:-noninteractive}"
 CODEX_TERMUX_INSTALL_STATUS_ACTIVE=0
 CODEX_TERMUX_INSTALL_LOG=""
@@ -78,7 +79,59 @@ install_dependencies() {
         "${missing[@]}" || fail "dependency install failed: ${missing[*]}"
 }
 
+write_source_env_value() {
+    local name="$1" value="$2"
+    printf 'if [ -z "${%s+x}" ]; then\n' "$name"
+    printf '  %s=%q\n' "$name" "$value"
+    printf 'fi\n'
+    printf 'export %s\n' "$name"
+}
+
+configure_wrapper_source() {
+    local repo="${1:-}" ref="${2:-main}" token="${CODEX_TERMUX_WRAPPER_GIT_TOKEN:-}" config_dir tmp
+    if [ -z "$repo" ]; then
+        printf 'GitHub repo (OWNER/REPO)> ' >&2
+        IFS= read -r repo || fail 'source configuration cancelled'
+    fi
+    [ -n "$repo" ] || fail 'GitHub repo is required'
+    if [ -z "${2+x}" ]; then
+        printf 'Git ref [main]> ' >&2
+        IFS= read -r ref || fail 'source configuration cancelled'
+        ref="${ref:-main}"
+    fi
+    ref="${ref:-main}"
+    if [ -z "$token" ]; then
+        printf 'Fine-grained PAT (Contents: read-only)> ' >&2
+        if [ -t 0 ]; then
+            IFS= read -r -s token || fail 'source configuration cancelled'
+            printf '\n' >&2
+        else
+            IFS= read -r token || fail 'source configuration cancelled'
+        fi
+    fi
+    [ -n "$token" ] || fail 'PAT token is required'
+    config_dir="${CODEX_TERMUX_WRAPPER_SOURCE_CONFIG%/*}"
+    mkdir -p "$config_dir" || fail "failed to create config directory: $config_dir"
+    chmod 700 "$config_dir" || fail "failed to secure config directory: $config_dir"
+    tmp="$CODEX_TERMUX_WRAPPER_SOURCE_CONFIG.$$"
+    umask 077
+    {
+        printf '# codex termux wrapper source configuration\n'
+        write_source_env_value CODEX_TERMUX_WRAPPER_GIT_REPO "$repo"
+        write_source_env_value CODEX_TERMUX_WRAPPER_GIT_REF "$ref"
+        write_source_env_value CODEX_TERMUX_WRAPPER_GIT_TOKEN "$token"
+    } >"$tmp" || fail 'failed to write wrapper source config'
+    chmod 600 "$tmp" || fail 'failed to secure wrapper source config'
+    mv "$tmp" "$CODEX_TERMUX_WRAPPER_SOURCE_CONFIG" || fail 'failed to install wrapper source config'
+    printf 'Saved wrapper source config to %s\n' "$CODEX_TERMUX_WRAPPER_SOURCE_CONFIG" >&2
+}
+
 main() {
+    if [ "${1:-}" = "source" ]; then
+        shift
+        configure_wrapper_source "$@"
+        return 0
+    fi
     need_termux
     local install_tmp
     install_tmp="$(install_tmp_dir)"
