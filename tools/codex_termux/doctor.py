@@ -19,6 +19,7 @@ SEPARATOR_WIDTH = 61
 DOCTOR_HEADER = "Codex Termux Wrapper Doctor"
 SECTION_RUNTIME = "Runtime"
 SECTION_SUPPORT = "Support"
+SECTION_WRAPPER = "Wrapper"
 SECTION_STATE = "State"
 SECTION_STORE = "Store"
 FD_REWRITES = {
@@ -55,12 +56,14 @@ def build_report(inputs: DoctorInputs) -> dict[str, Any]:
     manifest = _read_json(inputs.current_link / "runtime-build.json")
     checks = _checks(inputs, manifest)
     active_tuple_id, verified_tuple_id = _registry_checks(inputs, checks)
+    wrapper = _wrapper_metadata(inputs.manager_dir)
     runtime_date = registry.active_runtime_created_at(inputs.registry_file)
     return {
         "schema": 2,
         "overallStatus": "ok" if all(checks.values()) else "fail",
         "version": inputs.version,
         "runtimeDate": runtime_date,
+        "wrapper": wrapper,
         "raw_sha256": inputs.raw_sha256,
         "runtime_sha256": inputs.runtime_sha256,
         "activeTupleId": active_tuple_id,
@@ -75,6 +78,30 @@ def build_report(inputs: DoctorInputs) -> dict[str, Any]:
         "buildManifest": manifest,
         "checks": checks,
     }
+
+
+def _wrapper_metadata(manager_dir: Path) -> dict[str, str]:
+    env = _parse_env_file(manager_dir / "wrapper-version.env")
+    return {
+        "version": env.get("CODEX_TERMUX_WRAPPER_VERSION", ""),
+        "repo": env.get("CODEX_TERMUX_WRAPPER_REPO", ""),
+        "commit": env.get("CODEX_TERMUX_WRAPPER_COMMIT", ""),
+        "installedAt": env.get("CODEX_TERMUX_WRAPPER_INSTALLED_AT", ""),
+        "channel": env.get("CODEX_TERMUX_WRAPPER_CHANNEL", ""),
+    }
+
+
+def _parse_env_file(path: Path) -> dict[str, str]:
+    data: dict[str, str] = {}
+    if not path.exists():
+        return data
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        data[key] = value
+    return data
 
 
 def _checks(inputs: DoctorInputs, manifest: dict[str, Any]) -> dict[str, bool]:
@@ -196,6 +223,20 @@ def render_human(report: dict[str, Any], output: TextIO | None = None) -> int:
     row(bool(checks.get("rg")) and bool(checks.get("rg_real")) and bool(checks.get("rg_exec")), "rg", "ripgrep shim and upstream rg work")
     row(bool(checks.get("support_bwrap_match")) and bool(checks.get("support_rg_match")), "support copy", "runtime shims match installed manager files")
     row(bool(checks.get("zsh")), "zsh", "bundled zsh resource exists")
+
+    print(file=out)
+    print(_bold(SECTION_WRAPPER, color), file=out)
+    wrapper = report.get("wrapper", {})
+    row(bool(wrapper.get("version")), "version", "wrapper version metadata is available")
+    detail("version", wrapper.get("version", "missing"))
+    row(bool(wrapper.get("repo")), "repo", "wrapper source repository is recorded")
+    detail("repo", wrapper.get("repo", "missing"))
+    row(bool(wrapper.get("commit")), "commit", "installed wrapper commit is recorded")
+    detail("commit", wrapper.get("commit", "missing"))
+    row(bool(wrapper.get("installedAt")), "installed", "wrapper install timestamp is recorded")
+    detail("installed", wrapper.get("installedAt", "missing"))
+    row(bool(wrapper.get("channel")), "channel", "wrapper channel is recorded")
+    detail("channel", wrapper.get("channel", "missing"))
 
     print(file=out)
     print(_bold(SECTION_STATE, color), file=out)
