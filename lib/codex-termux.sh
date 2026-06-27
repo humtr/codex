@@ -1486,7 +1486,10 @@ codex_ensure_runtime_ready() {
 
 
 codex_prepare_runtime_env() {
+    local runtime_dir runtime_exe
     codex_prepare_system_config || return $?
+    runtime_dir="$(codex_resolve_path "$CODEX_TERMUX_RUNTIME_DIR")" || return $?
+    runtime_exe="$runtime_dir/codex"
     export TMPDIR="$CODEX_TERMUX_TMPDIR"
     export TMP="$CODEX_TERMUX_TMPDIR"
     export TEMP="$CODEX_TERMUX_TMPDIR"
@@ -1496,24 +1499,24 @@ codex_prepare_runtime_env() {
     if [ -z "${BROWSER:-}" ] && command -v termux-open-url >/dev/null 2>&1; then
         export BROWSER=termux-open-url
     fi
-    export CODEX_SELF_EXE="${CODEX_SELF_EXE:-$CODEX_TERMUX_RUNTIME}"
+    export CODEX_SELF_EXE="$runtime_exe"
     unset CODEX_MANAGED_BY_NPM CODEX_MANAGED_BY_BUN CODEX_MANAGED_PACKAGE_ROOT LD_PRELOAD LD_LIBRARY_PATH
     export CODEX_TERMUX_BWRAP_COMPAT_QUIET="${CODEX_TERMUX_BWRAP_COMPAT_QUIET:-1}"
-    export PATH="$CODEX_TERMUX_RUNTIME_DIR/codex-path:$CODEX_TERMUX_RUNTIME_DIR/codex-resources:$CODEX_TERMUX_PREFIX/bin:$PATH"
+    export PATH="$runtime_dir/codex-path:$runtime_dir/codex-resources:$CODEX_TERMUX_PREFIX/bin:$PATH"
 }
 
 codex_run_current_runtime() {
     codex_status_clear
     codex_prepare_runtime_env || return $?
     codex_require_runtime_resolver || return $?
-    "$CODEX_TERMUX_RUNTIME" "$@" 33<"$CODEX_TERMUX_RESOLV_CONF" 34<"$CODEX_TERMUX_SYSTEM_CONFIG_DIR"
+    "$CODEX_SELF_EXE" "$@" 33<"$CODEX_TERMUX_RESOLV_CONF" 34<"$CODEX_TERMUX_SYSTEM_CONFIG_DIR"
 }
 
 codex_exec_current_runtime() {
     codex_status_clear
     codex_prepare_runtime_env || return $?
     codex_require_runtime_resolver || return $?
-    exec "$CODEX_TERMUX_RUNTIME" "$@" 33<"$CODEX_TERMUX_RESOLV_CONF" 34<"$CODEX_TERMUX_SYSTEM_CONFIG_DIR"
+    exec "$CODEX_SELF_EXE" "$@" 33<"$CODEX_TERMUX_RESOLV_CONF" 34<"$CODEX_TERMUX_SYSTEM_CONFIG_DIR"
 }
 
 codex_current_wrapper_version() {

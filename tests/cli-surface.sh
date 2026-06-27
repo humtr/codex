@@ -38,4 +38,9 @@ CODEX_TERMUX_STATE_DIR="$TMP_DIR/state" \
 CODEX_TERMUX_TMPDIR="$TMP_DIR/tmp" \
 bash -lc '. /data/data/com.termux/files/home/prj/codex/lib/codex-termux.sh; codex_install_source_command() { printf "%s\n" /data/data/com.termux/files/home/prj/codex/bin/install-runtime.sh; }; output="$(codex_repair_surface_public --help 2>&1)"; case "$output" in *"Wrapper commands"*) ;; *) exit 1 ;; esac'
 
+CODEX_TERMUX_HOME="$TMP_DIR/home" \
+CODEX_TERMUX_STATE_DIR="$TMP_DIR/state" \
+CODEX_TERMUX_TMPDIR="$TMP_DIR/tmp" \
+bash -lc '. /data/data/com.termux/files/home/prj/codex/lib/codex-termux.sh; stable="$CODEX_TERMUX_RUNTIME_STORE_DIR/stable-runtime"; codex_prepare_system_config() { return 0; }; codex_resolve_path() { [ "$1" = "$CODEX_TERMUX_RUNTIME_DIR" ] && printf "%s\n" "$stable"; }; CODEX_SELF_EXE="$CODEX_TERMUX_RUNTIME"; codex_prepare_runtime_env; [ "$CODEX_SELF_EXE" = "$stable/codex" ]; case "$PATH" in "$stable/codex-path:$stable/codex-resources:"*) ;; *) exit 1 ;; esac'
+
 printf 'cli-surface: ok\n'
