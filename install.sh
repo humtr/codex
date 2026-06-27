@@ -85,11 +85,32 @@ load_wrapper_source_config() {
     [ -r "$CODEX_TERMUX_WRAPPER_SOURCE_CONFIG" ] || return 0
     # shellcheck disable=SC1090
     . "$CODEX_TERMUX_WRAPPER_SOURCE_CONFIG"
+    normalize_wrapper_source_config
+}
+
+normalize_wrapper_source_config() {
+    if [ -z "${CODEX_TERMUX_WRAPPER_REPO:-}" ] && [ -n "${CODEX_TERMUX_WRAPPER_GIT_REPO:-}" ]; then
+        CODEX_TERMUX_WRAPPER_REPO="$CODEX_TERMUX_WRAPPER_GIT_REPO"
+        export CODEX_TERMUX_WRAPPER_REPO
+    fi
+    if [ -z "${CODEX_TERMUX_WRAPPER_REF:-}" ] && [ -n "${CODEX_TERMUX_WRAPPER_GIT_REF:-}" ]; then
+        CODEX_TERMUX_WRAPPER_REF="$CODEX_TERMUX_WRAPPER_GIT_REF"
+        export CODEX_TERMUX_WRAPPER_REF
+    fi
+    if [ -z "${CODEX_TERMUX_WRAPPER_TOKEN:-}" ]; then
+        if [ -n "${CODEX_TERMUX_WRAPPER_GIT_TOKEN:-}" ]; then
+            CODEX_TERMUX_WRAPPER_TOKEN="$CODEX_TERMUX_WRAPPER_GIT_TOKEN"
+        elif [ -n "${CODEX_TERMUX_WRAPPER_RELEASE_TOKEN:-}" ]; then
+            CODEX_TERMUX_WRAPPER_TOKEN="$CODEX_TERMUX_WRAPPER_RELEASE_TOKEN"
+        fi
+        [ -z "${CODEX_TERMUX_WRAPPER_TOKEN:-}" ] || export CODEX_TERMUX_WRAPPER_TOKEN
+    fi
 }
 
 source_tree_ready() {
     [ -n "$ROOT_DIR" ] &&
         [ -f "$ROOT_DIR/install.sh" ] &&
+        [ -f "$ROOT_DIR/bin/install-local.sh" ] &&
         [ -f "$ROOT_DIR/bin/install-runtime.sh" ] &&
         [ -f "$ROOT_DIR/lib/codex-termux.sh" ] &&
         [ -f "$ROOT_DIR/tools/build-runtime.py" ] &&
@@ -134,15 +155,27 @@ bootstrap_curl_config() {
     chmod 600 "$config" || fail 'failed to secure bootstrap curl config'
 }
 
+bootstrap_auth_token() {
+    local token
+    normalize_wrapper_source_config
+    token="${CODEX_TERMUX_WRAPPER_TOKEN:-}"
+    [ -n "$token" ] || token="${GITHUB_TOKEN:-}"
+    if [ -z "$token" ] && command -v gh >/dev/null 2>&1; then
+        token="$(gh auth token 2>/dev/null || true)"
+    fi
+    [ -n "$token" ] || return 1
+    printf '%s\n' "$token"
+}
+
 bootstrap_source_tree() {
     local repo ref token tmp archive extract source_dir url curl_config
     source_tree_ready && return 0
     [ "${CODEX_TERMUX_BOOTSTRAPPED:-0}" != "1" ] ||
         fail 'bootstrap did not produce a complete wrapper source tree'
     load_wrapper_source_config
-    repo="${CODEX_TERMUX_WRAPPER_GIT_REPO:-$CODEX_TERMUX_BOOTSTRAP_REPO}"
-    ref="${CODEX_TERMUX_WRAPPER_GIT_REF:-$CODEX_TERMUX_BOOTSTRAP_REF}"
-    token="${CODEX_TERMUX_WRAPPER_GIT_TOKEN:-${CODEX_TERMUX_WRAPPER_RELEASE_TOKEN:-${GITHUB_TOKEN:-}}}"
+    repo="${CODEX_TERMUX_WRAPPER_REPO:-$CODEX_TERMUX_BOOTSTRAP_REPO}"
+    ref="${CODEX_TERMUX_WRAPPER_REF:-$CODEX_TERMUX_BOOTSTRAP_REF}"
+    token="$(bootstrap_auth_token || true)"
     [ -n "$repo" ] || fail 'bootstrap repository is not configured'
     [ -n "$ref" ] || ref="main"
     command -v curl >/dev/null 2>&1 || fail 'curl is required for bootstrap install'
@@ -162,7 +195,7 @@ bootstrap_source_tree() {
     CODEX_TERMUX_BOOTSTRAP_REPO="$repo" \
     CODEX_TERMUX_BOOTSTRAP_REF="$ref" \
     CODEX_TERMUX_WRAPPER_SOURCE_DIR="$source_dir" \
-        exec bash "$source_dir/install.sh" "$@"
+        exec bash "$source_dir/bin/install-local.sh" "$@"
 }
 
 write_source_env_value() {
@@ -182,19 +215,19 @@ write_source_config_file() {
     umask 077
     {
         printf '# codex termux wrapper source configuration\n'
-        write_source_env_value CODEX_TERMUX_WRAPPER_GIT_REPO "$repo"
-        write_source_env_value CODEX_TERMUX_WRAPPER_GIT_REF "$ref"
-        [ -z "$token" ] || write_source_env_value CODEX_TERMUX_WRAPPER_GIT_TOKEN "$token"
+        write_source_env_value CODEX_TERMUX_WRAPPER_REPO "$repo"
+        write_source_env_value CODEX_TERMUX_WRAPPER_REF "$ref"
+        [ -z "$token" ] || write_source_env_value CODEX_TERMUX_WRAPPER_TOKEN "$token"
     } >"$tmp" || fail 'failed to write wrapper source config'
     chmod 600 "$tmp" || fail 'failed to secure wrapper source config'
     mv "$tmp" "$CODEX_TERMUX_WRAPPER_SOURCE_CONFIG" || fail 'failed to install wrapper source config'
 }
 
 configure_wrapper_source() {
-    local repo="${1:-}" ref="${2:-main}" token="${CODEX_TERMUX_WRAPPER_GIT_TOKEN:-}"
+    local repo="${1:-}" ref="${2:-main}" token="${CODEX_TERMUX_WRAPPER_TOKEN:-}"
     if [ -z "$token" ]; then
         load_wrapper_source_config
-        token="${CODEX_TERMUX_WRAPPER_GIT_TOKEN:-}"
+        token="${CODEX_TERMUX_WRAPPER_TOKEN:-}"
     fi
     if [ -z "$repo" ]; then
         printf 'GitHub repo (OWNER/REPO)> ' >&2
@@ -272,7 +305,8 @@ save_current_source_config_if_missing() {
     if [ -z "$ref" ]; then
         ref="$(detect_git_ref || printf 'main')"
     fi
-    token="${CODEX_TERMUX_WRAPPER_GIT_TOKEN:-${GITHUB_TOKEN:-}}"
+    normalize_wrapper_source_config
+    token="${CODEX_TERMUX_WRAPPER_TOKEN:-${GITHUB_TOKEN:-}}"
     write_source_config_file "$repo" "$ref" "$token"
 }
 
@@ -287,8 +321,11 @@ install_managed_runtime() {
     save_current_source_config_if_missing
     say 'installing managed runtime'
     CODEX_TERMUX_WRAPPER_SOURCE_DIR="$ROOT_DIR" \
+    CODEX_TERMUX_WRAPPER_REPO= \
+    CODEX_TERMUX_WRAPPER_REF= \
     CODEX_TERMUX_WRAPPER_GIT_URL= \
     CODEX_TERMUX_WRAPPER_GIT_REPO= \
+    CODEX_TERMUX_WRAPPER_GIT_REF= \
     CODEX_TERMUX_WRAPPER_RELEASE_URL= \
     CODEX_TERMUX_WRAPPER_RELEASE_REPO= \
     CODEX_TERMUX_WRAPPER_RELEASE_TAG= \
@@ -310,7 +347,6 @@ install_managed_runtime() {
 
 main() {
     local source_install=1
-    bootstrap_source_tree "$@"
     if [ "${1:-}" = "source" ]; then
         shift
         case "${1:-}" in
@@ -323,6 +359,13 @@ main() {
         [ "$source_install" = "1" ] || return 0
         set --
     fi
+    if [ "${CODEX_TERMUX_LOCAL_INSTALL:-0}" != "1" ] &&
+        [ "${BASH_SOURCE[0]}" = "$0" ] &&
+        source_tree_ready; then
+        printf 'Using local checkout: %s\n' "$ROOT_DIR" >&2
+        exec bash "$ROOT_DIR/bin/install-local.sh" "$@"
+    fi
+    bootstrap_source_tree "$@"
     install_managed_runtime "$@"
 }
 

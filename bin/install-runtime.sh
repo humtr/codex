@@ -9,11 +9,44 @@ ROOT_DIR="$(cd "$ROOT_DIR/.." && pwd)"
 CODEX_TERMUX_WRAPPER_SOURCE_CONFIG="${CODEX_TERMUX_WRAPPER_SOURCE_CONFIG:-$HOME/.config/codex-termux/wrapper-source.env}"
 CODEX_TERMUX_WRAPPER_SOURCE_TMP=""
 CODEX_TERMUX_WRAPPER_GIT_ASKPASS=""
+CODEX_TERMUX_WRAPPER_SOURCE_LABEL=""
 
 codex_load_wrapper_source_config() {
     [ -r "$CODEX_TERMUX_WRAPPER_SOURCE_CONFIG" ] || return 0
     # shellcheck disable=SC1090
     . "$CODEX_TERMUX_WRAPPER_SOURCE_CONFIG"
+    codex_normalize_wrapper_source_config
+}
+
+codex_normalize_wrapper_source_config() {
+    if [ -z "${CODEX_TERMUX_WRAPPER_REPO:-}" ] && [ -n "${CODEX_TERMUX_WRAPPER_GIT_REPO:-}" ]; then
+        CODEX_TERMUX_WRAPPER_REPO="$CODEX_TERMUX_WRAPPER_GIT_REPO"
+        export CODEX_TERMUX_WRAPPER_REPO
+    fi
+    if [ -z "${CODEX_TERMUX_WRAPPER_REF:-}" ] && [ -n "${CODEX_TERMUX_WRAPPER_GIT_REF:-}" ]; then
+        CODEX_TERMUX_WRAPPER_REF="$CODEX_TERMUX_WRAPPER_GIT_REF"
+        export CODEX_TERMUX_WRAPPER_REF
+    fi
+    if [ -z "${CODEX_TERMUX_WRAPPER_TOKEN:-}" ]; then
+        if [ -n "${CODEX_TERMUX_WRAPPER_GIT_TOKEN:-}" ]; then
+            CODEX_TERMUX_WRAPPER_TOKEN="$CODEX_TERMUX_WRAPPER_GIT_TOKEN"
+        elif [ -n "${CODEX_TERMUX_WRAPPER_RELEASE_TOKEN:-}" ]; then
+            CODEX_TERMUX_WRAPPER_TOKEN="$CODEX_TERMUX_WRAPPER_RELEASE_TOKEN"
+        fi
+        [ -z "${CODEX_TERMUX_WRAPPER_TOKEN:-}" ] || export CODEX_TERMUX_WRAPPER_TOKEN
+    fi
+}
+
+codex_wrapper_auth_token() {
+    local token
+    codex_normalize_wrapper_source_config
+    token="${CODEX_TERMUX_WRAPPER_TOKEN:-}"
+    [ -n "$token" ] || token="${GITHUB_TOKEN:-}"
+    if [ -z "$token" ] && command -v gh >/dev/null 2>&1; then
+        token="$(gh auth token 2>/dev/null || true)"
+    fi
+    [ -n "$token" ] || return 1
+    printf '%s\n' "$token"
 }
 
 codex_load_wrapper_source_config
@@ -30,7 +63,7 @@ install support             Refresh support files and the launcher only.
 install upstream [VERSION]  Install a fresh patched runtime from upstream raw.
 install rebuild             Refresh support files and rebuild patched runtime from cached raw.
 update [VERSION]            Same as install [VERSION]: refresh support and patched runtime.
-repair                      Diagnose and repair the managed installation.
+repair                      Diagnose and repair the managed installation; does not update by default.
 remove                      Remove the managed launcher/runtime and restore a launcher backup.
 doctor                      Run wrapper diagnostics. Use: doctor --json for machine output.
 USAGE
@@ -48,6 +81,7 @@ codex_source_commit() {
 codex_wrapper_source_required_paths() {
     printf '%s\n' \
         install.sh \
+        bin/install-local.sh \
         bin/install-runtime.sh \
         lib/codex-termux.sh \
         tools/build-runtime.py \
@@ -107,7 +141,7 @@ codex_download_wrapper_archive() {
         cp "$source" "$target"
         return $?
     fi
-    token="${CODEX_TERMUX_WRAPPER_RELEASE_TOKEN:-${GITHUB_TOKEN:-}}"
+    token="$(codex_wrapper_auth_token || true)"
     accept="${CODEX_TERMUX_WRAPPER_RELEASE_ACCEPT:-}"
     if [ -z "$accept" ]; then
         case "$source" in
@@ -156,15 +190,20 @@ codex_fetch_release_wrapper_source() {
     }
     CODEX_TERMUX_WRAPPER_SOURCE_TMP="$tmp"
     CODEX_TERMUX_WRAPPER_SOURCE_DIR="$source_dir"
+    CODEX_TERMUX_WRAPPER_SOURCE_LABEL="release archive"
 }
 
 codex_git_wrapper_source_url() {
-    if [ -n "${CODEX_TERMUX_WRAPPER_GIT_URL:-}" ]; then
-        printf '%s\n' "$CODEX_TERMUX_WRAPPER_GIT_URL"
-        return 0
-    fi
-    if [ -n "${CODEX_TERMUX_WRAPPER_GIT_REPO:-}" ]; then
-        printf 'https://github.com/%s.git\n' "$CODEX_TERMUX_WRAPPER_GIT_REPO"
+    codex_normalize_wrapper_source_config
+    if [ -n "${CODEX_TERMUX_WRAPPER_REPO:-}" ]; then
+        case "$CODEX_TERMUX_WRAPPER_REPO" in
+            https://*|http://*|git@*|ssh://*)
+                printf '%s\n' "$CODEX_TERMUX_WRAPPER_REPO"
+                ;;
+            *)
+                printf 'https://github.com/%s.git\n' "$CODEX_TERMUX_WRAPPER_REPO"
+                ;;
+        esac
         return 0
     fi
     return 1
@@ -188,8 +227,8 @@ ASKPASS
 codex_git_clone_wrapper_source() {
     local url ref token tmp checkout
     url="$(codex_git_wrapper_source_url)" || return 1
-    ref="${CODEX_TERMUX_WRAPPER_GIT_REF:-}"
-    token="${CODEX_TERMUX_WRAPPER_GIT_TOKEN:-${CODEX_TERMUX_WRAPPER_RELEASE_TOKEN:-${GITHUB_TOKEN:-}}}"
+    ref="${CODEX_TERMUX_WRAPPER_REF:-}"
+    token="$(codex_wrapper_auth_token || true)"
     tmp="$(codex_mktemp_dir codex-wrapper-git)" || return 1
     checkout="$tmp/checkout"
     codex_prepare_git_askpass "$token" "$tmp"
@@ -216,11 +255,16 @@ codex_git_clone_wrapper_source() {
     }
     CODEX_TERMUX_WRAPPER_SOURCE_TMP="$tmp"
     CODEX_TERMUX_WRAPPER_SOURCE_DIR="$checkout"
+    if [ -n "${CODEX_TERMUX_WRAPPER_REPO:-}" ]; then
+        CODEX_TERMUX_WRAPPER_SOURCE_LABEL="github.com/${CODEX_TERMUX_WRAPPER_REPO}${ref:+@$ref}"
+    else
+        CODEX_TERMUX_WRAPPER_SOURCE_LABEL="$url${ref:+@$ref}"
+    fi
 }
 
 codex_git_wrapper_source_configured() {
-    [ -n "${CODEX_TERMUX_WRAPPER_GIT_URL:-}" ] ||
-        [ -n "${CODEX_TERMUX_WRAPPER_GIT_REPO:-}" ]
+    codex_normalize_wrapper_source_config
+    [ -n "${CODEX_TERMUX_WRAPPER_REPO:-}" ]
 }
 
 codex_release_wrapper_source_configured() {
@@ -238,12 +282,14 @@ codex_prepare_fresh_wrapper_source() {
         return $?
     fi
     CODEX_TERMUX_WRAPPER_SOURCE_DIR="$ROOT_DIR"
+    CODEX_TERMUX_WRAPPER_SOURCE_LABEL="local $ROOT_DIR"
     codex_validate_wrapper_source "$CODEX_TERMUX_WRAPPER_SOURCE_DIR"
 }
 
 codex_cleanup_fresh_wrapper_source() {
     [ -z "$CODEX_TERMUX_WRAPPER_SOURCE_TMP" ] || rm -rf "$CODEX_TERMUX_WRAPPER_SOURCE_TMP"
     CODEX_TERMUX_WRAPPER_SOURCE_TMP=""
+    CODEX_TERMUX_WRAPPER_SOURCE_LABEL=""
 }
 
 codex_copy_wrapper_source_snapshot() {
@@ -496,6 +542,7 @@ codex_install_surface_run() {
 codex_install_full_unlocked() {
     local status=0
     codex_prepare_fresh_wrapper_source || return $?
+    [ -z "$CODEX_TERMUX_WRAPPER_SOURCE_LABEL" ] || codex_status "Using wrapper source: $CODEX_TERMUX_WRAPPER_SOURCE_LABEL"
     {
         codex_validate_runtime_retention &&
         codex_install_support_files &&
@@ -522,6 +569,7 @@ codex_install_full_core() {
 codex_install_support_unlocked() {
     local status=0
     codex_prepare_fresh_wrapper_source || return $?
+    [ -z "$CODEX_TERMUX_WRAPPER_SOURCE_LABEL" ] || codex_status "Using wrapper source: $CODEX_TERMUX_WRAPPER_SOURCE_LABEL"
     {
         codex_install_support_files &&
         codex_install_launchers
@@ -554,6 +602,7 @@ codex_install_upstream_core() {
 codex_install_rebuild_unlocked() {
     local status=0
     codex_prepare_fresh_wrapper_source || return $?
+    [ -z "$CODEX_TERMUX_WRAPPER_SOURCE_LABEL" ] || codex_status "Using wrapper source: $CODEX_TERMUX_WRAPPER_SOURCE_LABEL"
     {
         codex_validate_runtime_retention &&
         codex_install_support_files &&

@@ -27,38 +27,45 @@ The wrapper does not replace upstream Codex commands. Unknown commands and norma
 
 ## Install
 
-One-line install from GitHub:
+Public one-line install from GitHub:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/humtr/codex/main/install.sh | bash
 ```
 
-This downloads the wrapper source, installs the official upstream `@openai/codex`
-linux-arm64 package, patches it for Termux, and installs the managed `codex`
-launcher.
+This downloads the bootstrap installer, fetches the wrapper source, installs the
+official upstream `@openai/codex` linux-arm64 package, patches it for Termux,
+and installs the managed `codex` launcher.
 
-If you already have a checkout or release archive, run the local installer:
+For a private repository, the first `install.sh` download also needs GitHub
+authentication because local saved config cannot be read until after the script
+starts. If GitHub CLI is already authenticated, use:
 
 ```sh
-bash install.sh
+GITHUB_TOKEN="$(gh auth token)" bash -c 'curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" https://raw.githubusercontent.com/humtr/codex/main/install.sh | bash'
 ```
+
+If `~/.config/codex-termux/wrapper-source.env` already contains a saved
+read-only PAT, use:
+
+```sh
+bash -lc '. ~/.config/codex-termux/wrapper-source.env; curl -fsSL -H "Authorization: Bearer $CODEX_TERMUX_WRAPPER_TOKEN" "https://raw.githubusercontent.com/$CODEX_TERMUX_WRAPPER_REPO/$CODEX_TERMUX_WRAPPER_REF/install.sh" | bash'
+```
+
+If you already have a source checkout, run the local installer:
+
+```sh
+bash bin/install-local.sh
+```
+
+`bash install.sh` still works from a checkout for convenience; it prints the
+local checkout path and delegates to `bin/install-local.sh`.
 
 After installation, use the managed launcher:
 
 ```sh
 codex
 ```
-
-For a private repository, the first `install.sh` download also needs GitHub
-authentication. If GitHub CLI is already authenticated, use:
-
-```sh
-GITHUB_TOKEN="$(gh auth token)" bash -c 'curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" https://raw.githubusercontent.com/humtr/codex/main/install.sh | bash'
-```
-
-The installer also reads `~/.config/codex-termux/wrapper-source.env` when it
-exists, so a previously saved read-only PAT can be reused for bootstrap and
-later `codex update` runs.
 
 ## Runtime model
 
@@ -85,34 +92,21 @@ Runs the managed upstream Codex runtime. The wrapper may repair, update, or roll
 codex install
 ```
 
-Refreshes wrapper support from the install source, downloads a fresh upstream package, patches a runtime bundle, activates it, and updates the verified rollback baseline.
-
-For fresh wrapper commands, the installer can use a release archive when configured:
-
-```sh
-CODEX_TERMUX_WRAPPER_RELEASE_URL=https://example.invalid/codex-termux.tar.gz codex install
-```
-
-For a private GitHub repository, the installer can clone the wrapper source directly with a fine-grained PAT limited to the wrapper repository with `Contents: read-only`:
+Refreshes wrapper support from the configured wrapper source when available,
+downloads a fresh upstream package, patches a runtime bundle, activates it, and
+updates the verified rollback baseline.
 
 ```sh
-CODEX_TERMUX_WRAPPER_GIT_REPO=OWNER/REPO \
-CODEX_TERMUX_WRAPPER_GIT_REF=main \
-CODEX_TERMUX_WRAPPER_GIT_TOKEN=github_pat_... \
+CODEX_TERMUX_WRAPPER_REPO=OWNER/REPO \
+CODEX_TERMUX_WRAPPER_REF=main \
+CODEX_TERMUX_WRAPPER_TOKEN=github_pat_... \
 codex update
 ```
 
-`CODEX_TERMUX_WRAPPER_GIT_URL` may be used instead of `CODEX_TERMUX_WRAPPER_GIT_REPO` for a full HTTPS clone URL. `CODEX_TERMUX_WRAPPER_GIT_TOKEN` falls back to `CODEX_TERMUX_WRAPPER_RELEASE_TOKEN` or `GITHUB_TOKEN` when unset.
-
-For a private GitHub release asset, use the release asset API URL and a fine-grained PAT limited to the wrapper repository with `Contents: read-only`:
-
-```sh
-CODEX_TERMUX_WRAPPER_RELEASE_URL=https://api.github.com/repos/OWNER/REPO/releases/assets/ASSET_ID \
-CODEX_TERMUX_WRAPPER_RELEASE_TOKEN=github_pat_... \
-codex update
-```
-
-`CODEX_TERMUX_WRAPPER_RELEASE_SHA256` may be set to pin the archive checksum. Without release settings, the current install source is used and stored under the managed support directory for later `codex install` calls.
+The wrapper token lookup order is `CODEX_TERMUX_WRAPPER_TOKEN`, `GITHUB_TOKEN`,
+then `gh auth token`. The token should be a fine-grained PAT limited to the
+wrapper repository with `Contents: read-only`. Without a configured repository,
+the current installed wrapper source is used.
 
 Turn-completion notification behavior can be configured in:
 
@@ -142,13 +136,16 @@ Writes `~/.local/share/codex/termux/notify/config.env` and regenerates the hook 
 codex update
 ```
 
-Refreshes wrapper support from the install source, downloads the selected or latest upstream package, patches a runtime bundle, activates it, and updates the verified rollback baseline.
+Same as `codex install`: refreshes configured wrapper support, downloads the
+selected or latest upstream package, patches a runtime bundle, activates it, and
+updates the verified rollback baseline.
 
 ```sh
 codex install support
 ```
 
-Refreshes wrapper support files and the public launcher without changing the active runtime.
+Refreshes configured wrapper support files and the public launcher without
+changing the active runtime.
 
 ```sh
 codex install upstream
@@ -161,13 +158,18 @@ Downloads the selected or latest upstream package and installs it as a patched r
 codex install rebuild
 ```
 
-Refreshes wrapper support from the install source and rebuilds the patched runtime from the cached raw package without fetching upstream Codex.
+Refreshes configured wrapper support and rebuilds the patched runtime from the
+cached raw package without fetching upstream Codex.
 
 ```sh
 codex repair
 ```
 
-Diagnoses the managed installation and applies the narrowest available repair. It refreshes support when support files or the launcher are damaged, repairs metadata when the runtime is healthy, and rebuilds from cached raw when the active runtime is damaged.
+Diagnoses the managed installation and applies the narrowest available repair.
+It refreshes support when support files or the launcher are damaged, repairs
+metadata when the runtime is healthy, and rebuilds from cached raw when the
+active runtime is damaged. It does not update to a fresh wrapper/runtime by
+default.
 
 ```sh
 codex use

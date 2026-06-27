@@ -148,7 +148,7 @@ curl() {
     printf 'archive\n' >"$out"
 }
 
-CODEX_TERMUX_WRAPPER_RELEASE_TOKEN="test-token" \
+CODEX_TERMUX_WRAPPER_TOKEN="test-token" \
 codex_download_wrapper_archive \
     "https://api.github.com/repos/example/private/releases/assets/123" \
     "$TMP_DIR/release.tgz"
@@ -159,6 +159,21 @@ grep -F "Accept: application/octet-stream" "$TMP_DIR/curl-args" >/dev/null \
 grep -Fx "archive" "$TMP_DIR/release.tgz" >/dev/null \
     || fail 'mock release archive was not written'
 
+mkdir -p "$TMP_DIR/gh-bin"
+cat >"$TMP_DIR/gh-bin/gh" <<'SCRIPT'
+#!/bin/sh
+[ "$1" = "auth" ] && [ "$2" = "token" ] || exit 3
+printf '%s\n' gh_token_test
+SCRIPT
+chmod 755 "$TMP_DIR/gh-bin/gh"
+PATH="$TMP_DIR/gh-bin:$PATH" \
+CODEX_TERMUX_WRAPPER_TOKEN= \
+CODEX_TERMUX_WRAPPER_GIT_TOKEN= \
+CODEX_TERMUX_WRAPPER_RELEASE_TOKEN= \
+GITHUB_TOKEN= \
+bash -lc '. "$1"; [ "$(codex_wrapper_auth_token)" = "gh_token_test" ]' _ "$ROOT_DIR/bin/install-runtime.sh" \
+    || fail 'install-runtime gh auth token fallback failed'
+
 git() {
     local target="${@: -1}" arg
     printf '%s\n' "$*" >"$TMP_DIR/git-args"
@@ -167,6 +182,7 @@ git() {
     printf '%s\n' "${CODEX_TERMUX_WRAPPER_GIT_TOKEN_VALUE:-}" >"$TMP_DIR/git-token-value"
     mkdir -p "$target/bin" "$target/lib" "$target/tools/codex_termux" "$target/config"
     printf 'install\n' >"$target/install.sh"
+    printf 'install local\n' >"$target/bin/install-local.sh"
     printf 'install runtime\n' >"$target/bin/install-runtime.sh"
     printf 'lib\n' >"$target/lib/codex-termux.sh"
     printf 'builder\n' >"$target/tools/build-runtime.py"
@@ -182,9 +198,9 @@ git() {
 
 CODEX_TERMUX_WRAPPER_SOURCE_TMP=""
 CODEX_TERMUX_WRAPPER_SOURCE_DIR=""
-CODEX_TERMUX_WRAPPER_GIT_REPO="example/private" \
-CODEX_TERMUX_WRAPPER_GIT_REF="main" \
-CODEX_TERMUX_WRAPPER_GIT_TOKEN="test-token" \
+CODEX_TERMUX_WRAPPER_REPO="example/private" \
+CODEX_TERMUX_WRAPPER_REF="main" \
+CODEX_TERMUX_WRAPPER_TOKEN="test-token" \
 codex_git_clone_wrapper_source
 codex_validate_wrapper_source "$CODEX_TERMUX_WRAPPER_SOURCE_DIR" \
     || fail 'git wrapper checkout was not accepted as wrapper source'
