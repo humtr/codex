@@ -363,10 +363,14 @@ codex_install_surface_finish() {
 codex_install_surface_run() {
     local key="$1" version="${2:-}" command="$3" status=0
     shift 3
+    if [ "${CODEX_TERMUX_INSTALL_SURFACE:-1}" = "0" ]; then
+        "$command" "$@"
+        return $?
+    fi
     codex_status "$(codex_install_surface_message "$key" "$version")"
     "$command" "$@" || status=$?
     if [ "$status" -eq 0 ]; then
-        codex_install_surface_finish "$key"
+        codex_install_surface_finish "$key" || status=$?
     else
         codex_status_clear
     fi

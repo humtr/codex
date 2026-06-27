@@ -108,4 +108,25 @@ case "$STATUS_LOG" in
     *) fail "repair did not use repair surface: $STATUS_LOG" ;;
 esac
 
+VERSION_COUNT=0
+STATUS_LOG=""
+SAY_LOG=""
+codex_version() { VERSION_COUNT=$((VERSION_COUNT + 1)); return 7; }
+if codex_install_surface_run install "" codex_validate_runtime_retention; then
+    fail 'surface finish failure did not propagate'
+fi
+codex_version() { VERSION_COUNT=$((VERSION_COUNT + 1)); }
+
+SUPPORT_COUNT=0
+LAUNCHER_COUNT=0
+VERSION_COUNT=0
+STATUS_LOG=""
+SAY_LOG=""
+CODEX_TERMUX_INSTALL_SURFACE=0 codex_install_dispatch support
+[ "$SUPPORT_COUNT" -eq 1 ] || fail 'quiet install support did not refresh support'
+[ "$LAUNCHER_COUNT" -eq 1 ] || fail 'quiet install support did not refresh launcher'
+[ -z "$STATUS_LOG" ] || fail "quiet install support emitted status: $STATUS_LOG"
+[ -z "$SAY_LOG" ] || fail "quiet install support emitted completion: $SAY_LOG"
+unset CODEX_TERMUX_INSTALL_SURFACE
+
 printf 'install-dispatch: ok\n'

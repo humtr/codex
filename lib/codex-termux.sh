@@ -1076,7 +1076,7 @@ codex_repair_install_support() {
         return 1
     }
     codex_ui_step repair_support
-    CODEX_TERMUX_INSTALL_PRINT_VERSION=0 bash "$source" install support >/dev/null
+    CODEX_TERMUX_INSTALL_PRINT_VERSION=0 CODEX_TERMUX_INSTALL_SURFACE=0 bash "$source" install support >/dev/null
 }
 
 codex_repair_apply() {
@@ -2368,19 +2368,18 @@ codex_update_full_public() {
 codex_repair_surface_public() {
     local source
     case "${1:-}" in
-        ""|-h|--help|help) ;;
+        "")
+            ;;
+        -h|--help|help)
+            codex_wrapper_help
+            return 0
+            ;;
         *)
             codex_fail "repair does not take arguments"
             return 2
             ;;
     esac
     source="$(codex_install_source_command)" || {
-        case "${1:-}" in
-            -h|--help|help)
-                codex_wrapper_help
-                return 0
-                ;;
-        esac
         codex_repair_public "$@"
         return $?
     }
