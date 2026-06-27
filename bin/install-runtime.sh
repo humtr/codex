@@ -45,14 +45,40 @@ codex_source_commit() {
     fi
 }
 
+codex_wrapper_source_required_paths() {
+    printf '%s\n' \
+        install.sh \
+        bin/install-runtime.sh \
+        lib/codex-termux.sh \
+        tools/build-runtime.py \
+        tools/bwrap-termux-compat.py \
+        tools/rg-termux-shim.sh \
+        tools/codex-turn-notify.sh \
+        tools/codex-launcher.c \
+        tools/codex_termux \
+        config/wrapper-version.env
+}
+
+codex_missing_wrapper_source_paths() {
+    local source_dir="$1" required
+    while IFS= read -r required; do
+        [ -e "$source_dir/$required" ] || printf '%s\n' "$required"
+    done <<EOF
+$(codex_wrapper_source_required_paths)
+EOF
+}
+
 codex_validate_wrapper_source() {
-    local source_dir="$1"
-    [ -f "$source_dir/install.sh" ] || return 1
-    [ -f "$source_dir/bin/install-runtime.sh" ] || return 1
-    [ -f "$source_dir/lib/codex-termux.sh" ] || return 1
-    [ -f "$source_dir/tools/build-runtime.py" ] || return 1
-    [ -d "$source_dir/tools/codex_termux" ] || return 1
-    [ -f "$source_dir/config/wrapper-version.env" ] || return 1
+    [ -z "$(codex_missing_wrapper_source_paths "$1")" ]
+}
+
+codex_require_wrapper_source() {
+    local source_dir="$1" label="$2" missing
+    missing="$(codex_missing_wrapper_source_paths "$source_dir")"
+    if [ -n "$missing" ]; then
+        codex_fail "$label does not contain a valid wrapper source (missing: $(printf '%s' "$missing" | tr '\n' ' '))"
+        return 1
+    fi
 }
 
 codex_find_extracted_wrapper_source() {
@@ -184,9 +210,8 @@ codex_git_clone_wrapper_source() {
             return 1
         }
     fi
-    codex_validate_wrapper_source "$checkout" || {
+    codex_require_wrapper_source "$checkout" "Wrapper git repository" || {
         rm -rf "$tmp"
-        codex_fail "Wrapper git repository does not contain a valid wrapper source"
         return 1
     }
     CODEX_TERMUX_WRAPPER_SOURCE_TMP="$tmp"
@@ -274,10 +299,7 @@ PYTHON
 
 codex_install_support_files() {
     local wrapper_commit source_dir="$CODEX_TERMUX_WRAPPER_SOURCE_DIR"
-    codex_validate_wrapper_source "$source_dir" || {
-        codex_fail "Invalid wrapper source: $source_dir"
-        return 1
-    }
+    codex_require_wrapper_source "$source_dir" "Invalid wrapper source: $source_dir" || return $?
     mkdir -p "$CODEX_TERMUX_MANAGER_DIR" "$CODEX_TERMUX_STATE_DIR"
     codex_prepare_system_config
     codex_copy_wrapper_source_snapshot "$source_dir" "$CODEX_TERMUX_SOURCE_DIR" || return $?

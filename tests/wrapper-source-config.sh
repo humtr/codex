@@ -19,7 +19,7 @@ file_mode() {
 CONFIG="$TMP_DIR/wrapper-source.env"
 CODEX_TERMUX_WRAPPER_SOURCE_CONFIG="$CONFIG" \
     CODEX_TERMUX_WRAPPER_GIT_TOKEN="github_pat_test" \
-    bash "$ROOT_DIR/install.sh" source example/private dev >/dev/null \
+    bash "$ROOT_DIR/install.sh" source --save-only example/private dev >/dev/null \
     || fail 'install.sh source failed'
 
 [ -f "$CONFIG" ] || fail 'source config was not created'
@@ -49,12 +49,32 @@ bash -lc '
 CONFIG_DEFAULT_REF="$TMP_DIR/wrapper-source-default-ref.env"
 CODEX_TERMUX_WRAPPER_SOURCE_CONFIG="$CONFIG_DEFAULT_REF" \
     CODEX_TERMUX_WRAPPER_GIT_TOKEN="github_pat_test" \
-    bash "$ROOT_DIR/install.sh" source example/private "" >/dev/null \
+    bash "$ROOT_DIR/install.sh" source --save-only example/private "" >/dev/null \
     || fail 'install.sh source with empty ref failed'
 
 bash -lc '
     . "$1"
     [ "$CODEX_TERMUX_WRAPPER_GIT_REF" = "main" ]
 ' _ "$CONFIG_DEFAULT_REF" || fail 'empty source ref did not default to main'
+
+bash -lc '
+    . "$1"
+    CONFIGURE_ARGS=""
+    INSTALL_CALLED=0
+    configure_wrapper_source() { CONFIGURE_ARGS="$*"; }
+    install_managed_runtime() { INSTALL_CALLED=1; [ "$#" -eq 0 ]; }
+    main source example/private dev
+    [ "$CONFIGURE_ARGS" = "example/private dev" ] &&
+    [ "$INSTALL_CALLED" -eq 1 ]
+' _ "$ROOT_DIR/install.sh" || fail 'source command did not continue into install by default'
+
+bash -lc '
+    . "$1"
+    INSTALL_CALLED=0
+    configure_wrapper_source() { return 0; }
+    install_managed_runtime() { INSTALL_CALLED=1; }
+    main source --save-only example/private dev
+    [ "$INSTALL_CALLED" -eq 0 ]
+' _ "$ROOT_DIR/install.sh" || fail 'source --save-only continued into install'
 
 printf 'wrapper-source-config: ok\n'

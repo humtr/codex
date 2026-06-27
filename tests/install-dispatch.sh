@@ -170,6 +170,10 @@ git() {
     printf 'install runtime\n' >"$target/bin/install-runtime.sh"
     printf 'lib\n' >"$target/lib/codex-termux.sh"
     printf 'builder\n' >"$target/tools/build-runtime.py"
+    printf 'bwrap\n' >"$target/tools/bwrap-termux-compat.py"
+    printf 'rg\n' >"$target/tools/rg-termux-shim.sh"
+    printf 'notify\n' >"$target/tools/codex-turn-notify.sh"
+    printf 'launcher\n' >"$target/tools/codex-launcher.c"
     printf 'version\n' >"$target/config/wrapper-version.env"
     for arg in "$@"; do
         [ "$arg" != "test-token" ] || fail 'git token leaked into command arguments'
@@ -197,5 +201,23 @@ grep -Fx "test-token" "$TMP_DIR/git-token-value" >/dev/null \
 if grep -F "test-token" "$(cat "$TMP_DIR/git-askpass-path")" >/dev/null; then
     fail 'git token was written into askpass helper'
 fi
+
+mkdir -p "$TMP_DIR/incomplete/bin" "$TMP_DIR/incomplete/lib" "$TMP_DIR/incomplete/tools/codex_termux" "$TMP_DIR/incomplete/config"
+printf 'install\n' >"$TMP_DIR/incomplete/install.sh"
+printf 'install runtime\n' >"$TMP_DIR/incomplete/bin/install-runtime.sh"
+printf 'lib\n' >"$TMP_DIR/incomplete/lib/codex-termux.sh"
+printf 'builder\n' >"$TMP_DIR/incomplete/tools/build-runtime.py"
+printf 'version\n' >"$TMP_DIR/incomplete/config/wrapper-version.env"
+if codex_validate_wrapper_source "$TMP_DIR/incomplete"; then
+    fail 'incomplete wrapper source passed validation'
+fi
+FAILED_MESSAGE=""
+if codex_require_wrapper_source "$TMP_DIR/incomplete" "Wrapper git repository"; then
+    fail 'incomplete wrapper source was accepted by require helper'
+fi
+case "$FAILED_MESSAGE" in
+    *"missing:"*"tools/codex-turn-notify.sh"*) ;;
+    *) fail "missing wrapper source error was not actionable: $FAILED_MESSAGE" ;;
+esac
 
 printf 'install-dispatch: ok\n'

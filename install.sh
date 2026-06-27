@@ -126,12 +126,7 @@ configure_wrapper_source() {
     printf 'Saved wrapper source config to %s\n' "$CODEX_TERMUX_WRAPPER_SOURCE_CONFIG" >&2
 }
 
-main() {
-    if [ "${1:-}" = "source" ]; then
-        shift
-        configure_wrapper_source "$@"
-        return 0
-    fi
+install_managed_runtime() {
     need_termux
     local install_tmp
     install_tmp="$(install_tmp_dir)"
@@ -153,6 +148,23 @@ main() {
     fi
     clear_status
     [ "$CODEX_TERMUX_INSTALL_OK_OUTPUT" != "1" ] || printf 'ok\n' >&2
+}
+
+main() {
+    local source_install=1
+    if [ "${1:-}" = "source" ]; then
+        shift
+        case "${1:-}" in
+            --save-only|--no-install)
+                source_install=0
+                shift
+                ;;
+        esac
+        configure_wrapper_source "$@"
+        [ "$source_install" = "1" ] || return 0
+        set --
+    fi
+    install_managed_runtime "$@"
 }
 
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
