@@ -153,6 +153,21 @@ state = {
     "verified_tuple_id": tuple_id,
     "verified_at": "2026-01-01T00:00:00+00:00",
 }
+stale_tuple_id = "raw-stale__wrapper-stale"
+registry["installs"].append(
+    {
+        "version": "0.140.0-linux-arm64",
+        "raw_sha256": raw_sha,
+        "runtime_sha256": runtime_sha,
+        "package_spec": package_spec,
+        "runtime_path": str(good_runtime.parent / "missing-runtime"),
+        "raw_path": str(good_raw.parent / "missing-raw"),
+        "updated_at": "2026-01-01T00:00:00+00:00",
+        "raw_id": "raw-stale",
+        "wrapper_id": "wrapper-stale",
+        "tuple_id": stale_tuple_id,
+    }
+)
 registry_file.write_text(json.dumps(registry, sort_keys=True) + "\n", encoding="utf-8")
 state_file.write_text(json.dumps(state, sort_keys=True) + "\n", encoding="utf-8")
 PYTHON

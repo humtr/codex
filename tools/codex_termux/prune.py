@@ -113,8 +113,12 @@ def _validate_registry_paths(
     for entry in data["raw"].values():
         paths.require_direct_child(Path(entry["path"]), raw_store, "raw path")
     for entry in data["installs"]:
-        paths.require_direct_child(Path(entry["runtime_path"]), runtime_store, "install runtime path")
-        paths.require_direct_child(Path(entry["raw_path"]), raw_store, "install raw path")
+        runtime_path = Path(entry["runtime_path"])
+        raw_path = Path(entry["raw_path"])
+        if runtime_path.exists():
+            paths.require_direct_child(runtime_path, runtime_store, "install runtime path")
+        if raw_path.exists():
+            paths.require_direct_child(raw_path, raw_store, "install raw path")
 
 
 def _protected_paths(items: tuple[Path, ...], root: Path) -> set[str]:
