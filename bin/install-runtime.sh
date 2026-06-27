@@ -231,12 +231,18 @@ codex_git_clone_wrapper_source() {
     token="$(codex_wrapper_auth_token || true)"
     tmp="$(codex_mktemp_dir codex-wrapper-git)" || return 1
     checkout="$tmp/checkout"
+    if [ -n "${CODEX_TERMUX_WRAPPER_REPO:-}" ]; then
+        CODEX_TERMUX_WRAPPER_SOURCE_LABEL="github.com/${CODEX_TERMUX_WRAPPER_REPO}${ref:+@$ref}"
+    else
+        CODEX_TERMUX_WRAPPER_SOURCE_LABEL="$url${ref:+@$ref}"
+    fi
+    codex_status "Fetching wrapper source: $CODEX_TERMUX_WRAPPER_SOURCE_LABEL"
     codex_prepare_git_askpass "$token" "$tmp"
     if [ -n "$ref" ]; then
         GIT_TERMINAL_PROMPT=0 \
         GIT_ASKPASS="$CODEX_TERMUX_WRAPPER_GIT_ASKPASS" \
         CODEX_TERMUX_WRAPPER_GIT_TOKEN_VALUE="$token" \
-            git clone --depth 1 --branch "$ref" "$url" "$checkout" || {
+            git clone --quiet --depth 1 --branch "$ref" "$url" "$checkout" || {
             rm -rf "$tmp"
             return 1
         }
@@ -244,7 +250,7 @@ codex_git_clone_wrapper_source() {
         GIT_TERMINAL_PROMPT=0 \
         GIT_ASKPASS="$CODEX_TERMUX_WRAPPER_GIT_ASKPASS" \
         CODEX_TERMUX_WRAPPER_GIT_TOKEN_VALUE="$token" \
-            git clone --depth 1 "$url" "$checkout" || {
+            git clone --quiet --depth 1 "$url" "$checkout" || {
             rm -rf "$tmp"
             return 1
         }
@@ -255,11 +261,6 @@ codex_git_clone_wrapper_source() {
     }
     CODEX_TERMUX_WRAPPER_SOURCE_TMP="$tmp"
     CODEX_TERMUX_WRAPPER_SOURCE_DIR="$checkout"
-    if [ -n "${CODEX_TERMUX_WRAPPER_REPO:-}" ]; then
-        CODEX_TERMUX_WRAPPER_SOURCE_LABEL="github.com/${CODEX_TERMUX_WRAPPER_REPO}${ref:+@$ref}"
-    else
-        CODEX_TERMUX_WRAPPER_SOURCE_LABEL="$url${ref:+@$ref}"
-    fi
 }
 
 codex_git_wrapper_source_configured() {
