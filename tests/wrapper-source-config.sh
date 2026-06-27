@@ -57,6 +57,22 @@ bash -lc '
     [ "$CODEX_TERMUX_WRAPPER_GIT_REF" = "main" ]
 ' _ "$CONFIG_DEFAULT_REF" || fail 'empty source ref did not default to main'
 
+CONFIG_REUSE="$TMP_DIR/wrapper-source-reuse.env"
+CODEX_TERMUX_WRAPPER_SOURCE_CONFIG="$CONFIG_REUSE" \
+    CODEX_TERMUX_WRAPPER_GIT_TOKEN="saved_pat_test" \
+    bash "$ROOT_DIR/install.sh" source --save-only example/private main >/dev/null \
+    || fail 'initial source config for token reuse failed'
+
+CODEX_TERMUX_WRAPPER_SOURCE_CONFIG="$CONFIG_REUSE" \
+    bash "$ROOT_DIR/install.sh" source --save-only example/private dev </dev/null >/dev/null \
+    || fail 'source config did not reuse saved token'
+
+bash -lc '
+    . "$1"
+    [ "$CODEX_TERMUX_WRAPPER_GIT_TOKEN" = "saved_pat_test" ] &&
+    [ "$CODEX_TERMUX_WRAPPER_GIT_REF" = "dev" ]
+' _ "$CONFIG_REUSE" || fail 'source config token reuse wrote wrong values'
+
 bash -lc '
     . "$1"
     CONFIGURE_ARGS=""

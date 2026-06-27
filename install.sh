@@ -79,6 +79,12 @@ install_dependencies() {
         "${missing[@]}" || fail "dependency install failed: ${missing[*]}"
 }
 
+load_wrapper_source_config() {
+    [ -r "$CODEX_TERMUX_WRAPPER_SOURCE_CONFIG" ] || return 0
+    # shellcheck disable=SC1090
+    . "$CODEX_TERMUX_WRAPPER_SOURCE_CONFIG"
+}
+
 write_source_env_value() {
     local name="$1" value="$2"
     printf 'if [ -z "${%s+x}" ]; then\n' "$name"
@@ -89,6 +95,10 @@ write_source_env_value() {
 
 configure_wrapper_source() {
     local repo="${1:-}" ref="${2:-main}" token="${CODEX_TERMUX_WRAPPER_GIT_TOKEN:-}" config_dir tmp
+    if [ -z "$token" ]; then
+        load_wrapper_source_config
+        token="${CODEX_TERMUX_WRAPPER_GIT_TOKEN:-}"
+    fi
     if [ -z "$repo" ]; then
         printf 'GitHub repo (OWNER/REPO)> ' >&2
         IFS= read -r repo || fail 'source configuration cancelled'
