@@ -107,6 +107,37 @@ normalize_wrapper_source_config() {
     fi
 }
 
+source_config_uses_canonical_keys() {
+    [ -r "$CODEX_TERMUX_WRAPPER_SOURCE_CONFIG" ] || return 1
+    grep -q '^CODEX_TERMUX_WRAPPER_REPO=' "$CODEX_TERMUX_WRAPPER_SOURCE_CONFIG"
+}
+
+migrate_wrapper_source_config_if_needed() {
+    local repo ref token
+    [ -r "$CODEX_TERMUX_WRAPPER_SOURCE_CONFIG" ] || return 0
+    source_config_uses_canonical_keys && return 0
+    repo="$(
+        unset CODEX_TERMUX_WRAPPER_REPO CODEX_TERMUX_WRAPPER_REF CODEX_TERMUX_WRAPPER_TOKEN
+        # shellcheck disable=SC1090
+        . "$CODEX_TERMUX_WRAPPER_SOURCE_CONFIG"
+        printf '%s\n' "${CODEX_TERMUX_WRAPPER_GIT_REPO:-}"
+    )" || return 0
+    ref="$(
+        unset CODEX_TERMUX_WRAPPER_REPO CODEX_TERMUX_WRAPPER_REF CODEX_TERMUX_WRAPPER_TOKEN
+        # shellcheck disable=SC1090
+        . "$CODEX_TERMUX_WRAPPER_SOURCE_CONFIG"
+        printf '%s\n' "${CODEX_TERMUX_WRAPPER_GIT_REF:-main}"
+    )" || ref="main"
+    token="$(
+        unset CODEX_TERMUX_WRAPPER_REPO CODEX_TERMUX_WRAPPER_REF CODEX_TERMUX_WRAPPER_TOKEN
+        # shellcheck disable=SC1090
+        . "$CODEX_TERMUX_WRAPPER_SOURCE_CONFIG"
+        printf '%s\n' "${CODEX_TERMUX_WRAPPER_GIT_TOKEN:-${CODEX_TERMUX_WRAPPER_RELEASE_TOKEN:-}}"
+    )" || token=""
+    [ -n "$repo" ] || return 0
+    write_source_config_file "$repo" "${ref:-main}" "$token"
+}
+
 source_tree_ready() {
     [ -n "$ROOT_DIR" ] &&
         [ -f "$ROOT_DIR/install.sh" ] &&
@@ -291,6 +322,7 @@ detect_git_ref() {
 save_current_source_config_if_missing() {
     local repo ref token
     [ "${CODEX_TERMUX_INSTALL_SAVE_SOURCE:-1}" = "1" ] || return 0
+    migrate_wrapper_source_config_if_needed
     [ ! -r "$CODEX_TERMUX_WRAPPER_SOURCE_CONFIG" ] || return 0
     repo=""
     ref=""

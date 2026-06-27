@@ -87,6 +87,24 @@ bash -lc '
     [ "$CODEX_TERMUX_WRAPPER_TOKEN" = "legacy_pat_test" ]
 ' _ "$ROOT_DIR/bin/install-runtime.sh" || fail 'legacy source config was not normalized by install-runtime'
 
+CONFIG_LEGACY_PERSIST="$TMP_DIR/wrapper-source-legacy-persist.env"
+cat >"$CONFIG_LEGACY_PERSIST" <<'ENV'
+CODEX_TERMUX_WRAPPER_GIT_REPO=legacy/persist
+CODEX_TERMUX_WRAPPER_GIT_REF=legacy-main
+CODEX_TERMUX_WRAPPER_GIT_TOKEN=legacy_persist_pat
+ENV
+CODEX_TERMUX_WRAPPER_SOURCE_CONFIG="$CONFIG_LEGACY_PERSIST" \
+bash -lc '
+    . "$1"
+    migrate_wrapper_source_config_if_needed
+' _ "$ROOT_DIR/install.sh" || fail 'legacy source config persistence migration failed'
+bash -lc '
+    . "$1"
+    [ "$CODEX_TERMUX_WRAPPER_REPO" = "legacy/persist" ] &&
+    [ "$CODEX_TERMUX_WRAPPER_REF" = "legacy-main" ] &&
+    [ "$CODEX_TERMUX_WRAPPER_TOKEN" = "legacy_persist_pat" ]
+' _ "$CONFIG_LEGACY_PERSIST" || fail 'legacy source config was not rewritten with canonical keys'
+
 bash -lc '
     . "$1"
     TMP_GH="$2"
