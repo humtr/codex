@@ -305,24 +305,89 @@ codex_validate_optional_version_arg() {
     esac
 }
 
+codex_install_surface_message() {
+    local key="$1" version="${2:-}"
+    case "$key" in
+        install)
+            printf 'Installing wrapper support and fresh upstream runtime\n'
+            ;;
+        update)
+            printf 'Updating wrapper support and fresh upstream runtime\n'
+            ;;
+        support)
+            printf 'Installing wrapper support and launcher\n'
+            ;;
+        upstream)
+            if [ -n "$version" ]; then
+                printf 'Installing upstream Codex %s\n' "$version"
+            else
+                printf 'Installing latest upstream Codex\n'
+            fi
+            ;;
+        rebuild)
+            printf 'Rebuilding runtime from cached raw package\n'
+            ;;
+        repair)
+            printf 'Repairing managed installation\n'
+            ;;
+        *)
+            printf 'Working\n'
+            ;;
+    esac
+}
+
+codex_install_surface_success_message() {
+    case "$1" in
+        support)
+            printf 'Support files and launcher are ready\n'
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+codex_install_surface_finish() {
+    local key="$1" print_version="${CODEX_TERMUX_INSTALL_PRINT_VERSION:-1}" message
+    if message="$(codex_install_surface_success_message "$key")"; then
+        codex_say "$message"
+        return 0
+    fi
+    if [ "$print_version" = "0" ]; then
+        codex_status_clear
+    else
+        codex_version
+    fi
+}
+
+codex_install_surface_run() {
+    local key="$1" version="${2:-}" command="$3" status=0
+    shift 3
+    codex_status "$(codex_install_surface_message "$key" "$version")"
+    "$command" "$@" || status=$?
+    if [ "$status" -eq 0 ]; then
+        codex_install_surface_finish "$key"
+    else
+        codex_status_clear
+    fi
+    return "$status"
+}
+
 codex_install_full_unlocked() {
     local status=0
-    local print_version="${CODEX_TERMUX_INSTALL_PRINT_VERSION:-1}"
     codex_prepare_fresh_wrapper_source || return $?
     {
         codex_validate_runtime_retention &&
         codex_install_support_files &&
         codex_install_launchers &&
         codex_runtime_install_upstream "${1:-}" &&
-        codex_refresh_runtime_metadata &&
-        { [ "$print_version" = "0" ] && codex_status_clear || codex_version; }
+        codex_refresh_runtime_metadata
     } || status=$?
     codex_cleanup_fresh_wrapper_source
-    [ "$status" -eq 0 ] && [ "$print_version" = "0" ] && codex_status_clear
     return "$status"
 }
 
-codex_install_full() {
+codex_install_full_core() {
     local status=0 validate_status=0
     codex_validate_optional_version_arg "install" "$@" || validate_status=$?
     if [ "$validate_status" -ne 0 ]; then
@@ -345,7 +410,7 @@ codex_install_support_unlocked() {
     return "$status"
 }
 
-codex_install_support() {
+codex_install_support_core() {
     local status=0
     [ $# -eq 0 ] || {
         codex_fail "install support does not take arguments"
@@ -356,7 +421,7 @@ codex_install_support() {
     return "$status"
 }
 
-codex_install_upstream() {
+codex_install_upstream_core() {
     local validate_status=0
     codex_validate_optional_version_arg "install upstream" "$@" || validate_status=$?
     if [ "$validate_status" -ne 0 ]; then
@@ -374,14 +439,13 @@ codex_install_rebuild_unlocked() {
         codex_install_support_files &&
         codex_install_launchers &&
         codex_runtime_install_cached &&
-        codex_refresh_runtime_metadata &&
-        codex_version
+        codex_refresh_runtime_metadata
     } || status=$?
     codex_cleanup_fresh_wrapper_source
     return "$status"
 }
 
-codex_install_rebuild() {
+codex_install_rebuild_core() {
     local status=0
     [ $# -eq 0 ] || {
         codex_fail "install rebuild does not take arguments"
@@ -392,11 +456,23 @@ codex_install_rebuild() {
     return "$status"
 }
 
+codex_repair_core() {
+    local status=0
+    [ $# -eq 0 ] || {
+        codex_fail "repair does not take arguments"
+        return 2
+    }
+    codex_with_lock codex_repair_core_unlocked || status=$?
+    [ "$status" -eq 0 ] || codex_status_clear
+    return "$status"
+}
+
 codex_install_dispatch() {
+    local validate_status=0
     case "${1:-}" in
         ""|-h|--help|help)
             if [ "${1:-}" = "" ]; then
-                codex_install_full
+                codex_install_surface_run install "${1:-}" codex_install_full_core
             else
                 usage
             fi
@@ -408,13 +484,22 @@ codex_install_dispatch() {
                     usage
                     ;;
                 *)
-                    codex_install_support "$@"
+                    [ $# -eq 0 ] || {
+                        codex_fail "install support does not take arguments"
+                        return 2
+                    }
+                    codex_install_surface_run support "" codex_install_support_core "$@"
                     ;;
             esac
             ;;
         upstream)
             shift
-            codex_install_upstream "$@"
+            codex_validate_optional_version_arg "install upstream" "$@" || validate_status=$?
+            if [ "$validate_status" -ne 0 ]; then
+                [ "$validate_status" -eq 65 ] && return 0
+                return "$validate_status"
+            fi
+            codex_install_surface_run upstream "${1:-}" codex_install_upstream_core "$@"
             ;;
         rebuild)
             shift
@@ -423,17 +508,27 @@ codex_install_dispatch() {
                     usage
                     ;;
                 *)
-                    codex_install_rebuild "$@"
+                    [ $# -eq 0 ] || {
+                        codex_fail "install rebuild does not take arguments"
+                        return 2
+                    }
+                    codex_install_surface_run rebuild "" codex_install_rebuild_core "$@"
                     ;;
             esac
             ;;
         *)
-            codex_install_full "$@"
+            codex_validate_optional_version_arg "install" "$@" || validate_status=$?
+            if [ "$validate_status" -ne 0 ]; then
+                [ "$validate_status" -eq 65 ] && return 0
+                return "$validate_status"
+            fi
+            codex_install_surface_run install "${1:-}" codex_install_full_core "$@"
             ;;
     esac
 }
 
 main() {
+    local validate_status=0
     case "${1:-install}" in
         install)
             shift || true
@@ -443,7 +538,7 @@ main() {
             shift || true
             case "${1:-}" in
                 "" )
-                    codex_repair_public
+                    codex_install_surface_run repair "" codex_repair_core
                     ;;
                 -h|--help|help)
                     usage
@@ -461,7 +556,13 @@ main() {
                     usage
                     ;;
                 *)
-                    codex_install_full "$@"
+                    validate_status=0
+                    codex_validate_optional_version_arg "update" "$@" || validate_status=$?
+                    if [ "$validate_status" -ne 0 ]; then
+                        [ "$validate_status" -eq 65 ] && return 0
+                        return "$validate_status"
+                    fi
+                    codex_install_surface_run update "${1:-}" codex_install_full_core "$@"
                     ;;
             esac
             ;;

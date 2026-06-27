@@ -18,6 +18,9 @@ SUPPORT_COUNT=0
 LAUNCHER_COUNT=0
 CACHED_COUNT=0
 REPAIR_COUNT=0
+VERSION_COUNT=0
+STATUS_LOG=""
+SAY_LOG=""
 
 usage() { USAGE_CALLED=1; }
 codex_fail() { FAILED_MESSAGE="$*"; return 1; }
@@ -30,9 +33,11 @@ codex_install_launchers() { LAUNCHER_COUNT=$((LAUNCHER_COUNT + 1)); }
 codex_runtime_install_upstream() { UPSTREAM_ARG="${1:-}"; }
 codex_runtime_install_cached() { CACHED_COUNT=$((CACHED_COUNT + 1)); }
 codex_refresh_runtime_metadata() { return 0; }
-codex_version() { return 0; }
-codex_repair_public() { REPAIR_COUNT=$((REPAIR_COUNT + 1)); }
-codex_status_clear() { return 0; }
+codex_version() { VERSION_COUNT=$((VERSION_COUNT + 1)); }
+codex_repair_core_unlocked() { REPAIR_COUNT=$((REPAIR_COUNT + 1)); }
+codex_status() { STATUS_LOG="${STATUS_LOG}${STATUS_LOG:+|}$*"; }
+codex_status_clear() { STATUS_LOG="${STATUS_LOG}${STATUS_LOG:+|}<clear>"; }
+codex_say() { SAY_LOG="${SAY_LOG}${SAY_LOG:+|}$*"; }
 
 USAGE_CALLED=0
 codex_install_dispatch upstream --help
@@ -59,10 +64,48 @@ SUPPORT_COUNT=0
 LAUNCHER_COUNT=0
 CACHED_COUNT=0
 REPAIR_COUNT=0
+VERSION_COUNT=0
+STATUS_LOG=""
+SAY_LOG=""
 codex_install_dispatch rebuild
 [ "$SUPPORT_COUNT" -eq 1 ] || fail 'install rebuild did not refresh support'
 [ "$LAUNCHER_COUNT" -eq 1 ] || fail 'install rebuild did not refresh launcher'
 [ "$CACHED_COUNT" -eq 1 ] || fail 'install rebuild did not rebuild cached runtime'
 [ "$REPAIR_COUNT" -eq 0 ] || fail 'install rebuild called repair'
+[ "$VERSION_COUNT" -eq 1 ] || fail 'install rebuild did not render version from surface'
+case "$STATUS_LOG" in
+    "Rebuilding runtime from cached raw package"*) ;;
+    *) fail "install rebuild did not use rebuild surface: $STATUS_LOG" ;;
+esac
+
+SUPPORT_COUNT=0
+LAUNCHER_COUNT=0
+VERSION_COUNT=0
+STATUS_LOG=""
+SAY_LOG=""
+codex_install_dispatch support
+[ "$SUPPORT_COUNT" -eq 1 ] || fail 'install support did not refresh support'
+[ "$LAUNCHER_COUNT" -eq 1 ] || fail 'install support did not refresh launcher'
+[ "$VERSION_COUNT" -eq 0 ] || fail 'install support should not render version'
+case "$STATUS_LOG" in
+    "Installing wrapper support and launcher"*) ;;
+    *) fail "install support did not use support surface: $STATUS_LOG" ;;
+esac
+case "$SAY_LOG" in
+    "Support files and launcher are ready") ;;
+    *) fail "install support did not render support completion: $SAY_LOG" ;;
+esac
+
+REPAIR_COUNT=0
+VERSION_COUNT=0
+STATUS_LOG=""
+SAY_LOG=""
+main repair
+[ "$REPAIR_COUNT" -eq 1 ] || fail 'repair did not call repair core'
+[ "$VERSION_COUNT" -eq 1 ] || fail 'repair did not render version from surface'
+case "$STATUS_LOG" in
+    "Repairing managed installation"*) ;;
+    *) fail "repair did not use repair surface: $STATUS_LOG" ;;
+esac
 
 printf 'install-dispatch: ok\n'

@@ -1106,10 +1106,14 @@ codex_repair_apply() {
     codex_refresh_runtime_metadata
 }
 
-codex_repair_public_unlocked() {
+codex_repair_core_unlocked() {
     codex_validate_runtime_retention || return $?
     codex_repair_diagnose
-    codex_repair_apply || return $?
+    codex_repair_apply
+}
+
+codex_repair_public_unlocked() {
+    codex_repair_core_unlocked || return $?
     codex_version
 }
 
@@ -2361,6 +2365,28 @@ codex_update_full_public() {
     exec bash "$source" update "$@"
 }
 
+codex_repair_surface_public() {
+    local source
+    case "${1:-}" in
+        ""|-h|--help|help) ;;
+        *)
+            codex_fail "repair does not take arguments"
+            return 2
+            ;;
+    esac
+    source="$(codex_install_source_command)" || {
+        case "${1:-}" in
+            -h|--help|help)
+                codex_wrapper_help
+                return 0
+                ;;
+        esac
+        codex_repair_public "$@"
+        return $?
+    }
+    exec bash "$source" repair "$@"
+}
+
 codex_notify_usage() {
     cat <<'USAGE'
 Usage: codex notify [options]
@@ -2760,18 +2786,7 @@ codex_main() {
             ;;
         repair)
             shift
-            case "${1:-}" in
-                "")
-                    codex_repair_public
-                    ;;
-                -h|--help|help)
-                    codex_wrapper_help
-                    ;;
-                *)
-                    codex_fail "repair does not take arguments"
-                    return 2
-                    ;;
-            esac
+            codex_repair_surface_public "$@"
             ;;
         doctor)
             shift

@@ -28,4 +28,9 @@ CODEX_TERMUX_STATE_DIR="$TMP_DIR/state" \
 CODEX_TERMUX_TMPDIR="$TMP_DIR/tmp" \
 bash -lc '. /data/data/com.termux/files/home/prj/codex/lib/codex-termux.sh; VERSION_CALLED=0; codex_version() { VERSION_CALLED=1; }; codex_main version >/dev/null 2>&1; [ "$VERSION_CALLED" -eq 1 ]; VERSION_CALLED=0; ! codex_main version junk >/dev/null 2>&1; [ "$VERSION_CALLED" -eq 0 ]'
 
+CODEX_TERMUX_HOME="$TMP_DIR/home" \
+CODEX_TERMUX_STATE_DIR="$TMP_DIR/state" \
+CODEX_TERMUX_TMPDIR="$TMP_DIR/tmp" \
+bash -lc '. /data/data/com.termux/files/home/prj/codex/lib/codex-termux.sh; codex_install_source_command() { return 1; }; REPAIR_CALLED=0; codex_repair_public() { REPAIR_CALLED=1; }; codex_repair_surface_public >/dev/null 2>&1; [ "$REPAIR_CALLED" -eq 1 ]; REPAIR_CALLED=0; ! codex_repair_surface_public junk >/dev/null 2>&1; [ "$REPAIR_CALLED" -eq 0 ]'
+
 printf 'cli-surface: ok\n'
