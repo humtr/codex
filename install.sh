@@ -4,8 +4,10 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CODEX_TERMUX_REQUIRED_PACKAGES="${CODEX_TERMUX_REQUIRED_PACKAGES:-bash curl nodejs python tar coreutils ca-certificates}"
 CODEX_TERMUX_INSTALL_VERSION_OUTPUT="${CODEX_TERMUX_INSTALL_VERSION_OUTPUT:-1}"
+CODEX_TERMUX_INSTALL_OK_OUTPUT="${CODEX_TERMUX_INSTALL_OK_OUTPUT:-0}"
 export DEBIAN_FRONTEND="${DEBIAN_FRONTEND:-noninteractive}"
 CODEX_TERMUX_INSTALL_STATUS_ACTIVE=0
+CODEX_TERMUX_INSTALL_LOG=""
 
 clear_status() {
     if [ "${CODEX_TERMUX_INSTALL_STATUS_ACTIVE:-0}" -eq 1 ] && [ -t 2 ]; then
@@ -30,6 +32,9 @@ say() {
 
 fail() {
     clear_status
+    if [ -n "${CODEX_TERMUX_INSTALL_LOG:-}" ] && [ -s "$CODEX_TERMUX_INSTALL_LOG" ]; then
+        sed 's/^/  /' "$CODEX_TERMUX_INSTALL_LOG" >&2
+    fi
     printf 'ERROR: %s\n' "$*" >&2
     exit 1
 }
@@ -58,21 +63,25 @@ install_dependencies() {
 
 main() {
     need_termux
+    local install_tmp="${TMPDIR:-${PREFIX:-/data/data/com.termux/files/usr}/tmp}"
+    CODEX_TERMUX_INSTALL_LOG="$(mktemp "$install_tmp/codex-install.XXXXXX")" || fail 'failed to create install log'
+    trap 'rm -f "$CODEX_TERMUX_INSTALL_LOG"' EXIT
     say 'checking dependencies'
     install_dependencies
     say 'installing managed runtime'
-    CODEX_TERMUX_INSTALL_PRINT_VERSION=0 bash "$ROOT_DIR/bin/install-runtime.sh" install "$@" >/dev/null
+    CODEX_TERMUX_INSTALL_PRINT_VERSION=0 bash "$ROOT_DIR/bin/install-runtime.sh" install "$@" >"$CODEX_TERMUX_INSTALL_LOG" 2>&1 \
+        || fail 'managed runtime install failed'
     say 'verifying public launcher'
     "$PREFIX/bin/codex" version >/dev/null 2>&1 || fail 'public Codex launcher version check failed'
     say 'verifying wrapper diagnostics'
-    bash "$ROOT_DIR/bin/install-runtime.sh" doctor --json >/dev/null \
+    bash "$ROOT_DIR/bin/install-runtime.sh" doctor --json >>"$CODEX_TERMUX_INSTALL_LOG" 2>&1 \
         || fail 'wrapper doctor verification failed'
     if [ "$CODEX_TERMUX_INSTALL_VERSION_OUTPUT" = "1" ]; then
         clear_status
         "$PREFIX/bin/codex" version
     fi
     clear_status
-    printf 'ok\n' >&2
+    [ "$CODEX_TERMUX_INSTALL_OK_OUTPUT" != "1" ] || printf 'ok\n' >&2
 }
 
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then

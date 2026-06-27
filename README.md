@@ -88,7 +88,7 @@ CODEX_TERMUX_NOTIFY_TOAST_GRAVITY=top
 
 Use `CODEX_TERMUX_NOTIFY_TOAST_GRAVITY=top`, `middle`, or `bottom` to place the toast. The default is `top`.
 Set `CODEX_TERMUX_NOTIFY_CONTENT_CHARS=0` to pass the full assistant message to the Android notification content.
-Set `CODEX_TERMUX_NOTIFY_PRETOOLUSE=1` if you also want a notification when a tool call starts, or `CODEX_TERMUX_NOTIFY_HOOKS=all` to enable every supported hook position.
+Use `codex notify --hooks PreToolUse` if you also want a notification when a tool call starts, or `codex notify --hooks all` to enable every supported hook position. The default hook set is `Stop`.
 
 ```sh
 codex notify --hooks all --toast-gravity top
