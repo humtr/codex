@@ -54,6 +54,17 @@ grep -F 'b"/etc/resolv.conf": b"/proc/self/fd/33"' tools/build-runtime.py >/dev/
     || fail 'builder resolver target changed'
 grep -F 'b"/etc/codex/config.toml": b"/dev/fd/34/config.toml"' tools/build-runtime.py >/dev/null \
     || fail 'builder system config target changed'
+grep -F 'install upstream [VERSION]' bin/install-runtime.sh >/dev/null \
+    || fail 'install upstream help surface missing'
+grep -F 'install rebuild' bin/install-runtime.sh >/dev/null \
+    || fail 'install rebuild help surface missing'
+grep -F 'codex_runtime_install_upstream()' lib/codex-termux.sh >/dev/null \
+    || fail 'runtime upstream install helper missing'
+grep -F 'codex_runtime_install_cached()' lib/codex-termux.sh >/dev/null \
+    || fail 'runtime cached install helper missing'
+if grep -F 'codex rebuild' README.md >/dev/null; then
+    fail 'stale public codex rebuild command remains in README'
+fi
 
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=tools python3 -B -m codex_termux.cli validate --root "$ROOT_DIR" >/dev/null
 

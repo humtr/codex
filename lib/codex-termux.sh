@@ -239,7 +239,7 @@ codex_ui_text() {
         invalid_profile) printf 'Invalid profile name: %s\n' "$1" ;;
         missing_profile) printf 'Profile does not exist: %s\n' "$1" ;;
         profile_arg_error) printf 'Profile %s does not take arguments\n' "$1" ;;
-        setup_reserved) printf 'codex setup is reserved for configuration. Use codex install, update, rebuild, repair, or notify.\n' ;;
+        setup_reserved) printf 'codex setup is reserved for configuration. Use codex install, update, repair, or notify.\n' ;;
         doctor_wrapper_title) printf 'Wrapper doctor\n' ;;
         session_stub) printf 'codex session is reserved for the upcoming cross-profile session picker.\n' ;;
         *)

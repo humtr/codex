@@ -70,7 +70,7 @@ For fresh wrapper commands, the installer can use a release archive when configu
 CODEX_TERMUX_WRAPPER_RELEASE_URL=https://example.invalid/codex-termux.tar.gz codex install
 ```
 
-`CODEX_TERMUX_WRAPPER_RELEASE_SHA256` may be set to pin the archive checksum. Without release settings, the current install source is used and stored under the managed support directory for later `codex install` and `codex rebuild` calls.
+`CODEX_TERMUX_WRAPPER_RELEASE_SHA256` may be set to pin the archive checksum. Without release settings, the current install source is used and stored under the managed support directory for later `codex install` calls.
 
 Turn-completion notification behavior can be configured in:
 
@@ -100,19 +100,32 @@ Writes `~/.local/share/codex/termux/notify/config.env` and regenerates the hook 
 codex update
 ```
 
-Downloads the selected or latest upstream package and builds it with the current installed wrapper.
+Refreshes wrapper support from the install source, downloads the selected or latest upstream package, patches a runtime bundle, activates it, and updates the verified rollback baseline.
 
 ```sh
-codex rebuild
+codex install support
 ```
 
-Refreshes wrapper support from the install source and rebuilds the runtime from the cached raw package without fetching upstream Codex.
+Refreshes wrapper support files and the public launcher without changing the active runtime.
+
+```sh
+codex install upstream
+codex install upstream 0.142.3
+```
+
+Downloads the selected or latest upstream package and installs it as a patched runtime with the current installed support layer.
+
+```sh
+codex install rebuild
+```
+
+Refreshes wrapper support from the install source and rebuilds the patched runtime from the cached raw package without fetching upstream Codex.
 
 ```sh
 codex repair
 ```
 
-Rebuilds the runtime from the cached raw package with the current installed wrapper without network access.
+Diagnoses the managed installation and applies the narrowest available repair. It refreshes support when support files or the launcher are damaged, repairs metadata when the runtime is healthy, and rebuilds from cached raw when the active runtime is damaged.
 
 ```sh
 codex use
