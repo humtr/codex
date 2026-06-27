@@ -110,6 +110,15 @@ with TemporaryDirectory() as tmp:
     data = registry.load(registry_file)
     wrapper_id = data["runtime"][tuple_id]["wrapper_id"]
     assert data["wrapper"][wrapper_id]["repo"] == "local/codex-termux"
+
+    runtime_entry = data["runtime"][tuple_id]
+    install_entry = next(item for item in data["installs"] if item["tuple_id"] == tuple_id)
+    runtime_entry["created_at"] = "2026-06-27T23:23:35+09:00"
+    runtime_entry["updated_at"] = "2026-06-28T01:08:04+09:00"
+    install_entry["created_at"] = "2026-06-27T23:23:35+09:00"
+    install_entry["updated_at"] = "2026-06-28T01:08:04+09:00"
+    registry.write(registry_file, data)
+    assert registry.active_runtime_created_at(registry_file) == "2026-06-28"
 PYTHON
 
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=tools python3 -B - <<'PYTHON'

@@ -388,10 +388,10 @@ def active_runtime_created_at(registry_file: Path) -> str:
     runtime = data.get("runtime", {}).get(tuple_id, {})
     return display_runtime_date(
         _first_value(
-            runtime.get("created_at", ""),
             runtime.get("updated_at", ""),
-            install.get("created_at", "") if install else "",
+            runtime.get("created_at", ""),
             install.get("updated_at", "") if install else "",
+            install.get("created_at", "") if install else "",
         )
     )
 
