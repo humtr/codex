@@ -1549,7 +1549,7 @@ codex_version() {
     printf '%s' "$upstream" >&2
     [ -n "$upstream_date" ] && printf ' (%s)' "$upstream_date" >&2
     printf '\n' >&2
-    printf '%s %s' 'runtime' "$runtime_version" >&2
+    printf '%-9s %s' 'runtime' "$runtime_version" >&2
     [ -n "$runtime_date" ] && printf ' (%s)' "$runtime_date" >&2
     printf '\n' >&2
     return "$status"
@@ -1560,12 +1560,11 @@ codex_wrapper_help() {
     printf '\n'
     printf 'Wrapper commands\n'
     printf '  %-8s  %s\n' 'codex' 'Managed upstream Codex entrypoint; bare execution may auto-update before launch.'
-    printf '  %-8s  %s\n' 'install' 'Refresh wrapper support and install a fresh upstream runtime.'
-    printf '  %-8s  %s\n' 'rebuild' 'Refresh wrapper support and rebuild from cached raw without network access.'
-    printf '  %-8s  %s\n' 'repair' 'Rebuild the runtime from the cached raw package without network access.'
+    printf '  %-8s  %s\n' 'install' 'Install all components, or use support/upstream/rebuild modes.'
+    printf '  %-8s  %s\n' 'repair' 'Diagnose and repair the managed installation.'
     printf '  %-8s  %s\n' 'notify' 'Write notification settings and regenerate hook configuration.'
     printf '  %-8s  %s\n' 'toast' 'Interactively choose notification hooks and save the toast config.'
-    printf '  %-8s  %s\n' 'update' 'Update official linux-arm64 package with the current wrapper.'
+    printf '  %-8s  %s\n' 'update' 'Refresh wrapper support and install a fresh patched runtime.'
     printf '  %-8s  %s\n' 'use' 'List cached and remote runtimes; promote the selected runtime.'
     printf '  %-8s  %s\n' 'session' 'Reserved surface for the cross-profile Codex session picker.'
     printf '  %-8s  %s\n' 'profile' 'List numbered profiles or enter a named profile with CODEX_HOME switched.'
@@ -2234,13 +2233,13 @@ codex_install_public() {
     exec bash "$source" install "$@"
 }
 
-codex_rebuild_public() {
+codex_update_full_public() {
     local source
     source="$(codex_install_source_command)" || {
         codex_fail "Install source is unavailable; run bash install.sh from a wrapper checkout"
         return 1
     }
-    exec bash "$source" rebuild "$@"
+    exec bash "$source" update "$@"
 }
 
 codex_notify_usage() {
@@ -2536,10 +2535,6 @@ codex_main() {
             shift
             codex_install_public "$@"
             ;;
-        rebuild)
-            shift
-            codex_rebuild_public "$@"
-            ;;
         notify)
             shift
             codex_notify_public "$@"
@@ -2550,7 +2545,7 @@ codex_main() {
             ;;
         update)
             shift
-            codex_update_public "${1:-}"
+            codex_update_full_public "$@"
             ;;
         repair)
             shift

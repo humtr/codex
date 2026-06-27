@@ -11,15 +11,16 @@ CODEX_TERMUX_WRAPPER_SOURCE_TMP=""
 
 usage() {
     cat <<'USAGE'
-Usage: bash bin/install-runtime.sh [install|support|rebuild|repair|update|remove|doctor]
+Usage: bash bin/install-runtime.sh [install|update|repair|remove|doctor] [ARGS]
 
-install      Install support files, launcher, and a fresh upstream Codex runtime.
-support      Refresh support files and the launcher only.
-rebuild      Refresh support files and rebuild the runtime from cached raw.
-repair       Rebuild the runtime from the cached raw package without network access.
-update       Fetch, patch, smoke-test, and promote the linux-arm64 Codex runtime.
-remove       Remove the managed launcher/runtime and restore a launcher backup.
-doctor       Run wrapper diagnostics. Use: doctor --json for machine output.
+install [VERSION]           Install support files, launcher, and a fresh patched runtime.
+install support             Refresh support files and the launcher only.
+install upstream [VERSION]  Install a fresh patched runtime from upstream raw.
+install rebuild             Refresh support files and rebuild patched runtime from cached raw.
+update [VERSION]            Same as install [VERSION]: refresh support and patched runtime.
+repair                      Diagnose and repair the managed installation.
+remove                      Remove the managed launcher/runtime and restore a launcher backup.
+doctor                      Run wrapper diagnostics. Use: doctor --json for machine output.
 USAGE
 }
 
@@ -276,7 +277,7 @@ codex_install_launchers() {
     fi
 }
 
-codex_install() {
+codex_install_full() {
     local status=0
     local print_version="${CODEX_TERMUX_INSTALL_PRINT_VERSION:-1}"
     codex_prepare_fresh_wrapper_source || return $?
@@ -293,7 +294,22 @@ codex_install() {
     return "$status"
 }
 
-codex_rebuild() {
+codex_install_support() {
+    local status=0
+    codex_prepare_fresh_wrapper_source || return $?
+    {
+        codex_install_support_files &&
+        codex_install_launchers
+    } || status=$?
+    codex_cleanup_fresh_wrapper_source
+    return "$status"
+}
+
+codex_install_upstream() {
+    codex_update "${1:-}"
+}
+
+codex_install_rebuild() {
     local status=0
     codex_prepare_fresh_wrapper_source || return $?
     {
@@ -305,28 +321,63 @@ codex_rebuild() {
     return "$status"
 }
 
+codex_install_dispatch() {
+    case "${1:-}" in
+        ""|-h|--help|help)
+            if [ "${1:-}" = "" ]; then
+                codex_install_full
+            else
+                usage
+            fi
+            ;;
+        support)
+            shift
+            [ $# -eq 0 ] || {
+                codex_fail "install support does not take arguments"
+                return 2
+            }
+            codex_install_support
+            ;;
+        upstream)
+            shift
+            codex_install_upstream "${1:-}"
+            ;;
+        rebuild)
+            shift
+            [ $# -eq 0 ] || {
+                codex_fail "install rebuild does not take arguments"
+                return 2
+            }
+            codex_install_rebuild
+            ;;
+        *)
+            codex_install_full "$1"
+            ;;
+    esac
+}
+
 main() {
     case "${1:-install}" in
         install)
             shift || true
-            codex_install "${1:-}"
-            ;;
-        support)
-            codex_install_support_files
-            codex_install_launchers
-            ;;
-        rebuild)
-            codex_rebuild
+            codex_install_dispatch "$@"
             ;;
         repair)
             codex_repair_public
             ;;
         update)
             shift || true
-            codex_update "${1:-}"
+            case "${1:-}" in
+                -h|--help|help)
+                    usage
+                    ;;
+                *)
+                    codex_install_full "${1:-}"
+                    ;;
+            esac
             ;;
         setup)
-            printf 'codex setup is reserved for configuration. Use install, update, rebuild, or repair.\n' >&2
+            printf 'codex setup is reserved for configuration. Use install, update, or repair.\n' >&2
             exit 2
             ;;
         remove)
