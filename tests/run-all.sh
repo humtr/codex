@@ -8,6 +8,7 @@ for test_script in \
     "$ROOT_DIR/tests/runtime-build.sh" \
     "$ROOT_DIR/tests/package-safety.sh" \
     "$ROOT_DIR/tests/tmp-paths.sh" \
+    "$ROOT_DIR/tests/lock.sh" \
     "$ROOT_DIR/tests/install-dispatch.sh" \
     "$ROOT_DIR/tests/notify.sh" \
     "$ROOT_DIR/tests/store-rollback.sh" \

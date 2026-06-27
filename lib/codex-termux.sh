@@ -474,10 +474,16 @@ codex_file_has_marker() {
     grep -a -q "$CODEX_TERMUX_MANAGED_LAUNCHER_MARKER" "$path" 2>/dev/null
 }
 
+codex_lock_is_held() {
+    local pid="${BASHPID:-$$}"
+    [ "${CODEX_TERMUX_LOCK_HELD:-0}" = "1" ] || return 1
+    [ "$(readlink "/proc/$pid/fd/9" 2>/dev/null || true)" = "$CODEX_TERMUX_LOCK_FILE" ]
+}
+
 codex_with_lock() {
     local cmd="$1"
     shift
-    if [ "${CODEX_TERMUX_LOCK_HELD:-0}" = "1" ]; then
+    if codex_lock_is_held; then
         "$cmd" "$@"
         return $?
     fi
