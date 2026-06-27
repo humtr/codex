@@ -944,7 +944,7 @@ codex_commit_runtime_candidate() {
     codex_activate_tuple_unlocked "$@"
 }
 
-codex_rebuild_runtime_unlocked() {
+codex_runtime_build_cached_unlocked() {
     local version="${1:-unknown}" package_spec="${2:-local}" report build_stdout raw_sha runtime_sha
     local runtime_stage="$CODEX_TERMUX_RUNTIME_DIR.build.$$" runtime_complete="$CODEX_TERMUX_RUNTIME_DIR.complete.$$"
     [ -x "$CODEX_TERMUX_RAW_VENDOR/bin/codex" ] || return 1
@@ -980,7 +980,7 @@ codex_rebuild_runtime_unlocked() {
     codex_commit_runtime_candidate "$runtime_complete" "$version" "$raw_sha" "$runtime_sha" "$package_spec"
 }
 
-codex_repair_runtime_from_raw_unlocked() {
+codex_runtime_install_cached_unlocked() {
     local version package_spec
     codex_raw_integrity_ok || {
         codex_fail "Cached raw package integrity check failed; run codex update"
@@ -990,12 +990,12 @@ codex_repair_runtime_from_raw_unlocked() {
     package_spec="$(codex_read_state_field package_spec)"
     [ -n "$version" ] || version="unknown"
     [ -n "$package_spec" ] || package_spec="local"
-    codex_rebuild_runtime_unlocked "$version" "$package_spec" || return $?
+    codex_runtime_build_cached_unlocked "$version" "$package_spec" || return $?
 }
 
-codex_repair_runtime_from_raw() {
+codex_runtime_install_cached() {
     local status=0
-    codex_with_lock codex_repair_runtime_from_raw_unlocked || status=$?
+    codex_with_lock codex_runtime_install_cached_unlocked || status=$?
     [ "$status" -eq 0 ] || codex_status_clear
     return "$status"
 }
@@ -1003,12 +1003,12 @@ codex_repair_runtime_from_raw() {
 codex_repair_public() {
     codex_validate_runtime_retention || return $?
     codex_ui_step repair_runtime
-    codex_repair_runtime_from_raw || return $?
+    codex_runtime_install_cached || return $?
     codex_refresh_runtime_metadata
     codex_version
 }
 
-codex_update_unlocked() {
+codex_runtime_install_upstream_unlocked() {
     local requested="${1:-}" fetched tmp vendor version spec raw_stage runtime_stage runtime_complete raw_sha runtime_sha
     fetched="$(codex_fetch_package "$requested")" || return $?
     IFS=$'\t' read -r tmp vendor version spec <<EOF
@@ -1054,51 +1054,12 @@ EOF
     codex_ui_step switch_runtime "$(codex_display_version "$version")"
 }
 
-codex_update() {
+codex_runtime_install_upstream() {
     local status=0
     codex_validate_runtime_retention || return $?
-    codex_with_lock codex_update_unlocked "${1:-}" || status=$?
+    codex_with_lock codex_runtime_install_upstream_unlocked "${1:-}" || status=$?
     [ "$status" -eq 0 ] || codex_status_clear
     return "$status"
-}
-
-codex_update_public() {
-    local installed_version
-    codex_update "${1:-}" || return $?
-    installed_version="$(codex_read_state_field version)"
-    printf '\n' >&2
-    codex_version || return $?
-    codex_prompt_update_launch "$installed_version"
-}
-
-codex_update_launch_selected() {
-    local installed_version="${1:-unknown}" recent_profile recent_profile_dir
-    case "${CODEX_PROMPT_CHOICE_RESULT:-}" in
-        y|Y)
-            recent_profile="$(codex_profile_read_recent)"
-            recent_profile_dir="$(codex_profile_dir "$recent_profile")"
-            codex_ui_step launch_codex "$(codex_display_version "$installed_version")"
-            codex_profile_runtime_exec "$recent_profile" "$recent_profile_dir"
-            ;;
-    esac
-    return 0
-}
-
-codex_prompt_update_launch() {
-    local installed_version="$1" display_installed
-    [ -t 0 ] && [ -t 2 ] || return 0
-    display_installed="$(codex_display_version "$installed_version")"
-    codex_confirm_menu \
-        "$(codex_ui_text_get update_complete_title)" \
-        "$(codex_ui_text_get update_ready_subtitle "$display_installed")" \
-        y "$(codex_ui_text_get launch_label)" "$(codex_ui_badge run)" \
-        N "$(codex_ui_text_get done_label)" "$(codex_ui_badge keep)" \
-        "$(codex_ui_text_get launch_now_prompt)" \
-        cancel || {
-        [ "$?" -eq 130 ] && return 130
-        return 0
-    }
-    codex_update_launch_selected "$display_installed"
 }
 
 codex_latest_linux_arm64_version() {
@@ -1217,7 +1178,7 @@ codex_prompt_update() {
 codex_install_auto_update() {
     local current="$1" latest="$2"
     codex_ui_step update_runtime "$current" "$latest"
-    if codex_update "$latest"; then
+    if codex_runtime_install_upstream "$latest"; then
         codex_clear_pending_auto_update
         codex_clear_failed_auto_update
     else
@@ -1389,7 +1350,7 @@ codex_ensure_runtime_ready() {
             return 1
         fi
         codex_ui_step rebuild_cached_runtime
-        codex_repair_runtime_from_raw
+        codex_runtime_install_cached
         return $?
     fi
     codex_fail "Runtime is missing and no cached raw package is available; run codex update"
@@ -2114,7 +2075,7 @@ codex_use_select() {
 $selected
 EOF
     if [ "$kind" = "remote" ]; then
-        codex_update "$version" || return $?
+        codex_runtime_install_upstream "$version" || return $?
     else
         codex_with_lock codex_activate_cached_runtime_unlocked \
             "$runtime_path" "$raw_path" "$version" "$raw_sha" "$runtime_sha" "$package_spec" || return $?

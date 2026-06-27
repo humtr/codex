@@ -285,7 +285,7 @@ codex_install_full() {
         codex_validate_runtime_retention &&
         codex_install_support_files &&
         codex_install_launchers &&
-        codex_update "${1:-}" &&
+        codex_runtime_install_upstream "${1:-}" &&
         codex_refresh_runtime_metadata &&
         { [ "$print_version" = "0" ] && codex_status_clear || codex_version; }
     } || status=$?
@@ -306,7 +306,7 @@ codex_install_support() {
 }
 
 codex_install_upstream() {
-    codex_update "${1:-}"
+    codex_runtime_install_upstream "${1:-}"
 }
 
 codex_install_rebuild() {
