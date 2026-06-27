@@ -70,6 +70,17 @@ For fresh wrapper commands, the installer can use a release archive when configu
 CODEX_TERMUX_WRAPPER_RELEASE_URL=https://example.invalid/codex-termux.tar.gz codex install
 ```
 
+For a private GitHub repository, the installer can clone the wrapper source directly with a fine-grained PAT limited to the wrapper repository with `Contents: read-only`:
+
+```sh
+CODEX_TERMUX_WRAPPER_GIT_REPO=OWNER/REPO \
+CODEX_TERMUX_WRAPPER_GIT_REF=main \
+CODEX_TERMUX_WRAPPER_GIT_TOKEN=github_pat_... \
+codex update
+```
+
+`CODEX_TERMUX_WRAPPER_GIT_URL` may be used instead of `CODEX_TERMUX_WRAPPER_GIT_REPO` for a full HTTPS clone URL. `CODEX_TERMUX_WRAPPER_GIT_TOKEN` falls back to `CODEX_TERMUX_WRAPPER_RELEASE_TOKEN` or `GITHUB_TOKEN` when unset.
+
 For a private GitHub release asset, use the release asset API URL and a fine-grained PAT limited to the wrapper repository with `Contents: read-only`:
 
 ```sh

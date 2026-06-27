@@ -9,6 +9,7 @@ ROOT_DIR="$(cd "$ROOT_DIR/.." && pwd)"
 CODEX_TERMUX_WRAPPER_SOURCE_DIR="${CODEX_TERMUX_WRAPPER_SOURCE_DIR:-$ROOT_DIR}"
 CODEX_TERMUX_INSTALL_RUNTIME_SOURCE="${CODEX_TERMUX_INSTALL_RUNTIME_SOURCE:-$ROOT_DIR/bin/install-runtime.sh}"
 CODEX_TERMUX_WRAPPER_SOURCE_TMP=""
+CODEX_TERMUX_WRAPPER_GIT_ASKPASS=""
 
 usage() {
     cat <<'USAGE'
@@ -121,12 +122,82 @@ codex_fetch_release_wrapper_source() {
     CODEX_TERMUX_WRAPPER_SOURCE_DIR="$source_dir"
 }
 
+codex_git_wrapper_source_url() {
+    if [ -n "${CODEX_TERMUX_WRAPPER_GIT_URL:-}" ]; then
+        printf '%s\n' "$CODEX_TERMUX_WRAPPER_GIT_URL"
+        return 0
+    fi
+    if [ -n "${CODEX_TERMUX_WRAPPER_GIT_REPO:-}" ]; then
+        printf 'https://github.com/%s.git\n' "$CODEX_TERMUX_WRAPPER_GIT_REPO"
+        return 0
+    fi
+    return 1
+}
+
+codex_prepare_git_askpass() {
+    local token="$1" askpass
+    [ -n "$token" ] || return 0
+    askpass="$2/git-askpass.sh"
+    cat >"$askpass" <<'ASKPASS'
+#!/bin/sh
+case "$1" in
+    *Username*) printf '%s\n' "${CODEX_TERMUX_WRAPPER_GIT_USERNAME:-x-access-token}" ;;
+    *) printf '%s\n' "$CODEX_TERMUX_WRAPPER_GIT_TOKEN_VALUE" ;;
+esac
+ASKPASS
+    chmod 700 "$askpass"
+    CODEX_TERMUX_WRAPPER_GIT_ASKPASS="$askpass"
+}
+
+codex_git_clone_wrapper_source() {
+    local url ref token tmp checkout
+    url="$(codex_git_wrapper_source_url)" || return 1
+    ref="${CODEX_TERMUX_WRAPPER_GIT_REF:-}"
+    token="${CODEX_TERMUX_WRAPPER_GIT_TOKEN:-${CODEX_TERMUX_WRAPPER_RELEASE_TOKEN:-${GITHUB_TOKEN:-}}}"
+    tmp="$(codex_mktemp_dir codex-wrapper-git)" || return 1
+    checkout="$tmp/checkout"
+    codex_prepare_git_askpass "$token" "$tmp"
+    if [ -n "$ref" ]; then
+        GIT_TERMINAL_PROMPT=0 \
+        GIT_ASKPASS="$CODEX_TERMUX_WRAPPER_GIT_ASKPASS" \
+        CODEX_TERMUX_WRAPPER_GIT_TOKEN_VALUE="$token" \
+            git clone --depth 1 --branch "$ref" "$url" "$checkout" || {
+            rm -rf "$tmp"
+            return 1
+        }
+    else
+        GIT_TERMINAL_PROMPT=0 \
+        GIT_ASKPASS="$CODEX_TERMUX_WRAPPER_GIT_ASKPASS" \
+        CODEX_TERMUX_WRAPPER_GIT_TOKEN_VALUE="$token" \
+            git clone --depth 1 "$url" "$checkout" || {
+            rm -rf "$tmp"
+            return 1
+        }
+    fi
+    codex_validate_wrapper_source "$checkout" || {
+        rm -rf "$tmp"
+        codex_fail "Wrapper git repository does not contain a valid wrapper source"
+        return 1
+    }
+    CODEX_TERMUX_WRAPPER_SOURCE_TMP="$tmp"
+    CODEX_TERMUX_WRAPPER_SOURCE_DIR="$checkout"
+}
+
+codex_git_wrapper_source_configured() {
+    [ -n "${CODEX_TERMUX_WRAPPER_GIT_URL:-}" ] ||
+        [ -n "${CODEX_TERMUX_WRAPPER_GIT_REPO:-}" ]
+}
+
 codex_release_wrapper_source_configured() {
     [ -n "${CODEX_TERMUX_WRAPPER_RELEASE_URL:-}" ] ||
         { [ -n "${CODEX_TERMUX_WRAPPER_RELEASE_REPO:-}" ] && [ -n "${CODEX_TERMUX_WRAPPER_RELEASE_TAG:-}" ]; }
 }
 
 codex_prepare_fresh_wrapper_source() {
+    if codex_git_wrapper_source_configured; then
+        codex_git_clone_wrapper_source
+        return $?
+    fi
     if codex_release_wrapper_source_configured; then
         codex_fetch_release_wrapper_source
         return $?

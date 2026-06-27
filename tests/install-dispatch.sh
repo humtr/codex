@@ -159,4 +159,43 @@ grep -F "Accept: application/octet-stream" "$TMP_DIR/curl-args" >/dev/null \
 grep -Fx "archive" "$TMP_DIR/release.tgz" >/dev/null \
     || fail 'mock release archive was not written'
 
+git() {
+    local target="${@: -1}" arg
+    printf '%s\n' "$*" >"$TMP_DIR/git-args"
+    printf '%s\n' "${GIT_TERMINAL_PROMPT:-}" >"$TMP_DIR/git-terminal-prompt"
+    printf '%s\n' "${GIT_ASKPASS:-}" >"$TMP_DIR/git-askpass-path"
+    printf '%s\n' "${CODEX_TERMUX_WRAPPER_GIT_TOKEN_VALUE:-}" >"$TMP_DIR/git-token-value"
+    mkdir -p "$target/bin" "$target/lib" "$target/tools/codex_termux" "$target/config"
+    printf 'install\n' >"$target/install.sh"
+    printf 'install runtime\n' >"$target/bin/install-runtime.sh"
+    printf 'lib\n' >"$target/lib/codex-termux.sh"
+    printf 'builder\n' >"$target/tools/build-runtime.py"
+    printf 'version\n' >"$target/config/wrapper-version.env"
+    for arg in "$@"; do
+        [ "$arg" != "test-token" ] || fail 'git token leaked into command arguments'
+    done
+}
+
+CODEX_TERMUX_WRAPPER_SOURCE_TMP=""
+CODEX_TERMUX_WRAPPER_SOURCE_DIR=""
+CODEX_TERMUX_WRAPPER_GIT_REPO="example/private" \
+CODEX_TERMUX_WRAPPER_GIT_REF="main" \
+CODEX_TERMUX_WRAPPER_GIT_TOKEN="test-token" \
+codex_git_clone_wrapper_source
+codex_validate_wrapper_source "$CODEX_TERMUX_WRAPPER_SOURCE_DIR" \
+    || fail 'git wrapper checkout was not accepted as wrapper source'
+grep -F "https://github.com/example/private.git" "$TMP_DIR/git-args" >/dev/null \
+    || fail 'git repo shorthand did not expand to GitHub HTTPS URL'
+grep -F -- "--branch main" "$TMP_DIR/git-args" >/dev/null \
+    || fail 'git ref was not passed as clone branch'
+grep -Fx "0" "$TMP_DIR/git-terminal-prompt" >/dev/null \
+    || fail 'git terminal prompts were not disabled'
+[ -x "$(cat "$TMP_DIR/git-askpass-path")" ] \
+    || fail 'git askpass helper was not created'
+grep -Fx "test-token" "$TMP_DIR/git-token-value" >/dev/null \
+    || fail 'git token was not passed through askpass environment'
+if grep -F "test-token" "$(cat "$TMP_DIR/git-askpass-path")" >/dev/null; then
+    fail 'git token was written into askpass helper'
+fi
+
 printf 'install-dispatch: ok\n'
