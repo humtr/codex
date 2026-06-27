@@ -11,12 +11,10 @@ CODEX_TERMUX_NOTIFY_CONFIG="${CODEX_TERMUX_NOTIFY_CONFIG:-$CODEX_TERMUX_NOTIFY_D
 CODEX_TERMUX_NOTIFY_CONTENT_CHARS="${CODEX_TERMUX_NOTIFY_CONTENT_CHARS:-140}"
 CODEX_TERMUX_NOTIFY_PRESERVE_NEWLINES="${CODEX_TERMUX_NOTIFY_PRESERVE_NEWLINES:-0}"
 CODEX_TERMUX_NOTIFY_CHANNEL="${CODEX_TERMUX_NOTIFY_CHANNEL:-notification}"
-CODEX_TERMUX_NOTIFY_TOAST="${CODEX_TERMUX_NOTIFY_TOAST:-1}"
 CODEX_TERMUX_NOTIFY_TOAST_GRAVITY="${CODEX_TERMUX_NOTIFY_TOAST_GRAVITY:-top}"
 CODEX_TERMUX_NOTIFY_TOAST_SHORT="${CODEX_TERMUX_NOTIFY_TOAST_SHORT:-0}"
 CODEX_TERMUX_NOTIFY_TOAST_BACKGROUND="${CODEX_TERMUX_NOTIFY_TOAST_BACKGROUND:-}"
 CODEX_TERMUX_NOTIFY_TOAST_COLOR="${CODEX_TERMUX_NOTIFY_TOAST_COLOR:-}"
-CODEX_TERMUX_NOTIFY_NOTIFICATION="${CODEX_TERMUX_NOTIFY_NOTIFICATION:-1}"
 
 codex_notify_log() {
     mkdir -p "$CODEX_TERMUX_NOTIFY_DIR" 2>/dev/null || return 0
@@ -155,6 +153,20 @@ codex_notify_event_label() {
     esac
 }
 
+codex_notify_channel_has_toast() {
+    case "$CODEX_TERMUX_NOTIFY_CHANNEL" in
+        toast|both) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+codex_notify_channel_has_notification() {
+    case "$CODEX_TERMUX_NOTIFY_CHANNEL" in
+        notification|both) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 codex_notify_payload() {
     local payload tmux_session meta notification_id title content cwd session_id action provider="fallback"
     local toast_args=()
@@ -184,7 +196,7 @@ codex_notify_payload() {
 
     codex_notify_show_toast() {
         if [ "${CODEX_TERMUX_NOTIFY_NO_API:-0}" = 1 ] ||
-            [ "$CODEX_TERMUX_NOTIFY_TOAST" != "1" ] ||
+            ! codex_notify_channel_has_toast ||
             ! command -v termux-toast >/dev/null 2>&1; then
             return 1
         fi
@@ -198,7 +210,7 @@ codex_notify_payload() {
 
     codex_notify_show_notification() {
         if [ "${CODEX_TERMUX_NOTIFY_NO_API:-0}" = 1 ] ||
-            [ "$CODEX_TERMUX_NOTIFY_NOTIFICATION" != "1" ] ||
+            ! codex_notify_channel_has_notification ||
             ! command -v termux-notification >/dev/null 2>&1; then
             return 1
         fi
@@ -249,7 +261,10 @@ codex_notify_payload() {
         tmux display-message "$title: $content" >/dev/null 2>&1 || true
         provider="tmux"
     fi
-    [ "$provider" = "termux-api" ] || printf '\a' 2>/dev/null || true
+    case "$provider" in
+        termux-api*) ;;
+        *) printf '\a' 2>/dev/null || true ;;
+    esac
     codex_notify_log "provider=$provider id=$notification_id session=${session_id:-none} tmux=${tmux_session:-none} cwd=${cwd:-none}"
 }
 

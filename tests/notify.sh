@@ -2,7 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TMP_DIR="${TMPDIR:-/tmp}/codex-notify-test.$$"
+TMP_PARENT="${TMPDIR:-${PREFIX:-/data/data/com.termux/files/usr}/tmp}"
+TMP_DIR="$TMP_PARENT/codex-notify-test.$$"
 trap 'rm -rf "$TMP_DIR"' EXIT
 mkdir -p "$TMP_DIR"
 
@@ -68,11 +69,44 @@ mkdir -p "$NOTIFY_TMP/home" "$NOTIFY_TMP/tmp"
 CODEX_TERMUX_HOME="$NOTIFY_TMP/home" \
 CODEX_TERMUX_STATE_DIR="$NOTIFY_TMP/home/.local/share/codex/termux" \
 CODEX_TERMUX_TMPDIR="$NOTIFY_TMP/tmp" \
-bash -lc '. /data/data/com.termux/files/home/prj/codex/lib/codex-termux.sh; codex_main notify --hooks all --toast-gravity top --content-chars 0 --pretooluse 1 >/dev/null 2>&1; grep -q "CODEX_TERMUX_NOTIFY_TOAST_GRAVITY=top" "$CODEX_TERMUX_NOTIFY_DIR/config.env"; grep -q "CODEX_TERMUX_NOTIFY_HOOKS=all" "$CODEX_TERMUX_NOTIFY_DIR/config.env"; grep -q "hooks.SessionStart" "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/config.toml"; grep -q "hooks.SubagentStop" "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/config.toml"; grep -q "hooks.Stop" "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/config.toml"'
+bash -lc '. /data/data/com.termux/files/home/prj/codex/lib/codex-termux.sh; codex_main notify --channel both --hooks all --toast-gravity top --content-chars 0 --pretooluse 1 >/dev/null 2>&1; grep -q "CODEX_TERMUX_NOTIFY_CHANNEL=both" "$CODEX_TERMUX_NOTIFY_DIR/config.env"; grep -q "CODEX_TERMUX_NOTIFY_TOAST_GRAVITY=top" "$CODEX_TERMUX_NOTIFY_DIR/config.env"; grep -q "CODEX_TERMUX_NOTIFY_HOOKS=all" "$CODEX_TERMUX_NOTIFY_DIR/config.env"; ! grep -q "CODEX_TERMUX_NOTIFY_TOAST=" "$CODEX_TERMUX_NOTIFY_DIR/config.env"; ! grep -q "CODEX_TERMUX_NOTIFY_NOTIFICATION=" "$CODEX_TERMUX_NOTIFY_DIR/config.env"; grep -q "hooks.SessionStart" "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/config.toml"; grep -q "hooks.SubagentStop" "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/config.toml"; grep -q "hooks.Stop" "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/config.toml"'
 
 INVALID_TMP="$TMP_DIR/notify-invalid"
 mkdir -p "$INVALID_TMP/home" "$INVALID_TMP/tmp"
 CODEX_TERMUX_HOME="$INVALID_TMP/home" \
 CODEX_TERMUX_STATE_DIR="$INVALID_TMP/home/.local/share/codex/termux" \
 CODEX_TERMUX_TMPDIR="$INVALID_TMP/tmp" \
-bash -lc '. /data/data/com.termux/files/home/prj/codex/lib/codex-termux.sh; ! codex_main notify --hooks TypoHook >/dev/null 2>&1; ! codex_main notify --toast-gravity center >/dev/null 2>&1; ! codex_main notify --channel invalid >/dev/null 2>&1'
+bash -lc '. /data/data/com.termux/files/home/prj/codex/lib/codex-termux.sh; ! codex_main notify --hooks TypoHook >/dev/null 2>&1; ! codex_main notify --toast-gravity center >/dev/null 2>&1; ! codex_main notify --channel invalid >/dev/null 2>&1; ! codex_main notify >/dev/null 2>&1; ! codex_main toast >/dev/null 2>&1; [ "$(codex_notify_parse_hook_selection "")" = "Stop" ]; [ "$(codex_notify_parse_hook_selection "1")" = "SessionStart" ]; ! codex_notify_parse_hook_selection "99" >/dev/null 2>&1; ! codex_notify_parse_hook_selection "1abc" >/dev/null 2>&1'
+
+PROVIDER_TMP="$TMP_DIR/provider"
+mkdir -p "$PROVIDER_TMP/bin" "$PROVIDER_TMP/state/notify"
+cat >"$PROVIDER_TMP/bin/termux-notification" <<'SH'
+#!/data/data/com.termux/files/usr/bin/bash
+printf 'notification\n' >>"$CODEX_PROVIDER_CALLS"
+SH
+cat >"$PROVIDER_TMP/bin/termux-toast" <<'SH'
+#!/data/data/com.termux/files/usr/bin/bash
+printf 'toast\n' >>"$CODEX_PROVIDER_CALLS"
+SH
+chmod +x "$PROVIDER_TMP/bin/termux-notification" "$PROVIDER_TMP/bin/termux-toast"
+cat >"$PROVIDER_TMP/state/notify/config.env" <<'ENV'
+CODEX_TERMUX_NOTIFY_CHANNEL=both
+CODEX_TERMUX_NOTIFY_HOOKS=Stop
+CODEX_TERMUX_NOTIFY_CONTENT_CHARS=140
+CODEX_TERMUX_NOTIFY_PRESERVE_NEWLINES=0
+CODEX_TERMUX_NOTIFY_TOAST_GRAVITY=top
+CODEX_TERMUX_NOTIFY_TOAST_SHORT=0
+CODEX_TERMUX_NOTIFY_GROUP=codex-turns
+ENV
+CODEX_PROVIDER_CALLS="$PROVIDER_TMP/calls" \
+CODEX_TERMUX_HOME="$PROVIDER_TMP/home" \
+CODEX_TERMUX_STATE_DIR="$PROVIDER_TMP/state" \
+PATH="$PROVIDER_TMP/bin:$PATH" \
+bash "$ROOT_DIR/tools/codex-turn-notify.sh" <<'JSON' >"$PROVIDER_TMP/out" 2>&1
+{"session_id":"provider-alpha","cwd":"/data/data/com.termux/files/home/prj/codex","last_assistant_message":"provider response"}
+JSON
+grep -q '^notification$' "$PROVIDER_TMP/calls" || fail 'notification provider was not called'
+grep -q '^toast$' "$PROVIDER_TMP/calls" || fail 'toast provider was not called'
+if grep -q "$(printf '\a')" "$PROVIDER_TMP/out"; then
+    fail 'bell fallback ran after termux-api providers succeeded'
+fi

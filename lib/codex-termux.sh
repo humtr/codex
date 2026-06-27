@@ -37,11 +37,9 @@ CODEX_TERMUX_NOTIFY_CONFIG="${CODEX_TERMUX_NOTIFY_CONFIG:-$CODEX_TERMUX_NOTIFY_D
 CODEX_TERMUX_NOTIFY_GROUP="${CODEX_TERMUX_NOTIFY_GROUP:-codex-turns}"
 CODEX_TERMUX_NOTIFY_CONTENT_CHARS="${CODEX_TERMUX_NOTIFY_CONTENT_CHARS:-140}"
 CODEX_TERMUX_NOTIFY_PRESERVE_NEWLINES="${CODEX_TERMUX_NOTIFY_PRESERVE_NEWLINES:-0}"
-CODEX_TERMUX_NOTIFY_TOAST="${CODEX_TERMUX_NOTIFY_TOAST:-1}"
 CODEX_TERMUX_NOTIFY_TOAST_SHORT="${CODEX_TERMUX_NOTIFY_TOAST_SHORT:-0}"
 CODEX_TERMUX_NOTIFY_TOAST_BACKGROUND="${CODEX_TERMUX_NOTIFY_TOAST_BACKGROUND:-}"
 CODEX_TERMUX_NOTIFY_TOAST_COLOR="${CODEX_TERMUX_NOTIFY_TOAST_COLOR:-}"
-CODEX_TERMUX_NOTIFY_NOTIFICATION="${CODEX_TERMUX_NOTIFY_NOTIFICATION:-1}"
 CODEX_TERMUX_NOTIFY_PRETOOLUSE="${CODEX_TERMUX_NOTIFY_PRETOOLUSE:-0}"
 CODEX_TERMUX_NOTIFY_HOOKS="${CODEX_TERMUX_NOTIFY_HOOKS:-Stop}"
 CODEX_TERMUX_NOTIFY_TOAST_GRAVITY="${CODEX_TERMUX_NOTIFY_TOAST_GRAVITY:-top}"
@@ -1684,8 +1682,7 @@ codex_wrapper_help() {
     printf '  %-8s  %s\n' 'codex' 'Managed upstream Codex entrypoint; bare execution may auto-update before launch.'
     printf '  %-8s  %s\n' 'install' 'Install all components, or use support/upstream/rebuild modes.'
     printf '  %-8s  %s\n' 'repair' 'Diagnose and repair the managed installation.'
-    printf '  %-8s  %s\n' 'notify' 'Write notification settings and regenerate hook configuration.'
-    printf '  %-8s  %s\n' 'toast' 'Interactively choose notification hooks and save the toast config.'
+    printf '  %-8s  %s\n' 'notify' 'Configure notification/toast channels and regenerate hook configuration.'
     printf '  %-8s  %s\n' 'update' 'Refresh wrapper support and install a fresh patched runtime.'
     printf '  %-8s  %s\n' 'use' 'List cached and remote runtimes; promote the selected runtime.'
     printf '  %-8s  %s\n' 'session' 'Reserved surface for the cross-profile Codex session picker.'
@@ -2368,6 +2365,8 @@ codex_notify_usage() {
     cat <<'USAGE'
 Usage: codex notify [options]
 
+Without options, opens an interactive notification setup prompt.
+
 Options:
   --channel NAME          notification, toast, both
   --hooks LIST            Comma-separated hook list or "all"
@@ -2376,22 +2375,19 @@ Options:
   --pretooluse 0|1        Store legacy PreToolUse flag; use --hooks PreToolUse to enable the hook
   --content-chars N       Limit notification body to N characters
   --preserve-newlines 0|1 Keep notification body line breaks
-  --toast 0|1             Enable or disable toast popups
   --toast-gravity VALUE   top, middle, or bottom
   --toast-short 0|1      Use short toast duration
   --toast-background HEX  Toast background color
   --toast-color HEX       Toast text color
-  --notification 0|1      Enable or disable Android notifications
   --group NAME            Notification group key
 USAGE
 }
 
-codex_toast_usage() {
+codex_notify_interactive_usage() {
     cat <<'USAGE'
-Usage: codex toast
+Usage: codex notify
 
-Interactively choose which hook positions should trigger notifications.
-Enter hook numbers or names separated by spaces, or type `all`.
+Without options, opens an interactive notification setup prompt.
 USAGE
 }
 
@@ -2464,28 +2460,32 @@ codex_notify_write_config() {
     } >"$config_file"
 }
 
-codex_toast_hook_ids() {
+codex_notify_hook_ids() {
     codex_notify_all_hooks
 }
 
-codex_toast_render_hooks() {
+codex_notify_render_hooks() {
     local idx=1 hook
-    codex_ui_menu_header "Choose toast hooks" "Space-separated numbers or names, then Enter"
+    codex_ui_menu_header "Choose notify hooks" "Space-separated numbers or names, then Enter"
     while IFS= read -r hook; do
         printf '  %s %s\n' "$(codex_ui_number "$idx")" "$hook" >&2
         idx=$((idx + 1))
     done <<EOF
-$(codex_toast_hook_ids)
+$(codex_notify_hook_ids)
 EOF
     printf '  %s all\n' "$(codex_ui_number "0")" >&2
     printf '\n' >&2
 }
 
-codex_toast_parse_selection() {
+codex_notify_parse_hook_selection() {
     local selection="${1:-}" token hook idx=0 hooks=() all_hooks=() found=0
-    mapfile -t all_hooks < <(codex_toast_hook_ids)
+    mapfile -t all_hooks < <(codex_notify_hook_ids)
     case "$selection" in
-        ""|all|ALL)
+        "")
+            printf 'Stop\n'
+            return 0
+            ;;
+        all|ALL)
             printf 'all\n'
             return 0
             ;;
@@ -2496,6 +2496,24 @@ codex_toast_parse_selection() {
                 printf 'all\n'
                 return 0
                 ;;
+            *[!0-9]*)
+                hook="$(codex_notify_hook_canonical "$token")"
+                if ! codex_notify_hook_valid "$hook"; then
+                    codex_fail "Unknown notification hook: $token"
+                    return 64
+                fi
+                case "$hook" in
+                    all)
+                        printf 'all\n'
+                        return 0
+                        ;;
+                esac
+                case ",${hooks[*]:-}," in
+                    *,"$hook",*) ;;
+                    *) hooks+=("$hook") ;;
+                esac
+                found=1
+                ;;
             [0-9]*)
                 if [ "$token" -ge 1 ] && [ "$token" -le "${#all_hooks[@]}" ]; then
                     hook="${all_hooks[$((token - 1))]}"
@@ -2504,6 +2522,9 @@ codex_toast_parse_selection() {
                         *) hooks+=("$hook") ;;
                     esac
                     found=1
+                else
+                    codex_fail "Notification hook number out of range: $token"
+                    return 64
                 fi
                 ;;
             *)
@@ -2540,13 +2561,19 @@ codex_notify_public() {
     local pretooluse="${CODEX_TERMUX_NOTIFY_PRETOOLUSE:-0}"
     local content_chars="${CODEX_TERMUX_NOTIFY_CONTENT_CHARS:-140}"
     local preserve_newlines="${CODEX_TERMUX_NOTIFY_PRESERVE_NEWLINES:-0}"
-    local toast="${CODEX_TERMUX_NOTIFY_TOAST:-1}"
     local toast_gravity="${CODEX_TERMUX_NOTIFY_TOAST_GRAVITY:-top}"
     local toast_short="${CODEX_TERMUX_NOTIFY_TOAST_SHORT:-0}"
     local toast_background="${CODEX_TERMUX_NOTIFY_TOAST_BACKGROUND:-}"
     local toast_color="${CODEX_TERMUX_NOTIFY_TOAST_COLOR:-}"
-    local notification="${CODEX_TERMUX_NOTIFY_NOTIFICATION:-1}"
     local group="${CODEX_TERMUX_NOTIFY_GROUP:-codex-turns}"
+    if [ $# -eq 0 ]; then
+        if [ -t 0 ] && [ -t 2 ]; then
+            codex_notify_interactive_public
+            return $?
+        fi
+        codex_fail "codex notify requires options or an interactive terminal"
+        return 2
+    fi
     while [ $# -gt 0 ]; do
         case "$1" in
             --help|-h)
@@ -2592,11 +2619,6 @@ codex_notify_public() {
                 preserve_newlines="${2:-}"
                 shift 2
                 ;;
-            --toast)
-                codex_notify_need_arg "$1" "${2:-}" || return $?
-                toast="${2:-}"
-                shift 2
-                ;;
             --toast-gravity)
                 codex_notify_need_arg "$1" "${2:-}" || return $?
                 toast_gravity="${2:-}"
@@ -2617,11 +2639,6 @@ codex_notify_public() {
                 toast_color="${2:-}"
                 shift 2
                 ;;
-            --notification)
-                codex_notify_need_arg "$1" "${2:-}" || return $?
-                notification="${2:-}"
-                shift 2
-                ;;
             --group)
                 codex_notify_need_arg "$1" "${2:-}" || return $?
                 group="${2:-}"
@@ -2637,9 +2654,7 @@ codex_notify_public() {
     codex_notify_validate_bool "--pretooluse" "$pretooluse" || return $?
     codex_notify_validate_content_chars "$content_chars" || return $?
     codex_notify_validate_bool "--preserve-newlines" "$preserve_newlines" || return $?
-    codex_notify_validate_bool "--toast" "$toast" || return $?
     codex_notify_validate_bool "--toast-short" "$toast_short" || return $?
-    codex_notify_validate_bool "--notification" "$notification" || return $?
     case "$toast_gravity" in
         ""|top|middle|bottom) ;;
         *)
@@ -2652,18 +2667,7 @@ codex_notify_public() {
         return 66
     }
     case "$channel" in
-        toast)
-            toast=1
-            notification=0
-            ;;
-        notification)
-            toast=0
-            notification=1
-            ;;
-        both)
-            toast=1
-            notification=1
-            ;;
+        toast|notification|both) ;;
         *)
             codex_fail "--channel must be notification, toast, or both"
             return 64
@@ -2673,12 +2677,10 @@ codex_notify_public() {
     codex_notify_write_config "$config_file" \
         CODEX_TERMUX_NOTIFY_CONTENT_CHARS "$content_chars" \
         CODEX_TERMUX_NOTIFY_PRESERVE_NEWLINES "$preserve_newlines" \
-        CODEX_TERMUX_NOTIFY_TOAST "$toast" \
         CODEX_TERMUX_NOTIFY_TOAST_GRAVITY "$toast_gravity" \
         CODEX_TERMUX_NOTIFY_TOAST_SHORT "$toast_short" \
         CODEX_TERMUX_NOTIFY_TOAST_BACKGROUND "$toast_background" \
         CODEX_TERMUX_NOTIFY_TOAST_COLOR "$toast_color" \
-        CODEX_TERMUX_NOTIFY_NOTIFICATION "$notification" \
         CODEX_TERMUX_NOTIFY_GROUP "$group" \
         CODEX_TERMUX_NOTIFY_CHANNEL "$channel" \
         CODEX_TERMUX_NOTIFY_HOOKS "$hooks" \
@@ -2687,24 +2689,48 @@ codex_notify_public() {
     codex_say "Saved notification settings to $config_file"
 }
 
-codex_toast_public() {
-    local choice hooks
-    if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
-        codex_toast_usage
-        return 0
-    fi
-    if [ ! -t 0 ] || [ ! -t 2 ]; then
-        codex_fail "codex toast requires an interactive terminal"
-        return 2
-    fi
-    codex_toast_render_hooks
-    printf 'Toast hooks > ' >&2
-    if ! IFS= read -r choice; then
+codex_notify_interactive_public() {
+    local channel_choice hooks_choice gravity_choice channel hooks gravity
+    codex_ui_menu_header "Configure notifications" "Choose channel, hooks, and toast position"
+    printf '  %s notification\n' "$(codex_ui_number 1)" >&2
+    printf '  %s toast\n' "$(codex_ui_number 2)" >&2
+    printf '  %s both\n' "$(codex_ui_number 3)" >&2
+    printf '\nChannel [3]> ' >&2
+    IFS= read -r channel_choice || {
         codex_selection_cancelled
         return 130
-    fi
-    hooks="$(codex_toast_parse_selection "$choice")" || return $?
-    codex_notify_public --channel toast --hooks "$hooks" --toast-gravity top
+    }
+    case "${channel_choice:-3}" in
+        1|notification) channel="notification" ;;
+        2|toast) channel="toast" ;;
+        3|both) channel="both" ;;
+        *)
+            codex_fail "Unknown notification channel selection: $channel_choice"
+            return 64
+            ;;
+    esac
+
+    codex_notify_render_hooks
+    printf 'Hooks [Stop]> ' >&2
+    IFS= read -r hooks_choice || {
+        codex_selection_cancelled
+        return 130
+    }
+    hooks="$(codex_notify_parse_hook_selection "$hooks_choice")" || return $?
+
+    gravity="top"
+    case "$channel" in
+        toast|both)
+            printf 'Toast gravity [top]> ' >&2
+            IFS= read -r gravity_choice || {
+                codex_selection_cancelled
+                return 130
+            }
+            gravity="${gravity_choice:-top}"
+            ;;
+    esac
+
+    codex_notify_public --channel "$channel" --hooks "$hooks" --toast-gravity "$gravity"
 }
 
 codex_setup_public() {
@@ -2727,10 +2753,6 @@ codex_main() {
         notify)
             shift
             codex_notify_public "$@"
-            ;;
-        toast)
-            shift
-            codex_toast_public "$@"
             ;;
         update)
             shift
