@@ -278,7 +278,34 @@ codex_install_launchers() {
     fi
 }
 
-codex_install_full() {
+codex_validate_optional_version_arg() {
+    local command_name="$1"
+    shift
+    case $# in
+        0)
+            return 0
+            ;;
+        1)
+            case "$1" in
+                -h|--help|help)
+                    usage
+                    return 65
+                    ;;
+                -*)
+                    codex_fail "$command_name version must not start with '-': $1"
+                    return 64
+                    ;;
+            esac
+            return 0
+            ;;
+        *)
+            codex_fail "$command_name takes at most one version argument"
+            return 64
+            ;;
+    esac
+}
+
+codex_install_full_unlocked() {
     local status=0
     local print_version="${CODEX_TERMUX_INSTALL_PRINT_VERSION:-1}"
     codex_prepare_fresh_wrapper_source || return $?
@@ -295,7 +322,19 @@ codex_install_full() {
     return "$status"
 }
 
-codex_install_support() {
+codex_install_full() {
+    local status=0 validate_status=0
+    codex_validate_optional_version_arg "install" "$@" || validate_status=$?
+    if [ "$validate_status" -ne 0 ]; then
+        [ "$validate_status" -eq 65 ] && return 0
+        return "$validate_status"
+    fi
+    codex_with_lock codex_install_full_unlocked "${1:-}" || status=$?
+    [ "$status" -eq 0 ] || codex_status_clear
+    return "$status"
+}
+
+codex_install_support_unlocked() {
     local status=0
     codex_prepare_fresh_wrapper_source || return $?
     {
@@ -306,19 +345,50 @@ codex_install_support() {
     return "$status"
 }
 
+codex_install_support() {
+    local status=0
+    [ $# -eq 0 ] || {
+        codex_fail "install support does not take arguments"
+        return 2
+    }
+    codex_with_lock codex_install_support_unlocked || status=$?
+    [ "$status" -eq 0 ] || codex_status_clear
+    return "$status"
+}
+
 codex_install_upstream() {
+    local validate_status=0
+    codex_validate_optional_version_arg "install upstream" "$@" || validate_status=$?
+    if [ "$validate_status" -ne 0 ]; then
+        [ "$validate_status" -eq 65 ] && return 0
+        return "$validate_status"
+    fi
     codex_runtime_install_upstream "${1:-}"
+}
+
+codex_install_rebuild_unlocked() {
+    local status=0
+    codex_prepare_fresh_wrapper_source || return $?
+    {
+        codex_validate_runtime_retention &&
+        codex_install_support_files &&
+        codex_install_launchers &&
+        codex_runtime_install_cached &&
+        codex_refresh_runtime_metadata &&
+        codex_version
+    } || status=$?
+    codex_cleanup_fresh_wrapper_source
+    return "$status"
 }
 
 codex_install_rebuild() {
     local status=0
-    codex_prepare_fresh_wrapper_source || return $?
-    {
-        codex_install_support_files &&
-        codex_install_launchers &&
-        codex_repair_public
-    } || status=$?
-    codex_cleanup_fresh_wrapper_source
+    [ $# -eq 0 ] || {
+        codex_fail "install rebuild does not take arguments"
+        return 2
+    }
+    codex_with_lock codex_install_rebuild_unlocked || status=$?
+    [ "$status" -eq 0 ] || codex_status_clear
     return "$status"
 }
 
@@ -333,26 +403,32 @@ codex_install_dispatch() {
             ;;
         support)
             shift
-            [ $# -eq 0 ] || {
-                codex_fail "install support does not take arguments"
-                return 2
-            }
-            codex_install_support
+            case "${1:-}" in
+                -h|--help|help)
+                    usage
+                    ;;
+                *)
+                    codex_install_support "$@"
+                    ;;
+            esac
             ;;
         upstream)
             shift
-            codex_install_upstream "${1:-}"
+            codex_install_upstream "$@"
             ;;
         rebuild)
             shift
-            [ $# -eq 0 ] || {
-                codex_fail "install rebuild does not take arguments"
-                return 2
-            }
-            codex_install_rebuild
+            case "${1:-}" in
+                -h|--help|help)
+                    usage
+                    ;;
+                *)
+                    codex_install_rebuild "$@"
+                    ;;
+            esac
             ;;
         *)
-            codex_install_full "$1"
+            codex_install_full "$@"
             ;;
     esac
 }
@@ -364,7 +440,19 @@ main() {
             codex_install_dispatch "$@"
             ;;
         repair)
-            codex_repair_public
+            shift || true
+            case "${1:-}" in
+                "" )
+                    codex_repair_public
+                    ;;
+                -h|--help|help)
+                    usage
+                    ;;
+                *)
+                    codex_fail "repair does not take arguments"
+                    exit 2
+                    ;;
+            esac
             ;;
         update)
             shift || true
@@ -373,7 +461,7 @@ main() {
                     usage
                     ;;
                 *)
-                    codex_install_full "${1:-}"
+                    codex_install_full "$@"
                     ;;
             esac
             ;;

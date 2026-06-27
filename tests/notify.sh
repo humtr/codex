@@ -61,11 +61,18 @@ CODEX_TERMUX_HOME="$CONFIG_TMP/home" \
 CODEX_TERMUX_STATE_DIR="$CONFIG_TMP/home/.local/share/codex/termux" \
 CODEX_TERMUX_TMPDIR="$CONFIG_TMP/tmp" \
 CODEX_TERMUX_NOTIFY_PRETOOLUSE=1 \
-bash -lc '. /data/data/com.termux/files/home/prj/codex/lib/codex-termux.sh; codex_prepare_system_config; grep -q "hooks.PreToolUse" "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/config.toml"; grep -q "hooks.Stop" "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/config.toml"'
+bash -lc '. /data/data/com.termux/files/home/prj/codex/lib/codex-termux.sh; codex_prepare_system_config; ! grep -q "hooks.PreToolUse" "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/config.toml"; grep -q "hooks.Stop" "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/config.toml"'
 
 NOTIFY_TMP="$TMP_DIR/notify-cmd"
 mkdir -p "$NOTIFY_TMP/home" "$NOTIFY_TMP/tmp"
 CODEX_TERMUX_HOME="$NOTIFY_TMP/home" \
 CODEX_TERMUX_STATE_DIR="$NOTIFY_TMP/home/.local/share/codex/termux" \
 CODEX_TERMUX_TMPDIR="$NOTIFY_TMP/tmp" \
-bash -lc '. /data/data/com.termux/files/home/prj/codex/lib/codex-termux.sh; codex_main notify --hooks all --toast-gravity top --content-chars 0 --pretooluse 1 >/dev/null; grep -q "CODEX_TERMUX_NOTIFY_TOAST_GRAVITY=top" "$CODEX_TERMUX_NOTIFY_DIR/config.env"; grep -q "CODEX_TERMUX_NOTIFY_HOOKS=all" "$CODEX_TERMUX_NOTIFY_DIR/config.env"; grep -q "hooks.SessionStart" "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/config.toml"; grep -q "hooks.SubagentStop" "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/config.toml"; grep -q "hooks.Stop" "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/config.toml"'
+bash -lc '. /data/data/com.termux/files/home/prj/codex/lib/codex-termux.sh; codex_main notify --hooks all --toast-gravity top --content-chars 0 --pretooluse 1 >/dev/null 2>&1; grep -q "CODEX_TERMUX_NOTIFY_TOAST_GRAVITY=top" "$CODEX_TERMUX_NOTIFY_DIR/config.env"; grep -q "CODEX_TERMUX_NOTIFY_HOOKS=all" "$CODEX_TERMUX_NOTIFY_DIR/config.env"; grep -q "hooks.SessionStart" "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/config.toml"; grep -q "hooks.SubagentStop" "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/config.toml"; grep -q "hooks.Stop" "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/config.toml"'
+
+INVALID_TMP="$TMP_DIR/notify-invalid"
+mkdir -p "$INVALID_TMP/home" "$INVALID_TMP/tmp"
+CODEX_TERMUX_HOME="$INVALID_TMP/home" \
+CODEX_TERMUX_STATE_DIR="$INVALID_TMP/home/.local/share/codex/termux" \
+CODEX_TERMUX_TMPDIR="$INVALID_TMP/tmp" \
+bash -lc '. /data/data/com.termux/files/home/prj/codex/lib/codex-termux.sh; ! codex_main notify --hooks TypoHook >/dev/null 2>&1; ! codex_main notify --toast-gravity center >/dev/null 2>&1; ! codex_main notify --channel invalid >/dev/null 2>&1'

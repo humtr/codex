@@ -58,6 +58,7 @@ CODEX_TERMUX_AUTO_UPDATE_TIMEOUT_SECONDS="${CODEX_TERMUX_AUTO_UPDATE_TIMEOUT_SEC
 CODEX_TERMUX_AUTO_UPDATE_STAMP="${CODEX_TERMUX_AUTO_UPDATE_STAMP:-$CODEX_TERMUX_STATE_DIR/last-auto-update-check}"
 CODEX_TERMUX_AUTO_UPDATE_PENDING="${CODEX_TERMUX_AUTO_UPDATE_PENDING:-$CODEX_TERMUX_STATE_DIR/pending-auto-update-version}"
 CODEX_TERMUX_AUTO_UPDATE_FAILED="${CODEX_TERMUX_AUTO_UPDATE_FAILED:-$CODEX_TERMUX_STATE_DIR/failed-auto-update}"
+CODEX_TERMUX_UPSTREAM_TIME_CACHE="${CODEX_TERMUX_UPSTREAM_TIME_CACHE:-$CODEX_TERMUX_STATE_DIR/upstream-time-cache.tsv}"
 CODEX_TERMUX_LAST_PROFILE_FILE="${CODEX_TERMUX_LAST_PROFILE_FILE:-$CODEX_TERMUX_STATE_DIR/last-profile}"
 CODEX_TERMUX_RUNTIME_RETENTION="${CODEX_TERMUX_RUNTIME_RETENTION:-3}"
 CODEX_TERMUX_PATCH_POLICY="${CODEX_TERMUX_PATCH_POLICY:-termux-fd-remap-v1}"
@@ -446,6 +447,10 @@ codex_file_has_marker() {
 codex_with_lock() {
     local cmd="$1"
     shift
+    if [ "${CODEX_TERMUX_LOCK_HELD:-0}" = "1" ]; then
+        "$cmd" "$@"
+        return $?
+    fi
     mkdir -p "$CODEX_TERMUX_STATE_DIR"
     if command -v flock >/dev/null 2>&1; then
         (
@@ -453,6 +458,7 @@ codex_with_lock() {
                 codex_fail "Another mutation operation is already in progress: $CODEX_TERMUX_LOCK_FILE"
                 exit 75
             fi
+            export CODEX_TERMUX_LOCK_HELD=1
             "$cmd" "$@"
         ) 9>"$CODEX_TERMUX_LOCK_FILE"
     else
@@ -467,6 +473,7 @@ codex_with_lock() {
         done
         (
             trap 'rmdir "$lock_dir" 2>/dev/null || true' EXIT
+            export CODEX_TERMUX_LOCK_HELD=1
             "$cmd" "$@"
         )
     fi
@@ -518,6 +525,17 @@ codex_notify_hook_canonical() {
     esac
 }
 
+codex_notify_hook_valid() {
+    case "$(codex_notify_hook_canonical "${1:-}")" in
+        SessionStart|PreToolUse|PermissionRequest|PostToolUse|PreCompact|PostCompact|UserPromptSubmit|SubagentStart|SubagentStop|Stop|all)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
 codex_notify_hooks_normalize() {
     local hooks="${1:-Stop}" event seen="," normalized="" event_list=()
     case ",$hooks," in
@@ -530,6 +548,7 @@ codex_notify_hooks_normalize() {
     for event in "${event_list[@]}"; do
         event="$(codex_notify_hook_canonical "$event")"
         [ -n "$event" ] || continue
+        codex_notify_hook_valid "$event" || continue
         case "$event" in
             all) printf 'all\n'; return 0 ;;
         esac
@@ -584,12 +603,6 @@ codex_notify_hook_list() {
         *,all,*)
             codex_notify_all_hooks
             return 0
-            ;;
-    esac
-    case ",$hooks," in
-        *,PreToolUse,*) ;;
-        *)
-            [ "${CODEX_TERMUX_NOTIFY_PRETOOLUSE:-0}" = "1" ] && hooks="${hooks},PreToolUse"
             ;;
     esac
     [ -n "$hooks" ] || hooks="Stop"
@@ -1059,11 +1072,18 @@ codex_repair_apply() {
     codex_refresh_runtime_metadata
 }
 
-codex_repair_public() {
+codex_repair_public_unlocked() {
     codex_validate_runtime_retention || return $?
     codex_repair_diagnose
     codex_repair_apply || return $?
     codex_version
+}
+
+codex_repair_public() {
+    local status=0
+    codex_with_lock codex_repair_public_unlocked || status=$?
+    [ "$status" -eq 0 ] || codex_status_clear
+    return "$status"
 }
 
 codex_runtime_install_upstream_unlocked() {
@@ -1506,7 +1526,28 @@ codex_display_dotted_date() {
     esac
 }
 
-codex_upstream_release_date() {
+codex_read_upstream_release_date_cache() {
+    local version="$1"
+    [ -r "$CODEX_TERMUX_UPSTREAM_TIME_CACHE" ] || return 1
+    awk -F '\t' -v version="$version" '$1 == version { print $2; found=1; exit } END { exit found ? 0 : 1 }' \
+        "$CODEX_TERMUX_UPSTREAM_TIME_CACHE"
+}
+
+codex_write_upstream_release_date_cache() {
+    local version="$1" release_date="$2" tmp
+    [ -n "$version" ] && [ -n "$release_date" ] || return 0
+    mkdir -p "$(codex_parent_dir "$CODEX_TERMUX_UPSTREAM_TIME_CACHE")" 2>/dev/null || return 0
+    tmp="$CODEX_TERMUX_UPSTREAM_TIME_CACHE.$$"
+    if [ -r "$CODEX_TERMUX_UPSTREAM_TIME_CACHE" ]; then
+        awk -F '\t' -v version="$version" '$1 != version' "$CODEX_TERMUX_UPSTREAM_TIME_CACHE" >"$tmp" 2>/dev/null || : >"$tmp"
+    else
+        : >"$tmp"
+    fi
+    printf '%s\t%s\n' "$version" "$release_date" >>"$tmp"
+    mv -f "$tmp" "$CODEX_TERMUX_UPSTREAM_TIME_CACHE" 2>/dev/null || rm -f "$tmp"
+}
+
+codex_fetch_upstream_release_date() {
     local version="${1:-}"
     [ -n "$version" ] || return 0
     if command -v timeout >/dev/null 2>&1; then
@@ -1558,7 +1599,22 @@ else:
     digits = "".join(ch for ch in text if ch.isdigit())
     if len(digits) >= 8:
         print(f"{digits[:4]}-{digits[4:6]}-{digits[6:8]}")
-' "$version"
+	' "$version"
+    fi
+}
+
+codex_upstream_release_date() {
+    local version="${1:-}" release_date
+    [ -n "$version" ] || return 0
+    release_date="$(codex_read_upstream_release_date_cache "$version" 2>/dev/null || true)"
+    if [ -n "$release_date" ]; then
+        printf '%s\n' "$release_date"
+        return 0
+    fi
+    release_date="$(codex_fetch_upstream_release_date "$version" || true)"
+    if [ -n "$release_date" ]; then
+        codex_write_upstream_release_date_cache "$version" "$release_date"
+        printf '%s\n' "$release_date"
     fi
 }
 
@@ -2281,7 +2337,7 @@ Options:
   --hooks LIST            Comma-separated hook list or "all"
   --hook NAME             Append a single hook name
   --all-hooks             Enable every supported hook position
-  --pretooluse 0|1        Enable or disable PreToolUse compatibility
+  --pretooluse 0|1        Store legacy PreToolUse flag; use --hooks PreToolUse to enable the hook
   --content-chars N       Limit notification body to N characters
   --preserve-newlines 0|1 Keep notification body line breaks
   --toast 0|1             Enable or disable toast popups
@@ -2308,6 +2364,56 @@ codex_notify_need_arg() {
         codex_fail "Missing value for $1"
         return 64
     }
+}
+
+codex_notify_validate_bool() {
+    local label="$1" value="$2"
+    case "$value" in
+        0|1) return 0 ;;
+        *)
+            codex_fail "$label must be 0 or 1"
+            return 64
+            ;;
+    esac
+}
+
+codex_notify_validate_content_chars() {
+    case "${1:-}" in
+        0|full|none|unlimited) return 0 ;;
+        [1-9]*)
+            case "$1" in
+                *[!0-9]*)
+                    codex_fail "--content-chars must be a positive integer, 0, full, none, or unlimited"
+                    return 64
+                    ;;
+                *)
+                    return 0
+                    ;;
+            esac
+            ;;
+        *)
+            codex_fail "--content-chars must be a positive integer, 0, full, none, or unlimited"
+            return 64
+            ;;
+    esac
+}
+
+codex_notify_validate_hooks() {
+    local hooks="${1:-Stop}" token event event_list=()
+    case ",$hooks," in
+        *,all,*|*,ALL,*)
+            return 0
+            ;;
+    esac
+    IFS=, read -r -a event_list <<<"$hooks"
+    for token in "${event_list[@]}"; do
+        event="$(codex_notify_hook_canonical "$token")"
+        [ -n "$event" ] || continue
+        if ! codex_notify_hook_valid "$event"; then
+            codex_fail "Unknown notification hook: $token"
+            return 64
+        fi
+    done
 }
 
 codex_notify_write_config() {
@@ -2366,6 +2472,10 @@ codex_toast_parse_selection() {
                 ;;
             *)
                 hook="$(codex_notify_hook_canonical "$token")"
+                if ! codex_notify_hook_valid "$hook"; then
+                    codex_fail "Unknown notification hook: $token"
+                    return 64
+                fi
                 case "$hook" in
                     all)
                         printf 'all\n'
@@ -2487,6 +2597,20 @@ codex_notify_public() {
                 ;;
         esac
     done
+    codex_notify_validate_hooks "$hooks" || return $?
+    codex_notify_validate_bool "--pretooluse" "$pretooluse" || return $?
+    codex_notify_validate_content_chars "$content_chars" || return $?
+    codex_notify_validate_bool "--preserve-newlines" "$preserve_newlines" || return $?
+    codex_notify_validate_bool "--toast" "$toast" || return $?
+    codex_notify_validate_bool "--toast-short" "$toast_short" || return $?
+    codex_notify_validate_bool "--notification" "$notification" || return $?
+    case "$toast_gravity" in
+        ""|top|middle|bottom) ;;
+        *)
+            codex_fail "--toast-gravity must be top, middle, or bottom"
+            return 64
+            ;;
+    esac
     [ -n "$config_file" ] || {
         codex_fail "Notification config file is unavailable"
         return 66
@@ -2505,9 +2629,8 @@ codex_notify_public() {
             notification=1
             ;;
         *)
-            channel="notification"
-            toast=0
-            notification=1
+            codex_fail "--channel must be notification, toast, or both"
+            return 64
             ;;
     esac
     hooks="$(codex_notify_hooks_normalize "$hooks")"
@@ -2544,7 +2667,7 @@ codex_toast_public() {
         codex_selection_cancelled
         return 130
     fi
-    hooks="$(codex_toast_parse_selection "$choice")"
+    hooks="$(codex_toast_parse_selection "$choice")" || return $?
     codex_notify_public --channel toast --hooks "$hooks" --toast-gravity top
 }
 
@@ -2579,7 +2702,18 @@ codex_main() {
             ;;
         repair)
             shift
-            codex_repair_public
+            case "${1:-}" in
+                "")
+                    codex_repair_public
+                    ;;
+                -h|--help|help)
+                    codex_wrapper_help
+                    ;;
+                *)
+                    codex_fail "repair does not take arguments"
+                    return 2
+                    ;;
+            esac
             ;;
         doctor)
             shift

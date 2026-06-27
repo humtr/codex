@@ -249,10 +249,13 @@ with TemporaryDirectory() as tmp:
     assert latest_row is None
     assert len(remaining) == 3
 
+    stdout = io.StringIO()
     stderr = io.StringIO()
-    with contextlib.redirect_stderr(stderr):
-        use.render_runtime_rows(rows, mode="menu", interactive_limit=0)
+    with contextlib.redirect_stdout(stdout):
+        with contextlib.redirect_stderr(stderr):
+            use.render_runtime_rows(rows, mode="menu", interactive_limit=0)
     menu = stderr.getvalue()
+    assert stdout.getvalue().strip() == "3", stdout.getvalue()
     assert "0.142.0 (2026-06-19)" in menu, menu
     assert "0.141.0 (2026-06-19 · 2026-06-19 (r1))" in menu, menu
     assert "0.141.0 (2026-06-19 · 2026-06-19 (r2))" in menu, menu
