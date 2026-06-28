@@ -2,10 +2,11 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TMP_PARENT="${TMPDIR:-${PREFIX:-/data/data/com.termux/files/usr}/tmp}"
+TMP_PARENT="${TMPDIR:-${RUNNER_TEMP:-/tmp}}"
 TMP_DIR="$TMP_PARENT/codex-notify-test.$$"
 trap 'rm -rf "$TMP_DIR"' EXIT
 mkdir -p "$TMP_DIR"
+LIB_SH="$ROOT_DIR/lib/codex-termux.sh"
 
 fail() {
     printf 'notify: FAIL: %s\n' "$*" >&2
@@ -62,30 +63,30 @@ CODEX_TERMUX_HOME="$CONFIG_TMP/home" \
 CODEX_TERMUX_STATE_DIR="$CONFIG_TMP/home/.local/share/codex/termux" \
 CODEX_TERMUX_TMPDIR="$CONFIG_TMP/tmp" \
 CODEX_TERMUX_NOTIFY_PRETOOLUSE=1 \
-bash -lc '. /data/data/com.termux/files/home/prj/codex/lib/codex-termux.sh; codex_prepare_system_config; ! grep -q "hooks.PreToolUse" "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/config.toml"; grep -q "hooks.Stop" "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/config.toml"'
+bash -lc '. "$1"; codex_prepare_system_config; ! grep -q "hooks.PreToolUse" "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/config.toml"; grep -q "hooks.Stop" "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/config.toml"' _ "$LIB_SH"
 
 NOTIFY_TMP="$TMP_DIR/notify-cmd"
 mkdir -p "$NOTIFY_TMP/home" "$NOTIFY_TMP/tmp"
 CODEX_TERMUX_HOME="$NOTIFY_TMP/home" \
 CODEX_TERMUX_STATE_DIR="$NOTIFY_TMP/home/.local/share/codex/termux" \
 CODEX_TERMUX_TMPDIR="$NOTIFY_TMP/tmp" \
-bash -lc '. /data/data/com.termux/files/home/prj/codex/lib/codex-termux.sh; codex_main notify --channel both --hooks all --toast-gravity top --content-chars 0 --pretooluse 1 >/dev/null 2>&1; grep -q "CODEX_TERMUX_NOTIFY_CHANNEL=both" "$CODEX_TERMUX_NOTIFY_DIR/config.env"; grep -q "CODEX_TERMUX_NOTIFY_TOAST_GRAVITY=top" "$CODEX_TERMUX_NOTIFY_DIR/config.env"; grep -q "CODEX_TERMUX_NOTIFY_HOOKS=all" "$CODEX_TERMUX_NOTIFY_DIR/config.env"; ! grep -q "CODEX_TERMUX_NOTIFY_TOAST=" "$CODEX_TERMUX_NOTIFY_DIR/config.env"; ! grep -q "CODEX_TERMUX_NOTIFY_NOTIFICATION=" "$CODEX_TERMUX_NOTIFY_DIR/config.env"; grep -q "hooks.SessionStart" "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/config.toml"; grep -q "hooks.SubagentStop" "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/config.toml"; grep -q "hooks.Stop" "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/config.toml"'
+bash -lc '. "$1"; codex_main notify --channel both --hooks all --toast-gravity top --content-chars 0 --pretooluse 1 >/dev/null 2>&1; grep -q "CODEX_TERMUX_NOTIFY_CHANNEL=both" "$CODEX_TERMUX_NOTIFY_DIR/config.env"; grep -q "CODEX_TERMUX_NOTIFY_TOAST_GRAVITY=top" "$CODEX_TERMUX_NOTIFY_DIR/config.env"; grep -q "CODEX_TERMUX_NOTIFY_HOOKS=all" "$CODEX_TERMUX_NOTIFY_DIR/config.env"; ! grep -q "CODEX_TERMUX_NOTIFY_TOAST=" "$CODEX_TERMUX_NOTIFY_DIR/config.env"; ! grep -q "CODEX_TERMUX_NOTIFY_NOTIFICATION=" "$CODEX_TERMUX_NOTIFY_DIR/config.env"; grep -q "hooks.SessionStart" "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/config.toml"; grep -q "hooks.SubagentStop" "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/config.toml"; grep -q "hooks.Stop" "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/config.toml"' _ "$LIB_SH"
 
 INVALID_TMP="$TMP_DIR/notify-invalid"
 mkdir -p "$INVALID_TMP/home" "$INVALID_TMP/tmp"
 CODEX_TERMUX_HOME="$INVALID_TMP/home" \
 CODEX_TERMUX_STATE_DIR="$INVALID_TMP/home/.local/share/codex/termux" \
 CODEX_TERMUX_TMPDIR="$INVALID_TMP/tmp" \
-bash -lc '. /data/data/com.termux/files/home/prj/codex/lib/codex-termux.sh; ! codex_main notify --hooks TypoHook >/dev/null 2>&1; ! codex_main notify --toast-gravity center >/dev/null 2>&1; ! codex_main notify --channel invalid >/dev/null 2>&1; ! codex_main notify >/dev/null 2>&1; ! codex_main toast >/dev/null 2>&1; [ "$(codex_notify_parse_hook_selection "")" = "Stop" ]; [ "$(codex_notify_parse_hook_selection "1")" = "SessionStart" ]; ! codex_notify_parse_hook_selection "99" >/dev/null 2>&1; ! codex_notify_parse_hook_selection "1abc" >/dev/null 2>&1'
+bash -lc '. "$1"; ! codex_main notify --hooks TypoHook >/dev/null 2>&1; ! codex_main notify --toast-gravity center >/dev/null 2>&1; ! codex_main notify --channel invalid >/dev/null 2>&1; ! codex_main notify >/dev/null 2>&1; ! codex_main toast >/dev/null 2>&1; [ "$(codex_notify_parse_hook_selection "")" = "Stop" ]; [ "$(codex_notify_parse_hook_selection "1")" = "SessionStart" ]; ! codex_notify_parse_hook_selection "99" >/dev/null 2>&1; ! codex_notify_parse_hook_selection "1abc" >/dev/null 2>&1' _ "$LIB_SH"
 
 PROVIDER_TMP="$TMP_DIR/provider"
 mkdir -p "$PROVIDER_TMP/bin" "$PROVIDER_TMP/state/notify"
 cat >"$PROVIDER_TMP/bin/termux-notification" <<'SH'
-#!/data/data/com.termux/files/usr/bin/bash
+#!/bin/sh
 printf 'notification\n' >>"$CODEX_PROVIDER_CALLS"
 SH
 cat >"$PROVIDER_TMP/bin/termux-toast" <<'SH'
-#!/data/data/com.termux/files/usr/bin/bash
+#!/bin/sh
 printf 'toast\n' >>"$CODEX_PROVIDER_CALLS"
 SH
 chmod +x "$PROVIDER_TMP/bin/termux-notification" "$PROVIDER_TMP/bin/termux-toast"

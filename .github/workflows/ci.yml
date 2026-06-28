@@ -9,5 +9,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Shell syntax checks
+        run: |
+          bash -n install.sh
+          bash -n bin/install-local.sh
+          bash -n bin/install-runtime.sh
+          bash -n lib/codex-termux.sh
+          bash -n tools/rg-termux-shim.sh
+          bash -n tools/smoke-termux-wrapper.sh
+          bash -n tests/*.sh
       - name: Run wrapper invariant gates
+        env:
+          TMPDIR: /tmp
         run: bash tests/run-all.sh

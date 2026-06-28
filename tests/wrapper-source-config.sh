@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TMP_PARENT="${TMPDIR:-${PREFIX:-/data/data/com.termux/files/usr}/tmp}"
+TMP_PARENT="${TMPDIR:-${RUNNER_TEMP:-/tmp}}"
 TMP_DIR="$TMP_PARENT/codex-wrapper-source-config-test.$$"
 trap 'rm -rf "$TMP_DIR"' EXIT
 mkdir -p "$TMP_DIR"
