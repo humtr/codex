@@ -171,7 +171,7 @@ CODEX_TERMUX_WRAPPER_TOKEN= \
 CODEX_TERMUX_WRAPPER_GIT_TOKEN= \
 CODEX_TERMUX_WRAPPER_RELEASE_TOKEN= \
 GITHUB_TOKEN= \
-bash -lc '. "$1"; [ "$(codex_wrapper_auth_token)" = "gh_token_test" ]' _ "$ROOT_DIR/bin/install-runtime.sh" \
+bash -c '. "$1"; [ "$(codex_wrapper_auth_token)" = "gh_token_test" ]' _ "$ROOT_DIR/bin/install-runtime.sh" \
     || fail 'install-runtime gh auth token fallback failed'
 
 git() {

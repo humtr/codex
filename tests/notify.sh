@@ -99,11 +99,13 @@ CODEX_TERMUX_NOTIFY_TOAST_GRAVITY=top
 CODEX_TERMUX_NOTIFY_TOAST_SHORT=0
 CODEX_TERMUX_NOTIFY_GROUP=codex-turns
 ENV
-CODEX_PROVIDER_CALLS="$PROVIDER_TMP/calls" \
-CODEX_TERMUX_HOME="$PROVIDER_TMP/home" \
-CODEX_TERMUX_STATE_DIR="$PROVIDER_TMP/state" \
-PATH="$PROVIDER_TMP/bin:$PATH" \
-bash "$ROOT_DIR/tools/codex-turn-notify.sh" <<'JSON' >"$PROVIDER_TMP/out" 2>&1
+env -i \
+    CODEX_PROVIDER_CALLS="$PROVIDER_TMP/calls" \
+    CODEX_TERMUX_HOME="$PROVIDER_TMP/home" \
+    CODEX_TERMUX_STATE_DIR="$PROVIDER_TMP/state" \
+    CODEX_TERMUX_NOTIFY_CONFIG="$PROVIDER_TMP/state/notify/config.env" \
+    PATH="$PROVIDER_TMP/bin:$PATH" \
+    bash "$ROOT_DIR/tools/codex-turn-notify.sh" <<'JSON' >"$PROVIDER_TMP/out" 2>&1
 {"session_id":"provider-alpha","cwd":"/data/data/com.termux/files/home/prj/codex","last_assistant_message":"provider response"}
 JSON
 grep -q '^notification$' "$PROVIDER_TMP/calls" || fail 'notification provider was not called'

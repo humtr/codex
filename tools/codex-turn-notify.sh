@@ -71,9 +71,17 @@ import sys
 
 home = sys.argv[1]
 tmux_session = sys.argv[2]
+payload_path = sys.argv[3] if len(sys.argv) > 3 else ""
 limit = os.environ.get("CODEX_TERMUX_NOTIFY_CONTENT_CHARS", "140")
 preserve_newlines = os.environ.get("CODEX_TERMUX_NOTIFY_PRESERVE_NEWLINES", "0") == "1"
-payload = sys.stdin.read()
+if payload_path:
+    try:
+        with open(payload_path, "r", encoding="utf-8", errors="replace") as handle:
+            payload = handle.read()
+    except OSError:
+        payload = ""
+else:
+    payload = sys.stdin.read()
 
 try:
     data = json.loads(payload) if payload.strip() else {}
@@ -130,7 +138,7 @@ print(b64(title))
 print(b64(message))
 print(b64(cwd))
 print(b64(session_id))
-' "$CODEX_TERMUX_HOME" "${TMUX_SESSION:-}"
+' "$CODEX_TERMUX_HOME" "${TMUX_SESSION:-}" "${1:-}"
 }
 
 codex_notify_b64_decode() {
@@ -172,7 +180,9 @@ codex_notify_payload() {
     local toast_args=()
     payload="$(cat)"
     tmux_session="$(codex_notify_tmux_session)"
-    meta="$(printf '%s' "$payload" | TMUX_SESSION="$tmux_session" codex_notify_metadata)" || meta=""
+    mkdir -p "$CODEX_TERMUX_NOTIFY_DIR" 2>/dev/null || true
+    printf '%s' "$payload" >"$CODEX_TERMUX_NOTIFY_DIR/last-payload.json" 2>/dev/null || true
+    meta="$(TMUX_SESSION="$tmux_session" codex_notify_metadata "$CODEX_TERMUX_NOTIFY_DIR/last-payload.json")" || meta=""
     notification_id="$(printf '%s\n' "$meta" | sed -n '1p')"
     title="$(codex_notify_b64_decode "$(printf '%s\n' "$meta" | sed -n '2p')")"
     content="$(codex_notify_b64_decode "$(printf '%s\n' "$meta" | sed -n '3p')")"
@@ -184,9 +194,6 @@ codex_notify_payload() {
     if [ -n "${CODEX_TERMUX_NOTIFY_EVENT:-}" ]; then
         title="$title · $(codex_notify_event_label "$CODEX_TERMUX_NOTIFY_EVENT")"
     fi
-
-    mkdir -p "$CODEX_TERMUX_NOTIFY_DIR" 2>/dev/null || true
-    printf '%s' "$payload" >"$CODEX_TERMUX_NOTIFY_DIR/last-payload.json" 2>/dev/null || true
 
     if [ -n "$tmux_session" ]; then
         action="$(codex_notify_escape_action "$0" --open-tmux "$tmux_session")"
@@ -273,7 +280,7 @@ case "${1:-}" in
         shift
         export CODEX_TERMUX_NOTIFY_EVENT="${1:-}"
         shift || true
-        exec "$0" "$@"
+        exec "${BASH:-bash}" "$0" "$@"
         ;;
     --open-termux)
         codex_notify_open_termux

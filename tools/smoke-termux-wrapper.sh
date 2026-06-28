@@ -166,12 +166,12 @@ codex_install_public() {
 codex_main install >/dev/null 2>&1
 [ "$install_called" -eq 1 ] || fail_contract 'install command did not route to codex_install_public'
 
-rebuild_called=0
-codex_rebuild_public() {
-    rebuild_called=1
+install_args=""
+codex_install_public() {
+    install_args="$*"
 }
-codex_main rebuild >/dev/null 2>&1
-[ "$rebuild_called" -eq 1 ] || fail_contract 'rebuild command did not route to codex_rebuild_public'
+codex_main install rebuild >/dev/null 2>&1
+[ "$install_args" = 'rebuild' ] || fail_contract "install rebuild command did not route through codex_install_public: $install_args"
 
 set +e
 codex_main setup >/dev/null 2>&1
