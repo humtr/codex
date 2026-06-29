@@ -2,13 +2,25 @@ name: CI
 
 on:
   push:
+    branches:
+      - main
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  wrapper-invariants:
+  wrapper-portable-gates:
+    name: Portable wrapper gates
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Shell syntax checks
         run: |
           bash -n install.sh
@@ -19,10 +31,32 @@ jobs:
           bash -n tools/smoke-termux-wrapper.sh
           bash -n tools/package-release.sh
           bash -n tests/*.sh
-      - name: Run wrapper invariant gates
+
+      - name: Python syntax checks
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          python3 -B -m compileall -q tools
+
+      - name: Run Ubuntu-portable tests
         env:
           TMPDIR: /tmp
-        run: bash tests/run-all.sh
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          for test_script in \
+            tests/invariants.sh \
+            tests/runtime-build.sh \
+            tests/package-safety.sh \
+            tests/wrapper-archive-safety.sh \
+            tests/release-package.sh \
+            tests/install-dispatch.sh \
+            tests/doctor.sh \
+            tests/cli-surface.sh
+          do
+            echo "== ${test_script##*/} =="
+            bash "$test_script"
+          done
+
       - name: Build release package dry-run
         env:
           TMPDIR: /tmp

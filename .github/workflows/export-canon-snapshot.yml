@@ -1,0 +1,77 @@
+name: Canonicalization Snapshot
+
+on:
+  push:
+    branches:
+      - canon/wrapper-canonicalization
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: canon-snapshot-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  snapshot:
+    name: Export canonicalization snapshot
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Capture git status
+        run: |
+          mkdir -p dist
+          {
+            echo "ref=${GITHUB_REF}"
+            echo "sha=${GITHUB_SHA}"
+            echo
+            git status --short
+            echo
+            git log --oneline --decorate -10
+          } > dist/git-status.txt
+
+      - name: Run canonical audit
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set +e
+          python3 -B -m tools.codex_termux.cli canon-audit --root . > dist/canon-audit.json 2> dist/canon-audit.stderr
+          printf '%s\n' "$?" > dist/canon-audit.exit
+          set -e
+
+      - name: Run full wrapper tests as diagnostic log
+        env:
+          TMPDIR: /tmp
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set +e
+          bash tests/run-all.sh > dist/tests-run-all.log 2>&1
+          printf '%s\n' "$?" > dist/tests-run-all.exit
+          set -e
+
+      - name: Create repository snapshot
+        run: |
+          git archive --format=zip --output=dist/codex-canon-snapshot.zip HEAD
+
+      - name: Write summary
+        run: |
+          {
+            echo "# Canonicalization Snapshot"
+            echo
+            echo "- ref: ${GITHUB_REF}"
+            echo "- sha: ${GITHUB_SHA}"
+            echo "- canon-audit exit: $(cat dist/canon-audit.exit 2>/dev/null || echo unknown)"
+            echo "- tests/run-all exit: $(cat dist/tests-run-all.exit 2>/dev/null || echo unknown)"
+          } > dist/summary.md
+          cat dist/summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload snapshot artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-canon-snapshot
+          path: dist/
+          if-no-files-found: error
+          retention-days: 3
