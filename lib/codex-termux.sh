@@ -567,88 +567,53 @@ codex_notify_load_config() {
     CODEX_TERMUX_NOTIFY_HOOKS="$(codex_notify_hooks_normalize "${CODEX_TERMUX_NOTIFY_HOOKS:-Stop}")"
 }
 
+codex_notify_domain_tool() {
+    local source_dir source_root candidate
+    candidate="${CODEX_TERMUX_NOTIFY_DOMAIN_TOOL:-}"
+    if [ -n "$candidate" ] && [ -r "$candidate" ]; then
+        printf '%s\n' "$candidate"
+        return 0
+    fi
+    if [ -r "$CODEX_TERMUX_TURN_NOTIFY" ]; then
+        printf '%s\n' "$CODEX_TERMUX_TURN_NOTIFY"
+        return 0
+    fi
+    source_dir="${BASH_SOURCE[0]%/*}"
+    [ "$source_dir" = "${BASH_SOURCE[0]}" ] && source_dir="."
+    source_root="$(cd "$source_dir/.." 2>/dev/null && pwd)" || source_root=""
+    candidate="$source_root/tools/codex-turn-notify.sh"
+    if [ -n "$source_root" ] && [ -r "$candidate" ]; then
+        printf '%s\n' "$candidate"
+        return 0
+    fi
+    codex_fail "Notification domain tool is unavailable: $CODEX_TERMUX_TURN_NOTIFY"
+    return 1
+}
+
+codex_notify_domain_call() {
+    local tool
+    tool="$(codex_notify_domain_tool)" || return $?
+    "${BASH:-bash}" "$tool" "$@"
+}
+
 codex_notify_all_hooks() {
-    printf '%s\n' \
-        SessionStart \
-        PreToolUse \
-        PermissionRequest \
-        PostToolUse \
-        PreCompact \
-        PostCompact \
-        UserPromptSubmit \
-        SubagentStart \
-        SubagentStop \
-        Stop
+    codex_notify_domain_call --list-hooks
 }
 
 codex_notify_hook_canonical() {
-    case "${1:-}" in
-        stop|Stop) printf 'Stop' ;;
-        sessionstart|SessionStart) printf 'SessionStart' ;;
-        pretooluse|PreToolUse) printf 'PreToolUse' ;;
-        permissionrequest|PermissionRequest) printf 'PermissionRequest' ;;
-        posttooluse|PostToolUse) printf 'PostToolUse' ;;
-        precompact|PreCompact) printf 'PreCompact' ;;
-        postcompact|PostCompact) printf 'PostCompact' ;;
-        userpromptsubmit|UserPromptSubmit) printf 'UserPromptSubmit' ;;
-        subagentstart|SubagentStart) printf 'SubagentStart' ;;
-        subagentstop|SubagentStop) printf 'SubagentStop' ;;
-        all|ALL) printf 'all' ;;
-        *) printf '%s' "${1:-}" ;;
-    esac
+    codex_notify_domain_call --canonical-hook "${1:-}"
 }
 
 codex_notify_hook_valid() {
-    case "$(codex_notify_hook_canonical "${1:-}")" in
-        SessionStart|PreToolUse|PermissionRequest|PostToolUse|PreCompact|PostCompact|UserPromptSubmit|SubagentStart|SubagentStop|Stop|all)
-            return 0
-            ;;
-        *)
-            return 1
-            ;;
-    esac
+    codex_notify_domain_call --hook-valid "${1:-}"
 }
 
 codex_notify_hooks_normalize() {
-    local hooks="${1:-Stop}" event seen="," normalized="" event_list=()
-    case ",$hooks," in
-        *,all,*|*,ALL,*)
-            printf 'all\n'
-            return 0
-            ;;
-    esac
-    IFS=, read -r -a event_list <<<"$hooks"
-    for event in "${event_list[@]}"; do
-        event="$(codex_notify_hook_canonical "$event")"
-        [ -n "$event" ] || continue
-        codex_notify_hook_valid "$event" || continue
-        case "$event" in
-            all) printf 'all\n'; return 0 ;;
-        esac
-        case "$seen" in
-            *,"$event",*) continue ;;
-        esac
-        seen="$seen$event,"
-        normalized="${normalized:+$normalized,}$event"
-    done
-    [ -n "$normalized" ] || normalized="Stop"
-    printf '%s\n' "$normalized"
+    codex_notify_domain_call --normalize-hooks "${1:-Stop}"
 }
 
 codex_notify_event_label() {
-    case "${1:-}" in
-        SessionStart) printf 'session start' ;;
-        PreToolUse) printf 'tool start' ;;
-        PermissionRequest) printf 'permission request' ;;
-        PostToolUse) printf 'tool finished' ;;
-        PreCompact) printf 'before compact' ;;
-        PostCompact) printf 'after compact' ;;
-        UserPromptSubmit) printf 'prompt submitted' ;;
-        SubagentStart) printf 'subagent start' ;;
-        SubagentStop) printf 'subagent finished' ;;
-        Stop) printf 'turn complete' ;;
-        *) printf '%s' "${1:-}" ;;
-    esac
+    codex_notify_domain_call --event-label "${1:-}"
 }
 
 codex_notify_hook_enabled() {
@@ -696,19 +661,7 @@ codex_notify_hook_command() {
 }
 
 codex_notify_hook_status_message() {
-    case "$1" in
-        SessionStart) printf 'Notify session start' ;;
-        PreToolUse) printf 'Notify tool start' ;;
-        PermissionRequest) printf 'Notify permission request' ;;
-        PostToolUse) printf 'Notify tool finish' ;;
-        PreCompact) printf 'Notify before compact' ;;
-        PostCompact) printf 'Notify after compact' ;;
-        UserPromptSubmit) printf 'Notify prompt submit' ;;
-        SubagentStart) printf 'Notify subagent start' ;;
-        SubagentStop) printf 'Notify subagent stop' ;;
-        Stop) printf 'Notify turn completion' ;;
-        *) printf 'Notify %s' "$1" ;;
-    esac
+    codex_notify_domain_call --status-message "${1:-}"
 }
 
 codex_notify_config_hook_block() {

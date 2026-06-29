@@ -145,6 +145,74 @@ codex_notify_b64_decode() {
     printf '%s' "$1" | base64 -d 2>/dev/null || true
 }
 
+codex_notify_all_hooks() {
+    printf '%s\n' \
+        SessionStart \
+        PreToolUse \
+        PermissionRequest \
+        PostToolUse \
+        PreCompact \
+        PostCompact \
+        UserPromptSubmit \
+        SubagentStart \
+        SubagentStop \
+        Stop
+}
+
+codex_notify_hook_canonical() {
+    case "${1:-}" in
+        stop|Stop) printf 'Stop' ;;
+        sessionstart|SessionStart) printf 'SessionStart' ;;
+        pretooluse|PreToolUse) printf 'PreToolUse' ;;
+        permissionrequest|PermissionRequest) printf 'PermissionRequest' ;;
+        posttooluse|PostToolUse) printf 'PostToolUse' ;;
+        precompact|PreCompact) printf 'PreCompact' ;;
+        postcompact|PostCompact) printf 'PostCompact' ;;
+        userpromptsubmit|UserPromptSubmit) printf 'UserPromptSubmit' ;;
+        subagentstart|SubagentStart) printf 'SubagentStart' ;;
+        subagentstop|SubagentStop) printf 'SubagentStop' ;;
+        all|ALL) printf 'all' ;;
+        *) printf '%s' "${1:-}" ;;
+    esac
+}
+
+codex_notify_hook_valid() {
+    case "$(codex_notify_hook_canonical "${1:-}")" in
+        SessionStart|PreToolUse|PermissionRequest|PostToolUse|PreCompact|PostCompact|UserPromptSubmit|SubagentStart|SubagentStop|Stop|all)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+codex_notify_hooks_normalize() {
+    local hooks="${1:-Stop}" event seen="," normalized="" event_list=()
+    case ",$hooks," in
+        *,all,*|*,ALL,*)
+            printf 'all\n'
+            return 0
+            ;;
+    esac
+    IFS=, read -r -a event_list <<<"$hooks"
+    for event in "${event_list[@]}"; do
+        event="$(codex_notify_hook_canonical "$event")"
+        [ -n "$event" ] || continue
+        codex_notify_hook_valid "$event" || continue
+        case "$event" in
+            all) printf 'all\n'; return 0 ;;
+        esac
+        case "$seen" in
+            *,"$event",*) continue ;;
+        esac
+        seen="$seen$event,"
+        normalized="${normalized:+$normalized,}$event"
+    done
+    [ -n "$normalized" ] || normalized="Stop"
+    printf '%s\n' "$normalized"
+}
+
 codex_notify_event_label() {
     case "${1:-}" in
         SessionStart) printf 'session start' ;;
@@ -158,6 +226,22 @@ codex_notify_event_label() {
         SubagentStop) printf 'subagent finished' ;;
         Stop) printf 'turn complete' ;;
         *) printf '%s' "${1:-}" ;;
+    esac
+}
+
+codex_notify_hook_status_message() {
+    case "$(codex_notify_hook_canonical "${1:-}")" in
+        SessionStart) printf 'Notify session start' ;;
+        PreToolUse) printf 'Notify tool start' ;;
+        PermissionRequest) printf 'Notify permission request' ;;
+        PostToolUse) printf 'Notify tool finish' ;;
+        PreCompact) printf 'Notify before compact' ;;
+        PostCompact) printf 'Notify after compact' ;;
+        UserPromptSubmit) printf 'Notify prompt submit' ;;
+        SubagentStart) printf 'Notify subagent start' ;;
+        SubagentStop) printf 'Notify subagent stop' ;;
+        Stop) printf 'Notify turn completion' ;;
+        *) printf 'Notify %s' "${1:-}" ;;
     esac
 }
 
@@ -276,6 +360,29 @@ codex_notify_payload() {
 }
 
 case "${1:-}" in
+    --list-hooks)
+        codex_notify_all_hooks
+        ;;
+    --canonical-hook)
+        shift
+        codex_notify_hook_canonical "${1:-}"
+        ;;
+    --hook-valid)
+        shift
+        codex_notify_hook_valid "${1:-}"
+        ;;
+    --normalize-hooks)
+        shift
+        codex_notify_hooks_normalize "${1:-Stop}"
+        ;;
+    --event-label)
+        shift
+        codex_notify_event_label "${1:-}"
+        ;;
+    --status-message)
+        shift
+        codex_notify_hook_status_message "${1:-}"
+        ;;
     --event)
         shift
         export CODEX_TERMUX_NOTIFY_EVENT="${1:-}"
