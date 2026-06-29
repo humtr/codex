@@ -179,6 +179,11 @@ codex_fetch_release_wrapper_source() {
             return 1
         }
     fi
+    codex_validate_tarball_safe "$archive" >/dev/null 2>&1 || {
+        rm -rf "$tmp"
+        codex_fail "Wrapper release archive is unsafe"
+        return 1
+    }
     tar -xf "$archive" -C "$extract" || {
         rm -rf "$tmp"
         return 1

@@ -4,6 +4,8 @@ Codex Termux Wrapper installs and runs the official `@openai/codex` linux-arm64 
 
 Release packages intentionally contain only runtime/install code. Source checkouts may include repository-only tests under `tests/` for development validation; release packages exclude them.
 
+Build release packages with `bash tools/package-release.sh`. The release package is allowlist-based and excludes repository-only development material such as `tests/`, `.github/`, and `docs/`.
+
 ## Philosophy
 
 The wrapper is not a fork of upstream Codex behavior. It is a thin Termux launcher/runtime manager.
@@ -66,6 +68,16 @@ After installation, use the managed launcher:
 ```sh
 codex
 ```
+
+## Release package
+
+Create the distributable wrapper package from a source checkout with:
+
+```sh
+bash tools/package-release.sh
+```
+
+The package is built from an explicit allowlist. It contains only the runtime/install surface required by the wrapper: `README.md`, `install.sh`, `bin/`, `lib/`, selected runtime tools, `tools/codex_termux/`, and `config/`. Repository-only development files such as `tests/`, `.github/`, `docs/`, `.agents/`, git hooks, and version-update helpers are intentionally excluded.
 
 ## Runtime model
 

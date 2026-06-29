@@ -1,7 +1,0 @@
-interface:
-  display_name: "Credit Status"
-  short_description: "Fetch credit status now"
-  default_prompt: "Use $credit-status to fetch the current account's reset credits and show the full metadata."
-
-policy:
-  allow_implicit_invocation: true

@@ -198,6 +198,31 @@ bootstrap_auth_token() {
     printf '%s\n' "$token"
 }
 
+bootstrap_validate_tarball_safe() {
+    local archive="$1"
+    tar -tf "$archive" >/dev/null || return 1
+    if ! tar -tf "$archive" | awk '''
+        $0 == "" { exit 1 }
+        substr($0, 1, 1) == "/" { exit 1 }
+        {
+            n = split($0, parts, "/")
+            for (i = 1; i <= n; i++) {
+                if (parts[i] == "..") exit 1
+            }
+        }
+    '''; then
+        return 1
+    fi
+    if ! tar -tvf "$archive" | awk '''
+        {
+            kind = substr($0, 1, 1)
+            if (kind == "l" || kind == "h" || kind == "c" || kind == "b" || kind == "p" || kind == "s") exit 1
+        }
+    '''; then
+        return 1
+    fi
+}
+
 bootstrap_source_tree() {
     local repo ref token tmp archive extract source_dir url curl_config
     source_tree_ready && return 0
@@ -219,6 +244,7 @@ bootstrap_source_tree() {
     curl_config="$tmp/curl.conf"
     bootstrap_curl_config "$url" "$archive" "$token" "$curl_config"
     curl -K "$curl_config" || fail "failed to download wrapper source: $repo@$ref"
+    bootstrap_validate_tarball_safe "$archive" || fail 'downloaded wrapper source archive is unsafe'
     tar -xf "$archive" -C "$extract" || fail 'failed to extract wrapper source archive'
     source_dir="$(find_wrapper_source_tree "$extract")" ||
         fail 'downloaded wrapper source is incomplete'

@@ -233,44 +233,44 @@ grep -F 'url = "https://api.github.com/repos/example/private/tarball/dev"' "$con
 grep -F 'header = "Authorization: Bearer github_pat_saved"' "$config" >/dev/null || exit 4
 out="$(sed -n 's/^output = "\(.*\)"$/\1/p' "$config")"
 [ -n "$out" ] || exit 5
-printf 'archive\n' >"$out"
+python3 - "$out" <<'PYTHON'
+import io
+import sys
+import tarfile
+
+out = sys.argv[1]
+install_local = "\n".join([
+    "#!/bin/sh",
+    "printf '%s\\n' \"$CODEX_TERMUX_BOOTSTRAPPED\" >\"$BOOTSTRAP_MARKER\"",
+    "printf '%s\\n' \"$CODEX_TERMUX_BOOTSTRAP_REPO\" >>\"$BOOTSTRAP_MARKER\"",
+    "printf '%s\\n' \"$CODEX_TERMUX_BOOTSTRAP_REF\" >>\"$BOOTSTRAP_MARKER\"",
+    "printf '%s\\n' \"$CODEX_TERMUX_WRAPPER_SOURCE_DIR\" >>\"$BOOTSTRAP_MARKER\"",
+    "printf '%s\\n' \"$*\" >>\"$BOOTSTRAP_MARKER\"",
+    "",
+])
+entries = {
+    "source/install.sh": "#!/bin/sh\nexit 99\n",
+    "source/bin/install-local.sh": install_local,
+    "source/bin/install-runtime.sh": "runtime\n",
+    "source/lib/codex-termux.sh": "lib\n",
+    "source/tools/build-runtime.py": "builder\n",
+    "source/config/wrapper-version.env": "version\n",
+}
+with tarfile.open(out, "w:gz") as tf:
+    for name in ["source", "source/bin", "source/lib", "source/tools", "source/config"]:
+        info = tarfile.TarInfo(name)
+        info.type = tarfile.DIRTYPE
+        info.mode = 0o755
+        tf.addfile(info)
+    for name, text in entries.items():
+        data = text.encode("utf-8")
+        info = tarfile.TarInfo(name)
+        info.size = len(data)
+        info.mode = 0o755 if name.endswith(("install.sh", "install-local.sh")) else 0o644
+        tf.addfile(info, io.BytesIO(data))
+PYTHON
 SCRIPT
-cat >"$BOOTSTRAP_DIR/bin/tar" <<'SCRIPT'
-#!/bin/sh
-dest=""
-while [ "$#" -gt 0 ]; do
-    case "$1" in
-        -C)
-            dest="$2"
-            shift 2
-            ;;
-        *)
-            shift
-            ;;
-    esac
-done
-[ -n "$dest" ] || exit 2
-root="$dest/source"
-mkdir -p "$root/bin" "$root/lib" "$root/tools" "$root/config"
-cat >"$root/install.sh" <<'INNER'
-#!/bin/sh
-exit 99
-INNER
-cat >"$root/bin/install-local.sh" <<'INNER'
-#!/bin/sh
-printf '%s\n' "$CODEX_TERMUX_BOOTSTRAPPED" >"$BOOTSTRAP_MARKER"
-printf '%s\n' "$CODEX_TERMUX_BOOTSTRAP_REPO" >>"$BOOTSTRAP_MARKER"
-printf '%s\n' "$CODEX_TERMUX_BOOTSTRAP_REF" >>"$BOOTSTRAP_MARKER"
-printf '%s\n' "$CODEX_TERMUX_WRAPPER_SOURCE_DIR" >>"$BOOTSTRAP_MARKER"
-printf '%s\n' "$*" >>"$BOOTSTRAP_MARKER"
-INNER
-printf 'runtime\n' >"$root/bin/install-runtime.sh"
-printf 'lib\n' >"$root/lib/codex-termux.sh"
-printf 'builder\n' >"$root/tools/build-runtime.py"
-printf 'version\n' >"$root/config/wrapper-version.env"
-chmod 755 "$root/install.sh" "$root/bin/install-local.sh"
-SCRIPT
-chmod 755 "$BOOTSTRAP_DIR/bin/curl" "$BOOTSTRAP_DIR/bin/tar"
+chmod 755 "$BOOTSTRAP_DIR/bin/curl"
 cat >"$BOOTSTRAP_DIR/source.env" <<'ENV'
 CODEX_TERMUX_WRAPPER_REPO=example/private
 CODEX_TERMUX_WRAPPER_REF=dev

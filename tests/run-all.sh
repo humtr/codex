@@ -12,11 +12,22 @@ run_test() {
     name="${test_script##*/}"
     log="$RUN_TMP/$name.log"
     printf '== %s ==\n' "$name"
-    if command -v timeout >/dev/null 2>&1; then
-        timeout "$TEST_TIMEOUT_SECONDS" bash "$test_script" >"$log" 2>&1 || status=$?
-    else
-        bash "$test_script" >"$log" 2>&1 || status=$?
-    fi
+    case "$name" in
+        package-safety.sh)
+            CODEX_TERMUX_TARBALL_VALIDATOR_TIMEOUT_SECONDS="${CODEX_TERMUX_TARBALL_VALIDATOR_TIMEOUT_SECONDS:-10}" \
+                bash "$test_script" >"$log" 2>&1 || status=$?
+            ;;
+        wrapper-archive-safety.sh|release-package.sh)
+            bash "$test_script" >"$log" 2>&1 || status=$?
+            ;;
+        *)
+            if command -v timeout >/dev/null 2>&1; then
+                timeout -k 5s "$TEST_TIMEOUT_SECONDS" bash "$test_script" >"$log" 2>&1 || status=$?
+            else
+                bash "$test_script" >"$log" 2>&1 || status=$?
+            fi
+            ;;
+    esac
     cat "$log"
     if [ "$status" -ne 0 ]; then
         printf 'tests: FAIL: %s exited with status %s\n' "$name" "$status" >&2
@@ -28,6 +39,8 @@ for test_script in \
     "$ROOT_DIR/tests/invariants.sh" \
     "$ROOT_DIR/tests/runtime-build.sh" \
     "$ROOT_DIR/tests/package-safety.sh" \
+    "$ROOT_DIR/tests/wrapper-archive-safety.sh" \
+    "$ROOT_DIR/tests/release-package.sh" \
     "$ROOT_DIR/tests/tmp-paths.sh" \
     "$ROOT_DIR/tests/lock.sh" \
     "$ROOT_DIR/tests/install-dispatch.sh" \

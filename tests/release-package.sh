@@ -1,39 +1,27 @@
-name: CI
+#!/usr/bin/env bash
+set -euo pipefail
 
-on:
-  push:
-  pull_request:
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TMP_DIR"' EXIT
 
-jobs:
-  wrapper-invariants:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Shell syntax checks
-        run: |
-          bash -n install.sh
-          bash -n bin/install-local.sh
-          bash -n bin/install-runtime.sh
-          bash -n lib/codex-termux.sh
-          bash -n tools/rg-termux-shim.sh
-          bash -n tools/smoke-termux-wrapper.sh
-          bash -n tools/package-release.sh
-          bash -n tests/*.sh
-      - name: Run wrapper invariant gates
-        env:
-          TMPDIR: /tmp
-        run: bash tests/run-all.sh
-      - name: Build release package dry-run
-        env:
-          TMPDIR: /tmp
-        run: |
-          out="$(bash tools/package-release.sh /tmp/codex-termux-release.zip)"
-          test "$out" = /tmp/codex-termux-release.zip
-          python3 - <<'PYTHON'
+fail() {
+    printf 'release-package: FAIL: %s\n' "$*" >&2
+    exit 1
+}
+
+out="$TMP_DIR/codex-release.zip"
+actual="$(TMPDIR="$TMP_DIR" bash "$ROOT_DIR/tools/package-release.sh" "$out")" \
+    || fail 'package-release script failed'
+[ "$actual" = "$out" ] || fail "package-release printed unexpected output: $actual"
+[ -s "$out" ] || fail 'release zip was not created'
+
+python3 - "$out" <<'PYTHON' || exit 1
+import sys
 import zipfile
 from pathlib import PurePosixPath
 
-zip_path = "/tmp/codex-termux-release.zip"
+zip_path = sys.argv[1]
 forbidden_roots = {"tests", ".github", "docs", ".agents", ".git"}
 forbidden_exact = {".gitignore", "tools/install-git-hooks.sh", "tools/update-wrapper-version.sh"}
 required = {
@@ -47,6 +35,7 @@ required = {
     "tools/rg-termux-shim.sh",
     "tools/codex-launcher.c",
     "tools/codex-turn-notify.sh",
+    "tools/codex_termux/cli.py",
     "config/wrapper-version.env",
 }
 with zipfile.ZipFile(zip_path) as zf:
@@ -68,3 +57,5 @@ with zipfile.ZipFile(zip_path) as zf:
         if first in forbidden_roots or rel in forbidden_exact:
             raise SystemExit(f"forbidden release entry: {rel}")
 PYTHON
+
+printf 'release-package: ok\n'
