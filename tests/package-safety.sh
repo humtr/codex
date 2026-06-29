@@ -60,8 +60,15 @@ PYTHON
 }
 
 run_validator() {
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" python3 -B -m codex_termux.cli \
-        validate-tarball --path "$1" >/dev/null
+    if command -v timeout >/dev/null 2>&1; then
+        PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+            timeout "${CODEX_TERMUX_TEST_TIMEOUT_SECONDS:-30}" \
+            python3 -B -m codex_termux.cli \
+            validate-tarball --path "$1" >/dev/null
+    else
+        PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" python3 -B -m codex_termux.cli \
+            validate-tarball --path "$1" >/dev/null
+    fi
 }
 
 safe="$TMP_DIR/safe.tgz"
