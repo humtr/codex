@@ -391,13 +391,13 @@ install_managed_runtime() {
         bash "$ROOT_DIR/bin/install-runtime.sh" install "$@" >"$CODEX_TERMUX_INSTALL_LOG" 2>&1 \
         || fail 'managed runtime install failed'
     say 'verifying public launcher'
-    "$PREFIX/bin/codex" version >/dev/null 2>&1 || fail 'public Codex launcher version check failed'
+    "$PREFIX/bin/codex" termux version >/dev/null 2>&1 || fail 'public Codex launcher version check failed'
     say 'verifying wrapper diagnostics'
     bash "$ROOT_DIR/bin/install-runtime.sh" doctor --json >>"$CODEX_TERMUX_INSTALL_LOG" 2>&1 \
         || fail 'wrapper doctor verification failed'
     if [ "$CODEX_TERMUX_INSTALL_VERSION_OUTPUT" = "1" ]; then
         clear_status
-        "$PREFIX/bin/codex" version
+        "$PREFIX/bin/codex" termux version
     fi
     clear_status
     [ "$CODEX_TERMUX_INSTALL_OK_OUTPUT" != "1" ] || printf 'ok\n' >&2

@@ -742,7 +742,7 @@ main() {
             esac
             ;;
         setup)
-            printf 'codex setup is reserved for configuration. Use install, update, or repair.\n' >&2
+            printf 'The setup command is reserved for configuration. Use install, update, or repair.\n' >&2
             exit 2
             ;;
         remove)

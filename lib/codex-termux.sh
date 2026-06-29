@@ -217,7 +217,7 @@ codex_ui_text() {
         choose_profile_title) printf 'Choose profile\n' ;;
         choose_profile_subtitle) printf 'Select CODEX_HOME target\n' ;;
         choose_profile_prompt) printf 'Choose profile > \n' ;;
-        choose_profile_more) printf '  (More options: codex profile NAME)\n' ;;
+        choose_profile_more) printf '  (More options: codex termux profile NAME)\n' ;;
         choose_runtime_prompt) printf 'Choose runtime > \n' ;;
         update_complete_title) printf 'Update complete\n' ;;
         update_ready_subtitle) printf 'Codex %s is ready\n' "$1" ;;
@@ -238,9 +238,9 @@ codex_ui_text() {
         invalid_profile) printf 'Invalid profile name: %s\n' "$1" ;;
         missing_profile) printf 'Profile does not exist: %s\n' "$1" ;;
         profile_arg_error) printf 'Profile %s does not take arguments\n' "$1" ;;
-        setup_reserved) printf 'codex setup is reserved for configuration. Use codex install, update, repair, or notify.\n' ;;
+        setup_reserved) printf 'The upstream setup command is reserved. Use codex termux install, update, repair, or notify for wrapper operations.\n' ;;
         doctor_wrapper_title) printf 'Wrapper doctor\n' ;;
-        session_stub) printf 'codex session is reserved for the upcoming cross-profile session picker.\n' ;;
+        session_stub) printf 'Use codex termux session for the cross-profile session picker.\n' ;;
         *)
             return 1
             ;;
@@ -1037,7 +1037,7 @@ codex_runtime_build_cached_unlocked() {
 codex_runtime_install_cached_unlocked() {
     local version package_spec
     codex_raw_integrity_ok || {
-        codex_fail "Cached raw package integrity check failed; run codex update"
+        codex_fail "Cached raw package integrity check failed; run codex termux update"
         return 1
     }
     version="$(codex_read_state_field version)"
@@ -1103,7 +1103,7 @@ codex_repair_apply() {
     fi
 
     codex_raw_integrity_ok || {
-        codex_fail "Runtime is damaged and cached raw is unavailable or invalid; run codex update"
+        codex_fail "Runtime is damaged and cached raw is unavailable or invalid; run codex termux update"
         return 1
     }
     codex_ui_step repair_runtime
@@ -1478,14 +1478,14 @@ codex_ensure_runtime_ready() {
     fi
     if [ -x "$CODEX_TERMUX_RAW_VENDOR/bin/codex" ]; then
         if ! codex_raw_integrity_ok; then
-            codex_fail "Cached raw package integrity check failed; run codex update"
+            codex_fail "Cached raw package integrity check failed; run codex termux update"
             return 1
         fi
         codex_ui_step rebuild_cached_runtime
         codex_runtime_install_cached
         return $?
     fi
-    codex_fail "Runtime is missing and no cached raw package is available; run codex update"
+    codex_fail "Runtime is missing and no cached raw package is available; run codex termux update"
     return 127
 }
 
@@ -1689,32 +1689,36 @@ codex_version() {
     return "$status"
 }
 
-codex_wrapper_help() {
+codex_termux_help() {
     codex_status_clear
-    printf '\n'
-    printf 'Wrapper commands\n'
-    printf '  %-8s  %s\n' 'codex' 'Managed upstream Codex entrypoint; bare execution may auto-update before launch.'
-    printf '  %-8s  %s\n' 'install' 'Install configured wrapper support and a fresh patched runtime.'
-    printf '  %-8s  %s\n' 'repair' 'Diagnose and repair the managed installation; does not update by default.'
-    printf '  %-8s  %s\n' 'notify' 'Configure notification/toast channels and regenerate hook configuration.'
-    printf '  %-8s  %s\n' 'update' 'Same as install: refresh configured wrapper support and runtime.'
-    printf '  %-8s  %s\n' 'use' 'List cached and remote runtimes; promote the selected runtime.'
-    printf '  %-8s  %s\n' 'session' 'Resume previous Codex sessions across profiles.'
-    printf '  %-8s  %s\n' 'profile' 'List numbered profiles or enter a named profile with CODEX_HOME switched.'
-    printf '  %-8s  %s\n' 'doctor' 'Check launcher, runtime resources, resolver, CA, DNS patch, and state.'
-    printf '  %-8s  %s\n' 'version' 'Print upstream and runtime version/date rows.'
-    printf '  %-8s  %s\n' 'remove' 'Remove managed launcher/runtime and restore launcher backups when present.'
+    cat <<'USAGE'
+Codex Termux wrapper commands
+
+Usage:
+  codex termux <command> [args...]
+
+Commands:
+  help                         Print this wrapper command help.
+  install [VERSION]            Install support files and a fresh patched runtime.
+  install support              Refresh support files and the public launcher only.
+  install upstream [VERSION]   Install selected/latest upstream package with current support.
+  install rebuild              Rebuild a patched runtime from the cached raw package.
+  update [VERSION]             Refresh support files and runtime; same as install.
+  repair                       Diagnose and repair the managed installation.
+  doctor [--json]              Check launcher, runtime resources, resolver, CA, DNS patch, and state.
+  version                      Print upstream, runtime, and wrapper version/date rows.
+  use [--list|SELECTION]       List or promote cached/remote runtimes.
+  profile [list|NAME]          List profiles or launch with an explicit CODEX_HOME profile.
+  session [PROFILE] [--all]    Pick and resume discovered Codex sessions across profiles.
+  notify [options]             Configure notification/toast hooks.
+  remove                       Remove managed launcher/runtime and restore launcher backups.
+
+Top-level codex arguments are reserved for upstream Codex. Use "codex termux help" for wrapper operations.
+USAGE
 }
 
-codex_help() {
-    if [ -x "$CODEX_TERMUX_RUNTIME" ]; then
-        codex_run_current_runtime --help
-    fi
-    codex_wrapper_help
-}
 
-
-codex_wrapper_doctor_json() {
+codex_termux_doctor_json() {
     local version raw_sha runtime_sha
     version="$(codex_read_state_field version)"
     raw_sha="$(codex_read_state_field raw_sha256)"
@@ -1741,31 +1745,15 @@ codex_wrapper_doctor_json() {
         --patch-policy "$CODEX_TERMUX_PATCH_POLICY"
 }
 
-codex_wrapper_doctor() {
+codex_termux_doctor() {
     codex_status_clear
     if [ "${1:-}" = "--json" ]; then
-        codex_wrapper_doctor_json
+        codex_termux_doctor_json
     else
-        codex_wrapper_doctor_json | codex_termux_cmd doctor-render --mode human
+        codex_termux_doctor_json | codex_termux_cmd doctor-render --mode human
     fi
 }
 
-codex_public_doctor() {
-    codex_status_clear
-    if [ $# -gt 0 ]; then
-        codex_ensure_runtime_ready || return $?
-        codex_run_current_runtime doctor "$@"
-        return $?
-    fi
-    local upstream_status=0 wrapper_status=0
-    codex_ensure_runtime_ready || return $?
-    codex_run_current_runtime doctor || upstream_status=$?
-    printf '\n' >&2
-    codex_ui_separator
-    printf '\n' >&2
-    codex_wrapper_doctor || wrapper_status=$?
-    [ "$upstream_status" -eq 0 ] && [ "$wrapper_status" -eq 0 ]
-}
 
 # Interactive wrapper commands.
 codex_profile_validate_name() {
@@ -2396,7 +2384,7 @@ codex_repair_surface_public() {
         "")
             ;;
         -h|--help|help)
-            codex_wrapper_help
+            codex_termux_help
             return 0
             ;;
         *)
@@ -2413,7 +2401,7 @@ codex_repair_surface_public() {
 
 codex_notify_usage() {
     cat <<'USAGE'
-Usage: codex notify [options]
+Usage: codex termux notify [options]
 
 Without options, opens an interactive notification setup prompt.
 
@@ -2435,7 +2423,7 @@ USAGE
 
 codex_notify_interactive_usage() {
     cat <<'USAGE'
-Usage: codex notify
+Usage: codex termux notify
 
 Without options, opens an interactive notification setup prompt.
 USAGE
@@ -2621,7 +2609,7 @@ codex_notify_public() {
             codex_notify_interactive_public
             return $?
         fi
-        codex_fail "codex notify requires options or an interactive terminal"
+        codex_fail "codex termux notify requires options or an interactive terminal"
         return 2
     fi
     while [ $# -gt 0 ]; do
@@ -2783,26 +2771,58 @@ codex_notify_interactive_public() {
     codex_notify_public --channel "$channel" --hooks "$hooks" --toast-gravity "$gravity"
 }
 
-codex_setup_public() {
-    codex_status_clear
-    printf 'Error: %s\n' "$(codex_ui_text_get setup_reserved)" >&2
-    return 2
+
+codex_termux_doctor_public() {
+    case "${1:-}" in
+        ""|--json)
+            [ "$#" -le 1 ] || {
+                codex_fail "termux doctor accepts only --json"
+                return 2
+            }
+            codex_termux_doctor "$@"
+            ;;
+        -h|--help|help)
+            cat <<'USAGE'
+Usage: codex termux doctor [--json]
+
+Runs wrapper-only diagnostics for the managed launcher, runtime resources,
+resolver, CA, DNS patch, support state, and registry metadata.
+USAGE
+            ;;
+        *)
+            codex_fail "termux doctor accepts only --json"
+            return 2
+            ;;
+    esac
 }
 
-codex_main() {
-    local recent_profile recent_profile_dir status=0
+codex_termux_version_public() {
     case "${1:-}" in
-        setup)
-            shift
-            codex_setup_public "$@"
+        "")
+            codex_version
+            ;;
+        -h|--help|help)
+            cat <<'USAGE'
+Usage: codex termux version
+
+Prints upstream Codex and managed wrapper/runtime version rows.
+USAGE
+            ;;
+        *)
+            codex_fail "termux version does not take arguments"
+            return 2
+            ;;
+    esac
+}
+
+codex_termux_main() {
+    case "${1:-}" in
+        ""|help|-h|--help)
+            codex_termux_help
             ;;
         install)
             shift
             codex_install_public "$@"
-            ;;
-        notify)
-            shift
-            codex_notify_public "$@"
             ;;
         update)
             shift
@@ -2814,26 +2834,11 @@ codex_main() {
             ;;
         doctor)
             shift
-            codex_public_doctor "$@"
+            codex_termux_doctor_public "$@"
             ;;
         version)
             shift
-            case "${1:-}" in
-                "")
-                    codex_version
-                    ;;
-                -h|--help|help)
-                    codex_wrapper_help
-                    ;;
-                *)
-                    codex_fail "version does not take arguments"
-                    return 2
-                    ;;
-            esac
-            ;;
-        help|--help|-h)
-            shift || true
-            codex_help "$@"
+            codex_termux_version_public "$@"
             ;;
         use)
             shift
@@ -2847,9 +2852,27 @@ codex_main() {
             shift
             codex_profile_run "$@"
             ;;
+        notify)
+            shift
+            codex_notify_public "$@"
+            ;;
         remove)
             shift
             codex_remove
+            ;;
+        *)
+            codex_fail "Unknown termux command: ${1:-}"
+            return 2
+            ;;
+    esac
+}
+
+codex_main() {
+    local status=0
+    case "${1:-}" in
+        termux)
+            shift
+            codex_termux_main "$@"
             ;;
         *)
             if ! codex_ensure_runtime_ready; then

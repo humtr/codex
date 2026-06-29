@@ -70,14 +70,14 @@ mkdir -p "$NOTIFY_TMP/home" "$NOTIFY_TMP/tmp"
 CODEX_TERMUX_HOME="$NOTIFY_TMP/home" \
 CODEX_TERMUX_STATE_DIR="$NOTIFY_TMP/home/.local/share/codex/termux" \
 CODEX_TERMUX_TMPDIR="$NOTIFY_TMP/tmp" \
-bash -lc '. "$1"; codex_main notify --channel both --hooks all --toast-gravity top --content-chars 0 --pretooluse 1 >/dev/null 2>&1; grep -q "CODEX_TERMUX_NOTIFY_CHANNEL=both" "$CODEX_TERMUX_NOTIFY_DIR/config.env"; grep -q "CODEX_TERMUX_NOTIFY_TOAST_GRAVITY=top" "$CODEX_TERMUX_NOTIFY_DIR/config.env"; grep -q "CODEX_TERMUX_NOTIFY_HOOKS=all" "$CODEX_TERMUX_NOTIFY_DIR/config.env"; ! grep -q "CODEX_TERMUX_NOTIFY_TOAST=" "$CODEX_TERMUX_NOTIFY_DIR/config.env"; ! grep -q "CODEX_TERMUX_NOTIFY_NOTIFICATION=" "$CODEX_TERMUX_NOTIFY_DIR/config.env"; grep -q "hooks.SessionStart" "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/config.toml"; grep -q "hooks.SubagentStop" "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/config.toml"; grep -q "hooks.Stop" "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/config.toml"' _ "$LIB_SH"
+bash -lc '. "$1"; codex_termux_main notify --channel both --hooks all --toast-gravity top --content-chars 0 --pretooluse 1 >/dev/null 2>&1; grep -q "CODEX_TERMUX_NOTIFY_CHANNEL=both" "$CODEX_TERMUX_NOTIFY_DIR/config.env"; grep -q "CODEX_TERMUX_NOTIFY_TOAST_GRAVITY=top" "$CODEX_TERMUX_NOTIFY_DIR/config.env"; grep -q "CODEX_TERMUX_NOTIFY_HOOKS=all" "$CODEX_TERMUX_NOTIFY_DIR/config.env"; ! grep -q "CODEX_TERMUX_NOTIFY_TOAST=" "$CODEX_TERMUX_NOTIFY_DIR/config.env"; ! grep -q "CODEX_TERMUX_NOTIFY_NOTIFICATION=" "$CODEX_TERMUX_NOTIFY_DIR/config.env"; grep -q "hooks.SessionStart" "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/config.toml"; grep -q "hooks.SubagentStop" "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/config.toml"; grep -q "hooks.Stop" "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/config.toml"' _ "$LIB_SH"
 
 INVALID_TMP="$TMP_DIR/notify-invalid"
 mkdir -p "$INVALID_TMP/home" "$INVALID_TMP/tmp"
 CODEX_TERMUX_HOME="$INVALID_TMP/home" \
 CODEX_TERMUX_STATE_DIR="$INVALID_TMP/home/.local/share/codex/termux" \
 CODEX_TERMUX_TMPDIR="$INVALID_TMP/tmp" \
-bash -lc '. "$1"; ! codex_main notify --hooks TypoHook >/dev/null 2>&1; ! codex_main notify --toast-gravity center >/dev/null 2>&1; ! codex_main notify --channel invalid >/dev/null 2>&1; ! codex_main notify >/dev/null 2>&1; ! codex_main toast >/dev/null 2>&1; [ "$(codex_notify_parse_hook_selection "")" = "Stop" ]; [ "$(codex_notify_parse_hook_selection "1")" = "SessionStart" ]; ! codex_notify_parse_hook_selection "99" >/dev/null 2>&1; ! codex_notify_parse_hook_selection "1abc" >/dev/null 2>&1' _ "$LIB_SH"
+bash -lc '. "$1"; ! codex_termux_main notify --hooks TypoHook >/dev/null 2>&1; ! codex_termux_main notify --toast-gravity center >/dev/null 2>&1; ! codex_termux_main notify --channel invalid >/dev/null 2>&1; ! codex_termux_main notify >/dev/null 2>&1; ! codex_termux_main toast >/dev/null 2>&1; [ "$(codex_notify_parse_hook_selection "")" = "Stop" ]; [ "$(codex_notify_parse_hook_selection "1")" = "SessionStart" ]; ! codex_notify_parse_hook_selection "99" >/dev/null 2>&1; ! codex_notify_parse_hook_selection "1abc" >/dev/null 2>&1' _ "$LIB_SH"
 
 PROVIDER_TMP="$TMP_DIR/provider"
 mkdir -p "$PROVIDER_TMP/bin" "$PROVIDER_TMP/state/notify"

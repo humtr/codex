@@ -96,12 +96,24 @@ The runtime patch remaps the binary's Termux-incompatible system paths through i
 
 ```sh
 codex
+codex <upstream args...>
 ```
 
-Runs the managed upstream Codex runtime. The wrapper may repair, update, or roll back the managed runtime before launch. Bare `codex` launches the most recently selected profile, or `default` when no recent profile has been recorded.
+Runs the managed upstream Codex runtime. The wrapper may repair, update, or roll
+back the managed runtime before launch. Bare `codex` launches the most recently
+selected profile, or `default` when no recent profile has been recorded.
+
+Top-level Codex arguments are reserved for upstream Codex. Wrapper-specific
+operations live under the `codex termux` namespace:
 
 ```sh
-codex install
+codex termux help
+```
+
+Prints the wrapper command surface.
+
+```sh
+codex termux install [VERSION]
 ```
 
 Refreshes wrapper support from the configured wrapper source when available,
@@ -112,7 +124,7 @@ updates the verified rollback baseline.
 CODEX_TERMUX_WRAPPER_REPO=OWNER/REPO \
 CODEX_TERMUX_WRAPPER_REF=main \
 CODEX_TERMUX_WRAPPER_TOKEN=github_pat_... \
-codex update
+codex termux update
 ```
 
 The wrapper token lookup order is `CODEX_TERMUX_WRAPPER_TOKEN`, `GITHUB_TOKEN`,
@@ -136,45 +148,45 @@ CODEX_TERMUX_NOTIFY_TOAST_GRAVITY=top
 
 Use `CODEX_TERMUX_NOTIFY_TOAST_GRAVITY=top`, `middle`, or `bottom` to place the toast. The default is `top`.
 Set `CODEX_TERMUX_NOTIFY_CONTENT_CHARS=0` to pass the full assistant message to the Android notification content.
-Use `codex notify --hooks PreToolUse` if you also want a notification when a tool call starts, or `codex notify --hooks all` to enable every supported hook position. The default hook set is `Stop`.
+Use `codex termux notify --hooks PreToolUse` if you also want a notification when a tool call starts, or `codex termux notify --hooks all` to enable every supported hook position. The default hook set is `Stop`.
 
 ```sh
-codex notify --hooks all --toast-gravity top
+codex termux notify --hooks all --toast-gravity top
 ```
 
 Writes `~/.local/share/codex/termux/notify/config.env` and regenerates the hook configuration immediately.
 
 ```sh
-codex update
+codex termux update [VERSION]
 ```
 
-Same as `codex install`: refreshes configured wrapper support, downloads the
-selected or latest upstream package, patches a runtime bundle, activates it, and
-updates the verified rollback baseline.
+Same as `codex termux install`: refreshes configured wrapper support, downloads
+the selected or latest upstream package, patches a runtime bundle, activates it,
+and updates the verified rollback baseline.
 
 ```sh
-codex install support
+codex termux install support
 ```
 
 Refreshes configured wrapper support files and the public launcher without
 changing the active runtime.
 
 ```sh
-codex install upstream
-codex install upstream 0.142.3
+codex termux install upstream
+codex termux install upstream 0.142.3
 ```
 
 Downloads the selected or latest upstream package and installs it as a patched runtime with the current installed support layer.
 
 ```sh
-codex install rebuild
+codex termux install rebuild
 ```
 
 Refreshes configured wrapper support and rebuilds the patched runtime from the
 cached raw package without fetching upstream Codex.
 
 ```sh
-codex repair
+codex termux repair
 ```
 
 Diagnoses the managed installation and applies the narrowest available repair.
@@ -184,46 +196,43 @@ active runtime is damaged. It does not update to a fresh wrapper/runtime by
 default.
 
 ```sh
-codex use
-codex use --list
-codex use <selection>
+codex termux use
+codex termux use --list
+codex termux use <selection>
 ```
 
 Lists cached and remote runtimes, then promotes the selected runtime. Selection accepts menu numbers and available runtime versions.
 
 ```sh
-codex session
+codex termux session
 ```
 
 Interactive curses-based TUI picker to resume any discovered Codex session across any target profile.
 
 ```sh
-codex doctor
+codex termux doctor
+codex termux doctor --json
 ```
 
-Runs upstream `codex doctor` first, prints a separator, then runs the wrapper doctor checks.
+Runs wrapper-only diagnostics for launcher, runtime resources, resolver, CA, DNS
+patch, state, and registry metadata. The upstream `doctor` command remains an
+upstream top-level command and is no longer combined with wrapper diagnostics.
 
 ```sh
-codex doctor <args>
-```
-
-Passes arguments directly to upstream `codex doctor`.
-
-```sh
-codex profile
-codex profile <name>
+codex termux profile
+codex termux profile <name>
 ```
 
 Lists profiles or launches the runtime with a selected profile.
 
 ```sh
-codex version
+codex termux version
 ```
 
-Prints upstream Codex and the active runtime creation date.
+Prints upstream Codex, active runtime, and wrapper version rows.
 
 ```sh
-codex remove
+codex termux remove
 ```
 
 Removes the managed launcher/runtime and restores launcher backups when present. State is kept for backups.
@@ -240,7 +249,7 @@ The `default` profile is upstream Codex's normal default behavior.
 - The wrapper does not force `CODEX_HOME` for `default`.
 - Upstream Codex creates or uses its own default home as needed.
 
-`codex profile default` explicitly selects the upstream default profile. Bare `codex` uses the most recently selected profile, which is `default` until another profile is selected.
+`codex termux profile default` explicitly selects the upstream default profile. Bare `codex` uses the most recently selected profile, which is `default` until another profile is selected.
 
 ### Custom profiles
 

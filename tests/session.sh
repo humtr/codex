@@ -161,16 +161,16 @@ done < <(codex_termux_cmd session-list)
     [ "$LAST_CODEX_HOME" = "$CODEX_TERMUX_PROFILE_ROOT/team-beta" ] || fail "Expected CODEX_HOME to be set to team-beta path, got '$LAST_CODEX_HOME'"
 )
 
-# 4. Test wrapper command contract (recognized by wrapper dispatch)
-# We mock codex_session to verify that 'codex session' calls it
+# 4. Test wrapper namespace contract (recognized by wrapper dispatch)
+# We mock codex_session to verify that 'codex termux session' calls it
 MOCK_SESSION_CALLED=0
 codex_session() {
     MOCK_SESSION_CALLED=1
 }
 
 # Run dispatch
-codex_main session
+codex_termux_main session
 
-[ "$MOCK_SESSION_CALLED" -eq 1 ] || fail "Wrapper dispatch did not route 'session' command to codex_session"
+[ "$MOCK_SESSION_CALLED" -eq 1 ] || fail "Wrapper dispatch did not route 'termux session' command to codex_session"
 
 printf 'session tests: ok\n'

@@ -13,7 +13,7 @@ from .errors import SchemaError
 UNIT_SEPARATOR = "\x1f"
 MENU_TITLE = "Choose runtime"
 MENU_SUBTITLE = "Select a managed Codex runtime"
-MENU_MORE = "  (More options: codex use <version>)"
+MENU_MORE = "  (More options: codex termux use <version>)"
 
 
 def render_runtime_rows(

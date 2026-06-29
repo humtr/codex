@@ -153,31 +153,36 @@ explicit_trace_output="$(cat "$trace_file")"
 [ "$explicit_trace_output" = "runtime CODEX_HOME=$work_dir ARGS=resume s-alpha" ] || fail_contract "explicit CODEX_HOME was not preserved: $explicit_trace_output"
 
 repair_called=0
+codex_install_source_command() { return 1; }
 codex_repair_public() {
     repair_called=1
 }
-codex_main repair >/dev/null 2>&1
-[ "$repair_called" -eq 1 ] || fail_contract 'repair command did not route to codex_repair_public'
+codex_termux_main repair >/dev/null 2>&1
+[ "$repair_called" -eq 1 ] || fail_contract 'termux repair command did not route to codex_repair_public'
 
 install_called=0
-codex_install_public() {
-    install_called=1
-}
-codex_main install >/dev/null 2>&1
-[ "$install_called" -eq 1 ] || fail_contract 'install command did not route to codex_install_public'
+codex_install_source_command() { printf '%s\n' "$ROOT_DIR/bin/install-runtime.sh"; }
+codex_run_install_source_command() { install_called=1; [ "$2" = install ]; }
+codex_termux_main install >/dev/null 2>&1
+[ "$install_called" -eq 1 ] || fail_contract 'termux install command did not route through install source command'
 
 install_args=""
-codex_install_public() {
+codex_run_install_source_command() {
+    shift
     install_args="$*"
 }
-codex_main install rebuild >/dev/null 2>&1
-[ "$install_args" = 'rebuild' ] || fail_contract "install rebuild command did not route through codex_install_public: $install_args"
+codex_termux_main install rebuild >/dev/null 2>&1
+[ "$install_args" = 'install rebuild' ] || fail_contract "termux install rebuild command did not route through install source command: $install_args"
 
-set +e
-codex_main setup >/dev/null 2>&1
-setup_status=$?
-set -e
-[ "$setup_status" -eq 2 ] || fail_contract "setup command status was $setup_status"
+: >"$trace_file"
+CODEX_HOME="$work_dir" codex_main repair >/dev/null 2>&1
+top_level_repair_trace="$(cat "$trace_file")"
+[ "$top_level_repair_trace" = "runtime CODEX_HOME=$work_dir ARGS=repair" ] || fail_contract "top-level repair was not passed upstream: $top_level_repair_trace"
+
+: >"$trace_file"
+CODEX_HOME="$work_dir" codex_main setup >/dev/null 2>&1
+setup_trace="$(cat "$trace_file")"
+[ "$setup_trace" = "runtime CODEX_HOME=$work_dir ARGS=setup" ] || fail_contract "top-level setup was not passed upstream: $setup_trace"
 BASH
     chmod +x "$contract_script"
     if CODEX_TERMUX_HOME="$tmp/home" \
