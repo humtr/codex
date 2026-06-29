@@ -9,7 +9,7 @@ import tarfile
 from pathlib import Path, PurePosixPath
 from typing import Protocol
 
-from . import activation, doctor, hashing, paths, prune, registry, runtime_checks, session, use
+from . import activation, canon, doctor, hashing, paths, prune, registry, runtime_checks, session, use
 from .errors import CodexTermuxError, IntegrityError
 from .schemas import ActivationPlan
 
@@ -27,6 +27,11 @@ def _build_parser() -> argparse.ArgumentParser:
     validate = sub.add_parser("validate")
     validate.add_argument("--root", default=None)
     validate.set_defaults(func=_validate_wrapper)
+
+    canon_audit = sub.add_parser("canon-audit")
+    canon_audit.add_argument("--root", default=None)
+    canon_audit.add_argument("--strict", action="store_true")
+    canon_audit.set_defaults(func=_canon_audit)
     _add_hash_and_package(sub)
     _add_runtime_checks(sub)
     _add_store_commands(sub)
@@ -190,6 +195,15 @@ def _validate_wrapper(args: argparse.Namespace) -> int:
     _validate_resolver_contract(root)
     _validate_profile_contract(root)
     return _print_ok()
+
+
+def _canon_audit(args: argparse.Namespace) -> int:
+    root = _validate_root(Path(args.root) if args.root else None)
+    report = canon.audit(root)
+    print(json.dumps(report, ensure_ascii=True, sort_keys=True))
+    if args.strict and report.get("status") != "ok":
+        return 1
+    return 0
 
 
 def _validate_root(requested: Path | None) -> Path:
