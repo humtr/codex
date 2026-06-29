@@ -60,6 +60,7 @@ CODEX_TERMUX_UPSTREAM_TIME_CACHE="${CODEX_TERMUX_UPSTREAM_TIME_CACHE:-$CODEX_TER
 CODEX_TERMUX_LAST_PROFILE_FILE="${CODEX_TERMUX_LAST_PROFILE_FILE:-$CODEX_TERMUX_STATE_DIR/last-profile}"
 CODEX_TERMUX_RUNTIME_RETENTION="${CODEX_TERMUX_RUNTIME_RETENTION:-3}"
 CODEX_TERMUX_PATCH_POLICY="${CODEX_TERMUX_PATCH_POLICY:-termux-fd-remap-v1}"
+CODEX_TERMUX_WRAPPER_SOURCE_CONFIG="${CODEX_TERMUX_WRAPPER_SOURCE_CONFIG:-$CODEX_TERMUX_HOME/.config/codex-termux/wrapper-source.env}"
 
 CODEX_STATUS_ACTIVE=0
 
@@ -97,6 +98,44 @@ codex_fail() {
     codex_status_clear
     printf 'Error: %s\n' "$*" >&2
     return 1
+}
+
+codex_load_wrapper_source_config() {
+    [ -r "$CODEX_TERMUX_WRAPPER_SOURCE_CONFIG" ] || return 0
+    # shellcheck disable=SC1090
+    . "$CODEX_TERMUX_WRAPPER_SOURCE_CONFIG"
+    codex_normalize_wrapper_source_config
+}
+
+codex_normalize_wrapper_source_config() {
+    if [ -z "${CODEX_TERMUX_WRAPPER_REPO:-}" ] && [ -n "${CODEX_TERMUX_WRAPPER_GIT_REPO:-}" ]; then
+        CODEX_TERMUX_WRAPPER_REPO="$CODEX_TERMUX_WRAPPER_GIT_REPO"
+        export CODEX_TERMUX_WRAPPER_REPO
+    fi
+    if [ -z "${CODEX_TERMUX_WRAPPER_REF:-}" ] && [ -n "${CODEX_TERMUX_WRAPPER_GIT_REF:-}" ]; then
+        CODEX_TERMUX_WRAPPER_REF="$CODEX_TERMUX_WRAPPER_GIT_REF"
+        export CODEX_TERMUX_WRAPPER_REF
+    fi
+    if [ -z "${CODEX_TERMUX_WRAPPER_TOKEN:-}" ]; then
+        if [ -n "${CODEX_TERMUX_WRAPPER_GIT_TOKEN:-}" ]; then
+            CODEX_TERMUX_WRAPPER_TOKEN="$CODEX_TERMUX_WRAPPER_GIT_TOKEN"
+        elif [ -n "${CODEX_TERMUX_WRAPPER_RELEASE_TOKEN:-}" ]; then
+            CODEX_TERMUX_WRAPPER_TOKEN="$CODEX_TERMUX_WRAPPER_RELEASE_TOKEN"
+        fi
+        [ -z "${CODEX_TERMUX_WRAPPER_TOKEN:-}" ] || export CODEX_TERMUX_WRAPPER_TOKEN
+    fi
+}
+
+codex_wrapper_auth_token() {
+    local token
+    codex_normalize_wrapper_source_config
+    token="${CODEX_TERMUX_WRAPPER_TOKEN:-}"
+    [ -n "$token" ] || token="${GITHUB_TOKEN:-}"
+    if [ -z "$token" ] && command -v gh >/dev/null 2>&1; then
+        token="$(gh auth token 2>/dev/null || true)"
+    fi
+    [ -n "$token" ] || return 1
+    printf '%s\n' "$token"
 }
 
 codex_ui_enabled() {

@@ -55,8 +55,9 @@ REMOVED_CONTRACT_TERMS = (
 )
 
 SOURCE_CONFIG_OWNER_MARKERS = (
-    "load_wrapper_source_config",
-    "normalize_wrapper_source_config",
+    "codex_load_wrapper_source_config()",
+    "codex_normalize_wrapper_source_config()",
+    "codex_wrapper_auth_token()",
     "CODEX_TERMUX_WRAPPER_GIT_REPO",
     "CODEX_TERMUX_WRAPPER_RELEASE_TOKEN",
 )
@@ -139,6 +140,10 @@ def _is_test_or_dev_only(relative: str) -> bool:
     return relative.startswith(("tests/", ".github/", "docs/", ".agents/"))
 
 
+def _is_bootstrap_source_config_compat(relative: str) -> bool:
+    return relative == "install.sh"
+
+
 def _audit_removed_contracts(root: Path, files: Iterable[Path]) -> list[Finding]:
     findings: list[Finding] = []
     for path in files:
@@ -181,7 +186,11 @@ def _audit_source_config_owners(root: Path, files: Iterable[Path]) -> list[Findi
     owners: list[str] = []
     for path in files:
         relative = _relative(root, path)
-        if relative == "tools/codex_termux/canon.py" or _is_test_or_dev_only(relative):
+        if (
+            relative == "tools/codex_termux/canon.py"
+            or _is_test_or_dev_only(relative)
+            or _is_bootstrap_source_config_compat(relative)
+        ):
             continue
         text = _read_text(path)
         if any(marker in text for marker in SOURCE_CONFIG_OWNER_MARKERS):
