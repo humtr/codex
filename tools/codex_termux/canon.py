@@ -78,6 +78,13 @@ PROFILE_SHELL_MODEL_MARKERS = (
     "codex_profile_menu_ids()",
 )
 
+PHASE_SEVERITIES = {
+    "c001": "phase-c001",
+    "c002": "phase-c002",
+    "c003": "phase-c003",
+    "c004": "phase-c004",
+}
+
 _TOP_LEVEL_RE = re.compile(
     r"\bcodex\s+(" + "|".join(re.escape(item) for item in WRAPPER_TOP_LEVEL_COMMANDS) + r")(?:\s|$)"
 )
@@ -98,6 +105,7 @@ def audit(root: Path) -> dict[str, object]:
     metrics = _metrics(root)
     return {
         "status": "ok" if not _blocking_findings(findings) else "needs-canon",
+        "phases": _phase_status(findings),
         "metrics": metrics,
         "findings": [finding.as_dict() for finding in findings],
     }
@@ -245,3 +253,11 @@ def _metrics(root: Path) -> dict[str, object]:
 
 def _blocking_findings(findings: Iterable[Finding]) -> list[Finding]:
     return [finding for finding in findings if finding.severity == "blocker"]
+
+
+def _phase_status(findings: Iterable[Finding]) -> dict[str, str]:
+    active = {finding.severity for finding in findings}
+    return {
+        phase: "needs-canon" if severity in active else "ok"
+        for phase, severity in PHASE_SEVERITIES.items()
+    }
