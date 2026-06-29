@@ -135,6 +135,10 @@ def _relative(root: Path, path: Path) -> str:
     return str(path.relative_to(root))
 
 
+def _is_test_or_dev_only(relative: str) -> bool:
+    return relative.startswith(("tests/", ".github/", "docs/", ".agents/"))
+
+
 def _audit_removed_contracts(root: Path, files: Iterable[Path]) -> list[Finding]:
     findings: list[Finding] = []
     for path in files:
@@ -177,7 +181,7 @@ def _audit_source_config_owners(root: Path, files: Iterable[Path]) -> list[Findi
     owners: list[str] = []
     for path in files:
         relative = _relative(root, path)
-        if relative == "tools/codex_termux/canon.py":
+        if relative == "tools/codex_termux/canon.py" or _is_test_or_dev_only(relative):
             continue
         text = _read_text(path)
         if any(marker in text for marker in SOURCE_CONFIG_OWNER_MARKERS):
@@ -198,7 +202,7 @@ def _audit_notify_owners(root: Path, files: Iterable[Path]) -> list[Finding]:
     owners: list[str] = []
     for path in files:
         relative = _relative(root, path)
-        if relative == "tools/codex_termux/canon.py":
+        if relative == "tools/codex_termux/canon.py" or _is_test_or_dev_only(relative):
             continue
         text = _read_text(path)
         if sum(1 for marker in NOTIFY_DOMAIN_MARKERS if marker in text) >= 3:
