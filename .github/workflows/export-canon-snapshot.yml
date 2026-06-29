@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   actions: read
 
 concurrency:
@@ -75,3 +75,41 @@ jobs:
           path: dist/
           if-no-files-found: error
           retention-days: 3
+
+      - name: Publish latest snapshot index
+        env:
+          SNAPSHOT_INDEX_BRANCH: automation/canon-snapshot-index
+          SNAPSHOT_INDEX_PATH: snapshots/canon-wrapper-canonicalization/latest.json
+        run: |
+          set -euo pipefail
+          index_tmp="$RUNNER_TEMP/canon-snapshot-latest.json"
+          mkdir -p "$(dirname "$index_tmp")"
+          cat > "$index_tmp" <<JSON
+          {
+            "repository": "${GITHUB_REPOSITORY}",
+            "source_ref": "${GITHUB_REF}",
+            "source_branch": "${GITHUB_REF_NAME}",
+            "head_sha": "${GITHUB_SHA}",
+            "workflow": "${GITHUB_WORKFLOW}",
+            "run_id": ${GITHUB_RUN_ID},
+            "run_attempt": ${GITHUB_RUN_ATTEMPT},
+            "run_url": "https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}",
+            "artifact_name": "codex-canon-snapshot",
+            "created_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          JSON
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin "$SNAPSHOT_INDEX_BRANCH" || true
+          if git show-ref --verify --quiet "refs/remotes/origin/$SNAPSHOT_INDEX_BRANCH"; then
+            git switch --detach "origin/$SNAPSHOT_INDEX_BRANCH"
+          else
+            git switch --orphan "$SNAPSHOT_INDEX_BRANCH"
+          fi
+          git rm -rf . >/dev/null 2>&1 || true
+          mkdir -p "$(dirname "$SNAPSHOT_INDEX_PATH")"
+          cp "$index_tmp" "$SNAPSHOT_INDEX_PATH"
+          git add "$SNAPSHOT_INDEX_PATH"
+          git commit -m "Update canonicalization snapshot index [skip ci]" || exit 0
+          git push origin "HEAD:$SNAPSHOT_INDEX_BRANCH"
