@@ -48,7 +48,11 @@ jobs:
           PYTHONDONTWRITEBYTECODE: "1"
         run: |
           set +e
-          bash tests/run-all.sh > dist/tests-run-all.log 2>&1
+          mkdir -p dist/test-logs
+          CODEX_TERMUX_TEST_LOG_DIR="$PWD/dist/test-logs" \
+          CODEX_TERMUX_TEST_STATUS_FILE="$PWD/dist/tests-run-all.status" \
+          CODEX_TERMUX_TEST_RERUN_FAILED_XTRACE=1 \
+            bash tests/run-all.sh > dist/tests-run-all.log 2>&1
           printf '%s\n' "$?" > dist/tests-run-all.exit
           set -e
 
@@ -65,6 +69,14 @@ jobs:
             echo "- sha: ${GITHUB_SHA}"
             echo "- canon-audit exit: $(cat dist/canon-audit.exit 2>/dev/null || echo unknown)"
             echo "- tests/run-all exit: $(cat dist/tests-run-all.exit 2>/dev/null || echo unknown)"
+            echo
+            if [ -s dist/tests-run-all.status ]; then
+              echo "## Test status"
+              echo
+              echo '```text'
+              cat dist/tests-run-all.status
+              echo '```'
+            fi
           } > dist/summary.md
           cat dist/summary.md >> "$GITHUB_STEP_SUMMARY"
 
