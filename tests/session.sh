@@ -45,6 +45,17 @@ assert "default" in profiles, f"Expected default in {profiles}"
 assert "team-alpha" in profiles, f"Expected team-alpha in {profiles}"
 assert "team-beta" in profiles, f"Expected team-beta in {profiles}"
 
+# Check canonical recent profile ownership
+session.write_recent_profile("team-beta")
+legacy_recent_file = home / ".codex" / "last-profile"
+legacy_recent_file.parent.mkdir(parents=True, exist_ok=True)
+legacy_recent_file.write_text("team-alpha\n", encoding="utf-8")
+assert session.read_recent_profile() == "team-beta"
+assert session.select_recent_profile(profiles) == "team-beta"
+os.environ["CODEX_SESSION_TUI_DEFAULT_PROFILE"] = "team-alpha"
+assert session.select_recent_profile(profiles) == "team-alpha"
+del os.environ["CODEX_SESSION_TUI_DEFAULT_PROFILE"]
+
 # Write mock session files
 sess_default = default_sess_dir / "s-default.jsonl"
 sess_default.write_text('{"type": "session_meta", "payload": {"cwd": "/workspace/default", "id": "s-default"}}\n{"type": "response_item", "payload": {"type": "message", "role": "user", "content": "Hello default"}}\n', encoding="utf-8")

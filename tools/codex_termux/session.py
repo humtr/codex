@@ -143,6 +143,16 @@ def read_recent_profile() -> str:
     return name
 
 
+def select_recent_profile(profiles: list[str]) -> str:
+    default_profile_env = os.environ.get("CODEX_SESSION_TUI_DEFAULT_PROFILE")
+    if default_profile_env in profiles:
+        return default_profile_env
+    recent_profile = read_recent_profile()
+    if recent_profile in profiles:
+        return recent_profile
+    return "default" if "default" in profiles else (profiles[0] if profiles else "default")
+
+
 def find_session_homes() -> list[SessionHome]:
     homes = []
     homes.append(SessionHome(profile="default", home_path=str(profile_dir("default")), is_default=True))
@@ -387,21 +397,7 @@ def _pick_index(stdscr: curses._CursesWindow, title: str, subtitle: str, items: 
 def _pick_session_target() -> str | None:
     homes = find_session_homes()
     profiles = [h.profile for h in homes] or ["default"]
-    default_profile_env = os.environ.get("CODEX_SESSION_TUI_DEFAULT_PROFILE")
-    if default_profile_env in profiles:
-        recent_profile = default_profile_env
-    else:
-        last_profile_path = os.environ.get("CODEX_TERMUX_LAST_PROFILE_FILE")
-        if not last_profile_path:
-            last_profile_path = get_codex_termux_home() / ".codex" / "last-profile"
-        else:
-            last_profile_path = Path(last_profile_path)
-        recent_profile = "default"
-        if last_profile_path and last_profile_path.is_file():
-            try:
-                recent_profile = last_profile_path.read_text(encoding="utf-8").strip()
-            except Exception:
-                pass
+    recent_profile = select_recent_profile(profiles)
     profile_idx = profiles.index(recent_profile) if recent_profile in profiles else 0
 
     def _profile_picker(stdscr: curses._CursesWindow) -> int | None:
@@ -684,23 +680,7 @@ def tui_main(stdscr: curses._CursesWindow, sessions: list[SessionRow], show_all:
         profiles = ["default"]
         
     # Read the recent profile to pre-select it
-    default_profile_env = os.environ.get("CODEX_SESSION_TUI_DEFAULT_PROFILE")
-    if default_profile_env in profiles:
-        recent_profile = default_profile_env
-    else:
-        last_profile_path = os.environ.get("CODEX_TERMUX_LAST_PROFILE_FILE")
-        if not last_profile_path:
-            last_profile_path = get_codex_termux_home() / ".codex" / "last-profile"
-        else:
-            last_profile_path = Path(last_profile_path)
-            
-        recent_profile = "default"
-        if last_profile_path and last_profile_path.is_file():
-            try:
-                recent_profile = last_profile_path.read_text(encoding="utf-8").strip()
-            except Exception:
-                pass
-            
+    recent_profile = select_recent_profile(profiles)
     profile_idx = 0
     if recent_profile in profiles:
         profile_idx = profiles.index(recent_profile)
