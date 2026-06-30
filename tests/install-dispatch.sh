@@ -185,11 +185,13 @@ git() {
     printf '%s\n' "${GIT_TERMINAL_PROMPT:-}" >"$TMP_DIR/git-terminal-prompt"
     printf '%s\n' "${GIT_ASKPASS:-}" >"$TMP_DIR/git-askpass-path"
     printf '%s\n' "${CODEX_TERMUX_WRAPPER_GIT_TOKEN_VALUE:-}" >"$TMP_DIR/git-token-value"
-    mkdir -p "$target/bin" "$target/lib" "$target/tools/codex_termux" "$target/config"
+    mkdir -p "$target/bin" "$target/lib/codex-termux" "$target/tools/codex_termux" "$target/config"
     printf 'install\n' >"$target/install.sh"
     printf 'install local\n' >"$target/bin/install-local.sh"
     printf 'install runtime\n' >"$target/bin/install-runtime.sh"
     printf 'lib\n' >"$target/lib/codex-termux.sh"
+    for domain in dispatch state profile session runtime notify doctor; do printf '%s\n' "$domain" >"$target/lib/codex-termux/$domain.sh"; done
+    printf '{}\n' >"$target/codex-wrapper.manifest.json"
     printf 'builder\n' >"$target/tools/build-runtime.py"
     printf 'bwrap\n' >"$target/tools/bwrap-termux-compat.py"
     printf 'rg\n' >"$target/tools/rg-termux-shim.sh"
@@ -226,7 +228,7 @@ if grep -F "test-token" "$(cat "$TMP_DIR/git-askpass-path")" >/dev/null; then
     fail 'git token was written into askpass helper'
 fi
 
-mkdir -p "$TMP_DIR/incomplete/bin" "$TMP_DIR/incomplete/lib" "$TMP_DIR/incomplete/tools/codex_termux" "$TMP_DIR/incomplete/config"
+mkdir -p "$TMP_DIR/incomplete/bin" "$TMP_DIR/incomplete/lib/codex-termux" "$TMP_DIR/incomplete/tools/codex_termux" "$TMP_DIR/incomplete/config"
 printf 'install\n' >"$TMP_DIR/incomplete/install.sh"
 printf 'install runtime\n' >"$TMP_DIR/incomplete/bin/install-runtime.sh"
 printf 'lib\n' >"$TMP_DIR/incomplete/lib/codex-termux.sh"

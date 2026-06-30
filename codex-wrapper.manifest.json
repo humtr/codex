@@ -1,0 +1,252 @@
+{
+  "schema": 1,
+  "name": "codex-termux-wrapper-contracts",
+  "public_entrypoints": [
+    {
+      "path": "install.sh",
+      "surface": "bootstrap installer"
+    },
+    {
+      "path": "bin/install-local.sh",
+      "surface": "local installer"
+    },
+    {
+      "path": "bin/install-runtime.sh",
+      "surface": "managed runtime installer"
+    },
+    {
+      "path": "lib/codex-termux.sh",
+      "surface": "managed codex shell loader"
+    },
+    {
+      "command": "codex",
+      "surface": "public launcher"
+    },
+    {
+      "command": "codex termux",
+      "surface": "wrapper command namespace"
+    }
+  ],
+  "protected_paths": [
+    "bin/install-runtime.sh",
+    "lib/codex-termux.sh",
+    "lib/codex-termux/*.sh",
+    "tools/build-runtime.py",
+    "tools/bwrap-termux-compat.py",
+    "tools/rg-termux-shim.sh",
+    "tools/codex-launcher.c",
+    "tools/codex-turn-notify.sh",
+    "tools/codex_termux/**",
+    "config/wrapper-version.env"
+  ],
+  "managed_launcher_path": "$PREFIX/bin/codex",
+  "runtime_artifact_paths": [
+    "$CODEX_TERMUX_ROOT/current",
+    "$CODEX_TERMUX_ROOT/verified",
+    "$CODEX_TERMUX_ROOT/raw",
+    "$CODEX_TERMUX_ROOT/store/runtime",
+    "$CODEX_TERMUX_ROOT/store/raw",
+    "$CODEX_TERMUX_MANAGER_DIR/lib.sh",
+    "$CODEX_TERMUX_MANAGER_DIR/codex-termux",
+    "$CODEX_TERMUX_MANAGER_DIR/codex_termux",
+    "$CODEX_TERMUX_MANAGER_DIR/managed.sh"
+  ],
+  "state_files": [
+    "$CODEX_TERMUX_STATE_DIR/state.json",
+    "$CODEX_TERMUX_STATE_DIR/registry.json",
+    "$CODEX_TERMUX_STATE_DIR/last-profile",
+    "$CODEX_TERMUX_STATE_DIR/pending-auto-update-version",
+    "$CODEX_TERMUX_STATE_DIR/failed-auto-update",
+    "$CODEX_TERMUX_STATE_DIR/upstream-time-cache.tsv",
+    "$CODEX_TERMUX_NOTIFY_DIR/config.env"
+  ],
+  "domain_ownership": {
+    "dispatch": {
+      "path": "lib/codex-termux/dispatch.sh",
+      "owns_prefixes": [
+        "codex_main",
+        "codex_termux_main",
+        "codex_termux_help",
+        "codex_install_public",
+        "codex_update_full_public",
+        "codex_repair_surface_public",
+        "codex_install_source",
+        "codex_run_install_source"
+      ],
+      "public_functions": [
+        "codex_main",
+        "codex_termux_main",
+        "codex_install_public",
+        "codex_update_full_public",
+        "codex_repair_surface_public"
+      ]
+    },
+    "state": {
+      "path": "lib/codex-termux/state.sh",
+      "owns_prefixes": [
+        "codex_status",
+        "codex_say",
+        "codex_fail",
+        "codex_ui",
+        "codex_tmp",
+        "codex_mktemp",
+        "codex_path",
+        "codex_assert",
+        "codex_lock",
+        "codex_termux_cmd",
+        "codex_termux_activation_cmd"
+      ],
+      "public_functions": [
+        "codex_termux_cmd"
+      ]
+    },
+    "profile": {
+      "path": "lib/codex-termux/profile.sh",
+      "owns_prefixes": [
+        "codex_profile",
+        "codex_prompt",
+        "codex_confirm",
+        "codex_use"
+      ],
+      "public_functions": [
+        "codex_profile_run",
+        "codex_use"
+      ]
+    },
+    "session": {
+      "path": "lib/codex-termux/session.sh",
+      "owns_prefixes": [
+        "codex_session"
+      ],
+      "public_functions": [
+        "codex_session"
+      ]
+    },
+    "runtime": {
+      "path": "lib/codex-termux/runtime.sh",
+      "owns_prefixes": [
+        "codex_runtime",
+        "codex_repair",
+        "codex_install",
+        "codex_fetch",
+        "codex_build",
+        "codex_activate",
+        "codex_auto_update",
+        "codex_version",
+        "codex_remove",
+        "codex_support",
+        "codex_raw",
+        "codex_latest",
+        "codex_upstream",
+        "codex_current"
+      ],
+      "public_functions": [
+        "codex_version",
+        "codex_runtime_install_upstream",
+        "codex_runtime_install_cached",
+        "codex_ensure_runtime_ready"
+      ]
+    },
+    "notify": {
+      "path": "lib/codex-termux/notify.sh",
+      "owns_prefixes": [
+        "codex_notify"
+      ],
+      "public_functions": [
+        "codex_notify_public"
+      ]
+    },
+    "doctor": {
+      "path": "lib/codex-termux/doctor.sh",
+      "owns_prefixes": [
+        "codex_termux_doctor"
+      ],
+      "public_functions": [
+        "codex_termux_doctor",
+        "codex_termux_doctor_public"
+      ]
+    }
+  },
+  "allowed_private_cross_domain_calls": {
+    "*": [
+      "codex_fail",
+      "codex_say",
+      "codex_status",
+      "codex_status_clear",
+      "codex_termux_cmd",
+      "codex_with_lock",
+      "codex_mktemp_dir",
+      "codex_mktemp_file"
+    ],
+    "dispatch": [
+      "codex_auto_update_if_needed",
+      "codex_runtime_exec_with_context",
+      "codex_repair_public",
+      "codex_remove"
+    ],
+    "state": [
+      "codex_current_wrapper_commit",
+      "codex_current_wrapper_version"
+    ],
+    "profile": [
+      "codex_activate_cached_runtime_unlocked",
+      "codex_auto_update_if_needed",
+      "codex_exec_current_runtime",
+      "codex_file_has_marker",
+      "codex_latest_linux_arm64_version",
+      "codex_rm_rf_managed",
+      "codex_runtime_exec",
+      "codex_runtime_exec_with_context",
+      "codex_ui_badge",
+      "codex_ui_menu_header",
+      "codex_ui_menu_note",
+      "codex_ui_menu_row",
+      "codex_ui_number",
+      "codex_ui_prompt",
+      "codex_ui_step",
+      "codex_ui_text_get"
+    ],
+    "session": [
+      "codex_profile_exec",
+      "codex_profile_home_dir",
+      "codex_profile_name_valid",
+      "codex_runtime_exec_with_context",
+      "codex_ui_text_get"
+    ],
+    "runtime": [
+      "codex_assert_managed_tree_target",
+      "codex_confirm_menu",
+      "codex_display_version",
+      "codex_file_has_marker",
+      "codex_install_source_command",
+      "codex_notify_all_hooks",
+      "codex_parent_dir",
+      "codex_prepare_system_config",
+      "codex_rm_rf_managed",
+      "codex_sha256",
+      "codex_termux_activation_cmd",
+      "codex_ui_badge",
+      "codex_ui_step",
+      "codex_ui_text_get"
+    ],
+    "notify": [
+      "codex_prepare_system_config",
+      "codex_selection_cancelled",
+      "codex_ui_menu_header",
+      "codex_ui_number"
+    ],
+    "doctor": [
+      "codex_prepare_runtime_env",
+      "codex_read_state_field"
+    ]
+  },
+  "compatibility_contracts": [
+    "codex public entrypoint routes non-termux args to current runtime",
+    "codex termux install support refreshes support/launcher only",
+    "codex termux install rebuild uses cached raw runtime",
+    "codex termux install upstream accepts optional version",
+    "doctor --json dispatches to codex_termux_doctor",
+    "parallel surfaces do not write codex recent-profile state",
+    "protected runtime/binary/launcher paths are not deleted without managed validation"
+  ]
+}

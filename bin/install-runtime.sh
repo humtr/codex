@@ -45,6 +45,14 @@ codex_wrapper_source_required_paths() {
         bin/install-local.sh \
         bin/install-runtime.sh \
         lib/codex-termux.sh \
+        lib/codex-termux/dispatch.sh \
+        lib/codex-termux/state.sh \
+        lib/codex-termux/profile.sh \
+        lib/codex-termux/session.sh \
+        lib/codex-termux/runtime.sh \
+        lib/codex-termux/notify.sh \
+        lib/codex-termux/doctor.sh \
+        codex-wrapper.manifest.json \
         tools/build-runtime.py \
         tools/bwrap-termux-compat.py \
         tools/rg-termux-shim.sh \
@@ -318,6 +326,10 @@ codex_install_support_files() {
     codex_copy_wrapper_source_snapshot "$source_dir" "$CODEX_TERMUX_SOURCE_DIR" || return $?
     cp "$source_dir/lib/codex-termux.sh" "$CODEX_TERMUX_MANAGER_DIR/lib.sh"
     chmod 755 "$CODEX_TERMUX_MANAGER_DIR/lib.sh"
+    codex_rm_rf_managed "$CODEX_TERMUX_MANAGER_DIR/codex-termux"
+    if [ -d "$source_dir/lib/codex-termux" ]; then
+        cp -R "$source_dir/lib/codex-termux" "$CODEX_TERMUX_MANAGER_DIR/codex-termux"
+    fi
     codex_rm_rf_managed "$CODEX_TERMUX_MANAGER_DIR/codex_termux"
     cp -R "$source_dir/tools/codex_termux" "$CODEX_TERMUX_MANAGER_DIR/codex_termux"
     codex_check_manager_python

@@ -1,0 +1,41 @@
+name: merge-readiness
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - 'refactor/**'
+      - 'automation/**'
+  workflow_dispatch:
+
+jobs:
+  readiness:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run merge readiness loop
+        continue-on-error: true
+        run: |
+          CODEX_MERGE_READINESS_OUT_DIR="$PWD/out/merge-readiness" bash tools/merge-readiness.sh
+      - name: Upload recursive handoff artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-merge-readiness-${{ github.sha }}
+          path: |
+            out/merge-readiness/**
+            merge_readiness_report.json
+          if-no-files-found: error
+      - name: Enforce merge readiness
+        run: |
+          python3 - <<'PY'
+          import json, sys
+          data=json.load(open('merge_readiness_report.json', encoding='utf-8'))
+          if data.get('merge_readiness')!='ready':
+              print(json.dumps(data, indent=2, sort_keys=True))
+              sys.exit(1)
+          PY

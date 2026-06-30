@@ -33,6 +33,7 @@ copy_path tools/codex-launcher.c
 copy_path tools/codex-turn-notify.sh
 copy_path tools/codex_termux
 copy_path config
+copy_path codex-wrapper.manifest.json
 
 find "$PACKAGE_ROOT" \( -type d -name '__pycache__' -o -type f -name '*.pyc' \) -exec rm -rf {} +
 

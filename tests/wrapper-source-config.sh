@@ -142,7 +142,7 @@ bash -lc '
 ' _ "$ROOT_DIR/install.sh" || fail 'source --save-only continued into install'
 
 LOCAL_DIR="$TMP_DIR/local-checkout"
-mkdir -p "$LOCAL_DIR/bin" "$LOCAL_DIR/lib" "$LOCAL_DIR/tools" "$LOCAL_DIR/config"
+mkdir -p "$LOCAL_DIR/bin" "$LOCAL_DIR/lib/codex-termux" "$LOCAL_DIR/tools" "$LOCAL_DIR/config"
 cp "$ROOT_DIR/install.sh" "$LOCAL_DIR/install.sh"
 cat >"$LOCAL_DIR/bin/install-local.sh" <<'SCRIPT'
 #!/bin/sh
@@ -150,6 +150,8 @@ printf '%s\n' "$*" >"$LOCAL_MARKER"
 SCRIPT
 printf 'runtime\n' >"$LOCAL_DIR/bin/install-runtime.sh"
 printf 'lib\n' >"$LOCAL_DIR/lib/codex-termux.sh"
+for domain in dispatch state profile session runtime notify doctor; do printf '%s\n' "$domain" >"$LOCAL_DIR/lib/codex-termux/$domain.sh"; done
+printf '{}\n' >"$LOCAL_DIR/codex-wrapper.manifest.json"
 printf 'builder\n' >"$LOCAL_DIR/tools/build-runtime.py"
 printf 'version\n' >"$LOCAL_DIR/config/wrapper-version.env"
 chmod 755 "$LOCAL_DIR/install.sh" "$LOCAL_DIR/bin/install-local.sh"
@@ -253,11 +255,19 @@ entries = {
     "source/bin/install-local.sh": install_local,
     "source/bin/install-runtime.sh": "runtime\n",
     "source/lib/codex-termux.sh": "lib\n",
+    "source/lib/codex-termux/dispatch.sh": "dispatch\n",
+    "source/lib/codex-termux/state.sh": "state\n",
+    "source/lib/codex-termux/profile.sh": "profile\n",
+    "source/lib/codex-termux/session.sh": "session\n",
+    "source/lib/codex-termux/runtime.sh": "runtime\n",
+    "source/lib/codex-termux/notify.sh": "notify\n",
+    "source/lib/codex-termux/doctor.sh": "doctor\n",
+    "source/codex-wrapper.manifest.json": "{}\n",
     "source/tools/build-runtime.py": "builder\n",
     "source/config/wrapper-version.env": "version\n",
 }
 with tarfile.open(out, "w:gz") as tf:
-    for name in ["source", "source/bin", "source/lib", "source/tools", "source/config"]:
+    for name in ["source", "source/bin", "source/lib", "source/lib/codex-termux", "source/tools", "source/config"]:
         info = tarfile.TarInfo(name)
         info.type = tarfile.DIRTYPE
         info.mode = 0o755
