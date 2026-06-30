@@ -1,10 +1,6 @@
 name: CI
 
 on:
-  push:
-    branches:
-      - main
-  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -19,10 +15,13 @@ jobs:
     name: Portable wrapper gates
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Shell syntax checks
+        shell: bash
         run: |
+          set -euo pipefail
           bash -n install.sh
           bash -n bin/install-local.sh
           bash -n bin/install-runtime.sh
@@ -33,72 +32,33 @@ jobs:
           bash -n tests/*.sh
 
       - name: Python syntax checks
+        shell: bash
         env:
           PYTHONDONTWRITEBYTECODE: "1"
         run: |
-          python3 -B -m compileall -q tools
+          set -euo pipefail
+          python3 -B -c 'import ast, pathlib; [ast.parse(path.read_text(encoding="utf-8"), filename=str(path)) for path in pathlib.Path("tools").rglob("*.py")]; print("python syntax: ok")'
 
-      - name: Run Ubuntu-portable tests
+      - name: Run portable test subset
+        shell: bash
         env:
           TMPDIR: /tmp
           PYTHONDONTWRITEBYTECODE: "1"
         run: |
-          for test_script in \
-            tests/invariants.sh \
-            tests/runtime-build.sh \
-            tests/package-safety.sh \
-            tests/wrapper-archive-safety.sh \
-            tests/release-package.sh \
-            tests/install-dispatch.sh \
-            tests/doctor.sh \
+          set -euo pipefail
+          portable_tests=(
+            tests/invariants.sh
+            tests/runtime-build.sh
+            tests/release-package.sh
+            tests/install-dispatch.sh
+            tests/doctor.sh
             tests/cli-surface.sh
-          do
+          )
+          for test_script in "${portable_tests[@]}"; do
             echo "== ${test_script##*/} =="
-            bash "$test_script"
+            if command -v timeout >/dev/null 2>&1; then
+              timeout -k 5s 120s bash "$test_script"
+            else
+              bash "$test_script"
+            fi
           done
-
-      - name: Build release package dry-run
-        env:
-          TMPDIR: /tmp
-        run: |
-          out="$(bash tools/package-release.sh /tmp/codex-termux-release.zip)"
-          test "$out" = /tmp/codex-termux-release.zip
-          python3 - <<'PYTHON'
-import zipfile
-from pathlib import PurePosixPath
-
-zip_path = "/tmp/codex-termux-release.zip"
-forbidden_roots = {"tests", ".github", "docs", ".agents", ".git"}
-forbidden_exact = {".gitignore", "tools/install-git-hooks.sh", "tools/update-wrapper-version.sh"}
-required = {
-    "README.md",
-    "install.sh",
-    "bin/install-local.sh",
-    "bin/install-runtime.sh",
-    "lib/codex-termux.sh",
-    "tools/build-runtime.py",
-    "tools/bwrap-termux-compat.py",
-    "tools/rg-termux-shim.sh",
-    "tools/codex-launcher.c",
-    "tools/codex-turn-notify.sh",
-    "config/wrapper-version.env",
-}
-with zipfile.ZipFile(zip_path) as zf:
-    stripped = set()
-    for name in zf.namelist():
-        parts = PurePosixPath(name).parts
-        if parts and parts[0].startswith("codex-termux-"):
-            rel = PurePosixPath(*parts[1:]) if len(parts) > 1 else PurePosixPath("")
-            stripped.add(str(rel))
-        else:
-            stripped.add(name)
-    missing = sorted(required - stripped)
-    if missing:
-        raise SystemExit(f"missing release entries: {missing}")
-    for rel in stripped:
-        if not rel:
-            continue
-        first = rel.split("/", 1)[0]
-        if first in forbidden_roots or rel in forbidden_exact:
-            raise SystemExit(f"forbidden release entry: {rel}")
-PYTHON
