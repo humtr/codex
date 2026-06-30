@@ -52,20 +52,102 @@ def get_codex_termux_profile_root() -> Path:
     return get_codex_termux_home() / ".codex-profiles"
 
 
+def get_codex_termux_state_dir() -> Path:
+    val = os.environ.get("CODEX_TERMUX_STATE_DIR")
+    if val:
+        return Path(val)
+    return get_codex_termux_home() / ".codex-termux"
+
+
+def get_last_profile_file() -> Path:
+    val = os.environ.get("CODEX_TERMUX_LAST_PROFILE_FILE")
+    if val:
+        return Path(val)
+    return get_codex_termux_state_dir() / "last-profile"
+
+
+def normalize_profile_choice(choice: str | None) -> str:
+    if choice in (None, "", "home", "default"):
+        return "default"
+    return choice
+
+
+def is_default_profile(profile: str | None) -> bool:
+    return normalize_profile_choice(profile) == "default"
+
+
+def validate_profile_name(profile: str | None) -> bool:
+    name = normalize_profile_choice(profile)
+    if name == "default":
+        return True
+    if name == "termux":
+        return False
+    if name.startswith(("-", ".")):
+        return False
+    if "/" in name or ".." in name:
+        return False
+    if any(ch.isspace() for ch in name):
+        return False
+    return True
+
+
+def profile_dir(profile: str | None = "default") -> Path:
+    name = normalize_profile_choice(profile)
+    if name == "default":
+        return get_codex_termux_home() / ".codex"
+    return get_codex_termux_profile_root() / name
+
+
+def profile_display_name(profile: str | None = "default") -> str:
+    return normalize_profile_choice(profile)
+
+
+def list_profiles() -> list[str]:
+    root = get_codex_termux_profile_root()
+    if not root.is_dir():
+        return []
+    names = []
+    for path in root.iterdir():
+        if not path.is_dir():
+            continue
+        name = path.name
+        if name == "default":
+            continue
+        if validate_profile_name(name):
+            names.append(name)
+    return sorted(names, key=str.casefold)
+
+
+def profile_menu_ids() -> list[str]:
+    return ["default", *list_profiles()]
+
+
+def write_recent_profile(profile: str | None) -> None:
+    name = normalize_profile_choice(profile)
+    target = get_last_profile_file()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(name + "\n", encoding="utf-8")
+
+
+def read_recent_profile() -> str:
+    target = get_last_profile_file()
+    try:
+        profile = target.read_text(encoding="utf-8").splitlines()[0]
+    except (OSError, IndexError):
+        return "default"
+    name = normalize_profile_choice(profile)
+    if not validate_profile_name(name):
+        return "default"
+    if name != "default" and not profile_dir(name).is_dir():
+        return "default"
+    return name
+
+
 def find_session_homes() -> list[SessionHome]:
     homes = []
-    # default home
-    default_path = get_codex_termux_home() / ".codex"
-    homes.append(SessionHome(profile="default", home_path=str(default_path), is_default=True))
-    
-    # custom profiles
-    profiles_dir = get_codex_termux_profile_root()
-    if profiles_dir.is_dir():
-        for p in sorted(profiles_dir.iterdir()):
-            if p.is_dir() and not p.name.startswith("."):
-                # Profile name validation (letters, numbers, underscore, dash)
-                if re.match(r"^[A-Za-z0-9_-]+$", p.name):
-                    homes.append(SessionHome(profile=p.name, home_path=str(p), is_default=False))
+    homes.append(SessionHome(profile="default", home_path=str(profile_dir("default")), is_default=True))
+    for profile in list_profiles():
+        homes.append(SessionHome(profile=profile, home_path=str(profile_dir(profile)), is_default=False))
     return homes
 
 
@@ -202,26 +284,29 @@ def discover_sessions() -> list[SessionRow]:
 
 
 def share_session(session_path_str: str, session_profile: str, target_profile: str) -> None:
-    if session_profile == target_profile:
+    source_profile = normalize_profile_choice(session_profile)
+    target = normalize_profile_choice(target_profile)
+    if source_profile == target:
         return
-    
+
     src_path = Path(session_path_str)
-    base_A = get_codex_termux_home() / ".codex" / "sessions" if session_profile == "default" else get_codex_termux_profile_root() / session_profile / "sessions"
-    base_B = get_codex_termux_home() / ".codex" / "sessions" if target_profile == "default" else get_codex_termux_profile_root() / target_profile / "sessions"
-    
+    source_base = profile_dir(source_profile) / "sessions"
+    target_base = profile_dir(target) / "sessions"
+
     try:
-        rel_path = src_path.relative_to(base_A)
+        rel_path = src_path.relative_to(source_base)
     except ValueError:
         rel_path = Path(src_path.name)
-        
-    dst_path = base_B / rel_path
-    if not dst_path.exists():
-        dst_path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            dst_path.symlink_to(src_path)
-        except Exception:
-            import shutil
-            shutil.copy2(src_path, dst_path)
+
+    dst_path = target_base / rel_path
+    if dst_path.exists() or dst_path.is_symlink():
+        return
+    dst_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        dst_path.symlink_to(src_path)
+    except Exception:
+        import shutil
+        shutil.copy2(src_path, dst_path)
 
 
 def _display_path(path: str) -> str:

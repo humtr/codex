@@ -80,11 +80,11 @@ codex_exec_current_runtime() {
 }
 
 unset CODEX_HOME
-default_output="$(codex_profile_exec "$(codex_profile_dir default)" default 2>/dev/null)"
+default_output="$(codex_profile_exec "$(codex_profile_home_dir default)" default 2>/dev/null)"
 [ "$default_output" = 'runtime CODEX_HOME=__UNSET__' ] || fail_contract "default profile changed CODEX_HOME: $default_output"
 [ ! -e "$CODEX_TERMUX_HOME/.codex" ] || fail_contract 'default profile created managed home directory'
 
-work_dir="$(codex_profile_dir work)"
+work_dir="$(codex_profile_home_dir work)"
 mkdir -p "$work_dir"
 unset CODEX_HOME
 work_output="$(codex_profile_exec "$work_dir" work 2>/dev/null)"
@@ -116,11 +116,11 @@ done
 
     mkdir -p "$CODEX_TERMUX_STATE_DIR"
     printf 'work\n' >"$CODEX_TERMUX_LAST_PROFILE_FILE"
-    menu_ids="$(codex_profile_menu_ids)"
+    menu_ids="$(codex_profile_menu_items)"
     expected_menu_ids="$(printf 'default\nbeta\nclean\nwork\n')"
     [ "$menu_ids" = "$expected_menu_ids" ] || fail_contract "recent profile changed menu order: $menu_ids"
 
-missing_dir="$(codex_profile_dir missing)"
+missing_dir="$(codex_profile_home_dir missing)"
 set +e
 codex_profile_exec "$missing_dir" missing >"$TMP_DIR/missing.out" 2>"$TMP_DIR/missing.err" </dev/null
 missing_status=$?

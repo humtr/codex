@@ -38,6 +38,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_activation_commands(sub)
     _add_use_commands(sub)
     _add_doctor_commands(sub)
+    _add_profile_commands(sub)
     _add_session_commands(sub)
     return parser
 
@@ -336,24 +337,42 @@ def _validate_resolver_contract(root: Path) -> None:
 
 def _validate_profile_contract(root: Path) -> None:
     shell = (root / "lib/codex-termux.sh").read_text(encoding="utf-8")
+    session_py = (root / "tools/codex_termux/session.py").read_text(encoding="utf-8")
     profile_root = 'CODEX_TERMUX_PROFILE_ROOT="${CODEX_TERMUX_PROFILE_ROOT:-$CODEX_TERMUX_HOME/.codex-profiles}"'
-    default_profile_line = "printf '%s\\n' \"$CODEX_TERMUX_HOME/.codex\""
+    required_python_model = (
+        "def validate_profile_name(",
+        "def profile_dir(",
+        'return get_codex_termux_home() / ".codex"',
+        "def write_recent_profile(",
+        "def read_recent_profile(",
+        "def profile_menu_ids(",
+    )
     guarded_export = "\n".join((
-        'if ! codex_profile_is_default "$profile"; then',
+        'if ! codex_profile_default_p "$profile"; then',
         '        export CODEX_HOME="$profile_dir"',
         '    fi',
     ))
+    required_shell_facade = (
+        "codex_profile_name_valid()",
+        "codex_profile_home_dir()",
+        "codex_profile_recent_read()",
+        "codex_profile_recent_write()",
+        "codex_profile_menu_items()",
+    )
     if profile_root not in shell:
         raise IntegrityError("custom profile root contract changed")
-    if default_profile_line not in shell:
-        raise IntegrityError("default profile path contract changed")
+    for marker in required_python_model:
+        if marker not in session_py:
+            raise IntegrityError(f"profile model owner contract changed: {marker}")
+    for marker in required_shell_facade:
+        if marker not in shell:
+            raise IntegrityError(f"profile shell facade contract changed: {marker}")
     if guarded_export not in shell:
         raise IntegrityError("custom profile CODEX_HOME guard changed")
     if 'if [ ! -t 0 ] || [ ! -t 2 ]; then' not in shell:
         raise IntegrityError("missing custom profile non-tty guard changed")
     if 'codex_fail "$(codex_ui_text_get missing_profile "$display")"' not in shell:
         raise IntegrityError("missing custom profile refusal message changed")
-
 
 def _store_id(args: argparse.Namespace) -> int:
     return _print(
@@ -577,6 +596,62 @@ def _doctor_render(args: argparse.Namespace) -> int:
     return doctor.render_human(report)
 
 
+def _add_profile_commands(sub: SubparserCollection) -> None:
+    validate = sub.add_parser("profile-validate")
+    validate.add_argument("--profile", default="")
+    validate.set_defaults(func=_profile_validate)
+
+    profile_dir_cmd = sub.add_parser("profile-dir")
+    profile_dir_cmd.add_argument("--profile", default="default")
+    profile_dir_cmd.set_defaults(func=lambda args: _print(str(session.profile_dir(args.profile))))
+
+    display = sub.add_parser("profile-display-name")
+    display.add_argument("--profile", default="default")
+    display.set_defaults(func=lambda args: _print(session.profile_display_name(args.profile)))
+
+    is_default = sub.add_parser("profile-is-default")
+    is_default.add_argument("--profile", default="default")
+    is_default.set_defaults(func=lambda args: 0 if session.is_default_profile(args.profile) else 1)
+
+    choice = sub.add_parser("profile-choice-to-name")
+    choice.add_argument("--choice", default="")
+    choice.set_defaults(func=lambda args: _print(session.normalize_profile_choice(args.choice)))
+
+    write_recent = sub.add_parser("profile-write-recent")
+    write_recent.add_argument("--profile", default="default")
+    write_recent.set_defaults(func=_profile_write_recent)
+
+    read_recent = sub.add_parser("profile-read-recent")
+    read_recent.set_defaults(func=lambda args: _print(session.read_recent_profile()))
+
+    list_cmd = sub.add_parser("profile-list")
+    list_cmd.set_defaults(func=_profile_list)
+
+    menu = sub.add_parser("profile-menu-ids")
+    menu.set_defaults(func=_profile_menu_ids)
+
+
+def _profile_validate(args: argparse.Namespace) -> int:
+    return 0 if session.validate_profile_name(args.profile) else 1
+
+
+def _profile_write_recent(args: argparse.Namespace) -> int:
+    session.write_recent_profile(args.profile)
+    return 0
+
+
+def _profile_list(args: argparse.Namespace) -> int:
+    for profile in session.list_profiles():
+        print(profile)
+    return 0
+
+
+def _profile_menu_ids(args: argparse.Namespace) -> int:
+    for profile in session.profile_menu_ids():
+        print(profile)
+    return 0
+
+
 def _add_session_commands(sub: SubparserCollection) -> None:
     list_cmd = sub.add_parser("session-list")
     list_cmd.set_defaults(func=_session_list)
@@ -585,6 +660,12 @@ def _add_session_commands(sub: SubparserCollection) -> None:
     select_cmd.add_argument("--choice", required=True)
     select_cmd.add_argument("--target-profile", required=True)
     select_cmd.set_defaults(func=_session_select)
+
+    share_cmd = sub.add_parser("session-share")
+    share_cmd.add_argument("--source-path", required=True)
+    share_cmd.add_argument("--source-profile", required=True)
+    share_cmd.add_argument("--target-profile", required=True)
+    share_cmd.set_defaults(func=_session_share)
 
     tui_cmd = sub.add_parser("session-tui")
     tui_cmd.add_argument("--output", required=True)
@@ -609,6 +690,11 @@ def _session_list(args: argparse.Namespace) -> int:
 
 def _session_select(args: argparse.Namespace) -> int:
     session.session_select(args.choice, args.target_profile)
+    return 0
+
+
+def _session_share(args: argparse.Namespace) -> int:
+    session.share_session(args.source_path, args.source_profile, args.target_profile)
     return 0
 
 

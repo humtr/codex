@@ -1748,22 +1748,16 @@ codex_termux_doctor() {
 
 
 # Interactive wrapper commands.
-codex_profile_validate_name() {
+codex_profile_name_valid() {
     local profile="${1:-}"
     case "$profile" in
-        ""|default)
-            return 0
-            ;;
-        termux|-*|.*|*/*|*..*|*[[:space:]]*)
-            return 1
-            ;;
-        *)
-            return 0
-            ;;
+        ""|default) return 0 ;;
+        termux|-*|.*|*/*|*..*|*[[:space:]]*) return 1 ;;
+        *) return 0 ;;
     esac
 }
 
-codex_profile_dir() {
+codex_profile_home_dir() {
     local profile="${1:-default}"
     if [ -z "$profile" ] || [ "$profile" = "default" ]; then
         printf '%s\n' "$CODEX_TERMUX_HOME/.codex"
@@ -1772,7 +1766,7 @@ codex_profile_dir() {
     fi
 }
 
-codex_profile_display_name() {
+codex_profile_label() {
     local profile="${1:-default}"
     if [ -z "$profile" ] || [ "$profile" = "default" ]; then
         printf 'default\n'
@@ -1781,61 +1775,41 @@ codex_profile_display_name() {
     fi
 }
 
-codex_profile_is_default() {
+codex_profile_default_p() {
     local profile="${1:-default}"
     [ -z "$profile" ] || [ "$profile" = "default" ]
 }
 
-codex_profile_choice_to_name() {
+codex_profile_choice_name() {
     local choice="${1:-}"
     case "$choice" in
-        ""|home|default)
-            printf 'default\n'
-            ;;
-        *)
-            printf '%s\n' "$choice"
-            ;;
+        ""|home|default) printf 'default\n' ;;
+        *) printf '%s\n' "$choice" ;;
     esac
 }
 
-codex_profile_write_recent() {
+codex_profile_recent_write() {
     local profile="${1:-default}"
     mkdir -p "$CODEX_TERMUX_STATE_DIR"
     printf '%s\n' "$profile" >"$CODEX_TERMUX_LAST_PROFILE_FILE"
 }
 
-codex_profile_read_recent() {
+codex_profile_recent_read() {
     local profile
     profile="$(cat "$CODEX_TERMUX_LAST_PROFILE_FILE" 2>/dev/null || true)"
-    profile="$(codex_profile_choice_to_name "$profile")"
-    codex_profile_validate_name "$profile" || {
+    profile="$(codex_profile_choice_name "$profile")"
+    codex_profile_name_valid "$profile" || {
         printf 'default\n'
         return 0
     }
-    if [ "$profile" != "default" ] && [ ! -d "$(codex_profile_dir "$profile")" ]; then
+    if [ "$profile" != "default" ] && [ ! -d "$(codex_profile_home_dir "$profile")" ]; then
         printf 'default\n'
         return 0
     fi
     printf '%s\n' "$profile"
 }
 
-codex_profile_note() {
-    local profile="${1:-default}"
-    codex_ui_step open_profile "$(codex_profile_display_name "$profile")"
-}
-
-codex_profile_runtime_exec() {
-    local profile="$1" profile_dir="$2"
-    shift 2 || true
-    codex_profile_write_recent "$profile"
-    codex_profile_note "$profile"
-    if ! codex_profile_is_default "$profile"; then
-        export CODEX_HOME="$profile_dir"
-    fi
-    codex_exec_current_runtime "$@"
-}
-
-codex_profile_menu_ids() {
+codex_profile_menu_items() {
     local profile
     printf 'default\n'
     while IFS= read -r profile; do
@@ -1848,11 +1822,27 @@ codex_list_profiles() {
     local root="$CODEX_TERMUX_PROFILE_ROOT" profile
     [ -d "$root" ] || return 0
     while IFS= read -r profile; do
-        codex_profile_validate_name "$profile" || continue
+        codex_profile_name_valid "$profile" || continue
         [ "$profile" = "default" ] && continue
         printf '%s\n' "$profile"
     done < <(find "$root" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null) \
         | LC_ALL=C sort -f
+}
+
+codex_profile_note() {
+    local profile="${1:-default}"
+    codex_ui_step open_profile "$(codex_profile_label "$profile")"
+}
+
+codex_profile_runtime_exec() {
+    local profile="$1" profile_dir="$2"
+    shift 2 || true
+    codex_profile_recent_write "$profile"
+    codex_profile_note "$profile"
+    if ! codex_profile_default_p "$profile"; then
+        export CODEX_HOME="$profile_dir"
+    fi
+    codex_exec_current_runtime "$@"
 }
 
 CODEX_PROMPT_CHOICE_RESULT=""
@@ -2009,7 +1999,7 @@ codex_confirm_menu() {
 
 codex_profile_create_prompt() {
     local profile="$1" profile_dir="$2" display status
-    display="$(codex_profile_display_name "$profile")"
+    display="$(codex_profile_label "$profile")"
     if [ ! -t 0 ] || [ ! -t 2 ]; then
         codex_fail "$(codex_ui_text_get missing_profile "$display")"
         return 2
@@ -2030,7 +2020,7 @@ codex_profile_create_prompt() {
 
 codex_profile_ensure_dir() {
     local profile_dir="$1" profile="${2:-default}"
-    if codex_profile_is_default "$profile"; then
+    if codex_profile_default_p "$profile"; then
         return 0
     fi
     if [ -d "$profile_dir" ]; then
@@ -2054,8 +2044,8 @@ codex_runtime_exec_with_context() {
         return $?
     fi
     local recent_profile recent_profile_dir
-    recent_profile="$(codex_profile_read_recent)"
-    recent_profile_dir="$(codex_profile_dir "$recent_profile")"
+    recent_profile="$(codex_profile_recent_read)"
+    recent_profile_dir="$(codex_profile_home_dir "$recent_profile")"
     codex_profile_runtime_exec "$recent_profile" "$recent_profile_dir" "$@"
 }
 
@@ -2067,8 +2057,8 @@ codex_profile_list_command() {
 
 codex_profile_select() {
     local profiles=() profile choice idx profile_dir display_limit=0 truncated=0 recent
-    recent="$(codex_profile_read_recent)"
-    mapfile -t profiles < <(codex_profile_menu_ids)
+    recent="$(codex_profile_recent_read)"
+    mapfile -t profiles < <(codex_profile_menu_items)
     if [ -t 0 ]; then
         display_limit=9
     fi
@@ -2081,9 +2071,9 @@ codex_profile_select() {
             break
         fi
         if [ "$profile" = "$recent" ]; then
-            printf '  %s %s %s\n' "$(codex_ui_number "$idx")" "$(codex_profile_display_name "$profile")" "$(codex_ui_badge recent)" >&2
+            printf '  %s %s %s\n' "$(codex_ui_number "$idx")" "$(codex_profile_label "$profile")" "$(codex_ui_badge recent)" >&2
         else
-            printf '  %s %s\n' "$(codex_ui_number "$idx")" "$(codex_profile_display_name "$profile")" >&2
+            printf '  %s %s\n' "$(codex_ui_number "$idx")" "$(codex_profile_label "$profile")" >&2
         fi
         idx=$((idx + 1))
     done
@@ -2102,14 +2092,14 @@ codex_profile_select() {
     if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 0 ] && [ "$choice" -lt "${#profiles[@]}" ]; then
         profile="${profiles[$choice]}"
     else
-        profile="$(codex_profile_choice_to_name "$choice")"
+        profile="$(codex_profile_choice_name "$choice")"
     fi
 
-    codex_profile_validate_name "$profile" || {
+    codex_profile_name_valid "$profile" || {
         codex_fail "$(codex_ui_text_get invalid_profile "$profile")"
         return 2
     }
-    profile_dir="$(codex_profile_dir "$profile")"
+    profile_dir="$(codex_profile_home_dir "$profile")"
     codex_profile_exec "$profile_dir" "$profile"
 }
 
@@ -2130,12 +2120,12 @@ codex_profile_run() {
             return 0
             ;;
     esac
-    codex_profile_validate_name "$profile" || {
+    codex_profile_name_valid "$profile" || {
         codex_fail "$(codex_ui_text_get invalid_profile "$profile")"
         return 2
     }
     local profile_dir
-    profile_dir="$(codex_profile_dir "$profile")"
+    profile_dir="$(codex_profile_home_dir "$profile")"
     shift || true
     codex_profile_exec "$profile_dir" "$profile" "$@"
 }
@@ -2240,29 +2230,10 @@ codex_session_share_source() {
     [ -n "$source_path" ] || return 0
     [ "$source_profile" = "$target_profile" ] && return 0
     [ -f "$source_path" ] || return 0
-
-    local source_base target_base rel_path target_path
-    if [ "$source_profile" = "default" ]; then
-        source_base="$CODEX_TERMUX_HOME/.codex/sessions"
-    else
-        source_base="$CODEX_TERMUX_PROFILE_ROOT/$source_profile/sessions"
-    fi
-    if [ "$target_profile" = "default" ]; then
-        target_base="$CODEX_TERMUX_HOME/.codex/sessions"
-    else
-        target_base="$CODEX_TERMUX_PROFILE_ROOT/$target_profile/sessions"
-    fi
-
-    case "$source_path" in
-        "$source_base"/*) rel_path="${source_path#"$source_base"/}" ;;
-        *) rel_path="$(basename "$source_path")" ;;
-    esac
-    target_path="$target_base/$rel_path"
-    if [ -e "$target_path" ]; then
-        return 0
-    fi
-    mkdir -p "$(dirname "$target_path")" || return $?
-    ln -s "$source_path" "$target_path" 2>/dev/null || cp -p "$source_path" "$target_path"
+    codex_termux_cmd session-share \
+        --source-path "$source_path" \
+        --source-profile "$source_profile" \
+        --target-profile "$target_profile"
 }
 
 codex_session() {
@@ -2270,11 +2241,11 @@ codex_session() {
     if [ "$#" -gt 0 ] && [[ ! "$1" =~ ^- ]]; then
         target_profile="$1"
         shift
-        codex_profile_validate_name "$target_profile" || {
+        codex_profile_name_valid "$target_profile" || {
             codex_fail "$(codex_ui_text_get invalid_profile "$target_profile")"
             return 2
         }
-        target_profile_dir="$(codex_profile_dir "$target_profile")"
+        target_profile_dir="$(codex_profile_home_dir "$target_profile")"
     fi
 
     local show_all="false"
