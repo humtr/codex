@@ -711,7 +711,7 @@ main() {
             ;;
         doctor)
             shift || true
-            codex_wrapper_doctor "$@"
+            codex_termux_doctor "$@"
             ;;
         -h|--help|help)
             usage

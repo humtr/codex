@@ -112,6 +112,11 @@ case "$STATUS_LOG" in
     *) fail "repair did not use repair surface: $STATUS_LOG" ;;
 esac
 
+DOCTOR_ARGS=""
+codex_termux_doctor() { DOCTOR_ARGS="$*"; }
+main doctor --json
+[ "$DOCTOR_ARGS" = "--json" ] || fail "doctor did not dispatch to codex_termux_doctor: $DOCTOR_ARGS"
+
 VERSION_COUNT=0
 STATUS_LOG=""
 SAY_LOG=""
