@@ -12,12 +12,14 @@ fail() {
 
 # 1. Setup mock environment
 export CODEX_TERMUX_HOME="$TMP_DIR/home"
+export CODEX_TERMUX_PREFIX="$TMP_DIR/prefix"
+export CODEX_TERMUX_TMPDIR="$TMP_DIR/prefix/tmp"
 export CODEX_TERMUX_PROFILE_ROOT="$TMP_DIR/profiles"
 export CODEX_TERMUX_STATE_DIR="$TMP_DIR/state"
 export CODEX_TERMUX_LAST_PROFILE_FILE="$CODEX_TERMUX_STATE_DIR/last-profile"
 export HOME="$TMP_DIR/home"
 
-mkdir -p "$CODEX_TERMUX_HOME" "$CODEX_TERMUX_PROFILE_ROOT" "$CODEX_TERMUX_STATE_DIR"
+mkdir -p "$CODEX_TERMUX_HOME" "$CODEX_TERMUX_TMPDIR" "$CODEX_TERMUX_PROFILE_ROOT" "$CODEX_TERMUX_STATE_DIR"
 
 # 2. Test Python-side discovery and launch plans
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=tools python3 -B - <<'PYTHON'
@@ -77,7 +79,6 @@ dest_beta = Path(os.environ["CODEX_TERMUX_PROFILE_ROOT"]) / "team-beta" / "sessi
 session.share_session(s_alpha_row.source_path, "team-alpha", "team-beta")
 assert dest_beta.exists()
 assert dest_beta.is_symlink() or dest_beta.is_file()
-
 PYTHON
 
 # 3. Test Shell Integration / Dispatch
