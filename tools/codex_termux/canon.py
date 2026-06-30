@@ -148,12 +148,15 @@ def audit(root: Path) -> dict[str, object]:
 
 
 def _source_files(root: Path) -> Iterable[Path]:
-    ignored_dirs = {".git", "__pycache__", ".pytest_cache", ".mypy_cache"}
+    ignored_dirs = {".git", "__pycache__", ".pytest_cache", ".mypy_cache", "out"}
     ignored_suffixes = {".pyc", ".zip", ".tgz", ".tar", ".gz"}
+    ignored_names = {"merge_readiness_report.json"}
     for path in root.rglob("*"):
         if any(part in ignored_dirs for part in path.parts):
             continue
         if not path.is_file():
+            continue
+        if path.name in ignored_names:
             continue
         if path.suffix in ignored_suffixes:
             continue

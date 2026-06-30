@@ -23,7 +23,7 @@ forbidden_terms=(
     "codex_profile""_share_plugins"
 )
 for term in "${forbidden_terms[@]}"; do
-    if grep -RIn --exclude-dir=.git --exclude-dir=__pycache__ --exclude='*.pyc' -- "$term" . >"$TMP_DIR/forbidden" 2>/dev/null; then
+    if grep -RIn --exclude-dir=.git --exclude-dir=__pycache__ --exclude-dir=out --exclude='*.pyc' --exclude='merge_readiness_report.json' -- "$term" . >"$TMP_DIR/forbidden" 2>/dev/null; then
         cat "$TMP_DIR/forbidden" >&2
         fail "forbidden legacy contract term remains: $term"
     fi
@@ -76,7 +76,7 @@ stale_repo_terms=(
     "local/""codex\\n"
 )
 for term in "${stale_repo_terms[@]}"; do
-    if grep -RIn --exclude-dir=.git --exclude-dir=__pycache__ --exclude='*.pyc' -- "$term" . >"$TMP_DIR/repo-metadata" 2>/dev/null; then
+    if grep -RIn --exclude-dir=.git --exclude-dir=__pycache__ --exclude-dir=out --exclude='*.pyc' --exclude='merge_readiness_report.json' -- "$term" . >"$TMP_DIR/repo-metadata" 2>/dev/null; then
         cat "$TMP_DIR/repo-metadata" >&2
         fail "stale wrapper repo metadata remains: $term"
     fi

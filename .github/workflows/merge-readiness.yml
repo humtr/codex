@@ -6,7 +6,6 @@ on:
     branches:
       - main
       - 'refactor/**'
-      - 'automation/**'
   workflow_dispatch:
 
 jobs:
@@ -19,6 +18,7 @@ jobs:
       CODEX_TERMUX_TEST_TIMEOUT_SECONDS: "30"
       CODEX_TERMUX_TARBALL_VALIDATOR_TIMEOUT_SECONDS: "10"
       CODEX_TERMUX_TEST_RERUN_FAILED_XTRACE: "1"
+      CODEX_MERGE_READINESS_ARTIFACT_NAME: codex-agent-handoff-${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -32,7 +32,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: codex-merge-readiness-${{ github.sha }}
+          name: codex-agent-handoff-${{ github.sha }}
           path: |
             out/merge-readiness/**
             merge_readiness_report.json

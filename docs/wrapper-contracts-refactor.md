@@ -24,4 +24,22 @@ This branch converts the Termux wrapper from one large shell implementation into
 
 ## Recursive merge-readiness artifact
 
-The merge-readiness workflow publishes `merge_readiness_report.json`, `canon-audit.json`, per-test logs, `branch.patch`, and a full repository snapshot ZIP. A later session can download that artifact and continue the same measure/change/test/audit loop from the exact tree state.
+The merge-readiness workflow publishes the `codex-agent-handoff-${sha}` artifact.
+It contains `merge_readiness_report.json`, `canon-audit.json`, per-test logs,
+`branch.patch`, a repository snapshot ZIP, and a `handoff/` directory for the
+next agent.
+
+Run the same loop locally with:
+
+```sh
+CODEX_MERGE_READINESS_OUT_DIR="$PWD/out/merge-readiness" \
+  bash tools/merge-readiness.sh
+```
+
+The script must generate diagnostic files before returning a non-zero status.
+Later agents can resume from:
+
+- `handoff/connector-handoff.json`
+- `handoff/NEXT_AGENT_PROMPT.md`
+- `handoff/resume-from-artifact.sh`
+- `handoff/artifact-manifest.json`
