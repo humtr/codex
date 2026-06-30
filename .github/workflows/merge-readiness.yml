@@ -12,24 +12,31 @@ on:
 jobs:
   readiness:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
+    env:
+      CODEX_TERMUX_TEST_TIMEOUT_SECONDS: "30"
+      CODEX_TERMUX_TARBALL_VALIDATOR_TIMEOUT_SECONDS: "10"
+      CODEX_TERMUX_TEST_RERUN_FAILED_XTRACE: "1"
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - name: Run merge readiness loop
         continue-on-error: true
+        shell: bash
         run: |
-          CODEX_MERGE_READINESS_OUT_DIR="$PWD/out/merge-readiness" bash tools/merge-readiness.sh
+          timeout -k 15s 8m bash -lc 'CODEX_MERGE_READINESS_OUT_DIR="$PWD/out/merge-readiness" bash tools/merge-readiness.sh'
       - name: Upload recursive handoff artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: codex-merge-readiness-${{ github.sha }}
           path: |
             out/merge-readiness/**
             merge_readiness_report.json
-          if-no-files-found: error
+          if-no-files-found: warn
       - name: Enforce merge readiness
         run: |
           python3 - <<'PY'
