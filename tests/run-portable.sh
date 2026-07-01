@@ -141,6 +141,7 @@ for test_script in \
     "$ROOT_DIR/tests/doctor.sh" \
     "$ROOT_DIR/tests/wrapper-source-config.sh" \
     "$ROOT_DIR/tests/cli-surface.sh" \
+    "$ROOT_DIR/tests/notify-model.sh" \
     "$ROOT_DIR/tests/notify.sh" \
     "$ROOT_DIR/tests/store-rollback.sh" \
     "$ROOT_DIR/tests/session.sh" \

@@ -37,41 +37,23 @@ codex_notify_domain_call() {
 }
 
 codex_notify_all_hooks() {
-    codex_notify_domain_call --list-hooks
+    codex_termux_cmd notify-hook --action all
 }
 
 codex_notify_hook_canonical() {
-    codex_notify_domain_call --canonical-hook "${1:-}"
+    codex_termux_cmd notify-hook --action canonical --value "${1:-}"
 }
 
 codex_notify_hook_valid() {
-    codex_notify_domain_call --hook-valid "${1:-}"
+    codex_termux_cmd notify-hook --action valid --value "${1:-}"
 }
 
 codex_notify_hooks_normalize() {
-    codex_notify_domain_call --normalize-hooks "${1:-Stop}"
+    codex_termux_cmd notify-hook --action normalize --value "${1:-Stop}"
 }
 
 codex_notify_event_label() {
     codex_notify_domain_call --event-label "${1:-}"
-}
-
-codex_notify_hook_enabled() {
-    local event hooks
-    event="$(codex_notify_hook_canonical "$1")"
-    hooks="$(codex_notify_hooks_normalize "${CODEX_TERMUX_NOTIFY_HOOKS:-Stop}")"
-    case ",$hooks," in
-        *,all,*) return 0 ;;
-        *,"$event",*) return 0 ;;
-    esac
-    case "$event" in
-        PreToolUse)
-            [ "$CODEX_TERMUX_NOTIFY_PRETOOLUSE" = "1" ]
-            ;;
-        *)
-            return 1
-            ;;
-    esac
 }
 
 codex_notify_hook_list() {
@@ -96,47 +78,17 @@ codex_notify_hook_list() {
     done
 }
 
-codex_notify_hook_command() {
-    printf '%s --event %s' "$CODEX_TERMUX_TURN_NOTIFY" "$1"
-}
-
 codex_notify_hook_status_message() {
-    codex_notify_domain_call --status-message "${1:-}"
-}
-
-codex_notify_config_hook_block() {
-    local event="$1" command="$2" timeout="${3:-10}" status_message="$4" matcher="${5:-}"
-    printf '[[hooks.%s]]\n' "$event"
-    [ -n "$matcher" ] && printf 'matcher = "%s"\n' "$matcher"
-    printf '\n'
-    printf '[[hooks.%s.hooks]]\n' "$event"
-    printf 'type = "command"\n'
-    printf 'command = "%s"\n' "$command"
-    printf 'timeout = %s\n' "$timeout"
-    printf 'statusMessage = "%s"\n' "$status_message"
+    codex_termux_cmd notify-hook --action status-message --value "${1:-}"
 }
 
 codex_notify_write_system_config() {
     local config_file="$CODEX_TERMUX_SYSTEM_CONFIG_DIR/config.toml"
-    local event
     mkdir -p "$CODEX_TERMUX_TMPDIR" "$CODEX_TERMUX_SYSTEM_CONFIG_DIR" || return $?
-    cat >"$config_file" <<'TOML'
-[sandbox_workspace_write]
-exclude_slash_tmp = true
-exclude_tmpdir_env_var = false
-TOML
     codex_notify_load_config
-    while IFS= read -r event; do
-        codex_notify_hook_enabled "$event" || continue
-        codex_notify_config_hook_block \
-            "$event" \
-            "$(codex_notify_hook_command "$event")" \
-            10 \
-            "$(codex_notify_hook_status_message "$event")" \
-            >>"$config_file"
-    done <<EOF
-$(codex_notify_hook_list)
-EOF
+    codex_termux_cmd notify-system-config \
+        --hooks "${CODEX_TERMUX_NOTIFY_HOOKS:-Stop}" \
+        --turn-notify "$CODEX_TERMUX_TURN_NOTIFY" >"$config_file"
     [ -e "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/requirements.toml" ] ||
         : >"$CODEX_TERMUX_SYSTEM_CONFIG_DIR/requirements.toml"
     [ -e "$CODEX_TERMUX_SYSTEM_CONFIG_DIR/managed_config.toml" ] ||
@@ -184,66 +136,18 @@ codex_notify_need_arg() {
     }
 }
 
-codex_notify_validate_bool() {
-    local label="$1" value="$2"
-    case "$value" in
-        0|1) return 0 ;;
-        *)
-            codex_fail "$label must be 0 or 1"
-            return 64
-            ;;
-    esac
-}
-
-codex_notify_validate_content_chars() {
-    case "${1:-}" in
-        0|full|none|unlimited) return 0 ;;
-        [1-9]*)
-            case "$1" in
-                *[!0-9]*)
-                    codex_fail "--content-chars must be a positive integer, 0, full, none, or unlimited"
-                    return 64
-                    ;;
-                *)
-                    return 0
-                    ;;
-            esac
-            ;;
-        *)
-            codex_fail "--content-chars must be a positive integer, 0, full, none, or unlimited"
-            return 64
-            ;;
-    esac
-}
-
-codex_notify_validate_hooks() {
-    local hooks="${1:-Stop}" token event event_list=()
-    case ",$hooks," in
-        *,all,*|*,ALL,*)
-            return 0
-            ;;
-    esac
-    IFS=, read -r -a event_list <<<"$hooks"
-    for token in "${event_list[@]}"; do
-        event="$(codex_notify_hook_canonical "$token")"
-        [ -n "$event" ] || continue
-        if ! codex_notify_hook_valid "$event"; then
-            codex_fail "Unknown notification hook: $token"
-            return 64
-        fi
-    done
-}
-
-codex_notify_write_config() {
-    local config_file="$1"
-    shift
-    mkdir -p "${config_file%/*}"
-    {
-        while [ $# -gt 1 ]; do
-            printf '%s=%q\n' "$1" "$2"
-            shift 2
-        done
-    } >"$config_file"
+codex_notify_render_config_env() {
+    codex_termux_cmd notify-config-env \
+        --content-chars "$1" \
+        --preserve-newlines "$2" \
+        --toast-gravity "$3" \
+        --toast-short "$4" \
+        --toast-background "$5" \
+        --toast-color "$6" \
+        --group "$7" \
+        --channel "$8" \
+        --hooks "$9" \
+        --pretooluse "${10}"
 }
 
 codex_notify_hook_ids() {
@@ -436,41 +340,22 @@ codex_notify_public() {
                 ;;
         esac
     done
-    codex_notify_validate_hooks "$hooks" || return $?
-    codex_notify_validate_bool "--pretooluse" "$pretooluse" || return $?
-    codex_notify_validate_content_chars "$content_chars" || return $?
-    codex_notify_validate_bool "--preserve-newlines" "$preserve_newlines" || return $?
-    codex_notify_validate_bool "--toast-short" "$toast_short" || return $?
-    case "$toast_gravity" in
-        ""|top|middle|bottom) ;;
-        *)
-            codex_fail "--toast-gravity must be top, middle, or bottom"
-            return 64
-            ;;
-    esac
     [ -n "$config_file" ] || {
         codex_fail "Notification config file is unavailable"
         return 66
     }
-    case "$channel" in
-        toast|notification|both) ;;
-        *)
-            codex_fail "--channel must be notification, toast, or both"
-            return 64
-            ;;
-    esac
-    hooks="$(codex_notify_hooks_normalize "$hooks")"
-    codex_notify_write_config "$config_file" \
-        CODEX_TERMUX_NOTIFY_CONTENT_CHARS "$content_chars" \
-        CODEX_TERMUX_NOTIFY_PRESERVE_NEWLINES "$preserve_newlines" \
-        CODEX_TERMUX_NOTIFY_TOAST_GRAVITY "$toast_gravity" \
-        CODEX_TERMUX_NOTIFY_TOAST_SHORT "$toast_short" \
-        CODEX_TERMUX_NOTIFY_TOAST_BACKGROUND "$toast_background" \
-        CODEX_TERMUX_NOTIFY_TOAST_COLOR "$toast_color" \
-        CODEX_TERMUX_NOTIFY_GROUP "$group" \
-        CODEX_TERMUX_NOTIFY_CHANNEL "$channel" \
-        CODEX_TERMUX_NOTIFY_HOOKS "$hooks" \
-        CODEX_TERMUX_NOTIFY_PRETOOLUSE "$pretooluse"
+    mkdir -p "${config_file%/*}"
+    codex_notify_render_config_env \
+        "$content_chars" \
+        "$preserve_newlines" \
+        "$toast_gravity" \
+        "$toast_short" \
+        "$toast_background" \
+        "$toast_color" \
+        "$group" \
+        "$channel" \
+        "$hooks" \
+        "$pretooluse" >"$config_file" || return $?
     codex_prepare_system_config || return $?
     codex_say "Saved notification settings to $config_file"
 }

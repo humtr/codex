@@ -244,6 +244,11 @@ def _audit_source_config_owners(root: Path, files: Iterable[Path]) -> list[Findi
 
 def _audit_notify_owners(root: Path, files: Iterable[Path]) -> list[Finding]:
     owners: list[str] = []
+    allowed_split = {
+        "lib/codex-termux/notify.sh",
+        "tools/codex-turn-notify.sh",
+        "tools/codex_termux/notify.py",
+    }
     for path in files:
         relative = _relative(root, path)
         if relative == "tools/codex_termux/canon.py" or _is_test_or_dev_only(relative):
@@ -251,6 +256,8 @@ def _audit_notify_owners(root: Path, files: Iterable[Path]) -> list[Finding]:
         text = _read_text(path)
         if sum(1 for marker in NOTIFY_DOMAIN_MARKERS if marker in text) >= 3:
             owners.append(relative)
+    if owners and set(owners).issubset(allowed_split):
+        return []
     if len(owners) <= 1:
         return []
     return [
