@@ -11,10 +11,13 @@ from .errors import IntegrityError, SchemaError
 
 
 ACTION_NONE = "none"
+ACTION_READY = "ready"
 ACTION_REFRESH_SUPPORT = "refresh_support"
 ACTION_REFRESH_METADATA = "refresh_metadata"
 ACTION_RESTORE_VERIFIED = "restore_verified"
 ACTION_REBUILD_CACHED = "rebuild_cached"
+ACTION_MISSING_RUNTIME = "missing_runtime"
+ACTION_RAW_CORRUPT = "raw_corrupt"
 ACTION_UNRECOVERABLE = "unrecoverable"
 
 
@@ -46,10 +49,12 @@ class RepairDiagnosis:
     runtime_layout_ok: bool
     runtime_integrity_ok: bool
     runtime_ok: bool
+    raw_available: bool
     raw_ok: bool
     metadata_current: bool
     verified_rollback_available: bool
     action: str
+    readiness_action: str
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -75,7 +80,8 @@ def diagnose(inputs: RepairInputs) -> RepairDiagnosis:
         patch_policy=inputs.patch_policy,
     )
     runtime_ok = runtime_layout_ok and runtime_integrity_ok
-    raw_ok = _executable(inputs.raw_binary) and runtime_checks.raw_integrity_ok(
+    raw_available = _executable(inputs.raw_binary)
+    raw_ok = raw_available and runtime_checks.raw_integrity_ok(
         raw_binary=inputs.raw_binary,
         state_path=inputs.state_path,
     )
@@ -101,15 +107,24 @@ def diagnose(inputs: RepairInputs) -> RepairDiagnosis:
         verified_rollback_available=verified_rollback_available,
         raw_ok=raw_ok,
     )
+    readiness_action = readiness_action_from_checks(
+        runtime_ok=runtime_ok,
+        metadata_current=metadata_current,
+        verified_rollback_available=verified_rollback_available,
+        raw_available=raw_available,
+        raw_ok=raw_ok,
+    )
     return RepairDiagnosis(
         support_ok=support_ok,
         runtime_layout_ok=runtime_layout_ok,
         runtime_integrity_ok=runtime_integrity_ok,
         runtime_ok=runtime_ok,
+        raw_available=raw_available,
         raw_ok=raw_ok,
         metadata_current=metadata_current,
         verified_rollback_available=verified_rollback_available,
         action=action,
+        readiness_action=readiness_action,
     )
 
 
@@ -130,6 +145,25 @@ def action_from_checks(
     if raw_ok:
         return ACTION_REBUILD_CACHED
     return ACTION_UNRECOVERABLE
+
+
+def readiness_action_from_checks(
+    *,
+    runtime_ok: bool,
+    metadata_current: bool,
+    verified_rollback_available: bool,
+    raw_available: bool,
+    raw_ok: bool,
+) -> str:
+    if runtime_ok:
+        return ACTION_READY if metadata_current else ACTION_REFRESH_METADATA
+    if verified_rollback_available:
+        return ACTION_RESTORE_VERIFIED
+    if not raw_available:
+        return ACTION_MISSING_RUNTIME
+    if not raw_ok:
+        return ACTION_RAW_CORRUPT
+    return ACTION_REBUILD_CACHED
 
 
 def _verified_rollback_available(

@@ -108,7 +108,7 @@ def _add_runtime_checks(sub: SubparserCollection) -> None:
         "raw-binary", "patch-policy", "wrapper-version", "wrapper-commit",
     ):
         repair_diagnose.add_argument(f"--{name}", required=True)
-    repair_diagnose.add_argument("--field", choices=("action",), default=None)
+    repair_diagnose.add_argument("--field", choices=("action", "readiness-action"), default=None)
     repair_diagnose.set_defaults(func=_repair_diagnose)
 
     runtime_layout = sub.add_parser("runtime-layout-ok")
@@ -519,6 +519,8 @@ def _repair_diagnose(args: argparse.Namespace) -> int:
     )
     if args.field == "action":
         print(diagnosis.action)
+    elif args.field == "readiness-action":
+        print(diagnosis.readiness_action)
     else:
         print(json.dumps(diagnosis.to_dict(), ensure_ascii=True, sort_keys=True))
     return 0

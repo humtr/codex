@@ -25,6 +25,16 @@ def action(**checks: bool) -> str:
     )
 
 
+def readiness(**checks: bool) -> str:
+    return repair.readiness_action_from_checks(
+        runtime_ok=checks.get("runtime_ok", True),
+        metadata_current=checks.get("metadata_current", True),
+        verified_rollback_available=checks.get("verified_rollback_available", False),
+        raw_available=checks.get("raw_available", True),
+        raw_ok=checks.get("raw_ok", True),
+    )
+
+
 assert action(support_ok=False) == repair.ACTION_REFRESH_SUPPORT
 assert action(runtime_ok=True, metadata_current=False) == repair.ACTION_REFRESH_METADATA
 assert action(runtime_ok=True, metadata_current=True) == repair.ACTION_NONE
@@ -39,6 +49,24 @@ assert (
 assert (
     action(runtime_ok=False, verified_rollback_available=False, raw_ok=False)
     == repair.ACTION_UNRECOVERABLE
+)
+assert readiness(runtime_ok=True, metadata_current=True) == repair.ACTION_READY
+assert readiness(runtime_ok=True, metadata_current=False) == repair.ACTION_REFRESH_METADATA
+assert (
+    readiness(runtime_ok=False, verified_rollback_available=True)
+    == repair.ACTION_RESTORE_VERIFIED
+)
+assert (
+    readiness(runtime_ok=False, verified_rollback_available=False, raw_available=True, raw_ok=True)
+    == repair.ACTION_REBUILD_CACHED
+)
+assert (
+    readiness(runtime_ok=False, verified_rollback_available=False, raw_available=True, raw_ok=False)
+    == repair.ACTION_RAW_CORRUPT
+)
+assert (
+    readiness(runtime_ok=False, verified_rollback_available=False, raw_available=False, raw_ok=False)
+    == repair.ACTION_MISSING_RUNTIME
 )
 PYTHON
 
@@ -88,6 +116,41 @@ support=0; metadata=0; rollback=0; cached=0
 set_actions rebuild_cached
 codex_repair_apply
 [ "$support" -eq 0 ] && [ "$metadata" -eq 1 ] && [ "$rollback" -eq 0 ] && [ "$cached" -eq 1 ]
+
+codex_repair_diagnose_action() {
+    case "$1" in
+        readiness-action)
+            local action
+            action="$(sed -n "1p" "$action_file")"
+            sed -n "2,\$p" "$action_file" >"$action_file.next"
+            mv "$action_file.next" "$action_file"
+            printf "%s\n" "$action"
+            ;;
+        *)
+            return 2
+            ;;
+    esac
+}
+
+support=0; metadata=0; rollback=0; cached=0
+set_actions refresh_metadata
+codex_ensure_runtime_ready
+[ "$support" -eq 0 ] && [ "$metadata" -eq 1 ] && [ "$rollback" -eq 0 ] && [ "$cached" -eq 0 ]
+
+support=0; metadata=0; rollback=0; cached=0
+set_actions restore_verified
+codex_ensure_runtime_ready
+[ "$support" -eq 0 ] && [ "$metadata" -eq 1 ] && [ "$rollback" -eq 1 ] && [ "$cached" -eq 0 ]
+
+support=0; metadata=0; rollback=0; cached=0
+set_actions rebuild_cached
+codex_ensure_runtime_ready
+[ "$support" -eq 0 ] && [ "$metadata" -eq 0 ] && [ "$rollback" -eq 0 ] && [ "$cached" -eq 1 ]
+
+support=0; metadata=0; rollback=0; cached=0
+set_actions ready
+codex_ensure_runtime_ready
+[ "$support" -eq 0 ] && [ "$metadata" -eq 0 ] && [ "$rollback" -eq 0 ] && [ "$cached" -eq 0 ]
 ' _ "$LIB_SH" "$TMP_DIR" || fail 'shell repair action flow failed'
 
 if rg -n 'CODEX_REPAIR_NEEDS_' "$ROOT_DIR/lib" >/dev/null; then

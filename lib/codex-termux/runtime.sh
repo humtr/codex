@@ -359,7 +359,7 @@ codex_repair_install_support() {
 }
 
 codex_repair_diagnose_action() {
-    local wrapper_version wrapper_commit
+    local field="${1:-action}" wrapper_version wrapper_commit
     wrapper_version="$(codex_current_wrapper_version)"
     wrapper_commit="$(codex_current_wrapper_commit)"
     codex_termux_cmd repair-diagnose \
@@ -381,13 +381,13 @@ codex_repair_diagnose_action() {
         --patch-policy "$CODEX_TERMUX_PATCH_POLICY" \
         --wrapper-version "$wrapper_version" \
         --wrapper-commit "$wrapper_commit" \
-        --field action
+        --field "$field"
 }
 
 codex_repair_apply() {
     local action support_attempted=0
     while :; do
-        action="$(codex_repair_diagnose_action)" || return $?
+        action="$(codex_repair_diagnose_action action)" || return $?
         case "$action" in
             none)
                 return 0
@@ -776,25 +776,39 @@ codex_try_verified_rollback() {
 
 
 codex_ensure_runtime_ready() {
-    if codex_runtime_ok; then
-        codex_refresh_runtime_metadata
-        return 0
-    fi
-    if codex_try_verified_rollback; then
-        codex_refresh_runtime_metadata
-        return 0
-    fi
-    if [ -x "$CODEX_TERMUX_RAW_VENDOR/bin/codex" ]; then
-        if ! codex_raw_integrity_ok; then
+    local action
+    action="$(codex_repair_diagnose_action readiness-action)" || return $?
+    case "$action" in
+        ready)
+            return 0
+            ;;
+        refresh_metadata)
+            codex_refresh_runtime_metadata
+            return $?
+            ;;
+        restore_verified)
+            codex_try_verified_rollback || return $?
+            codex_refresh_runtime_metadata
+            return $?
+            ;;
+        rebuild_cached)
+            codex_ui_step rebuild_cached_runtime
+            codex_runtime_install_cached
+            return $?
+            ;;
+        raw_corrupt)
             codex_fail "Cached raw package integrity check failed; run codex termux update"
             return 1
-        fi
-        codex_ui_step rebuild_cached_runtime
-        codex_runtime_install_cached
-        return $?
-    fi
-    codex_fail "Runtime is missing and no cached raw package is available; run codex termux update"
-    return 127
+            ;;
+        missing_runtime)
+            codex_fail "Runtime is missing and no cached raw package is available; run codex termux update"
+            return 127
+            ;;
+        *)
+            codex_fail "Unknown runtime readiness action: $action"
+            return 1
+            ;;
+    esac
 }
 
 
