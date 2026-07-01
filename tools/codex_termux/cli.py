@@ -9,7 +9,7 @@ import tarfile
 from pathlib import Path, PurePosixPath
 from typing import Protocol
 
-from . import activation, canon, doctor, hashing, paths, prune, registry, release, repair, runtime_checks, session, source, use
+from . import activation, canon, doctor, hashing, install_plan, paths, prune, registry, release, repair, runtime_checks, session, source, use
 from .errors import CodexTermuxError, IntegrityError
 from .schemas import ActivationPlan
 
@@ -35,6 +35,12 @@ def _build_parser() -> argparse.ArgumentParser:
     validate_wrapper_source = sub.add_parser("validate-wrapper-source")
     validate_wrapper_source.add_argument("--root", required=True)
     validate_wrapper_source.set_defaults(func=_validate_wrapper_source)
+
+    install_plan_cmd = sub.add_parser("install-plan")
+    install_plan_cmd.add_argument("--command", required=True)
+    install_plan_cmd.add_argument("--field", choices=("action", "surface", "version", "exit-code", "error"), default=None)
+    install_plan_cmd.add_argument("args", nargs=argparse.REMAINDER)
+    install_plan_cmd.set_defaults(func=_install_plan)
 
     canon_audit = sub.add_parser("canon-audit")
     canon_audit.add_argument("--root", default=None)
@@ -275,6 +281,16 @@ def _wrapper_source_missing(args: argparse.Namespace) -> int:
 
 def _validate_wrapper_source(args: argparse.Namespace) -> int:
     return 0 if source.is_wrapper_source(Path(args.root)) else 1
+
+
+def _install_plan(args: argparse.Namespace) -> int:
+    result = install_plan.plan(args.command, list(args.args)).to_dict()
+    if args.field:
+        key = args.field.replace("-", "_")
+        print(result[key])
+    else:
+        print(json.dumps(result, ensure_ascii=True, sort_keys=True))
+    return 0
 
 
 def _removed_contract_terms() -> tuple[str, ...]:

@@ -391,31 +391,10 @@ codex_install_launchers() {
     fi
 }
 
-codex_validate_optional_version_arg() {
-    local command_name="$1"
-    shift
-    case $# in
-        0)
-            return 0
-            ;;
-        1)
-            case "$1" in
-                -h|--help|help)
-                    usage
-                    return 65
-                    ;;
-                -*)
-                    codex_fail "$command_name version must not start with '-': $1"
-                    return 64
-                    ;;
-            esac
-            return 0
-            ;;
-        *)
-            codex_fail "$command_name takes at most one version argument"
-            return 64
-            ;;
-    esac
+codex_install_plan_field() {
+    local command="$1" field="$2"
+    shift 2
+    codex_termux_cmd install-plan --command "$command" --field "$field" -- "$@"
 }
 
 codex_install_surface_message() {
@@ -506,12 +485,7 @@ codex_install_full_unlocked() {
 }
 
 codex_install_full_core() {
-    local status=0 validate_status=0
-    codex_validate_optional_version_arg "install" "$@" || validate_status=$?
-    if [ "$validate_status" -ne 0 ]; then
-        [ "$validate_status" -eq 65 ] && return 0
-        return "$validate_status"
-    fi
+    local status=0
     codex_with_lock codex_install_full_unlocked "${1:-}" || status=$?
     [ "$status" -eq 0 ] || codex_status_clear
     return "$status"
@@ -531,22 +505,12 @@ codex_install_support_unlocked() {
 
 codex_install_support_core() {
     local status=0
-    [ $# -eq 0 ] || {
-        codex_fail "install support does not take arguments"
-        return 2
-    }
     codex_with_lock codex_install_support_unlocked || status=$?
     [ "$status" -eq 0 ] || codex_status_clear
     return "$status"
 }
 
 codex_install_upstream_core() {
-    local validate_status=0
-    codex_validate_optional_version_arg "install upstream" "$@" || validate_status=$?
-    if [ "$validate_status" -ne 0 ]; then
-        [ "$validate_status" -eq 65 ] && return 0
-        return "$validate_status"
-    fi
     codex_runtime_install_upstream "${1:-}"
 }
 
@@ -567,10 +531,6 @@ codex_install_rebuild_unlocked() {
 
 codex_install_rebuild_core() {
     local status=0
-    [ $# -eq 0 ] || {
-        codex_fail "install rebuild does not take arguments"
-        return 2
-    }
     codex_with_lock codex_install_rebuild_unlocked || status=$?
     [ "$status" -eq 0 ] || codex_status_clear
     return "$status"
@@ -578,77 +538,54 @@ codex_install_rebuild_core() {
 
 codex_repair_core() {
     local status=0
-    [ $# -eq 0 ] || {
-        codex_fail "repair does not take arguments"
-        return 2
-    }
     codex_with_lock codex_repair_core_unlocked || status=$?
     [ "$status" -eq 0 ] || codex_status_clear
     return "$status"
 }
 
-codex_install_dispatch() {
-    local validate_status=0
-    case "${1:-}" in
-        ""|-h|--help|help)
-            if [ "${1:-}" = "" ]; then
-                codex_install_surface_run install "${1:-}" codex_install_full_core
-            else
-                usage
-            fi
+codex_install_run_plan() {
+    local command="$1" action surface version exit_code error
+    shift
+    action="$(codex_install_plan_field "$command" action "$@")" || return $?
+    surface="$(codex_install_plan_field "$command" surface "$@")" || return $?
+    version="$(codex_install_plan_field "$command" version "$@")" || return $?
+    case "$action" in
+        usage)
+            usage
+            ;;
+        error)
+            exit_code="$(codex_install_plan_field "$command" exit-code "$@")" || return $?
+            error="$(codex_install_plan_field "$command" error "$@")" || return $?
+            codex_fail "$error"
+            return "$exit_code"
+            ;;
+        install_full)
+            codex_install_surface_run "$surface" "$version" codex_install_full_core "$version"
             ;;
         support)
-            shift
-            case "${1:-}" in
-                -h|--help|help)
-                    usage
-                    ;;
-                *)
-                    [ $# -eq 0 ] || {
-                        codex_fail "install support does not take arguments"
-                        return 2
-                    }
-                    codex_install_surface_run support "" codex_install_support_core "$@"
-                    ;;
-            esac
+            codex_install_surface_run "$surface" "" codex_install_support_core
             ;;
         upstream)
-            shift
-            codex_validate_optional_version_arg "install upstream" "$@" || validate_status=$?
-            if [ "$validate_status" -ne 0 ]; then
-                [ "$validate_status" -eq 65 ] && return 0
-                return "$validate_status"
-            fi
-            codex_install_surface_run upstream "${1:-}" codex_install_upstream_core "$@"
+            codex_install_surface_run "$surface" "$version" codex_install_upstream_core "$version"
             ;;
         rebuild)
-            shift
-            case "${1:-}" in
-                -h|--help|help)
-                    usage
-                    ;;
-                *)
-                    [ $# -eq 0 ] || {
-                        codex_fail "install rebuild does not take arguments"
-                        return 2
-                    }
-                    codex_install_surface_run rebuild "" codex_install_rebuild_core "$@"
-                    ;;
-            esac
+            codex_install_surface_run "$surface" "" codex_install_rebuild_core
+            ;;
+        repair)
+            codex_install_surface_run "$surface" "" codex_repair_core
             ;;
         *)
-            codex_validate_optional_version_arg "install" "$@" || validate_status=$?
-            if [ "$validate_status" -ne 0 ]; then
-                [ "$validate_status" -eq 65 ] && return 0
-                return "$validate_status"
-            fi
-            codex_install_surface_run install "${1:-}" codex_install_full_core "$@"
+            codex_fail "Unknown install plan action: $action"
+            return 1
             ;;
     esac
 }
 
+codex_install_dispatch() {
+    codex_install_run_plan install "$@"
+}
+
 main() {
-    local validate_status=0
     case "${1:-install}" in
         install)
             shift || true
@@ -656,35 +593,11 @@ main() {
             ;;
         repair)
             shift || true
-            case "${1:-}" in
-                "" )
-                    codex_install_surface_run repair "" codex_repair_core
-                    ;;
-                -h|--help|help)
-                    usage
-                    ;;
-                *)
-                    codex_fail "repair does not take arguments"
-                    exit 2
-                    ;;
-            esac
+            codex_install_run_plan repair "$@"
             ;;
         update)
             shift || true
-            case "${1:-}" in
-                -h|--help|help)
-                    usage
-                    ;;
-                *)
-                    validate_status=0
-                    codex_validate_optional_version_arg "update" "$@" || validate_status=$?
-                    if [ "$validate_status" -ne 0 ]; then
-                        [ "$validate_status" -eq 65 ] && return 0
-                        return "$validate_status"
-                    fi
-                    codex_install_surface_run update "${1:-}" codex_install_full_core "$@"
-                    ;;
-            esac
+            codex_install_run_plan update "$@"
             ;;
         setup)
             printf 'The setup command is reserved for configuration. Use install, update, or repair.\n' >&2
