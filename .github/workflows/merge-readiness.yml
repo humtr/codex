@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - 'refactor/**'
+      - 'ops/**'
   workflow_dispatch:
 
 jobs:
@@ -18,7 +19,11 @@ jobs:
       CODEX_TERMUX_TEST_TIMEOUT_SECONDS: "30"
       CODEX_TERMUX_TARBALL_VALIDATOR_TIMEOUT_SECONDS: "10"
       CODEX_TERMUX_TEST_RERUN_FAILED_XTRACE: "1"
-      CODEX_MERGE_READINESS_ARTIFACT_NAME: codex-agent-handoff-${{ github.sha }}
+      CODEX_MERGE_READINESS_MODE: full
+      CODEX_MERGE_READINESS_WORKFLOW_SHA: ${{ github.sha }}
+      CODEX_MERGE_READINESS_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || '' }}
+      CODEX_MERGE_READINESS_ARTIFACT_SHA_KIND: workflow_sha
+      CODEX_MERGE_READINESS_ARTIFACT_NAME: codex-agent-handoff-workflow-${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -32,7 +37,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: codex-agent-handoff-${{ github.sha }}
+          name: ${{ env.CODEX_MERGE_READINESS_ARTIFACT_NAME }}
           path: |
             out/merge-readiness/**
             merge_readiness_report.json
@@ -42,7 +47,7 @@ jobs:
           python3 - <<'PY'
           import json, sys
           data=json.load(open('merge_readiness_report.json', encoding='utf-8'))
-          if data.get('merge_readiness')!='ready':
+          if data.get('mode')!='full' or data.get('merge_readiness')!='ready':
               print(json.dumps(data, indent=2, sort_keys=True))
               sys.exit(1)
           PY
