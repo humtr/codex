@@ -407,7 +407,13 @@ codex_termux_package_root() {
 codex_termux_cmd() {
     local package_root
     package_root="$(codex_termux_package_root)" || return 1
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$package_root${PYTHONPATH:+:$PYTHONPATH}" python3 -B -m codex_termux.cli "$@"
+    CODEX_TERMUX_HOME="$CODEX_TERMUX_HOME" \
+    CODEX_TERMUX_PROFILE_ROOT="$CODEX_TERMUX_PROFILE_ROOT" \
+    CODEX_TERMUX_STATE_DIR="$CODEX_TERMUX_STATE_DIR" \
+    CODEX_TERMUX_LAST_PROFILE_FILE="$CODEX_TERMUX_LAST_PROFILE_FILE" \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH="$package_root${PYTHONPATH:+:$PYTHONPATH}" \
+        python3 -B -m codex_termux.cli "$@"
 }
 
 codex_termux_activation_cmd() {

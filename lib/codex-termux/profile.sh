@@ -2,84 +2,39 @@
 # This file is sourced by ../codex-termux.sh; do not execute directly.
 
 codex_profile_name_valid() {
-    local profile="${1:-}"
-    case "$profile" in
-        ""|default) return 0 ;;
-        termux|-*|.*|*/*|*..*|*[[:space:]]*) return 1 ;;
-        *) return 0 ;;
-    esac
+    codex_termux_cmd profile-validate --profile "${1:-}"
 }
 
 codex_profile_home_dir() {
-    local profile="${1:-default}"
-    if [ -z "$profile" ] || [ "$profile" = "default" ]; then
-        printf '%s\n' "$CODEX_TERMUX_HOME/.codex"
-    else
-        printf '%s/%s\n' "$CODEX_TERMUX_PROFILE_ROOT" "$profile"
-    fi
+    codex_termux_cmd profile-dir --profile "${1:-default}"
 }
 
 codex_profile_label() {
-    local profile="${1:-default}"
-    if [ -z "$profile" ] || [ "$profile" = "default" ]; then
-        printf 'default\n'
-    else
-        printf '%s\n' "$profile"
-    fi
+    codex_termux_cmd profile-display-name --profile "${1:-default}"
 }
 
 codex_profile_default_p() {
-    local profile="${1:-default}"
-    [ -z "$profile" ] || [ "$profile" = "default" ]
+    codex_termux_cmd profile-is-default --profile "${1:-default}"
 }
 
 codex_profile_choice_name() {
-    local choice="${1:-}"
-    case "$choice" in
-        ""|home|default) printf 'default\n' ;;
-        *) printf '%s\n' "$choice" ;;
-    esac
+    codex_termux_cmd profile-choice-to-name --choice "${1:-}"
 }
 
 codex_profile_recent_write() {
-    local profile="${1:-default}"
-    mkdir -p "$CODEX_TERMUX_STATE_DIR"
-    printf '%s\n' "$profile" >"$CODEX_TERMUX_LAST_PROFILE_FILE"
+    codex_termux_cmd profile-write-recent --profile "${1:-default}"
 }
 
 codex_profile_recent_read() {
-    local profile
-    profile="$(cat "$CODEX_TERMUX_LAST_PROFILE_FILE" 2>/dev/null || true)"
-    profile="$(codex_profile_choice_name "$profile")"
-    codex_profile_name_valid "$profile" || {
-        printf 'default\n'
-        return 0
-    }
-    if [ "$profile" != "default" ] && [ ! -d "$(codex_profile_home_dir "$profile")" ]; then
-        printf 'default\n'
-        return 0
-    fi
-    printf '%s\n' "$profile"
+    codex_termux_cmd profile-read-recent
 }
 
 codex_profile_menu_items() {
-    local profile
-    printf 'default\n'
-    while IFS= read -r profile; do
-        [ "$profile" = "default" ] && continue
-        printf '%s\n' "$profile"
-    done < <(codex_list_profiles)
+    codex_termux_cmd profile-menu-ids
 }
 
 codex_list_profiles() {
-    local root="$CODEX_TERMUX_PROFILE_ROOT" profile
-    [ -d "$root" ] || return 0
-    while IFS= read -r profile; do
-        codex_profile_name_valid "$profile" || continue
-        [ "$profile" = "default" ] && continue
-        printf '%s\n' "$profile"
-    done < <(find "$root" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null) \
-        | LC_ALL=C sort -f
+    codex_termux_cmd profile-list
 }
 
 codex_profile_note() {
