@@ -348,26 +348,6 @@ codex_runtime_install_cached() {
     return "$status"
 }
 
-CODEX_REPAIR_NEEDS_SUPPORT=0
-CODEX_REPAIR_NEEDS_RUNTIME=0
-CODEX_REPAIR_NEEDS_METADATA=0
-CODEX_REPAIR_RAW_OK=0
-
-codex_repair_diagnose() {
-    CODEX_REPAIR_NEEDS_SUPPORT=0
-    CODEX_REPAIR_NEEDS_RUNTIME=0
-    CODEX_REPAIR_NEEDS_METADATA=0
-    CODEX_REPAIR_RAW_OK=0
-
-    codex_support_layer_ok || CODEX_REPAIR_NEEDS_SUPPORT=1
-    codex_raw_integrity_ok && CODEX_REPAIR_RAW_OK=1
-    if codex_runtime_ok; then
-        codex_runtime_metadata_current || CODEX_REPAIR_NEEDS_METADATA=1
-    else
-        CODEX_REPAIR_NEEDS_RUNTIME=1
-    fi
-}
-
 codex_repair_install_support() {
     local source
     source="$(codex_install_source_command)" || {
@@ -378,36 +358,78 @@ codex_repair_install_support() {
     CODEX_TERMUX_INSTALL_PRINT_VERSION=0 CODEX_TERMUX_INSTALL_SURFACE=0 bash "$source" install support >/dev/null
 }
 
+codex_repair_diagnose_action() {
+    local wrapper_version wrapper_commit
+    wrapper_version="$(codex_current_wrapper_version)"
+    wrapper_commit="$(codex_current_wrapper_commit)"
+    codex_termux_cmd repair-diagnose \
+        --managed-shell "$CODEX_TERMUX_MANAGED_SHELL" \
+        --manager-dir "$CODEX_TERMUX_MANAGER_DIR" \
+        --public-codex "$CODEX_TERMUX_PUBLIC_CODEX" \
+        --marker "$CODEX_TERMUX_MANAGED_LAUNCHER_MARKER" \
+        --runtime-dir "$CODEX_TERMUX_RUNTIME_DIR" \
+        --runtime "$CODEX_TERMUX_RUNTIME" \
+        --support-dir "$(codex_support_source_dir)" \
+        --manifest-path "$CODEX_TERMUX_RUNTIME_DIR/runtime-build.json" \
+        --builder "$CODEX_TERMUX_RUNTIME_BUILDER" \
+        --state-path "$CODEX_TERMUX_STATE_FILE" \
+        --registry-path "$CODEX_TERMUX_REGISTRY_FILE" \
+        --current "$CODEX_TERMUX_RUNTIME_DIR" \
+        --verified "$CODEX_TERMUX_VERIFIED_LINK" \
+        --raw "$CODEX_TERMUX_RAW_DIR" \
+        --raw-binary "$CODEX_TERMUX_RAW_VENDOR/bin/codex" \
+        --patch-policy "$CODEX_TERMUX_PATCH_POLICY" \
+        --wrapper-version "$wrapper_version" \
+        --wrapper-commit "$wrapper_commit" \
+        --field action
+}
+
 codex_repair_apply() {
-    if [ "$CODEX_REPAIR_NEEDS_SUPPORT" = "1" ]; then
-        codex_repair_install_support || return $?
-    fi
-
-    if codex_runtime_ok; then
-        if ! codex_runtime_metadata_current; then
-            codex_ui_step repair_metadata
-            codex_refresh_runtime_metadata || return $?
-        fi
-        return 0
-    fi
-
-    if codex_try_verified_rollback; then
-        codex_refresh_runtime_metadata || return $?
-        return 0
-    fi
-
-    codex_raw_integrity_ok || {
-        codex_fail "Runtime is damaged and cached raw is unavailable or invalid; run codex termux update"
-        return 1
-    }
-    codex_ui_step repair_runtime
-    codex_runtime_install_cached || return $?
-    codex_refresh_runtime_metadata
+    local action support_attempted=0
+    while :; do
+        action="$(codex_repair_diagnose_action)" || return $?
+        case "$action" in
+            none)
+                return 0
+                ;;
+            refresh_support)
+                if [ "$support_attempted" = "1" ]; then
+                    codex_fail "Support layer repair did not complete; run bash install.sh from a wrapper checkout"
+                    return 1
+                fi
+                support_attempted=1
+                codex_repair_install_support || return $?
+                ;;
+            refresh_metadata)
+                codex_ui_step repair_metadata
+                codex_refresh_runtime_metadata
+                return $?
+                ;;
+            restore_verified)
+                codex_try_verified_rollback || return $?
+                codex_refresh_runtime_metadata
+                return $?
+                ;;
+            rebuild_cached)
+                codex_ui_step repair_runtime
+                codex_runtime_install_cached || return $?
+                codex_refresh_runtime_metadata
+                return $?
+                ;;
+            unrecoverable)
+                codex_fail "Runtime is damaged and cached raw is unavailable or invalid; run codex termux update"
+                return 1
+                ;;
+            *)
+                codex_fail "Unknown repair action: $action"
+                return 1
+                ;;
+        esac
+    done
 }
 
 codex_repair_core_unlocked() {
     codex_validate_runtime_retention || return $?
-    codex_repair_diagnose
     codex_repair_apply
 }
 

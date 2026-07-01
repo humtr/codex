@@ -9,7 +9,7 @@ import tarfile
 from pathlib import Path, PurePosixPath
 from typing import Protocol
 
-from . import activation, canon, doctor, hashing, paths, prune, registry, release, runtime_checks, session, source, use
+from . import activation, canon, doctor, hashing, paths, prune, registry, release, repair, runtime_checks, session, source, use
 from .errors import CodexTermuxError, IntegrityError
 from .schemas import ActivationPlan
 
@@ -100,6 +100,17 @@ def _add_hash_and_package(sub: SubparserCollection) -> None:
 
 
 def _add_runtime_checks(sub: SubparserCollection) -> None:
+    repair_diagnose = sub.add_parser("repair-diagnose")
+    for name in (
+        "managed-shell", "manager-dir", "public-codex", "marker",
+        "runtime-dir", "runtime", "support-dir", "manifest-path", "builder",
+        "state-path", "registry-path", "current", "verified", "raw",
+        "raw-binary", "patch-policy", "wrapper-version", "wrapper-commit",
+    ):
+        repair_diagnose.add_argument(f"--{name}", required=True)
+    repair_diagnose.add_argument("--field", choices=("action",), default=None)
+    repair_diagnose.set_defaults(func=_repair_diagnose)
+
     runtime_layout = sub.add_parser("runtime-layout-ok")
     for name in ("runtime-dir", "runtime", "support-dir"):
         runtime_layout.add_argument(f"--{name}", required=True)
@@ -481,6 +492,36 @@ def _runtime_metadata_current(args: argparse.Namespace) -> int:
         wrapper_version=args.wrapper_version,
         wrapper_commit=args.wrapper_commit,
     ) else 1
+
+
+def _repair_diagnose(args: argparse.Namespace) -> int:
+    diagnosis = repair.diagnose(
+        repair.RepairInputs(
+            managed_shell=Path(args.managed_shell),
+            manager_dir=Path(args.manager_dir),
+            public_codex=Path(args.public_codex),
+            marker=args.marker,
+            runtime_dir=Path(args.runtime_dir),
+            runtime=Path(args.runtime),
+            support_dir=Path(args.support_dir),
+            manifest_path=Path(args.manifest_path),
+            builder=Path(args.builder),
+            state_path=Path(args.state_path),
+            registry_path=Path(args.registry_path),
+            current=Path(args.current),
+            verified=Path(args.verified),
+            raw=Path(args.raw),
+            raw_binary=Path(args.raw_binary),
+            patch_policy=args.patch_policy,
+            wrapper_version=args.wrapper_version,
+            wrapper_commit=args.wrapper_commit,
+        )
+    )
+    if args.field == "action":
+        print(diagnosis.action)
+    else:
+        print(json.dumps(diagnosis.to_dict(), ensure_ascii=True, sort_keys=True))
+    return 0
 
 
 def _prune(args: argparse.Namespace) -> int:
