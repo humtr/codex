@@ -135,6 +135,7 @@ for test_script in \
     "$ROOT_DIR/tests/lock.sh" \
     "$ROOT_DIR/tests/install-plan.sh" \
     "$ROOT_DIR/tests/install-dispatch.sh" \
+    "$ROOT_DIR/tests/source-plan.sh" \
     "$ROOT_DIR/tests/wrapper-contracts.sh" \
     "$ROOT_DIR/tests/repair-diagnosis.sh" \
     "$ROOT_DIR/tests/doctor.sh" \

@@ -36,6 +36,12 @@ def _build_parser() -> argparse.ArgumentParser:
     validate_wrapper_source.add_argument("--root", required=True)
     validate_wrapper_source.set_defaults(func=_validate_wrapper_source)
 
+    wrapper_source_plan = sub.add_parser("wrapper-source-plan")
+    for name in ("repo", "ref", "release-url", "release-repo", "release-tag", "local-root"):
+        wrapper_source_plan.add_argument(f"--{name}", default="")
+    wrapper_source_plan.add_argument("--field", choices=("kind", "git-url", "release-url", "label", "local-root"), default=None)
+    wrapper_source_plan.set_defaults(func=_wrapper_source_plan)
+
     install_plan_cmd = sub.add_parser("install-plan")
     install_plan_cmd.add_argument("--command", required=True)
     install_plan_cmd.add_argument("--field", choices=("action", "surface", "version", "exit-code", "error"), default=None)
@@ -288,6 +294,22 @@ def _install_plan(args: argparse.Namespace) -> int:
     if args.field:
         key = args.field.replace("-", "_")
         print(result[key])
+    else:
+        print(json.dumps(result, ensure_ascii=True, sort_keys=True))
+    return 0
+
+
+def _wrapper_source_plan(args: argparse.Namespace) -> int:
+    result = source.wrapper_source_plan(
+        repo=args.repo,
+        ref=args.ref,
+        release_url=args.release_url,
+        release_repo=args.release_repo,
+        release_tag=args.release_tag,
+        local_root=args.local_root,
+    ).to_dict()
+    if args.field:
+        print(result[args.field.replace("-", "_")])
     else:
         print(json.dumps(result, ensure_ascii=True, sort_keys=True))
     return 0

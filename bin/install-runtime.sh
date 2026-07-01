@@ -56,6 +56,19 @@ codex_require_wrapper_source() {
     fi
 }
 
+codex_wrapper_source_plan_field() {
+    local field="$1"
+    codex_normalize_wrapper_source_config
+    codex_termux_cmd wrapper-source-plan \
+        --repo "${CODEX_TERMUX_WRAPPER_REPO:-}" \
+        --ref "${CODEX_TERMUX_WRAPPER_REF:-}" \
+        --release-url "${CODEX_TERMUX_WRAPPER_RELEASE_URL:-}" \
+        --release-repo "${CODEX_TERMUX_WRAPPER_RELEASE_REPO:-}" \
+        --release-tag "${CODEX_TERMUX_WRAPPER_RELEASE_TAG:-}" \
+        --local-root "$ROOT_DIR" \
+        --field "$field"
+}
+
 codex_find_extracted_wrapper_source() {
     local extract_dir="$1" candidate
     if codex_validate_wrapper_source "$extract_dir"; then
@@ -97,11 +110,8 @@ codex_download_wrapper_archive() {
 }
 
 codex_fetch_release_wrapper_source() {
-    local url="${CODEX_TERMUX_WRAPPER_RELEASE_URL:-}" repo="${CODEX_TERMUX_WRAPPER_RELEASE_REPO:-}" tag="${CODEX_TERMUX_WRAPPER_RELEASE_TAG:-}"
-    local tmp archive extract source_dir actual_sha expected_sha
-    if [ -z "$url" ] && [ -n "$repo" ] && [ -n "$tag" ]; then
-        url="https://github.com/$repo/archive/refs/tags/$tag.tar.gz"
-    fi
+    local url tmp archive extract source_dir actual_sha expected_sha
+    url="$(codex_wrapper_source_plan_field release-url)" || return $?
     [ -n "$url" ] || return 1
     tmp="$(codex_mktemp_dir codex-wrapper-release)" || return 1
     archive="$tmp/wrapper.tar.gz"
@@ -140,19 +150,8 @@ codex_fetch_release_wrapper_source() {
 }
 
 codex_git_wrapper_source_url() {
-    codex_normalize_wrapper_source_config
-    if [ -n "${CODEX_TERMUX_WRAPPER_REPO:-}" ]; then
-        case "$CODEX_TERMUX_WRAPPER_REPO" in
-            https://*|http://*|git@*|ssh://*)
-                printf '%s\n' "$CODEX_TERMUX_WRAPPER_REPO"
-                ;;
-            *)
-                printf 'https://github.com/%s.git\n' "$CODEX_TERMUX_WRAPPER_REPO"
-                ;;
-        esac
-        return 0
-    fi
-    return 1
+    [ "$(codex_wrapper_source_plan_field kind)" = "git" ] || return 1
+    codex_wrapper_source_plan_field git-url
 }
 
 codex_prepare_git_askpass() {
@@ -177,11 +176,7 @@ codex_git_clone_wrapper_source() {
     token="$(codex_wrapper_auth_token || true)"
     tmp="$(codex_mktemp_dir codex-wrapper-git)" || return 1
     checkout="$tmp/checkout"
-    if [ -n "${CODEX_TERMUX_WRAPPER_REPO:-}" ]; then
-        CODEX_TERMUX_WRAPPER_SOURCE_LABEL="github.com/${CODEX_TERMUX_WRAPPER_REPO}${ref:+@$ref}"
-    else
-        CODEX_TERMUX_WRAPPER_SOURCE_LABEL="$url${ref:+@$ref}"
-    fi
+    CODEX_TERMUX_WRAPPER_SOURCE_LABEL="$(codex_wrapper_source_plan_field label)"
     codex_status "Fetching wrapper source: $CODEX_TERMUX_WRAPPER_SOURCE_LABEL"
     codex_prepare_git_askpass "$token" "$tmp"
     if [ -n "$ref" ]; then
@@ -210,27 +205,33 @@ codex_git_clone_wrapper_source() {
 }
 
 codex_git_wrapper_source_configured() {
-    codex_normalize_wrapper_source_config
-    [ -n "${CODEX_TERMUX_WRAPPER_REPO:-}" ]
+    [ "$(codex_wrapper_source_plan_field kind)" = "git" ]
 }
 
 codex_release_wrapper_source_configured() {
-    [ -n "${CODEX_TERMUX_WRAPPER_RELEASE_URL:-}" ] ||
-        { [ -n "${CODEX_TERMUX_WRAPPER_RELEASE_REPO:-}" ] && [ -n "${CODEX_TERMUX_WRAPPER_RELEASE_TAG:-}" ]; }
+    [ "$(codex_wrapper_source_plan_field kind)" = "release" ]
 }
 
 codex_prepare_fresh_wrapper_source() {
-    if codex_git_wrapper_source_configured; then
-        codex_git_clone_wrapper_source
-        return $?
-    fi
-    if codex_release_wrapper_source_configured; then
-        codex_fetch_release_wrapper_source
-        return $?
-    fi
-    CODEX_TERMUX_WRAPPER_SOURCE_DIR="$ROOT_DIR"
-    CODEX_TERMUX_WRAPPER_SOURCE_LABEL="local $ROOT_DIR"
-    codex_validate_wrapper_source "$CODEX_TERMUX_WRAPPER_SOURCE_DIR"
+    local kind
+    kind="$(codex_wrapper_source_plan_field kind)" || return $?
+    case "$kind" in
+        git)
+            codex_git_clone_wrapper_source
+            ;;
+        release)
+            codex_fetch_release_wrapper_source
+            ;;
+        local)
+            CODEX_TERMUX_WRAPPER_SOURCE_DIR="$ROOT_DIR"
+            CODEX_TERMUX_WRAPPER_SOURCE_LABEL="$(codex_wrapper_source_plan_field label)"
+            codex_validate_wrapper_source "$CODEX_TERMUX_WRAPPER_SOURCE_DIR"
+            ;;
+        *)
+            codex_fail "Unknown wrapper source kind: $kind"
+            return 1
+            ;;
+    esac
 }
 
 codex_cleanup_fresh_wrapper_source() {

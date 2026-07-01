@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from .errors import IntegrityError
@@ -47,3 +48,59 @@ def require_wrapper_source(root: Path, label: str) -> None:
     if missing:
         missing_text = " ".join(missing)
         raise IntegrityError(f"{label} does not contain a valid wrapper source (missing: {missing_text})")
+
+
+@dataclass(frozen=True)
+class WrapperSourcePlan:
+    kind: str
+    git_url: str = ""
+    release_url: str = ""
+    label: str = ""
+    local_root: str = ""
+
+    def to_dict(self) -> dict[str, str]:
+        return asdict(self)
+
+
+def wrapper_source_plan(
+    *,
+    repo: str = "",
+    ref: str = "",
+    release_url: str = "",
+    release_repo: str = "",
+    release_tag: str = "",
+    local_root: str = "",
+) -> WrapperSourcePlan:
+    if repo:
+        git_url = _git_url(repo)
+        label = _git_label(repo, ref)
+        return WrapperSourcePlan(kind="git", git_url=git_url, label=label)
+    resolved_release_url = _release_url(release_url, release_repo, release_tag)
+    if resolved_release_url:
+        return WrapperSourcePlan(
+            kind="release",
+            release_url=resolved_release_url,
+            label="release archive",
+        )
+    return WrapperSourcePlan(kind="local", local_root=local_root, label=f"local {local_root}")
+
+
+def _git_url(repo: str) -> str:
+    if repo.startswith(("https://", "http://", "git@", "ssh://")):
+        return repo
+    return f"https://github.com/{repo}.git"
+
+
+def _git_label(repo: str, ref: str) -> str:
+    suffix = f"@{ref}" if ref else ""
+    if repo.startswith(("https://", "http://", "git@", "ssh://")):
+        return f"{repo}{suffix}"
+    return f"github.com/{repo}{suffix}"
+
+
+def _release_url(release_url: str, release_repo: str, release_tag: str) -> str:
+    if release_url:
+        return release_url
+    if release_repo and release_tag:
+        return f"https://github.com/{release_repo}/archive/refs/tags/{release_tag}.tar.gz"
+    return ""
