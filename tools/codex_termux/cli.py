@@ -9,7 +9,7 @@ import tarfile
 from pathlib import Path, PurePosixPath
 from typing import Protocol
 
-from . import activation, canon, doctor, hashing, paths, prune, registry, runtime_checks, session, use
+from . import activation, canon, doctor, hashing, paths, prune, registry, runtime_checks, session, source, use
 from .errors import CodexTermuxError, IntegrityError
 from .schemas import ActivationPlan
 
@@ -27,6 +27,14 @@ def _build_parser() -> argparse.ArgumentParser:
     validate = sub.add_parser("validate")
     validate.add_argument("--root", default=None)
     validate.set_defaults(func=_validate_wrapper)
+
+    wrapper_source_missing = sub.add_parser("wrapper-source-missing")
+    wrapper_source_missing.add_argument("--root", required=True)
+    wrapper_source_missing.set_defaults(func=_wrapper_source_missing)
+
+    validate_wrapper_source = sub.add_parser("validate-wrapper-source")
+    validate_wrapper_source.add_argument("--root", required=True)
+    validate_wrapper_source.set_defaults(func=_validate_wrapper_source)
 
     canon_audit = sub.add_parser("canon-audit")
     canon_audit.add_argument("--root", default=None)
@@ -229,27 +237,18 @@ def _validate_root(requested: Path | None) -> Path:
 
 
 def _validate_required_layout(root: Path) -> None:
-    required = (
-        "install.sh",
-        "bin/install-runtime.sh",
-        "lib/codex-termux.sh",
-        "lib/codex-termux/dispatch.sh",
-        "lib/codex-termux/state.sh",
-        "lib/codex-termux/profile.sh",
-        "lib/codex-termux/session.sh",
-        "lib/codex-termux/runtime.sh",
-        "lib/codex-termux/notify.sh",
-        "lib/codex-termux/doctor.sh",
-        "codex-wrapper.manifest.json",
-        "tools/build-runtime.py",
-        "tools/bwrap-termux-compat.py",
-        "tools/rg-termux-shim.sh",
-        "tools/codex_termux/cli.py",
-        "config/wrapper-version.env",
-    )
-    for relative in required:
-        if not (root / relative).is_file():
-            raise IntegrityError(f"required wrapper file is missing: {relative}")
+    for relative in source.missing_wrapper_source_paths(root):
+        raise IntegrityError(f"required wrapper path is missing: {relative}")
+
+
+def _wrapper_source_missing(args: argparse.Namespace) -> int:
+    for relative in source.missing_wrapper_source_paths(Path(args.root)):
+        print(relative)
+    return 0
+
+
+def _validate_wrapper_source(args: argparse.Namespace) -> int:
+    return 0 if source.is_wrapper_source(Path(args.root)) else 1
 
 
 def _removed_contract_terms() -> tuple[str, ...]:

@@ -39,40 +39,12 @@ codex_source_commit() {
     fi
 }
 
-codex_wrapper_source_required_paths() {
-    printf '%s\n' \
-        install.sh \
-        bin/install-local.sh \
-        bin/install-runtime.sh \
-        lib/codex-termux.sh \
-        lib/codex-termux/dispatch.sh \
-        lib/codex-termux/state.sh \
-        lib/codex-termux/profile.sh \
-        lib/codex-termux/session.sh \
-        lib/codex-termux/runtime.sh \
-        lib/codex-termux/notify.sh \
-        lib/codex-termux/doctor.sh \
-        codex-wrapper.manifest.json \
-        tools/build-runtime.py \
-        tools/bwrap-termux-compat.py \
-        tools/rg-termux-shim.sh \
-        tools/codex-turn-notify.sh \
-        tools/codex-launcher.c \
-        tools/codex_termux \
-        config/wrapper-version.env
-}
-
 codex_missing_wrapper_source_paths() {
-    local source_dir="$1" required
-    while IFS= read -r required; do
-        [ -e "$source_dir/$required" ] || printf '%s\n' "$required"
-    done <<EOF
-$(codex_wrapper_source_required_paths)
-EOF
+    codex_termux_cmd wrapper-source-missing --root "$1"
 }
 
 codex_validate_wrapper_source() {
-    [ -z "$(codex_missing_wrapper_source_paths "$1")" ]
+    codex_termux_cmd validate-wrapper-source --root "$1" >/dev/null
 }
 
 codex_require_wrapper_source() {
