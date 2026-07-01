@@ -277,31 +277,63 @@ CODEX_TERMUX_AUTO_UPDATE=0 CODEX_TERMUX_RUN_REBUILD_SMOKE=1 \
 
 ## Acceptance Ledger
 
-- [ ] Phase 5-B runtime readiness diagnosis implemented.
-- [ ] Phase 6 install/rebuild/update plan model implemented.
-- [ ] Phase 7 wrapper source resolution model implemented.
-- [ ] Phase 8 notify option/config boundary tightened.
-- [ ] Phase 9 profile/use boundary tightened.
-- [ ] Phase 10 shell budget and regression guards implemented.
-- [ ] Phase 11 runtime action vocabulary consolidated.
+- [x] Phase 5-B runtime readiness diagnosis implemented.
+- [x] Phase 6 install/rebuild/update plan model implemented.
+- [x] Phase 7 wrapper source resolution model implemented.
+- [x] Phase 8 notify option/config boundary tightened.
+- [x] Phase 9 profile/use boundary tightened.
+- [x] Phase 10 shell budget and regression guards implemented.
+- [x] Phase 11 runtime action vocabulary consolidated.
 - [ ] Phase 12 final shell reduction and product proof completed.
-- [ ] No network-dependent command was used.
-- [ ] No branch was pushed.
-- [ ] Only local checkpoint commits were created.
-- [ ] Product repo remained free of generic automation.
+- [x] No network-dependent command was used.
+- [x] No branch was pushed.
+- [x] Only local checkpoint commits were created.
+- [x] Product repo remained free of generic automation.
 - [ ] Final working tree is clean or intentionally left with documented local
   changes.
-- [ ] Final validation results are recorded in this file before completion.
+- [x] Final validation results are recorded in this file before completion.
+
+## Validation Ledger
+
+Last completed local-only validation on `refactor/python-boundary-expansion`:
+
+- `bash -n install.sh bin/install-local.sh bin/install-runtime.sh lib/codex-termux.sh lib/codex-termux/*.sh tools/smoke-termux-wrapper.sh tools/package-release.sh tests/*.sh`: pass
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=tools python3 -B -m codex_termux.cli validate --root .`: pass
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=tools python3 -B -m codex_termux.cli canon-audit --root . --strict`: pass
+  - findings: `[]`
+  - `install_runtime_lines`: 626
+  - `domain_shell_lines`: 2621
+  - `notify_shell_functions`: 20
+  - `profile_shell_functions`: 16
+- `PYTHONDONTWRITEBYTECODE=1 bash tests/run-portable.sh`: pass
+
+Live local product proof is pending because `CODEX_TERMUX_AUTO_UPDATE=0 bash
+bin/install-local.sh support` requires writing to the installed Termux manager
+area and the approval system rejected the required escalation with
+`workspace is out of credits`.
 
 ## Not Proven Yet
 
-- Phase 5-B through Phase 12 have not been implemented.
-- The final shell budget threshold has not been selected.
+- Final installed wrapper does not yet match the latest local commit in this
+  branch.
+- Live `tests/run-termux.sh`, live `tests/run-all.sh`, and optional cached
+  rebuild smoke are pending until local support install can be approved.
 - The final local commit stack shape has not been chosen: checkpoint stack vs
   squash-ready branch.
 
 ## Resume Notes
 
 Start from `refactor/python-boundary-expansion`. Do not fetch or push. Confirm
-that the branch is clean and based on `0f9b5316b1f3` or a later local checkpoint
-commit, then proceed phase by phase with local commits only.
+that the branch is clean and based on the latest local checkpoint commit, then
+resume Phase 12 by running:
+
+```bash
+CODEX_TERMUX_AUTO_UPDATE=0 bash bin/install-local.sh support
+CODEX_TERMUX_AUTO_UPDATE=0 PYTHONDONTWRITEBYTECODE=1 bash tests/run-termux.sh
+CODEX_TERMUX_AUTO_UPDATE=0 CODEX_TERMUX_RUN_REBUILD_SMOKE=1 \
+  PYTHONDONTWRITEBYTECODE=1 bash tests/run-termux.sh
+CODEX_TERMUX_AUTO_UPDATE=0 PYTHONDONTWRITEBYTECODE=1 bash tests/run-all.sh
+```
+
+After those pass, mark Phase 12 complete and make the final local checkpoint
+commit. Do not push.
