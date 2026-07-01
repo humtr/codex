@@ -288,7 +288,7 @@ codex_write_managed_shell() {
 #!$CODEX_TERMUX_PREFIX/bin/bash
 # codex termux managed shell
 set -euo pipefail
-export CODEX_TERMUX_INSTALL_RUNTIME_SOURCE="$CODEX_TERMUX_SOURCE_DIR/bin/install-runtime.sh"
+export CODEX_TERMUX_INSTALL_RUNTIME_SOURCE="\${CODEX_TERMUX_INSTALL_RUNTIME_SOURCE:-$CODEX_TERMUX_SOURCE_DIR/bin/install-runtime.sh}"
 # shellcheck disable=SC1091
 . "$CODEX_TERMUX_MANAGER_DIR/lib.sh"
 codex_main "\$@"
