@@ -100,6 +100,16 @@ def _add_hash_and_package(sub: SubparserCollection) -> None:
 
 
 def _add_runtime_checks(sub: SubparserCollection) -> None:
+    runtime_layout = sub.add_parser("runtime-layout-ok")
+    for name in ("runtime-dir", "runtime", "support-dir"):
+        runtime_layout.add_argument(f"--{name}", required=True)
+    runtime_layout.set_defaults(func=_runtime_layout_ok)
+
+    support_layer = sub.add_parser("support-layer-ok")
+    for name in ("managed-shell", "manager-dir", "public-codex", "marker"):
+        support_layer.add_argument(f"--{name}", required=True)
+    support_layer.set_defaults(func=_support_layer_ok)
+
     runtime = sub.add_parser("runtime-integrity")
     for name in ("runtime", "manifest-path", "builder", "state-path", "patch-policy"):
         runtime.add_argument(f"--{name}", required=True)
@@ -441,6 +451,23 @@ def _runtime_integrity(args: argparse.Namespace) -> int:
 def _raw_integrity(args: argparse.Namespace) -> int:
     return 0 if runtime_checks.raw_integrity_ok(
         raw_binary=Path(args.raw_binary), state_path=Path(args.state_path)
+    ) else 1
+
+
+def _runtime_layout_ok(args: argparse.Namespace) -> int:
+    return 0 if runtime_checks.runtime_layout_ok(
+        runtime_dir=Path(args.runtime_dir),
+        runtime=Path(args.runtime),
+        support_dir=Path(args.support_dir),
+    ) else 1
+
+
+def _support_layer_ok(args: argparse.Namespace) -> int:
+    return 0 if runtime_checks.support_layer_ok(
+        managed_shell=Path(args.managed_shell),
+        manager_dir=Path(args.manager_dir),
+        public_codex=Path(args.public_codex),
+        marker=args.marker,
     ) else 1
 
 

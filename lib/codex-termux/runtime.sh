@@ -651,10 +651,10 @@ codex_auto_update_if_needed() {
 
 # Runtime readiness and diagnostics.
 codex_support_tools_match() {
-    local support_dir
-    support_dir="$(codex_support_source_dir)"
-    cmp -s "$support_dir/bwrap-termux-compat.py" "$CODEX_TERMUX_RUNTIME_DIR/codex-path/bwrap" &&
-    cmp -s "$support_dir/rg-termux-shim.sh" "$CODEX_TERMUX_RUNTIME_DIR/codex-path/rg"
+    codex_termux_cmd runtime-layout-ok \
+        --runtime-dir "$CODEX_TERMUX_RUNTIME_DIR" \
+        --runtime "$CODEX_TERMUX_RUNTIME" \
+        --support-dir "$(codex_support_source_dir)"
 }
 
 codex_runtime_integrity_ok() {
@@ -676,25 +676,17 @@ codex_raw_integrity_ok() {
 }
 
 codex_runtime_ok() {
-    [ -x "$CODEX_TERMUX_RUNTIME" ] &&
-    [ -x "$CODEX_TERMUX_RUNTIME_DIR/codex-resources/bwrap" ] &&
-    [ -x "$CODEX_TERMUX_RUNTIME_DIR/codex-path/bwrap" ] &&
-    [ -x "$CODEX_TERMUX_RUNTIME_DIR/codex-path/rg" ] &&
-    [ -x "$CODEX_TERMUX_RUNTIME_DIR/codex-path/rg.real" ] &&
     codex_support_tools_match &&
     [ -r "$CODEX_TERMUX_STATE_FILE" ] &&
     codex_runtime_integrity_ok
 }
 
 codex_support_layer_ok() {
-    [ -x "$CODEX_TERMUX_MANAGED_SHELL" ] &&
-    [ -r "$CODEX_TERMUX_MANAGER_DIR/lib.sh" ] &&
-    [ -x "$CODEX_TERMUX_MANAGER_DIR/build-runtime.py" ] &&
-    [ -x "$CODEX_TERMUX_MANAGER_DIR/bwrap-termux-compat.py" ] &&
-    [ -x "$CODEX_TERMUX_MANAGER_DIR/rg-termux-shim.sh" ] &&
-    [ -x "$CODEX_TERMUX_MANAGER_DIR/codex-turn-notify.sh" ] &&
-    [ -e "$CODEX_TERMUX_PUBLIC_CODEX" ] &&
-    codex_file_has_marker "$CODEX_TERMUX_PUBLIC_CODEX"
+    codex_termux_cmd support-layer-ok \
+        --managed-shell "$CODEX_TERMUX_MANAGED_SHELL" \
+        --manager-dir "$CODEX_TERMUX_MANAGER_DIR" \
+        --public-codex "$CODEX_TERMUX_PUBLIC_CODEX" \
+        --marker "$CODEX_TERMUX_MANAGED_LAUNCHER_MARKER"
 }
 
 codex_runtime_metadata_current() {

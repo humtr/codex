@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from . import registry, schemas
@@ -51,6 +52,41 @@ def raw_integrity_ok(*, raw_binary: Path, state_path: Path) -> bool:
         return False
 
 
+def support_tools_match(*, support_dir: Path, runtime_dir: Path) -> bool:
+    try:
+        return (
+            (support_dir / "bwrap-termux-compat.py").read_bytes()
+            == (runtime_dir / "codex-path/bwrap").read_bytes()
+            and (support_dir / "rg-termux-shim.sh").read_bytes()
+            == (runtime_dir / "codex-path/rg").read_bytes()
+        )
+    except OSError:
+        return False
+
+
+def runtime_layout_ok(*, runtime_dir: Path, runtime: Path, support_dir: Path) -> bool:
+    return bool(
+        _executable(runtime)
+        and _executable(runtime_dir / "codex-resources/bwrap")
+        and _executable(runtime_dir / "codex-path/bwrap")
+        and _executable(runtime_dir / "codex-path/rg")
+        and _executable(runtime_dir / "codex-path/rg.real")
+        and support_tools_match(support_dir=support_dir, runtime_dir=runtime_dir)
+    )
+
+
+def support_layer_ok(*, managed_shell: Path, manager_dir: Path, public_codex: Path, marker: str) -> bool:
+    return bool(
+        _executable(managed_shell)
+        and (manager_dir / "lib.sh").is_file()
+        and _executable(manager_dir / "build-runtime.py")
+        and _executable(manager_dir / "bwrap-termux-compat.py")
+        and _executable(manager_dir / "rg-termux-shim.sh")
+        and _executable(manager_dir / "codex-turn-notify.sh")
+        and _path_contains(public_codex, marker.encode("utf-8"))
+    )
+
+
 def runtime_metadata_current(
     *,
     state_path: Path,
@@ -85,6 +121,17 @@ def runtime_metadata_current(
             and install.get("raw_id") == active_entry.get("raw_id")
         )
     except (IntegrityError, OSError, RuntimeError, SchemaError):
+        return False
+
+
+def _executable(path: Path) -> bool:
+    return path.is_file() and os.access(path, os.X_OK)
+
+
+def _path_contains(path: Path, needle: bytes) -> bool:
+    try:
+        return needle in path.read_bytes()
+    except OSError:
         return False
 
 
