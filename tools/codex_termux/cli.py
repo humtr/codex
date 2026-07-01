@@ -233,6 +233,14 @@ def _validate_required_layout(root: Path) -> None:
         "install.sh",
         "bin/install-runtime.sh",
         "lib/codex-termux.sh",
+        "lib/codex-termux/dispatch.sh",
+        "lib/codex-termux/state.sh",
+        "lib/codex-termux/profile.sh",
+        "lib/codex-termux/session.sh",
+        "lib/codex-termux/runtime.sh",
+        "lib/codex-termux/notify.sh",
+        "lib/codex-termux/doctor.sh",
+        "codex-wrapper.manifest.json",
         "tools/build-runtime.py",
         "tools/bwrap-termux-compat.py",
         "tools/rg-termux-shim.sh",
@@ -312,8 +320,16 @@ def _validate_wrapper_version(root: Path) -> None:
         raise IntegrityError("wrapper repository metadata must be OWNER/REPO")
 
 
+
+def _shell_contract_text(root: Path) -> str:
+    parts = []
+    for path in [root / "lib/codex-termux.sh", *sorted((root / "lib/codex-termux").glob("*.sh"))]:
+        if path.is_file():
+            parts.append(path.read_text(encoding="utf-8"))
+    return "\n".join(parts)
+
 def _validate_resolver_contract(root: Path) -> None:
-    shell = (root / "lib/codex-termux.sh").read_text(encoding="utf-8")
+    shell = _shell_contract_text(root)
     builder = (root / "tools/build-runtime.py").read_text(encoding="utf-8")
     shell_policy = 'CODEX_TERMUX_PATCH_POLICY="${CODEX_TERMUX_PATCH_POLICY:-termux-fd-remap-v1}"'
     builder_policy = 'PATCH_POLICY = "termux-fd-remap-v1"'
@@ -336,7 +352,7 @@ def _validate_resolver_contract(root: Path) -> None:
 
 
 def _validate_profile_contract(root: Path) -> None:
-    shell = (root / "lib/codex-termux.sh").read_text(encoding="utf-8")
+    shell = _shell_contract_text(root)
     session_py = (root / "tools/codex_termux/session.py").read_text(encoding="utf-8")
     profile_root = 'CODEX_TERMUX_PROFILE_ROOT="${CODEX_TERMUX_PROFILE_ROOT:-$CODEX_TERMUX_HOME/.codex-profiles}"'
     required_python_model = (

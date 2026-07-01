@@ -7,6 +7,7 @@ corresponding canon phases have landed.
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -91,6 +92,35 @@ _TOP_LEVEL_RE = re.compile(
 )
 _SHELL_FUNCTION_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_]*\(\) \{", re.M)
 
+MANIFEST_PATH = "codex-wrapper.manifest.json"
+DOMAIN_DIR = "lib/codex-termux"
+_FUNCTION_CALL_RE = re.compile(r"\b(codex_[A-Za-z0-9_]+)\b")
+
+
+def _load_manifest(root: Path, findings: list[Finding]) -> dict[str, object]:
+    path = root / MANIFEST_PATH
+    if not path.is_file():
+        findings.append(Finding("manifest-missing", "blocker", MANIFEST_PATH, "wrapper contract manifest is missing"))
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        findings.append(Finding("manifest-invalid-json", "blocker", MANIFEST_PATH, str(exc)))
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _shell_contract_files(root: Path) -> list[Path]:
+    files = [root / "lib/codex-termux.sh"]
+    domain_dir = root / DOMAIN_DIR
+    if domain_dir.is_dir():
+        files.extend(sorted(domain_dir.glob("*.sh")))
+    return [path for path in files if path.is_file()]
+
+
+def _shell_contract_text(root: Path) -> str:
+    return "\n".join(_read_text(path) for path in _shell_contract_files(root))
+
 
 def audit(root: Path) -> dict[str, object]:
     root = root.resolve()
@@ -101,6 +131,11 @@ def audit(root: Path) -> dict[str, object]:
     findings.extend(_audit_top_level_command_refs(root, files))
     findings.extend(_audit_source_config_owners(root, files))
     findings.extend(_audit_notify_owners(root, files))
+    manifest = _load_manifest(root, findings)
+    findings.extend(_audit_manifest_consistency(root, manifest))
+    findings.extend(_audit_domain_ownership(root, manifest))
+    findings.extend(_audit_protected_path_contracts(root, manifest))
+    findings.extend(_audit_public_entrypoints(root, manifest))
     findings.extend(_audit_profile_shell_model(root))
 
     metrics = _metrics(root)
@@ -113,12 +148,15 @@ def audit(root: Path) -> dict[str, object]:
 
 
 def _source_files(root: Path) -> Iterable[Path]:
-    ignored_dirs = {".git", "__pycache__", ".pytest_cache", ".mypy_cache"}
+    ignored_dirs = {".git", "__pycache__", ".pytest_cache", ".mypy_cache", "out"}
     ignored_suffixes = {".pyc", ".zip", ".tgz", ".tar", ".gz"}
+    ignored_names = {"merge_readiness_report.json"}
     for path in root.rglob("*"):
         if any(part in ignored_dirs for part in path.parts):
             continue
         if not path.is_file():
+            continue
+        if path.name in ignored_names:
             continue
         if path.suffix in ignored_suffixes:
             continue
@@ -229,10 +267,9 @@ def _audit_notify_owners(root: Path, files: Iterable[Path]) -> list[Finding]:
 
 
 def _audit_profile_shell_model(root: Path) -> list[Finding]:
-    shell = root / "lib/codex-termux.sh"
-    if not shell.is_file():
+    if not (root / "lib/codex-termux.sh").is_file():
         return []
-    text = _read_text(shell)
+    text = _shell_contract_text(root)
     markers = [marker for marker in PROFILE_SHELL_MODEL_MARKERS if marker in text]
     if not markers:
         return []
@@ -246,19 +283,128 @@ def _audit_profile_shell_model(root: Path) -> list[Finding]:
     ]
 
 
+
+def _manifest_domains(manifest: dict[str, object]) -> dict[str, dict[str, object]]:
+    domains = manifest.get("domain_ownership", {}) if isinstance(manifest, dict) else {}
+    return {str(k): v for k, v in domains.items() if isinstance(v, dict)} if isinstance(domains, dict) else {}
+
+
+def _audit_manifest_consistency(root: Path, manifest: dict[str, object]) -> list[Finding]:
+    findings: list[Finding] = []
+    if not manifest:
+        return [Finding("manifest-missing-or-invalid", "blocker", MANIFEST_PATH, "manifest is missing or invalid")]
+    if manifest.get("schema") != 1:
+        findings.append(Finding("manifest-schema", "blocker", MANIFEST_PATH, "schema must be 1"))
+    domains = _manifest_domains(manifest)
+    expected = {"dispatch", "state", "profile", "session", "runtime", "notify", "doctor"}
+    for domain in sorted(expected - set(domains)):
+        findings.append(Finding("manifest-domain-missing", "blocker", MANIFEST_PATH, f"missing domain: {domain}"))
+    for name, data in domains.items():
+        rel = str(data.get("path", ""))
+        if not rel or not (root / rel).is_file():
+            findings.append(Finding("manifest-domain-path", "blocker", rel or MANIFEST_PATH, f"domain path missing: {name}"))
+        if not isinstance(data.get("public_functions", []), list):
+            findings.append(Finding("manifest-public-functions", "blocker", rel or MANIFEST_PATH, f"public_functions must be a list: {name}"))
+    for entry in manifest.get("public_entrypoints", []):
+        if isinstance(entry, dict) and isinstance(entry.get("path"), str) and not (root / entry["path"]).is_file():
+            findings.append(Finding("manifest-entrypoint-path", "blocker", entry["path"], "public entrypoint path is missing"))
+    return findings
+
+
+def _function_defs_by_domain(root: Path, manifest: dict[str, object]) -> dict[str, str]:
+    owners: dict[str, str] = {}
+    for domain, data in _manifest_domains(manifest).items():
+        path = root / str(data.get("path", ""))
+        if not path.is_file():
+            continue
+        for match in _SHELL_FUNCTION_RE.finditer(_read_text(path)):
+            owners[match.group(0).split("(", 1)[0]] = domain
+    return owners
+
+
+def _audit_domain_ownership(root: Path, manifest: dict[str, object]) -> list[Finding]:
+    findings: list[Finding] = []
+    domains = _manifest_domains(manifest)
+    owners = _function_defs_by_domain(root, manifest)
+    seen: dict[str, str] = {}
+    for domain, data in domains.items():
+        rel = str(data.get("path", ""))
+        path = root / rel
+        if not path.is_file():
+            continue
+        for match in _SHELL_FUNCTION_RE.finditer(_read_text(path)):
+            fn = match.group(0).split("(", 1)[0]
+            if fn in seen:
+                findings.append(Finding("domain-function-duplicate", "blocker", rel, f"{fn} also defined in {seen[fn]}"))
+            seen[fn] = rel
+        for fn in data.get("public_functions", []):
+            if isinstance(fn, str) and owners.get(fn) != domain:
+                findings.append(Finding("domain-public-function-owner", "blocker", rel, f"{fn} not owned by {domain}"))
+    loader = _read_text(root / "lib/codex-termux.sh")
+    for domain in domains:
+        if domain not in loader:
+            findings.append(Finding("loader-domain-missing", "blocker", "lib/codex-termux.sh", f"loader does not source {domain}"))
+    allow_map = manifest.get("allowed_private_cross_domain_calls", {}) if isinstance(manifest.get("allowed_private_cross_domain_calls", {}), dict) else {}
+    global_allowed = set(allow_map.get("*", []))
+    public = {fn for data in domains.values() for fn in data.get("public_functions", []) if isinstance(fn, str)}
+    for domain, data in domains.items():
+        rel = str(data.get("path", "")); path = root / rel
+        if not path.is_file():
+            continue
+        allowed = set(global_allowed)
+        if isinstance(allow_map.get(domain), list):
+            allowed.update(allow_map[domain])
+        body = _SHELL_FUNCTION_RE.sub("", _read_text(path))
+        for call in sorted(set(_FUNCTION_CALL_RE.findall(body))):
+            owner = owners.get(call)
+            if owner and owner != domain and call not in public and call not in allowed:
+                findings.append(Finding("private-cross-domain-call", "blocker", rel, f"{domain} calls private {owner} function {call}"))
+    return findings
+
+
+def _audit_protected_path_contracts(root: Path, manifest: dict[str, object]) -> list[Finding]:
+    findings: list[Finding] = []
+    install_runtime = _read_text(root / "bin/install-runtime.sh")
+    shell = _shell_contract_text(root)
+    for marker in (
+        "codex_assert_managed_tree_target",
+        "codex_rm_rf_managed",
+        "cp \"$source_dir/lib/codex-termux.sh\" \"$CODEX_TERMUX_MANAGER_DIR/lib.sh\"",
+        "cp -R \"$source_dir/lib/codex-termux\" \"$CODEX_TERMUX_MANAGER_DIR/codex-termux\"",
+        "codex_try_verified_rollback",
+    ):
+        if marker not in install_runtime and marker not in shell:
+            findings.append(Finding("protected-path-marker-missing", "blocker", "bin/install-runtime.sh", f"missing protected path marker: {marker}"))
+    return findings
+
+
+def _audit_public_entrypoints(root: Path, manifest: dict[str, object]) -> list[Finding]:
+    findings: list[Finding] = []
+    checks = (
+        ("lib/codex-termux.sh", "codex_source_domain"),
+        ("lib/codex-termux/dispatch.sh", "codex_main()"),
+        ("lib/codex-termux/dispatch.sh", "codex_termux_main()"),
+        ("bin/install-runtime.sh", 'codex_termux_doctor "$@"'),
+        ("bin/install-runtime.sh", "install upstream [VERSION]"),
+        ("bin/install-runtime.sh", "install rebuild"),
+    )
+    for rel, marker in checks:
+        if marker not in _read_text(root / rel):
+            findings.append(Finding("entrypoint-compat-marker-missing", "blocker", rel, f"missing marker: {marker}"))
+    return findings
+
 def _metrics(root: Path) -> dict[str, object]:
     lib = root / "lib/codex-termux.sh"
+    domain_dir = root / DOMAIN_DIR
     install_runtime = root / "bin/install-runtime.sh"
     session_py = root / "tools/codex_termux/session.py"
     metrics: dict[str, object] = {}
-    for key, path in (
-        ("lib_lines", lib),
-        ("install_runtime_lines", install_runtime),
-        ("session_py_lines", session_py),
-    ):
+    for key, path in (("lib_lines", lib), ("install_runtime_lines", install_runtime), ("session_py_lines", session_py)):
         metrics[key] = len(_read_text(path).splitlines()) if path.is_file() else 0
-    shell = _read_text(lib) if lib.is_file() else ""
+    shell = _shell_contract_text(root)
     metrics["lib_shell_functions"] = len(_SHELL_FUNCTION_RE.findall(shell))
+    metrics["domain_files"] = len(list(domain_dir.glob("*.sh"))) if domain_dir.is_dir() else 0
+    metrics["domain_shell_lines"] = sum(len(_read_text(path).splitlines()) for path in sorted(domain_dir.glob("*.sh"))) if domain_dir.is_dir() else 0
     metrics["notify_shell_functions"] = len(re.findall(r"^codex_notify[A-Za-z0-9_]*\(\) \{", shell, re.M))
     metrics["profile_shell_functions"] = len(re.findall(r"^codex_profile[A-Za-z0-9_]*\(\) \{", shell, re.M))
     return metrics

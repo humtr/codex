@@ -49,8 +49,13 @@ run_test_script() {
                 bash "${bash_args[@]}" "$test_script"
             ;;
         wrapper-archive-safety.sh|release-package.sh)
-            PS4='+ ${BASH_SOURCE##*/}:${LINENO}: ' \
-                bash "${bash_args[@]}" "$test_script"
+            if command -v timeout >/dev/null 2>&1; then
+                PS4='+ ${BASH_SOURCE##*/}:${LINENO}: ' \
+                    timeout -k 5s "$TEST_TIMEOUT_SECONDS" bash "${bash_args[@]}" "$test_script"
+            else
+                PS4='+ ${BASH_SOURCE##*/}:${LINENO}: ' \
+                    bash "${bash_args[@]}" "$test_script"
+            fi
             ;;
         *)
             if command -v timeout >/dev/null 2>&1; then
@@ -123,6 +128,7 @@ for test_script in \
     "$ROOT_DIR/tests/tmp-paths.sh" \
     "$ROOT_DIR/tests/lock.sh" \
     "$ROOT_DIR/tests/install-dispatch.sh" \
+    "$ROOT_DIR/tests/wrapper-contracts.sh" \
     "$ROOT_DIR/tests/doctor.sh" \
     "$ROOT_DIR/tests/wrapper-source-config.sh" \
     "$ROOT_DIR/tests/cli-surface.sh" \
