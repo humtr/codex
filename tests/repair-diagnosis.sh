@@ -68,6 +68,22 @@ assert (
     readiness(runtime_ok=False, verified_rollback_available=False, raw_available=False, raw_ok=False)
     == repair.ACTION_MISSING_RUNTIME
 )
+assert set(repair.REPAIR_ACTIONS) == {
+    repair.ACTION_NONE,
+    repair.ACTION_REFRESH_SUPPORT,
+    repair.ACTION_REFRESH_METADATA,
+    repair.ACTION_RESTORE_VERIFIED,
+    repair.ACTION_REBUILD_CACHED,
+    repair.ACTION_UNRECOVERABLE,
+}
+assert set(repair.READINESS_ACTIONS) == {
+    repair.ACTION_READY,
+    repair.ACTION_REFRESH_METADATA,
+    repair.ACTION_RESTORE_VERIFIED,
+    repair.ACTION_REBUILD_CACHED,
+    repair.ACTION_RAW_CORRUPT,
+    repair.ACTION_MISSING_RUNTIME,
+}
 PYTHON
 
 CODEX_TERMUX_HOME="$TMP_DIR/home" \

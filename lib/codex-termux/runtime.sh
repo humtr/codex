@@ -384,14 +384,56 @@ codex_repair_diagnose_action() {
         --field "$field"
 }
 
+codex_runtime_apply_action() {
+    local action="$1" intent="${2:-readiness}"
+    case "$action" in
+        none|ready)
+            return 0
+            ;;
+        refresh_metadata)
+            [ "$intent" != "repair" ] || codex_ui_step repair_metadata
+            codex_refresh_runtime_metadata
+            return $?
+            ;;
+        restore_verified)
+            codex_try_verified_rollback || return $?
+            codex_refresh_runtime_metadata
+            return $?
+            ;;
+        rebuild_cached)
+            if [ "$intent" = "repair" ]; then
+                codex_ui_step repair_runtime
+            else
+                codex_ui_step rebuild_cached_runtime
+            fi
+            codex_runtime_install_cached || return $?
+            [ "$intent" != "repair" ] || codex_refresh_runtime_metadata
+            return $?
+            ;;
+        raw_corrupt)
+            codex_fail "Cached raw package integrity check failed; run codex termux update"
+            return 1
+            ;;
+        missing_runtime)
+            codex_fail "Runtime is missing and no cached raw package is available; run codex termux update"
+            return 127
+            ;;
+        unrecoverable)
+            codex_fail "Runtime is damaged and cached raw is unavailable or invalid; run codex termux update"
+            return 1
+            ;;
+        *)
+            codex_fail "Unknown runtime action: $action"
+            return 1
+            ;;
+    esac
+}
+
 codex_repair_apply() {
     local action support_attempted=0
     while :; do
         action="$(codex_repair_diagnose_action action)" || return $?
         case "$action" in
-            none)
-                return 0
-                ;;
             refresh_support)
                 if [ "$support_attempted" = "1" ]; then
                     codex_fail "Support layer repair did not complete; run bash install.sh from a wrapper checkout"
@@ -400,29 +442,9 @@ codex_repair_apply() {
                 support_attempted=1
                 codex_repair_install_support || return $?
                 ;;
-            refresh_metadata)
-                codex_ui_step repair_metadata
-                codex_refresh_runtime_metadata
-                return $?
-                ;;
-            restore_verified)
-                codex_try_verified_rollback || return $?
-                codex_refresh_runtime_metadata
-                return $?
-                ;;
-            rebuild_cached)
-                codex_ui_step repair_runtime
-                codex_runtime_install_cached || return $?
-                codex_refresh_runtime_metadata
-                return $?
-                ;;
-            unrecoverable)
-                codex_fail "Runtime is damaged and cached raw is unavailable or invalid; run codex termux update"
-                return 1
-                ;;
             *)
-                codex_fail "Unknown repair action: $action"
-                return 1
+                codex_runtime_apply_action "$action" repair
+                return $?
                 ;;
         esac
     done
@@ -778,37 +800,7 @@ codex_try_verified_rollback() {
 codex_ensure_runtime_ready() {
     local action
     action="$(codex_repair_diagnose_action readiness-action)" || return $?
-    case "$action" in
-        ready)
-            return 0
-            ;;
-        refresh_metadata)
-            codex_refresh_runtime_metadata
-            return $?
-            ;;
-        restore_verified)
-            codex_try_verified_rollback || return $?
-            codex_refresh_runtime_metadata
-            return $?
-            ;;
-        rebuild_cached)
-            codex_ui_step rebuild_cached_runtime
-            codex_runtime_install_cached
-            return $?
-            ;;
-        raw_corrupt)
-            codex_fail "Cached raw package integrity check failed; run codex termux update"
-            return 1
-            ;;
-        missing_runtime)
-            codex_fail "Runtime is missing and no cached raw package is available; run codex termux update"
-            return 127
-            ;;
-        *)
-            codex_fail "Unknown runtime readiness action: $action"
-            return 1
-            ;;
-    esac
+    codex_runtime_apply_action "$action" readiness
 }
 
 
