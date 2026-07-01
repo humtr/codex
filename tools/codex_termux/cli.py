@@ -9,7 +9,7 @@ import tarfile
 from pathlib import Path, PurePosixPath
 from typing import Protocol
 
-from . import activation, canon, doctor, hashing, paths, prune, registry, runtime_checks, session, source, use
+from . import activation, canon, doctor, hashing, paths, prune, registry, release, runtime_checks, session, source, use
 from .errors import CodexTermuxError, IntegrityError
 from .schemas import ActivationPlan
 
@@ -72,6 +72,11 @@ def _add_hash_and_package(sub: SubparserCollection) -> None:
     validate_tarball = sub.add_parser("validate-tarball")
     validate_tarball.add_argument("--path", required=True)
     validate_tarball.set_defaults(func=_validate_tarball)
+
+    release_package = sub.add_parser("release-package")
+    release_package.add_argument("--package-root", required=True)
+    release_package.add_argument("--out", required=True)
+    release_package.set_defaults(func=_release_package)
 
     package_field = sub.add_parser("package-field")
     package_field.add_argument("--json-file", required=True)
@@ -413,6 +418,13 @@ def _validate_tarball(args: argparse.Namespace) -> int:
             if member.ischr() or member.isblk() or member.isfifo() or member.isdev():
                 raise IntegrityError(f"unsafe tar special entry: {member.name}")
     print("ok")
+    return 0
+
+
+def _release_package(args: argparse.Namespace) -> int:
+    out = Path(args.out)
+    release.write_zip(Path(args.package_root), out)
+    print(out)
     return 0
 
 
