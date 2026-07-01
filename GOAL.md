@@ -284,12 +284,12 @@ CODEX_TERMUX_AUTO_UPDATE=0 CODEX_TERMUX_RUN_REBUILD_SMOKE=1 \
 - [x] Phase 9 profile/use boundary tightened.
 - [x] Phase 10 shell budget and regression guards implemented.
 - [x] Phase 11 runtime action vocabulary consolidated.
-- [ ] Phase 12 final shell reduction and product proof completed.
+- [x] Phase 12 final shell reduction and product proof completed.
 - [x] No network-dependent command was used.
 - [x] No branch was pushed.
 - [x] Only local checkpoint commits were created.
 - [x] Product repo remained free of generic automation.
-- [ ] Final working tree is clean or intentionally left with documented local
+- [x] Final working tree is clean or intentionally left with documented local
   changes.
 - [x] Final validation results are recorded in this file before completion.
 
@@ -307,33 +307,23 @@ Last completed local-only validation on `refactor/python-boundary-expansion`:
   - `profile_shell_functions`: 16
 - `PYTHONDONTWRITEBYTECODE=1 bash tests/run-portable.sh`: pass
 
-Live local product proof is pending because `CODEX_TERMUX_AUTO_UPDATE=0 bash
-bin/install-local.sh support` requires writing to the installed Termux manager
-area and the approval system rejected the required escalation with
-`workspace is out of credits`.
+Live local product proof on the installed Termux wrapper:
+
+- `CODEX_TERMUX_AUTO_UPDATE=0 bash bin/install-local.sh support`: pass
+  - installed wrapper matched the local checkpoint under test.
+- `CODEX_TERMUX_AUTO_UPDATE=0 PYTHONDONTWRITEBYTECODE=1 bash tests/run-termux.sh`: pass
+- `CODEX_TERMUX_AUTO_UPDATE=0 CODEX_TERMUX_RUN_REBUILD_SMOKE=1 PYTHONDONTWRITEBYTECODE=1 bash tests/run-termux.sh`: pass
+  - cached rebuild used local wrapper source.
+  - doctor `overallStatus`: `ok`
+- `CODEX_TERMUX_AUTO_UPDATE=0 PYTHONDONTWRITEBYTECODE=1 bash tests/run-all.sh`: pass
 
 ## Not Proven Yet
 
-- Final installed wrapper does not yet match the latest local commit in this
-  branch.
-- Live `tests/run-termux.sh`, live `tests/run-all.sh`, and optional cached
-  rebuild smoke are pending until local support install can be approved.
-- The final local commit stack shape has not been chosen: checkpoint stack vs
-  squash-ready branch.
+None for this goal. The branch remains a local checkpoint stack and has not
+been pushed.
 
 ## Resume Notes
 
-Start from `refactor/python-boundary-expansion`. Do not fetch or push. Confirm
-that the branch is clean and based on the latest local checkpoint commit, then
-resume Phase 12 by running:
-
-```bash
-CODEX_TERMUX_AUTO_UPDATE=0 bash bin/install-local.sh support
-CODEX_TERMUX_AUTO_UPDATE=0 PYTHONDONTWRITEBYTECODE=1 bash tests/run-termux.sh
-CODEX_TERMUX_AUTO_UPDATE=0 CODEX_TERMUX_RUN_REBUILD_SMOKE=1 \
-  PYTHONDONTWRITEBYTECODE=1 bash tests/run-termux.sh
-CODEX_TERMUX_AUTO_UPDATE=0 PYTHONDONTWRITEBYTECODE=1 bash tests/run-all.sh
-```
-
-After those pass, mark Phase 12 complete and make the final local checkpoint
-commit. Do not push.
+The goal is complete locally. The branch was intentionally left unpushed per
+the network boundary. Next work should start from the final local checkpoint
+commit on `refactor/python-boundary-expansion`.
