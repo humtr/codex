@@ -240,6 +240,32 @@
       "codex_read_state_field"
     ]
   },
+  "shell_budgets": {
+    "lib_lines": 100,
+    "install_runtime_lines": 650,
+    "domain_shell_lines": 2700,
+    "lib_shell_functions": 180,
+    "notify_shell_functions": 22,
+    "profile_shell_functions": 16
+  },
+  "forbidden_shell_patterns": [
+    {
+      "pattern": "CODEX_REPAIR_NEEDS_",
+      "reason": "repair/readiness diagnosis must stay Python-owned"
+    },
+    {
+      "pattern": "CODEX_REPAIR_RAW_OK",
+      "reason": "repair/readiness diagnosis must stay Python-owned"
+    },
+    {
+      "pattern": "python3 -c",
+      "reason": "protected wrapper shell must call codex_termux helpers instead of inline Python"
+    },
+    {
+      "pattern": "jq ",
+      "reason": "protected wrapper shell must not own JSON parsing"
+    }
+  ],
   "compatibility_contracts": [
     "codex public entrypoint routes non-termux args to current runtime",
     "codex termux install support refreshes support/launcher only",

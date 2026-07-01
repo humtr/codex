@@ -920,54 +920,10 @@ codex_fetch_upstream_release_date() {
     [ -n "$version" ] || return 0
     if command -v timeout >/dev/null 2>&1; then
         timeout "$CODEX_TERMUX_AUTO_UPDATE_TIMEOUT_SECONDS" npm view @openai/codex time --json 2>/dev/null | \
-            python3 -c '
-import json
-import re
-import sys
-
-version = sys.argv[1]
-payload = sys.stdin.read()
-try:
-    data = json.loads(payload)
-except Exception:
-    sys.exit(0)
-value = data.get(version, "")
-if not value:
-    sys.exit(0)
-text = str(value).split("T", 1)[0]
-match = re.match(r"(\d{4})[-.](\d{2})[-.](\d{2})", text)
-if match:
-    print("-".join(match.groups()))
-else:
-    digits = "".join(ch for ch in text if ch.isdigit())
-    if len(digits) >= 8:
-        print(f"{digits[:4]}-{digits[4:6]}-{digits[6:8]}")
-' "$version"
+            codex_termux_cmd upstream-release-date --version "$version"
     else
         npm view @openai/codex time --json 2>/dev/null | \
-            python3 -c '
-import json
-import re
-import sys
-
-version = sys.argv[1]
-payload = sys.stdin.read()
-try:
-    data = json.loads(payload)
-except Exception:
-    sys.exit(0)
-value = data.get(version, "")
-if not value:
-    sys.exit(0)
-text = str(value).split("T", 1)[0]
-match = re.match(r"(\d{4})[-.](\d{2})[-.](\d{2})", text)
-if match:
-    print("-".join(match.groups()))
-else:
-    digits = "".join(ch for ch in text if ch.isdigit())
-    if len(digits) >= 8:
-        print(f"{digits[:4]}-{digits[4:6]}-{digits[6:8]}")
-	' "$version"
+            codex_termux_cmd upstream-release-date --version "$version"
     fi
 }
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 
 from . import registry, schemas
@@ -143,3 +144,23 @@ def state_field(state_path: Path, field: str) -> str:
         return value if isinstance(value, str) else ""
     except Exception:
         return ""
+
+
+def upstream_release_date(payload: str, version: str) -> str:
+    try:
+        data = json.loads(payload)
+    except json.JSONDecodeError:
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    value = data.get(version, "")
+    if not value:
+        return ""
+    text = str(value).split("T", 1)[0]
+    match = re.match(r"(\d{4})[-.](\d{2})[-.](\d{2})", text)
+    if match:
+        return "-".join(match.groups())
+    digits = "".join(ch for ch in text if ch.isdigit())
+    if len(digits) >= 8:
+        return f"{digits[:4]}-{digits[4:6]}-{digits[6:8]}"
+    return ""

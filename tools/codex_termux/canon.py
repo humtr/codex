@@ -136,9 +136,10 @@ def audit(root: Path) -> dict[str, object]:
     findings.extend(_audit_domain_ownership(root, manifest))
     findings.extend(_audit_protected_path_contracts(root, manifest))
     findings.extend(_audit_public_entrypoints(root, manifest))
-    findings.extend(_audit_profile_shell_model(root))
-
     metrics = _metrics(root)
+    findings.extend(_audit_profile_shell_model(root))
+    findings.extend(_audit_shell_budgets(manifest, metrics))
+    findings.extend(_audit_forbidden_shell_patterns(root, manifest))
     return {
         "status": "ok" if not _blocking_findings(findings) else "needs-canon",
         "phases": _phase_status(findings),
@@ -286,6 +287,61 @@ def _audit_profile_shell_model(root: Path) -> list[Finding]:
         )
     ]
 
+
+def _audit_shell_budgets(manifest: dict[str, object], metrics: dict[str, object]) -> list[Finding]:
+    budgets = manifest.get("shell_budgets", {})
+    if not isinstance(budgets, dict):
+        return []
+    findings: list[Finding] = []
+    for key, limit in budgets.items():
+        if not isinstance(key, str) or not isinstance(limit, int):
+            findings.append(
+                Finding(
+                    code="shell-budget-invalid",
+                    severity="blocker",
+                    path=MANIFEST_PATH,
+                    detail=f"invalid shell budget entry: {key}",
+                )
+            )
+            continue
+        value = metrics.get(key)
+        if isinstance(value, int) and value > limit:
+            findings.append(
+                Finding(
+                    code="shell-budget-exceeded",
+                    severity="blocker",
+                    path=MANIFEST_PATH,
+                    detail=f"{key}={value} exceeds budget {limit}",
+                )
+            )
+    return findings
+
+
+def _audit_forbidden_shell_patterns(root: Path, manifest: dict[str, object]) -> list[Finding]:
+    entries = manifest.get("forbidden_shell_patterns", [])
+    if not isinstance(entries, list):
+        return []
+    targets = [root / "bin/install-runtime.sh", *_shell_contract_files(root)]
+    findings: list[Finding] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        pattern = entry.get("pattern", "")
+        reason = entry.get("reason", "forbidden shell pattern")
+        if not isinstance(pattern, str) or not pattern:
+            continue
+        for path in targets:
+            text = _read_text(path)
+            if pattern in text:
+                findings.append(
+                    Finding(
+                        code="forbidden-shell-pattern",
+                        severity="blocker",
+                        path=_relative(root, path),
+                        detail=f"{reason}: {pattern}",
+                    )
+                )
+    return findings
 
 
 def _manifest_domains(manifest: dict[str, object]) -> dict[str, dict[str, object]]:

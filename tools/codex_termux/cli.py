@@ -111,6 +111,12 @@ def _add_hash_and_package(sub: SubparserCollection) -> None:
         func=lambda args: _print(registry.active_runtime_created_at(Path(args.registry_file)))
     )
 
+    upstream_release_date = sub.add_parser("upstream-release-date")
+    upstream_release_date.add_argument("--version", required=True)
+    upstream_release_date.set_defaults(
+        func=lambda args: _print(runtime_checks.upstream_release_date(sys.stdin.read(), args.version))
+    )
+
 
 def _add_runtime_checks(sub: SubparserCollection) -> None:
     repair_diagnose = sub.add_parser("repair-diagnose")
