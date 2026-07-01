@@ -4,6 +4,17 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+MODE="${CODEX_MERGE_READINESS_MODE:-full}"
+case "$MODE" in
+    chat|fast|full)
+        ;;
+    *)
+        printf 'invalid CODEX_MERGE_READINESS_MODE: %s\n' "$MODE" >&2
+        printf 'expected one of: chat, fast, full\n' >&2
+        exit 2
+        ;;
+esac
+
 OUT_DIR="${CODEX_MERGE_READINESS_OUT_DIR:-$ROOT_DIR/out/merge-readiness}"
 HANDOFF_DIR="$OUT_DIR/handoff"
 TEST_LOG_DIR="$OUT_DIR/test-logs"
@@ -18,13 +29,17 @@ mkdir -p "$HANDOFF_DIR" "$TEST_LOG_DIR"
 
 repository="${GITHUB_REPOSITORY:-local/codex}"
 head_sha="$(git rev-parse HEAD 2>/dev/null || printf unknown)"
+validated_checkout_sha="$head_sha"
 base_sha="$(git rev-parse origin/main 2>/dev/null || git rev-parse main 2>/dev/null || printf unknown)"
 branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || printf detached)"
 created_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 run_id="${GITHUB_RUN_ID:-local}"
 run_attempt="${GITHUB_RUN_ATTEMPT:-local}"
+workflow_sha="${CODEX_MERGE_READINESS_WORKFLOW_SHA:-${GITHUB_SHA:-$validated_checkout_sha}}"
+pr_head_sha="${CODEX_MERGE_READINESS_PR_HEAD_SHA:-${GITHUB_HEAD_SHA:-}}"
+artifact_sha_kind="${CODEX_MERGE_READINESS_ARTIFACT_SHA_KIND:-validated_checkout_sha}"
 run_url="${GITHUB_SERVER_URL:-https://github.com}/${repository}/actions/runs/${run_id}"
-artifact_name="${CODEX_MERGE_READINESS_ARTIFACT_NAME:-codex-agent-handoff-${head_sha}}"
+artifact_name="${CODEX_MERGE_READINESS_ARTIFACT_NAME:-codex-agent-handoff-${validated_checkout_sha}}"
 
 syntax_status=0
 bash -n \
@@ -37,12 +52,27 @@ bash -n \
     tools/merge-readiness.sh >"$OUT_DIR/syntax-check.log" 2>&1 || syntax_status=$?
 
 validate_status=0
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=tools \
-    python3 -B -m codex_termux.cli validate --root . >"$OUT_DIR/validate.log" 2>&1 || validate_status=$?
+validate_result=ok
+if [ "$MODE" = chat ]; then
+    printf 'skipped in chat mode\n' >"$OUT_DIR/validate.log"
+    validate_result=skipped
+else
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=tools \
+        python3 -B -m codex_termux.cli validate --root . >"$OUT_DIR/validate.log" 2>&1 || validate_status=$?
+    [ "$validate_status" -eq 0 ] || validate_result=fail
+fi
 
 audit_status=0
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=tools \
-    python3 -B -m codex_termux.cli canon-audit --root . --strict >"$AUDIT_JSON" 2>"$OUT_DIR/canon-audit.stderr" || audit_status=$?
+audit_result=ok
+if [ "$MODE" = chat ]; then
+    printf '{"findings": [], "skipped": true, "mode": "chat"}\n' >"$AUDIT_JSON"
+    printf 'skipped in chat mode\n' >"$OUT_DIR/canon-audit.stderr"
+    audit_result=skipped
+else
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=tools \
+        python3 -B -m codex_termux.cli canon-audit --root . --strict >"$AUDIT_JSON" 2>"$OUT_DIR/canon-audit.stderr" || audit_status=$?
+    [ "$audit_status" -eq 0 ] || audit_result=fail
+fi
 
 audit_findings_count="$(python3 - "$AUDIT_JSON" <<'PY'
 import json
@@ -56,24 +86,52 @@ PY
 )"
 
 test_exit_code=0
-CODEX_TERMUX_TEST_LOG_DIR="$TEST_LOG_DIR" \
-CODEX_TERMUX_TEST_STATUS_FILE="$TEST_STATUS" \
-PYTHONDONTWRITEBYTECODE=1 \
-    bash tests/run-all.sh >"$OUT_DIR/tests.stdout" 2>"$OUT_DIR/tests.stderr" || test_exit_code=$?
+case "$MODE" in
+    chat)
+        printf 'skipped in chat mode\n' >"$OUT_DIR/tests.stdout"
+        : >"$OUT_DIR/tests.stderr"
+        : >"$TEST_STATUS"
+        ;;
+    fast)
+        : >"$TEST_STATUS"
+        wrapper_contract_status=0
+        install_dispatch_status=0
+        {
+            bash tests/wrapper-contracts.sh || wrapper_contract_status=$?
+            printf 'wrapper-contracts.sh %s\n' "$wrapper_contract_status" >>"$TEST_STATUS"
+            bash tests/install-dispatch.sh || install_dispatch_status=$?
+            printf 'install-dispatch.sh %s\n' "$install_dispatch_status" >>"$TEST_STATUS"
+            [ "$wrapper_contract_status" -eq 0 ] && [ "$install_dispatch_status" -eq 0 ]
+        } >"$OUT_DIR/tests.stdout" 2>"$OUT_DIR/tests.stderr" || test_exit_code=$?
+        ;;
+    full)
+        CODEX_TERMUX_TEST_LOG_DIR="$TEST_LOG_DIR" \
+        CODEX_TERMUX_TEST_STATUS_FILE="$TEST_STATUS" \
+        PYTHONDONTWRITEBYTECODE=1 \
+            bash tests/run-all.sh >"$OUT_DIR/tests.stdout" 2>"$OUT_DIR/tests.stderr" || test_exit_code=$?
+        ;;
+esac
 
-contract_status=ok
-grep -q '^wrapper-contracts.sh 0$' "$TEST_STATUS" 2>/dev/null || contract_status=fail
+case "$MODE" in
+    chat)
+        test_status=skipped
+        contract_status=skipped
+        ;;
+    *)
+        contract_status=ok
+        grep -q '^wrapper-contracts.sh 0$' "$TEST_STATUS" 2>/dev/null || contract_status=fail
+        test_status=ok
+        [ "$test_exit_code" -eq 0 ] || test_status=fail
+        ;;
+esac
 
-test_status=ok
-[ "$test_exit_code" -eq 0 ] || test_status=fail
-audit_result=ok
-[ "$audit_status" -eq 0 ] || audit_result=fail
-validate_result=ok
-[ "$validate_status" -eq 0 ] || validate_result=fail
 syntax_result=ok
 [ "$syntax_status" -eq 0 ] || syntax_result=fail
 protected_path_status=ok
-[ "$audit_result" = ok ] || protected_path_status=check-audit
+case "$audit_result" in
+    ok|skipped) ;;
+    *) protected_path_status=check-audit ;;
+esac
 
 main_delta=unknown
 if git rev-parse origin/main >/dev/null 2>&1; then
@@ -131,17 +189,29 @@ add_blocker() { blockers="${blockers}${blockers:+;}$1"; }
 add_next_action() { next_actions="${next_actions}${next_actions:+;}$1"; }
 
 [ "$syntax_result" = ok ] || { add_blocker 'syntax checks failed'; add_next_action 'fix shell syntax errors'; }
-[ "$validate_result" = ok ] || { add_blocker 'validate failed'; add_next_action 'inspect validate.log and restore required layout/contracts'; }
-[ "$audit_result" = ok ] || { add_blocker 'canon-audit strict failed'; add_next_action 'inspect canon-audit.json and fix blockers'; }
-[ "$test_status" = ok ] || { add_blocker 'tests failed'; add_next_action 'inspect test-logs and fix code/test gaps'; }
-[ "$contract_status" = ok ] || { add_blocker 'compatibility contracts failed'; add_next_action 'fix wrapper-contracts.sh failures before refactoring further'; }
+[ "$validate_result" != fail ] || { add_blocker 'validate failed'; add_next_action 'inspect validate.log and restore required layout/contracts'; }
+[ "$audit_result" != fail ] || { add_blocker 'canon-audit strict failed'; add_next_action 'inspect canon-audit.json and fix blockers'; }
+[ "$test_status" != fail ] || { add_blocker 'tests failed'; add_next_action 'inspect test-logs and fix code/test gaps'; }
+[ "$contract_status" != fail ] || { add_blocker 'compatibility contracts failed'; add_next_action 'fix wrapper-contracts.sh failures before refactoring further'; }
 [ "$patch_status" -eq 0 ] || { add_blocker 'branch patch generation failed'; add_next_action 'inspect branch-patch.stderr and regenerate branch.patch'; }
 [ "$snapshot_status" -eq 0 ] || { add_blocker 'repository snapshot generation failed'; add_next_action 'inspect repository-snapshot.zip generation and retry'; }
 
 merge_readiness=not_ready
 if [ -z "$blockers" ]; then
-    merge_readiness=ready
-    add_next_action 'ready for human review'
+    case "$MODE" in
+        full)
+            merge_readiness=ready
+            add_next_action 'ready for human review'
+            ;;
+        fast)
+            merge_readiness=needs_full_checkpoint
+            add_next_action 'run CODEX_MERGE_READINESS_MODE=full before merge'
+            ;;
+        chat)
+            merge_readiness=chat_review
+            add_next_action 'run CODEX_MERGE_READINESS_MODE=fast or full before checkpoint'
+            ;;
+    esac
 fi
 
 python3 - \
@@ -158,6 +228,11 @@ python3 - \
     "$run_id" \
     "$run_attempt" \
     "$artifact_name" \
+    "$MODE" \
+    "$workflow_sha" \
+    "$pr_head_sha" \
+    "$validated_checkout_sha" \
+    "$artifact_sha_kind" \
     "$audit_result" \
     "$audit_findings_count" \
     "$test_status" \
@@ -193,6 +268,11 @@ from pathlib import Path
     run_id,
     run_attempt,
     artifact_name,
+    mode,
+    workflow_sha,
+    pr_head_sha,
+    validated_checkout_sha,
+    artifact_sha_kind,
     audit_status,
     audit_findings_count,
     test_status,
@@ -241,11 +321,27 @@ artifact_paths = [
     "merge_readiness_report.json",
 ]
 
+full_checkpoint_required = mode != "full" or merge_readiness != "ready"
+sha_context = {
+    "base_sha": base_sha,
+    "head_sha": head_sha,
+    "validated_checkout_sha": validated_checkout_sha,
+    "workflow_sha": workflow_sha,
+    "pr_head_sha": pr_head_sha or None,
+    "artifact_sha_kind": artifact_sha_kind,
+}
+
 report_data = {
     "repository": repository,
     "branch": branch,
+    "mode": mode,
     "base_sha": base_sha,
     "head_sha": head_sha,
+    "validated_checkout_sha": validated_checkout_sha,
+    "workflow_sha": workflow_sha,
+    "pr_head_sha": pr_head_sha or None,
+    "artifact_sha_kind": artifact_sha_kind,
+    "sha_context": sha_context,
     "run_url": run_url,
     "run_id": run_id,
     "run_attempt": run_attempt,
@@ -259,6 +355,7 @@ report_data = {
     "structural_score": int(structural_score),
     "main_delta": main_delta,
     "merge_readiness": merge_readiness,
+    "full_checkpoint_required": full_checkpoint_required,
     "blockers": blockers,
     "next_actions": next_actions,
     "artifact_paths": artifact_paths,
@@ -291,16 +388,21 @@ PYTHON
 cd "$TARGET_DIR"
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=tools \\
   python3 -B -m codex_termux.cli canon-audit --root . --strict
-bash tests/run-all.sh
+CODEX_MERGE_READINESS_MODE=full bash tools/merge-readiness.sh
 """
 
 next_prompt = f"""# Next Agent Prompt
 
 Repository: {repository}
 Branch: {branch}
+Mode: {mode}
 Base SHA: {base_sha}
 Head SHA: {head_sha}
+Validated checkout SHA: {validated_checkout_sha}
+Workflow SHA: {workflow_sha}
+PR head SHA: {pr_head_sha or 'n/a'}
 Artifact name: {artifact_name}
+Artifact SHA kind: {artifact_sha_kind}
 Merge readiness: {merge_readiness}
 
 Continue stabilization from this handoff artifact. Do not work on `main`, do not
@@ -332,13 +434,19 @@ Next actions:
 connector_handoff = {
     "repository": repository,
     "branch": branch,
+    "mode": mode,
     "base_sha": base_sha,
     "head_sha": head_sha,
+    "validated_checkout_sha": validated_checkout_sha,
+    "workflow_sha": workflow_sha,
+    "pr_head_sha": pr_head_sha or None,
+    "artifact_sha_kind": artifact_sha_kind,
     "run_url": run_url,
     "run_id": run_id,
     "run_attempt": run_attempt,
     "artifact_name": artifact_name,
     "merge_readiness": merge_readiness,
+    "full_checkpoint_required": full_checkpoint_required,
     "blockers": blockers,
     "next_actions": next_actions,
     "artifact_paths": artifact_paths,
@@ -373,7 +481,10 @@ for path in sorted(out.rglob("*")):
     json.dumps(
         {
             "artifact_name": artifact_name,
+            "artifact_sha_kind": artifact_sha_kind,
             "created_at": created_at,
+            "mode": mode,
+            "sha_context": sha_context,
             "files": manifest_entries,
         },
         indent=2,
@@ -386,4 +497,11 @@ for path in sorted(out.rglob("*")):
 print(json.dumps(report_data, sort_keys=True))
 PY
 
-[ "$merge_readiness" = ready ]
+case "$MODE" in
+    full)
+        [ "$merge_readiness" = ready ]
+        ;;
+    *)
+        [ "$merge_readiness" != not_ready ]
+        ;;
+esac
