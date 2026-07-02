@@ -530,30 +530,19 @@ codex_latest_linux_arm64_version() {
 }
 
 codex_auto_update_mode() {
-    local mode="${CODEX_TERMUX_AUTO_UPDATE_MODE:-prompt}"
-    case "$mode" in
-        0|off|false|no|none)
-            printf 'off\n'
-            ;;
-        force|auto|always)
-            printf 'force\n'
-            ;;
-        1|prompt|ask|"")
-            printf 'prompt\n'
-            ;;
-        *)
-            printf 'prompt\n'
-            ;;
-    esac
+    codex_termux_cmd auto-update-mode --mode "${CODEX_TERMUX_AUTO_UPDATE_MODE:-prompt}"
 }
 
 codex_auto_update_due() {
     local now last
-    [ "$CODEX_TERMUX_AUTO_UPDATE" = "0" ] && return 1
-    [ "$(codex_auto_update_mode)" != "off" ] || return 1
     now="$(date +%s)"
     last="$(cat "$CODEX_TERMUX_AUTO_UPDATE_STAMP" 2>/dev/null || printf '0')"
-    [ $((now - last)) -ge "$CODEX_TERMUX_AUTO_UPDATE_INTERVAL_SECONDS" ]
+    codex_termux_cmd auto-update-due \
+        --enabled "$CODEX_TERMUX_AUTO_UPDATE" \
+        --mode "${CODEX_TERMUX_AUTO_UPDATE_MODE:-prompt}" \
+        --now "$now" \
+        --last "$last" \
+        --interval "$CODEX_TERMUX_AUTO_UPDATE_INTERVAL_SECONDS"
 }
 
 codex_mark_auto_update_checked() {
@@ -590,18 +579,14 @@ codex_clear_failed_auto_update() {
 }
 
 codex_failed_auto_update_due() {
-    local version="$1" failed failed_version failed_at now
+    local version="$1" failed now
     failed="$(codex_read_failed_auto_update)"
-    [ -n "$failed" ] || return 0
-    IFS=$'\t' read -r failed_version failed_at <<EOF
-$failed
-EOF
-    [ "$failed_version" = "$version" ] || return 0
-    case "$failed_at" in
-        ''|*[!0-9]*) return 0 ;;
-    esac
     now="$(date +%s)"
-    [ $((now - failed_at)) -ge "$CODEX_TERMUX_AUTO_UPDATE_INTERVAL_SECONDS" ]
+    codex_termux_cmd failed-auto-update-due \
+        --record "$failed" \
+        --version "$version" \
+        --now "$now" \
+        --interval "$CODEX_TERMUX_AUTO_UPDATE_INTERVAL_SECONDS"
 }
 
 codex_prompt_update() {
@@ -866,24 +851,7 @@ codex_current_runtime_date() {
 }
 
 codex_display_dotted_date() {
-    local value="${1:-}" digits
-    value="${value%%T*}"
-    case "$value" in
-        ????-??-??*)
-            printf '%s\n' "${value%%T*}"
-            ;;
-        [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]*)
-            printf '%s-%s-%s\n' "${value:0:4}" "${value:4:2}" "${value:6:2}"
-            ;;
-        *)
-            digits="${value//[^0-9]/}"
-            if [ "${#digits}" -ge 8 ]; then
-                printf '%s-%s-%s\n' "${digits:0:4}" "${digits:4:2}" "${digits:6:2}"
-            else
-                printf '%s\n' "$value"
-            fi
-            ;;
-    esac
+    codex_termux_cmd display-runtime-date --value "${1:-}"
 }
 
 codex_read_upstream_release_date_cache() {

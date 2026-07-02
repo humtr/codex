@@ -146,6 +146,51 @@ def state_field(state_path: Path, field: str) -> str:
         return ""
 
 
+def normalize_auto_update_mode(value: str) -> str:
+    mode = value or "prompt"
+    if mode in {"0", "off", "false", "no", "none"}:
+        return "off"
+    if mode in {"force", "auto", "always"}:
+        return "force"
+    return "prompt"
+
+
+def auto_update_due(
+    *,
+    enabled: str,
+    mode: str,
+    now: int,
+    last: str,
+    interval: int,
+) -> bool:
+    if enabled == "0" or normalize_auto_update_mode(mode) == "off":
+        return False
+    try:
+        last_checked = int(last or "0")
+    except ValueError:
+        last_checked = 0
+    return now - last_checked >= interval
+
+
+def failed_auto_update_due(
+    *,
+    record: str,
+    version: str,
+    now: int,
+    interval: int,
+) -> bool:
+    if not record:
+        return True
+    failed_version, sep, failed_at = record.partition("\t")
+    if not sep or failed_version != version:
+        return True
+    try:
+        failed_time = int(failed_at)
+    except ValueError:
+        return True
+    return now - failed_time >= interval
+
+
 def upstream_release_date(payload: str, version: str) -> str:
     try:
         data = json.loads(payload)

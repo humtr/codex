@@ -74,6 +74,29 @@ def add_commands(sub: SubparserCollection) -> None:
         func=lambda args: _print(runtime_checks.upstream_release_date(sys.stdin.read(), args.version))
     )
 
+    display_date = sub.add_parser("display-runtime-date")
+    display_date.add_argument("--value", default="")
+    display_date.set_defaults(func=lambda args: _print(registry.display_runtime_date(args.value)))
+
+    auto_mode = sub.add_parser("auto-update-mode")
+    auto_mode.add_argument("--mode", default="")
+    auto_mode.set_defaults(func=lambda args: _print(runtime_checks.normalize_auto_update_mode(args.mode)))
+
+    auto_due = sub.add_parser("auto-update-due")
+    auto_due.add_argument("--enabled", required=True)
+    auto_due.add_argument("--mode", required=True)
+    auto_due.add_argument("--now", required=True)
+    auto_due.add_argument("--last", default="0")
+    auto_due.add_argument("--interval", required=True)
+    auto_due.set_defaults(func=_auto_update_due)
+
+    failed_due = sub.add_parser("failed-auto-update-due")
+    failed_due.add_argument("--record", default="")
+    failed_due.add_argument("--version", required=True)
+    failed_due.add_argument("--now", required=True)
+    failed_due.add_argument("--interval", required=True)
+    failed_due.set_defaults(func=_failed_auto_update_due)
+
 
 def _print(value: object) -> int:
     print(value)
@@ -104,6 +127,25 @@ def _managed_tree_target_ok(args: argparse.Namespace) -> int:
         state=args.state,
     )
     return 0
+
+
+def _auto_update_due(args: argparse.Namespace) -> int:
+    return 0 if runtime_checks.auto_update_due(
+        enabled=args.enabled,
+        mode=args.mode,
+        now=int(args.now),
+        last=args.last,
+        interval=int(args.interval),
+    ) else 1
+
+
+def _failed_auto_update_due(args: argparse.Namespace) -> int:
+    return 0 if runtime_checks.failed_auto_update_due(
+        record=args.record,
+        version=args.version,
+        now=int(args.now),
+        interval=int(args.interval),
+    ) else 1
 
 
 def _validate_tarball(args: argparse.Namespace) -> int:
