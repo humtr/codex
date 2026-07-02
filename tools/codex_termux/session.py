@@ -132,6 +132,10 @@ def resolve_profile_menu_choice(choice: str | None) -> str:
     return normalize_profile_choice(raw)
 
 
+def profile_create_confirmed(choice: str | None) -> bool:
+    return (choice or "") in {"y", "Y"}
+
+
 def write_recent_profile(profile: str | None) -> None:
     name = normalize_profile_choice(profile)
     target = get_last_profile_file()

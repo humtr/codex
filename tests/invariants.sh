@@ -40,8 +40,8 @@ grep -R -F 'PYTHONDONTWRITEBYTECODE=1' lib/codex-termux.sh lib/codex-termux >/de
     || fail 'helper bytecode suppression missing'
 grep -R -F 'python3 -B -m codex_termux.cli' lib/codex-termux.sh lib/codex-termux >/dev/null \
     || fail 'helper -B invocation missing'
-grep -R -F 'codex_profile_list_command()' lib/codex-termux.sh lib/codex-termux >/dev/null \
-    || fail 'profile list command helper missing'
+grep -R -F 'profile-list --include-default' lib/codex-termux.sh lib/codex-termux >/dev/null \
+    || fail 'profile list dispatch helper missing'
 grep -R -F 'list|ls)' lib/codex-termux.sh lib/codex-termux >/dev/null \
     || fail 'profile list dispatch missing'
 grep -R -F '33<"$CODEX_TERMUX_RESOLV_CONF"' lib/codex-termux.sh lib/codex-termux >/dev/null \

@@ -248,16 +248,13 @@ def _validate_profile_contract(root: Path) -> None:
         "def profile_menu_ids(",
     )
     guarded_export = "\n".join((
-        'if ! codex_profile_default_p "$profile"; then',
+        'if ! codex_termux_cmd profile-is-default --profile "$profile"; then',
         '        export CODEX_HOME="$profile_dir"',
         '    fi',
     ))
     required_shell_facade = (
         "codex_profile_name_valid()",
         "codex_profile_home_dir()",
-        "codex_profile_recent_read()",
-        "codex_profile_recent_write()",
-        "codex_profile_menu_items()",
     )
     if profile_root not in shell:
         raise IntegrityError("custom profile root contract changed")

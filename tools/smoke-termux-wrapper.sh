@@ -98,10 +98,10 @@ work_output="$(codex_profile_exec "$work_dir" work 2>/dev/null)"
         "$CODEX_TERMUX_PROFILE_ROOT/foo..bar" \
         "$CODEX_TERMUX_PROFILE_ROOT/.hidden" \
         "$CODEX_TERMUX_PROFILE_ROOT/termux"
-list_output="$(codex_list_profiles)"
+list_output="$(codex_termux_cmd profile-list)"
 printf '%s\n' "$list_output" | grep -Fx -- 'clean' >/dev/null || fail_contract 'valid profile is missing from list'
 printf '%s\n' "$list_output" | grep -Fx -- 'work' >/dev/null || fail_contract 'work profile is missing from list'
-command_output="$(codex_profile_list_command)"
+command_output="$(codex_profile_run list)"
 printf '%s\n' "$command_output" | grep -Fx -- 'default' >/dev/null || fail_contract 'profile list command omitted default'
 printf '%s\n' "$command_output" | grep -Fx -- 'clean' >/dev/null || fail_contract 'profile list command omitted valid profile'
 printf '%s\n' "$command_output" | grep -Fx -- 'work' >/dev/null || fail_contract 'profile list command omitted work profile'
@@ -116,7 +116,7 @@ done
 
     mkdir -p "$CODEX_TERMUX_STATE_DIR"
     printf 'work\n' >"$CODEX_TERMUX_LAST_PROFILE_FILE"
-    menu_ids="$(codex_profile_menu_items)"
+    menu_ids="$(codex_termux_cmd profile-menu-ids)"
     expected_menu_ids="$(printf 'default\nbeta\nclean\nwork\n')"
     [ "$menu_ids" = "$expected_menu_ids" ] || fail_contract "recent profile changed menu order: $menu_ids"
 

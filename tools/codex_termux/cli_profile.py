@@ -37,6 +37,10 @@ def add_commands(sub: SubparserCollection) -> None:
     select_choice.add_argument("--choice", default="")
     select_choice.set_defaults(func=lambda args: _print(session.resolve_profile_menu_choice(args.choice)))
 
+    create_confirm = sub.add_parser("profile-create-confirmed")
+    create_confirm.add_argument("--choice", default="")
+    create_confirm.set_defaults(func=lambda args: 0 if session.profile_create_confirmed(args.choice) else 1)
+
     write_recent = sub.add_parser("profile-write-recent")
     write_recent.add_argument("--profile", default="default")
     write_recent.set_defaults(func=_profile_write_recent)
@@ -45,6 +49,7 @@ def add_commands(sub: SubparserCollection) -> None:
     read_recent.set_defaults(func=lambda args: _print(session.read_recent_profile()))
 
     list_cmd = sub.add_parser("profile-list")
+    list_cmd.add_argument("--include-default", action="store_true")
     list_cmd.set_defaults(func=_profile_list)
 
     menu = sub.add_parser("profile-menu-ids")
@@ -66,6 +71,8 @@ def _profile_write_recent(args: argparse.Namespace) -> int:
 
 
 def _profile_list(args: argparse.Namespace) -> int:
+    if args.include_default:
+        print("default")
     for profile in session.list_profiles():
         print(profile)
     return 0

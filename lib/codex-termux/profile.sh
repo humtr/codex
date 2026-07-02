@@ -9,45 +9,12 @@ codex_profile_home_dir() {
     codex_termux_cmd profile-dir --profile "${1:-default}"
 }
 
-codex_profile_label() {
-    codex_termux_cmd profile-display-name --profile "${1:-default}"
-}
-
-codex_profile_default_p() {
-    codex_termux_cmd profile-is-default --profile "${1:-default}"
-}
-
-codex_profile_choice_name() {
-    codex_termux_cmd profile-choice-to-name --choice "${1:-}"
-}
-
-codex_profile_recent_write() {
-    codex_termux_cmd profile-write-recent --profile "${1:-default}"
-}
-
-codex_profile_recent_read() {
-    codex_termux_cmd profile-read-recent
-}
-
-codex_profile_menu_items() {
-    codex_termux_cmd profile-menu-ids
-}
-
-codex_list_profiles() {
-    codex_termux_cmd profile-list
-}
-
-codex_profile_note() {
-    local profile="${1:-default}"
-    codex_ui_step open_profile "$(codex_profile_label "$profile")"
-}
-
 codex_profile_runtime_exec() {
     local profile="$1" profile_dir="$2"
     shift 2 || true
-    codex_profile_recent_write "$profile"
-    codex_profile_note "$profile"
-    if ! codex_profile_default_p "$profile"; then
+    codex_termux_cmd profile-write-recent --profile "$profile"
+    codex_ui_step open_profile "$(codex_termux_cmd profile-display-name --profile "$profile")"
+    if ! codex_termux_cmd profile-is-default --profile "$profile"; then
         export CODEX_HOME="$profile_dir"
     fi
     codex_exec_current_runtime "$@"
@@ -205,9 +172,15 @@ codex_confirm_menu() {
     codex_prompt_interactive "$prompt" yn 0 "$empty_policy"
 }
 
-codex_profile_create_prompt() {
-    local profile="$1" profile_dir="$2" display status
-    display="$(codex_profile_label "$profile")"
+codex_profile_ensure_dir() {
+    local profile_dir="$1" profile="${2:-default}" display status
+    if codex_termux_cmd profile-is-default --profile "$profile"; then
+        return 0
+    fi
+    if [ -d "$profile_dir" ]; then
+        return 0
+    fi
+    display="$(codex_termux_cmd profile-display-name --profile "$profile")"
     if [ ! -t 0 ] || [ ! -t 2 ]; then
         codex_fail "$(codex_ui_text_get missing_profile "$display")"
         return 2
@@ -216,25 +189,9 @@ codex_profile_create_prompt() {
         status=$?
         return "$status"
     }
-    case "${CODEX_PROMPT_CHOICE_RESULT:-}" in
-        y|Y)
-            mkdir -p "$profile_dir"
-            codex_say "$(codex_ui_text_get created_profile "$display")"
-            return 0
-            ;;
-        *) return 130 ;;
-    esac
-}
-
-codex_profile_ensure_dir() {
-    local profile_dir="$1" profile="${2:-default}"
-    if codex_profile_default_p "$profile"; then
-        return 0
-    fi
-    if [ -d "$profile_dir" ]; then
-        return 0
-    fi
-    codex_profile_create_prompt "$profile" "$profile_dir"
+    codex_termux_cmd profile-create-confirmed --choice "${CODEX_PROMPT_CHOICE_RESULT:-}" || return 130
+    mkdir -p "$profile_dir"
+    codex_say "$(codex_ui_text_get created_profile "$display")"
 }
 
 codex_profile_exec() {
@@ -252,21 +209,15 @@ codex_runtime_exec_with_context() {
         return $?
     fi
     local recent_profile recent_profile_dir
-    recent_profile="$(codex_profile_recent_read)"
+    recent_profile="$(codex_termux_cmd profile-read-recent)"
     recent_profile_dir="$(codex_profile_home_dir "$recent_profile")"
     codex_profile_runtime_exec "$recent_profile" "$recent_profile_dir" "$@"
 }
 
-codex_profile_list_command() {
-    codex_status_clear
-    printf 'default\n'
-    codex_list_profiles
-}
-
 codex_profile_select() {
     local profiles=() profile choice idx profile_dir display_limit=0 truncated=0 recent
-    recent="$(codex_profile_recent_read)"
-    mapfile -t profiles < <(codex_profile_menu_items)
+    recent="$(codex_termux_cmd profile-read-recent)"
+    mapfile -t profiles < <(codex_termux_cmd profile-menu-ids)
     if [ -t 0 ]; then
         display_limit=9
     fi
@@ -279,9 +230,9 @@ codex_profile_select() {
             break
         fi
         if [ "$profile" = "$recent" ]; then
-            printf '  %s %s %s\n' "$(codex_ui_number "$idx")" "$(codex_profile_label "$profile")" "$(codex_ui_badge recent)" >&2
+            printf '  %s %s %s\n' "$(codex_ui_number "$idx")" "$(codex_termux_cmd profile-display-name --profile "$profile")" "$(codex_ui_badge recent)" >&2
         else
-            printf '  %s %s\n' "$(codex_ui_number "$idx")" "$(codex_profile_label "$profile")" >&2
+            printf '  %s %s\n' "$(codex_ui_number "$idx")" "$(codex_termux_cmd profile-display-name --profile "$profile")" >&2
         fi
         idx=$((idx + 1))
     done
@@ -320,7 +271,8 @@ codex_profile_run() {
                 codex_fail "$(codex_ui_text_get profile_arg_error "$profile")"
                 return 2
             }
-            codex_profile_list_command
+            codex_status_clear
+            codex_termux_cmd profile-list --include-default
             return 0
             ;;
     esac

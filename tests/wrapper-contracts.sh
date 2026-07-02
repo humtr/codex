@@ -10,7 +10,7 @@ LIB_SH="$ROOT_DIR/lib/codex-termux.sh"
 INSTALL_RUNTIME="$ROOT_DIR/bin/install-runtime.sh"
 output="$(CODEX_TERMUX_HOME="$TMP_DIR/home" CODEX_TERMUX_PREFIX="$TMP_DIR/prefix" bash -lc '. "$1"; codex_ensure_runtime_ready() { return 0; }; codex_auto_update_if_needed() { return 0; }; codex_runtime_exec_with_context() { printf "%s\n" "$*"; }; codex_main run --flag' _ "$LIB_SH")"
 [ "$output" = "run --flag" ] || fail "codex public entrypoint changed: $output"
-CODEX_TERMUX_HOME="$TMP_DIR/home" CODEX_HOME="$TMP_DIR/ocdx-home" bash -lc '. "$1"; codex_profile_recent_write work; [ "$(cat "$CODEX_TERMUX_LAST_PROFILE_FILE")" = work ]; case "$CODEX_TERMUX_LAST_PROFILE_FILE" in "$CODEX_HOME"/*) exit 9 ;; esac' _ "$LIB_SH" || fail 'parallel CODEX_HOME contaminated codex recent-profile state'
+CODEX_TERMUX_HOME="$TMP_DIR/home" CODEX_HOME="$TMP_DIR/ocdx-home" bash -lc '. "$1"; codex_termux_cmd profile-write-recent --profile work; [ "$(cat "$CODEX_TERMUX_LAST_PROFILE_FILE")" = work ]; case "$CODEX_TERMUX_LAST_PROFILE_FILE" in "$CODEX_HOME"/*) exit 9 ;; esac' _ "$LIB_SH" || fail 'parallel CODEX_HOME contaminated codex recent-profile state'
 MANAGER_DIR="$TMP_DIR/manager"
 mkdir -p "$MANAGER_DIR"
 cp "$LIB_SH" "$MANAGER_DIR/lib.sh"
