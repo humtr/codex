@@ -51,6 +51,8 @@ required = {
     "tools/codex_termux/cli_product.py",
     "tools/codex_termux/cli_profile.py",
     "tools/codex_termux/cli_session.py",
+    "tools/codex_termux/cli_ui.py",
+    "tools/codex_termux/ui.py",
     "config/wrapper-version.env",
 }
 with zipfile.ZipFile(zip_path) as zf:

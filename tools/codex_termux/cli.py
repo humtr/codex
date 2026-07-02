@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from typing import Protocol
 
-from . import cli_activation, cli_artifacts, cli_doctor, cli_notify, cli_product, cli_profile, cli_session, prune, registry, repair, runtime_checks, use
+from . import cli_activation, cli_artifacts, cli_doctor, cli_notify, cli_product, cli_profile, cli_session, cli_ui, prune, registry, repair, runtime_checks, use
 from .errors import CodexTermuxError
 
 
@@ -32,6 +32,7 @@ def _build_parser() -> argparse.ArgumentParser:
     cli_notify.add_commands(sub)
     cli_profile.add_commands(sub)
     cli_session.add_commands(sub)
+    cli_ui.add_commands(sub)
     return parser
 
 

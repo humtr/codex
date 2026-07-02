@@ -52,6 +52,8 @@ def required_release_entries() -> tuple[str, ...]:
         "tools/codex_termux/cli_product.py",
         "tools/codex_termux/cli_profile.py",
         "tools/codex_termux/cli_session.py",
+        "tools/codex_termux/cli_ui.py",
+        "tools/codex_termux/ui.py",
     )
 
 

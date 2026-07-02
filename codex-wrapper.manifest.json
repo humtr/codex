@@ -273,6 +273,7 @@
     "tools/codex_termux/cli_profile.py": "profile",
     "tools/codex_termux/cli_product.py": "product",
     "tools/codex_termux/cli_session.py": "session",
+    "tools/codex_termux/cli_ui.py": "state",
     "tools/codex_termux/cli.py": "cli-dispatch",
     "tools/codex_termux/doctor.py": "doctor",
     "tools/codex_termux/errors.py": "package",
@@ -290,6 +291,7 @@
     "tools/codex_termux/source.py": "source",
     "tools/codex_termux/state.py": "state",
     "tools/codex_termux/store.py": "runtime",
+    "tools/codex_termux/ui.py": "state",
     "tools/codex_termux/use.py": "profile"
   },
   "product_forbidden_paths": [

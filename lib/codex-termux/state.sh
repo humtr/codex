@@ -187,68 +187,13 @@ codex_ui_separator() {
 codex_ui_text() {
     local key="$1"
     shift || true
-    case "$key" in
-        selection_cancelled) printf 'Selection cancelled.\n' ;;
-        profile_create_cancelled) printf 'Profile creation cancelled.\n' ;;
-        choose_profile_title) printf 'Choose profile\n' ;;
-        choose_profile_subtitle) printf 'Select CODEX_HOME target\n' ;;
-        choose_profile_prompt) printf 'Choose profile > \n' ;;
-        choose_profile_more) printf '  (More options: codex termux profile NAME)\n' ;;
-        choose_runtime_prompt) printf 'Choose runtime > \n' ;;
-        update_complete_title) printf 'Update complete\n' ;;
-        update_ready_subtitle) printf 'Codex %s is ready\n' "$1" ;;
-        update_available_title) printf 'Update available\n' ;;
-        launch_now_prompt) printf 'Launch now [y/N]> \n' ;;
-        apply_update_prompt) printf 'Apply update [y/N]> \n' ;;
-        launch_label) printf 'launch Codex\n' ;;
-        done_label) printf 'done\n' ;;
-        current_kept) printf 'Kept current runtime (%s).\n' "$1" ;;
-        create_profile_prompt) printf "Create profile '%s' [y/N]> \n" "$1" ;;
-        created_profile) printf 'Created profile %s.\n' "$1" ;;
-        installed_codex) printf 'Installed Codex %s\n' "$1" ;;
-        rebuilt_cached_runtime) printf 'Rebuilt runtime from cached raw package (%s)\n' "$1" ;;
-        update_failed_continue) printf 'Update failed. Continuing with %s.\n' "$1" ;;
-        restored_verified) printf 'Restored the active runtime from the verified copy.\n' ;;
-        restored_backup) printf 'Restored %s from %s.\n' "$1" "$2" ;;
-        removed_runtime) printf 'Removed the managed runtime. State remains at %s.\n' "$1" ;;
-        invalid_profile) printf 'Invalid profile name: %s\n' "$1" ;;
-        missing_profile) printf 'Profile does not exist: %s\n' "$1" ;;
-        profile_arg_error) printf 'Profile %s does not take arguments\n' "$1" ;;
-        setup_reserved) printf 'The upstream setup command is reserved. Use codex termux install, update, repair, or notify for wrapper operations.\n' ;;
-        doctor_wrapper_title) printf 'Wrapper doctor\n' ;;
-        session_stub) printf 'Use codex termux session for the cross-profile session picker.\n' ;;
-        *)
-            return 1
-            ;;
-    esac
+    codex_termux_cmd ui-text --key "$key" "$@"
 }
 
 codex_ui_step_text() {
     local key="$1"
     shift || true
-    case "$key" in
-        fetch_package) printf 'Fetching %s\n' "$1" ;;
-        validate_archive) printf 'Validating package archive\n' ;;
-        unpack_archive) printf 'Unpacking package archive\n' ;;
-        stage_raw) printf 'Staging raw package\n' ;;
-        build_runtime) printf 'Building patched runtime\n' ;;
-        assemble_runtime) printf 'Assembling runtime bundle\n' ;;
-        smoke_test_runtime) printf 'Smoke-testing runtime\n' ;;
-        activate_runtime) printf 'Activating runtime\n' ;;
-        update_runtime) printf 'Updating Codex %s -> %s\n' "$1" "$2" ;;
-        switch_runtime) printf 'Switching to Codex %s\n' "$1" ;;
-        launch_codex) printf 'Launching Codex %s\n' "$1" ;;
-        install_runtime) printf 'Installing wrapper support and fresh upstream runtime\n' ;;
-        rebuild_runtime) printf 'Rebuilding wrapper support with cached raw runtime\n' ;;
-        repair_runtime) printf 'Repairing runtime from the cached raw package\n' ;;
-        repair_support) printf 'Repairing wrapper support and launcher\n' ;;
-        repair_metadata) printf 'Repairing runtime metadata\n' ;;
-        rebuild_cached_runtime) printf 'Rebuilding runtime from the cached raw package\n' ;;
-        open_profile) printf 'Opening profile %s\n' "$1" ;;
-        *)
-            return 1
-            ;;
-    esac
+    codex_termux_cmd ui-step-text --key "$key" "$@"
 }
 
 codex_ui_text_get() {
