@@ -269,6 +269,7 @@
     "tools/codex_termux/cli_doctor.py": "doctor",
     "tools/codex_termux/cli_notify.py": "notify",
     "tools/codex_termux/cli_profile.py": "profile",
+    "tools/codex_termux/cli_product.py": "product",
     "tools/codex_termux/cli_session.py": "session",
     "tools/codex_termux/cli.py": "cli-dispatch",
     "tools/codex_termux/doctor.py": "doctor",
