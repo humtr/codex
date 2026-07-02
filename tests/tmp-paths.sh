@@ -14,6 +14,13 @@ CODEX_TERMUX_HOME="$TMP_ROOT/home" \
 CODEX_TERMUX_PREFIX="$TMP_ROOT/prefix" \
 CODEX_TERMUX_TMPDIR="$TMP_ROOT/prefix/tmp" \
 TMPDIR=/tmp \
+bash -lc '. "$1"; [ "$(codex_termux_cmd parent-dir --path /a/b/c)" = "/a/b" ]; [ "$(codex_termux_cmd parent-dir --path file)" = "file" ]; [ "$(codex_termux_cmd strip-trailing-slashes --path /a/b///)" = "/a/b" ]' _ "$ROOT_DIR/lib/codex-termux.sh" \
+    || fail 'Python path normalization helpers changed behavior'
+
+CODEX_TERMUX_HOME="$TMP_ROOT/home" \
+CODEX_TERMUX_PREFIX="$TMP_ROOT/prefix" \
+CODEX_TERMUX_TMPDIR="$TMP_ROOT/prefix/tmp" \
+TMPDIR=/tmp \
 bash -lc '. "$1"; tmp="$(codex_mktemp_dir codex-test)" || exit 1; case "$tmp" in "$CODEX_TERMUX_TMPDIR"/*) ;; *) printf "%s\n" "$tmp"; exit 2 ;; esac' _ "$ROOT_DIR/lib/codex-termux.sh" \
     || fail 'codex_mktemp_dir did not use CODEX_TERMUX_TMPDIR'
 

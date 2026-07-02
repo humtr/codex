@@ -42,6 +42,14 @@ def resolve_text(path: Path) -> str:
         return ""
 
 
+def shell_parent_dir(value: str) -> str:
+    """Match the wrapper's historical ${path%/*} parent behavior."""
+    if "/" not in value:
+        return value or "."
+    parent = value.rsplit("/", 1)[0]
+    return parent or "."
+
+
 def strip_trailing_slashes(value: str) -> str:
     path = value
     while len(path) > 1 and path.endswith("/"):

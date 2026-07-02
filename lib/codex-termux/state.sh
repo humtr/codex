@@ -154,18 +154,7 @@ codex_display_version() {
 }
 
 codex_parent_dir() {
-    local path="$1"
-    path="${path%/*}"
-    [ -n "$path" ] || path="."
-    printf '%s\n' "$path"
-}
-
-codex_strip_trailing_slashes() {
-    local path="$1"
-    while [ "${#path}" -gt 1 ] && [ "${path%/}" != "$path" ]; do
-        path="${path%/}"
-    done
-    printf '%s\n' "$path"
+    codex_termux_cmd parent-dir --path "$1"
 }
 
 codex_tmp_dir() {
@@ -178,7 +167,7 @@ codex_tmp_dir() {
             *) continue ;;
         esac
         if mkdir -p "$candidate" 2>/dev/null && [ -d "$candidate" ] && [ -w "$candidate" ]; then
-            printf '%s\n' "$(codex_strip_trailing_slashes "$candidate")"
+            codex_termux_cmd strip-trailing-slashes --path "$candidate"
             return 0
         fi
     done

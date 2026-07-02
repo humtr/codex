@@ -34,6 +34,14 @@ def add_commands(sub: SubparserCollection) -> None:
     resolve.add_argument("--path", required=True)
     resolve.set_defaults(func=lambda args: _print(paths.resolve_text(Path(args.path))))
 
+    parent = sub.add_parser("parent-dir")
+    parent.add_argument("--path", required=True)
+    parent.set_defaults(func=lambda args: _print(paths.shell_parent_dir(args.path)))
+
+    strip_slashes = sub.add_parser("strip-trailing-slashes")
+    strip_slashes.add_argument("--path", required=True)
+    strip_slashes.set_defaults(func=lambda args: _print(paths.strip_trailing_slashes(args.path)))
+
     managed = sub.add_parser("managed-tree-target-ok")
     for name in ("path", "label", "home", "prefix", "tmpdir", "root", "state"):
         managed.add_argument(f"--{name}", required=True)
