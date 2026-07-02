@@ -9,11 +9,8 @@ codex_status_clear() {
 }
 
 codex_status() {
-    local message="$*"
-    case "$message" in
-        *...) ;;
-        *) message="$message..." ;;
-    esac
+    local message
+    message="$(codex_termux_cmd ui-status-text --message "$*")" || return 1
     if [ -t 2 ]; then
         printf '\r\033[2K%s' "$message" >&2
         CODEX_STATUS_ACTIVE=1

@@ -52,7 +52,13 @@ bash -lc '. "$1"; output="$(codex_termux_main repair --help 2>&1)"; case "$outpu
 CODEX_TERMUX_HOME="$TMP_DIR/home" \
 CODEX_TERMUX_STATE_DIR="$TMP_DIR/state" \
 CODEX_TERMUX_TMPDIR="$TMP_DIR/tmp" \
-bash -lc '. "$1"; [ "$(codex_display_version 0.142.4-linux-arm64)" = "0.142.4" ]; [ "$(codex_ui_number 3)" = " 3." ]; [ "$(codex_ui_badge current)" = " 🟢 current " ]; sep="$(codex_termux_cmd ui-format --kind separator --value 4)"; [ "$sep" = "────" ]' _ "$LIB_SH"
+bash -lc '. "$1"; [ "$(codex_display_version 0.142.4-linux-arm64)" = "0.142.4" ]; [ "$(codex_ui_number 3)" = " 3." ]; [ "$(codex_ui_badge current)" = " 🟢 current " ]; sep="$(codex_termux_cmd ui-format --kind separator --value 4)"; [ "$sep" = "────" ]; [ "$(codex_termux_cmd ui-status-text --message Loading)" = "Loading..." ]; [ "$(codex_termux_cmd ui-status-text --message Ready...)" = "Ready..." ]' _ "$LIB_SH"
+
+CODEX_TERMUX_HOME="$TMP_DIR/home" \
+CODEX_TERMUX_STATE_DIR="$TMP_DIR/state" \
+CODEX_TERMUX_TMPDIR="$TMP_DIR/tmp" \
+CODEX_TERMUX_AUTO_UPDATE_TIMEOUT_SECONDS=1 \
+bash -lc '. "$1"; timeout() { shift; "$@"; }; npm() { [ "$1" = view ] || exit 21; [ "$2" = "@openai/codex" ] || exit 22; [ "$3" = dist-tags.linux-arm64 ] || exit 23; [ "$4" = --json ] || exit 24; printf "\"0.142.4\"\n"; }; [ "$(codex_latest_linux_arm64_version)" = "0.142.4" ]' _ "$LIB_SH"
 
 CODEX_TERMUX_HOME="$TMP_DIR/home" \
 CODEX_TERMUX_STATE_DIR="$TMP_DIR/state" \

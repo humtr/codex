@@ -127,6 +127,9 @@ def add_commands(sub: SubparserCollection) -> None:
         func=lambda args: _print(runtime_checks.upstream_release_date(sys.stdin.read(), args.version))
     )
 
+    strip_quotes = sub.add_parser("strip-quotes")
+    strip_quotes.set_defaults(func=_strip_quotes)
+
     release_cache_read = sub.add_parser("upstream-release-cache-read")
     release_cache_read.add_argument("--cache", required=True)
     release_cache_read.add_argument("--version", required=True)
@@ -243,6 +246,11 @@ def _upstream_release_cache_read(args: argparse.Namespace) -> int:
 
 def _upstream_release_cache_write(args: argparse.Namespace) -> int:
     runtime_checks.write_upstream_release_cache(Path(args.cache), args.version, args.release_date)
+    return 0
+
+
+def _strip_quotes(_: argparse.Namespace) -> int:
+    sys.stdout.write(sys.stdin.read().replace('"', ''))
     return 0
 
 

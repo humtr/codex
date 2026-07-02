@@ -36,6 +36,13 @@ upstream_version="$(
 )"
 [ "$upstream_version" = "unknown" ] || fail "empty upstream version mismatch: $upstream_version"
 
+strip_quotes="$(
+    printf '"0.142.5"\n' |
+        PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+            python3 -B -m codex_termux.cli strip-quotes
+)"
+[ "$strip_quotes" = "0.142.5" ] || fail "strip-quotes mismatch: $strip_quotes"
+
 pack_json="$TMP_DIR/pack.json"
 printf '[{"filename":"codex-test.tgz","version":"0.142.5"}]\n' >"$pack_json"
 package_env="$(

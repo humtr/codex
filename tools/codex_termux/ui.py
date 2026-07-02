@@ -25,6 +25,10 @@ def format_text(kind: str, value: str = "", *, color: bool = False) -> str:
     raise IntegrityError(f"unknown UI format kind: {kind}")
 
 
+def status_text(message: str) -> str:
+    return message if message.endswith("...") else f"{message}..."
+
+
 def _color(code: str, text_value: str, enabled: bool) -> str:
     if enabled:
         return f"\033[{code}m{text_value}\033[0m"

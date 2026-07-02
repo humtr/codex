@@ -502,9 +502,9 @@ codex_runtime_install_upstream() {
 
 codex_latest_linux_arm64_version() {
     if command -v timeout >/dev/null 2>&1; then
-        timeout "$CODEX_TERMUX_AUTO_UPDATE_TIMEOUT_SECONDS" npm view @openai/codex dist-tags.linux-arm64 --json 2>/dev/null | tr -d '"'
+        timeout "$CODEX_TERMUX_AUTO_UPDATE_TIMEOUT_SECONDS" npm view @openai/codex dist-tags.linux-arm64 --json 2>/dev/null | codex_termux_cmd strip-quotes
     else
-        npm view @openai/codex dist-tags.linux-arm64 --json 2>/dev/null | tr -d '"'
+        npm view @openai/codex dist-tags.linux-arm64 --json 2>/dev/null | codex_termux_cmd strip-quotes
     fi
 }
 
