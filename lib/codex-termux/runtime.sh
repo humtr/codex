@@ -71,15 +71,9 @@ codex_replace_tree_atomic() {
 }
 
 codex_support_source_dir() {
-    if [ -r "$CODEX_TERMUX_MANAGER_DIR/bwrap-termux-compat.py" ] &&
-        [ -r "$CODEX_TERMUX_MANAGER_DIR/rg-termux-shim.sh" ]; then
-        printf '%s\n' "$CODEX_TERMUX_MANAGER_DIR"
-    elif [ -r "$CODEX_TERMUX_RUNTIME_DIR/bwrap-termux-compat.py" ] &&
-        [ -r "$CODEX_TERMUX_RUNTIME_DIR/rg-termux-shim.sh" ]; then
-        printf '%s\n' "$CODEX_TERMUX_RUNTIME_DIR"
-    else
-        printf '%s\n' "$CODEX_TERMUX_MANAGER_DIR"
-    fi
+    codex_termux_cmd support-source-dir \
+        --manager-dir "$CODEX_TERMUX_MANAGER_DIR" \
+        --runtime-dir "$CODEX_TERMUX_RUNTIME_DIR"
 }
 
 codex_resolve_path() {
@@ -815,25 +809,17 @@ codex_exec_current_runtime() {
 }
 
 codex_current_wrapper_version() {
-    if [ -f "$CODEX_TERMUX_MANAGER_DIR/wrapper-version.env" ]; then
-        # shellcheck disable=SC1090
-        . "$CODEX_TERMUX_MANAGER_DIR/wrapper-version.env"
-    elif [ -f "$CODEX_TERMUX_RUNTIME_DIR/wrapper-version.env" ]; then
-        # shellcheck disable=SC1090
-        . "$CODEX_TERMUX_RUNTIME_DIR/wrapper-version.env"
-    fi
-    printf '%s\n' "${CODEX_TERMUX_WRAPPER_VERSION:-unknown}"
+    codex_termux_cmd wrapper-metadata-field \
+        --manager-dir "$CODEX_TERMUX_MANAGER_DIR" \
+        --runtime-dir "$CODEX_TERMUX_RUNTIME_DIR" \
+        --field version
 }
 
 codex_current_wrapper_commit() {
-    if [ -f "$CODEX_TERMUX_MANAGER_DIR/wrapper-version.env" ]; then
-        # shellcheck disable=SC1090
-        . "$CODEX_TERMUX_MANAGER_DIR/wrapper-version.env"
-    elif [ -f "$CODEX_TERMUX_RUNTIME_DIR/wrapper-version.env" ]; then
-        # shellcheck disable=SC1090
-        . "$CODEX_TERMUX_RUNTIME_DIR/wrapper-version.env"
-    fi
-    printf '%s\n' "${CODEX_TERMUX_WRAPPER_COMMIT:-unknown}"
+    codex_termux_cmd wrapper-metadata-field \
+        --manager-dir "$CODEX_TERMUX_MANAGER_DIR" \
+        --runtime-dir "$CODEX_TERMUX_RUNTIME_DIR" \
+        --field commit
 }
 
 codex_current_runtime_date() {

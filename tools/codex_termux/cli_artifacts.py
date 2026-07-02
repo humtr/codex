@@ -66,6 +66,17 @@ def add_commands(sub: SubparserCollection) -> None:
     runtime_retention.add_argument("--value", required=True)
     runtime_retention.set_defaults(func=_runtime_retention_ok)
 
+    support_source = sub.add_parser("support-source-dir")
+    support_source.add_argument("--manager-dir", required=True)
+    support_source.add_argument("--runtime-dir", required=True)
+    support_source.set_defaults(func=_support_source_dir)
+
+    wrapper_metadata = sub.add_parser("wrapper-metadata-field")
+    wrapper_metadata.add_argument("--manager-dir", required=True)
+    wrapper_metadata.add_argument("--runtime-dir", required=True)
+    wrapper_metadata.add_argument("--field", choices=("version", "commit"), required=True)
+    wrapper_metadata.set_defaults(func=_wrapper_metadata_field)
+
     state_field = sub.add_parser("state-read-field")
     state_field.add_argument("--state-file", required=True)
     state_field.add_argument("--field", required=True)
@@ -161,6 +172,21 @@ def _failed_auto_update_due(args: argparse.Namespace) -> int:
 
 def _runtime_retention_ok(args: argparse.Namespace) -> int:
     return 0 if runtime_checks.runtime_retention_ok(args.value) else 1
+
+
+def _support_source_dir(args: argparse.Namespace) -> int:
+    return _print(runtime_checks.support_source_dir(
+        manager_dir=Path(args.manager_dir),
+        runtime_dir=Path(args.runtime_dir),
+    ))
+
+
+def _wrapper_metadata_field(args: argparse.Namespace) -> int:
+    return _print(runtime_checks.wrapper_metadata_field(
+        manager_dir=Path(args.manager_dir),
+        runtime_dir=Path(args.runtime_dir),
+        field=args.field,
+    ))
 
 
 def _validate_tarball(args: argparse.Namespace) -> int:

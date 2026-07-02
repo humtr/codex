@@ -2,6 +2,10 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+TMP_PARENT="${TMPDIR:-${RUNNER_TEMP:-/tmp}}"
+TMP_DIR="$TMP_PARENT/codex-runtime-date-test.$$"
+trap 'rm -rf "$TMP_DIR"' EXIT
+mkdir -p "$TMP_DIR"
 
 fail() {
     printf 'runtime-date: FAIL: %s\n' "$*" >&2
@@ -46,6 +50,56 @@ if PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
 then
     fail 'runtime retention accepted zero'
 fi
+
+manager_dir="$TMP_DIR/manager"
+runtime_dir="$TMP_DIR/runtime"
+mkdir -p "$manager_dir" "$runtime_dir"
+printf 'test\n' >"$runtime_dir/bwrap-termux-compat.py"
+printf 'test\n' >"$runtime_dir/rg-termux-shim.sh"
+support_dir="$(
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+        python3 -B -m codex_termux.cli support-source-dir \
+            --manager-dir "$manager_dir" \
+            --runtime-dir "$runtime_dir"
+)"
+[ "$support_dir" = "$runtime_dir" ] || fail "support source runtime fallback mismatch: $support_dir"
+
+printf 'test\n' >"$manager_dir/bwrap-termux-compat.py"
+printf 'test\n' >"$manager_dir/rg-termux-shim.sh"
+support_dir="$(
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+        python3 -B -m codex_termux.cli support-source-dir \
+            --manager-dir "$manager_dir" \
+            --runtime-dir "$runtime_dir"
+)"
+[ "$support_dir" = "$manager_dir" ] || fail "support source manager priority mismatch: $support_dir"
+
+cat >"$runtime_dir/wrapper-version.env" <<'ENV'
+CODEX_TERMUX_WRAPPER_VERSION=runtime-version
+CODEX_TERMUX_WRAPPER_COMMIT=runtime-commit
+ENV
+cat >"$manager_dir/wrapper-version.env" <<'ENV'
+CODEX_TERMUX_WRAPPER_VERSION=manager-version
+CODEX_TERMUX_WRAPPER_COMMIT=manager-commit
+ENV
+wrapper_version="$(
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+        python3 -B -m codex_termux.cli wrapper-metadata-field \
+            --manager-dir "$manager_dir" \
+            --runtime-dir "$runtime_dir" \
+            --field version
+)"
+[ "$wrapper_version" = "manager-version" ] || fail "wrapper metadata manager priority mismatch: $wrapper_version"
+
+rm -f "$manager_dir/wrapper-version.env"
+wrapper_commit="$(
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+        python3 -B -m codex_termux.cli wrapper-metadata-field \
+            --manager-dir "$manager_dir" \
+            --runtime-dir "$runtime_dir" \
+            --field commit
+)"
+[ "$wrapper_commit" = "runtime-commit" ] || fail "wrapper metadata runtime fallback mismatch: $wrapper_commit"
 
 mode="$(
     PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \

@@ -38,6 +38,48 @@ def runtime_retention_ok(value: str) -> bool:
         return False
 
 
+def support_source_dir(*, manager_dir: Path, runtime_dir: Path) -> Path:
+    if _support_tools_available(manager_dir):
+        return manager_dir
+    if _support_tools_available(runtime_dir):
+        return runtime_dir
+    return manager_dir
+
+
+def wrapper_metadata_field(*, manager_dir: Path, runtime_dir: Path, field: str) -> str:
+    data: dict[str, str] = {}
+    manager_file = manager_dir / "wrapper-version.env"
+    runtime_file = runtime_dir / "wrapper-version.env"
+    if manager_file.is_file():
+        data = _read_env_metadata(manager_file)
+    elif runtime_file.is_file():
+        data = _read_env_metadata(runtime_file)
+    if field == "version":
+        return data.get("CODEX_TERMUX_WRAPPER_VERSION", "unknown") or "unknown"
+    if field == "commit":
+        return data.get("CODEX_TERMUX_WRAPPER_COMMIT", "unknown") or "unknown"
+    raise IntegrityError(f"unknown wrapper metadata field: {field}")
+
+
+def _support_tools_available(path: Path) -> bool:
+    return (path / "bwrap-termux-compat.py").is_file() and (path / "rg-termux-shim.sh").is_file()
+
+
+def _read_env_metadata(path: Path) -> dict[str, str]:
+    data: dict[str, str] = {}
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return data
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        data[key] = value
+    return data
+
+
 def runtime_integrity_ok(
     *,
     runtime: Path,
