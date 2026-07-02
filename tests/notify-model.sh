@@ -20,6 +20,10 @@ assert notify.normalize_hooks("stop,Stop,SubagentStop") == "Stop,SubagentStop"
 assert notify.normalize_hooks("all") == "all"
 assert notify.hook_list("all")[0] == "SessionStart"
 assert notify.hook_list("Stop") == ["Stop"]
+assert notify.parse_hook_selection("") == "Stop"
+assert notify.parse_hook_selection("1") == "SessionStart"
+assert notify.parse_hook_selection("1 Stop") == "SessionStart,Stop"
+assert notify.parse_hook_selection("0") == "all"
 assert notify.status_message("Stop") == "Notify turn completion"
 
 settings = notify.NotifySettings(
@@ -52,6 +56,22 @@ for bad in (
         pass
     else:
         raise AssertionError(bad)
+
+for selection in ("99", "1abc"):
+    try:
+        notify.parse_hook_selection(selection)
+    except notify.NotifyConfigError:
+        pass
+    else:
+        raise AssertionError(selection)
+
+config = notify.parse_command_config(
+    ["--channel", "both", "--hook", "stop", "--hook", "SubagentStop"],
+    {"CODEX_TERMUX_NOTIFY_CONFIG": "/tmp/notify.env"},
+)
+assert config.config_file == "/tmp/notify.env"
+assert config.settings.channel == "both"
+assert config.settings.hooks == "Stop,SubagentStop"
 PYTHON
 
 normalized="$(
@@ -75,5 +95,26 @@ if PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
 then
     fail 'invalid toast gravity was accepted'
 fi
+
+selection="$(
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+        python3 -B -m codex_termux.cli notify-hook --action parse-selection --value "1 Stop"
+)"
+[ "$selection" = "SessionStart,Stop" ] || fail "selection mismatch: $selection"
+
+command_env="$(
+    CODEX_TERMUX_NOTIFY_CONFIG=/tmp/notify.env \
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+        python3 -B -m codex_termux.cli notify-command-config \
+            --field config-env -- --channel both --hook stop --hook SubagentStop
+)"
+case "$command_env" in
+    *"CODEX_TERMUX_NOTIFY_CHANNEL=both"*) ;;
+    *) fail "notify command channel mismatch: $command_env" ;;
+esac
+case "$command_env" in
+    *"CODEX_TERMUX_NOTIFY_HOOKS=Stop,SubagentStop"*) ;;
+    *) fail "notify command config env mismatch: $command_env" ;;
+esac
 
 printf 'notify-model: ok\n'

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shlex
 from dataclasses import dataclass
+from typing import Mapping, Sequence
 
 
 HOOKS = (
@@ -54,6 +55,12 @@ class NotifySettings:
     pretooluse: str
 
 
+@dataclass(frozen=True)
+class NotifyCommandConfig:
+    config_file: str
+    settings: NotifySettings
+
+
 def canonical_hook(value: str) -> str:
     return _CANONICAL.get(value, _CANONICAL.get(value.lower(), value))
 
@@ -88,9 +95,126 @@ def hook_list(value: str = "Stop") -> list[str]:
     return [canonical_hook(item) for item in hooks.split(",") if canonical_hook(item)]
 
 
+def parse_hook_selection(selection: str = "") -> str:
+    tokens = (selection or "").split()
+    if not tokens:
+        return "Stop"
+    hooks: list[str] = []
+    seen: set[str] = set()
+    for token in tokens:
+        if token in {"0", "all", "ALL"}:
+            return "all"
+        if token.isdigit():
+            index = int(token)
+            if index < 1 or index > len(HOOKS):
+                raise NotifyConfigError(f"Notification hook number out of range: {token}")
+            hook = HOOKS[index - 1]
+        else:
+            hook = canonical_hook(token)
+            if not hook_valid(hook):
+                raise NotifyConfigError(f"Unknown notification hook: {token}")
+            if hook == "all":
+                return "all"
+        if hook not in seen:
+            hooks.append(hook)
+            seen.add(hook)
+    return ",".join(hooks) if hooks else "Stop"
+
+
 def status_message(value: str) -> str:
     event = canonical_hook(value)
     return _STATUS_MESSAGES.get(event, f"Notify {value}")
+
+
+def parse_command_config(
+    argv: Sequence[str],
+    env: Mapping[str, str],
+) -> NotifyCommandConfig:
+    config_file = env.get("CODEX_TERMUX_NOTIFY_CONFIG", "")
+    channel = env.get("CODEX_TERMUX_NOTIFY_CHANNEL", "notification")
+    hooks = env.get("CODEX_TERMUX_NOTIFY_HOOKS", "Stop")
+    pretooluse = env.get("CODEX_TERMUX_NOTIFY_PRETOOLUSE", "0")
+    content_chars = env.get("CODEX_TERMUX_NOTIFY_CONTENT_CHARS", "140")
+    preserve_newlines = env.get("CODEX_TERMUX_NOTIFY_PRESERVE_NEWLINES", "0")
+    toast_gravity = env.get("CODEX_TERMUX_NOTIFY_TOAST_GRAVITY", "top")
+    toast_short = env.get("CODEX_TERMUX_NOTIFY_TOAST_SHORT", "0")
+    toast_background = env.get("CODEX_TERMUX_NOTIFY_TOAST_BACKGROUND", "")
+    toast_color = env.get("CODEX_TERMUX_NOTIFY_TOAST_COLOR", "")
+    group = env.get("CODEX_TERMUX_NOTIFY_GROUP", "codex-turns")
+
+    args = list(argv)
+    if args and args[0] == "--":
+        args = args[1:]
+
+    index = 0
+    while index < len(args):
+        option = args[index]
+        if option == "--all-hooks":
+            hooks = "all"
+            index += 1
+            continue
+        if option not in {
+            "--config-file",
+            "--channel",
+            "--hooks",
+            "--hook",
+            "--pretooluse",
+            "--content-chars",
+            "--preserve-newlines",
+            "--toast-gravity",
+            "--toast-short",
+            "--toast-background",
+            "--toast-color",
+            "--group",
+        }:
+            raise NotifyConfigError(f"Unknown notify option: {option}")
+        if index + 1 >= len(args):
+            raise NotifyConfigError(f"Missing value for {option}")
+        value = args[index + 1]
+        if option == "--config-file":
+            config_file = value
+        elif option == "--channel":
+            channel = value
+        elif option == "--hooks":
+            hooks = value
+        elif option == "--hook":
+            hooks = f"{hooks},{value}" if hooks else value
+        elif option == "--pretooluse":
+            pretooluse = value
+        elif option == "--content-chars":
+            content_chars = value
+        elif option == "--preserve-newlines":
+            preserve_newlines = value
+        elif option == "--toast-gravity":
+            toast_gravity = value
+        elif option == "--toast-short":
+            toast_short = value
+        elif option == "--toast-background":
+            toast_background = value
+        elif option == "--toast-color":
+            toast_color = value
+        elif option == "--group":
+            group = value
+        index += 2
+
+    if not config_file:
+        raise NotifyConfigError("Notification config file is unavailable")
+
+    settings = validate_settings(
+        NotifySettings(
+            content_chars=content_chars,
+            preserve_newlines=preserve_newlines,
+            toast_gravity=toast_gravity,
+            toast_short=toast_short,
+            toast_background=toast_background,
+            toast_color=toast_color,
+            group=group,
+            channel=channel,
+            hooks=hooks,
+            pretooluse=pretooluse,
+        )
+    )
+    return NotifyCommandConfig(config_file=config_file, settings=settings)
 
 
 def validate_settings(settings: NotifySettings) -> NotifySettings:

@@ -77,7 +77,7 @@ mkdir -p "$INVALID_TMP/home" "$INVALID_TMP/tmp"
 CODEX_TERMUX_HOME="$INVALID_TMP/home" \
 CODEX_TERMUX_STATE_DIR="$INVALID_TMP/home/.local/share/codex/termux" \
 CODEX_TERMUX_TMPDIR="$INVALID_TMP/tmp" \
-bash -lc '. "$1"; ! codex_termux_main notify --hooks TypoHook >/dev/null 2>&1; ! codex_termux_main notify --toast-gravity center >/dev/null 2>&1; ! codex_termux_main notify --channel invalid >/dev/null 2>&1; ! codex_termux_main notify >/dev/null 2>&1; ! codex_termux_main toast >/dev/null 2>&1; [ "$(codex_notify_parse_hook_selection "")" = "Stop" ]; [ "$(codex_notify_parse_hook_selection "1")" = "SessionStart" ]; ! codex_notify_parse_hook_selection "99" >/dev/null 2>&1; ! codex_notify_parse_hook_selection "1abc" >/dev/null 2>&1' _ "$LIB_SH"
+bash -lc '. "$1"; ! codex_termux_main notify --hooks TypoHook >/dev/null 2>&1; ! codex_termux_main notify --toast-gravity center >/dev/null 2>&1; ! codex_termux_main notify --channel invalid >/dev/null 2>&1; ! codex_termux_main notify >/dev/null 2>&1; ! codex_termux_main toast >/dev/null 2>&1; [ "$(codex_termux_cmd notify-hook --action parse-selection --value "")" = "Stop" ]; [ "$(codex_termux_cmd notify-hook --action parse-selection --value "1")" = "SessionStart" ]; ! codex_termux_cmd notify-hook --action parse-selection --value "99" >/dev/null 2>&1; ! codex_termux_cmd notify-hook --action parse-selection --value "1abc" >/dev/null 2>&1' _ "$LIB_SH"
 
 PROVIDER_TMP="$TMP_DIR/provider"
 mkdir -p "$PROVIDER_TMP/bin" "$PROVIDER_TMP/state/notify"
