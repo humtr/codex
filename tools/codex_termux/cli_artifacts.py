@@ -42,6 +42,11 @@ def add_commands(sub: SubparserCollection) -> None:
     strip_slashes.add_argument("--path", required=True)
     strip_slashes.set_defaults(func=lambda args: _print(paths.strip_trailing_slashes(args.path)))
 
+    marker = sub.add_parser("file-has-marker")
+    marker.add_argument("--path", required=True)
+    marker.add_argument("--marker", required=True)
+    marker.set_defaults(func=_file_has_marker)
+
     helper_root = sub.add_parser("helper-package-root")
     helper_root.add_argument("--source-root", required=True)
     helper_root.add_argument("--root-dir", default="")
@@ -202,6 +207,10 @@ def _helper_package_root(args: argparse.Namespace) -> int:
         root_dir=args.root_dir,
         manager_dir=Path(args.manager_dir),
     ))
+
+
+def _file_has_marker(args: argparse.Namespace) -> int:
+    return 0 if paths.file_has_marker(Path(args.path), args.marker) else 1
 
 
 def _auto_update_due(args: argparse.Namespace) -> int:

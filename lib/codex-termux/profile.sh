@@ -249,7 +249,9 @@ codex_restore_backup() {
 }
 
 codex_remove() {
-    if codex_file_has_marker "$CODEX_TERMUX_PUBLIC_CODEX"; then
+    if codex_termux_cmd file-has-marker \
+        --path "$CODEX_TERMUX_PUBLIC_CODEX" \
+        --marker "$CODEX_TERMUX_MANAGED_LAUNCHER_MARKER"; then
         rm -f "$CODEX_TERMUX_PUBLIC_CODEX"
         codex_restore_backup "$CODEX_TERMUX_PUBLIC_CODEX"
     fi

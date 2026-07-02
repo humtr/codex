@@ -57,6 +57,13 @@ def strip_trailing_slashes(value: str) -> str:
     return path
 
 
+def file_has_marker(path: Path, marker: str) -> bool:
+    try:
+        return marker.encode("utf-8") in path.read_bytes()
+    except OSError:
+        return False
+
+
 def helper_package_root(*, source_root: Path, root_dir: str, manager_dir: Path) -> Path:
     source_tools = source_root / "tools"
     if (source_tools / "codex_termux").is_dir():

@@ -57,6 +57,12 @@ bash -lc '. "$1"; [ "$(codex_display_version 0.142.4-linux-arm64)" = "0.142.4" ]
 CODEX_TERMUX_HOME="$TMP_DIR/home" \
 CODEX_TERMUX_STATE_DIR="$TMP_DIR/state" \
 CODEX_TERMUX_TMPDIR="$TMP_DIR/tmp" \
+TEST_TMP_DIR="$TMP_DIR" \
+bash -lc '. "$1"; marker_file="$TEST_TMP_DIR/launcher.bin"; printf "prefix\0%s\0suffix\n" "$CODEX_TERMUX_MANAGED_LAUNCHER_MARKER" >"$marker_file"; codex_termux_cmd file-has-marker --path "$marker_file" --marker "$CODEX_TERMUX_MANAGED_LAUNCHER_MARKER"; ! codex_termux_cmd file-has-marker --path "$marker_file" --marker missing' _ "$LIB_SH"
+
+CODEX_TERMUX_HOME="$TMP_DIR/home" \
+CODEX_TERMUX_STATE_DIR="$TMP_DIR/state" \
+CODEX_TERMUX_TMPDIR="$TMP_DIR/tmp" \
 bash -lc '. "$1"; stable="$CODEX_TERMUX_RUNTIME_STORE_DIR/stable-runtime"; mkdir -p "$CODEX_TERMUX_CERT_DIR"; termux-open-url() { :; }; codex_prepare_system_config() { return 0; }; codex_resolve_path() { [ "$1" = "$CODEX_TERMUX_RUNTIME_DIR" ] && printf "%s\n" "$stable"; }; export CODEX_SELF_EXE="$CODEX_TERMUX_RUNTIME" CODEX_MANAGED_BY_NPM=1 LD_PRELOAD=bad BROWSER=""; codex_prepare_runtime_env; [ "$CODEX_SELF_EXE" = "$stable/codex" ]; [ "$TMPDIR" = "$CODEX_TERMUX_TMPDIR" ]; [ "$SQLITE_TMPDIR" = "$CODEX_TERMUX_TMPDIR" ]; [ "$SSL_CERT_FILE" = "$CODEX_TERMUX_CERT_FILE" ]; [ "$SSL_CERT_DIR" = "$CODEX_TERMUX_CERT_DIR" ]; [ "$BROWSER" = "termux-open-url" ]; [ -z "${CODEX_MANAGED_BY_NPM+x}" ]; [ -z "${LD_PRELOAD+x}" ]; case "$PATH" in "$stable/codex-path:$stable/codex-resources:"*) ;; *) exit 1 ;; esac' _ "$LIB_SH"
 
 CODEX_TERMUX_HOME="$TMP_DIR/home" \

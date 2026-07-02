@@ -260,12 +260,6 @@ codex_termux_activation_cmd() {
         "$@"
 }
 
-codex_file_has_marker() {
-    local path="$1"
-    [ -e "$path" ] || return 1
-    grep -a -q "$CODEX_TERMUX_MANAGED_LAUNCHER_MARKER" "$path" 2>/dev/null
-}
-
 codex_lock_is_held() {
     local pid="${BASHPID:-$$}"
     [ "${CODEX_TERMUX_LOCK_HELD:-0}" = "1" ] || return 1
