@@ -61,6 +61,33 @@ def wrapper_metadata_field(*, manager_dir: Path, runtime_dir: Path, field: str) 
     raise IntegrityError(f"unknown wrapper metadata field: {field}")
 
 
+def upstream_version_text(upstream_output: str) -> str:
+    if not upstream_output:
+        return "unknown"
+    return upstream_output.removeprefix("codex-cli ") or "unknown"
+
+
+def version_report(
+    *,
+    upstream: str,
+    upstream_date: str,
+    runtime_date: str,
+    wrapper_version: str,
+    wrapper_commit: str,
+) -> str:
+    first = upstream
+    if upstream_date:
+        first = f"{first} ({upstream_date})"
+    wrapper = f"{'wrapper':<9} {wrapper_version}"
+    if wrapper_commit and wrapper_commit != "unknown":
+        wrapper = f"{wrapper} ({wrapper_commit})"
+    return "\n".join((
+        first,
+        f"{'runtime':<9} {runtime_date or 'unknown'}",
+        wrapper,
+    ))
+
+
 def _support_tools_available(path: Path) -> bool:
     return (path / "bwrap-termux-compat.py").is_file() and (path / "rg-termux-shim.sh").is_file()
 

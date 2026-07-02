@@ -85,6 +85,20 @@ def add_commands(sub: SubparserCollection) -> None:
     wrapper_metadata.add_argument("--field", choices=("version", "commit"), required=True)
     wrapper_metadata.set_defaults(func=_wrapper_metadata_field)
 
+    upstream_version = sub.add_parser("upstream-version")
+    upstream_version.add_argument("--text", default="")
+    upstream_version.set_defaults(
+        func=lambda args: _print(runtime_checks.upstream_version_text(args.text))
+    )
+
+    version_report = sub.add_parser("version-report")
+    version_report.add_argument("--upstream", default="")
+    version_report.add_argument("--upstream-date", default="")
+    version_report.add_argument("--runtime-date", default="")
+    version_report.add_argument("--wrapper-version", required=True)
+    version_report.add_argument("--wrapper-commit", default="")
+    version_report.set_defaults(func=_version_report)
+
     state_field = sub.add_parser("state-read-field")
     state_field.add_argument("--state-file", required=True)
     state_field.add_argument("--field", required=True)
@@ -215,6 +229,16 @@ def _support_source_dir(args: argparse.Namespace) -> int:
     return _print(runtime_checks.support_source_dir(
         manager_dir=Path(args.manager_dir),
         runtime_dir=Path(args.runtime_dir),
+    ))
+
+
+def _version_report(args: argparse.Namespace) -> int:
+    return _print(runtime_checks.version_report(
+        upstream=args.upstream,
+        upstream_date=args.upstream_date,
+        runtime_date=args.runtime_date,
+        wrapper_version=args.wrapper_version,
+        wrapper_commit=args.wrapper_commit,
     ))
 
 

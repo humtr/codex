@@ -25,6 +25,30 @@ display_date="$(
 )"
 [ "$display_date" = "2026-07-02" ] || fail "display date mismatch: $display_date"
 
+upstream_version="$(
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+        python3 -B -m codex_termux.cli upstream-version --text "codex-cli 0.142.5"
+)"
+[ "$upstream_version" = "0.142.5" ] || fail "upstream version mismatch: $upstream_version"
+upstream_version="$(
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+        python3 -B -m codex_termux.cli upstream-version --text ""
+)"
+[ "$upstream_version" = "unknown" ] || fail "empty upstream version mismatch: $upstream_version"
+version_report="$(
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+        python3 -B -m codex_termux.cli version-report \
+            --upstream "codex-cli 0.142.5" \
+            --upstream-date "2026-07-01" \
+            --runtime-date "2026-07-02" \
+            --wrapper-version "260702-47" \
+            --wrapper-commit "abcdef123456"
+)"
+case "$version_report" in
+    $'codex-cli 0.142.5 (2026-07-01)\nruntime   2026-07-02\nwrapper   260702-47 (abcdef123456)') ;;
+    *) fail "version report mismatch: $version_report" ;;
+esac
+
 cache_file="$TMP_DIR/upstream-cache.tsv"
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
     python3 -B -m codex_termux.cli upstream-release-cache-write \

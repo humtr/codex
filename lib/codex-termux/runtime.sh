@@ -876,18 +876,16 @@ codex_version() {
         status=$?
         upstream=""
     fi
-    upstream_version="${upstream#codex-cli }"
-    [ -n "$upstream_version" ] || upstream_version="unknown"
+    upstream_version="$(codex_termux_cmd upstream-version --text "$upstream")"
     upstream_date="$(codex_upstream_release_date "$upstream_version" || true)"
     runtime_date="$(codex_display_dotted_date "$(codex_current_runtime_date || true)")"
     wrapper_version="$(codex_current_wrapper_version)"
     wrapper_commit="$(codex_current_wrapper_commit)"
-    printf '%s' "$upstream" >&2
-    [ -n "$upstream_date" ] && printf ' (%s)' "$upstream_date" >&2
-    printf '\n' >&2
-    printf '%-9s %s\n' 'runtime' "${runtime_date:-unknown}" >&2
-    printf '%-9s %s' 'wrapper' "$wrapper_version" >&2
-    [ -n "$wrapper_commit" ] && [ "$wrapper_commit" != "unknown" ] && printf ' (%s)' "$wrapper_commit" >&2
-    printf '\n' >&2
+    codex_termux_cmd version-report \
+        --upstream "$upstream" \
+        --upstream-date "$upstream_date" \
+        --runtime-date "$runtime_date" \
+        --wrapper-version "$wrapper_version" \
+        --wrapper-commit "$wrapper_commit" >&2
     return "$status"
 }
