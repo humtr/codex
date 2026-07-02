@@ -783,57 +783,34 @@ codex_exec_current_runtime() {
     exec "$CODEX_SELF_EXE" "$@" 33<"$CODEX_TERMUX_RESOLV_CONF" 34<"$CODEX_TERMUX_SYSTEM_CONFIG_DIR"
 }
 
-codex_current_runtime_date() {
-    codex_termux_cmd registry-active-runtime-date \
-        --registry-file "$CODEX_TERMUX_REGISTRY_FILE"
-}
-
-codex_display_dotted_date() {
-    codex_termux_cmd display-runtime-date --value "${1:-}"
-}
-
-codex_read_upstream_release_date_cache() {
-    codex_termux_cmd upstream-release-cache-read \
-        --cache "$CODEX_TERMUX_UPSTREAM_TIME_CACHE" \
-        --version "$1"
-}
-
-codex_write_upstream_release_date_cache() {
-    codex_termux_cmd upstream-release-cache-write \
-        --cache "$CODEX_TERMUX_UPSTREAM_TIME_CACHE" \
-        --version "$1" \
-        --release-date "$2" >/dev/null 2>&1 || true
-}
-
-codex_fetch_upstream_release_date() {
-    local version="${1:-}"
-    [ -n "$version" ] || return 0
-    if command -v timeout >/dev/null 2>&1; then
-        timeout "$CODEX_TERMUX_AUTO_UPDATE_TIMEOUT_SECONDS" npm view @openai/codex time --json 2>/dev/null | \
-            codex_termux_cmd upstream-release-date --version "$version"
-    else
-        npm view @openai/codex time --json 2>/dev/null | \
-            codex_termux_cmd upstream-release-date --version "$version"
-    fi
-}
-
 codex_upstream_release_date() {
     local version="${1:-}" release_date
     [ -n "$version" ] || return 0
-    release_date="$(codex_read_upstream_release_date_cache "$version" 2>/dev/null || true)"
+    release_date="$(codex_termux_cmd upstream-release-cache-read \
+        --cache "$CODEX_TERMUX_UPSTREAM_TIME_CACHE" \
+        --version "$version" 2>/dev/null || true)"
     if [ -n "$release_date" ]; then
         printf '%s\n' "$release_date"
         return 0
     fi
-    release_date="$(codex_fetch_upstream_release_date "$version" || true)"
+    if command -v timeout >/dev/null 2>&1; then
+        release_date="$(timeout "$CODEX_TERMUX_AUTO_UPDATE_TIMEOUT_SECONDS" npm view @openai/codex time --json 2>/dev/null | \
+            codex_termux_cmd upstream-release-date --version "$version" || true)"
+    else
+        release_date="$(npm view @openai/codex time --json 2>/dev/null | \
+            codex_termux_cmd upstream-release-date --version "$version" || true)"
+    fi
     if [ -n "$release_date" ]; then
-        codex_write_upstream_release_date_cache "$version" "$release_date"
+        codex_termux_cmd upstream-release-cache-write \
+            --cache "$CODEX_TERMUX_UPSTREAM_TIME_CACHE" \
+            --version "$version" \
+            --release-date "$release_date" >/dev/null 2>&1 || true
         printf '%s\n' "$release_date"
     fi
 }
 
 codex_version() {
-    local upstream upstream_version upstream_date runtime_date metadata_env status=0
+    local upstream upstream_version upstream_date runtime_date runtime_date_value metadata_env status=0
     codex_status_clear
     if upstream="$(codex_run_current_runtime --version 2>/dev/null)"; then
         status=0
@@ -843,7 +820,9 @@ codex_version() {
     fi
     upstream_version="$(codex_termux_cmd upstream-version --text "$upstream")"
     upstream_date="$(codex_upstream_release_date "$upstream_version" || true)"
-    runtime_date="$(codex_display_dotted_date "$(codex_current_runtime_date || true)")"
+    runtime_date_value="$(codex_termux_cmd registry-active-runtime-date \
+        --registry-file "$CODEX_TERMUX_REGISTRY_FILE" || true)"
+    runtime_date="$(codex_termux_cmd display-runtime-date --value "$runtime_date_value")"
     metadata_env="$(codex_termux_cmd wrapper-metadata-env \
         --manager-dir "$CODEX_TERMUX_MANAGER_DIR" \
         --runtime-dir "$CODEX_TERMUX_RUNTIME_DIR")" || return 1
