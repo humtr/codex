@@ -161,6 +161,19 @@ PYTHON
     --action restore_verified --intent readiness --field refresh-after)" = "1" ] ||
     fail 'runtime action plan CLI did not return refresh-after'
 
+action_env="$(
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+        python3 -B -m codex_termux.cli runtime-action-plan-env \
+            --action rebuild_cached --intent repair
+)"
+eval "$action_env"
+[ "$CODEX_RUNTIME_ACTION_KIND" = "rebuild_cached" ] ||
+    fail "runtime action plan env kind mismatch: $CODEX_RUNTIME_ACTION_KIND"
+[ "$CODEX_RUNTIME_ACTION_STEP" = "repair_runtime" ] ||
+    fail "runtime action plan env step mismatch: $CODEX_RUNTIME_ACTION_STEP"
+[ "$CODEX_RUNTIME_ACTION_REFRESH_AFTER" = "1" ] ||
+    fail "runtime action plan env refresh mismatch: $CODEX_RUNTIME_ACTION_REFRESH_AFTER"
+
 state_file="$TMP_DIR/state.json"
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" python3 -B - "$state_file" <<'PYTHON'
 import json
@@ -191,6 +204,40 @@ PYTHON
     python3 -B -m codex_termux.cli runtime-refresh-plan-env \
     --state-file "$state_file" --metadata-current 0 | sed -n '1p')" = "CODEX_RUNTIME_REFRESH_ACTION=activate" ] ||
     fail 'runtime refresh plan CLI did not return activate action'
+
+diagnosis_json="$(
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+        python3 -B -m codex_termux.cli repair-diagnose \
+            --managed-shell "$TMP_DIR/missing-managed.sh" \
+            --manager-dir "$TMP_DIR/manager" \
+            --public-codex "$TMP_DIR/codex" \
+            --marker 'codex termux managed launcher' \
+            --runtime-dir "$TMP_DIR/current" \
+            --runtime "$TMP_DIR/current/codex" \
+            --support-dir "$TMP_DIR/manager" \
+            --manifest-path "$TMP_DIR/current/runtime-build.json" \
+            --builder "$TMP_DIR/manager/build-runtime.py" \
+            --state-path "$TMP_DIR/state.json" \
+            --registry-path "$TMP_DIR/registry.json" \
+            --current "$TMP_DIR/current" \
+            --verified "$TMP_DIR/verified" \
+            --raw "$TMP_DIR/raw" \
+            --raw-binary "$TMP_DIR/raw/vendor/aarch64-unknown-linux-musl/bin/codex" \
+            --patch-policy termux-fd-remap-v1 \
+            --wrapper-version 260702-test \
+            --wrapper-commit abcdef123456
+)" || fail 'repair-diagnose CLI failed to return diagnosis JSON'
+PYTHONDONTWRITEBYTECODE=1 python3 -B - "$diagnosis_json" <<'PYTHON' || fail 'repair-diagnose CLI diagnosis JSON mismatch'
+import json
+import sys
+
+data = json.loads(sys.argv[1])
+assert data["support_ok"] is False
+assert data["runtime_ok"] is False
+assert data["raw_available"] is False
+assert data["action"] == "refresh_support"
+assert data["readiness_action"] == "missing_runtime"
+PYTHON
 
 CODEX_TERMUX_HOME="$TMP_DIR/home" \
 CODEX_TERMUX_PREFIX="$TMP_DIR/prefix" \

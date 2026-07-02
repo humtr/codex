@@ -386,19 +386,14 @@ codex_repair_diagnose_action() {
         --field "$field"
 }
 
-codex_runtime_action_plan_field() {
-    codex_termux_cmd runtime-action-plan \
-        --action "$1" \
-        --intent "$2" \
-        --field "$3"
-}
-
 codex_runtime_apply_action() {
-    local action="$1" intent="${2:-readiness}" kind step refresh_after error exit_code status=0
-    kind="$(codex_runtime_action_plan_field "$action" "$intent" kind)" || return $?
-    step="$(codex_runtime_action_plan_field "$action" "$intent" step)" || return $?
-    [ -z "$step" ] || codex_ui_step "$step"
-    case "$kind" in
+    local action="$1" intent="${2:-readiness}" plan_env status=0
+    plan_env="$(codex_termux_cmd runtime-action-plan-env \
+        --action "$action" \
+        --intent "$intent")" || return $?
+    eval "$plan_env"
+    [ -z "$CODEX_RUNTIME_ACTION_STEP" ] || codex_ui_step "$CODEX_RUNTIME_ACTION_STEP"
+    case "$CODEX_RUNTIME_ACTION_KIND" in
         noop)
             return 0
             ;;
@@ -412,19 +407,16 @@ codex_runtime_apply_action() {
             codex_runtime_install_cached || status=$?
             ;;
         error)
-            error="$(codex_runtime_action_plan_field "$action" "$intent" error)" || return $?
-            exit_code="$(codex_runtime_action_plan_field "$action" "$intent" exit-code)" || return $?
-            codex_fail "$error"
-            return "$exit_code"
+            codex_fail "$CODEX_RUNTIME_ACTION_ERROR"
+            return "$CODEX_RUNTIME_ACTION_EXIT_CODE"
             ;;
         *)
-            codex_fail "Unknown runtime action executor: $kind"
+            codex_fail "Unknown runtime action executor: $CODEX_RUNTIME_ACTION_KIND"
             return 1
             ;;
     esac
     [ "$status" -eq 0 ] || return "$status"
-    refresh_after="$(codex_runtime_action_plan_field "$action" "$intent" refresh-after)" || return $?
-    [ "$refresh_after" != "1" ] || codex_refresh_runtime_metadata
+    [ "$CODEX_RUNTIME_ACTION_REFRESH_AFTER" != "1" ] || codex_refresh_runtime_metadata
 }
 
 codex_repair_apply() {

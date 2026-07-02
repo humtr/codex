@@ -36,6 +36,11 @@ def add_commands(sub: SubparserCollection) -> None:
     )
     action_plan.set_defaults(func=_runtime_action_plan)
 
+    action_plan_env = sub.add_parser("runtime-action-plan-env")
+    action_plan_env.add_argument("--action", required=True)
+    action_plan_env.add_argument("--intent", choices=("readiness", "repair"), required=True)
+    action_plan_env.set_defaults(func=_runtime_action_plan_env)
+
     runtime_layout = sub.add_parser("runtime-layout-ok")
     for name in ("runtime-dir", "runtime", "support-dir"):
         runtime_layout.add_argument(f"--{name}", required=True)
@@ -144,4 +149,9 @@ def _repair_diagnose(args: argparse.Namespace) -> int:
 
 def _runtime_action_plan(args: argparse.Namespace) -> int:
     print(repair.runtime_action_plan(args.action, args.intent).field(args.field))
+    return 0
+
+
+def _runtime_action_plan_env(args: argparse.Namespace) -> int:
+    print(repair.runtime_action_plan_exports(args.action, args.intent))
     return 0

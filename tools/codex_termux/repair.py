@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -114,46 +115,6 @@ def diagnose(inputs: RepairInputs) -> RepairDiagnosis:
         marker=inputs.marker,
     )
 
-
-def runtime_action_plan(action: str, intent: str) -> RuntimeActionPlan:
-    if action in (ACTION_NONE, ACTION_READY):
-        return RuntimeActionPlan(PLAN_NOOP)
-    if action == ACTION_REFRESH_METADATA:
-        return RuntimeActionPlan(
-            PLAN_REFRESH_METADATA,
-            step="repair_metadata" if intent == "repair" else "",
-        )
-    if action == ACTION_RESTORE_VERIFIED:
-        return RuntimeActionPlan(PLAN_RESTORE_VERIFIED, refresh_after=True)
-    if action == ACTION_REBUILD_CACHED:
-        return RuntimeActionPlan(
-            PLAN_REBUILD_CACHED,
-            step="repair_runtime" if intent == "repair" else "rebuild_cached_runtime",
-            refresh_after=(intent == "repair"),
-        )
-    if action == ACTION_RAW_CORRUPT:
-        return RuntimeActionPlan(
-            PLAN_ERROR,
-            error="Cached raw package integrity check failed; run codex termux update",
-            exit_code=1,
-        )
-    if action == ACTION_MISSING_RUNTIME:
-        return RuntimeActionPlan(
-            PLAN_ERROR,
-            error="Runtime is missing and no cached raw package is available; run codex termux update",
-            exit_code=127,
-        )
-    if action == ACTION_UNRECOVERABLE:
-        return RuntimeActionPlan(
-            PLAN_ERROR,
-            error="Runtime is damaged and cached raw is unavailable or invalid; run codex termux update",
-            exit_code=1,
-        )
-    return RuntimeActionPlan(
-        PLAN_ERROR,
-        error=f"Unknown runtime action: {action}",
-        exit_code=1,
-    )
     runtime_layout_ok = runtime_checks.runtime_layout_ok(
         runtime_dir=inputs.runtime_dir,
         runtime=inputs.runtime,
@@ -213,6 +174,59 @@ def runtime_action_plan(action: str, intent: str) -> RuntimeActionPlan:
         action=action,
         readiness_action=readiness_action,
     )
+
+
+def runtime_action_plan(action: str, intent: str) -> RuntimeActionPlan:
+    if action in (ACTION_NONE, ACTION_READY):
+        return RuntimeActionPlan(PLAN_NOOP)
+    if action == ACTION_REFRESH_METADATA:
+        return RuntimeActionPlan(
+            PLAN_REFRESH_METADATA,
+            step="repair_metadata" if intent == "repair" else "",
+        )
+    if action == ACTION_RESTORE_VERIFIED:
+        return RuntimeActionPlan(PLAN_RESTORE_VERIFIED, refresh_after=True)
+    if action == ACTION_REBUILD_CACHED:
+        return RuntimeActionPlan(
+            PLAN_REBUILD_CACHED,
+            step="repair_runtime" if intent == "repair" else "rebuild_cached_runtime",
+            refresh_after=(intent == "repair"),
+        )
+    if action == ACTION_RAW_CORRUPT:
+        return RuntimeActionPlan(
+            PLAN_ERROR,
+            error="Cached raw package integrity check failed; run codex termux update",
+            exit_code=1,
+        )
+    if action == ACTION_MISSING_RUNTIME:
+        return RuntimeActionPlan(
+            PLAN_ERROR,
+            error="Runtime is missing and no cached raw package is available; run codex termux update",
+            exit_code=127,
+        )
+    if action == ACTION_UNRECOVERABLE:
+        return RuntimeActionPlan(
+            PLAN_ERROR,
+            error="Runtime is damaged and cached raw is unavailable or invalid; run codex termux update",
+            exit_code=1,
+        )
+    return RuntimeActionPlan(
+        PLAN_ERROR,
+        error=f"Unknown runtime action: {action}",
+        exit_code=1,
+    )
+
+
+def runtime_action_plan_exports(action: str, intent: str) -> str:
+    plan = runtime_action_plan(action, intent)
+    values = {
+        "CODEX_RUNTIME_ACTION_KIND": plan.kind,
+        "CODEX_RUNTIME_ACTION_STEP": plan.step,
+        "CODEX_RUNTIME_ACTION_REFRESH_AFTER": "1" if plan.refresh_after else "0",
+        "CODEX_RUNTIME_ACTION_ERROR": plan.error,
+        "CODEX_RUNTIME_ACTION_EXIT_CODE": str(plan.exit_code),
+    }
+    return "\n".join(f"{key}={shlex.quote(value)}" for key, value in values.items())
 
 
 def action_from_checks(
