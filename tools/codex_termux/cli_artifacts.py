@@ -150,8 +150,10 @@ def add_commands(sub: SubparserCollection) -> None:
     check_plan.add_argument("--mode", required=True)
     check_plan.add_argument("--current", default="")
     check_plan.add_argument("--pending", default="")
+    check_plan.add_argument("--pending-file", default="")
     check_plan.add_argument("--now", required=True)
     check_plan.add_argument("--last", default="0")
+    check_plan.add_argument("--last-file", default="")
     check_plan.add_argument("--interval", required=True)
     check_plan.set_defaults(func=_auto_update_check_plan_env)
 
@@ -159,6 +161,7 @@ def add_commands(sub: SubparserCollection) -> None:
     apply_plan.add_argument("--current", default="")
     apply_plan.add_argument("--latest", default="")
     apply_plan.add_argument("--failed-record", default="")
+    apply_plan.add_argument("--failed-record-file", default="")
     apply_plan.add_argument("--mode", required=True)
     apply_plan.add_argument("--now", required=True)
     apply_plan.add_argument("--interval", required=True)
@@ -215,6 +218,16 @@ def _file_has_marker(args: argparse.Namespace) -> int:
 
 
 def _auto_update_check_plan_env(args: argparse.Namespace) -> int:
+    if args.pending_file or args.last_file:
+        return _print(runtime_checks.auto_update_check_plan_from_files_exports(
+            enabled=args.enabled,
+            mode=args.mode,
+            current=args.current,
+            pending_file=Path(args.pending_file) if args.pending_file else Path("/nonexistent"),
+            now=int(args.now),
+            last_file=Path(args.last_file) if args.last_file else Path("/nonexistent"),
+            interval=int(args.interval),
+        ))
     return _print(runtime_checks.auto_update_check_plan_exports(
         enabled=args.enabled,
         mode=args.mode,
@@ -227,6 +240,15 @@ def _auto_update_check_plan_env(args: argparse.Namespace) -> int:
 
 
 def _auto_update_apply_plan_env(args: argparse.Namespace) -> int:
+    if args.failed_record_file:
+        return _print(runtime_checks.auto_update_apply_plan_from_file_exports(
+            current=args.current,
+            latest=args.latest,
+            failed_record_file=Path(args.failed_record_file),
+            mode=args.mode,
+            now=int(args.now),
+            interval=int(args.interval),
+        ))
     return _print(runtime_checks.auto_update_apply_plan_exports(
         current=args.current,
         latest=args.latest,

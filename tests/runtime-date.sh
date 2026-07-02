@@ -198,6 +198,7 @@ eval "$plan_env"
 [ "$CODEX_AUTO_UPDATE_ACTION" = use_pending ] || fail "pending auto-update plan action mismatch: $CODEX_AUTO_UPDATE_ACTION"
 [ "$CODEX_AUTO_UPDATE_LATEST" = 0.142.5 ] || fail "pending auto-update latest mismatch: $CODEX_AUTO_UPDATE_LATEST"
 [ "$CODEX_AUTO_UPDATE_CLEAR_PENDING" = 0 ] || fail "pending auto-update clear mismatch: $CODEX_AUTO_UPDATE_CLEAR_PENDING"
+[ "$CODEX_AUTO_UPDATE_CLEAR_PENDING_ON_EMPTY_LATEST" = 1 ] || fail "pending auto-update empty-latest clear mismatch: $CODEX_AUTO_UPDATE_CLEAR_PENDING_ON_EMPTY_LATEST"
 
 plan_env="$(
     PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
@@ -244,5 +245,29 @@ plan_env="$(
 )"
 eval "$plan_env"
 [ "$CODEX_AUTO_UPDATE_ACTION" = clear_pending ] || fail "current auto-update apply action mismatch: $CODEX_AUTO_UPDATE_ACTION"
+
+pending_file="$TMP_DIR/pending"
+last_file="$TMP_DIR/last"
+failed_file="$TMP_DIR/failed"
+printf '0.142.8\n' >"$pending_file"
+printf '100\n' >"$last_file"
+file_check_plan="$(
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+        python3 -B -m codex_termux.cli auto-update-check-plan-env \
+        --enabled 1 --mode prompt --current 0.142.7 --pending-file "$pending_file" \
+        --now 120 --last-file "$last_file" --interval 3600
+)"
+eval "$file_check_plan"
+[ "$CODEX_AUTO_UPDATE_ACTION" = use_pending ] || fail "file auto-update check action mismatch: $CODEX_AUTO_UPDATE_ACTION"
+[ "$CODEX_AUTO_UPDATE_LATEST" = 0.142.8 ] || fail "file auto-update latest mismatch: $CODEX_AUTO_UPDATE_LATEST"
+printf '0.142.8\t999\n' >"$failed_file"
+file_apply_plan="$(
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+        python3 -B -m codex_termux.cli auto-update-apply-plan-env \
+        --current 0.142.7 --latest 0.142.8 --failed-record-file "$failed_file" \
+        --mode prompt --now 1000 --interval 3600
+)"
+eval "$file_apply_plan"
+[ "$CODEX_AUTO_UPDATE_ACTION" = skip ] || fail "file auto-update apply action mismatch: $CODEX_AUTO_UPDATE_ACTION"
 
 printf 'runtime-date: ok\n'

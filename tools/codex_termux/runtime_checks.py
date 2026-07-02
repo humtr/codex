@@ -376,7 +376,29 @@ def auto_update_check_plan_exports(
         "CODEX_AUTO_UPDATE_MODE": normalized_mode,
         "CODEX_AUTO_UPDATE_LATEST": latest,
         "CODEX_AUTO_UPDATE_CLEAR_PENDING": "1" if clear_pending else "0",
+        "CODEX_AUTO_UPDATE_CLEAR_PENDING_ON_EMPTY_LATEST": "1" if pending else "0",
     })
+
+
+def auto_update_check_plan_from_files_exports(
+    *,
+    enabled: str,
+    mode: str,
+    current: str,
+    pending_file: Path,
+    last_file: Path,
+    now: int,
+    interval: int,
+) -> str:
+    return auto_update_check_plan_exports(
+        enabled=enabled,
+        mode=mode,
+        current=current,
+        pending=_read_text_file(pending_file),
+        now=now,
+        last=_read_text_file(last_file, default="0"),
+        interval=interval,
+    )
 
 
 def auto_update_apply_plan_exports(
@@ -408,12 +430,38 @@ def auto_update_apply_plan_exports(
     })
 
 
+def auto_update_apply_plan_from_file_exports(
+    *,
+    current: str,
+    latest: str,
+    failed_record_file: Path,
+    mode: str,
+    now: int,
+    interval: int,
+) -> str:
+    return auto_update_apply_plan_exports(
+        current=current,
+        latest=latest,
+        failed_record=_read_text_file(failed_record_file),
+        mode=mode,
+        now=now,
+        interval=interval,
+    )
+
+
 def update_prompt_decision(choice: str) -> str:
     if choice in {"y", "Y"}:
         return "apply"
     if choice in {"n", "N"}:
         return "keep"
     return "cancel"
+
+
+def _read_text_file(path: Path, default: str = "") -> str:
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return default
 
 
 def upstream_release_date(payload: str, version: str) -> str:

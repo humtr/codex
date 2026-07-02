@@ -577,19 +577,17 @@ codex_install_auto_update() {
 }
 
 codex_auto_update_if_needed() {
-    local current latest pending plan_env last now failed
+    local current latest plan_env now
     codex_runtime_ok || return 0
     current="$(codex_read_state_field version)"
-    pending="$(cat "$CODEX_TERMUX_AUTO_UPDATE_PENDING" 2>/dev/null || true)"
-    last="$(cat "$CODEX_TERMUX_AUTO_UPDATE_STAMP" 2>/dev/null || printf '0')"
     now="$(date +%s)"
     plan_env="$(codex_termux_cmd auto-update-check-plan-env \
         --enabled "$CODEX_TERMUX_AUTO_UPDATE" \
         --mode "${CODEX_TERMUX_AUTO_UPDATE_MODE:-prompt}" \
         --current "$current" \
-        --pending "$pending" \
+        --pending-file "$CODEX_TERMUX_AUTO_UPDATE_PENDING" \
         --now "$now" \
-        --last "$last" \
+        --last-file "$CODEX_TERMUX_AUTO_UPDATE_STAMP" \
         --interval "$CODEX_TERMUX_AUTO_UPDATE_INTERVAL_SECONDS")" || return $?
     eval "$plan_env"
     [ "$CODEX_AUTO_UPDATE_CLEAR_PENDING" = "0" ] || codex_clear_pending_auto_update
@@ -604,7 +602,7 @@ codex_auto_update_if_needed() {
             codex_mark_auto_update_checked
             latest="$(codex_latest_linux_arm64_version || true)"
             if [ -z "$latest" ]; then
-                [ -z "$pending" ] || codex_clear_pending_auto_update
+                [ "$CODEX_AUTO_UPDATE_CLEAR_PENDING_ON_EMPTY_LATEST" = "0" ] || codex_clear_pending_auto_update
                 return 0
             fi
             ;;
@@ -614,12 +612,11 @@ codex_auto_update_if_needed() {
     esac
     if [ "$latest" != "$current" ]; then
         codex_write_pending_auto_update "$latest"
-        failed="$(cat "$CODEX_TERMUX_AUTO_UPDATE_FAILED" 2>/dev/null || true)"
         now="$(date +%s)"
         plan_env="$(codex_termux_cmd auto-update-apply-plan-env \
             --current "$current" \
             --latest "$latest" \
-            --failed-record "$failed" \
+            --failed-record-file "$CODEX_TERMUX_AUTO_UPDATE_FAILED" \
             --mode "$CODEX_AUTO_UPDATE_MODE" \
             --now "$now" \
             --interval "$CODEX_TERMUX_AUTO_UPDATE_INTERVAL_SECONDS")" || return $?
