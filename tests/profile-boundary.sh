@@ -61,11 +61,16 @@ case "$profiles" in
 esac
 menu="$(codex_termux_cmd profile-menu-ids | tr "\n" " ")"
 [ "$menu" = "default Alpha " ]
-[ "$(codex_termux_cmd profile-menu-choice --choice 0)" = "default" ]
-[ "$(codex_termux_cmd profile-menu-choice --choice 1)" = "Alpha" ]
-[ "$(codex_termux_cmd profile-menu-choice --choice home)" = "default" ]
-[ "$(codex_termux_cmd profile-menu-choice --choice Alpha)" = "Alpha" ]
-render_count="$(codex_termux_cmd profile-menu-render --interactive 1 2>"$2/profile-menu.err")"
+	[ "$(codex_termux_cmd profile-menu-choice --choice 0)" = "default" ]
+	[ "$(codex_termux_cmd profile-menu-choice --choice 1)" = "Alpha" ]
+	[ "$(codex_termux_cmd profile-menu-choice --choice home)" = "default" ]
+	[ "$(codex_termux_cmd profile-menu-choice --choice Alpha)" = "Alpha" ]
+	[ "$(codex_termux_cmd profile-run-plan-env --argc 0 | sed -n "1p")" = "CODEX_PROFILE_RUN_ACTION=select" ]
+	[ "$(codex_termux_cmd profile-run-plan-env --profile list --argc 1 | sed -n "1p")" = "CODEX_PROFILE_RUN_ACTION=list" ]
+	[ "$(codex_termux_cmd profile-run-plan-env --profile list --argc 2 | sed -n "1p")" = "CODEX_PROFILE_RUN_ACTION=profile_arg_error" ]
+	[ "$(codex_termux_cmd profile-run-plan-env --profile Alpha --argc 1 | sed -n "2p")" = "CODEX_PROFILE_RUN_PROFILE=Alpha" ]
+	[ "$(codex_termux_cmd profile-run-plan-env --profile termux --argc 1 | sed -n "1p")" = "CODEX_PROFILE_RUN_ACTION=invalid_profile" ]
+	render_count="$(codex_termux_cmd profile-menu-render --interactive 1 2>"$2/profile-menu.err")"
 [ "$render_count" = "2" ]
 grep -F "Choose profile" "$2/profile-menu.err" >/dev/null
 grep -F "Alpha" "$2/profile-menu.err" >/dev/null

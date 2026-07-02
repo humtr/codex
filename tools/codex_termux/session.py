@@ -162,6 +162,33 @@ def profile_create_confirmed(choice: str | None) -> bool:
     return (choice or "") in {"y", "Y"}
 
 
+def profile_run_plan_exports(profile: str | None, argc: str | int) -> str:
+    count = _int_or_zero(argc)
+    raw = profile or ""
+    if not raw:
+        action = "select"
+        name = ""
+        error = ""
+    elif raw in {"list", "ls"}:
+        action = "list" if count <= 1 else "profile_arg_error"
+        name = raw
+        error = raw
+    else:
+        name = normalize_profile_choice(raw)
+        if validate_profile_name(name):
+            action = "exec"
+            error = ""
+        else:
+            action = "invalid_profile"
+            error = name
+    data = {
+        "CODEX_PROFILE_RUN_ACTION": action,
+        "CODEX_PROFILE_RUN_PROFILE": name,
+        "CODEX_PROFILE_RUN_ERROR": error,
+    }
+    return "\n".join(f"{key}={shlex.quote(value)}" for key, value in data.items())
+
+
 def prompt_choice_action(reply: str | None, *, mode: str, max_items: str | int, phase: str) -> str:
     raw = reply or ""
     limit = _int_or_zero(max_items)

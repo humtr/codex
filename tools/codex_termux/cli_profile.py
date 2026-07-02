@@ -37,6 +37,11 @@ def add_commands(sub: SubparserCollection) -> None:
     select_choice.add_argument("--choice", default="")
     select_choice.set_defaults(func=lambda args: _print(session.resolve_profile_menu_choice(args.choice)))
 
+    run_plan = sub.add_parser("profile-run-plan-env")
+    run_plan.add_argument("--profile", default="")
+    run_plan.add_argument("--argc", default="0")
+    run_plan.set_defaults(func=lambda args: _print(session.profile_run_plan_exports(args.profile, args.argc)))
+
     create_confirm = sub.add_parser("profile-create-confirmed")
     create_confirm.add_argument("--choice", default="")
     create_confirm.set_defaults(func=lambda args: 0 if session.profile_create_confirmed(args.choice) else 1)

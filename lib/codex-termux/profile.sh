@@ -211,28 +211,35 @@ codex_profile_select() {
 }
 
 codex_profile_run() {
-    local profile="${1:-}"
-    if [ -z "$profile" ]; then
-        codex_profile_select
-        return $?
-    fi
-    case "$profile" in
-        list|ls)
-            shift || true
-            [ "$#" -eq 0 ] || {
-                codex_fail "$(codex_ui_text_get profile_arg_error "$profile")"
-                return 2
-            }
+    local plan_env
+    plan_env="$(codex_termux_cmd profile-run-plan-env --profile "${1:-}" --argc "$#")" || return $?
+    eval "$plan_env"
+    case "$CODEX_PROFILE_RUN_ACTION" in
+        select)
+            codex_profile_select
+            return $?
+            ;;
+        list)
             codex_status_clear
             codex_termux_cmd profile-list --include-default
             return 0
             ;;
+        profile_arg_error)
+            codex_fail "$(codex_ui_text_get profile_arg_error "$CODEX_PROFILE_RUN_ERROR")"
+            return 2
+            ;;
+        invalid_profile)
+            codex_fail "$(codex_ui_text_get invalid_profile "$CODEX_PROFILE_RUN_ERROR")"
+            return 2
+            ;;
+        exec)
+            ;;
+        *)
+            codex_fail "Unknown profile action: $CODEX_PROFILE_RUN_ACTION"
+            return 1
+            ;;
     esac
-    codex_profile_name_valid "$profile" || {
-        codex_fail "$(codex_ui_text_get invalid_profile "$profile")"
-        return 2
-    }
-    local profile_dir
+    local profile="$CODEX_PROFILE_RUN_PROFILE" profile_dir
     profile_dir="$(codex_profile_home_dir "$profile")"
     shift || true
     codex_profile_exec "$profile_dir" "$profile" "$@"

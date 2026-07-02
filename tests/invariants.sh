@@ -42,8 +42,13 @@ grep -R -F 'python3 -B -m codex_termux.cli' lib/codex-termux.sh lib/codex-termux
     || fail 'helper -B invocation missing'
 grep -R -F 'profile-list --include-default' lib/codex-termux.sh lib/codex-termux >/dev/null \
     || fail 'profile list dispatch helper missing'
-grep -R -F 'list|ls)' lib/codex-termux.sh lib/codex-termux >/dev/null \
-    || fail 'profile list dispatch missing'
+grep -R -F 'profile-run-plan-env' lib/codex-termux.sh lib/codex-termux tools/codex_termux/cli_profile.py >/dev/null \
+    || fail 'profile run plan helper missing'
+grep -R -F 'raw in {"list", "ls"}' tools/codex_termux/session.py >/dev/null \
+    || fail 'profile list command plan missing'
+if grep -R -F 'list|ls)' lib/codex-termux.sh lib/codex-termux >/dev/null; then
+    fail 'profile list command parsing moved back into shell'
+fi
 grep -R -F '33<"$CODEX_TERMUX_RESOLV_CONF"' lib/codex-termux.sh lib/codex-termux >/dev/null \
     || fail 'runtime fd33 launcher contract missing'
 grep -R -F '34<"$CODEX_TERMUX_SYSTEM_CONFIG_DIR"' lib/codex-termux.sh lib/codex-termux >/dev/null \
