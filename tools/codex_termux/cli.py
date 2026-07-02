@@ -16,6 +16,7 @@ from . import (
     cli_product,
     cli_profile,
     cli_repair,
+    cli_runtime,
     cli_session,
     cli_ui,
     prune,
@@ -38,6 +39,7 @@ def _build_parser() -> argparse.ArgumentParser:
     cli_product.add_commands(sub)
     cli_artifacts.add_commands(sub)
     cli_repair.add_commands(sub)
+    cli_runtime.add_commands(sub)
     _add_store_commands(sub)
     cli_activation.add_commands(sub)
     _add_use_commands(sub)

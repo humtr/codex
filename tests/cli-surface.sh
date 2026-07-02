@@ -57,7 +57,29 @@ bash -lc '. "$1"; [ "$(codex_display_version 0.142.4-linux-arm64)" = "0.142.4" ]
 CODEX_TERMUX_HOME="$TMP_DIR/home" \
 CODEX_TERMUX_STATE_DIR="$TMP_DIR/state" \
 CODEX_TERMUX_TMPDIR="$TMP_DIR/tmp" \
-bash -lc '. "$1"; stable="$CODEX_TERMUX_RUNTIME_STORE_DIR/stable-runtime"; codex_prepare_system_config() { return 0; }; codex_resolve_path() { [ "$1" = "$CODEX_TERMUX_RUNTIME_DIR" ] && printf "%s\n" "$stable"; }; CODEX_SELF_EXE="$CODEX_TERMUX_RUNTIME"; codex_prepare_runtime_env; [ "$CODEX_SELF_EXE" = "$stable/codex" ]; case "$PATH" in "$stable/codex-path:$stable/codex-resources:"*) ;; *) exit 1 ;; esac' _ "$LIB_SH"
+bash -lc '. "$1"; stable="$CODEX_TERMUX_RUNTIME_STORE_DIR/stable-runtime"; mkdir -p "$CODEX_TERMUX_CERT_DIR"; termux-open-url() { :; }; codex_prepare_system_config() { return 0; }; codex_resolve_path() { [ "$1" = "$CODEX_TERMUX_RUNTIME_DIR" ] && printf "%s\n" "$stable"; }; export CODEX_SELF_EXE="$CODEX_TERMUX_RUNTIME" CODEX_MANAGED_BY_NPM=1 LD_PRELOAD=bad BROWSER=""; codex_prepare_runtime_env; [ "$CODEX_SELF_EXE" = "$stable/codex" ]; [ "$TMPDIR" = "$CODEX_TERMUX_TMPDIR" ]; [ "$SQLITE_TMPDIR" = "$CODEX_TERMUX_TMPDIR" ]; [ "$SSL_CERT_FILE" = "$CODEX_TERMUX_CERT_FILE" ]; [ "$SSL_CERT_DIR" = "$CODEX_TERMUX_CERT_DIR" ]; [ "$BROWSER" = "termux-open-url" ]; [ -z "${CODEX_MANAGED_BY_NPM+x}" ]; [ -z "${LD_PRELOAD+x}" ]; case "$PATH" in "$stable/codex-path:$stable/codex-resources:"*) ;; *) exit 1 ;; esac' _ "$LIB_SH"
+
+CODEX_TERMUX_HOME="$TMP_DIR/home" \
+CODEX_TERMUX_STATE_DIR="$TMP_DIR/state" \
+CODEX_TERMUX_TMPDIR="$TMP_DIR/tmp" \
+bash -lc '. "$1"; stable="$CODEX_TERMUX_RUNTIME_STORE_DIR/stable-runtime"; mkdir -p "$stable" "$CODEX_TERMUX_CERT_DIR" "$(dirname "$CODEX_TERMUX_RESOLV_CONF")" "$CODEX_TERMUX_SYSTEM_CONFIG_DIR"; printf "nameserver 1.1.1.1\n" >"$CODEX_TERMUX_RESOLV_CONF"; cat >"$stable/codex" <<'"'"'SCRIPT'"'"'
+#!/bin/sh
+expected_home="$1"
+expected_cert_file="$2"
+expected_cert_dir="$3"
+[ "$HOME" = "$expected_home" ] || exit 11
+[ "$XDG_CONFIG_HOME" = "$expected_home/.config" ] || exit 12
+[ "$XDG_CACHE_HOME" = "$expected_home/.cache" ] || exit 13
+[ "$XDG_DATA_HOME" = "$expected_home/.local/share" ] || exit 14
+[ "$GODEBUG" = "netdns=go" ] || exit 15
+[ "$SSL_CERT_FILE" = "$expected_cert_file" ] || exit 16
+[ "$SSL_CERT_DIR" = "$expected_cert_dir" ] || exit 17
+[ "$CODEX_SELF_EXE" = "$0" ] || exit 18
+[ -z "${CODEX_MANAGED_BY_NPM+x}" ] || exit 19
+[ -z "${LD_PRELOAD+x}" ] || exit 20
+printf "runtime-env-ok\n"
+SCRIPT
+chmod 755 "$stable/codex"; export CODEX_MANAGED_BY_NPM=1 LD_PRELOAD=bad; codex_require_runtime_resolver() { return 0; }; codex_prepare_system_config() { return 0; }; [ "$(codex_runtime_exec "$stable/codex" "$CODEX_TERMUX_HOME" "$CODEX_TERMUX_CERT_FILE" "$CODEX_TERMUX_CERT_DIR")" = "runtime-env-ok" ]' _ "$LIB_SH"
 
 CODEX_TERMUX_HOME="$TMP_DIR/home" \
 CODEX_TERMUX_STATE_DIR="$TMP_DIR/state" \

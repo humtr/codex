@@ -8,35 +8,45 @@ codex_require_runtime_resolver() {
     fi
 }
 
+codex_runtime_apply_env_plan() {
+    local runtime_dir="$1" runtime_exe="$2" set_home="${3:-0}" run_home="${4:-}" termux_open_url="${5:-0}"
+    local runtime_env
+    runtime_env="$(codex_termux_cmd runtime-env-plan \
+        --runtime-dir "$runtime_dir" \
+        --runtime-exe "$runtime_exe" \
+        --set-home "$set_home" \
+        --home "$run_home" \
+        --tmpdir "$CODEX_TERMUX_TMPDIR" \
+        --cert-file "$CODEX_TERMUX_CERT_FILE" \
+        --cert-dir "$CODEX_TERMUX_CERT_DIR" \
+        --prefix "$CODEX_TERMUX_PREFIX" \
+        --path "$PATH" \
+        --browser "${BROWSER:-}" \
+        --ssl-cert-file "${SSL_CERT_FILE:-}" \
+        --ssl-cert-dir "${SSL_CERT_DIR:-}" \
+        --xdg-config-home "${XDG_CONFIG_HOME:-}" \
+        --xdg-cache-home "${XDG_CACHE_HOME:-}" \
+        --xdg-data-home "${XDG_DATA_HOME:-}" \
+        --godebug "${GODEBUG:-}" \
+        --bwrap-quiet "${CODEX_TERMUX_BWRAP_COMPAT_QUIET:-}" \
+        --termux-open-url "$termux_open_url")" || return $?
+    eval "$runtime_env"
+}
 
 codex_runtime_exec() {
     local executable="$1"
     shift || true
-    local cert_dir_env=() runtime_env=() run_home runtime_dir
+    local run_home runtime_dir
     run_home="${CODEX_TERMUX_HOME:-$HOME}"
-    runtime_dir="$(codex_parent_dir "$executable")"
-    if [ -d "$CODEX_TERMUX_CERT_DIR" ]; then
-        cert_dir_env=("SSL_CERT_DIR=$CODEX_TERMUX_CERT_DIR")
-    fi
-    runtime_env=(env -u LD_PRELOAD -u LD_LIBRARY_PATH \
-        -u CODEX_MANAGED_BY_NPM -u CODEX_MANAGED_BY_BUN -u CODEX_MANAGED_PACKAGE_ROOT \
-        HOME="$run_home" \
-        TMPDIR="$CODEX_TERMUX_TMPDIR" \
-        TMP="$CODEX_TERMUX_TMPDIR" \
-        TEMP="$CODEX_TERMUX_TMPDIR" \
-        SQLITE_TMPDIR="$CODEX_TERMUX_TMPDIR" \
-        XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$run_home/.config}" \
-        XDG_CACHE_HOME="${XDG_CACHE_HOME:-$run_home/.cache}" \
-        XDG_DATA_HOME="${XDG_DATA_HOME:-$run_home/.local/share}" \
-        GODEBUG="${GODEBUG:-netdns=go}" \
-        SSL_CERT_FILE="$CODEX_TERMUX_CERT_FILE" \
-        CODEX_SELF_EXE="$executable" \
-        CODEX_TERMUX_BWRAP_COMPAT_QUIET="${CODEX_TERMUX_BWRAP_COMPAT_QUIET:-1}" \
-        PATH="$runtime_dir/codex-path:$runtime_dir/codex-resources:$CODEX_TERMUX_PREFIX/bin:$PATH" \
-        "${cert_dir_env[@]}")
+    case "$executable" in
+        */*) runtime_dir="${executable%/*}" ;;
+        *) runtime_dir="$executable" ;;
+    esac
+    unset CODEX_MANAGED_BY_NPM CODEX_MANAGED_BY_BUN CODEX_MANAGED_PACKAGE_ROOT LD_PRELOAD LD_LIBRARY_PATH
+    codex_runtime_apply_env_plan "$runtime_dir" "$executable" 1 "$run_home" 0 || return $?
     codex_require_runtime_resolver || return $?
     codex_prepare_system_config || return $?
-    "${runtime_env[@]}" "$executable" "$@" 33<"$CODEX_TERMUX_RESOLV_CONF" 34<"$CODEX_TERMUX_SYSTEM_CONFIG_DIR"
+    "$CODEX_SELF_EXE" "$@" 33<"$CODEX_TERMUX_RESOLV_CONF" 34<"$CODEX_TERMUX_SYSTEM_CONFIG_DIR"
 }
 
 codex_smoke_test_runtime() {
@@ -771,23 +781,13 @@ codex_ensure_runtime_ready() {
 
 
 codex_prepare_runtime_env() {
-    local runtime_dir runtime_exe
+    local runtime_dir runtime_exe termux_open_url=0
+    unset CODEX_MANAGED_BY_NPM CODEX_MANAGED_BY_BUN CODEX_MANAGED_PACKAGE_ROOT LD_PRELOAD LD_LIBRARY_PATH
     codex_prepare_system_config || return $?
     runtime_dir="$(codex_resolve_path "$CODEX_TERMUX_RUNTIME_DIR")" || return $?
     runtime_exe="$runtime_dir/codex"
-    export TMPDIR="$CODEX_TERMUX_TMPDIR"
-    export TMP="$CODEX_TERMUX_TMPDIR"
-    export TEMP="$CODEX_TERMUX_TMPDIR"
-    export SQLITE_TMPDIR="$CODEX_TERMUX_TMPDIR"
-    export SSL_CERT_FILE="${SSL_CERT_FILE:-$CODEX_TERMUX_CERT_FILE}"
-    [ -d "$CODEX_TERMUX_CERT_DIR" ] && export SSL_CERT_DIR="${SSL_CERT_DIR:-$CODEX_TERMUX_CERT_DIR}"
-    if [ -z "${BROWSER:-}" ] && command -v termux-open-url >/dev/null 2>&1; then
-        export BROWSER=termux-open-url
-    fi
-    export CODEX_SELF_EXE="$runtime_exe"
-    unset CODEX_MANAGED_BY_NPM CODEX_MANAGED_BY_BUN CODEX_MANAGED_PACKAGE_ROOT LD_PRELOAD LD_LIBRARY_PATH
-    export CODEX_TERMUX_BWRAP_COMPAT_QUIET="${CODEX_TERMUX_BWRAP_COMPAT_QUIET:-1}"
-    export PATH="$runtime_dir/codex-path:$runtime_dir/codex-resources:$CODEX_TERMUX_PREFIX/bin:$PATH"
+    command -v termux-open-url >/dev/null 2>&1 && termux_open_url=1
+    codex_runtime_apply_env_plan "$runtime_dir" "$runtime_exe" 0 "" "$termux_open_url"
 }
 
 codex_run_current_runtime() {
