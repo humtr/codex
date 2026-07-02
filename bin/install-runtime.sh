@@ -9,6 +9,7 @@ ROOT_DIR="$(cd "$ROOT_DIR/.." && pwd)"
 CODEX_TERMUX_WRAPPER_SOURCE_TMP=""
 CODEX_TERMUX_WRAPPER_GIT_ASKPASS=""
 CODEX_TERMUX_WRAPPER_SOURCE_LABEL=""
+CODEX_TERMUX_WRAPPER_SOURCE_PLAN_LOADED=0
 
 codex_load_wrapper_source_config
 
@@ -39,17 +40,19 @@ codex_require_wrapper_source() {
     fi
 }
 
-codex_wrapper_source_plan_field() {
-    local field="$1"
+codex_load_wrapper_source_plan() {
+    local plan_env
+    [ "$CODEX_TERMUX_WRAPPER_SOURCE_PLAN_LOADED" = "1" ] && return 0
     codex_normalize_wrapper_source_config
-    codex_termux_cmd wrapper-source-plan \
+    plan_env="$(codex_termux_cmd wrapper-source-plan-env \
         --repo "${CODEX_TERMUX_WRAPPER_REPO:-}" \
         --ref "${CODEX_TERMUX_WRAPPER_REF:-}" \
         --release-url "${CODEX_TERMUX_WRAPPER_RELEASE_URL:-}" \
         --release-repo "${CODEX_TERMUX_WRAPPER_RELEASE_REPO:-}" \
         --release-tag "${CODEX_TERMUX_WRAPPER_RELEASE_TAG:-}" \
-        --local-root "$ROOT_DIR" \
-        --field "$field"
+        --local-root "$ROOT_DIR")" || return $?
+    eval "$plan_env"
+    CODEX_TERMUX_WRAPPER_SOURCE_PLAN_LOADED=1
 }
 
 codex_download_wrapper_archive() {
@@ -76,7 +79,8 @@ codex_download_wrapper_archive() {
 
 codex_fetch_release_wrapper_source() {
     local url tmp archive extract source_dir actual_sha expected_sha
-    url="$(codex_wrapper_source_plan_field release-url)" || return $?
+    codex_load_wrapper_source_plan || return $?
+    url="${CODEX_WRAPPER_SOURCE_RELEASE_URL:-}"
     [ -n "$url" ] || return 1
     tmp="$(codex_mktemp_dir codex-wrapper-release)" || return 1
     archive="$tmp/wrapper.tar.gz"
@@ -111,12 +115,7 @@ codex_fetch_release_wrapper_source() {
     }
     CODEX_TERMUX_WRAPPER_SOURCE_TMP="$tmp"
     CODEX_TERMUX_WRAPPER_SOURCE_DIR="$source_dir"
-    CODEX_TERMUX_WRAPPER_SOURCE_LABEL="release archive"
-}
-
-codex_git_wrapper_source_url() {
-    [ "$(codex_wrapper_source_plan_field kind)" = "git" ] || return 1
-    codex_wrapper_source_plan_field git-url
+    CODEX_TERMUX_WRAPPER_SOURCE_LABEL="${CODEX_WRAPPER_SOURCE_LABEL:-release archive}"
 }
 
 codex_prepare_git_askpass() {
@@ -136,12 +135,15 @@ ASKPASS
 
 codex_git_clone_wrapper_source() {
     local url ref token tmp checkout
-    url="$(codex_git_wrapper_source_url)" || return 1
+    codex_load_wrapper_source_plan || return $?
+    [ "${CODEX_WRAPPER_SOURCE_KIND:-}" = "git" ] || return 1
+    url="${CODEX_WRAPPER_SOURCE_GIT_URL:-}"
+    [ -n "$url" ] || return 1
     ref="${CODEX_TERMUX_WRAPPER_REF:-}"
     token="$(codex_wrapper_auth_token || true)"
     tmp="$(codex_mktemp_dir codex-wrapper-git)" || return 1
     checkout="$tmp/checkout"
-    CODEX_TERMUX_WRAPPER_SOURCE_LABEL="$(codex_wrapper_source_plan_field label)"
+    CODEX_TERMUX_WRAPPER_SOURCE_LABEL="${CODEX_WRAPPER_SOURCE_LABEL:-$url}"
     codex_status "Fetching wrapper source: $CODEX_TERMUX_WRAPPER_SOURCE_LABEL"
     codex_prepare_git_askpass "$token" "$tmp"
     if [ -n "$ref" ]; then
@@ -171,7 +173,8 @@ codex_git_clone_wrapper_source() {
 
 codex_prepare_fresh_wrapper_source() {
     local kind
-    kind="$(codex_wrapper_source_plan_field kind)" || return $?
+    codex_load_wrapper_source_plan || return $?
+    kind="${CODEX_WRAPPER_SOURCE_KIND:-}"
     case "$kind" in
         git)
             codex_git_clone_wrapper_source
@@ -180,8 +183,8 @@ codex_prepare_fresh_wrapper_source() {
             codex_fetch_release_wrapper_source
             ;;
         local)
-            CODEX_TERMUX_WRAPPER_SOURCE_DIR="$ROOT_DIR"
-            CODEX_TERMUX_WRAPPER_SOURCE_LABEL="$(codex_wrapper_source_plan_field label)"
+            CODEX_TERMUX_WRAPPER_SOURCE_DIR="${CODEX_WRAPPER_SOURCE_LOCAL_ROOT:-$ROOT_DIR}"
+            CODEX_TERMUX_WRAPPER_SOURCE_LABEL="${CODEX_WRAPPER_SOURCE_LABEL:-local $CODEX_TERMUX_WRAPPER_SOURCE_DIR}"
             codex_termux_cmd validate-wrapper-source --root "$CODEX_TERMUX_WRAPPER_SOURCE_DIR" >/dev/null
             ;;
         *)
@@ -195,6 +198,7 @@ codex_cleanup_fresh_wrapper_source() {
     [ -z "$CODEX_TERMUX_WRAPPER_SOURCE_TMP" ] || rm -rf "$CODEX_TERMUX_WRAPPER_SOURCE_TMP"
     CODEX_TERMUX_WRAPPER_SOURCE_TMP=""
     CODEX_TERMUX_WRAPPER_SOURCE_LABEL=""
+    CODEX_TERMUX_WRAPPER_SOURCE_PLAN_LOADED=0
 }
 
 codex_copy_wrapper_source_snapshot() {

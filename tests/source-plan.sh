@@ -49,6 +49,9 @@ plan = source.wrapper_source_plan(local_root="/repo")
 assert plan.kind == "local", plan
 assert plan.local_root == "/repo", plan
 assert plan.label == "local /repo", plan
+plan_exports = source.wrapper_source_plan_exports(plan)
+assert "CODEX_WRAPPER_SOURCE_KIND=local" in plan_exports, plan_exports
+assert "CODEX_WRAPPER_SOURCE_LOCAL_ROOT=/repo" in plan_exports, plan_exports
 
 env = source.normalized_source_env(
     {
@@ -103,6 +106,19 @@ url="$(
             --repo humtr/codex --ref main --local-root "$ROOT_DIR" --field git-url
 )"
 [ "$url" = "https://github.com/humtr/codex.git" ] || fail "CLI git-url mismatch: $url"
+
+plan_env="$(
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+        python3 -B -m codex_termux.cli wrapper-source-plan-env \
+            --repo humtr/codex --ref main --local-root "$ROOT_DIR"
+)"
+case "$plan_env" in
+    *"CODEX_WRAPPER_SOURCE_KIND=git"*\
+*"CODEX_WRAPPER_SOURCE_GIT_URL=https://github.com/humtr/codex.git"*\
+*"CODEX_WRAPPER_SOURCE_LABEL=github.com/humtr/codex@main"*) ;;
+    *) fail "CLI source plan env mismatch: $plan_env" ;;
+esac
+
 
 extract_root="$TMP_PARENT/codex-source-plan-extract.$$"
 gh_root="$TMP_PARENT/codex-source-plan-gh.$$"

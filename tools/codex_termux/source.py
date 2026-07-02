@@ -197,6 +197,17 @@ def wrapper_source_plan(
     return WrapperSourcePlan(kind="local", local_root=local_root, label=f"local {local_root}")
 
 
+def wrapper_source_plan_exports(plan: WrapperSourcePlan) -> str:
+    data = {
+        "CODEX_WRAPPER_SOURCE_KIND": plan.kind,
+        "CODEX_WRAPPER_SOURCE_GIT_URL": plan.git_url,
+        "CODEX_WRAPPER_SOURCE_RELEASE_URL": plan.release_url,
+        "CODEX_WRAPPER_SOURCE_LABEL": plan.label,
+        "CODEX_WRAPPER_SOURCE_LOCAL_ROOT": plan.local_root,
+    }
+    return "\n".join(f"{key}={shlex.quote(value)}" for key, value in data.items())
+
+
 def _git_url(repo: str) -> str:
     if repo.startswith(("https://", "http://", "git@", "ssh://")):
         return repo

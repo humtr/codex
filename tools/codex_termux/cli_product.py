@@ -55,6 +55,11 @@ def add_commands(sub: SubparserCollection) -> None:
     )
     wrapper_source_plan.set_defaults(func=_wrapper_source_plan)
 
+    wrapper_source_plan_env = sub.add_parser("wrapper-source-plan-env")
+    for name in ("repo", "ref", "release-url", "release-repo", "release-tag", "local-root"):
+        wrapper_source_plan_env.add_argument(f"--{name}", default="")
+    wrapper_source_plan_env.set_defaults(func=_wrapper_source_plan_env)
+
     install_plan_cmd = sub.add_parser("install-plan")
     install_plan_cmd.add_argument("--command", required=True)
     install_plan_cmd.add_argument(
@@ -206,6 +211,19 @@ def _wrapper_source_plan(args: argparse.Namespace) -> int:
         print(result[args.field.replace("-", "_")])
     else:
         print(json.dumps(result, ensure_ascii=True, sort_keys=True))
+    return 0
+
+
+def _wrapper_source_plan_env(args: argparse.Namespace) -> int:
+    plan = source.wrapper_source_plan(
+        repo=args.repo,
+        ref=args.ref,
+        release_url=args.release_url,
+        release_repo=args.release_repo,
+        release_tag=args.release_tag,
+        local_root=args.local_root,
+    )
+    print(source.wrapper_source_plan_exports(plan))
     return 0
 
 
