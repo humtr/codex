@@ -13,6 +13,26 @@ fail() {
 
 mkdir -p "$TMP_DIR/home" "$TMP_DIR/profiles/team" "$TMP_DIR/profiles/Alpha"
 
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" python3 -B - <<'PYTHON' || fail 'use selection plan model changed'
+from codex_termux import use
+
+remote = use.selection_plan_exports({"kind": "remote", "version": "0.142.5"})
+assert "CODEX_USE_PLAN_ACTION=install_upstream" in remote
+assert "CODEX_USE_PLAN_VERSION=0.142.5" in remote
+
+cached = use.selection_plan_exports({
+    "kind": "cached",
+    "runtime_path": "/runtime path",
+    "raw_path": "/raw",
+    "version": "0.142.4",
+    "raw_sha256": "raw",
+    "runtime_sha256": "runtime",
+    "package_spec": "@openai/codex@0.142.4-linux-arm64",
+})
+assert "CODEX_USE_PLAN_ACTION=activate_cached" in cached
+assert "CODEX_USE_PLAN_RUNTIME_PATH='/runtime path'" in cached
+PYTHON
+
 CODEX_TERMUX_HOME="$TMP_DIR/home" \
 CODEX_TERMUX_PROFILE_ROOT="$TMP_DIR/profiles" \
 CODEX_TERMUX_STATE_DIR="$TMP_DIR/state" \
@@ -62,5 +82,69 @@ codex_prompt_choice "yn> " yn 0 <<<"y" 2>>"$2/prompt.err"
 codex_prompt_choice "freeform> " freeform 12 <<<"alpha" 2>>"$2/prompt.err"
 [ "$CODEX_PROMPT_CHOICE_RESULT" = "alpha" ]
 ' _ "$LIB_SH" "$TMP_DIR" || fail 'profile shell wrappers changed behavior'
+
+CODEX_TERMUX_HOME="$TMP_DIR/home" \
+CODEX_TERMUX_PROFILE_ROOT="$TMP_DIR/profiles" \
+CODEX_TERMUX_STATE_DIR="$TMP_DIR/state" \
+bash -lc '
+. "$1"
+remote_arg=""
+cached_args=""
+version_count=0
+CODEX_USE_LAST_LATEST="0.142.5"
+codex_latest_linux_arm64_version() { printf "0.142.5\n"; }
+codex_fail() { printf "%s\n" "$*" >&2; return 1; }
+codex_version() { version_count=$((version_count + 1)); }
+codex_with_lock() { local cmd="$1"; shift; "$cmd" "$@"; }
+codex_runtime_install_upstream() { remote_arg="$1"; }
+codex_activate_cached_runtime_unlocked() { cached_args="$*"; }
+codex_termux_cmd() {
+    case "$1" in
+        use-select-env)
+            shift
+            choice=""
+            while [ "$#" -gt 0 ]; do
+                case "$1" in
+                    --choice)
+                        choice="${2:-}"
+                        shift 2
+                        ;;
+                    *)
+                        shift
+                        ;;
+                esac
+            done
+            case "$choice" in
+                remote)
+                    printf "%s\n" \
+                        "CODEX_USE_PLAN_ACTION=install_upstream" \
+                        "CODEX_USE_PLAN_RUNTIME_PATH=''" \
+                        "CODEX_USE_PLAN_RAW_PATH=''" \
+                        "CODEX_USE_PLAN_VERSION=0.142.5" \
+                        "CODEX_USE_PLAN_RAW_SHA256=''" \
+                        "CODEX_USE_PLAN_RUNTIME_SHA256=''" \
+                        "CODEX_USE_PLAN_PACKAGE_SPEC=''"
+                    ;;
+                cached)
+                    printf "%s\n" \
+                        "CODEX_USE_PLAN_ACTION=activate_cached" \
+                        "CODEX_USE_PLAN_RUNTIME_PATH=/runtime" \
+                        "CODEX_USE_PLAN_RAW_PATH=/raw" \
+                        "CODEX_USE_PLAN_VERSION=0.142.4" \
+                        "CODEX_USE_PLAN_RAW_SHA256=raw" \
+                        "CODEX_USE_PLAN_RUNTIME_SHA256=runtime" \
+                        "CODEX_USE_PLAN_PACKAGE_SPEC=@openai/codex@0.142.4-linux-arm64"
+                    ;;
+                *) return 1 ;;
+            esac
+            ;;
+        *) return 2 ;;
+    esac
+}
+codex_use_select remote
+[ "$remote_arg" = "0.142.5" ] && [ "$version_count" -eq 1 ]
+codex_use_select cached
+[ "$cached_args" = "/runtime /raw 0.142.4 raw runtime @openai/codex@0.142.4-linux-arm64" ] && [ "$version_count" -eq 2 ]
+' _ "$LIB_SH" || fail 'profile runtime selection shell executor changed behavior'
 
 printf 'profile-boundary: ok\n'

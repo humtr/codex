@@ -67,10 +67,10 @@ def _add_use_commands(sub: SubparserCollection) -> None:
     render.add_argument("--interactive-limit", required=True)
     render.set_defaults(func=_use_render)
 
-    select = sub.add_parser("use-select")
-    _add_use_common(select)
-    select.add_argument("--choice", required=True)
-    select.set_defaults(func=_use_select)
+    select_env = sub.add_parser("use-select-env")
+    _add_use_common(select_env)
+    select_env.add_argument("--choice", required=True)
+    select_env.set_defaults(func=_use_select_env)
 
 
 def _add_use_common(parser: argparse.ArgumentParser) -> None:
@@ -114,7 +114,7 @@ def _use_render(args: argparse.Namespace) -> int:
     )
 
 
-def _use_select(args: argparse.Namespace) -> int:
+def _use_select_env(args: argparse.Namespace) -> int:
     row = registry.resolve_runtime_selection(
         registry_file=Path(args.registry_file),
         choice=args.choice,
@@ -123,7 +123,7 @@ def _use_select(args: argparse.Namespace) -> int:
         runtime_builder=Path(args.runtime_builder),
         patch_policy=args.patch_policy,
     )
-    print(use.selection_fields(row))
+    print(use.selection_plan_exports(row))
     return 0
 
 

@@ -258,7 +258,7 @@ codex_remove() {
 }
 
 codex_use() {
-    local choice="${1:-}" runtime_path version raw_sha runtime_sha package_spec
+    local choice="${1:-}"
     if [ "$choice" = "--list" ]; then
         codex_use_list list
         return $?
@@ -305,12 +305,12 @@ codex_use_render() {
 }
 
 codex_use_select() {
-    local choice="$1" selected
+    local choice="$1" selected_env
     local latest="${CODEX_USE_LAST_LATEST:-}"
     if [ -z "$latest" ]; then
         latest="$(codex_latest_linux_arm64_version || true)"
     fi
-    selected="$(codex_termux_cmd use-select \
+    selected_env="$(codex_termux_cmd use-select-env \
         --registry-file "$CODEX_TERMUX_REGISTRY_FILE" \
         --choice "$choice" \
         --latest "$latest" \
@@ -320,15 +320,20 @@ codex_use_select() {
         codex_fail "Unknown runtime selection: $choice"
         return 1
     }
-    local kind runtime_path raw_path version raw_sha runtime_sha package_spec
-    IFS=$'\037' read -r kind runtime_path raw_path version raw_sha runtime_sha package_spec <<EOF
-$selected
-EOF
-    if [ "$kind" = "remote" ]; then
-        codex_runtime_install_upstream "$version" || return $?
-    else
+    eval "$selected_env"
+    if [ "$CODEX_USE_PLAN_ACTION" = "install_upstream" ]; then
+        codex_runtime_install_upstream "$CODEX_USE_PLAN_VERSION" || return $?
+    elif [ "$CODEX_USE_PLAN_ACTION" = "activate_cached" ]; then
         codex_with_lock codex_activate_cached_runtime_unlocked \
-            "$runtime_path" "$raw_path" "$version" "$raw_sha" "$runtime_sha" "$package_spec" || return $?
+            "$CODEX_USE_PLAN_RUNTIME_PATH" \
+            "$CODEX_USE_PLAN_RAW_PATH" \
+            "$CODEX_USE_PLAN_VERSION" \
+            "$CODEX_USE_PLAN_RAW_SHA256" \
+            "$CODEX_USE_PLAN_RUNTIME_SHA256" \
+            "$CODEX_USE_PLAN_PACKAGE_SPEC" || return $?
+    else
+        codex_fail "Unknown runtime selection action: $CODEX_USE_PLAN_ACTION"
+        return 1
     fi
     codex_version || return $?
 }

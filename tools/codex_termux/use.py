@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 import sys
 from pathlib import Path
 
@@ -10,7 +11,6 @@ from . import registry
 from .errors import SchemaError
 
 
-UNIT_SEPARATOR = "\x1f"
 MENU_TITLE = "Choose runtime"
 MENU_SUBTITLE = "Select a managed Codex runtime"
 MENU_MORE = "  (More options: codex termux use <version>)"
@@ -29,18 +29,18 @@ def render_runtime_rows(
     return 0
 
 
-def selection_fields(row: dict[str, str]) -> str:
-    return UNIT_SEPARATOR.join(
-        [
-            row["kind"],
-            row.get("runtime_path", ""),
-            row.get("raw_path", ""),
-            row.get("version", "unknown"),
-            row.get("raw_sha256", ""),
-            row.get("runtime_sha256", ""),
-            row.get("package_spec", ""),
-        ]
-    )
+def selection_plan_exports(row: dict[str, str]) -> str:
+    action = "install_upstream" if row.get("kind") == "remote" else "activate_cached"
+    data = {
+        "CODEX_USE_PLAN_ACTION": action,
+        "CODEX_USE_PLAN_RUNTIME_PATH": row.get("runtime_path", ""),
+        "CODEX_USE_PLAN_RAW_PATH": row.get("raw_path", ""),
+        "CODEX_USE_PLAN_VERSION": row.get("version", "unknown"),
+        "CODEX_USE_PLAN_RAW_SHA256": row.get("raw_sha256", ""),
+        "CODEX_USE_PLAN_RUNTIME_SHA256": row.get("runtime_sha256", ""),
+        "CODEX_USE_PLAN_PACKAGE_SPEC": row.get("package_spec", ""),
+    }
+    return "\n".join(f"{key}={shlex.quote(value)}" for key, value in data.items())
 
 
 def _render_list(rows: list[dict[str, str]]) -> None:
