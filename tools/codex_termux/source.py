@@ -50,6 +50,27 @@ def require_wrapper_source(root: Path, label: str) -> None:
         raise IntegrityError(f"{label} does not contain a valid wrapper source (missing: {missing_text})")
 
 
+def find_extracted_wrapper_source(extract_root: Path) -> Path:
+    """Return the wrapper source root inside an extracted archive tree."""
+    root = extract_root.resolve()
+    if is_wrapper_source(root):
+        return root
+    for candidate in _archive_source_candidates(root):
+        if is_wrapper_source(candidate):
+            return candidate
+    raise IntegrityError("wrapper source root not found in extracted archive")
+
+
+def _archive_source_candidates(root: Path) -> list[Path]:
+    candidates: list[Path] = []
+    for marker in root.glob("*/bin/install-runtime.sh"):
+        candidates.append(marker.parent.parent)
+    marker = root / "bin/install-runtime.sh"
+    if marker.is_file():
+        candidates.insert(0, root)
+    return candidates
+
+
 @dataclass(frozen=True)
 class WrapperSourcePlan:
     kind: str

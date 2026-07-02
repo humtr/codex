@@ -69,24 +69,6 @@ codex_wrapper_source_plan_field() {
         --field "$field"
 }
 
-codex_find_extracted_wrapper_source() {
-    local extract_dir="$1" candidate
-    if codex_validate_wrapper_source "$extract_dir"; then
-        printf '%s\n' "$extract_dir"
-        return 0
-    fi
-    while IFS= read -r candidate; do
-        candidate="${candidate%/bin/install-runtime.sh}"
-        if codex_validate_wrapper_source "$candidate"; then
-            printf '%s\n' "$candidate"
-            return 0
-        fi
-    done <<EOF
-$(find "$extract_dir" -maxdepth 3 -type f -path '*/bin/install-runtime.sh' 2>/dev/null)
-EOF
-    return 1
-}
-
 codex_download_wrapper_archive() {
     local source="$1" target="$2"
     local token accept
@@ -139,7 +121,7 @@ codex_fetch_release_wrapper_source() {
         rm -rf "$tmp"
         return 1
     }
-    source_dir="$(codex_find_extracted_wrapper_source "$extract")" || {
+    source_dir="$(codex_termux_cmd wrapper-source-root --extract-root "$extract")" || {
         rm -rf "$tmp"
         codex_fail "Wrapper release archive does not contain a valid wrapper source"
         return 1

@@ -28,6 +28,10 @@ def add_commands(sub: SubparserCollection) -> None:
     validate_wrapper_source.add_argument("--root", required=True)
     validate_wrapper_source.set_defaults(func=_validate_wrapper_source)
 
+    wrapper_source_root = sub.add_parser("wrapper-source-root")
+    wrapper_source_root.add_argument("--extract-root", required=True)
+    wrapper_source_root.set_defaults(func=_wrapper_source_root)
+
     wrapper_source_plan = sub.add_parser("wrapper-source-plan")
     for name in ("repo", "ref", "release-url", "release-repo", "release-tag", "local-root"):
         wrapper_source_plan.add_argument(f"--{name}", default="")
@@ -110,6 +114,11 @@ def _wrapper_source_missing(args: argparse.Namespace) -> int:
 
 def _validate_wrapper_source(args: argparse.Namespace) -> int:
     return 0 if source.is_wrapper_source(Path(args.root)) else 1
+
+
+def _wrapper_source_root(args: argparse.Namespace) -> int:
+    print(source.find_extracted_wrapper_source(Path(args.extract_root)))
+    return 0
 
 
 def _install_plan(args: argparse.Namespace) -> int:
