@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import shlex
 from pathlib import Path
 
 from .errors import IntegrityError
@@ -69,6 +70,39 @@ def _archive_source_candidates(root: Path) -> list[Path]:
     if marker.is_file():
         candidates.insert(0, root)
     return candidates
+
+
+def normalized_source_env(values: dict[str, str]) -> dict[str, str]:
+    repo = values.get("CODEX_TERMUX_WRAPPER_REPO") or values.get(_legacy_key("GIT_REPO"), "")
+    ref = values.get("CODEX_TERMUX_WRAPPER_REF") or values.get(_legacy_key("GIT_REF"), "")
+    token = (
+        values.get("CODEX_TERMUX_WRAPPER_TOKEN")
+        or values.get(_legacy_key("GIT_TOKEN"), "")
+        or values.get(_legacy_key("RELEASE_TOKEN"), "")
+    )
+    result: dict[str, str] = {}
+    if repo:
+        result["CODEX_TERMUX_WRAPPER_REPO"] = repo
+    if ref:
+        result["CODEX_TERMUX_WRAPPER_REF"] = ref
+    if token:
+        result["CODEX_TERMUX_WRAPPER_TOKEN"] = token
+    return result
+
+
+def source_env_exports(values: dict[str, str]) -> str:
+    lines = []
+    for key, value in normalized_source_env(values).items():
+        lines.append(f"export {key}={shlex.quote(value)}")
+    return "\n".join(lines)
+
+
+def _legacy_key(suffix: str) -> str:
+    return "CODEX_TERMUX_WRAPPER_" + suffix
+
+
+def env_key(suffix: str) -> str:
+    return _legacy_key(suffix)
 
 
 @dataclass(frozen=True)

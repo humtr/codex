@@ -45,22 +45,16 @@ codex_load_wrapper_source_config() {
 }
 
 codex_normalize_wrapper_source_config() {
-    if [ -z "${CODEX_TERMUX_WRAPPER_REPO:-}" ] && [ -n "${CODEX_TERMUX_WRAPPER_GIT_REPO:-}" ]; then
-        CODEX_TERMUX_WRAPPER_REPO="$CODEX_TERMUX_WRAPPER_GIT_REPO"
-        export CODEX_TERMUX_WRAPPER_REPO
-    fi
-    if [ -z "${CODEX_TERMUX_WRAPPER_REF:-}" ] && [ -n "${CODEX_TERMUX_WRAPPER_GIT_REF:-}" ]; then
-        CODEX_TERMUX_WRAPPER_REF="$CODEX_TERMUX_WRAPPER_GIT_REF"
-        export CODEX_TERMUX_WRAPPER_REF
-    fi
-    if [ -z "${CODEX_TERMUX_WRAPPER_TOKEN:-}" ]; then
-        if [ -n "${CODEX_TERMUX_WRAPPER_GIT_TOKEN:-}" ]; then
-            CODEX_TERMUX_WRAPPER_TOKEN="$CODEX_TERMUX_WRAPPER_GIT_TOKEN"
-        elif [ -n "${CODEX_TERMUX_WRAPPER_RELEASE_TOKEN:-}" ]; then
-            CODEX_TERMUX_WRAPPER_TOKEN="$CODEX_TERMUX_WRAPPER_RELEASE_TOKEN"
-        fi
-        [ -z "${CODEX_TERMUX_WRAPPER_TOKEN:-}" ] || export CODEX_TERMUX_WRAPPER_TOKEN
-    fi
+    local exports
+    exports="$(codex_termux_cmd wrapper-source-env \
+        --repo "${CODEX_TERMUX_WRAPPER_REPO:-}" \
+        --ref "${CODEX_TERMUX_WRAPPER_REF:-}" \
+        --token "${CODEX_TERMUX_WRAPPER_TOKEN:-}" \
+        --git-repo "${CODEX_TERMUX_WRAPPER_GIT_REPO:-}" \
+        --git-ref "${CODEX_TERMUX_WRAPPER_GIT_REF:-}" \
+        --git-token "${CODEX_TERMUX_WRAPPER_GIT_TOKEN:-}" \
+        --release-token "${CODEX_TERMUX_WRAPPER_RELEASE_TOKEN:-}")" || return $?
+    [ -z "$exports" ] || eval "$exports"
 }
 
 codex_wrapper_auth_token() {

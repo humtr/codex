@@ -50,6 +50,21 @@ assert plan.kind == "local", plan
 assert plan.local_root == "/repo", plan
 assert plan.label == "local /repo", plan
 
+env = source.normalized_source_env(
+    {
+        "CODEX_TERMUX_WRAPPER_GIT_REPO": "legacy/private",
+        "CODEX_TERMUX_WRAPPER_GIT_REF": "dev",
+        "CODEX_TERMUX_WRAPPER_GIT_TOKEN": "legacy-token",
+    }
+)
+assert env == {
+    "CODEX_TERMUX_WRAPPER_REPO": "legacy/private",
+    "CODEX_TERMUX_WRAPPER_REF": "dev",
+    "CODEX_TERMUX_WRAPPER_TOKEN": "legacy-token",
+}, env
+exports = source.source_env_exports({"CODEX_TERMUX_WRAPPER_REPO": "owner/repo with space"})
+assert exports == "export CODEX_TERMUX_WRAPPER_REPO='owner/repo with space'", exports
+
 with tempfile.TemporaryDirectory() as tmp:
     root = Path(tmp)
     write_wrapper_layout(root)

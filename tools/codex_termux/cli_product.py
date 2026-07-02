@@ -32,6 +32,11 @@ def add_commands(sub: SubparserCollection) -> None:
     wrapper_source_root.add_argument("--extract-root", required=True)
     wrapper_source_root.set_defaults(func=_wrapper_source_root)
 
+    wrapper_source_env = sub.add_parser("wrapper-source-env")
+    for name in ("repo", "ref", "token", "git-repo", "git-ref", "git-token", "release-token"):
+        wrapper_source_env.add_argument(f"--{name}", default="")
+    wrapper_source_env.set_defaults(func=_wrapper_source_env)
+
     wrapper_source_plan = sub.add_parser("wrapper-source-plan")
     for name in ("repo", "ref", "release-url", "release-repo", "release-tag", "local-root"):
         wrapper_source_plan.add_argument(f"--{name}", default="")
@@ -118,6 +123,22 @@ def _validate_wrapper_source(args: argparse.Namespace) -> int:
 
 def _wrapper_source_root(args: argparse.Namespace) -> int:
     print(source.find_extracted_wrapper_source(Path(args.extract_root)))
+    return 0
+
+
+def _wrapper_source_env(args: argparse.Namespace) -> int:
+    values = {
+        source.env_key("REPO"): args.repo,
+        source.env_key("REF"): args.ref,
+        source.env_key("TOKEN"): args.token,
+        source.env_key("GIT_REPO"): args.git_repo,
+        source.env_key("GIT_REF"): args.git_ref,
+        source.env_key("GIT_TOKEN"): args.git_token,
+        source.env_key("RELEASE_TOKEN"): args.release_token,
+    }
+    text = source.source_env_exports(values)
+    if text:
+        print(text)
     return 0
 
 
