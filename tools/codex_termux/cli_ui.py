@@ -23,6 +23,12 @@ def add_commands(sub: SubparserCollection) -> None:
     step_text.add_argument("args", nargs=argparse.REMAINDER)
     step_text.set_defaults(func=_ui_step_text)
 
+    fmt = sub.add_parser("ui-format")
+    fmt.add_argument("--kind", required=True)
+    fmt.add_argument("--value", default="")
+    fmt.add_argument("--color", choices=("0", "1"), default="0")
+    fmt.set_defaults(func=_ui_format)
+
 
 def _ui_text(args: argparse.Namespace) -> int:
     print(ui.text(args.key, *args.args))
@@ -31,4 +37,9 @@ def _ui_text(args: argparse.Namespace) -> int:
 
 def _ui_step_text(args: argparse.Namespace) -> int:
     print(ui.step_text(args.key, *args.args))
+    return 0
+
+
+def _ui_format(args: argparse.Namespace) -> int:
+    print(ui.format_text(args.kind, args.value, color=args.color == "1"))
     return 0

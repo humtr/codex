@@ -75,72 +75,18 @@ codex_wrapper_auth_token() {
     printf '%s\n' "$token"
 }
 
-codex_ui_enabled() {
-    [ -t 2 ] && [ -z "${NO_COLOR:-}" ]
-}
-
-codex_ui_color() {
-    local code="$1" text="$2"
-    if codex_ui_enabled; then
-        printf '\033[%sm%s\033[0m' "$code" "$text"
-    else
-        printf '%s' "$text"
-    fi
-}
-
-codex_ui_dim() {
-    codex_ui_color "2" "$1"
+codex_ui_format() {
+    local color=0 kind="$1" value="${2:-}"
+    [ -t 2 ] && [ -z "${NO_COLOR:-}" ] && color=1
+    codex_termux_cmd ui-format --kind "$kind" --value "$value" --color "$color" | tr -d '\n'
 }
 
 codex_ui_number() {
-    codex_ui_color "36" "$(printf '%2s.' "$1")"
+    codex_ui_format number "$1"
 }
 
 codex_ui_badge() {
-    local kind="$1" text code
-    case "$kind" in
-        active)
-            text=" 🟢 active "
-            code="42;30"
-            ;;
-        current)
-            text=" 🟢 current "
-            code="42;30"
-            ;;
-        cached)
-            text=" 📦 cached "
-            code="44;97"
-            ;;
-        run)
-            text=" ▶ run "
-            code="46;30"
-            ;;
-        install)
-            text=" ⬇ install "
-            code="43;30"
-            ;;
-        update)
-            text=" ⬇ update "
-            code="43;30"
-            ;;
-        latest)
-            text=" ⬆ latest "
-            code="45;97"
-            ;;
-        recent)
-            text=" 🕘 recent "
-            code="46;30"
-            ;;
-        keep)
-            text=" ↵ keep "
-            code="100;97"
-            ;;
-        *)
-            text=" $kind "
-            code="2"
-            ;;
-    esac
-    codex_ui_color "$code" "$text"
+    codex_ui_format badge "$1"
 }
 
 codex_ui_menu_header() {
@@ -148,13 +94,13 @@ codex_ui_menu_header() {
     codex_status_clear
     printf '%s\n' "$title" >&2
     if [ -n "$subtitle" ]; then
-        printf '%s\n' "$(codex_ui_dim "$subtitle")" >&2
+        printf '%s\n' "$(codex_ui_format dim "$subtitle")" >&2
     fi
 }
 
 codex_ui_menu_note() {
     [ -n "${1:-}" ] || return 0
-    printf '%s\n' "$(codex_ui_dim "$1")" >&2
+    printf '%s\n' "$(codex_ui_format dim "$1")" >&2
 }
 
 codex_ui_menu_row() {
@@ -169,7 +115,7 @@ codex_ui_menu_row() {
 }
 
 codex_ui_prompt() {
-    codex_ui_dim "$1"
+    codex_ui_format prompt "$1"
 }
 
 codex_ui_version_row() {
@@ -178,10 +124,7 @@ codex_ui_version_row() {
 }
 
 codex_ui_separator() {
-    local width="${1:-61}" line
-    line="$(printf '%*s' "$width" '')"
-    line="${line// /─}"
-    printf '%s\n' "$(codex_ui_dim "$line")" >&2
+    printf '%s\n' "$(codex_ui_format separator "${1:-61}")" >&2
 }
 
 codex_ui_text() {
@@ -207,15 +150,7 @@ codex_ui_step() {
 }
 
 codex_display_version() {
-    local version="${1:-unknown}"
-    case "$version" in
-        *-linux-arm64)
-            printf '%s\n' "${version%-linux-arm64}"
-            ;;
-        *)
-            printf '%s\n' "$version"
-            ;;
-    esac
+    codex_ui_format display-version "${1:-unknown}"
 }
 
 codex_parent_dir() {

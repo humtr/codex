@@ -52,6 +52,11 @@ bash -lc '. "$1"; output="$(codex_termux_main repair --help 2>&1)"; case "$outpu
 CODEX_TERMUX_HOME="$TMP_DIR/home" \
 CODEX_TERMUX_STATE_DIR="$TMP_DIR/state" \
 CODEX_TERMUX_TMPDIR="$TMP_DIR/tmp" \
+bash -lc '. "$1"; [ "$(codex_display_version 0.142.4-linux-arm64)" = "0.142.4" ]; [ "$(codex_ui_number 3)" = " 3." ]; [ "$(codex_ui_badge current)" = " 🟢 current " ]; sep="$(codex_termux_cmd ui-format --kind separator --value 4)"; [ "$sep" = "────" ]' _ "$LIB_SH"
+
+CODEX_TERMUX_HOME="$TMP_DIR/home" \
+CODEX_TERMUX_STATE_DIR="$TMP_DIR/state" \
+CODEX_TERMUX_TMPDIR="$TMP_DIR/tmp" \
 bash -lc '. "$1"; stable="$CODEX_TERMUX_RUNTIME_STORE_DIR/stable-runtime"; codex_prepare_system_config() { return 0; }; codex_resolve_path() { [ "$1" = "$CODEX_TERMUX_RUNTIME_DIR" ] && printf "%s\n" "$stable"; }; CODEX_SELF_EXE="$CODEX_TERMUX_RUNTIME"; codex_prepare_runtime_env; [ "$CODEX_SELF_EXE" = "$stable/codex" ]; case "$PATH" in "$stable/codex-path:$stable/codex-resources:"*) ;; *) exit 1 ;; esac' _ "$LIB_SH"
 
 CODEX_TERMUX_HOME="$TMP_DIR/home" \

@@ -9,6 +9,43 @@ def _arg(args: tuple[str, ...], index: int, default: str = "") -> str:
     return args[index] if index < len(args) else default
 
 
+def format_text(kind: str, value: str = "", *, color: bool = False) -> str:
+    if kind == "dim" or kind == "prompt":
+        return _color("2", value, color)
+    if kind == "number":
+        return _color("36", f"{value:>2}.", color)
+    if kind == "separator":
+        width = int(value or "61")
+        return _color("2", "─" * width, color)
+    if kind == "display-version":
+        return value.removesuffix("-linux-arm64")
+    if kind == "badge":
+        text, code = _badge(value)
+        return _color(code, text, color)
+    raise IntegrityError(f"unknown UI format kind: {kind}")
+
+
+def _color(code: str, text_value: str, enabled: bool) -> str:
+    if enabled:
+        return f"\033[{code}m{text_value}\033[0m"
+    return text_value
+
+
+def _badge(kind: str) -> tuple[str, str]:
+    badges = {
+        "active": (" 🟢 active ", "42;30"),
+        "current": (" 🟢 current ", "42;30"),
+        "cached": (" 📦 cached ", "44;97"),
+        "run": (" ▶ run ", "46;30"),
+        "install": (" ⬇ install ", "43;30"),
+        "update": (" ⬇ update ", "43;30"),
+        "latest": (" ⬆ latest ", "45;97"),
+        "recent": (" 🕘 recent ", "46;30"),
+        "keep": (" ↵ keep ", "100;97"),
+    }
+    return badges.get(kind, (f" {kind} ", "2"))
+
+
 def text(key: str, *args: str) -> str:
     messages = {
         "selection_cancelled": "Selection cancelled.",
