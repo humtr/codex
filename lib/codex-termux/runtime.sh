@@ -521,29 +521,9 @@ codex_latest_linux_arm64_version() {
     fi
 }
 
-codex_auto_update_mode() {
-    codex_termux_cmd auto-update-mode --mode "${CODEX_TERMUX_AUTO_UPDATE_MODE:-prompt}"
-}
-
-codex_auto_update_due() {
-    local now last
-    now="$(date +%s)"
-    last="$(cat "$CODEX_TERMUX_AUTO_UPDATE_STAMP" 2>/dev/null || printf '0')"
-    codex_termux_cmd auto-update-due \
-        --enabled "$CODEX_TERMUX_AUTO_UPDATE" \
-        --mode "${CODEX_TERMUX_AUTO_UPDATE_MODE:-prompt}" \
-        --now "$now" \
-        --last "$last" \
-        --interval "$CODEX_TERMUX_AUTO_UPDATE_INTERVAL_SECONDS"
-}
-
 codex_mark_auto_update_checked() {
     mkdir -p "$CODEX_TERMUX_STATE_DIR"
     date +%s >"$CODEX_TERMUX_AUTO_UPDATE_STAMP"
-}
-
-codex_read_pending_auto_update() {
-    cat "$CODEX_TERMUX_AUTO_UPDATE_PENDING" 2>/dev/null || true
 }
 
 codex_write_pending_auto_update() {
@@ -556,10 +536,6 @@ codex_clear_pending_auto_update() {
     rm -f "$CODEX_TERMUX_AUTO_UPDATE_PENDING"
 }
 
-codex_read_failed_auto_update() {
-    cat "$CODEX_TERMUX_AUTO_UPDATE_FAILED" 2>/dev/null || true
-}
-
 codex_write_failed_auto_update() {
     local version="$1"
     mkdir -p "$CODEX_TERMUX_STATE_DIR"
@@ -568,17 +544,6 @@ codex_write_failed_auto_update() {
 
 codex_clear_failed_auto_update() {
     rm -f "$CODEX_TERMUX_AUTO_UPDATE_FAILED"
-}
-
-codex_failed_auto_update_due() {
-    local version="$1" failed now
-    failed="$(codex_read_failed_auto_update)"
-    now="$(date +%s)"
-    codex_termux_cmd failed-auto-update-due \
-        --record "$failed" \
-        --version "$version" \
-        --now "$now" \
-        --interval "$CODEX_TERMUX_AUTO_UPDATE_INTERVAL_SECONDS"
 }
 
 codex_prompt_update() {
@@ -625,44 +590,69 @@ codex_install_auto_update() {
 }
 
 codex_auto_update_if_needed() {
-    local current latest mode pending
+    local current latest pending plan_env last now failed
     codex_runtime_ok || return 0
-    [ "$CODEX_TERMUX_AUTO_UPDATE" = "0" ] && return 0
-    [ "$(codex_auto_update_mode)" != "off" ] || return 0
     current="$(codex_read_state_field version)"
-    pending="$(codex_read_pending_auto_update)"
-    if [ -n "$pending" ] && [ "$pending" = "$current" ]; then
-        codex_clear_pending_auto_update
-        pending=""
-    fi
-    if [ -n "$pending" ] && [ "$pending" != "$current" ] && ! codex_auto_update_due; then
-        latest="$pending"
-    else
-        codex_auto_update_due || return 0
-        codex_mark_auto_update_checked
-        latest="$(codex_latest_linux_arm64_version || true)"
-        if [ -z "$latest" ]; then
-            [ -z "$pending" ] || codex_clear_pending_auto_update
+    pending="$(cat "$CODEX_TERMUX_AUTO_UPDATE_PENDING" 2>/dev/null || true)"
+    last="$(cat "$CODEX_TERMUX_AUTO_UPDATE_STAMP" 2>/dev/null || printf '0')"
+    now="$(date +%s)"
+    plan_env="$(codex_termux_cmd auto-update-check-plan-env \
+        --enabled "$CODEX_TERMUX_AUTO_UPDATE" \
+        --mode "${CODEX_TERMUX_AUTO_UPDATE_MODE:-prompt}" \
+        --current "$current" \
+        --pending "$pending" \
+        --now "$now" \
+        --last "$last" \
+        --interval "$CODEX_TERMUX_AUTO_UPDATE_INTERVAL_SECONDS")" || return $?
+    eval "$plan_env"
+    [ "$CODEX_AUTO_UPDATE_CLEAR_PENDING" = "0" ] || codex_clear_pending_auto_update
+    case "$CODEX_AUTO_UPDATE_ACTION" in
+        skip)
             return 0
-        fi
-    fi
+            ;;
+        use_pending)
+            latest="$CODEX_AUTO_UPDATE_LATEST"
+            ;;
+        fetch)
+            codex_mark_auto_update_checked
+            latest="$(codex_latest_linux_arm64_version || true)"
+            if [ -z "$latest" ]; then
+                [ -z "$pending" ] || codex_clear_pending_auto_update
+                return 0
+            fi
+            ;;
+        *)
+            return 0
+            ;;
+    esac
     if [ "$latest" != "$current" ]; then
         codex_write_pending_auto_update "$latest"
-        codex_failed_auto_update_due "$latest" || return 0
-        mode="$(codex_auto_update_mode)"
-        if [ "$mode" = "force" ]; then
-            codex_install_auto_update "$current" "$latest" || return 0
-        else
-            codex_prompt_update "$current" "$latest"
-            case "$?" in
-                0)
-                    codex_install_auto_update "$current" "$latest" || return 0
-                    ;;
-                130)
-                    return 130
-                    ;;
-            esac
-        fi
+        failed="$(cat "$CODEX_TERMUX_AUTO_UPDATE_FAILED" 2>/dev/null || true)"
+        now="$(date +%s)"
+        plan_env="$(codex_termux_cmd auto-update-apply-plan-env \
+            --current "$current" \
+            --latest "$latest" \
+            --failed-record "$failed" \
+            --mode "$CODEX_AUTO_UPDATE_MODE" \
+            --now "$now" \
+            --interval "$CODEX_TERMUX_AUTO_UPDATE_INTERVAL_SECONDS")" || return $?
+        eval "$plan_env"
+        case "$CODEX_AUTO_UPDATE_ACTION" in
+            install)
+                codex_install_auto_update "$current" "$latest" || return 0
+                ;;
+            prompt)
+                codex_prompt_update "$current" "$latest"
+                case "$?" in
+                    0)
+                        codex_install_auto_update "$current" "$latest" || return 0
+                        ;;
+                    130)
+                        return 130
+                        ;;
+                esac
+                ;;
+        esac
     else
         codex_clear_pending_auto_update
     fi

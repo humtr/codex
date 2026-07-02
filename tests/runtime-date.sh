@@ -198,4 +198,61 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
         --record $'0.142.4\t30' --version 0.142.4 --now 100 --interval 60 \
     || fail 'failed auto-update retry rejected due retry'
 
+plan_env="$(
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+        python3 -B -m codex_termux.cli auto-update-check-plan-env \
+            --enabled 1 --mode prompt --current 0.142.4 --pending 0.142.5 \
+            --now 100 --last 95 --interval 60
+)"
+eval "$plan_env"
+[ "$CODEX_AUTO_UPDATE_ACTION" = use_pending ] || fail "pending auto-update plan action mismatch: $CODEX_AUTO_UPDATE_ACTION"
+[ "$CODEX_AUTO_UPDATE_LATEST" = 0.142.5 ] || fail "pending auto-update latest mismatch: $CODEX_AUTO_UPDATE_LATEST"
+[ "$CODEX_AUTO_UPDATE_CLEAR_PENDING" = 0 ] || fail "pending auto-update clear mismatch: $CODEX_AUTO_UPDATE_CLEAR_PENDING"
+
+plan_env="$(
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+        python3 -B -m codex_termux.cli auto-update-check-plan-env \
+            --enabled 1 --mode prompt --current 0.142.4 --pending 0.142.4 \
+            --now 100 --last 10 --interval 60
+)"
+eval "$plan_env"
+[ "$CODEX_AUTO_UPDATE_ACTION" = fetch ] || fail "due auto-update plan action mismatch: $CODEX_AUTO_UPDATE_ACTION"
+[ "$CODEX_AUTO_UPDATE_CLEAR_PENDING" = 1 ] || fail "stale pending clear mismatch: $CODEX_AUTO_UPDATE_CLEAR_PENDING"
+
+plan_env="$(
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+        python3 -B -m codex_termux.cli auto-update-check-plan-env \
+            --enabled 1 --mode off --current 0.142.4 --pending 0.142.5 \
+            --now 100 --last 10 --interval 60
+)"
+eval "$plan_env"
+[ "$CODEX_AUTO_UPDATE_ACTION" = skip ] || fail "off auto-update plan action mismatch: $CODEX_AUTO_UPDATE_ACTION"
+
+plan_env="$(
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+        python3 -B -m codex_termux.cli auto-update-apply-plan-env \
+            --current 0.142.4 --latest 0.142.5 --failed-record "" \
+            --mode force --now 100 --interval 60
+)"
+eval "$plan_env"
+[ "$CODEX_AUTO_UPDATE_ACTION" = install ] || fail "force auto-update apply action mismatch: $CODEX_AUTO_UPDATE_ACTION"
+
+plan_env="$(
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+        python3 -B -m codex_termux.cli auto-update-apply-plan-env \
+            --current 0.142.4 --latest 0.142.5 --failed-record $'0.142.5\t95' \
+            --mode prompt --now 100 --interval 60
+)"
+eval "$plan_env"
+[ "$CODEX_AUTO_UPDATE_ACTION" = skip ] || fail "recent failed auto-update apply action mismatch: $CODEX_AUTO_UPDATE_ACTION"
+
+plan_env="$(
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+        python3 -B -m codex_termux.cli auto-update-apply-plan-env \
+            --current 0.142.4 --latest 0.142.4 --failed-record "" \
+            --mode prompt --now 100 --interval 60
+)"
+eval "$plan_env"
+[ "$CODEX_AUTO_UPDATE_ACTION" = clear_pending ] || fail "current auto-update apply action mismatch: $CODEX_AUTO_UPDATE_ACTION"
+
 printf 'runtime-date: ok\n'

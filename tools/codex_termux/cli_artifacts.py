@@ -163,6 +163,25 @@ def add_commands(sub: SubparserCollection) -> None:
     failed_due.add_argument("--interval", required=True)
     failed_due.set_defaults(func=_failed_auto_update_due)
 
+    check_plan = sub.add_parser("auto-update-check-plan-env")
+    check_plan.add_argument("--enabled", required=True)
+    check_plan.add_argument("--mode", required=True)
+    check_plan.add_argument("--current", default="")
+    check_plan.add_argument("--pending", default="")
+    check_plan.add_argument("--now", required=True)
+    check_plan.add_argument("--last", default="0")
+    check_plan.add_argument("--interval", required=True)
+    check_plan.set_defaults(func=_auto_update_check_plan_env)
+
+    apply_plan = sub.add_parser("auto-update-apply-plan-env")
+    apply_plan.add_argument("--current", default="")
+    apply_plan.add_argument("--latest", default="")
+    apply_plan.add_argument("--failed-record", default="")
+    apply_plan.add_argument("--mode", required=True)
+    apply_plan.add_argument("--now", required=True)
+    apply_plan.add_argument("--interval", required=True)
+    apply_plan.set_defaults(func=_auto_update_apply_plan_env)
+
     update_prompt = sub.add_parser("update-prompt-decision")
     update_prompt.add_argument("--choice", default="")
     update_prompt.set_defaults(
@@ -230,6 +249,29 @@ def _failed_auto_update_due(args: argparse.Namespace) -> int:
         now=int(args.now),
         interval=int(args.interval),
     ) else 1
+
+
+def _auto_update_check_plan_env(args: argparse.Namespace) -> int:
+    return _print(runtime_checks.auto_update_check_plan_exports(
+        enabled=args.enabled,
+        mode=args.mode,
+        current=args.current,
+        pending=args.pending,
+        now=int(args.now),
+        last=args.last,
+        interval=int(args.interval),
+    ))
+
+
+def _auto_update_apply_plan_env(args: argparse.Namespace) -> int:
+    return _print(runtime_checks.auto_update_apply_plan_exports(
+        current=args.current,
+        latest=args.latest,
+        failed_record=args.failed_record,
+        mode=args.mode,
+        now=int(args.now),
+        interval=int(args.interval),
+    ))
 
 
 def _upstream_release_cache_read(args: argparse.Namespace) -> int:

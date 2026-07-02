@@ -317,6 +317,75 @@ def failed_auto_update_due(
     return now - failed_time >= interval
 
 
+def auto_update_check_plan_exports(
+    *,
+    enabled: str,
+    mode: str,
+    current: str,
+    pending: str,
+    now: int,
+    last: str,
+    interval: int,
+) -> str:
+    normalized_mode = normalize_auto_update_mode(mode)
+    clear_pending = bool(pending and pending == current)
+    effective_pending = "" if clear_pending else pending
+    due = auto_update_due(
+        enabled=enabled,
+        mode=normalized_mode,
+        now=now,
+        last=last,
+        interval=interval,
+    )
+    if enabled == "0" or normalized_mode == "off":
+        action = "skip"
+        latest = ""
+    elif effective_pending and not due:
+        action = "use_pending"
+        latest = effective_pending
+    elif due:
+        action = "fetch"
+        latest = ""
+    else:
+        action = "skip"
+        latest = ""
+    return _shell_exports({
+        "CODEX_AUTO_UPDATE_ACTION": action,
+        "CODEX_AUTO_UPDATE_MODE": normalized_mode,
+        "CODEX_AUTO_UPDATE_LATEST": latest,
+        "CODEX_AUTO_UPDATE_CLEAR_PENDING": "1" if clear_pending else "0",
+    })
+
+
+def auto_update_apply_plan_exports(
+    *,
+    current: str,
+    latest: str,
+    failed_record: str,
+    mode: str,
+    now: int,
+    interval: int,
+) -> str:
+    normalized_mode = normalize_auto_update_mode(mode)
+    if not latest or latest == current:
+        action = "clear_pending"
+    elif not failed_auto_update_due(
+        record=failed_record,
+        version=latest,
+        now=now,
+        interval=interval,
+    ):
+        action = "skip"
+    elif normalized_mode == "force":
+        action = "install"
+    else:
+        action = "prompt"
+    return _shell_exports({
+        "CODEX_AUTO_UPDATE_ACTION": action,
+        "CODEX_AUTO_UPDATE_MODE": normalized_mode,
+    })
+
+
 def update_prompt_decision(choice: str) -> str:
     if choice in {"y", "Y"}:
         return "apply"
