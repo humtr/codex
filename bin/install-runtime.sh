@@ -204,14 +204,6 @@ codex_git_clone_wrapper_source() {
     CODEX_TERMUX_WRAPPER_SOURCE_DIR="$checkout"
 }
 
-codex_git_wrapper_source_configured() {
-    [ "$(codex_wrapper_source_plan_field kind)" = "git" ]
-}
-
-codex_release_wrapper_source_configured() {
-    [ "$(codex_wrapper_source_plan_field kind)" = "release" ]
-}
-
 codex_prepare_fresh_wrapper_source() {
     local kind
     kind="$(codex_wrapper_source_plan_field kind)" || return $?
