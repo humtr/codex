@@ -55,6 +55,10 @@ def add_commands(sub: SubparserCollection) -> None:
     menu = sub.add_parser("profile-menu-ids")
     menu.set_defaults(func=_profile_menu_ids)
 
+    menu_render = sub.add_parser("profile-menu-render")
+    menu_render.add_argument("--interactive", choices=("0", "1"), default="0")
+    menu_render.set_defaults(func=_profile_menu_render)
+
 
 def _print(value: object) -> int:
     print(value)
@@ -81,4 +85,9 @@ def _profile_list(args: argparse.Namespace) -> int:
 def _profile_menu_ids(args: argparse.Namespace) -> int:
     for profile in session.profile_menu_ids():
         print(profile)
+    return 0
+
+
+def _profile_menu_render(args: argparse.Namespace) -> int:
+    print(session.render_profile_menu(interactive=args.interactive == "1"))
     return 0

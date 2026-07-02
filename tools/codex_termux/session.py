@@ -16,6 +16,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from . import ui
+
 
 @dataclass(frozen=True)
 class SessionHome:
@@ -120,6 +122,29 @@ def list_profiles() -> list[str]:
 
 def profile_menu_ids() -> list[str]:
     return ["default", *list_profiles()]
+
+
+def render_profile_menu(*, interactive: bool) -> int:
+    profiles = profile_menu_ids()
+    recent = read_recent_profile()
+    display_limit = 9 if interactive else 0
+    color_enabled = sys.stderr.isatty() and not os.environ.get("NO_COLOR")
+    print(ui.text("choose_profile_title"), file=sys.stderr)
+    print(ui.format_text("dim", ui.text("choose_profile_subtitle"), color=color_enabled), file=sys.stderr)
+    truncated = False
+    for index, profile in enumerate(profiles):
+        if display_limit and index > display_limit:
+            truncated = True
+            break
+        label = profile_display_name(profile)
+        line = f"  {ui.format_text('number', str(index), color=color_enabled)} {label}"
+        if profile == recent:
+            line = f"{line} {ui.format_text('badge', 'recent', color=color_enabled)}"
+        print(line, file=sys.stderr)
+    if truncated:
+        print(ui.format_text("dim", ui.text("choose_profile_more"), color=color_enabled), file=sys.stderr)
+    print(file=sys.stderr)
+    return min(len(profiles), 9)
 
 
 def resolve_profile_menu_choice(choice: str | None) -> str:

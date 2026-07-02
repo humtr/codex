@@ -215,37 +215,15 @@ codex_runtime_exec_with_context() {
 }
 
 codex_profile_select() {
-    local profiles=() profile choice idx profile_dir display_limit=0 truncated=0 recent
-    recent="$(codex_termux_cmd profile-read-recent)"
-    mapfile -t profiles < <(codex_termux_cmd profile-menu-ids)
-    if [ -t 0 ]; then
-        display_limit=9
-    fi
-
-    codex_ui_menu_header "$(codex_ui_text_get choose_profile_title)" "$(codex_ui_text_get choose_profile_subtitle)"
-    idx=0
-    for profile in "${profiles[@]}"; do
-        if [ "$display_limit" -gt 0 ] && [ "$idx" -gt "$display_limit" ]; then
-            truncated=1
-            break
-        fi
-        if [ "$profile" = "$recent" ]; then
-            printf '  %s %s %s\n' "$(codex_ui_number "$idx")" "$(codex_termux_cmd profile-display-name --profile "$profile")" "$(codex_ui_badge recent)" >&2
-        else
-            printf '  %s %s\n' "$(codex_ui_number "$idx")" "$(codex_termux_cmd profile-display-name --profile "$profile")" >&2
-        fi
-        idx=$((idx + 1))
-    done
-    if [ "$truncated" -eq 1 ]; then
-        codex_ui_menu_note "$(codex_ui_text_get choose_profile_more)"
-    fi
-    printf '\n' >&2
+    local profile choice profile_dir interactive=0 max_items
+    [ -t 0 ] && interactive=1
+    max_items="$(codex_termux_cmd profile-menu-render --interactive "$interactive")" || return $?
 
     if [ ! -t 0 ]; then
         return 0
     fi
 
-    codex_prompt_interactive "$(codex_ui_text_get choose_profile_prompt)" freeform "$(( ${#profiles[@]} < 9 ? ${#profiles[@]} : 9 ))" cancel || return $?
+    codex_prompt_interactive "$(codex_ui_text_get choose_profile_prompt)" freeform "$max_items" cancel || return $?
     choice="$CODEX_PROMPT_CHOICE_RESULT"
 
     profile="$(codex_termux_cmd profile-menu-choice --choice "$choice")"

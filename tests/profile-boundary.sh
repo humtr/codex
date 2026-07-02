@@ -39,10 +39,14 @@ menu="$(codex_termux_cmd profile-menu-ids | tr "\n" " ")"
 [ "$(codex_termux_cmd profile-menu-choice --choice 1)" = "Alpha" ]
 [ "$(codex_termux_cmd profile-menu-choice --choice home)" = "default" ]
 [ "$(codex_termux_cmd profile-menu-choice --choice Alpha)" = "Alpha" ]
+render_count="$(codex_termux_cmd profile-menu-render --interactive 1 2>"$2/profile-menu.err")"
+[ "$render_count" = "2" ]
+grep -F "Choose profile" "$2/profile-menu.err" >/dev/null
+grep -F "Alpha" "$2/profile-menu.err" >/dev/null
 codex_termux_cmd profile-create-confirmed --choice y
 codex_termux_cmd profile-create-confirmed --choice Y
 ! codex_termux_cmd profile-create-confirmed --choice n
 ! codex_termux_cmd profile-create-confirmed --choice ""
-' _ "$LIB_SH" || fail 'profile shell wrappers changed behavior'
+' _ "$LIB_SH" "$TMP_DIR" || fail 'profile shell wrappers changed behavior'
 
 printf 'profile-boundary: ok\n'
