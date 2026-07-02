@@ -9,7 +9,7 @@ import tarfile
 from pathlib import Path, PurePosixPath
 from typing import Protocol
 
-from . import activation, canon, cli_notify, cli_profile, cli_session, doctor, hashing, install_plan, paths, prune, registry, release, repair, runtime_checks, source, use
+from . import activation, canon, cli_doctor, cli_notify, cli_profile, cli_session, hashing, install_plan, paths, prune, registry, release, repair, runtime_checks, source, use
 from .errors import CodexTermuxError, IntegrityError
 from .schemas import ActivationPlan
 
@@ -57,7 +57,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_store_commands(sub)
     _add_activation_commands(sub)
     _add_use_commands(sub)
-    _add_doctor_commands(sub)
+    cli_doctor.add_commands(sub)
     cli_notify.add_commands(sub)
     cli_profile.add_commands(sub)
     cli_session.add_commands(sub)
@@ -213,22 +213,6 @@ def _add_use_commands(sub: SubparserCollection) -> None:
 def _add_use_common(parser: argparse.ArgumentParser) -> None:
     for name in ("registry-file", "latest", "runtime-store-dir", "runtime-builder", "patch-policy"):
         parser.add_argument(f"--{name}", required=True)
-
-
-def _add_doctor_commands(sub: SubparserCollection) -> None:
-    report = sub.add_parser("doctor-report")
-    for name in (
-        "runtime", "current-link", "verified-link", "raw-link", "manager-dir",
-        "runtime-store-dir", "raw-store-dir", "raw-vendor", "resolv-conf", "cert-file",
-        "state-file", "registry-file", "version", "raw-sha256", "runtime-sha256",
-        "prefix", "runtime-builder", "patch-policy",
-    ):
-        report.add_argument(f"--{name}", required=True)
-    report.set_defaults(func=_doctor_report)
-
-    render = sub.add_parser("doctor-render")
-    render.add_argument("--mode", choices=("human", "json"), default="human")
-    render.set_defaults(func=_doctor_render)
 
 
 def _print(value: object) -> int:
@@ -701,41 +685,6 @@ def _use_select(args: argparse.Namespace) -> int:
     )
     print(use.selection_fields(row))
     return 0
-
-
-def _doctor_report(args: argparse.Namespace) -> int:
-    report = doctor.build_report(
-        doctor.DoctorInputs(
-            runtime=Path(args.runtime),
-            current_link=Path(args.current_link),
-            verified_link=Path(args.verified_link),
-            raw_link=Path(args.raw_link),
-            manager_dir=Path(args.manager_dir),
-            runtime_store=Path(args.runtime_store_dir),
-            raw_store=Path(args.raw_store_dir),
-            raw_vendor=Path(args.raw_vendor),
-            resolv_conf=Path(args.resolv_conf),
-            cert_file=Path(args.cert_file),
-            state_file=Path(args.state_file),
-            registry_file=Path(args.registry_file),
-            version=args.version,
-            raw_sha256=args.raw_sha256,
-            runtime_sha256=args.runtime_sha256,
-            prefix=Path(args.prefix),
-            runtime_builder=Path(args.runtime_builder),
-            patch_policy=args.patch_policy,
-        )
-    )
-    print(json.dumps(report, ensure_ascii=True, sort_keys=True))
-    return 0
-
-
-def _doctor_render(args: argparse.Namespace) -> int:
-    report = json.load(sys.stdin)
-    if args.mode == "json":
-        print(json.dumps(report, ensure_ascii=True, sort_keys=True))
-        return 0
-    return doctor.render_human(report)
 
 
 def main(argv: list[str] | None = None) -> int:
