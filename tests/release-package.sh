@@ -23,7 +23,7 @@ from pathlib import PurePosixPath
 
 zip_path = sys.argv[1]
 forbidden_roots = {"tests", ".github", "docs", ".agents", ".git"}
-forbidden_exact = {".gitignore", "tools/install-git-hooks.sh", "tools/update-wrapper-version.sh"}
+forbidden_exact = {"GOAL.md", ".gitignore", "tools/install-git-hooks.sh", "tools/update-wrapper-version.sh"}
 required = {
     "README.md",
     "install.sh",
@@ -44,6 +44,13 @@ required = {
     "tools/codex-launcher.c",
     "tools/codex-turn-notify.sh",
     "tools/codex_termux/cli.py",
+    "tools/codex_termux/cli_activation.py",
+    "tools/codex_termux/cli_artifacts.py",
+    "tools/codex_termux/cli_doctor.py",
+    "tools/codex_termux/cli_notify.py",
+    "tools/codex_termux/cli_product.py",
+    "tools/codex_termux/cli_profile.py",
+    "tools/codex_termux/cli_session.py",
     "config/wrapper-version.env",
 }
 with zipfile.ZipFile(zip_path) as zf:

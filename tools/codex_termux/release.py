@@ -19,6 +19,7 @@ FORBIDDEN_RELEASE_ROOTS = (
 )
 FORBIDDEN_RELEASE_EXACT = (
     ".gitignore",
+    "GOAL.md",
     "tools/install-git-hooks.sh",
     "tools/update-wrapper-version.sh",
 )
@@ -42,7 +43,16 @@ def required_release_entries() -> tuple[str, ...]:
             *REQUIRED_WRAPPER_SOURCE_PATHS,
         )
         if entry != "tools/codex_termux"
-    ) + ("tools/codex_termux/cli.py",)
+    ) + (
+        "tools/codex_termux/cli.py",
+        "tools/codex_termux/cli_activation.py",
+        "tools/codex_termux/cli_artifacts.py",
+        "tools/codex_termux/cli_doctor.py",
+        "tools/codex_termux/cli_notify.py",
+        "tools/codex_termux/cli_product.py",
+        "tools/codex_termux/cli_profile.py",
+        "tools/codex_termux/cli_session.py",
+    )
 
 
 def validate_package_root(package_root: Path) -> None:
