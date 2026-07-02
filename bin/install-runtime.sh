@@ -30,26 +30,9 @@ doctor                      Run wrapper diagnostics. Use: doctor --json for mach
 USAGE
 }
 
-codex_source_commit() {
-    local source_dir="${1:-$CODEX_TERMUX_WRAPPER_SOURCE_DIR}"
-    if command -v git >/dev/null 2>&1 && git -C "$source_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-        git -C "$source_dir" rev-parse --short=12 HEAD 2>/dev/null || printf 'unknown\n'
-    else
-        printf 'unknown\n'
-    fi
-}
-
-codex_missing_wrapper_source_paths() {
-    codex_termux_cmd wrapper-source-missing --root "$1"
-}
-
-codex_validate_wrapper_source() {
-    codex_termux_cmd validate-wrapper-source --root "$1" >/dev/null
-}
-
 codex_require_wrapper_source() {
     local source_dir="$1" label="$2" missing
-    missing="$(codex_missing_wrapper_source_paths "$source_dir")"
+    missing="$(codex_termux_cmd wrapper-source-missing --root "$source_dir")"
     if [ -n "$missing" ]; then
         codex_fail "$label does not contain a valid wrapper source (missing: $(printf '%s' "$missing" | tr '\n' ' '))"
         return 1
@@ -199,7 +182,7 @@ codex_prepare_fresh_wrapper_source() {
         local)
             CODEX_TERMUX_WRAPPER_SOURCE_DIR="$ROOT_DIR"
             CODEX_TERMUX_WRAPPER_SOURCE_LABEL="$(codex_wrapper_source_plan_field label)"
-            codex_validate_wrapper_source "$CODEX_TERMUX_WRAPPER_SOURCE_DIR"
+            codex_termux_cmd validate-wrapper-source --root "$CODEX_TERMUX_WRAPPER_SOURCE_DIR" >/dev/null
             ;;
         *)
             codex_fail "Unknown wrapper source kind: $kind"
@@ -293,7 +276,7 @@ codex_install_support_files() {
     else
         printf 'CODEX_TERMUX_WRAPPER_VERSION=unknown\nCODEX_TERMUX_WRAPPER_CHANNEL=local\nCODEX_TERMUX_WRAPPER_REPO=local/codex-termux\n' >"$CODEX_TERMUX_MANAGER_DIR/wrapper-version.env"
     fi
-    wrapper_commit="$(codex_source_commit "$source_dir")"
+    wrapper_commit="$(codex_termux_cmd wrapper-source-commit --root "$source_dir")"
     {
         printf 'CODEX_TERMUX_WRAPPER_COMMIT=%s\n' "$wrapper_commit"
         printf 'CODEX_TERMUX_WRAPPER_INSTALLED_AT=%s\n' "$(date -Is)"

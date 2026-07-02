@@ -53,6 +53,33 @@ def require_wrapper_source(root: Path, label: str) -> None:
         raise IntegrityError(f"{label} does not contain a valid wrapper source (missing: {missing_text})")
 
 
+def source_commit(root: Path) -> str:
+    if shutil.which("git") is None:
+        return "unknown"
+    try:
+        inside = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--is-inside-work-tree"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if inside.returncode != 0:
+            return "unknown"
+        result = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--short=12", "HEAD"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return "unknown"
+    if result.returncode != 0:
+        return "unknown"
+    return result.stdout.splitlines()[0] if result.stdout.splitlines() else "unknown"
+
+
 def find_extracted_wrapper_source(extract_root: Path) -> Path:
     """Return the wrapper source root inside an extracted archive tree."""
     root = extract_root.resolve()

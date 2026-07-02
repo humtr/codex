@@ -212,7 +212,7 @@ CODEX_TERMUX_WRAPPER_REPO="example/private" \
 CODEX_TERMUX_WRAPPER_REF="main" \
 CODEX_TERMUX_WRAPPER_TOKEN="test-token" \
 codex_git_clone_wrapper_source
-codex_validate_wrapper_source "$CODEX_TERMUX_WRAPPER_SOURCE_DIR" \
+codex_termux_cmd validate-wrapper-source --root "$CODEX_TERMUX_WRAPPER_SOURCE_DIR" >/dev/null \
     || fail 'git wrapper checkout was not accepted as wrapper source'
 grep -F "https://github.com/example/private.git" "$TMP_DIR/git-args" >/dev/null \
     || fail 'git repo shorthand did not expand to GitHub HTTPS URL'
@@ -234,7 +234,7 @@ printf 'install runtime\n' >"$TMP_DIR/incomplete/bin/install-runtime.sh"
 printf 'lib\n' >"$TMP_DIR/incomplete/lib/codex-termux.sh"
 printf 'builder\n' >"$TMP_DIR/incomplete/tools/build-runtime.py"
 printf 'version\n' >"$TMP_DIR/incomplete/config/wrapper-version.env"
-if codex_validate_wrapper_source "$TMP_DIR/incomplete"; then
+if codex_termux_cmd validate-wrapper-source --root "$TMP_DIR/incomplete" >/dev/null; then
     fail 'incomplete wrapper source passed validation'
 fi
 FAILED_MESSAGE=""

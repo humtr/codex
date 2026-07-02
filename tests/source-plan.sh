@@ -68,6 +68,7 @@ assert source.auth_token({"CODEX_TERMUX_WRAPPER_TOKEN": "direct", "GITHUB_TOKEN"
 assert source.auth_token({"CODEX_TERMUX_WRAPPER_GIT_TOKEN": "legacy", "GITHUB_TOKEN": "github"}) == "legacy"
 assert source.auth_token({"GITHUB_TOKEN": "github"}) == "github"
 assert source.auth_token({}) == ""
+assert source.source_commit(Path("/definitely/not/a/git/repo")) == "unknown"
 
 with tempfile.TemporaryDirectory() as tmp:
     root = Path(tmp)
@@ -148,5 +149,11 @@ auth_token="$(
         python3 -B -m codex_termux.cli wrapper-auth-token --allow-gh 1
 )"
 [ "$auth_token" = "fake-gh-token" ] || fail "CLI wrapper-auth-token gh fallback mismatch: $auth_token"
+
+commit="$(
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+        python3 -B -m codex_termux.cli wrapper-source-commit --root "$extract_root/codex-release"
+)"
+[ "$commit" = "unknown" ] || fail "CLI wrapper-source-commit non-git mismatch: $commit"
 
 printf 'source-plan: ok\n'
