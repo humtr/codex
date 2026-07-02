@@ -91,6 +91,8 @@ _TOP_LEVEL_RE = re.compile(
     r"\bcodex\s+(" + "|".join(re.escape(item) for item in WRAPPER_TOP_LEVEL_COMMANDS) + r")(?:\s|$)"
 )
 _SHELL_FUNCTION_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_]*\(\) \{", re.M)
+_CLI_ADD_PARSER_RE = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\.add_parser\(\"([A-Za-z0-9_-]+)\"")
+_SHELL_HELPER_COMMAND_RE = re.compile(r"\bcodex_termux_cmd\s+([A-Za-z0-9][A-Za-z0-9_-]*)\b")
 
 MANIFEST_PATH = "codex-wrapper.manifest.json"
 DOMAIN_DIR = "lib/codex-termux"
@@ -140,6 +142,10 @@ def audit(root: Path) -> dict[str, object]:
     findings.extend(_audit_profile_shell_model(root))
     findings.extend(_audit_shell_budgets(manifest, metrics))
     findings.extend(_audit_forbidden_shell_patterns(root, manifest))
+    findings.extend(_audit_product_repo_purity(root, manifest))
+    findings.extend(_audit_python_module_ownership(root, manifest))
+    findings.extend(_audit_helper_command_surface(metrics))
+    metrics["target_budget_gaps"] = _target_budget_gaps(manifest, metrics)
     return {
         "status": "ok" if not _blocking_findings(findings) else "needs-canon",
         "phases": _phase_status(findings),
@@ -344,6 +350,103 @@ def _audit_forbidden_shell_patterns(root: Path, manifest: dict[str, object]) -> 
     return findings
 
 
+def _audit_product_repo_purity(root: Path, manifest: dict[str, object]) -> list[Finding]:
+    findings: list[Finding] = []
+    paths = manifest.get("product_forbidden_paths", [])
+    if isinstance(paths, list):
+        for entry in paths:
+            if not isinstance(entry, str) or not entry:
+                continue
+            matches = sorted(root.glob(entry))
+            for path in matches:
+                findings.append(
+                    Finding(
+                        code="product-forbidden-path",
+                        severity="blocker",
+                        path=_relative(root, path),
+                        detail=f"forbidden product-repo path exists: {entry}",
+                    )
+                )
+    patterns = manifest.get("product_forbidden_patterns", [])
+    if not isinstance(patterns, list):
+        return findings
+    skip = {MANIFEST_PATH, "tools/codex_termux/canon.py"}
+    for entry in patterns:
+        if not isinstance(entry, dict):
+            continue
+        pattern = entry.get("pattern", "")
+        reason = entry.get("reason", "forbidden product-repo pattern")
+        if not isinstance(pattern, str) or not pattern:
+            continue
+        for path in _source_files(root):
+            relative = _relative(root, path)
+            if relative in skip or _is_test_or_dev_only(relative):
+                continue
+            for lineno, line in enumerate(_read_text(path).splitlines(), start=1):
+                if pattern in line:
+                    findings.append(
+                        Finding(
+                            code="product-forbidden-pattern",
+                            severity="blocker",
+                            path=f"{relative}:{lineno}",
+                            detail=f"{reason}: {pattern}",
+                        )
+                    )
+    return findings
+
+
+def _audit_python_module_ownership(root: Path, manifest: dict[str, object]) -> list[Finding]:
+    ownership = manifest.get("python_module_ownership", {})
+    if not isinstance(ownership, dict):
+        return [
+            Finding(
+                code="python-module-ownership-missing",
+                severity="blocker",
+                path=MANIFEST_PATH,
+                detail="python_module_ownership must be a mapping",
+            )
+        ]
+    findings: list[Finding] = []
+    py_files = sorted((root / "tools/codex_termux").glob("*.py"))
+    owned_paths = {key for key, value in ownership.items() if isinstance(key, str) and isinstance(value, str) and value}
+    for path in py_files:
+        relative = _relative(root, path)
+        if relative not in owned_paths:
+            findings.append(
+                Finding(
+                    code="python-module-unowned",
+                    severity="blocker",
+                    path=relative,
+                    detail="Python helper module lacks manifest ownership",
+                )
+            )
+    for relative in sorted(owned_paths):
+        if not (root / relative).is_file():
+            findings.append(
+                Finding(
+                    code="python-module-owner-path-missing",
+                    severity="blocker",
+                    path=relative,
+                    detail="python_module_ownership path does not exist",
+                )
+            )
+    return findings
+
+
+def _audit_helper_command_surface(metrics: dict[str, object]) -> list[Finding]:
+    missing = metrics.get("unregistered_helper_commands", [])
+    if not isinstance(missing, list) or not missing:
+        return []
+    return [
+        Finding(
+            code="helper-command-unregistered",
+            severity="blocker",
+            path="lib/codex-termux",
+            detail="shell calls unregistered codex_termux helper commands: " + ", ".join(str(item) for item in missing),
+        )
+    ]
+
+
 def _manifest_domains(manifest: dict[str, object]) -> dict[str, dict[str, object]]:
     domains = manifest.get("domain_ownership", {}) if isinstance(manifest, dict) else {}
     return {str(k): v for k, v in domains.items() if isinstance(v, dict)} if isinstance(domains, dict) else {}
@@ -453,20 +556,81 @@ def _audit_public_entrypoints(root: Path, manifest: dict[str, object]) -> list[F
             findings.append(Finding("entrypoint-compat-marker-missing", "blocker", rel, f"missing marker: {marker}"))
     return findings
 
+def _line_count(path: Path) -> int:
+    return len(_read_text(path).splitlines()) if path.is_file() else 0
+
+
+def _shell_function_count(path: Path) -> int:
+    return len(_SHELL_FUNCTION_RE.findall(_read_text(path))) if path.is_file() else 0
+
+
+def _cli_registered_commands(root: Path) -> list[str]:
+    cli = root / "tools/codex_termux/cli.py"
+    return sorted(set(_CLI_ADD_PARSER_RE.findall(_read_text(cli))))
+
+
+def _shell_helper_commands(root: Path) -> list[str]:
+    commands: set[str] = set()
+    for path in [root / "bin/install-runtime.sh", *_shell_contract_files(root)]:
+        commands.update(_SHELL_HELPER_COMMAND_RE.findall(_read_text(path)))
+    return sorted(commands)
+
+
+def _target_budget_gaps(manifest: dict[str, object], metrics: dict[str, object]) -> dict[str, dict[str, int]]:
+    targets = manifest.get("target_shell_budgets_95", {})
+    if not isinstance(targets, dict):
+        return {}
+    gaps: dict[str, dict[str, int]] = {}
+    for key, limit in targets.items():
+        value = metrics.get(str(key))
+        if isinstance(limit, int) and isinstance(value, int) and value > limit:
+            gaps[str(key)] = {
+                "value": value,
+                "target": limit,
+                "gap": value - limit,
+            }
+    return gaps
+
+
 def _metrics(root: Path) -> dict[str, object]:
     lib = root / "lib/codex-termux.sh"
     domain_dir = root / DOMAIN_DIR
     install_runtime = root / "bin/install-runtime.sh"
     session_py = root / "tools/codex_termux/session.py"
+    cli_py = root / "tools/codex_termux/cli.py"
     metrics: dict[str, object] = {}
     for key, path in (("lib_lines", lib), ("install_runtime_lines", install_runtime), ("session_py_lines", session_py)):
-        metrics[key] = len(_read_text(path).splitlines()) if path.is_file() else 0
+        metrics[key] = _line_count(path)
     shell = _shell_contract_text(root)
     metrics["lib_shell_functions"] = len(_SHELL_FUNCTION_RE.findall(shell))
     metrics["domain_files"] = len(list(domain_dir.glob("*.sh"))) if domain_dir.is_dir() else 0
     metrics["domain_shell_lines"] = sum(len(_read_text(path).splitlines()) for path in sorted(domain_dir.glob("*.sh"))) if domain_dir.is_dir() else 0
     metrics["notify_shell_functions"] = len(re.findall(r"^codex_notify[A-Za-z0-9_]*\(\) \{", shell, re.M))
     metrics["profile_shell_functions"] = len(re.findall(r"^codex_profile[A-Za-z0-9_]*\(\) \{", shell, re.M))
+    shell_file_lines = {
+        _relative(root, path): _line_count(path)
+        for path in [lib, *sorted(domain_dir.glob("*.sh"))]
+        if path.is_file()
+    }
+    shell_file_functions = {
+        _relative(root, path): _shell_function_count(path)
+        for path in [lib, *sorted(domain_dir.glob("*.sh"))]
+        if path.is_file()
+    }
+    metrics["shell_file_lines"] = shell_file_lines
+    metrics["shell_file_functions"] = shell_file_functions
+    metrics["runtime_shell_lines"] = shell_file_lines.get("lib/codex-termux/runtime.sh", 0)
+    metrics["state_shell_lines"] = shell_file_lines.get("lib/codex-termux/state.sh", 0)
+    metrics["notify_shell_lines"] = shell_file_lines.get("lib/codex-termux/notify.sh", 0)
+    metrics["profile_shell_lines"] = shell_file_lines.get("lib/codex-termux/profile.sh", 0)
+    metrics["cli_py_lines"] = _line_count(cli_py)
+    registered = _cli_registered_commands(root)
+    helper_commands = _shell_helper_commands(root)
+    metrics["cli_registered_commands"] = registered
+    metrics["cli_registered_command_count"] = len(registered)
+    metrics["shell_helper_commands"] = helper_commands
+    metrics["shell_helper_command_count"] = len(helper_commands)
+    metrics["unregistered_helper_commands"] = sorted(set(helper_commands) - set(registered))
     return metrics
 
 

@@ -248,6 +248,65 @@
     "notify_shell_functions": 22,
     "profile_shell_functions": 16
   },
+  "target_shell_budgets_95": {
+    "lib_lines": 80,
+    "install_runtime_lines": 375,
+    "domain_shell_lines": 1450,
+    "lib_shell_functions": 85,
+    "runtime_shell_lines": 450,
+    "state_shell_lines": 220,
+    "notify_shell_lines": 180,
+    "profile_shell_lines": 220,
+    "notify_shell_functions": 8,
+    "profile_shell_functions": 7,
+    "cli_py_lines": 250
+  },
+  "python_module_ownership": {
+    "tools/codex_termux/__init__.py": "package",
+    "tools/codex_termux/activation.py": "runtime",
+    "tools/codex_termux/atomic.py": "state",
+    "tools/codex_termux/canon.py": "audit",
+    "tools/codex_termux/cli.py": "cli-dispatch",
+    "tools/codex_termux/doctor.py": "doctor",
+    "tools/codex_termux/errors.py": "package",
+    "tools/codex_termux/hashing.py": "runtime",
+    "tools/codex_termux/install_plan.py": "install",
+    "tools/codex_termux/notify.py": "notify",
+    "tools/codex_termux/paths.py": "state",
+    "tools/codex_termux/prune.py": "runtime",
+    "tools/codex_termux/registry.py": "runtime",
+    "tools/codex_termux/release.py": "release",
+    "tools/codex_termux/repair.py": "runtime",
+    "tools/codex_termux/runtime_checks.py": "runtime",
+    "tools/codex_termux/schemas.py": "state",
+    "tools/codex_termux/session.py": "session",
+    "tools/codex_termux/source.py": "source",
+    "tools/codex_termux/state.py": "state",
+    "tools/codex_termux/store.py": "runtime",
+    "tools/codex_termux/use.py": "profile"
+  },
+  "product_forbidden_paths": [
+    "GOAL.md",
+    ".github/workflows/*"
+  ],
+  "product_forbidden_patterns": [
+    {
+      "pattern": "merge-readiness",
+      "reason": "generic merge-readiness automation belongs outside the product repo"
+    },
+    {
+      "pattern": "NEXT_AGENT_PROMPT",
+      "reason": "agent handoff prompts belong outside the product repo"
+    },
+    {
+      "pattern": "workflow_dispatch",
+      "reason": "GitHub workflow triggers belong outside the product repo"
+    },
+    {
+      "pattern": "agent loop",
+      "reason": "generic agent loop material belongs outside the product repo"
+    }
+  ],
   "forbidden_shell_patterns": [
     {
       "pattern": "CODEX_REPAIR_NEEDS_",
