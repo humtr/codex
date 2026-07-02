@@ -31,6 +31,12 @@ cached = use.selection_plan_exports({
 })
 assert "CODEX_USE_PLAN_ACTION=activate_cached" in cached
 assert "CODEX_USE_PLAN_RUNTIME_PATH='/runtime path'" in cached
+
+assert "CODEX_USE_COMMAND_ACTION=menu" in use.command_plan_exports([])
+assert "CODEX_USE_COMMAND_ACTION=list" in use.command_plan_exports(["--list"])
+select = use.command_plan_exports(["cached", "ignored"])
+assert "CODEX_USE_COMMAND_ACTION=select" in select
+assert "CODEX_USE_COMMAND_CHOICE=cached" in select
 PYTHON
 
 CODEX_TERMUX_HOME="$TMP_DIR/home" \
@@ -72,8 +78,11 @@ codex_termux_cmd profile-create-confirmed --choice Y
 [ "$(codex_termux_cmd prompt-choice-action --reply 5 --mode digits --max-items 4 --phase tty)" = "continue" ]
 [ "$(codex_termux_cmd prompt-choice-action --reply y --mode yn --max-items 0 --phase final)" = "accept" ]
 [ "$(codex_termux_cmd prompt-choice-action --reply x --mode yn --max-items 0 --phase final)" = "fail" ]
-[ "$(codex_termux_cmd prompt-choice-action --reply x --mode freeform --max-items 12 --phase final)" = "read-rest" ]
-codex_prompt_choice "digits> " digits 4 <<<"4" 2>>"$2/prompt.err"
+	[ "$(codex_termux_cmd prompt-choice-action --reply x --mode freeform --max-items 12 --phase final)" = "read-rest" ]
+	[ "$(codex_termux_cmd use-command-plan-env | sed -n "1p")" = "CODEX_USE_COMMAND_ACTION=menu" ]
+	[ "$(codex_termux_cmd use-command-plan-env --arg=--list | sed -n "1p")" = "CODEX_USE_COMMAND_ACTION=list" ]
+	[ "$(codex_termux_cmd use-command-plan-env --arg=cached --arg=ignored | sed -n "2p")" = "CODEX_USE_COMMAND_CHOICE=cached" ]
+	codex_prompt_choice "digits> " digits 4 <<<"4" 2>>"$2/prompt.err"
 [ "$CODEX_PROMPT_CHOICE_RESULT" = "4" ]
 ! codex_prompt_choice "digits> " digits 4 <<<"5" 2>>"$2/prompt.err"
 codex_prompt_choice "yn> " yn 0 <<<"y" 2>>"$2/prompt.err"
@@ -143,8 +152,56 @@ codex_termux_cmd() {
 }
 codex_use_select remote
 [ "$remote_arg" = "0.142.5" ] && [ "$version_count" -eq 1 ]
-codex_use_select cached
-[ "$cached_args" = "/runtime /raw 0.142.4 raw runtime @openai/codex@0.142.4-linux-arm64" ] && [ "$version_count" -eq 2 ]
-' _ "$LIB_SH" || fail 'profile runtime selection shell executor changed behavior'
+	codex_use_select cached
+	[ "$cached_args" = "/runtime /raw 0.142.4 raw runtime @openai/codex@0.142.4-linux-arm64" ] && [ "$version_count" -eq 2 ]
+	' _ "$LIB_SH" || fail 'profile runtime selection shell executor changed behavior'
+
+CODEX_TERMUX_HOME="$TMP_DIR/home" \
+CODEX_TERMUX_PROFILE_ROOT="$TMP_DIR/profiles" \
+CODEX_TERMUX_STATE_DIR="$TMP_DIR/state" \
+bash -lc '
+	. "$1"
+	list_mode=""
+	selected_choice=""
+	codex_use_list() { list_mode="$1"; }
+	codex_use_select() { selected_choice="$1"; }
+	codex_termux_cmd() {
+	    case "$1" in
+	        use-command-plan-env)
+	            shift
+	            arg=""
+	            while [ "$#" -gt 0 ]; do
+	                case "$1" in
+	                    --arg)
+	                        arg="${2:-}"
+	                        shift 2
+	                        ;;
+	                    *)
+	                        shift
+	                        ;;
+	                esac
+	            done
+	            case "$arg" in
+	                "")
+	                    printf "%s\n" "CODEX_USE_COMMAND_ACTION=menu" "CODEX_USE_COMMAND_CHOICE=''"
+	                    ;;
+	                --list)
+	                    printf "%s\n" "CODEX_USE_COMMAND_ACTION=list" "CODEX_USE_COMMAND_CHOICE=''"
+	                    ;;
+	                *)
+	                    printf "%s\n" "CODEX_USE_COMMAND_ACTION=select" "CODEX_USE_COMMAND_CHOICE=$arg"
+	                    ;;
+	            esac
+	            ;;
+	        *) return 2 ;;
+	    esac
+	}
+	codex_use --list extra
+	[ "$list_mode" = "list" ]
+	codex_use cached extra
+	[ "$selected_choice" = "cached" ]
+	codex_use
+	[ "$list_mode" = "menu" ]
+	' _ "$LIB_SH" || fail 'profile use command plan shell dispatch changed behavior'
 
 printf 'profile-boundary: ok\n'

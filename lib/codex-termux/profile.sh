@@ -260,15 +260,24 @@ codex_remove() {
 }
 
 codex_use() {
-    local choice="${1:-}"
-    if [ "$choice" = "--list" ]; then
-        codex_use_list list
-        return $?
-    fi
-    if [ -n "$choice" ]; then
-        codex_use_select "$choice"
-        return $?
-    fi
+    local plan_env arg=()
+    [ "$#" -eq 0 ] || arg=("--arg=$1")
+    plan_env="$(codex_termux_cmd use-command-plan-env "${arg[@]}")" || return $?
+    eval "$plan_env"
+    case "$CODEX_USE_COMMAND_ACTION" in
+        list)
+            codex_use_list list; return $?
+            ;;
+        select)
+            codex_use_select "$CODEX_USE_COMMAND_CHOICE"; return $?
+            ;;
+        menu)
+            ;;
+        *)
+            codex_fail "Unknown runtime use action: $CODEX_USE_COMMAND_ACTION"
+            return 1
+            ;;
+    esac
     codex_use_list menu
     if [ ! -t 0 ]; then
         return 0

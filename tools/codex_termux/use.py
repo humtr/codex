@@ -43,6 +43,24 @@ def selection_plan_exports(row: dict[str, str]) -> str:
     return "\n".join(f"{key}={shlex.quote(value)}" for key, value in data.items())
 
 
+def command_plan_exports(args: list[str]) -> str:
+    first = args[0] if args else ""
+    if not first:
+        action = "menu"
+        choice = ""
+    elif first == "--list":
+        action = "list"
+        choice = ""
+    else:
+        action = "select"
+        choice = first
+    data = {
+        "CODEX_USE_COMMAND_ACTION": action,
+        "CODEX_USE_COMMAND_CHOICE": choice,
+    }
+    return "\n".join(f"{key}={shlex.quote(value)}" for key, value in data.items())
+
+
 def _render_list(rows: list[dict[str, str]]) -> None:
     if not rows:
         raise SchemaError("no cached runtimes")
