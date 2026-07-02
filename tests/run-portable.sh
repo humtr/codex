@@ -141,6 +141,7 @@ for test_script in \
     "$ROOT_DIR/tests/wrapper-contracts.sh" \
     "$ROOT_DIR/tests/repair-diagnosis.sh" \
     "$ROOT_DIR/tests/doctor.sh" \
+    "$ROOT_DIR/tests/termux-smoke-contracts.sh" \
     "$ROOT_DIR/tests/wrapper-source-config.sh" \
     "$ROOT_DIR/tests/cli-surface.sh" \
     "$ROOT_DIR/tests/notify-model.sh" \
