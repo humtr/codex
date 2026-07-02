@@ -250,6 +250,14 @@ def failed_auto_update_due(
     return now - failed_time >= interval
 
 
+def update_prompt_decision(choice: str) -> str:
+    if choice in {"y", "Y"}:
+        return "apply"
+    if choice in {"n", "N"}:
+        return "keep"
+    return "cancel"
+
+
 def upstream_release_date(payload: str, version: str) -> str:
     try:
         data = json.loads(payload)

@@ -107,6 +107,24 @@ mode="$(
 )"
 [ "$mode" = "force" ] || fail "auto-update mode mismatch: $mode"
 
+decision="$(
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+        python3 -B -m codex_termux.cli update-prompt-decision --choice y
+)"
+[ "$decision" = "apply" ] || fail "update prompt apply mismatch: $decision"
+
+decision="$(
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+        python3 -B -m codex_termux.cli update-prompt-decision --choice N
+)"
+[ "$decision" = "keep" ] || fail "update prompt keep mismatch: $decision"
+
+decision="$(
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+        python3 -B -m codex_termux.cli update-prompt-decision --choice ""
+)"
+[ "$decision" = "cancel" ] || fail "update prompt cancel mismatch: $decision"
+
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
     python3 -B -m codex_termux.cli auto-update-due \
         --enabled 1 --mode prompt --now 100 --last 10 --interval 60 \

@@ -127,6 +127,12 @@ def add_commands(sub: SubparserCollection) -> None:
     failed_due.add_argument("--interval", required=True)
     failed_due.set_defaults(func=_failed_auto_update_due)
 
+    update_prompt = sub.add_parser("update-prompt-decision")
+    update_prompt.add_argument("--choice", default="")
+    update_prompt.set_defaults(
+        func=lambda args: _print(runtime_checks.update_prompt_decision(args.choice))
+    )
+
 
 def _print(value: object) -> int:
     print(value)

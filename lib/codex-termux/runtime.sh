@@ -589,12 +589,12 @@ codex_prompt_update() {
         [ "$?" -eq 130 ] && return 130
         return 1
     }
-    choice="$CODEX_PROMPT_CHOICE_RESULT"
+    choice="$(codex_termux_cmd update-prompt-decision --choice "${CODEX_PROMPT_CHOICE_RESULT:-}")" || return $?
     case "$choice" in
-        y|Y)
+        apply)
             return 0
             ;;
-        n|N)
+        keep)
             codex_say "$(codex_ui_text_get current_kept "$(codex_display_version "$current")")"
             return 1
             ;;
