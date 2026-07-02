@@ -13,7 +13,7 @@ codex_session_share_source() {
 }
 
 codex_session() {
-    local target_profile="" target_profile_dir=""
+    local target_profile=""
     if [ "$#" -gt 0 ] && [[ ! "$1" =~ ^- ]]; then
         target_profile="$1"
         shift
@@ -21,11 +21,9 @@ codex_session() {
             codex_fail "$(codex_ui_text_get invalid_profile "$target_profile")"
             return 2
         }
-        target_profile_dir="$(codex_profile_home_dir "$target_profile")"
     fi
 
-    local show_all="false"
-    local arg
+    local show_all="false" arg
     for arg in "$@"; do
         if [ "$arg" = "--all" ]; then
             show_all="true"
@@ -34,14 +32,11 @@ codex_session() {
     done
 
     local tui_args=()
-    if [ "$show_all" = "true" ]; then
-        tui_args+=("--all")
-    fi
+    [ "$show_all" != "true" ] || tui_args+=("--all")
 
-    # Run Python session-tui with a temporary file for output to preserve TTY
     local temp_file
     temp_file="$(codex_mktemp_file codex-session)" || return $?
-    
+
     CODEX_SESSION_TUI_DEFAULT_PROFILE="$target_profile" codex_termux_cmd session-tui --output "$temp_file" "${tui_args[@]}" || {
         local code=$?
         rm -f "$temp_file"
@@ -56,22 +51,20 @@ codex_session() {
         return 0
     fi
 
-    local selected_plan
+    local selected_plan selected_env
     selected_plan="$(cat "$temp_file")"
     rm -f "$temp_file"
 
-    local native_session_ref source_profile workdir codex_home_env source_path
-    IFS=$'\037' read -r target_profile target_profile_dir native_session_ref source_profile workdir codex_home_env source_path <<EOF
-$selected_plan
-EOF
+    selected_env="$(codex_termux_cmd session-plan-env --plan "$selected_plan")" || return $?
+    eval "$selected_env"
 
-    codex_session_share_source "$source_path" "$source_profile" "$target_profile"
+    codex_session_share_source "${CODEX_SESSION_SOURCE_PATH:-}" \
+        "${CODEX_SESSION_SOURCE_PROFILE:-default}" "${CODEX_SESSION_TARGET_PROFILE:-default}"
 
-    # Switch directory if workdir is specified and is a valid directory
-    if [ -n "$workdir" ] && [ -d "$workdir" ]; then
-        cd "$workdir" || true
+    if [ -n "${CODEX_SESSION_WORKDIR:-}" ] && [ -d "$CODEX_SESSION_WORKDIR" ]; then
+        cd "$CODEX_SESSION_WORKDIR" || true
     fi
 
-    # Resume the session via wrapper's runtime execution path, forwarding any extra options
-    codex_profile_exec "$target_profile_dir" "$target_profile" resume "$native_session_ref" "$@"
+    codex_profile_exec "$CODEX_SESSION_TARGET_PROFILE_DIR" "$CODEX_SESSION_TARGET_PROFILE" \
+        resume "$CODEX_SESSION_NATIVE_REF" "$@"
 }

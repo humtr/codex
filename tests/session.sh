@@ -79,6 +79,13 @@ assert s_alpha_row.source_profile == "team-alpha"
 assert s_alpha_row.workdir == "/workspace/alpha"
 assert s_alpha_row.title == "Hello alpha"
 
+plan = session.get_session_plan_for_row(s_alpha_row, "team-beta")
+exports = session.session_plan_exports(plan)
+assert "CODEX_SESSION_TARGET_PROFILE=team-beta" in exports
+assert "CODEX_SESSION_NATIVE_REF=s-alpha" in exports
+assert "CODEX_SESSION_SOURCE_PROFILE=team-alpha" in exports
+assert "CODEX_SESSION_WORKDIR=/workspace/alpha" in exports
+
 # Check cross-profile sharing (default target)
 dest_default = home / ".codex" / "sessions" / "s-alpha.jsonl"
 session.share_session(s_alpha_row.source_path, "team-alpha", "default")
@@ -120,6 +127,12 @@ while IFS= read -r line; do
     fi
     idx=$((idx + 1))
 done < <(codex_termux_cmd session-list)
+
+PLAN_ENV="$(codex_termux_cmd session-plan-env --plan "$(codex_termux_cmd session-select --choice "$S_ALPHA_IDX" --target-profile team-beta)")"
+printf '%s\n' "$PLAN_ENV" | grep -Fx "CODEX_SESSION_TARGET_PROFILE=team-beta" >/dev/null ||
+    fail "session-plan-env missing target profile: $PLAN_ENV"
+printf '%s\n' "$PLAN_ENV" | grep -Fx "CODEX_SESSION_NATIVE_REF=s-alpha" >/dev/null ||
+    fail "session-plan-env missing session ref: $PLAN_ENV"
 
 # Test 3a: Select default target profile and s-alpha session
 (

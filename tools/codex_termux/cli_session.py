@@ -21,6 +21,10 @@ def add_commands(sub: SubparserCollection) -> None:
     select_cmd.add_argument("--target-profile", required=True)
     select_cmd.set_defaults(func=_session_select)
 
+    plan_env = sub.add_parser("session-plan-env")
+    plan_env.add_argument("--plan", required=True)
+    plan_env.set_defaults(func=_session_plan_env)
+
     share_cmd = sub.add_parser("session-share")
     share_cmd.add_argument("--source-path", required=True)
     share_cmd.add_argument("--source-profile", required=True)
@@ -50,6 +54,11 @@ def _session_list(args: argparse.Namespace) -> int:
 
 def _session_select(args: argparse.Namespace) -> int:
     session.session_select(args.choice, args.target_profile)
+    return 0
+
+
+def _session_plan_env(args: argparse.Namespace) -> int:
+    print(session.session_plan_exports(args.plan))
     return 0
 
 

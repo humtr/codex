@@ -9,6 +9,7 @@ from __future__ import annotations
 import curses
 import os
 import re
+import shlex
 import sys
 import unicodedata
 from dataclasses import dataclass
@@ -556,6 +557,24 @@ def get_session_plan_for_row(session: SessionRow, target_profile: str) -> str:
         session.source_path,
     ]
     return "\x1f".join(fields)
+
+
+def session_plan_exports(plan: str) -> str:
+    fields = plan.split("\x1f")
+    fields.extend([""] * (7 - len(fields)))
+    names = (
+        "CODEX_SESSION_TARGET_PROFILE",
+        "CODEX_SESSION_TARGET_PROFILE_DIR",
+        "CODEX_SESSION_NATIVE_REF",
+        "CODEX_SESSION_SOURCE_PROFILE",
+        "CODEX_SESSION_WORKDIR",
+        "CODEX_SESSION_CODEX_HOME_ENV",
+        "CODEX_SESSION_SOURCE_PATH",
+    )
+    return "\n".join(
+        f"{name}={shlex.quote(value)}"
+        for name, value in zip(names, fields[:7])
+    )
 
 
 def session_select(choice: str, target_profile: str) -> None:
