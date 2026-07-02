@@ -223,9 +223,7 @@ diagnosis_json="$(
             --verified "$TMP_DIR/verified" \
             --raw "$TMP_DIR/raw" \
             --raw-binary "$TMP_DIR/raw/vendor/aarch64-unknown-linux-musl/bin/codex" \
-            --patch-policy termux-fd-remap-v1 \
-            --wrapper-version 260702-test \
-            --wrapper-commit abcdef123456
+            --patch-policy termux-fd-remap-v1
 )" || fail 'repair-diagnose CLI failed to return diagnosis JSON'
 PYTHONDONTWRITEBYTECODE=1 python3 -B - "$diagnosis_json" <<'PYTHON' || fail 'repair-diagnose CLI diagnosis JSON mismatch'
 import json

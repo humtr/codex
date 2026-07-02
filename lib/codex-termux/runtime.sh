@@ -361,9 +361,7 @@ codex_runtime_wrapper_metadata_env() {
 }
 
 codex_repair_diagnose_action() {
-    local field="${1:-action}" metadata_env
-    metadata_env="$(codex_runtime_wrapper_metadata_env)" || return 1
-    eval "$metadata_env"
+    local field="${1:-action}"
     codex_termux_cmd repair-diagnose \
         --managed-shell "$CODEX_TERMUX_MANAGED_SHELL" \
         --manager-dir "$CODEX_TERMUX_MANAGER_DIR" \
@@ -381,8 +379,6 @@ codex_repair_diagnose_action() {
         --raw "$CODEX_TERMUX_RAW_DIR" \
         --raw-binary "$CODEX_TERMUX_RAW_VENDOR/bin/codex" \
         --patch-policy "$CODEX_TERMUX_PATCH_POLICY" \
-        --wrapper-version "$CODEX_WRAPPER_VERSION" \
-        --wrapper-commit "$CODEX_WRAPPER_COMMIT" \
         --field "$field"
 }
 
@@ -699,17 +695,14 @@ codex_support_layer_ok() {
 }
 
 codex_runtime_metadata_current() {
-    local metadata_env
-    metadata_env="$(codex_runtime_wrapper_metadata_env)" || return 1
-    eval "$metadata_env"
     codex_termux_cmd runtime-metadata-current \
         --state-path "$CODEX_TERMUX_STATE_FILE" \
         --registry-path "$CODEX_TERMUX_REGISTRY_FILE" \
         --current "$CODEX_TERMUX_RUNTIME_DIR" \
         --verified "$CODEX_TERMUX_VERIFIED_LINK" \
         --raw "$CODEX_TERMUX_RAW_DIR" \
-        --wrapper-version "$CODEX_WRAPPER_VERSION" \
-        --wrapper-commit "$CODEX_WRAPPER_COMMIT"
+        --manager-dir "$CODEX_TERMUX_MANAGER_DIR" \
+        --runtime-dir "$CODEX_TERMUX_RUNTIME_DIR"
 }
 
 codex_refresh_runtime_metadata_unlocked() {

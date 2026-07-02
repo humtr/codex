@@ -20,9 +20,11 @@ def add_commands(sub: SubparserCollection) -> None:
         "managed-shell", "manager-dir", "public-codex", "marker",
         "runtime-dir", "runtime", "support-dir", "manifest-path", "builder",
         "state-path", "registry-path", "current", "verified", "raw",
-        "raw-binary", "patch-policy", "wrapper-version", "wrapper-commit",
+        "raw-binary", "patch-policy",
     ):
         repair_diagnose.add_argument(f"--{name}", required=True)
+    repair_diagnose.add_argument("--wrapper-version", default="")
+    repair_diagnose.add_argument("--wrapper-commit", default="")
     repair_diagnose.add_argument("--field", choices=("action", "readiness-action"), default=None)
     repair_diagnose.set_defaults(func=_repair_diagnose)
 
@@ -64,9 +66,12 @@ def add_commands(sub: SubparserCollection) -> None:
     metadata = sub.add_parser("runtime-metadata-current")
     for name in (
         "state-path", "registry-path", "current", "verified", "raw",
-        "wrapper-version", "wrapper-commit",
     ):
         metadata.add_argument(f"--{name}", required=True)
+    metadata.add_argument("--manager-dir", default="")
+    metadata.add_argument("--runtime-dir", default="")
+    metadata.add_argument("--wrapper-version", default="")
+    metadata.add_argument("--wrapper-commit", default="")
     metadata.set_defaults(func=_runtime_metadata_current)
 
 
@@ -104,18 +109,20 @@ def _support_layer_ok(args: argparse.Namespace) -> int:
 
 
 def _runtime_metadata_current(args: argparse.Namespace) -> int:
+    wrapper_version, wrapper_commit = _wrapper_metadata_from_args(args)
     return 0 if runtime_checks.runtime_metadata_current(
         state_path=Path(args.state_path),
         registry_path=Path(args.registry_path),
         current=Path(args.current),
         verified=Path(args.verified),
         raw=Path(args.raw),
-        wrapper_version=args.wrapper_version,
-        wrapper_commit=args.wrapper_commit,
+        wrapper_version=wrapper_version,
+        wrapper_commit=wrapper_commit,
     ) else 1
 
 
 def _repair_diagnose(args: argparse.Namespace) -> int:
+    wrapper_version, wrapper_commit = _wrapper_metadata_from_args(args)
     diagnosis = repair.diagnose(
         repair.RepairInputs(
             managed_shell=Path(args.managed_shell),
@@ -134,8 +141,8 @@ def _repair_diagnose(args: argparse.Namespace) -> int:
             raw=Path(args.raw),
             raw_binary=Path(args.raw_binary),
             patch_policy=args.patch_policy,
-            wrapper_version=args.wrapper_version,
-            wrapper_commit=args.wrapper_commit,
+            wrapper_version=wrapper_version,
+            wrapper_commit=wrapper_commit,
         )
     )
     if args.field == "action":
@@ -155,3 +162,23 @@ def _runtime_action_plan(args: argparse.Namespace) -> int:
 def _runtime_action_plan_env(args: argparse.Namespace) -> int:
     print(repair.runtime_action_plan_exports(args.action, args.intent))
     return 0
+
+
+def _wrapper_metadata_from_args(args: argparse.Namespace) -> tuple[str, str]:
+    version = getattr(args, "wrapper_version", "") or ""
+    commit = getattr(args, "wrapper_commit", "") or ""
+    manager_dir = Path(getattr(args, "manager_dir", "") or ".")
+    runtime_dir = Path(getattr(args, "runtime_dir", "") or ".")
+    if not version:
+        version = runtime_checks.wrapper_metadata_field(
+            manager_dir=manager_dir,
+            runtime_dir=runtime_dir,
+            field="version",
+        )
+    if not commit:
+        commit = runtime_checks.wrapper_metadata_field(
+            manager_dir=manager_dir,
+            runtime_dir=runtime_dir,
+            field="commit",
+        )
+    return version, commit
