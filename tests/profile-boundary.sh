@@ -35,6 +35,10 @@ case "$profiles" in
 esac
 menu="$(codex_profile_menu_items | tr "\n" " ")"
 [ "$menu" = "default Alpha " ]
+[ "$(codex_termux_cmd profile-menu-choice --choice 0)" = "default" ]
+[ "$(codex_termux_cmd profile-menu-choice --choice 1)" = "Alpha" ]
+[ "$(codex_termux_cmd profile-menu-choice --choice home)" = "default" ]
+[ "$(codex_termux_cmd profile-menu-choice --choice Alpha)" = "Alpha" ]
 ' _ "$LIB_SH" || fail 'profile shell wrappers changed behavior'
 
 printf 'profile-boundary: ok\n'

@@ -122,6 +122,16 @@ def profile_menu_ids() -> list[str]:
     return ["default", *list_profiles()]
 
 
+def resolve_profile_menu_choice(choice: str | None) -> str:
+    raw = choice or ""
+    profiles = profile_menu_ids()
+    if raw.isdigit():
+        index = int(raw)
+        if 0 <= index < len(profiles):
+            return profiles[index]
+    return normalize_profile_choice(raw)
+
+
 def write_recent_profile(profile: str | None) -> None:
     name = normalize_profile_choice(profile)
     target = get_last_profile_file()

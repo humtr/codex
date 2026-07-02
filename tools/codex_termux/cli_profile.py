@@ -33,6 +33,10 @@ def add_commands(sub: SubparserCollection) -> None:
     choice.add_argument("--choice", default="")
     choice.set_defaults(func=lambda args: _print(session.normalize_profile_choice(args.choice)))
 
+    select_choice = sub.add_parser("profile-menu-choice")
+    select_choice.add_argument("--choice", default="")
+    select_choice.set_defaults(func=lambda args: _print(session.resolve_profile_menu_choice(args.choice)))
+
     write_recent = sub.add_parser("profile-write-recent")
     write_recent.add_argument("--profile", default="default")
     write_recent.set_defaults(func=_profile_write_recent)

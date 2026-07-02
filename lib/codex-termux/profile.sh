@@ -297,11 +297,7 @@ codex_profile_select() {
     codex_prompt_interactive "$(codex_ui_text_get choose_profile_prompt)" freeform "$(( ${#profiles[@]} < 9 ? ${#profiles[@]} : 9 ))" cancel || return $?
     choice="$CODEX_PROMPT_CHOICE_RESULT"
 
-    if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 0 ] && [ "$choice" -lt "${#profiles[@]}" ]; then
-        profile="${profiles[$choice]}"
-    else
-        profile="$(codex_profile_choice_name "$choice")"
-    fi
+    profile="$(codex_termux_cmd profile-menu-choice --choice "$choice")"
 
     codex_profile_name_valid "$profile" || {
         codex_fail "$(codex_ui_text_get invalid_profile "$profile")"
