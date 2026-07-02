@@ -91,12 +91,22 @@ _TOP_LEVEL_RE = re.compile(
     r"\bcodex\s+(" + "|".join(re.escape(item) for item in WRAPPER_TOP_LEVEL_COMMANDS) + r")(?:\s|$)"
 )
 _SHELL_FUNCTION_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_]*\(\) \{", re.M)
+_SHELL_FUNCTION_NAME_RE = re.compile(r"^([A-Za-z0-9_][A-Za-z0-9_]*)\(\) \{", re.M)
 _CLI_ADD_PARSER_RE = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\.add_parser\(\"([A-Za-z0-9_-]+)\"")
 _SHELL_HELPER_COMMAND_RE = re.compile(r"\bcodex_termux_cmd\s+([A-Za-z0-9][A-Za-z0-9_-]*)\b")
 
 MANIFEST_PATH = "codex-wrapper.manifest.json"
 DOMAIN_DIR = "lib/codex-termux"
 _FUNCTION_CALL_RE = re.compile(r"\b(codex_[A-Za-z0-9_]+)\b")
+SHELL_FUNCTION_CLASSES = {
+    "dispatch",
+    "prompt",
+    "exec_fd",
+    "file_mutation",
+    "lock_temp",
+    "env_setup",
+    "termux_glue",
+}
 
 
 def _load_manifest(root: Path, findings: list[Finding]) -> dict[str, object]:
@@ -118,6 +128,14 @@ def _shell_contract_files(root: Path) -> list[Path]:
     if domain_dir.is_dir():
         files.extend(sorted(domain_dir.glob("*.sh")))
     return [path for path in files if path.is_file()]
+
+
+def _shell_classification_files(root: Path) -> list[Path]:
+    return [
+        path
+        for path in [root / "bin/install-runtime.sh", *_shell_contract_files(root)]
+        if path.is_file()
+    ]
 
 
 def _shell_contract_text(root: Path) -> str:
@@ -145,6 +163,9 @@ def audit(root: Path) -> dict[str, object]:
     findings.extend(_audit_product_repo_purity(root, manifest))
     findings.extend(_audit_python_module_ownership(root, manifest))
     findings.extend(_audit_helper_command_surface(metrics))
+    classification_metrics, classification_findings = _audit_shell_function_classification(root, manifest)
+    metrics.update(classification_metrics)
+    findings.extend(classification_findings)
     metrics["target_budget_gaps"] = _target_budget_gaps(manifest, metrics)
     return {
         "status": "ok" if not _blocking_findings(findings) else "needs-canon",
@@ -445,6 +466,117 @@ def _audit_helper_command_surface(metrics: dict[str, object]) -> list[Finding]:
             detail="shell calls unregistered codex_termux helper commands: " + ", ".join(str(item) for item in missing),
         )
     ]
+
+
+def _shell_function_definitions(root: Path) -> dict[str, str]:
+    definitions: dict[str, str] = {}
+    for path in _shell_classification_files(root):
+        relative = _relative(root, path)
+        for name in _SHELL_FUNCTION_NAME_RE.findall(_read_text(path)):
+            definitions[name] = relative
+    return definitions
+
+
+def _audit_shell_function_classification(
+    root: Path,
+    manifest: dict[str, object],
+) -> tuple[dict[str, object], list[Finding]]:
+    findings: list[Finding] = []
+    definitions = _shell_function_definitions(root)
+    rules = manifest.get("shell_function_classification_rules", [])
+    metrics: dict[str, object] = {
+        "shell_classification_function_count": len(definitions),
+        "shell_classification_class_counts": {},
+    }
+    if not isinstance(rules, list) or not rules:
+        return metrics, [
+            Finding(
+                code="shell-function-classification-missing",
+                severity="blocker",
+                path=MANIFEST_PATH,
+                detail="shell_function_classification_rules must classify protected shell functions",
+            )
+        ]
+
+    compiled: list[tuple[int, str, list[re.Pattern[str]], str, list[str]]] = []
+    for index, rule in enumerate(rules):
+        if not isinstance(rule, dict):
+            findings.append(Finding("shell-function-classification-rule", "blocker", MANIFEST_PATH, f"rule {index} is not an object"))
+            continue
+        class_name = rule.get("class", "")
+        patterns = rule.get("patterns", [])
+        reason = rule.get("reason", "")
+        tests = rule.get("tests", [])
+        if class_name not in SHELL_FUNCTION_CLASSES:
+            findings.append(
+                Finding(
+                    "shell-function-classification-class",
+                    "blocker",
+                    MANIFEST_PATH,
+                    f"rule {index} has unknown class: {class_name}",
+                )
+            )
+            continue
+        if not isinstance(reason, str) or not reason:
+            findings.append(Finding("shell-function-classification-reason", "blocker", MANIFEST_PATH, f"rule {index} lacks a reason"))
+        if not isinstance(tests, list) or not all(isinstance(item, str) and item for item in tests):
+            findings.append(Finding("shell-function-classification-tests", "blocker", MANIFEST_PATH, f"rule {index} lacks test coverage references"))
+        if not isinstance(patterns, list) or not patterns:
+            findings.append(Finding("shell-function-classification-patterns", "blocker", MANIFEST_PATH, f"rule {index} lacks patterns"))
+            continue
+        compiled_patterns: list[re.Pattern[str]] = []
+        for pattern in patterns:
+            if not isinstance(pattern, str) or not pattern:
+                findings.append(Finding("shell-function-classification-pattern", "blocker", MANIFEST_PATH, f"rule {index} has an empty pattern"))
+                continue
+            try:
+                compiled_patterns.append(re.compile(pattern))
+            except re.error as exc:
+                findings.append(Finding("shell-function-classification-pattern", "blocker", MANIFEST_PATH, f"rule {index} invalid pattern {pattern!r}: {exc}"))
+        compiled.append((index, str(class_name), compiled_patterns, str(reason), [str(item) for item in tests if isinstance(item, str)]))
+
+    matches_by_function: dict[str, list[tuple[int, str]]] = {}
+    used_rules: set[int] = set()
+    class_counts = {class_name: 0 for class_name in sorted(SHELL_FUNCTION_CLASSES)}
+    for function, relative in definitions.items():
+        matches: list[tuple[int, str]] = []
+        for index, class_name, patterns, _reason, _tests in compiled:
+            if any(pattern.search(function) for pattern in patterns):
+                matches.append((index, class_name))
+        matches_by_function[function] = matches
+        if len(matches) != 1:
+            detail = "no matching classification rule" if not matches else "multiple classification rules: " + ", ".join(str(index) for index, _class in matches)
+            findings.append(
+                Finding(
+                    "shell-function-classification",
+                    "blocker",
+                    relative,
+                    f"{function}: {detail}",
+                )
+            )
+            continue
+        index, class_name = matches[0]
+        used_rules.add(index)
+        class_counts[class_name] += 1
+
+    for index, class_name, _patterns, _reason, _tests in compiled:
+        if index not in used_rules:
+            findings.append(
+                Finding(
+                    "shell-function-classification-unused",
+                    "blocker",
+                    MANIFEST_PATH,
+                    f"rule {index} ({class_name}) matches no shell functions",
+                )
+            )
+    metrics["shell_classification_class_counts"] = class_counts
+    metrics["shell_classification_unclassified"] = sorted(
+        name for name, matches in matches_by_function.items() if not matches
+    )
+    metrics["shell_classification_ambiguous"] = sorted(
+        name for name, matches in matches_by_function.items() if len(matches) > 1
+    )
+    return metrics, findings
 
 
 def _manifest_domains(manifest: dict[str, object]) -> dict[str, dict[str, object]]:

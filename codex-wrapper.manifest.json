@@ -256,6 +256,106 @@
     "profile_shell_functions": 7,
     "cli_py_lines": 250
   },
+  "shell_function_classification_rules": [
+    {
+      "class": "dispatch",
+      "patterns": [
+        "^(usage|main)$",
+        "^codex_source_domain$",
+        "^codex_termux_(help|main|version_public|doctor|doctor_json|doctor_public)$",
+        "^codex_(main|install_public|update_full_public|repair_surface_public|install_run_plan|notify_usage|notify_public|profile_run|use|session)$"
+      ],
+      "reason": "Public command routing and namespace dispatch remain shell-owned because they are the wrapper entry surface.",
+      "tests": [
+        "tests/install-dispatch.sh",
+        "tests/wrapper-contracts.sh",
+        "tools/smoke-termux-wrapper.sh"
+      ]
+    },
+    {
+      "class": "prompt",
+      "patterns": [
+        "^codex_prompt_",
+        "^codex_confirm_menu$",
+        "^codex_profile_(ensure_dir|select)$",
+        "^codex_notify_interactive_public$"
+      ],
+      "reason": "Interactive terminal input and confirmation display stay in shell while reusable choice interpretation is delegated to Python.",
+      "tests": [
+        "tests/profile-boundary.sh",
+        "tests/notify.sh",
+        "tools/smoke-termux-wrapper.sh"
+      ]
+    },
+    {
+      "class": "exec_fd",
+      "patterns": [
+        "^codex_(run_install_source_command|runtime_exec|smoke_test_runtime|profile_runtime_exec|profile_exec|runtime_exec_with_context|build_runtime_tree|repair_install_support|build_launcher|run_current_runtime|exec_current_runtime|latest_linux_arm64_version)$"
+      ],
+      "reason": "Process execution, fd wiring, runtime launch, and external command invocation are irreducible shell responsibilities.",
+      "tests": [
+        "tests/wrapper-contracts.sh",
+        "tests/runtime-build.sh",
+        "tests/termux-smoke-contracts.sh"
+      ]
+    },
+    {
+      "class": "file_mutation",
+      "patterns": [
+        "^codex_(download_wrapper_archive|fetch_release_wrapper_source|prepare_git_askpass|git_clone_wrapper_source|prepare_fresh_wrapper_source|copy_wrapper_source_snapshot|write_managed_shell|remove_python_bytecode|check_manager_python|install_support_files|prepare_launcher_slot|write_shell_launcher|write_compiled_launcher|install_launchers)$",
+        "^codex_install_(surface_finish|surface_run|full_unlocked|full_core|support_unlocked|support_core|upstream_core|rebuild_unlocked|rebuild_core|auto_update)$",
+        "^codex_(repair_core|restore_backup|remove|replace_tree_atomic|prune_runtime_store|prepare_complete_runtime_tree|fetch_package|install_raw_vendor|activate_tuple_unlocked|commit_runtime_candidate|runtime_build_cached_unlocked|runtime_install_cached_unlocked|runtime_install_cached|runtime_install_upstream_unlocked|runtime_install_upstream|mark_auto_update_checked|write_pending_auto_update|clear_pending_auto_update|write_failed_auto_update|clear_failed_auto_update|refresh_runtime_metadata_unlocked|refresh_runtime_metadata|activate_cached_runtime_unlocked|try_verified_rollback_unlocked|try_verified_rollback)$"
+      ],
+      "reason": "Managed install, launcher, runtime tree, registry pointer, rollback, and cache mutations stay in shell but are guarded by Python policy helpers and managed-path checks.",
+      "tests": [
+        "tests/install-dispatch.sh",
+        "tests/wrapper-source-config.sh",
+        "tests/store-rollback.sh"
+      ]
+    },
+    {
+      "class": "lock_temp",
+      "patterns": [
+        "^codex_(cleanup_fresh_wrapper_source|tmp_dir|mktemp_dir|mktemp_file|lock_is_held|with_lock)$"
+      ],
+      "reason": "Temporary directory lifecycle and shell lock/trap behavior remain shell-owned process glue.",
+      "tests": [
+        "tests/tmp-paths.sh",
+        "tests/lock.sh",
+        "tests/wrapper-source-config.sh"
+      ]
+    },
+    {
+      "class": "env_setup",
+      "patterns": [
+        "^codex_(load_wrapper_source_config|normalize_wrapper_source_config|wrapper_auth_token|load_wrapper_source_plan|runtime_apply_env_plan|prepare_runtime_env|notify_load_config|notify_command_config|prepare_system_config|install_source_command)$"
+      ],
+      "reason": "Shell applies exported environment plans and sources local config, while Python owns reusable source, notify, and runtime environment decisions.",
+      "tests": [
+        "tests/source-plan.sh",
+        "tests/notify-model.sh",
+        "tests/cli-surface.sh"
+      ]
+    },
+    {
+      "class": "termux_glue",
+      "patterns": [
+        "^codex_(status_clear|status|say|selection_cancelled|fail)$",
+        "^codex_ui_",
+        "^codex_(display_version|parent_dir|assert_managed_tree_target|rm_rf_managed|sha256|now|termux_package_root|termux_cmd|termux_activation_cmd)$",
+        "^codex_(require_wrapper_source|launcher_available|profile_name_valid|profile_home_dir|use_list|use_render|use_select|session_share_source)$",
+        "^codex_notify_(all_hooks|write_system_config|render_hooks)$",
+        "^codex_(require_runtime_resolver|validate_tarball_safe|support_source_dir|resolve_path|tree_digest|read_state_field|store_id|validate_runtime_retention|package_spec|repair_diagnose_action|runtime_apply_action|repair_apply|repair_core_unlocked|repair_public_unlocked|repair_public|auto_update_if_needed|support_tools_match|runtime_integrity_ok|raw_integrity_ok|runtime_ok|runtime_metadata_current|verified_rollback_needed|ensure_runtime_ready|upstream_release_date|version)$"
+      ],
+      "reason": "Small shell bridges remain for Termux paths, terminal status, managed destructive guards, and Python helper calls; reusable parsing and policy stay Python-owned.",
+      "tests": [
+        "tests/canon-audit.sh",
+        "tests/repair-diagnosis.sh",
+        "tests/runtime-date.sh",
+        "tests/doctor.sh"
+      ]
+    }
+  ],
   "python_module_ownership": {
     "tools/codex_termux/__init__.py": "package",
     "tools/codex_termux/activation.py": "runtime",
