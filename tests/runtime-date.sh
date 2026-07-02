@@ -131,25 +131,17 @@ cat >"$manager_dir/wrapper-version.env" <<'ENV'
 CODEX_TERMUX_WRAPPER_VERSION=manager-version
 CODEX_TERMUX_WRAPPER_COMMIT=manager-commit
 ENV
-wrapper_version="$(
+metadata_env="$(
     PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
-        python3 -B -m codex_termux.cli wrapper-metadata-field \
+        python3 -B -m codex_termux.cli wrapper-metadata-env \
             --manager-dir "$manager_dir" \
-            --runtime-dir "$runtime_dir" \
-            --field version
+            --runtime-dir "$runtime_dir"
 )"
-[ "$wrapper_version" = "manager-version" ] || fail "wrapper metadata manager priority mismatch: $wrapper_version"
+eval "$metadata_env"
+[ "$CODEX_WRAPPER_VERSION" = "manager-version" ] || fail "wrapper metadata env manager version mismatch: $CODEX_WRAPPER_VERSION"
+[ "$CODEX_WRAPPER_COMMIT" = "manager-commit" ] || fail "wrapper metadata env manager commit mismatch: $CODEX_WRAPPER_COMMIT"
 
 rm -f "$manager_dir/wrapper-version.env"
-wrapper_commit="$(
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
-        python3 -B -m codex_termux.cli wrapper-metadata-field \
-            --manager-dir "$manager_dir" \
-            --runtime-dir "$runtime_dir" \
-            --field commit
-)"
-[ "$wrapper_commit" = "runtime-commit" ] || fail "wrapper metadata runtime fallback mismatch: $wrapper_commit"
-
 metadata_env="$(
     PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
         python3 -B -m codex_termux.cli wrapper-metadata-env \
