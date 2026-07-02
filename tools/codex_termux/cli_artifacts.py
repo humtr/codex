@@ -104,6 +104,17 @@ def add_commands(sub: SubparserCollection) -> None:
         func=lambda args: _print(runtime_checks.upstream_release_date(sys.stdin.read(), args.version))
     )
 
+    release_cache_read = sub.add_parser("upstream-release-cache-read")
+    release_cache_read.add_argument("--cache", required=True)
+    release_cache_read.add_argument("--version", required=True)
+    release_cache_read.set_defaults(func=_upstream_release_cache_read)
+
+    release_cache_write = sub.add_parser("upstream-release-cache-write")
+    release_cache_write.add_argument("--cache", required=True)
+    release_cache_write.add_argument("--version", required=True)
+    release_cache_write.add_argument("--release-date", required=True)
+    release_cache_write.set_defaults(func=_upstream_release_cache_write)
+
     display_date = sub.add_parser("display-runtime-date")
     display_date.add_argument("--value", default="")
     display_date.set_defaults(func=lambda args: _print(registry.display_runtime_date(args.value)))
@@ -182,6 +193,18 @@ def _failed_auto_update_due(args: argparse.Namespace) -> int:
         now=int(args.now),
         interval=int(args.interval),
     ) else 1
+
+
+def _upstream_release_cache_read(args: argparse.Namespace) -> int:
+    value = runtime_checks.read_upstream_release_cache(Path(args.cache), args.version)
+    if value:
+        print(value)
+    return 0 if value else 1
+
+
+def _upstream_release_cache_write(args: argparse.Namespace) -> int:
+    runtime_checks.write_upstream_release_cache(Path(args.cache), args.version, args.release_date)
+    return 0
 
 
 def _runtime_retention_ok(args: argparse.Namespace) -> int:

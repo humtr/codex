@@ -828,24 +828,16 @@ codex_display_dotted_date() {
 }
 
 codex_read_upstream_release_date_cache() {
-    local version="$1"
-    [ -r "$CODEX_TERMUX_UPSTREAM_TIME_CACHE" ] || return 1
-    awk -F '\t' -v version="$version" '$1 == version { print $2; found=1; exit } END { exit found ? 0 : 1 }' \
-        "$CODEX_TERMUX_UPSTREAM_TIME_CACHE"
+    codex_termux_cmd upstream-release-cache-read \
+        --cache "$CODEX_TERMUX_UPSTREAM_TIME_CACHE" \
+        --version "$1"
 }
 
 codex_write_upstream_release_date_cache() {
-    local version="$1" release_date="$2" tmp
-    [ -n "$version" ] && [ -n "$release_date" ] || return 0
-    mkdir -p "$(codex_parent_dir "$CODEX_TERMUX_UPSTREAM_TIME_CACHE")" 2>/dev/null || return 0
-    tmp="$CODEX_TERMUX_UPSTREAM_TIME_CACHE.$$"
-    if [ -r "$CODEX_TERMUX_UPSTREAM_TIME_CACHE" ]; then
-        awk -F '\t' -v version="$version" '$1 != version' "$CODEX_TERMUX_UPSTREAM_TIME_CACHE" >"$tmp" 2>/dev/null || : >"$tmp"
-    else
-        : >"$tmp"
-    fi
-    printf '%s\t%s\n' "$version" "$release_date" >>"$tmp"
-    mv -f "$tmp" "$CODEX_TERMUX_UPSTREAM_TIME_CACHE" 2>/dev/null || rm -f "$tmp"
+    codex_termux_cmd upstream-release-cache-write \
+        --cache "$CODEX_TERMUX_UPSTREAM_TIME_CACHE" \
+        --version "$1" \
+        --release-date "$2" >/dev/null 2>&1 || true
 }
 
 codex_fetch_upstream_release_date() {

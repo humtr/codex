@@ -276,3 +276,34 @@ def upstream_release_date(payload: str, version: str) -> str:
     if len(digits) >= 8:
         return f"{digits[:4]}-{digits[4:6]}-{digits[6:8]}"
     return ""
+
+
+def read_upstream_release_cache(cache: Path, version: str) -> str:
+    if not version:
+        return ""
+    try:
+        for line in cache.read_text(encoding="utf-8").splitlines():
+            cached_version, sep, release_date = line.partition("\t")
+            if sep and cached_version == version:
+                return release_date
+    except OSError:
+        return ""
+    return ""
+
+
+def write_upstream_release_cache(cache: Path, version: str, release_date: str) -> None:
+    if not version or not release_date:
+        return
+    try:
+        lines = [
+            line
+            for line in cache.read_text(encoding="utf-8").splitlines()
+            if line.partition("\t")[0] != version
+        ]
+    except OSError:
+        lines = []
+    lines.append(f"{version}\t{release_date}")
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    tmp = cache.with_name(f"{cache.name}.{os.getpid()}.tmp")
+    tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    os.replace(tmp, cache)

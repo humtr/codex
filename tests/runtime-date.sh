@@ -25,6 +25,31 @@ display_date="$(
 )"
 [ "$display_date" = "2026-07-02" ] || fail "display date mismatch: $display_date"
 
+cache_file="$TMP_DIR/upstream-cache.tsv"
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+    python3 -B -m codex_termux.cli upstream-release-cache-write \
+    --cache "$cache_file" --version 0.1.0 --release-date 2026-07-02
+cache_value="$(
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+        python3 -B -m codex_termux.cli upstream-release-cache-read \
+        --cache "$cache_file" --version 0.1.0
+)"
+[ "$cache_value" = "2026-07-02" ] || fail "upstream cache read mismatch: $cache_value"
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+    python3 -B -m codex_termux.cli upstream-release-cache-write \
+    --cache "$cache_file" --version 0.1.0 --release-date 2026-07-03
+cache_value="$(
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+        python3 -B -m codex_termux.cli upstream-release-cache-read \
+        --cache "$cache_file" --version 0.1.0
+)"
+[ "$cache_value" = "2026-07-03" ] || fail "upstream cache update mismatch: $cache_value"
+if PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+    python3 -B -m codex_termux.cli upstream-release-cache-read \
+    --cache "$cache_file" --version missing >/dev/null; then
+    fail "upstream cache missing version unexpectedly succeeded"
+fi
+
 package_spec="$(
     PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
         python3 -B -m codex_termux.cli package-spec \
