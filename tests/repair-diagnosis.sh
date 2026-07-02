@@ -151,16 +151,6 @@ with tempfile.TemporaryDirectory() as tmp:
     assert "CODEX_RUNTIME_REFRESH_ACTION=skip" in refresh
 PYTHON
 
-[ "$(PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
-    python3 -B -m codex_termux.cli runtime-action-plan \
-    --action rebuild_cached --intent repair --field step)" = "repair_runtime" ] ||
-    fail 'runtime action plan CLI did not return repair step'
-
-[ "$(PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
-    python3 -B -m codex_termux.cli runtime-action-plan \
-    --action restore_verified --intent readiness --field refresh-after)" = "1" ] ||
-    fail 'runtime action plan CLI did not return refresh-after'
-
 action_env="$(
     PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
         python3 -B -m codex_termux.cli runtime-action-plan-env \

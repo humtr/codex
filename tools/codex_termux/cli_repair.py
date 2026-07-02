@@ -28,16 +28,6 @@ def add_commands(sub: SubparserCollection) -> None:
     repair_diagnose.add_argument("--field", choices=("action", "readiness-action"), default=None)
     repair_diagnose.set_defaults(func=_repair_diagnose)
 
-    action_plan = sub.add_parser("runtime-action-plan")
-    action_plan.add_argument("--action", required=True)
-    action_plan.add_argument("--intent", choices=("readiness", "repair"), required=True)
-    action_plan.add_argument(
-        "--field",
-        choices=("kind", "step", "refresh-after", "error", "exit-code"),
-        required=True,
-    )
-    action_plan.set_defaults(func=_runtime_action_plan)
-
     action_plan_env = sub.add_parser("runtime-action-plan-env")
     action_plan_env.add_argument("--action", required=True)
     action_plan_env.add_argument("--intent", choices=("readiness", "repair"), required=True)
@@ -151,11 +141,6 @@ def _repair_diagnose(args: argparse.Namespace) -> int:
         print(diagnosis.readiness_action)
     else:
         print(json.dumps(diagnosis.to_dict(), ensure_ascii=True, sort_keys=True))
-    return 0
-
-
-def _runtime_action_plan(args: argparse.Namespace) -> int:
-    print(repair.runtime_action_plan(args.action, args.intent).field(args.field))
     return 0
 
 

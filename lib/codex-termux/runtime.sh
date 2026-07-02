@@ -354,12 +354,6 @@ codex_repair_install_support() {
     CODEX_TERMUX_INSTALL_PRINT_VERSION=0 CODEX_TERMUX_INSTALL_SURFACE=0 bash "$source" install support >/dev/null
 }
 
-codex_runtime_wrapper_metadata_env() {
-    codex_termux_cmd wrapper-metadata-env \
-        --manager-dir "$CODEX_TERMUX_MANAGER_DIR" \
-        --runtime-dir "$CODEX_TERMUX_RUNTIME_DIR"
-}
-
 codex_repair_diagnose_action() {
     local field="${1:-action}"
     codex_termux_cmd repair-diagnose \
@@ -851,7 +845,9 @@ codex_version() {
     upstream_version="$(codex_termux_cmd upstream-version --text "$upstream")"
     upstream_date="$(codex_upstream_release_date "$upstream_version" || true)"
     runtime_date="$(codex_display_dotted_date "$(codex_current_runtime_date || true)")"
-    metadata_env="$(codex_runtime_wrapper_metadata_env)" || return 1
+    metadata_env="$(codex_termux_cmd wrapper-metadata-env \
+        --manager-dir "$CODEX_TERMUX_MANAGER_DIR" \
+        --runtime-dir "$CODEX_TERMUX_RUNTIME_DIR")" || return 1
     eval "$metadata_env"
     codex_termux_cmd version-report \
         --upstream "$upstream" \
