@@ -299,7 +299,9 @@ codex_prepare_launcher_slot() {
         return 1
     fi
     if [ -e "$public" ] || [ -L "$public" ]; then
-        if codex_file_has_marker "$public"; then
+        if codex_termux_cmd file-has-marker \
+            --path "$public" \
+            --marker "$CODEX_TERMUX_MANAGED_LAUNCHER_MARKER"; then
             return 0
         fi
         base="$(basename "$public")"
@@ -329,7 +331,9 @@ codex_write_compiled_launcher() {
     tmp="${public}.new.$$"
     mkdir -p "${public%/*}"
     codex_build_launcher "$tmp"
-    if ! grep -a -q "$CODEX_TERMUX_MANAGED_LAUNCHER_MARKER" "$tmp"; then
+    if ! codex_termux_cmd file-has-marker \
+        --path "$tmp" \
+        --marker "$CODEX_TERMUX_MANAGED_LAUNCHER_MARKER"; then
         rm -f "$tmp"
         codex_fail "compiled launcher missing managed marker"
         return 1
