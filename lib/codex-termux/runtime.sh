@@ -188,12 +188,8 @@ codex_package_spec() {
         --default "$CODEX_TERMUX_PACKAGE_SPEC_DEFAULT"
 }
 
-codex_extract_pack_field() {
-    codex_termux_cmd package-field --json-file "$1" --field "$2"
-}
-
 codex_fetch_package() {
-    local requested="${1:-}" package_spec tmp pack_json tgz filename version
+    local requested="${1:-}" package_spec tmp pack_json pack_env tgz
     package_spec="$(codex_package_spec "$requested")"
     tmp="$(codex_mktemp_dir codex-pack)" || return 1
     pack_json="$tmp/pack.json"
@@ -203,9 +199,12 @@ codex_fetch_package() {
         codex_fail "Failed to fetch $package_spec"
         return 1
     fi
-    filename="$(codex_extract_pack_field "$pack_json" filename)"
-    version="$(codex_extract_pack_field "$pack_json" version)"
-    tgz="$tmp/$filename"
+    pack_env="$(codex_termux_cmd package-fields-env --json-file "$pack_json")" || {
+        rm -rf "$tmp"
+        return 1
+    }
+    eval "$pack_env"
+    tgz="$tmp/$CODEX_PACKAGE_FILENAME"
     if [ ! -f "$tgz" ]; then
         rm -rf "$tmp"
         codex_fail "Package fetch did not produce the expected tarball"
@@ -224,7 +223,7 @@ codex_fetch_package() {
         codex_fail "Failed to extract $tgz"
         return 1
     fi
-    printf '%s\t%s\t%s\t%s\n' "$tmp" "$tmp/package/vendor/aarch64-unknown-linux-musl" "$version" "$package_spec"
+    printf '%s\t%s\t%s\t%s\n' "$tmp" "$tmp/package/vendor/aarch64-unknown-linux-musl" "$CODEX_PACKAGE_VERSION" "$package_spec"
 }
 
 codex_install_raw_vendor() {

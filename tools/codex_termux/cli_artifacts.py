@@ -67,11 +67,10 @@ def add_commands(sub: SubparserCollection) -> None:
     release_package.add_argument("--out", required=True)
     release_package.set_defaults(func=_release_package)
 
-    package_field = sub.add_parser("package-field")
-    package_field.add_argument("--json-file", required=True)
-    package_field.add_argument("--field", required=True)
-    package_field.set_defaults(
-        func=lambda args: _print(runtime_checks.extract_pack_field(Path(args.json_file), args.field))
+    package_fields = sub.add_parser("package-fields-env")
+    package_fields.add_argument("--json-file", required=True)
+    package_fields.set_defaults(
+        func=lambda args: _print(runtime_checks.package_fields_exports(Path(args.json_file)))
     )
 
     package_spec = sub.add_parser("package-spec")

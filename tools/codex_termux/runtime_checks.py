@@ -22,6 +22,13 @@ def extract_pack_field(json_file: Path, field: str) -> str:
     return value if isinstance(value, str) else ""
 
 
+def package_fields_exports(json_file: Path) -> str:
+    return _shell_exports({
+        "CODEX_PACKAGE_FILENAME": extract_pack_field(json_file, "filename"),
+        "CODEX_PACKAGE_VERSION": extract_pack_field(json_file, "version"),
+    })
+
+
 def package_spec(requested: str, default_spec: str) -> str:
     if not requested or requested in {"latest", "stable"}:
         return default_spec

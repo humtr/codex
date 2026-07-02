@@ -35,6 +35,17 @@ upstream_version="$(
         python3 -B -m codex_termux.cli upstream-version --text ""
 )"
 [ "$upstream_version" = "unknown" ] || fail "empty upstream version mismatch: $upstream_version"
+
+pack_json="$TMP_DIR/pack.json"
+printf '[{"filename":"codex-test.tgz","version":"0.142.5"}]\n' >"$pack_json"
+package_env="$(
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+        python3 -B -m codex_termux.cli package-fields-env --json-file "$pack_json"
+)"
+eval "$package_env"
+[ "$CODEX_PACKAGE_FILENAME" = "codex-test.tgz" ] || fail "package filename env mismatch: $CODEX_PACKAGE_FILENAME"
+[ "$CODEX_PACKAGE_VERSION" = "0.142.5" ] || fail "package version env mismatch: $CODEX_PACKAGE_VERSION"
+
 version_report="$(
     PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
         python3 -B -m codex_termux.cli version-report \
