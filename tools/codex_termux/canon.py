@@ -565,8 +565,11 @@ def _shell_function_count(path: Path) -> int:
 
 
 def _cli_registered_commands(root: Path) -> list[str]:
-    cli = root / "tools/codex_termux/cli.py"
-    return sorted(set(_CLI_ADD_PARSER_RE.findall(_read_text(cli))))
+    cli_dir = root / "tools/codex_termux"
+    commands: set[str] = set()
+    for path in [cli_dir / "cli.py", *sorted(cli_dir.glob("cli_*.py"))]:
+        commands.update(_CLI_ADD_PARSER_RE.findall(_read_text(path)))
+    return sorted(commands)
 
 
 def _shell_helper_commands(root: Path) -> list[str]:

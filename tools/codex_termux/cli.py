@@ -9,7 +9,7 @@ import tarfile
 from pathlib import Path, PurePosixPath
 from typing import Protocol
 
-from . import activation, canon, doctor, hashing, install_plan, notify, paths, prune, registry, release, repair, runtime_checks, session, source, use
+from . import activation, canon, cli_notify, doctor, hashing, install_plan, paths, prune, registry, release, repair, runtime_checks, session, source, use
 from .errors import CodexTermuxError, IntegrityError
 from .schemas import ActivationPlan
 
@@ -58,7 +58,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_activation_commands(sub)
     _add_use_commands(sub)
     _add_doctor_commands(sub)
-    _add_notify_commands(sub)
+    cli_notify.add_commands(sub)
     _add_profile_commands(sub)
     _add_session_commands(sub)
     return parser
@@ -736,79 +736,6 @@ def _doctor_render(args: argparse.Namespace) -> int:
         print(json.dumps(report, ensure_ascii=True, sort_keys=True))
         return 0
     return doctor.render_human(report)
-
-
-def _add_notify_commands(sub: SubparserCollection) -> None:
-    hook = sub.add_parser("notify-hook")
-    hook.add_argument(
-        "--action",
-        choices=("all", "canonical", "valid", "normalize", "status-message", "list"),
-        required=True,
-    )
-    hook.add_argument("--value", default="")
-    hook.set_defaults(func=_notify_hook)
-
-    config = sub.add_parser("notify-config-env")
-    for name in (
-        "content-chars", "preserve-newlines", "toast-gravity", "toast-short",
-        "toast-background", "toast-color", "group", "channel", "hooks", "pretooluse",
-    ):
-        config.add_argument(f"--{name}", required=True)
-    config.set_defaults(func=_notify_config_env)
-
-    system = sub.add_parser("notify-system-config")
-    system.add_argument("--hooks", required=True)
-    system.add_argument("--turn-notify", required=True)
-    system.set_defaults(func=_notify_system_config)
-
-
-def _notify_hook(args: argparse.Namespace) -> int:
-    if args.action == "all":
-        for hook in notify.HOOKS:
-            print(hook)
-        return 0
-    if args.action == "canonical":
-        print(notify.canonical_hook(args.value))
-        return 0
-    if args.action == "valid":
-        return 0 if notify.hook_valid(args.value) else 1
-    if args.action == "normalize":
-        print(notify.normalize_hooks(args.value or "Stop"))
-        return 0
-    if args.action == "status-message":
-        print(notify.status_message(args.value))
-        return 0
-    if args.action == "list":
-        for hook in notify.hook_list(args.value or "Stop"):
-            print(hook)
-        return 0
-    raise AssertionError(args.action)
-
-
-def _notify_config_env(args: argparse.Namespace) -> int:
-    settings = notify.NotifySettings(
-        content_chars=args.content_chars,
-        preserve_newlines=args.preserve_newlines,
-        toast_gravity=args.toast_gravity,
-        toast_short=args.toast_short,
-        toast_background=args.toast_background,
-        toast_color=args.toast_color,
-        group=args.group,
-        channel=args.channel,
-        hooks=args.hooks,
-        pretooluse=args.pretooluse,
-    )
-    try:
-        print(notify.render_config_env(settings), end="")
-    except notify.NotifyConfigError as exc:
-        print(f"codex_termux: {exc}", file=sys.stderr)
-        return 64
-    return 0
-
-
-def _notify_system_config(args: argparse.Namespace) -> int:
-    print(notify.render_system_config(hooks=args.hooks, turn_notify=args.turn_notify), end="")
-    return 0
 
 
 def _add_profile_commands(sub: SubparserCollection) -> None:
