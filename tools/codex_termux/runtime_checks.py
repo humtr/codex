@@ -62,6 +62,21 @@ def wrapper_metadata_field(*, manager_dir: Path, runtime_dir: Path, field: str) 
     raise IntegrityError(f"unknown wrapper metadata field: {field}")
 
 
+def wrapper_metadata_exports(*, manager_dir: Path, runtime_dir: Path) -> str:
+    return _shell_exports({
+        "CODEX_WRAPPER_VERSION": wrapper_metadata_field(
+            manager_dir=manager_dir,
+            runtime_dir=runtime_dir,
+            field="version",
+        ),
+        "CODEX_WRAPPER_COMMIT": wrapper_metadata_field(
+            manager_dir=manager_dir,
+            runtime_dir=runtime_dir,
+            field="commit",
+        ),
+    })
+
+
 def upstream_version_text(upstream_output: str) -> str:
     if not upstream_output:
         return "unknown"

@@ -184,10 +184,7 @@
       "codex_repair_public",
       "codex_remove"
     ],
-    "state": [
-      "codex_current_wrapper_commit",
-      "codex_current_wrapper_version"
-    ],
+    "state": [],
     "profile": [
       "codex_activate_cached_runtime_unlocked",
       "codex_auto_update_if_needed",

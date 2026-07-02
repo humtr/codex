@@ -96,6 +96,11 @@ def add_commands(sub: SubparserCollection) -> None:
     wrapper_metadata.add_argument("--field", choices=("version", "commit"), required=True)
     wrapper_metadata.set_defaults(func=_wrapper_metadata_field)
 
+    wrapper_metadata_env = sub.add_parser("wrapper-metadata-env")
+    wrapper_metadata_env.add_argument("--manager-dir", required=True)
+    wrapper_metadata_env.add_argument("--runtime-dir", required=True)
+    wrapper_metadata_env.set_defaults(func=_wrapper_metadata_env)
+
     upstream_version = sub.add_parser("upstream-version")
     upstream_version.add_argument("--text", default="")
     upstream_version.set_defaults(
@@ -312,6 +317,13 @@ def _wrapper_metadata_field(args: argparse.Namespace) -> int:
         manager_dir=Path(args.manager_dir),
         runtime_dir=Path(args.runtime_dir),
         field=args.field,
+    ))
+
+
+def _wrapper_metadata_env(args: argparse.Namespace) -> int:
+    return _print(runtime_checks.wrapper_metadata_exports(
+        manager_dir=Path(args.manager_dir),
+        runtime_dir=Path(args.runtime_dir),
     ))
 
 

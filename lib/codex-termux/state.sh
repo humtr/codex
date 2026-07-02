@@ -232,10 +232,12 @@ codex_termux_cmd() {
 }
 
 codex_termux_activation_cmd() {
-    local action="$1" shell_lib="$CODEX_TERMUX_SHELL_LIB" wrapper_version wrapper_commit
+    local action="$1" shell_lib="$CODEX_TERMUX_SHELL_LIB" metadata_env
     shift
-    wrapper_version="$(codex_current_wrapper_version)" || return 1
-    wrapper_commit="$(codex_current_wrapper_commit)" || return 1
+    metadata_env="$(codex_termux_cmd wrapper-metadata-env \
+        --manager-dir "$CODEX_TERMUX_MANAGER_DIR" \
+        --runtime-dir "$CODEX_TERMUX_RUNTIME_DIR")" || return 1
+    eval "$metadata_env"
     codex_termux_cmd "$action" \
         --current-link "$CODEX_TERMUX_CURRENT_LINK" \
         --verified-link "$CODEX_TERMUX_VERIFIED_LINK" \
@@ -244,8 +246,8 @@ codex_termux_activation_cmd() {
         --registry-file "$CODEX_TERMUX_REGISTRY_FILE" \
         --runtime-store-dir "$CODEX_TERMUX_RUNTIME_STORE_DIR" \
         --raw-store-dir "$CODEX_TERMUX_RAW_STORE_DIR" \
-        --wrapper-version "$wrapper_version" \
-        --wrapper-commit "$wrapper_commit" \
+        --wrapper-version "$CODEX_WRAPPER_VERSION" \
+        --wrapper-commit "$CODEX_WRAPPER_COMMIT" \
         --updated-at "$(codex_now)" \
         --shell-bin "${BASH:-bash}" \
         --shell-lib "$shell_lib" \

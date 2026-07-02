@@ -354,10 +354,16 @@ codex_repair_install_support() {
     CODEX_TERMUX_INSTALL_PRINT_VERSION=0 CODEX_TERMUX_INSTALL_SURFACE=0 bash "$source" install support >/dev/null
 }
 
+codex_runtime_wrapper_metadata_env() {
+    codex_termux_cmd wrapper-metadata-env \
+        --manager-dir "$CODEX_TERMUX_MANAGER_DIR" \
+        --runtime-dir "$CODEX_TERMUX_RUNTIME_DIR"
+}
+
 codex_repair_diagnose_action() {
-    local field="${1:-action}" wrapper_version wrapper_commit
-    wrapper_version="$(codex_current_wrapper_version)"
-    wrapper_commit="$(codex_current_wrapper_commit)"
+    local field="${1:-action}" metadata_env
+    metadata_env="$(codex_runtime_wrapper_metadata_env)" || return 1
+    eval "$metadata_env"
     codex_termux_cmd repair-diagnose \
         --managed-shell "$CODEX_TERMUX_MANAGED_SHELL" \
         --manager-dir "$CODEX_TERMUX_MANAGER_DIR" \
@@ -375,8 +381,8 @@ codex_repair_diagnose_action() {
         --raw "$CODEX_TERMUX_RAW_DIR" \
         --raw-binary "$CODEX_TERMUX_RAW_VENDOR/bin/codex" \
         --patch-policy "$CODEX_TERMUX_PATCH_POLICY" \
-        --wrapper-version "$wrapper_version" \
-        --wrapper-commit "$wrapper_commit" \
+        --wrapper-version "$CODEX_WRAPPER_VERSION" \
+        --wrapper-commit "$CODEX_WRAPPER_COMMIT" \
         --field "$field"
 }
 
@@ -701,17 +707,17 @@ codex_support_layer_ok() {
 }
 
 codex_runtime_metadata_current() {
-    local wrapper_version wrapper_commit
-    wrapper_version="$(codex_current_wrapper_version)"
-    wrapper_commit="$(codex_current_wrapper_commit)"
+    local metadata_env
+    metadata_env="$(codex_runtime_wrapper_metadata_env)" || return 1
+    eval "$metadata_env"
     codex_termux_cmd runtime-metadata-current \
         --state-path "$CODEX_TERMUX_STATE_FILE" \
         --registry-path "$CODEX_TERMUX_REGISTRY_FILE" \
         --current "$CODEX_TERMUX_RUNTIME_DIR" \
         --verified "$CODEX_TERMUX_VERIFIED_LINK" \
         --raw "$CODEX_TERMUX_RAW_DIR" \
-        --wrapper-version "$wrapper_version" \
-        --wrapper-commit "$wrapper_commit"
+        --wrapper-version "$CODEX_WRAPPER_VERSION" \
+        --wrapper-commit "$CODEX_WRAPPER_COMMIT"
 }
 
 codex_refresh_runtime_metadata_unlocked() {
@@ -799,20 +805,6 @@ codex_exec_current_runtime() {
     exec "$CODEX_SELF_EXE" "$@" 33<"$CODEX_TERMUX_RESOLV_CONF" 34<"$CODEX_TERMUX_SYSTEM_CONFIG_DIR"
 }
 
-codex_current_wrapper_version() {
-    codex_termux_cmd wrapper-metadata-field \
-        --manager-dir "$CODEX_TERMUX_MANAGER_DIR" \
-        --runtime-dir "$CODEX_TERMUX_RUNTIME_DIR" \
-        --field version
-}
-
-codex_current_wrapper_commit() {
-    codex_termux_cmd wrapper-metadata-field \
-        --manager-dir "$CODEX_TERMUX_MANAGER_DIR" \
-        --runtime-dir "$CODEX_TERMUX_RUNTIME_DIR" \
-        --field commit
-}
-
 codex_current_runtime_date() {
     codex_termux_cmd registry-active-runtime-date \
         --registry-file "$CODEX_TERMUX_REGISTRY_FILE"
@@ -863,7 +855,7 @@ codex_upstream_release_date() {
 }
 
 codex_version() {
-    local upstream upstream_version upstream_date runtime_date wrapper_version wrapper_commit status=0
+    local upstream upstream_version upstream_date runtime_date metadata_env status=0
     codex_status_clear
     if upstream="$(codex_run_current_runtime --version 2>/dev/null)"; then
         status=0
@@ -874,13 +866,13 @@ codex_version() {
     upstream_version="$(codex_termux_cmd upstream-version --text "$upstream")"
     upstream_date="$(codex_upstream_release_date "$upstream_version" || true)"
     runtime_date="$(codex_display_dotted_date "$(codex_current_runtime_date || true)")"
-    wrapper_version="$(codex_current_wrapper_version)"
-    wrapper_commit="$(codex_current_wrapper_commit)"
+    metadata_env="$(codex_runtime_wrapper_metadata_env)" || return 1
+    eval "$metadata_env"
     codex_termux_cmd version-report \
         --upstream "$upstream" \
         --upstream-date "$upstream_date" \
         --runtime-date "$runtime_date" \
-        --wrapper-version "$wrapper_version" \
-        --wrapper-commit "$wrapper_commit" >&2
+        --wrapper-version "$CODEX_WRAPPER_VERSION" \
+        --wrapper-commit "$CODEX_WRAPPER_COMMIT" >&2
     return "$status"
 }

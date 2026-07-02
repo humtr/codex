@@ -150,6 +150,16 @@ wrapper_commit="$(
 )"
 [ "$wrapper_commit" = "runtime-commit" ] || fail "wrapper metadata runtime fallback mismatch: $wrapper_commit"
 
+metadata_env="$(
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+        python3 -B -m codex_termux.cli wrapper-metadata-env \
+            --manager-dir "$manager_dir" \
+            --runtime-dir "$runtime_dir"
+)"
+eval "$metadata_env"
+[ "$CODEX_WRAPPER_VERSION" = "runtime-version" ] || fail "wrapper metadata env version mismatch: $CODEX_WRAPPER_VERSION"
+[ "$CODEX_WRAPPER_COMMIT" = "runtime-commit" ] || fail "wrapper metadata env commit mismatch: $CODEX_WRAPPER_COMMIT"
+
 mode="$(
     PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
         python3 -B -m codex_termux.cli auto-update-mode --mode always
