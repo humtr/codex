@@ -349,12 +349,6 @@ codex_install_launchers() {
     fi
 }
 
-codex_install_plan_field() {
-    local command="$1" field="$2"
-    shift 2
-    codex_termux_cmd install-plan --command "$command" --field "$field" -- "$@"
-}
-
 codex_install_surface_finish() {
     local success_message="$1" print_version="${CODEX_TERMUX_INSTALL_PRINT_VERSION:-1}"
     if [ -n "$success_message" ]; then
@@ -460,20 +454,21 @@ codex_repair_core() {
 }
 
 codex_install_run_plan() {
-    local command="$1" action surface version message success_message exit_code error
+    local command="$1" plan_env action version message success_message exit_code error
     shift
-    action="$(codex_install_plan_field "$command" action "$@")" || return $?
-    surface="$(codex_install_plan_field "$command" surface "$@")" || return $?
-    version="$(codex_install_plan_field "$command" version "$@")" || return $?
-    message="$(codex_install_plan_field "$command" surface-message "$@")" || return $?
-    success_message="$(codex_install_plan_field "$command" success-message "$@")" || return $?
+    plan_env="$(codex_termux_cmd install-plan-env --command "$command" -- "$@")" || return $?
+    eval "$plan_env"
+    action="${CODEX_INSTALL_PLAN_ACTION:-}"
+    version="${CODEX_INSTALL_PLAN_VERSION:-}"
+    message="${CODEX_INSTALL_PLAN_SURFACE_MESSAGE:-}"
+    success_message="${CODEX_INSTALL_PLAN_SUCCESS_MESSAGE:-}"
     case "$action" in
         usage)
             usage
             ;;
         error)
-            exit_code="$(codex_install_plan_field "$command" exit-code "$@")" || return $?
-            error="$(codex_install_plan_field "$command" error "$@")" || return $?
+            exit_code="${CODEX_INSTALL_PLAN_EXIT_CODE:-1}"
+            error="${CODEX_INSTALL_PLAN_ERROR:-Unknown install plan error}"
             codex_fail "$error"
             return "$exit_code"
             ;;

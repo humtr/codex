@@ -65,6 +65,11 @@ def add_commands(sub: SubparserCollection) -> None:
     install_plan_cmd.add_argument("args", nargs=argparse.REMAINDER)
     install_plan_cmd.set_defaults(func=_install_plan)
 
+    install_plan_env = sub.add_parser("install-plan-env")
+    install_plan_env.add_argument("--command", required=True)
+    install_plan_env.add_argument("args", nargs=argparse.REMAINDER)
+    install_plan_env.set_defaults(func=_install_plan_env)
+
     canon_audit = sub.add_parser("canon-audit")
     canon_audit.add_argument("--root", default=None)
     canon_audit.add_argument("--strict", action="store_true")
@@ -180,6 +185,11 @@ def _install_plan(args: argparse.Namespace) -> int:
         print(result[key])
     else:
         print(json.dumps(result, ensure_ascii=True, sort_keys=True))
+    return 0
+
+
+def _install_plan_env(args: argparse.Namespace) -> int:
+    print(install_plan.plan_shell_exports(args.command, list(args.args)))
     return 0
 
 

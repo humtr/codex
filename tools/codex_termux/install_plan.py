@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import shlex
 
 
 ACTION_ERROR = "error"
@@ -65,6 +66,23 @@ def plan(command: str, args: list[str]) -> InstallPlan:
         action=ACTION_ERROR,
         exit_code=2,
         error=f"unknown install command: {command}",
+    )
+
+
+def plan_shell_exports(command: str, args: list[str]) -> str:
+    data = plan(command, args).to_dict()
+    names = {
+        "action": "CODEX_INSTALL_PLAN_ACTION",
+        "surface": "CODEX_INSTALL_PLAN_SURFACE",
+        "version": "CODEX_INSTALL_PLAN_VERSION",
+        "exit_code": "CODEX_INSTALL_PLAN_EXIT_CODE",
+        "error": "CODEX_INSTALL_PLAN_ERROR",
+        "surface_message": "CODEX_INSTALL_PLAN_SURFACE_MESSAGE",
+        "success_message": "CODEX_INSTALL_PLAN_SUCCESS_MESSAGE",
+    }
+    return "\n".join(
+        f"{env_name}={shlex.quote(str(data[key]))}"
+        for key, env_name in names.items()
     )
 
 

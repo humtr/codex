@@ -26,6 +26,10 @@ assert install_plan.plan("install", []).to_dict()["surface_message"] == "Install
 check("install", ["0.142.0"], action=install_plan.ACTION_INSTALL_FULL, surface="install", version="0.142.0")
 check("install", ["support"], action=install_plan.ACTION_SUPPORT, surface="support")
 assert install_plan.plan("install", ["support"]).to_dict()["success_message"] == "Support files and launcher are ready"
+exports = install_plan.plan_shell_exports("install", ["upstream", "0.142.0"])
+assert "CODEX_INSTALL_PLAN_ACTION=upstream" in exports
+assert "CODEX_INSTALL_PLAN_VERSION=0.142.0" in exports
+assert "CODEX_INSTALL_PLAN_SURFACE_MESSAGE='Installing upstream Codex 0.142.0'" in exports
 check("install", ["upstream"], action=install_plan.ACTION_UPSTREAM, surface="upstream")
 assert install_plan.plan("install", ["upstream"]).to_dict()["surface_message"] == "Installing latest upstream Codex"
 check("install", ["upstream", "0.142.0"], action=install_plan.ACTION_UPSTREAM, surface="upstream", version="0.142.0")
@@ -84,5 +88,14 @@ message="$(
         python3 -B -m codex_termux.cli install-plan --command install --field surface-message -- upstream 0.142.0
 )"
 [ "$message" = "Installing upstream Codex 0.142.0" ] || fail "CLI message field mismatch: $message"
+
+env_plan="$(
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+        python3 -B -m codex_termux.cli install-plan-env --command install -- upstream 0.142.0
+)"
+printf '%s\n' "$env_plan" | grep -Fx "CODEX_INSTALL_PLAN_ACTION=upstream" >/dev/null \
+    || fail "CLI install-plan-env action mismatch: $env_plan"
+printf '%s\n' "$env_plan" | grep -Fx "CODEX_INSTALL_PLAN_VERSION=0.142.0" >/dev/null \
+    || fail "CLI install-plan-env version mismatch: $env_plan"
 
 printf 'install-plan: ok\n'
