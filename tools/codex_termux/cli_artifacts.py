@@ -34,6 +34,11 @@ def add_commands(sub: SubparserCollection) -> None:
     resolve.add_argument("--path", required=True)
     resolve.set_defaults(func=lambda args: _print(paths.resolve_text(Path(args.path))))
 
+    managed = sub.add_parser("managed-tree-target-ok")
+    for name in ("path", "label", "home", "prefix", "tmpdir", "root", "state"):
+        managed.add_argument(f"--{name}", required=True)
+    managed.set_defaults(func=_managed_tree_target_ok)
+
     validate_tarball = sub.add_parser("validate-tarball")
     validate_tarball.add_argument("--path", required=True)
     validate_tarball.set_defaults(func=_validate_tarball)
@@ -86,6 +91,19 @@ def _store_id(args: argparse.Namespace) -> int:
             args.tree_sha256,
         )
     )
+
+
+def _managed_tree_target_ok(args: argparse.Namespace) -> int:
+    paths.assert_managed_tree_target(
+        args.path,
+        args.label,
+        home=args.home,
+        prefix=args.prefix,
+        tmpdir=args.tmpdir,
+        root=args.root,
+        state=args.state,
+    )
+    return 0
 
 
 def _validate_tarball(args: argparse.Namespace) -> int:

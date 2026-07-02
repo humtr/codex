@@ -42,6 +42,59 @@ def resolve_text(path: Path) -> str:
         return ""
 
 
+def strip_trailing_slashes(value: str) -> str:
+    path = value
+    while len(path) > 1 and path.endswith("/"):
+        path = path[:-1]
+    return path
+
+
+def path_is_within(path: str, root: str) -> bool:
+    clean_path = strip_trailing_slashes(path)
+    clean_root = strip_trailing_slashes(root)
+    if not clean_root or clean_root == "/":
+        return False
+    return clean_path == clean_root or clean_path.startswith(clean_root + "/")
+
+
+def assert_safe_path(path: str, label: str, *, home: str, prefix: str, tmpdir: str) -> None:
+    clean_path = strip_trailing_slashes(path)
+    if not clean_path:
+        raise IntegrityError(f"{label} must not be empty")
+    if not clean_path.startswith("/"):
+        raise IntegrityError(f"{label} must be absolute: {clean_path}")
+    unsafe = {
+        "/",
+        strip_trailing_slashes(home),
+        strip_trailing_slashes(prefix),
+        strip_trailing_slashes(tmpdir),
+        "/tmp",
+    }
+    if clean_path in unsafe:
+        raise IntegrityError(f"{label} points to an unsafe path: {clean_path}")
+
+
+def assert_managed_tree_target(
+    path: str,
+    label: str,
+    *,
+    home: str,
+    prefix: str,
+    tmpdir: str,
+    root: str,
+    state: str,
+) -> None:
+    clean_path = strip_trailing_slashes(path)
+    clean_root = strip_trailing_slashes(root)
+    clean_state = strip_trailing_slashes(state)
+    assert_safe_path(clean_path, label, home=home, prefix=prefix, tmpdir=tmpdir)
+    assert_safe_path(clean_root, "CODEX_TERMUX_ROOT", home=home, prefix=prefix, tmpdir=tmpdir)
+    assert_safe_path(clean_state, "CODEX_TERMUX_STATE_DIR", home=home, prefix=prefix, tmpdir=tmpdir)
+    if path_is_within(clean_path, clean_root) or path_is_within(clean_path, clean_state):
+        return
+    raise IntegrityError(f"{label} is outside managed wrapper paths: {clean_path}")
+
+
 def direct_child(path: Path, root: Path) -> Path | None:
     try:
         resolved = path.resolve()

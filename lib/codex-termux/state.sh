@@ -263,58 +263,17 @@ codex_mktemp_file() {
     mktemp "$tmpdir/$prefix.XXXXXX"
 }
 
-codex_path_is_within() {
-    local path root
-    path="$(codex_strip_trailing_slashes "$1")"
-    root="$(codex_strip_trailing_slashes "$2")"
-    [ -n "$root" ] && [ "$root" != "/" ] || return 1
-    [ "$path" = "$root" ] && return 0
-    case "$path" in
-        "$root"/*) return 0 ;;
-        *) return 1 ;;
-    esac
-}
-
-codex_assert_safe_path() {
-    local path label home prefix tmpdir
-    path="$(codex_strip_trailing_slashes "$1")"
-    label="${2:-path}"
-    [ -n "$path" ] || {
-        codex_fail "$label must not be empty"
-        return 64
-    }
-    case "$path" in
-        /*) ;;
-        *)
-            codex_fail "$label must be absolute: $path"
-            return 64
-            ;;
-    esac
-    home="$(codex_strip_trailing_slashes "${CODEX_TERMUX_HOME:-${HOME:-}}")"
-    prefix="$(codex_strip_trailing_slashes "$CODEX_TERMUX_PREFIX")"
-    tmpdir="$(codex_strip_trailing_slashes "$(codex_tmp_dir 2>/dev/null || printf '%s\n' "$CODEX_TERMUX_PREFIX/tmp")")"
-    case "$path" in
-        /|"$home"|"$prefix"|"$tmpdir"|/tmp)
-            codex_fail "$label points to an unsafe path: $path"
-            return 64
-            ;;
-    esac
-}
-
 codex_assert_managed_tree_target() {
-    local path label root state
-    path="$(codex_strip_trailing_slashes "$1")"
-    label="${2:-managed tree target}"
-    root="$(codex_strip_trailing_slashes "$CODEX_TERMUX_ROOT")"
-    state="$(codex_strip_trailing_slashes "$CODEX_TERMUX_STATE_DIR")"
-    codex_assert_safe_path "$path" "$label" || return $?
-    codex_assert_safe_path "$root" CODEX_TERMUX_ROOT || return $?
-    codex_assert_safe_path "$state" CODEX_TERMUX_STATE_DIR || return $?
-    if codex_path_is_within "$path" "$root" || codex_path_is_within "$path" "$state"; then
-        return 0
-    fi
-    codex_fail "$label is outside managed wrapper paths: $path"
-    return 64
+    local path="$1" label="${2:-managed tree target}" tmpdir
+    tmpdir="$(codex_tmp_dir 2>/dev/null || printf '%s\n' "$CODEX_TERMUX_PREFIX/tmp")"
+    codex_termux_cmd managed-tree-target-ok \
+        --path "$path" \
+        --label "$label" \
+        --home "${CODEX_TERMUX_HOME:-${HOME:-}}" \
+        --prefix "$CODEX_TERMUX_PREFIX" \
+        --tmpdir "$tmpdir" \
+        --root "$CODEX_TERMUX_ROOT" \
+        --state "$CODEX_TERMUX_STATE_DIR"
 }
 
 codex_rm_rf_managed() {
