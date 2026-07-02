@@ -21,6 +21,32 @@ display_date="$(
 )"
 [ "$display_date" = "2026-07-02" ] || fail "display date mismatch: $display_date"
 
+package_spec="$(
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+        python3 -B -m codex_termux.cli package-spec \
+            --requested 0.142.5 \
+            --default @openai/codex@latest-linux-arm64
+)"
+[ "$package_spec" = "@openai/codex@0.142.5-linux-arm64" ] || fail "package spec mismatch: $package_spec"
+
+explicit_package_spec="$(
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+        python3 -B -m codex_termux.cli package-spec \
+            --requested @openai/codex@0.142.5-linux-arm64 \
+            --default @openai/codex@latest-linux-arm64
+)"
+[ "$explicit_package_spec" = "@openai/codex@0.142.5-linux-arm64" ] || fail "explicit package spec mismatch: $explicit_package_spec"
+
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+    python3 -B -m codex_termux.cli runtime-retention-ok --value 3 \
+    || fail 'runtime retention rejected positive integer'
+
+if PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+    python3 -B -m codex_termux.cli runtime-retention-ok --value 0
+then
+    fail 'runtime retention accepted zero'
+fi
+
 mode="$(
     PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
         python3 -B -m codex_termux.cli auto-update-mode --mode always

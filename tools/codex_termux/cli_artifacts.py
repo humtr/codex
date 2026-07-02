@@ -55,6 +55,17 @@ def add_commands(sub: SubparserCollection) -> None:
         func=lambda args: _print(runtime_checks.extract_pack_field(Path(args.json_file), args.field))
     )
 
+    package_spec = sub.add_parser("package-spec")
+    package_spec.add_argument("--requested", default="")
+    package_spec.add_argument("--default", required=True)
+    package_spec.set_defaults(
+        func=lambda args: _print(runtime_checks.package_spec(args.requested, args.default))
+    )
+
+    runtime_retention = sub.add_parser("runtime-retention-ok")
+    runtime_retention.add_argument("--value", required=True)
+    runtime_retention.set_defaults(func=_runtime_retention_ok)
+
     state_field = sub.add_parser("state-read-field")
     state_field.add_argument("--state-file", required=True)
     state_field.add_argument("--field", required=True)
@@ -146,6 +157,10 @@ def _failed_auto_update_due(args: argparse.Namespace) -> int:
         now=int(args.now),
         interval=int(args.interval),
     ) else 1
+
+
+def _runtime_retention_ok(args: argparse.Namespace) -> int:
+    return 0 if runtime_checks.runtime_retention_ok(args.value) else 1
 
 
 def _validate_tarball(args: argparse.Namespace) -> int:

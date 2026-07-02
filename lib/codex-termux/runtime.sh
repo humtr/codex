@@ -119,12 +119,10 @@ codex_store_id() {
 }
 
 codex_validate_runtime_retention() {
-    case "$CODEX_TERMUX_RUNTIME_RETENTION" in
-        ''|*[!0-9]*|0)
-            codex_fail "CODEX_TERMUX_RUNTIME_RETENTION must be an integer greater than zero"
-            return 2
-            ;;
-    esac
+    codex_termux_cmd runtime-retention-ok --value "$CODEX_TERMUX_RUNTIME_RETENTION" || {
+        codex_fail "CODEX_TERMUX_RUNTIME_RETENTION must be an integer greater than zero"
+        return 2
+    }
 }
 
 codex_prune_runtime_store() {
@@ -181,16 +179,9 @@ codex_prepare_complete_runtime_tree() {
 }
 
 codex_package_spec() {
-    local requested="${1:-}"
-    if [ -z "$requested" ] || [ "$requested" = "latest" ] || [ "$requested" = "stable" ]; then
-        printf '%s\n' "$CODEX_TERMUX_PACKAGE_SPEC_DEFAULT"
-    elif [[ "$requested" == @openai/codex@* ]]; then
-        printf '%s\n' "$requested"
-    elif [[ "$requested" == *linux-arm64 ]]; then
-        printf '@openai/codex@%s\n' "$requested"
-    else
-        printf '@openai/codex@%s-linux-arm64\n' "$requested"
-    fi
+    codex_termux_cmd package-spec \
+        --requested "${1:-}" \
+        --default "$CODEX_TERMUX_PACKAGE_SPEC_DEFAULT"
 }
 
 codex_extract_pack_field() {

@@ -21,6 +21,23 @@ def extract_pack_field(json_file: Path, field: str) -> str:
     return value if isinstance(value, str) else ""
 
 
+def package_spec(requested: str, default_spec: str) -> str:
+    if not requested or requested in {"latest", "stable"}:
+        return default_spec
+    if requested.startswith("@openai/codex@"):
+        return requested
+    if requested.endswith("linux-arm64"):
+        return f"@openai/codex@{requested}"
+    return f"@openai/codex@{requested}-linux-arm64"
+
+
+def runtime_retention_ok(value: str) -> bool:
+    try:
+        return int(value) > 0
+    except ValueError:
+        return False
+
+
 def runtime_integrity_ok(
     *,
     runtime: Path,
