@@ -163,12 +163,6 @@ eval "$metadata_env"
 [ "$CODEX_WRAPPER_VERSION" = "runtime-version" ] || fail "wrapper metadata env version mismatch: $CODEX_WRAPPER_VERSION"
 [ "$CODEX_WRAPPER_COMMIT" = "runtime-commit" ] || fail "wrapper metadata env commit mismatch: $CODEX_WRAPPER_COMMIT"
 
-mode="$(
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
-        python3 -B -m codex_termux.cli auto-update-mode --mode always
-)"
-[ "$mode" = "force" ] || fail "auto-update mode mismatch: $mode"
-
 decision="$(
     PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
         python3 -B -m codex_termux.cli update-prompt-decision --choice y
@@ -186,30 +180,6 @@ decision="$(
         python3 -B -m codex_termux.cli update-prompt-decision --choice ""
 )"
 [ "$decision" = "cancel" ] || fail "update prompt cancel mismatch: $decision"
-
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
-    python3 -B -m codex_termux.cli auto-update-due \
-        --enabled 1 --mode prompt --now 100 --last 10 --interval 60 \
-    || fail 'auto-update due rejected due update'
-
-if PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
-    python3 -B -m codex_termux.cli auto-update-due \
-        --enabled 1 --mode off --now 100 --last 10 --interval 60
-then
-    fail 'auto-update due accepted off mode'
-fi
-
-if PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
-    python3 -B -m codex_termux.cli failed-auto-update-due \
-        --record $'0.142.4\t95' --version 0.142.4 --now 100 --interval 60
-then
-    fail 'failed auto-update retry accepted too early'
-fi
-
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
-    python3 -B -m codex_termux.cli failed-auto-update-due \
-        --record $'0.142.4\t30' --version 0.142.4 --now 100 --interval 60 \
-    || fail 'failed auto-update retry rejected due retry'
 
 plan_env="$(
     PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \

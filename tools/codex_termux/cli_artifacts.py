@@ -142,25 +142,6 @@ def add_commands(sub: SubparserCollection) -> None:
     display_date.add_argument("--value", default="")
     display_date.set_defaults(func=lambda args: _print(registry.display_runtime_date(args.value)))
 
-    auto_mode = sub.add_parser("auto-update-mode")
-    auto_mode.add_argument("--mode", default="")
-    auto_mode.set_defaults(func=lambda args: _print(runtime_checks.normalize_auto_update_mode(args.mode)))
-
-    auto_due = sub.add_parser("auto-update-due")
-    auto_due.add_argument("--enabled", required=True)
-    auto_due.add_argument("--mode", required=True)
-    auto_due.add_argument("--now", required=True)
-    auto_due.add_argument("--last", default="0")
-    auto_due.add_argument("--interval", required=True)
-    auto_due.set_defaults(func=_auto_update_due)
-
-    failed_due = sub.add_parser("failed-auto-update-due")
-    failed_due.add_argument("--record", default="")
-    failed_due.add_argument("--version", required=True)
-    failed_due.add_argument("--now", required=True)
-    failed_due.add_argument("--interval", required=True)
-    failed_due.set_defaults(func=_failed_auto_update_due)
-
     check_plan = sub.add_parser("auto-update-check-plan-env")
     check_plan.add_argument("--enabled", required=True)
     check_plan.add_argument("--mode", required=True)
@@ -228,25 +209,6 @@ def _helper_package_root(args: argparse.Namespace) -> int:
 
 def _file_has_marker(args: argparse.Namespace) -> int:
     return 0 if paths.file_has_marker(Path(args.path), args.marker) else 1
-
-
-def _auto_update_due(args: argparse.Namespace) -> int:
-    return 0 if runtime_checks.auto_update_due(
-        enabled=args.enabled,
-        mode=args.mode,
-        now=int(args.now),
-        last=args.last,
-        interval=int(args.interval),
-    ) else 1
-
-
-def _failed_auto_update_due(args: argparse.Namespace) -> int:
-    return 0 if runtime_checks.failed_auto_update_due(
-        record=args.record,
-        version=args.version,
-        now=int(args.now),
-        interval=int(args.interval),
-    ) else 1
 
 
 def _auto_update_check_plan_env(args: argparse.Namespace) -> int:
