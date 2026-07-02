@@ -23,7 +23,34 @@ class InstallPlan:
     error: str = ""
 
     def to_dict(self) -> dict[str, object]:
-        return asdict(self)
+        result = asdict(self)
+        result["surface_message"] = surface_message(self.surface, self.version)
+        result["success_message"] = success_message(self.surface)
+        return result
+
+
+def surface_message(surface: str, version: str = "") -> str:
+    if surface == "install":
+        return "Installing wrapper support and fresh upstream runtime"
+    if surface == "update":
+        return "Updating wrapper support and fresh upstream runtime"
+    if surface == "support":
+        return "Installing wrapper support and launcher"
+    if surface == "upstream":
+        if version:
+            return f"Installing upstream Codex {version}"
+        return "Installing latest upstream Codex"
+    if surface == "rebuild":
+        return "Rebuilding runtime from cached raw package"
+    if surface == "repair":
+        return "Repairing managed installation"
+    return "Working"
+
+
+def success_message(surface: str) -> str:
+    if surface == "support":
+        return "Support files and launcher are ready"
+    return ""
 
 
 def plan(command: str, args: list[str]) -> InstallPlan:

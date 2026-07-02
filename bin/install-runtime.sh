@@ -398,52 +398,10 @@ codex_install_plan_field() {
     codex_termux_cmd install-plan --command "$command" --field "$field" -- "$@"
 }
 
-codex_install_surface_message() {
-    local key="$1" version="${2:-}"
-    case "$key" in
-        install)
-            printf 'Installing wrapper support and fresh upstream runtime\n'
-            ;;
-        update)
-            printf 'Updating wrapper support and fresh upstream runtime\n'
-            ;;
-        support)
-            printf 'Installing wrapper support and launcher\n'
-            ;;
-        upstream)
-            if [ -n "$version" ]; then
-                printf 'Installing upstream Codex %s\n' "$version"
-            else
-                printf 'Installing latest upstream Codex\n'
-            fi
-            ;;
-        rebuild)
-            printf 'Rebuilding runtime from cached raw package\n'
-            ;;
-        repair)
-            printf 'Repairing managed installation\n'
-            ;;
-        *)
-            printf 'Working\n'
-            ;;
-    esac
-}
-
-codex_install_surface_success_message() {
-    case "$1" in
-        support)
-            printf 'Support files and launcher are ready\n'
-            ;;
-        *)
-            return 1
-            ;;
-    esac
-}
-
 codex_install_surface_finish() {
-    local key="$1" print_version="${CODEX_TERMUX_INSTALL_PRINT_VERSION:-1}" message
-    if message="$(codex_install_surface_success_message "$key")"; then
-        codex_say "$message"
+    local success_message="$1" print_version="${CODEX_TERMUX_INSTALL_PRINT_VERSION:-1}"
+    if [ -n "$success_message" ]; then
+        codex_say "$success_message"
         return 0
     fi
     if [ "$print_version" = "0" ]; then
@@ -454,16 +412,16 @@ codex_install_surface_finish() {
 }
 
 codex_install_surface_run() {
-    local key="$1" version="${2:-}" command="$3" status=0
+    local message="$1" success_message="${2:-}" command="$3" status=0
     shift 3
     if [ "${CODEX_TERMUX_INSTALL_SURFACE:-1}" = "0" ]; then
         "$command" "$@"
         return $?
     fi
-    codex_status "$(codex_install_surface_message "$key" "$version")"
+    codex_status "$message"
     "$command" "$@" || status=$?
     if [ "$status" -eq 0 ]; then
-        codex_install_surface_finish "$key" || status=$?
+        codex_install_surface_finish "$success_message" || status=$?
     else
         codex_status_clear
     fi
@@ -545,11 +503,13 @@ codex_repair_core() {
 }
 
 codex_install_run_plan() {
-    local command="$1" action surface version exit_code error
+    local command="$1" action surface version message success_message exit_code error
     shift
     action="$(codex_install_plan_field "$command" action "$@")" || return $?
     surface="$(codex_install_plan_field "$command" surface "$@")" || return $?
     version="$(codex_install_plan_field "$command" version "$@")" || return $?
+    message="$(codex_install_plan_field "$command" surface-message "$@")" || return $?
+    success_message="$(codex_install_plan_field "$command" success-message "$@")" || return $?
     case "$action" in
         usage)
             usage
@@ -561,19 +521,19 @@ codex_install_run_plan() {
             return "$exit_code"
             ;;
         install_full)
-            codex_install_surface_run "$surface" "$version" codex_install_full_core "$version"
+            codex_install_surface_run "$message" "$success_message" codex_install_full_core "$version"
             ;;
         support)
-            codex_install_surface_run "$surface" "" codex_install_support_core
+            codex_install_surface_run "$message" "$success_message" codex_install_support_core
             ;;
         upstream)
-            codex_install_surface_run "$surface" "$version" codex_install_upstream_core "$version"
+            codex_install_surface_run "$message" "$success_message" codex_install_upstream_core "$version"
             ;;
         rebuild)
-            codex_install_surface_run "$surface" "" codex_install_rebuild_core
+            codex_install_surface_run "$message" "$success_message" codex_install_rebuild_core
             ;;
         repair)
-            codex_install_surface_run "$surface" "" codex_repair_core
+            codex_install_surface_run "$message" "$success_message" codex_repair_core
             ;;
         *)
             codex_fail "Unknown install plan action: $action"

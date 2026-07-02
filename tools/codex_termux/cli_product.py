@@ -39,7 +39,9 @@ def add_commands(sub: SubparserCollection) -> None:
     install_plan_cmd = sub.add_parser("install-plan")
     install_plan_cmd.add_argument("--command", required=True)
     install_plan_cmd.add_argument(
-        "--field", choices=("action", "surface", "version", "exit-code", "error"), default=None
+        "--field",
+        choices=("action", "surface", "version", "exit-code", "error", "surface-message", "success-message"),
+        default=None,
     )
     install_plan_cmd.add_argument("args", nargs=argparse.REMAINDER)
     install_plan_cmd.set_defaults(func=_install_plan)
