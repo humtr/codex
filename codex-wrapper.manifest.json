@@ -267,6 +267,7 @@
     "tools/codex_termux/atomic.py": "state",
     "tools/codex_termux/canon.py": "audit",
     "tools/codex_termux/cli_notify.py": "notify",
+    "tools/codex_termux/cli_profile.py": "profile",
     "tools/codex_termux/cli.py": "cli-dispatch",
     "tools/codex_termux/doctor.py": "doctor",
     "tools/codex_termux/errors.py": "package",

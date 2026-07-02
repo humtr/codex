@@ -9,7 +9,7 @@ import tarfile
 from pathlib import Path, PurePosixPath
 from typing import Protocol
 
-from . import activation, canon, cli_notify, doctor, hashing, install_plan, paths, prune, registry, release, repair, runtime_checks, session, source, use
+from . import activation, canon, cli_notify, cli_profile, doctor, hashing, install_plan, paths, prune, registry, release, repair, runtime_checks, session, source, use
 from .errors import CodexTermuxError, IntegrityError
 from .schemas import ActivationPlan
 
@@ -59,7 +59,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_use_commands(sub)
     _add_doctor_commands(sub)
     cli_notify.add_commands(sub)
-    _add_profile_commands(sub)
+    cli_profile.add_commands(sub)
     _add_session_commands(sub)
     return parser
 
@@ -736,62 +736,6 @@ def _doctor_render(args: argparse.Namespace) -> int:
         print(json.dumps(report, ensure_ascii=True, sort_keys=True))
         return 0
     return doctor.render_human(report)
-
-
-def _add_profile_commands(sub: SubparserCollection) -> None:
-    validate = sub.add_parser("profile-validate")
-    validate.add_argument("--profile", default="")
-    validate.set_defaults(func=_profile_validate)
-
-    profile_dir_cmd = sub.add_parser("profile-dir")
-    profile_dir_cmd.add_argument("--profile", default="default")
-    profile_dir_cmd.set_defaults(func=lambda args: _print(str(session.profile_dir(args.profile))))
-
-    display = sub.add_parser("profile-display-name")
-    display.add_argument("--profile", default="default")
-    display.set_defaults(func=lambda args: _print(session.profile_display_name(args.profile)))
-
-    is_default = sub.add_parser("profile-is-default")
-    is_default.add_argument("--profile", default="default")
-    is_default.set_defaults(func=lambda args: 0 if session.is_default_profile(args.profile) else 1)
-
-    choice = sub.add_parser("profile-choice-to-name")
-    choice.add_argument("--choice", default="")
-    choice.set_defaults(func=lambda args: _print(session.normalize_profile_choice(args.choice)))
-
-    write_recent = sub.add_parser("profile-write-recent")
-    write_recent.add_argument("--profile", default="default")
-    write_recent.set_defaults(func=_profile_write_recent)
-
-    read_recent = sub.add_parser("profile-read-recent")
-    read_recent.set_defaults(func=lambda args: _print(session.read_recent_profile()))
-
-    list_cmd = sub.add_parser("profile-list")
-    list_cmd.set_defaults(func=_profile_list)
-
-    menu = sub.add_parser("profile-menu-ids")
-    menu.set_defaults(func=_profile_menu_ids)
-
-
-def _profile_validate(args: argparse.Namespace) -> int:
-    return 0 if session.validate_profile_name(args.profile) else 1
-
-
-def _profile_write_recent(args: argparse.Namespace) -> int:
-    session.write_recent_profile(args.profile)
-    return 0
-
-
-def _profile_list(args: argparse.Namespace) -> int:
-    for profile in session.list_profiles():
-        print(profile)
-    return 0
-
-
-def _profile_menu_ids(args: argparse.Namespace) -> int:
-    for profile in session.profile_menu_ids():
-        print(profile)
-    return 0
 
 
 def _add_session_commands(sub: SubparserCollection) -> None:
