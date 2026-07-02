@@ -17,6 +17,23 @@ TMPDIR=/tmp \
 bash -lc '. "$1"; [ "$(codex_termux_cmd parent-dir --path /a/b/c)" = "/a/b" ]; [ "$(codex_termux_cmd parent-dir --path file)" = "file" ]; [ "$(codex_termux_cmd strip-trailing-slashes --path /a/b///)" = "/a/b" ]' _ "$ROOT_DIR/lib/codex-termux.sh" \
     || fail 'Python path normalization helpers changed behavior'
 
+helper_root="$(
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+        python3 -B -m codex_termux.cli helper-package-root \
+            --source-root "$ROOT_DIR" \
+            --root-dir "" \
+            --manager-dir "$TMP_ROOT/manager"
+)"
+[ "$helper_root" = "$ROOT_DIR/tools" ] || fail "helper package root mismatch: $helper_root"
+
+CODEX_TERMUX_HOME="$TMP_ROOT/home" \
+CODEX_TERMUX_PREFIX="$TMP_ROOT/prefix" \
+CODEX_TERMUX_TMPDIR="$TMP_ROOT/prefix/tmp" \
+CODEX_TERMUX_WRAPPER_ROOT="$ROOT_DIR" \
+TMPDIR=/tmp \
+bash -lc '. "$1"; [ "$(codex_termux_package_root)" = "$2/tools" ]' _ "$ROOT_DIR/lib/codex-termux.sh" "$ROOT_DIR" \
+    || fail 'codex_termux_package_root did not delegate helper root selection'
+
 CODEX_TERMUX_HOME="$TMP_ROOT/home" \
 CODEX_TERMUX_PREFIX="$TMP_ROOT/prefix" \
 CODEX_TERMUX_TMPDIR="$TMP_ROOT/prefix/tmp" \

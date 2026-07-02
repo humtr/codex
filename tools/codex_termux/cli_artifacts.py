@@ -42,6 +42,12 @@ def add_commands(sub: SubparserCollection) -> None:
     strip_slashes.add_argument("--path", required=True)
     strip_slashes.set_defaults(func=lambda args: _print(paths.strip_trailing_slashes(args.path)))
 
+    helper_root = sub.add_parser("helper-package-root")
+    helper_root.add_argument("--source-root", required=True)
+    helper_root.add_argument("--root-dir", default="")
+    helper_root.add_argument("--manager-dir", required=True)
+    helper_root.set_defaults(func=_helper_package_root)
+
     managed = sub.add_parser("managed-tree-target-ok")
     for name in ("path", "label", "home", "prefix", "tmpdir", "root", "state"):
         managed.add_argument(f"--{name}", required=True)
@@ -188,6 +194,14 @@ def _managed_tree_target_ok(args: argparse.Namespace) -> int:
         state=args.state,
     )
     return 0
+
+
+def _helper_package_root(args: argparse.Namespace) -> int:
+    return _print(paths.helper_package_root(
+        source_root=Path(args.source_root),
+        root_dir=args.root_dir,
+        manager_dir=Path(args.manager_dir),
+    ))
 
 
 def _auto_update_due(args: argparse.Namespace) -> int:

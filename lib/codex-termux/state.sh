@@ -208,19 +208,15 @@ codex_now() {
 }
 
 codex_termux_package_root() {
-    local source_dir source_root package_root=""
-    source_root="$CODEX_TERMUX_WRAPPER_ROOT"
-    if [ -d "$source_root/tools/codex_termux" ]; then
-        package_root="$source_root/tools"
-    elif [ -n "${ROOT_DIR:-}" ] && [ -d "$ROOT_DIR/tools/codex_termux" ]; then
-        package_root="$ROOT_DIR/tools"
-    elif [ -d "$CODEX_TERMUX_MANAGER_DIR/codex_termux" ]; then
-        package_root="$CODEX_TERMUX_MANAGER_DIR"
-    else
+    local source_root="$CODEX_TERMUX_WRAPPER_ROOT" root_dir="${ROOT_DIR:-}" python_path
+    python_path="$source_root/tools${root_dir:+:$root_dir/tools}"
+    python_path="$python_path:$CODEX_TERMUX_MANAGER_DIR"
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$python_path${PYTHONPATH:+:$PYTHONPATH}" \
+        python3 -B -m codex_termux.cli helper-package-root --source-root "$source_root" --root-dir "$root_dir" \
+            --manager-dir "$CODEX_TERMUX_MANAGER_DIR" || {
         codex_fail "Internal helper package is unavailable"
         return 1
-    fi
-    printf '%s\n' "$package_root"
+    }
 }
 
 codex_termux_cmd() {

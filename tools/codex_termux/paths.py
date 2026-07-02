@@ -57,6 +57,19 @@ def strip_trailing_slashes(value: str) -> str:
     return path
 
 
+def helper_package_root(*, source_root: Path, root_dir: str, manager_dir: Path) -> Path:
+    source_tools = source_root / "tools"
+    if (source_tools / "codex_termux").is_dir():
+        return source_tools
+    if root_dir:
+        root_tools = Path(root_dir) / "tools"
+        if (root_tools / "codex_termux").is_dir():
+            return root_tools
+    if (manager_dir / "codex_termux").is_dir():
+        return manager_dir
+    raise IntegrityError("Internal helper package is unavailable")
+
+
 def path_is_within(path: str, root: str) -> bool:
     clean_path = strip_trailing_slashes(path)
     clean_root = strip_trailing_slashes(root)
