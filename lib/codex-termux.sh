@@ -63,25 +63,18 @@ CODEX_TERMUX_PATCH_POLICY="${CODEX_TERMUX_PATCH_POLICY:-termux-fd-remap-v1}"
 CODEX_TERMUX_WRAPPER_SOURCE_CONFIG="${CODEX_TERMUX_WRAPPER_SOURCE_CONFIG:-$CODEX_TERMUX_HOME/.config/codex-termux/wrapper-source.env}"
 
 CODEX_STATUS_ACTIVE=0
-
-
-CODEX_TERMUX_SHELL_BASENAME="${BASH_SOURCE[0]##*/}"
-CODEX_TERMUX_SHELL_LIB="${CODEX_TERMUX_SHELL_LIB:-$CODEX_TERMUX_SHELL_DIR/$CODEX_TERMUX_SHELL_BASENAME}"
-unset CODEX_TERMUX_SHELL_BASENAME
+CODEX_TERMUX_SHELL_LIB="${CODEX_TERMUX_SHELL_LIB:-$CODEX_TERMUX_SHELL_DIR/${BASH_SOURCE[0]##*/}}"
 CODEX_TERMUX_WRAPPER_ROOT="${CODEX_TERMUX_WRAPPER_ROOT:-$(cd "$CODEX_TERMUX_SHELL_DIR/.." && pwd)}"
 
 codex_source_domain() {
-    local domain="$1" path
-    path="$CODEX_TERMUX_SHELL_DIR/codex-termux/$domain.sh"
-    if [ ! -r "$path" ]; then
+    local path="$CODEX_TERMUX_SHELL_DIR/codex-termux/$1.sh"
+    [ -r "$path" ] || {
         printf 'ERROR: missing Codex Termux wrapper domain: %s\n' "$path" >&2
         return 1
-    fi
+    }
     # shellcheck disable=SC1090
     . "$path"
 }
 
-for CODEX_TERMUX_DOMAIN in state runtime notify doctor profile session dispatch; do
-    codex_source_domain "$CODEX_TERMUX_DOMAIN" || return $?
-done
+for CODEX_TERMUX_DOMAIN in state runtime notify doctor profile session dispatch; do codex_source_domain "$CODEX_TERMUX_DOMAIN" || return $?; done
 unset CODEX_TERMUX_DOMAIN
