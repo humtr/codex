@@ -679,14 +679,6 @@ codex_runtime_ok() {
     codex_runtime_integrity_ok
 }
 
-codex_support_layer_ok() {
-    codex_termux_cmd support-layer-ok \
-        --managed-shell "$CODEX_TERMUX_MANAGED_SHELL" \
-        --manager-dir "$CODEX_TERMUX_MANAGER_DIR" \
-        --public-codex "$CODEX_TERMUX_PUBLIC_CODEX" \
-        --marker "$CODEX_TERMUX_MANAGED_LAUNCHER_MARKER"
-}
-
 codex_runtime_metadata_current() {
     codex_termux_cmd runtime-metadata-current \
         --state-path "$CODEX_TERMUX_STATE_FILE" \
