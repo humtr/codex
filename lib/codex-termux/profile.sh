@@ -22,8 +22,16 @@ codex_profile_runtime_exec() {
 
 CODEX_PROMPT_CHOICE_RESULT=""
 
+codex_prompt_choice_action() {
+    codex_termux_cmd prompt-choice-action \
+        --reply "${1:-}" \
+        --mode "$2" \
+        --max-items "$3" \
+        --phase "$4"
+}
+
 codex_prompt_choice() {
-    local prompt="${1:-choose> }" mode="${2:-freeform}" max_items="${3:-9}" reply rest old_tty status
+    local prompt="${1:-choose> }" mode="${2:-freeform}" max_items="${3:-9}" reply rest old_tty status action
     CODEX_PROMPT_CHOICE_RESULT=""
     codex_status_clear
     printf '%s' "$prompt" >&2
@@ -38,99 +46,65 @@ codex_prompt_choice() {
                 printf '\n' >&2
                 return 1
             fi
-            case "$reply" in
-                $'\e')
+            action="$(codex_prompt_choice_action "$reply" "$mode" "$max_items" tty)" || {
+                [ -z "$old_tty" ] || stty "$old_tty" 2>/dev/null || true
+                printf '\n' >&2
+                return 1
+            }
+            case "$action" in
+                cancel)
                     [ -z "$old_tty" ] || stty "$old_tty" 2>/dev/null || true
                     printf '\n' >&2
                     return 130
                     ;;
-                $'\n'|$'\r'|'')
+                empty)
                     [ -z "$old_tty" ] || stty "$old_tty" 2>/dev/null || true
                     printf '\n' >&2
                     return 0
                     ;;
-                [0-9])
-                    if [ "$mode" = "digits" ]; then
-                        if [ "$reply" = "0" ] || [ "$reply" -le "$max_items" ]; then
-                            [ -z "$old_tty" ] || stty "$old_tty" 2>/dev/null || true
-                            printf '%s\n' "$reply" >&2
-                            CODEX_PROMPT_CHOICE_RESULT="$reply"
-                            return 0
-                        fi
-                        continue
-                    fi
-                    if [ "$max_items" -le 9 ]; then
-                        [ -z "$old_tty" ] || stty "$old_tty" 2>/dev/null || true
-                        printf '%s\n' "$reply" >&2
-                        CODEX_PROMPT_CHOICE_RESULT="$reply"
-                        return 0
-                    fi
+                accept)
+                    [ -z "$old_tty" ] || stty "$old_tty" 2>/dev/null || true
+                    printf '%s\n' "$reply" >&2
+                    CODEX_PROMPT_CHOICE_RESULT="$reply"
+                    return 0
                     ;;
-                [yYnN])
-                    if [ "$mode" = "yn" ]; then
-                        [ -z "$old_tty" ] || stty "$old_tty" 2>/dev/null || true
-                        printf '%s\n' "$reply" >&2
-                        CODEX_PROMPT_CHOICE_RESULT="$reply"
-                        return 0
-                    fi
+                continue)
+                    continue
                     ;;
-                *)
-                    case "$mode" in
-                        digits|yn) continue ;;
-                    esac
+                read-rest)
                     break
                     ;;
+                *)
+                    [ -z "$old_tty" ] || stty "$old_tty" 2>/dev/null || true
+                    printf '\n' >&2
+                    return 1
+                    ;;
             esac
-            break
         done
         [ -z "$old_tty" ] || stty "$old_tty" 2>/dev/null || true
     elif ! IFS= read -r -N 1 reply; then
         printf '\n' >&2
         return 1
     fi
-    case "$reply" in
-        $'\e')
+    action="$(codex_prompt_choice_action "$reply" "$mode" "$max_items" final)" || return $?
+    case "$action" in
+        cancel)
             printf '\n' >&2
             return 130
             ;;
-        $'\n'|$'\r'|'')
+        empty)
             printf '\n' >&2
             return 0
             ;;
-        [0-9])
-            if [ "$mode" = "digits" ]; then
-                if [ "$reply" = "0" ] || [ "$reply" -le "$max_items" ]; then
-                    printf '%s\n' "$reply" >&2
-                    CODEX_PROMPT_CHOICE_RESULT="$reply"
-                    return 0
-                fi
-                return 1
-            fi
-            if [ "$max_items" -le 9 ]; then
-                printf '%s\n' "$reply" >&2
-                CODEX_PROMPT_CHOICE_RESULT="$reply"
-                return 0
-            fi
+        accept)
+            printf '%s\n' "$reply" >&2
+            CODEX_PROMPT_CHOICE_RESULT="$reply"
+            return 0
             ;;
-        *)
-        [ "$mode" = "digits" ] && return 1
+        fail)
+            return 1
             ;;
     esac
-    if [ "$mode" = "yn" ]; then
-        case "$reply" in
-            [yYnN])
-                printf '%s\n' "$reply" >&2
-                CODEX_PROMPT_CHOICE_RESULT="$reply"
-                return 0
-                ;;
-            '')
-                return 0
-                ;;
-            *)
-                return 1
-                ;;
-        esac
-    fi
     rest=""
     printf '%s' "$reply" >&2
     IFS= read -r rest || true

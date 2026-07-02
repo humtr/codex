@@ -41,6 +41,13 @@ def add_commands(sub: SubparserCollection) -> None:
     create_confirm.add_argument("--choice", default="")
     create_confirm.set_defaults(func=lambda args: 0 if session.profile_create_confirmed(args.choice) else 1)
 
+    prompt_action = sub.add_parser("prompt-choice-action")
+    prompt_action.add_argument("--reply", default="")
+    prompt_action.add_argument("--mode", choices=("freeform", "digits", "yn"), required=True)
+    prompt_action.add_argument("--max-items", default="9")
+    prompt_action.add_argument("--phase", choices=("tty", "final"), required=True)
+    prompt_action.set_defaults(func=_prompt_choice_action)
+
     write_recent = sub.add_parser("profile-write-recent")
     write_recent.add_argument("--profile", default="default")
     write_recent.set_defaults(func=_profile_write_recent)
@@ -90,4 +97,14 @@ def _profile_menu_ids(args: argparse.Namespace) -> int:
 
 def _profile_menu_render(args: argparse.Namespace) -> int:
     print(session.render_profile_menu(interactive=args.interactive == "1"))
+    return 0
+
+
+def _prompt_choice_action(args: argparse.Namespace) -> int:
+    print(session.prompt_choice_action(
+        args.reply,
+        mode=args.mode,
+        max_items=args.max_items,
+        phase=args.phase,
+    ))
     return 0

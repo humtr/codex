@@ -161,6 +161,38 @@ def profile_create_confirmed(choice: str | None) -> bool:
     return (choice or "") in {"y", "Y"}
 
 
+def prompt_choice_action(reply: str | None, *, mode: str, max_items: str | int, phase: str) -> str:
+    raw = reply or ""
+    limit = _int_or_zero(max_items)
+    if raw == "\x1b":
+        return "cancel"
+    if raw in ("", "\n", "\r"):
+        return "empty"
+    if raw.isdigit() and len(raw) == 1:
+        value = int(raw)
+        if mode == "digits":
+            return "accept" if value == 0 or value <= limit else _invalid_prompt_action(phase)
+        if limit <= 9:
+            return "accept"
+        return "read-rest"
+    if mode == "digits":
+        return _invalid_prompt_action(phase)
+    if mode == "yn":
+        return "accept" if raw in {"y", "Y", "n", "N"} else _invalid_prompt_action(phase)
+    return "read-rest"
+
+
+def _invalid_prompt_action(phase: str) -> str:
+    return "continue" if phase == "tty" else "fail"
+
+
+def _int_or_zero(value: str | int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
 def write_recent_profile(profile: str | None) -> None:
     name = normalize_profile_choice(profile)
     target = get_last_profile_file()

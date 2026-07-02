@@ -47,6 +47,20 @@ codex_termux_cmd profile-create-confirmed --choice y
 codex_termux_cmd profile-create-confirmed --choice Y
 ! codex_termux_cmd profile-create-confirmed --choice n
 ! codex_termux_cmd profile-create-confirmed --choice ""
+[ "$(codex_termux_cmd prompt-choice-action --reply 4 --mode digits --max-items 4 --phase final)" = "accept" ]
+[ "$(codex_termux_cmd prompt-choice-action --reply 5 --mode digits --max-items 4 --phase final)" = "fail" ]
+[ "$(codex_termux_cmd prompt-choice-action --reply 5 --mode digits --max-items 4 --phase tty)" = "continue" ]
+[ "$(codex_termux_cmd prompt-choice-action --reply y --mode yn --max-items 0 --phase final)" = "accept" ]
+[ "$(codex_termux_cmd prompt-choice-action --reply x --mode yn --max-items 0 --phase final)" = "fail" ]
+[ "$(codex_termux_cmd prompt-choice-action --reply x --mode freeform --max-items 12 --phase final)" = "read-rest" ]
+codex_prompt_choice "digits> " digits 4 <<<"4" 2>>"$2/prompt.err"
+[ "$CODEX_PROMPT_CHOICE_RESULT" = "4" ]
+! codex_prompt_choice "digits> " digits 4 <<<"5" 2>>"$2/prompt.err"
+codex_prompt_choice "yn> " yn 0 <<<"y" 2>>"$2/prompt.err"
+[ "$CODEX_PROMPT_CHOICE_RESULT" = "y" ]
+! codex_prompt_choice "yn> " yn 0 <<<"x" 2>>"$2/prompt.err"
+codex_prompt_choice "freeform> " freeform 12 <<<"alpha" 2>>"$2/prompt.err"
+[ "$CODEX_PROMPT_CHOICE_RESULT" = "alpha" ]
 ' _ "$LIB_SH" "$TMP_DIR" || fail 'profile shell wrappers changed behavior'
 
 printf 'profile-boundary: ok\n'
