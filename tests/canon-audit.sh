@@ -60,10 +60,13 @@ expected_targets = {
     "profile_shell_lines": 220,
 }
 for key, target in expected_targets.items():
-    assert key in target_gaps, key
-    assert target_gaps[key]["target"] == target, target_gaps[key]
-    assert target_gaps[key]["value"] == metrics[key], (key, target_gaps[key], metrics[key])
-    assert target_gaps[key]["gap"] == metrics[key] - target, target_gaps[key]
+    if metrics[key] > target:
+        assert key in target_gaps, key
+        assert target_gaps[key]["target"] == target, target_gaps[key]
+        assert target_gaps[key]["value"] == metrics[key], (key, target_gaps[key], metrics[key])
+        assert target_gaps[key]["gap"] == metrics[key] - target, target_gaps[key]
+    else:
+        assert key not in target_gaps, (key, target_gaps.get(key))
 PY
 
 printf 'canon-audit: ok\n'
