@@ -38,6 +38,12 @@ READINESS_ACTIONS = (
     ACTION_RAW_CORRUPT,
 )
 
+PLAN_NOOP = "noop"
+PLAN_REFRESH_METADATA = "refresh_metadata"
+PLAN_RESTORE_VERIFIED = "restore_verified"
+PLAN_REBUILD_CACHED = "rebuild_cached"
+PLAN_ERROR = "error"
+
 
 @dataclass(frozen=True)
 class RepairInputs:
@@ -78,12 +84,75 @@ class RepairDiagnosis:
         return asdict(self)
 
 
+@dataclass(frozen=True)
+class RuntimeActionPlan:
+    kind: str
+    step: str = ""
+    refresh_after: bool = False
+    error: str = ""
+    exit_code: int = 0
+
+    def field(self, name: str) -> str:
+        if name == "kind":
+            return self.kind
+        if name == "step":
+            return self.step
+        if name == "refresh-after":
+            return "1" if self.refresh_after else "0"
+        if name == "error":
+            return self.error
+        if name == "exit-code":
+            return str(self.exit_code)
+        raise ValueError(f"unknown runtime action plan field: {name}")
+
+
 def diagnose(inputs: RepairInputs) -> RepairDiagnosis:
     support_ok = runtime_checks.support_layer_ok(
         managed_shell=inputs.managed_shell,
         manager_dir=inputs.manager_dir,
         public_codex=inputs.public_codex,
         marker=inputs.marker,
+    )
+
+
+def runtime_action_plan(action: str, intent: str) -> RuntimeActionPlan:
+    if action in (ACTION_NONE, ACTION_READY):
+        return RuntimeActionPlan(PLAN_NOOP)
+    if action == ACTION_REFRESH_METADATA:
+        return RuntimeActionPlan(
+            PLAN_REFRESH_METADATA,
+            step="repair_metadata" if intent == "repair" else "",
+        )
+    if action == ACTION_RESTORE_VERIFIED:
+        return RuntimeActionPlan(PLAN_RESTORE_VERIFIED, refresh_after=True)
+    if action == ACTION_REBUILD_CACHED:
+        return RuntimeActionPlan(
+            PLAN_REBUILD_CACHED,
+            step="repair_runtime" if intent == "repair" else "rebuild_cached_runtime",
+            refresh_after=(intent == "repair"),
+        )
+    if action == ACTION_RAW_CORRUPT:
+        return RuntimeActionPlan(
+            PLAN_ERROR,
+            error="Cached raw package integrity check failed; run codex termux update",
+            exit_code=1,
+        )
+    if action == ACTION_MISSING_RUNTIME:
+        return RuntimeActionPlan(
+            PLAN_ERROR,
+            error="Runtime is missing and no cached raw package is available; run codex termux update",
+            exit_code=127,
+        )
+    if action == ACTION_UNRECOVERABLE:
+        return RuntimeActionPlan(
+            PLAN_ERROR,
+            error="Runtime is damaged and cached raw is unavailable or invalid; run codex termux update",
+            exit_code=1,
+        )
+    return RuntimeActionPlan(
+        PLAN_ERROR,
+        error=f"Unknown runtime action: {action}",
+        exit_code=1,
     )
     runtime_layout_ok = runtime_checks.runtime_layout_ok(
         runtime_dir=inputs.runtime_dir,

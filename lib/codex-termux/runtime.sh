@@ -316,7 +316,7 @@ codex_runtime_build_cached_unlocked() {
 codex_runtime_install_cached_unlocked() {
     local version package_spec
     codex_raw_integrity_ok || {
-        codex_fail "Cached raw package integrity check failed; run codex termux update"
+        codex_fail "$(codex_ui_text_get cached_raw_integrity_failed)"
         return 1
     }
     version="$(codex_read_state_field version)"
@@ -369,49 +369,45 @@ codex_repair_diagnose_action() {
         --field "$field"
 }
 
+codex_runtime_action_plan_field() {
+    codex_termux_cmd runtime-action-plan \
+        --action "$1" \
+        --intent "$2" \
+        --field "$3"
+}
+
 codex_runtime_apply_action() {
-    local action="$1" intent="${2:-readiness}"
-    case "$action" in
-        none|ready)
+    local action="$1" intent="${2:-readiness}" kind step refresh_after error exit_code status=0
+    kind="$(codex_runtime_action_plan_field "$action" "$intent" kind)" || return $?
+    step="$(codex_runtime_action_plan_field "$action" "$intent" step)" || return $?
+    [ -z "$step" ] || codex_ui_step "$step"
+    case "$kind" in
+        noop)
             return 0
             ;;
         refresh_metadata)
-            [ "$intent" != "repair" ] || codex_ui_step repair_metadata
-            codex_refresh_runtime_metadata
-            return $?
+            codex_refresh_runtime_metadata || status=$?
             ;;
         restore_verified)
-            codex_try_verified_rollback || return $?
-            codex_refresh_runtime_metadata
-            return $?
+            codex_try_verified_rollback || status=$?
             ;;
         rebuild_cached)
-            if [ "$intent" = "repair" ]; then
-                codex_ui_step repair_runtime
-            else
-                codex_ui_step rebuild_cached_runtime
-            fi
-            codex_runtime_install_cached || return $?
-            [ "$intent" != "repair" ] || codex_refresh_runtime_metadata
-            return $?
+            codex_runtime_install_cached || status=$?
             ;;
-        raw_corrupt)
-            codex_fail "Cached raw package integrity check failed; run codex termux update"
-            return 1
-            ;;
-        missing_runtime)
-            codex_fail "Runtime is missing and no cached raw package is available; run codex termux update"
-            return 127
-            ;;
-        unrecoverable)
-            codex_fail "Runtime is damaged and cached raw is unavailable or invalid; run codex termux update"
-            return 1
+        error)
+            error="$(codex_runtime_action_plan_field "$action" "$intent" error)" || return $?
+            exit_code="$(codex_runtime_action_plan_field "$action" "$intent" exit-code)" || return $?
+            codex_fail "$error"
+            return "$exit_code"
             ;;
         *)
-            codex_fail "Unknown runtime action: $action"
+            codex_fail "Unknown runtime action executor: $kind"
             return 1
             ;;
     esac
+    [ "$status" -eq 0 ] || return "$status"
+    refresh_after="$(codex_runtime_action_plan_field "$action" "$intent" refresh-after)" || return $?
+    [ "$refresh_after" != "1" ] || codex_refresh_runtime_metadata
 }
 
 codex_repair_apply() {

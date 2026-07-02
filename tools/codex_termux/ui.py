@@ -62,6 +62,9 @@ def text(key: str, *args: str) -> str:
         "launch_label": "launch Codex",
         "done_label": "done",
         "profile_create_cancelled": "Profile creation cancelled.",
+        "cached_raw_integrity_failed": (
+            "Cached raw package integrity check failed; run codex termux update"
+        ),
         "restored_verified": "Restored the active runtime from the verified copy.",
         "setup_reserved": (
             "The upstream setup command is reserved. Use codex termux install, "
