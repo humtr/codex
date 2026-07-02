@@ -64,6 +64,10 @@ assert env == {
 }, env
 exports = source.source_env_exports({"CODEX_TERMUX_WRAPPER_REPO": "owner/repo with space"})
 assert exports == "export CODEX_TERMUX_WRAPPER_REPO='owner/repo with space'", exports
+assert source.auth_token({"CODEX_TERMUX_WRAPPER_TOKEN": "direct", "GITHUB_TOKEN": "github"}) == "direct"
+assert source.auth_token({"CODEX_TERMUX_WRAPPER_GIT_TOKEN": "legacy", "GITHUB_TOKEN": "github"}) == "legacy"
+assert source.auth_token({"GITHUB_TOKEN": "github"}) == "github"
+assert source.auth_token({}) == ""
 
 with tempfile.TemporaryDirectory() as tmp:
     root = Path(tmp)
@@ -100,7 +104,8 @@ url="$(
 [ "$url" = "https://github.com/humtr/codex.git" ] || fail "CLI git-url mismatch: $url"
 
 extract_root="$TMP_PARENT/codex-source-plan-extract.$$"
-trap 'rm -rf "$extract_root"' EXIT
+gh_root="$TMP_PARENT/codex-source-plan-gh.$$"
+trap 'rm -rf "$extract_root" "$gh_root"' EXIT
 mkdir -p "$extract_root/codex-release/bin" "$extract_root/codex-release/lib/codex-termux" \
     "$extract_root/codex-release/tools/codex_termux" "$extract_root/codex-release/config"
 printf 'test\n' >"$extract_root/codex-release/install.sh"
@@ -123,5 +128,25 @@ resolved="$(
 )"
 expected="$(cd "$extract_root/codex-release" && pwd)"
 [ "$resolved" = "$expected" ] || fail "CLI wrapper-source-root mismatch: $resolved"
+
+auth_token="$(
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+        python3 -B -m codex_termux.cli wrapper-auth-token \
+            --git-token legacy-token --github-token github-token
+)"
+[ "$auth_token" = "legacy-token" ] || fail "CLI wrapper-auth-token priority mismatch: $auth_token"
+
+mkdir -p "$gh_root"
+cat >"$gh_root/gh" <<'SCRIPT'
+#!/bin/sh
+[ "$1" = "auth" ] && [ "$2" = "token" ] || exit 2
+printf '%s\n' fake-gh-token
+SCRIPT
+chmod 755 "$gh_root/gh"
+auth_token="$(
+    PATH="$gh_root:$PATH" PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+        python3 -B -m codex_termux.cli wrapper-auth-token --allow-gh 1
+)"
+[ "$auth_token" = "fake-gh-token" ] || fail "CLI wrapper-auth-token gh fallback mismatch: $auth_token"
 
 printf 'source-plan: ok\n'

@@ -37,6 +37,12 @@ def add_commands(sub: SubparserCollection) -> None:
         wrapper_source_env.add_argument(f"--{name}", default="")
     wrapper_source_env.set_defaults(func=_wrapper_source_env)
 
+    wrapper_auth = sub.add_parser("wrapper-auth-token")
+    for name in ("token", "git-token", "release-token", "github-token"):
+        wrapper_auth.add_argument(f"--{name}", default="")
+    wrapper_auth.add_argument("--allow-gh", choices=("0", "1"), default="0")
+    wrapper_auth.set_defaults(func=_wrapper_auth_token)
+
     wrapper_source_plan = sub.add_parser("wrapper-source-plan")
     for name in ("repo", "ref", "release-url", "release-repo", "release-tag", "local-root"):
         wrapper_source_plan.add_argument(f"--{name}", default="")
@@ -139,6 +145,22 @@ def _wrapper_source_env(args: argparse.Namespace) -> int:
     text = source.source_env_exports(values)
     if text:
         print(text)
+    return 0
+
+
+def _wrapper_auth_token(args: argparse.Namespace) -> int:
+    token = source.auth_token(
+        {
+            source.env_key("TOKEN"): args.token,
+            source.env_key("GIT_TOKEN"): args.git_token,
+            source.env_key("RELEASE_TOKEN"): args.release_token,
+            "GITHUB_TOKEN": args.github_token,
+        },
+        allow_gh=args.allow_gh == "1",
+    )
+    if not token:
+        return 1
+    print(token)
     return 0
 
 

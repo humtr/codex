@@ -58,15 +58,12 @@ codex_normalize_wrapper_source_config() {
 }
 
 codex_wrapper_auth_token() {
-    local token
-    codex_normalize_wrapper_source_config
-    token="${CODEX_TERMUX_WRAPPER_TOKEN:-}"
-    [ -n "$token" ] || token="${GITHUB_TOKEN:-}"
-    if [ -z "$token" ] && command -v gh >/dev/null 2>&1; then
-        token="$(gh auth token 2>/dev/null || true)"
-    fi
-    [ -n "$token" ] || return 1
-    printf '%s\n' "$token"
+    codex_termux_cmd wrapper-auth-token \
+        --token "${CODEX_TERMUX_WRAPPER_TOKEN:-}" \
+        --git-token "${CODEX_TERMUX_WRAPPER_GIT_TOKEN:-}" \
+        --release-token "${CODEX_TERMUX_WRAPPER_RELEASE_TOKEN:-}" \
+        --github-token "${GITHUB_TOKEN:-}" \
+        --allow-gh 1
 }
 
 codex_ui_format() {

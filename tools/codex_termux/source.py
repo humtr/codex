@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import shutil
 import shlex
+import subprocess
 from pathlib import Path
 
 from .errors import IntegrityError
@@ -97,12 +99,40 @@ def source_env_exports(values: dict[str, str]) -> str:
     return "\n".join(lines)
 
 
+def auth_token(values: dict[str, str], *, allow_gh: bool = False) -> str:
+    normalized = normalized_source_env(values)
+    token = normalized.get(env_key("TOKEN")) or values.get("GITHUB_TOKEN", "")
+    if token:
+        return token
+    if not allow_gh:
+        return ""
+    return _gh_auth_token()
+
+
 def _legacy_key(suffix: str) -> str:
     return "CODEX_TERMUX_WRAPPER_" + suffix
 
 
 def env_key(suffix: str) -> str:
     return _legacy_key(suffix)
+
+
+def _gh_auth_token() -> str:
+    if shutil.which("gh") is None:
+        return ""
+    try:
+        result = subprocess.run(
+            ["gh", "auth", "token"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    if result.returncode != 0:
+        return ""
+    return result.stdout.splitlines()[0] if result.stdout.splitlines() else ""
 
 
 @dataclass(frozen=True)
