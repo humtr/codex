@@ -166,11 +166,49 @@ with TemporaryDirectory() as tmp:
     )
 
     wrapper = report["wrapper"]
+    assert report["schema"] == 2, report
+    assert report["overallStatus"] == "ok", report
+    assert report["activeTupleId"] == tuple_id, report
+    assert report["verifiedTupleId"] == tuple_id, report
+    for key in (
+        "raw_hash",
+        "runtime_hash",
+        "registry_active_tuple",
+        "registry_current_match",
+        "registry_verified_match",
+        "current_verified_match",
+    ):
+        assert report["checks"][key] is True, (key, report["checks"])
     assert wrapper["version"] == "260627-36", wrapper
     assert wrapper["repo"] == "humtr/codex", wrapper
     assert wrapper["commit"] == "2497a22aadc2", wrapper
     assert wrapper["installedAt"] == "2026-06-27T23:22:48+09:00", wrapper
     assert wrapper["channel"] == "termux", wrapper
+
+    mismatched = doctor.build_report(
+        doctor.DoctorInputs(
+            runtime=current_runtime / "codex",
+            current_link=current_link,
+            verified_link=verified_link,
+            raw_link=raw_link,
+            manager_dir=manager,
+            runtime_store=runtime_store,
+            raw_store=raw_store,
+            raw_vendor=raw_vendor,
+            resolv_conf=root / "resolv.conf",
+            cert_file=root / "cert.pem",
+            state_file=state_file,
+            registry_file=registry_file,
+            version="0.142.3-linux-arm64",
+            raw_sha256=raw_sha,
+            runtime_sha256="0" * 64,
+            prefix=Path("/data/data/com.termux/files/usr"),
+            runtime_builder=builder,
+            patch_policy="termux-fd-remap-v1",
+        )
+    )
+    assert mismatched["overallStatus"] == "fail", mismatched
+    assert mismatched["checks"]["runtime_hash"] is False, mismatched["checks"]
 
     buffer = io.StringIO()
     assert doctor.render_human(report, buffer) == 0
