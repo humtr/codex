@@ -44,11 +44,11 @@ codex_status_clear() { STATUS_LOG="${STATUS_LOG}${STATUS_LOG:+|}<clear>"; }
 codex_say() { SAY_LOG="${SAY_LOG}${SAY_LOG:+|}$*"; }
 
 USAGE_CALLED=0
-codex_install_dispatch upstream --help
+codex_install_run_plan install upstream --help
 [ "$USAGE_CALLED" -eq 1 ] || fail 'install upstream --help did not show usage'
 [ "$UPSTREAM_ARG" = "__unset__" ] || fail 'install upstream --help reached upstream install'
 
-if codex_install_dispatch upstream --bad-option; then
+if codex_install_run_plan install upstream --bad-option; then
     fail 'install upstream accepted an option-looking version'
 fi
 case "$FAILED_MESSAGE" in
@@ -56,7 +56,7 @@ case "$FAILED_MESSAGE" in
     *) fail "unexpected upstream option error: $FAILED_MESSAGE" ;;
 esac
 
-if codex_install_dispatch upstream 0.1.0 extra; then
+if codex_install_run_plan install upstream 0.1.0 extra; then
     fail 'install upstream accepted extra arguments'
 fi
 case "$FAILED_MESSAGE" in
@@ -71,7 +71,7 @@ REPAIR_COUNT=0
 VERSION_COUNT=0
 STATUS_LOG=""
 SAY_LOG=""
-codex_install_dispatch rebuild
+codex_install_run_plan install rebuild
 [ "$SUPPORT_COUNT" -eq 1 ] || fail 'install rebuild did not refresh support'
 [ "$LAUNCHER_COUNT" -eq 1 ] || fail 'install rebuild did not refresh launcher'
 [ "$CACHED_COUNT" -eq 1 ] || fail 'install rebuild did not rebuild cached runtime'
@@ -87,7 +87,7 @@ LAUNCHER_COUNT=0
 VERSION_COUNT=0
 STATUS_LOG=""
 SAY_LOG=""
-codex_install_dispatch support
+codex_install_run_plan install support
 [ "$SUPPORT_COUNT" -eq 1 ] || fail 'install support did not refresh support'
 [ "$LAUNCHER_COUNT" -eq 1 ] || fail 'install support did not refresh launcher'
 [ "$VERSION_COUNT" -eq 0 ] || fail 'install support should not render version'
@@ -131,7 +131,7 @@ LAUNCHER_COUNT=0
 VERSION_COUNT=0
 STATUS_LOG=""
 SAY_LOG=""
-CODEX_TERMUX_INSTALL_SURFACE=0 codex_install_dispatch support
+CODEX_TERMUX_INSTALL_SURFACE=0 codex_install_run_plan install support
 [ "$SUPPORT_COUNT" -eq 1 ] || fail 'quiet install support did not refresh support'
 [ "$LAUNCHER_COUNT" -eq 1 ] || fail 'quiet install support did not refresh launcher'
 [ -z "$STATUS_LOG" ] || fail "quiet install support emitted status: $STATUS_LOG"

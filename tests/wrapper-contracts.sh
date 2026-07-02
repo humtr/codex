@@ -39,16 +39,16 @@ codex_refresh_runtime_metadata() { return 0; }
 codex_version() { return 0; }
 codex_status() { :; }; codex_status_clear() { :; }; codex_say() { :; }
 codex_termux_doctor() { DOCTOR_ARGS="$*"; }
-codex_install_dispatch support
+codex_install_run_plan install support
 [ "$SUPPORT_COUNT" -eq 1 ] && [ "$LAUNCHER_COUNT" -eq 1 ] && [ "$CACHED_COUNT" -eq 0 ] || fail 'install support contract failed'
 SUPPORT_COUNT=0; LAUNCHER_COUNT=0; CACHED_COUNT=0
-codex_install_dispatch rebuild
+codex_install_run_plan install rebuild
 [ "$SUPPORT_COUNT" -eq 1 ] && [ "$LAUNCHER_COUNT" -eq 1 ] && [ "$CACHED_COUNT" -eq 1 ] || fail 'install rebuild contract failed'
-codex_install_dispatch upstream
+codex_install_run_plan install upstream
 [ "$UPSTREAM_ARG" = "" ] || fail 'install upstream empty version contract failed'
-codex_install_dispatch upstream 0.142.0
+codex_install_run_plan install upstream 0.142.0
 [ "$UPSTREAM_ARG" = "0.142.0" ] || fail 'install upstream optional version contract failed'
-if codex_install_dispatch upstream --bad-option; then fail 'install upstream accepted option-like version'; fi
+if codex_install_run_plan install upstream --bad-option; then fail 'install upstream accepted option-like version'; fi
 main doctor --json
 [ "$DOCTOR_ARGS" = "--json" ] || fail "doctor did not dispatch to codex_termux_doctor: $DOCTOR_ARGS"
 grep -F 'codex_rm_rf_managed "$CODEX_TERMUX_MANAGER_DIR/codex-termux"' "$INSTALL_RUNTIME" >/dev/null || fail 'domain support directory is not managed-protected'

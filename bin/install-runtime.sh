@@ -502,15 +502,11 @@ codex_install_run_plan() {
     esac
 }
 
-codex_install_dispatch() {
-    codex_install_run_plan install "$@"
-}
-
 main() {
     case "${1:-install}" in
         install)
             shift || true
-            codex_install_dispatch "$@"
+            codex_install_run_plan install "$@"
             ;;
         repair)
             shift || true
