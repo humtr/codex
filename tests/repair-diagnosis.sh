@@ -12,7 +12,11 @@ fail() {
 }
 
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" python3 -B - <<'PYTHON' || fail 'repair action model failed'
-from codex_termux import repair
+import json
+import tempfile
+from pathlib import Path
+
+from codex_termux import repair, runtime_checks, schemas
 
 
 def action(**checks: bool) -> str:
@@ -113,6 +117,38 @@ assert missing.exit_code == 127
 unknown = plan("future_action", "readiness")
 assert unknown.kind == repair.PLAN_ERROR
 assert unknown.exit_code == 1
+
+with tempfile.TemporaryDirectory() as tmp:
+    state_file = Path(tmp) / "state.json"
+    state = schemas.build_state_v3(
+        version="0.142.4",
+        raw_sha256="a" * 64,
+        runtime_sha256="b" * 64,
+        package_spec="@openai/codex@0.142.4-linux-arm64",
+        active_tuple_id="tuple-a",
+        wrapper_version="260702-54",
+        wrapper_commit="abcdef123456",
+        updated_at="2026-07-02T00:00:00Z",
+        verified_tuple_id="tuple-a",
+        verified_at="2026-07-02T00:00:00Z",
+    )
+    state_file.write_text(json.dumps(state), encoding="utf-8")
+    cached = runtime_checks.runtime_cached_build_plan_exports(state_file)
+    assert "CODEX_RUNTIME_CACHED_VERSION=0.142.4" in cached
+    assert "CODEX_RUNTIME_CACHED_PACKAGE_SPEC=@openai/codex@0.142.4-linux-arm64" in cached
+    refresh = runtime_checks.runtime_refresh_plan_exports(state_file, metadata_current=False)
+    assert "CODEX_RUNTIME_REFRESH_ACTION=activate" in refresh
+    assert "CODEX_RUNTIME_REFRESH_RAW_SHA256=" + ("a" * 64) in refresh
+    current = runtime_checks.runtime_refresh_plan_exports(state_file, metadata_current=True)
+    assert "CODEX_RUNTIME_REFRESH_ACTION=none" in current
+
+with tempfile.TemporaryDirectory() as tmp:
+    missing = Path(tmp) / "missing.json"
+    cached = runtime_checks.runtime_cached_build_plan_exports(missing)
+    assert "CODEX_RUNTIME_CACHED_VERSION=unknown" in cached
+    assert "CODEX_RUNTIME_CACHED_PACKAGE_SPEC=local" in cached
+    refresh = runtime_checks.runtime_refresh_plan_exports(missing, metadata_current=False)
+    assert "CODEX_RUNTIME_REFRESH_ACTION=skip" in refresh
 PYTHON
 
 [ "$(PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
@@ -124,6 +160,37 @@ PYTHON
     python3 -B -m codex_termux.cli runtime-action-plan \
     --action restore_verified --intent readiness --field refresh-after)" = "1" ] ||
     fail 'runtime action plan CLI did not return refresh-after'
+
+state_file="$TMP_DIR/state.json"
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" python3 -B - "$state_file" <<'PYTHON'
+import json
+import sys
+from pathlib import Path
+
+from codex_termux import schemas
+
+Path(sys.argv[1]).write_text(json.dumps(schemas.build_state_v3(
+    version="0.142.4",
+    raw_sha256="a" * 64,
+    runtime_sha256="b" * 64,
+    package_spec="@openai/codex@0.142.4-linux-arm64",
+    active_tuple_id="tuple-a",
+    wrapper_version="260702-54",
+    wrapper_commit="abcdef123456",
+    updated_at="2026-07-02T00:00:00Z",
+    verified_tuple_id="tuple-a",
+    verified_at="2026-07-02T00:00:00Z",
+)), encoding="utf-8")
+PYTHON
+[ "$(PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+    python3 -B -m codex_termux.cli runtime-cached-build-plan-env \
+    --state-file "$state_file" | sed -n '1p')" = "CODEX_RUNTIME_CACHED_VERSION=0.142.4" ] ||
+    fail 'runtime cached build plan CLI did not return version'
+
+[ "$(PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+    python3 -B -m codex_termux.cli runtime-refresh-plan-env \
+    --state-file "$state_file" --metadata-current 0 | sed -n '1p')" = "CODEX_RUNTIME_REFRESH_ACTION=activate" ] ||
+    fail 'runtime refresh plan CLI did not return activate action'
 
 CODEX_TERMUX_HOME="$TMP_DIR/home" \
 CODEX_TERMUX_PREFIX="$TMP_DIR/prefix" \

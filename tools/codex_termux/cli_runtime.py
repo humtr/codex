@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 from typing import Protocol
 
-from . import runtime_env
+from . import runtime_checks, runtime_env
 
 
 class SubparserCollection(Protocol):
@@ -13,6 +14,15 @@ class SubparserCollection(Protocol):
 
 
 def add_commands(sub: SubparserCollection) -> None:
+    cached_plan = sub.add_parser("runtime-cached-build-plan-env")
+    cached_plan.add_argument("--state-file", required=True)
+    cached_plan.set_defaults(func=_runtime_cached_build_plan)
+
+    refresh_plan = sub.add_parser("runtime-refresh-plan-env")
+    refresh_plan.add_argument("--state-file", required=True)
+    refresh_plan.add_argument("--metadata-current", choices=("0", "1"), required=True)
+    refresh_plan.set_defaults(func=_runtime_refresh_plan)
+
     env_plan = sub.add_parser("runtime-env-plan")
     for name in (
         "runtime-dir", "runtime-exe", "tmpdir", "cert-file", "cert-dir",
@@ -46,5 +56,18 @@ def _runtime_env_plan(args: argparse.Namespace) -> int:
         godebug=args.godebug,
         bwrap_quiet=args.bwrap_quiet,
         termux_open_url_available=args.termux_open_url == "1",
+    ))
+    return 0
+
+
+def _runtime_cached_build_plan(args: argparse.Namespace) -> int:
+    print(runtime_checks.runtime_cached_build_plan_exports(Path(args.state_file)))
+    return 0
+
+
+def _runtime_refresh_plan(args: argparse.Namespace) -> int:
+    print(runtime_checks.runtime_refresh_plan_exports(
+        Path(args.state_file),
+        metadata_current=args.metadata_current == "1",
     ))
     return 0

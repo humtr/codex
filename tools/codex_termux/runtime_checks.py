@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 from pathlib import Path
 
 from . import registry, schemas
@@ -230,6 +231,45 @@ def state_field(state_path: Path, field: str) -> str:
         return value if isinstance(value, str) else ""
     except Exception:
         return ""
+
+
+def runtime_cached_build_plan_exports(state_path: Path) -> str:
+    state_data = _state_fields(state_path)
+    version = state_data.get("version", "") or "unknown"
+    package_spec = state_data.get("package_spec", "") or "local"
+    return _shell_exports({
+        "CODEX_RUNTIME_CACHED_VERSION": version,
+        "CODEX_RUNTIME_CACHED_PACKAGE_SPEC": package_spec,
+    })
+
+
+def runtime_refresh_plan_exports(state_path: Path, *, metadata_current: bool) -> str:
+    state_data = _state_fields(state_path)
+    required = ("version", "raw_sha256", "runtime_sha256", "package_spec")
+    if any(not state_data.get(field, "") for field in required):
+        action = "skip"
+    elif metadata_current:
+        action = "none"
+    else:
+        action = "activate"
+    return _shell_exports({
+        "CODEX_RUNTIME_REFRESH_ACTION": action,
+        "CODEX_RUNTIME_REFRESH_VERSION": state_data.get("version", ""),
+        "CODEX_RUNTIME_REFRESH_RAW_SHA256": state_data.get("raw_sha256", ""),
+        "CODEX_RUNTIME_REFRESH_RUNTIME_SHA256": state_data.get("runtime_sha256", ""),
+        "CODEX_RUNTIME_REFRESH_PACKAGE_SPEC": state_data.get("package_spec", ""),
+    })
+
+
+def _state_fields(state_path: Path) -> dict[str, str]:
+    try:
+        return schemas.validate_state_v3(schemas.load_json_object(state_path))
+    except Exception:
+        return {}
+
+
+def _shell_exports(values: dict[str, str]) -> str:
+    return "\n".join(f"{key}={shlex.quote(value)}" for key, value in values.items())
 
 
 def normalize_auto_update_mode(value: str) -> str:

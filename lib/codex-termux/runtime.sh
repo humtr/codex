@@ -324,16 +324,17 @@ codex_runtime_build_cached_unlocked() {
 }
 
 codex_runtime_install_cached_unlocked() {
-    local version package_spec
+    local plan_env
     codex_raw_integrity_ok || {
         codex_fail "$(codex_ui_text_get cached_raw_integrity_failed)"
         return 1
     }
-    version="$(codex_read_state_field version)"
-    package_spec="$(codex_read_state_field package_spec)"
-    [ -n "$version" ] || version="unknown"
-    [ -n "$package_spec" ] || package_spec="local"
-    codex_runtime_build_cached_unlocked "$version" "$package_spec" || return $?
+    plan_env="$(codex_termux_cmd runtime-cached-build-plan-env \
+        --state-file "$CODEX_TERMUX_STATE_FILE")" || return $?
+    eval "$plan_env"
+    codex_runtime_build_cached_unlocked \
+        "$CODEX_RUNTIME_CACHED_VERSION" \
+        "$CODEX_RUNTIME_CACHED_PACKAGE_SPEC" || return $?
 }
 
 codex_runtime_install_cached() {
@@ -724,15 +725,19 @@ codex_runtime_metadata_current() {
 }
 
 codex_refresh_runtime_metadata_unlocked() {
-    local version raw_sha runtime_sha package_spec
-    version="$(codex_read_state_field version)"
-    raw_sha="$(codex_read_state_field raw_sha256)"
-    runtime_sha="$(codex_read_state_field runtime_sha256)"
-    package_spec="$(codex_read_state_field package_spec)"
-    [ -n "$version" ] && [ -n "$raw_sha" ] && [ -n "$runtime_sha" ] && [ -n "$package_spec" ] || return 0
-    codex_runtime_metadata_current && return 0
+    local metadata_current=0 plan_env
+    codex_runtime_metadata_current && metadata_current=1
+    plan_env="$(codex_termux_cmd runtime-refresh-plan-env \
+        --state-file "$CODEX_TERMUX_STATE_FILE" \
+        --metadata-current "$metadata_current")" || return $?
+    eval "$plan_env"
+    [ "$CODEX_RUNTIME_REFRESH_ACTION" = "activate" ] || return 0
     codex_activate_tuple_unlocked \
-        "$CODEX_TERMUX_RUNTIME_DIR" "$version" "$raw_sha" "$runtime_sha" "$package_spec"
+        "$CODEX_TERMUX_RUNTIME_DIR" \
+        "$CODEX_RUNTIME_REFRESH_VERSION" \
+        "$CODEX_RUNTIME_REFRESH_RAW_SHA256" \
+        "$CODEX_RUNTIME_REFRESH_RUNTIME_SHA256" \
+        "$CODEX_RUNTIME_REFRESH_PACKAGE_SPEC"
 }
 
 codex_refresh_runtime_metadata() {
