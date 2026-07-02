@@ -24,6 +24,11 @@ def add_commands(sub: SubparserCollection) -> None:
     hook.add_argument("--value", default="")
     hook.set_defaults(func=_notify_hook)
 
+    channel = sub.add_parser("notify-channel")
+    channel.add_argument("--action", choices=("parse", "needs-gravity"), required=True)
+    channel.add_argument("--value", default="")
+    channel.set_defaults(func=_notify_channel)
+
     config = sub.add_parser("notify-config-env")
     for name in (
         "content-chars", "preserve-newlines", "toast-gravity", "toast-short",
@@ -70,6 +75,19 @@ def _notify_hook(args: argparse.Namespace) -> int:
             print(f"codex_termux: {exc}", file=sys.stderr)
             return 64
         return 0
+    raise AssertionError(args.action)
+
+
+def _notify_channel(args: argparse.Namespace) -> int:
+    try:
+        if args.action == "parse":
+            print(notify.parse_channel_selection(args.value))
+            return 0
+        if args.action == "needs-gravity":
+            return 0 if notify.channel_needs_gravity(args.value) else 1
+    except notify.NotifyConfigError as exc:
+        print(f"codex_termux: {exc}", file=sys.stderr)
+        return 64
     raise AssertionError(args.action)
 
 

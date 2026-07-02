@@ -24,6 +24,13 @@ assert notify.parse_hook_selection("") == "Stop"
 assert notify.parse_hook_selection("1") == "SessionStart"
 assert notify.parse_hook_selection("1 Stop") == "SessionStart,Stop"
 assert notify.parse_hook_selection("0") == "all"
+assert notify.parse_channel_selection("") == "both"
+assert notify.parse_channel_selection("1") == "notification"
+assert notify.parse_channel_selection("2") == "toast"
+assert notify.parse_channel_selection("3") == "both"
+assert notify.parse_channel_selection("toast") == "toast"
+assert not notify.channel_needs_gravity("notification")
+assert notify.channel_needs_gravity("both")
 assert notify.status_message("Stop") == "Notify turn completion"
 
 settings = notify.NotifySettings(
@@ -65,6 +72,13 @@ for selection in ("99", "1abc"):
     else:
         raise AssertionError(selection)
 
+try:
+    notify.parse_channel_selection("bad")
+except notify.NotifyConfigError:
+    pass
+else:
+    raise AssertionError("bad channel")
+
 config = notify.parse_command_config(
     ["--channel", "both", "--hook", "stop", "--hook", "SubagentStop"],
     {"CODEX_TERMUX_NOTIFY_CONFIG": "/tmp/notify.env"},
@@ -101,6 +115,22 @@ selection="$(
         python3 -B -m codex_termux.cli notify-hook --action parse-selection --value "1 Stop"
 )"
 [ "$selection" = "SessionStart,Stop" ] || fail "selection mismatch: $selection"
+
+channel="$(
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+        python3 -B -m codex_termux.cli notify-channel --action parse --value 2
+)"
+[ "$channel" = "toast" ] || fail "channel mismatch: $channel"
+
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+    python3 -B -m codex_termux.cli notify-channel --action needs-gravity --value both \
+    || fail 'both channel did not require gravity'
+
+if PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+    python3 -B -m codex_termux.cli notify-channel --action needs-gravity --value notification
+then
+    fail 'notification channel required gravity'
+fi
 
 command_env="$(
     CODEX_TERMUX_NOTIFY_CONFIG=/tmp/notify.env \

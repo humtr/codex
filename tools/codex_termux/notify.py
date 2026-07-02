@@ -121,6 +121,21 @@ def parse_hook_selection(selection: str = "") -> str:
     return ",".join(hooks) if hooks else "Stop"
 
 
+def parse_channel_selection(selection: str = "") -> str:
+    value = selection or "3"
+    if value in {"1", "notification"}:
+        return "notification"
+    if value in {"2", "toast"}:
+        return "toast"
+    if value in {"3", "both"}:
+        return "both"
+    raise NotifyConfigError(f"Unknown notification channel selection: {selection}")
+
+
+def channel_needs_gravity(channel: str) -> bool:
+    return parse_channel_selection(channel) in {"toast", "both"}
+
+
 def status_message(value: str) -> str:
     event = canonical_hook(value)
     return _STATUS_MESSAGES.get(event, f"Notify {value}")

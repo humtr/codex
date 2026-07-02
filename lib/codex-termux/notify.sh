@@ -118,15 +118,7 @@ codex_notify_interactive_public() {
         codex_selection_cancelled
         return 130
     }
-    case "${channel_choice:-3}" in
-        1|notification) channel="notification" ;;
-        2|toast) channel="toast" ;;
-        3|both) channel="both" ;;
-        *)
-            codex_fail "Unknown notification channel selection: $channel_choice"
-            return 64
-            ;;
-    esac
+    channel="$(codex_termux_cmd notify-channel --action parse --value "${channel_choice:-3}")" || return $?
 
     codex_notify_render_hooks
     printf 'Hooks [Stop]> ' >&2
@@ -137,16 +129,14 @@ codex_notify_interactive_public() {
     hooks="$(codex_termux_cmd notify-hook --action parse-selection --value "$hooks_choice")" || return $?
 
     gravity="top"
-    case "$channel" in
-        toast|both)
-            printf 'Toast gravity [top]> ' >&2
-            IFS= read -r gravity_choice || {
-                codex_selection_cancelled
-                return 130
-            }
-            gravity="${gravity_choice:-top}"
-            ;;
-    esac
+    if codex_termux_cmd notify-channel --action needs-gravity --value "$channel"; then
+        printf 'Toast gravity [top]> ' >&2
+        IFS= read -r gravity_choice || {
+            codex_selection_cancelled
+            return 130
+        }
+        gravity="${gravity_choice:-top}"
+    fi
 
     codex_notify_public --channel "$channel" --hooks "$hooks" --toast-gravity "$gravity"
 }
