@@ -33,6 +33,8 @@ required = {
     "lib/codex-termux/dispatch.sh",
     "lib/codex-termux/state.sh",
     "lib/codex-termux/profile.sh",
+    "lib/codex-termux/use.sh",
+    "lib/codex-termux/remove.sh",
     "lib/codex-termux/session.sh",
     "lib/codex-termux/runtime.sh",
     "lib/codex-termux/notify.sh",

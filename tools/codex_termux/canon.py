@@ -591,7 +591,7 @@ def _audit_manifest_consistency(root: Path, manifest: dict[str, object]) -> list
     if manifest.get("schema") != 1:
         findings.append(Finding("manifest-schema", "blocker", MANIFEST_PATH, "schema must be 1"))
     domains = _manifest_domains(manifest)
-    expected = {"dispatch", "state", "profile", "session", "runtime", "notify", "doctor"}
+    expected = {"dispatch", "state", "profile", "use", "remove", "session", "runtime", "notify", "doctor"}
     for domain in sorted(expected - set(domains)):
         findings.append(Finding("manifest-domain-missing", "blocker", MANIFEST_PATH, f"missing domain: {domain}"))
     for name, data in domains.items():

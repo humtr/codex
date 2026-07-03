@@ -105,12 +105,29 @@
       "owns_prefixes": [
         "codex_profile",
         "codex_prompt",
-        "codex_confirm",
+        "codex_confirm"
+      ],
+      "public_functions": [
+        "codex_profile_run"
+      ]
+    },
+    "use": {
+      "path": "lib/codex-termux/use.sh",
+      "owns_prefixes": [
         "codex_use"
       ],
       "public_functions": [
-        "codex_profile_run",
         "codex_use"
+      ]
+    },
+    "remove": {
+      "path": "lib/codex-termux/remove.sh",
+      "owns_prefixes": [
+        "codex_restore_backup",
+        "codex_remove"
+      ],
+      "public_functions": [
+        "codex_remove"
       ]
     },
     "session": {
@@ -133,7 +150,6 @@
         "codex_activate",
         "codex_auto_update",
         "codex_version",
-        "codex_remove",
         "codex_support",
         "codex_raw",
         "codex_latest",
@@ -181,24 +197,27 @@
     "dispatch": [
       "codex_auto_update_if_needed",
       "codex_runtime_exec_with_context",
-      "codex_repair_public",
-      "codex_remove"
+      "codex_repair_public"
     ],
     "state": [],
     "profile": [
-      "codex_activate_cached_runtime_unlocked",
       "codex_auto_update_if_needed",
       "codex_exec_current_runtime",
-      "codex_latest_linux_arm64_version",
-      "codex_rm_rf_managed",
-      "codex_runtime_exec",
-      "codex_runtime_exec_with_context",
-      "codex_ui_badge",
       "codex_ui_menu_header",
       "codex_ui_menu_row",
-      "codex_ui_number",
       "codex_ui_prompt",
       "codex_ui_step",
+      "codex_ui_text_get"
+    ],
+    "use": [
+      "codex_activate_cached_runtime_unlocked",
+      "codex_latest_linux_arm64_version",
+      "codex_prompt_interactive",
+      "codex_runtime_install_upstream",
+      "codex_ui_text_get"
+    ],
+    "remove": [
+      "codex_rm_rf_managed",
       "codex_ui_text_get"
     ],
     "session": [

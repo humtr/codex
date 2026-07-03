@@ -190,7 +190,7 @@ git() {
     printf 'install local\n' >"$target/bin/install-local.sh"
     printf 'install runtime\n' >"$target/bin/install-runtime.sh"
     printf 'lib\n' >"$target/lib/codex-termux.sh"
-    for domain in dispatch state profile session runtime notify doctor; do printf '%s\n' "$domain" >"$target/lib/codex-termux/$domain.sh"; done
+    for domain in dispatch state profile use remove session runtime notify doctor; do printf '%s\n' "$domain" >"$target/lib/codex-termux/$domain.sh"; done
     printf '{}\n' >"$target/codex-wrapper.manifest.json"
     printf 'builder\n' >"$target/tools/build-runtime.py"
     printf 'bwrap\n' >"$target/tools/bwrap-termux-compat.py"
