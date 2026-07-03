@@ -116,6 +116,7 @@
         "codex_confirm"
       ],
       "public_functions": [
+        "codex_prompt_result",
         "codex_prompt_interactive",
         "codex_confirm_menu"
       ]

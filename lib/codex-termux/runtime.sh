@@ -512,7 +512,8 @@ codex_prompt_update() {
         [ "$?" -eq 130 ] && return 130
         return 1
     }
-    choice="$(codex_termux_cmd update-prompt-decision --choice "${CODEX_PROMPT_CHOICE_RESULT:-}")" || return $?
+    choice="$(codex_prompt_result)"
+    choice="$(codex_termux_cmd update-prompt-decision --choice "$choice")" || return $?
     case "$choice" in
         apply)
             return 0

@@ -154,6 +154,7 @@ def audit(root: Path) -> dict[str, object]:
     manifest = _load_manifest(root, findings)
     findings.extend(_audit_manifest_consistency(root, manifest))
     findings.extend(_audit_domain_ownership(root, manifest))
+    findings.extend(_audit_prompt_state_boundary(root))
     findings.extend(_audit_protected_path_contracts(root, manifest))
     findings.extend(_audit_public_entrypoints(root, manifest))
     metrics = _metrics(root)
@@ -655,6 +656,26 @@ def _audit_domain_ownership(root: Path, manifest: dict[str, object]) -> list[Fin
             owner = owners.get(call)
             if owner and owner != domain and call not in public and call not in allowed:
                 findings.append(Finding("private-cross-domain-call", "blocker", rel, f"{domain} calls private {owner} function {call}"))
+    return findings
+
+
+def _audit_prompt_state_boundary(root: Path) -> list[Finding]:
+    findings: list[Finding] = []
+    prompt_state = "CODEX_PROMPT_CHOICE_RESULT"
+    allowed = "lib/codex-termux/prompt.sh"
+    for path in _shell_contract_files(root):
+        rel = _relative(root, path)
+        if rel == allowed:
+            continue
+        if prompt_state in _read_text(path):
+            findings.append(
+                Finding(
+                    "prompt-state-leak",
+                    "blocker",
+                    rel,
+                    f"{prompt_state} must stay private to {allowed}; use codex_prompt_result",
+                )
+            )
     return findings
 
 

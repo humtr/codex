@@ -3,6 +3,10 @@
 
 CODEX_PROMPT_CHOICE_RESULT=""
 
+codex_prompt_result() {
+    printf '%s\n' "${CODEX_PROMPT_CHOICE_RESULT:-}"
+}
+
 codex_prompt_choice() {
     local prompt="${1:-choose> }" mode="${2:-freeform}" max_items="${3:-9}" reply rest old_tty status action
     CODEX_PROMPT_CHOICE_RESULT=""

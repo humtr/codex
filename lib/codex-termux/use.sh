@@ -25,7 +25,7 @@ codex_use() {
         return 0
     fi
     codex_prompt_interactive "$(codex_ui_text_get choose_runtime_prompt)" digits "${CODEX_USE_MENU_COUNT:-0}" cancel || return $?
-    choice="$CODEX_PROMPT_CHOICE_RESULT"
+    choice="$(codex_prompt_result)"
     codex_use_select "$choice"
 }
 

@@ -29,7 +29,7 @@ codex_profile_ensure_dir() {
         status=$?
         return "$status"
     }
-    codex_termux_cmd profile-create-confirmed --choice "${CODEX_PROMPT_CHOICE_RESULT:-}" || return 130
+    codex_termux_cmd profile-create-confirmed --choice "$(codex_prompt_result)" || return 130
     mkdir -p "$profile_dir"
     codex_say "$(codex_ui_text_get created_profile "$display")"
 }
@@ -64,7 +64,7 @@ codex_profile_select() {
     fi
 
     codex_prompt_interactive "$(codex_ui_text_get choose_profile_prompt)" freeform "$max_items" cancel || return $?
-    choice="$CODEX_PROMPT_CHOICE_RESULT"
+    choice="$(codex_prompt_result)"
 
     profile="$(codex_termux_cmd profile-menu-choice --choice "$choice")"
 
