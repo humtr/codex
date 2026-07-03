@@ -86,11 +86,6 @@ codex_ui_menu_header() {
     fi
 }
 
-codex_ui_menu_note() {
-    [ -n "${1:-}" ] || return 0
-    printf '%s\n' "$(codex_ui_format dim "$1")" >&2
-}
-
 codex_ui_menu_row() {
     local key="$1" label="$2"
     shift 2 || true
@@ -104,15 +99,6 @@ codex_ui_menu_row() {
 
 codex_ui_prompt() {
     codex_ui_format prompt "$1"
-}
-
-codex_ui_version_row() {
-    local label="$1" value="$2"
-    printf '%-16s %s\n' "$label" "$value" >&2
-}
-
-codex_ui_separator() {
-    printf '%s\n' "$(codex_ui_format separator "${1:-61}")" >&2
 }
 
 codex_ui_text() {

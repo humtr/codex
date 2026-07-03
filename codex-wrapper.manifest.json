@@ -195,7 +195,6 @@
       "codex_runtime_exec_with_context",
       "codex_ui_badge",
       "codex_ui_menu_header",
-      "codex_ui_menu_note",
       "codex_ui_menu_row",
       "codex_ui_number",
       "codex_ui_prompt",
@@ -204,8 +203,6 @@
     ],
     "session": [
       "codex_profile_exec",
-      "codex_profile_home_dir",
-      "codex_profile_name_valid",
       "codex_runtime_exec_with_context",
       "codex_ui_text_get"
     ],
@@ -231,8 +228,7 @@
       "codex_ui_number"
     ],
     "doctor": [
-      "codex_prepare_runtime_env",
-      "codex_read_state_field"
+      "codex_prepare_runtime_env"
     ]
   },
   "shell_budgets": {
@@ -345,7 +341,7 @@
         "^codex_(display_version|parent_dir|assert_managed_tree_target|rm_rf_managed|sha256|now|termux_package_root|termux_cmd|termux_activation_cmd)$",
         "^codex_(require_wrapper_source|launcher_available|profile_name_valid|profile_home_dir|use_list|use_render|use_select|session_share_source)$",
         "^codex_notify_(all_hooks|write_system_config|render_hooks)$",
-        "^codex_(require_runtime_resolver|validate_tarball_safe|support_source_dir|resolve_path|tree_digest|read_state_field|store_id|validate_runtime_retention|package_spec|repair_diagnose_action|runtime_apply_action|repair_apply|repair_core_unlocked|repair_public_unlocked|repair_public|auto_update_if_needed|support_tools_match|runtime_integrity_ok|raw_integrity_ok|runtime_ok|runtime_metadata_current|verified_rollback_needed|ensure_runtime_ready|upstream_release_date|version)$"
+        "^codex_(require_runtime_resolver|validate_tarball_safe|support_source_dir|resolve_path|tree_digest|store_id|validate_runtime_retention|package_spec|repair_diagnose_action|runtime_apply_action|repair_apply|repair_core_unlocked|repair_public_unlocked|repair_public|auto_update_if_needed|support_tools_match|runtime_integrity_ok|raw_integrity_ok|runtime_ok|runtime_metadata_current|verified_rollback_needed|ensure_runtime_ready|upstream_release_date|version)$"
       ],
       "reason": "Small shell bridges remain for Termux paths, terminal status, managed destructive guards, and Python helper calls; reusable parsing and policy stay Python-owned.",
       "tests": [

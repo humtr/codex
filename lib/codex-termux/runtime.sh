@@ -1,21 +1,12 @@
 # shellcheck shell=bash
 # This file is sourced by ../codex-termux.sh; do not execute directly.
 
-codex_require_runtime_resolver() {
-    if [ ! -r "$CODEX_TERMUX_RESOLV_CONF" ]; then
-        codex_fail "Resolver source is unavailable: $CODEX_TERMUX_RESOLV_CONF"
-        return 66
-    fi
-}
-
 codex_runtime_apply_env_plan() {
-    local runtime_dir="$1" runtime_exe="$2" set_home="${3:-0}" run_home="${4:-}" termux_open_url="${5:-0}"
-    local runtime_env
-    runtime_env="$(codex_termux_cmd runtime-env-plan \
-        --runtime-dir "$runtime_dir" \
-        --runtime-exe "$runtime_exe" \
-        --set-home "$set_home" \
-        --home "$run_home" \
+    codex_termux_cmd runtime-env-plan \
+        --runtime-dir "$1" \
+        --runtime-exe "$2" \
+        --set-home "$3" \
+        --home "$4" \
         --tmpdir "$CODEX_TERMUX_TMPDIR" \
         --cert-file "$CODEX_TERMUX_CERT_FILE" \
         --cert-dir "$CODEX_TERMUX_CERT_DIR" \
@@ -29,34 +20,27 @@ codex_runtime_apply_env_plan() {
         --xdg-data-home "${XDG_DATA_HOME:-}" \
         --godebug "${GODEBUG:-}" \
         --bwrap-quiet "${CODEX_TERMUX_BWRAP_COMPAT_QUIET:-}" \
-        --termux-open-url "$termux_open_url")" || return $?
-    eval "$runtime_env"
+        --termux-open-url "$5"
 }
 
 codex_runtime_exec() {
     local executable="$1"
     shift || true
-    local run_home runtime_dir
+    local run_home runtime_dir runtime_env
     run_home="${CODEX_TERMUX_HOME:-$HOME}"
     case "$executable" in
         */*) runtime_dir="${executable%/*}" ;;
         *) runtime_dir="$executable" ;;
     esac
     unset CODEX_MANAGED_BY_NPM CODEX_MANAGED_BY_BUN CODEX_MANAGED_PACKAGE_ROOT LD_PRELOAD LD_LIBRARY_PATH
-    codex_runtime_apply_env_plan "$runtime_dir" "$executable" 1 "$run_home" 0 || return $?
-    codex_require_runtime_resolver || return $?
+    runtime_env="$(codex_runtime_apply_env_plan "$runtime_dir" "$executable" 1 "$run_home" 0)" || return $?
+    eval "$runtime_env"
+    if [ ! -r "$CODEX_TERMUX_RESOLV_CONF" ]; then
+        codex_fail "Resolver source is unavailable: $CODEX_TERMUX_RESOLV_CONF"
+        return 66
+    fi
     codex_prepare_system_config || return $?
     "$CODEX_SELF_EXE" "$@" 33<"$CODEX_TERMUX_RESOLV_CONF" 34<"$CODEX_TERMUX_SYSTEM_CONFIG_DIR"
-}
-
-codex_smoke_test_runtime() {
-    local executable="$1"
-    shift || true
-    codex_runtime_exec "$executable" --version "$@" >/dev/null 2>&1
-}
-
-codex_validate_tarball_safe() {
-    codex_termux_cmd validate-tarball --path "$1"
 }
 
 codex_replace_tree_atomic() {
@@ -80,30 +64,11 @@ codex_replace_tree_atomic() {
     return 1
 }
 
-codex_support_source_dir() {
-    codex_termux_cmd support-source-dir \
-        --manager-dir "$CODEX_TERMUX_MANAGER_DIR" \
-        --runtime-dir "$CODEX_TERMUX_RUNTIME_DIR"
-}
-
-codex_resolve_path() {
-    codex_termux_cmd resolve-path --path "$1"
-}
-
-codex_tree_digest() {
-    codex_termux_cmd tree-digest --path "$1"
-}
-
-codex_read_state_field() {
-    local field="$1"
-    codex_termux_cmd state-read-field \
-        --state-file "$CODEX_TERMUX_STATE_FILE" \
-        --field "$field"
-}
-
 codex_store_id() {
     local version="$1" sha="$2" tree_sha="${3:-}" builder_sha="unknown" bwrap_sha="unknown" rg_sha="unknown" support_dir
-    support_dir="$(codex_support_source_dir)"
+    support_dir="$(codex_termux_cmd support-source-dir \
+        --manager-dir "$CODEX_TERMUX_MANAGER_DIR" \
+        --runtime-dir "$CODEX_TERMUX_RUNTIME_DIR")"
     if [ -r "$CODEX_TERMUX_RUNTIME_BUILDER" ]; then
         builder_sha="$(codex_sha256 "$CODEX_TERMUX_RUNTIME_BUILDER")"
     fi
@@ -151,7 +116,9 @@ codex_prune_runtime_store() {
 
 codex_prepare_complete_runtime_tree() {
     local payload_dir="$1" complete_dir="$2" name support_dir
-    support_dir="$(codex_support_source_dir)"
+    support_dir="$(codex_termux_cmd support-source-dir \
+        --manager-dir "$CODEX_TERMUX_MANAGER_DIR" \
+        --runtime-dir "$CODEX_TERMUX_RUNTIME_DIR")"
     if { [ ! -r "$support_dir/bwrap-termux-compat.py" ] || [ ! -r "$support_dir/rg-termux-shim.sh" ]; } &&
         [ -r "$payload_dir/bwrap-termux-compat.py" ] &&
         [ -r "$payload_dir/rg-termux-shim.sh" ]; then
@@ -212,7 +179,7 @@ codex_fetch_package() {
     fi
     codex_ui_step validate_archive
     mkdir -p "$tmp/package"
-    if ! codex_validate_tarball_safe "$tgz" >/dev/null 2>&1; then
+    if ! codex_termux_cmd validate-tarball --path "$tgz" >/dev/null 2>&1; then
         rm -rf "$tmp"
         codex_fail "Package archive contains unsafe paths: $tgz"
         return 1
@@ -250,7 +217,7 @@ codex_build_runtime_tree() {
     if ! python3 "$builder" "$raw_vendor" --runtime-dir "$runtime_dir" --report-json "$report_file" >"$log_file" 2>&1; then
         return 70
     fi
-    if ! codex_smoke_test_runtime "$runtime_dir/codex"; then
+    if ! codex_runtime_exec "$runtime_dir/codex" --version >/dev/null 2>&1; then
         return 72
     fi
     return 0
@@ -264,8 +231,8 @@ codex_activate_tuple_unlocked() {
         raw_store_src="$raw_src"
         cleanup_raw=(--cleanup-raw-source)
     fi
-    runtime_tree_sha="$(codex_tree_digest "$(codex_resolve_path "$runtime_src")")"
-    raw_tree_sha="$(codex_tree_digest "$(codex_resolve_path "$raw_store_src")")"
+    runtime_tree_sha="$(codex_termux_cmd tree-digest --path "$(codex_termux_cmd resolve-path --path "$runtime_src")")"
+    raw_tree_sha="$(codex_termux_cmd tree-digest --path "$(codex_termux_cmd resolve-path --path "$raw_store_src")")"
     runtime_target="$CODEX_TERMUX_RUNTIME_STORE_DIR/$(codex_store_id "$version" "$runtime_sha" "$runtime_tree_sha")"
     raw_target="$CODEX_TERMUX_RAW_STORE_DIR/$(codex_store_id "$version" "$raw_sha" "$raw_tree_sha")"
     codex_termux_activation_cmd activation-commit \
@@ -280,10 +247,6 @@ codex_activate_tuple_unlocked() {
         --cleanup-runtime-source \
         "${cleanup_raw[@]}" >/dev/null || return 1
     codex_prune_runtime_store
-}
-
-codex_commit_runtime_candidate() {
-    codex_activate_tuple_unlocked "$@"
 }
 
 codex_runtime_build_cached_unlocked() {
@@ -314,17 +277,20 @@ codex_runtime_build_cached_unlocked() {
     runtime_sha="$(codex_sha256 "$runtime_complete/codex")"
     codex_rm_rf_managed "$runtime_stage" || return $?
     codex_ui_step smoke_test_runtime
-    if ! codex_smoke_test_runtime "$runtime_complete/codex"; then
+    if ! codex_runtime_exec "$runtime_complete/codex" --version >/dev/null 2>&1; then
         codex_rm_rf_managed "$runtime_complete" || return $?
         return 1
     fi
     codex_ui_step activate_runtime
-    codex_commit_runtime_candidate "$runtime_complete" "$version" "$raw_sha" "$runtime_sha" "$package_spec"
+    codex_activate_tuple_unlocked "$runtime_complete" "$version" "$raw_sha" "$runtime_sha" "$package_spec"
 }
 
 codex_runtime_install_cached_unlocked() {
     local plan_env
-    codex_raw_integrity_ok || {
+    [ -x "$CODEX_TERMUX_RAW_VENDOR/bin/codex" ] &&
+    codex_termux_cmd raw-integrity \
+        --raw-binary "$CODEX_TERMUX_RAW_VENDOR/bin/codex" \
+        --state-path "$CODEX_TERMUX_STATE_FILE" || {
         codex_fail "$(codex_ui_text_get cached_raw_integrity_failed)"
         return 1
     }
@@ -362,7 +328,7 @@ codex_repair_diagnose_action() {
         --marker "$CODEX_TERMUX_MANAGED_LAUNCHER_MARKER" \
         --runtime-dir "$CODEX_TERMUX_RUNTIME_DIR" \
         --runtime "$CODEX_TERMUX_RUNTIME" \
-        --support-dir "$(codex_support_source_dir)" \
+        --support-dir "$(codex_termux_cmd support-source-dir --manager-dir "$CODEX_TERMUX_MANAGER_DIR" --runtime-dir "$CODEX_TERMUX_RUNTIME_DIR")" \
         --manifest-path "$CODEX_TERMUX_RUNTIME_DIR/runtime-build.json" \
         --builder "$CODEX_TERMUX_RUNTIME_BUILDER" \
         --state-path "$CODEX_TERMUX_STATE_FILE" \
@@ -434,14 +400,12 @@ codex_repair_core_unlocked() {
     codex_repair_apply
 }
 
-codex_repair_public_unlocked() {
-    codex_repair_core_unlocked || return $?
-    codex_version
-}
-
 codex_repair_public() {
     local status=0
-    codex_with_lock codex_repair_public_unlocked || status=$?
+    codex_with_lock codex_repair_core_unlocked || status=$?
+    [ "$status" -eq 0 ] || codex_status_clear
+    [ "$status" -eq 0 ] || return "$status"
+    codex_version || status=$?
     [ "$status" -eq 0 ] || codex_status_clear
     return "$status"
 }
@@ -477,13 +441,13 @@ EOF
     runtime_sha="$(codex_sha256 "$runtime_complete/codex")"
     codex_rm_rf_managed "$runtime_stage" || return $?
     codex_ui_step smoke_test_runtime
-    if ! codex_smoke_test_runtime "$runtime_complete/codex"; then
+    if ! codex_runtime_exec "$runtime_complete/codex" --version >/dev/null 2>&1; then
         rm -rf "$tmp"
         codex_rm_rf_managed "$raw_stage" "$runtime_complete" || return $?
         return 1
     fi
     codex_ui_step activate_runtime
-    if ! codex_commit_runtime_candidate "$runtime_complete" "$version" "$raw_sha" "$runtime_sha" "$spec" "$raw_stage"; then
+    if ! codex_activate_tuple_unlocked "$runtime_complete" "$version" "$raw_sha" "$runtime_sha" "$spec" "$raw_stage"; then
         rm -rf "$tmp"
         codex_rm_rf_managed "$raw_stage" "$runtime_complete" || return $?
         return 1
@@ -563,23 +527,22 @@ codex_prompt_update() {
     esac
 }
 
-codex_install_auto_update() {
-    local current="$1" latest="$2"
-    codex_ui_step update_runtime "$current" "$latest"
-    if codex_runtime_install_upstream "$latest"; then
-        codex_clear_pending_auto_update
-        codex_clear_failed_auto_update
-    else
-        codex_write_failed_auto_update "$latest"
-        codex_say "$(codex_ui_text_get update_failed_continue "$current")"
-        return 1
-    fi
-}
-
 codex_auto_update_if_needed() {
     local current latest plan_env now
-    codex_runtime_ok || return 0
-    current="$(codex_read_state_field version)"
+    codex_termux_cmd runtime-layout-ok \
+        --runtime-dir "$CODEX_TERMUX_RUNTIME_DIR" \
+        --runtime "$CODEX_TERMUX_RUNTIME" \
+        --support-dir "$(codex_termux_cmd support-source-dir --manager-dir "$CODEX_TERMUX_MANAGER_DIR" --runtime-dir "$CODEX_TERMUX_RUNTIME_DIR")" &&
+    [ -r "$CODEX_TERMUX_STATE_FILE" ] &&
+    [ -r "$CODEX_TERMUX_RUNTIME_DIR/runtime-build.json" ] &&
+    [ -x "$CODEX_TERMUX_RUNTIME_BUILDER" ] &&
+    codex_termux_cmd runtime-integrity \
+        --runtime "$CODEX_TERMUX_RUNTIME" \
+        --manifest-path "$CODEX_TERMUX_RUNTIME_DIR/runtime-build.json" \
+        --builder "$CODEX_TERMUX_RUNTIME_BUILDER" \
+        --state-path "$CODEX_TERMUX_STATE_FILE" \
+        --patch-policy "$CODEX_TERMUX_PATCH_POLICY" || return 0
+    current="$(codex_termux_cmd state-read-field --state-file "$CODEX_TERMUX_STATE_FILE" --field version)"
     now="$(date +%s)"
     plan_env="$(codex_termux_cmd auto-update-check-plan-env \
         --enabled "$CODEX_TERMUX_AUTO_UPDATE" \
@@ -623,13 +586,29 @@ codex_auto_update_if_needed() {
         eval "$plan_env"
         case "$CODEX_AUTO_UPDATE_ACTION" in
             install)
-                codex_install_auto_update "$current" "$latest" || return 0
+                codex_ui_step update_runtime "$current" "$latest"
+                if codex_runtime_install_upstream "$latest"; then
+                    codex_clear_pending_auto_update
+                    codex_clear_failed_auto_update
+                else
+                    codex_write_failed_auto_update "$latest"
+                    codex_say "$(codex_ui_text_get update_failed_continue "$current")"
+                    return 1
+                fi
                 ;;
             prompt)
                 codex_prompt_update "$current" "$latest"
                 case "$?" in
                     0)
-                        codex_install_auto_update "$current" "$latest" || return 0
+                        codex_ui_step update_runtime "$current" "$latest"
+                        if codex_runtime_install_upstream "$latest"; then
+                            codex_clear_pending_auto_update
+                            codex_clear_failed_auto_update
+                        else
+                            codex_write_failed_auto_update "$latest"
+                            codex_say "$(codex_ui_text_get update_failed_continue "$current")"
+                            return 1
+                        fi
                         ;;
                     130)
                         return 130
@@ -644,39 +623,8 @@ codex_auto_update_if_needed() {
 }
 
 
-# Runtime readiness and diagnostics.
-codex_support_tools_match() {
-    codex_termux_cmd runtime-layout-ok \
-        --runtime-dir "$CODEX_TERMUX_RUNTIME_DIR" \
-        --runtime "$CODEX_TERMUX_RUNTIME" \
-        --support-dir "$(codex_support_source_dir)"
-}
-
-codex_runtime_integrity_ok() {
-    [ -r "$CODEX_TERMUX_RUNTIME_DIR/runtime-build.json" ] || return 1
-    [ -x "$CODEX_TERMUX_RUNTIME_BUILDER" ] || return 1
-    codex_termux_cmd runtime-integrity \
-        --runtime "$CODEX_TERMUX_RUNTIME" \
-        --manifest-path "$CODEX_TERMUX_RUNTIME_DIR/runtime-build.json" \
-        --builder "$CODEX_TERMUX_RUNTIME_BUILDER" \
-        --state-path "$CODEX_TERMUX_STATE_FILE" \
-        --patch-policy "$CODEX_TERMUX_PATCH_POLICY"
-}
-
-codex_raw_integrity_ok() {
-    [ -x "$CODEX_TERMUX_RAW_VENDOR/bin/codex" ] || return 1
-    codex_termux_cmd raw-integrity \
-        --raw-binary "$CODEX_TERMUX_RAW_VENDOR/bin/codex" \
-        --state-path "$CODEX_TERMUX_STATE_FILE"
-}
-
-codex_runtime_ok() {
-    codex_support_tools_match &&
-    [ -r "$CODEX_TERMUX_STATE_FILE" ] &&
-    codex_runtime_integrity_ok
-}
-
-codex_runtime_metadata_current() {
+codex_refresh_runtime_metadata_unlocked() {
+    local metadata_current=0 plan_env
     codex_termux_cmd runtime-metadata-current \
         --state-path "$CODEX_TERMUX_STATE_FILE" \
         --registry-path "$CODEX_TERMUX_REGISTRY_FILE" \
@@ -684,12 +632,7 @@ codex_runtime_metadata_current() {
         --verified "$CODEX_TERMUX_VERIFIED_LINK" \
         --raw "$CODEX_TERMUX_RAW_DIR" \
         --manager-dir "$CODEX_TERMUX_MANAGER_DIR" \
-        --runtime-dir "$CODEX_TERMUX_RUNTIME_DIR"
-}
-
-codex_refresh_runtime_metadata_unlocked() {
-    local metadata_current=0 plan_env
-    codex_runtime_metadata_current && metadata_current=1
+        --runtime-dir "$CODEX_TERMUX_RUNTIME_DIR" && metadata_current=1
     plan_env="$(codex_termux_cmd runtime-refresh-plan-env \
         --state-file "$CODEX_TERMUX_STATE_FILE" \
         --metadata-current "$metadata_current")" || return $?
@@ -704,7 +647,14 @@ codex_refresh_runtime_metadata_unlocked() {
 }
 
 codex_refresh_runtime_metadata() {
-    codex_runtime_metadata_current && return 0
+    codex_termux_cmd runtime-metadata-current \
+        --state-path "$CODEX_TERMUX_STATE_FILE" \
+        --registry-path "$CODEX_TERMUX_REGISTRY_FILE" \
+        --current "$CODEX_TERMUX_RUNTIME_DIR" \
+        --verified "$CODEX_TERMUX_VERIFIED_LINK" \
+        --raw "$CODEX_TERMUX_RAW_DIR" \
+        --manager-dir "$CODEX_TERMUX_MANAGER_DIR" \
+        --runtime-dir "$CODEX_TERMUX_RUNTIME_DIR" && return 0
     codex_with_lock codex_refresh_runtime_metadata_unlocked
 }
 
@@ -716,7 +666,7 @@ codex_activate_cached_runtime_unlocked() {
         codex_rm_rf_managed "$runtime_complete" "$raw_complete" || return $?
         return 1
     fi
-    if ! codex_commit_runtime_candidate "$runtime_complete" "$version" "$raw_sha" "$runtime_sha" "$package_spec" "$raw_complete"; then
+    if ! codex_activate_tuple_unlocked "$runtime_complete" "$version" "$raw_sha" "$runtime_sha" "$package_spec" "$raw_complete"; then
         codex_rm_rf_managed "$runtime_complete" "$raw_complete" || return $?
         return 1
     fi
@@ -724,20 +674,12 @@ codex_activate_cached_runtime_unlocked() {
 }
 
 
-codex_try_verified_rollback_unlocked() {
-    codex_termux_activation_cmd activation-restore-verified >/dev/null || return 1
-    codex_say "$(codex_ui_text_get restored_verified)"
-}
-
-codex_verified_rollback_needed() {
-    [ -e "$CODEX_TERMUX_VERIFIED_LINK" ] || [ -L "$CODEX_TERMUX_VERIFIED_LINK" ] || return 1
-    [ -x "$(codex_resolve_path "$CODEX_TERMUX_VERIFIED_LINK")/codex" ] || return 1
-    [ "$(codex_resolve_path "$CODEX_TERMUX_RUNTIME_DIR")" != "$(codex_resolve_path "$CODEX_TERMUX_VERIFIED_LINK")" ]
-}
-
 codex_try_verified_rollback() {
-    codex_verified_rollback_needed || return 1
-    codex_with_lock codex_try_verified_rollback_unlocked
+    [ -e "$CODEX_TERMUX_VERIFIED_LINK" ] || [ -L "$CODEX_TERMUX_VERIFIED_LINK" ] || return 1
+    [ -x "$(codex_termux_cmd resolve-path --path "$CODEX_TERMUX_VERIFIED_LINK")/codex" ] || return 1
+    [ "$(codex_termux_cmd resolve-path --path "$CODEX_TERMUX_RUNTIME_DIR")" != "$(codex_termux_cmd resolve-path --path "$CODEX_TERMUX_VERIFIED_LINK")" ] || return 1
+    codex_with_lock codex_termux_activation_cmd activation-restore-verified >/dev/null || return $?
+    codex_say "$(codex_ui_text_get restored_verified)"
 }
 
 
@@ -749,26 +691,33 @@ codex_ensure_runtime_ready() {
 
 
 codex_prepare_runtime_env() {
-    local runtime_dir runtime_exe termux_open_url=0
+    local runtime_dir runtime_exe termux_open_url=0 runtime_env
     unset CODEX_MANAGED_BY_NPM CODEX_MANAGED_BY_BUN CODEX_MANAGED_PACKAGE_ROOT LD_PRELOAD LD_LIBRARY_PATH
     codex_prepare_system_config || return $?
-    runtime_dir="$(codex_resolve_path "$CODEX_TERMUX_RUNTIME_DIR")" || return $?
+    runtime_dir="$(codex_termux_cmd resolve-path --path "$CODEX_TERMUX_RUNTIME_DIR")" || return $?
     runtime_exe="$runtime_dir/codex"
     command -v termux-open-url >/dev/null 2>&1 && termux_open_url=1
-    codex_runtime_apply_env_plan "$runtime_dir" "$runtime_exe" 0 "" "$termux_open_url"
+    runtime_env="$(codex_runtime_apply_env_plan "$runtime_dir" "$runtime_exe" 0 "" "$termux_open_url")" || return $?
+    eval "$runtime_env"
 }
 
 codex_run_current_runtime() {
     codex_status_clear
     codex_prepare_runtime_env || return $?
-    codex_require_runtime_resolver || return $?
+    if [ ! -r "$CODEX_TERMUX_RESOLV_CONF" ]; then
+        codex_fail "Resolver source is unavailable: $CODEX_TERMUX_RESOLV_CONF"
+        return 66
+    fi
     "$CODEX_SELF_EXE" "$@" 33<"$CODEX_TERMUX_RESOLV_CONF" 34<"$CODEX_TERMUX_SYSTEM_CONFIG_DIR"
 }
 
 codex_exec_current_runtime() {
     codex_status_clear
     codex_prepare_runtime_env || return $?
-    codex_require_runtime_resolver || return $?
+    if [ ! -r "$CODEX_TERMUX_RESOLV_CONF" ]; then
+        codex_fail "Resolver source is unavailable: $CODEX_TERMUX_RESOLV_CONF"
+        return 66
+    fi
     exec "$CODEX_SELF_EXE" "$@" 33<"$CODEX_TERMUX_RESOLV_CONF" 34<"$CODEX_TERMUX_SYSTEM_CONFIG_DIR"
 }
 

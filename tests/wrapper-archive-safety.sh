@@ -60,7 +60,7 @@ PYTHON
 
 grep -F 'bootstrap_validate_tarball_safe "$archive"' "$ROOT_DIR/install.sh" >/dev/null \
     || fail 'bootstrap install does not validate wrapper archive before extraction'
-grep -F 'codex_validate_tarball_safe "$archive"' "$ROOT_DIR/bin/install-runtime.sh" >/dev/null \
+grep -F 'codex_termux_cmd validate-tarball --path "$archive"' "$ROOT_DIR/bin/install-runtime.sh" >/dev/null \
     || fail 'install-runtime release source path does not validate wrapper archive before extraction'
 
 # shellcheck disable=SC1090

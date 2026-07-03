@@ -46,7 +46,7 @@ RollbackAction = tuple[str, Callable[[], None]]
 
 
 def commit(plan: ActivationPlan) -> ActivationResult:
-    _run_probe(plan, "codex_smoke_test_runtime \"$2\"", plan.candidate_runtime / "codex")
+    _run_probe(plan, 'codex_runtime_exec "$2" --version >/dev/null 2>&1', plan.candidate_runtime / "codex")
     runtime_path = store.publish_runtime_artifact(
         plan.candidate_runtime,
         plan.runtime_target,
@@ -98,7 +98,7 @@ def restore_verified(plan: ActivationPlan) -> ActivationResult:
         cleanup_runtime_source=False,
         cleanup_raw_source=False,
     )
-    _run_probe(restore_plan, "codex_smoke_test_runtime \"$2\"", runtime_path / "codex")
+    _run_probe(restore_plan, 'codex_runtime_exec "$2" --version >/dev/null 2>&1', runtime_path / "codex")
 
     def write_registry() -> str:
         registry.activate_existing_tuple(restore_plan.registry_file, tuple_id)
@@ -151,7 +151,7 @@ def _activate(
         rollback_actions.append(("raw pointer", lambda: _restore_pointer(snapshot.raw)))
         _run_probe(
             plan,
-            'codex_smoke_test_runtime "$CODEX_TERMUX_RUNTIME" && codex_runtime_ok',
+            'codex_runtime_exec "$CODEX_TERMUX_RUNTIME" --version >/dev/null 2>&1 && codex_termux_cmd runtime-layout-ok --runtime-dir "$CODEX_TERMUX_RUNTIME_DIR" --runtime "$CODEX_TERMUX_RUNTIME" --support-dir "$(codex_termux_cmd support-source-dir --manager-dir "$CODEX_TERMUX_MANAGER_DIR" --runtime-dir "$CODEX_TERMUX_RUNTIME_DIR")" && [ -r "$CODEX_TERMUX_STATE_FILE" ] && [ -r "$CODEX_TERMUX_RUNTIME_DIR/runtime-build.json" ] && [ -x "$CODEX_TERMUX_RUNTIME_BUILDER" ] && codex_termux_cmd runtime-integrity --runtime "$CODEX_TERMUX_RUNTIME" --manifest-path "$CODEX_TERMUX_RUNTIME_DIR/runtime-build.json" --builder "$CODEX_TERMUX_RUNTIME_BUILDER" --state-path "$CODEX_TERMUX_STATE_FILE" --patch-policy "$CODEX_TERMUX_PATCH_POLICY"',
             None,
         )
         _cleanup_source(plan.candidate_runtime, runtime_path, plan.cleanup_runtime_source)

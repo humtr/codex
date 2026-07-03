@@ -17,7 +17,7 @@ codex_session() {
     if [ "$#" -gt 0 ] && [[ ! "$1" =~ ^- ]]; then
         target_profile="$1"
         shift
-        codex_profile_name_valid "$target_profile" || {
+        codex_termux_cmd profile-validate --profile "$target_profile" || {
             codex_fail "$(codex_ui_text_get invalid_profile "$target_profile")"
             return 2
         }

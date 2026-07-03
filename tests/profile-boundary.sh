@@ -45,11 +45,11 @@ CODEX_TERMUX_STATE_DIR="$TMP_DIR/state" \
 bash -lc '
 . "$1"
 [ "$(codex_termux_cmd profile-choice-to-name --choice home)" = "default" ]
-[ "$(codex_profile_home_dir default)" = "$CODEX_TERMUX_HOME/.codex" ]
-[ "$(codex_profile_home_dir team)" = "$CODEX_TERMUX_PROFILE_ROOT/team" ]
-codex_profile_name_valid team
-! codex_profile_name_valid termux
-! codex_profile_name_valid "../bad"
+[ "$(codex_termux_cmd profile-dir --profile default)" = "$CODEX_TERMUX_HOME/.codex" ]
+[ "$(codex_termux_cmd profile-dir --profile team)" = "$CODEX_TERMUX_PROFILE_ROOT/team" ]
+codex_termux_cmd profile-validate --profile team
+! codex_termux_cmd profile-validate --profile termux
+! codex_termux_cmd profile-validate --profile "../bad"
 codex_termux_cmd profile-write-recent --profile team
 [ "$(codex_termux_cmd profile-read-recent)" = "team" ]
 rm -rf "$CODEX_TERMUX_PROFILE_ROOT/team"

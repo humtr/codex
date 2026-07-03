@@ -1,14 +1,6 @@
 # shellcheck shell=bash
 # This file is sourced by ../codex-termux.sh; do not execute directly.
 
-codex_profile_name_valid() {
-    codex_termux_cmd profile-validate --profile "${1:-}"
-}
-
-codex_profile_home_dir() {
-    codex_termux_cmd profile-dir --profile "${1:-default}"
-}
-
 codex_profile_runtime_exec() {
     local profile="$1" profile_dir="$2"
     shift 2 || true
@@ -21,14 +13,6 @@ codex_profile_runtime_exec() {
 }
 
 CODEX_PROMPT_CHOICE_RESULT=""
-
-codex_prompt_choice_action() {
-    codex_termux_cmd prompt-choice-action \
-        --reply "${1:-}" \
-        --mode "$2" \
-        --max-items "$3" \
-        --phase "$4"
-}
 
 codex_prompt_choice() {
     local prompt="${1:-choose> }" mode="${2:-freeform}" max_items="${3:-9}" reply rest old_tty status action
@@ -46,7 +30,11 @@ codex_prompt_choice() {
                 printf '\n' >&2
                 return 1
             fi
-            action="$(codex_prompt_choice_action "$reply" "$mode" "$max_items" tty)" || {
+            action="$(codex_termux_cmd prompt-choice-action \
+                --reply "$reply" \
+                --mode "$mode" \
+                --max-items "$max_items" \
+                --phase tty)" || {
                 [ -z "$old_tty" ] || stty "$old_tty" 2>/dev/null || true
                 printf '\n' >&2
                 return 1
@@ -86,7 +74,11 @@ codex_prompt_choice() {
         printf '\n' >&2
         return 1
     fi
-    action="$(codex_prompt_choice_action "$reply" "$mode" "$max_items" final)" || return $?
+    action="$(codex_termux_cmd prompt-choice-action \
+        --reply "$reply" \
+        --mode "$mode" \
+        --max-items "$max_items" \
+        --phase final)" || return $?
     case "$action" in
         cancel)
             printf '\n' >&2
@@ -184,7 +176,7 @@ codex_runtime_exec_with_context() {
     fi
     local recent_profile recent_profile_dir
     recent_profile="$(codex_termux_cmd profile-read-recent)"
-    recent_profile_dir="$(codex_profile_home_dir "$recent_profile")"
+    recent_profile_dir="$(codex_termux_cmd profile-dir --profile "$recent_profile")"
     codex_profile_runtime_exec "$recent_profile" "$recent_profile_dir" "$@"
 }
 
@@ -202,11 +194,11 @@ codex_profile_select() {
 
     profile="$(codex_termux_cmd profile-menu-choice --choice "$choice")"
 
-    codex_profile_name_valid "$profile" || {
+    codex_termux_cmd profile-validate --profile "$profile" || {
         codex_fail "$(codex_ui_text_get invalid_profile "$profile")"
         return 2
     }
-    profile_dir="$(codex_profile_home_dir "$profile")"
+    profile_dir="$(codex_termux_cmd profile-dir --profile "$profile")"
     codex_profile_exec "$profile_dir" "$profile"
 }
 
@@ -240,7 +232,7 @@ codex_profile_run() {
             ;;
     esac
     local profile="$CODEX_PROFILE_RUN_PROFILE" profile_dir
-    profile_dir="$(codex_profile_home_dir "$profile")"
+    profile_dir="$(codex_termux_cmd profile-dir --profile "$profile")"
     shift || true
     codex_profile_exec "$profile_dir" "$profile" "$@"
 }

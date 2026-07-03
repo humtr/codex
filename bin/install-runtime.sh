@@ -99,7 +99,7 @@ codex_fetch_release_wrapper_source() {
             return 1
         }
     fi
-    codex_validate_tarball_safe "$archive" >/dev/null 2>&1 || {
+    codex_termux_cmd validate-tarball --path "$archive" >/dev/null 2>&1 || {
         rm -rf "$tmp"
         codex_fail "Wrapper release archive is unsafe"
         return 1
@@ -289,8 +289,6 @@ codex_install_support_files() {
     codex_write_managed_shell
 }
 
-codex_launcher_available() { command -v clang >/dev/null 2>&1; }
-
 codex_build_launcher() {
     clang -O2 -Wall -Wextra -o "$1" "$CODEX_TERMUX_WRAPPER_SOURCE_DIR/tools/codex-launcher.c"
 }
@@ -350,23 +348,10 @@ codex_write_compiled_launcher() {
 }
 
 codex_install_launchers() {
-    if codex_launcher_available; then
+    if command -v clang >/dev/null 2>&1; then
         codex_write_compiled_launcher "$CODEX_TERMUX_PUBLIC_CODEX"
     else
         codex_write_shell_launcher "$CODEX_TERMUX_PUBLIC_CODEX"
-    fi
-}
-
-codex_install_surface_finish() {
-    local success_message="$1" print_version="${CODEX_TERMUX_INSTALL_PRINT_VERSION:-1}"
-    if [ -n "$success_message" ]; then
-        codex_say "$success_message"
-        return 0
-    fi
-    if [ "$print_version" = "0" ]; then
-        codex_status_clear
-    else
-        codex_version
     fi
 }
 
@@ -380,7 +365,13 @@ codex_install_surface_run() {
     codex_status "$message"
     "$command" "$@" || status=$?
     if [ "$status" -eq 0 ]; then
-        codex_install_surface_finish "$success_message" || status=$?
+        if [ -n "$success_message" ]; then
+            codex_say "$success_message"
+        elif [ "${CODEX_TERMUX_INSTALL_PRINT_VERSION:-1}" = "0" ]; then
+            codex_status_clear
+        else
+            codex_version || status=$?
+        fi
     else
         codex_status_clear
     fi
@@ -402,13 +393,6 @@ codex_install_full_unlocked() {
     return "$status"
 }
 
-codex_install_full_core() {
-    local status=0
-    codex_with_lock codex_install_full_unlocked "${1:-}" || status=$?
-    [ "$status" -eq 0 ] || codex_status_clear
-    return "$status"
-}
-
 codex_install_support_unlocked() {
     local status=0
     codex_prepare_fresh_wrapper_source || return $?
@@ -419,17 +403,6 @@ codex_install_support_unlocked() {
     } || status=$?
     codex_cleanup_fresh_wrapper_source
     return "$status"
-}
-
-codex_install_support_core() {
-    local status=0
-    codex_with_lock codex_install_support_unlocked || status=$?
-    [ "$status" -eq 0 ] || codex_status_clear
-    return "$status"
-}
-
-codex_install_upstream_core() {
-    codex_runtime_install_upstream "${1:-}"
 }
 
 codex_install_rebuild_unlocked() {
@@ -444,20 +417,6 @@ codex_install_rebuild_unlocked() {
         codex_refresh_runtime_metadata
     } || status=$?
     codex_cleanup_fresh_wrapper_source
-    return "$status"
-}
-
-codex_install_rebuild_core() {
-    local status=0
-    codex_with_lock codex_install_rebuild_unlocked || status=$?
-    [ "$status" -eq 0 ] || codex_status_clear
-    return "$status"
-}
-
-codex_repair_core() {
-    local status=0
-    codex_with_lock codex_repair_core_unlocked || status=$?
-    [ "$status" -eq 0 ] || codex_status_clear
     return "$status"
 }
 
@@ -481,19 +440,19 @@ codex_install_run_plan() {
             return "$exit_code"
             ;;
         install_full)
-            codex_install_surface_run "$message" "$success_message" codex_install_full_core "$version"
+            codex_install_surface_run "$message" "$success_message" codex_with_lock codex_install_full_unlocked "$version"
             ;;
         support)
-            codex_install_surface_run "$message" "$success_message" codex_install_support_core
+            codex_install_surface_run "$message" "$success_message" codex_with_lock codex_install_support_unlocked
             ;;
         upstream)
-            codex_install_surface_run "$message" "$success_message" codex_install_upstream_core "$version"
+            codex_install_surface_run "$message" "$success_message" codex_runtime_install_upstream "$version"
             ;;
         rebuild)
-            codex_install_surface_run "$message" "$success_message" codex_install_rebuild_core
+            codex_install_surface_run "$message" "$success_message" codex_with_lock codex_install_rebuild_unlocked
             ;;
         repair)
-            codex_install_surface_run "$message" "$success_message" codex_repair_core
+            codex_install_surface_run "$message" "$success_message" codex_with_lock codex_repair_core_unlocked
             ;;
         *)
             codex_fail "Unknown install plan action: $action"

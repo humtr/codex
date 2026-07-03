@@ -3,9 +3,9 @@
 
 codex_termux_doctor_json() {
     local version raw_sha runtime_sha
-    version="$(codex_read_state_field version)"
-    raw_sha="$(codex_read_state_field raw_sha256)"
-    runtime_sha="$(codex_read_state_field runtime_sha256)"
+    version="$(codex_termux_cmd state-read-field --state-file "$CODEX_TERMUX_STATE_FILE" --field version)"
+    raw_sha="$(codex_termux_cmd state-read-field --state-file "$CODEX_TERMUX_STATE_FILE" --field raw_sha256)"
+    runtime_sha="$(codex_termux_cmd state-read-field --state-file "$CODEX_TERMUX_STATE_FILE" --field runtime_sha256)"
     codex_prepare_runtime_env
     codex_termux_cmd doctor-report \
         --runtime "$CODEX_TERMUX_RUNTIME" \

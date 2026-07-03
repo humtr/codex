@@ -343,18 +343,20 @@ def _validate_profile_contract(root: Path) -> None:
         '        export CODEX_HOME="$profile_dir"',
         '    fi',
     ))
-    required_shell_facade = (
-        "codex_profile_name_valid()",
-        "codex_profile_home_dir()",
+    required_shell_calls = (
+        'codex_termux_cmd profile-validate --profile "$profile"',
+        'codex_termux_cmd profile-dir --profile "$profile"',
+        'codex_termux_cmd profile-dir --profile "$recent_profile"',
+        "codex_termux_cmd prompt-choice-action",
     )
     if profile_root not in shell:
         raise IntegrityError("custom profile root contract changed")
     for marker in required_python_model:
         if marker not in session_py:
             raise IntegrityError(f"profile model owner contract changed: {marker}")
-    for marker in required_shell_facade:
+    for marker in required_shell_calls:
         if marker not in shell:
-            raise IntegrityError(f"profile shell facade contract changed: {marker}")
+            raise IntegrityError(f"profile shell command contract changed: {marker}")
     if guarded_export not in shell:
         raise IntegrityError("custom profile CODEX_HOME guard changed")
     if 'if [ ! -t 0 ] || [ ! -t 2 ]; then' not in shell:
