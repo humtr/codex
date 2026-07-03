@@ -299,9 +299,10 @@ def _audit_notify_owners(root: Path, files: Iterable[Path]) -> list[Finding]:
 
 
 def _audit_profile_shell_model(root: Path) -> list[Finding]:
-    if not (root / "lib/codex-termux.sh").is_file():
+    profile_shell = root / "lib/codex-termux/profile.sh"
+    if not profile_shell.is_file():
         return []
-    text = _shell_contract_text(root)
+    text = _read_text(profile_shell)
     markers = [marker for marker in PROFILE_SHELL_MODEL_MARKERS if marker in text]
     if not markers:
         return []
@@ -309,7 +310,7 @@ def _audit_profile_shell_model(root: Path) -> list[Finding]:
         Finding(
             code="profile-shell-model",
             severity="phase-c004",
-            path="lib/codex-termux.sh",
+            path="lib/codex-termux/profile.sh",
             detail="profile model still lives in shell: " + ", ".join(markers),
         )
     ]
@@ -591,7 +592,7 @@ def _audit_manifest_consistency(root: Path, manifest: dict[str, object]) -> list
     if manifest.get("schema") != 1:
         findings.append(Finding("manifest-schema", "blocker", MANIFEST_PATH, "schema must be 1"))
     domains = _manifest_domains(manifest)
-    expected = {"dispatch", "state", "profile", "use", "remove", "session", "runtime", "notify", "doctor"}
+    expected = {"dispatch", "state", "prompt", "profile", "use", "remove", "session", "runtime", "notify", "doctor"}
     for domain in sorted(expected - set(domains)):
         findings.append(Finding("manifest-domain-missing", "blocker", MANIFEST_PATH, f"missing domain: {domain}"))
     for name, data in domains.items():
@@ -756,6 +757,7 @@ def _metrics(root: Path) -> dict[str, object]:
     metrics["shell_file_functions"] = shell_file_functions
     metrics["runtime_shell_lines"] = shell_file_lines.get("lib/codex-termux/runtime.sh", 0)
     metrics["state_shell_lines"] = shell_file_lines.get("lib/codex-termux/state.sh", 0)
+    metrics["prompt_shell_lines"] = shell_file_lines.get("lib/codex-termux/prompt.sh", 0)
     metrics["notify_shell_lines"] = shell_file_lines.get("lib/codex-termux/notify.sh", 0)
     metrics["profile_shell_lines"] = shell_file_lines.get("lib/codex-termux/profile.sh", 0)
     metrics["cli_py_lines"] = _line_count(cli_py)

@@ -30,6 +30,7 @@ required = {
     "bin/install-local.sh",
     "bin/install-runtime.sh",
     "lib/codex-termux.sh",
+    "lib/codex-termux/prompt.sh",
     "lib/codex-termux/dispatch.sh",
     "lib/codex-termux/state.sh",
     "lib/codex-termux/profile.sh",

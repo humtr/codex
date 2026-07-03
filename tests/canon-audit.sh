@@ -27,6 +27,7 @@ required_metrics = {
     "cli_py_lines",
     "runtime_shell_lines",
     "state_shell_lines",
+    "prompt_shell_lines",
     "notify_shell_lines",
     "profile_shell_lines",
     "shell_file_lines",
@@ -42,6 +43,7 @@ assert not missing, missing
 shell_lines = metrics["shell_file_lines"]
 assert metrics["runtime_shell_lines"] == shell_lines["lib/codex-termux/runtime.sh"]
 assert metrics["state_shell_lines"] == shell_lines["lib/codex-termux/state.sh"]
+assert metrics["prompt_shell_lines"] == shell_lines["lib/codex-termux/prompt.sh"]
 assert metrics["notify_shell_lines"] == shell_lines["lib/codex-termux/notify.sh"]
 assert metrics["profile_shell_lines"] == shell_lines["lib/codex-termux/profile.sh"]
 

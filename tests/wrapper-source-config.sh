@@ -150,6 +150,7 @@ printf '%s\n' "$*" >"$LOCAL_MARKER"
 SCRIPT
 printf 'runtime\n' >"$LOCAL_DIR/bin/install-runtime.sh"
 printf 'lib\n' >"$LOCAL_DIR/lib/codex-termux.sh"
+printf 'prompt\n' >"$LOCAL_DIR/lib/codex-termux/prompt.sh"
 for domain in dispatch state profile use remove session runtime notify doctor; do printf '%s\n' "$domain" >"$LOCAL_DIR/lib/codex-termux/$domain.sh"; done
 printf '{}\n' >"$LOCAL_DIR/codex-wrapper.manifest.json"
 printf 'builder\n' >"$LOCAL_DIR/tools/build-runtime.py"
@@ -255,6 +256,7 @@ entries = {
     "source/bin/install-local.sh": install_local,
     "source/bin/install-runtime.sh": "runtime\n",
     "source/lib/codex-termux.sh": "lib\n",
+    "source/lib/codex-termux/prompt.sh": "prompt\n",
     "source/lib/codex-termux/dispatch.sh": "dispatch\n",
     "source/lib/codex-termux/state.sh": "state\n",
     "source/lib/codex-termux/profile.sh": "profile\n",
