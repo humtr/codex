@@ -121,6 +121,22 @@
         "codex_confirm_menu"
       ]
     },
+    "exec": {
+      "path": "lib/codex-termux/exec.sh",
+      "owns_prefixes": [
+        "codex_runtime_apply_env_plan",
+        "codex_runtime_exec",
+        "codex_prepare_runtime_env",
+        "codex_run_current_runtime",
+        "codex_exec_current_runtime"
+      ],
+      "public_functions": [
+        "codex_runtime_exec",
+        "codex_prepare_runtime_env",
+        "codex_run_current_runtime",
+        "codex_exec_current_runtime"
+      ]
+    },
     "use": {
       "path": "lib/codex-termux/use.sh",
       "owns_prefixes": [
@@ -223,6 +239,9 @@
       "codex_ui_menu_row",
       "codex_ui_prompt",
       "codex_ui_text_get"
+    ],
+    "exec": [
+      "codex_prepare_system_config"
     ],
     "use": [
       "codex_activate_cached_runtime_unlocked",

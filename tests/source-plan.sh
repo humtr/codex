@@ -130,6 +130,7 @@ printf 'test\n' >"$extract_root/codex-release/bin/install-local.sh"
 printf 'test\n' >"$extract_root/codex-release/bin/install-runtime.sh"
 printf 'test\n' >"$extract_root/codex-release/lib/codex-termux.sh"
 printf 'test\n' >"$extract_root/codex-release/lib/codex-termux/prompt.sh"
+printf 'test\n' >"$extract_root/codex-release/lib/codex-termux/exec.sh"
 for domain in dispatch state profile use remove session runtime notify doctor; do
     printf 'test\n' >"$extract_root/codex-release/lib/codex-termux/$domain.sh"
 done

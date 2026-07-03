@@ -17,6 +17,7 @@ REQUIRED_WRAPPER_SOURCE_PATHS = (
     "bin/install-runtime.sh",
     "lib/codex-termux.sh",
     "lib/codex-termux/prompt.sh",
+    "lib/codex-termux/exec.sh",
     "lib/codex-termux/dispatch.sh",
     "lib/codex-termux/state.sh",
     "lib/codex-termux/profile.sh",
