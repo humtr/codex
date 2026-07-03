@@ -185,7 +185,6 @@
       "path": "lib/codex-termux/runtime.sh",
       "owns_prefixes": [
         "codex_runtime",
-        "codex_repair",
         "codex_install",
         "codex_fetch",
         "codex_build",
@@ -200,7 +199,21 @@
       "public_functions": [
         "codex_version",
         "codex_runtime_install_upstream",
-        "codex_runtime_install_cached",
+        "codex_runtime_install_cached"
+      ]
+    },
+    "repair": {
+      "path": "lib/codex-termux/repair.sh",
+      "owns_prefixes": [
+        "codex_repair",
+        "codex_runtime_apply_action",
+        "codex_refresh_runtime_metadata",
+        "codex_ensure_runtime_ready"
+      ],
+      "public_functions": [
+        "codex_repair_core_unlocked",
+        "codex_repair_public",
+        "codex_refresh_runtime_metadata",
         "codex_ensure_runtime_ready"
       ]
     },
@@ -286,7 +299,6 @@
     "runtime": [
       "codex_assert_managed_tree_target",
       "codex_display_version",
-      "codex_install_source_command",
       "codex_notify_all_hooks",
       "codex_parent_dir",
       "codex_prepare_system_config",
@@ -296,6 +308,13 @@
       "codex_ui_badge",
       "codex_ui_step",
       "codex_ui_text_get"
+    ],
+    "repair": [
+      "codex_install_source_command",
+      "codex_runtime_install_cached",
+      "codex_ui_step",
+      "codex_validate_runtime_retention",
+      "codex_version"
     ],
     "notify": [
       "codex_prepare_system_config",

@@ -19,6 +19,7 @@ REQUIRED_WRAPPER_SOURCE_PATHS = (
     "lib/codex-termux/prompt.sh",
     "lib/codex-termux/exec.sh",
     "lib/codex-termux/store.sh",
+    "lib/codex-termux/repair.sh",
     "lib/codex-termux/dispatch.sh",
     "lib/codex-termux/state.sh",
     "lib/codex-termux/profile.sh",
