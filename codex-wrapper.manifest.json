@@ -137,6 +137,22 @@
         "codex_exec_current_runtime"
       ]
     },
+    "store": {
+      "path": "lib/codex-termux/store.sh",
+      "owns_prefixes": [
+        "codex_store",
+        "codex_validate_runtime_retention",
+        "codex_prune_runtime_store",
+        "codex_activate",
+        "codex_try_verified_rollback"
+      ],
+      "public_functions": [
+        "codex_validate_runtime_retention",
+        "codex_activate_tuple_unlocked",
+        "codex_activate_cached_runtime_unlocked",
+        "codex_try_verified_rollback"
+      ]
+    },
     "use": {
       "path": "lib/codex-termux/use.sh",
       "owns_prefixes": [
@@ -173,7 +189,6 @@
         "codex_install",
         "codex_fetch",
         "codex_build",
-        "codex_activate",
         "codex_auto_update",
         "codex_version",
         "codex_support",
@@ -242,6 +257,16 @@
     ],
     "exec": [
       "codex_prepare_system_config"
+    ],
+    "store": [
+      "codex_install_raw_vendor",
+      "codex_parent_dir",
+      "codex_prepare_complete_runtime_tree",
+      "codex_rm_rf_managed",
+      "codex_sha256",
+      "codex_termux_activation_cmd",
+      "codex_ui_step",
+      "codex_ui_text_get"
     ],
     "use": [
       "codex_activate_cached_runtime_unlocked",

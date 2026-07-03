@@ -76,5 +76,5 @@ codex_source_domain() {
     . "$path"
 }
 
-for CODEX_TERMUX_DOMAIN in state prompt exec runtime notify doctor profile use remove session dispatch; do codex_source_domain "$CODEX_TERMUX_DOMAIN" || return $?; done
+for CODEX_TERMUX_DOMAIN in state prompt exec store runtime notify doctor profile use remove session dispatch; do codex_source_domain "$CODEX_TERMUX_DOMAIN" || return $?; done
 unset CODEX_TERMUX_DOMAIN
