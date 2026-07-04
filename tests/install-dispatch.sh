@@ -15,6 +15,20 @@ fail() {
 # shellcheck disable=SC1090
 . "$ROOT_DIR/bin/install-runtime.sh"
 
+MANAGER_TMP="$TMP_DIR/manager"
+mkdir -p "$MANAGER_TMP/codex-termux"
+for domain in state runtime notify doctor profile session dispatch; do
+    : >"$MANAGER_TMP/codex-termux/$domain.sh"
+done
+cp "$ROOT_DIR/lib/codex-termux.sh" "$MANAGER_TMP/lib.sh"
+CODEX_TERMUX_HOME="$TMP_DIR/home" \
+CODEX_TERMUX_PREFIX="$TMP_DIR/prefix" \
+bash -lc '
+    set -euo pipefail
+    . "$1"
+    [ "$CODEX_TERMUX_SHELL_LIB" = "$1" ]
+' _ "$MANAGER_TMP/lib.sh" || fail 'installed shell library path did not resolve to manager/lib.sh'
+
 USAGE_CALLED=0
 FAILED_MESSAGE=""
 UPSTREAM_ARG="__unset__"
