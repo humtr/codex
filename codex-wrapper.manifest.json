@@ -87,12 +87,6 @@
         "codex_load_wrapper_source",
         "codex_normalize_wrapper_source",
         "codex_wrapper_auth_token",
-        "codex_parent_dir",
-        "codex_tmp",
-        "codex_mktemp",
-        "codex_path",
-        "codex_assert",
-        "codex_lock",
         "codex_termux_cmd",
         "codex_termux_activation_cmd",
         "codex_now",
@@ -100,6 +94,26 @@
       ],
       "public_functions": [
         "codex_termux_cmd"
+      ]
+    },
+    "fs": {
+      "path": "lib/codex-termux/fs.sh",
+      "owns_prefixes": [
+        "codex_parent_dir",
+        "codex_tmp",
+        "codex_mktemp",
+        "codex_assert",
+        "codex_rm_rf_managed",
+        "codex_sha256"
+      ],
+      "public_functions": [
+        "codex_parent_dir",
+        "codex_tmp_dir",
+        "codex_mktemp_dir",
+        "codex_mktemp_file",
+        "codex_assert_managed_tree_target",
+        "codex_rm_rf_managed",
+        "codex_sha256"
       ]
     },
     "ui": {

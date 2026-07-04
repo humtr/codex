@@ -593,7 +593,7 @@ def _audit_manifest_consistency(root: Path, manifest: dict[str, object]) -> list
     if manifest.get("schema") != 1:
         findings.append(Finding("manifest-schema", "blocker", MANIFEST_PATH, "schema must be 1"))
     domains = _manifest_domains(manifest)
-    expected = {"dispatch", "state", "ui", "prompt", "exec", "store", "build", "repair", "version", "profile", "use", "remove", "session", "runtime", "notify", "doctor"}
+    expected = {"dispatch", "state", "ui", "fs", "prompt", "exec", "store", "build", "repair", "version", "profile", "use", "remove", "session", "runtime", "notify", "doctor"}
     for domain in sorted(expected - set(domains)):
         findings.append(Finding("manifest-domain-missing", "blocker", MANIFEST_PATH, f"missing domain: {domain}"))
     for name, data in domains.items():
@@ -779,6 +779,7 @@ def _metrics(root: Path) -> dict[str, object]:
     metrics["runtime_shell_lines"] = shell_file_lines.get("lib/codex-termux/runtime.sh", 0)
     metrics["build_shell_lines"] = shell_file_lines.get("lib/codex-termux/build.sh", 0)
     metrics["ui_shell_lines"] = shell_file_lines.get("lib/codex-termux/ui.sh", 0)
+    metrics["fs_shell_lines"] = shell_file_lines.get("lib/codex-termux/fs.sh", 0)
     metrics["state_shell_lines"] = shell_file_lines.get("lib/codex-termux/state.sh", 0)
     metrics["prompt_shell_lines"] = shell_file_lines.get("lib/codex-termux/prompt.sh", 0)
     metrics["notify_shell_lines"] = shell_file_lines.get("lib/codex-termux/notify.sh", 0)
