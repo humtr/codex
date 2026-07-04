@@ -16,6 +16,12 @@ class SubparserCollection(Protocol):
 
 
 def add_commands(sub: SubparserCollection) -> None:
+    termux_help = sub.add_parser("termux-help")
+    termux_help.set_defaults(func=_termux_help)
+
+    termux_version_help = sub.add_parser("termux-version-help")
+    termux_version_help.set_defaults(func=_termux_version_help)
+
     validate = sub.add_parser("validate")
     validate.add_argument("--root", default=None)
     validate.set_defaults(func=_validate_wrapper)
@@ -60,6 +66,9 @@ def add_commands(sub: SubparserCollection) -> None:
         wrapper_source_plan_env.add_argument(f"--{name}", default="")
     wrapper_source_plan_env.set_defaults(func=_wrapper_source_plan_env)
 
+    install_usage = sub.add_parser("install-usage")
+    install_usage.set_defaults(func=_install_usage)
+
     install_plan_cmd = sub.add_parser("install-plan")
     install_plan_cmd.add_argument("--command", required=True)
     install_plan_cmd.add_argument(
@@ -83,6 +92,21 @@ def add_commands(sub: SubparserCollection) -> None:
 
 def _print_ok() -> int:
     print("codex_termux: ok")
+    return 0
+
+
+def _termux_help(args: argparse.Namespace) -> int:
+    print(_TERMUX_HELP_TEXT, end="")
+    return 0
+
+
+def _termux_version_help(args: argparse.Namespace) -> int:
+    print(_TERMUX_VERSION_HELP_TEXT, end="")
+    return 0
+
+
+def _install_usage(args: argparse.Namespace) -> int:
+    print(_INSTALL_USAGE_TEXT, end="")
     return 0
 
 
@@ -225,6 +249,48 @@ def _wrapper_source_plan_env(args: argparse.Namespace) -> int:
     )
     print(source.wrapper_source_plan_exports(plan))
     return 0
+
+
+_TERMUX_HELP_TEXT = """Codex Termux wrapper commands
+
+Usage:
+  codex termux <command> [args...]
+
+Commands:
+  help                         Print this wrapper command help.
+  install [VERSION]            Install support files and a fresh patched runtime.
+  install support              Refresh support files and the public launcher only.
+  install upstream [VERSION]   Install selected/latest upstream package with current support.
+  install rebuild              Rebuild a patched runtime from the cached raw package.
+  update [VERSION]             Refresh support files and runtime; same as install.
+  repair                       Diagnose and repair the managed installation.
+  doctor [--json]              Check launcher, runtime resources, resolver, CA, DNS patch, and state.
+  version                      Print upstream, runtime, and wrapper version/date rows.
+  use [--list|SELECTION]       List or promote cached/remote runtimes.
+  profile [list|NAME]          List profiles or launch with an explicit CODEX_HOME profile.
+  session [PROFILE] [--all]    Pick and resume discovered Codex sessions across profiles.
+  notify [options]             Configure notification/toast hooks.
+  remove                       Remove managed launcher/runtime and restore launcher backups.
+
+Top-level codex arguments are reserved for upstream Codex. Use "codex termux help" for wrapper operations.
+"""
+
+_TERMUX_VERSION_HELP_TEXT = """Usage: codex termux version
+
+Prints upstream Codex and managed wrapper/runtime version rows.
+"""
+
+_INSTALL_USAGE_TEXT = """Usage: bash bin/install-runtime.sh [install|update|repair|remove|doctor] [ARGS]
+
+install [VERSION]           Install support files, launcher, and a fresh patched runtime.
+install support             Refresh support files and the launcher only.
+install upstream [VERSION]  Install a fresh patched runtime from upstream raw.
+install rebuild             Refresh support files and rebuild patched runtime from cached raw.
+update [VERSION]            Same as install [VERSION]: refresh support and patched runtime.
+repair                      Diagnose and repair the managed installation; does not update by default.
+remove                      Remove the managed launcher/runtime and restore a launcher backup.
+doctor                      Run wrapper diagnostics. Use: doctor --json for machine output.
+"""
 
 
 def _removed_contract_terms() -> tuple[str, ...]:

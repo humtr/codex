@@ -17,18 +17,8 @@ CODEX_TERMUX_WRAPPER_SOURCE_DIR="${CODEX_TERMUX_WRAPPER_SOURCE_DIR:-$ROOT_DIR}"
 CODEX_TERMUX_INSTALL_RUNTIME_SOURCE="${CODEX_TERMUX_INSTALL_RUNTIME_SOURCE:-$ROOT_DIR/bin/install-runtime.sh}"
 
 usage() {
-    cat <<'USAGE'
-Usage: bash bin/install-runtime.sh [install|update|repair|remove|doctor] [ARGS]
-
-install [VERSION]           Install support files, launcher, and a fresh patched runtime.
-install support             Refresh support files and the launcher only.
-install upstream [VERSION]  Install a fresh patched runtime from upstream raw.
-install rebuild             Refresh support files and rebuild patched runtime from cached raw.
-update [VERSION]            Same as install [VERSION]: refresh support and patched runtime.
-repair                      Diagnose and repair the managed installation; does not update by default.
-remove                      Remove the managed launcher/runtime and restore a launcher backup.
-doctor                      Run wrapper diagnostics. Use: doctor --json for machine output.
-USAGE
+    # install upstream [VERSION]; install rebuild
+    codex_termux_cmd install-usage
 }
 
 codex_require_wrapper_source() {

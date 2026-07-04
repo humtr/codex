@@ -19,6 +19,34 @@ date_text="$(
 )"
 [ "$date_text" = "2026-07-01" ] || fail "release date parse mismatch: $date_text"
 
+fake_bin="$TMP_DIR/fake-bin"
+mkdir -p "$fake_bin"
+cat >"$fake_bin/npm" <<'NPM'
+#!/bin/sh
+case "$1 $2 $3 $4" in
+    "view @openai/codex time --json") printf '{"0.142.5":"2026-07-01T02:03:04.000Z"}\n' ;;
+    *) exit 23 ;;
+esac
+NPM
+chmod 755 "$fake_bin/npm"
+
+cache_file="$TMP_DIR/upstream-cache.tsv"
+release_date="$(
+    PATH="$fake_bin:$PATH" \
+        PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+            python3 -B -m codex_termux.cli upstream-release-date-resolve \
+            --cache "$cache_file" --version 0.142.5 --timeout-seconds 1
+)"
+[ "$release_date" = "2026-07-01" ] || fail "release date resolve mismatch: $release_date"
+
+release_date="$(
+    PATH="$PATH" \
+        PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+            python3 -B -m codex_termux.cli upstream-release-date-resolve \
+            --cache "$cache_file" --version 0.142.5 --timeout-seconds 1
+)"
+[ "$release_date" = "2026-07-01" ] || fail "release date cache resolve mismatch: $release_date"
+
 display_date="$(
     PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
         python3 -B -m codex_termux.cli display-runtime-date --value 20260702T030405Z
@@ -67,7 +95,6 @@ case "$version_report" in
     *) fail "version report mismatch: $version_report" ;;
 esac
 
-cache_file="$TMP_DIR/upstream-cache.tsv"
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
     python3 -B -m codex_termux.cli upstream-release-cache-write \
     --cache "$cache_file" --version 0.1.0 --release-date 2026-07-02

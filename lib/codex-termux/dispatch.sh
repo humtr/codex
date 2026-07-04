@@ -3,30 +3,7 @@
 
 codex_termux_help() {
     codex_status_clear
-    cat <<'USAGE'
-Codex Termux wrapper commands
-
-Usage:
-  codex termux <command> [args...]
-
-Commands:
-  help                         Print this wrapper command help.
-  install [VERSION]            Install support files and a fresh patched runtime.
-  install support              Refresh support files and the public launcher only.
-  install upstream [VERSION]   Install selected/latest upstream package with current support.
-  install rebuild              Rebuild a patched runtime from the cached raw package.
-  update [VERSION]             Refresh support files and runtime; same as install.
-  repair                       Diagnose and repair the managed installation.
-  doctor [--json]              Check launcher, runtime resources, resolver, CA, DNS patch, and state.
-  version                      Print upstream, runtime, and wrapper version/date rows.
-  use [--list|SELECTION]       List or promote cached/remote runtimes.
-  profile [list|NAME]          List profiles or launch with an explicit CODEX_HOME profile.
-  session [PROFILE] [--all]    Pick and resume discovered Codex sessions across profiles.
-  notify [options]             Configure notification/toast hooks.
-  remove                       Remove managed launcher/runtime and restore launcher backups.
-
-Top-level codex arguments are reserved for upstream Codex. Use "codex termux help" for wrapper operations.
-USAGE
+    codex_termux_cmd termux-help
 }
 
 
@@ -54,22 +31,22 @@ codex_run_install_source_command() {
     return "$status"
 }
 
-codex_install_public() {
-    local source
+codex_run_install_public() {
+    local command="$1" source
+    shift
     source="$(codex_install_source_command)" || {
         codex_fail "Install source is unavailable; run bash install.sh from a wrapper checkout"
         return 1
     }
-    codex_run_install_source_command "$source" install "$@"
+    codex_run_install_source_command "$source" "$command" "$@"
+}
+
+codex_install_public() {
+    codex_run_install_public install "$@"
 }
 
 codex_update_full_public() {
-    local source
-    source="$(codex_install_source_command)" || {
-        codex_fail "Install source is unavailable; run bash install.sh from a wrapper checkout"
-        return 1
-    }
-    codex_run_install_source_command "$source" update "$@"
+    codex_run_install_public update "$@"
 }
 
 codex_repair_surface_public() {
@@ -100,11 +77,7 @@ codex_termux_version_public() {
             codex_version
             ;;
         -h|--help|help)
-            cat <<'USAGE'
-Usage: codex termux version
-
-Prints upstream Codex and managed wrapper/runtime version rows.
-USAGE
+            codex_termux_cmd termux-version-help
             ;;
         *)
             codex_fail "termux version does not take arguments"

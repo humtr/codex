@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import json
+import subprocess
 import sys
 import tarfile
 from pathlib import Path, PurePosixPath
@@ -108,6 +110,10 @@ def add_commands(sub: SubparserCollection) -> None:
     version_report.add_argument("--wrapper-commit", default="")
     version_report.set_defaults(func=_version_report)
 
+    latest_version = sub.add_parser("latest-linux-arm64-version")
+    latest_version.add_argument("--timeout-seconds", required=True)
+    latest_version.set_defaults(func=_latest_linux_arm64_version)
+
     state_field = sub.add_parser("state-read-field")
     state_field.add_argument("--state-file", required=True)
     state_field.add_argument("--field", required=True)
@@ -126,6 +132,12 @@ def add_commands(sub: SubparserCollection) -> None:
     upstream_release_date.set_defaults(
         func=lambda args: _print(runtime_checks.upstream_release_date(sys.stdin.read(), args.version))
     )
+
+    upstream_release_date_resolve = sub.add_parser("upstream-release-date-resolve")
+    upstream_release_date_resolve.add_argument("--cache", required=True)
+    upstream_release_date_resolve.add_argument("--version", required=True)
+    upstream_release_date_resolve.add_argument("--timeout-seconds", required=True)
+    upstream_release_date_resolve.set_defaults(func=_upstream_release_date_resolve)
 
     strip_quotes = sub.add_parser("strip-quotes")
     strip_quotes.set_defaults(func=_strip_quotes)
@@ -271,6 +283,19 @@ def _upstream_release_cache_write(args: argparse.Namespace) -> int:
     return 0
 
 
+def _upstream_release_date_resolve(args: argparse.Namespace) -> int:
+    cache = Path(args.cache)
+    version = args.version
+    cached = runtime_checks.read_upstream_release_cache(cache, version)
+    if cached:
+        return _print(cached)
+    payload = _npm_view_json("@openai/codex", "time", int(args.timeout_seconds))
+    release_date = runtime_checks.upstream_release_date(payload, version)
+    if release_date:
+        runtime_checks.write_upstream_release_cache(cache, version, release_date)
+    return _print(release_date)
+
+
 def _strip_quotes(_: argparse.Namespace) -> int:
     sys.stdout.write(sys.stdin.read().replace('"', ''))
     return 0
@@ -295,6 +320,10 @@ def _version_report(args: argparse.Namespace) -> int:
         wrapper_version=args.wrapper_version,
         wrapper_commit=args.wrapper_commit,
     ))
+
+
+def _latest_linux_arm64_version(args: argparse.Namespace) -> int:
+    return _print(_npm_view_json_text("@openai/codex", "dist-tags.linux-arm64", int(args.timeout_seconds)))
 
 
 def _wrapper_metadata_env(args: argparse.Namespace) -> int:
@@ -323,3 +352,30 @@ def _release_package(args: argparse.Namespace) -> int:
     release.write_zip(Path(args.package_root), out)
     print(out)
     return 0
+
+
+def _npm_view_json(package: str, field: str, timeout_seconds: int) -> str:
+    try:
+        result = subprocess.run(
+            ["npm", "view", package, field, "--json"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    if result.returncode != 0:
+        return ""
+    return result.stdout.strip()
+
+
+def _npm_view_json_text(package: str, field: str, timeout_seconds: int) -> str:
+    payload = _npm_view_json(package, field, timeout_seconds)
+    if not payload:
+        return ""
+    try:
+        value = json.loads(payload)
+    except json.JSONDecodeError:
+        return payload.strip('"')
+    return value if isinstance(value, str) else ""

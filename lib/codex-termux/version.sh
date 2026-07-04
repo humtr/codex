@@ -2,11 +2,8 @@
 # This file is sourced by ../codex-termux.sh; do not execute directly.
 
 codex_latest_linux_arm64_version() {
-    if command -v timeout >/dev/null 2>&1; then
-        timeout "$CODEX_TERMUX_AUTO_UPDATE_TIMEOUT_SECONDS" npm view @openai/codex dist-tags.linux-arm64 --json 2>/dev/null | codex_termux_cmd strip-quotes
-    else
-        npm view @openai/codex dist-tags.linux-arm64 --json 2>/dev/null | codex_termux_cmd strip-quotes
-    fi
+    codex_termux_cmd latest-linux-arm64-version \
+        --timeout-seconds "$CODEX_TERMUX_AUTO_UPDATE_TIMEOUT_SECONDS"
 }
 
 codex_mark_auto_update_checked() {
@@ -63,6 +60,19 @@ codex_prompt_update() {
             return 130
             ;;
     esac
+}
+
+codex_apply_auto_update_version() {
+    local current="$1" latest="$2"
+    codex_ui_step update_runtime "$current" "$latest"
+    if codex_runtime_install_upstream "$latest"; then
+        codex_clear_pending_auto_update
+        codex_clear_failed_auto_update
+    else
+        codex_write_failed_auto_update "$latest"
+        codex_say "$(codex_ui_text_get update_failed_continue "$current")"
+        return 1
+    fi
 }
 
 codex_auto_update_if_needed() {
@@ -122,34 +132,18 @@ codex_auto_update_if_needed() {
             --now "$now" \
             --interval "$CODEX_TERMUX_AUTO_UPDATE_INTERVAL_SECONDS")" || return $?
         eval "$plan_env"
-        case "$CODEX_AUTO_UPDATE_ACTION" in
-            install)
-                codex_ui_step update_runtime "$current" "$latest"
-                if codex_runtime_install_upstream "$latest"; then
-                    codex_clear_pending_auto_update
-                    codex_clear_failed_auto_update
-                else
-                    codex_write_failed_auto_update "$latest"
-                    codex_say "$(codex_ui_text_get update_failed_continue "$current")"
-                    return 1
-                fi
-                ;;
-            prompt)
-                codex_prompt_update "$current" "$latest"
-                case "$?" in
-                    0)
-                        codex_ui_step update_runtime "$current" "$latest"
-                        if codex_runtime_install_upstream "$latest"; then
-                            codex_clear_pending_auto_update
-                            codex_clear_failed_auto_update
-                        else
-                            codex_write_failed_auto_update "$latest"
-                            codex_say "$(codex_ui_text_get update_failed_continue "$current")"
-                            return 1
-                        fi
-                        ;;
-                    130)
-                        return 130
+    case "$CODEX_AUTO_UPDATE_ACTION" in
+        install)
+            codex_apply_auto_update_version "$current" "$latest" || return $?
+            ;;
+        prompt)
+            codex_prompt_update "$current" "$latest"
+            case "$?" in
+                0)
+                    codex_apply_auto_update_version "$current" "$latest" || return $?
+                    ;;
+                130)
+                    return 130
                         ;;
                 esac
                 ;;
@@ -163,27 +157,10 @@ codex_auto_update_if_needed() {
 codex_upstream_release_date() {
     local version="${1:-}" release_date
     [ -n "$version" ] || return 0
-    release_date="$(codex_termux_cmd upstream-release-cache-read \
+    codex_termux_cmd upstream-release-date-resolve \
         --cache "$CODEX_TERMUX_UPSTREAM_TIME_CACHE" \
-        --version "$version" 2>/dev/null || true)"
-    if [ -n "$release_date" ]; then
-        printf '%s\n' "$release_date"
-        return 0
-    fi
-    if command -v timeout >/dev/null 2>&1; then
-        release_date="$(timeout "$CODEX_TERMUX_AUTO_UPDATE_TIMEOUT_SECONDS" npm view @openai/codex time --json 2>/dev/null | \
-            codex_termux_cmd upstream-release-date --version "$version" || true)"
-    else
-        release_date="$(npm view @openai/codex time --json 2>/dev/null | \
-            codex_termux_cmd upstream-release-date --version "$version" || true)"
-    fi
-    if [ -n "$release_date" ]; then
-        codex_termux_cmd upstream-release-cache-write \
-            --cache "$CODEX_TERMUX_UPSTREAM_TIME_CACHE" \
-            --version "$version" \
-            --release-date "$release_date" >/dev/null 2>&1 || true
-        printf '%s\n' "$release_date"
-    fi
+        --version "$version" \
+        --timeout-seconds "$CODEX_TERMUX_AUTO_UPDATE_TIMEOUT_SECONDS"
 }
 
 codex_version() {

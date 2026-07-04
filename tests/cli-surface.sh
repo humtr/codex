@@ -29,6 +29,24 @@ case "$output" in
     *) fail 'termux help did not reserve top-level codex args for upstream' ;;
 esac
 
+usage_output="$(
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+        python3 -B -m codex_termux.cli install-usage
+)"
+case "$usage_output" in
+    *"Usage: bash bin/install-runtime.sh [install|update|repair|remove|doctor] [ARGS]"*) ;;
+    *) fail 'install usage helper did not print expected usage text' ;;
+esac
+
+help_output="$(
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
+        python3 -B -m codex_termux.cli termux-version-help
+)"
+case "$help_output" in
+    *"Usage: codex termux version"*) ;;
+    *) fail 'termux version help helper did not print expected usage text' ;;
+esac
+
 CODEX_TERMUX_HOME="$TMP_DIR/home" \
 CODEX_TERMUX_STATE_DIR="$TMP_DIR/state" \
 CODEX_TERMUX_TMPDIR="$TMP_DIR/tmp" \
@@ -57,8 +75,28 @@ bash -lc '. "$1"; [ "$(codex_display_version 0.142.4-linux-arm64)" = "0.142.4" ]
 CODEX_TERMUX_HOME="$TMP_DIR/home" \
 CODEX_TERMUX_STATE_DIR="$TMP_DIR/state" \
 CODEX_TERMUX_TMPDIR="$TMP_DIR/tmp" \
-CODEX_TERMUX_AUTO_UPDATE_TIMEOUT_SECONDS=1 \
-bash -lc '. "$1"; timeout() { shift; "$@"; }; npm() { [ "$1" = view ] || exit 21; [ "$2" = "@openai/codex" ] || exit 22; [ "$3" = dist-tags.linux-arm64 ] || exit 23; [ "$4" = --json ] || exit 24; printf "\"0.142.4\"\n"; }; [ "$(codex_latest_linux_arm64_version)" = "0.142.4" ]' _ "$LIB_SH"
+FAKE_BIN="$TMP_DIR/fake-bin" \
+bash -lc '. "$1"; mkdir -p "$FAKE_BIN"; cat >"$FAKE_BIN/npm" <<'"'"'NPM'"'"'
+#!/bin/sh
+case "$1 $2 $3 $4" in
+    "view @openai/codex dist-tags.linux-arm64 --json") printf '"'"'"0.142.4"\n'"'"' ;;
+    *) exit 23 ;;
+esac
+NPM
+chmod 755 "$FAKE_BIN/npm"; PATH="$FAKE_BIN:$PATH"; [ "$(codex_latest_linux_arm64_version)" = "0.142.4" ]' _ "$LIB_SH"
+
+CODEX_TERMUX_HOME="$TMP_DIR/home" \
+CODEX_TERMUX_STATE_DIR="$TMP_DIR/state" \
+CODEX_TERMUX_TMPDIR="$TMP_DIR/tmp" \
+FAKE_BIN="$TMP_DIR/fake-bin-release" \
+bash -lc '. "$1"; mkdir -p "$FAKE_BIN"; cat >"$FAKE_BIN/npm" <<'"'"'NPM'"'"'
+#!/bin/sh
+case "$1 $2 $3 $4" in
+    "view @openai/codex time --json") printf '"'"'{"0.142.5":"2026-07-01T02:03:04.000Z"}\n'"'"' ;;
+    *) exit 23 ;;
+esac
+NPM
+chmod 755 "$FAKE_BIN/npm"; PATH="$FAKE_BIN:$PATH"; [ "$(codex_upstream_release_date 0.142.5)" = "2026-07-01" ]' _ "$LIB_SH"
 
 CODEX_TERMUX_HOME="$TMP_DIR/home" \
 CODEX_TERMUX_STATE_DIR="$TMP_DIR/state" \
