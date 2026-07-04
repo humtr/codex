@@ -84,20 +84,51 @@
     "state": {
       "path": "lib/codex-termux/state.sh",
       "owns_prefixes": [
-        "codex_status",
-        "codex_say",
-        "codex_fail",
-        "codex_ui",
+        "codex_load_wrapper_source",
+        "codex_normalize_wrapper_source",
+        "codex_wrapper_auth_token",
+        "codex_parent_dir",
         "codex_tmp",
         "codex_mktemp",
         "codex_path",
         "codex_assert",
         "codex_lock",
         "codex_termux_cmd",
-        "codex_termux_activation_cmd"
+        "codex_termux_activation_cmd",
+        "codex_now",
+        "codex_termux_package_root"
       ],
       "public_functions": [
         "codex_termux_cmd"
+      ]
+    },
+    "ui": {
+      "path": "lib/codex-termux/ui.sh",
+      "owns_prefixes": [
+        "codex_status",
+        "codex_say",
+        "codex_fail",
+        "codex_ui",
+        "codex_selection_cancelled",
+        "codex_display_version"
+      ],
+      "public_functions": [
+        "codex_status_clear",
+        "codex_status",
+        "codex_say",
+        "codex_selection_cancelled",
+        "codex_fail",
+        "codex_ui_format",
+        "codex_ui_number",
+        "codex_ui_badge",
+        "codex_ui_menu_header",
+        "codex_ui_menu_row",
+        "codex_ui_prompt",
+        "codex_ui_text",
+        "codex_ui_step_text",
+        "codex_ui_text_get",
+        "codex_ui_step",
+        "codex_display_version"
       ]
     },
     "profile": {

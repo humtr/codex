@@ -26,6 +26,7 @@ assert not (root / "GOAL.md").exists()
 required_metrics = {
     "cli_py_lines",
     "build_shell_lines",
+    "ui_shell_lines",
     "runtime_shell_lines",
     "state_shell_lines",
     "prompt_shell_lines",
@@ -43,6 +44,7 @@ assert not missing, missing
 
 shell_lines = metrics["shell_file_lines"]
 assert metrics["build_shell_lines"] == shell_lines["lib/codex-termux/build.sh"]
+assert metrics["ui_shell_lines"] == shell_lines["lib/codex-termux/ui.sh"]
 assert metrics["runtime_shell_lines"] == shell_lines["lib/codex-termux/runtime.sh"]
 assert metrics["state_shell_lines"] == shell_lines["lib/codex-termux/state.sh"]
 assert metrics["prompt_shell_lines"] == shell_lines["lib/codex-termux/prompt.sh"]
