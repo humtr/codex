@@ -438,7 +438,7 @@
       "class": "file_mutation",
       "patterns": [
         "^codex_(download_wrapper_archive|fetch_release_wrapper_source|prepare_git_askpass|git_clone_wrapper_source|prepare_fresh_wrapper_source|copy_wrapper_source_snapshot|write_managed_shell|remove_python_bytecode|check_manager_python|install_support_files|prepare_launcher_slot|write_shell_launcher|write_compiled_launcher|install_launchers)$",
-        "^codex_install_(surface_finish|surface_run|full_unlocked|full_core|support_unlocked|support_core|upstream_core|rebuild_unlocked|rebuild_core|auto_update)$",
+        "^codex_install_(support_and_launchers|surface_finish|surface_run|full_unlocked|full_core|support_unlocked|support_core|upstream_core|rebuild_unlocked|rebuild_core|auto_update)$",
         "^codex_(repair_core|restore_backup|remove|replace_tree_atomic|prune_runtime_store|prepare_complete_runtime_tree|fetch_package|install_raw_vendor|activate_tuple_unlocked|commit_runtime_candidate|runtime_build_cached_unlocked|runtime_install_cached_unlocked|runtime_install_cached|runtime_install_upstream_unlocked|runtime_install_upstream|mark_auto_update_checked|write_pending_auto_update|clear_pending_auto_update|write_failed_auto_update|clear_failed_auto_update|refresh_runtime_metadata_unlocked|refresh_runtime_metadata|activate_cached_runtime_unlocked|try_verified_rollback_unlocked|try_verified_rollback)$"
       ],
       "reason": "Managed install, launcher, runtime tree, registry pointer, rollback, and cache mutations stay in shell but are guarded by Python policy helpers and managed-path checks.",
@@ -451,7 +451,7 @@
     {
       "class": "lock_temp",
       "patterns": [
-        "^codex_(cleanup_fresh_wrapper_source|tmp_dir|mktemp_dir|mktemp_file|lock_is_held|with_lock)$"
+        "^codex_(cleanup_fresh_wrapper_source|with_fresh_wrapper_source|tmp_dir|mktemp_dir|mktemp_file|lock_is_held|with_lock)$"
       ],
       "reason": "Temporary directory lifecycle and shell lock/trap behavior remain shell-owned process glue.",
       "tests": [

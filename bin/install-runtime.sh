@@ -378,46 +378,50 @@ codex_install_surface_run() {
     return "$status"
 }
 
-codex_install_full_unlocked() {
-    local status=0
+codex_install_support_and_launchers() {
+    codex_install_support_files &&
+    codex_install_launchers
+}
+
+codex_with_fresh_wrapper_source() {
+    local command="$1" status=0
+    shift
     codex_prepare_fresh_wrapper_source || return $?
     [ -z "$CODEX_TERMUX_WRAPPER_SOURCE_LABEL" ] || codex_status "Using wrapper source: $CODEX_TERMUX_WRAPPER_SOURCE_LABEL"
-    {
-        codex_validate_runtime_retention &&
-        codex_install_support_files &&
-        codex_install_launchers &&
-        codex_runtime_install_upstream "${1:-}" &&
-        codex_refresh_runtime_metadata
-    } || status=$?
+    "$command" "$@" || status=$?
     codex_cleanup_fresh_wrapper_source
     return "$status"
+}
+
+codex_install_full_core() {
+    local version="${1:-}"
+    codex_validate_runtime_retention &&
+    codex_install_support_and_launchers &&
+    codex_runtime_install_upstream "$version" &&
+    codex_refresh_runtime_metadata
+}
+
+codex_install_support_core() {
+    codex_install_support_and_launchers
+}
+
+codex_install_rebuild_core() {
+    codex_validate_runtime_retention &&
+    codex_install_support_and_launchers &&
+    codex_runtime_install_cached &&
+    codex_refresh_runtime_metadata
+}
+
+codex_install_full_unlocked() {
+    codex_with_fresh_wrapper_source codex_install_full_core "${1:-}"
 }
 
 codex_install_support_unlocked() {
-    local status=0
-    codex_prepare_fresh_wrapper_source || return $?
-    [ -z "$CODEX_TERMUX_WRAPPER_SOURCE_LABEL" ] || codex_status "Using wrapper source: $CODEX_TERMUX_WRAPPER_SOURCE_LABEL"
-    {
-        codex_install_support_files &&
-        codex_install_launchers
-    } || status=$?
-    codex_cleanup_fresh_wrapper_source
-    return "$status"
+    codex_with_fresh_wrapper_source codex_install_support_core
 }
 
 codex_install_rebuild_unlocked() {
-    local status=0
-    codex_prepare_fresh_wrapper_source || return $?
-    [ -z "$CODEX_TERMUX_WRAPPER_SOURCE_LABEL" ] || codex_status "Using wrapper source: $CODEX_TERMUX_WRAPPER_SOURCE_LABEL"
-    {
-        codex_validate_runtime_retention &&
-        codex_install_support_files &&
-        codex_install_launchers &&
-        codex_runtime_install_cached &&
-        codex_refresh_runtime_metadata
-    } || status=$?
-    codex_cleanup_fresh_wrapper_source
-    return "$status"
+    codex_with_fresh_wrapper_source codex_install_rebuild_core
 }
 
 codex_install_run_plan() {
