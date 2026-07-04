@@ -132,6 +132,7 @@ printf 'test\n' >"$extract_root/codex-release/lib/codex-termux.sh"
 printf 'test\n' >"$extract_root/codex-release/lib/codex-termux/prompt.sh"
 printf 'test\n' >"$extract_root/codex-release/lib/codex-termux/exec.sh"
 printf 'test\n' >"$extract_root/codex-release/lib/codex-termux/store.sh"
+printf 'test\n' >"$extract_root/codex-release/lib/codex-termux/build.sh"
 printf 'test\n' >"$extract_root/codex-release/lib/codex-termux/repair.sh"
 printf 'test\n' >"$extract_root/codex-release/lib/codex-termux/version.sh"
 for domain in dispatch state profile use remove session runtime notify doctor; do

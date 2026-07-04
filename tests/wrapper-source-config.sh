@@ -153,6 +153,7 @@ printf 'lib\n' >"$LOCAL_DIR/lib/codex-termux.sh"
 printf 'prompt\n' >"$LOCAL_DIR/lib/codex-termux/prompt.sh"
 printf 'exec\n' >"$LOCAL_DIR/lib/codex-termux/exec.sh"
 printf 'store\n' >"$LOCAL_DIR/lib/codex-termux/store.sh"
+printf 'build\n' >"$LOCAL_DIR/lib/codex-termux/build.sh"
 printf 'repair\n' >"$LOCAL_DIR/lib/codex-termux/repair.sh"
 printf 'version\n' >"$LOCAL_DIR/lib/codex-termux/version.sh"
 for domain in dispatch state profile use remove session runtime notify doctor; do printf '%s\n' "$domain" >"$LOCAL_DIR/lib/codex-termux/$domain.sh"; done
@@ -263,6 +264,7 @@ entries = {
     "source/lib/codex-termux/prompt.sh": "prompt\n",
     "source/lib/codex-termux/exec.sh": "exec\n",
     "source/lib/codex-termux/store.sh": "store\n",
+    "source/lib/codex-termux/build.sh": "build\n",
     "source/lib/codex-termux/repair.sh": "repair\n",
     "source/lib/codex-termux/version.sh": "version\n",
     "source/lib/codex-termux/dispatch.sh": "dispatch\n",

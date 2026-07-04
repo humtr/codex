@@ -33,6 +33,7 @@ required = {
     "lib/codex-termux/prompt.sh",
     "lib/codex-termux/exec.sh",
     "lib/codex-termux/store.sh",
+    "lib/codex-termux/build.sh",
     "lib/codex-termux/repair.sh",
     "lib/codex-termux/version.sh",
     "lib/codex-termux/dispatch.sh",

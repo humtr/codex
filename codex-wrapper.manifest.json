@@ -153,6 +153,28 @@
         "codex_try_verified_rollback"
       ]
     },
+    "build": {
+      "path": "lib/codex-termux/build.sh",
+      "owns_prefixes": [
+        "codex_replace_tree_atomic",
+        "codex_prepare_complete_runtime_tree",
+        "codex_package_spec",
+        "codex_fetch_package",
+        "codex_install_raw_vendor",
+        "codex_build_runtime_tree",
+        "codex_runtime_build_cached_unlocked",
+        "codex_runtime_install_cached_unlocked",
+        "codex_runtime_install_cached",
+        "codex_runtime_install_upstream_unlocked",
+        "codex_runtime_install_upstream"
+      ],
+      "public_functions": [
+        "codex_install_raw_vendor",
+        "codex_prepare_complete_runtime_tree",
+        "codex_runtime_install_cached",
+        "codex_runtime_install_upstream"
+      ]
+    },
     "use": {
       "path": "lib/codex-termux/use.sh",
       "owns_prefixes": [
@@ -183,19 +205,8 @@
     },
     "runtime": {
       "path": "lib/codex-termux/runtime.sh",
-      "owns_prefixes": [
-        "codex_runtime",
-        "codex_install",
-        "codex_fetch",
-        "codex_build",
-        "codex_support",
-        "codex_raw",
-        "codex_current"
-      ],
-      "public_functions": [
-        "codex_runtime_install_upstream",
-        "codex_runtime_install_cached"
-      ]
+      "owns_prefixes": [],
+      "public_functions": []
     },
     "repair": {
       "path": "lib/codex-termux/repair.sh",
@@ -287,14 +298,25 @@
       "codex_prepare_system_config"
     ],
     "store": [
-      "codex_install_raw_vendor",
       "codex_parent_dir",
-      "codex_prepare_complete_runtime_tree",
       "codex_rm_rf_managed",
       "codex_sha256",
       "codex_termux_activation_cmd",
       "codex_ui_step",
       "codex_ui_text_get"
+    ],
+    "build": [
+      "codex_assert_managed_tree_target",
+      "codex_display_version",
+      "codex_fail",
+      "codex_parent_dir",
+      "codex_rm_rf_managed",
+      "codex_sha256",
+      "codex_status_clear",
+      "codex_termux_activation_cmd",
+      "codex_ui_step",
+      "codex_ui_text_get",
+      "codex_with_lock"
     ],
     "use": [
       "codex_activate_cached_runtime_unlocked",
