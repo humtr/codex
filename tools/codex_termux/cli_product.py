@@ -267,7 +267,8 @@ Commands:
   doctor [--json]              Check launcher, runtime resources, resolver, CA, DNS patch, and state.
   version                      Print upstream, runtime, and wrapper version/date rows.
   use [--list|SELECTION]       List or promote cached/remote runtimes.
-  profile [list|NAME]          List profiles or launch with an explicit CODEX_HOME profile.
+  profile [list|current|status|NAME]
+                               List, inspect, or launch with a CODEX_HOME profile.
   session [PROFILE] [--all]    Pick and resume discovered Codex sessions across profiles.
   notify [options]             Configure notification/toast hooks.
   remove                       Remove managed launcher/runtime and restore launcher backups.
@@ -402,6 +403,8 @@ def _validate_profile_contract(root: Path) -> None:
         'return get_codex_termux_home() / ".codex"',
         "def write_recent_profile(",
         "def read_recent_profile(",
+        "def profile_current_lines(",
+        "def profile_status_lines(",
         "def profile_menu_ids(",
     )
     guarded_export = "\n".join((
@@ -413,6 +416,8 @@ def _validate_profile_contract(root: Path) -> None:
         'codex_termux_cmd profile-validate --profile "$profile"',
         'codex_termux_cmd profile-dir --profile "$profile"',
         'codex_termux_cmd profile-dir --profile "$recent_profile"',
+        "codex_termux_cmd profile-current",
+        "codex_termux_cmd profile-status",
         "codex_termux_cmd prompt-choice-action",
     )
     if profile_root not in shell:

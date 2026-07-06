@@ -42,6 +42,125 @@ PYTHON
 CODEX_TERMUX_HOME="$TMP_DIR/home" \
 CODEX_TERMUX_PROFILE_ROOT="$TMP_DIR/profiles" \
 CODEX_TERMUX_STATE_DIR="$TMP_DIR/state" \
+CODEX_HOME="$TMP_DIR/profiles/Alpha" \
+PYTHONDONTWRITEBYTECODE=1 \
+PYTHONPATH="$ROOT_DIR/tools" \
+python3 -B - <<'PYTHON' || fail 'profile status model changed'
+import base64
+import json
+import os
+import sqlite3
+from datetime import datetime, timezone
+from pathlib import Path
+
+from codex_termux import session
+
+
+def b64(data):
+    raw = json.dumps(data, separators=(",", ":")).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def jwt(claims):
+    return f"{b64({'alg': 'none', 'typ': 'JWT'})}.{b64(claims)}.sig"
+
+
+def write_auth(root, *, user, email, token_account, profile_claim, refresh, exp):
+    root.mkdir(parents=True, exist_ok=True)
+    data = {
+        "auth_mode": "chatgpt",
+        "tokens": {
+            "id_token": jwt({"sub": user, "email": email, "exp": exp}),
+            "access_token": jwt({"sub": user, "https://api.openai.com/profile": profile_claim, "exp": exp}),
+            "refresh_token": refresh,
+            "account_id": token_account,
+        },
+        "last_refresh": "2026-07-06T00:00:00Z",
+    }
+    (root / "auth.json").write_text(json.dumps(data), encoding="utf-8")
+
+
+home = Path(os.environ["CODEX_TERMUX_HOME"])
+profiles = Path(os.environ["CODEX_TERMUX_PROFILE_ROOT"])
+exp = int(datetime(2026, 7, 16, tzinfo=timezone.utc).timestamp())
+shared_account = "workspace-or-account-shared"
+write_auth(home / ".codex", user="user-default", email="default@example.test", token_account=shared_account, profile_claim="profile-default", refresh="refresh-default", exp=exp)
+write_auth(profiles / "team", user="user-team", email="team@example.test", token_account=shared_account, profile_claim="profile-team", refresh="refresh-team", exp=exp)
+write_auth(profiles / "Alpha", user="user-alpha", email="alpha@example.test", token_account=shared_account, profile_claim="profile-alpha", refresh="refresh-alpha", exp=exp)
+
+log_db = profiles / "team" / "logs_2.sqlite"
+con = sqlite3.connect(log_db)
+con.execute("CREATE TABLE logs (ts REAL, target TEXT, feedback_log_body TEXT)")
+con.execute(
+    "INSERT INTO logs VALUES (?, ?, ?)",
+    (
+        datetime(2026, 7, 5, tzinfo=timezone.utc).timestamp(),
+        "codex_login::auth::manager",
+        "Older token_invalidated event before the current last_refresh.",
+    ),
+)
+con.execute(
+    "INSERT INTO logs VALUES (?, ?, ?)",
+    (
+        datetime(2026, 7, 6, 0, 0, 1, tzinfo=timezone.utc).timestamp(),
+        "codex_login::auth::manager",
+        "Failed to refresh token: 401 Unauthorized: refresh_token_invalidated",
+    ),
+)
+con.execute(
+    "INSERT INTO logs VALUES (?, ?, ?)",
+    (
+        datetime(2026, 7, 7, tzinfo=timezone.utc).timestamp(),
+        "log",
+        "Assistant tool output mentioned refresh_token_invalidated but this is not an auth event.",
+    ),
+)
+con.commit()
+con.close()
+
+session.write_recent_profile("team")
+current = "\n".join(session.profile_current_lines())
+assert "current: Alpha" in current, current
+assert "bare: team" in current, current
+assert "warning: current CODEX_HOME differs from bare launch profile" in current, current
+
+status = "\n".join(session.profile_status_lines())
+assert "profiles:" in status, status
+assert "  Alpha marks=current" in status, status
+assert "  team marks=recent" in status, status
+assert "last_auth_error=refresh_token_invalidated@2026-07-06T00:00:01Z" in status, status
+
+alpha_line = next(line for line in status.splitlines() if line.startswith("  Alpha "))
+team_line = next(line for line in status.splitlines() if line.startswith("  team "))
+assert "token_account=" in alpha_line and "token_account=" in team_line
+assert alpha_line.split("token_account=", 1)[1].split()[0] == team_line.split("token_account=", 1)[1].split()[0]
+assert alpha_line.split("user=", 1)[1].split()[0] != team_line.split("user=", 1)[1].split()[0]
+assert "example.test" not in status
+assert "refresh-alpha" not in status
+assert "refresh-team" not in status
+PYTHON
+
+CODEX_TERMUX_HOME="$TMP_DIR/home" \
+CODEX_TERMUX_PROFILE_ROOT="$TMP_DIR/profiles" \
+PYTHONDONTWRITEBYTECODE=1 \
+PYTHONPATH="$ROOT_DIR/tools" \
+python3 -B - <<'PYTHON' || fail 'profile state default path changed'
+from pathlib import Path
+import os
+
+from codex_termux import session
+
+home = Path(os.environ["CODEX_TERMUX_HOME"])
+state_dir = home / ".local/share/codex/termux"
+state_dir.mkdir(parents=True, exist_ok=True)
+(state_dir / "last-profile").write_text("Alpha\n", encoding="utf-8")
+assert session.get_codex_termux_state_dir() == state_dir
+assert session.read_recent_profile() == "Alpha"
+PYTHON
+
+CODEX_TERMUX_HOME="$TMP_DIR/home" \
+CODEX_TERMUX_PROFILE_ROOT="$TMP_DIR/profiles" \
+CODEX_TERMUX_STATE_DIR="$TMP_DIR/state" \
 bash -lc '
 . "$1"
 [ "$(codex_termux_cmd profile-choice-to-name --choice home)" = "default" ]
@@ -50,10 +169,18 @@ bash -lc '
 codex_termux_cmd profile-validate --profile team
 ! codex_termux_cmd profile-validate --profile termux
 ! codex_termux_cmd profile-validate --profile "../bad"
-codex_termux_cmd profile-write-recent --profile team
-[ "$(codex_termux_cmd profile-read-recent)" = "team" ]
-rm -rf "$CODEX_TERMUX_PROFILE_ROOT/team"
-[ "$(codex_termux_cmd profile-read-recent)" = "default" ]
+	codex_termux_cmd profile-write-recent --profile team
+	[ "$(codex_termux_cmd profile-read-recent)" = "team" ]
+	[ "$(codex_termux_cmd profile-run-plan-env --profile current --argc 1 | sed -n "1p")" = "CODEX_PROFILE_RUN_ACTION=current" ]
+	[ "$(codex_termux_cmd profile-run-plan-env --profile status --argc 1 | sed -n "1p")" = "CODEX_PROFILE_RUN_ACTION=status" ]
+	profile_current="$(CODEX_HOME="$CODEX_TERMUX_PROFILE_ROOT/Alpha" codex_profile_run current)"
+	printf "%s\n" "$profile_current" | grep -F "current: Alpha" >/dev/null
+	printf "%s\n" "$profile_current" | grep -F "bare: team" >/dev/null
+	profile_status="$(CODEX_HOME="$CODEX_TERMUX_PROFILE_ROOT/Alpha" codex_profile_run status)"
+	printf "%s\n" "$profile_status" | grep -F "warning: current CODEX_HOME differs from bare launch profile" >/dev/null
+	printf "%s\n" "$profile_status" | grep -F "last_auth_error=refresh_token_invalidated@2026-07-06T00:00:01Z" >/dev/null
+	rm -rf "$CODEX_TERMUX_PROFILE_ROOT/team"
+	[ "$(codex_termux_cmd profile-read-recent)" = "default" ]
 profiles="$(codex_termux_cmd profile-list)"
 case "$profiles" in
     Alpha) ;;

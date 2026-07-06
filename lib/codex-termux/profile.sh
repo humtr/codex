@@ -90,6 +90,16 @@ codex_profile_run() {
             codex_termux_cmd profile-list --include-default
             return 0
             ;;
+        current)
+            codex_status_clear
+            codex_termux_cmd profile-current
+            return 0
+            ;;
+        status)
+            codex_status_clear
+            codex_termux_cmd profile-status
+            return 0
+            ;;
         profile_arg_error)
             codex_fail "$(codex_ui_text_get profile_arg_error "$CODEX_PROFILE_RUN_ERROR")"
             return 2

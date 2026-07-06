@@ -6,10 +6,14 @@ across profiles, and generating the launch/resume plan.
 
 from __future__ import annotations
 
+import base64
 import curses
+import hashlib
+import json
 import os
 import re
 import shlex
+import sqlite3
 import sys
 import unicodedata
 from dataclasses import dataclass
@@ -59,7 +63,7 @@ def get_codex_termux_state_dir() -> Path:
     val = os.environ.get("CODEX_TERMUX_STATE_DIR")
     if val:
         return Path(val)
-    return get_codex_termux_home() / ".codex-termux"
+    return get_codex_termux_home() / ".local/share/codex/termux"
 
 
 def get_last_profile_file() -> Path:
@@ -103,6 +107,16 @@ def profile_dir(profile: str | None = "default") -> Path:
 
 def profile_display_name(profile: str | None = "default") -> str:
     return normalize_profile_choice(profile)
+
+
+def profile_for_home(home_path: str | None) -> str:
+    if not home_path:
+        return ""
+    wanted = _normalize_path(Path(home_path).expanduser())
+    for profile in profile_menu_ids():
+        if _normalize_path(profile_dir(profile)) == wanted:
+            return profile
+    return ""
 
 
 def list_profiles() -> list[str]:
@@ -171,6 +185,10 @@ def profile_run_plan_exports(profile: str | None, argc: str | int) -> str:
         error = ""
     elif raw in {"list", "ls"}:
         action = "list" if count <= 1 else "profile_arg_error"
+        name = raw
+        error = raw
+    elif raw in {"current", "status"}:
+        action = raw if count <= 1 else "profile_arg_error"
         name = raw
         error = raw
     else:
@@ -242,6 +260,134 @@ def read_recent_profile() -> str:
     return name
 
 
+def profile_current_lines() -> list[str]:
+    current_home = os.environ.get("CODEX_HOME", "")
+    current_profile = profile_for_home(current_home)
+    recent = read_recent_profile()
+    bare_home = profile_dir(recent)
+    if current_home:
+        if current_profile:
+            current = f"{current_profile} ({profile_dir(current_profile)}) source=CODEX_HOME"
+        else:
+            current = f"external ({current_home}) source=CODEX_HOME"
+    else:
+        current = "unset source=environment"
+    lines = [
+        f"current: {current}",
+        f"bare: {recent} ({bare_home}) source=last-profile",
+    ]
+    if current_profile and current_profile != recent:
+        lines.append("warning: current CODEX_HOME differs from bare launch profile")
+    return lines
+
+
+def profile_status_lines() -> list[str]:
+    lines = profile_current_lines()
+    lines.append("profiles:")
+    recent = read_recent_profile()
+    current = profile_for_home(os.environ.get("CODEX_HOME", ""))
+    for profile in profile_menu_ids():
+        marks = []
+        if profile == current:
+            marks.append("current")
+        if profile == recent:
+            marks.append("recent")
+        mark = ",".join(marks) if marks else "-"
+        auth = profile_auth_summary(profile)
+        err = profile_recent_auth_error(profile)
+        parts = [f"  {profile}", f"marks={mark}", f"path={profile_dir(profile)}", auth]
+        if err:
+            parts.append(err)
+        lines.append(" ".join(parts))
+    return lines
+
+
+def profile_auth_summary(profile: str) -> str:
+    auth_path = profile_dir(profile) / "auth.json"
+    if not auth_path.is_file():
+        return "auth=none"
+    try:
+        data = json.loads(auth_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return "auth=invalid"
+    mode = str(data.get("auth_mode") or "unknown")
+    if mode == "chatgpt":
+        return _chatgpt_auth_summary(data)
+    if mode == "apikey":
+        key = str(data.get("OPENAI_API_KEY") or "")
+        suffix = f" key={_hash12(key)}" if key else ""
+        return f"auth=apikey{suffix}"
+    return f"auth={mode}"
+
+
+def profile_recent_auth_error(profile: str) -> str:
+    db_path = profile_dir(profile) / "logs_2.sqlite"
+    if not db_path.is_file():
+        return ""
+    since_ts = _profile_auth_last_refresh_epoch(profile)
+    patterns = (
+        ("refresh_token_invalidated", "%refresh_token_invalidated%"),
+        ("token_invalidated", "%token_invalidated%"),
+        ("401_unauthorized", "%401 Unauthorized%"),
+        ("http_401", "%HTTP 401%"),
+        ("status_401", "%status 401%"),
+    )
+    target_patterns = (
+        "codex_login::auth::%",
+        "codex_core_plugins::%",
+        "codex_mcp::%",
+        "codex_api::endpoint::%",
+        "codex_client::%",
+        "codex_analytics::%",
+        "rmcp::%",
+        "feedback_tags",
+    )
+    try:
+        con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        columns = {row[1] for row in con.execute("PRAGMA table_info(logs)").fetchall()}
+        clauses = " OR ".join(["feedback_log_body LIKE ?" for _ in patterns])
+        params = [pattern for _, pattern in patterns]
+        target_clause = ""
+        if "target" in columns:
+            target_clause = " AND (" + " OR ".join(["target LIKE ?" for _ in target_patterns]) + ")"
+            params.extend(target_patterns)
+        since_clause = ""
+        if since_ts is not None:
+            since_clause = " AND ts > ?"
+            params.append(since_ts)
+        row = con.execute(
+            f"SELECT ts, feedback_log_body FROM logs WHERE ({clauses}){target_clause}{since_clause} ORDER BY ts DESC LIMIT 1",
+            params,
+        ).fetchone()
+    except sqlite3.Error:
+        return ""
+    if not row:
+        return ""
+    ts, body = row
+    code = "auth_error"
+    text = str(body or "")
+    for name, pattern in patterns:
+        needle = pattern.strip("%")
+        if needle in text:
+            code = name
+            break
+    return f"last_auth_error={code}@{_format_epoch(ts)}"
+
+
+def _profile_auth_last_refresh_epoch(profile: str) -> float | None:
+    auth_path = profile_dir(profile) / "auth.json"
+    if not auth_path.is_file():
+        return None
+    try:
+        data = json.loads(auth_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    value = data.get("last_refresh")
+    if not isinstance(value, str) or not value:
+        return None
+    return _parse_iso_epoch(value)
+
+
 def select_recent_profile(profiles: list[str]) -> str:
     default_profile_env = os.environ.get("CODEX_SESSION_TUI_DEFAULT_PROFILE")
     if default_profile_env in profiles:
@@ -250,6 +396,78 @@ def select_recent_profile(profiles: list[str]) -> str:
     if recent_profile in profiles:
         return recent_profile
     return "default" if "default" in profiles else (profiles[0] if profiles else "default")
+
+
+def _chatgpt_auth_summary(data: dict[str, Any]) -> str:
+    tokens = data.get("tokens") if isinstance(data.get("tokens"), dict) else {}
+    id_claims = _decode_jwt_claims(str(tokens.get("id_token") or ""))
+    access_claims = _decode_jwt_claims(str(tokens.get("access_token") or ""))
+    parts = ["auth=chatgpt"]
+    user = id_claims.get("sub") or access_claims.get("sub")
+    email = id_claims.get("email")
+    token_account = tokens.get("account_id")
+    profile_claim = access_claims.get("https://api.openai.com/profile")
+    access_exp = access_claims.get("exp")
+    last_refresh = data.get("last_refresh")
+    if user:
+        parts.append(f"user={_hash12(user)}")
+    if email:
+        parts.append(f"email={_hash12(email)}")
+    if token_account:
+        parts.append(f"token_account={_hash12(token_account)}")
+    if profile_claim:
+        parts.append(f"profile={_hash12(profile_claim)}")
+    if isinstance(access_exp, (int, float)):
+        parts.append(f"access_exp={_format_epoch(access_exp)}")
+    if isinstance(last_refresh, str) and last_refresh:
+        parts.append(f"last_refresh={last_refresh}")
+    return " ".join(parts)
+
+
+def _decode_jwt_claims(token: str) -> dict[str, Any]:
+    if token.count(".") < 2:
+        return {}
+    payload = token.split(".", 2)[1]
+    payload += "=" * ((4 - len(payload) % 4) % 4)
+    try:
+        decoded = base64.urlsafe_b64decode(payload.encode("ascii"))
+        claims = json.loads(decoded)
+    except (ValueError, json.JSONDecodeError):
+        return {}
+    return claims if isinstance(claims, dict) else {}
+
+
+def _hash12(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (dict, list)):
+        raw = json.dumps(value, sort_keys=True, separators=(",", ":"))
+    else:
+        raw = str(value)
+    if not raw:
+        return ""
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
+
+
+def _format_epoch(value: Any) -> str:
+    try:
+        return datetime.fromtimestamp(float(value), timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    except (TypeError, ValueError, OSError, OverflowError):
+        return "unknown"
+
+
+def _parse_iso_epoch(value: str) -> float | None:
+    try:
+        normalized = value
+        if normalized.endswith("Z"):
+            normalized = normalized[:-1] + "+00:00"
+        return datetime.fromisoformat(normalized).timestamp()
+    except ValueError:
+        return None
+
+
+def _normalize_path(path: Path) -> str:
+    return os.path.normcase(os.path.abspath(os.path.expanduser(str(path))))
 
 
 def find_session_homes() -> list[SessionHome]:

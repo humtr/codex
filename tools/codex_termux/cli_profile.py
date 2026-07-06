@@ -60,6 +60,12 @@ def add_commands(sub: SubparserCollection) -> None:
     read_recent = sub.add_parser("profile-read-recent")
     read_recent.set_defaults(func=lambda args: _print(session.read_recent_profile()))
 
+    current = sub.add_parser("profile-current")
+    current.set_defaults(func=_profile_current)
+
+    status = sub.add_parser("profile-status")
+    status.set_defaults(func=_profile_status)
+
     list_cmd = sub.add_parser("profile-list")
     list_cmd.add_argument("--include-default", action="store_true")
     list_cmd.set_defaults(func=_profile_list)
@@ -91,6 +97,18 @@ def _profile_list(args: argparse.Namespace) -> int:
         print("default")
     for profile in session.list_profiles():
         print(profile)
+    return 0
+
+
+def _profile_current(args: argparse.Namespace) -> int:
+    for line in session.profile_current_lines():
+        print(line)
+    return 0
+
+
+def _profile_status(args: argparse.Namespace) -> int:
+    for line in session.profile_status_lines():
+        print(line)
     return 0
 
 

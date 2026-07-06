@@ -221,9 +221,15 @@ upstream top-level command and is no longer combined with wrapper diagnostics.
 ```sh
 codex termux profile
 codex termux profile <name>
+codex termux profile current
+codex termux profile status
 ```
 
 Lists profiles or launches the runtime with a selected profile.
+`current` shows the active `CODEX_HOME` profile for the current process and the
+profile that bare `codex` will use from wrapper state. `status` also prints
+per-profile auth identity hashes and recent auth/MCP 401 indicators without
+printing tokens, emails, or API keys.
 
 ```sh
 codex termux version
@@ -249,7 +255,7 @@ The `default` profile is upstream Codex's normal default behavior.
 - The wrapper does not force `CODEX_HOME` for `default`.
 - Upstream Codex creates or uses its own default home as needed.
 
-`codex termux profile default` explicitly selects the upstream default profile. Bare `codex` uses the most recently selected profile, which is `default` until another profile is selected.
+`codex termux profile default` explicitly selects the upstream default profile. Bare `codex` uses the most recently selected profile, which is `default` until another profile is selected. If `CODEX_HOME` is already set, the wrapper preserves it for the current process; this can differ from the profile that a new bare `codex` launch will use. Run `codex termux profile current` to compare the two.
 
 ### Custom profiles
 
@@ -275,7 +281,9 @@ profile 'work' does not exist. Create it? [y/N]
 - `n`, `N`, Enter, or Esc cancels.
 - Non-interactive sessions do not create missing profiles.
 
-Custom profile plugin directories are not shared. If upstream Codex creates plugins or other state, it does so inside that profile's `CODEX_HOME`.
+Custom profile auth, plugin directories, logs, caches, and sessions are not
+shared. If upstream Codex creates plugins or other state, it does so inside that
+profile's `CODEX_HOME`.
 
 ## Managed paths
 
