@@ -42,6 +42,11 @@ bash -lc '. "$1"; codex_ensure_runtime_ready() { return 0; }; codex_auto_update_
 CODEX_TERMUX_HOME="$TMP_DIR/home" \
 CODEX_TERMUX_STATE_DIR="$TMP_DIR/state" \
 CODEX_TERMUX_TMPDIR="$TMP_DIR/tmp" \
+bash -lc '. "$1"; [ "$(codex_ui_step_mode open_profile)" = "committed" ]; [ "$(codex_ui_step_mode validate_archive)" = "transient" ]; STATUS_LOG=""; SAY_LOG=""; codex_status() { STATUS_LOG="${STATUS_LOG}${STATUS_LOG:+|}$*"; }; codex_say() { SAY_LOG="${SAY_LOG}${SAY_LOG:+|}$*"; }; codex_ui_step open_profile business; codex_ui_step validate_archive; [ "$STATUS_LOG" = "Validating package archive" ]; [ "$SAY_LOG" = "Opening profile business" ]' _ "$LIB_SH"
+
+CODEX_TERMUX_HOME="$TMP_DIR/home" \
+CODEX_TERMUX_STATE_DIR="$TMP_DIR/state" \
+CODEX_TERMUX_TMPDIR="$TMP_DIR/tmp" \
 bash -lc '. "$1"; codex_install_source_command() { return 1; }; REPAIR_CALLED=0; codex_repair_public() { REPAIR_CALLED=1; }; codex_termux_main repair >/dev/null 2>&1; [ "$REPAIR_CALLED" -eq 1 ]; REPAIR_CALLED=0; ! codex_termux_main repair junk >/dev/null 2>&1; [ "$REPAIR_CALLED" -eq 0 ]' _ "$LIB_SH"
 
 CODEX_TERMUX_HOME="$TMP_DIR/home" \

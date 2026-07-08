@@ -318,13 +318,26 @@ codex_ui_step_text() {
     esac
 }
 
+codex_ui_step_mode() {
+    case "${1:-}" in
+        open_profile) printf 'committed\n' ;;
+        *) printf 'transient\n' ;;
+    esac
+}
+
 codex_ui_text_get() {
     codex_ui_text "$@" | tr -d '\n'
 }
 
 codex_ui_step() {
-    local message
-    message="$(codex_ui_step_text "$@")" || return 1
+    local key="$1" mode message
+    shift || true
+    mode="$(codex_ui_step_mode "$key")" || return 1
+    message="$(codex_ui_step_text "$key" "$@")" || return 1
+    if [ "$mode" = "committed" ]; then
+        codex_say "${message%$'\n'}"
+        return 0
+    fi
     codex_status "${message%$'\n'}"
 }
 
@@ -2234,8 +2247,17 @@ codex_session_share_source() {
     [ -n "$source_path" ] || return 0
     [ "$source_profile" = "$target_profile" ] && return 0
     [ -f "$source_path" ] || return 0
+    codex_session_validate_boundary "$source_profile" "$target_profile" || return $?
     codex_termux_cmd session-share \
         --source-path "$source_path" \
+        --source-profile "$source_profile" \
+        --target-profile "$target_profile"
+}
+
+codex_session_validate_boundary() {
+    local source_profile="${1:-default}" target_profile="${2:-default}"
+    [ "$source_profile" = "$target_profile" ] && return 0
+    codex_termux_cmd session-boundary-check \
         --source-profile "$source_profile" \
         --target-profile "$target_profile"
 }
@@ -2293,7 +2315,9 @@ codex_session() {
 $selected_plan
 EOF
 
-    codex_session_share_source "$source_path" "$source_profile" "$target_profile"
+    codex_session_validate_boundary "${source_profile:-default}" "${target_profile:-default}" || return $?
+
+    codex_session_share_source "$source_path" "$source_profile" "$target_profile" || return $?
 
     # Switch directory if workdir is specified and is a valid directory
     if [ -n "$workdir" ] && [ -d "$workdir" ]; then

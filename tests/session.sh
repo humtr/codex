@@ -23,20 +23,53 @@ mkdir -p "$CODEX_TERMUX_HOME" "$CODEX_TERMUX_TMPDIR" "$CODEX_TERMUX_PROFILE_ROOT
 
 # 2. Test Python-side discovery and launch plans
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=tools python3 -B - <<'PYTHON'
+import base64
+import json
 import os
 import shutil
 from pathlib import Path
 from codex_termux import session
 
 home = Path(os.environ["CODEX_TERMUX_HOME"])
+profile_root = Path(os.environ["CODEX_TERMUX_PROFILE_ROOT"])
+
+
+def b64(data):
+    raw = json.dumps(data, separators=(",", ":")).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def jwt(claims):
+    return f"{b64({'alg': 'none', 'typ': 'JWT'})}.{b64(claims)}.sig"
+
+
+def write_chatgpt_auth(root, *, user, email, account):
+    root.mkdir(parents=True, exist_ok=True)
+    data = {
+        "auth_mode": "chatgpt",
+        "tokens": {
+            "id_token": jwt({"sub": user, "email": email, "exp": 1999999999}),
+            "access_token": jwt({"sub": user, "https://api.openai.com/profile": user, "exp": 1999999999}),
+            "refresh_token": f"refresh-{user}-{account}",
+            "account_id": account,
+        },
+        "last_refresh": "2026-07-06T00:00:00Z",
+    }
+    (root / "auth.json").write_text(json.dumps(data), encoding="utf-8")
 
 # Create default profile sessions directory
 default_sess_dir = home / ".codex" / "sessions"
 default_sess_dir.mkdir(parents=True, exist_ok=True)
 
 # Create custom profiles
-(Path(os.environ["CODEX_TERMUX_PROFILE_ROOT"]) / "team-alpha" / "sessions").mkdir(parents=True, exist_ok=True)
-(Path(os.environ["CODEX_TERMUX_PROFILE_ROOT"]) / "team-beta" / "sessions").mkdir(parents=True, exist_ok=True)
+(profile_root / "team-alpha" / "sessions").mkdir(parents=True, exist_ok=True)
+(profile_root / "team-beta" / "sessions").mkdir(parents=True, exist_ok=True)
+(profile_root / "team-gamma" / "sessions").mkdir(parents=True, exist_ok=True)
+
+write_chatgpt_auth(home / ".codex", user="user-shared", email="shared@example.test", account="account-shared")
+write_chatgpt_auth(profile_root / "team-alpha", user="user-shared", email="shared@example.test", account="account-shared")
+write_chatgpt_auth(profile_root / "team-beta", user="user-shared", email="shared@example.test", account="account-shared")
+write_chatgpt_auth(profile_root / "team-gamma", user="user-other", email="other@example.test", account="account-other")
 
 # Check profile discovery
 homes = session.find_session_homes()
@@ -60,7 +93,7 @@ del os.environ["CODEX_SESSION_TUI_DEFAULT_PROFILE"]
 sess_default = default_sess_dir / "s-default.jsonl"
 sess_default.write_text('{"type": "session_meta", "payload": {"cwd": "/workspace/default", "id": "s-default"}}\n{"type": "response_item", "payload": {"type": "message", "role": "user", "content": "Hello default"}}\n', encoding="utf-8")
 
-sess_alpha = Path(os.environ["CODEX_TERMUX_PROFILE_ROOT"]) / "team-alpha" / "sessions" / "s-alpha.jsonl"
+sess_alpha = profile_root / "team-alpha" / "sessions" / "s-alpha.jsonl"
 sess_alpha.write_text('{"type": "session_meta", "payload": {"cwd": "/workspace/alpha", "id": "s-alpha"}}\n{"type": "response_item", "payload": {"type": "message", "role": "user", "content": "Hello alpha"}}\n', encoding="utf-8")
 
 # Check session discovery and parsing
@@ -78,6 +111,15 @@ s_alpha_row = next(s for s in sessions if s.session_id == "s-alpha")
 assert s_alpha_row.source_profile == "team-alpha"
 assert s_alpha_row.workdir == "/workspace/alpha"
 assert s_alpha_row.title == "Hello alpha"
+assert session.session_boundary_reason("team-alpha", "team-beta") == ""
+blocked_reason = session.session_boundary_reason("team-alpha", "team-gamma")
+assert "differs" in blocked_reason, blocked_reason
+try:
+    session.share_session(s_alpha_row.source_path, "team-alpha", "team-gamma")
+except session.SessionBoundaryError:
+    pass
+else:
+    raise AssertionError("cross-auth session share should fail")
 
 # Check cross-profile sharing (default target)
 dest_default = home / ".codex" / "sessions" / "s-alpha.jsonl"
@@ -86,10 +128,14 @@ assert dest_default.exists()
 assert dest_default.is_symlink() or dest_default.is_file()
 
 # Check cross-profile sharing (custom target)
-dest_beta = Path(os.environ["CODEX_TERMUX_PROFILE_ROOT"]) / "team-beta" / "sessions" / "s-alpha.jsonl"
+dest_beta = profile_root / "team-beta" / "sessions" / "s-alpha.jsonl"
 session.share_session(s_alpha_row.source_path, "team-alpha", "team-beta")
 assert dest_beta.exists()
 assert dest_beta.is_symlink() or dest_beta.is_file()
+
+deduped_alpha = [s for s in session.discover_sessions() if s.session_id == "s-alpha"]
+assert len(deduped_alpha) == 1, [s.source_path for s in deduped_alpha]
+assert deduped_alpha[0].source_profile == "team-alpha", deduped_alpha[0]
 PYTHON
 
 # 3. Test Shell Integration / Dispatch
@@ -171,6 +217,23 @@ done < <(codex_termux_cmd session-list)
     
     [ "$LAST_COMMAND" = "resume s-alpha --all --model o3-mini" ] || fail "Expected command 'resume s-alpha --all --model o3-mini', got '$LAST_COMMAND'"
     [ "$LAST_CODEX_HOME" = "$CODEX_TERMUX_PROFILE_ROOT/team-beta" ] || fail "Expected CODEX_HOME to be set to team-beta path, got '$LAST_CODEX_HOME'"
+)
+
+# Test 3e: Cross-auth session resume is blocked before native codex resume
+(
+    export TERM=xterm
+    export CODEX_SESSION_TUI_MOCK_PROFILE="team-gamma"
+    export CODEX_SESSION_TUI_MOCK_CHOICE="$S_ALPHA_IDX"
+    unset CODEX_HOME
+    LAST_COMMAND=""
+    LAST_CODEX_HOME=""
+
+    if codex_session --all 2>"$TMP_DIR/cross-auth.err"; then
+        fail "Expected cross-auth session resume to fail"
+    fi
+    grep -F "Refusing cross-profile session resume/share" "$TMP_DIR/cross-auth.err" >/dev/null ||
+        fail "Expected cross-auth refusal, got: $(cat "$TMP_DIR/cross-auth.err")"
+    [ -z "$LAST_COMMAND" ] || fail "Native codex resume ran despite cross-auth boundary: $LAST_COMMAND"
 )
 
 # 4. Test wrapper namespace contract (recognized by wrapper dispatch)

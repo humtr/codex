@@ -113,3 +113,124 @@ grep -q '^toast$' "$PROVIDER_TMP/calls" || fail 'toast provider was not called'
 if grep -q "$(printf '\a')" "$PROVIDER_TMP/out"; then
     fail 'bell fallback ran after termux-api providers succeeded'
 fi
+
+TMUX_TARGET_TMP="$TMP_DIR/tmux-target"
+mkdir -p "$TMUX_TARGET_TMP/bin" "$TMUX_TARGET_TMP/state/notify"
+cat >"$TMUX_TARGET_TMP/bin/tmux" <<'SH'
+#!/bin/sh
+case "$1" in
+    display-message)
+        [ "$2" = "-p" ] || exit 2
+        [ "$3" = "#S:#I.#P" ] || exit 3
+        printf 'work:7.2\n'
+        ;;
+    has-session)
+        [ "$2" = "-t" ] || exit 4
+        [ "$3" = "work" ] || exit 5
+        ;;
+    list-clients)
+        [ "$2" = "-t" ] || exit 7
+        [ "$3" = "work" ] || exit 8
+        printf '/dev/pts/9: work [120x40]\n'
+        ;;
+    *)
+        exit 6
+        ;;
+esac
+SH
+cat >"$TMUX_TARGET_TMP/bin/termux-notification" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >"$CODEX_NOTIFY_ARGS"
+SH
+chmod +x "$TMUX_TARGET_TMP/bin/tmux" "$TMUX_TARGET_TMP/bin/termux-notification"
+env -i \
+    CODEX_NOTIFY_ARGS="$TMUX_TARGET_TMP/notify.args" \
+    CODEX_TERMUX_HOME="$TMUX_TARGET_TMP/home" \
+    CODEX_TERMUX_STATE_DIR="$TMUX_TARGET_TMP/state" \
+    CODEX_TERMUX_NOTIFY_CHANNEL=notification \
+    TMUX="/tmp/tmux-123/default,999,0" \
+    PATH="$TMUX_TARGET_TMP/bin:$PATH" \
+    bash "$ROOT_DIR/tools/codex-turn-notify.sh" <<'JSON' >/dev/null 2>&1
+{"session_id":"pane-target-alpha","cwd":"/data/data/com.termux/files/home/prj/codex","last_assistant_message":"pane target check"}
+JSON
+grep -F -- "--action" "$TMUX_TARGET_TMP/notify.args" >/dev/null \
+    || fail 'notification action missing'
+grep -F -- "--open-tmux work:7.2" "$TMUX_TARGET_TMP/notify.args" >/dev/null \
+    || fail 'notification action did not target hook pane'
+
+TMUX_OUTSIDE_TMP="$TMP_DIR/tmux-outside"
+mkdir -p "$TMUX_OUTSIDE_TMP/bin" "$TMUX_OUTSIDE_TMP/state/notify"
+cat >"$TMUX_OUTSIDE_TMP/bin/tmux" <<'SH'
+#!/bin/sh
+case "$1" in
+    display-message)
+        [ "$2" = "-p" ] || exit 2
+        printf 'wrong:1.0\n'
+        ;;
+    has-session)
+        [ "$2" = "-t" ] || exit 3
+        [ "$3" = "wrong" ] || exit 4
+        ;;
+    *)
+        exit 5
+        ;;
+esac
+SH
+cat >"$TMUX_OUTSIDE_TMP/bin/termux-notification" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >"$CODEX_NOTIFY_ARGS"
+SH
+chmod +x "$TMUX_OUTSIDE_TMP/bin/tmux" "$TMUX_OUTSIDE_TMP/bin/termux-notification"
+env -i \
+    CODEX_NOTIFY_ARGS="$TMUX_OUTSIDE_TMP/notify.args" \
+    CODEX_TERMUX_HOME="$TMUX_OUTSIDE_TMP/home" \
+    CODEX_TERMUX_STATE_DIR="$TMUX_OUTSIDE_TMP/state" \
+    CODEX_TERMUX_NOTIFY_CHANNEL=notification \
+    PATH="$TMUX_OUTSIDE_TMP/bin:$PATH" \
+    bash "$ROOT_DIR/tools/codex-turn-notify.sh" <<'JSON' >/dev/null 2>&1
+{"session_id":"outside-alpha","cwd":"/data/data/com.termux/files/home/prj/codex","last_assistant_message":"outside tmux check"}
+JSON
+grep -F -- "--open-termux" "$TMUX_OUTSIDE_TMP/notify.args" >/dev/null \
+    || fail 'non-tmux hook should not deep-link to tmux target'
+
+TMUX_DETACHED_TMP="$TMP_DIR/tmux-detached"
+mkdir -p "$TMUX_DETACHED_TMP/bin" "$TMUX_DETACHED_TMP/state/notify"
+cat >"$TMUX_DETACHED_TMP/bin/tmux" <<'SH'
+#!/bin/sh
+case "$1" in
+    display-message)
+        [ "$2" = "-p" ] || exit 2
+        [ "$3" = "#S:#I.#P" ] || exit 3
+        printf 'ghost:2.1\n'
+        ;;
+    list-clients)
+        [ "$2" = "-t" ] || exit 4
+        [ "$3" = "ghost" ] || exit 5
+        exit 1
+        ;;
+    has-session)
+        [ "$2" = "-t" ] || exit 6
+        [ "$3" = "ghost" ] || exit 7
+        ;;
+    *)
+        exit 8
+        ;;
+esac
+SH
+cat >"$TMUX_DETACHED_TMP/bin/termux-notification" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >"$CODEX_NOTIFY_ARGS"
+SH
+chmod +x "$TMUX_DETACHED_TMP/bin/tmux" "$TMUX_DETACHED_TMP/bin/termux-notification"
+env -i \
+    CODEX_NOTIFY_ARGS="$TMUX_DETACHED_TMP/notify.args" \
+    CODEX_TERMUX_HOME="$TMUX_DETACHED_TMP/home" \
+    CODEX_TERMUX_STATE_DIR="$TMUX_DETACHED_TMP/state" \
+    CODEX_TERMUX_NOTIFY_CHANNEL=notification \
+    TMUX="/tmp/tmux-555/default,777,0" \
+    PATH="$TMUX_DETACHED_TMP/bin:$PATH" \
+    bash "$ROOT_DIR/tools/codex-turn-notify.sh" <<'JSON' >/dev/null 2>&1
+{"session_id":"detached-alpha","cwd":"/data/data/com.termux/files/home/prj/codex","last_assistant_message":"detached check"}
+JSON
+grep -F -- "--open-termux" "$TMUX_DETACHED_TMP/notify.args" >/dev/null \
+    || fail 'detached tmux session should not deep-link to tmux target'

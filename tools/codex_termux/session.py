@@ -6,7 +6,9 @@ across profiles, and generating the launch/resume plan.
 
 from __future__ import annotations
 
+import base64
 import curses
+import json
 import os
 import re
 import sys
@@ -36,6 +38,18 @@ class SessionRow:
     source_path: str
     branch: str = ""
     messages: list[tuple[str, str]] = None
+
+
+@dataclass(frozen=True)
+class ProfileAuthIdentity:
+    mode: str
+    chatgpt_subject: str = ""
+    chatgpt_account_id: str = ""
+    api_key: str = ""
+
+
+class SessionBoundaryError(RuntimeError):
+    pass
 
 
 def get_codex_termux_home() -> Path:
@@ -161,6 +175,122 @@ def find_session_homes() -> list[SessionHome]:
     return homes
 
 
+def _decode_jwt_claims(token: str) -> dict[str, Any]:
+    if token.count(".") < 2:
+        return {}
+    payload = token.split(".", 2)[1]
+    payload += "=" * ((4 - len(payload) % 4) % 4)
+    try:
+        decoded = base64.urlsafe_b64decode(payload.encode("ascii"))
+        claims = json.loads(decoded)
+    except (ValueError, json.JSONDecodeError):
+        return {}
+    return claims if isinstance(claims, dict) else {}
+
+
+def _normalize_path(path: Path) -> str:
+    return os.path.normcase(os.path.abspath(os.path.expanduser(str(path))))
+
+
+def profile_for_session_path(path: Path) -> str:
+    try:
+        wanted = _normalize_path(path.resolve(strict=False))
+    except OSError:
+        wanted = _normalize_path(path)
+    for home in find_session_homes():
+        base = _normalize_path(Path(home.home_path) / "sessions")
+        try:
+            if os.path.commonpath([wanted, base]) == base:
+                return home.profile
+        except ValueError:
+            continue
+    return ""
+
+
+def profile_auth_identity(profile: str) -> ProfileAuthIdentity:
+    auth_path = profile_dir(profile) / "auth.json"
+    if not auth_path.is_file():
+        return ProfileAuthIdentity(mode="none")
+    try:
+        data = json.loads(auth_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ProfileAuthIdentity(mode="invalid")
+
+    mode = str(data.get("auth_mode") or "unknown")
+    if mode == "chatgpt":
+        tokens = data.get("tokens") if isinstance(data.get("tokens"), dict) else {}
+        id_claims = _decode_jwt_claims(str(tokens.get("id_token") or ""))
+        access_claims = _decode_jwt_claims(str(tokens.get("access_token") or ""))
+        subject = str(id_claims.get("sub") or access_claims.get("sub") or "")
+        account_id = str(tokens.get("account_id") or "")
+        return ProfileAuthIdentity(
+            mode=mode,
+            chatgpt_subject=subject,
+            chatgpt_account_id=account_id,
+        )
+    if mode == "apikey":
+        return ProfileAuthIdentity(
+            mode=mode,
+            api_key=str(data.get("OPENAI_API_KEY") or ""),
+        )
+    return ProfileAuthIdentity(mode=mode)
+
+
+def session_boundary_reason(source_profile: str, target_profile: str) -> str:
+    source = normalize_profile_choice(source_profile)
+    target = normalize_profile_choice(target_profile)
+    if source == target:
+        return ""
+    if os.environ.get("CODEX_SESSION_ALLOW_CROSS_AUTH", "").lower() in {"1", "true", "yes"}:
+        return ""
+
+    source_auth = profile_auth_identity(source)
+    target_auth = profile_auth_identity(target)
+
+    # Keep unauthenticated/dev profiles compatible; enforce only known auth boundaries.
+    if source_auth.mode in {"none", "invalid"} or target_auth.mode in {"none", "invalid"}:
+        return ""
+
+    if source_auth.mode != target_auth.mode:
+        return f"source auth mode {source_auth.mode!r} differs from target auth mode {target_auth.mode!r}"
+
+    if source_auth.mode == "chatgpt":
+        if (
+            source_auth.chatgpt_subject
+            and target_auth.chatgpt_subject
+            and source_auth.chatgpt_subject != target_auth.chatgpt_subject
+        ):
+            return "source ChatGPT user differs from target profile"
+        if (
+            source_auth.chatgpt_account_id
+            and target_auth.chatgpt_account_id
+            and source_auth.chatgpt_account_id != target_auth.chatgpt_account_id
+        ):
+            return "source ChatGPT account/workspace differs from target profile"
+        return ""
+
+    if source_auth.mode == "apikey":
+        if source_auth.api_key and target_auth.api_key and source_auth.api_key != target_auth.api_key:
+            return "source API key differs from target profile"
+        return ""
+
+    return ""
+
+
+def session_boundary_error_message(source_profile: str, target_profile: str, reason: str) -> str:
+    return (
+        "Refusing cross-profile session resume/share: "
+        f"{normalize_profile_choice(source_profile)} -> {normalize_profile_choice(target_profile)}: {reason}. "
+        "Set CODEX_SESSION_ALLOW_CROSS_AUTH=1 to override explicitly."
+    )
+
+
+def require_session_boundary(source_profile: str, target_profile: str) -> None:
+    reason = session_boundary_reason(source_profile, target_profile)
+    if reason:
+        raise SessionBoundaryError(session_boundary_error_message(source_profile, target_profile, reason))
+
+
 def get_session_id(path: Path) -> str:
     stem = path.stem
     return re.sub(r"^rollout-[0-9TZ:-]+-", "", stem) or stem
@@ -202,7 +332,6 @@ def parse_codex_session(path: Path, profile: str) -> SessionRow | None:
         updated_at = datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
         
         # Read file contents and extract metadata
-        import json
         with open(path, "r", encoding="utf-8", errors="replace") as f:
             for line in f:
                 if not line.strip():
@@ -280,12 +409,27 @@ def parse_codex_session(path: Path, profile: str) -> SessionRow | None:
 def discover_sessions() -> list[SessionRow]:
     homes = find_session_homes()
     rows = []
+    seen_paths = set()
     for home in homes:
         sessions_dir = Path(home.home_path) / "sessions"
         if sessions_dir.is_dir():
             for p in sessions_dir.rglob("*.jsonl"):
                 if p.is_file():
-                    row = parse_codex_session(p, home.profile)
+                    source_path = p
+                    source_profile = home.profile
+                    if p.is_symlink():
+                        try:
+                            source_path = p.resolve(strict=True)
+                        except OSError:
+                            continue
+                        resolved_profile = profile_for_session_path(source_path)
+                        if resolved_profile:
+                            source_profile = resolved_profile
+                    path_key = _normalize_path(source_path)
+                    if path_key in seen_paths:
+                        continue
+                    seen_paths.add(path_key)
+                    row = parse_codex_session(source_path, source_profile)
                     if row:
                         rows.append(row)
     # Sort by updated_at descending (newest first)
@@ -298,6 +442,7 @@ def share_session(session_path_str: str, session_profile: str, target_profile: s
     target = normalize_profile_choice(target_profile)
     if source_profile == target:
         return
+    require_session_boundary(source_profile, target)
 
     src_path = Path(session_path_str)
     source_base = profile_dir(source_profile) / "sessions"
