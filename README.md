@@ -207,7 +207,10 @@ Lists cached and remote runtimes, then promotes the selected runtime. Selection 
 codex termux session
 ```
 
-Interactive curses-based TUI picker to resume any discovered Codex session across any target profile.
+Interactive curses-based TUI picker to resume discovered Codex sessions. Cross-profile
+resume/share is allowed only when known auth boundaries match; ChatGPT user and
+account/workspace mismatches are refused unless `CODEX_SESSION_ALLOW_CROSS_AUTH=1`
+is set explicitly.
 
 ```sh
 codex termux doctor
