@@ -135,3 +135,11 @@ def step_text(key: str, *args: str) -> str:
     if key == "open_profile":
         return f"Opening profile {_arg(args, 0)}"
     raise IntegrityError(f"unknown UI step key: {key}")
+
+
+def step_mode(key: str) -> str:
+    modes = {
+        # Profile-open is a user-facing context transition, not progress noise.
+        "open_profile": "committed",
+    }
+    return modes.get(key, "transient")

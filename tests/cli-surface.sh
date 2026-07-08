@@ -70,7 +70,12 @@ bash -lc '. "$1"; output="$(codex_termux_main repair --help 2>&1)"; case "$outpu
 CODEX_TERMUX_HOME="$TMP_DIR/home" \
 CODEX_TERMUX_STATE_DIR="$TMP_DIR/state" \
 CODEX_TERMUX_TMPDIR="$TMP_DIR/tmp" \
-bash -lc '. "$1"; [ "$(codex_display_version 0.142.4-linux-arm64)" = "0.142.4" ]; [ "$(codex_ui_number 3)" = " 3." ]; [ "$(codex_ui_badge current)" = " 🟢 current " ]; sep="$(codex_termux_cmd ui-format --kind separator --value 4)"; [ "$sep" = "────" ]; [ "$(codex_termux_cmd ui-status-text --message Loading)" = "Loading..." ]; [ "$(codex_termux_cmd ui-status-text --message Ready...)" = "Ready..." ]' _ "$LIB_SH"
+bash -lc '. "$1"; [ "$(codex_display_version 0.142.4-linux-arm64)" = "0.142.4" ]; [ "$(codex_ui_number 3)" = " 3." ]; [ "$(codex_ui_badge current)" = " 🟢 current " ]; sep="$(codex_termux_cmd ui-format --kind separator --value 4)"; [ "$sep" = "────" ]; [ "$(codex_termux_cmd ui-status-text --message Loading)" = "Loading..." ]; [ "$(codex_termux_cmd ui-status-text --message Ready...)" = "Ready..." ]; [ "$(codex_termux_cmd ui-step-mode --key open_profile)" = "committed" ]; [ "$(codex_termux_cmd ui-step-mode --key validate_archive)" = "transient" ]' _ "$LIB_SH"
+
+CODEX_TERMUX_HOME="$TMP_DIR/home" \
+CODEX_TERMUX_STATE_DIR="$TMP_DIR/state" \
+CODEX_TERMUX_TMPDIR="$TMP_DIR/tmp" \
+bash -lc '. "$1"; STATUS_LOG=""; SAY_LOG=""; codex_status() { STATUS_LOG="${STATUS_LOG}${STATUS_LOG:+|}$*"; }; codex_say() { SAY_LOG="${SAY_LOG}${SAY_LOG:+|}$*"; }; codex_ui_step open_profile business; codex_ui_step validate_archive; [ "$STATUS_LOG" = "Validating package archive" ]; [ "$SAY_LOG" = "Opening profile business" ]' _ "$LIB_SH"
 
 CODEX_TERMUX_HOME="$TMP_DIR/home" \
 CODEX_TERMUX_STATE_DIR="$TMP_DIR/state" \

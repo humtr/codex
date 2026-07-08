@@ -23,6 +23,10 @@ def add_commands(sub: SubparserCollection) -> None:
     step_text.add_argument("args", nargs=argparse.REMAINDER)
     step_text.set_defaults(func=_ui_step_text)
 
+    step_mode = sub.add_parser("ui-step-mode")
+    step_mode.add_argument("--key", required=True)
+    step_mode.set_defaults(func=_ui_step_mode)
+
     status = sub.add_parser("ui-status-text")
     status.add_argument("--message", required=True)
     status.set_defaults(func=_ui_status_text)
@@ -41,6 +45,11 @@ def _ui_text(args: argparse.Namespace) -> int:
 
 def _ui_step_text(args: argparse.Namespace) -> int:
     print(ui.step_text(args.key, *args.args))
+    return 0
+
+
+def _ui_step_mode(args: argparse.Namespace) -> int:
+    print(ui.step_mode(args.key))
     return 0
 
 

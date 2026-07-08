@@ -21,9 +21,18 @@ codex_notify_log() {
     printf '%s %s\n' "$(date -Is 2>/dev/null || date)" "$*" >>"$CODEX_TERMUX_NOTIFY_DIR/notify.log" 2>/dev/null || true
 }
 
-codex_notify_tmux_session() {
+codex_notify_tmux_target() {
+    local target session
+    # Only deep-link to tmux when the hook itself ran inside a tmux client.
+    [ -n "${TMUX:-}" ] || return 0
     command -v tmux >/dev/null 2>&1 || return 0
-    tmux display-message -p '#S' 2>/dev/null || true
+    target="$(tmux display-message -p '#S:#I.#P' 2>/dev/null || tmux display-message -p '#S' 2>/dev/null || true)"
+    [ -n "$target" ] || return 0
+    session="${target%%:*}"
+    [ -n "$session" ] || return 0
+    # Detached sessions should not be auto-focused from notifications.
+    tmux list-clients -t "$session" >/dev/null 2>&1 || return 0
+    printf '%s\n' "$target"
 }
 
 codex_notify_open_termux() {
@@ -31,13 +40,22 @@ codex_notify_open_termux() {
     am start --user 0 -n com.termux/.app.TermuxActivity >/dev/null 2>&1 || true
 }
 
+codex_notify_tmux_target_valid() {
+    local target="${1:-}" session
+    [ -n "$target" ] || return 1
+    command -v tmux >/dev/null 2>&1 || return 1
+    session="${target%%:*}"
+    [ -n "$session" ] || return 1
+    tmux has-session -t "$session" >/dev/null 2>&1
+}
+
 codex_notify_open_tmux() {
-    local session="${1:-}"
-    [ -n "$session" ] || {
+    local target="${1:-}"
+    [ -n "$target" ] || {
         codex_notify_open_termux
         return 0
     }
-    command -v tmux >/dev/null 2>&1 && tmux has-session -t "$session" 2>/dev/null || {
+    codex_notify_tmux_target_valid "$target" || {
         codex_notify_open_termux
         return 0
     }
@@ -45,11 +63,11 @@ codex_notify_open_tmux() {
         am startservice --user 0 -n com.termux/.app.RunCommandService \
             -a com.termux.RUN_COMMAND \
             --es com.termux.RUN_COMMAND_PATH "$CODEX_TERMUX_PREFIX/bin/tmux" \
-            --esa com.termux.RUN_COMMAND_ARGUMENTS "attach,-t,$session" \
+            --esa com.termux.RUN_COMMAND_ARGUMENTS "attach,-t,$target" \
             --ez com.termux.RUN_COMMAND_BACKGROUND false \
             --ez com.termux.RUN_COMMAND_SESSION_ACTION 1 >/dev/null 2>&1 || true
     fi
-    tmux switch-client -t "$session" >/dev/null 2>&1 || true
+    tmux switch-client -t "$target" >/dev/null 2>&1 || true
 }
 
 codex_notify_escape_action() {
@@ -70,7 +88,7 @@ import os
 import sys
 
 home = sys.argv[1]
-tmux_session = sys.argv[2]
+tmux_target = sys.argv[2]
 payload_path = sys.argv[3] if len(sys.argv) > 3 else ""
 limit = os.environ.get("CODEX_TERMUX_NOTIFY_CONTENT_CHARS", "140")
 preserve_newlines = os.environ.get("CODEX_TERMUX_NOTIFY_PRESERVE_NEWLINES", "0") == "1"
@@ -127,8 +145,8 @@ if limit not in ("0", "full", "none", "unlimited"):
         message = message[: max_chars - 3] + "..." if max_chars > 3 else message[:max_chars]
 
 title = f"Codex: {compact_path(cwd)}"
-if tmux_session:
-    title = f"{title} | tmux: {tmux_session}"
+if tmux_target:
+    title = f"{title} | tmux: {tmux_target}"
 
 def b64(value: str) -> str:
     return base64.b64encode(value.encode("utf-8", "replace")).decode("ascii")
@@ -138,7 +156,7 @@ print(b64(title))
 print(b64(message))
 print(b64(cwd))
 print(b64(session_id))
-' "$CODEX_TERMUX_HOME" "${TMUX_SESSION:-}" "${1:-}"
+' "$CODEX_TERMUX_HOME" "${TMUX_TARGET:-}" "${1:-}"
 }
 
 codex_notify_b64_decode() {
@@ -260,13 +278,13 @@ codex_notify_channel_has_notification() {
 }
 
 codex_notify_payload() {
-    local payload tmux_session meta notification_id title content cwd session_id action provider="fallback"
+    local payload tmux_target meta notification_id title content cwd session_id action provider="fallback"
     local toast_args=()
     payload="$(cat)"
-    tmux_session="$(codex_notify_tmux_session)"
+    tmux_target="$(codex_notify_tmux_target)"
     mkdir -p "$CODEX_TERMUX_NOTIFY_DIR" 2>/dev/null || true
     printf '%s' "$payload" >"$CODEX_TERMUX_NOTIFY_DIR/last-payload.json" 2>/dev/null || true
-    meta="$(TMUX_SESSION="$tmux_session" codex_notify_metadata "$CODEX_TERMUX_NOTIFY_DIR/last-payload.json")" || meta=""
+    meta="$(TMUX_TARGET="$tmux_target" codex_notify_metadata "$CODEX_TERMUX_NOTIFY_DIR/last-payload.json")" || meta=""
     notification_id="$(printf '%s\n' "$meta" | sed -n '1p')"
     title="$(codex_notify_b64_decode "$(printf '%s\n' "$meta" | sed -n '2p')")"
     content="$(codex_notify_b64_decode "$(printf '%s\n' "$meta" | sed -n '3p')")"
@@ -279,8 +297,8 @@ codex_notify_payload() {
         title="$title · $(codex_notify_event_label "$CODEX_TERMUX_NOTIFY_EVENT")"
     fi
 
-    if [ -n "$tmux_session" ]; then
-        action="$(codex_notify_escape_action "$0" --open-tmux "$tmux_session")"
+    if [ -n "$tmux_target" ]; then
+        action="$(codex_notify_escape_action "$0" --open-tmux "$tmux_target")"
     else
         action="$(codex_notify_escape_action "$0" --open-termux)"
     fi
@@ -356,7 +374,7 @@ codex_notify_payload() {
         termux-api*) ;;
         *) printf '\a' 2>/dev/null || true ;;
     esac
-    codex_notify_log "provider=$provider id=$notification_id session=${session_id:-none} tmux=${tmux_session:-none} cwd=${cwd:-none}"
+    codex_notify_log "provider=$provider id=$notification_id session=${session_id:-none} tmux_target=${tmux_target:-none} cwd=${cwd:-none}"
 }
 
 case "${1:-}" in

@@ -84,13 +84,24 @@ codex_ui_step_text() {
     codex_termux_cmd ui-step-text --key "$key" "$@"
 }
 
+codex_ui_step_mode() {
+    local key="$1"
+    codex_termux_cmd ui-step-mode --key "$key" | tr -d '\n'
+}
+
 codex_ui_text_get() {
     codex_ui_text "$@" | tr -d '\n'
 }
 
 codex_ui_step() {
-    local message
-    message="$(codex_ui_step_text "$@")" || return 1
+    local key="$1" mode message
+    shift || true
+    mode="$(codex_ui_step_mode "$key")" || return 1
+    message="$(codex_ui_step_text "$key" "$@")" || return 1
+    if [ "$mode" = "committed" ]; then
+        codex_say "${message%$'\n'}"
+        return 0
+    fi
     codex_status "${message%$'\n'}"
 }
 
