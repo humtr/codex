@@ -37,6 +37,7 @@ REQUIRED_WRAPPER_SOURCE_PATHS = (
     "tools/build-runtime.py",
     "tools/bwrap-termux-compat.py",
     "tools/rg-termux-shim.sh",
+    "tools/termux-notify.sh",
     "tools/codex-turn-notify.sh",
     "tools/codex-launcher.c",
     "tools/codex_termux",

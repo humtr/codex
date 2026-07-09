@@ -203,6 +203,7 @@ git() {
     printf 'builder\n' >"$target/tools/build-runtime.py"
     printf 'bwrap\n' >"$target/tools/bwrap-termux-compat.py"
     printf 'rg\n' >"$target/tools/rg-termux-shim.sh"
+    printf 'notify engine\n' >"$target/tools/termux-notify.sh"
     printf 'notify\n' >"$target/tools/codex-turn-notify.sh"
     printf 'launcher\n' >"$target/tools/codex-launcher.c"
     printf 'version\n' >"$target/config/wrapper-version.env"
@@ -250,7 +251,7 @@ if codex_require_wrapper_source "$TMP_DIR/incomplete" "Wrapper git repository"; 
     fail 'incomplete wrapper source was accepted by require helper'
 fi
 case "$FAILED_MESSAGE" in
-    *"missing:"*"tools/codex-turn-notify.sh"*) ;;
+    *"missing:"*"tools/termux-notify.sh"*"tools/codex-turn-notify.sh"*) ;;
     *) fail "missing wrapper source error was not actionable: $FAILED_MESSAGE" ;;
 esac
 

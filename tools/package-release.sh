@@ -29,6 +29,7 @@ mkdir -p "$PACKAGE_ROOT/tools"
 copy_path tools/build-runtime.py
 copy_path tools/bwrap-termux-compat.py
 copy_path tools/rg-termux-shim.sh
+copy_path tools/termux-notify.sh
 copy_path tools/codex-launcher.c
 copy_path tools/codex-turn-notify.sh
 copy_path tools/codex_termux

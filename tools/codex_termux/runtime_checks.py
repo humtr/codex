@@ -192,6 +192,7 @@ def support_layer_ok(*, managed_shell: Path, manager_dir: Path, public_codex: Pa
         and _executable(manager_dir / "build-runtime.py")
         and _executable(manager_dir / "bwrap-termux-compat.py")
         and _executable(manager_dir / "rg-termux-shim.sh")
+        and _executable(manager_dir / "termux-notify.sh")
         and _executable(manager_dir / "codex-turn-notify.sh")
         and _path_contains(public_codex, marker.encode("utf-8"))
     )
