@@ -260,10 +260,12 @@ codex_install_support_files() {
     cp "$source_dir/tools/build-runtime.py" "$CODEX_TERMUX_MANAGER_DIR/build-runtime.py"
     cp "$source_dir/tools/bwrap-termux-compat.py" "$CODEX_TERMUX_MANAGER_DIR/bwrap-termux-compat.py"
     cp "$source_dir/tools/rg-termux-shim.sh" "$CODEX_TERMUX_MANAGER_DIR/rg-termux-shim.sh"
+    cp "$source_dir/tools/termux-notify.sh" "$CODEX_TERMUX_MANAGER_DIR/termux-notify.sh"
     cp "$source_dir/tools/codex-turn-notify.sh" "$CODEX_TERMUX_MANAGER_DIR/codex-turn-notify.sh"
     chmod 755 "$CODEX_TERMUX_MANAGER_DIR/build-runtime.py" \
         "$CODEX_TERMUX_MANAGER_DIR/bwrap-termux-compat.py" \
         "$CODEX_TERMUX_MANAGER_DIR/rg-termux-shim.sh" \
+        "$CODEX_TERMUX_MANAGER_DIR/termux-notify.sh" \
         "$CODEX_TERMUX_MANAGER_DIR/codex-turn-notify.sh"
     if [ -f "$source_dir/config/wrapper-version.env" ]; then
         cp "$source_dir/config/wrapper-version.env" "$CODEX_TERMUX_MANAGER_DIR/wrapper-version.env"
