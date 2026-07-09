@@ -304,6 +304,10 @@ bash -lc '
 	            arg=""
 	            while [ "$#" -gt 0 ]; do
 	                case "$1" in
+	                    --arg=*)
+	                        arg="${1#*=}"
+	                        shift
+	                        ;;
 	                    --arg)
 	                        arg="${2:-}"
 	                        shift 2
@@ -332,7 +336,7 @@ bash -lc '
 	[ "$list_mode" = "list" ]
 	codex_use cached extra
 	[ "$selected_choice" = "cached" ]
-	codex_use
+	codex_use < /dev/null
 	[ "$list_mode" = "menu" ]
 	' _ "$LIB_SH" || fail 'profile use command plan shell dispatch changed behavior'
 
