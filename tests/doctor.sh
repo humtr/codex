@@ -62,6 +62,8 @@ with TemporaryDirectory() as tmp:
     write_executable(builder, "#!/usr/bin/env python3\n")
     write_executable(manager / "bwrap-termux-compat.py", "#!/bin/sh\nexit 0\n")
     write_executable(manager / "rg-termux-shim.sh", "#!/bin/sh\nexit 0\n")
+    write_executable(manager / "termux-notify.sh", "#!/bin/sh\nexit 0\n")
+    write_executable(manager / "codex-turn-notify.sh", "#!/bin/sh\nexit 0\n")
     (manager / "wrapper-version.env").write_text(
         "\n".join(
             [

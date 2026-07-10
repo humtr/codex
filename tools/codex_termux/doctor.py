@@ -458,9 +458,18 @@ def _manager_ok(manager_dir: Path) -> bool:
         manager_dir / "build-runtime.py",
         manager_dir / "bwrap-termux-compat.py",
         manager_dir / "rg-termux-shim.sh",
+        manager_dir / "termux-notify.sh",
+        manager_dir / "codex-turn-notify.sh",
         manager_dir / "wrapper-version.env",
     )
-    executable = {"managed.sh", "build-runtime.py", "bwrap-termux-compat.py", "rg-termux-shim.sh"}
+    executable = {
+        "managed.sh",
+        "build-runtime.py",
+        "bwrap-termux-compat.py",
+        "rg-termux-shim.sh",
+        "termux-notify.sh",
+        "codex-turn-notify.sh",
+    }
     readable = {"lib.sh", "wrapper-version.env"}
     return bool(
         manager_dir.is_dir()

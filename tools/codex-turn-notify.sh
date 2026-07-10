@@ -1,136 +1,65 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -u
 
-CODEX_TERMUX_PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
-CODEX_TERMUX_HOME="${CODEX_TERMUX_HOME:-$HOME}"
-CODEX_TERMUX_STATE_DIR="${CODEX_TERMUX_STATE_DIR:-$CODEX_TERMUX_HOME/.local/share/codex/termux}"
-CODEX_TERMUX_NOTIFY_DIR="${CODEX_TERMUX_NOTIFY_DIR:-$CODEX_TERMUX_STATE_DIR/notify}"
-CODEX_TERMUX_NOTIFY_GROUP="${CODEX_TERMUX_NOTIFY_GROUP:-codex-turns}"
-CODEX_TERMUX_NOTIFY_CONFIG="${CODEX_TERMUX_NOTIFY_CONFIG:-$CODEX_TERMUX_NOTIFY_DIR/config.env}"
-[ ! -r "$CODEX_TERMUX_NOTIFY_CONFIG" ] || . "$CODEX_TERMUX_NOTIFY_CONFIG"
-CODEX_TERMUX_NOTIFY_CONTENT_CHARS="${CODEX_TERMUX_NOTIFY_CONTENT_CHARS:-140}"
-CODEX_TERMUX_NOTIFY_PRESERVE_NEWLINES="${CODEX_TERMUX_NOTIFY_PRESERVE_NEWLINES:-0}"
-CODEX_TERMUX_NOTIFY_CHANNEL="${CODEX_TERMUX_NOTIFY_CHANNEL:-notification}"
-CODEX_TERMUX_NOTIFY_TOAST_GRAVITY="${CODEX_TERMUX_NOTIFY_TOAST_GRAVITY:-top}"
-CODEX_TERMUX_NOTIFY_TOAST_SHORT="${CODEX_TERMUX_NOTIFY_TOAST_SHORT:-0}"
-CODEX_TERMUX_NOTIFY_TOAST_BACKGROUND="${CODEX_TERMUX_NOTIFY_TOAST_BACKGROUND:-}"
-CODEX_TERMUX_NOTIFY_TOAST_COLOR="${CODEX_TERMUX_NOTIFY_TOAST_COLOR:-}"
-
-codex_notify_log() {
-    mkdir -p "$CODEX_TERMUX_NOTIFY_DIR" 2>/dev/null || return 0
-    printf '%s %s\n' "$(date -Is 2>/dev/null || date)" "$*" >>"$CODEX_TERMUX_NOTIFY_DIR/notify.log" 2>/dev/null || true
-}
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+COMMON_NOTIFY="$SCRIPT_DIR/termux-notify.sh"
 
 codex_notify_tmux_target() {
     local target session
-    # Only deep-link to tmux when the hook itself ran inside a tmux client.
     [ -n "${TMUX:-}" ] || return 0
     command -v tmux >/dev/null 2>&1 || return 0
     target="$(tmux display-message -p '#S:#I.#P' 2>/dev/null || tmux display-message -p '#S' 2>/dev/null || true)"
     [ -n "$target" ] || return 0
     session="${target%%:*}"
     [ -n "$session" ] || return 0
-    # Detached sessions should not be auto-focused from notifications.
     tmux list-clients -t "$session" >/dev/null 2>&1 || return 0
     printf '%s\n' "$target"
 }
 
-codex_notify_open_termux() {
-    command -v am >/dev/null 2>&1 || return 0
-    am start --user 0 -n com.termux/.app.TermuxActivity >/dev/null 2>&1 || true
-}
-
-codex_notify_tmux_target_valid() {
-    local target="${1:-}" session
-    [ -n "$target" ] || return 1
-    command -v tmux >/dev/null 2>&1 || return 1
-    session="${target%%:*}"
-    [ -n "$session" ] || return 1
-    tmux has-session -t "$session" >/dev/null 2>&1
-}
-
-codex_notify_open_tmux() {
-    local target="${1:-}"
-    [ -n "$target" ] || {
-        codex_notify_open_termux
-        return 0
-    }
-    codex_notify_tmux_target_valid "$target" || {
-        codex_notify_open_termux
-        return 0
-    }
-    if command -v am >/dev/null 2>&1; then
-        am startservice --user 0 -n com.termux/.app.RunCommandService \
-            -a com.termux.RUN_COMMAND \
-            --es com.termux.RUN_COMMAND_PATH "$CODEX_TERMUX_PREFIX/bin/tmux" \
-            --esa com.termux.RUN_COMMAND_ARGUMENTS "attach,-t,$target" \
-            --ez com.termux.RUN_COMMAND_BACKGROUND false \
-            --ez com.termux.RUN_COMMAND_SESSION_ACTION 1 >/dev/null 2>&1 || true
-    fi
-    tmux switch-client -t "$target" >/dev/null 2>&1 || true
-}
-
-codex_notify_escape_action() {
-    local out="" item
-    for item in "$@"; do
-        printf -v item '%q' "$item"
-        out="${out:+$out }$item"
-    done
-    printf '%s\n' "$out"
-}
-
-codex_notify_metadata() {
-    python3 -c '
-import base64
-import hashlib
+codex_notify_render_payload() {
+    local tmux_target="$1" payload_file="$2"
+    python3 - "$tmux_target" "$payload_file" <<'PY'
 import json
 import os
 import sys
 
-home = sys.argv[1]
-tmux_target = sys.argv[2]
-payload_path = sys.argv[3] if len(sys.argv) > 3 else ""
+tmux_target = sys.argv[1]
+payload_path = sys.argv[2]
 limit = os.environ.get("CODEX_TERMUX_NOTIFY_CONTENT_CHARS", "140")
 preserve_newlines = os.environ.get("CODEX_TERMUX_NOTIFY_PRESERVE_NEWLINES", "0") == "1"
-if payload_path:
-    try:
-        with open(payload_path, "r", encoding="utf-8", errors="replace") as handle:
-            payload = handle.read()
-    except OSError:
-        payload = ""
-else:
-    payload = sys.stdin.read()
+event = os.environ.get("CODEX_TERMUX_NOTIFY_EVENT", "")
 
 try:
-    data = json.loads(payload) if payload.strip() else {}
+    payload = json.loads(open(payload_path, encoding="utf-8", errors="replace").read()) if payload_path else {}
 except json.JSONDecodeError:
-    data = {}
+    payload = {}
 
-cwd = data.get("cwd") or os.environ.get("PWD") or ""
-session_id = data.get("session_id") or data.get("sessionId") or ""
-transcript = data.get("transcript_path") or data.get("transcriptPath") or ""
-key = session_id or transcript or cwd or "codex"
-digest = hashlib.sha256(key.encode("utf-8", "replace")).hexdigest()
-notification_id = str(10000 + (int(digest[:8], 16) % 2000000000))
+cwd = payload.get("cwd") or os.environ.get("PWD") or ""
+session_id = payload.get("session_id") or payload.get("sessionId") or ""
+transcript = payload.get("transcript_path") or payload.get("transcriptPath") or ""
+dedupe_key = payload.get("dedupe_key") or payload.get("dedupeKey") or transcript or session_id or cwd or "codex"
 
 def compact_path(path: str) -> str:
     if not path:
         return "unknown"
     path = os.path.abspath(path)
-    home_abs = os.path.abspath(home) if home else ""
-    if home_abs and (path == home_abs or path.startswith(home_abs + os.sep)):
-        path = "~" + path[len(home_abs):]
+    home = os.path.abspath(os.environ.get("HOME") or "")
+    if home and (path == home or path.startswith(home + os.sep)):
+        path = "~" + path[len(home):]
     if len(path) > 54:
         path = "..." + path[-51:]
     return path
 
+title = payload.get("title") or f"Codex: {compact_path(cwd)}"
 message = (
-    data.get("last_assistant_message")
-    or data.get("lastAssistantMessage")
-    or data.get("message")
-    or data.get("event_msg")
+    payload.get("content")
+    or payload.get("last_assistant_message")
+    or payload.get("lastAssistantMessage")
+    or payload.get("message")
+    or payload.get("event_msg")
     or "Codex turn finished"
 )
+title = str(title)
 message = str(message)
 if preserve_newlines:
     message = "\n".join(line.rstrip() for line in message.splitlines()).strip()
@@ -143,264 +72,35 @@ if limit not in ("0", "full", "none", "unlimited"):
         max_chars = 140
     if len(message) > max_chars:
         message = message[: max_chars - 3] + "..." if max_chars > 3 else message[:max_chars]
+if event:
+    event_label = {
+        "SessionStart": "session start",
+        "PreToolUse": "tool start",
+        "PermissionRequest": "permission request",
+        "PostToolUse": "tool finished",
+        "PreCompact": "before compact",
+        "PostCompact": "after compact",
+        "UserPromptSubmit": "prompt submitted",
+        "SubagentStart": "subagent start",
+        "SubagentStop": "subagent finished",
+        "Stop": "turn complete",
+    }.get(event, event)
+    title = f"{title} · {event_label}"
 
-title = f"Codex: {compact_path(cwd)}"
-if tmux_target:
-    title = f"{title} | tmux: {tmux_target}"
-
-def b64(value: str) -> str:
-    return base64.b64encode(value.encode("utf-8", "replace")).decode("ascii")
-
-print(notification_id)
-print(b64(title))
-print(b64(message))
-print(b64(cwd))
-print(b64(session_id))
-' "$CODEX_TERMUX_HOME" "${TMUX_TARGET:-}" "${1:-}"
+result = {
+    "source": "codex",
+    "title": title,
+    "content": message,
+    "cwd": cwd,
+    "session_id": session_id,
+    "tmux_target": tmux_target,
+    "dedupe_key": dedupe_key,
 }
-
-codex_notify_b64_decode() {
-    printf '%s' "$1" | base64 -d 2>/dev/null || true
-}
-
-codex_notify_all_hooks() {
-    printf '%s\n' \
-        SessionStart \
-        PreToolUse \
-        PermissionRequest \
-        PostToolUse \
-        PreCompact \
-        PostCompact \
-        UserPromptSubmit \
-        SubagentStart \
-        SubagentStop \
-        Stop
-}
-
-codex_notify_hook_canonical() {
-    case "${1:-}" in
-        stop|Stop) printf 'Stop' ;;
-        sessionstart|SessionStart) printf 'SessionStart' ;;
-        pretooluse|PreToolUse) printf 'PreToolUse' ;;
-        permissionrequest|PermissionRequest) printf 'PermissionRequest' ;;
-        posttooluse|PostToolUse) printf 'PostToolUse' ;;
-        precompact|PreCompact) printf 'PreCompact' ;;
-        postcompact|PostCompact) printf 'PostCompact' ;;
-        userpromptsubmit|UserPromptSubmit) printf 'UserPromptSubmit' ;;
-        subagentstart|SubagentStart) printf 'SubagentStart' ;;
-        subagentstop|SubagentStop) printf 'SubagentStop' ;;
-        all|ALL) printf 'all' ;;
-        *) printf '%s' "${1:-}" ;;
-    esac
-}
-
-codex_notify_hook_valid() {
-    case "$(codex_notify_hook_canonical "${1:-}")" in
-        SessionStart|PreToolUse|PermissionRequest|PostToolUse|PreCompact|PostCompact|UserPromptSubmit|SubagentStart|SubagentStop|Stop|all)
-            return 0
-            ;;
-        *)
-            return 1
-            ;;
-    esac
-}
-
-codex_notify_hooks_normalize() {
-    local hooks="${1:-Stop}" event seen="," normalized="" event_list=()
-    case ",$hooks," in
-        *,all,*|*,ALL,*)
-            printf 'all\n'
-            return 0
-            ;;
-    esac
-    IFS=, read -r -a event_list <<<"$hooks"
-    for event in "${event_list[@]}"; do
-        event="$(codex_notify_hook_canonical "$event")"
-        [ -n "$event" ] || continue
-        codex_notify_hook_valid "$event" || continue
-        case "$event" in
-            all) printf 'all\n'; return 0 ;;
-        esac
-        case "$seen" in
-            *,"$event",*) continue ;;
-        esac
-        seen="$seen$event,"
-        normalized="${normalized:+$normalized,}$event"
-    done
-    [ -n "$normalized" ] || normalized="Stop"
-    printf '%s\n' "$normalized"
-}
-
-codex_notify_event_label() {
-    case "${1:-}" in
-        SessionStart) printf 'session start' ;;
-        PreToolUse) printf 'tool start' ;;
-        PermissionRequest) printf 'permission request' ;;
-        PostToolUse) printf 'tool finished' ;;
-        PreCompact) printf 'before compact' ;;
-        PostCompact) printf 'after compact' ;;
-        UserPromptSubmit) printf 'prompt submitted' ;;
-        SubagentStart) printf 'subagent start' ;;
-        SubagentStop) printf 'subagent finished' ;;
-        Stop) printf 'turn complete' ;;
-        *) printf '%s' "${1:-}" ;;
-    esac
-}
-
-codex_notify_hook_status_message() {
-    case "$(codex_notify_hook_canonical "${1:-}")" in
-        SessionStart) printf 'Notify session start' ;;
-        PreToolUse) printf 'Notify tool start' ;;
-        PermissionRequest) printf 'Notify permission request' ;;
-        PostToolUse) printf 'Notify tool finish' ;;
-        PreCompact) printf 'Notify before compact' ;;
-        PostCompact) printf 'Notify after compact' ;;
-        UserPromptSubmit) printf 'Notify prompt submit' ;;
-        SubagentStart) printf 'Notify subagent start' ;;
-        SubagentStop) printf 'Notify subagent stop' ;;
-        Stop) printf 'Notify turn completion' ;;
-        *) printf 'Notify %s' "${1:-}" ;;
-    esac
-}
-
-codex_notify_channel_has_toast() {
-    case "$CODEX_TERMUX_NOTIFY_CHANNEL" in
-        toast|both) return 0 ;;
-        *) return 1 ;;
-    esac
-}
-
-codex_notify_channel_has_notification() {
-    case "$CODEX_TERMUX_NOTIFY_CHANNEL" in
-        notification|both) return 0 ;;
-        *) return 1 ;;
-    esac
-}
-
-codex_notify_payload() {
-    local payload tmux_target meta notification_id title content cwd session_id action provider="fallback"
-    local toast_args=()
-    payload="$(cat)"
-    tmux_target="$(codex_notify_tmux_target)"
-    mkdir -p "$CODEX_TERMUX_NOTIFY_DIR" 2>/dev/null || true
-    printf '%s' "$payload" >"$CODEX_TERMUX_NOTIFY_DIR/last-payload.json" 2>/dev/null || true
-    meta="$(TMUX_TARGET="$tmux_target" codex_notify_metadata "$CODEX_TERMUX_NOTIFY_DIR/last-payload.json")" || meta=""
-    notification_id="$(printf '%s\n' "$meta" | sed -n '1p')"
-    title="$(codex_notify_b64_decode "$(printf '%s\n' "$meta" | sed -n '2p')")"
-    content="$(codex_notify_b64_decode "$(printf '%s\n' "$meta" | sed -n '3p')")"
-    cwd="$(codex_notify_b64_decode "$(printf '%s\n' "$meta" | sed -n '4p')")"
-    session_id="$(codex_notify_b64_decode "$(printf '%s\n' "$meta" | sed -n '5p')")"
-    [ -n "$notification_id" ] || notification_id=10000
-    [ -n "$title" ] || title="Codex: unknown"
-    [ -n "$content" ] || content="Codex turn finished"
-    if [ -n "${CODEX_TERMUX_NOTIFY_EVENT:-}" ]; then
-        title="$title · $(codex_notify_event_label "$CODEX_TERMUX_NOTIFY_EVENT")"
-    fi
-
-    if [ -n "$tmux_target" ]; then
-        action="$(codex_notify_escape_action "$0" --open-tmux "$tmux_target")"
-    else
-        action="$(codex_notify_escape_action "$0" --open-termux)"
-    fi
-
-    codex_notify_show_toast() {
-        if [ "${CODEX_TERMUX_NOTIFY_NO_API:-0}" = 1 ] ||
-            ! codex_notify_channel_has_toast ||
-            ! command -v termux-toast >/dev/null 2>&1; then
-            return 1
-        fi
-        toast_args=()
-        [ -z "$CODEX_TERMUX_NOTIFY_TOAST_GRAVITY" ] || toast_args+=(-g "$CODEX_TERMUX_NOTIFY_TOAST_GRAVITY")
-        [ "$CODEX_TERMUX_NOTIFY_TOAST_SHORT" != "1" ] || toast_args+=(-s)
-        [ -z "$CODEX_TERMUX_NOTIFY_TOAST_BACKGROUND" ] || toast_args+=(-b "$CODEX_TERMUX_NOTIFY_TOAST_BACKGROUND")
-        [ -z "$CODEX_TERMUX_NOTIFY_TOAST_COLOR" ] || toast_args+=(-c "$CODEX_TERMUX_NOTIFY_TOAST_COLOR")
-        termux-toast "${toast_args[@]}" "$content" >/dev/null 2>&1
-    }
-
-    codex_notify_show_notification() {
-        if [ "${CODEX_TERMUX_NOTIFY_NO_API:-0}" = 1 ] ||
-            ! codex_notify_channel_has_notification ||
-            ! command -v termux-notification >/dev/null 2>&1; then
-            return 1
-        fi
-        termux-notification \
-            --id "$notification_id" \
-            --group "$CODEX_TERMUX_NOTIFY_GROUP" \
-            --priority max \
-            --sound \
-            --vibrate 300,150,300 \
-            --title "$title" \
-            --content "$content" \
-            --action "$action" >/dev/null 2>&1
-    }
-
-    case "$CODEX_TERMUX_NOTIFY_CHANNEL" in
-        toast)
-            if codex_notify_show_toast; then
-                provider="toast"
-            elif codex_notify_show_notification; then
-                provider="termux-api"
-            fi
-            ;;
-        notification)
-            if codex_notify_show_notification; then
-                provider="termux-api"
-            elif codex_notify_show_toast; then
-                provider="toast"
-            fi
-            ;;
-        both)
-            if codex_notify_show_notification; then
-                provider="termux-api"
-            fi
-            if codex_notify_show_toast; then
-                provider="${provider:+$provider+}toast"
-            fi
-            ;;
-        *)
-            if codex_notify_show_notification; then
-                provider="termux-api"
-            elif codex_notify_show_toast; then
-                provider="toast"
-            fi
-            ;;
-    esac
-
-    if [ "$provider" = "fallback" ] && command -v tmux >/dev/null 2>&1; then
-        tmux display-message "$title: $content" >/dev/null 2>&1 || true
-        provider="tmux"
-    fi
-    case "$provider" in
-        termux-api*) ;;
-        *) printf '\a' 2>/dev/null || true ;;
-    esac
-    codex_notify_log "provider=$provider id=$notification_id session=${session_id:-none} tmux_target=${tmux_target:-none} cwd=${cwd:-none}"
+print(json.dumps(result, ensure_ascii=False))
+PY
 }
 
 case "${1:-}" in
-    --list-hooks)
-        codex_notify_all_hooks
-        ;;
-    --canonical-hook)
-        shift
-        codex_notify_hook_canonical "${1:-}"
-        ;;
-    --hook-valid)
-        shift
-        codex_notify_hook_valid "${1:-}"
-        ;;
-    --normalize-hooks)
-        shift
-        codex_notify_hooks_normalize "${1:-Stop}"
-        ;;
-    --event-label)
-        shift
-        codex_notify_event_label "${1:-}"
-        ;;
-    --status-message)
-        shift
-        codex_notify_hook_status_message "${1:-}"
-        ;;
     --event)
         shift
         export CODEX_TERMUX_NOTIFY_EVENT="${1:-}"
@@ -408,13 +108,22 @@ case "${1:-}" in
         exec "${BASH:-bash}" "$0" "$@"
         ;;
     --open-termux)
-        codex_notify_open_termux
+        exec "${BASH:-bash}" "$COMMON_NOTIFY" --open-termux
         ;;
     --open-tmux)
         shift
-        codex_notify_open_tmux "${1:-}"
+        exec "${BASH:-bash}" "$COMMON_NOTIFY" --open-tmux "${1:-}"
         ;;
     *)
-        codex_notify_payload
         ;;
 esac
+
+tmp_root="${CODEX_TERMUX_TMPDIR:-${TMPDIR:-/data/data/com.termux/files/usr/tmp}}"
+mkdir -p "$tmp_root"
+tmp_dir="$(mktemp -d "$tmp_root/codex-turn-notify.XXXXXX")"
+trap 'rm -rf "$tmp_dir"' EXIT
+payload_file="$tmp_dir/payload.json"
+cat >"$payload_file"
+tmux_target="$(codex_notify_tmux_target)"
+payload_json="$(codex_notify_render_payload "$tmux_target" "$payload_file")" || exit $?
+printf '%s\n' "$payload_json" | "${BASH:-bash}" "$COMMON_NOTIFY"

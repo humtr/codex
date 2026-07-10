@@ -50,9 +50,9 @@ def shell_exports(
     if set_home:
         exports.update({
             "HOME": home,
-            "XDG_CONFIG_HOME": xdg_config_home or f"{home}/.config",
-            "XDG_CACHE_HOME": xdg_cache_home or f"{home}/.cache",
-            "XDG_DATA_HOME": xdg_data_home or f"{home}/.local/share",
+            "XDG_CONFIG_HOME": f"{home}/.config",
+            "XDG_CACHE_HOME": f"{home}/.cache",
+            "XDG_DATA_HOME": f"{home}/.local/share",
             "GODEBUG": godebug or "netdns=go",
         })
     if Path(cert_dir).is_dir():

@@ -150,8 +150,8 @@ env -i \
     CODEX_TERMUX_NOTIFY_CHANNEL=notification \
     TMUX="/tmp/tmux-123/default,999,0" \
     PATH="$TMUX_TARGET_TMP/bin:$PATH" \
-    bash "$ROOT_DIR/tools/codex-turn-notify.sh" <<'JSON' >/dev/null 2>&1
-{"session_id":"pane-target-alpha","cwd":"/data/data/com.termux/files/home/prj/codex","last_assistant_message":"pane target check"}
+    bash "$ROOT_DIR/tools/termux-notify.sh" <<'JSON' >/dev/null 2>&1
+{"title":"Task","content":"pane target check","cwd":"/data/data/com.termux/files/home/prj/codex","tmux_target":"work:7.2","session_id":"pane-target-alpha"}
 JSON
 grep -F -- "--action" "$TMUX_TARGET_TMP/notify.args" >/dev/null \
     || fail 'notification action missing'
@@ -187,8 +187,8 @@ env -i \
     CODEX_TERMUX_STATE_DIR="$TMUX_OUTSIDE_TMP/state" \
     CODEX_TERMUX_NOTIFY_CHANNEL=notification \
     PATH="$TMUX_OUTSIDE_TMP/bin:$PATH" \
-    bash "$ROOT_DIR/tools/codex-turn-notify.sh" <<'JSON' >/dev/null 2>&1
-{"session_id":"outside-alpha","cwd":"/data/data/com.termux/files/home/prj/codex","last_assistant_message":"outside tmux check"}
+    bash "$ROOT_DIR/tools/termux-notify.sh" <<'JSON' >/dev/null 2>&1
+{"title":"Task","content":"outside tmux check","cwd":"/data/data/com.termux/files/home/prj/codex","session_id":"outside-alpha"}
 JSON
 grep -F -- "--open-termux" "$TMUX_OUTSIDE_TMP/notify.args" >/dev/null \
     || fail 'non-tmux hook should not deep-link to tmux target'
@@ -229,8 +229,8 @@ env -i \
     CODEX_TERMUX_NOTIFY_CHANNEL=notification \
     TMUX="/tmp/tmux-555/default,777,0" \
     PATH="$TMUX_DETACHED_TMP/bin:$PATH" \
-    bash "$ROOT_DIR/tools/codex-turn-notify.sh" <<'JSON' >/dev/null 2>&1
-{"session_id":"detached-alpha","cwd":"/data/data/com.termux/files/home/prj/codex","last_assistant_message":"detached check"}
+    bash "$ROOT_DIR/tools/termux-notify.sh" <<'JSON' >/dev/null 2>&1
+{"title":"Task","content":"detached check","cwd":"/data/data/com.termux/files/home/prj/codex","tmux_target":"ghost:2.1","session_id":"detached-alpha"}
 JSON
 grep -F -- "--open-termux" "$TMUX_DETACHED_TMP/notify.args" >/dev/null \
     || fail 'detached tmux session should not deep-link to tmux target'
