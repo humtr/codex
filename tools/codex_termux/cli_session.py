@@ -31,6 +31,7 @@ def add_commands(sub: SubparserCollection) -> None:
     share_cmd.add_argument("--target-profile", required=True)
     share_cmd.set_defaults(func=_session_share)
 
+    # Keep the internal command compatible; sessions are intentionally not auth-bound.
     boundary_cmd = sub.add_parser("session-boundary-check")
     boundary_cmd.add_argument("--source-profile", required=True)
     boundary_cmd.add_argument("--target-profile", required=True)
@@ -68,16 +69,9 @@ def _session_plan_env(args: argparse.Namespace) -> int:
 
 
 def _session_share(args: argparse.Namespace) -> int:
-    try:
-        session.share_session(args.source_path, args.source_profile, args.target_profile)
-    except session.SessionBoundaryError as exc:
-        raise SystemExit(f"ERROR: {exc}") from exc
+    session.share_session(args.source_path, args.source_profile, args.target_profile)
     return 0
 
 
 def _session_boundary_check(args: argparse.Namespace) -> int:
-    try:
-        session.require_session_boundary(args.source_profile, args.target_profile)
-    except session.SessionBoundaryError as exc:
-        raise SystemExit(f"ERROR: {exc}") from exc
     return 0

@@ -118,16 +118,6 @@ assert "CODEX_SESSION_TARGET_PROFILE=team-beta" in exports
 assert "CODEX_SESSION_NATIVE_REF=s-alpha" in exports
 assert "CODEX_SESSION_SOURCE_PROFILE=team-alpha" in exports
 assert "CODEX_SESSION_WORKDIR=/workspace/alpha" in exports
-assert session.session_boundary_reason("team-alpha", "team-beta") == ""
-blocked_reason = session.session_boundary_reason("team-alpha", "team-gamma")
-assert "differs" in blocked_reason, blocked_reason
-try:
-    session.share_session(s_alpha_row.source_path, "team-alpha", "team-gamma")
-except session.SessionBoundaryError:
-    pass
-else:
-    raise AssertionError("cross-auth session share should fail")
-
 # Check cross-profile sharing (default target)
 dest_default = home / ".codex" / "sessions" / "s-alpha.jsonl"
 session.share_session(s_alpha_row.source_path, "team-alpha", "default")
@@ -139,6 +129,12 @@ dest_beta = profile_root / "team-beta" / "sessions" / "s-alpha.jsonl"
 session.share_session(s_alpha_row.source_path, "team-alpha", "team-beta")
 assert dest_beta.exists()
 assert dest_beta.is_symlink() or dest_beta.is_file()
+
+# Different auth identities do not own the session boundary.
+dest_gamma = profile_root / "team-gamma" / "sessions" / "s-alpha.jsonl"
+session.share_session(s_alpha_row.source_path, "team-alpha", "team-gamma")
+assert dest_gamma.exists()
+assert dest_gamma.is_symlink() or dest_gamma.is_file()
 
 deduped_alpha = [s for s in session.discover_sessions() if s.session_id == "s-alpha"]
 assert len(deduped_alpha) == 1, [s.source_path for s in deduped_alpha]
@@ -232,7 +228,7 @@ printf '%s\n' "$PLAN_ENV" | grep -Fx "CODEX_SESSION_NATIVE_REF=s-alpha" >/dev/nu
     [ "$LAST_CODEX_HOME" = "$CODEX_TERMUX_PROFILE_ROOT/team-beta" ] || fail "Expected CODEX_HOME to be set to team-beta path, got '$LAST_CODEX_HOME'"
 )
 
-# Test 3e: Cross-auth session resume is blocked before native codex resume
+# Test 3e: Cross-auth session resume reaches native codex with the target profile
 (
     export TERM=xterm
     export CODEX_SESSION_TUI_MOCK_PROFILE="team-gamma"
@@ -241,12 +237,27 @@ printf '%s\n' "$PLAN_ENV" | grep -Fx "CODEX_SESSION_NATIVE_REF=s-alpha" >/dev/nu
     LAST_COMMAND=""
     LAST_CODEX_HOME=""
 
-    if codex_session --all 2>"$TMP_DIR/cross-auth.err"; then
-        fail "Expected cross-auth session resume to fail"
-    fi
-    grep -F "Refusing cross-profile session resume/share" "$TMP_DIR/cross-auth.err" >/dev/null ||
-        fail "Expected cross-auth refusal, got: $(cat "$TMP_DIR/cross-auth.err")"
-    [ -z "$LAST_COMMAND" ] || fail "Native codex resume ran despite cross-auth boundary: $LAST_COMMAND"
+    codex_session --all
+
+    [ "$LAST_COMMAND" = "resume s-alpha --all" ] || fail "Cross-auth session did not reach native resume: $LAST_COMMAND"
+    [ "$LAST_CODEX_HOME" = "$CODEX_TERMUX_PROFILE_ROOT/team-gamma" ] ||
+        fail "Cross-auth session did not select target profile auth home: $LAST_CODEX_HOME"
+)
+
+# Test 3f: Selecting the default target clears an inherited custom auth home
+(
+    export TERM=xterm
+    export CODEX_SESSION_TUI_MOCK_PROFILE="default"
+    export CODEX_SESSION_TUI_MOCK_CHOICE="$S_ALPHA_IDX"
+    export CODEX_HOME="$CODEX_TERMUX_PROFILE_ROOT/team-gamma"
+    LAST_COMMAND=""
+    LAST_CODEX_HOME=""
+
+    codex_session --all
+
+    [ "$LAST_COMMAND" = "resume s-alpha --all" ] || fail "Default cross-profile session did not reach native resume: $LAST_COMMAND"
+    [ "$LAST_CODEX_HOME" = "__UNSET__" ] ||
+        fail "Default cross-profile session inherited custom auth home: $LAST_CODEX_HOME"
 )
 
 # 4. Test wrapper namespace contract (recognized by wrapper dispatch)

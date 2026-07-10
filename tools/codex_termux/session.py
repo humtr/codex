@@ -45,18 +45,6 @@ class SessionRow:
     messages: list[tuple[str, str]] = None
 
 
-@dataclass(frozen=True)
-class ProfileAuthIdentity:
-    mode: str
-    chatgpt_subject: str = ""
-    chatgpt_account_id: str = ""
-    api_key: str = ""
-
-
-class SessionBoundaryError(RuntimeError):
-    pass
-
-
 def get_codex_termux_home() -> Path:
     val = os.environ.get("CODEX_TERMUX_HOME")
     if val:
@@ -330,90 +318,6 @@ def profile_auth_summary(profile: str) -> str:
         suffix = f" key={_hash12(key)}" if key else ""
         return f"auth=apikey{suffix}"
     return f"auth={mode}"
-
-
-def profile_auth_identity(profile: str) -> ProfileAuthIdentity:
-    auth_path = profile_dir(profile) / "auth.json"
-    if not auth_path.is_file():
-        return ProfileAuthIdentity(mode="none")
-    try:
-        data = json.loads(auth_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return ProfileAuthIdentity(mode="invalid")
-
-    mode = str(data.get("auth_mode") or "unknown")
-    if mode == "chatgpt":
-        tokens = data.get("tokens") if isinstance(data.get("tokens"), dict) else {}
-        id_claims = _decode_jwt_claims(str(tokens.get("id_token") or ""))
-        access_claims = _decode_jwt_claims(str(tokens.get("access_token") or ""))
-        subject = str(id_claims.get("sub") or access_claims.get("sub") or "")
-        account_id = str(tokens.get("account_id") or "")
-        return ProfileAuthIdentity(
-            mode=mode,
-            chatgpt_subject=subject,
-            chatgpt_account_id=account_id,
-        )
-    if mode == "apikey":
-        return ProfileAuthIdentity(
-            mode=mode,
-            api_key=str(data.get("OPENAI_API_KEY") or ""),
-        )
-    return ProfileAuthIdentity(mode=mode)
-
-
-def session_boundary_reason(source_profile: str, target_profile: str) -> str:
-    source = normalize_profile_choice(source_profile)
-    target = normalize_profile_choice(target_profile)
-    if source == target:
-        return ""
-    if os.environ.get("CODEX_SESSION_ALLOW_CROSS_AUTH", "").lower() in {"1", "true", "yes"}:
-        return ""
-
-    source_auth = profile_auth_identity(source)
-    target_auth = profile_auth_identity(target)
-
-    # Keep unauthenticated/dev profiles compatible; enforce only known auth boundaries.
-    if source_auth.mode in {"none", "invalid"} or target_auth.mode in {"none", "invalid"}:
-        return ""
-
-    if source_auth.mode != target_auth.mode:
-        return f"source auth mode {source_auth.mode!r} differs from target auth mode {target_auth.mode!r}"
-
-    if source_auth.mode == "chatgpt":
-        if (
-            source_auth.chatgpt_subject
-            and target_auth.chatgpt_subject
-            and source_auth.chatgpt_subject != target_auth.chatgpt_subject
-        ):
-            return "source ChatGPT user differs from target profile"
-        if (
-            source_auth.chatgpt_account_id
-            and target_auth.chatgpt_account_id
-            and source_auth.chatgpt_account_id != target_auth.chatgpt_account_id
-        ):
-            return "source ChatGPT account/workspace differs from target profile"
-        return ""
-
-    if source_auth.mode == "apikey":
-        if source_auth.api_key and target_auth.api_key and source_auth.api_key != target_auth.api_key:
-            return "source API key differs from target profile"
-        return ""
-
-    return ""
-
-
-def session_boundary_error_message(source_profile: str, target_profile: str, reason: str) -> str:
-    return (
-        "Refusing cross-profile session resume/share: "
-        f"{normalize_profile_choice(source_profile)} -> {normalize_profile_choice(target_profile)}: {reason}. "
-        "Set CODEX_SESSION_ALLOW_CROSS_AUTH=1 to override explicitly."
-    )
-
-
-def require_session_boundary(source_profile: str, target_profile: str) -> None:
-    reason = session_boundary_reason(source_profile, target_profile)
-    if reason:
-        raise SessionBoundaryError(session_boundary_error_message(source_profile, target_profile, reason))
 
 
 def profile_recent_auth_error(profile: str) -> str:
@@ -741,7 +645,6 @@ def share_session(session_path_str: str, session_profile: str, target_profile: s
     target = normalize_profile_choice(target_profile)
     if source_profile == target:
         return
-    require_session_boundary(source_profile, target)
 
     src_path = Path(session_path_str)
     source_base = profile_dir(source_profile) / "sessions"

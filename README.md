@@ -207,10 +207,9 @@ Lists cached and remote runtimes, then promotes the selected runtime. Selection 
 codex termux session
 ```
 
-Interactive curses-based TUI picker to resume discovered Codex sessions. Cross-profile
-resume/share is allowed only when known auth boundaries match; ChatGPT user and
-account/workspace mismatches are refused unless `CODEX_SESSION_ALLOW_CROSS_AUTH=1`
-is set explicitly.
+Interactive curses-based TUI picker to resume discovered Codex sessions. The selected
+target profile supplies `CODEX_HOME` and therefore its own upstream auth file; a session
+can be resumed from any target profile regardless of which profile created it.
 
 ```sh
 codex termux doctor
@@ -284,9 +283,9 @@ profile 'work' does not exist. Create it? [y/N]
 - `n`, `N`, Enter, or Esc cancels.
 - Non-interactive sessions do not create missing profiles.
 
-Custom profile auth, plugin directories, logs, caches, and sessions are not
-shared. If upstream Codex creates plugins or other state, it does so inside that
-profile's `CODEX_HOME`.
+Custom profile auth, plugin directories, and logs/caches remain isolated. The session
+picker discovers sessions across profiles and links a selected session into the target
+profile before invoking upstream `resume`.
 
 ## Managed paths
 
