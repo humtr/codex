@@ -43,6 +43,7 @@ def shell_exports(
         "SQLITE_TMPDIR": tmpdir,
         "SSL_CERT_FILE": ssl_cert_file or cert_file,
         "CODEX_SELF_EXE": runtime_exe,
+        "CODEX_CODE_MODE_HOST_PATH": f"{runtime_dir}/codex-code-mode-host",
         "CODEX_TERMUX_BWRAP_COMPAT_QUIET": bwrap_quiet or "1",
         "PATH": f"{runtime_dir}/codex-path:{runtime_dir}/codex-resources:{prefix}/bin:{path}",
     }

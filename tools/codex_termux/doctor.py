@@ -111,11 +111,23 @@ def _checks(inputs: DoctorInputs, manifest: dict[str, Any]) -> dict[str, bool]:
     rg = runtime_dir / "codex-path/rg"
     rg_real = runtime_dir / "codex-path/rg.real"
     raw_binary = inputs.raw_vendor / "bin/codex"
+    raw_code_host = inputs.raw_vendor / "bin/codex-code-mode-host"
+    code_host = runtime_dir / "codex-code-mode-host"
     actual_raw_sha = _safe_hash(raw_binary)
     actual_runtime_sha = _safe_hash(inputs.runtime)
+    actual_raw_code_host_sha = _safe_hash(raw_code_host)
+    actual_code_host_sha = _safe_hash(code_host)
     return {
         "runtime": inputs.runtime.exists() and os.access(inputs.runtime, os.X_OK),
         "raw": raw_binary.exists(),
+        "raw_code_mode_host": raw_code_host.exists() and os.access(raw_code_host, os.X_OK),
+        "code_mode_host": code_host.exists() and os.access(code_host, os.X_OK),
+        "code_mode_host_hash": bool(
+            actual_raw_code_host_sha
+            and actual_code_host_sha
+            and actual_raw_code_host_sha == actual_code_host_sha
+            and actual_code_host_sha == manifest.get("code_mode_host_sha256")
+        ),
         "manager": _manager_ok(inputs.manager_dir),
         "runtime_store": inputs.runtime_store.is_dir(),
         "raw_store": inputs.raw_store.is_dir(),
@@ -211,6 +223,7 @@ def render_human(report: dict[str, Any], output: TextIO | None = None) -> int:
     detail("path", paths.get("runtime", "missing"))
     row(bool(checks.get("raw")), "raw", "official raw binary cache exists")
     detail("vendor", paths.get("raw_vendor", "missing"))
+    row(bool(checks.get("raw_code_mode_host")) and bool(checks.get("code_mode_host")) and bool(checks.get("code_mode_host_hash")), "code host", "code-mode host is preserved from upstream")
     row(bool(checks.get("runtime_hash")) and bool(checks.get("raw_hash")), "hashes", "state, raw, runtime, and manifest hashes agree")
     row(bool(checks.get("fd_remap_only_patch")) and bool(checks.get("fd_remap_patch")), "fd remap", "resolver and Codex system config paths are fd-remapped")
     row(bool(checks.get("build_manifest")), "manifest", "runtime-build.json matches builder and patch policy")

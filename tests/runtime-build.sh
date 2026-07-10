@@ -23,11 +23,13 @@ cat >"$raw_vendor/bin/codex" <<'SCRIPT'
 [ "${1:-}" = "--version" ] && printf 'codex test\n'
 exit 0
 SCRIPT
+printf '#!/bin/sh\nexit 0\n' >"$raw_vendor/bin/codex-code-mode-host"
 printf '#!/bin/sh\nexit 0\n' >"$raw_vendor/codex-resources/bwrap"
 printf '#!/bin/sh\nexit 0\n' >"$raw_vendor/codex-resources/zsh/bin/zsh"
 printf '#!/bin/sh\nexit 0\n' >"$raw_vendor/codex-path/rg"
 printf '{"name":"@openai/codex"}\n' >"$raw_vendor/codex-package.json"
-chmod 755 "$raw_vendor/bin/codex" "$raw_vendor/codex-resources/bwrap" \
+chmod 755 "$raw_vendor/bin/codex" "$raw_vendor/bin/codex-code-mode-host" \
+    "$raw_vendor/codex-resources/bwrap" \
     "$raw_vendor/codex-resources/zsh/bin/zsh" "$raw_vendor/codex-path/rg"
 
 PYTHONDONTWRITEBYTECODE=1 python3 -B "$ROOT_DIR/tools/build-runtime.py" "$raw_vendor" \
@@ -36,6 +38,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -B "$ROOT_DIR/tools/build-runtime.py" "$raw_ve
 PYTHONDONTWRITEBYTECODE=1 python3 -B - "$ROOT_DIR" "$raw_vendor/bin/codex" "$runtime_dir" <<'PYTHON'
 import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -43,9 +46,12 @@ root = Path(sys.argv[1])
 raw = Path(sys.argv[2])
 runtime_dir = Path(sys.argv[3])
 runtime = runtime_dir / "codex"
+raw_host = raw.parent / "codex-code-mode-host"
+runtime_host = runtime_dir / "codex-code-mode-host"
 manifest_path = runtime_dir / "runtime-build.json"
 raw_bytes = raw.read_bytes()
 runtime_bytes = runtime.read_bytes()
+raw_host_bytes = raw_host.read_bytes()
 rewrites = {
     b"/etc/resolv.conf": b"/proc/self/fd/33",
     b"/etc/codex/config.toml": b"/dev/fd/34/config.toml",
@@ -60,7 +66,10 @@ manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 assert manifest["patch_policy"] == "termux-fd-remap-v1"
 assert manifest["raw_sha256"] == hashlib.sha256(raw_bytes).hexdigest()
 assert manifest["runtime_sha256"] == hashlib.sha256(runtime_bytes).hexdigest()
+assert manifest["code_mode_host_sha256"] == hashlib.sha256(raw_host_bytes).hexdigest()
 assert manifest["builder_sha256"] == hashlib.sha256((root / "tools/build-runtime.py").read_bytes()).hexdigest()
+assert runtime_host.read_bytes() == raw_host_bytes, "code-mode host must be copied without patching"
+assert os.access(runtime_host, os.X_OK), "code-mode host must be executable"
 for source, target in rewrites.items():
     entry = manifest["rewrites"][source.decode("ascii")]
     expected_count = raw_bytes.count(source)
@@ -69,6 +78,7 @@ for source, target in rewrites.items():
     assert target in runtime_bytes
 for rel in (
     "codex",
+    "codex-code-mode-host",
     "codex-resources/bwrap",
     "codex-resources/zsh/bin/zsh",
     "codex-path/bwrap",

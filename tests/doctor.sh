@@ -28,17 +28,21 @@ def write_executable(path: Path, text: str) -> None:
     path.chmod(0o755)
 
 
-def make_runtime(runtime_dir: Path, builder: Path, runtime_bytes: bytes, raw_sha256: str) -> str:
+def make_runtime(runtime_dir: Path, builder: Path, runtime_bytes: bytes, raw_sha256: str, code_host_bytes: bytes) -> str:
     runtime_dir.mkdir(parents=True, exist_ok=True)
     runtime = runtime_dir / "codex"
     runtime.write_bytes(runtime_bytes)
     runtime.chmod(0o755)
+    code_host = runtime_dir / "codex-code-mode-host"
+    code_host.write_bytes(code_host_bytes)
+    code_host.chmod(0o755)
     runtime_sha = hashlib.sha256(runtime_bytes).hexdigest()
     manifest = {
         "patch_policy": "termux-fd-remap-v1",
         "builder_sha256": hashlib.sha256(builder.read_bytes()).hexdigest(),
         "raw_sha256": raw_sha256,
         "runtime_sha256": runtime_sha,
+        "code_mode_host_sha256": hashlib.sha256(code_host_bytes).hexdigest(),
     }
     (runtime_dir / "runtime-build.json").write_text(json.dumps(manifest) + "\n", encoding="utf-8")
     return runtime_sha
@@ -86,8 +90,9 @@ with TemporaryDirectory() as tmp:
         .replace(b"/etc/codex/requirements.toml", b"/dev/fd/34/requirements.toml")
         .replace(b"/etc/codex/managed_config.toml", b"/dev/fd/34/managed_config.toml")
     )
+    code_host_bytes = b"upstream code mode host"
 
-    runtime_sha = make_runtime(current_runtime, builder, runtime_bytes, hashlib.sha256(raw_bytes).hexdigest())
+    runtime_sha = make_runtime(current_runtime, builder, runtime_bytes, hashlib.sha256(raw_bytes).hexdigest(), code_host_bytes)
     write_executable(current_runtime / "codex-path/bwrap", "#!/bin/sh\nexit 0\n")
     write_executable(current_runtime / "codex-path/rg", "#!/bin/sh\nexit 0\n")
     write_executable(current_runtime / "codex-path/rg.real", "#!/bin/sh\nexit 0\n")
@@ -96,6 +101,9 @@ with TemporaryDirectory() as tmp:
     raw_bin = raw_vendor / "bin/codex"
     raw_bin.parent.mkdir(parents=True, exist_ok=True)
     raw_bin.write_bytes(raw_bytes)
+    raw_code_host = raw_vendor / "bin/codex-code-mode-host"
+    raw_code_host.write_bytes(code_host_bytes)
+    raw_code_host.chmod(0o755)
     raw_sha = hashlib.sha256(raw_bytes).hexdigest()
     (root / "resolv.conf").write_text("nameserver 1.1.1.1\n", encoding="utf-8")
     (root / "cert.pem").write_text("CERT\n", encoding="utf-8")
@@ -171,6 +179,9 @@ with TemporaryDirectory() as tmp:
     assert report["activeTupleId"] == tuple_id, report
     assert report["verifiedTupleId"] == tuple_id, report
     for key in (
+        "raw_code_mode_host",
+        "code_mode_host",
+        "code_mode_host_hash",
         "raw_hash",
         "runtime_hash",
         "registry_active_tuple",
@@ -184,6 +195,36 @@ with TemporaryDirectory() as tmp:
     assert wrapper["commit"] == "2497a22aadc2", wrapper
     assert wrapper["installedAt"] == "2026-06-27T23:22:48+09:00", wrapper
     assert wrapper["channel"] == "termux", wrapper
+
+    code_host = current_runtime / "codex-code-mode-host"
+    missing_code_host = current_runtime / ".codex-code-mode-host.missing"
+    code_host.rename(missing_code_host)
+    missing_host = doctor.build_report(
+        doctor.DoctorInputs(
+            runtime=current_runtime / "codex",
+            current_link=current_link,
+            verified_link=verified_link,
+            raw_link=raw_link,
+            manager_dir=manager,
+            runtime_store=runtime_store,
+            raw_store=raw_store,
+            raw_vendor=raw_vendor,
+            resolv_conf=root / "resolv.conf",
+            cert_file=root / "cert.pem",
+            state_file=state_file,
+            registry_file=registry_file,
+            version="0.142.3-linux-arm64",
+            raw_sha256=raw_sha,
+            runtime_sha256=runtime_sha,
+            prefix=Path("/data/data/com.termux/files/usr"),
+            runtime_builder=builder,
+            patch_policy="termux-fd-remap-v1",
+        )
+    )
+    missing_code_host.rename(code_host)
+    assert missing_host["overallStatus"] == "fail", missing_host
+    assert missing_host["checks"]["code_mode_host"] is False, missing_host["checks"]
+    assert missing_host["checks"]["code_mode_host_hash"] is False, missing_host["checks"]
 
     mismatched = doctor.build_report(
         doctor.DoctorInputs(

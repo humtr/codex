@@ -41,11 +41,13 @@ cat >"$raw_vendor/bin/codex" <<'SCRIPT'
 [ "${1:-}" = "--version" ] && printf 'codex good\n'
 exit 0
 SCRIPT
+printf '#!/bin/sh\nexit 0\n' >"$raw_vendor/bin/codex-code-mode-host"
 printf '#!/bin/sh\nexit 0\n' >"$raw_vendor/codex-resources/bwrap"
 printf '#!/bin/sh\nexit 0\n' >"$raw_vendor/codex-resources/zsh/bin/zsh"
 printf '#!/bin/sh\nexit 0\n' >"$raw_vendor/codex-path/rg"
 printf '{"name":"@openai/codex"}\n' >"$raw_vendor/codex-package.json"
-chmod 755 "$raw_vendor/bin/codex" "$raw_vendor/codex-resources/bwrap" \
+chmod 755 "$raw_vendor/bin/codex" "$raw_vendor/bin/codex-code-mode-host" \
+    "$raw_vendor/codex-resources/bwrap" \
     "$raw_vendor/codex-resources/zsh/bin/zsh" "$raw_vendor/codex-path/rg"
 
 cp "$ROOT_DIR/tools/build-runtime.py" "$manager_dir/build-runtime.py"

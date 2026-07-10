@@ -32,10 +32,10 @@ codex_prepare_complete_runtime_tree() {
         [ -r "$payload_dir/rg-termux-shim.sh" ]; then
         support_dir="$payload_dir"
     fi
-    [ -x "$payload_dir/codex" ] || return 1
+    [ -x "$payload_dir/codex" ] && [ -x "$payload_dir/codex-code-mode-host" ] || return 1
     codex_rm_rf_managed "$complete_dir" || return $?
     mkdir -p "$complete_dir"
-    for name in codex codex-resources codex-path codex-package.json runtime-build.json; do
+    for name in codex codex-code-mode-host codex-resources codex-path codex-package.json runtime-build.json; do
         [ -e "$payload_dir/$name" ] || {
             codex_rm_rf_managed "$complete_dir" || return $?
             return 1
@@ -52,6 +52,7 @@ codex_prepare_complete_runtime_tree() {
     cp -R "$support_dir/rg-termux-shim.sh" "$complete_dir/codex-path/rg"
     rm -f "$complete_dir/codex-resources/bwrap.real"
     chmod 755 "$complete_dir/codex" \
+        "$complete_dir/codex-code-mode-host" \
         "$complete_dir/codex-path/bwrap" \
         "$complete_dir/codex-path/rg" \
         "$complete_dir/codex-path/rg.real" 2>/dev/null || true

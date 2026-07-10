@@ -95,11 +95,13 @@ def patch_codex_binary(src: Path, dst: Path) -> dict[str, object]:
 
 def build(raw_vendor: Path, runtime_dir: Path) -> dict[str, object]:
     raw_bin = raw_vendor / "bin" / "codex"
+    raw_code_host = raw_vendor / "bin" / "codex-code-mode-host"
     raw_resources = raw_vendor / "codex-resources"
     raw_path_tools = raw_vendor / "codex-path"
     raw_package = raw_vendor / "codex-package.json"
     required = [
         raw_bin,
+        raw_code_host,
         raw_resources / "bwrap",
         raw_resources / "zsh" / "bin" / "zsh",
         raw_path_tools / "rg",
@@ -116,18 +118,21 @@ def build(raw_vendor: Path, runtime_dir: Path) -> dict[str, object]:
     tmp_dir.mkdir(parents=True)
 
     patch_report = patch_codex_binary(raw_bin, tmp_dir / "codex")
+    shutil.copy2(raw_code_host, tmp_dir / "codex-code-mode-host")
     copy_tree(raw_resources, tmp_dir / "codex-resources")
     copy_tree(raw_path_tools, tmp_dir / "codex-path")
     shutil.copy2(raw_package, tmp_dir / "codex-package.json")
     install_termux_compat_tools(tmp_dir)
     runtime_sha = sha256(tmp_dir / "codex")
     raw_sha = sha256(raw_bin)
+    code_host_sha = sha256(tmp_dir / "codex-code-mode-host")
     build_manifest = {
         "schema": 2,
         "patch_policy": PATCH_POLICY,
         "builder_sha256": sha256(Path(__file__)),
         "raw_sha256": raw_sha,
         "runtime_sha256": runtime_sha,
+        "code_mode_host_sha256": code_host_sha,
         **patch_report,
     }
     (tmp_dir / "runtime-build.json").write_text(
@@ -136,6 +141,7 @@ def build(raw_vendor: Path, runtime_dir: Path) -> dict[str, object]:
 
     for executable in [
         tmp_dir / "codex",
+        tmp_dir / "codex-code-mode-host",
         tmp_dir / "codex-resources" / "bwrap",
         tmp_dir / "codex-resources" / "zsh" / "bin" / "zsh",
         tmp_dir / "codex-path" / "bwrap",
@@ -145,7 +151,7 @@ def build(raw_vendor: Path, runtime_dir: Path) -> dict[str, object]:
         executable.chmod(executable.stat().st_mode | 0o755)
 
     runtime_dir.mkdir(parents=True, exist_ok=True)
-    for name in ("codex", "codex-resources", "codex-path", "codex-package.json", "runtime-build.json"):
+    for name in ("codex", "codex-code-mode-host", "codex-resources", "codex-path", "codex-package.json", "runtime-build.json"):
         target = runtime_dir / name
         source = tmp_dir / name
         old = runtime_dir / f".{name}.old"
@@ -175,6 +181,7 @@ def build(raw_vendor: Path, runtime_dir: Path) -> dict[str, object]:
         "resources": {
             "bwrap": str(runtime_dir / "codex-path" / "bwrap"),
             "bundled_bwrap": str(runtime_dir / "codex-resources" / "bwrap"),
+            "code_mode_host": str(runtime_dir / "codex-code-mode-host"),
             "zsh": str(runtime_dir / "codex-resources" / "zsh" / "bin" / "zsh"),
             "rg": str(runtime_dir / "codex-path" / "rg"),
             "rg_real": str(runtime_dir / "codex-path" / "rg.real"),

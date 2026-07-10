@@ -17,6 +17,7 @@ from .hashing import sha256_file, tree_digest
 
 RUNTIME_ENTRIES = (
     "codex",
+    "codex-code-mode-host",
     "codex-resources",
     "codex-path",
     "codex-package.json",
@@ -28,6 +29,7 @@ RAW_BINARY = Path("vendor/aarch64-unknown-linux-musl/bin/codex")
 def validate_runtime_artifact(source: Path, expected_sha256: str) -> Path:
     root = _resolve_artifact_root(source)
     _validate_executable(root / "codex", "runtime executable")
+    _validate_executable(root / "codex-code-mode-host", "code-mode host executable")
     _validate_directory(root / "codex-resources", "runtime resources")
     _validate_directory(root / "codex-path", "runtime path tools")
     _validate_regular_file(root / "codex-package.json", "runtime package metadata")

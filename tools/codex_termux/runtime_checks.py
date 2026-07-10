@@ -177,6 +177,7 @@ def support_tools_match(*, support_dir: Path, runtime_dir: Path) -> bool:
 def runtime_layout_ok(*, runtime_dir: Path, runtime: Path, support_dir: Path) -> bool:
     return bool(
         _executable(runtime)
+        and _executable(runtime_dir / "codex-code-mode-host")
         and _executable(runtime_dir / "codex-resources/bwrap")
         and _executable(runtime_dir / "codex-path/bwrap")
         and _executable(runtime_dir / "codex-path/rg")
