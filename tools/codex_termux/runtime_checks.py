@@ -144,12 +144,15 @@ def runtime_integrity_ok(
         runtime_sha = sha256_file(runtime)
         expected_upstream = manifest.get("upstream_tree_sha256", "")
         upstream_ok = not expected_upstream or tree_digest(runtime.parent / "upstream") == expected_upstream
+        expected_overlay = manifest.get("overlay_tree_sha256", "")
+        overlay_ok = not expected_overlay or tree_digest(runtime.parent / "overlay") == expected_overlay
         return bool(
             manifest.get("patch_policy") == patch_policy
             and manifest.get("builder_sha256") == sha256_file(builder)
             and manifest.get("runtime_sha256") == runtime_sha
             and state_data.get("runtime_sha256") == runtime_sha
             and upstream_ok
+            and overlay_ok
         )
     except (IntegrityError, OSError, SchemaError, json.JSONDecodeError):
         return False

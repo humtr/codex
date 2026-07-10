@@ -47,6 +47,15 @@ def _validate_upstream_tree(root: Path) -> None:
             raise IntegrityError(
                 f"preserved upstream tree hash mismatch: expected {expected}, got {actual}"
             )
+    expected_overlay = manifest.get("overlay_tree_sha256", "")
+    if expected_overlay:
+        overlay = root / "overlay"
+        _validate_directory(overlay, "Termux overlay")
+        actual_overlay = tree_digest(overlay)
+        if actual_overlay != expected_overlay:
+            raise IntegrityError(
+                f"Termux overlay hash mismatch: expected {expected_overlay}, got {actual_overlay}"
+            )
 
 
 def validate_raw_artifact(source: Path, expected_sha256: str) -> Path:

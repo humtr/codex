@@ -69,10 +69,15 @@ assert manifest["raw_sha256"] == hashlib.sha256(raw_bytes).hexdigest()
 assert manifest["runtime_sha256"] == hashlib.sha256(runtime_bytes).hexdigest()
 assert manifest["code_mode_host_sha256"] == hashlib.sha256(raw_host_bytes).hexdigest()
 assert manifest["upstream_tree_sha256"]
+assert manifest["overlay_tree_sha256"]
+assert manifest["overlay_entries"] == ["codex", "codex-path/bwrap", "codex-path/rg"]
 assert manifest["builder_sha256"] == hashlib.sha256((root / "tools/build-runtime.py").read_bytes()).hexdigest()
 assert runtime_host.read_bytes() == raw_host_bytes, "code-mode host must be copied without patching"
 assert os.access(runtime_host, os.X_OK), "code-mode host must be executable"
 assert (runtime_dir / "upstream/upstream-only.txt").read_text() == "upstream-only\n"
+assert (runtime_dir / "overlay/codex").read_bytes() == runtime_bytes
+assert (runtime_dir / "overlay/codex-path/bwrap").exists()
+assert (runtime_dir / "overlay/codex-path/rg").exists()
 for source, target in rewrites.items():
     entry = manifest["rewrites"][source.decode("ascii")]
     expected_count = raw_bytes.count(source)
@@ -90,6 +95,9 @@ for rel in (
     "codex-package.json",
     "runtime-build.json",
     "upstream/upstream-only.txt",
+    "overlay/codex",
+    "overlay/codex-path/bwrap",
+    "overlay/codex-path/rg",
 ):
     path = runtime_dir / rel
 assert path.exists(), f"missing runtime entry: {rel}"

@@ -120,6 +120,8 @@ def _checks(inputs: DoctorInputs, manifest: dict[str, Any]) -> dict[str, bool]:
     expected_upstream_tree_sha = manifest.get("upstream_tree_sha256", "")
     actual_upstream_tree_sha = _safe_tree_hash(runtime_dir / "upstream")
     raw_upstream_tree_sha = _safe_tree_hash(inputs.raw_vendor)
+    expected_overlay_tree_sha = manifest.get("overlay_tree_sha256", "")
+    actual_overlay_tree_sha = _safe_tree_hash(runtime_dir / "overlay")
     return {
         "runtime": inputs.runtime.exists() and os.access(inputs.runtime, os.X_OK),
         "raw": raw_binary.exists(),
@@ -138,6 +140,10 @@ def _checks(inputs: DoctorInputs, manifest: dict[str, Any]) -> dict[str, bool]:
                 and actual_upstream_tree_sha == expected_upstream_tree_sha
                 and raw_upstream_tree_sha == expected_upstream_tree_sha
             )
+        ),
+        "overlay_tree": bool(
+            not expected_overlay_tree_sha
+            or actual_overlay_tree_sha == expected_overlay_tree_sha
         ),
         "manager": _manager_ok(inputs.manager_dir),
         "runtime_store": inputs.runtime_store.is_dir(),
@@ -236,6 +242,7 @@ def render_human(report: dict[str, Any], output: TextIO | None = None) -> int:
     detail("vendor", paths.get("raw_vendor", "missing"))
     row(bool(checks.get("raw_code_mode_host")) and bool(checks.get("code_mode_host")) and bool(checks.get("code_mode_host_hash")), "code host", "code-mode host is preserved from upstream")
     row(bool(checks.get("upstream_tree")), "upstream tree", "preserved upstream vendor tree matches its manifest hash")
+    row(bool(checks.get("overlay_tree")), "overlay", "Termux overlay matches its manifest hash")
     row(bool(checks.get("runtime_hash")) and bool(checks.get("raw_hash")), "hashes", "state, raw, runtime, and manifest hashes agree")
     row(bool(checks.get("fd_remap_only_patch")) and bool(checks.get("fd_remap_patch")), "fd remap", "resolver and Codex system config paths are fd-remapped")
     row(bool(checks.get("build_manifest")), "manifest", "runtime-build.json matches builder and patch policy")

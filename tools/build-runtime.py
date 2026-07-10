@@ -65,15 +65,20 @@ def install_termux_compat_tools(runtime_dir: Path) -> None:
     bwrap = runtime_dir / "codex-path" / "bwrap"
     rg = runtime_dir / "codex-path" / "rg"
     rg_real = runtime_dir / "codex-path" / "rg.real"
+    overlay_dir = runtime_dir / "overlay"
+    overlay_path_tools = overlay_dir / "codex-path"
+    overlay_path_tools.mkdir(parents=True, exist_ok=True)
 
     for source in (BWRAP_COMPAT_SOURCE, RG_SHIM_SOURCE):
         if not source.exists():
             raise RuntimeError(f"missing compat tool source: {source}")
 
+    shutil.copy2(BWRAP_COMPAT_SOURCE, overlay_path_tools / "bwrap")
     shutil.copy2(BWRAP_COMPAT_SOURCE, bwrap)
 
     if rg.exists() and not rg_real.exists():
         os.replace(rg, rg_real)
+    shutil.copy2(RG_SHIM_SOURCE, overlay_path_tools / "rg")
     shutil.copy2(RG_SHIM_SOURCE, rg)
 
     for executable in (bundled_bwrap, bwrap, rg, rg_real):
@@ -139,7 +144,10 @@ def build(raw_vendor: Path, runtime_dir: Path) -> dict[str, object]:
     tmp_dir.mkdir(parents=True)
 
     copy_tree(raw_vendor, tmp_dir / "upstream")
-    patch_report = patch_codex_binary(raw_bin, tmp_dir / "codex")
+    overlay_dir = tmp_dir / "overlay"
+    overlay_dir.mkdir(parents=True, exist_ok=True)
+    patch_report = patch_codex_binary(raw_bin, overlay_dir / "codex")
+    shutil.copy2(overlay_dir / "codex", tmp_dir / "codex")
     shutil.copy2(raw_code_host, tmp_dir / "codex-code-mode-host")
     copy_tree(raw_resources, tmp_dir / "codex-resources")
     copy_tree(raw_path_tools, tmp_dir / "codex-path")
@@ -148,14 +156,21 @@ def build(raw_vendor: Path, runtime_dir: Path) -> dict[str, object]:
     runtime_sha = sha256(tmp_dir / "codex")
     raw_sha = sha256(raw_bin)
     code_host_sha = sha256(tmp_dir / "codex-code-mode-host")
+    overlay_sha = tree_digest(overlay_dir)
     build_manifest = {
-        "schema": 2,
+        "schema": 3,
         "patch_policy": PATCH_POLICY,
         "builder_sha256": sha256(Path(__file__)),
         "raw_sha256": raw_sha,
         "runtime_sha256": runtime_sha,
         "code_mode_host_sha256": code_host_sha,
         "upstream_tree_sha256": tree_digest(raw_vendor),
+        "overlay_tree_sha256": overlay_sha,
+        "overlay_entries": [
+            "codex",
+            "codex-path/bwrap",
+            "codex-path/rg",
+        ],
         **patch_report,
     }
     (tmp_dir / "runtime-build.json").write_text(
@@ -174,7 +189,7 @@ def build(raw_vendor: Path, runtime_dir: Path) -> dict[str, object]:
         executable.chmod(executable.stat().st_mode | 0o755)
 
     runtime_dir.mkdir(parents=True, exist_ok=True)
-    for name in ("codex", "codex-code-mode-host", "codex-resources", "codex-path", "codex-package.json", "runtime-build.json", "upstream"):
+    for name in ("codex", "codex-code-mode-host", "codex-resources", "codex-path", "codex-package.json", "runtime-build.json", "upstream", "overlay"):
         target = runtime_dir / name
         source = tmp_dir / name
         old = runtime_dir / f".{name}.old"
