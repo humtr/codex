@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import sys
 from pathlib import Path
 
@@ -30,6 +31,26 @@ def sha256(path: Path) -> str:
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(CHUNK_SIZE), b""):
             digest.update(chunk)
+    return digest.hexdigest()
+
+
+def tree_digest(root: Path) -> str:
+    """Hash an upstream tree without following symlinks."""
+    digest = hashlib.sha256()
+    root_mode = root.lstat().st_mode
+    digest.update(b".\0" + f"{stat.S_IMODE(root_mode):04o}".encode("ascii") + b"\0D\0")
+    for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix()):
+        mode = path.lstat().st_mode
+        digest.update(path.relative_to(root).as_posix().encode("utf-8") + b"\0")
+        digest.update(f"{stat.S_IMODE(mode):04o}".encode("ascii") + b"\0")
+        if stat.S_ISLNK(mode):
+            digest.update(b"L\0" + os.readlink(path).encode("utf-8") + b"\0")
+        elif stat.S_ISDIR(mode):
+            digest.update(b"D\0")
+        elif stat.S_ISREG(mode):
+            digest.update(b"F\0" + path.read_bytes())
+        else:
+            raise RuntimeError(f"unsupported upstream tree entry: {path}")
     return digest.hexdigest()
 
 
@@ -117,6 +138,7 @@ def build(raw_vendor: Path, runtime_dir: Path) -> dict[str, object]:
         shutil.rmtree(tmp_dir)
     tmp_dir.mkdir(parents=True)
 
+    copy_tree(raw_vendor, tmp_dir / "upstream")
     patch_report = patch_codex_binary(raw_bin, tmp_dir / "codex")
     shutil.copy2(raw_code_host, tmp_dir / "codex-code-mode-host")
     copy_tree(raw_resources, tmp_dir / "codex-resources")
@@ -133,6 +155,7 @@ def build(raw_vendor: Path, runtime_dir: Path) -> dict[str, object]:
         "raw_sha256": raw_sha,
         "runtime_sha256": runtime_sha,
         "code_mode_host_sha256": code_host_sha,
+        "upstream_tree_sha256": tree_digest(raw_vendor),
         **patch_report,
     }
     (tmp_dir / "runtime-build.json").write_text(
@@ -151,7 +174,7 @@ def build(raw_vendor: Path, runtime_dir: Path) -> dict[str, object]:
         executable.chmod(executable.stat().st_mode | 0o755)
 
     runtime_dir.mkdir(parents=True, exist_ok=True)
-    for name in ("codex", "codex-code-mode-host", "codex-resources", "codex-path", "codex-package.json", "runtime-build.json"):
+    for name in ("codex", "codex-code-mode-host", "codex-resources", "codex-path", "codex-package.json", "runtime-build.json", "upstream"):
         target = runtime_dir / name
         source = tmp_dir / name
         old = runtime_dir / f".{name}.old"

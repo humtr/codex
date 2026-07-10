@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import errno
 import fcntl
+import json
 import os
 import shutil
 import tempfile
@@ -15,14 +16,6 @@ from .errors import CollisionError, IntegrityError, TransactionError
 from .hashing import sha256_file, tree_digest
 
 
-RUNTIME_ENTRIES = (
-    "codex",
-    "codex-code-mode-host",
-    "codex-resources",
-    "codex-path",
-    "codex-package.json",
-    "runtime-build.json",
-)
 RAW_BINARY = Path("vendor/aarch64-unknown-linux-musl/bin/codex")
 
 
@@ -34,9 +27,26 @@ def validate_runtime_artifact(source: Path, expected_sha256: str) -> Path:
     _validate_directory(root / "codex-path", "runtime path tools")
     _validate_regular_file(root / "codex-package.json", "runtime package metadata")
     _validate_regular_file(root / "runtime-build.json", "runtime build manifest")
+    _validate_upstream_tree(root)
     _validate_expected_hash(root / "codex", expected_sha256)
     tree_digest(root)
     return root
+
+
+def _validate_upstream_tree(root: Path) -> None:
+    try:
+        manifest = json.loads((root / "runtime-build.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise IntegrityError(f"invalid runtime build manifest: {root / 'runtime-build.json'}") from exc
+    expected = manifest.get("upstream_tree_sha256", "")
+    if expected:
+        upstream = root / "upstream"
+        _validate_directory(upstream, "preserved upstream tree")
+        actual = tree_digest(upstream)
+        if actual != expected:
+            raise IntegrityError(
+                f"preserved upstream tree hash mismatch: expected {expected}, got {actual}"
+            )
 
 
 def validate_raw_artifact(source: Path, expected_sha256: str) -> Path:
@@ -95,9 +105,7 @@ def publish_runtime_artifact(
     source = validate_runtime_artifact(source, expected_sha256)
     staging = _new_staging_path(target)
     try:
-        staging.mkdir()
-        for name in RUNTIME_ENTRIES:
-            _copy_entry(source / name, staging / name)
+        shutil.copytree(source, staging, symlinks=True)
         validate_runtime_artifact(staging, expected_sha256)
         return publish_immutable_tree(staging, target)
     except OSError as exc:

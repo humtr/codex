@@ -32,6 +32,7 @@ cert_dir="$TMP_DIR/prefix/etc/tls/certs"
 mkdir -p "$raw_vendor/bin" "$raw_vendor/codex-resources/zsh/bin" "$raw_vendor/codex-path" \
     "$manager_dir" "$runtime_store" "$raw_store" "$state_dir" \
     "$(dirname "$resolv_conf")" "$(dirname "$cert_file")" "$cert_dir"
+printf 'upstream-only\n' >"$raw_vendor/upstream-only.txt"
 cat >"$raw_vendor/bin/codex" <<'SCRIPT'
 #!/bin/sh
 # /etc/resolv.conf
@@ -274,5 +275,6 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" python3 -B -m codex_termu
 [ "$(readlink "$current_link")" = "$runtime_store/physical-migration-runtime" ] || fail 'physical current migrated to wrong runtime'
 [ -L "$raw_link" ] || fail 'physical raw was not migrated to a symlink'
 [ "$(readlink "$raw_link")" = "$raw_store/physical-migration-raw" ] || fail 'physical raw migrated to wrong raw'
+[ "$(cat "$runtime_store/physical-migration-runtime/upstream/upstream-only.txt")" = 'upstream-only' ] || fail 'upstream tree entry was not preserved in the immutable store'
 
 printf 'store-rollback: ok\n'

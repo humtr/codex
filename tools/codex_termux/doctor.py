@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, TextIO
 
 from . import registry, schemas
-from .hashing import sha256_file
+from .hashing import sha256_file, tree_digest
 
 
 DETAIL_LABEL_WIDTH = 24
@@ -117,6 +117,9 @@ def _checks(inputs: DoctorInputs, manifest: dict[str, Any]) -> dict[str, bool]:
     actual_runtime_sha = _safe_hash(inputs.runtime)
     actual_raw_code_host_sha = _safe_hash(raw_code_host)
     actual_code_host_sha = _safe_hash(code_host)
+    expected_upstream_tree_sha = manifest.get("upstream_tree_sha256", "")
+    actual_upstream_tree_sha = _safe_tree_hash(runtime_dir / "upstream")
+    raw_upstream_tree_sha = _safe_tree_hash(inputs.raw_vendor)
     return {
         "runtime": inputs.runtime.exists() and os.access(inputs.runtime, os.X_OK),
         "raw": raw_binary.exists(),
@@ -127,6 +130,14 @@ def _checks(inputs: DoctorInputs, manifest: dict[str, Any]) -> dict[str, bool]:
             and actual_code_host_sha
             and actual_raw_code_host_sha == actual_code_host_sha
             and actual_code_host_sha == manifest.get("code_mode_host_sha256")
+        ),
+        "upstream_tree": bool(
+            not expected_upstream_tree_sha
+            or (
+                actual_upstream_tree_sha
+                and actual_upstream_tree_sha == expected_upstream_tree_sha
+                and raw_upstream_tree_sha == expected_upstream_tree_sha
+            )
         ),
         "manager": _manager_ok(inputs.manager_dir),
         "runtime_store": inputs.runtime_store.is_dir(),
@@ -224,6 +235,7 @@ def render_human(report: dict[str, Any], output: TextIO | None = None) -> int:
     row(bool(checks.get("raw")), "raw", "official raw binary cache exists")
     detail("vendor", paths.get("raw_vendor", "missing"))
     row(bool(checks.get("raw_code_mode_host")) and bool(checks.get("code_mode_host")) and bool(checks.get("code_mode_host_hash")), "code host", "code-mode host is preserved from upstream")
+    row(bool(checks.get("upstream_tree")), "upstream tree", "preserved upstream vendor tree matches its manifest hash")
     row(bool(checks.get("runtime_hash")) and bool(checks.get("raw_hash")), "hashes", "state, raw, runtime, and manifest hashes agree")
     row(bool(checks.get("fd_remap_only_patch")) and bool(checks.get("fd_remap_patch")), "fd remap", "resolver and Codex system config paths are fd-remapped")
     row(bool(checks.get("build_manifest")), "manifest", "runtime-build.json matches builder and patch policy")
@@ -491,6 +503,13 @@ def _managed_target(link: Path, store: Path) -> bool:
 def _safe_hash(path: Path) -> str:
     try:
         return sha256_file(path)
+    except Exception:
+        return ""
+
+
+def _safe_tree_hash(path: Path) -> str:
+    try:
+        return tree_digest(path)
     except Exception:
         return ""
 
