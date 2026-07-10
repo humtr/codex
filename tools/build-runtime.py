@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import sys
 from pathlib import Path
 
@@ -33,6 +34,25 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def tree_digest(root: Path) -> str:
+    digest = hashlib.sha256()
+    root_mode = root.lstat().st_mode
+    digest.update(b".\0" + f"{stat.S_IMODE(root_mode):04o}".encode("ascii") + b"\0D\0")
+    for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix()):
+        mode = path.lstat().st_mode
+        digest.update(path.relative_to(root).as_posix().encode("utf-8") + b"\0")
+        digest.update(f"{stat.S_IMODE(mode):04o}".encode("ascii") + b"\0")
+        if stat.S_ISLNK(mode):
+            digest.update(b"L\0" + os.readlink(path).encode("utf-8") + b"\0")
+        elif stat.S_ISDIR(mode):
+            digest.update(b"D\0")
+        elif stat.S_ISREG(mode):
+            digest.update(b"F\0" + path.read_bytes())
+        else:
+            raise RuntimeError(f"unsupported upstream tree entry: {path}")
+    return digest.hexdigest()
+
+
 def copy_tree(src: Path, dst: Path) -> None:
     if dst.exists():
         shutil.rmtree(dst)
@@ -44,15 +64,19 @@ def install_termux_compat_tools(runtime_dir: Path) -> None:
     bwrap = runtime_dir / "codex-path" / "bwrap"
     rg = runtime_dir / "codex-path" / "rg"
     rg_real = runtime_dir / "codex-path" / "rg.real"
+    overlay_path_tools = runtime_dir / "overlay/codex-path"
+    overlay_path_tools.mkdir(parents=True, exist_ok=True)
 
     for source in (BWRAP_COMPAT_SOURCE, RG_SHIM_SOURCE):
         if not source.exists():
             raise RuntimeError(f"missing compat tool source: {source}")
 
+    shutil.copy2(BWRAP_COMPAT_SOURCE, overlay_path_tools / "bwrap")
     shutil.copy2(BWRAP_COMPAT_SOURCE, bwrap)
 
     if rg.exists() and not rg_real.exists():
         os.replace(rg, rg_real)
+    shutil.copy2(RG_SHIM_SOURCE, overlay_path_tools / "rg")
     shutil.copy2(RG_SHIM_SOURCE, rg)
 
     for executable in (bundled_bwrap, bwrap, rg, rg_real):
@@ -95,6 +119,7 @@ def patch_codex_binary(src: Path, dst: Path) -> dict[str, object]:
 
 def build(raw_vendor: Path, runtime_dir: Path) -> dict[str, object]:
     raw_bin = raw_vendor / "bin" / "codex"
+    raw_code_host = raw_vendor / "bin" / "codex-code-mode-host"
     raw_resources = raw_vendor / "codex-resources"
     raw_path_tools = raw_vendor / "codex-path"
     raw_package = raw_vendor / "codex-package.json"
@@ -115,19 +140,29 @@ def build(raw_vendor: Path, runtime_dir: Path) -> dict[str, object]:
         shutil.rmtree(tmp_dir)
     tmp_dir.mkdir(parents=True)
 
-    patch_report = patch_codex_binary(raw_bin, tmp_dir / "codex")
+    copy_tree(raw_vendor, tmp_dir / "upstream")
+    overlay_dir = tmp_dir / "overlay"
+    overlay_dir.mkdir(parents=True, exist_ok=True)
+    patch_report = patch_codex_binary(raw_bin, overlay_dir / "codex")
+    shutil.copy2(overlay_dir / "codex", tmp_dir / "codex")
+    if raw_code_host.exists():
+        shutil.copy2(raw_code_host, tmp_dir / "codex-code-mode-host")
     copy_tree(raw_resources, tmp_dir / "codex-resources")
     copy_tree(raw_path_tools, tmp_dir / "codex-path")
     shutil.copy2(raw_package, tmp_dir / "codex-package.json")
     install_termux_compat_tools(tmp_dir)
     runtime_sha = sha256(tmp_dir / "codex")
     raw_sha = sha256(raw_bin)
+    overlay_sha = tree_digest(overlay_dir)
     build_manifest = {
-        "schema": 2,
+        "schema": 3,
         "patch_policy": PATCH_POLICY,
         "builder_sha256": sha256(Path(__file__)),
         "raw_sha256": raw_sha,
         "runtime_sha256": runtime_sha,
+        "upstream_tree_sha256": tree_digest(raw_vendor),
+        "overlay_tree_sha256": overlay_sha,
+        "overlay_entries": ["codex", "codex-path/bwrap", "codex-path/rg"],
         **patch_report,
     }
     (tmp_dir / "runtime-build.json").write_text(
@@ -136,16 +171,20 @@ def build(raw_vendor: Path, runtime_dir: Path) -> dict[str, object]:
 
     for executable in [
         tmp_dir / "codex",
+        tmp_dir / "codex-code-mode-host",
         tmp_dir / "codex-resources" / "bwrap",
         tmp_dir / "codex-resources" / "zsh" / "bin" / "zsh",
         tmp_dir / "codex-path" / "bwrap",
         tmp_dir / "codex-path" / "rg",
         tmp_dir / "codex-path" / "rg.real",
     ]:
-        executable.chmod(executable.stat().st_mode | 0o755)
+        if executable.exists():
+            executable.chmod(executable.stat().st_mode | 0o755)
 
     runtime_dir.mkdir(parents=True, exist_ok=True)
-    for name in ("codex", "codex-resources", "codex-path", "codex-package.json", "runtime-build.json"):
+    for name in ("codex", "codex-code-mode-host", "codex-resources", "codex-path", "codex-package.json", "runtime-build.json", "upstream", "overlay"):
+        if not (tmp_dir / name).exists():
+            continue
         target = runtime_dir / name
         source = tmp_dir / name
         old = runtime_dir / f".{name}.old"

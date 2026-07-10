@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import errno
 import fcntl
+import json
 import os
 import shutil
 import tempfile
@@ -15,13 +16,6 @@ from .errors import CollisionError, IntegrityError, TransactionError
 from .hashing import sha256_file, tree_digest
 
 
-RUNTIME_ENTRIES = (
-    "codex",
-    "codex-resources",
-    "codex-path",
-    "codex-package.json",
-    "runtime-build.json",
-)
 RAW_BINARY = Path("vendor/aarch64-unknown-linux-musl/bin/codex")
 
 
@@ -32,9 +26,30 @@ def validate_runtime_artifact(source: Path, expected_sha256: str) -> Path:
     _validate_directory(root / "codex-path", "runtime path tools")
     _validate_regular_file(root / "codex-package.json", "runtime package metadata")
     _validate_regular_file(root / "runtime-build.json", "runtime build manifest")
+    _validate_optional_executable(root / "codex-code-mode-host", "code-mode host executable")
+    _validate_preserved_trees(root)
     _validate_expected_hash(root / "codex", expected_sha256)
     tree_digest(root)
     return root
+
+
+def _validate_preserved_trees(root: Path) -> None:
+    try:
+        manifest = json.loads((root / "runtime-build.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise IntegrityError(f"invalid runtime build manifest: {root / 'runtime-build.json'}") from exc
+    expected_upstream = manifest.get("upstream_tree_sha256", "")
+    if expected_upstream:
+        upstream = root / "upstream"
+        _validate_directory(upstream, "preserved upstream tree")
+        if tree_digest(upstream) != expected_upstream:
+            raise IntegrityError("preserved upstream tree hash mismatch")
+    expected_overlay = manifest.get("overlay_tree_sha256", "")
+    if expected_overlay:
+        overlay = root / "overlay"
+        _validate_directory(overlay, "Termux overlay")
+        if tree_digest(overlay) != expected_overlay:
+            raise IntegrityError("Termux overlay hash mismatch")
 
 
 def validate_raw_artifact(source: Path, expected_sha256: str) -> Path:
@@ -93,9 +108,7 @@ def publish_runtime_artifact(
     source = validate_runtime_artifact(source, expected_sha256)
     staging = _new_staging_path(target)
     try:
-        staging.mkdir()
-        for name in RUNTIME_ENTRIES:
-            _copy_entry(source / name, staging / name)
+        shutil.copytree(source, staging, symlinks=True)
         validate_runtime_artifact(staging, expected_sha256)
         return publish_immutable_tree(staging, target)
     except OSError as exc:
@@ -162,6 +175,11 @@ def _validate_executable(path: Path, label: str) -> None:
     _validate_regular_file(path, label)
     if not os.access(path, os.X_OK):
         raise IntegrityError(f"{label} is not executable: {path}")
+
+
+def _validate_optional_executable(path: Path, label: str) -> None:
+    if path.exists():
+        _validate_executable(path, label)
 
 
 def _validate_expected_hash(path: Path, expected_sha256: str) -> None:

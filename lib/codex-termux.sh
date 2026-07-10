@@ -863,23 +863,20 @@ codex_prune_runtime_store() {
 }
 
 codex_prepare_complete_runtime_tree() {
-    local payload_dir="$1" complete_dir="$2" name support_dir
+    local payload_dir="$1" complete_dir="$2" support_dir
     support_dir="$(codex_support_source_dir)"
     if { [ ! -r "$support_dir/bwrap-termux-compat.py" ] || [ ! -r "$support_dir/rg-termux-shim.sh" ]; } &&
         [ -r "$payload_dir/bwrap-termux-compat.py" ] &&
         [ -r "$payload_dir/rg-termux-shim.sh" ]; then
         support_dir="$payload_dir"
     fi
-    [ -x "$payload_dir/codex" ] || return 1
+    [ -x "$payload_dir/codex" ] && [ -r "$payload_dir/runtime-build.json" ] || return 1
     codex_rm_rf_managed "$complete_dir" || return $?
     mkdir -p "$complete_dir"
-    for name in codex codex-resources codex-path codex-package.json runtime-build.json; do
-        [ -e "$payload_dir/$name" ] || {
-            codex_rm_rf_managed "$complete_dir" || return $?
-            return 1
-        }
-        cp -R "$payload_dir/$name" "$complete_dir/$name"
-    done
+    cp -a "$payload_dir"/. "$complete_dir"/ || {
+        codex_rm_rf_managed "$complete_dir" || return $?
+        return 1
+    }
     [ -x "$CODEX_TERMUX_RUNTIME_BUILDER" ] &&
         [ -r "$support_dir/bwrap-termux-compat.py" ] &&
         [ -r "$support_dir/rg-termux-shim.sh" ] || {

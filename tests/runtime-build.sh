@@ -13,6 +13,7 @@ fail() {
 raw_vendor="$TMP_DIR/raw/vendor/aarch64-unknown-linux-musl"
 runtime_dir="$TMP_DIR/runtime"
 mkdir -p "$raw_vendor/bin" "$raw_vendor/codex-resources/zsh/bin" "$raw_vendor/codex-path"
+printf 'upstream-only\n' >"$raw_vendor/upstream-only.txt"
 cat >"$raw_vendor/bin/codex" <<'SCRIPT'
 #!/bin/sh
 # /etc/resolv.conf
@@ -61,6 +62,9 @@ assert manifest["patch_policy"] == "termux-fd-remap-v1"
 assert manifest["raw_sha256"] == hashlib.sha256(raw_bytes).hexdigest()
 assert manifest["runtime_sha256"] == hashlib.sha256(runtime_bytes).hexdigest()
 assert manifest["builder_sha256"] == hashlib.sha256((root / "tools/build-runtime.py").read_bytes()).hexdigest()
+assert manifest["upstream_tree_sha256"]
+assert manifest["overlay_tree_sha256"]
+assert (runtime_dir / "upstream/upstream-only.txt").read_text() == "upstream-only\n"
 for source, target in rewrites.items():
     entry = manifest["rewrites"][source.decode("ascii")]
     expected_count = raw_bytes.count(source)
@@ -76,6 +80,10 @@ for rel in (
     "codex-path/rg.real",
     "codex-package.json",
     "runtime-build.json",
+    "upstream/upstream-only.txt",
+    "overlay/codex",
+    "overlay/codex-path/bwrap",
+    "overlay/codex-path/rg",
 ):
     path = runtime_dir / rel
 assert path.exists(), f"missing runtime entry: {rel}"

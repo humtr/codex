@@ -7,7 +7,7 @@ from pathlib import Path
 
 from . import registry, schemas
 from .errors import IntegrityError, SchemaError
-from .hashing import sha256_file
+from .hashing import sha256_file, tree_digest
 
 
 def extract_pack_field(json_file: Path, field: str) -> str:
@@ -31,11 +31,15 @@ def runtime_integrity_ok(
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         state_data = schemas.validate_state_v3(schemas.load_json_object(state_path))
         runtime_sha = sha256_file(runtime)
+        expected_upstream = manifest.get("upstream_tree_sha256", "")
+        expected_overlay = manifest.get("overlay_tree_sha256", "")
         return bool(
             manifest.get("patch_policy") == patch_policy
             and manifest.get("builder_sha256") == sha256_file(builder)
             and manifest.get("runtime_sha256") == runtime_sha
             and state_data.get("runtime_sha256") == runtime_sha
+            and (not expected_upstream or tree_digest(runtime.parent / "upstream") == expected_upstream)
+            and (not expected_overlay or tree_digest(runtime.parent / "overlay") == expected_overlay)
         )
     except (IntegrityError, OSError, SchemaError, json.JSONDecodeError):
         return False

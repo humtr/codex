@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, TextIO
 
 from . import registry, schemas
-from .hashing import sha256_file
+from .hashing import sha256_file, tree_digest
 
 
 DETAIL_LABEL_WIDTH = 24
@@ -113,9 +113,19 @@ def _checks(inputs: DoctorInputs, manifest: dict[str, Any]) -> dict[str, bool]:
     raw_binary = inputs.raw_vendor / "bin/codex"
     actual_raw_sha = _safe_hash(raw_binary)
     actual_runtime_sha = _safe_hash(inputs.runtime)
+    expected_upstream = manifest.get("upstream_tree_sha256", "")
+    expected_overlay = manifest.get("overlay_tree_sha256", "")
+    actual_upstream = _safe_tree_hash(runtime_dir / "upstream")
+    actual_raw_tree = _safe_tree_hash(inputs.raw_vendor)
+    actual_overlay = _safe_tree_hash(runtime_dir / "overlay")
     return {
         "runtime": inputs.runtime.exists() and os.access(inputs.runtime, os.X_OK),
         "raw": raw_binary.exists(),
+        "upstream_tree": bool(
+            not expected_upstream
+            or (actual_upstream == expected_upstream and actual_raw_tree == expected_upstream)
+        ),
+        "overlay_tree": bool(not expected_overlay or actual_overlay == expected_overlay),
         "manager": _manager_ok(inputs.manager_dir),
         "runtime_store": inputs.runtime_store.is_dir(),
         "raw_store": inputs.raw_store.is_dir(),
@@ -211,6 +221,8 @@ def render_human(report: dict[str, Any], output: TextIO | None = None) -> int:
     detail("path", paths.get("runtime", "missing"))
     row(bool(checks.get("raw")), "raw", "official raw binary cache exists")
     detail("vendor", paths.get("raw_vendor", "missing"))
+    row(bool(checks.get("upstream_tree")), "upstream tree", "preserved upstream vendor tree matches its manifest hash")
+    row(bool(checks.get("overlay_tree")), "overlay", "Termux overlay matches its manifest hash")
     row(bool(checks.get("runtime_hash")) and bool(checks.get("raw_hash")), "hashes", "state, raw, runtime, and manifest hashes agree")
     row(bool(checks.get("fd_remap_only_patch")) and bool(checks.get("fd_remap_patch")), "fd remap", "resolver and Codex system config paths are fd-remapped")
     row(bool(checks.get("build_manifest")), "manifest", "runtime-build.json matches builder and patch policy")
@@ -478,6 +490,13 @@ def _managed_target(link: Path, store: Path) -> bool:
 def _safe_hash(path: Path) -> str:
     try:
         return sha256_file(path)
+    except Exception:
+        return ""
+
+
+def _safe_tree_hash(path: Path) -> str:
+    try:
+        return tree_digest(path)
     except Exception:
         return ""
 
