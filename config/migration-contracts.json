@@ -1,0 +1,147 @@
+{
+  "schema": 1,
+  "name": "codex-termux-rust-migration-contracts",
+  "status": "baseline",
+  "feature_boundaries": [
+    {
+      "id": "bootstrap-source",
+      "description": "Bootstrap, wrapper source acquisition, and initial installer handoff",
+      "current_owners": ["shell", "python"],
+      "target_owner": "rust-installer",
+      "public_surfaces": ["install.sh", "bin/install-local.sh"]
+    },
+    {
+      "id": "package-runtime-build",
+      "description": "Upstream package fetch, archive validation, runtime patching, and bundle assembly",
+      "current_owners": ["shell", "python", "external:npm", "external:tar"],
+      "target_owner": "rust-manager"
+    },
+    {
+      "id": "state-registry-store",
+      "description": "State schema, registry, immutable artifacts, retention, and pruning",
+      "current_owners": ["python", "shell"],
+      "target_owner": "rust-manager"
+    },
+    {
+      "id": "activation-recovery",
+      "description": "Activation transactions, verified rollback, repair, readiness, and doctor",
+      "current_owners": ["python", "shell"],
+      "target_owner": "rust-manager"
+    },
+    {
+      "id": "runtime-launch",
+      "description": "Public CLI passthrough, runtime environment, FD 33/34, signals, TTY, and exit status",
+      "current_owners": ["c", "shell", "python"],
+      "target_owner": "rust-launcher"
+    },
+    {
+      "id": "profile-session-notify",
+      "description": "Profile selection, session TUI, and Termux notification adapters",
+      "current_owners": ["shell", "python", "external:termux-api"],
+      "target_owner": "rust-manager"
+    },
+    {
+      "id": "release-package",
+      "description": "Release validation, packaging, checksums, signatures, and prebuilt artifacts",
+      "current_owners": ["shell", "python"],
+      "target_owner": "rust-release"
+    }
+  ],
+  "policy_boundaries": [
+    "public codex CLI and argument passthrough",
+    "stdout, stderr, and exit status",
+    "managed path deletion guards",
+    "atomic activation and rollback conditions",
+    "state and registry reader compatibility",
+    "wrapper and upstream ownership",
+    "credential non-disclosure",
+    "network access timing",
+    "automatic recovery scope during normal launch",
+    "FD 33/34 inheritance",
+    "signal and foreground TTY semantics"
+  ],
+  "language_boundaries": {
+    "shell": {
+      "current_role": "bootstrap, command routing, process glue, file mutation, and adapters",
+      "phase_4_role": "auditable installer bootstrap only"
+    },
+    "python": {
+      "current_role": "policy, schemas, diagnostics, transactions, and TUI model",
+      "phase_4_role": "verified fallback artifact only"
+    },
+    "c": {
+      "current_role": "minimal public launcher",
+      "phase_3_role": "replaced by Rust launcher"
+    },
+    "rust": {
+      "current_role": "not present",
+      "phase_2_role": "management core",
+      "phase_3_role": "normal execution path",
+      "phase_4_role": "installer and release artifact supply chain"
+    },
+    "external_executables": [
+      "npm",
+      "git",
+      "curl",
+      "tar",
+      "termux-notification",
+      "termux-toast",
+      "termux-open-url"
+    ]
+  },
+  "golden_behavior": {
+    "case_directory": "tests/golden/cases",
+    "expected_directory": "tests/golden/expected",
+    "observables": [
+      "stdout",
+      "stderr",
+      "exit_code",
+      "created_files",
+      "modified_files",
+      "deleted_files",
+      "symlink_targets",
+      "state_and_registry_json",
+      "subprocess_argv",
+      "environment",
+      "fd_33",
+      "fd_34"
+    ],
+    "normalization": [
+      "repository root",
+      "sandbox path",
+      "home path",
+      "prefix path",
+      "temporary path"
+    ]
+  },
+  "fallback_contract": {
+    "artifact_unit": "support tuple plus runtime tuple plus compatible state snapshot",
+    "required_manager_pointers": ["current-manager", "verified-manager"],
+    "required_runtime_pointers": ["current", "verified", "raw"],
+    "unknown_fields": "preserve",
+    "verified_promotion": "explicit acceptance after activation",
+    "reupgrade_after_fallback": true
+  },
+  "migration_phases": [
+    {
+      "phase": 1,
+      "goal": "freeze boundaries and executable contracts",
+      "fallback": "current build"
+    },
+    {
+      "phase": 2,
+      "goal": "Rust management core owns state, registry, activation, recovery, and diagnostics",
+      "fallback": "immutable Python and Shell manager artifact"
+    },
+    {
+      "phase": 3,
+      "goal": "Rust owns every normal path except install.sh bootstrap",
+      "fallback": "phase 2 support tuple"
+    },
+    {
+      "phase": 4,
+      "goal": "Rust installer and prebuilt artifact supply chain",
+      "fallback": "phase 3 artifact and minimal recovery bootstrap"
+    }
+  ]
+}
