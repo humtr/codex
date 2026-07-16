@@ -75,8 +75,7 @@ def _audit_python_module_ownership(root: Path, manifest: dict[str, object]) -> l
         if isinstance(key, str) and isinstance(value, str) and value
     }
     package_root = root / "src/wrapper"
-    implementation_files = sorted(package_root.rglob("*.py"))
-    for path in implementation_files:
+    for path in sorted(package_root.rglob("*.py")):
         relative = str(path.relative_to(root))
         if relative not in owned_paths:
             findings.append(
@@ -200,8 +199,24 @@ def _cli_registered_commands(root: Path) -> list[str]:
     return sorted(commands)
 
 
+def _metrics(root: Path) -> dict[str, object]:
+    metrics = _ORIGINAL_METRICS(root)
+    shell_lines = metrics.get("shell_file_lines", {})
+    shell_functions = metrics.get("shell_file_functions", {})
+    if isinstance(shell_lines, dict):
+        for domain in ("build", "ui", "fs", "runtime", "state", "prompt", "notify", "profile"):
+            metrics[f"{domain}_shell_lines"] = int(shell_lines.get(f"shell/{domain}.sh", 0))
+    if isinstance(shell_functions, dict):
+        metrics["notify_shell_functions"] = int(shell_functions.get("shell/notify.sh", 0))
+        metrics["profile_shell_functions"] = int(shell_functions.get("shell/profile.sh", 0))
+    metrics["cli_py_lines"] = _legacy._line_count(root / "src/wrapper/cli.py")
+    metrics["session_py_lines"] = _legacy._line_count(root / "src/wrapper/session.py")
+    return metrics
+
+
 _ORIGINAL_MANIFEST_CONSISTENCY = _legacy._audit_manifest_consistency
 _ORIGINAL_DOMAIN_OWNERSHIP = _legacy._audit_domain_ownership
+_ORIGINAL_METRICS = _legacy._metrics
 _legacy.DOMAIN_DIR = "shell"
 _legacy._shell_contract_files = _shell_contract_files
 _legacy._shell_classification_files = _shell_classification_files
@@ -213,6 +228,7 @@ _legacy._audit_profile_shell_model = _audit_profile_shell_model
 _legacy._audit_protected_path_contracts = _audit_protected_path_contracts
 _legacy._audit_public_entrypoints = _audit_public_entrypoints
 _legacy._cli_registered_commands = _cli_registered_commands
+_legacy._metrics = _metrics
 
 
 def audit(root: Path) -> dict[str, object]:
