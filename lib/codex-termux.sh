@@ -6,7 +6,11 @@ CODEX_TERMUX_COMPAT_DIR="${BASH_SOURCE[0]%/*}"
 CODEX_TERMUX_COMPAT_DIR="$(cd "$CODEX_TERMUX_COMPAT_DIR" && pwd)"
 CODEX_TERMUX_COMPAT_ROOT="$(cd "$CODEX_TERMUX_COMPAT_DIR/.." && pwd)"
 
-if [ -r "$CODEX_TERMUX_COMPAT_ROOT/shell/loader.sh" ]; then
+if [ -r "$CODEX_TERMUX_COMPAT_DIR/shell/loader.sh" ]; then
+    CODEX_TERMUX_WRAPPER_ROOT="${CODEX_TERMUX_WRAPPER_ROOT:-$CODEX_TERMUX_COMPAT_DIR}"
+    # shellcheck disable=SC1091
+    . "$CODEX_TERMUX_COMPAT_DIR/shell/loader.sh"
+elif [ -r "$CODEX_TERMUX_COMPAT_ROOT/shell/loader.sh" ]; then
     CODEX_TERMUX_WRAPPER_ROOT="${CODEX_TERMUX_WRAPPER_ROOT:-$CODEX_TERMUX_COMPAT_ROOT}"
     # shellcheck disable=SC1091
     . "$CODEX_TERMUX_COMPAT_ROOT/shell/loader.sh"
