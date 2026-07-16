@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "name": "runtime-exec",
+  "command": ["bash", "{root}/tests/golden/probes/runtime-exec.sh", "{root}"],
+  "capture_environment": [],
+  "observations": [{"label": "runtime_exec", "path": "{sandbox}/runtime-contract/result.json", "format": "json"}],
+  "watch": [],
+  "timeout_seconds": 30
+}
