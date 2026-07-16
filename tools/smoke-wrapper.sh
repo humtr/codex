@@ -29,25 +29,29 @@ run_static_checks() {
     bash -n install.sh
     bash -n bin/install-runtime.sh
     bash -n lib/codex-termux.sh
-    bash -n tools/rg-termux-shim.sh
-    bash -n tools/smoke-termux-wrapper.sh
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=tools python3 -B - <<'PYTHON'
-import pathlib
+    for path in shell/*.sh lib/codex-termux/*.sh libexec/*.sh tools/*.sh; do
+        [ -f "$path" ] || continue
+        bash -n "$path"
+    done
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -B - <<'PYTHON'
+from pathlib import Path
 
-for pattern in ("tools/*.py", "tools/codex_termux/*.py"):
-    for path in sorted(pathlib.Path(".").glob(pattern)):
-        source = path.read_text(encoding="utf-8")
-        compile(source, str(path), "exec")
+for root in (Path("src/wrapper"), Path("src/codex_termux"), Path("tools/codex_termux")):
+    for path in sorted(root.rglob("*.py")):
+        compile(path.read_text(encoding="utf-8"), str(path), "exec")
+for path in sorted(Path("libexec").glob("*.py")):
+    compile(path.read_text(encoding="utf-8"), str(path), "exec")
 PYTHON
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=tools python3 -B -m codex_termux.cli validate --root "$ROOT_DIR"
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -B -m wrapper.cli validate --root "$ROOT_DIR"
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tools python3 -B -m codex_termux.cli --help >/dev/null
+    PYTHONDONTWRITEBYTECODE=1 python3 -B libexec/notify self-test >/dev/null
     assert_no_bytecode_noise
 }
-
 
 run_non_installed_check() {
     say non-installed
     cd "$ROOT_DIR"
-    if grep -R -- 'smoke-termux-wrapper.sh' install.sh bin lib >/dev/null 2>&1; then
+    if grep -R -- 'smoke-wrapper.sh\|smoke-termux-wrapper.sh' install.sh bin lib shell src libexec >/dev/null 2>&1; then
         fail 'smoke check is referenced from installed wrapper paths'
     fi
 }
@@ -80,25 +84,25 @@ codex_exec_current_runtime() {
 }
 
 unset CODEX_HOME
-default_output="$(codex_profile_exec "$(codex_termux_cmd profile-dir --profile default)" default 2>/dev/null)"
+default_output="$(codex_profile_exec "$(wrapper_cmd profile-dir --profile default)" default 2>/dev/null)"
 [ "$default_output" = 'runtime CODEX_HOME=__UNSET__' ] || fail_contract "default profile changed CODEX_HOME: $default_output"
 [ ! -e "$CODEX_TERMUX_HOME/.codex" ] || fail_contract 'default profile created managed home directory'
 
-work_dir="$(codex_termux_cmd profile-dir --profile work)"
+work_dir="$(wrapper_cmd profile-dir --profile work)"
 mkdir -p "$work_dir"
 unset CODEX_HOME
 work_output="$(codex_profile_exec "$work_dir" work 2>/dev/null)"
 [ "$work_output" = "runtime CODEX_HOME=$work_dir" ] || fail_contract "custom profile did not set CODEX_HOME: $work_output"
 
-    mkdir -p \
-        "$CODEX_TERMUX_PROFILE_ROOT/clean" \
-        "$CODEX_TERMUX_PROFILE_ROOT/beta" \
-        "$CODEX_TERMUX_PROFILE_ROOT/-bad" \
-        "$CODEX_TERMUX_PROFILE_ROOT/bad name" \
-        "$CODEX_TERMUX_PROFILE_ROOT/foo..bar" \
-        "$CODEX_TERMUX_PROFILE_ROOT/.hidden" \
-        "$CODEX_TERMUX_PROFILE_ROOT/termux"
-list_output="$(codex_termux_cmd profile-list)"
+mkdir -p \
+    "$CODEX_TERMUX_PROFILE_ROOT/clean" \
+    "$CODEX_TERMUX_PROFILE_ROOT/beta" \
+    "$CODEX_TERMUX_PROFILE_ROOT/-bad" \
+    "$CODEX_TERMUX_PROFILE_ROOT/bad name" \
+    "$CODEX_TERMUX_PROFILE_ROOT/foo..bar" \
+    "$CODEX_TERMUX_PROFILE_ROOT/.hidden" \
+    "$CODEX_TERMUX_PROFILE_ROOT/termux"
+list_output="$(wrapper_cmd profile-list)"
 printf '%s\n' "$list_output" | grep -Fx -- 'clean' >/dev/null || fail_contract 'valid profile is missing from list'
 printf '%s\n' "$list_output" | grep -Fx -- 'work' >/dev/null || fail_contract 'work profile is missing from list'
 command_output="$(codex_profile_run list)"
@@ -114,13 +118,13 @@ for invalid_profile in '-bad' 'bad name' 'foo..bar' '.hidden' 'termux'; do
     fi
 done
 
-    mkdir -p "$CODEX_TERMUX_STATE_DIR"
-    printf 'work\n' >"$CODEX_TERMUX_LAST_PROFILE_FILE"
-    menu_ids="$(codex_termux_cmd profile-menu-ids)"
-    expected_menu_ids="$(printf 'default\nbeta\nclean\nwork\n')"
-    [ "$menu_ids" = "$expected_menu_ids" ] || fail_contract "recent profile changed menu order: $menu_ids"
+mkdir -p "$CODEX_TERMUX_STATE_DIR"
+printf 'work\n' >"$CODEX_TERMUX_LAST_PROFILE_FILE"
+menu_ids="$(wrapper_cmd profile-menu-ids)"
+expected_menu_ids="$(printf 'default\nbeta\nclean\nwork\n')"
+[ "$menu_ids" = "$expected_menu_ids" ] || fail_contract "recent profile changed menu order: $menu_ids"
 
-missing_dir="$(codex_termux_cmd profile-dir --profile missing)"
+missing_dir="$(wrapper_cmd profile-dir --profile missing)"
 set +e
 codex_profile_exec "$missing_dir" missing >"$TMP_DIR/missing.out" 2>"$TMP_DIR/missing.err" </dev/null
 missing_status=$?
@@ -243,7 +247,11 @@ expect_guard_failure state-slash "$TMP_DIR/root" / /
 expect_guard_failure outside-managed "$TMP_DIR/root" "$TMP_DIR/state" "$TMP_DIR/outside"
 BASH
     chmod +x "$contract_script"
-    if PREFIX="$tmp/prefix"         CODEX_TERMUX_HOME="$tmp/home"         CODEX_TERMUX_ROOT="$tmp/root"         CODEX_TERMUX_STATE_DIR="$tmp/state"         bash "$contract_script" "$ROOT_DIR" "$tmp"; then
+    if PREFIX="$tmp/prefix" \
+        CODEX_TERMUX_HOME="$tmp/home" \
+        CODEX_TERMUX_ROOT="$tmp/root" \
+        CODEX_TERMUX_STATE_DIR="$tmp/state" \
+        bash "$contract_script" "$ROOT_DIR" "$tmp"; then
         rm -rf "$tmp"
     else
         local status=$?
@@ -254,9 +262,9 @@ BASH
 
 usage() {
     cat <<'EOF'
-Usage: tools/smoke-termux-wrapper.sh [all|static|profile-contract|managed-path-guard|non-installed]
+Usage: tools/smoke-wrapper.sh [all|static|profile-contract|managed-path-guard|non-installed]
 
-Runs repository-local smoke checks for the Codex Termux Wrapper. The script is
+Runs repository-local smoke checks for the Codex Termux wrapper. The script is
 not installed by the wrapper and does not require network access for its default
 checks.
 EOF
