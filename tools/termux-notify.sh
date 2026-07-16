@@ -8,8 +8,8 @@ CODEX_TERMUX_NOTIFY_DIR="${CODEX_TERMUX_NOTIFY_DIR:-$CODEX_TERMUX_STATE_DIR/noti
 CODEX_TERMUX_NOTIFY_GROUP="${CODEX_TERMUX_NOTIFY_GROUP:-codex-turns}"
 CODEX_TERMUX_NOTIFY_CONFIG="${CODEX_TERMUX_NOTIFY_CONFIG:-$CODEX_TERMUX_NOTIFY_DIR/config.env}"
 [ ! -r "$CODEX_TERMUX_NOTIFY_CONFIG" ] || . "$CODEX_TERMUX_NOTIFY_CONFIG"
-CODEX_TERMUX_NOTIFY_CONTENT_CHARS="${CODEX_TERMUX_NOTIFY_CONTENT_CHARS:-140}"
-CODEX_TERMUX_NOTIFY_PRESERVE_NEWLINES="${CODEX_TERMUX_NOTIFY_PRESERVE_NEWLINES:-0}"
+CODEX_TERMUX_NOTIFY_CONTENT_CHARS="${CODEX_TERMUX_NOTIFY_CONTENT_CHARS:-0}"
+CODEX_TERMUX_NOTIFY_PRESERVE_NEWLINES="${CODEX_TERMUX_NOTIFY_PRESERVE_NEWLINES:-1}"
 CODEX_TERMUX_NOTIFY_CHANNEL="${CODEX_TERMUX_NOTIFY_CHANNEL:-notification}"
 CODEX_TERMUX_NOTIFY_TOAST_GRAVITY="${CODEX_TERMUX_NOTIFY_TOAST_GRAVITY:-top}"
 CODEX_TERMUX_NOTIFY_TOAST_SHORT="${CODEX_TERMUX_NOTIFY_TOAST_SHORT:-0}"
@@ -76,8 +76,8 @@ import sys
 
 home = sys.argv[1]
 payload_path = sys.argv[2] if len(sys.argv) > 2 else ""
-limit = os.environ.get("CODEX_TERMUX_NOTIFY_CONTENT_CHARS", "140")
-preserve_newlines = os.environ.get("CODEX_TERMUX_NOTIFY_PRESERVE_NEWLINES", "0") == "1"
+limit = os.environ.get("CODEX_TERMUX_NOTIFY_CONTENT_CHARS", "0")
+preserve_newlines = os.environ.get("CODEX_TERMUX_NOTIFY_PRESERVE_NEWLINES", "1") == "1"
 if payload_path:
     try:
         with open(payload_path, "r", encoding="utf-8", errors="replace") as handle:
@@ -106,7 +106,10 @@ title = str(title)
 message = str(message)
 
 if preserve_newlines:
-    message = "\n".join(line.rstrip() for line in message.splitlines()).strip()
+    message = message.replace("\r\n", "\n").replace("\r", "\n")
+    message = "\n".join(line.rstrip() for line in message.split("\n")[:10]).strip()
+    if "\n" not in message:
+        message += "\n"
 else:
     message = " ".join(message.split())
 if limit not in ("0", "full", "none", "unlimited"):

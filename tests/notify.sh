@@ -55,6 +55,42 @@ JSON
 fourth_id="$(sed -n 's/.* id=\([0-9][0-9]*\) .*/\1/p' "$log" | tail -n 1)"
 [ -n "$fourth_id" ] || fail 'pretooluse notification id was not logged'
 
+FORMAT_TMP="$TMP_DIR/format"
+mkdir -p "$FORMAT_TMP/home" "$FORMAT_TMP/state/notify"
+git init -q "$FORMAT_TMP/repository"
+git -C "$FORMAT_TMP/repository" remote add origin git@github.com:example/project-from-origin.git
+CODEX_TERMUX_HOME="$FORMAT_TMP/home" \
+CODEX_TERMUX_STATE_DIR="$FORMAT_TMP/state" \
+CODEX_TERMUX_NOTIFY_NO_API=1 \
+bash "$ROOT_DIR/tools/codex-turn-notify.sh" --event Stop <<JSON >/dev/null 2>&1
+{"cwd":"$FORMAT_TMP/repository","message":"line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\nline 11"}
+JSON
+python3 - "$FORMAT_TMP/state/notify/last-payload.json" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+if payload["title"] != "Codex: project-from-origin":
+    raise SystemExit(f"Stop title did not use origin repository: {payload['title']!r}")
+if payload["content"].splitlines() != [f"line {index}" for index in range(1, 11)]:
+    raise SystemExit(f"content did not preserve exactly 10 lines: {payload['content']!r}")
+PY
+
+CODEX_TERMUX_HOME="$FORMAT_TMP/home" \
+CODEX_TERMUX_STATE_DIR="$FORMAT_TMP/state" \
+CODEX_TERMUX_NOTIFY_NO_API=1 \
+bash "$ROOT_DIR/tools/codex-turn-notify.sh" --event Stop <<'JSON' >/dev/null 2>&1
+{"title":"Codex CLI","message":"one line"}
+JSON
+python3 - "$FORMAT_TMP/state/notify/last-payload.json" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+if payload["content"] != "one line\n":
+    raise SystemExit(f"single-line content did not enter expanded path: {payload['content']!r}")
+PY
+
 printf 'notify: ok\n'
 
 CONFIG_TMP="$TMP_DIR/config"

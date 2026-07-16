@@ -21,12 +21,14 @@ codex_notify_render_payload() {
     python3 - "$tmux_target" "$payload_file" <<'PY'
 import json
 import os
+import subprocess
 import sys
+from urllib.parse import urlparse
 
 tmux_target = sys.argv[1]
 payload_path = sys.argv[2]
-limit = os.environ.get("CODEX_TERMUX_NOTIFY_CONTENT_CHARS", "140")
-preserve_newlines = os.environ.get("CODEX_TERMUX_NOTIFY_PRESERVE_NEWLINES", "0") == "1"
+limit = os.environ.get("CODEX_TERMUX_NOTIFY_CONTENT_CHARS", "0")
+preserve_newlines = os.environ.get("CODEX_TERMUX_NOTIFY_PRESERVE_NEWLINES", "1") == "1"
 event = os.environ.get("CODEX_TERMUX_NOTIFY_EVENT", "")
 
 try:
@@ -39,18 +41,57 @@ session_id = payload.get("session_id") or payload.get("sessionId") or ""
 transcript = payload.get("transcript_path") or payload.get("transcriptPath") or ""
 dedupe_key = payload.get("dedupe_key") or payload.get("dedupeKey") or transcript or session_id or cwd or "codex"
 
-def compact_path(path: str) -> str:
-    if not path:
-        return "unknown"
-    path = os.path.abspath(path)
-    home = os.path.abspath(os.environ.get("HOME") or "")
-    if home and (path == home or path.startswith(home + os.sep)):
-        path = "~" + path[len(home):]
-    if len(path) > 54:
-        path = "..." + path[-51:]
-    return path
+def remote_repository_name(url: str) -> str:
+    value = url.strip().rstrip("/")
+    if not value:
+        return ""
+    if "://" in value:
+        path = urlparse(value).path
+    elif ":" in value and not value.startswith("/"):
+        path = value.split(":", 1)[1]
+    else:
+        path = value
+    name = os.path.basename(path.rstrip("/"))
+    return name[:-4] if name.endswith(".git") else name
 
-title = payload.get("title") or f"Codex: {compact_path(cwd)}"
+def repository_name(data: dict, path: str) -> str:
+    explicit = (
+        data.get("project_name")
+        or data.get("projectName")
+        or data.get("repository_name")
+        or data.get("repositoryName")
+    )
+    if explicit:
+        return str(explicit)
+    if path and os.path.isdir(path):
+        try:
+            remote = subprocess.run(
+                ["git", "-C", path, "remote", "get-url", "origin"],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=2,
+            ).stdout
+            name = remote_repository_name(remote)
+            if name:
+                return name
+        except (OSError, subprocess.SubprocessError):
+            pass
+        try:
+            root = subprocess.run(
+                ["git", "-C", path, "rev-parse", "--show-toplevel"],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=2,
+            ).stdout.strip()
+            if root:
+                return os.path.basename(root)
+        except (OSError, subprocess.SubprocessError):
+            pass
+    return "General"
+
+title = payload.get("title") or f"Codex: {repository_name(payload, cwd)}"
 message = (
     payload.get("content")
     or payload.get("last_assistant_message")
@@ -62,7 +103,10 @@ message = (
 title = str(title)
 message = str(message)
 if preserve_newlines:
-    message = "\n".join(line.rstrip() for line in message.splitlines()).strip()
+    message = message.replace("\r\n", "\n").replace("\r", "\n")
+    message = "\n".join(line.rstrip() for line in message.split("\n")[:10]).strip()
+    if "\n" not in message:
+        message += "\n"
 else:
     message = " ".join(message.split())
 if limit not in ("0", "full", "none", "unlimited"):
@@ -83,9 +127,10 @@ if event:
         "UserPromptSubmit": "prompt submitted",
         "SubagentStart": "subagent start",
         "SubagentStop": "subagent finished",
-        "Stop": "turn complete",
+        "Stop": "",
     }.get(event, event)
-    title = f"{title} · {event_label}"
+    if event_label:
+        title = f"{title} · {event_label}"
 
 result = {
     "source": "codex",
