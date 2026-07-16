@@ -47,6 +47,7 @@ ROLE_WRAPPER_SOURCE_PATHS = tuple(
         "libexec/rg-shim.sh",
         "native/codex-launcher.c",
         "config/layout-contracts.json",
+        "config/schema-compatibility.json",
         "codex-wrapper.manifest.json",
     ]
 )
