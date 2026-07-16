@@ -128,6 +128,7 @@ clean_bytecode_noise
 for test_script in \
     "$ROOT_DIR/tests/invariants.sh" \
     "$ROOT_DIR/tests/layout-contracts.sh" \
+    "$ROOT_DIR/tests/compatibility-facades.sh" \
     "$ROOT_DIR/tests/golden.sh" \
     "$ROOT_DIR/tests/canon-audit.sh" \
     "$ROOT_DIR/tests/runtime-build.sh" \
