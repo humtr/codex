@@ -154,7 +154,7 @@ for test_script in \
     "$ROOT_DIR/tests/store-rollback.sh" \
     "$ROOT_DIR/tests/profile-boundary.sh" \
     "$ROOT_DIR/tests/session.sh" \
-    "$ROOT_DIR/tools/smoke-termux-wrapper.sh"
+    "$ROOT_DIR/tools/smoke-wrapper.sh"
 do
     run_test "$test_script"
 done
