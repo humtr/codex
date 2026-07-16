@@ -1,0 +1,88 @@
+{
+  "schema": 1,
+  "name": "codex-termux-role-oriented-layout",
+  "baseline_commit": "803fef15fe17960bdf8e9f7d5d199b813d08224b",
+  "external_product_names": [
+    "codex termux",
+    "codex-termux-$VERSION.zip",
+    "CODEX_TERMUX_*",
+    "~/.config/codex-termux",
+    "lib/codex-termux.sh"
+  ],
+  "source_layers": {
+    "bin": "public execution and installation entrypoints",
+    "shell": "shell orchestration domains",
+    "src/wrapper": "Python policy and domain implementation",
+    "libexec": "installed internal executables",
+    "native": "native launcher sources",
+    "lib": "public compatibility facades",
+    "tools": "developer and release tooling"
+  },
+  "target_paths": {
+    "public_loader": "lib/codex-termux.sh",
+    "shell_loader": "shell/loader.sh",
+    "python_package": "src/wrapper",
+    "notification_entrypoint": "libexec/notify",
+    "runtime_builder": "libexec/build-runtime.py",
+    "bwrap_compat": "libexec/bwrap-termux-compat.py",
+    "rg_shim": "libexec/rg-termux-shim.sh",
+    "native_launcher": "native/codex-launcher.c"
+  },
+  "compatibility_paths": [
+    "lib/codex-termux.sh",
+    "lib/codex-termux/*.sh",
+    "tools/codex_termux",
+    "tools/codex-turn-notify.sh",
+    "tools/termux-notify.sh",
+    "$CODEX_TERMUX_MANAGER_DIR/lib.sh",
+    "$CODEX_TERMUX_MANAGER_DIR/codex-termux",
+    "$CODEX_TERMUX_MANAGER_DIR/codex_termux",
+    "$CODEX_TERMUX_MANAGER_DIR/source"
+  ],
+  "preserved_contracts": [
+    "public codex argument passthrough",
+    "codex termux command compatibility",
+    "CODEX_TERMUX environment compatibility",
+    "state and registry schema 3",
+    "FD 33 resolver inheritance",
+    "FD 34 system config inheritance",
+    "runtime and verified tuple semantics",
+    "no-network normal execution",
+    "managed path deletion guards",
+    "notification ID and dedupe behavior",
+    "notification title and body behavior from baseline commit"
+  ],
+  "notification_baseline": {
+    "fallback_title": "Codex: General",
+    "stop_suffix": "",
+    "max_lines": 10,
+    "default_content_chars": 0,
+    "preserve_newlines": true,
+    "single_line_trailing_newline": true,
+    "priority": "max",
+    "sound": true,
+    "vibrate": "300,150,300",
+    "group": "codex-turns",
+    "click_actions": ["none", "open_termux", "open_tmux"]
+  },
+  "migration_phases": [
+    "baseline contracts",
+    "transactional manager support installation",
+    "dual-layout readers and validators",
+    "Python package move",
+    "notification vertical slice",
+    "shell domain move",
+    "libexec and native move",
+    "release source doctor consolidation",
+    "device validation and compatibility retirement"
+  ],
+  "non_goals": [
+    "Rust rewrite",
+    "Codex runtime behavior changes",
+    "FD contract changes",
+    "state or registry schema changes",
+    "CODEX_TERMUX environment renaming",
+    "Termux API APK replacement",
+    "user .gitignore changes"
+  ]
+}
