@@ -1,0 +1,81 @@
+{
+  "schema": 1,
+  "name": "state-registry",
+  "command": [
+    "bash",
+    "<ROOT>/tests/golden/probes/state-registry.sh",
+    "<ROOT>"
+  ],
+  "exit_code": 0,
+  "stdout": "raw-0.142.0-linux-arm64-aaaaaaaaaaaa__wrapper-260715-1-abcdef123456\n",
+  "stderr": "",
+  "environment": {},
+  "filesystem": {
+    "created": {},
+    "modified": {},
+    "deleted": {}
+  },
+  "observations": {
+    "state": {
+      "schema": 3,
+      "version": "0.142.0-linux-arm64",
+      "raw_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "runtime_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "package_spec": "@openai/codex@0.142.0-linux-arm64",
+      "active_tuple_id": "raw-0.142.0-linux-arm64-aaaaaaaaaaaa__wrapper-260715-1-abcdef123456",
+      "wrapper_version": "260715-1",
+      "wrapper_commit": "abcdef1234567890",
+      "updated_at": "2026-07-15T00:00:00+00:00",
+      "verified_tuple_id": "raw-0.142.0-linux-arm64-aaaaaaaaaaaa__wrapper-260715-1-abcdef123456",
+      "verified_at": "2026-07-15T00:00:00+00:00"
+    },
+    "registry": {
+      "schema": 3,
+      "active_tuple_id": "raw-0.142.0-linux-arm64-aaaaaaaaaaaa__wrapper-260715-1-abcdef123456",
+      "verified_tuple_id": "raw-0.142.0-linux-arm64-aaaaaaaaaaaa__wrapper-260715-1-abcdef123456",
+      "installs": [
+        {
+          "version": "0.142.0-linux-arm64",
+          "raw_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "runtime_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "package_spec": "@openai/codex@0.142.0-linux-arm64",
+          "runtime_path": "<SANDBOX>/artifacts/runtime-store/runtime-a",
+          "raw_path": "<SANDBOX>/artifacts/raw-store/raw-a",
+          "updated_at": "2026-07-15T00:00:00+00:00",
+          "created_at": "2026-07-15T00:00:00+00:00",
+          "raw_id": "raw-0.142.0-linux-arm64-aaaaaaaaaaaa",
+          "wrapper_id": "wrapper-260715-1-abcdef123456",
+          "tuple_id": "raw-0.142.0-linux-arm64-aaaaaaaaaaaa__wrapper-260715-1-abcdef123456"
+        }
+      ],
+      "raw": {
+        "raw-0.142.0-linux-arm64-aaaaaaaaaaaa": {
+          "version": "0.142.0-linux-arm64",
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "package_spec": "@openai/codex@0.142.0-linux-arm64",
+          "path": "<SANDBOX>/artifacts/raw-store/raw-a",
+          "updated_at": "2026-07-15T00:00:00+00:00"
+        }
+      },
+      "wrapper": {
+        "wrapper-260715-1-abcdef123456": {
+          "version": "260715-1",
+          "commit": "abcdef1234567890",
+          "repo": "local/codex-termux",
+          "updated_at": "2026-07-15T00:00:00+00:00"
+        }
+      },
+      "runtime": {
+        "raw-0.142.0-linux-arm64-aaaaaaaaaaaa__wrapper-260715-1-abcdef123456": {
+          "raw_id": "raw-0.142.0-linux-arm64-aaaaaaaaaaaa",
+          "wrapper_id": "wrapper-260715-1-abcdef123456",
+          "runtime_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "path": "<SANDBOX>/artifacts/runtime-store/runtime-a",
+          "updated_at": "2026-07-15T00:00:00+00:00",
+          "created_at": "2026-07-15T00:00:00+00:00",
+          "smoke_tested_at": "2026-07-15T00:00:00+00:00"
+        }
+      }
+    }
+  }
+}
