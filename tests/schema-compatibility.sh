@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/codex-schema-compat.XXXXXX")"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/src" python3 -B - "$TMP_DIR" <<'PYTHON'
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/src" python3 -B - "$ROOT_DIR" "$TMP_DIR" <<'PYTHON'
 from __future__ import annotations
 
 import json
@@ -15,8 +15,15 @@ from pathlib import Path
 from wrapper import registry, state
 from wrapper.errors import SchemaError
 
-root = Path(sys.argv[1])
-contract = json.loads((Path(__file__).resolve().parents[2] / "config/schema-compatibility.json").read_text(encoding="utf-8")) if "__file__" in globals() else None
+source_root = Path(sys.argv[1])
+root = Path(sys.argv[2])
+contract = json.loads(
+    (source_root / "config/schema-compatibility.json").read_text(encoding="utf-8")
+)
+assert contract["metadata_schema"] == 3
+assert contract["reader_policy"]["accepted_schemas"] == [3]
+assert contract["writer_policy"]["unknown_top_level_fields"] == "preserve"
+assert contract["writer_policy"]["unknown_nested_fields"] == "preserve"
 state_file = root / "state.json"
 registry_file = root / "registry.json"
 
