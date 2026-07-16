@@ -7,31 +7,48 @@ from pathlib import Path
 from . import _legacy_source as _legacy_source_module
 from ._legacy_source import *  # noqa: F401,F403
 from .errors import IntegrityError
-from .support_layout import (
-    SupportActivation,
+from .support_layout import SupportActivation
+from .support_transaction import (
     commit_support_install,
     prepare_support_install,
     rollback_support_install,
 )
 
 
-ROLE_WRAPPER_SOURCE_PATHS = (
-    "shell/loader.sh",
-    "shell/state.sh",
-    "shell/exec.sh",
-    "shell/dispatch.sh",
-    "src/wrapper/__init__.py",
-    "src/wrapper/cli.py",
-    "src/wrapper/source.py",
-    "src/wrapper/prune.py",
-    "src/wrapper/notification/model.py",
-    "src/wrapper/notification/service.py",
-    "libexec/notify",
-    "libexec/build-runtime.py",
-    "libexec/bwrap-termux-compat.py",
-    "libexec/rg-termux-shim.sh",
-    "native/codex-launcher.c",
-    "config/layout-contracts.json",
+SHELL_DOMAINS = (
+    "loader", "dispatch", "state", "fs", "ui", "prompt", "exec", "store",
+    "build", "runtime", "repair", "version", "profile", "use", "remove",
+    "session", "notify", "doctor",
+)
+WRAPPER_MODULES = (
+    "__init__", "_legacy_canon", "_legacy_source", "activation", "atomic",
+    "canon", "cli", "cli_activation", "cli_artifacts", "cli_doctor",
+    "cli_notify", "cli_product", "cli_profile", "cli_repair", "cli_runtime",
+    "cli_session", "cli_store", "cli_ui", "cli_use", "doctor", "errors",
+    "hashing", "install_plan", "notify", "paths", "prune", "registry",
+    "release", "repair", "runtime_checks", "runtime_env", "schemas", "session",
+    "source", "state", "store", "support_layout", "support_transaction", "ui",
+    "use",
+)
+NOTIFICATION_MODULES = (
+    "__init__", "config", "model", "provider", "service",
+)
+ROLE_WRAPPER_SOURCE_PATHS = tuple(
+    [f"shell/{name}.sh" for name in SHELL_DOMAINS]
+    + [f"src/wrapper/{name}.py" for name in WRAPPER_MODULES]
+    + [f"src/wrapper/notification/{name}.py" for name in NOTIFICATION_MODULES]
+    + [
+        "src/codex_termux/__init__.py",
+        "libexec/notify",
+        "libexec/build-runtime.py",
+        "libexec/bwrap-termux-compat.py",
+        "libexec/bwrap-compat.py",
+        "libexec/rg-termux-shim.sh",
+        "libexec/rg-shim.sh",
+        "native/codex-launcher.c",
+        "config/layout-contracts.json",
+        "codex-wrapper.manifest.json",
+    ]
 )
 REQUIRED_WRAPPER_SOURCE_PATHS = tuple(
     dict.fromkeys((*_legacy_source_module.REQUIRED_WRAPPER_SOURCE_PATHS, *ROLE_WRAPPER_SOURCE_PATHS))
