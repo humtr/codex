@@ -2,6 +2,29 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+for notify_entry in \
+    "$SCRIPT_DIR/../libexec/notify" \
+    "$SCRIPT_DIR/libexec/notify" \
+    "$SCRIPT_DIR/source/libexec/notify"
+do
+    [ -f "$notify_entry" ] || continue
+    case "${1:-}" in
+        --event)
+            exec python3 -B "$notify_entry" hook --event "${2:-}"
+            ;;
+        --open-termux)
+            exec python3 -B "$notify_entry" open --target termux
+            ;;
+        --open-tmux)
+            exec python3 -B "$notify_entry" open --target tmux --tmux-target "${2:-}"
+            ;;
+        *)
+            exec python3 -B "$notify_entry" hook --event "${CODEX_TERMUX_NOTIFY_EVENT:-}"
+            ;;
+    esac
+done
+unset notify_entry
+
 COMMON_NOTIFY="$SCRIPT_DIR/termux-notify.sh"
 
 codex_notify_tmux_target() {
