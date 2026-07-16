@@ -59,29 +59,31 @@ updated_state = json.loads(state_file.read_text(encoding="utf-8"))
 assert updated_state["extension"] == managed_state["extension"]
 assert updated_state["active_tuple_id"] == "new-tuple"
 
-for schema in (2, 4):
-    rejected = dict(managed_state)
-    rejected["schema"] = schema
-    payload = (json.dumps(rejected, separators=(",", ":"), sort_keys=False) + "\n").encode()
+state_write_args = {
+    "state_file": state_file,
+    "version": "must-not-write",
+    "raw_sha256": "e" * 64,
+    "runtime_sha256": "f" * 64,
+    "package_spec": "must-not-write",
+    "active_tuple_id": "must-not-write",
+    "wrapper_version": "must-not-write",
+    "wrapper_commit": "must-not-write",
+    "updated_at": "must-not-write",
+    "verified_tuple_id": "must-not-write",
+    "verified_at": "must-not-write",
+}
+for payload in (
+    (json.dumps({**managed_state, "schema": 2}, separators=(",", ":")) + "\n").encode(),
+    (json.dumps({**managed_state, "schema": 4}, separators=(",", ":")) + "\n").encode(),
+    b'{"schema":3,"version":',
+):
     state_file.write_bytes(payload)
     try:
-        state.write(
-            state_file=state_file,
-            version="must-not-write",
-            raw_sha256="e" * 64,
-            runtime_sha256="f" * 64,
-            package_spec="must-not-write",
-            active_tuple_id="must-not-write",
-            wrapper_version="must-not-write",
-            wrapper_commit="must-not-write",
-            updated_at="must-not-write",
-            verified_tuple_id="must-not-write",
-            verified_at="must-not-write",
-        )
+        state.write(**state_write_args)
     except SchemaError:
         pass
     else:
-        raise AssertionError(f"state schema {schema} was accepted")
+        raise AssertionError("invalid state input was accepted")
     assert state_file.read_bytes() == payload
 
 runtime_store = root / "store/runtime"
@@ -127,17 +129,18 @@ assert updated_registry["raw"][raw_id]["extension_raw"] == ["keep"]
 assert updated_registry["wrapper"][wrapper_id]["extension_wrapper"] == "keep"
 assert updated_registry["runtime"][tuple_id]["extension_runtime"] == {"keep": "yes"}
 
-for schema in (2, 4):
-    rejected = dict(updated_registry)
-    rejected["schema"] = schema
-    payload = (json.dumps(rejected, separators=(",", ":"), sort_keys=False) + "\n").encode()
+for payload in (
+    (json.dumps({**updated_registry, "schema": 2}, separators=(",", ":")) + "\n").encode(),
+    (json.dumps({**updated_registry, "schema": 4}, separators=(",", ":")) + "\n").encode(),
+    b'{"schema":3,"installs":',
+):
     registry_file.write_bytes(payload)
     try:
         registry.record(**record_args)
     except SchemaError:
         pass
     else:
-        raise AssertionError(f"registry schema {schema} was accepted")
+        raise AssertionError("invalid registry input was accepted")
     assert registry_file.read_bytes() == payload
 PYTHON
 
