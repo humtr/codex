@@ -199,6 +199,7 @@
     "src/wrapper/activation.py": "runtime",
     "src/wrapper/atomic.py": "state",
     "src/wrapper/canon.py": "audit",
+    "src/wrapper/canon_policy.py": "audit",
     "src/wrapper/_legacy_canon.py": "audit-compat",
     "src/wrapper/_legacy_source.py": "source-compat",
     "src/wrapper/cli.py": "cli-dispatch",
@@ -218,7 +219,7 @@
     "src/wrapper/errors.py": "package",
     "src/wrapper/hashing.py": "runtime",
     "src/wrapper/install_plan.py": "install",
-    "src/wrapper/notify.py": "notify-config",
+    "src/wrapper/notify.py": "notify-compat",
     "src/wrapper/paths.py": "state",
     "src/wrapper/prune.py": "runtime",
     "src/wrapper/registry.py": "runtime",
@@ -231,11 +232,14 @@
     "src/wrapper/source.py": "source",
     "src/wrapper/state.py": "state",
     "src/wrapper/store.py": "runtime",
+    "src/wrapper/support_diagnostics.py": "doctor",
     "src/wrapper/support_layout.py": "install",
+    "src/wrapper/support_transaction.py": "install",
     "src/wrapper/ui.py": "state",
     "src/wrapper/use.py": "profile",
     "src/wrapper/notification/__init__.py": "notify",
     "src/wrapper/notification/config.py": "notify-config",
+    "src/wrapper/notification/hooks.py": "notify-config",
     "src/wrapper/notification/model.py": "notify-model",
     "src/wrapper/notification/provider.py": "notify-provider",
     "src/wrapper/notification/service.py": "notify-service"
@@ -262,6 +266,6 @@
     "parallel surfaces do not write codex recent-profile state",
     "protected runtime/binary/launcher paths are not deleted without managed validation",
     "legacy lib/codex-termux and tools/codex_termux paths contain facades only",
-    "manager and source snapshot activate transactionally with verified fallback"
+    "manager, source snapshot, system config, and launcher activate transactionally with verified fallback"
   ]
 }
