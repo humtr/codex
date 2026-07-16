@@ -16,12 +16,14 @@ FORBIDDEN_RELEASE_ROOTS = (
     "docs",
     ".agents",
     ".git",
+    "dist",
 )
 FORBIDDEN_RELEASE_EXACT = (
     ".gitignore",
     "GOAL.md",
     "tools/install-git-hooks.sh",
     "tools/update-wrapper-version.sh",
+    "tools/golden_capture.py",
 )
 REMOVED_CONTRACT_TERMS = (
     "".join(("codex", "_native")),
@@ -34,28 +36,66 @@ REMOVED_CONTRACT_TERMS = (
     "".join(("codex_profile", "_share_plugins")),
 )
 
+ROLE_PACKAGE_MODULES = (
+    "activation.py",
+    "atomic.py",
+    "canon.py",
+    "cli.py",
+    "cli_activation.py",
+    "cli_artifacts.py",
+    "cli_doctor.py",
+    "cli_notify.py",
+    "cli_product.py",
+    "cli_profile.py",
+    "cli_repair.py",
+    "cli_runtime.py",
+    "cli_session.py",
+    "cli_store.py",
+    "cli_ui.py",
+    "cli_use.py",
+    "doctor.py",
+    "errors.py",
+    "hashing.py",
+    "install_plan.py",
+    "notify.py",
+    "paths.py",
+    "prune.py",
+    "registry.py",
+    "release.py",
+    "repair.py",
+    "runtime_checks.py",
+    "runtime_env.py",
+    "schemas.py",
+    "session.py",
+    "source.py",
+    "state.py",
+    "store.py",
+    "support_layout.py",
+    "ui.py",
+    "use.py",
+)
+
 
 def required_release_entries() -> tuple[str, ...]:
-    return tuple(
-        entry
-        for entry in (
-            "README.md",
-            *REQUIRED_WRAPPER_SOURCE_PATHS,
-        )
-        if entry != "tools/codex_termux"
-    ) + (
+    source_entries = tuple(
+        entry for entry in REQUIRED_WRAPPER_SOURCE_PATHS if entry != "tools/codex_termux"
+    )
+    compatibility = (
+        "tools/codex_termux/__init__.py",
         "tools/codex_termux/cli.py",
-        "tools/codex_termux/cli_activation.py",
-        "tools/codex_termux/cli_artifacts.py",
-        "tools/codex_termux/cli_doctor.py",
-        "tools/codex_termux/cli_notify.py",
-        "tools/codex_termux/cli_product.py",
-        "tools/codex_termux/cli_profile.py",
-        "tools/codex_termux/cli_store.py",
-        "tools/codex_termux/cli_session.py",
-        "tools/codex_termux/cli_ui.py",
-        "tools/codex_termux/cli_use.py",
-        "tools/codex_termux/ui.py",
+        "tools/codex_termux/notify.py",
+    )
+    modules = tuple(f"src/wrapper/{name}" for name in ROLE_PACKAGE_MODULES)
+    notification = (
+        "src/wrapper/notification/__init__.py",
+        "src/wrapper/notification/config.py",
+        "src/wrapper/notification/model.py",
+        "src/wrapper/notification/provider.py",
+        "src/wrapper/notification/service.py",
+        "src/codex_termux/__init__.py",
+    )
+    return tuple(
+        dict.fromkeys(("README.md", *source_entries, *compatibility, *modules, *notification))
     )
 
 
@@ -71,7 +111,9 @@ def validate_package_root(package_root: Path) -> None:
             raise IntegrityError(f"forbidden release entry: {relative}")
     for path in package_root.rglob("*"):
         if "__pycache__" in path.parts or path.suffix == ".pyc":
-            raise IntegrityError(f"Python bytecode artifact in release package: {path.relative_to(package_root)}")
+            raise IntegrityError(
+                f"Python bytecode artifact in release package: {path.relative_to(package_root)}"
+            )
         if path.is_file():
             _validate_removed_terms(package_root, path)
 
@@ -84,7 +126,9 @@ def _validate_removed_terms(package_root: Path, path: Path) -> None:
     for term in REMOVED_CONTRACT_TERMS:
         if term in text:
             relative = path.relative_to(package_root)
-            raise IntegrityError(f"removed legacy contract remains in release package: {term} in {relative}")
+            raise IntegrityError(
+                f"removed legacy contract remains in release package: {term} in {relative}"
+            )
 
 
 def write_zip(package_root: Path, out: Path) -> None:
