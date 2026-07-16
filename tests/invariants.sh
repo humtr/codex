@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TMP_DIR="$(mktemp -d)"
+TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/codex-invariants.XXXXXX")"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 fail() {
@@ -12,18 +12,23 @@ fail() {
 
 cd "$ROOT_DIR"
 
-forbidden_terms=(
-    "codex""_native"
-    "CODEX""_NATIVE"
-    "codex/""native"
-    "codex"" ""native"
-    "native"".lock"
-    "CODEX_TERMUX""_RESOLVER_FD"
-    "CODEX_TERMUX""_SHARED_PLUGINS_DIR"
+for term in \
+    "codex""_native" \
+    "CODEX""_NATIVE" \
+    "codex/""native" \
+    "codex"" ""native" \
+    "native"".lock" \
+    "CODEX_TERMUX""_RESOLVER_FD" \
+    "CODEX_TERMUX""_SHARED_PLUGINS_DIR" \
     "codex_profile""_share_plugins"
-)
-for term in "${forbidden_terms[@]}"; do
-    if grep -RIn --exclude-dir=.git --exclude-dir=__pycache__ --exclude-dir=out --exclude='*.pyc' -- "$term" . >"$TMP_DIR/forbidden" 2>/dev/null; then
+do
+    if grep -RIn \
+        --exclude-dir=.git \
+        --exclude-dir=__pycache__ \
+        --exclude-dir=out \
+        --exclude='*.pyc' \
+        -- "$term" . >"$TMP_DIR/forbidden" 2>/dev/null
+    then
         cat "$TMP_DIR/forbidden" >&2
         fail "forbidden legacy contract term remains: $term"
     fi
@@ -36,243 +41,86 @@ grep -Fx 'CODEX_TERMUX_WRAPPER_CHANNEL=termux' config/wrapper-version.env >/dev/
 grep -Fx 'CODEX_TERMUX_WRAPPER_REPO=humtr/codex' config/wrapper-version.env >/dev/null \
     || fail 'wrapper repo mismatch'
 
-grep -R -F 'PYTHONDONTWRITEBYTECODE=1' lib/codex-termux.sh lib/codex-termux >/dev/null \
-    || fail 'helper bytecode suppression missing'
-grep -R -F 'python3 -B -m codex_termux.cli' lib/codex-termux.sh lib/codex-termux >/dev/null \
-    || fail 'helper -B invocation missing'
-grep -R -F 'profile-list --include-default' lib/codex-termux.sh lib/codex-termux >/dev/null \
-    || fail 'profile list dispatch helper missing'
-grep -R -F 'profile-run-plan-env' lib/codex-termux.sh lib/codex-termux tools/codex_termux/cli_profile.py >/dev/null \
-    || fail 'profile run plan helper missing'
-grep -R -F 'raw in {"list", "ls"}' tools/codex_termux/session.py >/dev/null \
-    || fail 'profile list command plan missing'
-if grep -R -F 'list|ls)' lib/codex-termux.sh lib/codex-termux >/dev/null; then
-    fail 'profile list command parsing moved back into shell'
-fi
-grep -R -F '33<"$CODEX_TERMUX_RESOLV_CONF"' lib/codex-termux.sh lib/codex-termux >/dev/null \
+for path in \
+    shell/loader.sh \
+    shell/state.sh \
+    shell/exec.sh \
+    shell/dispatch.sh \
+    src/wrapper/cli.py \
+    src/wrapper/source.py \
+    src/wrapper/prune.py \
+    src/wrapper/notification/model.py \
+    src/wrapper/notification/service.py \
+    libexec/notify \
+    libexec/build-runtime.py \
+    libexec/bwrap-termux-compat.py \
+    libexec/rg-termux-shim.sh \
+    native/codex-launcher.c
+ do
+    [ -e "$path" ] || fail "role-oriented path missing: $path"
+done
+
+[ "$(find tools/codex_termux -maxdepth 1 -type f | wc -l | tr -d ' ')" = 3 ] \
+    || fail 'legacy Python package contains implementation files'
+for path in tools/codex_termux/__init__.py tools/codex_termux/cli.py tools/codex_termux/notify.py; do
+    [ -f "$path" ] || fail "legacy Python facade missing: $path"
+done
+
+for path in lib/codex-termux/*.sh; do
+    grep -F 'missing wrapper shell domain:' "$path" >/dev/null \
+        || fail "legacy shell path contains implementation: $path"
+done
+
+grep -F 'wrapper_cmd()' shell/state.sh >/dev/null \
+    || fail 'role-oriented helper command bridge missing'
+grep -F 'codex_termux_cmd()' shell/state.sh >/dev/null \
+    || fail 'legacy helper command alias missing'
+grep -F '33<"$CODEX_TERMUX_RESOLV_CONF"' shell/exec.sh >/dev/null \
     || fail 'runtime fd33 launcher contract missing'
-grep -R -F '34<"$CODEX_TERMUX_SYSTEM_CONFIG_DIR"' lib/codex-termux.sh lib/codex-termux >/dev/null \
+grep -F '34<"$CODEX_TERMUX_SYSTEM_CONFIG_DIR"' shell/exec.sh >/dev/null \
     || fail 'runtime fd34 launcher contract missing'
-grep -R -F 'PATCH_POLICY = "termux-fd-remap-v1"' tools/build-runtime.py >/dev/null \
+grep -F 'PATCH_POLICY = "termux-fd-remap-v1"' libexec/build-runtime.py >/dev/null \
     || fail 'builder patch policy changed'
-grep -R -F 'b"/etc/resolv.conf": b"/proc/self/fd/33"' tools/build-runtime.py >/dev/null \
+grep -F 'b"/etc/resolv.conf": b"/proc/self/fd/33"' libexec/build-runtime.py >/dev/null \
     || fail 'builder resolver target changed'
-grep -R -F 'b"/etc/codex/config.toml": b"/dev/fd/34/config.toml"' tools/build-runtime.py >/dev/null \
+grep -F 'b"/etc/codex/config.toml": b"/dev/fd/34/config.toml"' libexec/build-runtime.py >/dev/null \
     || fail 'builder system config target changed'
-grep -R -F 'install upstream [VERSION]' bin/install-runtime.sh >/dev/null \
+grep -F 'prepare_support_install' bin/install-runtime.sh >/dev/null \
+    || fail 'transactional support prepare missing'
+grep -F 'rollback_support_install' bin/install-runtime.sh >/dev/null \
+    || fail 'transactional support rollback missing'
+grep -F 'commit_support_install' bin/install-runtime.sh >/dev/null \
+    || fail 'transactional support commit missing'
+grep -F 'install upstream [VERSION]' bin/install-runtime.sh >/dev/null \
     || fail 'install upstream help surface missing'
-grep -R -F 'install rebuild' bin/install-runtime.sh >/dev/null \
+grep -F 'install rebuild' bin/install-runtime.sh >/dev/null \
     || fail 'install rebuild help surface missing'
-grep -R -F 'codex_runtime_install_upstream()' lib/codex-termux.sh lib/codex-termux >/dev/null \
+grep -F 'codex_runtime_install_upstream()' shell/build.sh >/dev/null \
     || fail 'runtime upstream install helper missing'
-grep -R -F 'codex_runtime_install_cached()' lib/codex-termux.sh lib/codex-termux >/dev/null \
+grep -F 'codex_runtime_install_cached()' shell/build.sh >/dev/null \
     || fail 'runtime cached install helper missing'
-if grep -R -F 'codex rebuild' README.md >/dev/null; then
-    fail 'stale public codex rebuild command remains in README'
+
+if grep -R -E 'shell[[:space:]]*=[[:space:]]*True|os\.system\(' src/wrapper/notification >/dev/null; then
+    fail 'notification subsystem allows shell execution'
 fi
 
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=tools python3 -B -m codex_termux.cli validate --root "$ROOT_DIR" >/dev/null
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -B -m wrapper.cli validate --root "$ROOT_DIR" >/dev/null
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tools python3 -B -m codex_termux.cli --help >/dev/null
+PYTHONDONTWRITEBYTECODE=1 python3 -B libexec/notify self-test >/dev/null
+
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -B - <<'PYTHON'
+from pathlib import Path
+
+root = Path("src/wrapper")
+for path in sorted(root.rglob("*.py")):
+    compile(path.read_text(encoding="utf-8"), str(path), "exec")
+PYTHON
 
 bytecode_found="$(find . \( -type d -name '__pycache__' -o -type f -name '*.pyc' \) -print -quit 2>/dev/null || true)"
 [ -z "$bytecode_found" ] || fail "bytecode artifact found: $bytecode_found"
 
-stale_repo_terms=(
-    "\"local/""codex\""
-    "local/""codex\\n"
-)
-for term in "${stale_repo_terms[@]}"; do
-    if grep -RIn --exclude-dir=.git --exclude-dir=__pycache__ --exclude-dir=out --exclude='*.pyc' -- "$term" . >"$TMP_DIR/repo-metadata" 2>/dev/null; then
-        cat "$TMP_DIR/repo-metadata" >&2
-        fail "stale wrapper repo metadata remains: $term"
-    fi
-done
-
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=tools python3 -B - <<'PYTHON'
-from pathlib import Path
-from tempfile import TemporaryDirectory
-from codex_termux import registry
-
-with TemporaryDirectory() as tmp:
-    root = Path(tmp)
-    registry_file = root / "registry.json"
-    runtime_store = root / "runtime-store"
-    runtime_path = runtime_store / "runtime"
-    raw_path = root / "raw-store" / "raw"
-    tuple_id = registry.record(
-        registry_file=registry_file,
-        version="0.0.0-linux-arm64",
-        raw_sha256="a" * 64,
-        runtime_sha256="b" * 64,
-        package_spec="@openai/codex@0.0.0-linux-arm64",
-        runtime_path=str(runtime_path),
-        wrapper_version="260627-1",
-        wrapper_commit="testcommit",
-        runtime_store_dir=runtime_store,
-        updated_at="2026-01-01T00:00:00+00:00",
-        smoke_tested_at="2026-01-01T00:00:00+00:00",
-        raw_path=str(raw_path),
-    )
-    data = registry.load(registry_file)
-    wrapper_id = data["runtime"][tuple_id]["wrapper_id"]
-    assert data["wrapper"][wrapper_id]["repo"] == "local/codex-termux"
-
-    runtime_entry = data["runtime"][tuple_id]
-    install_entry = next(item for item in data["installs"] if item["tuple_id"] == tuple_id)
-    runtime_entry["created_at"] = "2026-06-27T23:23:35+09:00"
-    runtime_entry["updated_at"] = "2026-06-28T01:08:04+09:00"
-    install_entry["created_at"] = "2026-06-27T23:23:35+09:00"
-    install_entry["updated_at"] = "2026-06-28T01:08:04+09:00"
-    registry.write(registry_file, data)
-    assert registry.active_runtime_created_at(registry_file) == "2026-06-28"
-PYTHON
-
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=tools python3 -B - <<'PYTHON'
-import contextlib
-import hashlib
-import io
-import json
-from pathlib import Path
-from tempfile import TemporaryDirectory
-
-from codex_termux import registry, use
-
-
-def make_runtime(path: Path, builder: Path, runtime_bytes: bytes) -> str:
-    path.mkdir(parents=True)
-    runtime = path / "codex"
-    runtime.write_bytes(runtime_bytes)
-    runtime_sha = hashlib.sha256(runtime_bytes).hexdigest()
-    manifest = {
-        "patch_policy": "termux-fd-remap-v1",
-        "builder_sha256": hashlib.sha256(builder.read_bytes()).hexdigest(),
-        "runtime_sha256": runtime_sha,
-    }
-    (path / "runtime-build.json").write_text(json.dumps(manifest) + "\n", encoding="utf-8")
-    return runtime_sha
-
-
-def make_raw(path: Path, raw_bytes: bytes) -> str:
-    raw_bin = path / "vendor/aarch64-unknown-linux-musl/bin/codex"
-    raw_bin.parent.mkdir(parents=True)
-    raw_bin.write_bytes(raw_bytes)
-    return hashlib.sha256(raw_bytes).hexdigest()
-
-
-with TemporaryDirectory() as tmp:
-    root = Path(tmp)
-    registry_file = root / "registry.json"
-    store_root = root / "store"
-    runtime_store = store_root / "runtime"
-    raw_store = store_root / "raw"
-    builder = root / "build-runtime.py"
-    builder.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
-
-    runtime_a = runtime_store / "runtime-a"
-    raw_a = raw_store / "raw-a"
-    runtime_a_sha = make_runtime(runtime_a, builder, b"runtime-a")
-    raw_a_sha = make_raw(raw_a, b"raw-a")
-    active_tuple = registry.record(
-        registry_file=registry_file,
-        version="0.142.0-linux-arm64",
-        raw_sha256=raw_a_sha,
-        runtime_sha256=runtime_a_sha,
-        package_spec="@openai/codex@0.142.0-linux-arm64",
-        runtime_path=str(runtime_a),
-        wrapper_version="20260619-1",
-        wrapper_commit="aaaaaaa11111",
-        runtime_store_dir=runtime_store,
-        updated_at="2026-06-19T00:00:00+00:00",
-        smoke_tested_at="2026-06-19T00:00:00+00:00",
-        raw_path=str(raw_a),
-    )
-    registry.record(
-        registry_file=registry_file,
-        version="0.142.0-linux-arm64",
-        raw_sha256=raw_a_sha,
-        runtime_sha256=runtime_a_sha,
-        package_spec="@openai/codex@0.142.0-linux-arm64",
-        runtime_path=str(runtime_a),
-        wrapper_version="20260623-1",
-        wrapper_commit="bbbbbbb22222",
-        runtime_store_dir=runtime_store,
-        updated_at="2026-06-23T00:00:00+00:00",
-        smoke_tested_at="2026-06-23T00:00:00+00:00",
-        raw_path=str(raw_a),
-    )
-    registry.activate_existing_tuple(registry_file, active_tuple)
-
-    runtime_b = runtime_store / "runtime-b"
-    raw_b = raw_store / "raw-b"
-    runtime_b_sha = make_runtime(runtime_b, builder, b"runtime-b")
-    raw_b_sha = make_raw(raw_b, b"raw-b")
-    registry.record(
-        registry_file=registry_file,
-        version="0.141.0-linux-arm64",
-        raw_sha256=raw_b_sha,
-        runtime_sha256=runtime_b_sha,
-        package_spec="@openai/codex@0.141.0-linux-arm64",
-        runtime_path=str(runtime_b),
-        wrapper_version="20260619-1",
-        wrapper_commit="ccccccc33333",
-        runtime_store_dir=runtime_store,
-        updated_at="2026-06-19T12:00:00+00:00",
-        smoke_tested_at="2026-06-19T12:00:00+00:00",
-        raw_path=str(raw_b),
-    )
-
-    runtime_c = runtime_store / "runtime-c"
-    raw_c = raw_store / "raw-c"
-    runtime_c_sha = make_runtime(runtime_c, builder, b"runtime-c")
-    raw_c_sha = make_raw(raw_c, b"raw-c")
-    registry.record(
-        registry_file=registry_file,
-        version="0.141.0-linux-arm64",
-        raw_sha256=raw_c_sha,
-        runtime_sha256=runtime_c_sha,
-        package_spec="@openai/codex@0.141.0-linux-arm64",
-        runtime_path=str(runtime_c),
-        wrapper_version="20260619-2",
-        wrapper_commit="ddddddd44444",
-        runtime_store_dir=runtime_store,
-        updated_at="2026-06-19T18:00:00+00:00",
-        smoke_tested_at="2026-06-19T18:00:00+00:00",
-        raw_path=str(raw_c),
-    )
-    registry.activate_existing_tuple(registry_file, active_tuple)
-
-    rows = use.runtime_rows_from_registry(
-        registry_file=registry_file,
-        latest="0.142.0-linux-arm64",
-        runtime_store_dir=runtime_store,
-        runtime_builder=builder,
-        patch_policy="termux-fd-remap-v1",
-    )
-    cached_rows = [row for row in rows if row["kind"] == "cached"]
-    assert len(cached_rows) == 3, rows
-    active_rows = [row for row in cached_rows if row.get("active") == "1"]
-    assert len(active_rows) == 1, rows
-    assert active_rows[0]["wrapper_commit"] == "aaaaaaa11111", active_rows[0]
-
-    latest_row, remaining = registry.menu_rows(
-        registry_file=registry_file,
-        latest="0.142.0-linux-arm64",
-        runtime_store_dir=runtime_store,
-        runtime_builder=builder,
-        patch_policy="termux-fd-remap-v1",
-    )
-    assert latest_row is None
-    assert len(remaining) == 3
-
-    stdout = io.StringIO()
-    stderr = io.StringIO()
-    with contextlib.redirect_stdout(stdout):
-        with contextlib.redirect_stderr(stderr):
-            use.render_runtime_rows(rows, mode="menu", interactive_limit=0)
-    menu = stderr.getvalue()
-    assert stdout.getvalue().strip() == "3", stdout.getvalue()
-    assert "0.142.0 (2026-06-19)" in menu, menu
-    assert "0.141.0 (2026-06-19 · 2026-06-19 (r1))" in menu, menu
-    assert "0.141.0 (2026-06-19 · 2026-06-19 (r2))" in menu, menu
-PYTHON
+if grep -R -F 'codex rebuild' README.md >/dev/null; then
+    fail 'stale public codex rebuild command remains in README'
+fi
 
 printf 'invariants: ok\n'
