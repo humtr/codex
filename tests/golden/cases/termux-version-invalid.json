@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "name": "termux-version-invalid",
+  "command": ["bash", "{root}/tests/golden/probes/termux-version-invalid.sh", "{root}"],
+  "capture_environment": ["CODEX_TERMUX_HOME", "HOME", "PREFIX"],
+  "watch": [{"label": "sandbox", "path": "{sandbox}"}],
+  "timeout_seconds": 30
+}
