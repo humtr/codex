@@ -335,7 +335,7 @@ PYTHON
 }
 
 codex_build_launcher() {
-    clang -O2 -Wall -Wextra -o "$1" "$CODEX_TERMUX_WRAPPER_SOURCE_DIR/tools/codex-launcher.c"
+    clang -O2 -Wall -Wextra -o "$1" "$CODEX_TERMUX_WRAPPER_SOURCE_DIR/native/codex-launcher.c"
 }
 
 codex_prepare_launcher_slot() {
@@ -393,6 +393,11 @@ codex_write_compiled_launcher() {
 }
 
 codex_install_launchers() {
+    if [ -x "$CODEX_TERMUX_PUBLIC_CODEX" ] && codex_termux_cmd file-has-marker \
+        --path "$CODEX_TERMUX_PUBLIC_CODEX" \
+        --marker "$CODEX_TERMUX_MANAGED_LAUNCHER_MARKER"; then
+        return 0
+    fi
     if command -v clang >/dev/null 2>&1; then
         codex_write_compiled_launcher "$CODEX_TERMUX_PUBLIC_CODEX"
     else
