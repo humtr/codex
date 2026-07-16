@@ -1,3 +1,2 @@
 # shellcheck shell=bash
-# Temporary bridge while the runtime domain moves into shell/.
-. "$CODEX_TERMUX_WRAPPER_ROOT/lib/codex-termux/runtime.sh"
+# Compatibility domain retained for loader and source-layout stability.
