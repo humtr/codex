@@ -43,7 +43,6 @@ codex_status() { STATUS_LOG="${STATUS_LOG}${STATUS_LOG:+|}$*"; }
 codex_status_clear() { STATUS_LOG="${STATUS_LOG}${STATUS_LOG:+|}<clear>"; }
 codex_say() { SAY_LOG="${SAY_LOG}${SAY_LOG:+|}$*"; }
 
-USAGE_CALLED=0
 codex_install_run_plan install upstream --help
 [ "$USAGE_CALLED" -eq 1 ] || fail 'install upstream --help did not show usage'
 [ "$UPSTREAM_ARG" = "__unset__" ] || fail 'install upstream --help reached upstream install'
@@ -64,13 +63,8 @@ case "$FAILED_MESSAGE" in
     *) fail "unexpected upstream arity error: $FAILED_MESSAGE" ;;
 esac
 
-SUPPORT_COUNT=0
-LAUNCHER_COUNT=0
-CACHED_COUNT=0
-REPAIR_COUNT=0
-VERSION_COUNT=0
-STATUS_LOG=""
-SAY_LOG=""
+SUPPORT_COUNT=0; LAUNCHER_COUNT=0; CACHED_COUNT=0; REPAIR_COUNT=0; VERSION_COUNT=0
+STATUS_LOG=""; SAY_LOG=""
 codex_install_run_plan install rebuild
 [ "$SUPPORT_COUNT" -eq 1 ] || fail 'install rebuild did not refresh support'
 [ "$LAUNCHER_COUNT" -eq 1 ] || fail 'install rebuild did not refresh launcher'
@@ -82,11 +76,7 @@ case "$STATUS_LOG" in
     *) fail "install rebuild did not use rebuild surface: $STATUS_LOG" ;;
 esac
 
-SUPPORT_COUNT=0
-LAUNCHER_COUNT=0
-VERSION_COUNT=0
-STATUS_LOG=""
-SAY_LOG=""
+SUPPORT_COUNT=0; LAUNCHER_COUNT=0; VERSION_COUNT=0; STATUS_LOG=""; SAY_LOG=""
 codex_install_run_plan install support
 [ "$SUPPORT_COUNT" -eq 1 ] || fail 'install support did not refresh support'
 [ "$LAUNCHER_COUNT" -eq 1 ] || fail 'install support did not refresh launcher'
@@ -95,15 +85,10 @@ case "$STATUS_LOG" in
     "Installing wrapper support and launcher"*) ;;
     *) fail "install support did not use support surface: $STATUS_LOG" ;;
 esac
-case "$SAY_LOG" in
-    "Support files and launcher are ready") ;;
-    *) fail "install support did not render support completion: $SAY_LOG" ;;
-esac
+[ "$SAY_LOG" = "Support files and launcher are ready" ] \
+    || fail "install support did not render support completion: $SAY_LOG"
 
-REPAIR_COUNT=0
-VERSION_COUNT=0
-STATUS_LOG=""
-SAY_LOG=""
+REPAIR_COUNT=0; VERSION_COUNT=0; STATUS_LOG=""; SAY_LOG=""
 main repair
 [ "$REPAIR_COUNT" -eq 1 ] || fail 'repair did not call repair core'
 [ "$VERSION_COUNT" -eq 1 ] || fail 'repair did not render version from surface'
@@ -115,59 +100,46 @@ esac
 DOCTOR_ARGS=""
 codex_termux_doctor() { DOCTOR_ARGS="$*"; }
 main doctor --json
-[ "$DOCTOR_ARGS" = "--json" ] || fail "doctor did not dispatch to codex_termux_doctor: $DOCTOR_ARGS"
+[ "$DOCTOR_ARGS" = "--json" ] || fail "doctor dispatch mismatch: $DOCTOR_ARGS"
 
-VERSION_COUNT=0
-STATUS_LOG=""
-SAY_LOG=""
+VERSION_COUNT=0; STATUS_LOG=""; SAY_LOG=""
 codex_version() { VERSION_COUNT=$((VERSION_COUNT + 1)); return 7; }
 if codex_install_surface_run install "" codex_validate_runtime_retention; then
     fail 'surface finish failure did not propagate'
 fi
 codex_version() { VERSION_COUNT=$((VERSION_COUNT + 1)); }
 
-SUPPORT_COUNT=0
-LAUNCHER_COUNT=0
-VERSION_COUNT=0
-STATUS_LOG=""
-SAY_LOG=""
+SUPPORT_COUNT=0; LAUNCHER_COUNT=0; VERSION_COUNT=0; STATUS_LOG=""; SAY_LOG=""
 CODEX_TERMUX_INSTALL_SURFACE=0 codex_install_run_plan install support
-[ "$SUPPORT_COUNT" -eq 1 ] || fail 'quiet install support did not refresh support'
-[ "$LAUNCHER_COUNT" -eq 1 ] || fail 'quiet install support did not refresh launcher'
-[ -z "$STATUS_LOG" ] || fail "quiet install support emitted status: $STATUS_LOG"
-[ -z "$SAY_LOG" ] || fail "quiet install support emitted completion: $SAY_LOG"
+[ "$SUPPORT_COUNT" -eq 1 ] || fail 'quiet support did not refresh support'
+[ "$LAUNCHER_COUNT" -eq 1 ] || fail 'quiet support did not refresh launcher'
+[ -z "$STATUS_LOG" ] || fail "quiet support emitted status: $STATUS_LOG"
+[ -z "$SAY_LOG" ] || fail "quiet support emitted completion: $SAY_LOG"
 unset CODEX_TERMUX_INSTALL_SURFACE
 
 curl() {
     local out="" arg
     printf '%s\n' "$*" >"$TMP_DIR/curl-args"
     while [ "$#" -gt 0 ]; do
-        arg="$1"
-        shift
-        if [ "$arg" = "-o" ]; then
-            out="${1:-}"
-            shift || true
-        fi
+        arg="$1"; shift
+        if [ "$arg" = "-o" ]; then out="${1:-}"; shift || true; fi
     done
     [ -n "$out" ] || fail 'mock curl did not receive output path'
     printf 'archive\n' >"$out"
 }
-
 CODEX_TERMUX_WRAPPER_TOKEN="test-token" \
-codex_download_wrapper_archive \
-    "https://api.github.com/repos/example/private/releases/assets/123" \
-    "$TMP_DIR/release.tgz"
-grep -F "Authorization: Bearer test-token" "$TMP_DIR/curl-args" >/dev/null \
+    codex_download_wrapper_archive \
+        "https://api.github.com/repos/example/private/releases/assets/123" \
+        "$TMP_DIR/release.tgz"
+grep -F 'Authorization: Bearer test-token' "$TMP_DIR/curl-args" >/dev/null \
     || fail 'release token was not passed to curl'
-grep -F "Accept: application/octet-stream" "$TMP_DIR/curl-args" >/dev/null \
-    || fail 'GitHub release asset accept header was not passed to curl'
-grep -Fx "archive" "$TMP_DIR/release.tgz" >/dev/null \
-    || fail 'mock release archive was not written'
+grep -F 'Accept: application/octet-stream' "$TMP_DIR/curl-args" >/dev/null \
+    || fail 'release asset accept header missing'
 
 mkdir -p "$TMP_DIR/gh-bin"
 cat >"$TMP_DIR/gh-bin/gh" <<'SCRIPT'
 #!/bin/sh
-[ "$1" = "auth" ] && [ "$2" = "token" ] || exit 3
+[ "$1" = auth ] && [ "$2" = token ] || exit 3
 printf '%s\n' gh_token_test
 SCRIPT
 chmod 755 "$TMP_DIR/gh-bin/gh"
@@ -176,8 +148,9 @@ CODEX_TERMUX_WRAPPER_TOKEN= \
 CODEX_TERMUX_WRAPPER_GIT_TOKEN= \
 CODEX_TERMUX_WRAPPER_RELEASE_TOKEN= \
 GITHUB_TOKEN= \
-bash -c '. "$1"; [ "$(codex_wrapper_auth_token)" = "gh_token_test" ]' _ "$ROOT_DIR/bin/install-runtime.sh" \
-    || fail 'install-runtime gh auth token fallback failed'
+    bash -c '. "$1"; [ "$(codex_wrapper_auth_token)" = gh_token_test ]' \
+        _ "$ROOT_DIR/bin/install-runtime.sh" \
+    || fail 'gh auth token fallback failed'
 
 git() {
     local target="${@: -1}" arg
@@ -185,30 +158,21 @@ git() {
     printf '%s\n' "${GIT_TERMINAL_PROMPT:-}" >"$TMP_DIR/git-terminal-prompt"
     printf '%s\n' "${GIT_ASKPASS:-}" >"$TMP_DIR/git-askpass-path"
     printf '%s\n' "${CODEX_TERMUX_WRAPPER_GIT_TOKEN_VALUE:-}" >"$TMP_DIR/git-token-value"
-    mkdir -p "$target/bin" "$target/lib/codex-termux" "$target/tools/codex_termux" "$target/config"
-    printf 'install\n' >"$target/install.sh"
-    printf 'install local\n' >"$target/bin/install-local.sh"
-    printf 'install runtime\n' >"$target/bin/install-runtime.sh"
-    printf 'lib\n' >"$target/lib/codex-termux.sh"
-    printf 'prompt\n' >"$target/lib/codex-termux/prompt.sh"
-    printf 'exec\n' >"$target/lib/codex-termux/exec.sh"
-    printf 'store\n' >"$target/lib/codex-termux/store.sh"
-    printf 'build\n' >"$target/lib/codex-termux/build.sh"
-    printf 'ui\n' >"$target/lib/codex-termux/ui.sh"
-    printf 'fs\n' >"$target/lib/codex-termux/fs.sh"
-    printf 'repair\n' >"$target/lib/codex-termux/repair.sh"
-    printf 'version\n' >"$target/lib/codex-termux/version.sh"
-    for domain in dispatch state profile use remove session runtime notify doctor; do printf '%s\n' "$domain" >"$target/lib/codex-termux/$domain.sh"; done
-    printf '{}\n' >"$target/codex-wrapper.manifest.json"
-    printf 'builder\n' >"$target/tools/build-runtime.py"
-    printf 'bwrap\n' >"$target/tools/bwrap-termux-compat.py"
-    printf 'rg\n' >"$target/tools/rg-termux-shim.sh"
-    printf 'notify engine\n' >"$target/tools/termux-notify.sh"
-    printf 'notify\n' >"$target/tools/codex-turn-notify.sh"
-    printf 'launcher\n' >"$target/tools/codex-launcher.c"
-    printf 'version\n' >"$target/config/wrapper-version.env"
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/src" python3 -B - "$target" <<'PYTHON'
+import sys
+from pathlib import Path
+from wrapper import source
+root = Path(sys.argv[1])
+for relative in source.REQUIRED_WRAPPER_SOURCE_PATHS:
+    path = root / relative
+    if relative == "tools/codex_termux":
+        path.mkdir(parents=True, exist_ok=True)
+    else:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("fixture\n", encoding="utf-8")
+PYTHON
     for arg in "$@"; do
-        [ "$arg" != "test-token" ] || fail 'git token leaked into command arguments'
+        [ "$arg" != test-token ] || fail 'git token leaked into command arguments'
     done
 }
 
@@ -220,39 +184,35 @@ CODEX_TERMUX_TMPDIR="$TMP_DIR/prefix/tmp" \
 CODEX_TERMUX_WRAPPER_REPO="example/private" \
 CODEX_TERMUX_WRAPPER_REF="main" \
 CODEX_TERMUX_WRAPPER_TOKEN="test-token" \
-codex_git_clone_wrapper_source
-codex_termux_cmd validate-wrapper-source --root "$CODEX_TERMUX_WRAPPER_SOURCE_DIR" >/dev/null \
-    || fail 'git wrapper checkout was not accepted as wrapper source'
-grep -F "https://github.com/example/private.git" "$TMP_DIR/git-args" >/dev/null \
-    || fail 'git repo shorthand did not expand to GitHub HTTPS URL'
-grep -F -- "--branch main" "$TMP_DIR/git-args" >/dev/null \
+    codex_git_clone_wrapper_source
+wrapper_cmd validate-wrapper-source --root "$CODEX_TERMUX_WRAPPER_SOURCE_DIR" >/dev/null \
+    || fail 'mock git checkout was not accepted as wrapper source'
+grep -F 'https://github.com/example/private.git' "$TMP_DIR/git-args" >/dev/null \
+    || fail 'repo shorthand did not expand'
+grep -F -- '--branch main' "$TMP_DIR/git-args" >/dev/null \
     || fail 'git ref was not passed as clone branch'
-grep -Fx "0" "$TMP_DIR/git-terminal-prompt" >/dev/null \
-    || fail 'git terminal prompts were not disabled'
-[ -x "$(cat "$TMP_DIR/git-askpass-path")" ] \
-    || fail 'git askpass helper was not created'
-grep -Fx "test-token" "$TMP_DIR/git-token-value" >/dev/null \
-    || fail 'git token was not passed through askpass environment'
-if grep -F "test-token" "$(cat "$TMP_DIR/git-askpass-path")" >/dev/null; then
+grep -Fx 0 "$TMP_DIR/git-terminal-prompt" >/dev/null \
+    || fail 'git prompts were not disabled'
+[ -x "$(cat "$TMP_DIR/git-askpass-path")" ] || fail 'git askpass helper missing'
+grep -Fx test-token "$TMP_DIR/git-token-value" >/dev/null \
+    || fail 'git token was not passed through environment'
+if grep -F test-token "$(cat "$TMP_DIR/git-askpass-path")" >/dev/null; then
     fail 'git token was written into askpass helper'
 fi
 
-mkdir -p "$TMP_DIR/incomplete/bin" "$TMP_DIR/incomplete/lib/codex-termux" "$TMP_DIR/incomplete/tools/codex_termux" "$TMP_DIR/incomplete/config"
+mkdir -p "$TMP_DIR/incomplete/bin"
 printf 'install\n' >"$TMP_DIR/incomplete/install.sh"
 printf 'install runtime\n' >"$TMP_DIR/incomplete/bin/install-runtime.sh"
-printf 'lib\n' >"$TMP_DIR/incomplete/lib/codex-termux.sh"
-printf 'builder\n' >"$TMP_DIR/incomplete/tools/build-runtime.py"
-printf 'version\n' >"$TMP_DIR/incomplete/config/wrapper-version.env"
-if codex_termux_cmd validate-wrapper-source --root "$TMP_DIR/incomplete" >/dev/null; then
+if wrapper_cmd validate-wrapper-source --root "$TMP_DIR/incomplete" >/dev/null; then
     fail 'incomplete wrapper source passed validation'
 fi
 FAILED_MESSAGE=""
-if codex_require_wrapper_source "$TMP_DIR/incomplete" "Wrapper git repository"; then
-    fail 'incomplete wrapper source was accepted by require helper'
+if codex_require_wrapper_source "$TMP_DIR/incomplete" 'Wrapper git repository'; then
+    fail 'incomplete wrapper source was accepted'
 fi
 case "$FAILED_MESSAGE" in
-    *"missing:"*"tools/termux-notify.sh"*"tools/codex-turn-notify.sh"*) ;;
-    *) fail "missing wrapper source error was not actionable: $FAILED_MESSAGE" ;;
+    *missing:*shell/loader.sh*src/wrapper/cli.py*libexec/notify*) ;;
+    *) fail "missing source error was not role-oriented: $FAILED_MESSAGE" ;;
 esac
 
 printf 'install-dispatch: ok\n'
