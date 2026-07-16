@@ -77,8 +77,12 @@ import json
 print(json.dumps({"message": "\n".join(f"line {i}" for i in range(1, 11))}))
 PYTHON
 )"
+expected_ten="$(python3 -B - <<'PYTHON'
+print("\n".join(f"line {i}" for i in range(1, 11)))
+PYTHON
+)"
 path="$(run_payload "$one_to_ten")"
-assert_payload "$path" "Codex: General" "$(printf 'line %s\n' {1..10} | sed -z 's/\n$//')"
+assert_payload "$path" "Codex: General" "$expected_ten"
 
 one_to_eleven="$(python3 -B - <<'PYTHON'
 import json
