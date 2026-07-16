@@ -9,9 +9,7 @@ layers.
 from __future__ import annotations
 
 import copy
-import re
 from pathlib import Path
-from typing import Iterable
 
 from . import _legacy_canon as _legacy
 
@@ -71,40 +69,34 @@ def _audit_python_module_ownership(root: Path, manifest: dict[str, object]) -> l
             )
         ]
     findings: list[Finding] = []
-    package_root = root / "src/wrapper"
-    legacy_root = root / "tools/codex_termux"
-    implementation_files = sorted(package_root.glob("*.py")) if (package_root / "cli.py").is_file() else sorted(legacy_root.glob("*.py"))
-    owned_modules = {
-        Path(key).name: value
+    owned_paths = {
+        key
         for key, value in ownership.items()
         if isinstance(key, str) and isinstance(value, str) and value
     }
+    package_root = root / "src/wrapper"
+    implementation_files = sorted(package_root.rglob("*.py"))
     for path in implementation_files:
-        if path.name in {"_legacy_canon.py"}:
-            continue
-        if path.name not in owned_modules and path.name not in {"canon.py"}:
+        relative = str(path.relative_to(root))
+        if relative not in owned_paths:
             findings.append(
                 Finding(
                     "python-module-unowned",
                     "blocker",
-                    str(path.relative_to(root)),
+                    relative,
                     "Python helper module lacks manifest ownership",
                 )
             )
-    for key in sorted(ownership):
-        if not isinstance(key, str):
-            continue
-        name = Path(key).name
-        if (package_root / name).is_file() or (legacy_root / name).is_file():
-            continue
-        findings.append(
-            Finding(
-                "python-module-owner-path-missing",
-                "blocker",
-                key,
-                "python_module_ownership module does not exist in either supported layout",
+    for relative in sorted(owned_paths):
+        if not (root / relative).is_file():
+            findings.append(
+                Finding(
+                    "python-module-owner-path-missing",
+                    "blocker",
+                    relative,
+                    "python_module_ownership path does not exist",
+                )
             )
-        )
     return findings
 
 
