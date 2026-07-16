@@ -145,8 +145,10 @@ for test_script in \
     "$ROOT_DIR/tests/termux-smoke-contracts.sh" \
     "$ROOT_DIR/tests/wrapper-source-config.sh" \
     "$ROOT_DIR/tests/cli-surface.sh" \
+    "$ROOT_DIR/tests/python-package-compat.sh" \
     "$ROOT_DIR/tests/notify-model.sh" \
     "$ROOT_DIR/tests/notify-baseline.sh" \
+    "$ROOT_DIR/tests/notify-service.sh" \
     "$ROOT_DIR/tests/notify.sh" \
     "$ROOT_DIR/tests/support-transaction.sh" \
     "$ROOT_DIR/tests/store-rollback.sh" \
