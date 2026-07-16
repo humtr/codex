@@ -37,6 +37,9 @@ REMOVED_CONTRACT_TERMS = (
 )
 
 ROLE_PACKAGE_MODULES = (
+    "__init__.py",
+    "_legacy_canon.py",
+    "_legacy_source.py",
     "activation.py",
     "atomic.py",
     "canon.py",
