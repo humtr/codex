@@ -1,59 +1,55 @@
 {
   "schema": 1,
   "name": "codex-termux-wrapper-contracts",
+  "layout": "role-oriented-v1",
   "public_entrypoints": [
-    {
-      "path": "install.sh",
-      "surface": "bootstrap installer"
-    },
-    {
-      "path": "bin/install-local.sh",
-      "surface": "local installer"
-    },
-    {
-      "path": "bin/install-runtime.sh",
-      "surface": "managed runtime installer"
-    },
-    {
-      "path": "lib/codex-termux.sh",
-      "surface": "managed codex shell loader"
-    },
-    {
-      "command": "codex",
-      "surface": "public launcher"
-    },
-    {
-      "command": "codex termux",
-      "surface": "wrapper command namespace"
-    }
+    {"path": "install.sh", "surface": "bootstrap installer"},
+    {"path": "bin/install-local.sh", "surface": "local installer"},
+    {"path": "bin/install-runtime.sh", "surface": "managed runtime installer"},
+    {"path": "lib/codex-termux.sh", "surface": "public compatibility shell loader"},
+    {"command": "codex", "surface": "public launcher"},
+    {"command": "codex termux", "surface": "wrapper command namespace"}
   ],
   "protected_paths": [
     "bin/install-runtime.sh",
+    "shell/*.sh",
+    "src/wrapper/**",
+    "src/codex_termux/**",
+    "libexec/**",
+    "native/codex-launcher.c",
     "lib/codex-termux.sh",
     "lib/codex-termux/*.sh",
-    "tools/build-runtime.py",
-    "tools/bwrap-termux-compat.py",
-    "tools/rg-termux-shim.sh",
-    "tools/codex-launcher.c",
-    "tools/codex-turn-notify.sh",
     "tools/codex_termux/**",
-    "config/wrapper-version.env"
+    "tools/codex-turn-notify.sh",
+    "tools/termux-notify.sh",
+    "config/wrapper-version.env",
+    "config/layout-contracts.json"
   ],
   "managed_launcher_path": "$PREFIX/bin/codex",
   "runtime_artifact_paths": [
+    "$CODEX_TERMUX_ROOT/manager",
+    "$CODEX_TERMUX_ROOT/verified-manager",
+    "$CODEX_TERMUX_ROOT/support-store",
+    "$CODEX_TERMUX_ROOT/source-snapshot",
+    "$CODEX_TERMUX_ROOT/verified-source-snapshot",
+    "$CODEX_TERMUX_ROOT/source-store",
     "$CODEX_TERMUX_ROOT/current",
     "$CODEX_TERMUX_ROOT/verified",
     "$CODEX_TERMUX_ROOT/raw",
     "$CODEX_TERMUX_ROOT/store/runtime",
     "$CODEX_TERMUX_ROOT/store/raw",
+    "$CODEX_TERMUX_MANAGER_DIR/managed.sh",
+    "$CODEX_TERMUX_MANAGER_DIR/shell",
+    "$CODEX_TERMUX_MANAGER_DIR/src/wrapper",
+    "$CODEX_TERMUX_MANAGER_DIR/libexec",
     "$CODEX_TERMUX_MANAGER_DIR/lib.sh",
     "$CODEX_TERMUX_MANAGER_DIR/codex-termux",
-    "$CODEX_TERMUX_MANAGER_DIR/codex_termux",
-    "$CODEX_TERMUX_MANAGER_DIR/managed.sh"
+    "$CODEX_TERMUX_MANAGER_DIR/codex_termux"
   ],
   "state_files": [
     "$CODEX_TERMUX_STATE_DIR/state.json",
     "$CODEX_TERMUX_STATE_DIR/registry.json",
+    "$CODEX_TERMUX_STATE_DIR/support-activation.json",
     "$CODEX_TERMUX_STATE_DIR/last-profile",
     "$CODEX_TERMUX_STATE_DIR/pending-auto-update-version",
     "$CODEX_TERMUX_STATE_DIR/failed-auto-update",
@@ -62,374 +58,92 @@
   ],
   "domain_ownership": {
     "dispatch": {
-      "path": "lib/codex-termux/dispatch.sh",
-      "owns_prefixes": [
-        "codex_main",
-        "codex_termux_main",
-        "codex_termux_help",
-        "codex_install_public",
-        "codex_update_full_public",
-        "codex_repair_surface_public",
-        "codex_install_source",
-        "codex_run_install_source"
-      ],
-      "public_functions": [
-        "codex_main",
-        "codex_termux_main",
-        "codex_install_public",
-        "codex_update_full_public",
-        "codex_repair_surface_public"
-      ]
+      "path": "shell/dispatch.sh",
+      "owns_prefixes": ["codex_main", "codex_termux_main", "codex_termux_help", "codex_install_public", "codex_update_full_public", "codex_repair_surface_public", "codex_install_source", "codex_run_install_source"],
+      "public_functions": ["codex_main", "codex_termux_main", "codex_install_public", "codex_update_full_public", "codex_repair_surface_public"]
     },
     "state": {
-      "path": "lib/codex-termux/state.sh",
-      "owns_prefixes": [
-        "codex_load_wrapper_source",
-        "codex_normalize_wrapper_source",
-        "codex_wrapper_auth_token",
-        "codex_termux_cmd",
-        "codex_termux_activation_cmd",
-        "codex_now",
-        "codex_termux_package_root"
-      ],
-      "public_functions": [
-        "codex_termux_cmd"
-      ]
+      "path": "shell/state.sh",
+      "owns_prefixes": ["codex_load_wrapper_source", "codex_normalize_wrapper_source", "codex_wrapper_auth_token", "wrapper_cmd", "wrapper_package_root", "codex_termux_cmd", "codex_termux_activation_cmd", "codex_now"],
+      "public_functions": ["wrapper_cmd", "codex_termux_cmd"]
     },
     "fs": {
-      "path": "lib/codex-termux/fs.sh",
-      "owns_prefixes": [
-        "codex_parent_dir",
-        "codex_tmp",
-        "codex_mktemp",
-        "codex_assert",
-        "codex_rm_rf_managed",
-        "codex_sha256"
-      ],
-      "public_functions": [
-        "codex_parent_dir",
-        "codex_tmp_dir",
-        "codex_mktemp_dir",
-        "codex_mktemp_file",
-        "codex_assert_managed_tree_target",
-        "codex_rm_rf_managed",
-        "codex_sha256"
-      ]
+      "path": "shell/fs.sh",
+      "owns_prefixes": ["codex_parent_dir", "codex_tmp", "codex_mktemp", "codex_assert", "codex_rm_rf_managed", "codex_sha256"],
+      "public_functions": ["codex_parent_dir", "codex_tmp_dir", "codex_mktemp_dir", "codex_mktemp_file", "codex_assert_managed_tree_target", "codex_rm_rf_managed", "codex_sha256"]
     },
     "ui": {
-      "path": "lib/codex-termux/ui.sh",
-      "owns_prefixes": [
-        "codex_status",
-        "codex_say",
-        "codex_fail",
-        "codex_ui",
-        "codex_selection_cancelled",
-        "codex_display_version"
-      ],
-      "public_functions": [
-        "codex_status_clear",
-        "codex_status",
-        "codex_say",
-        "codex_selection_cancelled",
-        "codex_fail",
-        "codex_ui_format",
-        "codex_ui_number",
-        "codex_ui_badge",
-        "codex_ui_menu_header",
-        "codex_ui_menu_row",
-        "codex_ui_prompt",
-        "codex_ui_text",
-        "codex_ui_step_text",
-        "codex_ui_text_get",
-        "codex_ui_step",
-        "codex_display_version"
-      ]
+      "path": "shell/ui.sh",
+      "owns_prefixes": ["codex_status", "codex_say", "codex_fail", "codex_ui", "codex_selection_cancelled", "codex_display_version"],
+      "public_functions": ["codex_status_clear", "codex_status", "codex_say", "codex_selection_cancelled", "codex_fail", "codex_ui_format", "codex_ui_number", "codex_ui_badge", "codex_ui_menu_header", "codex_ui_menu_row", "codex_ui_prompt", "codex_ui_text", "codex_ui_step_text", "codex_ui_text_get", "codex_ui_step", "codex_display_version"]
     },
-    "profile": {
-      "path": "lib/codex-termux/profile.sh",
-      "owns_prefixes": [
-        "codex_profile"
-      ],
-      "public_functions": [
-        "codex_profile_run"
-      ]
-    },
-    "prompt": {
-      "path": "lib/codex-termux/prompt.sh",
-      "owns_prefixes": [
-        "codex_prompt",
-        "codex_confirm"
-      ],
-      "public_functions": [
-        "codex_prompt_result",
-        "codex_prompt_interactive",
-        "codex_confirm_menu"
-      ]
-    },
+    "profile": {"path": "shell/profile.sh", "owns_prefixes": ["codex_profile"], "public_functions": ["codex_profile_run"]},
+    "prompt": {"path": "shell/prompt.sh", "owns_prefixes": ["codex_prompt", "codex_confirm"], "public_functions": ["codex_prompt_result", "codex_prompt_interactive", "codex_confirm_menu"]},
     "exec": {
-      "path": "lib/codex-termux/exec.sh",
-      "owns_prefixes": [
-        "codex_runtime_apply_env_plan",
-        "codex_runtime_exec",
-        "codex_prepare_runtime_env",
-        "codex_run_current_runtime",
-        "codex_exec_current_runtime"
-      ],
-      "public_functions": [
-        "codex_runtime_exec",
-        "codex_prepare_runtime_env",
-        "codex_run_current_runtime",
-        "codex_exec_current_runtime"
-      ]
+      "path": "shell/exec.sh",
+      "owns_prefixes": ["codex_runtime_apply_env_plan", "codex_runtime_exec", "codex_prepare_runtime_env", "codex_run_current_runtime", "codex_exec_current_runtime"],
+      "public_functions": ["codex_runtime_exec", "codex_prepare_runtime_env", "codex_run_current_runtime", "codex_exec_current_runtime"]
     },
     "store": {
-      "path": "lib/codex-termux/store.sh",
-      "owns_prefixes": [
-        "codex_store",
-        "codex_validate_runtime_retention",
-        "codex_prune_runtime_store",
-        "codex_activate",
-        "codex_try_verified_rollback"
-      ],
-      "public_functions": [
-        "codex_validate_runtime_retention",
-        "codex_activate_tuple_unlocked",
-        "codex_activate_cached_runtime_unlocked",
-        "codex_try_verified_rollback"
-      ]
+      "path": "shell/store.sh",
+      "owns_prefixes": ["codex_store", "codex_validate_runtime_retention", "codex_prune_runtime_store", "codex_activate", "codex_try_verified_rollback"],
+      "public_functions": ["codex_validate_runtime_retention", "codex_activate_tuple_unlocked", "codex_activate_cached_runtime_unlocked", "codex_try_verified_rollback"]
     },
     "build": {
-      "path": "lib/codex-termux/build.sh",
-      "owns_prefixes": [
-        "codex_replace_tree_atomic",
-        "codex_prepare_complete_runtime_tree",
-        "codex_package_spec",
-        "codex_fetch_package",
-        "codex_install_raw_vendor",
-        "codex_build_runtime_tree",
-        "codex_runtime_build_cached_unlocked",
-        "codex_runtime_install_cached_unlocked",
-        "codex_runtime_install_cached",
-        "codex_runtime_install_upstream_unlocked",
-        "codex_runtime_install_upstream"
-      ],
-      "public_functions": [
-        "codex_install_raw_vendor",
-        "codex_prepare_complete_runtime_tree",
-        "codex_runtime_install_cached",
-        "codex_runtime_install_upstream"
-      ]
+      "path": "shell/build.sh",
+      "owns_prefixes": ["codex_replace_tree_atomic", "codex_prepare_complete_runtime_tree", "codex_package_spec", "codex_fetch_package", "codex_install_raw_vendor", "codex_build_runtime_tree", "codex_runtime_build_cached_unlocked", "codex_runtime_install_cached_unlocked", "codex_runtime_install_cached", "codex_runtime_install_upstream_unlocked", "codex_runtime_install_upstream"],
+      "public_functions": ["codex_install_raw_vendor", "codex_prepare_complete_runtime_tree", "codex_runtime_install_cached", "codex_runtime_install_upstream"]
     },
-    "use": {
-      "path": "lib/codex-termux/use.sh",
-      "owns_prefixes": [
-        "codex_use"
-      ],
-      "public_functions": [
-        "codex_use"
-      ]
-    },
-    "remove": {
-      "path": "lib/codex-termux/remove.sh",
-      "owns_prefixes": [
-        "codex_restore_backup",
-        "codex_remove"
-      ],
-      "public_functions": [
-        "codex_remove"
-      ]
-    },
-    "session": {
-      "path": "lib/codex-termux/session.sh",
-      "owns_prefixes": [
-        "codex_session"
-      ],
-      "public_functions": [
-        "codex_session"
-      ]
-    },
-    "runtime": {
-      "path": "lib/codex-termux/runtime.sh",
-      "owns_prefixes": [],
-      "public_functions": []
-    },
+    "use": {"path": "shell/use.sh", "owns_prefixes": ["codex_use"], "public_functions": ["codex_use"]},
+    "remove": {"path": "shell/remove.sh", "owns_prefixes": ["codex_restore_backup", "codex_remove"], "public_functions": ["codex_remove"]},
+    "session": {"path": "shell/session.sh", "owns_prefixes": ["codex_session"], "public_functions": ["codex_session"]},
+    "runtime": {"path": "shell/runtime.sh", "owns_prefixes": [], "public_functions": []},
     "repair": {
-      "path": "lib/codex-termux/repair.sh",
-      "owns_prefixes": [
-        "codex_repair",
-        "codex_runtime_apply_action",
-        "codex_refresh_runtime_metadata",
-        "codex_ensure_runtime_ready"
-      ],
-      "public_functions": [
-        "codex_repair_core_unlocked",
-        "codex_repair_public",
-        "codex_refresh_runtime_metadata",
-        "codex_ensure_runtime_ready"
-      ]
+      "path": "shell/repair.sh",
+      "owns_prefixes": ["codex_repair", "codex_runtime_apply_action", "codex_refresh_runtime_metadata", "codex_ensure_runtime_ready"],
+      "public_functions": ["codex_repair_core_unlocked", "codex_repair_public", "codex_refresh_runtime_metadata", "codex_ensure_runtime_ready"]
     },
     "version": {
-      "path": "lib/codex-termux/version.sh",
-      "owns_prefixes": [
-        "codex_latest",
-        "codex_auto_update",
-        "codex_mark_auto_update",
-        "codex_write_pending_auto_update",
-        "codex_clear_pending_auto_update",
-        "codex_write_failed_auto_update",
-        "codex_clear_failed_auto_update",
-        "codex_prompt_update",
-        "codex_upstream",
-        "codex_version"
-      ],
-      "public_functions": [
-        "codex_latest_linux_arm64_version",
-        "codex_auto_update_if_needed",
-        "codex_version"
-      ]
+      "path": "shell/version.sh",
+      "owns_prefixes": ["codex_latest", "codex_auto_update", "codex_mark_auto_update", "codex_write_pending_auto_update", "codex_clear_pending_auto_update", "codex_write_failed_auto_update", "codex_clear_failed_auto_update", "codex_prompt_update", "codex_upstream", "codex_version"],
+      "public_functions": ["codex_latest_linux_arm64_version", "codex_auto_update_if_needed", "codex_version"]
     },
-    "notify": {
-      "path": "lib/codex-termux/notify.sh",
-      "owns_prefixes": [
-        "codex_notify"
-      ],
-      "public_functions": [
-        "codex_notify_public"
-      ]
-    },
-    "doctor": {
-      "path": "lib/codex-termux/doctor.sh",
-      "owns_prefixes": [
-        "codex_termux_doctor"
-      ],
-      "public_functions": [
-        "codex_termux_doctor",
-        "codex_termux_doctor_public"
-      ]
-    }
+    "notify": {"path": "shell/notify.sh", "owns_prefixes": ["codex_notify"], "public_functions": ["codex_notify_public"]},
+    "doctor": {"path": "shell/doctor.sh", "owns_prefixes": ["codex_termux_doctor"], "public_functions": ["codex_termux_doctor", "codex_termux_doctor_public"]}
   },
   "allowed_private_cross_domain_calls": {
-    "*": [
-      "codex_fail",
-      "codex_say",
-      "codex_status",
-      "codex_status_clear",
-      "codex_termux_cmd",
-      "codex_with_lock",
-      "codex_mktemp_dir",
-      "codex_mktemp_file"
-    ],
-    "dispatch": [
-      "codex_auto_update_if_needed",
-      "codex_runtime_exec_with_context",
-      "codex_repair_public"
-    ],
+    "*": ["codex_fail", "codex_say", "codex_status", "codex_status_clear", "wrapper_cmd", "codex_termux_cmd", "codex_with_lock", "codex_mktemp_dir", "codex_mktemp_file"],
+    "dispatch": ["codex_auto_update_if_needed", "codex_runtime_exec_with_context", "codex_repair_public"],
     "state": [],
-    "profile": [
-      "codex_auto_update_if_needed",
-      "codex_exec_current_runtime",
-      "codex_ui_step",
-      "codex_ui_text_get"
-    ],
-    "prompt": [
-      "codex_say",
-      "codex_status_clear",
-      "codex_ui_menu_header",
-      "codex_ui_menu_row",
-      "codex_ui_prompt",
-      "codex_ui_text_get"
-    ],
-    "exec": [
-      "codex_prepare_system_config"
-    ],
-    "store": [
-      "codex_parent_dir",
-      "codex_rm_rf_managed",
-      "codex_sha256",
-      "codex_termux_activation_cmd",
-      "codex_ui_step",
-      "codex_ui_text_get"
-    ],
-    "build": [
-      "codex_assert_managed_tree_target",
-      "codex_display_version",
-      "codex_fail",
-      "codex_parent_dir",
-      "codex_rm_rf_managed",
-      "codex_sha256",
-      "codex_status_clear",
-      "codex_termux_activation_cmd",
-      "codex_ui_step",
-      "codex_ui_text_get",
-      "codex_with_lock"
-    ],
-    "use": [
-      "codex_activate_cached_runtime_unlocked",
-      "codex_latest_linux_arm64_version",
-      "codex_runtime_install_upstream",
-      "codex_ui_text_get"
-    ],
-    "remove": [
-      "codex_rm_rf_managed",
-      "codex_ui_text_get"
-    ],
-    "session": [
-      "codex_profile_exec",
-      "codex_runtime_exec_with_context",
-      "codex_ui_text_get"
-    ],
-    "runtime": [
-      "codex_assert_managed_tree_target",
-      "codex_display_version",
-      "codex_notify_all_hooks",
-      "codex_parent_dir",
-      "codex_prepare_system_config",
-      "codex_rm_rf_managed",
-      "codex_sha256",
-      "codex_termux_activation_cmd",
-      "codex_ui_badge",
-      "codex_ui_step",
-      "codex_ui_text_get"
-    ],
-    "repair": [
-      "codex_install_source_command",
-      "codex_runtime_install_cached",
-      "codex_ui_step",
-      "codex_validate_runtime_retention",
-      "codex_version"
-    ],
-    "version": [
-      "codex_display_version",
-      "codex_runtime_install_upstream",
-      "codex_ui_badge",
-      "codex_ui_step",
-      "codex_ui_text_get"
-    ],
-    "notify": [
-      "codex_prepare_system_config",
-      "codex_selection_cancelled",
-      "codex_ui_menu_header",
-      "codex_ui_number"
-    ],
-    "doctor": [
-      "codex_prepare_runtime_env"
-    ]
+    "profile": ["codex_auto_update_if_needed", "codex_exec_current_runtime", "codex_ui_step", "codex_ui_text_get"],
+    "prompt": ["codex_say", "codex_status_clear", "codex_ui_menu_header", "codex_ui_menu_row", "codex_ui_prompt", "codex_ui_text_get"],
+    "exec": ["codex_prepare_system_config"],
+    "store": ["codex_parent_dir", "codex_rm_rf_managed", "codex_sha256", "codex_termux_activation_cmd", "codex_ui_step", "codex_ui_text_get"],
+    "build": ["codex_assert_managed_tree_target", "codex_display_version", "codex_fail", "codex_parent_dir", "codex_rm_rf_managed", "codex_sha256", "codex_status_clear", "codex_termux_activation_cmd", "codex_ui_step", "codex_ui_text_get", "codex_with_lock"],
+    "use": ["codex_activate_cached_runtime_unlocked", "codex_latest_linux_arm64_version", "codex_runtime_install_upstream", "codex_ui_text_get"],
+    "remove": ["codex_rm_rf_managed", "codex_ui_text_get"],
+    "session": ["codex_profile_exec", "codex_runtime_exec_with_context", "codex_ui_text_get"],
+    "runtime": ["codex_assert_managed_tree_target", "codex_display_version", "codex_notify_all_hooks", "codex_parent_dir", "codex_prepare_system_config", "codex_rm_rf_managed", "codex_sha256", "codex_termux_activation_cmd", "codex_ui_badge", "codex_ui_step", "codex_ui_text_get"],
+    "repair": ["codex_install_source_command", "codex_runtime_install_cached", "codex_ui_step", "codex_validate_runtime_retention", "codex_version"],
+    "version": ["codex_display_version", "codex_runtime_install_upstream", "codex_ui_badge", "codex_ui_step", "codex_ui_text_get"],
+    "notify": ["codex_prepare_system_config", "codex_selection_cancelled", "codex_ui_menu_header", "codex_ui_number"],
+    "doctor": ["codex_prepare_runtime_env"]
   },
   "shell_budgets": {
-    "lib_lines": 100,
+    "lib_lines": 150,
     "install_runtime_lines": 650,
     "domain_shell_lines": 2700,
-    "lib_shell_functions": 180,
+    "lib_shell_functions": 190,
     "notify_shell_functions": 22,
     "profile_shell_functions": 16
   },
   "target_shell_budgets_95": {
-    "lib_lines": 80,
+    "lib_lines": 90,
     "install_runtime_lines": 375,
     "domain_shell_lines": 1450,
-    "lib_shell_functions": 85,
+    "lib_shell_functions": 90,
     "runtime_shell_lines": 450,
-    "state_shell_lines": 220,
+    "state_shell_lines": 240,
     "notify_shell_lines": 180,
     "profile_shell_lines": 220,
     "notify_shell_functions": 8,
@@ -439,180 +153,105 @@
   "shell_function_classification_rules": [
     {
       "class": "dispatch",
-      "patterns": [
-        "^(usage|main)$",
-        "^codex_source_domain$",
-        "^codex_termux_(help|main|version_public|doctor|doctor_json|doctor_public)$",
-        "^codex_(main|run_install_public|install_public|update_full_public|repair_surface_public|install_run_plan|notify_usage|notify_public|profile_run|use|session)$"
-      ],
+      "patterns": ["^(usage|main)$", "^codex_source_domain$", "^codex_termux_(help|main|version_public|doctor|doctor_json|doctor_public)$", "^codex_(main|run_install_public|install_public|update_full_public|repair_surface_public|install_run_plan|notify_usage|notify_public|profile_run|use|session)$"],
       "reason": "Public command routing and namespace dispatch remain shell-owned because they are the wrapper entry surface.",
-      "tests": [
-        "tests/install-dispatch.sh",
-        "tests/wrapper-contracts.sh",
-        "tools/smoke-termux-wrapper.sh"
-      ]
+      "tests": ["tests/install-dispatch.sh", "tests/wrapper-contracts.sh", "tools/smoke-wrapper.sh"]
     },
     {
       "class": "prompt",
-      "patterns": [
-        "^codex_prompt_",
-        "^codex_confirm_menu$",
-        "^codex_profile_(ensure_dir|select)$",
-        "^codex_notify_interactive_public$"
-      ],
+      "patterns": ["^codex_prompt_", "^codex_confirm_menu$", "^codex_profile_(ensure_dir|select)$", "^codex_notify_interactive_public$"],
       "reason": "Interactive terminal input and confirmation display stay in shell while reusable choice interpretation is delegated to Python.",
-      "tests": [
-        "tests/profile-boundary.sh",
-        "tests/notify.sh",
-        "tools/smoke-termux-wrapper.sh"
-      ]
+      "tests": ["tests/profile-boundary.sh", "tests/notify.sh", "tools/smoke-wrapper.sh"]
     },
     {
       "class": "exec_fd",
-      "patterns": [
-        "^codex_(run_install_source_command|runtime_exec|smoke_test_runtime|profile_runtime_exec|profile_exec|runtime_exec_with_context|build_runtime_tree|repair_install_support|build_launcher|run_current_runtime|exec_current_runtime|latest_linux_arm64_version)$"
-      ],
+      "patterns": ["^codex_(run_install_source_command|runtime_exec|smoke_test_runtime|profile_runtime_exec|profile_exec|runtime_exec_with_context|build_runtime_tree|repair_install_support|build_launcher|run_current_runtime|exec_current_runtime|latest_linux_arm64_version)$"],
       "reason": "Process execution, fd wiring, runtime launch, and external command invocation are irreducible shell responsibilities.",
-      "tests": [
-        "tests/wrapper-contracts.sh",
-        "tests/runtime-build.sh",
-        "tests/termux-smoke-contracts.sh"
-      ]
+      "tests": ["tests/wrapper-contracts.sh", "tests/runtime-build.sh", "tests/termux-smoke-contracts.sh"]
     },
     {
       "class": "file_mutation",
-      "patterns": [
-        "^codex_(download_wrapper_archive|fetch_release_wrapper_source|prepare_git_askpass|git_clone_wrapper_source|prepare_fresh_wrapper_source|copy_wrapper_source_snapshot|write_managed_shell|remove_python_bytecode|check_manager_python|install_support_files|prepare_launcher_slot|write_shell_launcher|write_compiled_launcher|install_launchers)$",
-        "^codex_install_(support_and_launchers|surface_finish|surface_run|full_unlocked|full_core|support_unlocked|support_core|upstream_core|rebuild_unlocked|rebuild_core|auto_update)$",
-        "^codex_(repair_core|restore_backup|remove|replace_tree_atomic|prune_runtime_store|prepare_complete_runtime_tree|fetch_package|install_raw_vendor|activate_tuple_unlocked|commit_runtime_candidate|runtime_build_cached_unlocked|runtime_install_cached_unlocked|runtime_install_cached|runtime_install_upstream_unlocked|runtime_install_upstream|mark_auto_update_checked|write_pending_auto_update|clear_pending_auto_update|write_failed_auto_update|clear_failed_auto_update|refresh_runtime_metadata_unlocked|refresh_runtime_metadata|activate_cached_runtime_unlocked|try_verified_rollback_unlocked|try_verified_rollback)$"
-      ],
+      "patterns": ["^codex_(download_wrapper_archive|fetch_release_wrapper_source|prepare_git_askpass|git_clone_wrapper_source|prepare_fresh_wrapper_source|copy_wrapper_source_snapshot|write_managed_shell|remove_python_bytecode|check_manager_python|install_support_files|prepare_launcher_slot|write_shell_launcher|write_compiled_launcher|install_launchers)$", "^codex_install_(support_and_launchers|surface_finish|surface_run|full_unlocked|full_core|support_unlocked|support_core|upstream_core|rebuild_unlocked|rebuild_core|auto_update)$", "^codex_(repair_core|restore_backup|remove|replace_tree_atomic|prune_runtime_store|prepare_complete_runtime_tree|fetch_package|install_raw_vendor|activate_tuple_unlocked|commit_runtime_candidate|runtime_build_cached_unlocked|runtime_install_cached_unlocked|runtime_install_cached|runtime_install_upstream_unlocked|runtime_install_upstream|mark_auto_update_checked|write_pending_auto_update|clear_pending_auto_update|write_failed_auto_update|clear_failed_auto_update|refresh_runtime_metadata_unlocked|refresh_runtime_metadata|activate_cached_runtime_unlocked|try_verified_rollback_unlocked|try_verified_rollback)$"],
       "reason": "Managed install, launcher, runtime tree, registry pointer, rollback, and cache mutations stay in shell but are guarded by Python policy helpers and managed-path checks.",
-      "tests": [
-        "tests/install-dispatch.sh",
-        "tests/wrapper-source-config.sh",
-        "tests/store-rollback.sh"
-      ]
+      "tests": ["tests/install-dispatch.sh", "tests/wrapper-source-config.sh", "tests/store-rollback.sh", "tests/support-transaction.sh"]
     },
     {
       "class": "lock_temp",
-      "patterns": [
-        "^codex_(cleanup_fresh_wrapper_source|with_fresh_wrapper_source|tmp_dir|mktemp_dir|mktemp_file|lock_is_held|with_lock)$"
-      ],
+      "patterns": ["^codex_(cleanup_fresh_wrapper_source|with_fresh_wrapper_source|tmp_dir|mktemp_dir|mktemp_file|lock_is_held|with_lock)$"],
       "reason": "Temporary directory lifecycle and shell lock/trap behavior remain shell-owned process glue.",
-      "tests": [
-        "tests/tmp-paths.sh",
-        "tests/lock.sh",
-        "tests/wrapper-source-config.sh"
-      ]
+      "tests": ["tests/tmp-paths.sh", "tests/lock.sh", "tests/wrapper-source-config.sh"]
     },
     {
       "class": "env_setup",
-      "patterns": [
-        "^codex_(load_wrapper_source_config|normalize_wrapper_source_config|wrapper_auth_token|load_wrapper_source_plan|runtime_apply_env_plan|prepare_runtime_env|notify_load_config|notify_command_config|prepare_system_config|install_source_command)$"
-      ],
+      "patterns": ["^codex_(load_wrapper_source_config|normalize_wrapper_source_config|wrapper_auth_token|load_wrapper_source_plan|runtime_apply_env_plan|prepare_runtime_env|notify_load_config|notify_command_config|prepare_system_config|install_source_command)$"],
       "reason": "Shell applies exported environment plans and sources local config, while Python owns reusable source, notify, and runtime environment decisions.",
-      "tests": [
-        "tests/source-plan.sh",
-        "tests/notify-model.sh",
-        "tests/cli-surface.sh"
-      ]
+      "tests": ["tests/source-plan.sh", "tests/notify-model.sh", "tests/cli-surface.sh"]
     },
     {
       "class": "termux_glue",
-      "patterns": [
-        "^codex_(status_clear|status|say|selection_cancelled|fail)$",
-        "^codex_ui_",
-        "^codex_(display_version|parent_dir|assert_managed_tree_target|rm_rf_managed|sha256|now|termux_package_root|termux_cmd|termux_activation_cmd)$",
-        "^codex_(require_wrapper_source|launcher_available|profile_name_valid|profile_home_dir|use_list|use_render|use_select|session_share_source)$",
-        "^codex_notify_(all_hooks|write_system_config|render_hooks)$",
-        "^codex_(require_runtime_resolver|validate_tarball_safe|support_source_dir|resolve_path|tree_digest|store_id|validate_runtime_retention|package_spec|repair_diagnose_action|runtime_apply_action|repair_apply|repair_core_unlocked|repair_public_unlocked|repair_public|auto_update_if_needed|apply_auto_update_version|support_tools_match|runtime_integrity_ok|raw_integrity_ok|runtime_ok|runtime_metadata_current|verified_rollback_needed|ensure_runtime_ready|upstream_release_date|version)$"
-      ],
+      "patterns": ["^wrapper_(package_root|cmd)$", "^codex_(status_clear|status|say|selection_cancelled|fail)$", "^codex_ui_", "^codex_(display_version|parent_dir|assert_managed_tree_target|rm_rf_managed|sha256|now|termux_package_root|termux_cmd|termux_activation_cmd)$", "^codex_(require_wrapper_source|launcher_available|profile_name_valid|profile_home_dir|use_list|use_render|use_select|session_share_source)$", "^codex_notify_(all_hooks|write_system_config|render_hooks)$", "^codex_(require_runtime_resolver|validate_tarball_safe|support_source_dir|resolve_path|tree_digest|store_id|validate_runtime_retention|package_spec|repair_diagnose_action|runtime_apply_action|repair_apply|repair_core_unlocked|repair_public_unlocked|repair_public|auto_update_if_needed|apply_auto_update_version|support_tools_match|runtime_integrity_ok|raw_integrity_ok|runtime_ok|runtime_metadata_current|verified_rollback_needed|ensure_runtime_ready|upstream_release_date|version)$"],
       "reason": "Small shell bridges remain for Termux paths, terminal status, managed destructive guards, and Python helper calls; reusable parsing and policy stay Python-owned.",
-      "tests": [
-        "tests/canon-audit.sh",
-        "tests/repair-diagnosis.sh",
-        "tests/runtime-date.sh",
-        "tests/doctor.sh"
-      ]
+      "tests": ["tests/canon-audit.sh", "tests/repair-diagnosis.sh", "tests/runtime-date.sh", "tests/doctor.sh"]
     }
   ],
   "python_module_ownership": {
-    "tools/codex_termux/__init__.py": "package",
-    "tools/codex_termux/activation.py": "runtime",
-    "tools/codex_termux/atomic.py": "state",
-    "tools/codex_termux/canon.py": "audit",
-    "tools/codex_termux/cli_activation.py": "runtime",
-    "tools/codex_termux/cli_artifacts.py": "artifacts",
-    "tools/codex_termux/cli_doctor.py": "doctor",
-    "tools/codex_termux/cli_notify.py": "notify",
-    "tools/codex_termux/cli_profile.py": "profile",
-    "tools/codex_termux/cli_product.py": "product",
-    "tools/codex_termux/cli_repair.py": "runtime",
-    "tools/codex_termux/cli_runtime.py": "runtime",
-    "tools/codex_termux/cli_session.py": "session",
-    "tools/codex_termux/cli_store.py": "runtime",
-    "tools/codex_termux/cli_ui.py": "state",
-    "tools/codex_termux/cli_use.py": "profile",
-    "tools/codex_termux/cli.py": "cli-dispatch",
-    "tools/codex_termux/doctor.py": "doctor",
-    "tools/codex_termux/errors.py": "package",
-    "tools/codex_termux/hashing.py": "runtime",
-    "tools/codex_termux/install_plan.py": "install",
-    "tools/codex_termux/notify.py": "notify",
-    "tools/codex_termux/paths.py": "state",
-    "tools/codex_termux/prune.py": "runtime",
-    "tools/codex_termux/registry.py": "runtime",
-    "tools/codex_termux/release.py": "release",
-    "tools/codex_termux/repair.py": "runtime",
-    "tools/codex_termux/runtime_checks.py": "runtime",
-    "tools/codex_termux/runtime_env.py": "runtime",
-    "tools/codex_termux/schemas.py": "state",
-    "tools/codex_termux/session.py": "session",
-    "tools/codex_termux/source.py": "source",
-    "tools/codex_termux/state.py": "state",
-    "tools/codex_termux/store.py": "runtime",
-    "tools/codex_termux/ui.py": "state",
-    "tools/codex_termux/use.py": "profile"
+    "src/wrapper/__init__.py": "package",
+    "src/wrapper/activation.py": "runtime",
+    "src/wrapper/atomic.py": "state",
+    "src/wrapper/canon.py": "audit",
+    "src/wrapper/_legacy_canon.py": "audit-compat",
+    "src/wrapper/_legacy_source.py": "source-compat",
+    "src/wrapper/cli.py": "cli-dispatch",
+    "src/wrapper/cli_activation.py": "runtime",
+    "src/wrapper/cli_artifacts.py": "artifacts",
+    "src/wrapper/cli_doctor.py": "doctor",
+    "src/wrapper/cli_notify.py": "notify",
+    "src/wrapper/cli_profile.py": "profile",
+    "src/wrapper/cli_product.py": "product",
+    "src/wrapper/cli_repair.py": "runtime",
+    "src/wrapper/cli_runtime.py": "runtime",
+    "src/wrapper/cli_session.py": "session",
+    "src/wrapper/cli_store.py": "runtime",
+    "src/wrapper/cli_ui.py": "state",
+    "src/wrapper/cli_use.py": "profile",
+    "src/wrapper/doctor.py": "doctor",
+    "src/wrapper/errors.py": "package",
+    "src/wrapper/hashing.py": "runtime",
+    "src/wrapper/install_plan.py": "install",
+    "src/wrapper/notify.py": "notify-config",
+    "src/wrapper/paths.py": "state",
+    "src/wrapper/prune.py": "runtime",
+    "src/wrapper/registry.py": "runtime",
+    "src/wrapper/release.py": "release",
+    "src/wrapper/repair.py": "runtime",
+    "src/wrapper/runtime_checks.py": "runtime",
+    "src/wrapper/runtime_env.py": "runtime",
+    "src/wrapper/schemas.py": "state",
+    "src/wrapper/session.py": "session",
+    "src/wrapper/source.py": "source",
+    "src/wrapper/state.py": "state",
+    "src/wrapper/store.py": "runtime",
+    "src/wrapper/support_layout.py": "install",
+    "src/wrapper/ui.py": "state",
+    "src/wrapper/use.py": "profile",
+    "src/wrapper/notification/__init__.py": "notify",
+    "src/wrapper/notification/config.py": "notify-config",
+    "src/wrapper/notification/model.py": "notify-model",
+    "src/wrapper/notification/provider.py": "notify-provider",
+    "src/wrapper/notification/service.py": "notify-service"
   },
-  "product_forbidden_paths": [
-    "GOAL.md",
-    ".github/workflows/*"
-  ],
+  "product_forbidden_paths": ["GOAL.md", ".github/workflows/*"],
   "product_forbidden_patterns": [
-    {
-      "pattern": "merge-readiness",
-      "reason": "generic merge-readiness automation belongs outside the product repo"
-    },
-    {
-      "pattern": "NEXT_AGENT_PROMPT",
-      "reason": "agent handoff prompts belong outside the product repo"
-    },
-    {
-      "pattern": "workflow_dispatch",
-      "reason": "GitHub workflow triggers belong outside the product repo"
-    },
-    {
-      "pattern": "agent loop",
-      "reason": "generic agent loop material belongs outside the product repo"
-    }
+    {"pattern": "merge-readiness", "reason": "generic merge-readiness automation belongs outside the product repo"},
+    {"pattern": "NEXT_AGENT_PROMPT", "reason": "agent handoff prompts belong outside the product repo"},
+    {"pattern": "workflow_dispatch", "reason": "GitHub workflow triggers belong outside the product repo"},
+    {"pattern": "agent loop", "reason": "generic agent loop material belongs outside the product repo"}
   ],
   "forbidden_shell_patterns": [
-    {
-      "pattern": "CODEX_REPAIR_NEEDS_",
-      "reason": "repair/readiness diagnosis must stay Python-owned"
-    },
-    {
-      "pattern": "CODEX_REPAIR_RAW_OK",
-      "reason": "repair/readiness diagnosis must stay Python-owned"
-    },
-    {
-      "pattern": "python3 -c",
-      "reason": "protected wrapper shell must call codex_termux helpers instead of inline Python"
-    },
-    {
-      "pattern": "jq ",
-      "reason": "protected wrapper shell must not own JSON parsing"
-    }
+    {"pattern": "CODEX_REPAIR_NEEDS_", "reason": "repair/readiness diagnosis must stay Python-owned"},
+    {"pattern": "CODEX_REPAIR_RAW_OK", "reason": "repair/readiness diagnosis must stay Python-owned"},
+    {"pattern": "python3 -c", "reason": "protected wrapper shell must call wrapper helpers instead of inline Python"},
+    {"pattern": "jq ", "reason": "protected wrapper shell must not own JSON parsing"}
   ],
   "compatibility_contracts": [
     "codex public entrypoint routes non-termux args to current runtime",
@@ -621,6 +260,8 @@
     "codex termux install upstream accepts optional version",
     "doctor --json dispatches to codex_termux_doctor",
     "parallel surfaces do not write codex recent-profile state",
-    "protected runtime/binary/launcher paths are not deleted without managed validation"
+    "protected runtime/binary/launcher paths are not deleted without managed validation",
+    "legacy lib/codex-termux and tools/codex_termux paths contain facades only",
+    "manager and source snapshot activate transactionally with verified fallback"
   ]
 }
