@@ -14,4 +14,9 @@ _WRAPPER = _SRC / "wrapper"
 if _WRAPPER.is_dir():
     __path__.append(str(_WRAPPER))
 
+from . import canon as _canon  # noqa: E402
+from . import canon_policy as _canon_policy  # noqa: E402
+
+_canon_policy.install(_canon)
+
 __all__: tuple[str, ...] = ()
