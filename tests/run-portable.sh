@@ -148,6 +148,7 @@ for test_script in \
     "$ROOT_DIR/tests/notify-model.sh" \
     "$ROOT_DIR/tests/notify-baseline.sh" \
     "$ROOT_DIR/tests/notify.sh" \
+    "$ROOT_DIR/tests/support-transaction.sh" \
     "$ROOT_DIR/tests/store-rollback.sh" \
     "$ROOT_DIR/tests/profile-boundary.sh" \
     "$ROOT_DIR/tests/session.sh" \
