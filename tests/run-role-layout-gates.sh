@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LOG_DIR="${CODEX_TERMUX_VALIDATION_LOG_DIR:-$ROOT_DIR/.validation/role-layout}"
+LOG_DIR="${CODEX_TERMUX_VALIDATION_LOG_DIR:-${TMPDIR:-/tmp}/codex-role-layout-validation}"
 mkdir -p "$LOG_DIR"
 
 run_logged() {
