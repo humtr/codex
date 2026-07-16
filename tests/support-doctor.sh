@@ -9,12 +9,17 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/src" python3 -B - "$TMP_DIR" <<'
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
 from wrapper import support_diagnostics
 
-root = Path(sys.argv[1]) / "termux"
+base = Path(sys.argv[1])
+root = base / "termux"
+state = base / "state"
+os.environ["CODEX_TERMUX_STATE_DIR"] = str(state)
+state.mkdir(parents=True)
 support = root / "support-store/support-a"
 source = root / "source-store/source-a"
 support.mkdir(parents=True)
@@ -45,6 +50,36 @@ assert report["supportLayout"]["mode"] == "role-oriented"
 assert all(report["supportLayout"]["checks"].values()), report
 assert report["paths"]["manager_target"].endswith("support-a")
 assert report["paths"]["source_snapshot_target"].endswith("source-a")
+assert report["checks"]["support_recovery_clean"] is True
+assert report["checks"]["support_recovery_backups_clean"] is True
+
+recovery = state / "support-recovery.json"
+recovery.write_text(
+    json.dumps({"schema": 2, "status": "switched"}) + "\n",
+    encoding="utf-8",
+)
+stale = {"overallStatus": "ok", "checks": {}, "paths": {}}
+support_diagnostics.augment_report(stale, root / "manager")
+assert stale["overallStatus"] == "fail", stale
+assert stale["checks"]["support_recovery_clean"] is False
+assert stale["checks"]["support_recovery_readable"] is True
+assert stale["supportLayout"]["recoveryStatus"] == "switched"
+
+recovery.write_text("{broken\n", encoding="utf-8")
+corrupt = {"overallStatus": "ok", "checks": {}, "paths": {}}
+support_diagnostics.augment_report(corrupt, root / "manager")
+assert corrupt["overallStatus"] == "fail", corrupt
+assert corrupt["checks"]["support_recovery_readable"] is False
+recovery.unlink()
+
+backup = state / ".launcher-test.backup"
+backup.write_text("backup\n", encoding="utf-8")
+leftover = {"overallStatus": "ok", "checks": {}, "paths": {}}
+support_diagnostics.augment_report(leftover, root / "manager")
+assert leftover["overallStatus"] == "fail", leftover
+assert leftover["checks"]["support_recovery_backups_clean"] is False
+assert str(backup) in leftover["paths"]["support_recovery_backups"]
+backup.unlink()
 
 bad_source = root / "source-store/source-b"
 bad_source.mkdir()
@@ -55,7 +90,7 @@ support_diagnostics.augment_report(bad, root / "manager")
 assert bad["overallStatus"] == "fail", bad
 assert bad["checks"]["source_id_match"] is False
 
-legacy = Path(sys.argv[1]) / "legacy/manager"
+legacy = base / "legacy/manager"
 legacy.mkdir(parents=True)
 legacy_report = {"overallStatus": "ok", "checks": {}, "paths": {}}
 support_diagnostics.augment_report(legacy_report, legacy)
