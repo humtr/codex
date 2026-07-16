@@ -21,4 +21,11 @@ for _candidate in _LEGACY_CANDIDATES:
     if _candidate.is_dir():
         __path__.append(str(_candidate))
 
+# Canon is patched once at package import so every command path, including the
+# compatibility namespace, applies the same role-oriented ownership rules.
+from . import canon as _canon  # noqa: E402
+from . import canon_policy as _canon_policy  # noqa: E402
+
+_canon_policy.install(_canon)
+
 __all__: tuple[str, ...] = ()
