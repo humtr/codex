@@ -15,6 +15,8 @@ codex_load_wrapper_source_config
 
 CODEX_TERMUX_WRAPPER_SOURCE_DIR="${CODEX_TERMUX_WRAPPER_SOURCE_DIR:-$ROOT_DIR}"
 CODEX_TERMUX_INSTALL_RUNTIME_SOURCE="${CODEX_TERMUX_INSTALL_RUNTIME_SOURCE:-$ROOT_DIR/bin/install-runtime.sh}"
+CODEX_TERMUX_VERIFIED_MANAGER_LINK="${CODEX_TERMUX_VERIFIED_MANAGER_LINK:-$CODEX_TERMUX_ROOT/verified-manager}"
+CODEX_TERMUX_SUPPORT_TRANSACTION_FILE="${CODEX_TERMUX_SUPPORT_TRANSACTION_FILE:-$CODEX_TERMUX_STATE_DIR/support-activation.json}"
 
 usage() {
     # install upstream [VERSION]; install rebuild
@@ -243,42 +245,93 @@ PYTHON
 }
 
 codex_install_support_files() {
-    local wrapper_commit source_dir="$CODEX_TERMUX_WRAPPER_SOURCE_DIR"
+    local wrapper_commit source_dir="$CODEX_TERMUX_WRAPPER_SOURCE_DIR" package_root installed_at status=0
     codex_require_wrapper_source "$source_dir" "Invalid wrapper source: $source_dir" || return $?
-    mkdir -p "$CODEX_TERMUX_MANAGER_DIR" "$CODEX_TERMUX_STATE_DIR"
-    codex_prepare_system_config
-    codex_copy_wrapper_source_snapshot "$source_dir" "$CODEX_TERMUX_SOURCE_DIR" || return $?
-    cp "$source_dir/lib/codex-termux.sh" "$CODEX_TERMUX_MANAGER_DIR/lib.sh"
-    chmod 755 "$CODEX_TERMUX_MANAGER_DIR/lib.sh"
-    codex_rm_rf_managed "$CODEX_TERMUX_MANAGER_DIR/codex-termux"
-    if [ -d "$source_dir/lib/codex-termux" ]; then
-        cp -R "$source_dir/lib/codex-termux" "$CODEX_TERMUX_MANAGER_DIR/codex-termux"
-    fi
-    codex_rm_rf_managed "$CODEX_TERMUX_MANAGER_DIR/codex_termux"
-    cp -R "$source_dir/tools/codex_termux" "$CODEX_TERMUX_MANAGER_DIR/codex_termux"
-    codex_check_manager_python
-    cp "$source_dir/tools/build-runtime.py" "$CODEX_TERMUX_MANAGER_DIR/build-runtime.py"
-    cp "$source_dir/tools/bwrap-termux-compat.py" "$CODEX_TERMUX_MANAGER_DIR/bwrap-termux-compat.py"
-    cp "$source_dir/tools/rg-termux-shim.sh" "$CODEX_TERMUX_MANAGER_DIR/rg-termux-shim.sh"
-    cp "$source_dir/tools/termux-notify.sh" "$CODEX_TERMUX_MANAGER_DIR/termux-notify.sh"
-    cp "$source_dir/tools/codex-turn-notify.sh" "$CODEX_TERMUX_MANAGER_DIR/codex-turn-notify.sh"
-    chmod 755 "$CODEX_TERMUX_MANAGER_DIR/build-runtime.py" \
-        "$CODEX_TERMUX_MANAGER_DIR/bwrap-termux-compat.py" \
-        "$CODEX_TERMUX_MANAGER_DIR/rg-termux-shim.sh" \
-        "$CODEX_TERMUX_MANAGER_DIR/termux-notify.sh" \
-        "$CODEX_TERMUX_MANAGER_DIR/codex-turn-notify.sh"
-    if [ -f "$source_dir/config/wrapper-version.env" ]; then
-        cp "$source_dir/config/wrapper-version.env" "$CODEX_TERMUX_MANAGER_DIR/wrapper-version.env"
-    else
-        printf 'CODEX_TERMUX_WRAPPER_VERSION=unknown\nCODEX_TERMUX_WRAPPER_CHANNEL=local\nCODEX_TERMUX_WRAPPER_REPO=local/codex-termux\n' >"$CODEX_TERMUX_MANAGER_DIR/wrapper-version.env"
-    fi
+    mkdir -p "$CODEX_TERMUX_ROOT" "$CODEX_TERMUX_STATE_DIR"
     wrapper_commit="$(codex_termux_cmd wrapper-source-commit --root "$source_dir")"
-    {
-        printf 'CODEX_TERMUX_WRAPPER_COMMIT=%s\n' "$wrapper_commit"
-        printf 'CODEX_TERMUX_WRAPPER_INSTALLED_AT=%s\n' "$(date -Is)"
-    } >>"$CODEX_TERMUX_MANAGER_DIR/wrapper-version.env"
-    chmod 644 "$CODEX_TERMUX_MANAGER_DIR/wrapper-version.env"
-    codex_write_managed_shell
+    installed_at="$(date -Is)"
+    package_root="$(codex_termux_package_root)" || return 1
+
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH="$package_root${PYTHONPATH:+:$PYTHONPATH}" \
+        python3 -B - \
+            "$source_dir" \
+            "$CODEX_TERMUX_ROOT" \
+            "$CODEX_TERMUX_MANAGER_DIR" \
+            "$CODEX_TERMUX_VERIFIED_MANAGER_LINK" \
+            "$CODEX_TERMUX_STATE_DIR" \
+            "$CODEX_TERMUX_PREFIX" \
+            "$installed_at" \
+            "$wrapper_commit" <<'PYTHON' || return $?
+from pathlib import Path
+import json
+import sys
+
+from codex_termux import source
+
+(
+    source_root,
+    wrapper_root,
+    manager_link,
+    verified_manager_link,
+    state_dir,
+    prefix,
+    installed_at,
+    wrapper_commit,
+) = sys.argv[1:]
+result = source.prepare_support_install(
+    source_root=Path(source_root),
+    wrapper_root=Path(wrapper_root),
+    manager_link=Path(manager_link),
+    verified_manager_link=Path(verified_manager_link),
+    state_dir=Path(state_dir),
+    prefix=Path(prefix),
+    installed_at=installed_at,
+    wrapper_commit=wrapper_commit,
+)
+print(json.dumps(result.to_dict(), ensure_ascii=True, sort_keys=True))
+PYTHON
+
+    if [ "${CODEX_TERMUX_INSTALL_FAIL_AFTER_MANAGER_SWITCH:-0}" = "1" ]; then
+        status=97
+    elif ! codex_prepare_system_config; then
+        status=$?
+        [ "$status" -ne 0 ] || status=1
+    fi
+
+    if [ "$status" -ne 0 ]; then
+        PYTHONDONTWRITEBYTECODE=1 \
+        PYTHONPATH="$package_root${PYTHONPATH:+:$PYTHONPATH}" \
+            python3 -B - "$CODEX_TERMUX_SUPPORT_TRANSACTION_FILE" <<'PYTHON' || true
+from pathlib import Path
+import sys
+from codex_termux import source
+source.rollback_support_install(Path(sys.argv[1]))
+PYTHON
+        codex_prepare_system_config >/dev/null 2>&1 || true
+        codex_fail "Support manager activation failed; restored the previous manager"
+        return "$status"
+    fi
+
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH="$package_root${PYTHONPATH:+:$PYTHONPATH}" \
+        python3 -B - "$CODEX_TERMUX_SUPPORT_TRANSACTION_FILE" <<'PYTHON' || {
+from pathlib import Path
+import sys
+from codex_termux import source
+source.commit_support_install(Path(sys.argv[1]))
+PYTHON
+        PYTHONDONTWRITEBYTECODE=1 \
+        PYTHONPATH="$package_root${PYTHONPATH:+:$PYTHONPATH}" \
+            python3 -B - "$CODEX_TERMUX_SUPPORT_TRANSACTION_FILE" <<'PYTHON' || true
+from pathlib import Path
+import sys
+from codex_termux import source
+source.rollback_support_install(Path(sys.argv[1]))
+PYTHON
+        codex_fail "Support manager commit failed; restored the previous manager"
+        return 1
+    }
 }
 
 codex_build_launcher() {
