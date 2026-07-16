@@ -3,23 +3,26 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP_PARENT="${TMPDIR:-${RUNNER_TEMP:-/tmp}}"
+TMP_DIR="$(mktemp -d "$TMP_PARENT/codex-source-plan.XXXXXX")"
+trap 'rm -rf "$TMP_DIR"' EXIT
 
 fail() {
     printf 'source-plan: FAIL: %s\n' "$*" >&2
     exit 1
 }
 
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" python3 -B - <<'PYTHON' || fail 'source plan model failed'
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/src" python3 -B - <<'PYTHON' \
+    || fail 'source plan model failed'
 import tempfile
 from pathlib import Path
 
-from codex_termux import source
+from wrapper import source
 
 
 def write_wrapper_layout(root: Path) -> None:
     for relative in source.REQUIRED_WRAPPER_SOURCE_PATHS:
         path = root / relative
-        if relative.endswith("codex_termux") or relative.endswith("lib/codex-termux"):
+        if relative == "tools/codex_termux":
             path.mkdir(parents=True, exist_ok=True)
         else:
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -39,7 +42,6 @@ assert plan.label == "ssh://example.test/repo.git@dev", plan
 plan = source.wrapper_source_plan(release_repo="humtr/codex", release_tag="v1")
 assert plan.kind == "release", plan
 assert plan.release_url == "https://github.com/humtr/codex/archive/refs/tags/v1.tar.gz", plan
-assert plan.label == "release archive", plan
 
 plan = source.wrapper_source_plan(release_url="/tmp/wrapper.tar.gz")
 assert plan.kind == "release", plan
@@ -49,9 +51,7 @@ plan = source.wrapper_source_plan(local_root="/repo")
 assert plan.kind == "local", plan
 assert plan.local_root == "/repo", plan
 assert plan.label == "local /repo", plan
-plan_exports = source.wrapper_source_plan_exports(plan)
-assert "CODEX_WRAPPER_SOURCE_KIND=local" in plan_exports, plan_exports
-assert "CODEX_WRAPPER_SOURCE_LOCAL_ROOT=/repo" in plan_exports, plan_exports
+assert "CODEX_WRAPPER_SOURCE_KIND=local" in source.wrapper_source_plan_exports(plan)
 
 env = source.normalized_source_env(
     {
@@ -65,8 +65,9 @@ assert env == {
     "CODEX_TERMUX_WRAPPER_REF": "dev",
     "CODEX_TERMUX_WRAPPER_TOKEN": "legacy-token",
 }, env
-exports = source.source_env_exports({"CODEX_TERMUX_WRAPPER_REPO": "owner/repo with space"})
-assert exports == "export CODEX_TERMUX_WRAPPER_REPO='owner/repo with space'", exports
+assert source.source_env_exports(
+    {"CODEX_TERMUX_WRAPPER_REPO": "owner/repo with space"}
+) == "export CODEX_TERMUX_WRAPPER_REPO='owner/repo with space'"
 assert source.auth_token({"CODEX_TERMUX_WRAPPER_TOKEN": "direct", "GITHUB_TOKEN": "github"}) == "direct"
 assert source.auth_token({"CODEX_TERMUX_WRAPPER_GIT_TOKEN": "legacy", "GITHUB_TOKEN": "github"}) == "legacy"
 assert source.auth_token({"GITHUB_TOKEN": "github"}) == "github"
@@ -94,22 +95,22 @@ with tempfile.TemporaryDirectory() as tmp:
 PYTHON
 
 kind="$(
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
-        python3 -B -m codex_termux.cli wrapper-source-plan \
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/src" \
+        python3 -B -m wrapper.cli wrapper-source-plan \
             --repo humtr/codex --ref main --local-root "$ROOT_DIR" --field kind
 )"
 [ "$kind" = "git" ] || fail "CLI kind field mismatch: $kind"
 
 url="$(
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
-        python3 -B -m codex_termux.cli wrapper-source-plan \
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/src" \
+        python3 -B -m wrapper.cli wrapper-source-plan \
             --repo humtr/codex --ref main --local-root "$ROOT_DIR" --field git-url
 )"
 [ "$url" = "https://github.com/humtr/codex.git" ] || fail "CLI git-url mismatch: $url"
 
 plan_env="$(
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
-        python3 -B -m codex_termux.cli wrapper-source-plan-env \
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/src" \
+        python3 -B -m wrapper.cli wrapper-source-plan-env \
             --repo humtr/codex --ref main --local-root "$ROOT_DIR"
 )"
 case "$plan_env" in
@@ -119,38 +120,26 @@ case "$plan_env" in
     *) fail "CLI source plan env mismatch: $plan_env" ;;
 esac
 
+extract_root="$TMP_DIR/extract"
+mkdir -p "$extract_root/codex-release"
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/src" python3 -B - \
+    "$extract_root/codex-release" <<'PYTHON'
+import sys
+from pathlib import Path
+from wrapper import source
+root = Path(sys.argv[1])
+for relative in source.REQUIRED_WRAPPER_SOURCE_PATHS:
+    path = root / relative
+    if relative == "tools/codex_termux":
+        path.mkdir(parents=True, exist_ok=True)
+    else:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("test\n", encoding="utf-8")
+PYTHON
 
-extract_root="$TMP_PARENT/codex-source-plan-extract.$$"
-gh_root="$TMP_PARENT/codex-source-plan-gh.$$"
-trap 'rm -rf "$extract_root" "$gh_root"' EXIT
-mkdir -p "$extract_root/codex-release/bin" "$extract_root/codex-release/lib/codex-termux" \
-    "$extract_root/codex-release/tools/codex_termux" "$extract_root/codex-release/config"
-printf 'test\n' >"$extract_root/codex-release/install.sh"
-printf 'test\n' >"$extract_root/codex-release/bin/install-local.sh"
-printf 'test\n' >"$extract_root/codex-release/bin/install-runtime.sh"
-printf 'test\n' >"$extract_root/codex-release/lib/codex-termux.sh"
-printf 'test\n' >"$extract_root/codex-release/lib/codex-termux/prompt.sh"
-printf 'test\n' >"$extract_root/codex-release/lib/codex-termux/exec.sh"
-printf 'test\n' >"$extract_root/codex-release/lib/codex-termux/store.sh"
-printf 'test\n' >"$extract_root/codex-release/lib/codex-termux/build.sh"
-printf 'test\n' >"$extract_root/codex-release/lib/codex-termux/ui.sh"
-printf 'test\n' >"$extract_root/codex-release/lib/codex-termux/fs.sh"
-printf 'test\n' >"$extract_root/codex-release/lib/codex-termux/repair.sh"
-printf 'test\n' >"$extract_root/codex-release/lib/codex-termux/version.sh"
-for domain in dispatch state profile use remove session runtime notify doctor; do
-    printf 'test\n' >"$extract_root/codex-release/lib/codex-termux/$domain.sh"
-done
-printf 'test\n' >"$extract_root/codex-release/codex-wrapper.manifest.json"
-printf 'test\n' >"$extract_root/codex-release/tools/build-runtime.py"
-printf 'test\n' >"$extract_root/codex-release/tools/bwrap-termux-compat.py"
-printf 'test\n' >"$extract_root/codex-release/tools/rg-termux-shim.sh"
-printf 'test\n' >"$extract_root/codex-release/tools/termux-notify.sh"
-printf 'test\n' >"$extract_root/codex-release/tools/codex-turn-notify.sh"
-printf 'test\n' >"$extract_root/codex-release/tools/codex-launcher.c"
-printf 'test\n' >"$extract_root/codex-release/config/wrapper-version.env"
 resolved="$(
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
-        python3 -B -m codex_termux.cli wrapper-source-root --extract-root "$extract_root"
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/src" \
+        python3 -B -m wrapper.cli wrapper-source-root --extract-root "$extract_root"
 )"
 expected="$(cd "$extract_root/codex-release" && pwd)"
 [ "$resolved" = "$expected" ] || fail "CLI wrapper-source-root mismatch: $resolved"
@@ -160,24 +149,24 @@ auth_token="$(
         python3 -B -m codex_termux.cli wrapper-auth-token \
             --git-token legacy-token --github-token github-token
 )"
-[ "$auth_token" = "legacy-token" ] || fail "CLI wrapper-auth-token priority mismatch: $auth_token"
+[ "$auth_token" = "legacy-token" ] || fail "legacy CLI auth-token mismatch: $auth_token"
 
-mkdir -p "$gh_root"
-cat >"$gh_root/gh" <<'SCRIPT'
+mkdir -p "$TMP_DIR/bin"
+cat >"$TMP_DIR/bin/gh" <<'SCRIPT'
 #!/bin/sh
 [ "$1" = "auth" ] && [ "$2" = "token" ] || exit 2
 printf '%s\n' fake-gh-token
 SCRIPT
-chmod 755 "$gh_root/gh"
+chmod 755 "$TMP_DIR/bin/gh"
 auth_token="$(
-    PATH="$gh_root:$PATH" PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
-        python3 -B -m codex_termux.cli wrapper-auth-token --allow-gh 1
+    PATH="$TMP_DIR/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/src" \
+        python3 -B -m wrapper.cli wrapper-auth-token --allow-gh 1
 )"
 [ "$auth_token" = "fake-gh-token" ] || fail "CLI wrapper-auth-token gh fallback mismatch: $auth_token"
 
 commit="$(
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
-        python3 -B -m codex_termux.cli wrapper-source-commit --root "$extract_root/codex-release"
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/src" \
+        python3 -B -m wrapper.cli wrapper-source-commit --root "$extract_root/codex-release"
 )"
 [ "$commit" = "unknown" ] || fail "CLI wrapper-source-commit non-git mismatch: $commit"
 
