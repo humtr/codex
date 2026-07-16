@@ -7,7 +7,7 @@ codex_load_wrapper_source_config() {
 
 codex_normalize_wrapper_source_config() {
     local exports
-    exports="$(codex_termux_cmd wrapper-source-env \
+    exports="$(wrapper_cmd wrapper-source-env \
         --repo "${CODEX_TERMUX_WRAPPER_REPO:-}" \
         --ref "${CODEX_TERMUX_WRAPPER_REF:-}" \
         --token "${CODEX_TERMUX_WRAPPER_TOKEN:-}" \
@@ -19,7 +19,7 @@ codex_normalize_wrapper_source_config() {
 }
 
 codex_wrapper_auth_token() {
-    codex_termux_cmd wrapper-auth-token \
+    wrapper_cmd wrapper-auth-token \
         --token "${CODEX_TERMUX_WRAPPER_TOKEN:-}" \
         --git-token "${CODEX_TERMUX_WRAPPER_GIT_TOKEN:-}" \
         --release-token "${CODEX_TERMUX_WRAPPER_RELEASE_TOKEN:-}" \
@@ -31,38 +31,59 @@ codex_now() {
     date -Is
 }
 
-codex_termux_package_root() {
-    local source_root="$CODEX_TERMUX_WRAPPER_ROOT" root_dir="${ROOT_DIR:-}" python_path
-    python_path="$source_root/tools${root_dir:+:$root_dir/tools}"
-    python_path="$python_path:$CODEX_TERMUX_MANAGER_DIR"
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$python_path${PYTHONPATH:+:$PYTHONPATH}" \
-        python3 -B -m codex_termux.cli helper-package-root --source-root "$source_root" --root-dir "$root_dir" \
-            --manager-dir "$CODEX_TERMUX_MANAGER_DIR" || {
-        codex_fail "Internal helper package is unavailable"
-        return 1
-    }
+wrapper_package_root() {
+    local source_root="$CODEX_TERMUX_WRAPPER_ROOT" root_dir="${ROOT_DIR:-}" candidate
+    for candidate in \
+        "$source_root/src" \
+        "${root_dir:+$root_dir/src}" \
+        "$source_root/tools" \
+        "${root_dir:+$root_dir/tools}" \
+        "$CODEX_TERMUX_MANAGER_DIR/src" \
+        "$CODEX_TERMUX_MANAGER_DIR"
+    do
+        [ -n "$candidate" ] || continue
+        if [ -f "$candidate/wrapper/__init__.py" ] || [ -f "$candidate/codex_termux/cli.py" ]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+    codex_fail "Internal helper package is unavailable"
+    return 1
 }
 
-codex_termux_cmd() {
-    local package_root
-    package_root="$(codex_termux_package_root)" || return 1
+codex_termux_package_root() {
+    wrapper_package_root
+}
+
+wrapper_cmd() {
+    local package_root module
+    package_root="$(wrapper_package_root)" || return 1
+    if [ -f "$package_root/wrapper/__init__.py" ]; then
+        module="wrapper.cli"
+    else
+        module="codex_termux.cli"
+    fi
     CODEX_TERMUX_HOME="$CODEX_TERMUX_HOME" \
     CODEX_TERMUX_PROFILE_ROOT="$CODEX_TERMUX_PROFILE_ROOT" \
     CODEX_TERMUX_STATE_DIR="$CODEX_TERMUX_STATE_DIR" \
     CODEX_TERMUX_LAST_PROFILE_FILE="$CODEX_TERMUX_LAST_PROFILE_FILE" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH="$package_root${PYTHONPATH:+:$PYTHONPATH}" \
-        python3 -B -m codex_termux.cli "$@"
+        python3 -B -m "$module" "$@"
+}
+
+codex_termux_cmd() {
+    wrapper_cmd "$@"
 }
 
 codex_termux_activation_cmd() {
     local action="$1" shell_lib="$CODEX_TERMUX_SHELL_LIB" metadata_env
     shift
-    metadata_env="$(codex_termux_cmd wrapper-metadata-env \
+    metadata_env="$(wrapper_cmd wrapper-metadata-env \
         --manager-dir "$CODEX_TERMUX_MANAGER_DIR" \
         --runtime-dir "$CODEX_TERMUX_RUNTIME_DIR")" || return 1
     eval "$metadata_env"
-    codex_termux_cmd "$action" \
+    wrapper_cmd "$action" \
         --current-link "$CODEX_TERMUX_CURRENT_LINK" \
         --verified-link "$CODEX_TERMUX_VERIFIED_LINK" \
         --raw-link "$CODEX_TERMUX_RAW_DIR" \
