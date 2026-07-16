@@ -1,6 +1,27 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -u
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+for notify_entry in \
+    "$SCRIPT_DIR/../libexec/notify" \
+    "$SCRIPT_DIR/libexec/notify" \
+    "$SCRIPT_DIR/source/libexec/notify"
+do
+    [ -f "$notify_entry" ] || continue
+    case "${1:-}" in
+        --open-termux)
+            exec python3 -B "$notify_entry" open --target termux
+            ;;
+        --open-tmux)
+            exec python3 -B "$notify_entry" open --target tmux --tmux-target "${2:-}"
+            ;;
+        *)
+            exec python3 -B "$notify_entry" send
+            ;;
+    esac
+done
+unset notify_entry
+
 CODEX_TERMUX_PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
 CODEX_TERMUX_HOME="${CODEX_TERMUX_HOME:-$HOME}"
 CODEX_TERMUX_STATE_DIR="${CODEX_TERMUX_STATE_DIR:-$CODEX_TERMUX_HOME/.local/share/codex/termux}"
