@@ -26,7 +26,8 @@
     "runtime_builder": "libexec/build-runtime.py",
     "bwrap_compat": "libexec/bwrap-termux-compat.py",
     "rg_shim": "libexec/rg-termux-shim.sh",
-    "native_launcher": "native/codex-launcher.c"
+    "native_launcher": "native/codex-launcher.c",
+    "support_recovery_journal": "$CODEX_TERMUX_STATE_DIR/support-recovery.json"
   },
   "compatibility_paths": [
     "lib/codex-termux.sh",
@@ -39,6 +40,67 @@
     "$CODEX_TERMUX_MANAGER_DIR/codex_termux",
     "$CODEX_TERMUX_MANAGER_DIR/source"
   ],
+  "compatibility_retirement": {
+    "window": "one verified release after role-oriented-v1",
+    "rules": [
+      {
+        "glob": "lib/codex-termux/*.sh",
+        "max_lines": 15,
+        "role": "source the matching shell domain only"
+      },
+      {
+        "glob": "tools/codex_termux/*.py",
+        "max_lines": 25,
+        "role": "import or execute wrapper namespace only"
+      },
+      {
+        "glob": "tools/build-runtime.py",
+        "max_lines": 10,
+        "role": "execute libexec/build-runtime.py only"
+      },
+      {
+        "glob": "tools/bwrap-termux-compat.py",
+        "max_lines": 10,
+        "role": "execute libexec/bwrap-termux-compat.py only"
+      },
+      {
+        "glob": "tools/rg-termux-shim.sh",
+        "max_lines": 10,
+        "role": "execute libexec/rg-termux-shim.sh only"
+      },
+      {
+        "glob": "tools/codex-launcher.c",
+        "max_lines": 5,
+        "role": "include native/codex-launcher.c only"
+      },
+      {
+        "glob": "tools/codex-turn-notify.sh",
+        "max_lines": 40,
+        "role": "translate legacy arguments and exec libexec/notify only"
+      },
+      {
+        "glob": "tools/termux-notify.sh",
+        "max_lines": 40,
+        "role": "translate legacy arguments and exec libexec/notify only"
+      },
+      {
+        "glob": "tools/smoke-termux-wrapper.sh",
+        "max_lines": 5,
+        "role": "execute tools/smoke-wrapper.sh only"
+      }
+    ],
+    "forbidden_patterns": [
+      "subprocess\\.",
+      "os\\.system",
+      "shell\\s*=\\s*True",
+      "json\\.loads",
+      "@dataclass",
+      "termux-notification",
+      "termux-toast",
+      "hashlib\\.",
+      "git remote"
+    ]
+  },
   "preserved_contracts": [
     "public codex argument passthrough",
     "codex termux command compatibility",
@@ -50,7 +112,8 @@
     "no-network normal execution",
     "managed path deletion guards",
     "notification ID and dedupe behavior",
-    "notification title and body behavior from baseline commit"
+    "notification title and body behavior from baseline commit",
+    "crash-recoverable support activation journal"
   ],
   "notification_baseline": {
     "fallback_title": "Codex: General",
