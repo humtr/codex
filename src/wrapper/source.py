@@ -22,16 +22,16 @@ SHELL_DOMAINS = (
 )
 WRAPPER_MODULES = (
     "__init__", "_legacy_canon", "_legacy_source", "activation", "atomic",
-    "canon", "cli", "cli_activation", "cli_artifacts", "cli_doctor",
-    "cli_notify", "cli_product", "cli_profile", "cli_repair", "cli_runtime",
-    "cli_session", "cli_store", "cli_ui", "cli_use", "doctor", "errors",
-    "hashing", "install_plan", "notify", "paths", "prune", "registry",
-    "release", "repair", "runtime_checks", "runtime_env", "schemas", "session",
-    "source", "state", "store", "support_layout", "support_transaction", "ui",
-    "use",
+    "canon", "canon_policy", "cli", "cli_activation", "cli_artifacts",
+    "cli_doctor", "cli_notify", "cli_product", "cli_profile", "cli_repair",
+    "cli_runtime", "cli_session", "cli_store", "cli_ui", "cli_use", "doctor",
+    "errors", "hashing", "install_plan", "notify", "paths", "prune",
+    "registry", "release", "repair", "runtime_checks", "runtime_env", "schemas",
+    "session", "source", "state", "store", "support_diagnostics",
+    "support_layout", "support_transaction", "ui", "use",
 )
 NOTIFICATION_MODULES = (
-    "__init__", "config", "model", "provider", "service",
+    "__init__", "config", "hooks", "model", "provider", "service",
 )
 ROLE_WRAPPER_SOURCE_PATHS = tuple(
     [f"shell/{name}.sh" for name in SHELL_DOMAINS]
