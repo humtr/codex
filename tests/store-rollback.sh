@@ -51,9 +51,9 @@ chmod 755 "$raw_vendor/bin/codex" "$raw_vendor/bin/codex-code-mode-host" \
     "$raw_vendor/codex-resources/bwrap" \
     "$raw_vendor/codex-resources/zsh/bin/zsh" "$raw_vendor/codex-path/rg"
 
-cp "$ROOT_DIR/tools/build-runtime.py" "$manager_dir/build-runtime.py"
-cp "$ROOT_DIR/tools/bwrap-termux-compat.py" "$manager_dir/bwrap-termux-compat.py"
-cp "$ROOT_DIR/tools/rg-termux-shim.sh" "$manager_dir/rg-termux-shim.sh"
+cp "$ROOT_DIR/libexec/build-runtime.py" "$manager_dir/build-runtime.py"
+cp "$ROOT_DIR/libexec/bwrap-termux-compat.py" "$manager_dir/bwrap-termux-compat.py"
+cp "$ROOT_DIR/libexec/rg-termux-shim.sh" "$manager_dir/rg-termux-shim.sh"
 cp "$ROOT_DIR/config/wrapper-version.env" "$manager_dir/wrapper-version.env"
 {
     printf 'CODEX_TERMUX_WRAPPER_COMMIT=testcommit\n'
@@ -175,7 +175,7 @@ registry_file.write_text(json.dumps(registry, sort_keys=True) + "\n", encoding="
 state_file.write_text(json.dumps(state, sort_keys=True) + "\n", encoding="utf-8")
 PYTHON
 
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" python3 -B -m codex_termux.cli activation-restore-verified \
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/src" python3 -B -m wrapper.cli activation-restore-verified \
     --current-link "$current_link" \
     --verified-link "$verified_link" \
     --raw-link "$raw_link" \
@@ -210,7 +210,7 @@ running_runtime="$runtime_store/running-runtime"
 cp -a "$good_runtime" "$running_runtime"
 touch -d "2025-12-31 UTC" "$running_runtime" 2>/dev/null || touch "$running_runtime"
 
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" python3 -B -m codex_termux.cli store-prune \
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/src" python3 -B -m wrapper.cli store-prune \
     --runtime-store-dir "$runtime_store" \
     --raw-store-dir "$raw_store" \
     --registry-file "$registry_file" \
@@ -239,7 +239,7 @@ raw_candidate="$TMP_DIR/raw-candidate"
 cp -a "$good_runtime" "$runtime_candidate"
 cp -a "$good_raw" "$raw_candidate"
 
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" python3 -B -m codex_termux.cli activation-commit \
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/src" python3 -B -m wrapper.cli activation-commit \
     --candidate-runtime "$runtime_candidate" \
     --candidate-raw "$raw_candidate" \
     --runtime-target "$runtime_store/physical-migration-runtime" \
