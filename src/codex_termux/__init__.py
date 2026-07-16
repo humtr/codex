@@ -8,6 +8,7 @@ from pathlib import Path
 _SRC_DIR = Path(__file__).resolve().parent.parent
 _ROOT_OR_MANAGER = _SRC_DIR.parent
 for _candidate in (
+    _SRC_DIR / "wrapper",
     _ROOT_OR_MANAGER / "tools/codex_termux",
     _ROOT_OR_MANAGER / "codex_termux",
 ):
