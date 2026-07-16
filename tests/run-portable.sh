@@ -142,6 +142,7 @@ for test_script in \
     "$ROOT_DIR/tests/wrapper-contracts.sh" \
     "$ROOT_DIR/tests/repair-diagnosis.sh" \
     "$ROOT_DIR/tests/doctor.sh" \
+    "$ROOT_DIR/tests/support-doctor.sh" \
     "$ROOT_DIR/tests/termux-smoke-contracts.sh" \
     "$ROOT_DIR/tests/wrapper-source-config.sh" \
     "$ROOT_DIR/tests/cli-surface.sh" \
@@ -158,5 +159,3 @@ for test_script in \
 do
     run_test "$test_script"
 done
-
-printf 'portable tests: ok\n'
