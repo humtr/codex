@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any, TextIO
 
 
 ROLE_LAYOUT = "role-oriented-v1"
+RECOVERY_SCHEMA = 2
+RECOVERY_NAME = "support-recovery.json"
+TRANSACTION_NAME = "support-activation.json"
 
 
 def augment_report(report: dict[str, Any], manager_dir: Path) -> dict[str, Any]:
@@ -33,6 +37,15 @@ def augment_report(report: dict[str, Any], manager_dir: Path) -> dict[str, Any]:
     source_target = _resolved(source_snapshot)
     support_id = str(manifest.get("support_id", ""))
     source_id = str(manifest.get("source_id", ""))
+    state_dir = _state_dir(report, wrapper_root)
+    recovery_file = state_dir / RECOVERY_NAME
+    transaction_file = state_dir / TRANSACTION_NAME
+    recovery = _read_json(recovery_file) if recovery_file.exists() else {}
+    recovery_backups = sorted(
+        str(path)
+        for pattern in (".launcher-*.backup", ".system-config-*.backup")
+        for path in state_dir.glob(pattern)
+    )
 
     checks = {
         "support_manifest": bool(
@@ -57,6 +70,23 @@ def augment_report(report: dict[str, Any], manager_dir: Path) -> dict[str, Any]:
         "support_source_alignment": bool(
             manifest.get("entrypoints", {}).get("source_snapshot") == str(source_snapshot)
         ),
+        "support_recovery_clean": not recovery_file.exists(),
+        "support_transaction_clean": not transaction_file.exists(),
+        "support_recovery_readable": bool(
+            not recovery_file.exists()
+            or (
+                recovery.get("schema") == RECOVERY_SCHEMA
+                and recovery.get("status")
+                in {
+                    "prepared",
+                    "switched",
+                    "launcher-installed",
+                    "committing",
+                    "committed",
+                }
+            )
+        ),
+        "support_recovery_backups_clean": not recovery_backups,
     }
     report_checks = report.setdefault("checks", {})
     report_checks.update(checks)
@@ -73,6 +103,9 @@ def augment_report(report: dict[str, Any], manager_dir: Path) -> dict[str, Any]:
             "verified_source_snapshot": str(verified_source),
             "verified_source_snapshot_target": _resolved(verified_source),
             "support_manifest": str(manifest_path),
+            "support_recovery_journal": str(recovery_file),
+            "support_activation_journal": str(transaction_file),
+            "support_recovery_backups": recovery_backups,
         }
     )
     support.update(
@@ -80,6 +113,7 @@ def augment_report(report: dict[str, Any], manager_dir: Path) -> dict[str, Any]:
             "supportId": support_id,
             "sourceId": source_id,
             "layout": manifest.get("layout", ""),
+            "recoveryStatus": recovery.get("status", "") if recovery else "",
             "checks": checks,
         }
     )
@@ -104,11 +138,32 @@ def render_human(report: dict[str, Any], output: TextIO) -> None:
         ("verified source", "verified_source_pointer", "verified_source_in_source_store"),
         ("manifest", "support_manifest", "support_id_match", "source_id_match"),
         ("role files", "role_shell", "role_python", "role_libexec"),
+        (
+            "recovery journal",
+            "support_recovery_clean",
+            "support_transaction_clean",
+            "support_recovery_readable",
+            "support_recovery_backups_clean",
+        ),
     )
     for row in rows:
         label, *keys = row
         ok = all(bool(checks.get(key)) for key in keys)
         print(f"  {'ok' if ok else 'FAIL':<4} {label}", file=output)
+
+
+def _state_dir(report: dict[str, Any], wrapper_root: Path) -> Path:
+    configured = os.environ.get("CODEX_TERMUX_STATE_DIR", "")
+    if configured:
+        return Path(configured).expanduser().absolute()
+    paths = report.get("paths", {})
+    if isinstance(paths, dict):
+        for key in ("state_dir", "state", "state_file"):
+            value = paths.get(key)
+            if isinstance(value, str) and value:
+                candidate = Path(value).expanduser().absolute()
+                return candidate if candidate.suffix == "" else candidate.parent
+    return wrapper_root.parent.parent.parent / "share/codex/termux"
 
 
 def _read_json(path: Path) -> dict[str, Any]:
