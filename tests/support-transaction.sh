@@ -9,10 +9,12 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/src" python3 -B - "$ROOT_DIR" "$
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
 from wrapper import source
+from wrapper.errors import IntegrityError
 
 source_root = Path(sys.argv[1])
 temp = Path(sys.argv[2])
@@ -23,7 +25,13 @@ source_snapshot = wrapper_root / "source-snapshot"
 verified_source = wrapper_root / "verified-source-snapshot"
 state_dir = temp / "home/.local/share/codex/termux"
 prefix = temp / "prefix"
-(prefix / "bin").mkdir(parents=True)
+launcher = prefix / "bin/codex"
+system_config = state_dir / "system-config"
+launcher.parent.mkdir(parents=True)
+system_config.mkdir(parents=True)
+launcher.write_text("old launcher\n", encoding="utf-8")
+launcher.chmod(0o755)
+(system_config / "config.toml").write_text("old config\n", encoding="utf-8")
 
 first = source.prepare_support_install(
     source_root=source_root,
@@ -41,10 +49,13 @@ assert manager.is_symlink() and manager.resolve() == first_target.resolve()
 assert verified_manager.is_symlink() and verified_manager.resolve() == first_target.resolve()
 assert source_snapshot.is_symlink() and source_snapshot.resolve() == first_source.resolve()
 assert verified_source.is_symlink() and verified_source.resolve() == first_source.resolve()
+assert launcher.read_text(encoding="utf-8") == "old launcher\n"
+assert (system_config / "config.toml").read_text(encoding="utf-8") == "old config\n"
 assert (manager / "managed.sh").is_file()
 assert (manager / "shell/loader.sh").is_file()
 assert (manager / "src/wrapper/cli.py").is_file()
 assert (manager / "src/wrapper/notification/service.py").is_file()
+assert (manager / "src/wrapper/notification/hooks.py").is_file()
 assert (manager / "libexec/notify").is_file()
 assert (manager / "codex_termux/cli.py").is_file()
 assert (manager / "source").is_symlink()
@@ -57,8 +68,13 @@ assert manifest["source_id"] == first.source_id
 assert manifest["layout"] == "role-oriented-v1"
 assert manifest["entrypoints"]["shell_loader"] == "shell/loader.sh"
 assert manifest["entrypoints"]["python_package"] == "src/wrapper"
+(system_config / "config.toml").write_text("first config\n", encoding="utf-8")
 source.commit_support_install(Path(first.transaction_file))
 assert not Path(first.transaction_file).exists()
+assert b"codex termux managed launcher" in launcher.read_bytes()
+assert os.access(launcher, os.X_OK)
+assert (system_config / "config.toml").read_text(encoding="utf-8") == "first config\n"
+first_launcher = launcher.read_bytes()
 
 second = source.prepare_support_install(
     source_root=source_root,
@@ -79,15 +95,44 @@ assert verified_source.resolve() == first_source.resolve()
 assert Path(second.previous).resolve() == first_target.resolve()
 assert Path(second.previous_source).resolve() == first_source.resolve()
 assert Path(second.transaction_file).is_file()
-
-source.rollback_support_install(Path(second.transaction_file))
+(system_config / "config.toml").write_text("candidate config\n", encoding="utf-8")
+os.environ["CODEX_TERMUX_INSTALL_FAIL_LAUNCHER"] = "1"
+try:
+    source.commit_support_install(Path(second.transaction_file))
+except IntegrityError as exc:
+    assert "launcher" in str(exc)
+else:
+    raise AssertionError("forced launcher failure was accepted")
+finally:
+    os.environ.pop("CODEX_TERMUX_INSTALL_FAIL_LAUNCHER", None)
 assert manager.resolve() == first_target.resolve()
 assert verified_manager.resolve() == first_target.resolve()
 assert source_snapshot.resolve() == first_source.resolve()
 assert verified_source.resolve() == first_source.resolve()
+assert launcher.read_bytes() == first_launcher
+assert (system_config / "config.toml").read_text(encoding="utf-8") == "first config\n"
 assert not second_target.exists()
 assert not second_source.exists()
 assert not Path(second.transaction_file).exists()
+
+third = source.prepare_support_install(
+    source_root=source_root,
+    wrapper_root=wrapper_root,
+    manager_link=manager,
+    verified_manager_link=verified_manager,
+    state_dir=state_dir,
+    prefix=prefix,
+    installed_at="2026-07-17T00:01:30+09:00",
+    wrapper_commit="thirdcommit",
+)
+third_target = Path(third.target)
+third_source = Path(third.source_target)
+source.rollback_support_install(Path(third.transaction_file))
+assert manager.resolve() == first_target.resolve()
+assert source_snapshot.resolve() == first_source.resolve()
+assert launcher.read_bytes() == first_launcher
+assert not third_target.exists()
+assert not third_source.exists()
 
 legacy_root = temp / "legacy-root"
 legacy_manager = legacy_root / "manager"
