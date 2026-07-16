@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 
 _REPLACED_FINDINGS = {
@@ -20,7 +20,13 @@ _NOTIFY_FACADES = (
     "tools/codex-turn-notify.sh",
     "tools/termux-notify.sh",
     "tools/codex_termux/notify.py",
+    "src/wrapper/notify.py",
 )
+_AUDIT_IMPLEMENTATION = {
+    "src/wrapper/_legacy_canon.py",
+    "src/wrapper/canon.py",
+    "src/wrapper/canon_policy.py",
+}
 _SOURCE_POLICY_MARKERS = (
     "CODEX_TERMUX_WRAPPER_GIT_REPO",
     "CODEX_TERMUX_WRAPPER_RELEASE_TOKEN",
@@ -100,7 +106,11 @@ def _policy_location_findings(root: Path) -> list[dict[str, str]]:
         if not path.is_file() or any(part in ignored for part in path.parts):
             continue
         relative = str(path.relative_to(root))
-        if relative in _SOURCE_FACADES or relative in _NOTIFY_FACADES:
+        if (
+            relative in _SOURCE_FACADES
+            or relative in _NOTIFY_FACADES
+            or relative in _AUDIT_IMPLEMENTATION
+        ):
             continue
         try:
             text = path.read_text(encoding="utf-8")
