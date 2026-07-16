@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from typing import Protocol
 
-from . import doctor
+from . import doctor, support_diagnostics
 
 
 class SubparserCollection(Protocol):
@@ -32,13 +32,14 @@ def add_commands(sub: SubparserCollection) -> None:
 
 
 def _doctor_report(args: argparse.Namespace) -> int:
+    manager_dir = Path(args.manager_dir)
     report = doctor.build_report(
         doctor.DoctorInputs(
             runtime=Path(args.runtime),
             current_link=Path(args.current_link),
             verified_link=Path(args.verified_link),
             raw_link=Path(args.raw_link),
-            manager_dir=Path(args.manager_dir),
+            manager_dir=manager_dir,
             runtime_store=Path(args.runtime_store_dir),
             raw_store=Path(args.raw_store_dir),
             raw_vendor=Path(args.raw_vendor),
@@ -54,6 +55,7 @@ def _doctor_report(args: argparse.Namespace) -> int:
             patch_policy=args.patch_policy,
         )
     )
+    support_diagnostics.augment_report(report, manager_dir)
     print(json.dumps(report, ensure_ascii=True, sort_keys=True))
     return 0
 
@@ -62,5 +64,7 @@ def _doctor_render(args: argparse.Namespace) -> int:
     report = json.load(sys.stdin)
     if args.mode == "json":
         print(json.dumps(report, ensure_ascii=True, sort_keys=True))
-        return 0
-    return doctor.render_human(report)
+        return 0 if report.get("overallStatus") == "ok" else 1
+    doctor.render_human(report)
+    support_diagnostics.render_human(report, sys.stdout)
+    return 0 if report.get("overallStatus") == "ok" else 1
