@@ -43,6 +43,7 @@ ROLE_PACKAGE_MODULES = (
     "activation.py",
     "atomic.py",
     "canon.py",
+    "canon_policy.py",
     "cli.py",
     "cli_activation.py",
     "cli_artifacts.py",
@@ -73,7 +74,9 @@ ROLE_PACKAGE_MODULES = (
     "source.py",
     "state.py",
     "store.py",
+    "support_diagnostics.py",
     "support_layout.py",
+    "support_transaction.py",
     "ui.py",
     "use.py",
 )
@@ -92,6 +95,7 @@ def required_release_entries() -> tuple[str, ...]:
     notification = (
         "src/wrapper/notification/__init__.py",
         "src/wrapper/notification/config.py",
+        "src/wrapper/notification/hooks.py",
         "src/wrapper/notification/model.py",
         "src/wrapper/notification/provider.py",
         "src/wrapper/notification/service.py",
