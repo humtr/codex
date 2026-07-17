@@ -129,6 +129,7 @@ for test_script in \
     "$ROOT_DIR/tests/invariants.sh" \
     "$ROOT_DIR/tests/canon-audit.sh" \
     "$ROOT_DIR/tests/refactor-boundaries.sh" \
+    "$ROOT_DIR/tests/golden.sh" \
     "$ROOT_DIR/tests/runtime-build.sh" \
     "$ROOT_DIR/tests/runtime-date.sh" \
     "$ROOT_DIR/tests/package-safety.sh" \
