@@ -1,0 +1,251 @@
+{
+  "schema": 1,
+  "name": "codex-termux-refactor-boundaries",
+  "baseline_commit": "803fef15fe17960bdf8e9f7d5d199b813d08224b",
+  "archive": {
+    "branch": "archive/pr-6-role-oriented-layout-20260717",
+    "head_commit": "46c16ae58ba33b44f437adac670089f4da13104c"
+  },
+  "rules": {
+    "single_slice_per_pull_request": true,
+    "product_changes_require_focused_evidence": true,
+    "main_must_remain_runnable": true,
+    "force_push_shared_branches": false,
+    "scope_command": "bash tests/refactor-scope.sh <slice> <base> <head>"
+  },
+  "public_contracts": [
+    "public codex argument passthrough",
+    "codex termux command compatibility",
+    "CODEX_TERMUX environment compatibility",
+    "state and registry schema 3",
+    "FD 33 resolver inheritance",
+    "FD 34 system config inheritance",
+    "current, verified, and raw runtime semantics",
+    "managed path deletion guards",
+    "release filename compatibility"
+  ],
+  "dependency_order": [
+    "boundary-contracts",
+    "behavior-baseline",
+    "shell-layout",
+    "python-layout",
+    "runtime-artifact",
+    "support-activation",
+    "notification",
+    "schema-compatibility",
+    "release-integration"
+  ],
+  "slices": {
+    "boundary-contracts": {
+      "purpose": "Define machine-checkable ownership, dependency, and evidence boundaries without changing product behavior.",
+      "depends_on": [],
+      "allowed_paths": [
+        "config/refactor-boundaries.json",
+        "tests/refactor-boundaries.sh",
+        "tests/refactor-scope.sh",
+        "tests/run-portable.sh"
+      ],
+      "required_change_groups": {
+        "contract": ["config/refactor-boundaries.json"],
+        "evidence": ["tests/refactor-boundaries.sh", "tests/refactor-scope.sh"]
+      },
+      "required_checks": [
+        "bash tests/refactor-boundaries.sh",
+        "bash tests/refactor-scope.sh boundary-contracts 803fef15fe17960bdf8e9f7d5d199b813d08224b HEAD"
+      ]
+    },
+    "behavior-baseline": {
+      "purpose": "Freeze externally observable behavior before implementation ownership moves.",
+      "depends_on": ["boundary-contracts"],
+      "allowed_paths": [
+        "config/migration-contracts.json",
+        "tools/golden_capture.py",
+        "tests/golden.sh",
+        "tests/golden/**",
+        "tests/run-portable.sh"
+      ],
+      "required_change_groups": {
+        "capture": ["config/migration-contracts.json", "tools/golden_capture.py"],
+        "evidence": ["tests/golden.sh", "tests/golden/**"]
+      },
+      "required_checks": [
+        "bash tests/refactor-scope.sh behavior-baseline <base> HEAD",
+        "bash tests/golden.sh",
+        "bash tests/run-portable.sh"
+      ]
+    },
+    "shell-layout": {
+      "purpose": "Move shell orchestration while retaining thin public compatibility facades.",
+      "depends_on": ["behavior-baseline"],
+      "allowed_paths": [
+        "shell/**",
+        "lib/codex-termux.sh",
+        "lib/codex-termux/**",
+        "config/layout-contracts.json",
+        "tests/layout-contracts.sh",
+        "tests/compatibility-facades.sh",
+        "tests/wrapper-contracts.sh",
+        "tests/run-portable.sh"
+      ],
+      "required_change_groups": {
+        "implementation": ["shell/**", "lib/codex-termux.sh", "lib/codex-termux/**"],
+        "evidence": ["tests/layout-contracts.sh", "tests/compatibility-facades.sh", "tests/wrapper-contracts.sh"]
+      },
+      "required_checks": [
+        "bash tests/refactor-scope.sh shell-layout <base> HEAD",
+        "bash tests/layout-contracts.sh",
+        "bash tests/compatibility-facades.sh",
+        "bash tests/wrapper-contracts.sh"
+      ]
+    },
+    "python-layout": {
+      "purpose": "Move Python policy and domain ownership while retaining import-only compatibility namespaces.",
+      "depends_on": ["behavior-baseline"],
+      "allowed_paths": [
+        "src/wrapper/**",
+        "src/codex_termux/**",
+        "tools/codex_termux/**",
+        "config/layout-contracts.json",
+        "tests/layout-contracts.sh",
+        "tests/python-package-compat.sh",
+        "tests/run-portable.sh"
+      ],
+      "required_change_groups": {
+        "implementation": ["src/wrapper/**", "src/codex_termux/**", "tools/codex_termux/**"],
+        "evidence": ["tests/python-package-compat.sh", "tests/layout-contracts.sh"]
+      },
+      "required_checks": [
+        "bash tests/refactor-scope.sh python-layout <base> HEAD",
+        "bash tests/python-package-compat.sh",
+        "bash tests/run-portable.sh"
+      ]
+    },
+    "runtime-artifact": {
+      "purpose": "Make the installed runtime artifact self-contained and preserve launcher and FD contracts.",
+      "depends_on": ["shell-layout", "python-layout"],
+      "allowed_paths": [
+        "libexec/**",
+        "native/**",
+        "shell/build.sh",
+        "tools/build-runtime.py",
+        "tools/bwrap-termux-compat.py",
+        "tools/rg-termux-shim.sh",
+        "tools/codex-launcher.c",
+        "codex-wrapper.manifest.json",
+        "tests/runtime-build.sh",
+        "tests/run-termux-rebuild-smoke.sh",
+        "tests/release-package.sh"
+      ],
+      "required_change_groups": {
+        "implementation": ["libexec/**", "native/**", "shell/build.sh"],
+        "evidence": ["tests/runtime-build.sh", "tests/run-termux-rebuild-smoke.sh"]
+      },
+      "required_checks": [
+        "bash tests/refactor-scope.sh runtime-artifact <base> HEAD",
+        "bash tests/runtime-build.sh",
+        "bash tests/run-termux-rebuild-smoke.sh"
+      ]
+    },
+    "support-activation": {
+      "purpose": "Introduce manager and source activation, recovery, and rollback as one bounded transaction.",
+      "depends_on": ["runtime-artifact"],
+      "allowed_paths": [
+        "bin/install-runtime.sh",
+        "src/wrapper/support_layout.py",
+        "src/wrapper/support_transaction.py",
+        "src/wrapper/support_diagnostics.py",
+        "src/wrapper/source.py",
+        "src/wrapper/paths.py",
+        "codex-wrapper.manifest.json",
+        "tests/support-transaction.sh",
+        "tests/support-doctor.sh",
+        "tests/source-plan.sh",
+        "tests/install-dispatch.sh"
+      ],
+      "required_change_groups": {
+        "implementation": ["bin/install-runtime.sh", "src/wrapper/support_layout.py", "src/wrapper/support_transaction.py"],
+        "evidence": ["tests/support-transaction.sh", "tests/support-doctor.sh"]
+      },
+      "required_checks": [
+        "bash tests/refactor-scope.sh support-activation <base> HEAD",
+        "bash tests/support-transaction.sh",
+        "bash tests/support-doctor.sh"
+      ]
+    },
+    "notification": {
+      "purpose": "Move notification rendering and delivery as one vertical slice without changing public output contracts.",
+      "depends_on": ["shell-layout", "python-layout"],
+      "allowed_paths": [
+        "src/wrapper/notification/**",
+        "src/wrapper/notify.py",
+        "libexec/notify",
+        "shell/notify.sh",
+        "lib/codex-termux/notify.sh",
+        "tools/codex-turn-notify.sh",
+        "tools/termux-notify.sh",
+        "tools/codex_termux/notify.py",
+        "tests/notify*.sh",
+        "tests/notify-*.sh"
+      ],
+      "required_change_groups": {
+        "implementation": ["src/wrapper/notification/**", "libexec/notify", "shell/notify.sh"],
+        "evidence": ["tests/notify*.sh", "tests/notify-*.sh"]
+      },
+      "required_checks": [
+        "bash tests/refactor-scope.sh notification <base> HEAD",
+        "bash tests/notify.sh",
+        "bash tests/notify-model.sh"
+      ]
+    },
+    "schema-compatibility": {
+      "purpose": "Preserve schema-3 extension fields without changing the schema version or mutating rejected inputs.",
+      "depends_on": ["python-layout"],
+      "allowed_paths": [
+        "config/schema-compatibility.json",
+        "src/wrapper/state.py",
+        "src/wrapper/registry.py",
+        "src/wrapper/schemas.py",
+        "tests/schema-compatibility.sh",
+        "tests/run-portable.sh"
+      ],
+      "required_change_groups": {
+        "implementation": ["config/schema-compatibility.json", "src/wrapper/state.py", "src/wrapper/registry.py"],
+        "evidence": ["tests/schema-compatibility.sh"]
+      },
+      "required_checks": [
+        "bash tests/refactor-scope.sh schema-compatibility <base> HEAD",
+        "bash tests/schema-compatibility.sh",
+        "bash tests/run-portable.sh"
+      ]
+    },
+    "release-integration": {
+      "purpose": "Integrate packaging, source validation, doctor, and full-device evidence after all implementation slices pass.",
+      "depends_on": ["support-activation", "notification", "schema-compatibility"],
+      "allowed_paths": [
+        "README.md",
+        "tools/package-release.sh",
+        "src/wrapper/release.py",
+        "src/wrapper/source.py",
+        "src/wrapper/canon.py",
+        "src/wrapper/canon_policy.py",
+        "src/wrapper/support_diagnostics.py",
+        "codex-wrapper.manifest.json",
+        "tests/release-package.sh",
+        "tests/canon-audit.sh",
+        "tests/invariants.sh",
+        "tests/run-role-layout-gates.sh",
+        "tests/run-portable.sh"
+      ],
+      "required_change_groups": {
+        "integration": ["tools/package-release.sh", "src/wrapper/release.py", "codex-wrapper.manifest.json"],
+        "evidence": ["tests/release-package.sh", "tests/run-role-layout-gates.sh"]
+      },
+      "required_checks": [
+        "bash tests/refactor-scope.sh release-integration <base> HEAD",
+        "bash tests/run-portable.sh",
+        "CODEX_TERMUX_AUTO_UPDATE=0 bash tests/run-termux.sh",
+        "codex termux doctor --json"
+      ]
+    }
+  }
+}
