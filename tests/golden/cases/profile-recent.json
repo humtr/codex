@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "name": "profile-recent",
+  "command": [
+    "bash",
+    "{root}/tests/golden/probes/profile-recent.sh",
+    "{root}"
+  ],
+  "capture_environment": [
+    "CODEX_TERMUX_HOME",
+    "CODEX_TERMUX_STATE_DIR",
+    "HOME",
+    "PREFIX"
+  ],
+  "watch": [
+    {
+      "label": "sandbox",
+      "path": "{sandbox}"
+    }
+  ],
+  "timeout_seconds": 30
+}
