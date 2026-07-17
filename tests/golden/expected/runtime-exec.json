@@ -1,0 +1,44 @@
+{
+  "command": [
+    "bash",
+    "<ROOT>/tests/golden/probes/runtime-exec.sh",
+    "<ROOT>"
+  ],
+  "environment": {},
+  "exit_code": 23,
+  "filesystem": {
+    "created": {},
+    "deleted": {},
+    "modified": {}
+  },
+  "name": "runtime-exec",
+  "observations": {
+    "runtime_exec": {
+      "argv": [
+        "alpha",
+        "two words",
+        "--flag=value"
+      ],
+      "environment": {
+        "CODEX_MANAGED_BY_BUN": null,
+        "CODEX_MANAGED_BY_NPM": null,
+        "CODEX_MANAGED_PACKAGE_ROOT": null,
+        "CODEX_RUNTIME_CONTRACT": "ready",
+        "LD_LIBRARY_PATH": null,
+        "LD_PRELOAD": null
+      },
+      "fd_33": {
+        "kind": "file",
+        "target": "<SANDBOX>/runtime-contract/resolv.conf",
+        "text": "nameserver 127.0.0.1\n"
+      },
+      "fd_34": {
+        "kind": "directory",
+        "target": "<SANDBOX>/runtime-contract/system-config"
+      }
+    }
+  },
+  "schema": 1,
+  "stderr": "",
+  "stdout": ""
+}
