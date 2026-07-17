@@ -5,13 +5,14 @@ ROOT_DIR="$1"
 SANDBOX_DIR="$(dirname "$CODEX_TERMUX_STATE_DIR")"
 CONTRACT_DIR="$SANDBOX_DIR/runtime-contract"
 CHILD_PROBE="$CONTRACT_DIR/inspect-runtime.py"
+PYTHON_BIN="$(command -v python3)"
 
 mkdir -p "$CONTRACT_DIR/system-config" "$CONTRACT_DIR/certs"
 printf 'nameserver 127.0.0.1\n' >"$CONTRACT_DIR/resolv.conf"
 printf 'cert\n' >"$CONTRACT_DIR/cert.pem"
 
-cat >"$CHILD_PROBE" <<'PYTHON'
-#!/usr/bin/env python3
+printf '#!%s\n' "$PYTHON_BIN" >"$CHILD_PROBE"
+cat >>"$CHILD_PROBE" <<'PYTHON'
 from __future__ import annotations
 
 import json
