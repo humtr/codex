@@ -47,8 +47,8 @@ codex_prepare_complete_runtime_tree() {
         codex_rm_rf_managed "$complete_dir" || return $?
         return 1
     }
-    cp -R "$support_dir/bwrap-termux-compat.py" "$complete_dir/codex-path/bwrap"
-    cp -R "$support_dir/rg-termux-shim.sh" "$complete_dir/codex-path/rg"
+    cp -L "$support_dir/bwrap-termux-compat.py" "$complete_dir/codex-path/bwrap"
+    cp -L "$support_dir/rg-termux-shim.sh" "$complete_dir/codex-path/rg"
     rm -f "$complete_dir/codex-resources/bwrap.real"
     chmod 755 "$complete_dir/codex" \
         "$complete_dir/codex-code-mode-host" \
