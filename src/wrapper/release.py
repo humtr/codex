@@ -99,6 +99,7 @@ def required_release_entries() -> tuple[str, ...]:
         "src/wrapper/notification/model.py",
         "src/wrapper/notification/provider.py",
         "src/wrapper/notification/service.py",
+        "src/wrapper/notification/termux_api.py",
         "src/codex_termux/__init__.py",
     )
     return tuple(

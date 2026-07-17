@@ -20,17 +20,17 @@ done
 
 case "${1:-}" in
     --open-termux)
-        exec python3 -B "$NOTIFY_ENTRY" open --target termux
+        exec /data/data/com.termux/files/usr/bin/python3 -B "$NOTIFY_ENTRY" open --target termux
         ;;
     --open-tmux)
         [ "$#" -ge 2 ] || {
             printf 'termux-notify: --open-tmux requires a target\n' >&2
             exit 2
         }
-        exec python3 -B "$NOTIFY_ENTRY" open --target tmux --tmux-target "$2"
+        exec /data/data/com.termux/files/usr/bin/python3 -B "$NOTIFY_ENTRY" open --target tmux --tmux-target "$2"
         ;;
     "")
-        exec python3 -B "$NOTIFY_ENTRY" send
+        exec /data/data/com.termux/files/usr/bin/python3 -B "$NOTIFY_ENTRY" send
         ;;
     *)
         printf 'termux-notify: unknown option: %s\n' "$1" >&2

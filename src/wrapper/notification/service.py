@@ -135,7 +135,7 @@ def _deliver(
     _write_last_payload(notify_dir / "last-payload.json", rendered, request.source)
     result = provider.deliver(rendered, settings)
     _append_log(notify_dir / "notify.log", result, rendered)
-    if not result.name.startswith("termux-api"):
+    if not result.delivered:
         sys.stdout.write("\a")
         sys.stdout.flush()
     return 0
@@ -153,13 +153,18 @@ def _codex_request(
     transcript = str(
         payload.get("transcript_path") or payload.get("transcriptPath") or ""
     )
-    dedupe_key = str(
+    base_dedupe_key = str(
         payload.get("dedupe_key")
         or payload.get("dedupeKey")
         or transcript
         or session_id
         or cwd
         or "codex"
+    )
+    dedupe_key = _session_scoped_key(
+        base_dedupe_key,
+        payload=payload,
+        tmux_target=tmux_target,
     )
     message = str(
         payload.get("content")
@@ -201,13 +206,18 @@ def _generic_request(
     transcript = str(
         payload.get("transcript_path") or payload.get("transcriptPath") or ""
     )
-    dedupe_key = str(
+    base_dedupe_key = str(
         payload.get("dedupe_key")
         or payload.get("dedupeKey")
         or session_id
         or transcript
         or cwd
         or "termux"
+    )
+    dedupe_key = _session_scoped_key(
+        base_dedupe_key,
+        payload=payload,
+        tmux_target=tmux_target,
     )
     title = str(
         payload.get("title")
@@ -242,6 +252,34 @@ def _generic_request(
             ClickAction.OPEN_TMUX if tmux_target else ClickAction.OPEN_TERMUX
         ),
     )
+
+
+def _session_scoped_key(
+    base_key: str,
+    *,
+    payload: Mapping[str, Any],
+    tmux_target: str,
+) -> str:
+    explicit = str(
+        payload.get("termux_session_id")
+        or payload.get("termuxSessionId")
+        or payload.get("termux_session")
+        or payload.get("termuxSession")
+        or ""
+    ).strip()
+    if explicit:
+        scope = explicit
+    elif tmux_target:
+        scope = tmux_target.split(":", 1)[0]
+    else:
+        scope = str(
+            os.environ.get("TERMUX_SESSION_ID")
+            or os.environ.get("TERMUX_SESSION")
+            or os.environ.get("TERMUX_PANE")
+            or os.environ.get("TMUX_PANE")
+            or "default"
+        ).strip()
+    return f"termux-session:{scope}|{base_key}"
 
 
 def _repository_context(cwd: str) -> tuple[str, str]:

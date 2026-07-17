@@ -242,7 +242,8 @@
     "src/wrapper/notification/hooks.py": "notify-config",
     "src/wrapper/notification/model.py": "notify-model",
     "src/wrapper/notification/provider.py": "notify-provider",
-    "src/wrapper/notification/service.py": "notify-service"
+    "src/wrapper/notification/service.py": "notify-service",
+    "src/wrapper/notification/termux_api.py": "notify-adapter"
   },
   "product_forbidden_paths": ["GOAL.md", ".github/workflows/*"],
   "product_forbidden_patterns": [

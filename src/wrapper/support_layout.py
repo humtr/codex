@@ -321,24 +321,29 @@ def _populate_support(
 
 
 def _write_notify_compat(path: Path, manager_link: Path, *, hook: bool) -> None:
+    shell = "/data/data/com.termux/files/usr/bin/sh"
+    python = "/data/data/com.termux/files/usr/bin/python3"
     if hook:
-        body = '''#!/bin/sh
+        body = '''#!SHELL
 case "${1:-}" in
-  --event) exec python3 -B "MANAGER/libexec/notify" hook --event "${2:-}" ;;
-  --open-termux) exec python3 -B "MANAGER/libexec/notify" open --target termux ;;
-  --open-tmux) exec python3 -B "MANAGER/libexec/notify" open --target tmux --tmux-target "${2:-}" ;;
-  *) exec python3 -B "MANAGER/libexec/notify" hook --event "${CODEX_TERMUX_NOTIFY_EVENT:-Stop}" ;;
+  --event) exec PYTHON -B "MANAGER/libexec/notify" hook --event "${2:-}" ;;
+  --open-termux) exec PYTHON -B "MANAGER/libexec/notify" open --target termux ;;
+  --open-tmux) exec PYTHON -B "MANAGER/libexec/notify" open --target tmux --tmux-target "${2:-}" ;;
+  *) exec PYTHON -B "MANAGER/libexec/notify" hook --event "${CODEX_TERMUX_NOTIFY_EVENT:-Stop}" ;;
 esac
 '''
     else:
-        body = '''#!/bin/sh
+        body = '''#!SHELL
 case "${1:-}" in
-  --open-termux) exec python3 -B "MANAGER/libexec/notify" open --target termux ;;
-  --open-tmux) exec python3 -B "MANAGER/libexec/notify" open --target tmux --tmux-target "${2:-}" ;;
-  *) exec python3 -B "MANAGER/libexec/notify" send ;;
+  --open-termux) exec PYTHON -B "MANAGER/libexec/notify" open --target termux ;;
+  --open-tmux) exec PYTHON -B "MANAGER/libexec/notify" open --target tmux --tmux-target "${2:-}" ;;
+  *) exec PYTHON -B "MANAGER/libexec/notify" send ;;
 esac
 '''
-    path.write_text(body.replace("MANAGER", str(manager_link)), encoding="utf-8")
+    path.write_text(
+        body.replace("SHELL", shell).replace("PYTHON", python).replace("MANAGER", str(manager_link)),
+        encoding="utf-8",
+    )
 
 
 def _validate_source_snapshot(target: Path) -> None:

@@ -31,7 +31,7 @@ WRAPPER_MODULES = (
     "support_layout", "support_transaction", "ui", "use",
 )
 NOTIFICATION_MODULES = (
-    "__init__", "config", "hooks", "model", "provider", "service",
+    "__init__", "config", "hooks", "model", "provider", "service", "termux_api",
 )
 ROLE_WRAPPER_SOURCE_PATHS = tuple(
     [f"shell/{name}.sh" for name in SHELL_DOMAINS]

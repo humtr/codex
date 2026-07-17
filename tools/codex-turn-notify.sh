@@ -24,20 +24,20 @@ case "${1:-}" in
             printf 'codex-turn-notify: --event requires a value\n' >&2
             exit 2
         }
-        exec python3 -B "$NOTIFY_ENTRY" hook --event "$2"
+        exec /data/data/com.termux/files/usr/bin/python3 -B "$NOTIFY_ENTRY" hook --event "$2"
         ;;
     --open-termux)
-        exec python3 -B "$NOTIFY_ENTRY" open --target termux
+        exec /data/data/com.termux/files/usr/bin/python3 -B "$NOTIFY_ENTRY" open --target termux
         ;;
     --open-tmux)
         [ "$#" -ge 2 ] || {
             printf 'codex-turn-notify: --open-tmux requires a target\n' >&2
             exit 2
         }
-        exec python3 -B "$NOTIFY_ENTRY" open --target tmux --tmux-target "$2"
+        exec /data/data/com.termux/files/usr/bin/python3 -B "$NOTIFY_ENTRY" open --target tmux --tmux-target "$2"
         ;;
     "")
-        exec python3 -B "$NOTIFY_ENTRY" hook --event "${CODEX_TERMUX_NOTIFY_EVENT:-Stop}"
+        exec /data/data/com.termux/files/usr/bin/python3 -B "$NOTIFY_ENTRY" hook --event "${CODEX_TERMUX_NOTIFY_EVENT:-Stop}"
         ;;
     *)
         printf 'codex-turn-notify: unknown option: %s\n' "$1" >&2

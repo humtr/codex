@@ -70,6 +70,70 @@ grep -F -- "$ROOT_DIR/libexec/notify open --target termux" "$provider/notify.arg
     || fail 'allowlisted Termux action missing'
 grep -Fx -- '-s' "$provider/toast.args" >/dev/null || fail 'new toast duration did not override legacy setting'
 
+printf '%s' '{"title":"Compact","message":"first line\nsecond line","session_id":"compact-session"}' | \
+    env -i \
+        HOME="$provider/home" \
+        PREFIX="${PREFIX:-/data/data/com.termux/files/usr}" \
+        PATH="$provider/bin:$PATH" \
+        NOTIFY_ARGS="$provider/notify.args" \
+        CODEX_TERMUX_HOME="$provider/home" \
+        CODEX_TERMUX_STATE_DIR="$provider/state" \
+        CODEX_TERMUX_TMPDIR="$provider/tmp" \
+        CODEX_TERMUX_NOTIFY_CHANNEL=notification \
+        PYTHONDONTWRITEBYTECODE=1 \
+        python3 -B "$ROOT_DIR/libexec/notify" hook --event Stop >/dev/null
+
+python3 -B - "$provider/notify.args" <<'PYTHON'
+import sys
+
+args = open(sys.argv[1], encoding="utf-8").read().splitlines()
+content_index = args.index("--content")
+assert args[content_index + 1] == "first line second line", args
+PYTHON
+
+PYTHONPATH="$ROOT_DIR/src" python3 -B - <<'PYTHON'
+from wrapper.notification.model import NotificationSettings, render_notification
+from wrapper.notification.service import _codex_request
+
+settings = NotificationSettings()
+
+
+def notification_id(tmux_target: str) -> str:
+    request = _codex_request(
+        {"session_id": "same-codex-session", "message": "message"},
+        event="Stop",
+        tmux_target=tmux_target,
+    )
+    return render_notification(request, settings).notification_id
+
+
+same_session_a = notification_id("shared:1.0")
+same_session_b = notification_id("shared:2.1")
+different_session = notification_id("other:1.0")
+assert same_session_a == same_session_b
+assert same_session_a != different_session
+PYTHON
+
+broken="$TMP_DIR/broken"
+mkdir -p "$broken/bin" "$broken/home" "$broken/state/notify" "$broken/tmp"
+cat >"$broken/bin/termux-notification" <<'SH'
+#!/bin/sh
+exit 127
+SH
+chmod 755 "$broken/bin/termux-notification"
+
+printf '%s' '{"title":"Unavailable API","message":"fallback"}' | \
+    env -i \
+        HOME="$broken/home" \
+        PREFIX="${PREFIX:-/data/data/com.termux/files/usr}" \
+        PATH="$broken/bin:$PATH" \
+        CODEX_TERMUX_HOME="$broken/home" \
+        CODEX_TERMUX_STATE_DIR="$broken/state" \
+        CODEX_TERMUX_TMPDIR="$broken/tmp" \
+        CODEX_TERMUX_NOTIFY_CHANNEL=notification \
+        PYTHONDONTWRITEBYTECODE=1 \
+        python3 -B "$ROOT_DIR/libexec/notify" hook --event Stop >/dev/null
+
 attached="$TMP_DIR/attached"
 mkdir -p "$attached/bin" "$attached/home" "$attached/state/notify" "$attached/tmp"
 cat >"$attached/bin/tmux" <<'SH'

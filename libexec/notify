@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/data/data/com.termux/files/usr/bin/python3
 """Unified Codex and Termux notification entrypoint."""
 
 from __future__ import annotations

@@ -143,6 +143,11 @@ def body_summary(body: str) -> str:
     return body.strip()
 
 
+def compact_body(body: str) -> str:
+    """Render the complete body as one notification line."""
+    return " ".join(line.strip() for line in body.splitlines() if line.strip())
+
+
 def notification_id(key: str) -> str:
     digest = hashlib.sha256(key.encode("utf-8", "replace")).hexdigest()
     return str(10000 + (int(digest[:8], 16) % 2000000000))

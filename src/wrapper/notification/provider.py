@@ -13,10 +13,12 @@ from typing import Mapping
 
 from .model import (
     ClickAction,
+    compact_body,
     NotificationSettings,
     ProviderCapabilities,
     RenderedNotification,
 )
+from .termux_api import TermuxApiAdapter
 
 
 _TMUX_TARGET = re.compile(r"^[A-Za-z0-9_.-]+:[0-9]+\.[0-9]+$")
@@ -43,6 +45,7 @@ class TermuxProvider:
         self.notify_executable = notify_executable.resolve()
         self.prefix = prefix
         self.env = dict(env)
+        self.termux_api = TermuxApiAdapter(self.env)
 
     def deliver(
         self,
@@ -105,11 +108,7 @@ class TermuxProvider:
     ) -> bool:
         if self.env.get("CODEX_TERMUX_NOTIFY_NO_API") == "1":
             return False
-        executable = shutil.which("termux-notification", path=self.env.get("PATH"))
-        if executable is None:
-            return False
         args = [
-            executable,
             "--id",
             rendered.notification_id,
             "--group",
@@ -126,12 +125,12 @@ class TermuxProvider:
                 "--title",
                 rendered.title,
                 "--content",
-                rendered.body,
+                compact_body(rendered.body) or rendered.body,
                 "--action",
                 self._action_command(rendered),
             )
         )
-        return self._run(args).returncode == 0
+        return self.termux_api.notification(args)
 
     def _toast(
         self,
@@ -140,10 +139,7 @@ class TermuxProvider:
     ) -> bool:
         if self.env.get("CODEX_TERMUX_NOTIFY_NO_API") == "1":
             return False
-        executable = shutil.which("termux-toast", path=self.env.get("PATH"))
-        if executable is None:
-            return False
-        args = [executable]
+        args: list[str] = []
         if settings.toast_gravity:
             args.extend(("-g", settings.toast_gravity))
         if settings.toast_duration == "short":
@@ -153,7 +149,7 @@ class TermuxProvider:
         if settings.toast_color:
             args.extend(("-c", settings.toast_color))
         args.append(rendered.body)
-        return self._run(args).returncode == 0
+        return self.termux_api.toast(args)
 
     def _tmux_fallback(self, rendered: RenderedNotification) -> bool:
         tmux = shutil.which("tmux", path=self.env.get("PATH"))
@@ -214,11 +210,16 @@ class TermuxProvider:
             self._run([tmux, "switch-client", "-t", target])
 
     def _run(self, args: list[str]) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
-            args,
-            check=False,
-            capture_output=True,
-            text=True,
-            env=self.env,
-            timeout=10,
-        )
+        try:
+            return subprocess.run(
+                args,
+                check=False,
+                capture_output=True,
+                text=True,
+                env=self.env,
+                timeout=10,
+            )
+        except subprocess.TimeoutExpired:
+            return subprocess.CompletedProcess(args, 124, "", "timed out")
+        except OSError as exc:
+            return subprocess.CompletedProcess(args, 127, "", str(exc))
