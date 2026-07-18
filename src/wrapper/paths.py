@@ -65,16 +65,36 @@ def file_has_marker(path: Path, marker: str) -> bool:
 
 
 def helper_package_root(*, source_root: Path, root_dir: str, manager_dir: Path) -> Path:
+    """Return the PYTHONPATH root for either supported source layout."""
+    source_src = source_root / "src"
+    if (source_src / "wrapper").is_dir():
+        return source_src
     source_tools = source_root / "tools"
     if (source_tools / "codex_termux").is_dir():
         return source_tools
     if root_dir:
-        root_tools = Path(root_dir) / "tools"
+        root = Path(root_dir)
+        root_src = root / "src"
+        if (root_src / "wrapper").is_dir():
+            return root_src
+        root_tools = root / "tools"
         if (root_tools / "codex_termux").is_dir():
             return root_tools
+    manager_src = manager_dir / "src"
+    if (manager_src / "wrapper").is_dir():
+        return manager_src
     if (manager_dir / "codex_termux").is_dir():
         return manager_dir
     raise IntegrityError("Internal helper package is unavailable")
+
+
+def helper_module(*, package_root: Path) -> str:
+    """Return the preferred internal CLI module for a package root."""
+    if (package_root / "wrapper/cli.py").is_file():
+        return "wrapper.cli"
+    if (package_root / "codex_termux/cli.py").is_file():
+        return "codex_termux.cli"
+    raise IntegrityError("Internal helper CLI module is unavailable")
 
 
 def path_is_within(path: str, root: str) -> bool:

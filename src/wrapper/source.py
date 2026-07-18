@@ -238,3 +238,16 @@ def _release_url(release_url: str, release_repo: str, release_tag: str) -> str:
     if release_repo and release_tag:
         return f"https://github.com/{release_repo}/archive/refs/tags/{release_tag}.tar.gz"
     return ""
+
+
+def prepare_support_install(**kwargs):
+    from .support_transaction import prepare_support_install as implementation
+    return implementation(**kwargs)
+
+def commit_support_install(transaction_file: Path):
+    from .support_transaction import commit_support_install as implementation
+    return implementation(transaction_file)
+
+def rollback_support_install(transaction_file: Path):
+    from .support_transaction import rollback_support_install as implementation
+    return implementation(transaction_file)
