@@ -1,11 +1,11 @@
-#!/data/data/com.termux/files/usr/bin/sh
+#!/bin/sh
 set -eu
-
-termux_rg="/data/data/com.termux/files/usr/bin/rg"
-real_rg="${0}.real"
-
-if [ -x "$termux_rg" ]; then
-    exec "$termux_rg" "$@"
-fi
-
-exec "$real_rg" "$@"
+HERE="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+for candidate in "$HERE/../libexec/rg-termux-shim.sh" "$HERE/source/libexec/rg-termux-shim.sh"; do
+    if [ -f "$candidate" ]; then
+        exec "$candidate" "$@"
+    fi
+done
+printf '%s
+' 'runtime artifact implementation is unavailable' >&2
+exit 1

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TMP_DIR="$(mktemp -d)"
+TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/codex-runtime-build.XXXXXX")"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 fail() {
@@ -33,7 +33,7 @@ chmod 755 "$raw_vendor/bin/codex" "$raw_vendor/bin/codex-code-mode-host" \
     "$raw_vendor/codex-resources/bwrap" \
     "$raw_vendor/codex-resources/zsh/bin/zsh" "$raw_vendor/codex-path/rg"
 
-PYTHONDONTWRITEBYTECODE=1 python3 -B "$ROOT_DIR/tools/build-runtime.py" "$raw_vendor" \
+PYTHONDONTWRITEBYTECODE=1 python3 -B "$ROOT_DIR/libexec/build-runtime.py" "$raw_vendor" \
     --runtime-dir "$runtime_dir" >"$TMP_DIR/build-report.json"
 
 PYTHONDONTWRITEBYTECODE=1 python3 -B - "$ROOT_DIR" "$raw_vendor/bin/codex" "$runtime_dir" <<'PYTHON'
@@ -71,7 +71,7 @@ assert manifest["code_mode_host_sha256"] == hashlib.sha256(raw_host_bytes).hexdi
 assert manifest["upstream_tree_sha256"]
 assert manifest["overlay_tree_sha256"]
 assert manifest["overlay_entries"] == ["codex", "codex-path/bwrap", "codex-path/rg"]
-assert manifest["builder_sha256"] == hashlib.sha256((root / "tools/build-runtime.py").read_bytes()).hexdigest()
+assert manifest["builder_sha256"] == hashlib.sha256((root / "libexec/build-runtime.py").read_bytes()).hexdigest()
 assert runtime_host.read_bytes() == raw_host_bytes, "code-mode host must be copied without patching"
 assert os.access(runtime_host, os.X_OK), "code-mode host must be executable"
 assert (runtime_dir / "upstream/upstream-only.txt").read_text() == "upstream-only\n"
@@ -100,13 +100,26 @@ for rel in (
     "overlay/codex-path/rg",
 ):
     path = runtime_dir / rel
-assert path.exists(), f"missing runtime entry: {rel}"
+    assert path.exists(), f"missing runtime entry: {rel}"
 PYTHON
 
-if PYTHONDONTWRITEBYTECODE=1 python3 -B "$ROOT_DIR/tools/bwrap-termux-compat.py" -- /definitely/missing/codex-bwrap-test 2>"$TMP_DIR/bwrap.err"; then
+if PYTHONDONTWRITEBYTECODE=1 python3 -B "$ROOT_DIR/libexec/bwrap-termux-compat.py" -- /definitely/missing/codex-bwrap-test 2>"$TMP_DIR/bwrap.err"; then
     fail 'bwrap compat accepted a missing executable'
 fi
 grep -F "failed to exec" "$TMP_DIR/bwrap.err" >/dev/null \
     || fail 'bwrap compat failure did not include exec context'
+
+installed_manager="$TMP_DIR/manager"
+mkdir -p "$installed_manager/source/libexec"
+cp "$ROOT_DIR/tools/build-runtime.py" "$installed_manager/build-runtime.py"
+cp "$ROOT_DIR/tools/bwrap-termux-compat.py" "$installed_manager/bwrap-termux-compat.py"
+cp "$ROOT_DIR/tools/rg-termux-shim.sh" "$installed_manager/rg-termux-shim.sh"
+cp "$ROOT_DIR/libexec/build-runtime.py" "$installed_manager/source/libexec/build-runtime.py"
+cp "$ROOT_DIR/libexec/bwrap-termux-compat.py" "$installed_manager/source/libexec/bwrap-termux-compat.py"
+cp "$ROOT_DIR/libexec/rg-termux-shim.sh" "$installed_manager/source/libexec/rg-termux-shim.sh"
+chmod 755 "$installed_manager"/*.py "$installed_manager"/*.sh "$installed_manager/source/libexec"/*
+PYTHONDONTWRITEBYTECODE=1 python3 -B "$installed_manager/build-runtime.py" "$raw_vendor" \
+    --runtime-dir "$TMP_DIR/installed-runtime" >/dev/null
+[ -x "$TMP_DIR/installed-runtime/codex" ] || fail 'installed manager facade did not build runtime'
 
 printf 'runtime-build: ok\n'
