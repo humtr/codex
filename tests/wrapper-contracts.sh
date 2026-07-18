@@ -14,14 +14,15 @@ CODEX_TERMUX_HOME="$TMP_DIR/home" CODEX_HOME="$TMP_DIR/ocdx-home" bash -lc '. "$
 MANAGER_DIR="$TMP_DIR/manager"
 mkdir -p "$MANAGER_DIR"
 cp "$LIB_SH" "$MANAGER_DIR/lib.sh"
-cp -R "$ROOT_DIR/lib/codex-termux" "$MANAGER_DIR/codex-termux"
-CODEX_TERMUX_HOME="$TMP_DIR/home" CODEX_TERMUX_PREFIX="$TMP_DIR/prefix" bash -lc '
+mkdir -p "$MANAGER_DIR/source"
+cp -R "$ROOT_DIR/shell" "$MANAGER_DIR/source/shell"
+CODEX_TERMUX_HOME="$TMP_DIR/home" CODEX_TERMUX_PREFIX="$TMP_DIR/prefix" CODEX_TERMUX_MANAGER_DIR="$MANAGER_DIR" bash -lc '
 . "$1"
-[ "$CODEX_TERMUX_SHELL_LIB" = "$1" ] || {
-    printf "CODEX_TERMUX_SHELL_LIB=%s, expected=%s\n" "$CODEX_TERMUX_SHELL_LIB" "$1" >&2
+[ "$CODEX_TERMUX_SHELL_LIB" = "$2" ] || {
+    printf "CODEX_TERMUX_SHELL_LIB=%s, expected=%s\n" "$CODEX_TERMUX_SHELL_LIB" "$2" >&2
     exit 1
 }
-' _ "$MANAGER_DIR/lib.sh" || fail 'installed manager lib resolves wrong CODEX_TERMUX_SHELL_LIB'
+' _ "$MANAGER_DIR/lib.sh" "$MANAGER_DIR/source/shell/loader.sh" || fail 'installed manager lib resolves wrong CODEX_TERMUX_SHELL_LIB'
 # shellcheck disable=SC1090
 . "$INSTALL_RUNTIME"
 USAGE_CALLED=0; FAILED_MESSAGE=""; SUPPORT_COUNT=0; LAUNCHER_COUNT=0; CACHED_COUNT=0; UPSTREAM_ARG="__unset__"; DOCTOR_ARGS=""
