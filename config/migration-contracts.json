@@ -1,0 +1,102 @@
+{
+  "schema": 1,
+  "name": "codex-termux-behavior-baseline",
+  "status": "frozen-at-baseline",
+  "baseline_commit": "803fef15fe17960bdf8e9f7d5d199b813d08224b",
+  "source_archive": {
+    "branch": "archive/pr-5-golden-runtime-contracts-20260717",
+    "head_commit": "4157d3baff8548e2586d95efd367f02589339802"
+  },
+  "purpose": "Freeze observable Codex Termux wrapper behavior before ownership and layout changes.",
+  "non_goals": [
+    "selecting a future implementation language",
+    "changing runtime, installer, activation, state, registry, or notification behavior",
+    "changing state or registry schema versions",
+    "changing FD 33 or FD 34 inheritance",
+    "treating golden output updates as automatic acceptance"
+  ],
+  "feature_boundaries": [
+    {
+      "id": "public-routing",
+      "description": "Public codex passthrough and codex termux command routing",
+      "public_surfaces": ["lib/codex-termux.sh", "tools/codex_termux/cli.py"]
+    },
+    {
+      "id": "profile-state",
+      "description": "Recent profile persistence and retrieval",
+      "public_surfaces": ["codex termux profile-write-recent", "codex termux profile-read-recent"]
+    },
+    {
+      "id": "state-registry",
+      "description": "Schema-3 state and registry serialization",
+      "public_surfaces": ["tools/codex_termux/state.py", "tools/codex_termux/registry.py"]
+    },
+    {
+      "id": "runtime-exec",
+      "description": "Runtime argv, environment cleanup, exit status, and FD inheritance",
+      "public_surfaces": ["lib/codex-termux/exec.sh"]
+    },
+    {
+      "id": "activation-rollback",
+      "description": "Metadata and pointer restoration after post-switch activation failure",
+      "public_surfaces": ["tools/codex_termux/activation.py"]
+    }
+  ],
+  "policy_boundaries": [
+    "public codex CLI and argument passthrough",
+    "stdout, stderr, and exit status",
+    "state and registry schema 3",
+    "atomic activation rollback",
+    "current, verified, and raw pointer restoration",
+    "managed path deletion guards",
+    "credential non-disclosure",
+    "no-network normal execution",
+    "FD 33 resolver inheritance",
+    "FD 34 system-config inheritance"
+  ],
+  "implementation_boundaries": {
+    "shell": "command routing, process and FD glue, and compatibility entrypoints",
+    "python": "policy, schemas, persistence, diagnostics, and transactions",
+    "c": "minimal public launcher",
+    "external_executables": [
+      "bash",
+      "python3",
+      "termux-notification",
+      "termux-toast"
+    ]
+  },
+  "golden_behavior": {
+    "case_directory": "tests/golden/cases",
+    "expected_directory": "tests/golden/expected",
+    "observables": [
+      "stdout",
+      "stderr",
+      "exit_code",
+      "created_files",
+      "modified_files",
+      "deleted_files",
+      "symlink_targets",
+      "state_and_registry_json",
+      "subprocess_argv",
+      "environment",
+      "fd_33",
+      "fd_34"
+    ],
+    "normalization": [
+      "repository root",
+      "sandbox path",
+      "home path",
+      "prefix path",
+      "temporary path"
+    ],
+    "required_cases": [
+      "activation-rollback",
+      "codex-passthrough",
+      "profile-recent",
+      "runtime-exec",
+      "state-registry",
+      "termux-version-invalid"
+    ],
+    "acceptance": "Expected outputs may change only with an explicit contract review and matching product rationale."
+  }
+}

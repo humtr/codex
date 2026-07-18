@@ -1,0 +1,23 @@
+{
+  "command": [
+    "bash",
+    "<ROOT>/tests/golden/probes/termux-version-invalid.sh",
+    "<ROOT>"
+  ],
+  "environment": {
+    "CODEX_TERMUX_HOME": "<HOME>",
+    "HOME": "<HOME>",
+    "PREFIX": "<PREFIX>"
+  },
+  "exit_code": 2,
+  "filesystem": {
+    "created": {},
+    "deleted": {},
+    "modified": {}
+  },
+  "name": "termux-version-invalid",
+  "observations": {},
+  "schema": 1,
+  "stderr": "Error: termux version does not take arguments\n",
+  "stdout": ""
+}

@@ -1,0 +1,33 @@
+{
+  "command": [
+    "bash",
+    "<ROOT>/tests/golden/probes/codex-passthrough.sh",
+    "<ROOT>",
+    "<SANDBOX>"
+  ],
+  "environment": {
+    "CODEX_TERMUX_AUTO_UPDATE": "0",
+    "CODEX_TERMUX_HOME": "<HOME>",
+    "CODEX_TERMUX_STATE_DIR": "<SANDBOX>/state",
+    "HOME": "<HOME>",
+    "PREFIX": "<PREFIX>"
+  },
+  "exit_code": 0,
+  "filesystem": {
+    "created": {
+      "sandbox/processes.log": {
+        "text": "readiness\nauto-update\nruntime run --flag\n",
+        "type": "file"
+      }
+    },
+    "deleted": {},
+    "modified": {}
+  },
+  "name": "codex-passthrough",
+  "observations": {
+    "subprocesses": "readiness\nauto-update\nruntime run --flag\n"
+  },
+  "schema": 1,
+  "stderr": "",
+  "stdout": "runtime <run> <--flag>\n"
+}

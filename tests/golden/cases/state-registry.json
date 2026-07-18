@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "name": "state-registry",
+  "command": [
+    "bash",
+    "{root}/tests/golden/probes/state-registry.sh",
+    "{root}"
+  ],
+  "capture_environment": [],
+  "observations": [
+    {
+      "label": "state",
+      "path": "{sandbox}/state/state.json",
+      "format": "json"
+    },
+    {
+      "label": "registry",
+      "path": "{sandbox}/state/registry.json",
+      "format": "json"
+    }
+  ],
+  "watch": [],
+  "timeout_seconds": 30
+}
