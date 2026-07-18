@@ -127,12 +127,11 @@ clean_bytecode_noise
 
 for test_script in \
     "$ROOT_DIR/tests/invariants.sh" \
-    "$ROOT_DIR/tests/canon-audit.sh" \
-    "$ROOT_DIR/tests/refactor-boundaries.sh" \
-    "$ROOT_DIR/tests/golden.sh" \
     "$ROOT_DIR/tests/layout-contracts.sh" \
-    "$ROOT_DIR/tests/python-package-compat.sh" \
     "$ROOT_DIR/tests/compatibility-facades.sh" \
+    "$ROOT_DIR/tests/schema-compatibility.sh" \
+    "$ROOT_DIR/tests/golden.sh" \
+    "$ROOT_DIR/tests/canon-audit.sh" \
     "$ROOT_DIR/tests/runtime-build.sh" \
     "$ROOT_DIR/tests/runtime-date.sh" \
     "$ROOT_DIR/tests/package-safety.sh" \
@@ -146,17 +145,20 @@ for test_script in \
     "$ROOT_DIR/tests/wrapper-contracts.sh" \
     "$ROOT_DIR/tests/repair-diagnosis.sh" \
     "$ROOT_DIR/tests/doctor.sh" \
+    "$ROOT_DIR/tests/support-doctor.sh" \
     "$ROOT_DIR/tests/termux-smoke-contracts.sh" \
     "$ROOT_DIR/tests/wrapper-source-config.sh" \
     "$ROOT_DIR/tests/cli-surface.sh" \
+    "$ROOT_DIR/tests/python-package-compat.sh" \
     "$ROOT_DIR/tests/notify-model.sh" \
+    "$ROOT_DIR/tests/notify-baseline.sh" \
+    "$ROOT_DIR/tests/notify-service.sh" \
     "$ROOT_DIR/tests/notify.sh" \
+    "$ROOT_DIR/tests/support-transaction.sh" \
     "$ROOT_DIR/tests/store-rollback.sh" \
     "$ROOT_DIR/tests/profile-boundary.sh" \
     "$ROOT_DIR/tests/session.sh" \
-    "$ROOT_DIR/tools/smoke-termux-wrapper.sh"
+    "$ROOT_DIR/tools/smoke-wrapper.sh"
 do
     run_test "$test_script"
 done
-
-printf 'portable tests: ok\n'

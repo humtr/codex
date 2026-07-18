@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Any
 
 from . import atomic, paths, schemas
 from .errors import SchemaError
-
-
 
 
 def _component(value: str, fallback: str = "unknown") -> str:
@@ -21,6 +20,12 @@ def _first_value(*values: str) -> str:
         if isinstance(value, str) and value:
             return value
     return ""
+
+
+def _merge_entry(existing: Any, managed: dict[str, str]) -> dict[str, Any]:
+    result = dict(existing) if isinstance(existing, dict) else {}
+    result.update(managed)
+    return result
 
 
 def display_runtime_date(value: str) -> str:
@@ -116,6 +121,7 @@ def record(
     )
     tuple_id = f"{raw_id}__{wrapper_id}"
     data = _filter_managed(_load_or_create(registry_file), runtime_store_dir)
+    existing_install = _find_install(data.get("installs", []), tuple_id)
     created_at = _existing_created_at(
         data,
         runtime_path=runtime_path,
@@ -124,39 +130,48 @@ def record(
         raw_sha256=raw_sha256,
     ) or updated_at
     entry = schemas.validate_install_entry(
-        {
-            "version": version,
-            "raw_sha256": raw_sha256,
-            "runtime_sha256": runtime_sha256,
-            "package_spec": package_spec,
-            "runtime_path": runtime_path,
-            "raw_path": raw_path,
-            "updated_at": updated_at,
-            "created_at": created_at,
-            "raw_id": raw_id,
-            "wrapper_id": wrapper_id,
-            "tuple_id": tuple_id,
-        }
+        _merge_entry(
+            existing_install,
+            {
+                "version": version,
+                "raw_sha256": raw_sha256,
+                "runtime_sha256": runtime_sha256,
+                "package_spec": package_spec,
+                "runtime_path": runtime_path,
+                "raw_path": raw_path,
+                "updated_at": updated_at,
+                "created_at": created_at,
+                "raw_id": raw_id,
+                "wrapper_id": wrapper_id,
+                "tuple_id": tuple_id,
+            },
+        )
     )
     data["raw"][raw_id] = schemas.validate_raw_entry(
-        {
-            "version": version,
-            "sha256": raw_sha256,
-            "package_spec": package_spec,
-            "path": raw_path,
-            "updated_at": updated_at,
-        }
+        _merge_entry(
+            data["raw"].get(raw_id),
+            {
+                "version": version,
+                "sha256": raw_sha256,
+                "package_spec": package_spec,
+                "path": raw_path,
+                "updated_at": updated_at,
+            },
+        )
     )
     data["wrapper"][wrapper_id] = schemas.validate_wrapper_entry(
-        {
-            "version": wrapper_version,
-            "commit": wrapper_commit,
-            "repo": "local/codex-termux",
-            "updated_at": updated_at,
-        }
+        _merge_entry(
+            data["wrapper"].get(wrapper_id),
+            {
+                "version": wrapper_version,
+                "commit": wrapper_commit,
+                "repo": "local/codex-termux",
+                "updated_at": updated_at,
+            },
+        )
     )
     previous = data["runtime"].get(tuple_id, {})
-    runtime_entry: dict[str, str] = {
+    runtime_fields: dict[str, str] = {
         "raw_id": raw_id,
         "wrapper_id": wrapper_id,
         "runtime_sha256": runtime_sha256,
@@ -165,13 +180,18 @@ def record(
         "created_at": created_at,
     }
     if smoke_tested_at:
-        runtime_entry["smoke_tested_at"] = smoke_tested_at
+        runtime_fields["smoke_tested_at"] = smoke_tested_at
     elif previous.get("smoke_tested_at"):
-        runtime_entry["smoke_tested_at"] = previous["smoke_tested_at"]
-    data["runtime"][tuple_id] = schemas.validate_runtime_entry(runtime_entry)
+        runtime_fields["smoke_tested_at"] = previous["smoke_tested_at"]
+    data["runtime"][tuple_id] = schemas.validate_runtime_entry(
+        _merge_entry(previous, runtime_fields)
+    )
     data["active_tuple_id"] = tuple_id
     if smoke_tested_at:
         data["verified_tuple_id"] = tuple_id
+    data["installs"] = [
+        item for item in data["installs"] if item.get("tuple_id") != tuple_id
+    ]
     data["installs"].insert(0, entry)
     data["installs"] = data["installs"][:20]
     schemas.validate_registry_v3(data)
