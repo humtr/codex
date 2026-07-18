@@ -8,9 +8,10 @@ fail() {
     exit 1
 }
 
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" python3 -B - <<'PYTHON' || fail 'notify model failed'
-from codex_termux import notify
-
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/src" python3 -B - <<'PYTHON' \
+    || fail 'notify model failed'
+from wrapper.notification import hooks as notify
+from wrapper.notification.config import load_settings
 
 assert notify.canonical_hook("stop") == "Stop"
 assert notify.canonical_hook("pretooluse") == "PreToolUse"
@@ -72,30 +73,25 @@ for selection in ("99", "1abc"):
     else:
         raise AssertionError(selection)
 
-try:
-    notify.parse_channel_selection("bad")
-except notify.NotifyConfigError:
-    pass
-else:
-    raise AssertionError("bad channel")
-
-config = notify.parse_command_config(
-    ["--channel", "both", "--hook", "stop", "--hook", "SubagentStop"],
-    {"CODEX_TERMUX_NOTIFY_CONFIG": "/tmp/notify.env"},
-)
-assert config.config_file == "/tmp/notify.env"
-assert config.settings.channel == "both"
-assert config.settings.hooks == "Stop,SubagentStop"
+assert load_settings(
+    {
+        "CODEX_TERMUX_NOTIFY_CHANNEL": "both",
+        "CODEX_TERMUX_NOTIFY_TOAST_DURATION": "short",
+        "CODEX_TERMUX_NOTIFY_TOAST_SHORT": "0",
+    }
+).toast_duration == "short"
+assert load_settings({"CODEX_TERMUX_NOTIFY_TOAST_SHORT": "1"}).toast_duration == "short"
+assert load_settings({"CODEX_TERMUX_NOTIFY_TOAST_SHORT": "0"}).toast_duration == "long"
 PYTHON
 
 normalized="$(
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
-        python3 -B -m codex_termux.cli notify-hook --action normalize --value stop,SubagentStop
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/src" \
+        python3 -B -m wrapper.cli notify-hook --action normalize --value stop,SubagentStop
 )"
 [ "$normalized" = "Stop,SubagentStop" ] || fail "normalize mismatch: $normalized"
 
-if PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
-    python3 -B -m codex_termux.cli notify-config-env \
+if PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/src" \
+    python3 -B -m wrapper.cli notify-config-env \
         --content-chars 140 \
         --preserve-newlines 0 \
         --toast-gravity center \
@@ -111,31 +107,31 @@ then
 fi
 
 selection="$(
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
-        python3 -B -m codex_termux.cli notify-hook --action parse-selection --value "1 Stop"
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/src" \
+        python3 -B -m wrapper.cli notify-hook --action parse-selection --value "1 Stop"
 )"
 [ "$selection" = "SessionStart,Stop" ] || fail "selection mismatch: $selection"
 
 channel="$(
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
-        python3 -B -m codex_termux.cli notify-channel --action parse --value 2
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/src" \
+        python3 -B -m wrapper.cli notify-channel --action parse --value 2
 )"
 [ "$channel" = "toast" ] || fail "channel mismatch: $channel"
 
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
-    python3 -B -m codex_termux.cli notify-channel --action needs-gravity --value both \
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/src" \
+    python3 -B -m wrapper.cli notify-channel --action needs-gravity --value both \
     || fail 'both channel did not require gravity'
 
-if PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
-    python3 -B -m codex_termux.cli notify-channel --action needs-gravity --value notification
+if PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/src" \
+    python3 -B -m wrapper.cli notify-channel --action needs-gravity --value notification
 then
     fail 'notification channel required gravity'
 fi
 
 command_env="$(
     CODEX_TERMUX_NOTIFY_CONFIG=/tmp/notify.env \
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
-        python3 -B -m codex_termux.cli notify-command-config \
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/src" \
+        python3 -B -m wrapper.cli notify-command-config \
             --field config-env -- --channel both --hook stop --hook SubagentStop
 )"
 case "$command_env" in
@@ -146,5 +142,11 @@ case "$command_env" in
     *"CODEX_TERMUX_NOTIFY_HOOKS=Stop,SubagentStop"*) ;;
     *) fail "notify command config env mismatch: $command_env" ;;
 esac
+
+legacy="$(
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/src:$ROOT_DIR/tools" \
+        python3 -B -m codex_termux.cli notify-hook --action normalize --value stop
+)"
+[ "$legacy" = "Stop" ] || fail "legacy notify CLI mismatch: $legacy"
 
 printf 'notify-model: ok\n'

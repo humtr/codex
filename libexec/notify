@@ -1,0 +1,59 @@
+#!/data/data/com.termux/files/usr/bin/python3
+"""Unified Codex and Termux notification entrypoint."""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+import sys
+
+
+ROOT = Path(__file__).resolve().parent.parent
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+from wrapper.notification import service  # noqa: E402
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="notify")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    hook = sub.add_parser("hook", help="read a Codex hook JSON payload")
+    hook.add_argument("--event", required=True)
+
+    sub.add_parser("send", help="read and send a generic notification JSON payload")
+
+    open_command = sub.add_parser("open", help="run an allowlisted click action")
+    open_command.add_argument("--target", choices=("none", "termux", "tmux"), required=True)
+    open_command.add_argument("--tmux-target", default="")
+
+    sub.add_parser("self-test", help="validate the local notification model")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    executable = Path(__file__).resolve()
+    try:
+        if args.command == "hook":
+            return service.hook(event=args.event, notify_executable=executable)
+        if args.command == "send":
+            return service.send(notify_executable=executable)
+        if args.command == "open":
+            return service.open_target(
+                target=args.target,
+                tmux_target=args.tmux_target,
+                notify_executable=executable,
+            )
+        if args.command == "self-test":
+            return service.self_test()
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(f"notify: {exc}", file=sys.stderr)
+        return 2
+    raise AssertionError(args.command)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
