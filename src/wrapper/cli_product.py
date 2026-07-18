@@ -143,7 +143,8 @@ def _validate_root(requested: Path | None) -> Path:
         if (
             (root / "bin/install-runtime.sh").is_file()
             and (root / "lib/codex-termux.sh").is_file()
-            and (root / "tools/codex_termux/cli.py").is_file()
+            and (root / "tools/codex_termux/__init__.py").is_file()
+            and (root / "src/wrapper/cli.py").is_file()
             and (root / "config/wrapper-version.env").is_file()
         ):
             return root
@@ -364,7 +365,7 @@ def _validate_wrapper_version(root: Path) -> None:
 
 def _shell_contract_text(root: Path) -> str:
     parts = []
-    for path in [root / "lib/codex-termux.sh", *sorted((root / "lib/codex-termux").glob("*.sh"))]:
+    for path in [root / "lib/codex-termux.sh", *sorted((root / "lib/codex-termux").glob("*.sh")), *sorted((root / "shell").glob("*.sh"))]:
         if path.is_file():
             parts.append(path.read_text(encoding="utf-8"))
     return "\n".join(parts)
@@ -395,7 +396,7 @@ def _validate_resolver_contract(root: Path) -> None:
 
 def _validate_profile_contract(root: Path) -> None:
     shell = _shell_contract_text(root)
-    session_py = (root / "tools/codex_termux/session.py").read_text(encoding="utf-8")
+    session_py = (root / "src/wrapper/session.py").read_text(encoding="utf-8")
     profile_root = 'CODEX_TERMUX_PROFILE_ROOT="${CODEX_TERMUX_PROFILE_ROOT:-$CODEX_TERMUX_HOME/.codex-profiles}"'
     required_python_model = (
         "def validate_profile_name(",
