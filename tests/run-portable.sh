@@ -131,6 +131,7 @@ for test_script in \
     "$ROOT_DIR/tests/refactor-boundaries.sh" \
     "$ROOT_DIR/tests/golden.sh" \
     "$ROOT_DIR/tests/layout-contracts.sh" \
+    "$ROOT_DIR/tests/python-package-compat.sh" \
     "$ROOT_DIR/tests/compatibility-facades.sh" \
     "$ROOT_DIR/tests/runtime-build.sh" \
     "$ROOT_DIR/tests/runtime-date.sh" \
