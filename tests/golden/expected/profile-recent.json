@@ -1,0 +1,29 @@
+{
+  "command": [
+    "bash",
+    "<ROOT>/tests/golden/probes/profile-recent.sh",
+    "<ROOT>"
+  ],
+  "environment": {
+    "CODEX_TERMUX_HOME": "<HOME>",
+    "CODEX_TERMUX_STATE_DIR": "<SANDBOX>/state",
+    "HOME": "<HOME>",
+    "PREFIX": "<PREFIX>"
+  },
+  "exit_code": 0,
+  "filesystem": {
+    "created": {
+      "sandbox/state/last-profile": {
+        "text": "work\n",
+        "type": "file"
+      }
+    },
+    "deleted": {},
+    "modified": {}
+  },
+  "name": "profile-recent",
+  "observations": {},
+  "schema": 1,
+  "stderr": "",
+  "stdout": "default\n"
+}

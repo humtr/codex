@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "name": "codex-passthrough",
+  "command": [
+    "bash",
+    "{root}/tests/golden/probes/codex-passthrough.sh",
+    "{root}",
+    "{sandbox}"
+  ],
+  "capture_environment": [
+    "CODEX_TERMUX_AUTO_UPDATE",
+    "CODEX_TERMUX_HOME",
+    "CODEX_TERMUX_STATE_DIR",
+    "HOME",
+    "PREFIX"
+  ],
+  "watch": [
+    {
+      "label": "sandbox",
+      "path": "{sandbox}"
+    }
+  ],
+  "observations": [
+    {
+      "label": "subprocesses",
+      "path": "{sandbox}/processes.log",
+      "format": "text"
+    }
+  ],
+  "timeout_seconds": 30
+}
