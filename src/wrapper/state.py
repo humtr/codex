@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from . import atomic, schemas
 from .errors import SchemaError
@@ -36,7 +37,7 @@ def write(
     verified_tuple_id: str,
     verified_at: str,
 ) -> None:
-    data = schemas.build_state_v3(
+    managed = schemas.build_state_v3(
         version=version,
         raw_sha256=raw_sha256,
         runtime_sha256=runtime_sha256,
@@ -48,4 +49,12 @@ def write(
         verified_tuple_id=verified_tuple_id,
         verified_at=verified_at,
     )
+    data: dict[str, Any]
+    if state_file.exists():
+        existing = schemas.validate_state_v3(schemas.load_json_object(state_file))
+        data = dict(existing)
+        data.update(managed)
+    else:
+        data = dict(managed)
+    schemas.validate_state_v3(data)
     atomic.write_json(state_file, data)

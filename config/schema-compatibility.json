@@ -1,0 +1,65 @@
+{
+  "schema": 1,
+  "metadata_schema": 3,
+  "reader_policy": {
+    "accepted_schemas": [3],
+    "older_schema": "reject without mutation",
+    "future_schema": "reject without mutation",
+    "malformed_json": "reject without mutation"
+  },
+  "writer_policy": {
+    "state": "overlay managed fields on the validated existing object",
+    "registry": "overlay managed fields on matching validated nested objects",
+    "unknown_top_level_fields": "preserve",
+    "unknown_nested_fields": "preserve",
+    "new_file_schema": 3
+  },
+  "managed_fields": {
+    "state": [
+      "schema",
+      "version",
+      "raw_sha256",
+      "runtime_sha256",
+      "package_spec",
+      "active_tuple_id",
+      "wrapper_version",
+      "wrapper_commit",
+      "updated_at",
+      "verified_tuple_id",
+      "verified_at"
+    ],
+    "registry": [
+      "schema",
+      "installs",
+      "raw",
+      "wrapper",
+      "runtime",
+      "active_tuple_id",
+      "verified_tuple_id"
+    ],
+    "install_entry": [
+      "version",
+      "raw_sha256",
+      "runtime_sha256",
+      "package_spec",
+      "runtime_path",
+      "raw_path",
+      "updated_at",
+      "created_at",
+      "raw_id",
+      "wrapper_id",
+      "tuple_id"
+    ],
+    "raw_entry": ["version", "sha256", "package_spec", "path", "updated_at"],
+    "wrapper_entry": ["version", "commit", "repo", "updated_at"],
+    "runtime_entry": [
+      "raw_id",
+      "wrapper_id",
+      "runtime_sha256",
+      "path",
+      "updated_at",
+      "created_at",
+      "smoke_tested_at"
+    ]
+  }
+}
