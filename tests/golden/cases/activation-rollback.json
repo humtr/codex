@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "name": "activation-rollback",
+  "command": [
+    "bash",
+    "{root}/tests/golden/probes/activation-rollback.sh",
+    "{root}"
+  ],
+  "capture_environment": [],
+  "observations": [
+    {
+      "label": "activation_rollback",
+      "path": "{sandbox}/activation-rollback/result.json",
+      "format": "json"
+    }
+  ],
+  "watch": [],
+  "timeout_seconds": 30
+}

@@ -1,0 +1,40 @@
+{
+  "command": [
+    "bash",
+    "<ROOT>/tests/golden/probes/activation-rollback.sh",
+    "<ROOT>"
+  ],
+  "environment": {},
+  "exit_code": 0,
+  "filesystem": {
+    "created": {},
+    "deleted": {},
+    "modified": {}
+  },
+  "name": "activation-rollback",
+  "observations": {
+    "activation_rollback": {
+      "error": {
+        "message": "forced post-switch probe failure",
+        "type": "IntegrityError"
+      },
+      "metadata": {
+        "registry": {
+          "marker": "old-registry"
+        },
+        "state": {
+          "marker": "old-state"
+        }
+      },
+      "pointers": {
+        "current": "<SANDBOX>/activation-rollback/store/runtime/old-runtime",
+        "raw": "<SANDBOX>/activation-rollback/store/raw/old-raw",
+        "verified": "<SANDBOX>/activation-rollback/store/runtime/old-runtime"
+      },
+      "transaction_entries": []
+    }
+  },
+  "schema": 1,
+  "stderr": "",
+  "stdout": ""
+}
