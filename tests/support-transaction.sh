@@ -107,6 +107,21 @@ assert (main["config"] / "config.toml").read_text(encoding="utf-8") == "first co
 assert not second_target.exists() and not second_source.exists()
 assert not main["lower"].exists() and not main["recovery"].exists()
 
+# A successful replacement becomes the verified rollback baseline.
+promoted = paths("promoted")
+seed(promoted, "initial launcher\n", "initial config\n")
+initial = prepare(promoted, "initialcommit", "2026-07-17T00:01:30+09:00")
+source.commit_support_install(Path(initial.transaction_file))
+replacement = prepare(promoted, "replacementcommit", "2026-07-17T00:01:31+09:00")
+replacement_target = Path(replacement.target)
+replacement_source = Path(replacement.source_target)
+source.commit_support_install(Path(replacement.transaction_file))
+assert promoted["manager"].resolve() == replacement_target.resolve()
+assert promoted["verified_manager"].resolve() == replacement_target.resolve()
+assert promoted["source"].resolve() == replacement_source.resolve()
+assert promoted["verified_source"].resolve() == replacement_source.resolve()
+assert not promoted["lower"].exists() and not promoted["recovery"].exists()
+
 # A new prepare recovers a stale switched transaction before creating a candidate.
 stale = prepare(main, "stalecommit", "2026-07-17T00:02:00+09:00")
 stale_target = Path(stale.target)

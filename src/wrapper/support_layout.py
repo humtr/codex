@@ -167,6 +167,8 @@ def commit_support_install(transaction_file: Path) -> SupportActivation:
         raise IntegrityError("active manager does not match prepared support artifact")
     if not _same_target(Path(activation.source_link), Path(activation.source_target)):
         raise IntegrityError("active source snapshot does not match prepared source artifact")
+    _replace_symlink(Path(activation.verified_manager_link), Path(activation.target))
+    _replace_symlink(Path(activation.verified_source_link), Path(activation.source_target))
     transaction_file.unlink(missing_ok=True)
     return activation
 
