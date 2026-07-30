@@ -252,6 +252,8 @@ def _populate_support(
     shutil.copytree(source_root / "lib/codex-termux", target / "codex-termux", symlinks=True)
     shutil.copytree(source_root / "tools/codex_termux", target / "codex_termux", symlinks=True)
     shutil.copy2(source_root / "lib/codex-termux.sh", target / "lib.sh")
+    shutil.copy2(source_root / "tools/termux-notify.sh", target / "termux-notify.sh")
+    shutil.copy2(source_root / "tools/codex-turn-notify.sh", target / "codex-turn-notify.sh")
 
     (target / "source").symlink_to(source_link)
     for compatibility, destination in (
@@ -291,6 +293,8 @@ def _populate_support(
         target / "libexec/build-runtime.py",
         target / "libexec/bwrap-termux-compat.py",
         target / "libexec/rg-termux-shim.sh",
+        target / "termux-notify.sh",
+        target / "codex-turn-notify.sh",
     ):
         path.chmod(0o755)
     _remove_bytecode(target)
@@ -328,6 +332,8 @@ def _validate_support(target: Path) -> None:
         "libexec/build-runtime.py",
         "libexec/bwrap-termux-compat.py",
         "libexec/rg-termux-shim.sh",
+        "termux-notify.sh",
+        "codex-turn-notify.sh",
         "codex-termux/dispatch.sh",
         "source",
         "support-manifest.json",
