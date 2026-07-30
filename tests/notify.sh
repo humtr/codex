@@ -142,13 +142,22 @@ env -i \
     CODEX_TERMUX_NOTIFY_CONFIG="$PROVIDER_TMP/state/notify/config.env" \
     PATH="$PROVIDER_TMP/bin:$PATH" \
     bash "$ROOT_DIR/tools/codex-turn-notify.sh" <<'JSON' >"$PROVIDER_TMP/out" 2>&1
-{"session_id":"provider-alpha","cwd":"/data/data/com.termux/files/home/prj/codex","last_assistant_message":"provider response"}
+{"session_id":"provider-alpha","cwd":"/data/data/com.termux/files/home/prj/codex","last_assistant_message":"provider response\ncontinues without truncation"}
 JSON
 grep -q '^notification$' "$PROVIDER_TMP/calls" || fail 'notification provider was not called'
 grep -q '^toast$' "$PROVIDER_TMP/calls" || fail 'toast provider was not called'
 if grep -q "$(printf '\a')" "$PROVIDER_TMP/out"; then
     fail 'bell fallback ran after termux-api providers succeeded'
 fi
+python3 - "$PROVIDER_TMP/state/notify/last-payload.json" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+expected = "provider response continues without truncation"
+if payload["content"] != expected:
+    raise SystemExit(f"configured single-line rendering was not applied: {payload['content']!r}")
+PY
 
 TMUX_TARGET_TMP="$TMP_DIR/tmux-target"
 mkdir -p "$TMUX_TARGET_TMP/bin" "$TMUX_TARGET_TMP/state/notify"
