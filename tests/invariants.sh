@@ -36,36 +36,36 @@ grep -Fx 'CODEX_TERMUX_WRAPPER_CHANNEL=termux' config/wrapper-version.env >/dev/
 grep -Fx 'CODEX_TERMUX_WRAPPER_REPO=humtr/codex' config/wrapper-version.env >/dev/null \
     || fail 'wrapper repo mismatch'
 
-grep -R -F 'PYTHONDONTWRITEBYTECODE=1' lib/codex-termux.sh lib/codex-termux >/dev/null \
+grep -F 'PYTHONDONTWRITEBYTECODE=1' shell/state.sh >/dev/null \
     || fail 'helper bytecode suppression missing'
-grep -R -F 'python3 -B -m codex_termux.cli' lib/codex-termux.sh lib/codex-termux >/dev/null \
+grep -F 'python3 -B -m codex_termux.cli' shell/state.sh >/dev/null \
     || fail 'helper -B invocation missing'
-grep -R -F 'profile-list --include-default' lib/codex-termux.sh lib/codex-termux >/dev/null \
+grep -F 'profile-list --include-default' shell/profile.sh >/dev/null \
     || fail 'profile list dispatch helper missing'
-grep -R -F 'profile-run-plan-env' lib/codex-termux.sh lib/codex-termux tools/codex_termux/cli_profile.py >/dev/null \
+grep -F 'profile-run-plan-env' shell/profile.sh src/wrapper/cli_profile.py >/dev/null \
     || fail 'profile run plan helper missing'
-grep -R -F 'raw in {"list", "ls"}' tools/codex_termux/session.py >/dev/null \
+grep -F 'raw in {"list", "ls"}' src/wrapper/session.py >/dev/null \
     || fail 'profile list command plan missing'
-if grep -R -F 'list|ls)' lib/codex-termux.sh lib/codex-termux >/dev/null; then
+if grep -R -F 'list|ls)' shell >/dev/null; then
     fail 'profile list command parsing moved back into shell'
 fi
-grep -R -F '33<"$CODEX_TERMUX_RESOLV_CONF"' lib/codex-termux.sh lib/codex-termux >/dev/null \
+grep -F '33<"$CODEX_TERMUX_RESOLV_CONF"' shell/exec.sh >/dev/null \
     || fail 'runtime fd33 launcher contract missing'
-grep -R -F '34<"$CODEX_TERMUX_SYSTEM_CONFIG_DIR"' lib/codex-termux.sh lib/codex-termux >/dev/null \
+grep -F '34<"$CODEX_TERMUX_SYSTEM_CONFIG_DIR"' shell/exec.sh >/dev/null \
     || fail 'runtime fd34 launcher contract missing'
-grep -R -F 'PATCH_POLICY = "termux-fd-remap-v1"' tools/build-runtime.py >/dev/null \
+grep -F 'PATCH_POLICY = "termux-fd-remap-v1"' libexec/build-runtime.py >/dev/null \
     || fail 'builder patch policy changed'
-grep -R -F 'b"/etc/resolv.conf": b"/proc/self/fd/33"' tools/build-runtime.py >/dev/null \
+grep -F 'b"/etc/resolv.conf": b"/proc/self/fd/33"' libexec/build-runtime.py >/dev/null \
     || fail 'builder resolver target changed'
-grep -R -F 'b"/etc/codex/config.toml": b"/dev/fd/34/config.toml"' tools/build-runtime.py >/dev/null \
+grep -F 'b"/etc/codex/config.toml": b"/dev/fd/34/config.toml"' libexec/build-runtime.py >/dev/null \
     || fail 'builder system config target changed'
 grep -R -F 'install upstream [VERSION]' bin/install-runtime.sh >/dev/null \
     || fail 'install upstream help surface missing'
 grep -R -F 'install rebuild' bin/install-runtime.sh >/dev/null \
     || fail 'install rebuild help surface missing'
-grep -R -F 'codex_runtime_install_upstream()' lib/codex-termux.sh lib/codex-termux >/dev/null \
+grep -F 'codex_runtime_install_upstream()' shell/build.sh >/dev/null \
     || fail 'runtime upstream install helper missing'
-grep -R -F 'codex_runtime_install_cached()' lib/codex-termux.sh lib/codex-termux >/dev/null \
+grep -F 'codex_runtime_install_cached()' shell/build.sh >/dev/null \
     || fail 'runtime cached install helper missing'
 if grep -R -F 'codex rebuild' README.md >/dev/null; then
     fail 'stale public codex rebuild command remains in README'

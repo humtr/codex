@@ -373,7 +373,7 @@ def _shell_contract_text(root: Path) -> str:
 
 def _validate_resolver_contract(root: Path) -> None:
     shell = _shell_contract_text(root)
-    builder = (root / "tools/build-runtime.py").read_text(encoding="utf-8")
+    builder = (root / "libexec/build-runtime.py").read_text(encoding="utf-8")
     shell_policy = 'CODEX_TERMUX_PATCH_POLICY="${CODEX_TERMUX_PATCH_POLICY:-termux-fd-remap-v1}"'
     builder_policy = 'PATCH_POLICY = "termux-fd-remap-v1"'
     resolver_target = 'b"/etc/resolv.conf": b"/proc/self/fd/33"'
