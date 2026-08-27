@@ -112,13 +112,16 @@ bash -lc '. "$1"; marker_file="$TEST_TMP_DIR/launcher.bin"; printf "prefix\0%s\0
 CODEX_TERMUX_HOME="$TMP_DIR/home" \
 CODEX_TERMUX_STATE_DIR="$TMP_DIR/state" \
 CODEX_TERMUX_TMPDIR="$TMP_DIR/tmp" \
-bash -lc '. "$1"; ROOT_DIR="$(cd "$(dirname "$1")/.." && pwd)"; stable="$CODEX_TERMUX_RUNTIME_STORE_DIR/stable-runtime"; mkdir -p "$CODEX_TERMUX_CERT_DIR"; termux-open-url() { :; }; codex_prepare_system_config() { return 0; }; codex_termux_cmd() { if [ "$1" = resolve-path ] && [ "$3" = "$CODEX_TERMUX_RUNTIME_DIR" ]; then printf "%s\n" "$stable"; return 0; fi; PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools${PYTHONPATH:+:$PYTHONPATH}:$CODEX_TERMUX_MANAGER_DIR" python3 -B -m codex_termux.cli "$@"; }; export CODEX_SELF_EXE="$CODEX_TERMUX_RUNTIME" CODEX_MANAGED_BY_NPM=1 LD_PRELOAD=bad BROWSER=""; codex_prepare_runtime_env; [ "$CODEX_SELF_EXE" = "$stable/codex" ]; [ "$CODEX_CODE_MODE_HOST_PATH" = "$stable/codex-code-mode-host" ]; [ "$TMPDIR" = "$CODEX_TERMUX_TMPDIR" ]; [ "$SQLITE_TMPDIR" = "$CODEX_TERMUX_TMPDIR" ]; [ "$SSL_CERT_FILE" = "$CODEX_TERMUX_CERT_FILE" ]; [ "$SSL_CERT_DIR" = "$CODEX_TERMUX_CERT_DIR" ]; [ "$BROWSER" = "termux-open-url" ]; [ -z "${CODEX_MANAGED_BY_NPM+x}" ]; [ -z "${LD_PRELOAD+x}" ]; case "$PATH" in "$stable/codex-path:$stable/codex-resources:"*) ;; *) exit 1 ;; esac' _ "$LIB_SH"
+bash -lc '. "$1"; ROOT_DIR="$(cd "$(dirname "$1")/.." && pwd)"; stable="$CODEX_TERMUX_RUNTIME_STORE_DIR/stable-runtime"; mkdir -p "$CODEX_TERMUX_CERT_DIR"; termux-open-url() { :; }; codex_prepare_system_config() { return 0; }; codex_termux_cmd() { if [ "$1" = resolve-path ] && [ "$3" = "$CODEX_TERMUX_RUNTIME_DIR" ]; then printf "%s\n" "$stable"; return 0; fi; PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools${PYTHONPATH:+:$PYTHONPATH}:$CODEX_TERMUX_MANAGER_DIR" python3 -B -m codex_termux.cli "$@"; }; export CODEX_SELF_EXE="$CODEX_TERMUX_RUNTIME" CODEX_MANAGED_BY_NPM=1 LD_PRELOAD=bad BROWSER=""; codex_prepare_runtime_env; [ "$CODEX_SELF_EXE" = "$stable/codex" ]; [ "$CODEX_CODE_MODE_HOST_PATH" = "$stable/codex-code-mode-host" ]; [ "$TMPDIR" = "$CODEX_TERMUX_TMPDIR" ]; [ "$SQLITE_TMPDIR" = "$CODEX_TERMUX_TMPDIR" ]; [ "$SSL_CERT_FILE" = "$CODEX_TERMUX_CERT_FILE" ]; [ "$SSL_CERT_DIR" = "$CODEX_TERMUX_CERT_DIR" ]; [ "$BROWSER" = "termux-open-url" ]; [ -z "${CODEX_MANAGED_BY_NPM+x}" ]; [ -z "${LD_PRELOAD+x}" ]; case "$PATH" in "$stable/codex-path:$CODEX_TERMUX_PREFIX/bin:"*) ;; *) exit 1 ;; esac; case "$PATH" in *"$stable/codex-resources"*) exit 1 ;; esac' _ "$LIB_SH"
 
 CODEX_TERMUX_HOME="$TMP_DIR/home" \
 CODEX_TERMUX_STATE_DIR="$TMP_DIR/state" \
 CODEX_TERMUX_TMPDIR="$TMP_DIR/tmp" \
 bash -lc '. "$1"; stable="$CODEX_TERMUX_RUNTIME_STORE_DIR/stable-runtime"; mkdir -p "$stable" "$CODEX_TERMUX_CERT_DIR" "$(dirname "$CODEX_TERMUX_RESOLV_CONF")" "$CODEX_TERMUX_SYSTEM_CONFIG_DIR"; printf "nameserver 1.1.1.1\n" >"$CODEX_TERMUX_RESOLV_CONF"; cat >"$stable/codex" <<'"'"'SCRIPT'"'"'
 #!/bin/sh
+[ "$1" = "-c" ] || exit 9
+[ "$2" = "sandbox_mode=\"danger-full-access\"" ] || exit 10
+shift 2
 expected_home="$1"
 expected_cert_file="$2"
 expected_cert_dir="$3"

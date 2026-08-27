@@ -312,18 +312,18 @@ codex_ensure_runtime_ready
 [ "$support" -eq 0 ] && [ "$metadata" -eq 0 ] && [ "$rollback" -eq 0 ] && [ "$cached" -eq 0 ] && [ "$steps" = "" ]
 ' _ "$LIB_SH" "$TMP_DIR" || fail 'shell repair action flow failed'
 
-if rg -n 'CODEX_REPAIR_NEEDS_' "$ROOT_DIR/lib" >/dev/null; then
+if rg -n 'CODEX_REPAIR_NEEDS_' "$ROOT_DIR/shell" >/dev/null; then
     fail 'repair diagnosis leaked shell global flags'
 fi
 
-rg -n 'repair-diagnose' "$ROOT_DIR/lib/codex-termux/repair.sh" >/dev/null ||
+rg -n 'repair-diagnose' "$ROOT_DIR/shell/repair.sh" >/dev/null ||
     fail 'repair domain does not delegate diagnosis to Python'
 
-rg -n 'runtime-action-plan' "$ROOT_DIR/lib/codex-termux/repair.sh" >/dev/null ||
+rg -n 'runtime-action-plan' "$ROOT_DIR/shell/repair.sh" >/dev/null ||
     fail 'repair domain does not delegate action planning to Python'
 
 if rg -n 'raw_corrupt|missing_runtime|unrecoverable|Cached raw package integrity|no cached raw package|Runtime is damaged' \
-    "$ROOT_DIR/lib/codex-termux/runtime.sh" >/dev/null; then
+    "$ROOT_DIR/shell/runtime.sh" >/dev/null; then
     fail 'runtime action policy leaked back into shell'
 fi
 

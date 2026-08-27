@@ -31,7 +31,7 @@ assert "CODEX_INSTALL_PLAN_ACTION=upstream" in exports
 assert "CODEX_INSTALL_PLAN_VERSION=0.142.0" in exports
 assert "CODEX_INSTALL_PLAN_SURFACE_MESSAGE='Installing upstream Codex 0.142.0'" in exports
 check("install", ["upstream"], action=install_plan.ACTION_UPSTREAM, surface="upstream")
-assert install_plan.plan("install", ["upstream"]).to_dict()["surface_message"] == "Installing latest upstream Codex"
+assert install_plan.plan("install", ["upstream"]).to_dict()["surface_message"] == "Installing wrapper-qualified upstream Codex"
 check("install", ["upstream", "0.142.0"], action=install_plan.ACTION_UPSTREAM, surface="upstream", version="0.142.0")
 assert install_plan.plan("install", ["upstream", "0.142.0"]).to_dict()["surface_message"] == "Installing upstream Codex 0.142.0"
 check("install", ["rebuild"], action=install_plan.ACTION_REBUILD, surface="rebuild")

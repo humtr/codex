@@ -148,7 +148,6 @@ fi
 manager_dir="$TMP_DIR/manager"
 runtime_dir="$TMP_DIR/runtime"
 mkdir -p "$manager_dir" "$runtime_dir"
-printf 'test\n' >"$runtime_dir/bwrap-termux-compat.py"
 printf 'test\n' >"$runtime_dir/rg-termux-shim.sh"
 support_dir="$(
     PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \
@@ -158,7 +157,6 @@ support_dir="$(
 )"
 [ "$support_dir" = "$runtime_dir" ] || fail "support source runtime fallback mismatch: $support_dir"
 
-printf 'test\n' >"$manager_dir/bwrap-termux-compat.py"
 printf 'test\n' >"$manager_dir/rg-termux-shim.sh"
 support_dir="$(
     PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tools" \

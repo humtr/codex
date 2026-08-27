@@ -40,7 +40,7 @@ def surface_message(surface: str, version: str = "") -> str:
     if surface == "upstream":
         if version:
             return f"Installing upstream Codex {version}"
-        return "Installing latest upstream Codex"
+        return "Installing wrapper-qualified upstream Codex"
     if surface == "rebuild":
         return "Rebuilding runtime from cached raw package"
     if surface == "repair":

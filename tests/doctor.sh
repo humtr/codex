@@ -60,7 +60,6 @@ with TemporaryDirectory() as tmp:
     write_executable(manager / "managed.sh", "#!/bin/sh\nexit 0\n")
     (manager / "lib.sh").write_text("# lib\n", encoding="utf-8")
     write_executable(builder, "#!/usr/bin/env python3\n")
-    write_executable(manager / "bwrap-termux-compat.py", "#!/bin/sh\nexit 0\n")
     write_executable(manager / "rg-termux-shim.sh", "#!/bin/sh\nexit 0\n")
     write_executable(manager / "termux-notify.sh", "#!/bin/sh\nexit 0\n")
     write_executable(manager / "codex-turn-notify.sh", "#!/bin/sh\nexit 0\n")
@@ -95,7 +94,6 @@ with TemporaryDirectory() as tmp:
     code_host_bytes = b"upstream code mode host"
 
     runtime_sha = make_runtime(current_runtime, builder, runtime_bytes, hashlib.sha256(raw_bytes).hexdigest(), code_host_bytes)
-    write_executable(current_runtime / "codex-path/bwrap", "#!/bin/sh\nexit 0\n")
     write_executable(current_runtime / "codex-path/rg", "#!/bin/sh\nexit 0\n")
     write_executable(current_runtime / "codex-path/rg.real", "#!/bin/sh\nexit 0\n")
     write_executable(current_runtime / "codex-resources/bwrap", "#!/bin/sh\nexit 0\n")
@@ -197,6 +195,15 @@ with TemporaryDirectory() as tmp:
     assert wrapper["commit"] == "2497a22aadc2", wrapper
     assert wrapper["installedAt"] == "2026-06-27T23:22:48+09:00", wrapper
     assert wrapper["channel"] == "termux", wrapper
+    assert report["checks"]["path_bwrap_absent"] is True, report["checks"]
+    assert report["checks"]["upstream_bwrap_preserved"] is True, report["checks"]
+    sandbox = report["capabilities"]["linuxSandbox"]
+    assert sandbox == {
+        "available": False,
+        "status": "unsupported",
+        "backend": "none",
+        "reason": doctor.LINUX_SANDBOX_REASON,
+    }, sandbox
 
     code_host = current_runtime / "codex-code-mode-host"
     missing_code_host = current_runtime / ".codex-code-mode-host.missing"

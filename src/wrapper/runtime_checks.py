@@ -112,7 +112,7 @@ def version_report(
 
 
 def _support_tools_available(path: Path) -> bool:
-    return (path / "bwrap-termux-compat.py").is_file() and (path / "rg-termux-shim.sh").is_file()
+    return (path / "rg-termux-shim.sh").is_file()
 
 
 def _read_env_metadata(path: Path) -> dict[str, str]:
@@ -170,12 +170,7 @@ def raw_integrity_ok(*, raw_binary: Path, state_path: Path) -> bool:
 
 def support_tools_match(*, support_dir: Path, runtime_dir: Path) -> bool:
     try:
-        return (
-            (support_dir / "bwrap-termux-compat.py").read_bytes()
-            == (runtime_dir / "codex-path/bwrap").read_bytes()
-            and (support_dir / "rg-termux-shim.sh").read_bytes()
-            == (runtime_dir / "codex-path/rg").read_bytes()
-        )
+        return (support_dir / "rg-termux-shim.sh").read_bytes() == (runtime_dir / "codex-path/rg").read_bytes()
     except OSError:
         return False
 
@@ -185,7 +180,7 @@ def runtime_layout_ok(*, runtime_dir: Path, runtime: Path, support_dir: Path) ->
         _executable(runtime)
         and _executable(runtime_dir / "codex-code-mode-host")
         and _executable(runtime_dir / "codex-resources/bwrap")
-        and _executable(runtime_dir / "codex-path/bwrap")
+        and not (runtime_dir / "codex-path/bwrap").exists()
         and _executable(runtime_dir / "codex-path/rg")
         and _executable(runtime_dir / "codex-path/rg.real")
         and support_tools_match(support_dir=support_dir, runtime_dir=runtime_dir)
@@ -197,7 +192,6 @@ def support_layer_ok(*, managed_shell: Path, manager_dir: Path, public_codex: Pa
         _executable(managed_shell)
         and (manager_dir / "lib.sh").is_file()
         and _executable(manager_dir / "build-runtime.py")
-        and _executable(manager_dir / "bwrap-termux-compat.py")
         and _executable(manager_dir / "rg-termux-shim.sh")
         and _executable(manager_dir / "termux-notify.sh")
         and _executable(manager_dir / "codex-turn-notify.sh")

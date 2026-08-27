@@ -44,14 +44,14 @@ missing = sorted(required_metrics - set(metrics))
 assert not missing, missing
 
 shell_lines = metrics["shell_file_lines"]
-assert metrics["build_shell_lines"] == shell_lines["lib/codex-termux/build.sh"]
-assert metrics["ui_shell_lines"] == shell_lines["lib/codex-termux/ui.sh"]
-assert metrics["fs_shell_lines"] == shell_lines["lib/codex-termux/fs.sh"]
-assert metrics["runtime_shell_lines"] == shell_lines["lib/codex-termux/runtime.sh"]
-assert metrics["state_shell_lines"] == shell_lines["lib/codex-termux/state.sh"]
-assert metrics["prompt_shell_lines"] == shell_lines["lib/codex-termux/prompt.sh"]
-assert metrics["notify_shell_lines"] == shell_lines["lib/codex-termux/notify.sh"]
-assert metrics["profile_shell_lines"] == shell_lines["lib/codex-termux/profile.sh"]
+assert metrics["build_shell_lines"] == shell_lines["shell/build.sh"]
+assert metrics["ui_shell_lines"] == shell_lines["shell/ui.sh"]
+assert metrics["fs_shell_lines"] == shell_lines["shell/fs.sh"]
+assert metrics["runtime_shell_lines"] == shell_lines["shell/runtime.sh"]
+assert metrics["state_shell_lines"] == shell_lines["shell/state.sh"]
+assert metrics["prompt_shell_lines"] == shell_lines["shell/prompt.sh"]
+assert metrics["notify_shell_lines"] == shell_lines["shell/notify.sh"]
+assert metrics["profile_shell_lines"] == shell_lines["shell/profile.sh"]
 
 assert metrics["unregistered_helper_commands"] == []
 for command in metrics["shell_helper_commands"]:

@@ -212,7 +212,6 @@ def _require_role_layout(root: Path) -> None:
         "src/wrapper/cli.py",
         "src/wrapper/source.py",
         "libexec/build-runtime.py",
-        "libexec/bwrap-termux-compat.py",
         "libexec/rg-termux-shim.sh",
         "native/codex-launcher.c",
     )
@@ -258,7 +257,6 @@ def _populate_support(
     (target / "source").symlink_to(source_link)
     for compatibility, destination in (
         ("build-runtime.py", "libexec/build-runtime.py"),
-        ("bwrap-termux-compat.py", "libexec/bwrap-termux-compat.py"),
         ("rg-termux-shim.sh", "libexec/rg-termux-shim.sh"),
     ):
         (target / compatibility).symlink_to(destination)
@@ -291,7 +289,6 @@ def _populate_support(
         target / "lib.sh",
         target / "managed.sh",
         target / "libexec/build-runtime.py",
-        target / "libexec/bwrap-termux-compat.py",
         target / "libexec/rg-termux-shim.sh",
         target / "termux-notify.sh",
         target / "codex-turn-notify.sh",
@@ -330,7 +327,6 @@ def _validate_support(target: Path) -> None:
         "src/wrapper/cli.py",
         "src/codex_termux/__init__.py",
         "libexec/build-runtime.py",
-        "libexec/bwrap-termux-compat.py",
         "libexec/rg-termux-shim.sh",
         "termux-notify.sh",
         "codex-turn-notify.sh",

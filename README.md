@@ -22,7 +22,7 @@ The wrapper does four things:
 
 1. Installs the official upstream `@openai/codex` linux-arm64 package.
 2. Patches the raw binary into a Termux-compatible runtime.
-3. Installs Termux-compatible `bwrap` and `rg` shims beside the runtime.
+3. Installs the Termux-compatible `rg` shim beside the runtime.
 4. Exposes a managed `codex` launcher.
 
 The wrapper does not replace upstream Codex commands. Unknown commands and normal bare execution are passed through to the active runtime after the wrapper has ensured that the runtime is ready.
@@ -86,11 +86,17 @@ The wrapper uses these terms consistently:
 - **upstream package**: the official `@openai/codex` linux-arm64 package downloaded from npm.
 - **raw binary**: the upstream `codex` executable before Termux patching.
 - **runtime**: the patched executable that can run in Termux.
-- **runtime bundle**: the runtime plus its support files and shims.
+- **runtime bundle**: the runtime plus its support files and Termux overlay.
 - **active runtime**: the runtime currently selected by the managed launcher.
 - **verified runtime**: the rollback baseline kept after a successful activation.
 
 The runtime patch remaps the binary's Termux-incompatible system paths through inherited file descriptors. The launcher opens the Termux resolver source on fd 33 and the managed Codex system config directory on fd 34 before running the runtime. These descriptors are runtime patch contracts, not configurable user options.
+
+### Linux sandbox support
+
+Termux does not provide the Linux namespace and mount environment required by Codex's bubblewrap sandbox. The wrapper therefore does not install, probe, or route through a compatibility `bwrap`. Ordinary managed Codex launches apply only the upstream config override `sandbox_mode="danger-full-access"`; approval policy remains controlled independently by upstream Codex. The wrapper never injects `--dangerously-bypass-approvals-and-sandbox` or changes `--ask-for-approval`.
+
+`codex sandbox linux` and explicit `read-only` or `workspace-write` sandbox requests are unsupported and fail before profile/runtime execution. The upstream package's bundled `codex-resources/bwrap` file remains preserved as part of the pristine vendor/runtime tree for provenance, but it is not placed on the Termux execution `PATH` and is not a supported backend. Managed requirements that forbid the no-sandbox mode remain authoritative and are not bypassed.
 
 ## Commands
 
@@ -322,4 +328,4 @@ This package intentionally does not provide:
 - migration from old development layouts;
 - shared plugin wiring between profiles;
 - a replacement command surface for upstream Codex;
-- a sandbox implementation beyond Termux compatibility shims.
+- Linux bubblewrap namespace/mount sandboxing on Termux.

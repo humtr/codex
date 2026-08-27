@@ -19,7 +19,6 @@ codex_runtime_apply_env_plan() {
         --xdg-cache-home "${XDG_CACHE_HOME:-}" \
         --xdg-data-home "${XDG_DATA_HOME:-}" \
         --godebug "${GODEBUG:-}" \
-        --bwrap-quiet "${CODEX_TERMUX_BWRAP_COMPAT_QUIET:-}" \
         --termux-open-url "$5"
 }
 
@@ -40,7 +39,7 @@ codex_runtime_exec() {
         return 66
     fi
     codex_prepare_system_config || return $?
-    "$CODEX_SELF_EXE" "$@" 33<"$CODEX_TERMUX_RESOLV_CONF" 34<"$CODEX_TERMUX_SYSTEM_CONFIG_DIR"
+    "$CODEX_SELF_EXE" -c 'sandbox_mode="danger-full-access"' "$@" 33<"$CODEX_TERMUX_RESOLV_CONF" 34<"$CODEX_TERMUX_SYSTEM_CONFIG_DIR"
 }
 
 codex_prepare_runtime_env() {
@@ -61,7 +60,7 @@ codex_run_current_runtime() {
         codex_fail "Resolver source is unavailable: $CODEX_TERMUX_RESOLV_CONF"
         return 66
     fi
-    "$CODEX_SELF_EXE" "$@" 33<"$CODEX_TERMUX_RESOLV_CONF" 34<"$CODEX_TERMUX_SYSTEM_CONFIG_DIR"
+    "$CODEX_SELF_EXE" -c 'sandbox_mode="danger-full-access"' "$@" 33<"$CODEX_TERMUX_RESOLV_CONF" 34<"$CODEX_TERMUX_SYSTEM_CONFIG_DIR"
 }
 
 codex_exec_current_runtime() {
@@ -71,5 +70,5 @@ codex_exec_current_runtime() {
         codex_fail "Resolver source is unavailable: $CODEX_TERMUX_RESOLV_CONF"
         return 66
     fi
-    exec "$CODEX_SELF_EXE" "$@" 33<"$CODEX_TERMUX_RESOLV_CONF" 34<"$CODEX_TERMUX_SYSTEM_CONFIG_DIR"
+    exec "$CODEX_SELF_EXE" -c 'sandbox_mode="danger-full-access"' "$@" 33<"$CODEX_TERMUX_RESOLV_CONF" 34<"$CODEX_TERMUX_SYSTEM_CONFIG_DIR"
 }

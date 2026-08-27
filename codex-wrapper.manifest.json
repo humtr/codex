@@ -34,7 +34,6 @@
     "lib/codex-termux.sh",
     "lib/codex-termux/*.sh",
     "tools/build-runtime.py",
-    "tools/bwrap-termux-compat.py",
     "tools/rg-termux-shim.sh",
     "tools/codex-launcher.c",
     "tools/codex-turn-notify.sh",
@@ -64,7 +63,7 @@
   ],
   "domain_ownership": {
     "dispatch": {
-      "path": "lib/codex-termux/dispatch.sh",
+      "path": "shell/dispatch.sh",
       "owns_prefixes": [
         "codex_main",
         "codex_termux_main",
@@ -84,7 +83,7 @@
       ]
     },
     "state": {
-      "path": "lib/codex-termux/state.sh",
+      "path": "shell/state.sh",
       "owns_prefixes": [
         "codex_load_wrapper_source",
         "codex_normalize_wrapper_source",
@@ -99,7 +98,7 @@
       ]
     },
     "fs": {
-      "path": "lib/codex-termux/fs.sh",
+      "path": "shell/fs.sh",
       "owns_prefixes": [
         "codex_parent_dir",
         "codex_tmp",
@@ -119,7 +118,7 @@
       ]
     },
     "ui": {
-      "path": "lib/codex-termux/ui.sh",
+      "path": "shell/ui.sh",
       "owns_prefixes": [
         "codex_status",
         "codex_say",
@@ -148,7 +147,7 @@
       ]
     },
     "profile": {
-      "path": "lib/codex-termux/profile.sh",
+      "path": "shell/profile.sh",
       "owns_prefixes": [
         "codex_profile"
       ],
@@ -157,7 +156,7 @@
       ]
     },
     "prompt": {
-      "path": "lib/codex-termux/prompt.sh",
+      "path": "shell/prompt.sh",
       "owns_prefixes": [
         "codex_prompt",
         "codex_confirm"
@@ -169,7 +168,7 @@
       ]
     },
     "exec": {
-      "path": "lib/codex-termux/exec.sh",
+      "path": "shell/exec.sh",
       "owns_prefixes": [
         "codex_runtime_apply_env_plan",
         "codex_runtime_exec",
@@ -185,7 +184,7 @@
       ]
     },
     "store": {
-      "path": "lib/codex-termux/store.sh",
+      "path": "shell/store.sh",
       "owns_prefixes": [
         "codex_store",
         "codex_validate_runtime_retention",
@@ -201,7 +200,7 @@
       ]
     },
     "build": {
-      "path": "lib/codex-termux/build.sh",
+      "path": "shell/build.sh",
       "owns_prefixes": [
         "codex_replace_tree_atomic",
         "codex_prepare_complete_runtime_tree",
@@ -223,7 +222,7 @@
       ]
     },
     "use": {
-      "path": "lib/codex-termux/use.sh",
+      "path": "shell/use.sh",
       "owns_prefixes": [
         "codex_use"
       ],
@@ -232,7 +231,7 @@
       ]
     },
     "remove": {
-      "path": "lib/codex-termux/remove.sh",
+      "path": "shell/remove.sh",
       "owns_prefixes": [
         "codex_restore_backup",
         "codex_remove"
@@ -242,7 +241,7 @@
       ]
     },
     "session": {
-      "path": "lib/codex-termux/session.sh",
+      "path": "shell/session.sh",
       "owns_prefixes": [
         "codex_session"
       ],
@@ -251,12 +250,12 @@
       ]
     },
     "runtime": {
-      "path": "lib/codex-termux/runtime.sh",
+      "path": "shell/runtime.sh",
       "owns_prefixes": [],
       "public_functions": []
     },
     "repair": {
-      "path": "lib/codex-termux/repair.sh",
+      "path": "shell/repair.sh",
       "owns_prefixes": [
         "codex_repair",
         "codex_runtime_apply_action",
@@ -271,7 +270,7 @@
       ]
     },
     "version": {
-      "path": "lib/codex-termux/version.sh",
+      "path": "shell/version.sh",
       "owns_prefixes": [
         "codex_latest",
         "codex_auto_update",
@@ -291,7 +290,7 @@
       ]
     },
     "notify": {
-      "path": "lib/codex-termux/notify.sh",
+      "path": "shell/notify.sh",
       "owns_prefixes": [
         "codex_notify"
       ],
@@ -300,7 +299,7 @@
       ]
     },
     "doctor": {
-      "path": "lib/codex-termux/doctor.sh",
+      "path": "shell/doctor.sh",
       "owns_prefixes": [
         "codex_termux_doctor"
       ],
@@ -445,7 +444,8 @@
         "^(usage|main)$",
         "^codex_source_domain$",
         "^codex_termux_(help|main|version_public|doctor|doctor_json|doctor_public)$",
-        "^codex_(main|run_install_public|install_public|update_full_public|repair_surface_public|install_run_plan|notify_usage|notify_public|profile_run|use|session)$"
+        "^codex_(main|run_install_public|install_public|update_full_public|repair_surface_public|install_run_plan|notify_usage|notify_public|profile_run|use|session)$",
+        "^codex_validate_termux_sandbox_args$"
       ],
       "reason": "Public command routing and namespace dispatch remain shell-owned because they are the wrapper entry surface.",
       "tests": [
@@ -539,42 +539,46 @@
     }
   ],
   "python_module_ownership": {
-    "tools/codex_termux/__init__.py": "package",
-    "tools/codex_termux/activation.py": "runtime",
-    "tools/codex_termux/atomic.py": "state",
-    "tools/codex_termux/canon.py": "audit",
-    "tools/codex_termux/cli_activation.py": "runtime",
-    "tools/codex_termux/cli_artifacts.py": "artifacts",
-    "tools/codex_termux/cli_doctor.py": "doctor",
-    "tools/codex_termux/cli_notify.py": "notify",
-    "tools/codex_termux/cli_profile.py": "profile",
-    "tools/codex_termux/cli_product.py": "product",
-    "tools/codex_termux/cli_repair.py": "runtime",
-    "tools/codex_termux/cli_runtime.py": "runtime",
-    "tools/codex_termux/cli_session.py": "session",
-    "tools/codex_termux/cli_store.py": "runtime",
-    "tools/codex_termux/cli_ui.py": "state",
-    "tools/codex_termux/cli_use.py": "profile",
-    "tools/codex_termux/cli.py": "cli-dispatch",
-    "tools/codex_termux/doctor.py": "doctor",
-    "tools/codex_termux/errors.py": "package",
-    "tools/codex_termux/hashing.py": "runtime",
-    "tools/codex_termux/install_plan.py": "install",
-    "tools/codex_termux/notify.py": "notify",
-    "tools/codex_termux/paths.py": "state",
-    "tools/codex_termux/prune.py": "runtime",
-    "tools/codex_termux/registry.py": "runtime",
-    "tools/codex_termux/release.py": "release",
-    "tools/codex_termux/repair.py": "runtime",
-    "tools/codex_termux/runtime_checks.py": "runtime",
-    "tools/codex_termux/runtime_env.py": "runtime",
-    "tools/codex_termux/schemas.py": "state",
-    "tools/codex_termux/session.py": "session",
-    "tools/codex_termux/source.py": "source",
-    "tools/codex_termux/state.py": "state",
-    "tools/codex_termux/store.py": "runtime",
-    "tools/codex_termux/ui.py": "state",
-    "tools/codex_termux/use.py": "profile"
+    "tools/codex_termux/__init__.py": "compat-package",
+    "src/wrapper/__init__.py": "package",
+    "src/wrapper/activation.py": "runtime",
+    "src/wrapper/atomic.py": "state",
+    "src/wrapper/canon.py": "audit",
+    "src/wrapper/cli_activation.py": "runtime",
+    "src/wrapper/cli_artifacts.py": "artifacts",
+    "src/wrapper/cli_doctor.py": "doctor",
+    "src/wrapper/cli_notify.py": "notify",
+    "src/wrapper/cli_profile.py": "profile",
+    "src/wrapper/cli_product.py": "product",
+    "src/wrapper/cli_repair.py": "runtime",
+    "src/wrapper/cli_runtime.py": "runtime",
+    "src/wrapper/cli_session.py": "session",
+    "src/wrapper/cli_store.py": "runtime",
+    "src/wrapper/cli_ui.py": "state",
+    "src/wrapper/cli_use.py": "profile",
+    "src/wrapper/cli.py": "cli-dispatch",
+    "src/wrapper/doctor.py": "doctor",
+    "src/wrapper/errors.py": "package",
+    "src/wrapper/hashing.py": "runtime",
+    "src/wrapper/install_plan.py": "install",
+    "src/wrapper/notify.py": "notify",
+    "src/wrapper/paths.py": "state",
+    "src/wrapper/prune.py": "runtime",
+    "src/wrapper/registry.py": "runtime",
+    "src/wrapper/release.py": "release",
+    "src/wrapper/repair.py": "runtime",
+    "src/wrapper/runtime_checks.py": "runtime",
+    "src/wrapper/runtime_env.py": "runtime",
+    "src/wrapper/schemas.py": "state",
+    "src/wrapper/session.py": "session",
+    "src/wrapper/source.py": "source",
+    "src/wrapper/state.py": "state",
+    "src/wrapper/store.py": "runtime",
+    "src/wrapper/support_diagnostics.py": "support",
+    "src/wrapper/support_layout.py": "support",
+    "src/wrapper/support_transaction.py": "support",
+    "src/wrapper/ui.py": "state",
+    "src/wrapper/use.py": "profile"
   },
   "product_forbidden_paths": [
     "GOAL.md",

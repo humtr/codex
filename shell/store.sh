@@ -2,15 +2,12 @@
 # This file is sourced by ../codex-termux.sh; do not execute directly.
 
 codex_store_id() {
-    local version="$1" sha="$2" tree_sha="${3:-}" builder_sha="unknown" bwrap_sha="unknown" rg_sha="unknown" support_dir
+    local version="$1" sha="$2" tree_sha="${3:-}" builder_sha="unknown" rg_sha="unknown" support_dir
     support_dir="$(codex_termux_cmd support-source-dir \
         --manager-dir "$CODEX_TERMUX_MANAGER_DIR" \
         --runtime-dir "$CODEX_TERMUX_RUNTIME_DIR")"
     if [ -r "$CODEX_TERMUX_RUNTIME_BUILDER" ]; then
         builder_sha="$(codex_sha256 "$CODEX_TERMUX_RUNTIME_BUILDER")"
-    fi
-    if [ -r "$support_dir/bwrap-termux-compat.py" ]; then
-        bwrap_sha="$(codex_sha256 "$support_dir/bwrap-termux-compat.py")"
     fi
     if [ -r "$support_dir/rg-termux-shim.sh" ]; then
         rg_sha="$(codex_sha256 "$support_dir/rg-termux-shim.sh")"
@@ -19,7 +16,6 @@ codex_store_id() {
         --version "$version" \
         --sha256 "$sha" \
         --builder-sha256 "$builder_sha" \
-        --bwrap-sha256 "$bwrap_sha" \
         --rg-sha256 "$rg_sha" \
         --tree-sha256 "$tree_sha"
 }

@@ -22,7 +22,6 @@ def store_id(
     version: str,
     sha256: str,
     builder_sha256: str,
-    bwrap_sha256: str,
     rg_sha256: str,
     tree_sha256: str = "",
 ) -> str:
@@ -30,7 +29,7 @@ def store_id(
     return (
         f"{component(version)}+{(sha256 or 'unknown')[:12]}+"
         f"{(builder_sha256 or 'unknown')[:12]}+"
-        f"{(bwrap_sha256 or 'unknown')[:8]}+{(rg_sha256 or 'unknown')[:8]}"
+        f"{(rg_sha256 or 'unknown')[:8]}"
         f"{tree_suffix}"
     )
 

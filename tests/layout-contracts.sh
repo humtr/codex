@@ -54,7 +54,7 @@ assert "user .gitignore changes" in non_goals
 manifest = json.loads((root / "codex-wrapper.manifest.json").read_text(encoding="utf-8"))
 assert ".gitignore" not in manifest.get("protected_paths", [])
 
-release_source = (root / "tools/codex_termux/release.py").read_text(encoding="utf-8")
+release_source = (root / "src/wrapper/release.py").read_text(encoding="utf-8")
 assert '".gitignore"' in release_source
 PYTHON
 

@@ -26,7 +26,7 @@ def add_commands(sub: SubparserCollection) -> None:
     env_plan = sub.add_parser("runtime-env-plan")
     for name in (
         "runtime-dir", "runtime-exe", "tmpdir", "cert-file", "cert-dir",
-        "prefix", "path", "browser", "ssl-cert-file", "ssl-cert-dir", "bwrap-quiet",
+        "prefix", "path", "browser", "ssl-cert-file", "ssl-cert-dir",
     ):
         env_plan.add_argument(f"--{name}", required=True)
     for name in ("home", "xdg-config-home", "xdg-cache-home", "xdg-data-home", "godebug"):
@@ -54,7 +54,6 @@ def _runtime_env_plan(args: argparse.Namespace) -> int:
         xdg_cache_home=args.xdg_cache_home,
         xdg_data_home=args.xdg_data_home,
         godebug=args.godebug,
-        bwrap_quiet=args.bwrap_quiet,
         termux_open_url_available=args.termux_open_url == "1",
     ))
     return 0

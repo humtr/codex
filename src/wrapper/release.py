@@ -36,27 +36,7 @@ REMOVED_CONTRACT_TERMS = (
 
 
 def required_release_entries() -> tuple[str, ...]:
-    return tuple(
-        entry
-        for entry in (
-            "README.md",
-            *REQUIRED_WRAPPER_SOURCE_PATHS,
-        )
-        if entry != "tools/codex_termux"
-    ) + (
-        "tools/codex_termux/cli.py",
-        "tools/codex_termux/cli_activation.py",
-        "tools/codex_termux/cli_artifacts.py",
-        "tools/codex_termux/cli_doctor.py",
-        "tools/codex_termux/cli_notify.py",
-        "tools/codex_termux/cli_product.py",
-        "tools/codex_termux/cli_profile.py",
-        "tools/codex_termux/cli_store.py",
-        "tools/codex_termux/cli_session.py",
-        "tools/codex_termux/cli_ui.py",
-        "tools/codex_termux/cli_use.py",
-        "tools/codex_termux/ui.py",
-    )
+    return ("README.md", *REQUIRED_WRAPPER_SOURCE_PATHS)
 
 
 def validate_package_root(package_root: Path) -> None:

@@ -27,8 +27,7 @@ codex_prepare_complete_runtime_tree() {
     support_dir="$(codex_termux_cmd support-source-dir \
         --manager-dir "$CODEX_TERMUX_MANAGER_DIR" \
         --runtime-dir "$CODEX_TERMUX_RUNTIME_DIR")"
-    if { [ ! -r "$support_dir/bwrap-termux-compat.py" ] || [ ! -r "$support_dir/rg-termux-shim.sh" ]; } &&
-        [ -r "$payload_dir/bwrap-termux-compat.py" ] &&
+    if [ ! -r "$support_dir/rg-termux-shim.sh" ] &&
         [ -r "$payload_dir/rg-termux-shim.sh" ]; then
         support_dir="$payload_dir"
     fi
@@ -42,17 +41,13 @@ codex_prepare_complete_runtime_tree() {
         return 1
     }
     [ -x "$CODEX_TERMUX_RUNTIME_BUILDER" ] &&
-        [ -r "$support_dir/bwrap-termux-compat.py" ] &&
         [ -r "$support_dir/rg-termux-shim.sh" ] || {
         codex_rm_rf_managed "$complete_dir" || return $?
         return 1
     }
-    cp -L "$support_dir/bwrap-termux-compat.py" "$complete_dir/codex-path/bwrap"
     cp -L "$support_dir/rg-termux-shim.sh" "$complete_dir/codex-path/rg"
-    rm -f "$complete_dir/codex-resources/bwrap.real"
     chmod 755 "$complete_dir/codex" \
         "$complete_dir/codex-code-mode-host" \
-        "$complete_dir/codex-path/bwrap" \
         "$complete_dir/codex-path/rg" \
         "$complete_dir/codex-path/rg.real" 2>/dev/null || true
 }

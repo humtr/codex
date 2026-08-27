@@ -64,10 +64,22 @@ need_termux() {
     [ -x "$PREFIX/bin/pkg" ] || fail 'Termux pkg command not found.'
 }
 
+dependency_satisfied() {
+    local package="$1"
+    case "$package" in
+        nodejs)
+            command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1
+            ;;
+        *)
+            dpkg -s "$package" >/dev/null 2>&1
+            ;;
+    esac
+}
+
 install_dependencies() {
     local missing=() package
     for package in $CODEX_TERMUX_REQUIRED_PACKAGES; do
-        if ! dpkg -s "$package" >/dev/null 2>&1; then
+        if ! dependency_satisfied "$package"; then
             missing+=("$package")
         fi
     done

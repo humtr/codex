@@ -29,7 +29,12 @@ def build_prune_plan(
         raise IntegrityError("retention must be greater than zero")
     registry_data = _load_registry(registry_file)
     state_data = _load_state(state_file)
-    _validate_registry_paths(registry_data, runtime_store, raw_store)
+    managed_runtime_paths = {
+        str(child)
+        for value in registry_data["runtime"].values()
+        if (child := paths.direct_child(Path(value["path"]), runtime_store)) is not None
+    }
+    registry_data = _rewrite_registry(registry_data, managed_runtime_paths, raw_store)
     protected_runtime = _protected_paths(
         (current_link, verified_link),
         runtime_store,
@@ -47,7 +52,7 @@ def build_prune_plan(
         retention,
     )
     delete_runtime = sorted(runtime_children - keep_runtime)
-    kept_registry = _rewrite_registry(registry_data, keep_runtime)
+    kept_registry = _rewrite_registry(registry_data, keep_runtime, raw_store)
     keep_raw = _keep_raw_paths(kept_registry, protected_raw, raw_store)
     delete_raw = sorted(_store_children(raw_store) - keep_raw)
     return schemas.validate_prune_plan(
@@ -101,24 +106,6 @@ def _load_state(path: Path) -> schemas.StateV3 | None:
     if not path.exists():
         return None
     return schemas.validate_state_v3(schemas.load_json_object(path))
-
-
-def _validate_registry_paths(
-    data: schemas.RegistryV3,
-    runtime_store: Path,
-    raw_store: Path,
-) -> None:
-    for entry in data["runtime"].values():
-        paths.require_direct_child(Path(entry["path"]), runtime_store, "runtime path")
-    for entry in data["raw"].values():
-        paths.require_direct_child(Path(entry["path"]), raw_store, "raw path")
-    for entry in data["installs"]:
-        runtime_path = Path(entry["runtime_path"])
-        raw_path = Path(entry["raw_path"])
-        if runtime_path.exists():
-            paths.require_direct_child(runtime_path, runtime_store, "install runtime path")
-        if raw_path.exists():
-            paths.require_direct_child(raw_path, raw_store, "install raw path")
 
 
 def _protected_paths(items: tuple[Path, ...], root: Path) -> set[str]:
@@ -185,6 +172,7 @@ def _keep_runtime_paths(
 def _rewrite_registry(
     data: schemas.RegistryV3,
     keep_runtime: set[str],
+    raw_store: Path,
 ) -> schemas.RegistryV3:
     runtime = {
         key: value
@@ -197,6 +185,15 @@ def _rewrite_registry(
         if paths.resolve_text(Path(entry["runtime_path"])) not in keep_runtime:
             continue
         key = entry["tuple_id"]
+        if key not in runtime:
+            continue
+        raw_entry = data["raw"].get(entry["raw_id"])
+        if raw_entry is None:
+            continue
+        install_raw = paths.direct_child(Path(entry["raw_path"]), raw_store)
+        mapped_raw = paths.direct_child(Path(raw_entry["path"]), raw_store)
+        if install_raw is None or mapped_raw is None or install_raw != mapped_raw:
+            continue
         if key not in seen:
             installs.append(entry)
             seen.add(key)

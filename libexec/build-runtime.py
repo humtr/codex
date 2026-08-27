@@ -22,7 +22,6 @@ REWRITES = {
 PATCH_POLICY = "termux-fd-remap-v1"
 CHUNK_SIZE = 1024 * 1024
 TOOL_DIR = Path(__file__).resolve().parent
-BWRAP_COMPAT_SOURCE = TOOL_DIR / "bwrap-termux-compat.py"
 RG_SHIM_SOURCE = TOOL_DIR / "rg-termux-shim.sh"
 
 
@@ -60,28 +59,22 @@ def copy_tree(src: Path, dst: Path) -> None:
     shutil.copytree(src, dst, symlinks=True)
 
 
-def install_termux_compat_tools(runtime_dir: Path) -> None:
-    bundled_bwrap = runtime_dir / "codex-resources" / "bwrap"
-    bwrap = runtime_dir / "codex-path" / "bwrap"
+def install_termux_runtime_tools(runtime_dir: Path) -> None:
     rg = runtime_dir / "codex-path" / "rg"
     rg_real = runtime_dir / "codex-path" / "rg.real"
     overlay_dir = runtime_dir / "overlay"
     overlay_path_tools = overlay_dir / "codex-path"
     overlay_path_tools.mkdir(parents=True, exist_ok=True)
 
-    for source in (BWRAP_COMPAT_SOURCE, RG_SHIM_SOURCE):
-        if not source.exists():
-            raise RuntimeError(f"missing compat tool source: {source}")
-
-    shutil.copy2(BWRAP_COMPAT_SOURCE, overlay_path_tools / "bwrap")
-    shutil.copy2(BWRAP_COMPAT_SOURCE, bwrap)
+    if not RG_SHIM_SOURCE.exists():
+        raise RuntimeError(f"missing compat tool source: {RG_SHIM_SOURCE}")
 
     if rg.exists() and not rg_real.exists():
         os.replace(rg, rg_real)
     shutil.copy2(RG_SHIM_SOURCE, overlay_path_tools / "rg")
     shutil.copy2(RG_SHIM_SOURCE, rg)
 
-    for executable in (bundled_bwrap, bwrap, rg, rg_real):
+    for executable in (rg, rg_real):
         executable.chmod(executable.stat().st_mode | 0o755)
 
 
@@ -152,7 +145,7 @@ def build(raw_vendor: Path, runtime_dir: Path) -> dict[str, object]:
     copy_tree(raw_resources, tmp_dir / "codex-resources")
     copy_tree(raw_path_tools, tmp_dir / "codex-path")
     shutil.copy2(raw_package, tmp_dir / "codex-package.json")
-    install_termux_compat_tools(tmp_dir)
+    install_termux_runtime_tools(tmp_dir)
     runtime_sha = sha256(tmp_dir / "codex")
     raw_sha = sha256(raw_bin)
     code_host_sha = sha256(tmp_dir / "codex-code-mode-host")
@@ -168,7 +161,6 @@ def build(raw_vendor: Path, runtime_dir: Path) -> dict[str, object]:
         "overlay_tree_sha256": overlay_sha,
         "overlay_entries": [
             "codex",
-            "codex-path/bwrap",
             "codex-path/rg",
         ],
         **patch_report,
@@ -182,7 +174,6 @@ def build(raw_vendor: Path, runtime_dir: Path) -> dict[str, object]:
         tmp_dir / "codex-code-mode-host",
         tmp_dir / "codex-resources" / "bwrap",
         tmp_dir / "codex-resources" / "zsh" / "bin" / "zsh",
-        tmp_dir / "codex-path" / "bwrap",
         tmp_dir / "codex-path" / "rg",
         tmp_dir / "codex-path" / "rg.real",
     ]:
@@ -217,8 +208,7 @@ def build(raw_vendor: Path, runtime_dir: Path) -> dict[str, object]:
         "build_manifest": build_manifest,
         **patch_report,
         "resources": {
-            "bwrap": str(runtime_dir / "codex-path" / "bwrap"),
-            "bundled_bwrap": str(runtime_dir / "codex-resources" / "bwrap"),
+            "upstream_bwrap": str(runtime_dir / "codex-resources" / "bwrap"),
             "code_mode_host": str(runtime_dir / "codex-code-mode-host"),
             "zsh": str(runtime_dir / "codex-resources" / "zsh" / "bin" / "zsh"),
             "rg": str(runtime_dir / "codex-path" / "rg"),

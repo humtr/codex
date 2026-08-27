@@ -22,6 +22,7 @@ SECTION_SUPPORT = "Support"
 SECTION_WRAPPER = "Wrapper"
 SECTION_STATE = "State"
 SECTION_STORE = "Store"
+LINUX_SANDBOX_REASON = "Linux namespace/mount sandboxing is unsupported on Termux; bwrap is not used"
 FD_REWRITES = {
     b"/etc/resolv.conf": b"/proc/self/fd/33",
     b"/etc/codex/config.toml": b"/dev/fd/34/config.toml",
@@ -71,9 +72,17 @@ def build_report(inputs: DoctorInputs) -> dict[str, Any]:
         "paths": _paths(inputs),
         "termuxDelta": {
             "runtimePatch": "remap resolver and Codex system config through inherited file descriptors",
-            "bwrap": "Termux no-namespace compatibility launcher",
+            "sandbox": "ordinary runs force upstream sandbox_mode=danger-full-access while approval policy remains upstream-controlled",
             "rg": "managed shim that preserves the upstream rg binary",
             "env": "sanitize LD_*, npm/bun management variables, and temporary directories before launch",
+        },
+        "capabilities": {
+            "linuxSandbox": {
+                "available": False,
+                "status": "unsupported",
+                "backend": "none",
+                "reason": LINUX_SANDBOX_REASON,
+            }
         },
         "buildManifest": manifest,
         "checks": checks,
@@ -155,11 +164,10 @@ def _checks(inputs: DoctorInputs, manifest: dict[str, Any]) -> dict[str, bool]:
         "verified_in_store": _managed_target(inputs.verified_link, inputs.runtime_store),
         "raw_in_store": _managed_target(inputs.raw_link, inputs.raw_store),
         "current_verified_match": bool(_resolved(inputs.current_link) and _resolved(inputs.current_link) == _resolved(inputs.verified_link)),
-        "path_bwrap": path_bwrap.exists() and os.access(path_bwrap, os.X_OK),
-        "bundled_bwrap": bundled_bwrap.exists() and os.access(bundled_bwrap, os.X_OK),
+        "path_bwrap_absent": not path_bwrap.exists(),
+        "upstream_bwrap_preserved": bundled_bwrap.exists() and os.access(bundled_bwrap, os.X_OK),
         "rg": rg.exists() and os.access(rg, os.X_OK),
         "rg_real": rg_real.exists(),
-        "support_bwrap_match": _files_match(inputs.manager_dir / "bwrap-termux-compat.py", path_bwrap),
         "support_rg_match": _files_match(inputs.manager_dir / "rg-termux-shim.sh", rg),
         "zsh": (runtime_dir / "codex-resources/zsh/bin/zsh").exists(),
         "resolv": inputs.resolv_conf.exists() and os.access(inputs.resolv_conf, os.R_OK),
@@ -170,7 +178,6 @@ def _checks(inputs: DoctorInputs, manifest: dict[str, Any]) -> dict[str, bool]:
         "runtime_hash": bool(actual_runtime_sha and actual_runtime_sha == inputs.runtime_sha256 and actual_runtime_sha == manifest.get("runtime_sha256")),
         "build_manifest": bool(manifest.get("patch_policy") == inputs.patch_policy and manifest.get("builder_sha256") == _safe_hash(inputs.runtime_builder)),
         "fd_remap_only_patch": _fd_remap_only_patch(raw_binary, inputs.runtime),
-        "bwrap_exec": _run_ok([str(path_bwrap), "--ro-bind", "/", "/", "--", str(inputs.prefix / "bin/true")]),
         "rg_exec": _run_ok([str(rg), "--version"]),
         "fd_remap_patch": _fd_remap_patch_check(inputs.runtime),
     }
@@ -227,6 +234,13 @@ def render_human(report: dict[str, Any], output: TextIO | None = None) -> int:
         label = f"{name:<{DETAIL_LABEL_WIDTH}}"
         print(f"    {_detail_marker(False, color)} {_detail_label(label, color)} {_detail_value(str(value), color)}", file=out)
 
+    def warning(name: str, summary: str) -> None:
+        counts["warn"] += 1
+        print(
+            f"  {_orange('!', color)} {name:<14} {_highlight_actions(summary, color)}",
+            file=out,
+        )
+
     header_suffix = f"version {report.get('version', 'unknown')}"
     runtime_date = str(report.get("runtimeDate", "") or "")
     if runtime_date:
@@ -251,9 +265,11 @@ def render_human(report: dict[str, Any], output: TextIO | None = None) -> int:
     print(_bold(SECTION_SUPPORT, color), file=out)
     row(bool(checks.get("manager")), "manager", "managed support files are installed")
     detail("path", paths.get("manager", "missing"))
-    row(bool(checks.get("path_bwrap")) and bool(checks.get("bwrap_exec")), "bwrap", "Termux compatibility launcher works")
+    row(bool(checks.get("path_bwrap_absent")), "bwrap path", "compatibility bwrap is absent from the runtime PATH overlay")
+    row(bool(checks.get("upstream_bwrap_preserved")), "upstream bwrap", "upstream resource is preserved for package provenance only")
+    warning("sandbox", LINUX_SANDBOX_REASON)
     row(bool(checks.get("rg")) and bool(checks.get("rg_real")) and bool(checks.get("rg_exec")), "rg", "ripgrep shim and upstream rg work")
-    row(bool(checks.get("support_bwrap_match")) and bool(checks.get("support_rg_match")), "support copy", "runtime shims match installed manager files")
+    row(bool(checks.get("support_rg_match")), "support copy", "runtime rg shim matches installed manager file")
     row(bool(checks.get("zsh")), "zsh", "bundled zsh resource exists")
 
     print(file=out)
@@ -456,7 +472,6 @@ def _manager_ok(manager_dir: Path) -> bool:
         manager_dir / "managed.sh",
         manager_dir / "lib.sh",
         manager_dir / "build-runtime.py",
-        manager_dir / "bwrap-termux-compat.py",
         manager_dir / "rg-termux-shim.sh",
         manager_dir / "termux-notify.sh",
         manager_dir / "codex-turn-notify.sh",
@@ -465,7 +480,6 @@ def _manager_ok(manager_dir: Path) -> bool:
     executable = {
         "managed.sh",
         "build-runtime.py",
-        "bwrap-termux-compat.py",
         "rg-termux-shim.sh",
         "termux-notify.sh",
         "codex-turn-notify.sh",

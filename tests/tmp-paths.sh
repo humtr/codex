@@ -24,14 +24,14 @@ helper_root="$(
             --root-dir "" \
             --manager-dir "$TMP_ROOT/manager"
 )"
-[ "$helper_root" = "$ROOT_DIR/tools" ] || fail "helper package root mismatch: $helper_root"
+[ "$helper_root" = "$ROOT_DIR/src" ] || fail "helper package root mismatch: $helper_root"
 
 CODEX_TERMUX_HOME="$TMP_ROOT/home" \
 CODEX_TERMUX_PREFIX="$TMP_ROOT/prefix" \
 CODEX_TERMUX_TMPDIR="$TMP_ROOT/prefix/tmp" \
 CODEX_TERMUX_WRAPPER_ROOT="$ROOT_DIR" \
 TMPDIR=/tmp \
-bash -lc '. "$1"; [ "$(codex_termux_package_root)" = "$2/tools" ]' _ "$ROOT_DIR/lib/codex-termux.sh" "$ROOT_DIR" \
+bash -lc '. "$1"; [ "$(codex_termux_package_root)" = "$2/src" ]' _ "$ROOT_DIR/lib/codex-termux.sh" "$ROOT_DIR" \
     || fail 'codex_termux_package_root did not delegate helper root selection'
 
 CODEX_TERMUX_HOME="$TMP_ROOT/home" \

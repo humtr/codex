@@ -51,15 +51,14 @@ chmod 755 "$raw_vendor/bin/codex" "$raw_vendor/bin/codex-code-mode-host" \
     "$raw_vendor/codex-resources/bwrap" \
     "$raw_vendor/codex-resources/zsh/bin/zsh" "$raw_vendor/codex-path/rg"
 
-cp "$ROOT_DIR/tools/build-runtime.py" "$manager_dir/build-runtime.py"
-cp "$ROOT_DIR/tools/bwrap-termux-compat.py" "$manager_dir/bwrap-termux-compat.py"
-cp "$ROOT_DIR/tools/rg-termux-shim.sh" "$manager_dir/rg-termux-shim.sh"
+cp "$ROOT_DIR/libexec/build-runtime.py" "$manager_dir/build-runtime.py"
+cp "$ROOT_DIR/libexec/rg-termux-shim.sh" "$manager_dir/rg-termux-shim.sh"
 cp "$ROOT_DIR/config/wrapper-version.env" "$manager_dir/wrapper-version.env"
 {
     printf 'CODEX_TERMUX_WRAPPER_COMMIT=testcommit\n'
     printf 'CODEX_TERMUX_WRAPPER_INSTALLED_AT=2026-01-01T00:00:00+00:00\n'
 } >>"$manager_dir/wrapper-version.env"
-chmod 755 "$manager_dir/build-runtime.py" "$manager_dir/bwrap-termux-compat.py" "$manager_dir/rg-termux-shim.sh"
+chmod 755 "$manager_dir/build-runtime.py" "$manager_dir/rg-termux-shim.sh"
 printf 'nameserver 127.0.0.1\n' >"$resolv_conf"
 printf 'cert\n' >"$cert_file"
 

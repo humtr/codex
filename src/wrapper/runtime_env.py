@@ -33,7 +33,6 @@ def shell_exports(
     xdg_cache_home: str,
     xdg_data_home: str,
     godebug: str,
-    bwrap_quiet: str,
     termux_open_url_available: bool,
 ) -> str:
     exports = {
@@ -44,8 +43,7 @@ def shell_exports(
         "SSL_CERT_FILE": ssl_cert_file or cert_file,
         "CODEX_SELF_EXE": runtime_exe,
         "CODEX_CODE_MODE_HOST_PATH": f"{runtime_dir}/codex-code-mode-host",
-        "CODEX_TERMUX_BWRAP_COMPAT_QUIET": bwrap_quiet or "1",
-        "PATH": f"{runtime_dir}/codex-path:{runtime_dir}/codex-resources:{prefix}/bin:{path}",
+        "PATH": f"{runtime_dir}/codex-path:{prefix}/bin:{path}",
     }
     if set_home:
         exports.update({

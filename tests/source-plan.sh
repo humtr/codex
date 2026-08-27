@@ -142,7 +142,6 @@ for domain in dispatch state profile use remove session runtime notify doctor; d
 done
 printf 'test\n' >"$extract_root/codex-release/codex-wrapper.manifest.json"
 printf 'test\n' >"$extract_root/codex-release/tools/build-runtime.py"
-printf 'test\n' >"$extract_root/codex-release/tools/bwrap-termux-compat.py"
 printf 'test\n' >"$extract_root/codex-release/tools/rg-termux-shim.sh"
 printf 'test\n' >"$extract_root/codex-release/tools/termux-notify.sh"
 printf 'test\n' >"$extract_root/codex-release/tools/codex-turn-notify.sh"

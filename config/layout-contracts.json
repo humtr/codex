@@ -24,7 +24,6 @@
     "python_package": "src/wrapper",
     "notification_entrypoint": "libexec/notify",
     "runtime_builder": "libexec/build-runtime.py",
-    "bwrap_compat": "libexec/bwrap-termux-compat.py",
     "rg_shim": "libexec/rg-termux-shim.sh",
     "native_launcher": "native/codex-launcher.c",
     "support_recovery_journal": "$CODEX_TERMUX_STATE_DIR/support-recovery.json"
@@ -57,11 +56,6 @@
         "glob": "tools/build-runtime.py",
         "max_lines": 10,
         "role": "execute libexec/build-runtime.py only"
-      },
-      {
-        "glob": "tools/bwrap-termux-compat.py",
-        "max_lines": 10,
-        "role": "execute libexec/bwrap-termux-compat.py only"
       },
       {
         "glob": "tools/rg-termux-shim.sh",

@@ -96,7 +96,7 @@ for required_path in (
     "install.sh",
     "bin/install-runtime.sh",
     "lib/codex-termux.sh",
-    "tools/codex_termux/cli.py",
+    "src/wrapper/cli.py",
     "tests/run-portable.sh",
     "tests/refactor-scope.sh",
 ):

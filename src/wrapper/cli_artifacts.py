@@ -28,7 +28,7 @@ def add_commands(sub: SubparserCollection) -> None:
     tree_digest.set_defaults(func=lambda args: _print(hashing.tree_digest(Path(args.path))))
 
     store_id = sub.add_parser("store-id")
-    for name in ("version", "sha256", "builder-sha256", "bwrap-sha256", "rg-sha256", "tree-sha256"):
+    for name in ("version", "sha256", "builder-sha256", "rg-sha256", "tree-sha256"):
         store_id.add_argument(f"--{name}", required=True)
     store_id.set_defaults(func=_store_id)
 
@@ -197,7 +197,6 @@ def _store_id(args: argparse.Namespace) -> int:
             args.version,
             args.sha256,
             args.builder_sha256,
-            args.bwrap_sha256,
             args.rg_sha256,
             args.tree_sha256,
         )

@@ -25,9 +25,12 @@ copy_path README.md
 copy_path install.sh
 copy_path bin
 copy_path lib
+copy_path shell
+copy_path src
+copy_path libexec
+copy_path native
 mkdir -p "$PACKAGE_ROOT/tools"
 copy_path tools/build-runtime.py
-copy_path tools/bwrap-termux-compat.py
 copy_path tools/rg-termux-shim.sh
 copy_path tools/termux-notify.sh
 copy_path tools/codex-launcher.c

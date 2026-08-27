@@ -138,6 +138,63 @@ codex_termux_main() {
     esac
 }
 
+codex_validate_termux_sandbox_args() {
+    local arg value
+    if [ "${1:-}" = "sandbox" ] && [ "${2:-}" = "linux" ]; then
+        codex_fail "Linux sandboxing is unsupported on Termux; bwrap is not used"
+        return 2
+    fi
+    while [ "$#" -gt 0 ]; do
+        arg="$1"
+        shift
+        [ "$arg" = "--" ] && break
+        case "$arg" in
+            -s|--sandbox)
+                [ "$#" -gt 0 ] || continue
+                value="$1"
+                shift
+                case "$value" in
+                    read-only|workspace-write)
+                        codex_fail "Linux sandbox mode '$value' is unsupported on Termux; bwrap is not used"
+                        return 2
+                        ;;
+                esac
+                ;;
+            --sandbox=*)
+                value="${arg#--sandbox=}"
+                case "$value" in
+                    read-only|workspace-write)
+                        codex_fail "Linux sandbox mode '$value' is unsupported on Termux; bwrap is not used"
+                        return 2
+                        ;;
+                esac
+                ;;
+            -sread-only|-sworkspace-write)
+                value="${arg#-s}"
+                codex_fail "Linux sandbox mode '$value' is unsupported on Termux; bwrap is not used"
+                return 2
+                ;;
+            -c|--config)
+                [ "$#" -gt 0 ] || continue
+                value="$1"
+                shift
+                case "$value" in
+                    sandbox_mode=*read-only*|sandbox_mode=*workspace-write*)
+                        codex_fail "Linux sandbox mode requested by config override is unsupported on Termux; bwrap is not used"
+                        return 2
+                        ;;
+                esac
+                ;;
+            --config=sandbox_mode=*read-only*|--config=sandbox_mode=*workspace-write*)
+                codex_fail "Linux sandbox mode requested by config override is unsupported on Termux; bwrap is not used"
+                return 2
+                ;;
+        esac
+    done
+    return 0
+}
+
+
 codex_main() {
     local status=0
     case "${1:-}" in
@@ -146,6 +203,11 @@ codex_main() {
             codex_termux_main "$@"
             ;;
         *)
+            codex_validate_termux_sandbox_args "$@" || {
+                status=$?
+                codex_status_clear
+                return "$status"
+            }
             if ! codex_ensure_runtime_ready; then
                 status=$?
             elif ! codex_auto_update_if_needed; then

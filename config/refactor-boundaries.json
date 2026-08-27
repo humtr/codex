@@ -128,7 +128,6 @@
         "native/**",
         "shell/build.sh",
         "tools/build-runtime.py",
-        "tools/bwrap-termux-compat.py",
         "tools/rg-termux-shim.sh",
         "tools/codex-launcher.c",
         "codex-wrapper.manifest.json",

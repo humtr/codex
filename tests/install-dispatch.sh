@@ -201,7 +201,6 @@ git() {
     for domain in dispatch state profile use remove session runtime notify doctor; do printf '%s\n' "$domain" >"$target/lib/codex-termux/$domain.sh"; done
     printf '{}\n' >"$target/codex-wrapper.manifest.json"
     printf 'builder\n' >"$target/tools/build-runtime.py"
-    printf 'bwrap\n' >"$target/tools/bwrap-termux-compat.py"
     printf 'rg\n' >"$target/tools/rg-termux-shim.sh"
     printf 'notify engine\n' >"$target/tools/termux-notify.sh"
     printf 'notify\n' >"$target/tools/codex-turn-notify.sh"
