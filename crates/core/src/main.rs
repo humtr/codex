@@ -1,6 +1,5 @@
 use std::ffi::{OsStr, OsString};
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum PublicDispatchRoute {
     Update(Vec<OsString>),
@@ -9,29 +8,24 @@ enum PublicDispatchRoute {
     Upstream(Vec<OsString>),
 }
 
-/// Plans public Core interception without executing any route.
-///
-/// Exact first-token `update`, `doctor`, and `termux` are consumed by Core while
-/// every trailing raw argument is retained for the selected handler. Every other
-/// shape remains an upstream route with the complete original argv unchanged.
-#[allow(dead_code)]
-fn plan_public_dispatch<I, S>(args: I) -> PublicDispatchRoute
+/// Selects the exact public Core route and fully plans upstream argv.
+fn plan_public_dispatch<I, S>(args: I) -> Result<PublicDispatchRoute, PassthroughError>
 where
     I: IntoIterator<Item = S>,
     S: Into<OsString>,
 {
     let original: Vec<OsString> = args.into_iter().map(Into::into).collect();
     match original.first().map(OsString::as_os_str) {
-        Some(value) if value == OsStr::new("update") => {
-            PublicDispatchRoute::Update(original.into_iter().skip(1).collect())
-        }
-        Some(value) if value == OsStr::new("doctor") => {
-            PublicDispatchRoute::Doctor(original.into_iter().skip(1).collect())
-        }
-        Some(value) if value == OsStr::new("termux") => {
-            PublicDispatchRoute::Termux(original.into_iter().skip(1).collect())
-        }
-        _ => PublicDispatchRoute::Upstream(original),
+        Some(value) if value == OsStr::new("update") => Ok(PublicDispatchRoute::Update(
+            original.into_iter().skip(1).collect(),
+        )),
+        Some(value) if value == OsStr::new("doctor") => Ok(PublicDispatchRoute::Doctor(
+            original.into_iter().skip(1).collect(),
+        )),
+        Some(value) if value == OsStr::new("termux") => Ok(PublicDispatchRoute::Termux(
+            original.into_iter().skip(1).collect(),
+        )),
+        _ => plan_passthrough_args(original).map(PublicDispatchRoute::Upstream),
     }
 }
 
@@ -103,7 +97,6 @@ fn check_unsupported_config_token(token: &str) -> Option<String> {
 /// (such as `read-only`, `workspace-write`, and `sandbox linux`) fail clearly.
 /// On accepted arguments, prepends exactly `-c` and `sandbox_mode="danger-full-access"`
 /// before all original user arguments unchanged.
-#[allow(dead_code)]
 fn plan_passthrough_args<I, S>(args: I) -> Result<Vec<OsString>, PassthroughError>
 where
     I: IntoIterator<Item = S>,
@@ -445,13 +438,6 @@ fn plan_termux_env(
     Ok(TermuxBaseEnvPlan { assignments })
 }
 
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum GenerationQualification {
-    Qualified,
-    Rejected,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct GenerationHelperDigest {
     identity: String,
@@ -473,7 +459,6 @@ struct GenerationManifest {
     manager_artifact_digest: Option<String>,
     core_api_identity: String,
     persistent_schema_identity: String,
-    qualification: GenerationQualification,
     creation_metadata: String,
 }
 
@@ -493,7 +478,6 @@ enum GenerationManifestError {
     ArchitectureMismatch,
     CoreApiMismatch,
     PersistentSchemaMismatch,
-    RejectedQualification,
     EmptyHelperIdentity(usize),
     EmptyHelperDigest(usize),
     DuplicateHelperIdentity { first: usize, duplicate: usize },
@@ -533,12 +517,6 @@ impl std::fmt::Display for GenerationManifestError {
                     "generation manifest persistent schema identity is incompatible"
                 )
             }
-            GenerationManifestError::RejectedQualification => {
-                write!(
-                    f,
-                    "generation manifest qualification result is not successful"
-                )
-            }
             GenerationManifestError::EmptyHelperIdentity(index) => {
                 write!(
                     f,
@@ -567,13 +545,11 @@ impl std::fmt::Display for GenerationManifestError {
 
 impl std::error::Error for GenerationManifestError {}
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 struct QualifiedGenerationManifest<'a> {
     manifest: &'a GenerationManifest,
 }
 
-#[allow(dead_code)]
 impl<'a> QualifiedGenerationManifest<'a> {
     fn manifest(self) -> &'a GenerationManifest {
         self.manifest
@@ -602,7 +578,6 @@ fn validate_non_empty_manifest_requirement(
     }
 }
 
-#[allow(dead_code)]
 fn qualify_generation_manifest<'a>(
     manifest: &'a GenerationManifest,
     requirements: &GenerationManifestRequirements<'_>,
@@ -652,10 +627,6 @@ fn qualify_generation_manifest<'a>(
     if manifest.persistent_schema_identity != requirements.persistent_schema_identity {
         return Err(GenerationManifestError::PersistentSchemaMismatch);
     }
-    if manifest.qualification != GenerationQualification::Qualified {
-        return Err(GenerationManifestError::RejectedQualification);
-    }
-
     if matches!(manifest.manager_artifact_digest.as_deref(), Some("")) {
         return Err(GenerationManifestError::EmptyManagerDigest);
     }
@@ -811,7 +782,6 @@ fn validate_absolute_runtime_asset_path(
 }
 
 #[cfg(unix)]
-#[allow(dead_code)]
 fn qualify_runtime_assets<'selection, 'asset, 'generation>(
     generation: QualifiedGenerationManifest<'generation>,
     selection: &'selection RuntimeAssetSelection<'asset>,
@@ -980,7 +950,6 @@ where
 #[derive(Debug)]
 enum RuntimeLaunchError {
     Environment(TermuxProcessEnvError),
-    Policy(PassthroughError),
     Exec(std::io::Error),
 }
 
@@ -989,7 +958,6 @@ impl std::fmt::Display for RuntimeLaunchError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RuntimeLaunchError::Environment(err) => err.fmt(f),
-            RuntimeLaunchError::Policy(err) => err.fmt(f),
             RuntimeLaunchError::Exec(err) => err.fmt(f),
         }
     }
@@ -1000,7 +968,6 @@ impl std::error::Error for RuntimeLaunchError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             RuntimeLaunchError::Environment(err) => Some(err),
-            RuntimeLaunchError::Policy(err) => Some(err),
             RuntimeLaunchError::Exec(err) => Some(err),
         }
     }
@@ -1013,21 +980,18 @@ impl std::error::Error for RuntimeLaunchError {
 /// Once it succeeds, the existing launch boundary retains sandbox-policy-before-I/O ordering,
 /// FD 33/34 handling, environment fencing, raw argv, and final `exec` process semantics.
 #[cfg(unix)]
-#[allow(dead_code)]
-fn launch_qualified_runtime<'selection, 'asset, R, C, I, S>(
+fn launch_qualified_runtime<'selection, 'asset, R, C>(
     assets: QualifiedRuntimeAssets<'selection, 'asset>,
     process_env: &TermuxProcessEnvSnapshot,
     cert_file: &OsStr,
     cert_dir: Option<&OsStr>,
     resolver_path: R,
     config_dir: C,
-    args: I,
+    planned_args: &[OsString],
 ) -> RuntimeLaunchError
 where
     R: AsRef<std::path::Path>,
     C: AsRef<std::path::Path>,
-    I: IntoIterator<Item = S>,
-    S: Into<OsString>,
 {
     let selection = assets.selection();
     let env_plan = match plan_termux_env(
@@ -1040,13 +1004,9 @@ where
         Err(err) => return RuntimeLaunchError::Environment(err),
     };
 
-    let planned_args = match plan_passthrough_args(args) {
-        Ok(args) => args,
-        Err(err) => return RuntimeLaunchError::Policy(err),
-    };
     RuntimeLaunchError::Exec(exec_runtime(
         selection.runtime.program_path,
-        &planned_args,
+        planned_args,
         resolver_path,
         config_dir,
         Some(&env_plan),
@@ -1054,7 +1014,6 @@ where
 }
 
 #[cfg(unix)]
-#[allow(dead_code)]
 #[derive(Debug)]
 enum QualifiedUpstreamDoctorProbeError {
     Environment(TermuxProcessEnvError),
@@ -1088,7 +1047,6 @@ impl std::error::Error for QualifiedUpstreamDoctorProbeError {
 /// FD33/34 runtime contract as final launch. Raw child stdout/stderr are discarded
 /// so arbitrary upstream diagnostics cannot bypass the bounded B15 report model.
 #[cfg(unix)]
-#[allow(dead_code)]
 fn probe_qualified_upstream_doctor<'selection, 'asset, R, C>(
     assets: QualifiedRuntimeAssets<'selection, 'asset>,
     process_env: &TermuxProcessEnvSnapshot,
@@ -1128,120 +1086,12 @@ where
     })
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum UpstreamDoctorCapability {
     Supported,
     Unsupported,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum UpdateArtifactSource<'a> {
-    Remote { immutable_locator: &'a str },
-    LocalArtifact { path: &'a OsStr },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct UpdateCandidateEvidence<'a> {
-    signed_release_manifest_identity: &'a str,
-    expected_source_artifact_digest: &'a str,
-    release_signature_ok: bool,
-    architecture_ok: bool,
-    core_api_ok: bool,
-    channel_ok: bool,
-    anti_rollback_ok: bool,
-    artifact_digest_ok: bool,
-    archive_safe: bool,
-    compatibility_ok: bool,
-    candidate_probe_ok: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct UpdateRequest<'a> {
-    source: UpdateArtifactSource<'a>,
-    evidence: UpdateCandidateEvidence<'a>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum UpdateInterfaceError {
-    Empty(&'static str),
-    Rejected(&'static str),
-    SourceArtifactDigestMismatch,
-}
-
-impl std::fmt::Display for UpdateInterfaceError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            UpdateInterfaceError::Empty(name) => {
-                write!(f, "required update value '{name}' is empty")
-            }
-            UpdateInterfaceError::Rejected(name) => {
-                write!(f, "update evidence '{name}' was rejected")
-            }
-            UpdateInterfaceError::SourceArtifactDigestMismatch => {
-                f.write_str("qualified generation source digest does not match admitted release")
-            }
-        }
-    }
-}
-
-impl std::error::Error for UpdateInterfaceError {}
-
-fn require_update_evidence(value: bool, name: &'static str) -> Result<(), UpdateInterfaceError> {
-    if value {
-        Ok(())
-    } else {
-        Err(UpdateInterfaceError::Rejected(name))
-    }
-}
-
-fn qualify_update_candidate<'request, 'value, 'generation>(
-    request: &'request UpdateRequest<'value>,
-    generation: QualifiedGenerationManifest<'generation>,
-) -> Result<(), UpdateInterfaceError> {
-    if request.evidence.signed_release_manifest_identity.is_empty() {
-        return Err(UpdateInterfaceError::Empty(
-            "signed_release_manifest_identity",
-        ));
-    }
-    if request.evidence.expected_source_artifact_digest.is_empty() {
-        return Err(UpdateInterfaceError::Empty(
-            "expected_source_artifact_digest",
-        ));
-    }
-    match request.source {
-        UpdateArtifactSource::Remote { immutable_locator } if immutable_locator.is_empty() => {
-            return Err(UpdateInterfaceError::Empty("immutable_locator"));
-        }
-        UpdateArtifactSource::LocalArtifact { path } if path.is_empty() => {
-            return Err(UpdateInterfaceError::Empty("local_artifact_path"));
-        }
-        _ => {}
-    }
-    for (value, name) in [
-        (request.evidence.release_signature_ok, "release_signature"),
-        (request.evidence.architecture_ok, "architecture"),
-        (request.evidence.core_api_ok, "core_api"),
-        (request.evidence.channel_ok, "channel"),
-        (request.evidence.anti_rollback_ok, "anti_rollback"),
-        (request.evidence.artifact_digest_ok, "artifact_digest"),
-        (request.evidence.archive_safe, "archive_safety"),
-        (request.evidence.compatibility_ok, "compatibility"),
-        (request.evidence.candidate_probe_ok, "candidate_probe"),
-    ] {
-        require_update_evidence(value, name)?;
-    }
-
-    if generation.manifest().source_artifact_digest
-        != request.evidence.expected_source_artifact_digest
-    {
-        return Err(UpdateInterfaceError::SourceArtifactDigestMismatch);
-    }
-
-    Ok(())
-}
-
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum UpstreamDoctorStatus {
     Healthy,
@@ -1259,7 +1109,6 @@ impl UpstreamDoctorStatus {
     }
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CoreDoctorStatus {
     Healthy,
@@ -1277,7 +1126,6 @@ impl CoreDoctorStatus {
     }
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ManagerDoctorStatus {
     Healthy,
@@ -1297,7 +1145,6 @@ impl ManagerDoctorStatus {
     }
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DoctorSummaryStatus {
     Healthy,
@@ -1317,7 +1164,6 @@ impl DoctorSummaryStatus {
     }
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DoctorExitClass {
     Success,
@@ -1325,7 +1171,6 @@ enum DoctorExitClass {
     ApiIncompatibility,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct DoctorReport {
     upstream: UpstreamDoctorStatus,
@@ -1334,7 +1179,6 @@ struct DoctorReport {
     summary: DoctorSummaryStatus,
 }
 
-#[allow(dead_code)]
 fn compose_doctor_report(
     upstream: UpstreamDoctorStatus,
     termux_core: CoreDoctorStatus,
@@ -1365,7 +1209,6 @@ fn compose_doctor_report(
     }
 }
 
-#[allow(dead_code)]
 fn doctor_exit_class(report: &DoctorReport) -> DoctorExitClass {
     match report.summary {
         DoctorSummaryStatus::Healthy => DoctorExitClass::Success,
@@ -1376,7 +1219,6 @@ fn doctor_exit_class(report: &DoctorReport) -> DoctorExitClass {
     }
 }
 
-#[allow(dead_code)]
 fn render_doctor_human(report: &DoctorReport) -> String {
     format!(
         "[Upstream]\nstatus: {}\n\n[Termux Core]\nstatus: {}\n\n[Manager]\nstatus: {}\n\n[Summary]\nstatus: {}\n",
@@ -1387,7 +1229,6 @@ fn render_doctor_human(report: &DoctorReport) -> String {
     )
 }
 
-#[allow(dead_code)]
 fn render_doctor_json(report: &DoctorReport) -> String {
     format!(
         "{{\"schema_version\":1,\"upstream\":{{\"status\":\"{}\"}},\"termux_core\":{{\"status\":\"{}\"}},\"manager\":{{\"status\":\"{}\"}},\"summary\":{{\"status\":\"{}\"}}}}\n",
@@ -1515,7 +1356,6 @@ struct LocalPublicDispatchContext<
 }
 
 #[cfg(unix)]
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum PublicDispatchCompletion {
     Update(Vec<OsString>),
@@ -1554,7 +1394,6 @@ impl std::error::Error for PublicDispatchExecutionError {
 }
 
 #[cfg(unix)]
-#[allow(dead_code)]
 fn execute_public_dispatch<
     'context,
     'runtime_selection,
@@ -1598,14 +1437,14 @@ fn execute_public_dispatch<
                 context.cert_dir,
                 context.resolver_path,
                 context.config_dir,
-                args,
+                &args,
             ),
         )),
     }
 }
 
 #[cfg(unix)]
-#[allow(dead_code)]
+#[allow(dead_code)] // write-side activation API is consumed by the next local staging bundle
 mod m2_generation_state {
     use std::io::{Read, Write};
 
@@ -1617,7 +1456,6 @@ mod m2_generation_state {
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub(super) struct CoreStatePaths {
         pub(super) root: std::path::PathBuf,
-        pub(super) generations: std::path::PathBuf,
         pub(super) activation_state: std::path::PathBuf,
         pub(super) activation_journal: std::path::PathBuf,
         pub(super) activation_journal_temp: std::path::PathBuf,
@@ -1673,7 +1511,7 @@ mod m2_generation_state {
                 }
                 StateFormatError::IdentityControl(field) => write!(
                     f,
-                    "generation identity '{field}' contains a forbidden line/control byte"
+                    "generation identity '{field}' is not a safe path component"
                 ),
                 StateFormatError::FileTooLarge(label) => {
                     write!(f, "{label} exceeds the bounded state-file size")
@@ -1790,7 +1628,6 @@ mod m2_generation_state {
             }
             Ok(Self {
                 root: root.to_path_buf(),
-                generations: root.join("generations"),
                 activation_state: root.join("activation-state"),
                 activation_journal: root.join("activation-journal"),
                 activation_journal_temp: root.join("activation-journal.tmp"),
@@ -1827,7 +1664,6 @@ mod m2_generation_state {
         paths: &CoreStatePaths,
     ) -> Result<(), ActivationTransactionError> {
         ensure_directory(&paths.root, "Core state root")?;
-        ensure_directory(&paths.generations, "generation directory")?;
         let directory = std::fs::File::open(&paths.root)
             .map_err(|err| io_error("open Core state root for sync", err))?;
         directory
@@ -1846,10 +1682,12 @@ mod m2_generation_state {
         if value.as_bytes().len() > GENERATION_ID_MAX_BYTES {
             return Err(StateFormatError::IdentityTooLong(field));
         }
-        if value
-            .as_bytes()
-            .iter()
-            .any(|byte| matches!(*byte, 0 | b'\n' | b'\r'))
+        if value == "."
+            || value == ".."
+            || value
+                .as_bytes()
+                .iter()
+                .any(|byte| matches!(*byte, 0 | b'\n' | b'\r' | b'/'))
         {
             return Err(StateFormatError::IdentityControl(field));
         }
@@ -2322,10 +2160,449 @@ mod m2_generation_state {
     }
 }
 
+#[cfg(unix)]
+const LOCAL_GENERATION_FORMAT: &str = "codex-local-generation-v1";
+#[cfg(unix)]
+const LOCAL_GENERATION_MAX_BYTES: usize = 64 * 1024;
+#[cfg(unix)]
+const CORE_API_IDENTITY: &str = "core-api-v1";
+#[cfg(unix)]
+const PERSISTENT_SCHEMA_IDENTITY: &str = "schema-v1";
+
+#[cfg(unix)]
+#[derive(Debug, Clone)]
+struct LocalCoreRoots {
+    generation_root: std::path::PathBuf,
+    state_root: std::path::PathBuf,
+    config_dir: std::path::PathBuf,
+    resolver_path: std::path::PathBuf,
+    cert_file: std::path::PathBuf,
+    cert_dir: std::path::PathBuf,
+}
+
+#[cfg(unix)]
+impl LocalCoreRoots {
+    fn from_environment() -> Result<Self, LocalProductError> {
+        let home = required_absolute_env_path("HOME")?;
+        let prefix = required_absolute_env_path("PREFIX")?;
+        let state_root = home.join(".local/share/codex/core");
+        Ok(Self {
+            generation_root: home.join(".local/lib/codex/core/generations"),
+            config_dir: state_root.join("config"),
+            state_root,
+            resolver_path: prefix.join("etc/resolv.conf"),
+            cert_file: prefix.join("etc/tls/cert.pem"),
+            cert_dir: prefix.join("etc/tls/certs"),
+        })
+    }
+}
+
+#[cfg(unix)]
+#[derive(Debug)]
+enum LocalProductError {
+    MissingEnvironment(&'static str),
+    InvalidEnvironmentPath(&'static str),
+    StateFormat(m2_generation_state::StateFormatError),
+    State(m2_generation_state::ActivationTransactionError),
+    NoCurrentGeneration,
+    Io {
+        operation: &'static str,
+        source: std::io::Error,
+    },
+    Descriptor(&'static str),
+    Manifest(GenerationManifestError),
+    Runtime(RuntimeAssetError),
+    Manager(ManagerArtifactError),
+    Dispatch(PublicDispatchExecutionError),
+}
+
+#[cfg(unix)]
+impl std::fmt::Display for LocalProductError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LocalProductError::MissingEnvironment(name) => {
+                write!(f, "required environment variable {name} is missing")
+            }
+            LocalProductError::InvalidEnvironmentPath(name) => {
+                write!(
+                    f,
+                    "environment path {name} must be a non-empty absolute path"
+                )
+            }
+            LocalProductError::StateFormat(err) => err.fmt(f),
+            LocalProductError::State(err) => err.fmt(f),
+            LocalProductError::NoCurrentGeneration => {
+                f.write_str("no activated Codex generation is available")
+            }
+            LocalProductError::Io { operation, source } => {
+                write!(f, "{operation} failed: {source}")
+            }
+            LocalProductError::Descriptor(message) => f.write_str(message),
+            LocalProductError::Manifest(err) => err.fmt(f),
+            LocalProductError::Runtime(err) => err.fmt(f),
+            LocalProductError::Manager(err) => err.fmt(f),
+            LocalProductError::Dispatch(err) => err.fmt(f),
+        }
+    }
+}
+
+#[cfg(unix)]
+impl std::error::Error for LocalProductError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            LocalProductError::StateFormat(err) => Some(err),
+            LocalProductError::State(err) => Some(err),
+            LocalProductError::Io { source, .. } => Some(source),
+            LocalProductError::Manifest(err) => Some(err),
+            LocalProductError::Runtime(err) => Some(err),
+            LocalProductError::Manager(err) => Some(err),
+            LocalProductError::Dispatch(err) => Some(err),
+            _ => None,
+        }
+    }
+}
+
+#[cfg(unix)]
+fn required_absolute_env_path(name: &'static str) -> Result<std::path::PathBuf, LocalProductError> {
+    let value = std::env::var_os(name).ok_or(LocalProductError::MissingEnvironment(name))?;
+    let path = std::path::PathBuf::from(value);
+    if path.as_os_str().is_empty() || !path.is_absolute() {
+        return Err(LocalProductError::InvalidEnvironmentPath(name));
+    }
+    Ok(path)
+}
+
+#[cfg(unix)]
+#[derive(Debug, Clone)]
+struct LoadedLocalGeneration {
+    manifest: GenerationManifest,
+    doctor_capability: UpstreamDoctorCapability,
+    runtime_path: std::path::PathBuf,
+    compatibility_dir: std::path::PathBuf,
+    manager_path: Option<std::path::PathBuf>,
+    helper_paths: Vec<std::path::PathBuf>,
+}
+
+#[cfg(unix)]
+fn descriptor_field<'a>(
+    line: Option<&'a str>,
+    expected: &'static str,
+) -> Result<&'a str, LocalProductError> {
+    let line = line.ok_or(LocalProductError::Descriptor(
+        "generation descriptor is incomplete",
+    ))?;
+    let Some((name, value)) = line.split_once('\t') else {
+        return Err(LocalProductError::Descriptor(
+            "generation descriptor field is malformed",
+        ));
+    };
+    if name != expected || value.is_empty() {
+        return Err(LocalProductError::Descriptor(
+            "generation descriptor field is invalid",
+        ));
+    }
+    Ok(value)
+}
+
+#[cfg(unix)]
+fn load_local_generation(
+    generation_dir: &std::path::Path,
+) -> Result<LoadedLocalGeneration, LocalProductError> {
+    let descriptor_path = generation_dir.join("generation.meta");
+    let bytes = std::fs::read(&descriptor_path).map_err(|source| LocalProductError::Io {
+        operation: "read activated generation descriptor",
+        source,
+    })?;
+    if bytes.len() > LOCAL_GENERATION_MAX_BYTES {
+        return Err(LocalProductError::Descriptor(
+            "generation descriptor is too large",
+        ));
+    }
+    if !bytes.ends_with(b"\n") {
+        return Err(LocalProductError::Descriptor(
+            "generation descriptor is missing its final newline",
+        ));
+    }
+    let text = std::str::from_utf8(&bytes)
+        .map_err(|_| LocalProductError::Descriptor("generation descriptor is not UTF-8"))?;
+    let mut lines = text.lines();
+    if lines.next() != Some(LOCAL_GENERATION_FORMAT) {
+        return Err(LocalProductError::Descriptor(
+            "generation descriptor format is unsupported",
+        ));
+    }
+
+    let upstream_package_identity = descriptor_field(lines.next(), "upstream_package_identity")?;
+    let upstream_package_version = descriptor_field(lines.next(), "upstream_package_version")?;
+    let source_artifact_digest = descriptor_field(lines.next(), "source_artifact_digest")?;
+    let expected_platform = descriptor_field(lines.next(), "expected_platform")?;
+    let expected_architecture = descriptor_field(lines.next(), "expected_architecture")?;
+    let patch_policy_id = descriptor_field(lines.next(), "patch_policy_id")?;
+    let patch_report = descriptor_field(lines.next(), "patch_report")?;
+    let runtime_digest = descriptor_field(lines.next(), "runtime_digest")?;
+    let core_artifact_digest = descriptor_field(lines.next(), "core_artifact_digest")?;
+    let manager_digest = descriptor_field(lines.next(), "manager_artifact_digest")?;
+    let core_api_identity = descriptor_field(lines.next(), "core_api_identity")?;
+    let persistent_schema_identity = descriptor_field(lines.next(), "persistent_schema_identity")?;
+    if descriptor_field(lines.next(), "qualification")? != "qualified" {
+        return Err(LocalProductError::Descriptor(
+            "activated generation is not qualified",
+        ));
+    }
+    let creation_metadata = descriptor_field(lines.next(), "creation_metadata")?;
+    let doctor_capability = match descriptor_field(lines.next(), "upstream_doctor")? {
+        "supported" => UpstreamDoctorCapability::Supported,
+        "unsupported" => UpstreamDoctorCapability::Unsupported,
+        _ => {
+            return Err(LocalProductError::Descriptor(
+                "generation descriptor doctor capability is invalid",
+            ))
+        }
+    };
+    let helper_count: usize = descriptor_field(lines.next(), "helper_count")?
+        .parse()
+        .map_err(|_| LocalProductError::Descriptor("generation helper count is invalid"))?;
+    let mut helper_digests = Vec::with_capacity(helper_count);
+    for _ in 0..helper_count {
+        let line = lines.next().ok_or(LocalProductError::Descriptor(
+            "generation helper list is incomplete",
+        ))?;
+        let mut parts = line.split('\t');
+        if parts.next() != Some("helper") {
+            return Err(LocalProductError::Descriptor(
+                "generation helper entry is invalid",
+            ));
+        }
+        let identity =
+            parts
+                .next()
+                .filter(|value| !value.is_empty())
+                .ok_or(LocalProductError::Descriptor(
+                    "generation helper identity is invalid",
+                ))?;
+        let digest =
+            parts
+                .next()
+                .filter(|value| !value.is_empty())
+                .ok_or(LocalProductError::Descriptor(
+                    "generation helper digest is invalid",
+                ))?;
+        if parts.next().is_some() {
+            return Err(LocalProductError::Descriptor(
+                "generation helper entry is invalid",
+            ));
+        }
+        helper_digests.push(GenerationHelperDigest {
+            identity: identity.to_owned(),
+            digest: digest.to_owned(),
+        });
+    }
+    if lines.next().is_some() {
+        return Err(LocalProductError::Descriptor(
+            "generation descriptor has unexpected trailing fields",
+        ));
+    }
+
+    let manifest = GenerationManifest {
+        upstream_package_identity: upstream_package_identity.to_owned(),
+        upstream_package_version: upstream_package_version.to_owned(),
+        source_artifact_digest: source_artifact_digest.to_owned(),
+        expected_platform: expected_platform.to_owned(),
+        expected_architecture: expected_architecture.to_owned(),
+        patch_policy_id: patch_policy_id.to_owned(),
+        patch_report: patch_report.to_owned(),
+        runtime_digest: runtime_digest.to_owned(),
+        helper_digests,
+        core_artifact_digest: core_artifact_digest.to_owned(),
+        manager_artifact_digest: (manager_digest != "-").then(|| manager_digest.to_owned()),
+        core_api_identity: core_api_identity.to_owned(),
+        persistent_schema_identity: persistent_schema_identity.to_owned(),
+        creation_metadata: creation_metadata.to_owned(),
+    };
+
+    let runtime_path = generation_dir.join("runtime");
+    let compatibility_dir = generation_dir.join("compat");
+    if !runtime_path.is_file() {
+        return Err(LocalProductError::Descriptor(
+            "activated generation runtime is missing",
+        ));
+    }
+    if !compatibility_dir.is_dir() {
+        return Err(LocalProductError::Descriptor(
+            "activated generation compatibility directory is missing",
+        ));
+    }
+    let manager_path = manifest
+        .manager_artifact_digest
+        .as_ref()
+        .map(|_| generation_dir.join("manager"));
+    if manager_path.as_ref().is_some_and(|path| !path.is_file()) {
+        return Err(LocalProductError::Descriptor(
+            "activated generation Manager is missing",
+        ));
+    }
+    let helper_paths: Vec<_> = (0..manifest.helper_digests.len())
+        .map(|index| generation_dir.join("helpers").join(index.to_string()))
+        .collect();
+    if helper_paths.iter().any(|path| !path.is_file()) {
+        return Err(LocalProductError::Descriptor(
+            "activated generation helper is missing",
+        ));
+    }
+
+    Ok(LoadedLocalGeneration {
+        manifest,
+        doctor_capability,
+        runtime_path,
+        compatibility_dir,
+        manager_path,
+        helper_paths,
+    })
+}
+
+#[cfg(unix)]
+fn load_activated_generation(
+    roots: &LocalCoreRoots,
+) -> Result<LoadedLocalGeneration, LocalProductError> {
+    let state_paths = m2_generation_state::CoreStatePaths::new(&roots.state_root)
+        .map_err(LocalProductError::StateFormat)?;
+    let state = m2_generation_state::recover_activation_state(&state_paths)
+        .map_err(LocalProductError::State)?
+        .ok_or(LocalProductError::NoCurrentGeneration)?;
+    load_local_generation(&roots.generation_root.join(state.current))
+}
+
+#[cfg(unix)]
+fn execute_activated_route(
+    route: PublicDispatchRoute,
+    roots: &LocalCoreRoots,
+    process_env: &TermuxProcessEnvSnapshot,
+) -> Result<PublicDispatchCompletion, LocalProductError> {
+    let loaded = load_activated_generation(roots)?;
+    let requirements = GenerationManifestRequirements {
+        platform: std::env::consts::OS,
+        architecture: std::env::consts::ARCH,
+        core_api_identity: CORE_API_IDENTITY,
+        persistent_schema_identity: PERSISTENT_SCHEMA_IDENTITY,
+    };
+    let generation = qualify_generation_manifest(&loaded.manifest, &requirements)
+        .map_err(LocalProductError::Manifest)?;
+    let helper_bindings: Vec<_> = loaded
+        .manifest
+        .helper_digests
+        .iter()
+        .zip(&loaded.helper_paths)
+        .map(|(helper, path)| HelperAssetBinding {
+            identity: &helper.identity,
+            asset_path: path.as_os_str(),
+            observed_digest: &helper.digest,
+        })
+        .collect();
+    let runtime_selection = RuntimeAssetSelection {
+        runtime: RuntimeAssetBinding {
+            program_path: loaded.runtime_path.as_os_str(),
+            observed_digest: &loaded.manifest.runtime_digest,
+        },
+        compatibility_dir: loaded.compatibility_dir.as_os_str(),
+        helpers: &helper_bindings,
+    };
+    let runtime_assets = qualify_runtime_assets(generation, &runtime_selection)
+        .map_err(LocalProductError::Runtime)?;
+    let manager_selection = loaded
+        .manager_path
+        .as_ref()
+        .map(|path| ManagerArtifactSelection {
+            program_path: path.as_os_str(),
+            observed_digest: loaded
+                .manifest
+                .manager_artifact_digest
+                .as_deref()
+                .expect("Manager path is created only for a declared Manager"),
+        });
+    let manager_artifact = qualify_manager_artifact(generation, manager_selection.as_ref())
+        .map_err(LocalProductError::Manager)?;
+    let manager_doctor_status = match manager_artifact {
+        ManagerArtifact::Unavailable => ManagerDoctorStatus::Unavailable,
+        ManagerArtifact::Available(_) => ManagerDoctorStatus::Healthy,
+    };
+    let context = LocalPublicDispatchContext {
+        runtime_assets,
+        manager_artifact,
+        process_env,
+        cert_file: roots.cert_file.as_os_str(),
+        cert_dir: Some(roots.cert_dir.as_os_str()),
+        resolver_path: &roots.resolver_path,
+        config_dir: &roots.config_dir,
+        doctor_capability: loaded.doctor_capability,
+        core_doctor_status: CoreDoctorStatus::Healthy,
+        manager_doctor_status,
+    };
+    execute_public_dispatch(route, context).map_err(LocalProductError::Dispatch)
+}
+
+#[cfg(unix)]
+fn doctor_exit_code(class: DoctorExitClass) -> i32 {
+    match class {
+        DoctorExitClass::Success => 0,
+        DoctorExitClass::HealthFailure => 1,
+        DoctorExitClass::ApiIncompatibility => 2,
+    }
+}
+
+#[cfg(unix)]
+fn run_public_main<I, S>(args: I) -> i32
+where
+    I: IntoIterator<Item = S>,
+    S: Into<OsString>,
+{
+    let route = match plan_public_dispatch(args) {
+        Ok(route) => route,
+        Err(err) => {
+            eprintln!("codex: {err}");
+            return 2;
+        }
+    };
+    if let PublicDispatchRoute::Update(args) = route {
+        let _ = args;
+        eprintln!("codex update: local release staging is not implemented yet");
+        return 2;
+    }
+    let roots = match LocalCoreRoots::from_environment() {
+        Ok(roots) => roots,
+        Err(err) => {
+            eprintln!("codex: {err}");
+            return 1;
+        }
+    };
+    let process_env = capture_termux_process_env();
+    match execute_activated_route(route, &roots, &process_env) {
+        Ok(PublicDispatchCompletion::Doctor(outcome)) => {
+            print!("{}", outcome.output);
+            doctor_exit_code(outcome.exit_class)
+        }
+        Ok(PublicDispatchCompletion::TermuxUnavailable(message)) => {
+            eprintln!("{message}");
+            1
+        }
+        Ok(PublicDispatchCompletion::Update(_)) => 2,
+        Err(err) => {
+            eprintln!("codex: {err}");
+            1
+        }
+    }
+}
+
+#[cfg(unix)]
 fn main() {
     let mut args = std::env::args_os();
     let _ = args.next();
-    let _ = plan_public_dispatch(args);
+    std::process::exit(run_public_main(args));
+}
+
+#[cfg(not(unix))]
+fn main() {
+    eprintln!("codex: this build requires a Unix/Termux target");
+    std::process::exit(1);
 }
 
 #[cfg(test)]
@@ -2356,7 +2633,6 @@ mod tests {
             manager_artifact_digest: manager.then(|| "manager-digest".to_string()),
             core_api_identity: "core-api-v1".to_string(),
             persistent_schema_identity: "schema-v1".to_string(),
-            qualification: GenerationQualification::Qualified,
             creation_metadata: "test-fixture".to_string(),
         }
     }
@@ -2373,18 +2649,18 @@ mod tests {
     #[test]
     fn test_public_dispatch_exact_routes_and_upstream_preservation() {
         assert_eq!(
-            plan_public_dispatch(["update", "--channel", "stable"]),
+            plan_public_dispatch(["update", "--channel", "stable"]).unwrap(),
             PublicDispatchRoute::Update(vec!["--channel".into(), "stable".into()])
         );
         assert_eq!(
-            plan_public_dispatch(["doctor", "--json"]),
+            plan_public_dispatch(["doctor", "--json"]).unwrap(),
             PublicDispatchRoute::Doctor(vec!["--json".into()])
         );
         assert_eq!(
-            plan_public_dispatch(["termux", "status"]),
+            plan_public_dispatch(["termux", "status"]).unwrap(),
             PublicDispatchRoute::Termux(vec!["status".into()])
         );
-        for argv in [
+        for original in [
             vec![],
             vec![OsString::from("--version")],
             vec![OsString::from("-V")],
@@ -2393,10 +2669,14 @@ mod tests {
             vec![OsString::from("doctorx")],
             vec![OsString::from("exec"), OsString::from("termux")],
         ] {
-            assert_eq!(
-                plan_public_dispatch(argv.clone()),
-                PublicDispatchRoute::Upstream(argv)
-            );
+            match plan_public_dispatch(original.clone()).unwrap() {
+                PublicDispatchRoute::Upstream(planned) => {
+                    assert_eq!(planned[0], "-c");
+                    assert_eq!(planned[1], "sandbox_mode=\"danger-full-access\"");
+                    assert_eq!(&planned[2..], original.as_slice());
+                }
+                other => panic!("unexpected route: {other:?}"),
+            }
         }
     }
 
@@ -2406,14 +2686,14 @@ mod tests {
         use std::os::unix::ffi::{OsStrExt, OsStringExt};
         let first = OsString::from_vec(vec![b'u', b'p', 0xff]);
         let tail = OsString::from_vec(vec![0x80, b'x', 0xfe]);
-        match plan_public_dispatch(vec![first.clone(), tail.clone()]) {
+        match plan_public_dispatch(vec![first.clone(), tail.clone()]).unwrap() {
             PublicDispatchRoute::Upstream(argv) => {
-                assert_eq!(argv[0].as_bytes(), first.as_bytes());
-                assert_eq!(argv[1].as_bytes(), tail.as_bytes());
+                assert_eq!(argv[2].as_bytes(), first.as_bytes());
+                assert_eq!(argv[3].as_bytes(), tail.as_bytes());
             }
             other => panic!("unexpected route: {other:?}"),
         }
-        match plan_public_dispatch(vec![OsString::from("doctor"), tail.clone()]) {
+        match plan_public_dispatch(vec![OsString::from("doctor"), tail.clone()]).unwrap() {
             PublicDispatchRoute::Doctor(argv) => assert_eq!(argv[0].as_bytes(), tail.as_bytes()),
             other => panic!("unexpected route: {other:?}"),
         }
@@ -2429,7 +2709,7 @@ mod tests {
             vec!["-c=sandbox_mode=\"read-only\""],
             vec!["sandbox", "linux"],
         ] {
-            assert!(plan_passthrough_args(argv.clone()).is_err(), "{argv:?}");
+            assert!(plan_public_dispatch(argv.clone()).is_err(), "{argv:?}");
         }
         let original = vec![
             OsString::from("exec"),
@@ -2551,12 +2831,6 @@ mod tests {
             qualify_generation_manifest(&bad, &requirements()),
             Err(GenerationManifestError::DuplicateHelperIdentity { .. })
         ));
-        let mut bad = manifest.clone();
-        bad.qualification = GenerationQualification::Rejected;
-        assert_eq!(
-            qualify_generation_manifest(&bad, &requirements()).unwrap_err(),
-            GenerationManifestError::RejectedQualification
-        );
     }
 
     #[cfg(unix)]
@@ -2632,65 +2906,6 @@ mod tests {
             qualify_runtime_assets(generation, &selection).unwrap_err(),
             RuntimeAssetError::MissingHelperIdentity(0)
         );
-    }
-
-    fn valid_update_request() -> UpdateRequest<'static> {
-        UpdateRequest {
-            source: UpdateArtifactSource::Remote {
-                immutable_locator: "https://example.invalid/release.tar.zst",
-            },
-            evidence: UpdateCandidateEvidence {
-                signed_release_manifest_identity: "release-manifest-1",
-                expected_source_artifact_digest: "source-digest",
-                release_signature_ok: true,
-                architecture_ok: true,
-                core_api_ok: true,
-                channel_ok: true,
-                anti_rollback_ok: true,
-                artifact_digest_ok: true,
-                archive_safe: true,
-                compatibility_ok: true,
-                candidate_probe_ok: true,
-            },
-        }
-    }
-
-    #[test]
-    fn test_update_qualification_is_one_direct_gate() {
-        let manifest = valid_manifest(false, false);
-        let generation = qualify_generation_manifest(&manifest, &requirements()).unwrap();
-        let request = valid_update_request();
-        assert_eq!(qualify_update_candidate(&request, generation), Ok(()));
-        let mut bad = request;
-        bad.evidence.channel_ok = false;
-        assert_eq!(
-            qualify_update_candidate(&bad, generation),
-            Err(UpdateInterfaceError::Rejected("channel"))
-        );
-        let mut bad = request;
-        bad.evidence.expected_source_artifact_digest = "wrong";
-        assert_eq!(
-            qualify_update_candidate(&bad, generation),
-            Err(UpdateInterfaceError::SourceArtifactDigestMismatch)
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn test_update_qualification_preserves_local_non_utf8_path_without_extra_wrapper() {
-        use std::os::unix::ffi::{OsStrExt, OsStringExt};
-        let manifest = valid_manifest(false, false);
-        let generation = qualify_generation_manifest(&manifest, &requirements()).unwrap();
-        let raw = OsString::from_vec(vec![b'/', b't', b'm', b'p', b'/', 0xff]);
-        let mut request = valid_update_request();
-        request.source = UpdateArtifactSource::LocalArtifact { path: &raw };
-        assert_eq!(qualify_update_candidate(&request, generation), Ok(()));
-        match request.source {
-            UpdateArtifactSource::LocalArtifact { path } => {
-                assert_eq!(path.as_bytes(), raw.as_bytes())
-            }
-            _ => unreachable!(),
-        }
     }
 
     #[test]
@@ -2888,21 +3103,23 @@ exit 73
             program_path: runtime.as_os_str(),
             observed_digest: "manager-digest",
         };
-        let route = match scenario.as_str() {
-            "version" => PublicDispatchRoute::Upstream(vec![OsString::from("--version")]),
-            "signal" => PublicDispatchRoute::Upstream(vec![OsString::from("signal")]),
-            "tty" => PublicDispatchRoute::Upstream(vec![OsString::from("tty")]),
-            "exec" => PublicDispatchRoute::Upstream(vec![
+        let raw_args = match scenario.as_str() {
+            "version" => vec![OsString::from("--version")],
+            "signal" => vec![OsString::from("signal")],
+            "tty" => vec![OsString::from("tty")],
+            "exec" => vec![
                 OsString::from("exec"),
                 OsString::from("arg with spaces"),
                 OsString::from_vec(vec![0xff, 0x80, b'z']),
-            ]),
-            "manager" => PublicDispatchRoute::Termux(vec![
+            ],
+            "manager" => vec![
+                OsString::from("termux"),
                 OsString::from("status"),
                 OsString::from_vec(vec![0xff, b'm']),
-            ]),
+            ],
             other => panic!("unknown probe scenario {other}"),
         };
+        let route = plan_public_dispatch(raw_args).unwrap();
         let context = probe_context(
             &manifest,
             &selection,
@@ -3114,6 +3331,8 @@ exit 73
     #[cfg(unix)]
     #[test]
     fn test_policy_and_environment_fail_before_runtime_io() {
+        assert!(plan_public_dispatch(["--sandbox=read-only"]).is_err());
+
         let manifest = valid_manifest(false, false);
         let generation = qualify_generation_manifest(&manifest, &requirements()).unwrap();
         let selection = RuntimeAssetSelection {
@@ -3126,11 +3345,15 @@ exit 73
         };
         let assets = qualify_runtime_assets(generation, &selection).unwrap();
         let snapshot = TermuxProcessEnvSnapshot {
-            prefix: Some("/prefix".into()),
+            prefix: None,
             tmpdir: Some("/tmp".into()),
             inherited_path: None,
             inherited_ssl_cert_file: None,
             inherited_ssl_cert_dir: None,
+        };
+        let planned = match plan_public_dispatch(["--version"]).unwrap() {
+            PublicDispatchRoute::Upstream(args) => args,
+            _ => unreachable!(),
         };
         assert!(matches!(
             launch_qualified_runtime(
@@ -3140,23 +3363,7 @@ exit 73
                 None,
                 "/missing/resolver",
                 "/missing/config",
-                ["--sandbox=read-only"]
-            ),
-            RuntimeLaunchError::Policy(_)
-        ));
-        let missing_env = TermuxProcessEnvSnapshot {
-            prefix: None,
-            ..snapshot
-        };
-        assert!(matches!(
-            launch_qualified_runtime(
-                assets,
-                &missing_env,
-                OsStr::new("/cert"),
-                None,
-                "/missing/resolver",
-                "/missing/config",
-                ["--version"]
+                &planned,
             ),
             RuntimeLaunchError::Environment(TermuxProcessEnvError::MissingRequired("PREFIX"))
         ));
@@ -3328,6 +3535,274 @@ exit 73
     }
 
     #[cfg(unix)]
+    fn b2_test_roots(label: &str) -> (std::path::PathBuf, LocalCoreRoots) {
+        let root = temp_root(label);
+        let roots = LocalCoreRoots {
+            generation_root: root.join("generations"),
+            state_root: root.join("state"),
+            config_dir: root.join("state/config"),
+            resolver_path: root.join("resolv.conf"),
+            cert_file: root.join("cert.pem"),
+            cert_dir: root.join("certs"),
+        };
+        std::fs::create_dir(&roots.generation_root).unwrap();
+        std::fs::write(&roots.resolver_path, b"nameserver 127.0.0.1\n").unwrap();
+        std::fs::write(&roots.cert_file, b"test-cert").unwrap();
+        std::fs::create_dir(&roots.cert_dir).unwrap();
+        (root, roots)
+    }
+
+    #[cfg(unix)]
+    fn b2_write_generation(
+        roots: &LocalCoreRoots,
+        generation_id: &str,
+        manager: bool,
+        doctor: &str,
+    ) -> std::path::PathBuf {
+        let generation_dir = roots.generation_root.join(generation_id);
+        std::fs::create_dir(&generation_dir).unwrap();
+        std::fs::create_dir(generation_dir.join("compat")).unwrap();
+        let fake = write_fake_runtime(&generation_dir);
+        let runtime = generation_dir.join("runtime");
+        std::fs::rename(fake, &runtime).unwrap();
+        if manager {
+            std::fs::copy(&runtime, generation_dir.join("manager")).unwrap();
+        }
+        let descriptor = format!(
+            concat!(
+                "codex-local-generation-v1\n",
+                "upstream_package_identity\t@openai/codex\n",
+                "upstream_package_version\t9.9.9\n",
+                "source_artifact_digest\tsource-digest\n",
+                "expected_platform\t{}\n",
+                "expected_architecture\t{}\n",
+                "patch_policy_id\ttermux-policy-v1\n",
+                "patch_report\tqualified\n",
+                "runtime_digest\truntime-digest\n",
+                "core_artifact_digest\tcore-digest\n",
+                "manager_artifact_digest\t{}\n",
+                "core_api_identity\t{}\n",
+                "persistent_schema_identity\t{}\n",
+                "qualification\tqualified\n",
+                "creation_metadata\ttest-fixture\n",
+                "upstream_doctor\t{}\n",
+                "helper_count\t0\n",
+            ),
+            std::env::consts::OS,
+            std::env::consts::ARCH,
+            if manager { "manager-digest" } else { "-" },
+            CORE_API_IDENTITY,
+            PERSISTENT_SCHEMA_IDENTITY,
+            doctor,
+        );
+        std::fs::write(generation_dir.join("generation.meta"), descriptor).unwrap();
+        generation_dir
+    }
+
+    #[cfg(unix)]
+    fn b2_activate(roots: &LocalCoreRoots, generation_id: &str) -> GenerationPointerState {
+        let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+        prepare_core_state_paths(&paths).unwrap();
+        std::fs::create_dir(&roots.config_dir).unwrap();
+        let state = plan_initial_pointer_state(generation_id).unwrap();
+        activate_pointer_state(&paths, None, &state).unwrap();
+        state
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b2_loader_requires_one_current_generation_and_never_falls_back() {
+        let (root, roots) = b2_test_roots("b2-current-only");
+        assert!(matches!(
+            load_activated_generation(&roots),
+            Err(LocalProductError::NoCurrentGeneration)
+        ));
+
+        b2_write_generation(&roots, "good", false, "unsupported");
+        let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+        prepare_core_state_paths(&paths).unwrap();
+        std::fs::create_dir(&roots.config_dir).unwrap();
+        let good = plan_initial_pointer_state("good").unwrap();
+        activate_pointer_state(&paths, None, &good).unwrap();
+        let missing = plan_activation_pointer_state(&good, "missing-current").unwrap();
+        activate_pointer_state(&paths, Some(&good), &missing).unwrap();
+
+        assert!(matches!(
+            load_activated_generation(&roots),
+            Err(LocalProductError::Io {
+                operation: "read activated generation descriptor",
+                ..
+            })
+        ));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b2_loader_rejects_malformed_or_incomplete_descriptor() {
+        let (root, roots) = b2_test_roots("b2-malformed");
+        let generation_dir = roots.generation_root.join("broken");
+        std::fs::create_dir(&generation_dir).unwrap();
+        std::fs::write(generation_dir.join("generation.meta"), b"not-the-format\n").unwrap();
+        b2_activate(&roots, "broken");
+        assert!(matches!(
+            load_activated_generation(&roots),
+            Err(LocalProductError::Descriptor(
+                "generation descriptor format is unsupported"
+            ))
+        ));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b2_loader_binds_runtime_and_optional_manager_from_one_generation() {
+        let (root, roots) = b2_test_roots("b2-manager");
+        let generation_dir = b2_write_generation(&roots, "g1", true, "supported");
+        b2_activate(&roots, "g1");
+        let loaded = load_activated_generation(&roots).unwrap();
+        assert_eq!(loaded.runtime_path, generation_dir.join("runtime"));
+        assert_eq!(loaded.compatibility_dir, generation_dir.join("compat"));
+        assert_eq!(loaded.manager_path, Some(generation_dir.join("manager")));
+        assert_eq!(
+            loaded.manifest.manager_artifact_digest.as_deref(),
+            Some("manager-digest")
+        );
+        assert_eq!(
+            loaded.doctor_capability,
+            UpstreamDoctorCapability::Supported
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b2_doctor_and_manager_unavailable_use_loaded_generation_without_fallback() {
+        let (root, roots) = b2_test_roots("b2-local-routes");
+        b2_write_generation(&roots, "g1", false, "unsupported");
+        b2_activate(&roots, "g1");
+        let process_env = TermuxProcessEnvSnapshot {
+            prefix: Some(root.join("prefix").into_os_string()),
+            tmpdir: Some(root.join("tmp").into_os_string()),
+            inherited_path: None,
+            inherited_ssl_cert_file: None,
+            inherited_ssl_cert_dir: None,
+        };
+        let doctor = execute_activated_route(
+            PublicDispatchRoute::Doctor(vec![OsString::from("--json")]),
+            &roots,
+            &process_env,
+        )
+        .unwrap();
+        match doctor {
+            PublicDispatchCompletion::Doctor(outcome) => {
+                assert_eq!(outcome.exit_class, DoctorExitClass::HealthFailure);
+                assert!(outcome
+                    .output
+                    .contains("\"upstream\":{\"status\":\"unsupported\"}"));
+            }
+            other => panic!("unexpected doctor result: {other:?}"),
+        }
+        assert_eq!(
+            execute_activated_route(PublicDispatchRoute::Termux(vec![]), &roots, &process_env)
+                .unwrap(),
+            PublicDispatchCompletion::TermuxUnavailable(TERMUX_MANAGER_UNAVAILABLE_MESSAGE)
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    const MAIN_PROBE_ROLE: &str = "CODEX_R2_MAIN_PROBE";
+    #[cfg(unix)]
+    const MAIN_PROBE_ARGS: &str = "CODEX_R2_MAIN_ARGS";
+
+    #[cfg(unix)]
+    #[test]
+    fn public_main_probe() {
+        if std::env::var(MAIN_PROBE_ROLE).as_deref() != Ok("1") {
+            return;
+        }
+        let scenario = std::env::var(MAIN_PROBE_ARGS).unwrap();
+        let args = match scenario.as_str() {
+            "version" => vec![OsString::from("--version")],
+            "manager" => vec![OsString::from("termux"), OsString::from("status")],
+            other => panic!("unknown main probe scenario {other}"),
+        };
+        let code = run_public_main(args);
+        use std::io::Write;
+        std::io::stdout().flush().unwrap();
+        std::io::stderr().flush().unwrap();
+        std::process::exit(code);
+    }
+
+    #[cfg(unix)]
+    fn b2_public_main_fixture(label: &str, manager: bool) -> std::path::PathBuf {
+        let root = temp_root(label);
+        let home = root.join("home");
+        let prefix = root.join("prefix");
+        let generation_root = home.join(".local/lib/codex/core/generations");
+        let state_root = home.join(".local/share/codex/core");
+        let roots = LocalCoreRoots {
+            generation_root,
+            state_root: state_root.clone(),
+            config_dir: state_root.join("config"),
+            resolver_path: prefix.join("etc/resolv.conf"),
+            cert_file: prefix.join("etc/tls/cert.pem"),
+            cert_dir: prefix.join("etc/tls/certs"),
+        };
+        std::fs::create_dir_all(&roots.generation_root).unwrap();
+        std::fs::create_dir_all(roots.state_root.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(prefix.join("etc/tls/certs")).unwrap();
+        std::fs::write(&roots.resolver_path, b"nameserver 127.0.0.1\n").unwrap();
+        std::fs::write(&roots.cert_file, b"test-cert").unwrap();
+        b2_write_generation(&roots, "g1", manager, "unsupported");
+        b2_activate(&roots, "g1");
+        std::fs::create_dir(root.join("tmp")).unwrap();
+        root
+    }
+
+    #[cfg(unix)]
+    fn run_public_main_probe(root: &std::path::Path, scenario: &str) -> std::process::Output {
+        std::process::Command::new(std::env::current_exe().unwrap())
+            .arg("tests::public_main_probe")
+            .arg("--exact")
+            .env(MAIN_PROBE_ROLE, "1")
+            .env(MAIN_PROBE_ARGS, scenario)
+            .env("HOME", root.join("home"))
+            .env("PREFIX", root.join("prefix"))
+            .env("TMPDIR", root.join("tmp"))
+            .output()
+            .unwrap()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b2_real_main_path_loads_current_and_execs_upstream_and_manager() {
+        let root = b2_public_main_fixture("b2-main-version", false);
+        let version = run_public_main_probe(&root, "version");
+        assert_eq!(version.status.code(), Some(0));
+        assert!(version.stdout.ends_with(b"codex-upstream 9.9.9\n"));
+        assert_eq!(version.stderr, b"version-stderr\n");
+        let _ = std::fs::remove_dir_all(&root);
+
+        let root = b2_public_main_fixture("b2-main-manager", true);
+        let manager = run_public_main_probe(&root, "manager");
+        assert_eq!(manager.status.code(), Some(73));
+        assert!(manager
+            .stdout
+            .windows(b"ARGS:<status>".len())
+            .any(|w| w == b"ARGS:<status>"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b2_update_and_invalid_sandbox_need_no_generation_loader() {
+        assert_eq!(run_public_main([OsString::from("update")]), 2);
+        assert_eq!(run_public_main([OsString::from("--sandbox=read-only")]), 2);
+    }
+
+    #[cfg(unix)]
     fn m2_b1_unique_paths(label: &str) -> CoreStatePaths {
         static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let counter = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -3471,7 +3946,6 @@ exit 73
         );
 
         let paths = m2_b1_unique_paths("codec");
-        assert_eq!(paths.generations, paths.root.join("generations"));
         assert_eq!(paths.activation_state, paths.root.join("activation-state"));
         assert_eq!(
             paths.activation_journal,
@@ -3498,7 +3972,15 @@ exit 73
         );
         assert_eq!(parse_pointer_state(&encoded).unwrap(), state);
 
-        for bad in ["", "line\nbreak", "line\rbreak", "nul\0byte"] {
+        for bad in [
+            "",
+            ".",
+            "..",
+            "nested/name",
+            "line\nbreak",
+            "line\rbreak",
+            "nul\0byte",
+        ] {
             assert!(
                 plan_initial_pointer_state(bad).is_err(),
                 "bad identity {bad:?}"
@@ -3884,7 +4366,8 @@ exit 73
         let paths = m2_b1_unique_paths("boundaries");
         let outside = paths.root.with_extension("outside-sentinel");
         let unrelated = paths.root.join("unrelated-sentinel");
-        let generation_dir = paths.generations.join("opaque-g1").join("nested");
+        let generation_root = paths.root.with_extension("generation-sentinel-dir");
+        let generation_dir = generation_root.join("opaque-g1").join("nested");
         std::fs::create_dir_all(&generation_dir).unwrap();
         let generation_file = generation_dir.join("runtime.bin");
         std::fs::write(&generation_file, b"immutable-generation-bytes\0\xff").unwrap();
@@ -3902,11 +4385,12 @@ exit 73
         assert_eq!(std::fs::read(&generation_file).unwrap(), generation_before);
         assert_eq!(std::fs::read(&outside).unwrap(), outside_before);
         assert_eq!(std::fs::read(&unrelated).unwrap(), unrelated_before);
-        assert!(!paths.generations.join("opaque-g2").exists());
+        assert!(!generation_root.join("opaque-g2").exists());
         assert_eq!(read_pointer_state(&paths).unwrap(), Some(upgraded));
         m2_b1_assert_no_transaction_files(&paths);
 
         let _ = std::fs::remove_file(&outside);
+        let _ = std::fs::remove_dir_all(&generation_root);
         m2_b1_cleanup(&paths);
     }
 
