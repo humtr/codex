@@ -153,6 +153,19 @@ Termux qualification. Produce one candidate for independent product review.
   current Rust source against `SPEC.md`, reopened two correctness/safety gaps,
   fixed them directly, reviewed the resulting diff, and reran the load-bearing
   validation.
+- M1-B15 is accepted at `6bea7a53004f43178599e65a6f630c7bb06355b9`.
+  The direct Lead added a dependency-free typed doctor report surface with
+  bounded upstream/Core/Manager state domains, deterministic summary precedence,
+  typed semantic exit classes, separated human sections, and one schema-versioned
+  JSON envelope. The output model accepts no arbitrary diagnostic strings,
+  paths, environment values, auth/session/notification content, or raw upstream
+  output, establishing a fail-closed redaction baseline before process capture.
+- Final B15 validation `job_ikt_87c72178ad` passed all 5 B15 focused tests,
+  exhaustive 36-state summary/exit classification, the full serial workspace
+  suite 98/98, eight complete default-parallel repetitions, formatting,
+  `git diff --check`, and a warning-free locked build with offline mode and a
+  repository-external Cargo target. Direct diff audit found no B15 process,
+  filesystem, environment, Manager, network, dependency, or `main` wiring.
 - M1-B14 is accepted at `be6492f895185caf7d9b922b16330a1cd8f00033`.
   The direct Lead added a typed qualified-runtime launch boundary that accepts no
   separate raw runtime program or compatibility directory: it consumes the B13
@@ -415,12 +428,13 @@ Termux qualification. Produce one candidate for independent product review.
 ### Not Proven
 
 - Milestone 1 is not complete. The normal `main` entrypoint is still not wired to
-  a qualified upstream runtime. Doctor composition/execution and the complete
-  real-Termux smoke gate remain unproven. Process-environment capture is proven
-  by M1-B10, the pure generation-manifest qualification interface by M1-B11, the
-  pure updater admission/candidate interface by M1-B12, runtime/compat/helper
-  asset qualification by M1-B13, and qualified-runtime final launch composition
-  by M1-B14. Physical active-pointer/activation mechanics remain Milestone 2
+  a qualified upstream runtime. Doctor subprocess execution/composition and the
+  complete real-Termux smoke gate remain unproven. Process-environment capture
+  is proven by M1-B10, the pure generation-manifest qualification interface by
+  M1-B11, the pure updater admission/candidate interface by M1-B12,
+  runtime/compat/helper asset qualification by M1-B13, qualified-runtime final
+  launch composition by M1-B14, and the bounded redacted doctor report model by
+  M1-B15. Physical active-pointer/activation mechanics remain Milestone 2
   delivery/recovery work and are not introduced during Milestone 1.
 - B4's current non-mutation proof is against test-owned resolver fixtures; the
   Milestone 1 completion gate still requires pre/post evidence that the actual
@@ -439,14 +453,18 @@ Termux qualification. Produce one candidate for independent product review.
 - M1-B12 is closed at `3927ad46696875c913c9039406693c1ddd4c3231`.
 - M1-B13 is closed at `71acbd8e318d50548952490e0d2fb52c7b661f9c`.
 - M1-B14 is closed at `be6492f895185caf7d9b922b16330a1cd8f00033`.
-- Current checkpoint: M1-B15 — build the dependency-free, read-only doctor
-  composition model and deterministic human/JSON renderers before wiring any
-  actual upstream doctor process.
-- Worker mode remains OFF; the primary Lead implements B15 directly.
-- B15 accepts only bounded typed diagnostic section states, so arbitrary raw
-  upstream/auth/session/notification content cannot enter the output model. It
-  performs no process execution, filesystem/environment access, Manager call,
-  generation selection, network access, or `main` wiring.
+- M1-B15 is closed at `6bea7a53004f43178599e65a6f630c7bb06355b9`.
+- Current checkpoint: M1-B16 — add the read-only supported-upstream doctor
+  subprocess probe using only `QualifiedRuntimeAssets`, B10 environment planning,
+  and the same FD33/34 + contamination-fence execution contract as final launch.
+- Worker mode remains OFF; the primary Lead implements B16 directly.
+- B16 runs the selected runtime directly rather than recursively invoking the
+  public launcher, maps child exit success/non-success only into bounded
+  `UpstreamDoctorStatus`, and discards raw child stdout/stderr so secrets or
+  arbitrary diagnostic text cannot bypass the B15 report boundary. Unsupported
+  upstream remains an explicit caller state rather than stderr-text inference.
+- B16 does not wire public doctor argv/`main`, call Manager, mutate product state,
+  perform network/update/activation behavior, or define Milestone 2 delivery.
 
 ## Goal Lifts
 

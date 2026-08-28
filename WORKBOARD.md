@@ -30,47 +30,49 @@ or mutation of the installed Codex product.
 
 ## Selected next action
 
-### Bundle M1-B15 — typed read-only doctor composition surface
+### Bundle M1-B16 — qualified upstream doctor subprocess probe
 
-- Prior evidence: M1-B14 commit `be6492f895185caf7d9b922b16330a1cd8f00033`;
-  validation `job_ijk_b7acb35e72` passed B14 3/3, full serial 93/93, eight
+- Prior evidence: M1-B15 commit `6bea7a53004f43178599e65a6f630c7bb06355b9`;
+  validation `job_ikt_87c72178ad` passed B15 5/5, full serial 98/98, eight
   default-parallel full repetitions, formatting, diff check, and warning-free
   locked build.
-- Add a dependency-free, module-private doctor report model with separate typed
-  state domains for upstream, Termux Core, and Manager diagnostics. Upstream may
-  be healthy, unhealthy, or unsupported; Core may be healthy, unhealthy, or API
-  incompatible; Manager may be healthy, unhealthy, unavailable, or API
-  incompatible.
-- Compose those states into one deterministic summary with explicit precedence:
-  API incompatibility, then unhealthy, then degraded for unsupported/unavailable,
-  otherwise healthy. Keep the semantic exit class typed; do not freeze numeric
-  process exit codes or public CLI option parsing in B15.
-- Add deterministic human rendering with clearly separated Upstream, Termux Core,
-  Manager, and Summary sections, plus exactly one dependency-free JSON envelope
-  with `schema_version: 1` and the SPEC keys `upstream`, `termux_core`, `manager`,
-  and `summary`.
-- The B15 output model accepts no arbitrary diagnostic strings, raw upstream
-  output, auth/session/notification content, paths, environment values, or other
-  caller-controlled payloads. All emitted text is selected from bounded static
-  status vocabulary, providing a fail-closed redaction baseline before process
-  capture/parsing is introduced.
-- No upstream process execution, filesystem or environment access, Manager call,
-  generation/runtime selection, resolver/config I/O, network behavior, update,
-  activation, rollback, dependency addition, or normal `main` wiring belongs in
-  B15. Actual raw upstream doctor execution/composition is a later bounded bundle.
-- Focused `m1_b15_` tests must cover all section-state combinations and summary
-  precedence, explicit unsupported upstream/unavailable Manager representation,
-  exact human section separation, exact valid JSON envelope rendering, and prove
-  the renderer output vocabulary is bounded and deterministic with no process
-  environment side effects.
-- Keep all 93 post-B14 tests green. Validate offline with an external Cargo target,
+- Add one module-private, supported-upstream doctor probe that accepts only a B13
+  `QualifiedRuntimeAssets` selection plus explicit B10 process snapshot,
+  certificate fallback, resolver path, and managed-config directory. Do not
+  accept a separate raw runtime program or compatibility directory.
+- Extract/reuse one common temporary runtime-FD mapping primitive so both final
+  exec and the doctor child use the same read-only resolver/config validation,
+  FD33/34 collision handling, CLOEXEC behavior, restoration, and restoration
+  error precedence. The doctor child must not permanently mutate caller FD state.
+- The doctor probe invokes the selected upstream runtime directly, never the
+  public Core launcher. Its argv is the existing Termux-safe sandbox prelude plus
+  the internal upstream `doctor` command; no user-controlled doctor argv is
+  introduced in B16.
+- Apply the B10 base-environment plan and exact B3 five-variable contamination
+  fence to the doctor child. Child stdout/stderr are sent to null and are never
+  inserted into the B15 report model. Exit success maps to
+  `UpstreamDoctorStatus::Healthy`; a completed nonzero/signal result maps to
+  `Unhealthy`; setup/spawn failures remain typed I/O/environment/policy errors.
+  `Unsupported` remains an explicit higher-level state and must not be inferred
+  by parsing raw stderr text.
+- No public `doctor --json` parsing, numeric public exit-code mapping, `main`
+  dispatch wiring, Manager call, runtime/generation discovery, network, update,
+  activation, rollback, package operation, or product-state mutation belongs in
+  B16.
+- Focused `m1_b16_` tests use subprocess isolation for FD-mutating paths and must
+  prove: healthy and nonzero classification; exact safe doctor argv; B10
+  temp/cert/PATH application; contamination fencing and unrelated-env retention;
+  child FD33/34 visibility; secret-like stdout/stderr suppression; typed missing
+  runtime/spawn failure; parent FD33/34 restoration; and resolver/config content
+  non-mutation in test-owned roots.
+- Keep all 98 post-B15 tests green. Validate offline with an external Cargo target,
   focused tests, full serial suite, eight default-parallel repetitions,
   warning-free locked build, formatting, and diff check.
 - Worker mode is user-controlled and remains OFF. The primary `gpt-5.6-sol` /
   `max` Lead directly implements this bundle. `harness.run` is test-only.
 - Writable product path: `crates/core/src/main.rs` only; no dependency, extra
-  tracked file, live product/runtime/resolver/Manager, Git-ref, install, activation,
-  package, or network change is authorized.
+  tracked file, live product/runtime/resolver/Manager, Git-ref, install,
+  activation, package, or network change is authorized.
 
 ## Milestone 1 required outcomes
 
