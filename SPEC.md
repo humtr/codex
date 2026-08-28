@@ -181,6 +181,28 @@ short write, full storage, permission failure, and a stale journal. Recovery
 must resolve to one complete old or new generation and must never synthesize a
 mixed generation.
 
+Core optimizes for the shortest correct release path rather than speculative
+defense layers. Complete-or-absent generations, atomic activation, and recovery
+to one complete last-known-good generation are the primary safety invariants.
+Do not add a second mechanism for a failure already covered by those invariants.
+If a simpler base invariant makes an existing check, retry path, pointer role,
+or fallback redundant, remove the redundant mechanism instead of maintaining
+both.
+
+One installer/updater transaction is the normal product model. Simultaneous
+install or update attempts are not a first-class coordination feature and do
+not by themselves justify locks, leases, fencing tokens, or a multi-writer
+protocol. If attempts overlap, the required outcome is limited to preserving a
+complete generation boundary: one attempt may succeed while another fails or
+retries, and recovery may return to the already complete last-known-good
+generation. Launch must never observe a mixed or partially constructed
+generation.
+
+`verified` and `previous` are not permission to build a fallback ladder. They
+may represent at most one effective automatic rollback target. Before release,
+if the same recovery contract can be expressed with fewer pointer roles, the
+redundant role must be removed.
+
 ## 8. Installation and update
 
 Fresh installation uses a small audited bootstrap because Core cannot install
@@ -267,7 +289,9 @@ Deliver:
 - official upstream artifact acquisition and safe adaptation;
 - atomic update, activation, recovery, and rollback;
 - offline install/recovery;
-- concurrent launch/update and injected-failure coverage;
+- basic launch/update overlap and injected-failure coverage proving launches
+  see only complete generations; speculative multi-writer coordination is not
+  a release requirement without demonstrated product need;
 - isolated fresh-Termux and upgrade-from-legacy qualification;
 - a complete candidate suitable for independent product review.
 
@@ -280,6 +304,13 @@ Deliver:
   rollback, offline recovery, or another Termux device.
 - Every release claim must name the exact source, artifact digests, generation,
   test set, and observed device/runtime boundary.
+- After the core integrity invariants are met, release velocity and a small
+  state machine take priority over speculative resilience mechanisms.
+- A new defensive branch, retry, fallback, lock, lease, or fencing mechanism
+  requires a concrete product failure that is not already handled by complete
+  generation construction, atomic activation, or last-known-good rollback.
+- Prefer one recovery path over fallback chains. Complexity added only for a
+  hypothetical edge case is itself a reliability and security cost.
 - Review findings change implementation only after the responsible normative
   contract is updated.
 

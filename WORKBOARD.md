@@ -13,124 +13,117 @@ in Git history and the `GOAL.md` acceptance ledger, not here.
 - Acceptance owner: `GOAL.md`
 - Current milestone: Milestone 2 — delivery and recovery
 - Primary Technical Lead/Integrator: the main `gpt-5.6-sol` / `max` goal
-  session; owns evidence retrieval, contract compilation, direct implementation
-  while worker mode is OFF, actual diff review, integration validation, commits,
-  and acceptance decisions
+  session; owns evidence, direct implementation while worker mode is OFF, diff
+  review, validation, commits, and acceptance
 - Worker mode: user-controlled; current state OFF. Only an explicit user command
-  may change it. Do not invoke implementation workers or coding subagents while
-  OFF
-- Planning agents, problem advisors, and checkpoint reviewers: disabled until
-  the complete Milestone 2 candidate reaches the independent-review gate
-- Live product cutover: not authorized by this bundle; all mutable M2-B1 evidence
-  stays under test-owned temporary roots
-- Click-inspired discipline: no Click plugin or Hook is installed. Reuse
-  successful current evidence, do not reopen or replace this contract without
-  new material evidence, use only narrow implementation feedback, and run the
-  repository-required acceptance suite as one final grouped batch once stable.
-  Repository authority always overrides any generic verification-budget concept.
+  may change it; do not infer a transition from workload or failures
+- Planning agents, problem advisors, checkpoint reviewers, implementation
+  workers, and coding subagents: disabled unless the user explicitly changes
+  that policy
+- Live product cutover: not authorized by the current bundle; mutable evidence
+  remains under test-owned roots
+- Click-inspired discipline: no Click plugin or Hook is installed. Reuse fresh
+  evidence, avoid reopening settled decisions without new material evidence,
+  and run load-bearing acceptance as one grouped batch once stable. Repository
+  authority overrides generic workflow/verification-budget rules
+
+## Product-speed policy
+
+- Ship the smallest correct state machine. Release velocity is more important
+  than speculative resilience once the core integrity invariants are met.
+- The load-bearing invariants are: construct a generation completely before it
+  can become active; activate atomically; never expose a mixed generation; keep
+  one complete last-known-good recovery target; preserve protected user/system
+  state.
+- One installer/updater transaction is the normal model. Do not build locks,
+  leases, fencing tokens, distributed coordination, or a multi-writer protocol
+  merely because two installs could theoretically overlap.
+- If overlapping install/update attempts occur, it is acceptable for one to
+  fail or retry. Recovery may return to the already complete last-known-good
+  generation. Simultaneous writers are not a separate availability product.
+- Do not build fallback ladders. Prefer one explicit recovery path. If a basic
+  invariant makes an existing check, retry, state field, or fallback redundant,
+  remove the redundant mechanism rather than preserving both.
+- New defensive logic requires a concrete reproducible failure not already
+  covered by complete-generation staging, atomic activation, or last-known-good
+  rollback. Extra defense is also extra defect/security surface.
 
 ## Current objective
 
-Deliver a recoverable, prebuilt Core release system: immutable signed releases,
-safe acquisition/adaptation, atomic activation and rollback, offline recovery,
-concurrency/failure qualification, fresh-install/legacy-upgrade evidence, and a
-complete candidate suitable for independent review.
+Move directly toward an installable prebuilt Core: accept a qualified immutable
+local release, stage one complete generation outside the active path, self-test
+it, and activate it through the accepted M2-B1 transaction. Keep the path small
+enough that the same machinery can become the fresh-install bootstrap and later
+network update path without parallel fallback implementations.
 
 ## Selected next action
 
-### Bundle M2-B1 — crash-safe generation state and activation recovery
+### Bundle M2-B2 — minimal local release/bootstrap path
 
 #### outcome
 
-Fix the first Milestone 2 physical Core state representation and implement the
-smallest durable activation transaction in test-owned roots. A complete candidate
-generation may be promoted into one authoritative pointer state only through a
-journaled atomic replacement; recovery after any represented interruption must
-resolve to exactly the complete old state or complete new state and never a mixed
-current/verified/previous generation set.
+Turn the M1 artifact/update evidence and the M2-B1 activation transaction into
+the shortest end-to-end local install path under test-owned roots. A qualified
+local immutable artifact becomes one complete staged generation, passes the
+minimum required probe, and is atomically activated. At the same time, remove
+any B1 pointer/recovery role that proves redundant with a simpler single
+last-known-good recovery contract.
 
 #### boundary
 
-- in_scope: `crates/core/src/main.rs` only; explicit root-derived Core state paths,
-  strict std-only pointer-state/journal encoding and parsing, durable file-write /
-  fsync / atomic-rename primitives, activation and recovery over test-owned
-  filesystem roots, and deterministic injected-failure tests around each durable
-  boundary.
-- out_of_scope: live `$HOME`/`$PREFIX` state mutation, installed launcher/context
-  wiring, network/download, signature cryptography or key rotation, archive
-  extraction/adaptation, fresh-install bootstrap, Manager features, release
-  publication, real product activation, package operations, or dependency adds.
+- in_scope: the minimum Rust Core code/tests needed to consume an explicit local
+  qualified release input, materialize a test-owned candidate generation, bind
+  its manifest/runtime assets, perform the required local probe, and call the
+  accepted M2-B1 activation/recovery primitive; simplify redundant B1 defensive
+  state while preserving its complete-generation and atomicity guarantees.
+- out_of_scope: remote download, periodic update checks, package-manager use,
+  multi-writer locking/fencing, distributed coordination, fallback ladders,
+  Manager product features, publication refs, live installed-product mutation,
+  or a second installer implementation.
 
 #### must_hold
 
-- Milestone 2 now fixes the Core artifact/state layout under explicit roots:
-  immutable generation directories live under `generations/`; one authoritative
-  `activation-state` file stores the logical `current`, `verified`, and
-  `previous` generation identities as one bounded pointer set; one
-  `activation-journal` records exactly the before/after states while a transition
-  is pending. Temporary replacement files remain private implementation detail.
-- Generation identities are opaque nonempty single-line values; parsing rejects
-  empty values, embedded newline/NUL, unknown fields, duplicate fields, missing
-  fields, extra records, and unsupported format versions. No lossy conversion or
-  path-derived identity is permitted.
-- State replacement is durable in this order: validate inputs; create+fsync a
-  private journal temporary; atomically rename it to `activation-journal`; fsync
-  the directory; create+fsync the new state temporary; atomically rename it over
-  `activation-state`; fsync the directory; remove the journal; fsync the
-  directory. No active state is removed before a replacement is ready, and a
-  short/partial journal write can never become the canonical journal.
-- Recovery with a journal accepts only two coherent cases: authoritative state
-  equals the recorded `before` state (transition not committed) or equals the
-  recorded `after` state (transition committed). It removes the stale journal and
-  retains that complete state. Any third state, malformed journal/state, missing
-  authoritative state where one is required, or before/after ambiguity fails
-  closed without synthesizing pointers.
-- Initial activation is represented explicitly with no prior state rather than a
-  fabricated previous generation; rollback transitions must retain the former
-  verified/current identity according to the same state semantics.
-- M2-B1 never mutates a generation directory after it is presented as complete,
-  never follows a path supplied by a generation identity, and never writes
-  outside the explicit test-owned Core state root.
-- Failures before the state rename leave the old state authoritative; failures
-  after the state rename leave the new state authoritative. Recovery must make
-  both cases deterministic and idempotent, including a stale journal after a
-  successful commit.
+- Candidate generation is complete before activation and the active generation
+  is never modified in place.
+- A failed stage/probe/activation leaves a complete already-known generation as
+  the only recovery target; no cascading fallback sequence is introduced.
+- The local-artifact path is the bootstrap/update foundation, not a special test
+  implementation that will later be replaced by a second path.
+- The normal design assumes one updater/installer transaction. Do not add a
+  kernel lock, lease, fencing token, or stale-writer protocol in this bundle.
+- Basic launch/update overlap testing only needs to prove a launcher never sees
+  a partially constructed generation. Simultaneous installer ordering is not a
+  release gate.
+- Existing B1 `verified`/`previous` roles must be traced once. If both are not
+  required for distinct user-visible semantics, collapse the redundant role now
+  instead of carrying defensive state forward.
+- No live `$PREFIX/bin/codex`, live resolver, Manager state, auth/session/profile
+  state, package state, or publication ref may be changed.
 
 #### build
 
-- Add small `CoreStatePaths`, `GenerationPointerState`, `ActivationJournal`, and
-  typed parse/I/O/recovery error surfaces. Use a canonical versioned text format
-  with fixed field order and length-bounded values; do not introduce serde or a
-  hashing dependency in this bundle.
-- Use `OpenOptions::create_new` for transaction temporaries, `File::sync_all`,
-  same-directory `rename`, and directory `sync_all` on the current Unix/Android
-  target. Publish both journal and state only from fully written+synced private
-  temporaries. Recovery may clean only the fixed transaction-owned temporary
-  names; unrelated files are never removed.
-- Isolate durability calls behind a tiny internal operation/fault-point boundary
-  so tests can inject one failure at each ordered step without changing the
-  public state semantics. Fault injection exists only for tests and must not
-  weaken production ordering.
-- Build activation from an explicit old pointer state plus a complete candidate
-  generation identity; B12 candidate/readiness and later signed-release evidence
-  will feed this transaction in later bundles rather than being reimplemented
-  here.
+- Reuse M1 B11/B12/B13 qualification types and M2-B1 activation primitives;
+  do not create parallel validators or a second transaction model.
+- Prefer direct composition over adapters with retries/fallbacks. One failure
+  should return one typed error and leave the accepted complete generation
+  authoritative.
+- Keep the bootstrap surface small: environment detection, qualified immutable
+  local artifact acceptance, staging, probe, activation. Network retrieval and
+  signature/key plumbing can feed the same path in later bundles.
+- Delete or fold redundant defensive helpers/state encountered in this path when
+  the load-bearing invariant already covers their purpose.
 
 #### verification
 
-- focused: canonical encode/parse and malformed/collision cases; initial and
-  ordinary activation; rollback-state transition semantics; failure injected
-  before/after every durable boundary; partial journal/state temporary recovery;
-  recovery from old+journal and new+journal; stale-journal idempotence;
-  malformed/ambiguous/missing-state fail-closed cases; permission/create/rename/
-  remove failures; no writes outside the test root; and generation directories
-  unchanged byte-for-byte.
-- done_when: focused M2-B1 tests pass; all 139 nonignored M1/B24 default tests
-  remain green with the explicit B24 smoke still ignored by default; formatting
-  and diff checks pass; locked release build is warning-free; one grouped final
-  acceptance batch runs the full serial suite and eight complete default-parallel
-  repetitions in repository-external Cargo targets. No live product path is
-  touched.
+- Focus on the direct happy path and load-bearing failures: valid local artifact
+  install, malformed/incompatible input rejection before activation, stage/probe
+  failure preserving the old complete generation, activation interruption using
+  the already accepted B1 recovery proof, and one launch during candidate staging
+  proving it still resolves only the active complete generation.
+- Do not multiply edge-case matrices for hypothetical simultaneous installers.
+- Acceptance: focused M2-B2 tests, full existing suite, formatting/diff checks,
+  warning-free locked release build, and protected live resolver/launcher
+  identity unchanged.
 
 ## Milestone 2 required outcomes
 
@@ -140,7 +133,8 @@ current/verified/previous generation set.
 4. Acquire and safely adapt official upstream artifacts.
 5. Implement atomic update, activation, recovery, and rollback.
 6. Prove offline install and recovery.
-7. Prove concurrent launch/update behavior and injected-failure recovery.
+7. Prove launches never observe a partial generation during update; do not make
+   speculative simultaneous-installer coordination a release gate.
 8. Qualify isolated fresh-Termux and upgrade-from-legacy paths.
 9. Produce a complete candidate and run the fresh independent product review.
 
@@ -151,37 +145,35 @@ current/verified/previous generation set.
 - signed release and key-rotation policy are enforced before candidate use;
 - candidate generation is complete before activation and active state never
   resolves to a mixed generation after injected interruption;
-- update/rollback/offline recovery are crash-safe and concurrent launch/update
-  behavior is bounded;
+- update/rollback/offline recovery are crash-safe; launch/update overlap proves
+  launches resolve only complete generations, without requiring speculative
+  simultaneous-installer coordination;
 - fresh installation and legacy upgrade are demonstrated in isolated roots or
   devices without damaging the current working installation;
 - prebuilt aarch64 Android/Termux artifacts require no on-device Rust toolchain;
 - no resolver/auth/profile/session/Manager-owned state is damaged;
-- the complete candidate passes the independent review gate before any publication
-  authority is changed.
+- the complete candidate passes the independent review gate before any
+  publication authority is changed.
 
 ## Stop lines
 
-- Do not mutate the current installed Codex product or live resolver/Manager/user
-  state while implementing M2-B1; all mutable evidence remains test-owned.
-- Do not add network, signature, bootstrap, archive, or Manager implementation to
-  this state-transaction bundle.
-- Do not spawn a planning agent, problem advisor, checkpoint reviewer,
-  implementation worker, or coding subagent while user-controlled worker mode is
-  OFF.
+- Do not add multi-writer fencing, lock hierarchies, lease protocols, fallback
+  ladders, repeated retries, or duplicated validators without concrete evidence
+  that the simpler invariant cannot handle the failure.
+- Do not preserve defensive code solely because it already exists; remove it
+  when a simpler foundational rule subsumes it.
+- Do not let defensive hardening become the critical path to product release.
+- Do not mutate the current installed Codex product or protected user/system
+  state while implementing this bundle.
+- Do not spawn additional agents/workers while worker mode is OFF.
 - Do not repeat a successful current-evidence read/search or repository-wide
   inventory without material staleness; narrow the next observation instead.
-- Do not replace this contract for an in-scope technical choice. Revise authority
-  only when new material evidence changes the outcome, boundary, must-hold
-  conditions, or required verification.
-- The primary Lead must inspect the actual diff and run the grouped load-bearing
-  validation before acceptance.
 - Do not modify `legacy/monolith`, sealed tags, publication refs, or the live
   installed launcher/runtime.
 
 ## Next milestone
 
-There is no routine third Core milestone. Exhausting M2-B1 while Milestone 2 is
-open causes the same Lead to compile the next bounded M2 contract. Completion of
-all Milestone 2 gates produces the candidate for fresh independent review; review
-acceptance, not bundle count, controls any later publication decision.
+There is no routine third Core milestone. After M2-B2, continue with the shortest
+remaining path to prebuilt delivery, signed release input, offline recovery, and
+fresh-install qualification. The complete Milestone 2 candidate, not defensive
+feature count, controls the independent-review gate.

@@ -121,6 +121,20 @@ one current workboard, direct focused tests, and deferred independent review.
   during the Core milestones. Review the complete Milestone 2 candidate with a
   fresh independent reviewer.
 - Use exactly two Core milestones.
+- Product release speed is the priority once the small set of load-bearing
+  integrity invariants is satisfied. Do not turn rare or hypothetical failure
+  scenarios into new subsystems by default.
+- Treat one installer/updater transaction as the normal product path. Do not
+  spend release-critical time on simultaneous-installer multi-writer fencing
+  unless actual use or a reproducible product failure demonstrates the need.
+- Prefer recovery to one already complete last-known-good generation over
+  stacked fallback chains. Existing defensive state, retries, checks, and
+  fallback paths should be removed when a simpler foundational invariant covers
+  the same failure.
+- Any additional defensive mechanism must justify its net complexity: it should
+  address a concrete failure not already covered by complete-generation staging,
+  atomic activation, and last-known-good recovery. Defensive complexity is also
+  a potential defect and attack surface.
 - The foundation established documents and workflow first; current implementation
   is now performed directly by the primary Lead under bounded Workboard bundles.
 
@@ -596,11 +610,19 @@ Termux qualification. Produce one candidate for independent product review.
 - M1-B23 is closed at `c29f5f2019104ad7ab51f36754f326b48d33704c`.
 - M1-B24 is closed at `db67c0b90e1916d2ec452b8db2657dd4d504cd52`.
 - Milestone 1 is closed at M1-B24.
-- Current checkpoint: M2-B1 — implement the crash-safe local generation-state
-  and activation/recovery transaction foundation in test-owned roots, fixing the
-  Milestone 2 physical Core state layout and proving recovery resolves to one
-  complete old or new pointer state without mixed generations.
-- Worker mode remains OFF; the primary Lead implements M2-B1 directly.
+- M2-B1 is accepted at `918c3681729ab8f6bba8f69607a88380645b3b5d`.
+  It establishes the crash-safe complete-generation/atomic-activation recovery
+  foundation in test-owned roots. Final validation `job_iwc_7350098964` passed
+  151 tests with the explicit B24 smoke ignored by default, eight complete
+  default-parallel repetitions, formatting/diff checks, and a warning-free
+  locked release build while preserving the live resolver and installed launcher
+  identity. M2-B1 is a foundation, not a mandate to add multi-writer fencing or
+  more fallback tiers.
+- Current checkpoint: M2-B2 — advance the shortest release path: simplify any
+  redundant B1 defensive/pointer state while wiring the minimal prebuilt local
+  artifact/bootstrap path into complete-generation staging and atomic activation.
+  Do not add speculative simultaneous-installer coordination.
+- Worker mode remains OFF; the primary Lead implements M2-B2 directly.
 - The repository now uses a Click-inspired execution discipline at the
   Workboard layer: reuse successful same-revision evidence, do not reopen or
   replace an active bounded contract without new material evidence, and run the
