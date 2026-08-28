@@ -1709,6 +1709,163 @@ fn qualify_update_candidate<'request, 'value, 'generation>(
     })
 }
 
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UpstreamDoctorStatus {
+    Healthy,
+    Unhealthy,
+    Unsupported,
+}
+
+impl UpstreamDoctorStatus {
+    fn as_str(self) -> &'static str {
+        match self {
+            UpstreamDoctorStatus::Healthy => "healthy",
+            UpstreamDoctorStatus::Unhealthy => "unhealthy",
+            UpstreamDoctorStatus::Unsupported => "unsupported",
+        }
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CoreDoctorStatus {
+    Healthy,
+    Unhealthy,
+    ApiIncompatible,
+}
+
+impl CoreDoctorStatus {
+    fn as_str(self) -> &'static str {
+        match self {
+            CoreDoctorStatus::Healthy => "healthy",
+            CoreDoctorStatus::Unhealthy => "unhealthy",
+            CoreDoctorStatus::ApiIncompatible => "api_incompatible",
+        }
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ManagerDoctorStatus {
+    Healthy,
+    Unhealthy,
+    Unavailable,
+    ApiIncompatible,
+}
+
+impl ManagerDoctorStatus {
+    fn as_str(self) -> &'static str {
+        match self {
+            ManagerDoctorStatus::Healthy => "healthy",
+            ManagerDoctorStatus::Unhealthy => "unhealthy",
+            ManagerDoctorStatus::Unavailable => "unavailable",
+            ManagerDoctorStatus::ApiIncompatible => "api_incompatible",
+        }
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DoctorSummaryStatus {
+    Healthy,
+    Degraded,
+    Unhealthy,
+    ApiIncompatible,
+}
+
+impl DoctorSummaryStatus {
+    fn as_str(self) -> &'static str {
+        match self {
+            DoctorSummaryStatus::Healthy => "healthy",
+            DoctorSummaryStatus::Degraded => "degraded",
+            DoctorSummaryStatus::Unhealthy => "unhealthy",
+            DoctorSummaryStatus::ApiIncompatible => "api_incompatible",
+        }
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DoctorExitClass {
+    Success,
+    HealthFailure,
+    ApiIncompatibility,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct DoctorReport {
+    upstream: UpstreamDoctorStatus,
+    termux_core: CoreDoctorStatus,
+    manager: ManagerDoctorStatus,
+    summary: DoctorSummaryStatus,
+}
+
+#[allow(dead_code)]
+fn compose_doctor_report(
+    upstream: UpstreamDoctorStatus,
+    termux_core: CoreDoctorStatus,
+    manager: ManagerDoctorStatus,
+) -> DoctorReport {
+    let summary = if termux_core == CoreDoctorStatus::ApiIncompatible
+        || manager == ManagerDoctorStatus::ApiIncompatible
+    {
+        DoctorSummaryStatus::ApiIncompatible
+    } else if upstream == UpstreamDoctorStatus::Unhealthy
+        || termux_core == CoreDoctorStatus::Unhealthy
+        || manager == ManagerDoctorStatus::Unhealthy
+    {
+        DoctorSummaryStatus::Unhealthy
+    } else if upstream == UpstreamDoctorStatus::Unsupported
+        || manager == ManagerDoctorStatus::Unavailable
+    {
+        DoctorSummaryStatus::Degraded
+    } else {
+        DoctorSummaryStatus::Healthy
+    };
+
+    DoctorReport {
+        upstream,
+        termux_core,
+        manager,
+        summary,
+    }
+}
+
+#[allow(dead_code)]
+fn doctor_exit_class(report: &DoctorReport) -> DoctorExitClass {
+    match report.summary {
+        DoctorSummaryStatus::Healthy => DoctorExitClass::Success,
+        DoctorSummaryStatus::Degraded | DoctorSummaryStatus::Unhealthy => {
+            DoctorExitClass::HealthFailure
+        }
+        DoctorSummaryStatus::ApiIncompatible => DoctorExitClass::ApiIncompatibility,
+    }
+}
+
+#[allow(dead_code)]
+fn render_doctor_human(report: &DoctorReport) -> String {
+    format!(
+        "[Upstream]\nstatus: {}\n\n[Termux Core]\nstatus: {}\n\n[Manager]\nstatus: {}\n\n[Summary]\nstatus: {}\n",
+        report.upstream.as_str(),
+        report.termux_core.as_str(),
+        report.manager.as_str(),
+        report.summary.as_str(),
+    )
+}
+
+#[allow(dead_code)]
+fn render_doctor_json(report: &DoctorReport) -> String {
+    format!(
+        "{{\"schema_version\":1,\"upstream\":{{\"status\":\"{}\"}},\"termux_core\":{{\"status\":\"{}\"}},\"manager\":{{\"status\":\"{}\"}},\"summary\":{{\"status\":\"{}\"}}}}\n",
+        report.upstream.as_str(),
+        report.termux_core.as_str(),
+        report.manager.as_str(),
+        report.summary.as_str(),
+    )
+}
+
 fn main() {
     let mut args = std::env::args_os();
     let _ = args.next();
@@ -7007,5 +7164,181 @@ exit 0
         assert_eq!(result.stdout, expected_stdout);
 
         let _ = std::fs::remove_dir_all(&test_root);
+    }
+
+    fn m1_b15_expected_summary(
+        upstream: UpstreamDoctorStatus,
+        core: CoreDoctorStatus,
+        manager: ManagerDoctorStatus,
+    ) -> DoctorSummaryStatus {
+        if core == CoreDoctorStatus::ApiIncompatible
+            || manager == ManagerDoctorStatus::ApiIncompatible
+        {
+            DoctorSummaryStatus::ApiIncompatible
+        } else if upstream == UpstreamDoctorStatus::Unhealthy
+            || core == CoreDoctorStatus::Unhealthy
+            || manager == ManagerDoctorStatus::Unhealthy
+        {
+            DoctorSummaryStatus::Unhealthy
+        } else if upstream == UpstreamDoctorStatus::Unsupported
+            || manager == ManagerDoctorStatus::Unavailable
+        {
+            DoctorSummaryStatus::Degraded
+        } else {
+            DoctorSummaryStatus::Healthy
+        }
+    }
+
+    #[test]
+    fn test_m1_b15_a_all_section_state_combinations_follow_summary_precedence() {
+        let upstream_states = [
+            UpstreamDoctorStatus::Healthy,
+            UpstreamDoctorStatus::Unhealthy,
+            UpstreamDoctorStatus::Unsupported,
+        ];
+        let core_states = [
+            CoreDoctorStatus::Healthy,
+            CoreDoctorStatus::Unhealthy,
+            CoreDoctorStatus::ApiIncompatible,
+        ];
+        let manager_states = [
+            ManagerDoctorStatus::Healthy,
+            ManagerDoctorStatus::Unhealthy,
+            ManagerDoctorStatus::Unavailable,
+            ManagerDoctorStatus::ApiIncompatible,
+        ];
+
+        let mut count = 0;
+        for upstream in upstream_states {
+            for core in core_states {
+                for manager in manager_states {
+                    let report = compose_doctor_report(upstream, core, manager);
+                    assert_eq!(report.upstream, upstream);
+                    assert_eq!(report.termux_core, core);
+                    assert_eq!(report.manager, manager);
+                    assert_eq!(
+                        report.summary,
+                        m1_b15_expected_summary(upstream, core, manager)
+                    );
+                    let expected_exit = match report.summary {
+                        DoctorSummaryStatus::Healthy => DoctorExitClass::Success,
+                        DoctorSummaryStatus::Degraded | DoctorSummaryStatus::Unhealthy => {
+                            DoctorExitClass::HealthFailure
+                        }
+                        DoctorSummaryStatus::ApiIncompatible => DoctorExitClass::ApiIncompatibility,
+                    };
+                    assert_eq!(doctor_exit_class(&report), expected_exit);
+                    count += 1;
+                }
+            }
+        }
+        assert_eq!(count, 36);
+    }
+
+    #[test]
+    fn test_m1_b15_b_human_output_has_exact_separated_sections() {
+        let report = compose_doctor_report(
+            UpstreamDoctorStatus::Unsupported,
+            CoreDoctorStatus::Healthy,
+            ManagerDoctorStatus::Unavailable,
+        );
+        assert_eq!(report.summary, DoctorSummaryStatus::Degraded);
+        assert_eq!(doctor_exit_class(&report), DoctorExitClass::HealthFailure);
+        assert_eq!(
+            render_doctor_human(&report),
+            "[Upstream]\nstatus: unsupported\n\n[Termux Core]\nstatus: healthy\n\n[Manager]\nstatus: unavailable\n\n[Summary]\nstatus: degraded\n"
+        );
+    }
+
+    #[test]
+    fn test_m1_b15_c_json_output_is_one_exact_redacted_envelope() {
+        let report = compose_doctor_report(
+            UpstreamDoctorStatus::Healthy,
+            CoreDoctorStatus::ApiIncompatible,
+            ManagerDoctorStatus::Healthy,
+        );
+        assert_eq!(
+            render_doctor_json(&report),
+            "{\"schema_version\":1,\"upstream\":{\"status\":\"healthy\"},\"termux_core\":{\"status\":\"api_incompatible\"},\"manager\":{\"status\":\"healthy\"},\"summary\":{\"status\":\"api_incompatible\"}}\n"
+        );
+        assert_eq!(
+            doctor_exit_class(&report),
+            DoctorExitClass::ApiIncompatibility
+        );
+    }
+
+    #[test]
+    fn test_m1_b15_d_rendered_vocabulary_is_bounded_and_deterministic() {
+        let upstream_states = [
+            UpstreamDoctorStatus::Healthy,
+            UpstreamDoctorStatus::Unhealthy,
+            UpstreamDoctorStatus::Unsupported,
+        ];
+        let core_states = [
+            CoreDoctorStatus::Healthy,
+            CoreDoctorStatus::Unhealthy,
+            CoreDoctorStatus::ApiIncompatible,
+        ];
+        let manager_states = [
+            ManagerDoctorStatus::Healthy,
+            ManagerDoctorStatus::Unhealthy,
+            ManagerDoctorStatus::Unavailable,
+            ManagerDoctorStatus::ApiIncompatible,
+        ];
+        let allowed_statuses = [
+            "healthy",
+            "unhealthy",
+            "unsupported",
+            "unavailable",
+            "degraded",
+            "api_incompatible",
+        ];
+
+        for upstream in upstream_states {
+            for core in core_states {
+                for manager in manager_states {
+                    let first = compose_doctor_report(upstream, core, manager);
+                    let second = compose_doctor_report(upstream, core, manager);
+                    assert_eq!(first, second);
+                    assert_eq!(render_doctor_human(&first), render_doctor_human(&second));
+                    assert_eq!(render_doctor_json(&first), render_doctor_json(&second));
+                    for status in [
+                        first.upstream.as_str(),
+                        first.termux_core.as_str(),
+                        first.manager.as_str(),
+                        first.summary.as_str(),
+                    ] {
+                        assert!(allowed_statuses.contains(&status));
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_m1_b15_e_composition_and_rendering_do_not_touch_process_environment() {
+        let before = [
+            std::env::var_os("PREFIX"),
+            std::env::var_os("TMPDIR"),
+            std::env::var_os("PATH"),
+            std::env::var_os("SSL_CERT_FILE"),
+            std::env::var_os("SSL_CERT_DIR"),
+        ];
+        let report = compose_doctor_report(
+            UpstreamDoctorStatus::Unsupported,
+            CoreDoctorStatus::Unhealthy,
+            ManagerDoctorStatus::ApiIncompatible,
+        );
+        let _ = render_doctor_human(&report);
+        let _ = render_doctor_json(&report);
+        let after = [
+            std::env::var_os("PREFIX"),
+            std::env::var_os("TMPDIR"),
+            std::env::var_os("PATH"),
+            std::env::var_os("SSL_CERT_FILE"),
+            std::env::var_os("SSL_CERT_DIR"),
+        ];
+        assert_eq!(before, after);
+        assert_eq!(report.summary, DoctorSummaryStatus::ApiIncompatible);
     }
 }
