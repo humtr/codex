@@ -141,29 +141,55 @@ Termux qualification. Produce one candidate for independent product review.
 
 ## Acceptance Ledger
 
-### Current Re-audit Evidence
+### Current Direct-Lead Evidence
 
-- On 2026-08-28 the user explicitly withdrew trust from the prior implementation
-  worker path and required a fresh Lead review from the beginning. Earlier
-  M1-B1..M1-B9 worker reports, bundle acceptance statements, and their test runs
-  are historical records only; they are not current acceptance proof until the
-  direct Lead revalidates the corresponding source behavior.
-- Fresh direct-Lead baseline at
-  `92422311301500fef0a6a5859607917f59ec6fc9` used offline mode and a
-  repository-external Cargo target: `cargo fmt --check`, locked workspace build,
-  all 50 tests with one test thread, and eight additional default-parallel full
-  workspace test runs all passed. This establishes only build/test repeatability
-  of the current source, not correctness of the prior bundle claims.
-- Fresh source review reopened sandbox-policy correctness: the current planner's
-  tests intentionally accept whitespace-bearing `sandbox_mode` config forms and
-  attached short-config forms that can represent upstream configuration. The
-  Termux contract is fail-closed for unsupported Linux sandbox requests, so this
-  parser boundary must be hardened before B6/B7/B9 semantics can be trusted.
-- Fresh source review also reopened FD-failure safety: restoration currently
-  performs best-effort syscalls without surfacing restoration failures, and some
-  failure tests mutate process-global FD 33/34 in the parallel test process.
-  Restoration error propagation and test isolation must be hardened before the
-  B4/B7/B9 failure-path claims are trusted.
+- The user explicitly withdrew trust from the prior implementation-worker path
+  and required a fresh Lead review from the beginning. Worker mode remains
+  user-controlled and OFF. Historical M1-B1..M1-B9 worker reports and their old
+  acceptance statements remain provenance only; they are not used as current
+  proof.
+- M1-R1 fresh re-audit/hardening is accepted at
+  `4c1a8d90d6aa028106218d349076c465af8b8535`. The direct Lead reviewed the
+  current Rust source against `SPEC.md`, reopened two correctness/safety gaps,
+  fixed them directly, reviewed the resulting diff, and reran the load-bearing
+  validation.
+- Sandbox-policy revalidation found that the earlier parser intentionally let
+  whitespace-bearing and attached `sandbox_mode` config forms pass through.
+  M1-R1 now normalizes surrounding whitespace and one matching quote layer,
+  recognizes separate/attached/equals short config forms and long config forms,
+  preserves exact `--` scan termination, rejects every non-empty recognized
+  `sandbox_mode` value except `danger-full-access`, and continues to reject the
+  known unsupported `read-only`/`workspace-write` sandbox flag values. Accepted
+  raw user argv is not rewritten after the injected Termux-safe prelude.
+- FD-failure revalidation found that restoration syscalls were best-effort and
+  some ordinary parallel tests directly mutated process-global FD 33/34. M1-R1
+  makes explicit restoration return errors, gives restoration failure precedence
+  on returned setup/exec failure paths, keeps Drop only as last-resort cleanup,
+  and moves the direct FD 33/34 mutation cases into dedicated subprocess probes.
+- Final direct-Lead validation `job_i95_262b8f5b0d` used
+  `CARGO_NET_OFFLINE=true` and a repository-external Cargo target. Formatting,
+  M1-R1 focused tests (3/3), passthrough focused tests (10/10), runtime-FD
+  focused tests (11/11), the full serial workspace suite (53/53), eight complete
+  default-parallel workspace repetitions, and the locked workspace build all
+  passed. `git diff --check` passed and the only product change before commit was
+  `crates/core/src/main.rs`.
+- Direct source-boundary audit found no production hard-coded
+  `/data/data/com.termux` path, `to_string_lossy`, `env_clear`, TODO, production
+  `.unwrap(`, or production filesystem write in the current B1..B9 surface.
+  `main()` remains intentionally unwired; the test module begins after the
+  production entrypoint and synthetic resolver/config writes remain test-only.
+- Fresh behavior disposition after M1-R1: B1 exact first-argument dispatch is
+  CURRENTLY PROVEN; B2 raw final-exec argv/streams/exit behavior is CURRENTLY
+  PROVEN; B3 the exact five-variable child-only contamination fence is CURRENTLY
+  PROVEN; B4 explicit read-only resolver/config FD 33/34 mapping, collision
+  handling, caller-state restoration, restoration-error visibility, and
+  test-owned resolver non-mutation are CURRENTLY PROVEN; B5 current-device
+  TTY/process-identity/external-SIGTERM fidelity is CURRENTLY PROVEN; B6 the
+  hardened Termux sandbox-policy planner is CURRENTLY PROVEN; B7 policy-before-I/O
+  composition with the runtime-FD final-exec path is CURRENTLY PROVEN; B8 the
+  pure explicit-input base-environment planner is CURRENTLY PROVEN; B9 transport
+  of a pre-built environment plan through the final-exec composition is CURRENTLY
+  PROVEN. These are component proofs only and do not complete Milestone 1.
 
 ### Historical Bundle Ledger — revalidation pending
 
@@ -316,15 +342,14 @@ Termux qualification. Produce one candidate for independent product review.
 
 ### Not Proven
 
-- M1-B1..M1-B9 are not currently trusted as an acceptance chain. Their source and
-  commits remain available as review material, but current acceptance requires
-  direct-Lead revalidation after the reopened sandbox and FD failure-path issues
-  are resolved.
-- The current Core is buildable and its 50 existing tests repeat successfully,
-  but the normal `main` entrypoint remains unwired to a qualified upstream
-  runtime. Process-environment capture, runtime/generation selection, doctor
-  composition, generation/updater interfaces, and the complete real-Termux
-  Milestone 1 smoke gate remain unproven.
+- Milestone 1 is not complete. The normal `main` entrypoint is still not wired to
+  a qualified upstream runtime. Process-environment capture, runtime/generation
+  selection, doctor composition, generation/updater interfaces, and the complete
+  real-Termux smoke gate remain unproven.
+- B4's current non-mutation proof is against test-owned resolver fixtures; the
+  Milestone 1 completion gate still requires pre/post evidence that the actual
+  live resolver path, content, mode, and stat identity remain unchanged during
+  the bounded real-Termux smoke qualification.
 - No release artifact, installation, update, activation, rollback, offline
   recovery, fresh-device behavior, Milestone 2 result, or production readiness
   is proven.
@@ -332,16 +357,18 @@ Termux qualification. Produce one candidate for independent product review.
 
 ### Checkpoint Plans
 
-- Current checkpoint: M1-R1 — fresh B1..B9 re-audit and hardening.
-- M1-B10 process-environment capture is deferred until M1-R1 closes.
-- The primary Lead directly owns M1-R1 while worker mode remains OFF.
-- M1-R1 must harden the sandbox-policy parse boundary against recognizable
-  upstream config forms, make FD restoration failures observable rather than
-  silently best-effort on explicit failure paths, isolate tests that mutate
-  process-global FD 33/34, and then rerun focused/full/stress validation from a
-  clean tree.
-- Only after those changes pass fresh Lead review may the ledger restate which
-  B1..B9 behaviors are currently proven and resume B10.
+- M1-R1 is closed at `4c1a8d90d6aa028106218d349076c465af8b8535`.
+- Current checkpoint: M1-B10 — capture the actual Termux process environment into
+  the already-proven pure B8 base-environment planner without selecting a
+  runtime/generation or wiring normal `main`.
+- Worker mode remains OFF by explicit user policy; the primary Lead implements
+  M1-B10 directly. `harness.run` remains test/validation-only.
+- B10 captures only `PREFIX`, `TMPDIR`, inherited `PATH`, `SSL_CERT_FILE`, and
+  `SSL_CERT_DIR` as raw owned process values; keeps selected compatibility and
+  certificate fallback paths explicit; requires non-empty `PREFIX`/`TMPDIR`;
+  derives only native `PREFIX/bin`; and performs no filesystem I/O, product path
+  selection, FD work, Command construction, network behavior, or global process
+  environment mutation.
 
 ## Goal Lifts
 

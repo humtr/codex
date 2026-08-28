@@ -30,53 +30,62 @@ or mutation of the installed Codex product.
 
 ## Selected next action
 
-### Bundle M1-R1 — fresh B1..B9 re-audit and hardening
+### Bundle M1-B10 — capture actual Termux process environment into the base-env planner
 
-- Trigger: explicit user direction to distrust the prior implementation worker
-  and re-review the Rust Core from the beginning. Historical M1-B1..M1-B9
-  acceptance records are review inputs only, not current proof.
-- Fresh baseline: commit `92422311301500fef0a6a5859607917f59ec6fc9`
-  builds cleanly offline; all 50 current tests passed once serially and eight
-  additional times with the default parallel test runner. Passing those tests
-  does not close the issues found by direct source review.
-- Exact outcome: independently validate the current B1..B9 code against
-  `SPEC.md`, correct confirmed safety/correctness gaps without expanding product
-  scope, and establish a new direct-Lead baseline before any B10 work.
-- Sandbox hardening: treat recognized `sandbox_mode` configuration as a policy
-  boundary rather than relying on the prior narrow textual forms. At minimum,
-  trim surrounding configuration whitespace, recognize separate and attached
-  short `-c` config arguments plus long `--config` forms, allow only a clearly
-  normalized `danger-full-access` sandbox value, and fail closed on other
-  non-empty `sandbox_mode` values before runtime I/O. Preserve exact `--`
-  scanning semantics and raw argv for accepted requests.
-- FD restoration hardening: explicit failure paths must attempt complete cleanup
-  but must no longer silently discard restoration syscall failures. Best-effort
-  Drop cleanup may remain as a last-resort fallback; returned setup/exec paths
-  must surface a restoration failure if exact caller FD state cannot be restored.
-- Test isolation hardening: tests that close, replace, or otherwise mutate
-  process-global FD 33/34 must execute in dedicated subprocesses so the default
-  parallel Rust test runner never races on those descriptors. Test artifacts
-  remain under temporary roots only.
-- Re-audit scope includes exact first-argument dispatch; raw argv/stdout/stderr/
-  exit behavior; the five-variable child-only contamination fence; TTY/signal
-  process fidelity; FD 33/34 mapping/non-mutation/restoration; sandbox policy
-  ordering; base environment planning; and B9 final-exec composition.
-- No B10 process-environment capture, runtime/generation selection, normal
-  `main` wiring, doctor, manifest/updater implementation, Manager work, network,
-  package installation, live product mutation, or activation belongs in M1-R1.
-- Writable product path: `crates/core/src/main.rs` only. Lead-owned authority
-  updates to `GOAL.md`/`WORKBOARD.md` are allowed separately. No dependency or
-  manifest change is authorized by this bundle.
-- Worker mode remains OFF. The primary Lead implements directly. tmcp
-  `harness.run` may be used only for bounded tests/validation, never for code
-  mutation or development.
-- Validation: `CARGO_NET_OFFLINE=true`, repository-external `CARGO_TARGET_DIR`,
-  `cargo fmt --check`, focused hardening tests, all locked workspace tests both
-  serial and default-parallel, repeated parallel stress runs, and locked build.
-- Completion gate: confirmed gaps are fixed; new tests demonstrate the hardened
-  behavior; no process-global FD mutation remains in ordinary parallel tests;
-  protected live state remains unchanged; the Lead records a fresh behavior-by-
-  behavior proof disposition for B1..B9. B10 resumes only after this gate.
+- Prior direct-Lead evidence: M1-R1 commit
+  `4c1a8d90d6aa028106218d349076c465af8b8535`; final validation
+  `job_i95_262b8f5b0d` passed 53/53 serial tests, eight full default-parallel
+  repetitions, focused sandbox/FD suites, formatting, and locked build.
+- Exact outcome: add the smallest Unix/Android process-environment boundary that
+  feeds the proven B8 `TermuxBaseEnvInputs` without selecting a runtime or
+  generation and without wiring normal `main`.
+- Introduce a small module-private owned snapshot containing exactly `PREFIX`,
+  `TMPDIR`, `PATH`, `SSL_CERT_FILE`, and `SSL_CERT_DIR` as raw `Option<OsString>`
+  values, plus one thin reader using only `std::env::var_os` for those five keys.
+- Keep selected `compat_dir`, fallback `cert_file`, and optional fallback
+  `cert_dir` as explicit caller inputs. The snapshot-to-plan function must be
+  pure: validate required process inputs, derive only
+  `PathBuf::from(prefix).join("bin")`, build `TermuxBaseEnvInputs`, and call the
+  existing B8 planner.
+- `PREFIX` and `TMPDIR` are required and must fail with clear module-private
+  typed errors when absent or empty. Preserve B8 planner errors as typed causes
+  or variants; do not parse error strings.
+- Do not canonicalize, stat, open, resolve symlinks, check existence, enforce a
+  Termux package/application name, read `HOME`, or hard-code any app-data root.
+  Do not derive a generation root, runtime executable, resolver path, config
+  path, compatibility-tool path, or other product path.
+- Preserve raw non-UTF-8 inherited PATH and certificate values byte-for-byte on
+  Unix. The derived prefix bin path must use native path joining. Existing B8
+  semantics remain: PATH order is explicit compatibility directory, derived
+  prefix/bin, then inherited non-empty PATH; inherited non-empty certificate
+  values win over explicit fallbacks.
+- Production B10 code must not mutate the global process environment, construct
+  or execute a `Command`, touch FD 33/34, read/write the filesystem, select a
+  generation/runtime, parse a manifest, perform networking, or change public
+  command semantics.
+- Focused tests named `m1_b10_` must cover exact prefix/bin derivation and B8
+  assignment order; absent/empty `PREFIX`; absent/empty `TMPDIR`; raw non-UTF-8
+  inherited PATH/certificate preservation; an unusual synthetic prefix proving
+  no fixed Termux app-data root; B8 error propagation; and a read-only capture
+  check showing the snapshot matches those five current process variables
+  without mutating them.
+- Keep all 53 accepted post-M1-R1 tests green. Validate with
+  `CARGO_NET_OFFLINE=true`, a repository-external `CARGO_TARGET_DIR`, formatting,
+  focused B10 tests, all locked workspace tests serially, default-parallel stress
+  repetitions, and locked workspace build.
+- Worker mode is user-controlled and remains OFF. The primary `gpt-5.6-sol` /
+  `max` Lead directly implements this bundle. tmcp `harness.run` may be used only
+  for bounded tests/validation, never for code mutation or development.
+- Writable product path: `crates/core/src/main.rs` only. No dependency, manifest,
+  extra tracked-file, live resolver/runtime/launcher/Manager, profile, session,
+  auth, Git-ref, legacy-history, network, package, install, or activation change
+  is authorized.
+- Completion gate: the diff contains only the bounded raw process snapshot,
+  capture reader, pure snapshot-to-B8 composition, typed errors, and focused
+  tests; no fixed app-data root, filesystem I/O, global env mutation, lossy
+  conversion, product-path decision, dependency, public-surface expansion, or
+  protected-state change; Lead reruns focused/full/stress validation before
+  acceptance.
 
 ## Milestone 1 required outcomes
 
