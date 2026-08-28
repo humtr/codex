@@ -84,6 +84,37 @@ irreversible design decision without ambiguity.
   outcome is to discover and eliminate hidden blockers, stale assumptions, and
   unnecessary machinery on the same path, not to add more features or defenses.
 
+## Vertical proof-slice discipline
+
+- Divide each current `WORKBOARD.md` bundle into ordered contract slices. Each
+  slice names one observable product behavior, the production and test paths it
+  may change, its focused proof, protected surfaces, and its current state. This
+  is the execution map for the current bundle, not a second roadmap or ledger.
+- Before the first product mutation, establish a runnable baseline. On a dirty
+  resume, bind the exact HEAD and source-diff identity and record every red gate
+  in `WORKBOARD.md`. If the relevant test target does not compile, freeze new
+  product behavior and restore runnable proof before continuing implementation.
+- Close one slice vertically before starting another independent contract:
+  implementation, focused regression, a nonzero focused invocation, relevant
+  compile/test success, and actual diff inspection all belong to the same slice.
+- Map every new production definition or branch to a named regression in the
+  current slice. Production code without mapped proof is unfinished work and
+  must not accumulate behind a later all-at-once test phase.
+- Compilation failure, a zero-test command, a stale test asserting superseded
+  behavior, an unexpected warning/dead path, or a missing proof mapping is a
+  stop-on-red event. Stop adding behavior, diagnose the whole affected class,
+  apply KEEP/COLLAPSE/DELETE, and restore the slice gate first.
+- A broad structural change triggers an exhaustive disposition of every changed
+  production definition and affected test/probe on that product path. Historical
+  tests do not justify retaining compatibility shims or optional branches after
+  the public contract has replaced their behavior.
+- Run cheap compile and focused gates at slice boundaries. Reserve the grouped
+  full suite, repeated parallel runs, protected-surface verification, and release
+  build for the stabilized bundle's final acceptance batch.
+- Keep the live slice/proof map only in `WORKBOARD.md`. At bundle close, reduce
+  it to accepted evidence and disposition in `GOAL.md`, replace the Workboard
+  item, and do not preserve a parallel evidence hierarchy.
+
 ## Safety
 
 - Never modify `$PREFIX/etc/resolv.conf` or another system resolver file.

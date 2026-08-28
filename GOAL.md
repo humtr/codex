@@ -35,6 +35,17 @@
 - Implementation/integration owner: while worker mode is OFF, the primary Lead
   directly edits bounded product code/tests, inspects the actual diff, reruns
   load-bearing validation, records acceptance evidence, and commits accepted work
+- Implementation cadence: execute each Workboard bundle as ordered vertical
+  proof slices. One observable contract receives its implementation, focused
+  regression, nonzero focused invocation, relevant compile/test gate, and Lead
+  diff inspection before another independent contract begins
+- Red-state rule: a non-compiling relevant target, stale superseded test,
+  unexpected warning/dead path, zero-test invocation, or unmapped production
+  definition freezes new product behavior until the affected class is audited
+  and the current slice returns to green
+- Validation split: run cheap compile/focused gates at slice boundaries; batch
+  only the stabilized bundle's full suite, repeated parallel runs, protected-
+  surface verification, and release build for final acceptance
 - Checkpoints: initial implementation bundle; completion or rejection of the
   current bundle; material deviation, blocker, authority change, worker-mode
   transition, and milestone transition
@@ -137,6 +148,10 @@ one current workboard, direct focused tests, and deferred independent review.
   a potential defect and attack surface.
 - The foundation established documents and workflow first; current implementation
   is now performed directly by the primary Lead under bounded Workboard bundles.
+- Prevent implementation/proof drift inside a bundle: `WORKBOARD.md` must carry
+  the current vertical slice/proof map, and production behavior must not advance
+  past a red or unmapped slice. Historical tests never authorize a compatibility
+  branch after the public product path has replaced their behavior.
 
 ## Execution Plan
 
@@ -702,12 +717,31 @@ Termux qualification. Produce one candidate for independent product review.
   the admitted staged generation, then activate it through the simplified M2-B1
   transaction. No remote acquisition or fallback ladder is part of B4.
 - Worker mode remains OFF; the primary Lead performs M2-B4 directly.
-- The repository now uses a Click-inspired execution discipline at the
-  Workboard layer: reuse successful same-revision evidence, do not reopen or
-  replace an active bounded contract without new material evidence, and run the
-  repository-required acceptance checks as one final validation batch after the
-  implementation stabilizes. No Click plugin or Hook is installed, and these
-  workflow rules never override SPEC/GOAL acceptance requirements.
+- M2-B4 implementation/proof divergence checkpoint is bound to
+  `rewrite/rust-core@8df74abfca793fe9e8008553b5d9742ba6d2b4d4`, source SHA-256
+  `de0943aa415bb6a7416a7e83a59755f53f90a53df1d10a437694e96a66433575`, and
+  source-diff SHA-256
+  `7007cad7881378a0a66f75fa207f968c2b5d01e2efebe22b67e1588121d81621`.
+  The diff adds 684 and removes 88 lines, but adds no B4 regression test; the
+  retained test target does not compile because three `LocalCoreRoots` fixtures
+  omit the new trust/OpenSSL fields, the release build has one dead-code warning,
+  and the prior B3 public test still asserts staging without `PREFIX` or
+  activation. This exact snapshot is repairable work in progress, not an
+  acceptance candidate.
+- The checkpoint root cause is an execution-policy gap: final grouped validation
+  was batched correctly, but compile/focused proof was also deferred, allowing
+  several independent production contracts to accumulate behind red tests.
+  M1-R2's KEEP/COLLAPSE/DELETE lesson existed only as historical ledger evidence
+  instead of an active per-slice stop rule.
+- Primary-Lead disposition: planning completed without a delegated planner or
+  worker; freeze new B4 behavior, revise the current Workboard into vertical
+  proof slices, exhaustively disposition the changed production/test class,
+  restore compile/focused proof slice by slice, and run one grouped final
+  acceptance batch only after stabilization. The success threshold is unchanged,
+  so no goal lift is active.
+- Same-revision evidence reuse remains required. It prevents redundant full-suite
+  churn but never permits skipping a red slice gate. No Click plugin or Hook is
+  installed, and this workflow does not override SPEC/GOAL acceptance.
 
 ## Goal Lifts
 

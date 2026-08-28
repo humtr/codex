@@ -18,7 +18,8 @@ in Git history and the `GOAL.md` acceptance ledger, not here.
 - Live product cutover/publication: not authorized
 - Execution discipline: follow `AGENTS.md` outcome-first closure rules; reuse
   fresh same-revision evidence, expand to exhaustive review only on a systemic
-  breadth trigger, and batch load-bearing validation once implementation stabilizes
+  breadth trigger, close one vertical proof slice before starting another, and
+  batch only the stabilized bundle's full acceptance validation
 
 ## Product-speed policy
 
@@ -31,6 +32,24 @@ in Git history and the `GOAL.md` acceptance ledger, not here.
   handled by the existing core invariants.
 - Tests are evidence, not architecture. A production layer is not retained merely
   because historical tests were written around it.
+
+## Mandatory bundle execution method
+
+- The current item advances through the ordered proof map below. A slice is
+  closed only when its production behavior, regression, nonzero focused command,
+  relevant compile/test result, and Lead diff inspection agree.
+- Do not add a second independent behavior while the current slice is red or
+  unmapped. A compile failure, zero-test invocation, stale superseded test,
+  warning/dead path, or missing proof mapping freezes new product behavior.
+- A red slice is repaired by inspecting the entire affected class and recording
+  KEEP/COLLAPSE/DELETE dispositions. Do not retain optional or compatibility
+  behavior merely to keep an older test shape alive.
+- Cheap compile and focused commands run at every slice boundary. The full
+  serial suite, repeated parallel runs, explicit live smoke, protected-surface
+  check, and release build run once after all slices are green.
+- This proof map belongs only to the current bundle. On acceptance, summarize
+  it in `GOAL.md`, replace this Workboard item, and do not preserve another
+  roadmap or evidence hierarchy.
 
 ## Selected next action
 
@@ -54,6 +73,37 @@ explicit `previous` rollback target.
 - Current Termux already has OpenSSL 3.6.3 at `$PREFIX/bin/openssl`; SHA-256 and
   Ed25519 `pkeyutl -verify -rawin -pubin` were proven in a job-private roundtrip.
   B4 must use this existing executable only and must not install crypto tooling.
+
+#### recovery checkpoint
+
+- Bound HEAD: `8df74abfca793fe9e8008553b5d9742ba6d2b4d4`.
+- Bound `crates/core/src/main.rs` SHA-256:
+  `de0943aa415bb6a7416a7e83a59755f53f90a53df1d10a437694e96a66433575`.
+- Bound source-diff SHA-256:
+  `7007cad7881378a0a66f75fa207f968c2b5d01e2efebe22b67e1588121d81621`.
+- Lead disposition: the `+684/-88` source diff is retained as repairable WIP,
+  not accepted evidence. New B4 behavior is frozen until slice 0 closes.
+- Red gates: the test target does not compile because three `LocalCoreRoots`
+  fixtures lack the new trust/OpenSSL fields; no B4 regression exists; the old
+  B3 public test asserts no `PREFIX` and no activation; the release build has
+  one dead-code warning; state recovery/sequence checking precedes candidate
+  staging/probes instead of the ordered public path.
+- Mandatory breadth audit covers every production definition changed by this
+  source diff and every affected B1-B3 test/probe. At minimum it must decide the
+  dead generation-root helper, optional unsigned staging branch, duplicate
+  loaded-generation/runtime qualification, stale B3 public test, and activation
+  ordering as KEEP, COLLAPSE, or DELETE.
+
+#### vertical proof map
+
+| Slice | Exact outcome | Exit gate | State |
+| --- | --- | --- | --- |
+| 0 — recover the public happy path | Exhaustively disposition the bound WIP, remove proof-only/dead duplication, restore test compilation, and replace the stale B3 public assertion with one signed temporary-HOME/PREFIX `update --local` initial-activation subprocess proof | warning-free locked test build; the exact public happy-path test runs nonzero and passes; actual diff inspected | selected |
+| 1 — trust and manifest admission | Prove pinned-key selection, strict manifest parsing/order/bounds, signature verification, platform/API/schema/channel policy, and missing/wrong key/OpenSSL failures without staging or activation | named focused trust/manifest tests pass; bad inputs leave activation state absent/unchanged | blocked by slice 0 |
+| 2 — exact inventory and staging | Prove safe inventory paths, exact file-set equality, source and staged SHA-256 verification, signed metadata retention, and complete-or-absent publication | named focused inventory/staging tests pass; mismatch and unsafe content never activate | blocked by slice 1 |
+| 3 — probes, sequence, and activation | Enforce source admission → staging → staged verification → version/doctor probes → state recovery/sequence check → atomic activation; prove initial activation, update with one previous, probe failure, non-monotonic sequence, and the actual public result | named focused activation tests and public subprocess cases pass; old current remains unchanged on every pre-activation failure | blocked by slice 2 |
+| 4 — simplified recovery and rollback | Prove v2 `current` + optional `previous`, explicit rollback swap, journal recovery, and the retained crash/short-write/storage/permission fault matrix with no `verified` field or fallback ladder | complete pointer/journal focused matrix passes and changed state/test definitions receive final KEEP/COLLAPSE/DELETE audit | blocked by slice 3 |
+| 5 — grouped acceptance | Add no new product behavior; run the complete bundle acceptance and synchronize authority | full serial and repeated parallel suites, explicit live read-only smoke, format/diff checks, warning-free locked release, protected identities unchanged, ledger update, commit | blocked by slice 4 |
 
 #### release trust and manifest
 
