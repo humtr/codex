@@ -33,94 +33,123 @@ in Git history and the `GOAL.md` acceptance ledger, not here.
 
 ## Selected next action
 
-### M2-B3 — explicit local generation staging
+### M2-B4 — signed local release admission and atomic activation
 
 #### outcome
 
-Take one explicit caller-supplied local generation source, copy only the fixed
-B2 generation layout into a private candidate directory under the immutable
-generation root, validate that candidate with the same descriptor/loader rules,
-and atomically publish the complete candidate as an **inactive** generation.
-This is the shortest offline/bootstrap path that can be built before signed
-release admission exists.
+Turn the accepted B3 local staging path into one complete offline update path:
+verify one pinned-key Ed25519 release manifest and exact SHA-256 generation file
+inventory, stage the admitted source, run the minimum candidate probes, and
+activate it with the existing crash-safe transaction. At the same time remove
+the redundant `verified` pointer so activation state is only `current` plus one
+explicit `previous` rollback target.
 
 #### accepted input
 
-M2-B2 is accepted at `bee38e9eb481973c00205fb8a7191cdb22392f7c` with:
+- B3 code: `b692853a436e7df2540ccb1c52e967af4e921375`.
+- B3 focused 7/7; full serial 46/0/1-ignored; explicit live smoke 1/1;
+  default-parallel 3/3; warning-free locked release; protected live identities
+  unchanged.
+- Current Termux already has OpenSSL 3.6.3 at `$PREFIX/bin/openssl`; SHA-256 and
+  Ed25519 `pkeyutl -verify -rawin -pubin` were proven in a job-private roundtrip.
+  B4 must use this existing executable only and must not install crypto tooling.
 
-- real production `main -> plan_public_dispatch -> current-generation loader ->
-  qualification -> dispatch`;
-- focused B2 6/6, full serial 38/0/1-ignored, explicit live smoke 1/1,
-  default-parallel 3/3, warning-free locked release build;
-- live resolver and installed launcher identity unchanged;
-- current-only ordinary loading with no previous-generation fallback, network,
-  package-manager, generation scan, or duplicate state-root generation tree.
+#### release trust and manifest
 
-#### boundary
+- The trusted Ed25519 public key is exactly
+  `~/.local/lib/codex/core/release-public-key.pem`, provisioned by bootstrap.
+  No key search, alternate key, release-supplied key, TOFU, or fallback exists.
+- A local source accepted for activation contains regular `release.manifest` and
+  `release.sig` files in addition to the B3 generation files.
+- `release.manifest` is a strict bounded UTF-8 format with exact field order:
+  format/version, `generation_id`, positive monotonic `release_sequence`,
+  `channel`, platform, architecture, Core API, persistent schema, `file_count`,
+  then an exact SHA-256 inventory.
+- B4 supports the single current release channel `stable`. Do not add channel
+  negotiation or fallback.
+- Inventory paths are safe relative UTF-8 paths under the fixed generation
+  layout. They may name only `generation.meta`, `runtime`, optional `manager`,
+  declared `helpers/<index>`, and regular files recursively beneath `compat/`.
+  Every load-bearing file appears exactly once and no listed file may escape the
+  generation root.
+- Signature verification occurs over the exact manifest bytes before staging.
+  SHA-256 verification occurs against the explicit source and again against the
+  staged immutable generation before activation.
+- The admitted `release.manifest` and `release.sig` are copied into the private
+  candidate before B3's atomic publication so an activated generation retains
+  the signed sequence/inventory that admitted it.
 
-- B3 accepts one explicit local **directory source** only. Archive extraction is
-  a later bundle because generic archive handling adds a separate parser/safety
-  surface; do not implement it merely to call this step an installer.
-- The source must contain exactly the B2 load-bearing generation artifacts:
-  `generation.meta`, regular `runtime`, directory `compat/`, optional regular
-  `manager`, and any declared regular `helpers/<index>` files. Copy only these
-  fixed paths; do not mirror arbitrary source-tree entries.
-- Add one descriptor `generation_id` field and require it to satisfy the same
-  single-component invariant used by activation state. The published path is
-  `generations/<generation_id>`.
-- Construct in a private candidate path under the generation root. Candidate
-  copy rejects symlinks/special files and path escape. Compatibility-directory
-  recursion copies regular files/directories only and never follows symlinks.
-- Validate the copied candidate by loading its own descriptor/layout before
-  publication. Publication is one atomic rename from candidate to the final
-  inactive generation path; final-path collision fails rather than overwriting.
-- Do **not** change `activation-state` in B3. A successfully staged generation is
-  inactive until the later digest/signature admission gate explicitly activates
-  it through the existing M2-B1 transaction.
-- Do not add lock/lease/fencing, retry ladders, candidate registries, cleanup
-  databases, alternate staging roots, network access, package-manager calls, or
-  automatic previous-generation fallback.
-- On an ordinary handled error, remove the private candidate directory created
-  by that attempt when possible; cleanup failure must not mutate active state.
+#### activation and simplification
+
+- Remove `verified` from `GenerationPointerState`, state encoding, journal
+  encoding, parsers, fault tests, and docs. It is redundant because B4 permits
+  only an admitted/probed generation to become `current`.
+- Activation state becomes `current` + optional `previous`. Initial activation
+  has no previous; update activation sets previous to the old current; rollback
+  swaps current/previous. Ordinary launch still reads current only.
+- Anti-rollback compares the signed new `release_sequence` with the signed
+  manifest retained by the current generation. New sequence must be strictly
+  greater. Initial activation has no prior sequence.
+- Before activation, qualify the staged generation with the existing B2 loader,
+  run upstream `--version` as a read-only process probe, and run the existing
+  bounded upstream doctor probe when the descriptor declares doctor support.
+- Probe failure leaves the old active generation untouched. A complete inactive
+  staged generation may remain; do not add cleanup registries/retry ladders for
+  that harmless state.
+- Activation uses the existing journaled M2-B1 transaction after state recovery.
+  Do not add lock/lease/fencing or a second transaction mechanism.
+
+#### public path
+
+`codex update --local <directory>` becomes the complete B4 offline path:
+
+1. load the pinned public key and `$PREFIX/bin/openssl`;
+2. verify signed manifest/policy/source SHA-256 inventory;
+3. stage the complete inactive generation;
+4. re-verify staged SHA-256 inventory;
+5. run candidate version/doctor probes;
+6. recover current activation state and enforce sequence monotonicity;
+7. atomically activate the candidate;
+8. report success or fail without changing the old current generation.
 
 #### must hold
 
-- currently active generation and activation-state bytes remain unchanged by B3;
-- a published generation is complete or absent;
-- source symlinks/special files never become generation content;
-- candidate validation uses the same B2 loader format rather than a second
-  validator stack;
-- existing M1/B2 launch, sandbox, FD33/34, doctor, Manager, and current-only
-  behavior remains unchanged;
-- live resolver, installed launcher, Manager state, auth/session/profile state,
-  and package state remain read-only.
+- no release-supplied or dynamically discovered trust key;
+- no custom/home-grown signature or hash implementation;
+- no network, package manager, archive parser, automatic update, lock/fencing,
+  multi-writer protocol, or ordinary-launch fallback;
+- signed policy mismatch, bad signature, digest mismatch, sequence rollback, or
+  probe failure occurs before activation;
+- current/previous always name complete immutable generations;
+- resolver, installed launcher, Manager state, auth/session/profile state, and
+  package state remain read-only in tests.
 
 #### verification
 
-- focused temp-root staging tests: valid runtime-only source, optional Manager,
-  compat nested regular files, malformed descriptor, unsafe source entry,
-  final-path collision, copy failure/cleanup, and active-state non-mutation;
-- load the published inactive generation directly and prove it matches B2
-  descriptor/layout semantics while ordinary `current` still points to the old
-  generation;
-- retained full serial suite and M2-B1 fault/recovery suite;
-- explicit real-Termux resolver/installed-launcher smoke;
-- complete default-parallel repetitions after stabilization;
-- `cargo fmt --check`, `git diff --check`, warning-free locked release build,
-  and protected live identities unchanged.
+- focused: valid initial activation, valid update with one previous, explicit
+  rollback, bad signature, wrong trusted key, digest mismatch, missing/unlisted
+  inventory file, policy mismatch, non-monotonic sequence, version-probe failure,
+  doctor failure, OpenSSL/key missing, and crash/fault matrix after the pointer
+  simplification;
+- actual public `update --local` subprocess in temp HOME/PREFIX with a job/test
+  generated Ed25519 keypair where only the public key enters the product trust
+  path;
+- retained full serial suite, explicit real-Termux read-only smoke, complete
+  default-parallel repetitions, `cargo fmt --check`, `git diff --check`, and
+  warning-free locked release build;
+- protected live resolver/installed-launcher identities unchanged before/after.
 
 #### stop lines
 
-- no activation of the newly staged local generation in B3;
-- no archive parser/extractor;
-- no signature or cryptographic digest implementation yet;
-- no network, package manager, automatic update, multi-writer protocol, or
-  fallback ladder;
-- no revival of proof-only M1 layers.
+- no remote release lookup/download;
+- no archive extraction;
+- no live product activation in tests;
+- no release signing private key stored in the repository or product state;
+- no extra fallback, key rotation, revocation service, transparency log, or
+  multi-writer coordination in B4.
 
-## Next action after M2-B3
+## Next action after M2-B4
 
-Add the minimum signed/digest release-admission boundary needed to trust a
-staged local generation, then activate that admitted generation using the
-existing M2-B1 transaction. Keep offline/local flow working before adding remote
-acquisition.
+With a complete signed offline update path working, add the smallest immutable
+remote release-manifest/artifact acquisition path feeding the exact same B4
+admission/staging/activation flow. Do not create a second updater.

@@ -676,12 +676,32 @@ Termux qualification. Produce one candidate for independent product review.
 - With `2b73f4ba...` simplification plus B2 real entrypoint wiring, Milestone 1
   product closure is re-accepted. M1 is no longer closed on proof-only
   injection evidence; the real production entrypoint reaches final execution.
-- Current checkpoint: M2-B3 — explicit local generation staging. Build one
-  complete generation outside the active path from a caller-supplied local
-  source, validate the fixed layout/descriptor, and publish it atomically as an
-  inactive immutable generation. Do not activate unverified content in B3;
-  digest/signature admission and activation remain the next release gate.
-- Worker mode remains OFF; the primary Lead performs M2-B3 directly.
+- M2-B3 is accepted at `b692853a436e7df2540ccb1c52e967af4e921375`.
+  `codex update --local <directory>` now has a real offline/bootstrap staging
+  path: it copies only the fixed generation layout through a private candidate,
+  rejects symlinks/special files, validates the copied candidate with the same
+  B2 loader, and atomically publishes a complete **inactive** generation. B3
+  never mutates activation state. Focused staging is 7/7; full serial is 46
+  passed / 0 failed / 1 explicit smoke ignored by default; explicit live smoke
+  1/1; three complete default-parallel runs; warning-free locked release build;
+  live resolver and installed launcher identity unchanged. No activation,
+  network, package-manager, lock/fencing, or fallback mechanism exists in B3.
+- B4 feasibility evidence is concrete: current Termux provides
+  `/data/data/com.termux/files/usr/bin/openssl`, OpenSSL 3.6.3, with SHA-256 and
+  `pkeyutl -verify -rawin -pubin`; a job-private Ed25519 sign/verify roundtrip
+  passed. This permits a vetted crypto path without adding a Rust dependency or
+  installing a package. The release trust anchor must be bootstrap-provisioned;
+  Core must not accept a public key shipped next to the release it is verifying.
+- M2-B1's `verified` pointer is confirmed redundant: every constructor and
+  rollback writes `verified == current`, and it has no independent product
+  consumer. B4 removes it before activation and retains only `current` plus one
+  explicit `previous` rollback target.
+- Current checkpoint: M2-B4 — signed local release admission and activation.
+  Verify one strict Ed25519-signed local release manifest and SHA-256 file
+  inventory using the pinned bootstrap key and existing Termux OpenSSL, probe
+  the admitted staged generation, then activate it through the simplified M2-B1
+  transaction. No remote acquisition or fallback ladder is part of B4.
+- Worker mode remains OFF; the primary Lead performs M2-B4 directly.
 - The repository now uses a Click-inspired execution discipline at the
   Workboard layer: reuse successful same-revision evidence, do not reopen or
   replace an active bounded contract without new material evidence, and run the

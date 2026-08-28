@@ -163,22 +163,27 @@ The Milestone 2 local layout is:
 $PREFIX/bin/codex                                      stable public entrypoint
 ~/.local/lib/codex/core/generations/<id>/             immutable complete generation
   generation.meta                                     versioned local descriptor
+  release.manifest                                    signed release/integrity inventory
+  release.sig                                         Ed25519 signature over release.manifest
   runtime                                             patched upstream executable
   compat/                                              runtime compatibility assets
   manager                                              optional Manager executable
   helpers/<index>                                      optional helper artifacts
-~/.local/share/codex/core/activation-state            bounded pointer-set authority
+~/.local/lib/codex/core/release-public-key.pem         bootstrap-provisioned trust anchor
+~/.local/share/codex/core/activation-state            current + one previous rollback target
 ~/.local/share/codex/core/activation-journal[.tmp]    crash-recovery transaction state
 ~/.local/share/codex/core/activation-state.tmp        atomic state publication temporary
 ~/.local/share/codex/core/config/                     process-local managed config directory
 ~/.local/share/codex/manager/                         Manager-owned mutable state
 ```
 
-The activation-state record owns `current` and at most one effective rollback
-target; ordinary launch reads only `current`. It does not scan generations or
-implicitly fall back to another generation. The generation directory name is a
-single safe path component and generation content is complete before it can
-become `current`.
+The activation-state record owns `current` and at most one `previous` rollback
+target; there is no separate `verified` pointer. Only content that has already
+passed release admission and candidate probes may become `current`, so a second
+pointer duplicating `current` is redundant. Ordinary launch reads only
+`current`. It does not scan generations or implicitly fall back to another
+generation. The generation directory name is a single safe path component and
+generation content is complete before it can become `current`.
 
 A generation is complete or absent. Candidate construction occurs outside the
 active path. Activation changes one bounded pointer set only after integrity,
@@ -206,10 +211,9 @@ retries, and recovery may return to the already complete last-known-good
 generation. Launch must never observe a mixed or partially constructed
 generation.
 
-`verified` and `previous` are not permission to build a fallback ladder. They
-may represent at most one effective automatic rollback target. Before release,
-if the same recovery contract can be expressed with fewer pointer roles, the
-redundant role must be removed.
+`previous` is the only rollback pointer and is not permission to build a
+fallback ladder. Rollback is an explicit bounded activation-state transition;
+ordinary launch never consults `previous` automatically.
 
 ## 8. Installation and update
 
@@ -229,7 +233,7 @@ Normal installation and update must not require on-device compilation.
 4. verify signature, digest, archive safety, and compatibility metadata;
 5. build and probe a complete candidate generation;
 6. atomically activate it;
-7. retain verified rollback state;
+7. retain one complete previous generation as rollback state;
 8. report failure without damaging the active generation.
 
 Automatic update checks must be bounded and fail open when a verified runtime
@@ -239,6 +243,17 @@ silently run a package manager.
 The updater must not depend on the same resolver implementation as the patched
 upstream runtime without an explicit qualification proving that dependency.
 Offline local-artifact installation and recovery are required before release.
+
+For the local/offline release path, the bootstrap provisions one Ed25519 public
+trust key at `~/.local/lib/codex/core/release-public-key.pem`. Core does not
+search for alternate keys or accept an untrusted key supplied beside a release.
+The signed `release.manifest` is strict/versioned and binds generation identity,
+monotonic release sequence, supported channel, platform, architecture, Core API,
+persistent schema, and a SHA-256 inventory of every load-bearing generation
+file. The signature is over the exact manifest bytes. On Termux, Core may use
+the already-present `$PREFIX/bin/openssl` for Ed25519 verification and SHA-256;
+it must fail clearly if that executable or the pinned public key is unavailable
+and must never install a crypto package itself.
 
 ## 9. Doctor contract
 
