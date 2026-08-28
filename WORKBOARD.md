@@ -99,6 +99,21 @@ or mutation of the installed Codex product.
   conversion, dependency, public-surface expansion, or protected-state change;
   all named validation passes and the Lead reviews the plan as a bounded M1
   compatibility hypothesis rather than permanent public contract.
+- Lead acceptance: the first B8 worker result from `job_hxe_74e1f9fba5` was
+  rejected because its purity test read the filesystem, one focused test used
+  lossy string conversion, and it added an unrequired non-Unix PATH fallback.
+  The bounded correction worker `job_hyc_a66aed1797` removed exactly those
+  three expansions while preserving the nine focused Unix/Android behaviors.
+  Actual-diff review confirmed the final planner remains module-private,
+  std-only, explicit-input-only, raw-byte preserving, and contains no env/
+  filesystem/Command/exec access or product path selection. Primary-Lead
+  validation `job_hyn_2d9868514e` ran all nine `m1_b8_` tests three times
+  (27 real focused executions), then all 47/47 workspace tests and the locked
+  workspace build with offline mode and a repository-external Cargo target;
+  its scope guard also confirmed the accepted B8 diff contains neither lossy
+  conversion nor filesystem-existence probes. M1-B8 is accepted for commit as
+  a bounded M1 compatibility hypothesis, not yet real-Termux qualification of
+  these positive environment assignments.
 
 ## Milestone 1 required outcomes
 

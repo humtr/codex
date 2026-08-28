@@ -529,6 +529,189 @@ where
     LaunchError::Exec(exec_err)
 }
 
+#[cfg(unix)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum TermuxBaseEnvError {
+    EmptyPathComponent(&'static str),
+    ColonInPathComponent(&'static str),
+    NulInPathComponent(&'static str),
+}
+
+#[cfg(unix)]
+impl std::fmt::Display for TermuxBaseEnvError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TermuxBaseEnvError::EmptyPathComponent(name) => {
+                write!(f, "explicit PATH component '{name}' must not be empty")
+            }
+            TermuxBaseEnvError::ColonInPathComponent(name) => {
+                write!(f, "explicit PATH component '{name}' must not contain ':'")
+            }
+            TermuxBaseEnvError::NulInPathComponent(name) => {
+                write!(
+                    f,
+                    "explicit PATH component '{name}' must not contain NUL byte"
+                )
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+impl std::error::Error for TermuxBaseEnvError {}
+
+#[cfg(unix)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TermuxBaseEnvInputs<'a> {
+    compat_dir: &'a OsStr,
+    prefix_bin_dir: &'a OsStr,
+    temp_dir: &'a OsStr,
+    cert_file: &'a OsStr,
+    cert_dir: Option<&'a OsStr>,
+    inherited_path: Option<&'a OsStr>,
+    inherited_ssl_cert_file: Option<&'a OsStr>,
+    inherited_ssl_cert_dir: Option<&'a OsStr>,
+}
+
+#[cfg(unix)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TermuxBaseEnvPlan {
+    assignments: Vec<(OsString, OsString)>,
+}
+
+#[cfg(unix)]
+impl TermuxBaseEnvPlan {
+    #[allow(dead_code)]
+    fn assignments(&self) -> &[(OsString, OsString)] {
+        &self.assignments
+    }
+
+    #[allow(dead_code)]
+    fn get<K: AsRef<OsStr>>(&self, key: K) -> Option<&OsStr> {
+        let key = key.as_ref();
+        self.assignments
+            .iter()
+            .find(|(k, _)| k.as_os_str() == key)
+            .map(|(_, v)| v.as_os_str())
+    }
+
+    #[allow(dead_code)]
+    fn contains_key<K: AsRef<OsStr>>(&self, key: K) -> bool {
+        self.get(key).is_some()
+    }
+
+    #[allow(dead_code)]
+    fn into_assignments(self) -> Vec<(OsString, OsString)> {
+        self.assignments
+    }
+}
+
+#[cfg(unix)]
+fn validate_path_component(
+    name: &'static str,
+    component: &OsStr,
+) -> Result<(), TermuxBaseEnvError> {
+    use std::os::unix::ffi::OsStrExt;
+    let bytes = component.as_bytes();
+    if bytes.is_empty() {
+        return Err(TermuxBaseEnvError::EmptyPathComponent(name));
+    }
+    if bytes.contains(&b':') {
+        return Err(TermuxBaseEnvError::ColonInPathComponent(name));
+    }
+    if bytes.contains(&b'\0') {
+        return Err(TermuxBaseEnvError::NulInPathComponent(name));
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn build_planned_path(
+    compat_dir: &OsStr,
+    prefix_bin_dir: &OsStr,
+    inherited_path: Option<&OsStr>,
+) -> Result<OsString, TermuxBaseEnvError> {
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+
+    validate_path_component("compat_dir", compat_dir)?;
+    validate_path_component("prefix_bin_dir", prefix_bin_dir)?;
+
+    let compat_bytes = compat_dir.as_bytes();
+    let prefix_bytes = prefix_bin_dir.as_bytes();
+    let inherited_bytes = inherited_path.map(|p| p.as_bytes()).unwrap_or(b"");
+
+    let total_len = if inherited_bytes.is_empty() {
+        compat_bytes.len() + 1 + prefix_bytes.len()
+    } else {
+        compat_bytes.len() + 1 + prefix_bytes.len() + 1 + inherited_bytes.len()
+    };
+
+    let mut path_bytes = Vec::with_capacity(total_len);
+    path_bytes.extend_from_slice(compat_bytes);
+    path_bytes.push(b':');
+    path_bytes.extend_from_slice(prefix_bytes);
+
+    if !inherited_bytes.is_empty() {
+        path_bytes.push(b':');
+        path_bytes.extend_from_slice(inherited_bytes);
+    }
+
+    Ok(OsString::from_vec(path_bytes))
+}
+
+/// Plans child environment variable assignments for Termux execution.
+///
+/// Receives every input explicitly and returns deterministic child-environment assignments.
+/// Validates that explicit PATH components are non-empty and free of ':' and NUL delimiters.
+/// Preserves raw inherited PATH byte-for-byte without re-normalization or lossy decoding.
+#[cfg(unix)]
+#[allow(dead_code)]
+fn plan_termux_base_env(
+    inputs: &TermuxBaseEnvInputs<'_>,
+) -> Result<TermuxBaseEnvPlan, TermuxBaseEnvError> {
+    let planned_path = build_planned_path(
+        inputs.compat_dir,
+        inputs.prefix_bin_dir,
+        inputs.inherited_path,
+    )?;
+
+    let mut assignments = Vec::with_capacity(7);
+
+    // 1. Temp directory assignments
+    assignments.push((OsString::from("TMPDIR"), inputs.temp_dir.to_os_string()));
+    assignments.push((OsString::from("TMP"), inputs.temp_dir.to_os_string()));
+    assignments.push((OsString::from("TEMP"), inputs.temp_dir.to_os_string()));
+    assignments.push((
+        OsString::from("SQLITE_TMPDIR"),
+        inputs.temp_dir.to_os_string(),
+    ));
+
+    // 2. SSL_CERT_FILE assignment: inherited non-empty wins; otherwise selected cert file.
+    let ssl_cert_file = match inputs.inherited_ssl_cert_file {
+        Some(inherited) if !inherited.is_empty() => inherited.to_os_string(),
+        _ => inputs.cert_file.to_os_string(),
+    };
+    assignments.push((OsString::from("SSL_CERT_FILE"), ssl_cert_file));
+
+    // 3. SSL_CERT_DIR assignment: inherited non-empty wins; otherwise selected cert dir if present.
+    // If neither exists, omitted entirely.
+    let ssl_cert_dir = match inputs.inherited_ssl_cert_dir {
+        Some(inherited) if !inherited.is_empty() => Some(inherited.to_os_string()),
+        _ => inputs
+            .cert_dir
+            .filter(|d| !d.is_empty())
+            .map(|d| d.to_os_string()),
+    };
+    if let Some(dir_val) = ssl_cert_dir {
+        assignments.push((OsString::from("SSL_CERT_DIR"), dir_val));
+    }
+
+    // 4. PATH assignment: compat_dir, prefix_bin_dir, then inherited non-empty PATH.
+    assignments.push((OsString::from("PATH"), planned_path));
+
+    Ok(TermuxBaseEnvPlan { assignments })
+}
+
 fn main() {
     let mut args = std::env::args_os();
     let _ = args.next();
@@ -2913,5 +3096,568 @@ exit 0
         assert_eq!(result.stderr, b"");
 
         let _ = std::fs::remove_dir_all(&test_root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b8_a_exact_temp_vars_order_and_fallback_cert_file() {
+        let inputs = TermuxBaseEnvInputs {
+            compat_dir: OsStr::new("/test/compat"),
+            prefix_bin_dir: OsStr::new("/test/prefix/bin"),
+            temp_dir: OsStr::new("/test/isolated/tmp"),
+            cert_file: OsStr::new("/test/prefix/etc/tls/cert.pem"),
+            cert_dir: None,
+            inherited_path: None,
+            inherited_ssl_cert_file: None,
+            inherited_ssl_cert_dir: None,
+        };
+
+        let plan = plan_termux_base_env(&inputs).expect("plan must succeed");
+        let assignments = plan.assignments();
+
+        assert_eq!(assignments.len(), 6);
+        assert_eq!(
+            assignments[0],
+            (
+                OsString::from("TMPDIR"),
+                OsString::from("/test/isolated/tmp")
+            )
+        );
+        assert_eq!(
+            assignments[1],
+            (OsString::from("TMP"), OsString::from("/test/isolated/tmp"))
+        );
+        assert_eq!(
+            assignments[2],
+            (OsString::from("TEMP"), OsString::from("/test/isolated/tmp"))
+        );
+        assert_eq!(
+            assignments[3],
+            (
+                OsString::from("SQLITE_TMPDIR"),
+                OsString::from("/test/isolated/tmp")
+            )
+        );
+        assert_eq!(
+            assignments[4],
+            (
+                OsString::from("SSL_CERT_FILE"),
+                OsString::from("/test/prefix/etc/tls/cert.pem")
+            )
+        );
+        assert_eq!(
+            assignments[5],
+            (
+                OsString::from("PATH"),
+                OsString::from("/test/compat:/test/prefix/bin")
+            )
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b8_b_ssl_cert_file_precedence() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let base_inputs = TermuxBaseEnvInputs {
+            compat_dir: OsStr::new("/test/compat"),
+            prefix_bin_dir: OsStr::new("/test/prefix/bin"),
+            temp_dir: OsStr::new("/test/tmp"),
+            cert_file: OsStr::new("/test/selected/cert.pem"),
+            cert_dir: None,
+            inherited_path: None,
+            inherited_ssl_cert_file: None,
+            inherited_ssl_cert_dir: None,
+        };
+
+        // 1. Non-empty inherited wins
+        let mut inputs1 = base_inputs.clone();
+        inputs1.inherited_ssl_cert_file = Some(OsStr::new("/custom/inherited/cert.pem"));
+        let plan1 = plan_termux_base_env(&inputs1).expect("plan must succeed");
+        assert_eq!(
+            plan1.get("SSL_CERT_FILE"),
+            Some(OsStr::new("/custom/inherited/cert.pem"))
+        );
+
+        // 2. Non-empty inherited non-UTF-8 bytes win byte-for-byte
+        {
+            let non_utf8_cert = OsStr::from_bytes(b"/custom/inherited/\xff\xfe/cert.pem");
+            let mut inputs_raw = base_inputs.clone();
+            inputs_raw.inherited_ssl_cert_file = Some(non_utf8_cert);
+            let plan_raw = plan_termux_base_env(&inputs_raw).expect("plan must succeed");
+            assert_eq!(
+                plan_raw.get("SSL_CERT_FILE").map(|s| s.as_bytes()),
+                Some(b"/custom/inherited/\xff\xfe/cert.pem".as_slice())
+            );
+        }
+
+        // 3. Empty inherited falls back to selected cert file
+        let mut inputs2 = base_inputs.clone();
+        inputs2.inherited_ssl_cert_file = Some(OsStr::new(""));
+        let plan2 = plan_termux_base_env(&inputs2).expect("plan must succeed");
+        assert_eq!(
+            plan2.get("SSL_CERT_FILE"),
+            Some(OsStr::new("/test/selected/cert.pem"))
+        );
+
+        // 4. Unset inherited falls back to selected cert file
+        let mut inputs3 = base_inputs.clone();
+        inputs3.inherited_ssl_cert_file = None;
+        let plan3 = plan_termux_base_env(&inputs3).expect("plan must succeed");
+        assert_eq!(
+            plan3.get("SSL_CERT_FILE"),
+            Some(OsStr::new("/test/selected/cert.pem"))
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b8_c_ssl_cert_dir_precedence() {
+        let base_inputs = TermuxBaseEnvInputs {
+            compat_dir: OsStr::new("/test/compat"),
+            prefix_bin_dir: OsStr::new("/test/prefix/bin"),
+            temp_dir: OsStr::new("/test/tmp"),
+            cert_file: OsStr::new("/test/cert.pem"),
+            cert_dir: None,
+            inherited_path: None,
+            inherited_ssl_cert_file: None,
+            inherited_ssl_cert_dir: None,
+        };
+
+        // 1. Inherited non-empty wins over selected cert dir
+        let mut inputs1 = base_inputs.clone();
+        inputs1.cert_dir = Some(OsStr::new("/selected/certs"));
+        inputs1.inherited_ssl_cert_dir = Some(OsStr::new("/inherited/certs"));
+        let plan1 = plan_termux_base_env(&inputs1).expect("plan must succeed");
+        assert_eq!(
+            plan1.get("SSL_CERT_DIR"),
+            Some(OsStr::new("/inherited/certs"))
+        );
+
+        // 2. Inherited non-empty wins when selected cert dir is None
+        let mut inputs2 = base_inputs.clone();
+        inputs2.cert_dir = None;
+        inputs2.inherited_ssl_cert_dir = Some(OsStr::new("/inherited/certs"));
+        let plan2 = plan_termux_base_env(&inputs2).expect("plan must succeed");
+        assert_eq!(
+            plan2.get("SSL_CERT_DIR"),
+            Some(OsStr::new("/inherited/certs"))
+        );
+
+        // 3. Inherited empty falls back to selected optional dir
+        let mut inputs3 = base_inputs.clone();
+        inputs3.cert_dir = Some(OsStr::new("/selected/certs"));
+        inputs3.inherited_ssl_cert_dir = Some(OsStr::new(""));
+        let plan3 = plan_termux_base_env(&inputs3).expect("plan must succeed");
+        assert_eq!(
+            plan3.get("SSL_CERT_DIR"),
+            Some(OsStr::new("/selected/certs"))
+        );
+
+        // 4. Inherited unset falls back to selected optional dir
+        let mut inputs4 = base_inputs.clone();
+        inputs4.cert_dir = Some(OsStr::new("/selected/certs"));
+        inputs4.inherited_ssl_cert_dir = None;
+        let plan4 = plan_termux_base_env(&inputs4).expect("plan must succeed");
+        assert_eq!(
+            plan4.get("SSL_CERT_DIR"),
+            Some(OsStr::new("/selected/certs"))
+        );
+
+        // 5. Inherited unset and selected None => no assignment exists
+        let mut inputs5 = base_inputs.clone();
+        inputs5.cert_dir = None;
+        inputs5.inherited_ssl_cert_dir = None;
+        let plan5 = plan_termux_base_env(&inputs5).expect("plan must succeed");
+        assert_eq!(plan5.get("SSL_CERT_DIR"), None);
+        assert!(!plan5.contains_key("SSL_CERT_DIR"));
+
+        // 6. Inherited empty and selected None => no assignment exists
+        let mut inputs6 = base_inputs.clone();
+        inputs6.cert_dir = None;
+        inputs6.inherited_ssl_cert_dir = Some(OsStr::new(""));
+        let plan6 = plan_termux_base_env(&inputs6).expect("plan must succeed");
+        assert_eq!(plan6.get("SSL_CERT_DIR"), None);
+        assert!(!plan6.contains_key("SSL_CERT_DIR"));
+
+        // 7. Inherited unset and selected empty => no assignment exists
+        let mut inputs7 = base_inputs.clone();
+        inputs7.cert_dir = Some(OsStr::new(""));
+        inputs7.inherited_ssl_cert_dir = None;
+        let plan7 = plan_termux_base_env(&inputs7).expect("plan must succeed");
+        assert_eq!(plan7.get("SSL_CERT_DIR"), None);
+        assert!(!plan7.contains_key("SSL_CERT_DIR"));
+
+        // 8. Inherited empty and selected empty => no assignment exists
+        let mut inputs8 = base_inputs.clone();
+        inputs8.cert_dir = Some(OsStr::new(""));
+        inputs8.inherited_ssl_cert_dir = Some(OsStr::new(""));
+        let plan8 = plan_termux_base_env(&inputs8).expect("plan must succeed");
+        assert_eq!(plan8.get("SSL_CERT_DIR"), None);
+        assert!(!plan8.contains_key("SSL_CERT_DIR"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b8_d_path_exact_ordering_normal_absent_empty() {
+        let base_inputs = TermuxBaseEnvInputs {
+            compat_dir: OsStr::new("/custom/compat/bin"),
+            prefix_bin_dir: OsStr::new("/custom/prefix/bin"),
+            temp_dir: OsStr::new("/custom/tmp"),
+            cert_file: OsStr::new("/custom/cert.pem"),
+            cert_dir: None,
+            inherited_path: None,
+            inherited_ssl_cert_file: None,
+            inherited_ssl_cert_dir: None,
+        };
+
+        // 1. Normal inherited PATH
+        let mut inputs_normal = base_inputs.clone();
+        inputs_normal.inherited_path = Some(OsStr::new("/usr/local/bin:/usr/bin:/bin"));
+        let plan_normal = plan_termux_base_env(&inputs_normal).expect("plan must succeed");
+        assert_eq!(
+            plan_normal.get("PATH"),
+            Some(OsStr::new(
+                "/custom/compat/bin:/custom/prefix/bin:/usr/local/bin:/usr/bin:/bin"
+            ))
+        );
+
+        // 2. Absent inherited PATH (None)
+        let mut inputs_absent = base_inputs.clone();
+        inputs_absent.inherited_path = None;
+        let plan_absent = plan_termux_base_env(&inputs_absent).expect("plan must succeed");
+        assert_eq!(
+            plan_absent.get("PATH"),
+            Some(OsStr::new("/custom/compat/bin:/custom/prefix/bin"))
+        );
+
+        // 3. Empty inherited PATH ("")
+        let mut inputs_empty = base_inputs.clone();
+        inputs_empty.inherited_path = Some(OsStr::new(""));
+        let plan_empty = plan_termux_base_env(&inputs_empty).expect("plan must succeed");
+        assert_eq!(
+            plan_empty.get("PATH"),
+            Some(OsStr::new("/custom/compat/bin:/custom/prefix/bin"))
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b8_e_unix_non_utf8_inherited_path_bytes() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let raw_inherited_bytes: &[u8] = b"/custom/bin\xff\xfe:/other/\x80\x81/bin:/system/bin";
+        let non_utf8_path = OsStr::from_bytes(raw_inherited_bytes);
+
+        let inputs = TermuxBaseEnvInputs {
+            compat_dir: OsStr::new("/opt/compat"),
+            prefix_bin_dir: OsStr::new("/opt/prefix/bin"),
+            temp_dir: OsStr::new("/opt/tmp"),
+            cert_file: OsStr::new("/opt/cert.pem"),
+            cert_dir: None,
+            inherited_path: Some(non_utf8_path),
+            inherited_ssl_cert_file: None,
+            inherited_ssl_cert_dir: None,
+        };
+
+        let plan = plan_termux_base_env(&inputs).expect("plan must succeed");
+        let path_val = plan.get("PATH").expect("PATH assignment must exist");
+
+        let mut expected_bytes = Vec::new();
+        expected_bytes.extend_from_slice(b"/opt/compat:/opt/prefix/bin:");
+        expected_bytes.extend_from_slice(raw_inherited_bytes);
+
+        assert_eq!(path_val.as_bytes(), expected_bytes.as_slice());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b8_f_synthetic_unusual_explicit_paths_no_hardcoded_roots() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let inputs = TermuxBaseEnvInputs {
+            compat_dir: OsStr::new("/synthetic/custom_root_99/compat_tools"),
+            prefix_bin_dir: OsStr::new("/opt/custom_distro/bin_arch64"),
+            temp_dir: OsStr::new("/var/volatile/isolated_run_42/tmp"),
+            cert_file: OsStr::new("/etc/ssl_custom/bundle_99.crt"),
+            cert_dir: Some(OsStr::new("/etc/ssl_custom/certs.d")),
+            inherited_path: Some(OsStr::new("/vendor/bin:/system_alt/bin")),
+            inherited_ssl_cert_file: None,
+            inherited_ssl_cert_dir: None,
+        };
+
+        let plan = plan_termux_base_env(&inputs).expect("plan must succeed");
+
+        assert_eq!(
+            plan.get("TMPDIR"),
+            Some(OsStr::new("/var/volatile/isolated_run_42/tmp"))
+        );
+        assert_eq!(
+            plan.get("TMP"),
+            Some(OsStr::new("/var/volatile/isolated_run_42/tmp"))
+        );
+        assert_eq!(
+            plan.get("TEMP"),
+            Some(OsStr::new("/var/volatile/isolated_run_42/tmp"))
+        );
+        assert_eq!(
+            plan.get("SQLITE_TMPDIR"),
+            Some(OsStr::new("/var/volatile/isolated_run_42/tmp"))
+        );
+        assert_eq!(
+            plan.get("SSL_CERT_FILE"),
+            Some(OsStr::new("/etc/ssl_custom/bundle_99.crt"))
+        );
+        assert_eq!(
+            plan.get("SSL_CERT_DIR"),
+            Some(OsStr::new("/etc/ssl_custom/certs.d"))
+        );
+        assert_eq!(
+            plan.get("PATH"),
+            Some(OsStr::new(
+                "/synthetic/custom_root_99/compat_tools:/opt/custom_distro/bin_arch64:/vendor/bin:/system_alt/bin"
+            ))
+        );
+
+        // Verify none of the standard Android / Termux paths appear
+        for (_k, v) in plan.assignments() {
+            let bytes = v.as_bytes();
+            assert!(
+                !bytes
+                    .windows(b"/data/data".len())
+                    .any(|w| w == b"/data/data"),
+                "found hardcoded /data/data in planned value"
+            );
+            assert!(
+                !bytes
+                    .windows(b"com.termux".len())
+                    .any(|w| w == b"com.termux"),
+                "found hardcoded com.termux in planned value"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b8_g_invalid_explicit_path_components() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let base_inputs = TermuxBaseEnvInputs {
+            compat_dir: OsStr::new("/test/compat"),
+            prefix_bin_dir: OsStr::new("/test/prefix/bin"),
+            temp_dir: OsStr::new("/test/tmp"),
+            cert_file: OsStr::new("/test/cert.pem"),
+            cert_dir: None,
+            inherited_path: Some(OsStr::new("/usr/bin")),
+            inherited_ssl_cert_file: None,
+            inherited_ssl_cert_dir: None,
+        };
+
+        // 1. Empty compat_dir
+        let mut in_empty_compat = base_inputs.clone();
+        in_empty_compat.compat_dir = OsStr::new("");
+        assert_eq!(
+            plan_termux_base_env(&in_empty_compat),
+            Err(TermuxBaseEnvError::EmptyPathComponent("compat_dir"))
+        );
+
+        // 2. Colon in compat_dir
+        let mut in_colon_compat = base_inputs.clone();
+        in_colon_compat.compat_dir = OsStr::new("/bin:/usr/bin");
+        assert_eq!(
+            plan_termux_base_env(&in_colon_compat),
+            Err(TermuxBaseEnvError::ColonInPathComponent("compat_dir"))
+        );
+
+        // 3. Empty prefix_bin_dir
+        let mut in_empty_prefix = base_inputs.clone();
+        in_empty_prefix.prefix_bin_dir = OsStr::new("");
+        assert_eq!(
+            plan_termux_base_env(&in_empty_prefix),
+            Err(TermuxBaseEnvError::EmptyPathComponent("prefix_bin_dir"))
+        );
+
+        // 4. Colon in prefix_bin_dir
+        let mut in_colon_prefix = base_inputs.clone();
+        in_colon_prefix.prefix_bin_dir = OsStr::new("/usr/local/bin:/usr/bin");
+        assert_eq!(
+            plan_termux_base_env(&in_colon_prefix),
+            Err(TermuxBaseEnvError::ColonInPathComponent("prefix_bin_dir"))
+        );
+
+        // 5. NUL byte in explicit path components on Unix
+        let mut in_nul_compat = base_inputs.clone();
+        in_nul_compat.compat_dir = OsStr::from_bytes(b"/test/\0compat");
+        assert_eq!(
+            plan_termux_base_env(&in_nul_compat),
+            Err(TermuxBaseEnvError::NulInPathComponent("compat_dir"))
+        );
+
+        let mut in_nul_prefix = base_inputs.clone();
+        in_nul_prefix.prefix_bin_dir = OsStr::from_bytes(b"/test/prefix\0bin");
+        assert_eq!(
+            plan_termux_base_env(&in_nul_prefix),
+            Err(TermuxBaseEnvError::NulInPathComponent("prefix_bin_dir"))
+        );
+
+        // Verify Display implementations
+        let err_empty = TermuxBaseEnvError::EmptyPathComponent("compat_dir");
+        assert_eq!(
+            err_empty.to_string(),
+            "explicit PATH component 'compat_dir' must not be empty"
+        );
+        let err_colon = TermuxBaseEnvError::ColonInPathComponent("prefix_bin_dir");
+        assert_eq!(
+            err_colon.to_string(),
+            "explicit PATH component 'prefix_bin_dir' must not contain ':'"
+        );
+        let err_nul = TermuxBaseEnvError::NulInPathComponent("compat_dir");
+        assert_eq!(
+            err_nul.to_string(),
+            "explicit PATH component 'compat_dir' must not contain NUL byte"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b8_h_negative_assertion_excluded_keys() {
+        let excluded_keys = [
+            "HOME",
+            "CODEX_HOME",
+            "XDG_CONFIG_HOME",
+            "XDG_CACHE_HOME",
+            "XDG_DATA_HOME",
+            "GODEBUG",
+            "BROWSER",
+            "CODEX_SELF_EXE",
+            "CODEX_CODE_MODE_HOST_PATH",
+            "CODEX_MANAGED_BY_NPM",
+            "CODEX_MANAGED_BY_BUN",
+            "CODEX_MANAGED_PACKAGE_ROOT",
+            "LD_PRELOAD",
+            "LD_LIBRARY_PATH",
+        ];
+
+        let scenarios = [
+            // Scenario 1: without SSL_CERT_DIR
+            TermuxBaseEnvInputs {
+                compat_dir: OsStr::new("/test/compat"),
+                prefix_bin_dir: OsStr::new("/test/prefix/bin"),
+                temp_dir: OsStr::new("/test/tmp"),
+                cert_file: OsStr::new("/test/cert.pem"),
+                cert_dir: None,
+                inherited_path: Some(OsStr::new("/usr/bin")),
+                inherited_ssl_cert_file: None,
+                inherited_ssl_cert_dir: None,
+            },
+            // Scenario 2: with SSL_CERT_DIR
+            TermuxBaseEnvInputs {
+                compat_dir: OsStr::new("/test/compat"),
+                prefix_bin_dir: OsStr::new("/test/prefix/bin"),
+                temp_dir: OsStr::new("/test/tmp"),
+                cert_file: OsStr::new("/test/cert.pem"),
+                cert_dir: Some(OsStr::new("/test/certs")),
+                inherited_path: Some(OsStr::new("/bin")),
+                inherited_ssl_cert_file: Some(OsStr::new("/inherited/cert.pem")),
+                inherited_ssl_cert_dir: Some(OsStr::new("/inherited/certs")),
+            },
+        ];
+
+        for inputs in scenarios {
+            let plan = plan_termux_base_env(&inputs).expect("plan must succeed");
+
+            for key in excluded_keys {
+                assert!(
+                    !plan.contains_key(key),
+                    "plan must NOT contain excluded key '{key}'"
+                );
+                assert!(
+                    !plan.assignments().iter().any(|(k, _)| k == key),
+                    "plan assignments must NOT contain excluded key '{key}'"
+                );
+            }
+
+            // Assert only the exact allowed keys are present
+            let allowed_keys: &[&str] =
+                if inputs.cert_dir.is_some() || inputs.inherited_ssl_cert_dir.is_some() {
+                    &[
+                        "TMPDIR",
+                        "TMP",
+                        "TEMP",
+                        "SQLITE_TMPDIR",
+                        "SSL_CERT_FILE",
+                        "SSL_CERT_DIR",
+                        "PATH",
+                    ]
+                } else {
+                    &[
+                        "TMPDIR",
+                        "TMP",
+                        "TEMP",
+                        "SQLITE_TMPDIR",
+                        "SSL_CERT_FILE",
+                        "PATH",
+                    ]
+                };
+
+            for (k, _) in plan.assignments() {
+                let k_str = k.to_str().expect("valid key utf-8");
+                assert!(
+                    allowed_keys.contains(&k_str),
+                    "unexpected key '{k_str}' found in planned assignments"
+                );
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b8_i_planner_purity() {
+        let inputs_a = TermuxBaseEnvInputs {
+            compat_dir: OsStr::new("/purity/compat"),
+            prefix_bin_dir: OsStr::new("/purity/prefix/bin"),
+            temp_dir: OsStr::new("/purity/tmp"),
+            cert_file: OsStr::new("/purity/cert.pem"),
+            cert_dir: Some(OsStr::new("/purity/certs")),
+            inherited_path: None,
+            inherited_ssl_cert_file: None,
+            inherited_ssl_cert_dir: None,
+        };
+
+        // 1. Multiple executions produce identical results (determinism)
+        let plan_1 = plan_termux_base_env(&inputs_a).expect("plan 1");
+        let plan_2 = plan_termux_base_env(&inputs_a).expect("plan 2");
+        let plan_3 = plan_termux_base_env(&inputs_a).expect("plan 3");
+        assert_eq!(plan_1, plan_2);
+        assert_eq!(plan_2, plan_3);
+
+        // 2. Deterministic input/output: changing a single input changes only the corresponding output
+        let mut inputs_b = inputs_a.clone();
+        inputs_b.temp_dir = OsStr::new("/other/isolated/tmp");
+        let plan_b = plan_termux_base_env(&inputs_b).expect("plan b");
+        assert_eq!(
+            plan_b.get("TMPDIR"),
+            Some(OsStr::new("/other/isolated/tmp"))
+        );
+        assert_eq!(plan_b.get("TMP"), Some(OsStr::new("/other/isolated/tmp")));
+        assert_eq!(plan_b.get("TEMP"), Some(OsStr::new("/other/isolated/tmp")));
+        assert_eq!(
+            plan_b.get("SQLITE_TMPDIR"),
+            Some(OsStr::new("/other/isolated/tmp"))
+        );
+        assert_eq!(plan_b.get("SSL_CERT_FILE"), plan_1.get("SSL_CERT_FILE"));
+        assert_eq!(plan_b.get("SSL_CERT_DIR"), plan_1.get("SSL_CERT_DIR"));
+        assert_eq!(plan_b.get("PATH"), plan_1.get("PATH"));
+
+        // 3. When inherited_path is None, planned PATH has only explicit components,
+        // proving no reading of ambient PATH.
+        assert_eq!(
+            plan_1.get("PATH"),
+            Some(OsStr::new("/purity/compat:/purity/prefix/bin"))
+        );
+
+        // 4. Repeated planning on mutated input is also deterministic
+        let plan_b_repeat = plan_termux_base_env(&inputs_b).expect("plan b repeat");
+        assert_eq!(plan_b, plan_b_repeat);
     }
 }
