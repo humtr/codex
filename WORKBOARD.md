@@ -29,64 +29,61 @@ or mutation of the installed Codex product.
 
 ## Selected next action
 
-### Bundle M1-B5 — TTY and external-signal fidelity evidence
+### Bundle M1-B6 — explicit Termux sandbox policy planner
 
-- Prior accepted evidence: M1-B4 commit
-  `bb21ddca58589ec77a22e824c4218db5c1087daa`.
-- Exact outcome: add focused private subprocess tests proving the existing
-  production `exec_upstream` boundary preserves an attached terminal on stdin,
-  stdout, and stderr and preserves the process identity needed for an external
-  `SIGTERM` sent after exec to reach the upstream process. No product behavior
-  change is expected or authorized unless a test exposes a real defect.
-- Writable worker path: `crates/core/src/main.rs` only; tests remain private to
-  the Rust test binary and may not add public flags, subcommands, or output.
-- Governing contract: `SPEC.md` section 5 requires preservation of stdin,
-  stdout, stderr, TTY behavior, signals, and upstream exit status. B2 already
-  proves raw streams/exit; B5 supplies the missing TTY/signal evidence.
-- Current real-Termux test capability: read-only Lead probe job
-  `job_hpc_c69baf49b3` observed installed `script`, `setsid`, and `stty` tools
-  on the current aarch64 Android device. No package installation is authorized.
-- TTY evidence: on Android, launch the existing private Rust exec probe beneath
-  `script` solely as a test PTY provider; inside the probe call the production
-  `exec_upstream` primitive and have the upstream shell prove `-t 0`, `-t 1`,
-  and `-t 2`. The assertion must distinguish the upstream payload from
-  `script`'s own wrapper output and must not invoke the installed Codex product.
-  If a portable source-level test can avoid `script` with a smaller safe FFI
-  surface, that is also acceptable, but no new dependency may be added.
-- Signal evidence: spawn an isolated private probe that final-execs an upstream
-  shell which prints a readiness marker, installs a `SIGTERM` trap, and waits.
-  The parent records the child PID, waits for readiness, sends `SIGTERM` to that
-  same PID using the smallest Unix FFI needed, and proves the upstream trap ran
-  and exited with the chosen code. Apply a bounded timeout/kill cleanup so a
-  failed test cannot hang the suite.
-- Keep all 24 accepted B1-B4 tests green. Use repository-external
-  `CARGO_TARGET_DIR` and `CARGO_NET_OFFLINE=true` for `cargo fmt --check`,
+- Prior accepted evidence: M1-B5 commit
+  `85f312b7d5d0e2e8a14c9084063e437633b63480`.
+- Exact outcome: add a small std-only production argument-planning function for
+  upstream passthrough. It must reject explicit Linux sandbox requests that the
+  Termux product cannot enforce and, for accepted passthrough, prepend exactly
+  `-c` and `sandbox_mode="danger-full-access"` before the original raw argv.
+  This bundle does not wire `main` or choose a runtime executable/path.
+- Writable worker path: `crates/core/src/main.rs` only. No dependency, manifest,
+  file, or authority-document changes are authorized to the worker.
+- Governing contract: `SPEC.md` section 5 says Linux namespace/bwrap sandboxing
+  is not a product capability, `read-only`/`workspace-write` requests must fail
+  clearly rather than be silently weakened, and ordinary supported launch uses
+  the explicitly selected upstream no-sandbox policy. Approval policy remains
+  upstream-controlled; Core must not synthesize an approval-bypass flag.
+- Sealed predecessor evidence is discovery only, not rewrite proof. Lead jobs
+  `job_hr7_58317ca55f` and `job_hr9_78251f660c` observed these prior public
+  request forms: leading `sandbox linux`; `-s VALUE`; `--sandbox VALUE`;
+  `--sandbox=VALUE`; attached `-sread-only`/`-sworkspace-write`; `-c VALUE` or
+  `--config VALUE` where the value requests `sandbox_mode` read-only or
+  workspace-write; and `--config=sandbox_mode=...`. Scanning stops at the exact
+  `--` separator. `danger-full-access` itself is allowed.
+- Parsing boundary: inspect only UTF-8 option tokens needed to recognize the
+  ASCII policy forms; preserve every accepted original `OsString` byte-for-byte
+  and treat non-UTF-8/unrecognized argv as ordinary upstream input. Do not use
+  lossy conversion. Missing values remain upstream usage concerns rather than
+  becoming Core guesses.
+- Required behavior/tests: reject both `read-only` and `workspace-write` in each
+  observed form with a clear Termux/Linux-sandbox error; reject leading
+  `sandbox linux` before any launch planning; allow `--sandbox
+  danger-full-access`; stop policy scanning after `--`; preserve arbitrary and
+  non-UTF-8 original args exactly; prepend only the two declared config args;
+  and prove the planner never synthesizes
+  `--dangerously-bypass-approvals-and-sandbox`.
+- Keep all 26 accepted B1-B5 tests green. Use `CARGO_NET_OFFLINE=true` and a
+  repository-external `CARGO_TARGET_DIR` for `cargo fmt --check`,
   `cargo test --locked --workspace`, and `cargo build --locked --workspace`.
-- Explicitly deferred: runtime/generation path selection, additional environment
-  planning, normal `main` wiring, sandbox policy, doctor, manifest/updater
-  interfaces, network, installation, activation, and Manager behavior.
+- Worker configuration: one bounded `agy` CLI implementation worker in
+  `accept-edits` mode through the Task-owned shell route. No delegation,
+  commits, pushes, package operations, network/update behavior, or live state.
+- Explicitly deferred: normal `main` dispatch/wiring, runtime/generation/config
+  path selection, actual official upstream artifact qualification, doctor,
+  manifest/updater interfaces, installation, activation, and Manager behavior.
 - Protected surfaces: every repository path except `crates/core/src/main.rs`,
   all live resolver/runtime/launcher/Manager state, profiles, sessions, auth,
-  Git refs, legacy history, and unrelated worktrees.
-- Completion gate: TTY proof covers all three standard descriptors; signal proof
-  delivers `SIGTERM` externally after the upstream readiness marker and observes
-  the upstream-selected exit/result; no hang, public test surface, dependency,
-  or extra file; all prior and named validation passes.
-- Integration disposition: the primary Lead reviews the actual test mechanics
-  for false positives, reruns the full suite plus the new focused tests, and
-  commits only if they prove the production exec boundary rather than a helper
-  path.
-- Lead acceptance: the reviewed diff changes only `#[cfg(test)]` probe/test
-  code. The unique TTY markers are emitted only by the upstream shell after the
-  private Rust probe calls production `exec_upstream`; the Android PTY provider
-  is `script` only. The signal probe likewise final-execs the upstream shell,
-  waits for its `READY:PID:<pid>` marker, proves shell `$$` equals the originally
-  spawned child PID, then sends external `SIGTERM` to that exact PID and observes
-  the upstream trap's exit code 73. Cleanup guards bound failed cases. Primary-
-  Lead validation job `job_hqo_7f45af3f26` passed `cargo fmt --check`, all
-  26/26 workspace tests, three additional serial repetitions of each TTY and
-  SIGTERM test, and `cargo build --locked --workspace` with offline mode and a
-  repository-external Cargo target. M1-B5 is accepted for commit.
+  Git refs, sealed legacy history, and unrelated worktrees.
+- Completion gate: planner behavior is deterministic and raw-argv preserving;
+  unsupported requests fail before an exec primitive is called; accepted argv
+  receives only the selected no-sandbox config prelude; no dependency/public
+  surface expansion; all named validation passes; status contains only the
+  authorized source file.
+- Integration disposition: the primary Lead reviews every recognized/rejected
+  argv shape against SPEC plus the bounded discovery evidence, reruns full and
+  focused validation, and commits only accepted work.
 
 ## Milestone 1 required outcomes
 

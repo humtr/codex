@@ -221,6 +221,17 @@ Termux qualification. Produce one candidate for independent product review.
   24/24 workspace tests, three additional serial repetitions of all 11
   `runtime_fds` tests, and locked workspace build with offline mode and an
   external Cargo target.
+- Milestone 1 bundle M1-B5 is accepted at
+  `85f312b7d5d0e2e8a14c9084063e437633b63480`. Test-only private probes prove
+  the production final `exec_upstream` boundary preserves a PTY on stdin,
+  stdout, and stderr on the current Android/Termux device and preserves process
+  identity across exec: the upstream shell reports `$$` equal to the spawned
+  child PID, receives an external `SIGTERM` sent to that same PID, and executes
+  its trap with exit code 73. No production behavior changed in B5.
+- Primary-Lead validation job `job_hqo_7f45af3f26` passed formatting, all 26/26
+  workspace tests, three additional serial repetitions of each TTY and SIGTERM
+  proof, and locked build with offline mode and a repository-external Cargo
+  target.
 
 ### Historical Proof
 
@@ -230,12 +241,13 @@ Termux qualification. Produce one candidate for independent product review.
 ### Not Proven
 
 - Milestone 1 is not complete. M1-B1 proves workspace/classification, M1-B2/B3
-  prove the isolated final-exec argv/stream/exit and contamination-fence behavior,
-  and M1-B4 proves isolated FD 33/34 setup/restoration plus test-resolver
-  non-mutation. Normal `main` is not yet wired to a qualified upstream runtime;
-  broader runtime environment/path planning, TTY/signal fidelity, sandbox
-  handling, doctor composition, generation/updater interfaces, and the full
-  real-Termux smoke gate remain unproven.
+  prove isolated final-exec argv/stream/exit and contamination-fence behavior,
+  M1-B4 proves isolated FD 33/34 setup/restoration plus test-resolver
+  non-mutation, and M1-B5 proves TTY/external-SIGTERM fidelity on the current
+  Android/Termux device. Normal `main` is not yet wired to a qualified upstream
+  runtime; broader runtime environment/path planning, sandbox handling, doctor
+  composition, generation/updater interfaces, and the full real-Termux smoke
+  gate remain unproven.
 - No release artifact, installation, update, activation, rollback, offline
   recovery, fresh-device behavior, Milestone 2 result, or production readiness
   is proven.
@@ -247,10 +259,12 @@ Termux qualification. Produce one candidate for independent product review.
 - The primary Lead records each next bounded bundle in `WORKBOARD.md`, launches
   exactly one implementation worker, inspects the actual diff, and reruns the
   load-bearing validation before acceptance.
-- M1-B5 is the current checkpoint. It is limited to TTY and external-signal
-  fidelity evidence across the already accepted final-exec primitive. It must
-  not select product runtime paths, wire normal `main`, or add new launch
-  semantics.
+- M1-B6 is the current checkpoint. It is limited to an explicit Termux sandbox
+  policy planner for upstream passthrough: reject the supported observed forms
+  of Linux `read-only`/`workspace-write` requests before runtime execution and
+  prepend only the selected upstream `danger-full-access` config for supported
+  ordinary launch. Normal `main` wiring and runtime path selection remain later
+  checkpoints.
 - At every bundle completion the Lead records its own diff/test disposition
   here. No worker report, planning subagent, or checkpoint reviewer substitutes
   for that integration decision.
