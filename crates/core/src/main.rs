@@ -687,6 +687,79 @@ impl std::error::Error for TermuxBaseEnvError {}
 
 #[cfg(unix)]
 #[derive(Debug, Clone, PartialEq, Eq)]
+struct TermuxProcessEnvSnapshot {
+    prefix: Option<OsString>,
+    tmpdir: Option<OsString>,
+    inherited_path: Option<OsString>,
+    inherited_ssl_cert_file: Option<OsString>,
+    inherited_ssl_cert_dir: Option<OsString>,
+}
+
+#[cfg(unix)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum TermuxProcessEnvError {
+    MissingRequired(&'static str),
+    EmptyRequired(&'static str),
+    BaseEnv(TermuxBaseEnvError),
+}
+
+#[cfg(unix)]
+impl std::fmt::Display for TermuxProcessEnvError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TermuxProcessEnvError::MissingRequired(name) => {
+                write!(
+                    f,
+                    "required process environment variable '{name}' is missing"
+                )
+            }
+            TermuxProcessEnvError::EmptyRequired(name) => {
+                write!(f, "required process environment variable '{name}' is empty")
+            }
+            TermuxProcessEnvError::BaseEnv(err) => err.fmt(f),
+        }
+    }
+}
+
+#[cfg(unix)]
+impl std::error::Error for TermuxProcessEnvError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            TermuxProcessEnvError::BaseEnv(err) => Some(err),
+            TermuxProcessEnvError::MissingRequired(_) | TermuxProcessEnvError::EmptyRequired(_) => {
+                None
+            }
+        }
+    }
+}
+
+/// Captures only the ambient process values needed by the Termux base-environment planner.
+#[cfg(unix)]
+#[allow(dead_code)]
+fn capture_termux_process_env() -> TermuxProcessEnvSnapshot {
+    TermuxProcessEnvSnapshot {
+        prefix: std::env::var_os("PREFIX"),
+        tmpdir: std::env::var_os("TMPDIR"),
+        inherited_path: std::env::var_os("PATH"),
+        inherited_ssl_cert_file: std::env::var_os("SSL_CERT_FILE"),
+        inherited_ssl_cert_dir: std::env::var_os("SSL_CERT_DIR"),
+    }
+}
+
+#[cfg(unix)]
+fn required_process_env<'a>(
+    value: &'a Option<OsString>,
+    name: &'static str,
+) -> Result<&'a OsStr, TermuxProcessEnvError> {
+    match value.as_deref() {
+        None => Err(TermuxProcessEnvError::MissingRequired(name)),
+        Some(value) if value.is_empty() => Err(TermuxProcessEnvError::EmptyRequired(name)),
+        Some(value) => Ok(value),
+    }
+}
+
+#[cfg(unix)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct TermuxBaseEnvInputs<'a> {
     compat_dir: &'a OsStr,
     prefix_bin_dir: &'a OsStr,
@@ -835,6 +908,36 @@ fn plan_termux_base_env(
     assignments.push((OsString::from("PATH"), planned_path));
 
     Ok(TermuxBaseEnvPlan { assignments })
+}
+
+/// Converts one captured Termux process-environment snapshot into the pure B8 base-env plan.
+///
+/// The selected compatibility directory and certificate fallbacks remain explicit caller inputs.
+/// This function derives only the prefix `bin` directory and performs no filesystem or runtime I/O.
+#[cfg(unix)]
+#[allow(dead_code)]
+fn plan_termux_base_env_from_snapshot(
+    snapshot: &TermuxProcessEnvSnapshot,
+    compat_dir: &OsStr,
+    cert_file: &OsStr,
+    cert_dir: Option<&OsStr>,
+) -> Result<TermuxBaseEnvPlan, TermuxProcessEnvError> {
+    let prefix = required_process_env(&snapshot.prefix, "PREFIX")?;
+    let temp_dir = required_process_env(&snapshot.tmpdir, "TMPDIR")?;
+    let prefix_bin_dir = std::path::PathBuf::from(prefix).join("bin");
+
+    let inputs = TermuxBaseEnvInputs {
+        compat_dir,
+        prefix_bin_dir: prefix_bin_dir.as_os_str(),
+        temp_dir,
+        cert_file,
+        cert_dir,
+        inherited_path: snapshot.inherited_path.as_deref(),
+        inherited_ssl_cert_file: snapshot.inherited_ssl_cert_file.as_deref(),
+        inherited_ssl_cert_dir: snapshot.inherited_ssl_cert_dir.as_deref(),
+    };
+
+    plan_termux_base_env(&inputs).map_err(TermuxProcessEnvError::BaseEnv)
 }
 
 fn main() {
@@ -4158,6 +4261,234 @@ exit 0
         // 4. Repeated planning on mutated input is also deterministic
         let plan_b_repeat = plan_termux_base_env(&inputs_b).expect("plan b repeat");
         assert_eq!(plan_b, plan_b_repeat);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b10_a_exact_prefix_bin_derivation_and_assignment_order() {
+        let snapshot = TermuxProcessEnvSnapshot {
+            prefix: Some(OsString::from("/synthetic/prefix-root")),
+            tmpdir: Some(OsString::from("/synthetic/tmp")),
+            inherited_path: Some(OsString::from("/inherited/one:/inherited/two")),
+            inherited_ssl_cert_file: None,
+            inherited_ssl_cert_dir: None,
+        };
+        let plan = plan_termux_base_env_from_snapshot(
+            &snapshot,
+            OsStr::new("/selected/compat"),
+            OsStr::new("/selected/tls/cert.pem"),
+            Some(OsStr::new("/selected/tls/certs")),
+        )
+        .expect("snapshot plan must succeed");
+
+        let expected = vec![
+            (OsString::from("TMPDIR"), OsString::from("/synthetic/tmp")),
+            (OsString::from("TMP"), OsString::from("/synthetic/tmp")),
+            (OsString::from("TEMP"), OsString::from("/synthetic/tmp")),
+            (
+                OsString::from("SQLITE_TMPDIR"),
+                OsString::from("/synthetic/tmp"),
+            ),
+            (
+                OsString::from("SSL_CERT_FILE"),
+                OsString::from("/selected/tls/cert.pem"),
+            ),
+            (
+                OsString::from("SSL_CERT_DIR"),
+                OsString::from("/selected/tls/certs"),
+            ),
+            (
+                OsString::from("PATH"),
+                OsString::from(
+                    "/selected/compat:/synthetic/prefix-root/bin:/inherited/one:/inherited/two",
+                ),
+            ),
+        ];
+        assert_eq!(plan.into_assignments(), expected);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b10_b_required_prefix_and_tmpdir_errors_are_typed() {
+        let base = TermuxProcessEnvSnapshot {
+            prefix: Some(OsString::from("/prefix")),
+            tmpdir: Some(OsString::from("/tmp")),
+            inherited_path: None,
+            inherited_ssl_cert_file: None,
+            inherited_ssl_cert_dir: None,
+        };
+
+        let mut missing_prefix = base.clone();
+        missing_prefix.prefix = None;
+        assert_eq!(
+            plan_termux_base_env_from_snapshot(
+                &missing_prefix,
+                OsStr::new("/compat"),
+                OsStr::new("/cert.pem"),
+                None,
+            ),
+            Err(TermuxProcessEnvError::MissingRequired("PREFIX"))
+        );
+
+        let mut empty_prefix = base.clone();
+        empty_prefix.prefix = Some(OsString::new());
+        assert_eq!(
+            plan_termux_base_env_from_snapshot(
+                &empty_prefix,
+                OsStr::new("/compat"),
+                OsStr::new("/cert.pem"),
+                None,
+            ),
+            Err(TermuxProcessEnvError::EmptyRequired("PREFIX"))
+        );
+
+        let mut missing_tmpdir = base.clone();
+        missing_tmpdir.tmpdir = None;
+        assert_eq!(
+            plan_termux_base_env_from_snapshot(
+                &missing_tmpdir,
+                OsStr::new("/compat"),
+                OsStr::new("/cert.pem"),
+                None,
+            ),
+            Err(TermuxProcessEnvError::MissingRequired("TMPDIR"))
+        );
+
+        let mut empty_tmpdir = base;
+        empty_tmpdir.tmpdir = Some(OsString::new());
+        assert_eq!(
+            plan_termux_base_env_from_snapshot(
+                &empty_tmpdir,
+                OsStr::new("/compat"),
+                OsStr::new("/cert.pem"),
+                None,
+            ),
+            Err(TermuxProcessEnvError::EmptyRequired("TMPDIR"))
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b10_c_raw_non_utf8_inherited_values_are_preserved() {
+        use std::os::unix::ffi::{OsStrExt, OsStringExt};
+
+        let raw_path = b"/raw/one\xff:/raw/two\x80".to_vec();
+        let raw_cert_file = b"/raw/cert\xfe.pem".to_vec();
+        let raw_cert_dir = b"/raw/certs\xfd".to_vec();
+        let snapshot = TermuxProcessEnvSnapshot {
+            prefix: Some(OsString::from("/prefix")),
+            tmpdir: Some(OsString::from("/tmp")),
+            inherited_path: Some(OsString::from_vec(raw_path.clone())),
+            inherited_ssl_cert_file: Some(OsString::from_vec(raw_cert_file.clone())),
+            inherited_ssl_cert_dir: Some(OsString::from_vec(raw_cert_dir.clone())),
+        };
+        let plan = plan_termux_base_env_from_snapshot(
+            &snapshot,
+            OsStr::new("/compat"),
+            OsStr::new("/fallback/cert.pem"),
+            Some(OsStr::new("/fallback/certs")),
+        )
+        .expect("raw snapshot plan must succeed");
+
+        assert_eq!(
+            plan.get("SSL_CERT_FILE").map(OsStrExt::as_bytes),
+            Some(raw_cert_file.as_slice())
+        );
+        assert_eq!(
+            plan.get("SSL_CERT_DIR").map(OsStrExt::as_bytes),
+            Some(raw_cert_dir.as_slice())
+        );
+        let path = plan.get("PATH").expect("PATH must exist").as_bytes();
+        let mut expected_path = b"/compat:/prefix/bin:".to_vec();
+        expected_path.extend_from_slice(&raw_path);
+        assert_eq!(path, expected_path.as_slice());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b10_d_unusual_prefix_derives_only_native_bin_without_fixed_root() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let snapshot = TermuxProcessEnvSnapshot {
+            prefix: Some(OsString::from("/odd/distribution/root_77/prefix")),
+            tmpdir: Some(OsString::from("/volatile/run/tmp")),
+            inherited_path: None,
+            inherited_ssl_cert_file: None,
+            inherited_ssl_cert_dir: None,
+        };
+        let plan = plan_termux_base_env_from_snapshot(
+            &snapshot,
+            OsStr::new("/selected/compat"),
+            OsStr::new("/selected/cert.pem"),
+            None,
+        )
+        .expect("unusual prefix plan must succeed");
+
+        assert_eq!(
+            plan.get("PATH"),
+            Some(OsStr::new(
+                "/selected/compat:/odd/distribution/root_77/prefix/bin"
+            ))
+        );
+        for (_, value) in plan.assignments() {
+            let bytes = value.as_bytes();
+            assert!(!bytes
+                .windows(b"/data/data".len())
+                .any(|w| w == b"/data/data"));
+            assert!(!bytes
+                .windows(b"com.termux".len())
+                .any(|w| w == b"com.termux"));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b10_e_base_env_errors_remain_typed() {
+        let snapshot = TermuxProcessEnvSnapshot {
+            prefix: Some(OsString::from("/prefix:invalid")),
+            tmpdir: Some(OsString::from("/tmp")),
+            inherited_path: None,
+            inherited_ssl_cert_file: None,
+            inherited_ssl_cert_dir: None,
+        };
+        assert_eq!(
+            plan_termux_base_env_from_snapshot(
+                &snapshot,
+                OsStr::new("/compat"),
+                OsStr::new("/cert.pem"),
+                None,
+            ),
+            Err(TermuxProcessEnvError::BaseEnv(
+                TermuxBaseEnvError::ColonInPathComponent("prefix_bin_dir")
+            ))
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b10_f_process_capture_matches_exact_five_ambient_values_read_only() {
+        let before = [
+            ("PREFIX", std::env::var_os("PREFIX")),
+            ("TMPDIR", std::env::var_os("TMPDIR")),
+            ("PATH", std::env::var_os("PATH")),
+            ("SSL_CERT_FILE", std::env::var_os("SSL_CERT_FILE")),
+            ("SSL_CERT_DIR", std::env::var_os("SSL_CERT_DIR")),
+        ];
+        let snapshot = capture_termux_process_env();
+        let after = [
+            ("PREFIX", std::env::var_os("PREFIX")),
+            ("TMPDIR", std::env::var_os("TMPDIR")),
+            ("PATH", std::env::var_os("PATH")),
+            ("SSL_CERT_FILE", std::env::var_os("SSL_CERT_FILE")),
+            ("SSL_CERT_DIR", std::env::var_os("SSL_CERT_DIR")),
+        ];
+
+        assert_eq!(before, after, "capture must not mutate process environment");
+        assert_eq!(snapshot.prefix, before[0].1);
+        assert_eq!(snapshot.tmpdir, before[1].1);
+        assert_eq!(snapshot.inherited_path, before[2].1);
+        assert_eq!(snapshot.inherited_ssl_cert_file, before[3].1);
+        assert_eq!(snapshot.inherited_ssl_cert_dir, before[4].1);
     }
 
     #[cfg(unix)]
