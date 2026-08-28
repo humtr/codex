@@ -1175,6 +1175,212 @@ fn qualify_generation_manifest<'a>(
     Ok(QualifiedGenerationManifest { manifest })
 }
 
+#[cfg(unix)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RuntimeAssetBinding<'a> {
+    program_path: &'a OsStr,
+    observed_digest: &'a str,
+}
+
+#[cfg(unix)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct HelperAssetBinding<'a> {
+    identity: &'a str,
+    asset_path: &'a OsStr,
+    observed_digest: &'a str,
+}
+
+#[cfg(unix)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RuntimeAssetSelection<'a> {
+    runtime: RuntimeAssetBinding<'a>,
+    compatibility_dir: &'a OsStr,
+    helpers: &'a [HelperAssetBinding<'a>],
+}
+
+#[cfg(unix)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RuntimeAssetError {
+    EmptyPath(&'static str),
+    RelativePath(&'static str),
+    NulPath(&'static str),
+    CompatibilityPath(TermuxBaseEnvError),
+    EmptyRuntimeDigest,
+    RuntimeDigestMismatch,
+    EmptyHelperIdentity(usize),
+    EmptyHelperDigest(usize),
+    DuplicateHelperIdentity { first: usize, duplicate: usize },
+    ExtraHelperIdentity(usize),
+    MissingHelperIdentity(usize),
+    HelperDigestMismatch(usize),
+}
+
+#[cfg(unix)]
+impl std::fmt::Display for RuntimeAssetError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RuntimeAssetError::EmptyPath(name) => write!(f, "runtime asset path '{name}' is empty"),
+            RuntimeAssetError::RelativePath(name) => {
+                write!(f, "runtime asset path '{name}' must be absolute")
+            }
+            RuntimeAssetError::NulPath(name) => {
+                write!(f, "runtime asset path '{name}' must not contain NUL")
+            }
+            RuntimeAssetError::CompatibilityPath(err) => err.fmt(f),
+            RuntimeAssetError::EmptyRuntimeDigest => {
+                write!(f, "runtime asset observed digest is empty")
+            }
+            RuntimeAssetError::RuntimeDigestMismatch => {
+                write!(
+                    f,
+                    "runtime asset digest does not match qualified generation"
+                )
+            }
+            RuntimeAssetError::EmptyHelperIdentity(index) => {
+                write!(f, "selected helper asset {index} has an empty identity")
+            }
+            RuntimeAssetError::EmptyHelperDigest(index) => {
+                write!(
+                    f,
+                    "selected helper asset {index} has an empty observed digest"
+                )
+            }
+            RuntimeAssetError::DuplicateHelperIdentity { first, duplicate } => write!(
+                f,
+                "selected helper asset {duplicate} duplicates selected helper asset {first}"
+            ),
+            RuntimeAssetError::ExtraHelperIdentity(index) => {
+                write!(
+                    f,
+                    "selected helper asset {index} is not declared by the generation"
+                )
+            }
+            RuntimeAssetError::MissingHelperIdentity(index) => {
+                write!(f, "generation helper binding {index} has no selected asset")
+            }
+            RuntimeAssetError::HelperDigestMismatch(index) => {
+                write!(
+                    f,
+                    "selected helper asset {index} digest does not match generation"
+                )
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+impl std::error::Error for RuntimeAssetError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            RuntimeAssetError::CompatibilityPath(err) => Some(err),
+            _ => None,
+        }
+    }
+}
+
+#[cfg(unix)]
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy)]
+struct QualifiedRuntimeAssets<'selection, 'asset, 'generation> {
+    generation: QualifiedGenerationManifest<'generation>,
+    selection: &'selection RuntimeAssetSelection<'asset>,
+}
+
+#[cfg(unix)]
+#[allow(dead_code)]
+impl<'selection, 'asset, 'generation> QualifiedRuntimeAssets<'selection, 'asset, 'generation> {
+    fn generation(self) -> QualifiedGenerationManifest<'generation> {
+        self.generation
+    }
+
+    fn selection(self) -> &'selection RuntimeAssetSelection<'asset> {
+        self.selection
+    }
+}
+
+#[cfg(unix)]
+fn validate_absolute_runtime_asset_path(
+    path: &OsStr,
+    name: &'static str,
+) -> Result<(), RuntimeAssetError> {
+    use std::os::unix::ffi::OsStrExt;
+
+    if path.is_empty() {
+        return Err(RuntimeAssetError::EmptyPath(name));
+    }
+    if path.as_bytes().contains(&0) {
+        return Err(RuntimeAssetError::NulPath(name));
+    }
+    if !std::path::Path::new(path).is_absolute() {
+        return Err(RuntimeAssetError::RelativePath(name));
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+#[allow(dead_code)]
+fn qualify_runtime_assets<'selection, 'asset, 'generation>(
+    generation: QualifiedGenerationManifest<'generation>,
+    selection: &'selection RuntimeAssetSelection<'asset>,
+) -> Result<QualifiedRuntimeAssets<'selection, 'asset, 'generation>, RuntimeAssetError> {
+    validate_absolute_runtime_asset_path(selection.runtime.program_path, "runtime_program")?;
+    validate_absolute_runtime_asset_path(selection.compatibility_dir, "compatibility_dir")?;
+    validate_path_component("compat_dir", selection.compatibility_dir)
+        .map_err(RuntimeAssetError::CompatibilityPath)?;
+
+    if selection.runtime.observed_digest.is_empty() {
+        return Err(RuntimeAssetError::EmptyRuntimeDigest);
+    }
+    if selection.runtime.observed_digest != generation.manifest().runtime_digest {
+        return Err(RuntimeAssetError::RuntimeDigestMismatch);
+    }
+
+    for (index, helper) in selection.helpers.iter().enumerate() {
+        if helper.identity.is_empty() {
+            return Err(RuntimeAssetError::EmptyHelperIdentity(index));
+        }
+        validate_absolute_runtime_asset_path(helper.asset_path, "helper_asset")?;
+        if helper.observed_digest.is_empty() {
+            return Err(RuntimeAssetError::EmptyHelperDigest(index));
+        }
+        for (first, previous) in selection.helpers[..index].iter().enumerate() {
+            if previous.identity == helper.identity {
+                return Err(RuntimeAssetError::DuplicateHelperIdentity {
+                    first,
+                    duplicate: index,
+                });
+            }
+        }
+
+        let Some(manifest_helper) = generation
+            .manifest()
+            .helper_digests
+            .iter()
+            .find(|declared| declared.identity == helper.identity)
+        else {
+            return Err(RuntimeAssetError::ExtraHelperIdentity(index));
+        };
+        if manifest_helper.digest != helper.observed_digest {
+            return Err(RuntimeAssetError::HelperDigestMismatch(index));
+        }
+    }
+
+    for (manifest_index, declared) in generation.manifest().helper_digests.iter().enumerate() {
+        if !selection
+            .helpers
+            .iter()
+            .any(|selected| selected.identity == declared.identity)
+        {
+            return Err(RuntimeAssetError::MissingHelperIdentity(manifest_index));
+        }
+    }
+
+    Ok(QualifiedRuntimeAssets {
+        generation,
+        selection,
+    })
+}
+
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum UpdateEvidenceVerdict {
@@ -5267,6 +5473,450 @@ exit 0
         assert_eq!(before, after);
         assert!(std::ptr::eq(first.manifest(), second.manifest()));
         assert!(std::ptr::eq(first.manifest(), &manifest));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b13_a_valid_multi_helper_assets_are_qualified_and_borrowed() {
+        let manifest = m1_b11_valid_manifest();
+        let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements())
+            .expect("generation must qualify");
+        let helpers = [
+            HelperAssetBinding {
+                identity: "compat-helper",
+                asset_path: OsStr::new("/generation/helpers/compat-helper"),
+                observed_digest: "opaque-helper-digest:01",
+            },
+            HelperAssetBinding {
+                identity: "runtime-helper",
+                asset_path: OsStr::new("/generation/helpers/runtime-helper"),
+                observed_digest: "opaque-helper-digest:02",
+            },
+        ];
+        let selection = RuntimeAssetSelection {
+            runtime: RuntimeAssetBinding {
+                program_path: OsStr::new("/generation/runtime/codex"),
+                observed_digest: "opaque-runtime-digest:v1:aabbcc",
+            },
+            compatibility_dir: OsStr::new("/generation/compat/bin"),
+            helpers: &helpers,
+        };
+
+        let qualified = qualify_runtime_assets(generation, &selection)
+            .expect("valid runtime assets must qualify");
+        assert!(std::ptr::eq(qualified.selection(), &selection));
+        assert!(std::ptr::eq(qualified.generation().manifest(), &manifest));
+        assert!(std::ptr::eq(
+            qualified.selection().helpers,
+            helpers.as_slice()
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b13_b_zero_helpers_requires_zero_helper_manifest() {
+        let mut manifest = m1_b11_valid_manifest();
+        manifest.helper_digests.clear();
+        let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements())
+            .expect("zero-helper manifest must qualify");
+        let selection = RuntimeAssetSelection {
+            runtime: RuntimeAssetBinding {
+                program_path: OsStr::new("/generation/runtime/codex"),
+                observed_digest: "opaque-runtime-digest:v1:aabbcc",
+            },
+            compatibility_dir: OsStr::new("/generation/compat/bin"),
+            helpers: &[],
+        };
+        qualify_runtime_assets(generation, &selection)
+            .expect("zero selected helpers must match zero-helper manifest");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b13_c_runtime_path_shape_fails_closed() {
+        use std::os::unix::ffi::OsStrExt;
+        let manifest = m1_b11_valid_manifest();
+        let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements())
+            .expect("generation must qualify");
+        let helpers = [
+            HelperAssetBinding {
+                identity: "compat-helper",
+                asset_path: OsStr::new("/h/compat"),
+                observed_digest: "opaque-helper-digest:01",
+            },
+            HelperAssetBinding {
+                identity: "runtime-helper",
+                asset_path: OsStr::new("/h/runtime"),
+                observed_digest: "opaque-helper-digest:02",
+            },
+        ];
+        for (path, expected) in [
+            (
+                OsStr::new(""),
+                RuntimeAssetError::EmptyPath("runtime_program"),
+            ),
+            (
+                OsStr::new("relative/codex"),
+                RuntimeAssetError::RelativePath("runtime_program"),
+            ),
+            (
+                OsStr::from_bytes(b"/runtime/co\0dex"),
+                RuntimeAssetError::NulPath("runtime_program"),
+            ),
+        ] {
+            let selection = RuntimeAssetSelection {
+                runtime: RuntimeAssetBinding {
+                    program_path: path,
+                    observed_digest: "opaque-runtime-digest:v1:aabbcc",
+                },
+                compatibility_dir: OsStr::new("/compat/bin"),
+                helpers: &helpers,
+            };
+            assert_eq!(
+                qualify_runtime_assets(generation, &selection).unwrap_err(),
+                expected
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b13_d_compatibility_directory_shape_fails_closed() {
+        use std::os::unix::ffi::OsStrExt;
+        let manifest = m1_b11_valid_manifest();
+        let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements())
+            .expect("generation must qualify");
+        let helpers = [
+            HelperAssetBinding {
+                identity: "compat-helper",
+                asset_path: OsStr::new("/h/compat"),
+                observed_digest: "opaque-helper-digest:01",
+            },
+            HelperAssetBinding {
+                identity: "runtime-helper",
+                asset_path: OsStr::new("/h/runtime"),
+                observed_digest: "opaque-helper-digest:02",
+            },
+        ];
+        let cases = [
+            (
+                OsStr::new(""),
+                RuntimeAssetError::EmptyPath("compatibility_dir"),
+            ),
+            (
+                OsStr::new("relative/compat"),
+                RuntimeAssetError::RelativePath("compatibility_dir"),
+            ),
+            (
+                OsStr::from_bytes(b"/compat/bi\0n"),
+                RuntimeAssetError::NulPath("compatibility_dir"),
+            ),
+            (
+                OsStr::new("/compat:/other"),
+                RuntimeAssetError::CompatibilityPath(TermuxBaseEnvError::ColonInPathComponent(
+                    "compat_dir",
+                )),
+            ),
+        ];
+        for (compatibility_dir, expected) in cases {
+            let selection = RuntimeAssetSelection {
+                runtime: RuntimeAssetBinding {
+                    program_path: OsStr::new("/runtime/codex"),
+                    observed_digest: "opaque-runtime-digest:v1:aabbcc",
+                },
+                compatibility_dir,
+                helpers: &helpers,
+            };
+            assert_eq!(
+                qualify_runtime_assets(generation, &selection).unwrap_err(),
+                expected
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b13_e_runtime_digest_is_required_and_manifest_bound() {
+        let manifest = m1_b11_valid_manifest();
+        let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements())
+            .expect("generation must qualify");
+        let helpers = [
+            HelperAssetBinding {
+                identity: "compat-helper",
+                asset_path: OsStr::new("/h/compat"),
+                observed_digest: "opaque-helper-digest:01",
+            },
+            HelperAssetBinding {
+                identity: "runtime-helper",
+                asset_path: OsStr::new("/h/runtime"),
+                observed_digest: "opaque-helper-digest:02",
+            },
+        ];
+        for (digest, expected) in [
+            ("", RuntimeAssetError::EmptyRuntimeDigest),
+            (
+                "different-runtime-digest",
+                RuntimeAssetError::RuntimeDigestMismatch,
+            ),
+        ] {
+            let selection = RuntimeAssetSelection {
+                runtime: RuntimeAssetBinding {
+                    program_path: OsStr::new("/runtime/codex"),
+                    observed_digest: digest,
+                },
+                compatibility_dir: OsStr::new("/compat/bin"),
+                helpers: &helpers,
+            };
+            assert_eq!(
+                qualify_runtime_assets(generation, &selection).unwrap_err(),
+                expected
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b13_f_helper_binding_shape_fails_closed() {
+        use std::os::unix::ffi::OsStrExt;
+        let manifest = m1_b11_valid_manifest();
+        let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements())
+            .expect("generation must qualify");
+        let cases = [
+            HelperAssetBinding {
+                identity: "",
+                asset_path: OsStr::new("/h/compat"),
+                observed_digest: "opaque-helper-digest:01",
+            },
+            HelperAssetBinding {
+                identity: "compat-helper",
+                asset_path: OsStr::new(""),
+                observed_digest: "opaque-helper-digest:01",
+            },
+            HelperAssetBinding {
+                identity: "compat-helper",
+                asset_path: OsStr::new("relative/helper"),
+                observed_digest: "opaque-helper-digest:01",
+            },
+            HelperAssetBinding {
+                identity: "compat-helper",
+                asset_path: OsStr::from_bytes(b"/h/co\0mpat"),
+                observed_digest: "opaque-helper-digest:01",
+            },
+            HelperAssetBinding {
+                identity: "compat-helper",
+                asset_path: OsStr::new("/h/compat"),
+                observed_digest: "",
+            },
+        ];
+        let expected = [
+            RuntimeAssetError::EmptyHelperIdentity(0),
+            RuntimeAssetError::EmptyPath("helper_asset"),
+            RuntimeAssetError::RelativePath("helper_asset"),
+            RuntimeAssetError::NulPath("helper_asset"),
+            RuntimeAssetError::EmptyHelperDigest(0),
+        ];
+        for (first, expected) in cases.into_iter().zip(expected) {
+            let helpers = [
+                first,
+                HelperAssetBinding {
+                    identity: "runtime-helper",
+                    asset_path: OsStr::new("/h/runtime"),
+                    observed_digest: "opaque-helper-digest:02",
+                },
+            ];
+            let selection = RuntimeAssetSelection {
+                runtime: RuntimeAssetBinding {
+                    program_path: OsStr::new("/runtime/codex"),
+                    observed_digest: "opaque-runtime-digest:v1:aabbcc",
+                },
+                compatibility_dir: OsStr::new("/compat/bin"),
+                helpers: &helpers,
+            };
+            assert_eq!(
+                qualify_runtime_assets(generation, &selection).unwrap_err(),
+                expected
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b13_g_helper_set_must_match_manifest_exactly() {
+        let manifest = m1_b11_valid_manifest();
+        let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements())
+            .expect("generation must qualify");
+
+        let missing = [HelperAssetBinding {
+            identity: "compat-helper",
+            asset_path: OsStr::new("/h/compat"),
+            observed_digest: "opaque-helper-digest:01",
+        }];
+        let selection = RuntimeAssetSelection {
+            runtime: RuntimeAssetBinding {
+                program_path: OsStr::new("/runtime/codex"),
+                observed_digest: "opaque-runtime-digest:v1:aabbcc",
+            },
+            compatibility_dir: OsStr::new("/compat/bin"),
+            helpers: &missing,
+        };
+        assert_eq!(
+            qualify_runtime_assets(generation, &selection).unwrap_err(),
+            RuntimeAssetError::MissingHelperIdentity(1)
+        );
+
+        let extra = [
+            HelperAssetBinding {
+                identity: "compat-helper",
+                asset_path: OsStr::new("/h/compat"),
+                observed_digest: "opaque-helper-digest:01",
+            },
+            HelperAssetBinding {
+                identity: "runtime-helper",
+                asset_path: OsStr::new("/h/runtime"),
+                observed_digest: "opaque-helper-digest:02",
+            },
+            HelperAssetBinding {
+                identity: "unexpected-helper",
+                asset_path: OsStr::new("/h/extra"),
+                observed_digest: "opaque-extra-digest",
+            },
+        ];
+        let selection = RuntimeAssetSelection {
+            runtime: RuntimeAssetBinding {
+                program_path: OsStr::new("/runtime/codex"),
+                observed_digest: "opaque-runtime-digest:v1:aabbcc",
+            },
+            compatibility_dir: OsStr::new("/compat/bin"),
+            helpers: &extra,
+        };
+        assert_eq!(
+            qualify_runtime_assets(generation, &selection).unwrap_err(),
+            RuntimeAssetError::ExtraHelperIdentity(2)
+        );
+
+        let duplicate = [
+            HelperAssetBinding {
+                identity: "compat-helper",
+                asset_path: OsStr::new("/h/compat-a"),
+                observed_digest: "opaque-helper-digest:01",
+            },
+            HelperAssetBinding {
+                identity: "compat-helper",
+                asset_path: OsStr::new("/h/compat-b"),
+                observed_digest: "opaque-helper-digest:01",
+            },
+        ];
+        let selection = RuntimeAssetSelection {
+            runtime: RuntimeAssetBinding {
+                program_path: OsStr::new("/runtime/codex"),
+                observed_digest: "opaque-runtime-digest:v1:aabbcc",
+            },
+            compatibility_dir: OsStr::new("/compat/bin"),
+            helpers: &duplicate,
+        };
+        assert_eq!(
+            qualify_runtime_assets(generation, &selection).unwrap_err(),
+            RuntimeAssetError::DuplicateHelperIdentity {
+                first: 0,
+                duplicate: 1,
+            }
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b13_h_helper_digest_mismatch_is_rejected() {
+        let manifest = m1_b11_valid_manifest();
+        let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements())
+            .expect("generation must qualify");
+        let helpers = [
+            HelperAssetBinding {
+                identity: "compat-helper",
+                asset_path: OsStr::new("/h/compat"),
+                observed_digest: "wrong-digest",
+            },
+            HelperAssetBinding {
+                identity: "runtime-helper",
+                asset_path: OsStr::new("/h/runtime"),
+                observed_digest: "opaque-helper-digest:02",
+            },
+        ];
+        let selection = RuntimeAssetSelection {
+            runtime: RuntimeAssetBinding {
+                program_path: OsStr::new("/runtime/codex"),
+                observed_digest: "opaque-runtime-digest:v1:aabbcc",
+            },
+            compatibility_dir: OsStr::new("/compat/bin"),
+            helpers: &helpers,
+        };
+        assert_eq!(
+            qualify_runtime_assets(generation, &selection).unwrap_err(),
+            RuntimeAssetError::HelperDigestMismatch(0)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b13_i_raw_non_utf8_paths_are_retained_exactly() {
+        use std::os::unix::ffi::{OsStrExt, OsStringExt};
+        let mut manifest = m1_b11_valid_manifest();
+        manifest.helper_digests.clear();
+        let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements())
+            .expect("generation must qualify");
+        let runtime_raw = b"/runtime/co\xffdex".to_vec();
+        let compat_raw = b"/compat/bi\x80n".to_vec();
+        let runtime_path = OsString::from_vec(runtime_raw.clone());
+        let compat_dir = OsString::from_vec(compat_raw.clone());
+        let selection = RuntimeAssetSelection {
+            runtime: RuntimeAssetBinding {
+                program_path: runtime_path.as_os_str(),
+                observed_digest: "opaque-runtime-digest:v1:aabbcc",
+            },
+            compatibility_dir: compat_dir.as_os_str(),
+            helpers: &[],
+        };
+        let qualified = qualify_runtime_assets(generation, &selection)
+            .expect("raw non-UTF8 absolute paths must qualify");
+        assert_eq!(
+            qualified.selection().runtime.program_path.as_bytes(),
+            runtime_raw.as_slice()
+        );
+        assert_eq!(
+            qualified.selection().compatibility_dir.as_bytes(),
+            compat_raw.as_slice()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b13_j_qualification_is_deterministic_and_has_no_environment_side_effect() {
+        let mut manifest = m1_b11_valid_manifest();
+        manifest.helper_digests.clear();
+        let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements())
+            .expect("generation must qualify");
+        let selection = RuntimeAssetSelection {
+            runtime: RuntimeAssetBinding {
+                program_path: OsStr::new("/runtime/codex"),
+                observed_digest: "opaque-runtime-digest:v1:aabbcc",
+            },
+            compatibility_dir: OsStr::new("/compat/bin"),
+            helpers: &[],
+        };
+        let before = [
+            std::env::var_os("PREFIX"),
+            std::env::var_os("TMPDIR"),
+            std::env::var_os("PATH"),
+        ];
+        let first = qualify_runtime_assets(generation, &selection).expect("first qualification");
+        let second = qualify_runtime_assets(generation, &selection).expect("second qualification");
+        let after = [
+            std::env::var_os("PREFIX"),
+            std::env::var_os("TMPDIR"),
+            std::env::var_os("PATH"),
+        ];
+        assert_eq!(before, after);
+        assert!(std::ptr::eq(first.selection(), second.selection()));
+        assert!(std::ptr::eq(first.selection(), &selection));
     }
 
     fn m1_b12_remote_request() -> UpdateRequest<'static> {
