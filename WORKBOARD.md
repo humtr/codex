@@ -29,63 +29,76 @@ or mutation of the installed Codex product.
 
 ## Selected next action
 
-### Bundle M1-B7 — explicit-input passthrough launch composition
+### Bundle M1-B8 — explicit-input Termux base environment plan
 
-- Prior accepted evidence: M1-B6 commit
-  `a4b4cb3a91bd78ea07952739f054695f10bab638`.
-- Exact outcome: compose the accepted B6 passthrough-policy planner with the
-  accepted B4 runtime-FD/final-exec path through one module-private production
-  launch function. The function receives the selected upstream program,
-  resolver path, managed-config directory, and original raw user argv as
-  explicit inputs; it performs sandbox-policy planning first and only then calls
-  the existing `exec_upstream_with_runtime_fds` primitive with the planned argv.
-- This is composition, not path policy. Do not derive, hard-code, canonicalize,
-  create, repair, or select product runtime/generation/config paths in this
-  bundle. Do not wire normal `main` or implement update/doctor/Manager behavior.
-- Writable worker path: `crates/core/src/main.rs` only. No dependency, manifest,
-  authority-document, or extra-file changes are authorized.
-- Governing contracts: `SPEC.md` sections 3 and 5 require upstream passthrough,
-  explicit unsupported-sandbox failure, selected no-sandbox policy, read-only
-  FD 33/34 sources, final-process fidelity, and a qualified runtime environment.
-  B4/B6 acceptance in `GOAL.md` is evidence for the two primitives being
-  composed; do not duplicate or reinterpret their internals.
-- Error boundary: keep any new launch error type module-private. A policy
-  failure must be distinguishable from runtime I/O/exec failure without lossy
-  argv conversion. Unsupported sandbox input must return before the resolver,
-  config directory, or program is opened/executed.
-- Required focused proof: (1) pass an unsupported sandbox request together with
-  deliberately nonexistent program/resolver/config paths and prove the result
-  is the policy error rather than I/O; (2) for accepted ordinary input, use a
-  test-owned executable fake upstream plus temporary resolver/config roots and
-  prove after the real final exec that argv begins with exactly `-c` and
-  `sandbox_mode="danger-full-access"`, followed by every original user argument
-  in order, FD 33/34 refer to the supplied read-only sources, and the existing
-  five contamination variables are absent while an unrelated environment value
-  survives; (3) preserve existing failed-exec FD restoration behavior by
-  reusing the B4 primitive rather than copying its implementation.
-- Test-only helper artifacts must live under temporary roots and be removed by
-  the test. They must not become tracked files or public command semantics.
-- Keep all 34 accepted B1-B6 tests green. Use `CARGO_NET_OFFLINE=true` and a
-  repository-external `CARGO_TARGET_DIR` for `cargo fmt --check`, focused B7
+- Prior accepted evidence: M1-B7 commit
+  `5e5044eb3ae9286b72b16f1e1b9092f4e728bc82`.
+- Exact outcome: add a module-private, std-only, pure environment-planning
+  function/type that receives all path/environment inputs explicitly and returns
+  deterministic child-environment assignments. It must not read `std::env`,
+  inspect the filesystem, mutate the parent environment, construct a `Command`,
+  call an exec primitive, select a product runtime/generation, or wire `main`.
+- This is a bounded Termux base-compatibility plan, not a permanent public env
+  API. `SPEC.md` requires a qualified runtime environment and selected official
+  runtime/compatibility paths but does not fix these positive variable details.
+  Sealed-predecessor read-only evidence from `job_htl_ad77938ce5`,
+  `job_htr_d0247b30c9`, and `job_hu0_0299f115d7` observed the temp/certificate/
+  PATH behavior below; B8 may implement that hypothesis for M1 validation, but
+  it is not promoted to `SPEC.md` proof until later real-Termux qualification.
+- Explicit planner inputs: selected compatibility-tool directory, actual Termux
+  prefix `bin` directory, selected temp directory, selected certificate file,
+  optional selected certificate directory, and inherited raw `PATH`,
+  `SSL_CERT_FILE`, and `SSL_CERT_DIR` values supplied by the caller. Do not
+  derive these from hard-coded app-data paths.
+- Planned assignments:
+  - `TMPDIR`, `TMP`, `TEMP`, and `SQLITE_TMPDIR` = the supplied temp directory.
+  - `SSL_CERT_FILE` = inherited non-empty raw value when supplied, otherwise the
+    supplied certificate file.
+  - `SSL_CERT_DIR` = inherited non-empty raw value when supplied; otherwise the
+    supplied optional certificate directory; if neither exists, plan no
+    `SSL_CERT_DIR` assignment.
+  - `PATH` = supplied compatibility-tool directory, then supplied prefix `bin`,
+    then inherited non-empty raw PATH. If inherited PATH is absent/empty, do not
+    create an empty trailing component.
+- Raw-value rule: preserve non-UTF-8 inherited environment bytes on Unix/Android;
+  do not use lossy conversion. PATH construction must reject or clearly report
+  an input path component that cannot be represented safely in a Unix PATH
+  rather than silently changing it.
+- Explicit exclusions: B8 must not plan or mutate `HOME`, `CODEX_HOME`, XDG
+  variables, `GODEBUG`, `BROWSER`, `CODEX_SELF_EXE`, Manager/profile/session
+  variables, approval policy, or the five contamination removals already owned
+  by B3. Do not infer a code-mode-host environment variable from predecessor
+  internals before official runtime qualification.
+- Required focused proof: deterministic exact assignments for all four temp
+  variables; inherited-vs-fallback certificate precedence including empty-value
+  cases; optional certificate-directory absence; exact PATH ordering with
+  absent/empty inherited PATH; byte-for-byte preservation of a non-UTF-8
+  inherited PATH; unusual synthetic explicit paths proving no hard-coded Termux
+  app-data root; and negative assertions that every excluded variable is absent
+  from the plan. Planner inputs/output must be independent of the current live
+  process environment.
+- Keep all 38 accepted B1-B7 tests green. Use `CARGO_NET_OFFLINE=true` and a
+  repository-external `CARGO_TARGET_DIR` for `cargo fmt --check`, focused B8
   tests, `cargo test --locked --workspace`, and
   `cargo build --locked --workspace`.
 - Worker configuration: one bounded `agy` CLI implementation worker in
   `accept-edits` mode through the Task-owned shell route, `fork_context: false`.
   No delegation, commits, pushes, package operations, network/update behavior,
   or live product state.
-- Protected surfaces: every repository path except `crates/core/src/main.rs`,
-  all live resolver/runtime/launcher/Manager state, profiles, sessions, auth,
-  Git refs, sealed legacy history, and unrelated worktrees.
-- Explicitly deferred: actual runtime/generation path selection, positive
-  runtime-environment additions not already normatively required, normal `main`
+- Writable worker path: `crates/core/src/main.rs` only. No dependency, manifest,
+  authority-document, or extra-file changes are authorized.
+- Protected surfaces: every other repository path, all live resolver/runtime/
+  launcher/Manager state, profiles, sessions, auth, Git refs, sealed legacy
+  history, and unrelated worktrees.
+- Explicitly deferred: applying the plan to the final `Command`, selected
+  runtime/generation resolution, code-mode-host qualification, normal `main`
   wiring, doctor, generation/updater interfaces, installation, activation, and
   Manager behavior.
-- Completion gate: actual diff contains only the bounded composition and tests;
-  policy failure demonstrably precedes runtime I/O; accepted launch crosses the
-  real exec boundary with planned argv plus FD/env contracts intact; no copied
-  FD/env implementation, dependency, public-surface expansion, path-policy
-  decision, tracked test artifact, or protected-state mutation; Lead reruns the
-  load-bearing validation before acceptance.
+- Completion gate: actual diff contains only the pure planner and focused tests;
+  no live env/filesystem read or mutation, path-policy decision, lossy raw-value
+  conversion, dependency, public-surface expansion, or protected-state change;
+  all named validation passes and the Lead reviews the plan as a bounded M1
+  compatibility hypothesis rather than permanent public contract.
 
 ## Milestone 1 required outcomes
 

@@ -248,6 +248,21 @@ Termux qualification. Produce one candidate for independent product review.
   formatting, all 34/34 workspace tests, three serial repetitions of the 10
   `passthrough_` tests, and the locked workspace build with offline mode and a
   repository-external Cargo target.
+- Milestone 1 bundle M1-B7 is accepted at
+  `5e5044eb3ae9286b72b16f1e1b9092f4e728bc82`. The module-private
+  `launch_upstream` composes B6 policy planning with the accepted B4 runtime-FD
+  final-exec primitive through explicit program/resolver/config/user-argv
+  inputs. Policy rejection occurs before runtime I/O; accepted launch crosses
+  the real exec boundary with the exact no-sandbox argv prelude, supplied FD
+  33/34 sources, the existing five-variable contamination fence, and unrelated
+  environment preservation. `main` remains unwired and no runtime path policy
+  is introduced.
+- Primary-Lead validation initially used an invalid focused `--exact` filter in
+  `job_hvh_029dd726eb`; those zero-test repetitions are not acceptance evidence,
+  although that job's full 38-test run passed. Corrected validation job
+  `job_hvj_d1a56ada7b` ran each of the four B7 focused tests exactly three times
+  (12 actual focused runs), then passed all 38/38 workspace tests and the locked
+  build with offline mode and a repository-external Cargo target.
 
 ### Historical Proof
 
@@ -260,12 +275,12 @@ Termux qualification. Produce one candidate for independent product review.
   prove isolated final-exec argv/stream/exit and contamination-fence behavior,
   M1-B4 proves isolated FD 33/34 setup/restoration plus test-resolver
   non-mutation, M1-B5 proves TTY/external-SIGTERM fidelity on the current
-  Android/Termux device, and M1-B6 proves the isolated Termux sandbox-policy
-  planner. The planner is not yet composed with the runtime-FD exec path and
-  normal `main` is not wired to a qualified upstream runtime. Runtime/generation
-  path selection, broader environment planning, doctor composition,
-  generation/updater interfaces, and the full real-Termux smoke gate remain
-  unproven.
+  Android/Termux device, M1-B6 proves the Termux sandbox-policy planner, and
+  M1-B7 proves composition of that planner with the runtime-FD final-exec path.
+  Normal `main` is still not wired to a qualified upstream runtime. Positive
+  Termux runtime-environment planning, runtime/generation path selection,
+  doctor composition, generation/updater interfaces, and the full real-Termux
+  smoke gate remain unproven.
 - No release artifact, installation, update, activation, rollback, offline
   recovery, fresh-device behavior, Milestone 2 result, or production readiness
   is proven.
@@ -277,11 +292,12 @@ Termux qualification. Produce one candidate for independent product review.
 - The primary Lead records each next bounded bundle in `WORKBOARD.md`, launches
   exactly one implementation worker, inspects the actual diff, and reruns the
   load-bearing validation before acceptance.
-- M1-B6 is accepted at `a4b4cb3a91bd78ea07952739f054695f10bab638`.
-- M1-B7 is the current checkpoint. It composes the accepted sandbox planner with
-  the accepted runtime-FD final-exec path through explicit injected program,
-  resolver, and managed-config inputs. It does not choose product runtime paths
-  or wire normal `main`; those remain later checkpoints.
+- M1-B7 is accepted at `5e5044eb3ae9286b72b16f1e1b9092f4e728bc82`.
+- M1-B8 is the current checkpoint. It defines a pure explicit-input Termux base
+  runtime-environment plan for temporary-directory, certificate, and PATH
+  compatibility without reading or mutating live environment/state and without
+  wiring that plan into `main` or the final exec path. Runtime path selection
+  and actual environment application remain later checkpoints.
 - At every bundle completion the Lead records its own diff/test disposition
   here. No worker report, planning subagent, or checkpoint reviewer substitutes
   for that integration decision.
