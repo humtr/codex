@@ -13,6 +13,8 @@ in Git history and the `GOAL.md` acceptance ledger, not here.
 - Acceptance owner: `GOAL.md`
 - Current milestone: Milestone 1 — local Core
 - Planning/reviewer agents: disabled
+- Problem advisor: one reusable `gpt-5.6-sol` / `max` read-only consultant,
+  only after a material implementation problem survives focused local diagnosis
 - Live installation or activation: prohibited in this milestone
 
 ## Current objective
@@ -64,6 +66,8 @@ command classification before implementing runtime execution.
 - Do not implement Manager product features.
 - Do not run package installation or update commands.
 - Do not invoke checkpoint planners or reviewers.
+- Do not treat problem-advisor output as authority, implementation, review, or
+  acceptance evidence.
 - Do not modify `legacy/monolith` or rewrite sealed tags.
 - Do not expand the document hierarchy during ordinary implementation.
 

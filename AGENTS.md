@@ -10,6 +10,9 @@ layer for upstream Codex. Keep the repository small and product-local.
 - `GOAL.md` owns the current success threshold and acceptance ledger.
 - `WORKBOARD.md` owns only the current milestone and next implementation work.
 - `README.md` is an entrypoint and must not introduce independent semantics.
+- At implementation start or resume, use the installed `$goal-md` skill to bind
+  this repository's `GOAL.md`, then read `SPEC.md`, `GOAL.md`, and
+  `WORKBOARD.md` in that order. The skill does not override these authorities.
 
 When a proposed change alters a public command, ownership boundary, persistent
 state, update/rollback behavior, security property, or Termux runtime contract,
@@ -68,3 +71,25 @@ irreversible design decision without ambiguity.
 - Checkpoint planning and review agents are disabled during the two Core
   milestones. Perform an independent product review only after the Milestone 2
   acceptance candidate is complete.
+
+## Implementation problem consultation
+
+- The planning/review prohibition does not disable bounded consultation when
+  implementation reaches a material problem that focused local diagnosis has
+  not resolved confidently.
+- On the first such problem in an active implementation run, use one read-only
+  advisor with model `gpt-5.6-sol`, reasoning effort `max`, and
+  `fork_context: false`. Reuse that same advisor for later problems with
+  `send_input`; resume it if it was closed. Do not spawn parallel or replacement
+  advisors unless the tool confirms that the prior identity is unavailable.
+- Give the advisor only the exact problem, governing contract excerpts,
+  concise evidence and failed attempts, protected surfaces, and the decision
+  needed next. Exclude secrets, credentials, private session content, and
+  unrelated history.
+- The advisor may analyze and recommend. It must not mutate files or runtime
+  state, delegate, invent product semantics, authorize work, or act as a
+  checkpoint planner or product reviewer.
+- The implementing agent remains responsible for verifying the advice and
+  choosing the action. Record a concise consultation and disposition in
+  `GOAL.md` only when it changes a contract, current plan, acceptance claim,
+  blocker, or proof requirement.

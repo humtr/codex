@@ -30,6 +30,25 @@
 - Review policy: independent product review only after the Milestone 2
   acceptance candidate is complete.
 
+## Implementation Problem Advisory Policy
+
+- Advisory assistance enabled: true
+- Trigger: a material implementation problem remains unresolved after focused
+  local diagnosis, or the next action cannot be selected confidently without
+  resolving a contract, architecture, safety, recovery, or proof question
+- Advisor model: `gpt-5.6-sol`
+- Reasoning effort: `max`
+- Advisor context: `fork_context: false`
+- Reuse rule: create one advisor on the first qualifying problem in an active
+  implementation run and reuse that identity with `send_input`; resume it when
+  possible and do not create duplicates
+- Authority: read-only advice only; the implementing agent validates the
+  result and retains all mutation, contract, and acceptance decisions
+- Record rule: persist only a concise problem, evidence, advice, disposition,
+  and next gate when the consultation materially changes this goal or its
+  acceptance ledger
+- Policy source and timestamp: user decision on 2026-08-28
+
 ## Current Success Threshold
 
 The goal is complete only when both milestones in `SPEC.md` pass their declared
@@ -74,6 +93,9 @@ one current workboard, direct focused tests, and deferred independent review.
   a separate SDD now.
 - Disable implementation-time planning/reviewer agents and review the complete
   product candidate separately.
+- When implementation encounters a material unresolved problem, consult one
+  reusable `gpt-5.6-sol` advisor at `max` reasoning without turning it into a
+  planner, reviewer, or implementation owner.
 - Use exactly two Core milestones.
 - This foundation task creates documents and workflow only; implementation is
   handed to a later implementer.
@@ -118,6 +140,8 @@ Termux qualification. Produce one candidate for independent product review.
 - No Rust Core source, build, test, artifact, installation, update, activation,
   rollback, fresh-device behavior, or production readiness is proven yet.
 - No Manager implementation or Core/Manager integration is proven.
+- No implementation problem consultation has yet been required or completed;
+  the configured advisor policy is workflow readiness, not product proof.
 
 ### Checkpoint Plans
 
@@ -146,6 +170,8 @@ the selected current milestone.
 
 ## Handoff
 
-The next implementer starts with the selected action in `WORKBOARD.md`. The
-legacy branch may be inspected for behavior discovery but no source file may be
-copied into the rewrite.
+Resume through the installed `$goal-md` workflow with
+`/goal resume codex-goal.md`; it must resolve to this file on
+`rewrite/rust-core`. The next implementer then starts with the selected action
+in `WORKBOARD.md`. The legacy branch may be inspected for behavior discovery
+but no source file may be copied into the rewrite.
