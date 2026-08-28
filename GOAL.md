@@ -510,6 +510,20 @@ Termux qualification. Produce one candidate for independent product review.
   `git diff --check`, and a warning-free locked offline build with an external
   Cargo target. No Click plugin/Hook was used; the Workboard anti-loop discipline
   reused evidence and avoided an extra intermediate full-suite pass.
+- M1-B22 is accepted at `a89646da18c1e0b68e146b565a847dcc4b0fd0b6`.
+  The direct Lead completed the Core-side qualified Manager handoff. An explicit
+  `Unavailable` Manager returns one bounded static outcome without consuming
+  argv or constructing a process; `Available` can execute only the B21-qualified
+  Manager path, appends only the original raw trailing argv, inherits ordinary
+  environment and standard streams, and uses Unix final `exec` semantics.
+  Failed exec is a typed I/O error and leaves the caller environment unchanged.
+- B22 focused validation `job_iu0_937ceaf5fd` passed 4/4, including real raw
+  non-UTF-8 argv/stream/exit evidence and process-identity/SIGTERM delivery.
+  Final grouped acceptance `job_iu2_cf462a7fad` passed the full serial workspace
+  suite 132/132, eight complete default-parallel full repetitions, formatting,
+  `git diff --check`, a warning-free locked offline build, and source-text NUL
+  absence. The same commit also replaced B21's literal-NUL test fixture with an
+  equivalent numeric-byte fixture so repository text search remains reliable.
 - Milestone 1 is not complete. The normal `main` entrypoint is still not wired to
   a qualified upstream runtime. Public dispatch execution and the complete
   real-Termux smoke gate remain unproven.
@@ -547,11 +561,13 @@ Termux qualification. Produce one candidate for independent product review.
 - M1-B19 is closed at `148b1133f1afaa91668e19b4fade13bc761b0056`.
 - M1-B20 is closed at `07ed3af8764c10f03aaf3bf83b18ffb37a32b891`.
 - M1-B21 is closed at `5847f0d8d223e6abdf8d1876fc316ac1fda7b281`.
-- Current checkpoint: M1-B22 — complete the Core-side `termux` Manager handoff
-  boundary: `Unavailable` remains a bounded typed state with zero execution,
-  while `Available` final-execs only the B21-qualified Manager artifact with the
-  exact trailing raw argv and inherited standard process environment/streams.
-- Worker mode remains OFF; the primary Lead implements B22 directly.
+- M1-B22 is closed at `a89646da18c1e0b68e146b565a847dcc4b0fd0b6`.
+- Current checkpoint: M1-B23 — compose the exact B20 public route into the
+  already-proven local execution boundaries using one explicitly injected,
+  already-qualified local context. Upstream uses B14, doctor uses B19, termux
+  uses B22, and update remains a raw-argv typed handoff to the M1 updater
+  interface without performing update/network/activation behavior.
+- Worker mode remains OFF; the primary Lead implements B23 directly.
 - The repository now uses a Click-inspired execution discipline at the
   Workboard layer: reuse successful same-revision evidence, do not reopen or
   replace an active bounded contract without new material evidence, and run the
