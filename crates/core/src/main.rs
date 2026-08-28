@@ -2549,6 +2549,35 @@ fn execute_public_dispatch<
     }
 }
 
+#[cfg(unix)]
+#[allow(dead_code)]
+fn execute_public_entrypoint<
+    'context,
+    'runtime_selection,
+    'runtime_asset,
+    'manager_selection,
+    'manager_asset,
+    'generation,
+    I,
+    S,
+>(
+    raw_args: I,
+    context: LocalPublicDispatchContext<
+        'context,
+        'runtime_selection,
+        'runtime_asset,
+        'manager_selection,
+        'manager_asset,
+        'generation,
+    >,
+) -> Result<PublicDispatchCompletion, PublicDispatchExecutionError>
+where
+    I: IntoIterator<Item = S>,
+    S: Into<OsString>,
+{
+    execute_public_dispatch(plan_public_dispatch(raw_args), context)
+}
+
 fn main() {
     let mut args = std::env::args_os();
     let _ = args.next();
@@ -3908,6 +3937,58 @@ done
 
                 let err = exec_upstream(shell, args);
                 panic!("exec_upstream failed to replace process: {err}");
+            }
+            "m1_b24_real_termux_entrypoint" => {
+                let config_dir_path = std::env::var_os(PROBE_CONFIG_DIR_PATH_ENV)
+                    .expect("B24 config dir path must be set");
+                let fake_upstream_path = std::env::var_os(PROBE_FAKE_UPSTREAM_PATH_ENV)
+                    .expect("B24 fake upstream path must be set");
+                let root = std::path::Path::new(&fake_upstream_path)
+                    .parent()
+                    .expect("B24 fake runtime must have parent");
+                let compatibility_dir = root.join("compat");
+                let cert_file = root.join("cert.pem");
+
+                let snapshot = capture_termux_process_env();
+                let prefix = snapshot
+                    .prefix
+                    .as_deref()
+                    .expect("B24 real Termux smoke requires PREFIX");
+                let resolver_path = std::path::Path::new(prefix).join("etc/resolv.conf");
+
+                let mut manifest = m1_b11_valid_manifest();
+                manifest.helper_digests.clear();
+                let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements())
+                    .expect("B24 generation must qualify");
+                let selection = RuntimeAssetSelection {
+                    runtime: RuntimeAssetBinding {
+                        program_path: fake_upstream_path.as_os_str(),
+                        observed_digest: manifest.runtime_digest.as_str(),
+                    },
+                    compatibility_dir: compatibility_dir.as_os_str(),
+                    helpers: &[],
+                };
+                let runtime = qualify_runtime_assets(generation, &selection)
+                    .expect("B24 fake runtime must qualify");
+                let manager = qualify_manager_artifact(generation, None)
+                    .expect("B24 absent Manager must qualify");
+                let context = build_local_public_dispatch_context(
+                    runtime,
+                    manager,
+                    &snapshot,
+                    cert_file.as_os_str(),
+                    None,
+                    resolver_path.as_path(),
+                    std::path::Path::new(&config_dir_path),
+                    UpstreamDoctorCapability::Unsupported,
+                    CoreDoctorStatus::Healthy,
+                    ManagerDoctorStatus::Unavailable,
+                )
+                .expect("B24 context must be generation-coherent");
+
+                let err = execute_public_entrypoint([OsString::from("--version")], context)
+                    .expect_err("B24 upstream entrypoint must replace the process");
+                panic!("B24 public entrypoint failed to replace process: {err}");
             }
             "m1_b23_upstream_dispatch" => {
                 let resolver_path = std::env::var_os(PROBE_RESOLVER_PATH_ENV)
@@ -8273,6 +8354,216 @@ exit 0
         expected.extend_from_slice(OsStr::from_bytes(&[0xff, 0xfe, 0x80]).as_bytes());
         expected.push(b'\n');
         assert_eq!(result.stdout, expected);
+    }
+
+    #[cfg(unix)]
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct M1B24StableMetadata {
+        dev: u64,
+        ino: u64,
+        mode: u32,
+        uid: u32,
+        gid: u32,
+        size: u64,
+        mtime: i64,
+        mtime_nsec: i64,
+    }
+
+    #[cfg(unix)]
+    fn m1_b24_stable_metadata(metadata: &std::fs::Metadata) -> M1B24StableMetadata {
+        use std::os::unix::fs::MetadataExt;
+
+        M1B24StableMetadata {
+            dev: metadata.dev(),
+            ino: metadata.ino(),
+            mode: metadata.mode(),
+            uid: metadata.uid(),
+            gid: metadata.gid(),
+            size: metadata.size(),
+            mtime: metadata.mtime(),
+            mtime_nsec: metadata.mtime_nsec(),
+        }
+    }
+
+    #[cfg(unix)]
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct M1B24ProtectedFileSnapshot {
+        path: std::path::PathBuf,
+        link_metadata: M1B24StableMetadata,
+        link_target: Option<std::path::PathBuf>,
+        target_metadata: M1B24StableMetadata,
+        content: Vec<u8>,
+    }
+
+    #[cfg(unix)]
+    fn m1_b24_snapshot_protected_file(
+        path: &std::path::Path,
+    ) -> std::io::Result<M1B24ProtectedFileSnapshot> {
+        let link_metadata = std::fs::symlink_metadata(path)?;
+        let link_target = if link_metadata.file_type().is_symlink() {
+            Some(std::fs::read_link(path)?)
+        } else {
+            None
+        };
+        let target_metadata = std::fs::metadata(path)?;
+        let content = std::fs::read(path)?;
+        Ok(M1B24ProtectedFileSnapshot {
+            path: path.to_path_buf(),
+            link_metadata: m1_b24_stable_metadata(&link_metadata),
+            link_target,
+            target_metadata: m1_b24_stable_metadata(&target_metadata),
+            content,
+        })
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b24_a_raw_entrypoint_composes_b20_and_b23_without_update_io() {
+        use std::os::unix::ffi::{OsStrExt, OsStringExt};
+
+        let mut manifest = m1_b11_valid_manifest();
+        manifest.helper_digests.clear();
+        let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements()).unwrap();
+        let selection = RuntimeAssetSelection {
+            runtime: RuntimeAssetBinding {
+                program_path: OsStr::new("/missing/b24/runtime"),
+                observed_digest: manifest.runtime_digest.as_str(),
+            },
+            compatibility_dir: OsStr::new("/missing/b24/compat"),
+            helpers: &[],
+        };
+        let runtime = qualify_runtime_assets(generation, &selection).unwrap();
+        let manager = qualify_manager_artifact(generation, None).unwrap();
+        let snapshot = TermuxProcessEnvSnapshot {
+            prefix: None,
+            tmpdir: None,
+            inherited_path: None,
+            inherited_ssl_cert_file: None,
+            inherited_ssl_cert_dir: None,
+        };
+        let context = build_local_public_dispatch_context(
+            runtime,
+            manager,
+            &snapshot,
+            OsStr::new("/missing/b24/cert"),
+            None,
+            std::path::Path::new("/missing/b24/resolver"),
+            std::path::Path::new("/missing/b24/config"),
+            UpstreamDoctorCapability::Supported,
+            CoreDoctorStatus::ApiIncompatible,
+            ManagerDoctorStatus::Unhealthy,
+        )
+        .unwrap();
+        let raw = OsString::from_vec(vec![0xff, 0xfe, 0x80]);
+        let before = [std::env::var_os("PREFIX"), std::env::var_os("PATH")];
+        let outcome = execute_public_entrypoint(
+            [
+                OsString::from("update"),
+                OsString::from("--local"),
+                raw.clone(),
+            ],
+            context,
+        )
+        .unwrap();
+        let after = [std::env::var_os("PREFIX"), std::env::var_os("PATH")];
+
+        let PublicDispatchCompletion::Update(args) = outcome else {
+            panic!("B24 update entrypoint must remain an M1 typed handoff");
+        };
+        assert_eq!(args.len(), 2);
+        assert_eq!(args[0], OsString::from("--local"));
+        assert_eq!(args[1].as_os_str().as_bytes(), raw.as_os_str().as_bytes());
+        assert_eq!(before, after);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    #[ignore = "explicit real-Termux Milestone 1 smoke gate"]
+    fn test_m1_b24_real_termux_smoke_live_resolver_read_only() {
+        use std::os::unix::fs::PermissionsExt;
+
+        assert_eq!(std::env::consts::ARCH, "aarch64");
+        assert_eq!(std::env::consts::OS, "android");
+        assert!(
+            std::env::var_os("TERMUX_VERSION").is_some(),
+            "B24 smoke requires a real Termux environment"
+        );
+
+        let prefix = std::env::var_os("PREFIX").expect("B24 smoke requires PREFIX");
+        let prefix = std::path::PathBuf::from(prefix);
+        let resolver = prefix.join("etc/resolv.conf");
+        let launcher = prefix.join("bin/codex");
+        let resolver_before = m1_b24_snapshot_protected_file(&resolver)
+            .expect("snapshot live resolver before B24 smoke");
+        let launcher_before = m1_b24_snapshot_protected_file(&launcher)
+            .expect("snapshot installed launcher before B24 smoke");
+
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock must be after epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "codex-m1-b24-smoke-{}-{unique}",
+            std::process::id()
+        ));
+        assert!(
+            !root.starts_with(&prefix),
+            "B24 writable smoke root must not be under PREFIX"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("config")).unwrap();
+        std::fs::create_dir_all(root.join("compat")).unwrap();
+        std::fs::write(root.join("cert.pem"), b"test-owned-b24-cert\n").unwrap();
+        let runtime = root.join("fake-upstream.sh");
+        let shell = resolve_test_shell();
+        let script = format!(
+            r#"#!{}
+if [ "$#" -eq 3 ] && [ "$1" = "-c" ] && [ "$2" = 'sandbox_mode="danger-full-access"' ] && [ "$3" = "--version" ]; then
+    [ -r /proc/self/fd/33 ] || exit 91
+    [ -d /proc/self/fd/34 ] || exit 92
+elif [ "$#" -eq 1 ] && [ "$1" = "--version" ]; then
+    :
+else
+    printf 'unexpected argv\n' >&2
+    exit 93
+fi
+printf 'codex-upstream 9.9.9\n'
+printf 'upstream-version-stderr\n' >&2
+exit 0
+"#,
+            shell.to_str().expect("test shell path must be UTF-8")
+        );
+        std::fs::write(&runtime, script).unwrap();
+        let mut permissions = std::fs::metadata(&runtime).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&runtime, permissions).unwrap();
+
+        let direct = std::process::Command::new(&runtime)
+            .arg("--version")
+            .output()
+            .expect("run direct fake upstream version");
+        let through_core = run_exec_probe_with_env(
+            "m1_b24_real_termux_entrypoint",
+            &[
+                (PROBE_CONFIG_DIR_PATH_ENV, root.join("config").as_os_str()),
+                (PROBE_FAKE_UPSTREAM_PATH_ENV, runtime.as_os_str()),
+            ],
+        );
+
+        assert_eq!(through_core.status.code(), direct.status.code());
+        assert_eq!(through_core.stdout, direct.stdout);
+        assert_eq!(through_core.stderr, direct.stderr);
+        assert_eq!(direct.status.code(), Some(0));
+        assert_eq!(direct.stdout, b"codex-upstream 9.9.9\n");
+        assert_eq!(direct.stderr, b"upstream-version-stderr\n");
+
+        let resolver_after = m1_b24_snapshot_protected_file(&resolver)
+            .expect("snapshot live resolver after B24 smoke");
+        let launcher_after = m1_b24_snapshot_protected_file(&launcher)
+            .expect("snapshot installed launcher after B24 smoke");
+        assert_eq!(resolver_after, resolver_before);
+        assert_eq!(launcher_after, launcher_before);
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     fn m1_b12_remote_request() -> UpdateRequest<'static> {
