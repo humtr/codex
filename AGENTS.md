@@ -68,43 +68,60 @@ irreversible design decision without ambiguity.
 - Preserve upstream argv, TTY, signals, standard streams, and exit status at
   the final execution boundary.
 - Fault-test generation activation and rollback before any live cutover.
-- Checkpoint planning and review agents are disabled during the two Core
-  milestones. Perform an independent product review only after the Milestone 2
-  acceptance candidate is complete.
+- During each Core milestone, use one reusable read-only Sol Technical Lead for
+  bounded checkpoint planning and material implementation-problem
+  consultation. Additional planners and checkpoint reviewers are disabled.
+- Perform an independent product review only after the Milestone 2 acceptance
+  candidate is complete.
 
-## Implementation problem consultation
+## Sol Technical Lead planning and consultation
 
-- The planning/review prohibition does not disable bounded consultation when
-  implementation reaches a material problem that focused local diagnosis has
-  not resolved confidently.
-- On the first such problem in a milestone, use one read-only advisor with
+- The primary implementing agent owns execution, routine local microplanning,
+  evidence retrieval, mutation, validation, and all final decisions. It must
+  validate Technical Lead proposals against `SPEC.md` and `GOAL.md` before
+  updating `WORKBOARD.md` or implementing them.
+- At the start of each milestone, create one read-only Technical Lead with
   model `gpt-5.6-sol`, reasoning effort `max`, and `fork_context: false`.
-  Reuse that same advisor for later problems in the milestone with
-  `send_input`; resume it if it was closed. Do not spawn parallel advisors.
-- Advisor access is packet-only. Instruct it not to call shell, filesystem,
-  repository, web, MCP, delegation, or other tools and never to enumerate or
-  scan the repository. The implementing agent owns all evidence retrieval.
+  Reuse that identity with `send_input` for the milestone's bounded work-bundle
+  plans and for material problems that focused local diagnosis has not resolved
+  confidently. Resume it when possible and do not spawn parallel or duplicate
+  planning/advisory agents.
+- Invoke the Technical Lead for the initial milestone bundle, after completion
+  of the current bundle, after a material deviation, blocker, or authority
+  change, and at the milestone transition. Do not invoke it for each source
+  edit, test, commit, or other routine action inside an accepted bundle.
+- Technical Lead access is packet-only. Instruct it not to call shell,
+  filesystem, repository, web, MCP, delegation, or other tools and never to
+  enumerate or scan the repository. The implementing agent owns all evidence
+  retrieval.
 - The initial packet must contain the bound branch and commit, one exact
-  problem, governing contract excerpts, at most eight relevant source/test
-  snippets or diffs, concise failure evidence and attempted actions, protected
-  surfaces, and the decision needed next. The
+  checkpoint or problem, governing contract excerpts, at most eight relevant
+  source/test snippets or diffs, concise evidence and attempted actions when
+  applicable, protected surfaces, and the decision needed next. The
   packet must not exceed 12,000 estimated input tokens, or 48,000 characters
   when no tokenizer is available.
 - Every later `send_input` is delta-only: include the prior and current commit,
   changed paths, only the relevant diff or new evidence, and any changed
   authority. Do not resend unchanged material. A delta packet must not exceed
   5,000 estimated input tokens, or 20,000 characters without a tokenizer.
-- If the packet is insufficient, the advisor may request one exact additional
-  snippet or evidence item. The implementing agent retrieves and returns only
-  that item; the advisor must not read it independently. Request an answer of
-  no more than 900 words.
-- The advisor may analyze and recommend. It must not mutate files or runtime
-  state, delegate, invent product semantics, authorize work, or act as a
-  checkpoint planner or product reviewer.
-- The implementing agent remains responsible for verifying the advice and
-  choosing the action. Record a concise consultation and disposition in
-  `GOAL.md` only when it changes a contract, current plan, acceptance claim,
-  blocker, or proof requirement.
-- Replace the advisor only at a milestone boundary, when its identity is
+- If the packet is insufficient, the Technical Lead may request one exact
+  additional snippet or evidence item. The implementing agent retrieves and
+  returns only that item; the Technical Lead must not read it independently.
+  Request an answer of no more than 900 words.
+- The Technical Lead may analyze, recommend, and propose the next bounded
+  checkpoint plan. It must not mutate files or runtime state, delegate, invent
+  product semantics, authorize work, implement the plan, or review or certify
+  milestone acceptance.
+- Before entering a materially different bundle, the implementing agent records
+  its validated disposition and executable bundle in `WORKBOARD.md`. Record a
+  concise synthesis in `GOAL.md` when the plan or consultation changes the
+  current plan, acceptance claim, blocker, or proof requirement.
+- When an accepted bundle is exhausted but the milestone gate is incomplete,
+  reuse the same Technical Lead to propose the next bounded bundle. When the
+  gate is proven, the implementing agent records the evidence, rotates to a new
+  Technical Lead for the next milestone, replaces the current `WORKBOARD.md`
+  target, and continues. Exhausting a work bundle is not itself a blocker or a
+  reason to stop for user input.
+- Replace the Technical Lead only at a milestone boundary, when its identity is
   confirmed unavailable, or when it cannot accurately restate the bound commit
   and governing authority. Do not persist its live identity in tracked files.
