@@ -618,11 +618,22 @@ Termux qualification. Produce one candidate for independent product review.
   locked release build while preserving the live resolver and installed launcher
   identity. M2-B1 is a foundation, not a mandate to add multi-writer fencing or
   more fallback tiers.
-- Current checkpoint: M2-B2 — advance the shortest release path: simplify any
-  redundant B1 defensive/pointer state while wiring the minimal prebuilt local
-  artifact/bootstrap path into complete-generation staging and atomic activation.
-  Do not add speculative simultaneous-installer coordination.
-- Worker mode remains OFF; the primary Lead implements M2-B2 directly.
+- User-directed M1-R2 reopens the Milestone 1 implementation closure for one
+  exhaustive simplification and product-wiring audit before M2-B2 continues.
+  This is not a sampled review: every surviving M1-R1/B1..B24 production
+  definition and M1 test/probe harness must receive a keep/collapse/delete
+  disposition against the current release-speed policy. Proof-only wrappers,
+  duplicate validators, redundant defensive state, and tests that exist only to
+  support removed mechanisms are deleted or folded. Load-bearing public behavior
+  remains required.
+- The first material M1-R2 finding is already confirmed at `789b84e1`: although
+  B24 proved an injectable `execute_public_entrypoint`, the actual production
+  `main()` still only classifies one argument and does not execute the public
+  dispatch path. M1-R2 must close this real product-wiring gap rather than retain
+  B24 as proof-only completion evidence.
+- Current checkpoint: M1-R2 — exhaustive Milestone 1 simplification and closure
+  audit, then full regression acceptance. M2-B2 is paused until M1-R2 closes.
+- Worker mode remains OFF; the primary Lead performs M1-R2 directly.
 - The repository now uses a Click-inspired execution discipline at the
   Workboard layer: reuse successful same-revision evidence, do not reopen or
   replace an active bounded contract without new material evidence, and run the

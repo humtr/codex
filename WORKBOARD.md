@@ -7,173 +7,109 @@ in Git history and the `GOAL.md` acceptance ledger, not here.
 
 - Repository: `humtr/codex`
 - Active branch: `rewrite/rust-core`
-- Branch ancestry: independent empty-root lineage; do not merge or rebase
-  `main` or `legacy/monolith`
 - Normative owner: `SPEC.md`
 - Acceptance owner: `GOAL.md`
-- Current milestone: Milestone 2 — delivery and recovery
-- Primary Technical Lead/Integrator: the main `gpt-5.6-sol` / `max` goal
-  session; owns evidence, direct implementation while worker mode is OFF, diff
-  review, validation, commits, and acceptance
+- Current milestone state: Milestone 2 is paused after accepted M2-B1 while the
+  user-directed M1-R2 exhaustive simplification/closure audit runs
 - Worker mode: user-controlled; current state OFF. Only an explicit user command
-  may change it; do not infer a transition from workload or failures
-- Planning agents, problem advisors, checkpoint reviewers, implementation
-  workers, and coding subagents: disabled unless the user explicitly changes
-  that policy
-- Live product cutover: not authorized by the current bundle; mutable evidence
-  remains under test-owned roots
-- Click-inspired discipline: no Click plugin or Hook is installed. Reuse fresh
-  evidence, avoid reopening settled decisions without new material evidence,
-  and run load-bearing acceptance as one grouped batch once stable. Repository
-  authority overrides generic workflow/verification-budget rules
+  may change it
+- Additional agents/workers/reviewers: disabled while worker mode is OFF
+- Live product cutover/publication: not authorized
+- Click-inspired discipline: no Click plugin or Hook is installed; reuse fresh
+  evidence, avoid re-reading unchanged evidence, and batch load-bearing validation
+  once the refactor stabilizes
 
 ## Product-speed policy
 
-- Ship the smallest correct state machine. Release velocity is more important
-  than speculative resilience once the core integrity invariants are met.
-- The load-bearing invariants are: construct a generation completely before it
-  can become active; activate atomically; never expose a mixed generation; keep
-  one complete last-known-good recovery target; preserve protected user/system
-  state.
-- One installer/updater transaction is the normal model. Do not build locks,
-  leases, fencing tokens, distributed coordination, or a multi-writer protocol
-  merely because two installs could theoretically overlap.
-- If overlapping install/update attempts occur, it is acceptable for one to
-  fail or retry. Recovery may return to the already complete last-known-good
-  generation. Simultaneous writers are not a separate availability product.
-- Do not build fallback ladders. Prefer one explicit recovery path. If a basic
-  invariant makes an existing check, retry, state field, or fallback redundant,
-  remove the redundant mechanism rather than preserving both.
-- New defensive logic requires a concrete reproducible failure not already
-  covered by complete-generation staging, atomic activation, or last-known-good
-  rollback. Extra defense is also extra defect/security surface.
-
-## Current objective
-
-Move directly toward an installable prebuilt Core: accept a qualified immutable
-local release, stage one complete generation outside the active path, self-test
-it, and activate it through the accepted M2-B1 transaction. Keep the path small
-enough that the same machinery can become the fresh-install bootstrap and later
-network update path without parallel fallback implementations.
+- Ship the smallest correct state machine. Release velocity takes priority over
+  speculative resilience after load-bearing integrity invariants are met.
+- Remove a check, retry, wrapper, fallback, state field, or test harness when a
+  simpler foundational invariant or direct product path subsumes it.
+- Do not add locks, leases, fencing, fallback ladders, repeated retries, or new
+  defensive branches without a concrete reproducible product failure not already
+  handled by the existing core invariants.
+- Tests are evidence, not architecture. A production layer is not retained merely
+  because historical tests were written around it.
 
 ## Selected next action
 
-### Bundle M2-B2 — minimal local release/bootstrap path
+### M1-R2 — exhaustive Milestone 1 simplification and real-entrypoint closure
 
 #### outcome
 
-Turn the M1 artifact/update evidence and the M2-B1 activation transaction into
-the shortest end-to-end local install path under test-owned roots. A qualified
-local immutable artifact becomes one complete staged generation, passes the
-minimum required probe, and is atomically activated. At the same time, remove
-any B1 pointer/recovery role that proves redundant with a simpler single
-last-known-good recovery contract.
+Re-audit the complete surviving Milestone 1 implementation from M1-B1 through
+M1-B24 plus M1-R1, classify every production definition and M1-specific test/
+probe harness as KEEP, COLLAPSE, or DELETE, apply the resulting simplification,
+and close the actual public `main` wiring gap. M2-B2 does not resume until the
+resulting smaller M1 product path passes the load-bearing regression gate.
 
-#### boundary
+#### exhaustive scope
 
-- in_scope: the minimum Rust Core code/tests needed to consume an explicit local
-  qualified release input, materialize a test-owned candidate generation, bind
-  its manifest/runtime assets, perform the required local probe, and call the
-  accepted M2-B1 activation/recovery primitive; simplify redundant B1 defensive
-  state while preserving its complete-generation and atomicity guarantees.
-- out_of_scope: remote download, periodic update checks, package-manager use,
-  multi-writer locking/fencing, distributed coordination, fallback ladders,
-  Manager product features, publication refs, live installed-product mutation,
-  or a second installer implementation.
+- Review every surviving production definition attributed to M1-B1..B24/R1,
+  including dispatch, sandbox planning, process exec/environment fencing,
+  FD33/34 handling, Termux environment composition, manifest/runtime/Manager
+  qualification, updater interfaces, doctor/report path, public dispatch context,
+  and public entrypoint composition.
+- Review the complete M1 test/probe harness. Remove historical bundle-specific
+  probes when their behavior is already covered by a retained end-to-end path or
+  when the production mechanism they prove is removed.
+- Trace actual product reachability from `main()`. `#[allow(dead_code)]` is not an
+  acceptable substitute for product integration.
+- Compare surviving adjacent bundle layers for equivalent validation or wrapper
+  semantics. Prefer one direct composition path over planner→wrapper→wrapper
+  chains that add no distinct product invariant.
+- Preserve only user-visible or load-bearing invariants required by SPEC: exact
+  command routing, raw upstream argv/stream/exit/TTY/signal fidelity, required
+  Termux sandbox behavior, child environment contract, FD33/34 resolver/config
+  contract, qualified complete generation/runtime identity, bounded read-only
+  doctor, Manager boundary, updater/release qualification inputs needed by M2,
+  resolver non-mutation, and protected-state boundaries.
 
-#### must_hold
+#### mandatory known findings to resolve
 
-- Candidate generation is complete before activation and the active generation
-  is never modified in place.
-- A failed stage/probe/activation leaves a complete already-known generation as
-  the only recovery target; no cascading fallback sequence is introduced.
-- The local-artifact path is the bootstrap/update foundation, not a special test
-  implementation that will later be replaced by a second path.
-- The normal design assumes one updater/installer transaction. Do not add a
-  kernel lock, lease, fencing token, or stale-writer protocol in this bundle.
-- Basic launch/update overlap testing only needs to prove a launcher never sees
-  a partially constructed generation. Simultaneous installer ordering is not a
-  release gate.
-- Existing B1 `verified`/`previous` roles must be traced once. If both are not
-  required for distinct user-visible semantics, collapse the redundant role now
-  instead of carrying defensive state forward.
-- No live `$PREFIX/bin/codex`, live resolver, Manager state, auth/session/profile
-  state, package state, or publication ref may be changed.
+- Actual production `main()` at `789b84e1` still stops after
+  `classify_first_arg`; it must be wired to the real public execution path or the
+  M1 completion claim must remain open.
+- B1 classification and B20 public-route planning overlap and must be collapsed
+  unless a distinct public contract requires both.
+- B2/B7/B9/B14 launch/exec wrappers must be reduced to the minimum final-exec and
+  doctor-child mechanisms actually needed by the product.
+- B11/B12/B13/B21 qualification wrappers and repeated validation must be traced
+  end-to-end; retain integrity checks but remove evidence/wrapper ceremony that
+  real M2 release staging can represent directly.
+- B15..B19 doctor planner/coordinator/render/error layers must be reduced where
+  equivalent behavior can be expressed in one bounded command path.
+- B21..B23 Manager/generation/context wrappers, including runtime/Manager
+  generation-coherence machinery, must prefer construction from one generation
+  over defensive mismatch checks when possible.
+- M1-specific test scaffolding must be consolidated after product simplification;
+  bundle provenance is kept in Git history, not as duplicate permanent test code.
 
-#### build
+#### stop lines
 
-- Reuse M1 B11/B12/B13 qualification types and M2-B1 activation primitives;
-  do not create parallel validators or a second transaction model.
-- Prefer direct composition over adapters with retries/fallbacks. One failure
-  should return one typed error and leave the accepted complete generation
-  authoritative.
-- Keep the bootstrap surface small: environment detection, qualified immutable
-  local artifact acceptance, staging, probe, activation. Network retrieval and
-  signature/key plumbing can feed the same path in later bundles.
-- Delete or fold redundant defensive helpers/state encountered in this path when
-  the load-bearing invariant already covers their purpose.
+- Do not invent new hardening during this audit. New safety logic requires a
+  demonstrated failure outside existing invariants.
+- Do not weaken required public behavior merely to reduce line count.
+- Do not touch the live installed Codex, resolver, Manager, auth/session/profile
+  state, package state, legacy history, or publication refs.
+- Do not proceed to M2-B2 until the exhaustive disposition and simplification are
+  complete and accepted.
 
 #### verification
 
-- Focus on the direct happy path and load-bearing failures: valid local artifact
-  install, malformed/incompatible input rejection before activation, stage/probe
-  failure preserving the old complete generation, activation interruption using
-  the already accepted B1 recovery proof, and one launch during candidate staging
-  proving it still resolves only the active complete generation.
-- Do not multiply edge-case matrices for hypothetical simultaneous installers.
-- Acceptance: focused M2-B2 tests, full existing suite, formatting/diff checks,
-  warning-free locked release build, and protected live resolver/launcher
-  identity unchanged.
+- Maintain a complete disposition of all surviving M1 production definitions and
+  M1-specific test/probe groups; no bundle may be skipped because it was already
+  reviewed historically.
+- Use narrow compile/focused feedback while editing, then one grouped final gate:
+  formatting/diff checks, all retained tests serial, complete default-parallel
+  repetitions required by repository acceptance, warning-free locked release
+  build, and protected live resolver/launcher identity unchanged.
+- Final acceptance must report what was kept, collapsed, and deleted, plus the
+  production/test line-count change and confirmation that real `main` reaches the
+  intended public path.
 
-## Milestone 2 required outcomes
+## Next action after M1-R2
 
-1. Produce prebuilt Android/Termux Core release artifacts.
-2. Implement the minimal fresh-install bootstrap.
-3. Implement signed immutable release manifests and key-rotation policy.
-4. Acquire and safely adapt official upstream artifacts.
-5. Implement atomic update, activation, recovery, and rollback.
-6. Prove offline install and recovery.
-7. Prove launches never observe a partial generation during update; do not make
-   speculative simultaneous-installer coordination a release gate.
-8. Qualify isolated fresh-Termux and upgrade-from-legacy paths.
-9. Produce a complete candidate and run the fresh independent product review.
-
-## Milestone 2 completion gate
-
-- exact source, artifact digests, generation, test set, and device/runtime
-  boundary are recorded for every release claim;
-- signed release and key-rotation policy are enforced before candidate use;
-- candidate generation is complete before activation and active state never
-  resolves to a mixed generation after injected interruption;
-- update/rollback/offline recovery are crash-safe; launch/update overlap proves
-  launches resolve only complete generations, without requiring speculative
-  simultaneous-installer coordination;
-- fresh installation and legacy upgrade are demonstrated in isolated roots or
-  devices without damaging the current working installation;
-- prebuilt aarch64 Android/Termux artifacts require no on-device Rust toolchain;
-- no resolver/auth/profile/session/Manager-owned state is damaged;
-- the complete candidate passes the independent review gate before any
-  publication authority is changed.
-
-## Stop lines
-
-- Do not add multi-writer fencing, lock hierarchies, lease protocols, fallback
-  ladders, repeated retries, or duplicated validators without concrete evidence
-  that the simpler invariant cannot handle the failure.
-- Do not preserve defensive code solely because it already exists; remove it
-  when a simpler foundational rule subsumes it.
-- Do not let defensive hardening become the critical path to product release.
-- Do not mutate the current installed Codex product or protected user/system
-  state while implementing this bundle.
-- Do not spawn additional agents/workers while worker mode is OFF.
-- Do not repeat a successful current-evidence read/search or repository-wide
-  inventory without material staleness; narrow the next observation instead.
-- Do not modify `legacy/monolith`, sealed tags, publication refs, or the live
-  installed launcher/runtime.
-
-## Next milestone
-
-There is no routine third Core milestone. After M2-B2, continue with the shortest
-remaining path to prebuilt delivery, signed release input, offline recovery, and
-fresh-install qualification. The complete Milestone 2 candidate, not defensive
-feature count, controls the independent-review gate.
+Resume M2-B2 minimal local release/bootstrap path from the smaller accepted M1
+foundation. Do not restore deleted proof-only layers when M2 can consume the
+same foundational invariant directly.
