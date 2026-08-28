@@ -1175,6 +1175,263 @@ fn qualify_generation_manifest<'a>(
     Ok(QualifiedGenerationManifest { manifest })
 }
 
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UpdateEvidenceVerdict {
+    Satisfied,
+    Rejected,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UpdateArtifactSource<'a> {
+    Remote { immutable_locator: &'a str },
+    LocalArtifact { path: &'a OsStr },
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UpdaterResolverDependency<'a> {
+    Independent,
+    SharedRuntimeResolver { qualification_identity: &'a str },
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct UpdateAdmissionEvidence<'a> {
+    signed_release_manifest_identity: &'a str,
+    expected_source_artifact_digest: &'a str,
+    release_signature: UpdateEvidenceVerdict,
+    architecture_policy: UpdateEvidenceVerdict,
+    core_api_policy: UpdateEvidenceVerdict,
+    channel_policy: UpdateEvidenceVerdict,
+    anti_rollback_policy: UpdateEvidenceVerdict,
+    resolver_dependency: UpdaterResolverDependency<'a>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct UpdateRequest<'a> {
+    source: UpdateArtifactSource<'a>,
+    evidence: UpdateAdmissionEvidence<'a>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct StagedArtifactEvidence {
+    artifact_digest: UpdateEvidenceVerdict,
+    archive_safety: UpdateEvidenceVerdict,
+    compatibility_metadata: UpdateEvidenceVerdict,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CandidateReadinessEvidence {
+    candidate_probe: UpdateEvidenceVerdict,
+    rollback_state_ready: UpdateEvidenceVerdict,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum UpdateInterfaceError {
+    EmptySignedReleaseManifestIdentity,
+    EmptyExpectedSourceArtifactDigest,
+    EmptyRemoteLocator,
+    EmptyLocalArtifactPath,
+    ReleaseSignatureRejected,
+    ArchitecturePolicyRejected,
+    CoreApiPolicyRejected,
+    ChannelPolicyRejected,
+    AntiRollbackPolicyRejected,
+    SharedResolverMissingQualification,
+    ArtifactDigestRejected,
+    ArchiveSafetyRejected,
+    CompatibilityMetadataRejected,
+    SourceArtifactDigestMismatch,
+    CandidateProbeRejected,
+    RollbackStateNotReady,
+}
+
+impl std::fmt::Display for UpdateInterfaceError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let message = match self {
+            UpdateInterfaceError::EmptySignedReleaseManifestIdentity => {
+                "signed release manifest identity is empty"
+            }
+            UpdateInterfaceError::EmptyExpectedSourceArtifactDigest => {
+                "expected immutable source artifact digest is empty"
+            }
+            UpdateInterfaceError::EmptyRemoteLocator => {
+                "immutable remote artifact locator is empty"
+            }
+            UpdateInterfaceError::EmptyLocalArtifactPath => "explicit local artifact path is empty",
+            UpdateInterfaceError::ReleaseSignatureRejected => {
+                "release signature evidence was rejected"
+            }
+            UpdateInterfaceError::ArchitecturePolicyRejected => {
+                "architecture policy evidence was rejected"
+            }
+            UpdateInterfaceError::CoreApiPolicyRejected => "Core API policy evidence was rejected",
+            UpdateInterfaceError::ChannelPolicyRejected => "channel policy evidence was rejected",
+            UpdateInterfaceError::AntiRollbackPolicyRejected => {
+                "anti-rollback policy evidence was rejected"
+            }
+            UpdateInterfaceError::SharedResolverMissingQualification => {
+                "shared updater/runtime resolver lacks explicit qualification"
+            }
+            UpdateInterfaceError::ArtifactDigestRejected => "artifact digest evidence was rejected",
+            UpdateInterfaceError::ArchiveSafetyRejected => "archive safety evidence was rejected",
+            UpdateInterfaceError::CompatibilityMetadataRejected => {
+                "compatibility metadata evidence was rejected"
+            }
+            UpdateInterfaceError::SourceArtifactDigestMismatch => {
+                "qualified generation source digest does not match admitted release"
+            }
+            UpdateInterfaceError::CandidateProbeRejected => {
+                "candidate generation probe was rejected"
+            }
+            UpdateInterfaceError::RollbackStateNotReady => "verified rollback state is not ready",
+        };
+        f.write_str(message)
+    }
+}
+
+impl std::error::Error for UpdateInterfaceError {}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy)]
+struct AdmittedUpdateRequest<'request, 'value> {
+    request: &'request UpdateRequest<'value>,
+}
+
+#[allow(dead_code)]
+impl<'request, 'value> AdmittedUpdateRequest<'request, 'value> {
+    fn request(self) -> &'request UpdateRequest<'value> {
+        self.request
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy)]
+struct ActivationReadyUpdate<'request, 'value, 'generation> {
+    admitted: AdmittedUpdateRequest<'request, 'value>,
+    generation: QualifiedGenerationManifest<'generation>,
+}
+
+#[allow(dead_code)]
+impl<'request, 'value, 'generation> ActivationReadyUpdate<'request, 'value, 'generation> {
+    fn admitted(self) -> AdmittedUpdateRequest<'request, 'value> {
+        self.admitted
+    }
+
+    fn generation(self) -> QualifiedGenerationManifest<'generation> {
+        self.generation
+    }
+}
+
+fn require_update_evidence(
+    verdict: UpdateEvidenceVerdict,
+    error: UpdateInterfaceError,
+) -> Result<(), UpdateInterfaceError> {
+    match verdict {
+        UpdateEvidenceVerdict::Satisfied => Ok(()),
+        UpdateEvidenceVerdict::Rejected => Err(error),
+    }
+}
+
+#[allow(dead_code)]
+fn admit_update_request<'request, 'value>(
+    request: &'request UpdateRequest<'value>,
+) -> Result<AdmittedUpdateRequest<'request, 'value>, UpdateInterfaceError> {
+    if request.evidence.signed_release_manifest_identity.is_empty() {
+        return Err(UpdateInterfaceError::EmptySignedReleaseManifestIdentity);
+    }
+    if request.evidence.expected_source_artifact_digest.is_empty() {
+        return Err(UpdateInterfaceError::EmptyExpectedSourceArtifactDigest);
+    }
+    match request.source {
+        UpdateArtifactSource::Remote { immutable_locator } if immutable_locator.is_empty() => {
+            return Err(UpdateInterfaceError::EmptyRemoteLocator);
+        }
+        UpdateArtifactSource::LocalArtifact { path } if path.is_empty() => {
+            return Err(UpdateInterfaceError::EmptyLocalArtifactPath);
+        }
+        _ => {}
+    }
+
+    require_update_evidence(
+        request.evidence.release_signature,
+        UpdateInterfaceError::ReleaseSignatureRejected,
+    )?;
+    require_update_evidence(
+        request.evidence.architecture_policy,
+        UpdateInterfaceError::ArchitecturePolicyRejected,
+    )?;
+    require_update_evidence(
+        request.evidence.core_api_policy,
+        UpdateInterfaceError::CoreApiPolicyRejected,
+    )?;
+    require_update_evidence(
+        request.evidence.channel_policy,
+        UpdateInterfaceError::ChannelPolicyRejected,
+    )?;
+    require_update_evidence(
+        request.evidence.anti_rollback_policy,
+        UpdateInterfaceError::AntiRollbackPolicyRejected,
+    )?;
+
+    if let UpdaterResolverDependency::SharedRuntimeResolver {
+        qualification_identity,
+    } = request.evidence.resolver_dependency
+    {
+        if qualification_identity.is_empty() {
+            return Err(UpdateInterfaceError::SharedResolverMissingQualification);
+        }
+    }
+
+    Ok(AdmittedUpdateRequest { request })
+}
+
+#[allow(dead_code)]
+fn qualify_update_candidate<'request, 'value, 'generation>(
+    admitted: AdmittedUpdateRequest<'request, 'value>,
+    staged: &StagedArtifactEvidence,
+    generation: QualifiedGenerationManifest<'generation>,
+    readiness: &CandidateReadinessEvidence,
+) -> Result<ActivationReadyUpdate<'request, 'value, 'generation>, UpdateInterfaceError> {
+    require_update_evidence(
+        staged.artifact_digest,
+        UpdateInterfaceError::ArtifactDigestRejected,
+    )?;
+    require_update_evidence(
+        staged.archive_safety,
+        UpdateInterfaceError::ArchiveSafetyRejected,
+    )?;
+    require_update_evidence(
+        staged.compatibility_metadata,
+        UpdateInterfaceError::CompatibilityMetadataRejected,
+    )?;
+
+    if generation.manifest().source_artifact_digest
+        != admitted.request().evidence.expected_source_artifact_digest
+    {
+        return Err(UpdateInterfaceError::SourceArtifactDigestMismatch);
+    }
+
+    require_update_evidence(
+        readiness.candidate_probe,
+        UpdateInterfaceError::CandidateProbeRejected,
+    )?;
+    require_update_evidence(
+        readiness.rollback_state_ready,
+        UpdateInterfaceError::RollbackStateNotReady,
+    )?;
+
+    Ok(ActivationReadyUpdate {
+        admitted,
+        generation,
+    })
+}
+
 fn main() {
     let mut args = std::env::args_os();
     let _ = args.next();
@@ -5010,6 +5267,343 @@ exit 0
         assert_eq!(before, after);
         assert!(std::ptr::eq(first.manifest(), second.manifest()));
         assert!(std::ptr::eq(first.manifest(), &manifest));
+    }
+
+    fn m1_b12_remote_request() -> UpdateRequest<'static> {
+        UpdateRequest {
+            source: UpdateArtifactSource::Remote {
+                immutable_locator: "release://immutable/codex/aarch64/001",
+            },
+            evidence: UpdateAdmissionEvidence {
+                signed_release_manifest_identity: "signed-release:stable:001",
+                expected_source_artifact_digest: "opaque-source-digest:v1:001122",
+                release_signature: UpdateEvidenceVerdict::Satisfied,
+                architecture_policy: UpdateEvidenceVerdict::Satisfied,
+                core_api_policy: UpdateEvidenceVerdict::Satisfied,
+                channel_policy: UpdateEvidenceVerdict::Satisfied,
+                anti_rollback_policy: UpdateEvidenceVerdict::Satisfied,
+                resolver_dependency: UpdaterResolverDependency::Independent,
+            },
+        }
+    }
+
+    fn m1_b12_staged_ok() -> StagedArtifactEvidence {
+        StagedArtifactEvidence {
+            artifact_digest: UpdateEvidenceVerdict::Satisfied,
+            archive_safety: UpdateEvidenceVerdict::Satisfied,
+            compatibility_metadata: UpdateEvidenceVerdict::Satisfied,
+        }
+    }
+
+    fn m1_b12_readiness_ok() -> CandidateReadinessEvidence {
+        CandidateReadinessEvidence {
+            candidate_probe: UpdateEvidenceVerdict::Satisfied,
+            rollback_state_ready: UpdateEvidenceVerdict::Satisfied,
+        }
+    }
+
+    #[test]
+    fn test_m1_b12_a_valid_remote_and_local_requests_are_admitted() {
+        let remote = m1_b12_remote_request();
+        let admitted = admit_update_request(&remote).expect("remote request must be admitted");
+        assert!(std::ptr::eq(admitted.request(), &remote));
+
+        let local = UpdateRequest {
+            source: UpdateArtifactSource::LocalArtifact {
+                path: OsStr::new("/explicit/local/release.tar.zst"),
+            },
+            ..remote
+        };
+        let admitted = admit_update_request(&local).expect("local request must be admitted");
+        assert!(std::ptr::eq(admitted.request(), &local));
+    }
+
+    #[test]
+    fn test_m1_b12_b_empty_release_digest_and_sources_fail_closed() {
+        let mut request = m1_b12_remote_request();
+        request.evidence.signed_release_manifest_identity = "";
+        assert_eq!(
+            admit_update_request(&request).unwrap_err(),
+            UpdateInterfaceError::EmptySignedReleaseManifestIdentity
+        );
+
+        let mut request = m1_b12_remote_request();
+        request.evidence.expected_source_artifact_digest = "";
+        assert_eq!(
+            admit_update_request(&request).unwrap_err(),
+            UpdateInterfaceError::EmptyExpectedSourceArtifactDigest
+        );
+
+        let mut request = m1_b12_remote_request();
+        request.source = UpdateArtifactSource::Remote {
+            immutable_locator: "",
+        };
+        assert_eq!(
+            admit_update_request(&request).unwrap_err(),
+            UpdateInterfaceError::EmptyRemoteLocator
+        );
+
+        let mut request = m1_b12_remote_request();
+        request.source = UpdateArtifactSource::LocalArtifact {
+            path: OsStr::new(""),
+        };
+        assert_eq!(
+            admit_update_request(&request).unwrap_err(),
+            UpdateInterfaceError::EmptyLocalArtifactPath
+        );
+    }
+
+    #[test]
+    fn test_m1_b12_c_each_admission_verdict_rejection_is_distinct() {
+        let cases: [(
+            fn(&mut UpdateAdmissionEvidence<'static>),
+            UpdateInterfaceError,
+        ); 5] = [
+            (
+                |e| e.release_signature = UpdateEvidenceVerdict::Rejected,
+                UpdateInterfaceError::ReleaseSignatureRejected,
+            ),
+            (
+                |e| e.architecture_policy = UpdateEvidenceVerdict::Rejected,
+                UpdateInterfaceError::ArchitecturePolicyRejected,
+            ),
+            (
+                |e| e.core_api_policy = UpdateEvidenceVerdict::Rejected,
+                UpdateInterfaceError::CoreApiPolicyRejected,
+            ),
+            (
+                |e| e.channel_policy = UpdateEvidenceVerdict::Rejected,
+                UpdateInterfaceError::ChannelPolicyRejected,
+            ),
+            (
+                |e| e.anti_rollback_policy = UpdateEvidenceVerdict::Rejected,
+                UpdateInterfaceError::AntiRollbackPolicyRejected,
+            ),
+        ];
+
+        for (reject, expected) in cases {
+            let mut request = m1_b12_remote_request();
+            reject(&mut request.evidence);
+            assert_eq!(admit_update_request(&request).unwrap_err(), expected);
+        }
+    }
+
+    #[test]
+    fn test_m1_b12_d_shared_resolver_requires_explicit_qualification() {
+        let mut request = m1_b12_remote_request();
+        request.evidence.resolver_dependency = UpdaterResolverDependency::SharedRuntimeResolver {
+            qualification_identity: "",
+        };
+        assert_eq!(
+            admit_update_request(&request).unwrap_err(),
+            UpdateInterfaceError::SharedResolverMissingQualification
+        );
+
+        request.evidence.resolver_dependency = UpdaterResolverDependency::SharedRuntimeResolver {
+            qualification_identity: "resolver-qualification:termux:v1",
+        };
+        let admitted = admit_update_request(&request)
+            .expect("explicit resolver qualification must permit admission");
+        assert!(std::ptr::eq(admitted.request(), &request));
+    }
+
+    #[test]
+    fn test_m1_b12_e_each_staged_artifact_verdict_rejection_is_distinct() {
+        let request = m1_b12_remote_request();
+        let admitted = admit_update_request(&request).expect("admit request");
+        let manifest = m1_b11_valid_manifest();
+        let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements())
+            .expect("qualify generation");
+        let readiness = m1_b12_readiness_ok();
+
+        let mut staged = m1_b12_staged_ok();
+        staged.artifact_digest = UpdateEvidenceVerdict::Rejected;
+        assert_eq!(
+            qualify_update_candidate(admitted, &staged, generation, &readiness).unwrap_err(),
+            UpdateInterfaceError::ArtifactDigestRejected
+        );
+
+        let mut staged = m1_b12_staged_ok();
+        staged.archive_safety = UpdateEvidenceVerdict::Rejected;
+        assert_eq!(
+            qualify_update_candidate(admitted, &staged, generation, &readiness).unwrap_err(),
+            UpdateInterfaceError::ArchiveSafetyRejected
+        );
+
+        let mut staged = m1_b12_staged_ok();
+        staged.compatibility_metadata = UpdateEvidenceVerdict::Rejected;
+        assert_eq!(
+            qualify_update_candidate(admitted, &staged, generation, &readiness).unwrap_err(),
+            UpdateInterfaceError::CompatibilityMetadataRejected
+        );
+    }
+
+    #[test]
+    fn test_m1_b12_f_generation_source_digest_must_match_admitted_release() {
+        let request = m1_b12_remote_request();
+        let admitted = admit_update_request(&request).expect("admit request");
+        let mut manifest = m1_b11_valid_manifest();
+        manifest.source_artifact_digest = "different-source-digest".to_string();
+        let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements())
+            .expect("generation itself remains qualified");
+        assert_eq!(
+            qualify_update_candidate(
+                admitted,
+                &m1_b12_staged_ok(),
+                generation,
+                &m1_b12_readiness_ok(),
+            )
+            .unwrap_err(),
+            UpdateInterfaceError::SourceArtifactDigestMismatch
+        );
+    }
+
+    #[test]
+    fn test_m1_b12_g_candidate_probe_failure_blocks_promotion() {
+        let request = m1_b12_remote_request();
+        let admitted = admit_update_request(&request).expect("admit request");
+        let manifest = m1_b11_valid_manifest();
+        let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements())
+            .expect("qualify generation");
+        let readiness = CandidateReadinessEvidence {
+            candidate_probe: UpdateEvidenceVerdict::Rejected,
+            rollback_state_ready: UpdateEvidenceVerdict::Satisfied,
+        };
+        assert_eq!(
+            qualify_update_candidate(admitted, &m1_b12_staged_ok(), generation, &readiness)
+                .unwrap_err(),
+            UpdateInterfaceError::CandidateProbeRejected
+        );
+    }
+
+    #[test]
+    fn test_m1_b12_h_rollback_readiness_failure_blocks_promotion() {
+        let request = m1_b12_remote_request();
+        let admitted = admit_update_request(&request).expect("admit request");
+        let manifest = m1_b11_valid_manifest();
+        let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements())
+            .expect("qualify generation");
+        let readiness = CandidateReadinessEvidence {
+            candidate_probe: UpdateEvidenceVerdict::Satisfied,
+            rollback_state_ready: UpdateEvidenceVerdict::Rejected,
+        };
+        assert_eq!(
+            qualify_update_candidate(admitted, &m1_b12_staged_ok(), generation, &readiness)
+                .unwrap_err(),
+            UpdateInterfaceError::RollbackStateNotReady
+        );
+    }
+
+    #[test]
+    fn test_m1_b12_i_activation_ready_wrapper_retains_exact_opaque_bindings() {
+        let request = UpdateRequest {
+            source: UpdateArtifactSource::Remote {
+                immutable_locator: "opaque://릴리스/Δ/  exact  ",
+            },
+            evidence: UpdateAdmissionEvidence {
+                signed_release_manifest_identity: "서명된-release::値::  exact  ",
+                expected_source_artifact_digest: "opaque-source-digest:v1:001122",
+                release_signature: UpdateEvidenceVerdict::Satisfied,
+                architecture_policy: UpdateEvidenceVerdict::Satisfied,
+                core_api_policy: UpdateEvidenceVerdict::Satisfied,
+                channel_policy: UpdateEvidenceVerdict::Satisfied,
+                anti_rollback_policy: UpdateEvidenceVerdict::Satisfied,
+                resolver_dependency: UpdaterResolverDependency::Independent,
+            },
+        };
+        let admitted = admit_update_request(&request).expect("admit opaque request");
+        let manifest = m1_b11_valid_manifest();
+        let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements())
+            .expect("qualify generation");
+        let ready = qualify_update_candidate(
+            admitted,
+            &m1_b12_staged_ok(),
+            generation,
+            &m1_b12_readiness_ok(),
+        )
+        .expect("candidate must become activation-ready");
+
+        assert!(std::ptr::eq(ready.admitted().request(), &request));
+        assert!(std::ptr::eq(ready.generation().manifest(), &manifest));
+        assert_eq!(
+            ready
+                .admitted()
+                .request()
+                .evidence
+                .signed_release_manifest_identity,
+            "서명된-release::値::  exact  "
+        );
+        assert_eq!(
+            ready.admitted().request().source,
+            UpdateArtifactSource::Remote {
+                immutable_locator: "opaque://릴리스/Δ/  exact  "
+            }
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b12_j_raw_non_utf8_local_artifact_path_is_retained() {
+        use std::os::unix::ffi::{OsStrExt, OsStringExt};
+        let raw = b"/local/release-\xff-\x80.tar".to_vec();
+        let path = OsString::from_vec(raw.clone());
+        let remote = m1_b12_remote_request();
+        let request = UpdateRequest {
+            source: UpdateArtifactSource::LocalArtifact {
+                path: path.as_os_str(),
+            },
+            evidence: remote.evidence,
+        };
+        let admitted = admit_update_request(&request).expect("raw local path must be admitted");
+        match admitted.request().source {
+            UpdateArtifactSource::LocalArtifact { path } => {
+                assert_eq!(path.as_bytes(), raw.as_slice());
+            }
+            UpdateArtifactSource::Remote { .. } => panic!("expected local source"),
+        }
+    }
+
+    #[test]
+    fn test_m1_b12_k_interface_is_deterministic_and_has_no_environment_side_effect() {
+        let before = [
+            std::env::var_os("PREFIX"),
+            std::env::var_os("TMPDIR"),
+            std::env::var_os("PATH"),
+        ];
+        let request = m1_b12_remote_request();
+        let first = admit_update_request(&request).expect("first admission");
+        let second = admit_update_request(&request).expect("second admission");
+        let manifest = m1_b11_valid_manifest();
+        let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements())
+            .expect("qualify generation");
+        let ready1 = qualify_update_candidate(
+            first,
+            &m1_b12_staged_ok(),
+            generation,
+            &m1_b12_readiness_ok(),
+        )
+        .expect("first ready");
+        let ready2 = qualify_update_candidate(
+            second,
+            &m1_b12_staged_ok(),
+            generation,
+            &m1_b12_readiness_ok(),
+        )
+        .expect("second ready");
+        let after = [
+            std::env::var_os("PREFIX"),
+            std::env::var_os("TMPDIR"),
+            std::env::var_os("PATH"),
+        ];
+        assert_eq!(before, after);
+        assert!(std::ptr::eq(
+            ready1.admitted().request(),
+            ready2.admitted().request()
+        ));
+        assert!(std::ptr::eq(
+            ready1.generation().manifest(),
+            ready2.generation().manifest()
+        ));
     }
 
     #[cfg(unix)]
