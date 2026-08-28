@@ -357,6 +357,24 @@ where
     R: AsRef<std::path::Path>,
     C: AsRef<std::path::Path>,
 {
+    exec_upstream_with_runtime_fds_and_env(program, args, resolver_path, config_dir, None)
+}
+
+#[cfg(unix)]
+fn exec_upstream_with_runtime_fds_and_env<P, I, S, R, C>(
+    program: P,
+    args: I,
+    resolver_path: R,
+    config_dir: C,
+    env_plan: Option<&TermuxBaseEnvPlan>,
+) -> std::io::Error
+where
+    P: AsRef<OsStr>,
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+    R: AsRef<std::path::Path>,
+    C: AsRef<std::path::Path>,
+{
     let res = (|| -> std::io::Result<()> {
         // Step 1: Capture prior FD 33/34 states with restoration guards BEFORE opening or modifying any FDs.
         let mut guard_33 = unsafe { FdRestorationGuard::capture(RESOLVER_FD)? };
@@ -427,11 +445,16 @@ where
             safe_cfg.0 = -1;
         }
 
-        // Step 8: Build and execute command with exact five environment removals.
+        // Step 8: Build and execute command with planned base environment and exact five environment removals.
         use std::os::unix::process::CommandExt;
         let mut cmd = std::process::Command::new(program.as_ref());
-        cmd.args(args)
-            .env_remove("CODEX_MANAGED_BY_NPM")
+        cmd.args(args);
+        if let Some(plan) = env_plan {
+            for (k, v) in plan.assignments() {
+                cmd.env(k, v);
+            }
+        }
+        cmd.env_remove("CODEX_MANAGED_BY_NPM")
             .env_remove("CODEX_MANAGED_BY_BUN")
             .env_remove("CODEX_MANAGED_PACKAGE_ROOT")
             .env_remove("LD_PRELOAD")
@@ -489,6 +512,36 @@ impl From<std::io::Error> for LaunchError {
     }
 }
 
+#[cfg(unix)]
+fn launch_upstream_impl<P, R, C, I, S>(
+    program: P,
+    resolver_path: R,
+    config_dir: C,
+    args: I,
+    env_plan: Option<&TermuxBaseEnvPlan>,
+) -> LaunchError
+where
+    P: AsRef<OsStr>,
+    R: AsRef<std::path::Path>,
+    C: AsRef<std::path::Path>,
+    I: IntoIterator<Item = S>,
+    S: Into<OsString>,
+{
+    let planned_args = match plan_passthrough_args(args) {
+        Ok(args) => args,
+        Err(policy_err) => return LaunchError::Policy(policy_err),
+    };
+
+    let exec_err = exec_upstream_with_runtime_fds_and_env(
+        program,
+        &planned_args,
+        resolver_path,
+        config_dir,
+        env_plan,
+    );
+    LaunchError::Exec(exec_err)
+}
+
 /// Launches the upstream program with planned sandbox-policy arguments and runtime file descriptors.
 ///
 /// Inputs are explicit: the selected upstream program, resolver path, managed-config directory,
@@ -519,14 +572,42 @@ where
     I: IntoIterator<Item = S>,
     S: Into<OsString>,
 {
-    let planned_args = match plan_passthrough_args(args) {
-        Ok(args) => args,
-        Err(policy_err) => return LaunchError::Policy(policy_err),
-    };
+    launch_upstream_impl(program, resolver_path, config_dir, args, None)
+}
 
-    let exec_err =
-        exec_upstream_with_runtime_fds(program, &planned_args, resolver_path, config_dir);
-    LaunchError::Exec(exec_err)
+/// Launches the upstream program with planned sandbox-policy arguments, runtime file descriptors,
+/// and an explicit base-environment plan.
+///
+/// Inputs are explicit: the selected upstream program, resolver path, managed-config directory,
+/// original raw user argv, and pre-built environment plan.
+///
+/// Sandbox-policy planning is performed first. If the user arguments request an unsupported Linux
+/// sandbox mode or subcommand, a `LaunchError::Policy` error is returned immediately before any
+/// runtime file descriptor manipulation or program execution is attempted.
+///
+/// Once policy planning succeeds, applies the planned environment variables to the child Command,
+/// maps the resolver file to FD 33 and the configuration directory to FD 34, fences contamination
+/// environment variables, and replaces the current process image.
+///
+/// If process replacement succeeds, this function never returns.
+/// If planning or execution fails, it returns the corresponding `LaunchError`.
+#[cfg(unix)]
+#[allow(dead_code)]
+fn launch_upstream_with_env<P, R, C, I, S>(
+    program: P,
+    resolver_path: R,
+    config_dir: C,
+    args: I,
+    env_plan: &TermuxBaseEnvPlan,
+) -> LaunchError
+where
+    P: AsRef<OsStr>,
+    R: AsRef<std::path::Path>,
+    C: AsRef<std::path::Path>,
+    I: IntoIterator<Item = S>,
+    S: Into<OsString>,
+{
+    launch_upstream_impl(program, resolver_path, config_dir, args, Some(env_plan))
 }
 
 #[cfg(unix)]
@@ -1785,6 +1866,270 @@ done
 
                 use std::io::Write;
                 let _ = std::io::stdout().write_all(b"M1_B7_RESTORED_SENTINELS_SUCCESS\n");
+                let _ = std::io::stdout().flush();
+                std::process::exit(0);
+            }
+            "m1_b9_fake_upstream_launcher" => {
+                let resolver_path = std::env::var_os(PROBE_RESOLVER_PATH_ENV)
+                    .expect("PROBE_RESOLVER_PATH_ENV must be set");
+                let config_dir_path = std::env::var_os(PROBE_CONFIG_DIR_PATH_ENV)
+                    .expect("PROBE_CONFIG_DIR_PATH_ENV must be set");
+                let fake_upstream_path = std::env::var_os(PROBE_FAKE_UPSTREAM_PATH_ENV)
+                    .expect("PROBE_FAKE_UPSTREAM_PATH_ENV must be set");
+
+                std::env::set_var("CODEX_MANAGED_BY_NPM", "probe-npm-contam-val");
+                std::env::set_var("CODEX_MANAGED_BY_BUN", "probe-bun-contam-val");
+                std::env::set_var("CODEX_MANAGED_PACKAGE_ROOT", "/probe/fake/pkg/root");
+                std::env::set_var("LD_PRELOAD", "/probe/fake/preload.so");
+                std::env::set_var("LD_LIBRARY_PATH", "/probe/fake/lib");
+                std::env::set_var(
+                    "CODEX_TEST_UNRELATED_M1_B9_SURVIVING_VAR",
+                    "m1_b9_surviving_exact_value_77192",
+                );
+
+                let inputs = TermuxBaseEnvInputs {
+                    compat_dir: OsStr::new("/probe/synthetic/compat/bin"),
+                    prefix_bin_dir: OsStr::new("/probe/synthetic/prefix/bin"),
+                    temp_dir: OsStr::new("/probe/synthetic/isolated/tmp"),
+                    cert_file: OsStr::new("/probe/synthetic/tls/cert.pem"),
+                    cert_dir: Some(OsStr::new("/probe/synthetic/tls/certs.d")),
+                    inherited_path: Some(OsStr::new("/probe/inherited/bin1:/probe/inherited/bin2")),
+                    inherited_ssl_cert_file: None,
+                    inherited_ssl_cert_dir: None,
+                };
+                let plan = plan_termux_base_env(&inputs).expect("plan base env");
+
+                use std::os::unix::ffi::OsStrExt;
+                let non_utf8_arg = OsStr::from_bytes(&[0xff, 0xfe, 0x80, 0x7f]);
+                let user_args: Vec<OsString> = vec![
+                    OsString::from("exec"),
+                    OsString::from("custom_task"),
+                    OsString::from("--custom-flag=val1"),
+                    OsString::from("ordinary arg with spaces and ="),
+                    non_utf8_arg.to_os_string(),
+                ];
+
+                let err = launch_upstream_with_env(
+                    fake_upstream_path,
+                    resolver_path,
+                    config_dir_path,
+                    user_args,
+                    &plan,
+                );
+                panic!("launch_upstream_with_env failed to replace process: {err}");
+            }
+            "m1_b9_failed_exec_launcher" => {
+                use std::os::unix::fs::MetadataExt;
+                use std::os::unix::io::AsRawFd;
+                use std::os::unix::io::FromRawFd;
+
+                let resolver_path = std::env::var_os(PROBE_RESOLVER_PATH_ENV)
+                    .expect("PROBE_RESOLVER_PATH_ENV must be set");
+                let config_dir_path = std::env::var_os(PROBE_CONFIG_DIR_PATH_ENV)
+                    .expect("PROBE_CONFIG_DIR_PATH_ENV must be set");
+
+                let parent_dir = std::path::Path::new(&resolver_path)
+                    .parent()
+                    .unwrap_or_else(|| std::path::Path::new("/tmp"));
+                let pid = std::process::id();
+                let sentinel33_path = parent_dir.join(format!("codex-m1-b9-sentinel-33-{pid}.tmp"));
+                let sentinel34_path = parent_dir.join(format!("codex-m1-b9-sentinel-34-{pid}.tmp"));
+
+                let s33_bytes = b"ORIGINAL_M1_B9_SENTINEL_33_DATA";
+                let s34_bytes = b"ORIGINAL_M1_B9_SENTINEL_34_DATA";
+                std::fs::write(&sentinel33_path, s33_bytes).expect("write sentinel 33");
+                std::fs::write(&sentinel34_path, s34_bytes).expect("write sentinel 34");
+
+                let f33 = std::fs::OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .open(&sentinel33_path)
+                    .expect("open sentinel 33");
+                let f34 = std::fs::OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .open(&sentinel34_path)
+                    .expect("open sentinel 34");
+
+                let meta33 = f33.metadata().expect("meta sentinel 33");
+                let meta34 = f34.metadata().expect("meta sentinel 34");
+
+                unsafe {
+                    dup2(f33.as_raw_fd(), 33);
+                    dup2(f34.as_raw_fd(), 34);
+                }
+                drop(f33);
+                drop(f34);
+
+                let orig_tmpdir = OsString::from("/parent/orig/tmpdir");
+                let orig_tmp = OsString::from("/parent/orig/tmp");
+                let orig_temp = OsString::from("/parent/orig/temp");
+                let orig_sqlite = OsString::from("/parent/orig/sqlite_tmpdir");
+                let orig_cert_file = OsString::from("/parent/orig/cert.pem");
+                let orig_cert_dir = OsString::from("/parent/orig/certs.d");
+                let orig_path = OsString::from("/parent/orig/bin:/parent/orig/usr/bin");
+
+                std::env::set_var("TMPDIR", &orig_tmpdir);
+                std::env::set_var("TMP", &orig_tmp);
+                std::env::set_var("TEMP", &orig_temp);
+                std::env::set_var("SQLITE_TMPDIR", &orig_sqlite);
+                std::env::set_var("SSL_CERT_FILE", &orig_cert_file);
+                std::env::set_var("SSL_CERT_DIR", &orig_cert_dir);
+                std::env::set_var("PATH", &orig_path);
+
+                let inputs = TermuxBaseEnvInputs {
+                    compat_dir: OsStr::new("/plan/compat"),
+                    prefix_bin_dir: OsStr::new("/plan/prefix/bin"),
+                    temp_dir: OsStr::new("/plan/isolated/tmp"),
+                    cert_file: OsStr::new("/plan/tls/cert.pem"),
+                    cert_dir: Some(OsStr::new("/plan/tls/certs.d")),
+                    inherited_path: Some(OsStr::new("/plan/inherited/bin")),
+                    inherited_ssl_cert_file: None,
+                    inherited_ssl_cert_dir: None,
+                };
+                let plan = plan_termux_base_env(&inputs).expect("plan");
+
+                let err = launch_upstream_with_env(
+                    OsStr::new("/path/that/does/not/exist/codex-m1-b9-nonexistent-bin"),
+                    resolver_path,
+                    config_dir_path,
+                    &[OsStr::new("--version")],
+                    &plan,
+                );
+                match err {
+                    LaunchError::Exec(io_err) => {
+                        assert_eq!(io_err.kind(), std::io::ErrorKind::NotFound);
+                    }
+                    LaunchError::Policy(p_err) => {
+                        panic!("unexpected policy error on valid args: {p_err}");
+                    }
+                }
+
+                assert_eq!(std::env::var_os("TMPDIR").as_ref(), Some(&orig_tmpdir));
+                assert_eq!(std::env::var_os("TMP").as_ref(), Some(&orig_tmp));
+                assert_eq!(std::env::var_os("TEMP").as_ref(), Some(&orig_temp));
+                assert_eq!(
+                    std::env::var_os("SQLITE_TMPDIR").as_ref(),
+                    Some(&orig_sqlite)
+                );
+                assert_eq!(
+                    std::env::var_os("SSL_CERT_FILE").as_ref(),
+                    Some(&orig_cert_file)
+                );
+                assert_eq!(
+                    std::env::var_os("SSL_CERT_DIR").as_ref(),
+                    Some(&orig_cert_dir)
+                );
+                assert_eq!(std::env::var_os("PATH").as_ref(), Some(&orig_path));
+
+                let restored_meta33 = std::fs::metadata("/proc/self/fd/33").expect("stat fd 33");
+                assert_eq!(restored_meta33.dev(), meta33.dev());
+                assert_eq!(restored_meta33.ino(), meta33.ino());
+
+                let mut buf33 = Vec::new();
+                unsafe {
+                    use std::io::Read;
+                    use std::io::Seek;
+                    let mut file = std::fs::File::from_raw_fd(33);
+                    let _ = file.rewind();
+                    file.read_to_end(&mut buf33).expect("read restored fd 33");
+                    file.write_all(b"_APPENDED")
+                        .expect("write to restored fd 33");
+                    std::mem::forget(file);
+                }
+                assert_eq!(&buf33[..s33_bytes.len()], s33_bytes);
+
+                let restored_meta34 = std::fs::metadata("/proc/self/fd/34").expect("stat fd 34");
+                assert_eq!(restored_meta34.dev(), meta34.dev());
+                assert_eq!(restored_meta34.ino(), meta34.ino());
+
+                let _ = std::fs::remove_file(&sentinel33_path);
+                let _ = std::fs::remove_file(&sentinel34_path);
+
+                use std::io::Write;
+                let _ = std::io::stdout().write_all(b"M1_B9_FAILED_EXEC_PRESERVED_SUCCESS\n");
+                let _ = std::io::stdout().flush();
+                std::process::exit(0);
+            }
+            "m1_b9_failed_exec_absent_launcher" => {
+                let resolver_path = std::env::var_os(PROBE_RESOLVER_PATH_ENV)
+                    .expect("PROBE_RESOLVER_PATH_ENV must be set");
+                let config_dir_path = std::env::var_os(PROBE_CONFIG_DIR_PATH_ENV)
+                    .expect("PROBE_CONFIG_DIR_PATH_ENV must be set");
+
+                let orig_tmpdir = OsString::from("/parent/orig/tmpdir2");
+                let orig_tmp = OsString::from("/parent/orig/tmp2");
+                let orig_temp = OsString::from("/parent/orig/temp2");
+                let orig_sqlite = OsString::from("/parent/orig/sqlite_tmpdir2");
+                let orig_cert_file = OsString::from("/parent/orig/cert2.pem");
+                let orig_cert_dir = OsString::from("/parent/orig/certs2.d");
+                let orig_path = OsString::from("/parent/orig/bin2:/parent/orig/usr/bin2");
+
+                std::env::set_var("TMPDIR", &orig_tmpdir);
+                std::env::set_var("TMP", &orig_tmp);
+                std::env::set_var("TEMP", &orig_temp);
+                std::env::set_var("SQLITE_TMPDIR", &orig_sqlite);
+                std::env::set_var("SSL_CERT_FILE", &orig_cert_file);
+                std::env::set_var("SSL_CERT_DIR", &orig_cert_dir);
+                std::env::set_var("PATH", &orig_path);
+
+                unsafe {
+                    close(33);
+                    close(34);
+                }
+                assert!(unsafe { fcntl(33, F_GETFD) < 0 });
+                assert!(unsafe { fcntl(34, F_GETFD) < 0 });
+
+                let inputs = TermuxBaseEnvInputs {
+                    compat_dir: OsStr::new("/plan/compat"),
+                    prefix_bin_dir: OsStr::new("/plan/prefix/bin"),
+                    temp_dir: OsStr::new("/plan/isolated/tmp"),
+                    cert_file: OsStr::new("/plan/tls/cert.pem"),
+                    cert_dir: None,
+                    inherited_path: None,
+                    inherited_ssl_cert_file: None,
+                    inherited_ssl_cert_dir: None,
+                };
+                let plan = plan_termux_base_env(&inputs).expect("plan");
+
+                let err = launch_upstream_with_env(
+                    OsStr::new("/path/that/does/not/exist/codex-m1-b9-nonexistent-bin"),
+                    resolver_path,
+                    config_dir_path,
+                    &[OsStr::new("--version")],
+                    &plan,
+                );
+                match err {
+                    LaunchError::Exec(io_err) => {
+                        assert_eq!(io_err.kind(), std::io::ErrorKind::NotFound);
+                    }
+                    LaunchError::Policy(p_err) => {
+                        panic!("unexpected policy error on valid args: {p_err}");
+                    }
+                }
+
+                assert_eq!(std::env::var_os("TMPDIR").as_ref(), Some(&orig_tmpdir));
+                assert_eq!(std::env::var_os("TMP").as_ref(), Some(&orig_tmp));
+                assert_eq!(std::env::var_os("TEMP").as_ref(), Some(&orig_temp));
+                assert_eq!(
+                    std::env::var_os("SQLITE_TMPDIR").as_ref(),
+                    Some(&orig_sqlite)
+                );
+                assert_eq!(
+                    std::env::var_os("SSL_CERT_FILE").as_ref(),
+                    Some(&orig_cert_file)
+                );
+                assert_eq!(
+                    std::env::var_os("SSL_CERT_DIR").as_ref(),
+                    Some(&orig_cert_dir)
+                );
+                assert_eq!(std::env::var_os("PATH").as_ref(), Some(&orig_path));
+
+                assert!(unsafe { fcntl(33, F_GETFD) < 0 });
+                assert!(unsafe { fcntl(34, F_GETFD) < 0 });
+
+                use std::io::Write;
+                let _ = std::io::stdout().write_all(b"M1_B9_FAILED_EXEC_ABSENT_SUCCESS\n");
                 let _ = std::io::stdout().flush();
                 std::process::exit(0);
             }
@@ -3659,5 +4004,339 @@ exit 0
         // 4. Repeated planning on mutated input is also deterministic
         let plan_b_repeat = plan_termux_base_env(&inputs_b).expect("plan b repeat");
         assert_eq!(plan_b, plan_b_repeat);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b9_a_real_exec_composition() {
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp_dir = std::env::temp_dir();
+        let pid = std::process::id();
+        let test_root = temp_dir.join(format!("codex-test-m1-b9-real-exec-{pid}"));
+        let _ = std::fs::remove_dir_all(&test_root);
+        std::fs::create_dir_all(&test_root).expect("failed to create test root");
+
+        let resolver_path = test_root.join("resolv.conf");
+        let config_dir_path = test_root.join("managed-config");
+        std::fs::create_dir_all(&config_dir_path).expect("failed to create config dir");
+
+        let marker_path = config_dir_path.join("marker.txt");
+        std::fs::write(&marker_path, b"CONFIG_DIR_MARKER_CONTENT").expect("write marker");
+        let resolver_bytes = b"# synthetic resolv.conf\nnameserver 198.51.100.1\n";
+        std::fs::write(&resolver_path, resolver_bytes).expect("write resolver");
+
+        let shell = resolve_test_shell();
+        let fake_upstream_path = test_root.join("fake_upstream.sh");
+
+        let script_content = format!(
+            r##"#!{}
+if [ "$1" != "-c" ]; then
+    printf "ARGV_MISMATCH: 1 is '%s', expected '-c'\n" "$1" >&2
+    exit 11
+fi
+
+if [ "$2" != 'sandbox_mode="danger-full-access"' ]; then
+    printf "ARGV_MISMATCH: 2 is '%s', expected 'sandbox_mode=\"danger-full-access\"'\n" "$2" >&2
+    exit 12
+fi
+
+if [ "$3" != "exec" ]; then
+    printf "ARGV_MISMATCH: 3 is '%s', expected 'exec'\n" "$3" >&2
+    exit 13
+fi
+
+if [ "$4" != "custom_task" ]; then
+    printf "ARGV_MISMATCH: 4 is '%s', expected 'custom_task'\n" "$4" >&2
+    exit 14
+fi
+
+if [ "$5" != "--custom-flag=val1" ]; then
+    printf "ARGV_MISMATCH: 5 is '%s', expected '--custom-flag=val1'\n" "$5" >&2
+    exit 15
+fi
+
+if [ "$6" != "ordinary arg with spaces and =" ]; then
+    printf "ARGV_MISMATCH: 6 is '%s', expected 'ordinary arg with spaces and ='\n" "$6" >&2
+    exit 16
+fi
+
+for a in "$@"; do
+    printf "ARG:%s\n" "$a"
+done
+
+res_content=""
+while IFS= read -r line || [ -n "$line" ]; do
+    if [ -z "$res_content" ]; then
+        res_content="$line"
+    else
+        res_content="$res_content
+$line"
+    fi
+done < /proc/self/fd/33
+
+expected_res="# synthetic resolv.conf
+nameserver 198.51.100.1"
+if [ "$res_content" != "$expected_res" ]; then
+    printf "RESOLVER_FD33_MISMATCH: got '%s'\n" "$res_content" >&2
+    exit 20
+fi
+
+while read -r key val; do
+    if [ "$key" = "flags:" ]; then
+        case "$val" in
+            *0|*4) ;;
+            *)
+                printf "RESOLVER_FD33_NOT_RDONLY: flags '%s'\n" "$val" >&2
+                exit 21
+                ;;
+        esac
+        break
+    fi
+done < /proc/self/fdinfo/33
+
+if [ ! -d /proc/self/fd/34 ]; then
+    printf "CONFIG_FD34_NOT_DIRECTORY\n" >&2
+    exit 30
+fi
+if [ ! -f /proc/self/fd/34/marker.txt ]; then
+    printf "CONFIG_FD34_MARKER_MISSING\n" >&2
+    exit 31
+fi
+
+marker_content=""
+while IFS= read -r line || [ -n "$line" ]; do
+    if [ -z "$marker_content" ]; then
+        marker_content="$line"
+    else
+        marker_content="$marker_content
+$line"
+    fi
+done < /proc/self/fd/34/marker.txt
+
+if [ "$marker_content" != "CONFIG_DIR_MARKER_CONTENT" ]; then
+    printf "CONFIG_FD34_MARKER_MISMATCH: '%s'\n" "$marker_content" >&2
+    exit 32
+fi
+
+if [ "$TMPDIR" != "/probe/synthetic/isolated/tmp" ]; then
+    printf "TMPDIR_MISMATCH: got '%s'\n" "$TMPDIR" >&2
+    exit 51
+fi
+if [ "$TMP" != "/probe/synthetic/isolated/tmp" ]; then
+    printf "TMP_MISMATCH: got '%s'\n" "$TMP" >&2
+    exit 52
+fi
+if [ "$TEMP" != "/probe/synthetic/isolated/tmp" ]; then
+    printf "TEMP_MISMATCH: got '%s'\n" "$TEMP" >&2
+    exit 53
+fi
+if [ "$SQLITE_TMPDIR" != "/probe/synthetic/isolated/tmp" ]; then
+    printf "SQLITE_TMPDIR_MISMATCH: got '%s'\n" "$SQLITE_TMPDIR" >&2
+    exit 54
+fi
+if [ "$SSL_CERT_FILE" != "/probe/synthetic/tls/cert.pem" ]; then
+    printf "SSL_CERT_FILE_MISMATCH: got '%s'\n" "$SSL_CERT_FILE" >&2
+    exit 55
+fi
+if [ "$SSL_CERT_DIR" != "/probe/synthetic/tls/certs.d" ]; then
+    printf "SSL_CERT_DIR_MISMATCH: got '%s'\n" "$SSL_CERT_DIR" >&2
+    exit 56
+fi
+if [ "$PATH" != "/probe/synthetic/compat/bin:/probe/synthetic/prefix/bin:/probe/inherited/bin1:/probe/inherited/bin2" ]; then
+    printf "PATH_MISMATCH: got '%s'\n" "$PATH" >&2
+    exit 57
+fi
+
+if [ -n "${{CODEX_MANAGED_BY_NPM+x}}" ]; then
+    printf "ENV_FENCE_FAILED: CODEX_MANAGED_BY_NPM is present: %s\n" "$CODEX_MANAGED_BY_NPM" >&2
+    exit 40
+fi
+if [ -n "${{CODEX_MANAGED_BY_BUN+x}}" ]; then
+    printf "ENV_FENCE_FAILED: CODEX_MANAGED_BY_BUN is present: %s\n" "$CODEX_MANAGED_BY_BUN" >&2
+    exit 41
+fi
+if [ -n "${{CODEX_MANAGED_PACKAGE_ROOT+x}}" ]; then
+    printf "ENV_FENCE_FAILED: CODEX_MANAGED_PACKAGE_ROOT is present: %s\n" "$CODEX_MANAGED_PACKAGE_ROOT" >&2
+    exit 42
+fi
+if [ -n "${{LD_PRELOAD+x}}" ]; then
+    printf "ENV_FENCE_FAILED: LD_PRELOAD is present: %s\n" "$LD_PRELOAD" >&2
+    exit 43
+fi
+if [ -n "${{LD_LIBRARY_PATH+x}}" ]; then
+    printf "ENV_FENCE_FAILED: LD_LIBRARY_PATH is present: %s\n" "$LD_LIBRARY_PATH" >&2
+    exit 44
+fi
+
+if [ "$CODEX_TEST_UNRELATED_M1_B9_SURVIVING_VAR" != "m1_b9_surviving_exact_value_77192" ]; then
+    printf "UNRELATED_ENV_MISMATCH: got '%s'\n" "$CODEX_TEST_UNRELATED_M1_B9_SURVIVING_VAR" >&2
+    exit 50
+fi
+
+printf "M1_B9_REAL_EXEC_SUCCESS\n"
+exit 0
+"##,
+            shell.to_str().expect("valid shell path")
+        );
+
+        std::fs::write(&fake_upstream_path, script_content).expect("write fake upstream");
+        let mut perms = std::fs::metadata(&fake_upstream_path)
+            .expect("metadata")
+            .permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&fake_upstream_path, perms).expect("set permissions 0755");
+
+        let result = run_exec_probe_with_env(
+            "m1_b9_fake_upstream_launcher",
+            &[
+                (PROBE_RESOLVER_PATH_ENV, resolver_path.as_os_str()),
+                (PROBE_CONFIG_DIR_PATH_ENV, config_dir_path.as_os_str()),
+                (PROBE_FAKE_UPSTREAM_PATH_ENV, fake_upstream_path.as_os_str()),
+            ],
+        );
+
+        assert_eq!(
+            result.status.code(),
+            Some(0),
+            "stderr: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert_eq!(result.stderr, b"");
+
+        let mut expected_stdout = Vec::new();
+        expected_stdout.extend_from_slice(b"ARG:-c\n");
+        expected_stdout.extend_from_slice(b"ARG:sandbox_mode=\"danger-full-access\"\n");
+        expected_stdout.extend_from_slice(b"ARG:exec\n");
+        expected_stdout.extend_from_slice(b"ARG:custom_task\n");
+        expected_stdout.extend_from_slice(b"ARG:--custom-flag=val1\n");
+        expected_stdout.extend_from_slice(b"ARG:ordinary arg with spaces and =\n");
+        expected_stdout.extend_from_slice(b"ARG:");
+        expected_stdout.extend_from_slice(OsStr::from_bytes(&[0xff, 0xfe, 0x80, 0x7f]).as_bytes());
+        expected_stdout.extend_from_slice(b"\n");
+        expected_stdout.extend_from_slice(b"M1_B9_REAL_EXEC_SUCCESS\n");
+
+        assert_eq!(result.stdout, expected_stdout);
+
+        let _ = std::fs::remove_dir_all(&test_root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b9_b_failed_exec_preserves_parent_env_and_restores_fds() {
+        let temp_dir = std::env::temp_dir();
+        let pid = std::process::id();
+        let test_root = temp_dir.join(format!("codex-test-m1-b9-fail-{pid}"));
+        let _ = std::fs::remove_dir_all(&test_root);
+        std::fs::create_dir_all(&test_root).expect("failed to create test root");
+
+        let resolver_path = test_root.join("resolv.conf");
+        let config_dir_path = test_root.join("managed-config");
+        std::fs::create_dir_all(&config_dir_path).expect("failed to create config dir");
+        std::fs::write(&resolver_path, b"nameserver 1.1.1.1\n").expect("write resolver");
+
+        let result_sentinels = run_exec_probe_with_env(
+            "m1_b9_failed_exec_launcher",
+            &[
+                (PROBE_RESOLVER_PATH_ENV, resolver_path.as_os_str()),
+                (PROBE_CONFIG_DIR_PATH_ENV, config_dir_path.as_os_str()),
+            ],
+        );
+        assert_eq!(result_sentinels.status.code(), Some(0));
+        assert_eq!(
+            result_sentinels.stdout,
+            b"M1_B9_FAILED_EXEC_PRESERVED_SUCCESS\n"
+        );
+        assert_eq!(result_sentinels.stderr, b"");
+
+        let result_absent = run_exec_probe_with_env(
+            "m1_b9_failed_exec_absent_launcher",
+            &[
+                (PROBE_RESOLVER_PATH_ENV, resolver_path.as_os_str()),
+                (PROBE_CONFIG_DIR_PATH_ENV, config_dir_path.as_os_str()),
+            ],
+        );
+        assert_eq!(result_absent.status.code(), Some(0));
+        assert_eq!(result_absent.stdout, b"M1_B9_FAILED_EXEC_ABSENT_SUCCESS\n");
+        assert_eq!(result_absent.stderr, b"");
+
+        let _ = std::fs::remove_dir_all(&test_root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b9_c_policy_before_io() {
+        let nonexistent_prog = OsStr::new("/path/that/does/not/exist/codex-bin-m1-b9-nonexistent");
+        let nonexistent_resolver =
+            std::path::Path::new("/path/that/does/not/exist/resolv-m1-b9-nonexistent.conf");
+        let nonexistent_config =
+            std::path::Path::new("/path/that/does/not/exist/config-dir-m1-b9-nonexistent");
+
+        let inputs = TermuxBaseEnvInputs {
+            compat_dir: OsStr::new("/test/compat"),
+            prefix_bin_dir: OsStr::new("/test/prefix/bin"),
+            temp_dir: OsStr::new("/test/tmp"),
+            cert_file: OsStr::new("/test/cert.pem"),
+            cert_dir: None,
+            inherited_path: Some(OsStr::new("/usr/bin")),
+            inherited_ssl_cert_file: None,
+            inherited_ssl_cert_dir: None,
+        };
+        let plan = plan_termux_base_env(&inputs).expect("plan must succeed");
+
+        let cases: Vec<(Vec<&str>, PassthroughError)> = vec![
+            (
+                vec!["-s", "read-only"],
+                PassthroughError::UnsupportedSandboxMode("read-only".to_string()),
+            ),
+            (
+                vec!["--sandbox", "workspace-write"],
+                PassthroughError::UnsupportedSandboxMode("workspace-write".to_string()),
+            ),
+            (
+                vec!["sandbox", "linux"],
+                PassthroughError::UnsupportedSandboxSubcommand,
+            ),
+            (
+                vec!["-c", "sandbox_mode=read-only"],
+                PassthroughError::UnsupportedSandboxMode("read-only".to_string()),
+            ),
+        ];
+
+        for (args, expected_policy_err) in cases {
+            let err = launch_upstream_with_env(
+                nonexistent_prog,
+                nonexistent_resolver,
+                nonexistent_config,
+                args.clone(),
+                &plan,
+            );
+
+            match err {
+                LaunchError::Policy(policy_err) => {
+                    assert_eq!(
+                        policy_err, expected_policy_err,
+                        "expected policy error {:?} for args {:?}",
+                        expected_policy_err, args
+                    );
+                    let msg = policy_err.to_string();
+                    assert!(
+                        msg.contains("Termux"),
+                        "error msg '{msg}' must mention Termux"
+                    );
+                    assert!(
+                        msg.contains("cannot be enforced"),
+                        "error msg '{msg}' must mention cannot be enforced"
+                    );
+                }
+                LaunchError::Exec(exec_err) => {
+                    panic!(
+                        "launch_upstream_with_env must reject policy before I/O, but got Exec error: {exec_err} for args {:?}",
+                        args
+                    );
+                }
+            }
+        }
     }
 }
