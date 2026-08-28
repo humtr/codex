@@ -68,60 +68,72 @@ irreversible design decision without ambiguity.
 - Preserve upstream argv, TTY, signals, standard streams, and exit status at
   the final execution boundary.
 - Fault-test generation activation and rollback before any live cutover.
-- During each Core milestone, use one reusable read-only Sol Technical Lead for
-  bounded checkpoint planning and material implementation-problem
-  consultation. Additional planners and checkpoint reviewers are disabled.
+- Run the two Core milestones under one primary Sol Technical Lead/Integrator
+  that owns planning, implementation delegation, integration verification, and
+  acceptance decisions. Additional planners, advisors, and checkpoint
+  reviewers are disabled.
+- Delegate product-code and test implementation to one bounded implementation
+  worker at a time.
 - Perform an independent product review only after the Milestone 2 acceptance
   candidate is complete.
 
-## Sol Technical Lead planning and consultation
+## Primary Sol Technical Lead and implementation workers
 
-- The primary implementing agent owns execution, routine local microplanning,
-  evidence retrieval, mutation, validation, and all final decisions. It must
-  validate Technical Lead proposals against `SPEC.md` and `GOAL.md` before
-  updating `WORKBOARD.md` or implementing them.
-- At the start of each milestone, create one read-only Technical Lead with
-  model `gpt-5.6-sol`, reasoning effort `max`, and `fork_context: false`.
-  Reuse that identity with `send_input` for the milestone's bounded work-bundle
-  plans and for material problems that focused local diagnosis has not resolved
-  confidently. Resume it when possible and do not spawn parallel or duplicate
-  planning/advisory agents.
-- Invoke the Technical Lead for the initial milestone bundle, after completion
-  of the current bundle, after a material deviation, blocker, or authority
-  change, and at the milestone transition. Do not invoke it for each source
-  edit, test, commit, or other routine action inside an accepted bundle.
-- Technical Lead access is packet-only. Instruct it not to call shell,
-  filesystem, repository, web, MCP, delegation, or other tools and never to
-  enumerate or scan the repository. The implementing agent owns all evidence
-  retrieval.
-- The initial packet must contain the bound branch and commit, one exact
-  checkpoint or problem, governing contract excerpts, at most eight relevant
-  source/test snippets or diffs, concise evidence and attempted actions when
-  applicable, protected surfaces, and the decision needed next. The
-  packet must not exceed 12,000 estimated input tokens, or 48,000 characters
-  when no tokenizer is available.
-- Every later `send_input` is delta-only: include the prior and current commit,
-  changed paths, only the relevant diff or new evidence, and any changed
-  authority. Do not resend unchanged material. A delta packet must not exceed
-  5,000 estimated input tokens, or 20,000 characters without a tokenizer.
-- If the packet is insufficient, the Technical Lead may request one exact
-  additional snippet or evidence item. The implementing agent retrieves and
-  returns only that item; the Technical Lead must not read it independently.
-  Request an answer of no more than 900 words.
-- The Technical Lead may analyze, recommend, and propose the next bounded
-  checkpoint plan. It must not mutate files or runtime state, delegate, invent
-  product semantics, authorize work, implement the plan, or review or certify
-  milestone acceptance.
-- Before entering a materially different bundle, the implementing agent records
-  its validated disposition and executable bundle in `WORKBOARD.md`. Record a
-  concise synthesis in `GOAL.md` when the plan or consultation changes the
-  current plan, acceptance claim, blocker, or proof requirement.
-- When an accepted bundle is exhausted but the milestone gate is incomplete,
-  reuse the same Technical Lead to propose the next bounded bundle. When the
-  gate is proven, the implementing agent records the evidence, rotates to a new
-  Technical Lead for the next milestone, replaces the current `WORKBOARD.md`
-  target, and continues. Exhausting a work bundle is not itself a blocker or a
-  reason to stop for user input.
-- Replace the Technical Lead only at a milestone boundary, when its identity is
-  confirmed unavailable, or when it cannot accurately restate the bound commit
-  and governing authority. Do not persist its live identity in tracked files.
+- Start or resume the goal with the primary agent configured as
+  `gpt-5.6-sol` at `max` reasoning. That primary agent is the Technical
+  Lead/Integrator; do not create a planning subagent to replace it.
+- Keep the primary Lead across both Core milestones while its context remains
+  available and accurate. On resume, it must rebind the exact branch, commit,
+  `SPEC.md`, `GOAL.md`, and `WORKBOARD.md`. Do not persist a live agent identity
+  in tracked files.
+- The Lead reads the authorized repository evidence directly and owns
+  architecture interpretation, bounded work-bundle planning, authority-document
+  updates, worker instructions, actual diff review, integration validation,
+  commits, and acceptance-ledger decisions. It must not outsource evidence
+  selection or acceptance to the worker.
+- The Lead does not routinely implement product code or tests. Before each
+  implementation bundle it records the exact outcome, writable paths, governing
+  contracts, tests, protected surfaces, and completion gate in `WORKBOARD.md`.
+- Spawn only one implementation worker at a time with `fork_context: false`.
+  Reuse that worker with `send_input` only within its current bundle; close or
+  replace it after the bundle is accepted. Do not run concurrent workers in the
+  shared worktree.
+- A worker may use repository, filesystem, and shell tools only for the paths
+  and temporary test roots authorized in its packet. It may modify product code
+  and tests in that scope and run the named non-destructive validation. It must
+  not edit `SPEC.md`, `GOAL.md`, `WORKBOARD.md`, or `AGENTS.md`; mutate live
+  resolver/runtime/profile/session/auth/Manager state; install or update
+  packages; use network/provider tools unless the current bundle and a later
+  acceptance gate explicitly authorize one bounded non-secret validation;
+  commit or push; or delegate work.
+- The initial worker packet must contain the bound branch and commit, one exact
+  accepted bundle, governing contract excerpts, no more than eight relevant
+  source/test paths or snippets, authorized read/write scope, named validation,
+  protected surfaces, and the required completion report. It must not exceed
+  12,000 estimated input tokens or 48,000 characters without a tokenizer.
+- Every worker follow-up is delta-only: include the prior and current commit,
+  changed paths, only the relevant diff or new failure evidence, changed
+  authority if any, and one exact next action. Do not resend unchanged material.
+  A follow-up must not exceed 5,000 estimated input tokens or 20,000 characters
+  without a tokenizer.
+- The worker must return changed paths, concise validation results, unresolved
+  failures, and confirmation that protected surfaces were not touched. If it
+  needs evidence or scope outside the packet, it requests the exact item or path
+  and waits for the Lead; it must not broaden its own scope.
+- While a worker is mutating the shared worktree, the Lead waits and does not
+  make concurrent edits. Afterward the Lead inspects the actual diff, reruns the
+  load-bearing validation, and accepts or rejects the bundle. Worker summaries
+  and tests are evidence inputs, not acceptance proof by themselves.
+- Send rejected or incomplete work back to the same worker as an exact delta.
+  Replace it only when its identity is confirmed unavailable or it cannot
+  accurately restate the bundle and bound revision; a replacement receives the
+  current diff and remaining gate, not a broad repository reread.
+- The Lead handles planning changes and material diagnosis directly. Do not
+  spawn another planner, problem advisor, or checkpoint reviewer during the two
+  Core milestones. The Lead's own validation is integration verification, not
+  independent review.
+- When a bundle is accepted but the milestone gate is incomplete, the Lead
+  plans and records the next bundle itself. When Milestone 1 is proven, the same
+  Lead updates the ledger and workboard and continues into Milestone 2 without a
+  routine user pause. A fresh independent reviewer is invoked only after the
+  Milestone 2 acceptance candidate is complete.

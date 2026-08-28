@@ -20,64 +20,66 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
-## Checkpoint Planning Policy
+## Primary Technical Lead Policy
 
-- Planning assistance enabled: true
-- Planner role: one reusable read-only Sol Technical Lead per milestone,
-  combining bounded checkpoint planning with material implementation-problem
-  consultation
-- Planner model: `gpt-5.6-sol`
-- Reasoning effort: `max`
-- Planner context: `fork_context: false`
-- Reuse rule: create one Technical Lead at milestone start, reuse that identity
-  with delta-only `send_input` throughout the milestone, and do not create
-  parallel planners or advisors
-- Checkpoints: initial milestone bundle; completion of the current bundle;
-  material deviation, blocker, or authority change; and milestone transition
-- Routine cadence: no Technical Lead call for an individual edit, test, commit,
-  evidence append, or other action inside an accepted bundle
-- Planner wait window: 300 seconds for one bounded result, with at most one
-  retry for a confirmed transient invocation failure
-- Implementation authority: the primary implementing agent performs routine
-  microplanning, validates every proposal against `SPEC.md` and this file,
-  owns all mutation and evidence, and records the executable bundle in
-  `WORKBOARD.md`
+- Orchestration mode: lead-owned implementation
+- Required primary role: Technical Lead/Integrator
+- Required primary model: `gpt-5.6-sol`
+- Required reasoning effort: `max`
+- Lifecycle: keep the primary Lead across both Core milestones while its
+  context remains available and accurate; on resume rebind the branch, commit,
+  `SPEC.md`, this file, and `WORKBOARD.md`
+- Planning owner: the primary Lead reads authorized repository evidence
+  directly, plans each bounded implementation bundle, and records it in
+  `WORKBOARD.md` before delegation
+- Integration owner: the primary Lead inspects actual worker diffs, reruns
+  load-bearing validation, records acceptance evidence, and commits accepted
+  work; worker reports do not establish acceptance
+- Checkpoints: initial implementation bundle; completion or rejection of the
+  current bundle; material deviation, blocker, or authority change; and
+  milestone transition
+- Additional planning agents, problem advisors, and checkpoint reviewers:
+  disabled during both Core milestones
+- Primary mutation boundary: authority-document and integration changes are
+  allowed; routine product-code and test implementation is delegated
+- Identity rule: do not persist a live Lead identity in tracked files
+- Review policy: the Lead's validation is integration verification, not
+  independent review; invoke a fresh independent product reviewer only after
+  the Milestone 2 acceptance candidate is complete
 - Policy source and timestamp: user decision on 2026-08-28
-- Review policy: no additional planning agents or checkpoint reviewers;
-  independent product review only after the Milestone 2 acceptance candidate
-  is complete
 
-## Sol Technical Lead Context Policy
+## Implementation Worker Policy
 
-- Assistance enabled: true
-- Scope: bounded checkpoint planning plus a material implementation problem
-  that remains unresolved after focused local diagnosis or prevents confident
-  selection of the next action
-- Access mode: packet-only; the Technical Lead may not call repository,
-  filesystem, shell, web, MCP, delegation, or other tools, enumerate files, or
-  scan the repository
+- Worker assistance enabled: true
+- Concurrency: exactly one mutating worker at a time in the shared worktree
+- Worker model and effort: selected by the primary Lead for each bounded bundle
+  from available implementation-capable agents and recorded with the bundle;
+  no worker may assume planning or acceptance authority
+- Worker context: `fork_context: false`
+- Reuse rule: reuse the same worker with delta-only `send_input` only inside the
+  current bundle; retire it after acceptance
+- Access mode: repository, filesystem, and shell tools only within packet-
+  authorized paths and temporary test roots; no delegation, package operations,
+  live product mutation, commits, or pushes; network/provider tools require an
+  explicit later acceptance gate and one bounded non-secret validation bundle
+- Writable scope: product code and tests named in the accepted bundle; never
+  `AGENTS.md`, `SPEC.md`, this file, or `WORKBOARD.md`
 - Initial packet budget: at most 12,000 estimated input tokens or 48,000
-  characters without a tokenizer, containing the bound branch/commit, one exact
-  checkpoint or problem, governing contract excerpts, no more than eight
-  relevant source/test snippets or diffs, concise evidence and attempts,
-  protected surfaces, and one required decision
+  characters without a tokenizer, with the bound branch/commit, exact bundle,
+  governing excerpts, no more than eight relevant source/test paths or snippets,
+  read/write scope, validation, protected surfaces, and completion report
 - Follow-up budget: delta-only `send_input` of at most 5,000 estimated input
   tokens or 20,000 characters, containing prior/current commits, changed paths,
-  relevant new diff/evidence, and changed authority only
-- Missing-evidence rule: the Technical Lead may request one exact additional
-  snippet or evidence item; the implementing agent retrieves it, and no
-  independent Technical Lead read is allowed
-- Output budget: request no more than 900 words
-- Rotation rule: replace the Technical Lead only at a milestone boundary,
-  confirmed identity loss, or failure to restate the bound commit and governing
-  authority; do not persist its live identity in tracked files
-- Authority: read-only plans and advice only; the implementing agent validates
-  the result and retains all mutation, contract, implementation, review, and
-  acceptance decisions
-- Record rule: persist only a concise checkpoint or problem, evidence, proposal,
-  disposition, bound commit, packet-size class, evidence-request count, and next
-  gate when the interaction materially changes this goal or its acceptance
-  ledger
+  relevant diff or new failure evidence, changed authority, and one next action
+- Scope-expansion rule: the worker requests one exact item or path and waits;
+  only the Lead may authorize a broader packet
+- Completion report: changed paths, concise validation results, unresolved
+  failures, and protected-surface non-mutation confirmation
+- Replacement rule: resume the same worker when possible; replace it only after
+  confirmed identity loss or bundle-context mismatch, and give the replacement
+  the current diff and remaining gate instead of a broad reread
+- Authority: implementation only; the primary Lead retains planning,
+  architecture, authority-document, integration, commit, and acceptance control
 - Policy source and timestamp: user decision on 2026-08-28
 
 ## Current Success Threshold
@@ -122,14 +124,15 @@ one current workboard, direct focused tests, and deferred independent review.
 - Preserve upstream `--version`/`-V` output without wrapper version rows.
 - Put architecture and lightweight change discipline in `SPEC.md`; do not add
   a separate SDD now.
-- Keep execution and routine microplanning with the primary implementing agent.
-- Use one reusable packet-only `gpt-5.6-sol` Technical Lead at `max` reasoning
-  per milestone for bounded work-bundle planning and material unresolved
-  problems, with delta-only follow-ups and hard context budgets.
-- Do not create additional planning agents or checkpoint reviewers. The
-  Technical Lead is not a repository reader, implementation owner, mutation
-  authority, or acceptance reviewer; review the complete Milestone 2 candidate
-  separately.
+- Run the goal under a primary `gpt-5.6-sol` / `max` Technical Lead/Integrator
+  that directly owns repository evidence, planning, integration verification,
+  authority documents, commits, and acceptance decisions across both milestones.
+- Delegate bounded product-code and test implementation to one worker at a time,
+  reuse that worker only within its current bundle, and keep worker context,
+  tools, writable paths, and follow-ups narrowly scoped.
+- Do not create planning subagents, problem advisors, or checkpoint reviewers
+  during the Core milestones. Review the complete Milestone 2 candidate with a
+  fresh independent reviewer.
 - Use exactly two Core milestones.
 - This foundation task creates documents and workflow only; implementation is
   handed to a later implementer.
@@ -174,18 +177,20 @@ Termux qualification. Produce one candidate for independent product review.
 - No Rust Core source, build, test, artifact, installation, update, activation,
   rollback, fresh-device behavior, or production readiness is proven yet.
 - No Manager implementation or Core/Manager integration is proven.
-- No Technical Lead plan or implementation-problem consultation has yet been
-  completed; the configured policy is workflow readiness, not product proof.
+- No primary-Lead implementation bundle, worker run, or integration verification
+  has yet been completed; the configured policy is workflow readiness, not
+  product proof.
 
 ### Checkpoint Plans
 
-- Plan status: enabled; the initial Milestone 1 Technical Lead plan is pending.
-- Before the first implementation mutation, the implementing agent sends the
-  bounded initial packet, validates the returned proposal, and records the first
-  executable bundle in `WORKBOARD.md`.
-- Reuse the same Milestone 1 Technical Lead at the configured checkpoints. Do
-  not invoke it during routine work inside the accepted bundle and do not add a
-  checkpoint reviewer.
+- Plan status: lead-owned and pending; the primary Lead must author the initial
+  Milestone 1 implementation bundle directly.
+- Before the first implementation mutation, the Lead records the exact bundle,
+  worker scope, validation, protected surfaces, and completion gate in
+  `WORKBOARD.md`, then invokes one bounded worker.
+- At bundle completion the Lead records its own diff/test disposition here. No
+  worker report, planning subagent, or checkpoint reviewer substitutes for that
+  integration decision.
 
 ## Goal Lifts
 
@@ -202,24 +207,26 @@ milestones. It must update this file before expanding `WORKBOARD.md`.
 - Stop if a test would write the live resolver, auth, profile, session, or
   installed runtime paths.
 - Stop if update recovery cannot prove one complete old or new generation.
-- Stop if no accepted work bundle remains and the required Technical Lead plan
-  is unavailable after the bounded retry/resume policy. Record the unavailable
-  plan and exact dependent decision rather than improvising a new bundle.
+- Stop before implementation if the goal run is not using the configured
+  primary Lead model and effort and no explicitly authorized equivalent exists.
+- Stop if the current bundle has no available worker after resume and one
+  bounded replacement attempt. Record the current diff and remaining gate; the
+  Lead must not silently become the product-code implementer.
 - Exhausting the current `WORKBOARD.md` bundle is a planning checkpoint, not a
-  blocker. If the milestone gate is incomplete, obtain and record the next
-  bounded bundle from the same Technical Lead.
+  blocker. If the milestone gate is incomplete, the primary Lead plans and
+  records the next bounded bundle itself.
 
 Resume by reading `SPEC.md`, then this file, then `WORKBOARD.md`. Continue only
-the selected current milestone. When its gate is proven, update this ledger,
-rotate the Technical Lead at the milestone boundary, replace `WORKBOARD.md`
-with the next milestone plan, and continue without a routine user pause.
+the selected current milestone. When its gate is proven, the same primary Lead
+updates this ledger, replaces `WORKBOARD.md` with the next milestone plan, and
+continues without a routine user pause.
 
 ## Handoff
 
 Resume through the installed `$goal-md` workflow with
 `/goal resume codex-goal.md`; it must resolve to this file on
-`rewrite/rust-core`. If no current Technical Lead plan exists, the next
-implementer first obtains the bounded Milestone 1 plan, validates it, records
-the executable bundle in `WORKBOARD.md`, and then implements it. The legacy
-branch may be inspected for behavior discovery but no source file may be copied
-into the rewrite.
+`rewrite/rust-core` and run with the primary agent configured as
+`gpt-5.6-sol` / `max`. The primary Lead authors and records the first bounded
+Milestone 1 bundle, then invokes one implementation worker. The legacy branch
+may be inspected by the Lead for behavior discovery but no source file may be
+copied into the rewrite or delegated as migration material.

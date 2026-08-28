@@ -12,12 +12,13 @@ in Git history and the `GOAL.md` acceptance ledger, not here.
 - Normative owner: `SPEC.md`
 - Acceptance owner: `GOAL.md`
 - Current milestone: Milestone 1 — local Core
-- Primary implementer: owns execution, routine microplanning, evidence,
-  validation, and final decisions
-- Technical Lead: one reusable packet-only `gpt-5.6-sol` / `max` session per
-  milestone for bounded work-bundle planning and material problem consultation;
-  follow-up input is delta-only under the budgets in `GOAL.md`
-- Additional planning agents and checkpoint reviewers: disabled
+- Primary Technical Lead/Integrator: the main `gpt-5.6-sol` / `max` goal
+  session; owns evidence retrieval, planning, worker packets, actual diff review,
+  integration validation, commits, and acceptance decisions across both Core
+  milestones
+- Implementation worker: exactly one mutating worker at a time, bounded to the
+  accepted code/test paths and validation; reused only within that bundle
+- Planning agents, problem advisors, and checkpoint reviewers: disabled
 - Live installation or activation: prohibited in this milestone
 
 ## Current objective
@@ -28,10 +29,11 @@ or mutation of the installed Codex product.
 
 ## Selected next action
 
-Construct the bounded initial Milestone 1 packet, create the Milestone 1 Sol
-Technical Lead, obtain one executable work-bundle proposal, validate it against
-`SPEC.md` and `GOAL.md`, and record the accepted bundle here before the first
-implementation mutation.
+The primary Lead directly plans and records the first bounded Milestone 1
+implementation bundle here, including exact writable paths, governing contract
+excerpts, named tests, protected surfaces, completion gate, and selected worker
+configuration. It then invokes one implementation worker; no planning subagent
+is used.
 
 ## Milestone 1 required outcomes
 
@@ -51,9 +53,9 @@ implementation mutation.
 8. Define and validate the generation-manifest and updater interfaces without
    performing network or live activation.
 9. Add unit, integration, fault, and real-Termux smoke tests in temporary roots.
-10. Update `GOAL.md` with exact Milestone 1 evidence. If every gate passes,
-    rotate to a Milestone 2 Technical Lead, replace this workboard's current
-    target with the accepted Milestone 2 bundle, and continue.
+10. The primary Lead updates `GOAL.md` with exact Milestone 1 evidence. If every
+    gate passes, it replaces this workboard's current target with its bounded
+    Milestone 2 plan and continues.
 
 ## Milestone 1 completion gate
 
@@ -71,12 +73,14 @@ implementation mutation.
 - Do not begin Milestone 2 work while a Milestone 1 gate is unresolved.
 - Do not implement Manager product features.
 - Do not run package installation or update commands.
-- Do not spawn a planner or advisor other than the configured milestone
-  Technical Lead, and do not invoke a checkpoint reviewer.
-- Do not treat Technical Lead output as authority, implementation, review, or
-  acceptance evidence.
-- Do not give the Technical Lead repository/tool access, resend unchanged
-  context, or exceed the packet and output budgets in `GOAL.md`.
+- Do not spawn a planning agent, problem advisor, checkpoint reviewer, or more
+  than one implementation worker.
+- Do not let a worker edit authority documents, commit, push, broaden its own
+  read/write scope, or touch protected live state.
+- Do not treat a worker report or worker-run test as acceptance proof until the
+  primary Lead has inspected the actual diff and rerun load-bearing validation.
+- Do not resend unchanged context or exceed the worker packet budgets in
+  `GOAL.md`.
 - Do not modify `legacy/monolith` or rewrite sealed tags.
 - Do not expand the document hierarchy during ordinary implementation.
 
@@ -84,7 +88,7 @@ implementation mutation.
 
 Milestone 2 — delivery and recovery — remains defined in `SPEC.md` and is not
 current work until the Milestone 1 ledger is complete. Completion of that ledger
-triggers a milestone-boundary Technical Lead rotation and replacement of this
-file's current target; it does not require a routine user stop. Exhaustion of an
-accepted bundle before then triggers the next planning checkpoint, not task
-completion.
+causes the same primary Lead to replace this file's current target with the
+Milestone 2 plan; it does not require a routine user stop. Exhaustion of an
+accepted bundle before then causes the Lead to plan the next bundle, not to end
+the task.
