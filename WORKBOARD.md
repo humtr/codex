@@ -29,11 +29,43 @@ or mutation of the installed Codex product.
 
 ## Selected next action
 
-The primary Lead directly plans and records the first bounded Milestone 1
-implementation bundle here, including exact writable paths, governing contract
-excerpts, named tests, protected surfaces, completion gate, and selected worker
-configuration. It then invokes one implementation worker; no planning subagent
-is used.
+### Bundle M1-B1 — minimal workspace and command classifier
+
+- Bound base: `rewrite/rust-core@5a660669055029be2b3ce53a6aa9bb7261b7290a`.
+- Exact outcome: create a locked dependency-free Cargo workspace containing one
+  Core binary and implement only the exact first-argument classifier needed to
+  distinguish Core-owned `update`, `doctor`, and `termux` commands from upstream
+  passthrough. Runtime execution remains for a later bundle.
+- Writable worker paths: `Cargo.toml`, `Cargo.lock`, `crates/core/Cargo.toml`,
+  and `crates/core/src/main.rs` only.
+- Governing contracts: `SPEC.md` section 3 requires interception only when the
+  exact first argument is `update`, `doctor`, or `termux`; every other argv
+  shape, including `--version` and `-V`, remains upstream passthrough. The
+  rewrite discipline forbids legacy source copying and unnecessary dependencies.
+- Worker configuration: one replacement `agy` CLI worker launched through a
+  bounded Task-owned shell execution, `accept-edits` mode with terminal sandbox
+  restrictions and a single non-interactive prompt. The registered `agy`
+  harness adapter is not used because its stdin prompt transport is incompatible
+  with the installed CLI; a corrected non-mutating CLI probe returned `READY`.
+  The worker has implementation authority only and may not edit authority
+  documents, commit, push, install packages, use provider tools, delegate, or
+  touch live product state.
+- Named validation: `cargo fmt --check`, `cargo test --locked --workspace`, and
+  `cargo build --locked --workspace`, all from the repository root without
+  network or package installation.
+- Protected surfaces: `AGENTS.md`, `SPEC.md`, `GOAL.md`, `WORKBOARD.md`,
+  `README.md`, `legacy/monolith`, all live launcher/runtime/Manager paths,
+  `$PREFIX/etc/resolv.conf`, profiles, sessions, auth data, and unrelated
+  worktrees/refs.
+- Completion gate: exactly one workspace member and one Core binary; committed
+  lockfile; zero external dependencies; focused tests cover empty argv, exact
+  `update`/`doctor`/`termux`, near-miss spellings, `--version`, `-V`, arbitrary
+  passthrough arguments, and a non-UTF-8 first argument on Unix/Android without
+  lossy parsing; named validation passes; no path outside the worker scope is
+  changed.
+- Integration disposition: after the worker returns, the primary Lead inspects
+  the actual diff, reruns the load-bearing validation, accepts or rejects the
+  bundle, and commits only accepted work before planning M1-B2.
 
 ## Milestone 1 required outcomes
 
