@@ -395,6 +395,116 @@ where
 }
 
 #[cfg(unix)]
+fn with_runtime_fds<R, C, T, F>(resolver_path: R, config_dir: C, operation: F) -> std::io::Result<T>
+where
+    R: AsRef<std::path::Path>,
+    C: AsRef<std::path::Path>,
+    F: FnOnce() -> std::io::Result<T>,
+{
+    // Capture FD 33 first. If capture of FD 34 fails, restore FD 33 explicitly
+    // so a restoration failure is observable rather than hidden by Drop.
+    let mut guard_33 = unsafe { FdRestorationGuard::capture(RESOLVER_FD)? };
+    let mut guard_34 = match unsafe { FdRestorationGuard::capture(CONFIG_DIR_FD) } {
+        Ok(guard) => guard,
+        Err(capture_err) => {
+            return match unsafe { guard_33.restore() } {
+                Ok(()) => Err(capture_err),
+                Err(restore_err) => Err(restore_err),
+            };
+        }
+    };
+
+    // Once both prior states are captured, keep the operation result separate
+    // from restoration. Restoration failure takes precedence over either an
+    // operation success or failure.
+    let operation_result = (|| -> std::io::Result<T> {
+        let resolver_file = std::fs::File::open(resolver_path.as_ref())?;
+        let res_meta = resolver_file.metadata()?;
+        if res_meta.is_dir() {
+            return Err(std::io::Error::from_raw_os_error(21 /* EISDIR */));
+        }
+
+        let config_file = std::fs::File::open(config_dir.as_ref())?;
+        let cfg_meta = config_file.metadata()?;
+        if !cfg_meta.is_dir() {
+            return Err(std::io::Error::from_raw_os_error(20 /* ENOTDIR */));
+        }
+
+        use std::os::unix::io::AsRawFd;
+        let safe_res_fd = unsafe { fcntl(resolver_file.as_raw_fd(), F_DUPFD_CLOEXEC, SAFE_MIN_FD) };
+        if safe_res_fd < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        drop(resolver_file);
+        let mut safe_res = SafeFd(safe_res_fd);
+
+        let safe_cfg_fd = unsafe { fcntl(config_file.as_raw_fd(), F_DUPFD_CLOEXEC, SAFE_MIN_FD) };
+        if safe_cfg_fd < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        drop(config_file);
+        let mut safe_cfg = SafeFd(safe_cfg_fd);
+
+        if unsafe { dup2(safe_res.0, RESOLVER_FD) } < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        if unsafe { fcntl(RESOLVER_FD, F_SETFD, 0 as std::os::raw::c_int) } < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+
+        if unsafe { dup2(safe_cfg.0, CONFIG_DIR_FD) } < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        if unsafe { fcntl(CONFIG_DIR_FD, F_SETFD, 0 as std::os::raw::c_int) } < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+
+        // Close temporary duplicates before running the operation. The mapped
+        // FD 33/34 descriptors remain open and non-CLOEXEC for either final exec
+        // or a spawned doctor child.
+        let safe_res_fd = safe_res.0;
+        safe_res.0 = -1;
+        if unsafe { close(safe_res_fd) } < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        let safe_cfg_fd = safe_cfg.0;
+        safe_cfg.0 = -1;
+        if unsafe { close(safe_cfg_fd) } < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+
+        operation()
+    })();
+
+    let restore_34 = unsafe { guard_34.restore() };
+    let restore_33 = unsafe { guard_33.restore() };
+    if let Err(err) = restore_34 {
+        return Err(err);
+    }
+    if let Err(err) = restore_33 {
+        return Err(err);
+    }
+    operation_result
+}
+
+#[cfg(unix)]
+fn apply_child_env_plan_and_fence(
+    cmd: &mut std::process::Command,
+    env_plan: Option<&TermuxBaseEnvPlan>,
+) {
+    if let Some(plan) = env_plan {
+        for (k, v) in plan.assignments() {
+            cmd.env(k, v);
+        }
+    }
+    cmd.env_remove("CODEX_MANAGED_BY_NPM")
+        .env_remove("CODEX_MANAGED_BY_BUN")
+        .env_remove("CODEX_MANAGED_PACKAGE_ROOT")
+        .env_remove("LD_PRELOAD")
+        .env_remove("LD_LIBRARY_PATH");
+}
+
+#[cfg(unix)]
 fn exec_upstream_with_runtime_fds_and_env<P, I, S, R, C>(
     program: P,
     args: I,
@@ -409,112 +519,15 @@ where
     R: AsRef<std::path::Path>,
     C: AsRef<std::path::Path>,
 {
-    let res = (|| -> std::io::Result<()> {
-        // Capture FD 33 first. If capture of FD 34 fails, restore FD 33 explicitly
-        // so a restoration failure is observable rather than hidden by Drop.
-        let mut guard_33 = unsafe { FdRestorationGuard::capture(RESOLVER_FD)? };
-        let mut guard_34 = match unsafe { FdRestorationGuard::capture(CONFIG_DIR_FD) } {
-            Ok(guard) => guard,
-            Err(capture_err) => {
-                return match unsafe { guard_33.restore() } {
-                    Ok(()) => Err(capture_err),
-                    Err(restore_err) => Err(restore_err),
-                };
-            }
-        };
+    let result = with_runtime_fds(resolver_path, config_dir, || {
+        use std::os::unix::process::CommandExt;
+        let mut cmd = std::process::Command::new(program.as_ref());
+        cmd.args(args);
+        apply_child_env_plan_and_fence(&mut cmd, env_plan);
+        Err(cmd.exec())
+    });
 
-        // Once both prior states are captured, keep the operation error separate
-        // from restoration. Every returned setup/exec failure restores 34 then 33
-        // and a restoration failure takes precedence over the original failure.
-        let operation_err = match (|| -> std::io::Result<()> {
-            let resolver_file = std::fs::File::open(resolver_path.as_ref())?;
-            let res_meta = resolver_file.metadata()?;
-            if res_meta.is_dir() {
-                return Err(std::io::Error::from_raw_os_error(21 /* EISDIR */));
-            }
-
-            let config_file = std::fs::File::open(config_dir.as_ref())?;
-            let cfg_meta = config_file.metadata()?;
-            if !cfg_meta.is_dir() {
-                return Err(std::io::Error::from_raw_os_error(20 /* ENOTDIR */));
-            }
-
-            use std::os::unix::io::AsRawFd;
-            let safe_res_fd =
-                unsafe { fcntl(resolver_file.as_raw_fd(), F_DUPFD_CLOEXEC, SAFE_MIN_FD) };
-            if safe_res_fd < 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-            drop(resolver_file);
-            let mut safe_res = SafeFd(safe_res_fd);
-
-            let safe_cfg_fd =
-                unsafe { fcntl(config_file.as_raw_fd(), F_DUPFD_CLOEXEC, SAFE_MIN_FD) };
-            if safe_cfg_fd < 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-            drop(config_file);
-            let mut safe_cfg = SafeFd(safe_cfg_fd);
-
-            if unsafe { dup2(safe_res.0, RESOLVER_FD) } < 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-            if unsafe { fcntl(RESOLVER_FD, F_SETFD, 0 as std::os::raw::c_int) } < 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-
-            if unsafe { dup2(safe_cfg.0, CONFIG_DIR_FD) } < 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-            if unsafe { fcntl(CONFIG_DIR_FD, F_SETFD, 0 as std::os::raw::c_int) } < 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-
-            // Close temporary duplicates before exec. These are test-owned/process-local
-            // descriptors; close errors are still surfaced before attempting exec.
-            let safe_res_fd = safe_res.0;
-            safe_res.0 = -1;
-            if unsafe { close(safe_res_fd) } < 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-            let safe_cfg_fd = safe_cfg.0;
-            safe_cfg.0 = -1;
-            if unsafe { close(safe_cfg_fd) } < 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-
-            use std::os::unix::process::CommandExt;
-            let mut cmd = std::process::Command::new(program.as_ref());
-            cmd.args(args);
-            if let Some(plan) = env_plan {
-                for (k, v) in plan.assignments() {
-                    cmd.env(k, v);
-                }
-            }
-            cmd.env_remove("CODEX_MANAGED_BY_NPM")
-                .env_remove("CODEX_MANAGED_BY_BUN")
-                .env_remove("CODEX_MANAGED_PACKAGE_ROOT")
-                .env_remove("LD_PRELOAD")
-                .env_remove("LD_LIBRARY_PATH");
-
-            Err(cmd.exec())
-        })() {
-            Err(err) => err,
-            Ok(()) => unreachable!("exec never returns on success"),
-        };
-
-        let restore_34 = unsafe { guard_34.restore() };
-        let restore_33 = unsafe { guard_33.restore() };
-        if let Err(err) = restore_34 {
-            return Err(err);
-        }
-        if let Err(err) = restore_33 {
-            return Err(err);
-        }
-        Err(operation_err)
-    })();
-
-    match res {
+    match result {
         Err(err) => err,
         Ok(()) => unreachable!("exec never returns on success"),
     }
@@ -1450,6 +1463,85 @@ where
         args,
         &env_plan,
     ))
+}
+
+#[cfg(unix)]
+#[allow(dead_code)]
+#[derive(Debug)]
+enum QualifiedUpstreamDoctorProbeError {
+    Environment(TermuxProcessEnvError),
+    Policy(PassthroughError),
+    Io(std::io::Error),
+}
+
+#[cfg(unix)]
+impl std::fmt::Display for QualifiedUpstreamDoctorProbeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            QualifiedUpstreamDoctorProbeError::Environment(err) => err.fmt(f),
+            QualifiedUpstreamDoctorProbeError::Policy(err) => err.fmt(f),
+            QualifiedUpstreamDoctorProbeError::Io(err) => err.fmt(f),
+        }
+    }
+}
+
+#[cfg(unix)]
+impl std::error::Error for QualifiedUpstreamDoctorProbeError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            QualifiedUpstreamDoctorProbeError::Environment(err) => Some(err),
+            QualifiedUpstreamDoctorProbeError::Policy(err) => Some(err),
+            QualifiedUpstreamDoctorProbeError::Io(err) => Some(err),
+        }
+    }
+}
+
+/// Runs the supported raw upstream doctor directly as a child of Core.
+///
+/// Runtime and compatibility authority come only from `QualifiedRuntimeAssets`.
+/// The child receives the same B10 environment plan, B3 contamination fence, and
+/// FD33/34 runtime contract as final launch. Raw child stdout/stderr are discarded
+/// so arbitrary upstream diagnostics cannot bypass the bounded B15 report model.
+#[cfg(unix)]
+#[allow(dead_code)]
+fn probe_qualified_upstream_doctor<'selection, 'asset, 'generation, R, C>(
+    assets: QualifiedRuntimeAssets<'selection, 'asset, 'generation>,
+    process_env: &TermuxProcessEnvSnapshot,
+    cert_file: &OsStr,
+    cert_dir: Option<&OsStr>,
+    resolver_path: R,
+    config_dir: C,
+) -> Result<UpstreamDoctorStatus, QualifiedUpstreamDoctorProbeError>
+where
+    R: AsRef<std::path::Path>,
+    C: AsRef<std::path::Path>,
+{
+    let selection = assets.selection();
+    let env_plan = plan_termux_base_env_from_snapshot(
+        process_env,
+        selection.compatibility_dir,
+        cert_file,
+        cert_dir,
+    )
+    .map_err(QualifiedUpstreamDoctorProbeError::Environment)?;
+    let doctor_args = plan_passthrough_args([OsString::from("doctor")])
+        .map_err(QualifiedUpstreamDoctorProbeError::Policy)?;
+
+    let status = with_runtime_fds(resolver_path, config_dir, || {
+        let mut cmd = std::process::Command::new(selection.runtime.program_path);
+        cmd.args(&doctor_args)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        apply_child_env_plan_and_fence(&mut cmd, Some(&env_plan));
+        cmd.status()
+    })
+    .map_err(QualifiedUpstreamDoctorProbeError::Io)?;
+
+    Ok(if status.success() {
+        UpstreamDoctorStatus::Healthy
+    } else {
+        UpstreamDoctorStatus::Unhealthy
+    })
 }
 
 #[allow(dead_code)]
@@ -3082,6 +3174,189 @@ done
                     &plan,
                 );
                 panic!("launch_upstream_with_env failed to replace process: {err}");
+            }
+            "m1_b16_doctor_probe_launcher" => {
+                use std::os::unix::fs::MetadataExt;
+                use std::os::unix::io::FromRawFd;
+
+                let resolver_path = std::env::var_os(PROBE_RESOLVER_PATH_ENV)
+                    .expect("PROBE_RESOLVER_PATH_ENV must be set");
+                let config_dir_path = std::env::var_os(PROBE_CONFIG_DIR_PATH_ENV)
+                    .expect("PROBE_CONFIG_DIR_PATH_ENV must be set");
+                let fake_upstream_path = std::env::var_os(PROBE_FAKE_UPSTREAM_PATH_ENV)
+                    .expect("PROBE_FAKE_UPSTREAM_PATH_ENV must be set");
+                let root = std::path::Path::new(&fake_upstream_path)
+                    .parent()
+                    .expect("fake doctor runtime must have parent");
+                let compatibility_dir = root.join("doctor-compat-bin");
+                let prefix = root.join("doctor-prefix");
+                let temp_dir = root.join("doctor-tmp");
+                let cert_file = root.join("doctor-tls/cert.pem");
+                let cert_dir = root.join("doctor-tls/certs.d");
+
+                let mut manifest = m1_b11_valid_manifest();
+                manifest.helper_digests.clear();
+                let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements())
+                    .expect("B16 probe generation must qualify");
+                let selection = RuntimeAssetSelection {
+                    runtime: RuntimeAssetBinding {
+                        program_path: fake_upstream_path.as_os_str(),
+                        observed_digest: manifest.runtime_digest.as_str(),
+                    },
+                    compatibility_dir: compatibility_dir.as_os_str(),
+                    helpers: &[],
+                };
+                let qualified = qualify_runtime_assets(generation, &selection)
+                    .expect("B16 probe runtime assets must qualify");
+                let snapshot = TermuxProcessEnvSnapshot {
+                    prefix: Some(prefix.into_os_string()),
+                    tmpdir: Some(temp_dir.into_os_string()),
+                    inherited_path: Some(OsString::from(
+                        "/probe/b16/inherited-a:/probe/b16/inherited-b",
+                    )),
+                    inherited_ssl_cert_file: None,
+                    inherited_ssl_cert_dir: None,
+                };
+
+                std::env::set_var("CODEX_MANAGED_BY_NPM", "probe-b16-npm-contam");
+                std::env::set_var("CODEX_MANAGED_BY_BUN", "probe-b16-bun-contam");
+                std::env::set_var("CODEX_MANAGED_PACKAGE_ROOT", "/probe/b16/pkg/root");
+                std::env::set_var("LD_PRELOAD", "/probe/b16/preload.so");
+                std::env::set_var("LD_LIBRARY_PATH", "/probe/b16/lib");
+                std::env::set_var(
+                    "CODEX_TEST_UNRELATED_M1_B16_SURVIVING_VAR",
+                    "m1_b16_surviving_exact_value_27182",
+                );
+
+                let sentinel33_path = root.join("b16-sentinel-33.bin");
+                let sentinel34_path = root.join("b16-sentinel-34.bin");
+                let sentinel33 = b"B16_SENTINEL_FD33_EXACT";
+                let sentinel34 = b"B16_SENTINEL_FD34_EXACT";
+                std::fs::write(&sentinel33_path, sentinel33).expect("write B16 sentinel 33");
+                std::fs::write(&sentinel34_path, sentinel34).expect("write B16 sentinel 34");
+                let f33 = std::fs::OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .open(&sentinel33_path)
+                    .expect("open B16 sentinel 33");
+                let f34 = std::fs::OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .open(&sentinel34_path)
+                    .expect("open B16 sentinel 34");
+                let meta33 = f33.metadata().expect("B16 sentinel 33 metadata");
+                let meta34 = f34.metadata().expect("B16 sentinel 34 metadata");
+                unsafe {
+                    dup2(f33.as_raw_fd(), 33);
+                    dup2(f34.as_raw_fd(), 34);
+                }
+                drop(f33);
+                drop(f34);
+
+                let status = probe_qualified_upstream_doctor(
+                    qualified,
+                    &snapshot,
+                    cert_file.as_os_str(),
+                    Some(cert_dir.as_os_str()),
+                    resolver_path,
+                    config_dir_path,
+                )
+                .expect("B16 doctor probe must complete");
+
+                let restored33 =
+                    std::fs::metadata("/proc/self/fd/33").expect("B16 restored FD33 metadata");
+                let restored34 =
+                    std::fs::metadata("/proc/self/fd/34").expect("B16 restored FD34 metadata");
+                assert_eq!(
+                    (restored33.dev(), restored33.ino()),
+                    (meta33.dev(), meta33.ino())
+                );
+                assert_eq!(
+                    (restored34.dev(), restored34.ino()),
+                    (meta34.dev(), meta34.ino())
+                );
+
+                let mut restored33_bytes = Vec::new();
+                let mut restored34_bytes = Vec::new();
+                unsafe {
+                    use std::io::{Read, Seek};
+                    let mut file33 = std::fs::File::from_raw_fd(33);
+                    let _ = file33.rewind();
+                    file33
+                        .read_to_end(&mut restored33_bytes)
+                        .expect("read B16 restored FD33");
+                    std::mem::forget(file33);
+                    let mut file34 = std::fs::File::from_raw_fd(34);
+                    let _ = file34.rewind();
+                    file34
+                        .read_to_end(&mut restored34_bytes)
+                        .expect("read B16 restored FD34");
+                    std::mem::forget(file34);
+                }
+                assert_eq!(restored33_bytes, sentinel33);
+                assert_eq!(restored34_bytes, sentinel34);
+
+                use std::io::Write;
+                writeln!(std::io::stdout(), "B16_STATUS:{}", status.as_str())
+                    .expect("write B16 status");
+                writeln!(std::io::stdout(), "B16_FD_RESTORED").expect("write B16 restore marker");
+                std::io::stdout().flush().expect("flush B16 status");
+                std::process::exit(0);
+            }
+            "m1_b16_missing_runtime_launcher" => {
+                let resolver_path = std::env::var_os(PROBE_RESOLVER_PATH_ENV)
+                    .expect("PROBE_RESOLVER_PATH_ENV must be set");
+                let config_dir_path = std::env::var_os(PROBE_CONFIG_DIR_PATH_ENV)
+                    .expect("PROBE_CONFIG_DIR_PATH_ENV must be set");
+                let missing_runtime = std::env::var_os(PROBE_FAKE_UPSTREAM_PATH_ENV)
+                    .expect("PROBE_FAKE_UPSTREAM_PATH_ENV must be set");
+                let root = std::path::Path::new(&missing_runtime)
+                    .parent()
+                    .expect("missing runtime must have parent");
+                let compatibility_dir = root.join("doctor-compat-bin");
+                let prefix = root.join("doctor-prefix");
+                let temp_dir = root.join("doctor-tmp");
+                let cert_file = root.join("doctor-tls/cert.pem");
+
+                let mut manifest = m1_b11_valid_manifest();
+                manifest.helper_digests.clear();
+                let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements())
+                    .expect("B16 missing-runtime generation must qualify");
+                let selection = RuntimeAssetSelection {
+                    runtime: RuntimeAssetBinding {
+                        program_path: missing_runtime.as_os_str(),
+                        observed_digest: manifest.runtime_digest.as_str(),
+                    },
+                    compatibility_dir: compatibility_dir.as_os_str(),
+                    helpers: &[],
+                };
+                let qualified = qualify_runtime_assets(generation, &selection)
+                    .expect("B16 missing-runtime shape must qualify");
+                let snapshot = TermuxProcessEnvSnapshot {
+                    prefix: Some(prefix.into_os_string()),
+                    tmpdir: Some(temp_dir.into_os_string()),
+                    inherited_path: None,
+                    inherited_ssl_cert_file: None,
+                    inherited_ssl_cert_dir: None,
+                };
+
+                match probe_qualified_upstream_doctor(
+                    qualified,
+                    &snapshot,
+                    cert_file.as_os_str(),
+                    None,
+                    resolver_path,
+                    config_dir_path,
+                ) {
+                    Err(QualifiedUpstreamDoctorProbeError::Io(err)) => {
+                        assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
+                    }
+                    other => panic!("expected typed B16 NotFound I/O error, got {other:?}"),
+                }
+                use std::io::Write;
+                writeln!(std::io::stdout(), "B16_IO_NOT_FOUND").expect("write B16 I/O marker");
+                std::io::stdout().flush().expect("flush B16 I/O marker");
+                std::process::exit(0);
             }
             "m1_b14_qualified_runtime_launcher" => {
                 let resolver_path = std::env::var_os(PROBE_RESOLVER_PATH_ENV)
@@ -7340,5 +7615,224 @@ exit 0
         ];
         assert_eq!(before, after);
         assert_eq!(report.summary, DoctorSummaryStatus::ApiIncompatible);
+    }
+
+    #[cfg(unix)]
+    fn m1_b16_write_doctor_runtime(
+        root: &std::path::Path,
+        name: &str,
+        exit_code: i32,
+    ) -> std::path::PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+
+        let shell = resolve_test_shell();
+        let runtime_path = root.join(name);
+        let compatibility_dir = root.join("doctor-compat-bin");
+        let prefix = root.join("doctor-prefix");
+        let temp_dir = root.join("doctor-tmp");
+        let cert_file = root.join("doctor-tls/cert.pem");
+        let cert_dir = root.join("doctor-tls/certs.d");
+        let script = format!(
+            r##"#!{}
+printf "B16_SECRET_TOKEN=stdout-secret-must-not-surface\n"
+printf "B16_SECRET_COOKIE=stderr-secret-must-not-surface\n" >&2
+if [ "$#" -ne 3 ] || [ "$1" != "-c" ] || [ "$2" != 'sandbox_mode="danger-full-access"' ] || [ "$3" != "doctor" ]; then
+    exit 81
+fi
+res_content=""
+while IFS= read -r line || [ -n "$line" ]; do
+    if [ -z "$res_content" ]; then
+        res_content="$line"
+    else
+        res_content="$res_content
+$line"
+    fi
+done < /proc/self/fd/33
+expected_res="# synthetic B16 resolv.conf
+nameserver 203.0.113.16"
+if [ "$res_content" != "$expected_res" ]; then
+    exit 82
+fi
+if [ ! -d /proc/self/fd/34 ] || [ ! -f /proc/self/fd/34/marker.txt ]; then
+    exit 83
+fi
+marker=""
+while IFS= read -r line || [ -n "$line" ]; do
+    if [ -z "$marker" ]; then
+        marker="$line"
+    else
+        marker="$marker
+$line"
+    fi
+done < /proc/self/fd/34/marker.txt
+if [ "$marker" != "B16_CONFIG_MARKER_EXACT" ]; then
+    exit 84
+fi
+if [ "$TMPDIR" != "{}" ] || [ "$TMP" != "{}" ] || [ "$TEMP" != "{}" ] || [ "$SQLITE_TMPDIR" != "{}" ]; then
+    exit 85
+fi
+if [ "$SSL_CERT_FILE" != "{}" ] || [ "$SSL_CERT_DIR" != "{}" ]; then
+    exit 86
+fi
+if [ "$PATH" != "{}:{}/bin:/probe/b16/inherited-a:/probe/b16/inherited-b" ]; then
+    exit 87
+fi
+if [ -n "${{CODEX_MANAGED_BY_NPM+x}}" ] || [ -n "${{CODEX_MANAGED_BY_BUN+x}}" ] || [ -n "${{CODEX_MANAGED_PACKAGE_ROOT+x}}" ] || [ -n "${{LD_PRELOAD+x}}" ] || [ -n "${{LD_LIBRARY_PATH+x}}" ]; then
+    exit 88
+fi
+if [ "$CODEX_TEST_UNRELATED_M1_B16_SURVIVING_VAR" != "m1_b16_surviving_exact_value_27182" ]; then
+    exit 89
+fi
+printf "upstream says unsupported and includes private session text\n" >&2
+exit {}
+"##,
+            shell.to_str().expect("valid B16 shell path"),
+            temp_dir.display(),
+            temp_dir.display(),
+            temp_dir.display(),
+            temp_dir.display(),
+            cert_file.display(),
+            cert_dir.display(),
+            compatibility_dir.display(),
+            prefix.display(),
+            exit_code,
+        );
+        std::fs::write(&runtime_path, script).expect("write B16 fake doctor runtime");
+        let mut permissions = std::fs::metadata(&runtime_path)
+            .expect("B16 fake runtime metadata")
+            .permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&runtime_path, permissions)
+            .expect("set B16 fake runtime permissions");
+        runtime_path
+    }
+
+    #[cfg(unix)]
+    fn m1_b16_create_runtime_root(
+        name: &str,
+    ) -> (std::path::PathBuf, std::path::PathBuf, std::path::PathBuf) {
+        let root = std::env::temp_dir().join(format!("codex-test-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let config_dir = root.join("managed-config");
+        let resolver = root.join("resolv.conf");
+        std::fs::create_dir_all(&config_dir).expect("create B16 config dir");
+        std::fs::write(config_dir.join("marker.txt"), b"B16_CONFIG_MARKER_EXACT")
+            .expect("write B16 config marker");
+        std::fs::write(
+            &resolver,
+            b"# synthetic B16 resolv.conf\nnameserver 203.0.113.16\n",
+        )
+        .expect("write B16 resolver");
+        (root, resolver, config_dir)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b16_a_healthy_probe_uses_qualified_runtime_and_suppresses_raw_output() {
+        let (root, resolver, config_dir) = m1_b16_create_runtime_root("m1-b16-healthy");
+        let runtime = m1_b16_write_doctor_runtime(&root, "doctor-healthy.sh", 0);
+        let resolver_before = std::fs::read(&resolver).expect("read B16 resolver before");
+        let marker_path = config_dir.join("marker.txt");
+        let marker_before = std::fs::read(&marker_path).expect("read B16 marker before");
+
+        let result = run_exec_probe_with_env(
+            "m1_b16_doctor_probe_launcher",
+            &[
+                (PROBE_RESOLVER_PATH_ENV, resolver.as_os_str()),
+                (PROBE_CONFIG_DIR_PATH_ENV, config_dir.as_os_str()),
+                (PROBE_FAKE_UPSTREAM_PATH_ENV, runtime.as_os_str()),
+            ],
+        );
+        assert_eq!(result.status.code(), Some(0));
+        assert_eq!(result.stderr, b"");
+        assert_eq!(result.stdout, b"B16_STATUS:healthy\nB16_FD_RESTORED\n");
+        assert!(!result
+            .stdout
+            .windows(b"SECRET".len())
+            .any(|w| w == b"SECRET"));
+        assert_eq!(std::fs::read(&resolver).unwrap(), resolver_before);
+        assert_eq!(std::fs::read(&marker_path).unwrap(), marker_before);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b16_b_nonzero_and_unsupported_text_map_only_to_unhealthy() {
+        let (root, resolver, config_dir) = m1_b16_create_runtime_root("m1-b16-unhealthy");
+        let runtime = m1_b16_write_doctor_runtime(&root, "doctor-unhealthy.sh", 17);
+        let result = run_exec_probe_with_env(
+            "m1_b16_doctor_probe_launcher",
+            &[
+                (PROBE_RESOLVER_PATH_ENV, resolver.as_os_str()),
+                (PROBE_CONFIG_DIR_PATH_ENV, config_dir.as_os_str()),
+                (PROBE_FAKE_UPSTREAM_PATH_ENV, runtime.as_os_str()),
+            ],
+        );
+        assert_eq!(result.status.code(), Some(0));
+        assert_eq!(result.stderr, b"");
+        assert_eq!(result.stdout, b"B16_STATUS:unhealthy\nB16_FD_RESTORED\n");
+        assert!(!result
+            .stdout
+            .windows(b"unsupported".len())
+            .any(|w| w == b"unsupported"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b16_c_missing_runtime_is_typed_io_failure() {
+        let (root, resolver, config_dir) = m1_b16_create_runtime_root("m1-b16-missing");
+        let missing_runtime = root.join("does-not-exist-doctor-runtime");
+        let result = run_exec_probe_with_env(
+            "m1_b16_missing_runtime_launcher",
+            &[
+                (PROBE_RESOLVER_PATH_ENV, resolver.as_os_str()),
+                (PROBE_CONFIG_DIR_PATH_ENV, config_dir.as_os_str()),
+                (PROBE_FAKE_UPSTREAM_PATH_ENV, missing_runtime.as_os_str()),
+            ],
+        );
+        assert_eq!(result.status.code(), Some(0));
+        assert_eq!(result.stderr, b"");
+        assert_eq!(result.stdout, b"B16_IO_NOT_FOUND\n");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b16_d_invalid_process_snapshot_fails_before_runtime_fd_io() {
+        let mut manifest = m1_b11_valid_manifest();
+        manifest.helper_digests.clear();
+        let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements())
+            .expect("B16 environment test generation");
+        let selection = RuntimeAssetSelection {
+            runtime: RuntimeAssetBinding {
+                program_path: OsStr::new("/path/that/does/not/exist/b16-runtime"),
+                observed_digest: manifest.runtime_digest.as_str(),
+            },
+            compatibility_dir: OsStr::new("/qualified/b16/compat"),
+            helpers: &[],
+        };
+        let qualified = qualify_runtime_assets(generation, &selection)
+            .expect("B16 environment test runtime qualification");
+        let snapshot = TermuxProcessEnvSnapshot {
+            prefix: None,
+            tmpdir: Some(OsString::from("/qualified/b16/tmp")),
+            inherited_path: None,
+            inherited_ssl_cert_file: None,
+            inherited_ssl_cert_dir: None,
+        };
+        match probe_qualified_upstream_doctor(
+            qualified,
+            &snapshot,
+            OsStr::new("/qualified/b16/cert.pem"),
+            None,
+            std::path::Path::new("/path/that/does/not/exist/b16-resolver"),
+            std::path::Path::new("/path/that/does/not/exist/b16-config"),
+        ) {
+            Err(QualifiedUpstreamDoctorProbeError::Environment(err)) => {
+                assert_eq!(err, TermuxProcessEnvError::MissingRequired("PREFIX"));
+            }
+            other => panic!("expected B16 environment failure before FD I/O, got {other:?}"),
+        }
     }
 }
