@@ -1499,8 +1499,21 @@ impl<'selection, 'asset, 'generation> QualifiedManagerArtifact<'selection, 'asse
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 enum ManagerArtifactQualification<'selection, 'asset, 'generation> {
-    Unavailable,
+    Unavailable(QualifiedGenerationManifest<'generation>),
     Available(QualifiedManagerArtifact<'selection, 'asset, 'generation>),
+}
+
+#[cfg(unix)]
+#[allow(dead_code)]
+impl<'selection, 'asset, 'generation>
+    ManagerArtifactQualification<'selection, 'asset, 'generation>
+{
+    fn generation(self) -> QualifiedGenerationManifest<'generation> {
+        match self {
+            ManagerArtifactQualification::Unavailable(generation) => generation,
+            ManagerArtifactQualification::Available(qualified) => qualified.generation(),
+        }
+    }
 }
 
 #[cfg(unix)]
@@ -1511,7 +1524,7 @@ fn qualify_manager_artifact<'selection, 'asset, 'generation>(
 ) -> Result<ManagerArtifactQualification<'selection, 'asset, 'generation>, ManagerArtifactError> {
     let declared_digest = generation.manifest().manager_artifact_digest.as_deref();
     match (declared_digest, selection) {
-        (None, None) => Ok(ManagerArtifactQualification::Unavailable),
+        (None, None) => Ok(ManagerArtifactQualification::Unavailable(generation)),
         (None, Some(_)) => Err(ManagerArtifactError::UnexpectedSelection),
         (Some(_), None) => Err(ManagerArtifactError::MissingSelection),
         (Some(expected_digest), Some(selection)) => {
@@ -1590,7 +1603,7 @@ where
     S: AsRef<OsStr>,
 {
     match qualification {
-        ManagerArtifactQualification::Unavailable => Ok(TermuxManagerOutcome::Unavailable),
+        ManagerArtifactQualification::Unavailable(_) => Ok(TermuxManagerOutcome::Unavailable),
         ManagerArtifactQualification::Available(qualified) => {
             use std::os::unix::process::CommandExt;
 
@@ -2347,6 +2360,193 @@ where
     )
     .map_err(LocalDoctorCommandError::Probe)?;
     Ok(render_doctor_command(plan, &report))
+}
+
+#[cfg(unix)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LocalPublicDispatchContextError {
+    GenerationMismatch,
+}
+
+#[cfg(unix)]
+impl std::fmt::Display for LocalPublicDispatchContextError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LocalPublicDispatchContextError::GenerationMismatch => {
+                f.write_str("runtime and Manager qualifications come from different generations")
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+impl std::error::Error for LocalPublicDispatchContextError {}
+
+#[cfg(unix)]
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy)]
+struct LocalPublicDispatchContext<
+    'context,
+    'runtime_selection,
+    'runtime_asset,
+    'manager_selection,
+    'manager_asset,
+    'generation,
+> {
+    runtime_assets: QualifiedRuntimeAssets<'runtime_selection, 'runtime_asset, 'generation>,
+    manager_artifact: ManagerArtifactQualification<'manager_selection, 'manager_asset, 'generation>,
+    process_env: &'context TermuxProcessEnvSnapshot,
+    cert_file: &'context OsStr,
+    cert_dir: Option<&'context OsStr>,
+    resolver_path: &'context std::path::Path,
+    config_dir: &'context std::path::Path,
+    doctor_capability: UpstreamDoctorCapability,
+    core_doctor_status: CoreDoctorStatus,
+    manager_doctor_status: ManagerDoctorStatus,
+}
+
+#[cfg(unix)]
+#[allow(dead_code)]
+fn build_local_public_dispatch_context<
+    'context,
+    'runtime_selection,
+    'runtime_asset,
+    'manager_selection,
+    'manager_asset,
+    'generation,
+>(
+    runtime_assets: QualifiedRuntimeAssets<'runtime_selection, 'runtime_asset, 'generation>,
+    manager_artifact: ManagerArtifactQualification<'manager_selection, 'manager_asset, 'generation>,
+    process_env: &'context TermuxProcessEnvSnapshot,
+    cert_file: &'context OsStr,
+    cert_dir: Option<&'context OsStr>,
+    resolver_path: &'context std::path::Path,
+    config_dir: &'context std::path::Path,
+    doctor_capability: UpstreamDoctorCapability,
+    core_doctor_status: CoreDoctorStatus,
+    manager_doctor_status: ManagerDoctorStatus,
+) -> Result<
+    LocalPublicDispatchContext<
+        'context,
+        'runtime_selection,
+        'runtime_asset,
+        'manager_selection,
+        'manager_asset,
+        'generation,
+    >,
+    LocalPublicDispatchContextError,
+> {
+    if !std::ptr::eq(
+        runtime_assets.generation().manifest(),
+        manager_artifact.generation().manifest(),
+    ) {
+        return Err(LocalPublicDispatchContextError::GenerationMismatch);
+    }
+
+    Ok(LocalPublicDispatchContext {
+        runtime_assets,
+        manager_artifact,
+        process_env,
+        cert_file,
+        cert_dir,
+        resolver_path,
+        config_dir,
+        doctor_capability,
+        core_doctor_status,
+        manager_doctor_status,
+    })
+}
+
+#[cfg(unix)]
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PublicDispatchCompletion {
+    Update(Vec<OsString>),
+    Doctor(DoctorCommandOutcome),
+    TermuxUnavailable(TermuxManagerOutcome),
+}
+
+#[cfg(unix)]
+#[derive(Debug)]
+enum PublicDispatchExecutionError {
+    Upstream(QualifiedRuntimeLaunchError),
+    Doctor(LocalDoctorCommandError),
+    Manager(ManagerLaunchError),
+}
+
+#[cfg(unix)]
+impl std::fmt::Display for PublicDispatchExecutionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PublicDispatchExecutionError::Upstream(err) => err.fmt(f),
+            PublicDispatchExecutionError::Doctor(err) => err.fmt(f),
+            PublicDispatchExecutionError::Manager(err) => err.fmt(f),
+        }
+    }
+}
+
+#[cfg(unix)]
+impl std::error::Error for PublicDispatchExecutionError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            PublicDispatchExecutionError::Upstream(err) => Some(err),
+            PublicDispatchExecutionError::Doctor(err) => Some(err),
+            PublicDispatchExecutionError::Manager(err) => Some(err),
+        }
+    }
+}
+
+#[cfg(unix)]
+#[allow(dead_code)]
+fn execute_public_dispatch<
+    'context,
+    'runtime_selection,
+    'runtime_asset,
+    'manager_selection,
+    'manager_asset,
+    'generation,
+>(
+    route: PublicDispatchRoute,
+    context: LocalPublicDispatchContext<
+        'context,
+        'runtime_selection,
+        'runtime_asset,
+        'manager_selection,
+        'manager_asset,
+        'generation,
+    >,
+) -> Result<PublicDispatchCompletion, PublicDispatchExecutionError> {
+    match route {
+        PublicDispatchRoute::Update(args) => Ok(PublicDispatchCompletion::Update(args)),
+        PublicDispatchRoute::Doctor(args) => run_local_doctor_command(
+            args,
+            context.doctor_capability,
+            context.runtime_assets,
+            context.process_env,
+            context.cert_file,
+            context.cert_dir,
+            context.resolver_path,
+            context.config_dir,
+            context.core_doctor_status,
+            context.manager_doctor_status,
+        )
+        .map(PublicDispatchCompletion::Doctor)
+        .map_err(PublicDispatchExecutionError::Doctor),
+        PublicDispatchRoute::Termux(args) => execute_termux_manager(context.manager_artifact, args)
+            .map(PublicDispatchCompletion::TermuxUnavailable)
+            .map_err(PublicDispatchExecutionError::Manager),
+        PublicDispatchRoute::Upstream(args) => Err(PublicDispatchExecutionError::Upstream(
+            launch_qualified_runtime(
+                context.runtime_assets,
+                context.process_env,
+                context.cert_file,
+                context.cert_dir,
+                context.resolver_path,
+                context.config_dir,
+                args,
+            ),
+        )),
+    }
 }
 
 fn main() {
@@ -3708,6 +3908,133 @@ done
 
                 let err = exec_upstream(shell, args);
                 panic!("exec_upstream failed to replace process: {err}");
+            }
+            "m1_b23_upstream_dispatch" => {
+                let resolver_path = std::env::var_os(PROBE_RESOLVER_PATH_ENV)
+                    .expect("B23 resolver path must be set");
+                let config_dir_path = std::env::var_os(PROBE_CONFIG_DIR_PATH_ENV)
+                    .expect("B23 config dir path must be set");
+                let fake_upstream_path = std::env::var_os(PROBE_FAKE_UPSTREAM_PATH_ENV)
+                    .expect("B23 fake upstream path must be set");
+                let root = std::path::Path::new(&fake_upstream_path)
+                    .parent()
+                    .expect("B23 fake runtime must have parent");
+                let compatibility_dir = root.join("b23-compat");
+                let prefix = root.join("b23-prefix");
+                let temp_dir = root.join("b23-tmp");
+                let cert_file = root.join("b23-cert.pem");
+
+                let mut manifest = m1_b11_valid_manifest();
+                manifest.helper_digests.clear();
+                let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements())
+                    .expect("B23 upstream generation must qualify");
+                let selection = RuntimeAssetSelection {
+                    runtime: RuntimeAssetBinding {
+                        program_path: fake_upstream_path.as_os_str(),
+                        observed_digest: manifest.runtime_digest.as_str(),
+                    },
+                    compatibility_dir: compatibility_dir.as_os_str(),
+                    helpers: &[],
+                };
+                let runtime = qualify_runtime_assets(generation, &selection)
+                    .expect("B23 upstream runtime must qualify");
+                let manager = qualify_manager_artifact(generation, None)
+                    .expect("B23 absent Manager must qualify");
+                let snapshot = TermuxProcessEnvSnapshot {
+                    prefix: Some(prefix.into_os_string()),
+                    tmpdir: Some(temp_dir.into_os_string()),
+                    inherited_path: Some(OsString::from("/probe/b23/inherited")),
+                    inherited_ssl_cert_file: None,
+                    inherited_ssl_cert_dir: None,
+                };
+                let context = build_local_public_dispatch_context(
+                    runtime,
+                    manager,
+                    &snapshot,
+                    cert_file.as_os_str(),
+                    None,
+                    std::path::Path::new(&resolver_path),
+                    std::path::Path::new(&config_dir_path),
+                    UpstreamDoctorCapability::Unsupported,
+                    CoreDoctorStatus::Healthy,
+                    ManagerDoctorStatus::Unavailable,
+                )
+                .expect("B23 upstream context must be coherent");
+
+                use std::os::unix::ffi::OsStrExt;
+                let route = PublicDispatchRoute::Upstream(vec![
+                    OsString::from("exec"),
+                    OsString::from("b23-task"),
+                    OsStr::from_bytes(&[0xff, 0xfe, 0x80, 0x7f]).to_os_string(),
+                ]);
+                let err = execute_public_dispatch(route, context)
+                    .expect_err("B23 upstream success must replace the process");
+                panic!("B23 upstream dispatcher failed to replace process: {err}");
+            }
+            "m1_b23_manager_dispatch" => {
+                use std::os::unix::ffi::OsStrExt;
+
+                let mut manifest = m1_b11_valid_manifest();
+                manifest.helper_digests.clear();
+                manifest.manager_artifact_digest = Some("opaque-manager-digest:v1:b23".to_string());
+                let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements())
+                    .expect("B23 Manager generation must qualify");
+                let runtime_selection = RuntimeAssetSelection {
+                    runtime: RuntimeAssetBinding {
+                        program_path: OsStr::new("/unused/b23/runtime"),
+                        observed_digest: manifest.runtime_digest.as_str(),
+                    },
+                    compatibility_dir: OsStr::new("/unused/b23/compat"),
+                    helpers: &[],
+                };
+                let runtime = qualify_runtime_assets(generation, &runtime_selection)
+                    .expect("B23 unused runtime shape must qualify");
+                let manager_selection = ManagerArtifactSelection {
+                    program_path: shell.as_os_str(),
+                    observed_digest: "opaque-manager-digest:v1:b23",
+                };
+                let manager = qualify_manager_artifact(generation, Some(&manager_selection))
+                    .expect("B23 Manager must qualify");
+                let snapshot = TermuxProcessEnvSnapshot {
+                    prefix: None,
+                    tmpdir: None,
+                    inherited_path: None,
+                    inherited_ssl_cert_file: None,
+                    inherited_ssl_cert_dir: None,
+                };
+                let context = build_local_public_dispatch_context(
+                    runtime,
+                    manager,
+                    &snapshot,
+                    OsStr::new("/unused/b23/cert"),
+                    None,
+                    std::path::Path::new("/unused/b23/resolver"),
+                    std::path::Path::new("/unused/b23/config"),
+                    UpstreamDoctorCapability::Supported,
+                    CoreDoctorStatus::Unhealthy,
+                    ManagerDoctorStatus::ApiIncompatible,
+                )
+                .expect("B23 Manager context must be coherent");
+
+                let script = r#"
+printf "B23_MANAGER_ENV:%s\n" "${CODEX_MANAGED_BY_NPM-unset}"
+for a in "$@"; do
+    printf "ARG:"
+    printf "%s" "$a"
+    printf "\n"
+done
+exit 71
+"#;
+                let route = PublicDispatchRoute::Termux(vec![
+                    OsString::from("-c"),
+                    OsString::from(script),
+                    OsString::from("manager-probe"),
+                    OsString::from("b23 ordinary"),
+                    OsStr::from_bytes(&[0xff, 0xfe, 0x80]).to_os_string(),
+                ]);
+                let err = execute_public_dispatch(route, context)
+                    .expect_err("B23 Manager success must replace the process");
+                panic!("B23 Manager dispatcher failed to replace process: {err}");
             }
             "m1_b22_manager_exec" => {
                 use std::os::unix::ffi::OsStrExt;
@@ -7307,7 +7634,10 @@ exit 0
         let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements())
             .expect("generation without Manager must qualify");
         let result = qualify_manager_artifact(generation, None).expect("absence is valid");
-        assert!(matches!(result, ManagerArtifactQualification::Unavailable));
+        let ManagerArtifactQualification::Unavailable(bound_generation) = result else {
+            panic!("absence must remain explicitly unavailable");
+        };
+        assert!(std::ptr::eq(bound_generation.manifest(), &manifest));
     }
 
     #[cfg(unix)]
@@ -7489,10 +7819,13 @@ exit 0
             std::env::var_os("PATH"),
             std::env::var_os("CODEX_MANAGED_BY_NPM"),
         ];
+        let manifest = m1_b11_valid_manifest();
+        let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements()).unwrap();
+        let unavailable = qualify_manager_artifact(generation, None).unwrap();
         let args = std::iter::from_fn(|| -> Option<OsString> {
             panic!("Unavailable Manager must not consume trailing argv")
         });
-        let outcome = execute_termux_manager(ManagerArtifactQualification::Unavailable, args)
+        let outcome = execute_termux_manager(unavailable, args)
             .expect("Unavailable Manager is a bounded non-execution outcome");
         let after = [
             std::env::var_os("PREFIX"),
@@ -7644,6 +7977,302 @@ exit 0
         assert_eq!(status.code(), Some(73));
         guard.0 = None;
         let _ = reader_handle.join();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b23_a_context_rejects_mixed_generation_before_any_route() {
+        let mut runtime_manifest = m1_b11_valid_manifest();
+        runtime_manifest.helper_digests.clear();
+        let manager_manifest = runtime_manifest.clone();
+        let runtime_generation =
+            qualify_generation_manifest(&runtime_manifest, &m1_b11_requirements()).unwrap();
+        let manager_generation =
+            qualify_generation_manifest(&manager_manifest, &m1_b11_requirements()).unwrap();
+        let selection = RuntimeAssetSelection {
+            runtime: RuntimeAssetBinding {
+                program_path: OsStr::new("/unused/b23/runtime"),
+                observed_digest: runtime_manifest.runtime_digest.as_str(),
+            },
+            compatibility_dir: OsStr::new("/unused/b23/compat"),
+            helpers: &[],
+        };
+        let runtime = qualify_runtime_assets(runtime_generation, &selection).unwrap();
+        let manager = qualify_manager_artifact(manager_generation, None).unwrap();
+        let snapshot = TermuxProcessEnvSnapshot {
+            prefix: None,
+            tmpdir: None,
+            inherited_path: None,
+            inherited_ssl_cert_file: None,
+            inherited_ssl_cert_dir: None,
+        };
+        assert_eq!(
+            build_local_public_dispatch_context(
+                runtime,
+                manager,
+                &snapshot,
+                OsStr::new("/unused/b23/cert"),
+                None,
+                std::path::Path::new("/unused/b23/resolver"),
+                std::path::Path::new("/unused/b23/config"),
+                UpstreamDoctorCapability::Supported,
+                CoreDoctorStatus::Healthy,
+                ManagerDoctorStatus::Healthy,
+            )
+            .unwrap_err(),
+            LocalPublicDispatchContextError::GenerationMismatch
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b23_b_update_is_zero_io_and_preserves_raw_trailing_argv() {
+        use std::os::unix::ffi::{OsStrExt, OsStringExt};
+
+        let mut manifest = m1_b11_valid_manifest();
+        manifest.helper_digests.clear();
+        let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements()).unwrap();
+        let selection = RuntimeAssetSelection {
+            runtime: RuntimeAssetBinding {
+                program_path: OsStr::new("/unused/b23/runtime"),
+                observed_digest: manifest.runtime_digest.as_str(),
+            },
+            compatibility_dir: OsStr::new("/unused/b23/compat"),
+            helpers: &[],
+        };
+        let runtime = qualify_runtime_assets(generation, &selection).unwrap();
+        let manager = qualify_manager_artifact(generation, None).unwrap();
+        let snapshot = TermuxProcessEnvSnapshot {
+            prefix: None,
+            tmpdir: None,
+            inherited_path: None,
+            inherited_ssl_cert_file: None,
+            inherited_ssl_cert_dir: None,
+        };
+        let context = build_local_public_dispatch_context(
+            runtime,
+            manager,
+            &snapshot,
+            OsStr::new("/path/that/does/not/exist/b23-cert"),
+            None,
+            std::path::Path::new("/path/that/does/not/exist/b23-resolver"),
+            std::path::Path::new("/path/that/does/not/exist/b23-config"),
+            UpstreamDoctorCapability::Supported,
+            CoreDoctorStatus::ApiIncompatible,
+            ManagerDoctorStatus::Unhealthy,
+        )
+        .unwrap();
+        let raw = OsString::from_vec(vec![0xff, 0xfe, 0x80]);
+        let expected = vec![OsString::from("--local"), raw.clone()];
+        let before = [std::env::var_os("PREFIX"), std::env::var_os("PATH")];
+        let outcome =
+            execute_public_dispatch(PublicDispatchRoute::Update(expected.clone()), context)
+                .unwrap();
+        let after = [std::env::var_os("PREFIX"), std::env::var_os("PATH")];
+        let PublicDispatchCompletion::Update(actual) = outcome else {
+            panic!("Update must remain a typed M1 handoff");
+        };
+        assert_eq!(actual, expected);
+        assert_eq!(actual[1].as_os_str().as_bytes(), raw.as_os_str().as_bytes());
+        assert_eq!(before, after);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b23_c_doctor_preserves_usage_before_io_and_bounded_success() {
+        let mut manifest = m1_b11_valid_manifest();
+        manifest.helper_digests.clear();
+        let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements()).unwrap();
+        let selection = RuntimeAssetSelection {
+            runtime: RuntimeAssetBinding {
+                program_path: OsStr::new("/unused/b23/runtime"),
+                observed_digest: manifest.runtime_digest.as_str(),
+            },
+            compatibility_dir: OsStr::new("/unused/b23/compat"),
+            helpers: &[],
+        };
+        let runtime = qualify_runtime_assets(generation, &selection).unwrap();
+        let manager = qualify_manager_artifact(generation, None).unwrap();
+        let invalid_snapshot = TermuxProcessEnvSnapshot {
+            prefix: None,
+            tmpdir: None,
+            inherited_path: None,
+            inherited_ssl_cert_file: None,
+            inherited_ssl_cert_dir: None,
+        };
+        let invalid_context = build_local_public_dispatch_context(
+            runtime,
+            manager,
+            &invalid_snapshot,
+            OsStr::new("/missing/b23/cert"),
+            None,
+            std::path::Path::new("/missing/b23/resolver"),
+            std::path::Path::new("/missing/b23/config"),
+            UpstreamDoctorCapability::Supported,
+            CoreDoctorStatus::Healthy,
+            ManagerDoctorStatus::Unavailable,
+        )
+        .unwrap();
+        match execute_public_dispatch(
+            PublicDispatchRoute::Doctor(vec![OsString::from("--bad")]),
+            invalid_context,
+        ) {
+            Err(PublicDispatchExecutionError::Doctor(LocalDoctorCommandError::Usage(
+                DoctorUsageError::InvalidArguments,
+            ))) => {}
+            other => panic!("doctor usage must fail before I/O, got {other:?}"),
+        }
+
+        let supported_without_probe = build_local_public_dispatch_context(
+            runtime,
+            manager,
+            &invalid_snapshot,
+            OsStr::new("/missing/b23/cert"),
+            None,
+            std::path::Path::new("/missing/b23/resolver"),
+            std::path::Path::new("/missing/b23/config"),
+            UpstreamDoctorCapability::Unsupported,
+            CoreDoctorStatus::Healthy,
+            ManagerDoctorStatus::Unavailable,
+        )
+        .unwrap();
+        let outcome = execute_public_dispatch(
+            PublicDispatchRoute::Doctor(vec![OsString::from("--json")]),
+            supported_without_probe,
+        )
+        .unwrap();
+        let PublicDispatchCompletion::Doctor(outcome) = outcome else {
+            panic!("Doctor route must return bounded doctor outcome");
+        };
+        assert_eq!(outcome.exit_class, DoctorExitClass::HealthFailure);
+        assert_eq!(
+            outcome.output,
+            concat!(
+                r#"{"schema_version":1,"upstream":{"status":"unsupported"},"termux_core":{"status":"healthy"},"manager":{"status":"unavailable"},"summary":{"status":"degraded"}}"#,
+                "\n"
+            )
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b23_d_termux_unavailable_skips_all_other_context_io() {
+        let mut manifest = m1_b11_valid_manifest();
+        manifest.helper_digests.clear();
+        let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements()).unwrap();
+        let selection = RuntimeAssetSelection {
+            runtime: RuntimeAssetBinding {
+                program_path: OsStr::new("/missing/b23/runtime"),
+                observed_digest: manifest.runtime_digest.as_str(),
+            },
+            compatibility_dir: OsStr::new("/missing/b23/compat"),
+            helpers: &[],
+        };
+        let runtime = qualify_runtime_assets(generation, &selection).unwrap();
+        let manager = qualify_manager_artifact(generation, None).unwrap();
+        let snapshot = TermuxProcessEnvSnapshot {
+            prefix: None,
+            tmpdir: None,
+            inherited_path: None,
+            inherited_ssl_cert_file: None,
+            inherited_ssl_cert_dir: None,
+        };
+        let context = build_local_public_dispatch_context(
+            runtime,
+            manager,
+            &snapshot,
+            OsStr::new("/missing/b23/cert"),
+            None,
+            std::path::Path::new("/missing/b23/resolver"),
+            std::path::Path::new("/missing/b23/config"),
+            UpstreamDoctorCapability::Supported,
+            CoreDoctorStatus::ApiIncompatible,
+            ManagerDoctorStatus::ApiIncompatible,
+        )
+        .unwrap();
+        let outcome = execute_public_dispatch(
+            PublicDispatchRoute::Termux(vec![OsString::from("status")]),
+            context,
+        )
+        .unwrap();
+        assert_eq!(
+            outcome,
+            PublicDispatchCompletion::TermuxUnavailable(TermuxManagerOutcome::Unavailable)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b23_e_upstream_route_crosses_b14_with_complete_raw_argv() {
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::PermissionsExt;
+
+        let root =
+            std::env::temp_dir().join(format!("codex-m1-b23-upstream-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let resolver = root.join("resolv.conf");
+        let config = root.join("config");
+        let runtime = root.join("runtime.sh");
+        std::fs::write(&resolver, b"nameserver 203.0.113.23\n").unwrap();
+        std::fs::create_dir_all(&config).unwrap();
+        let shell = resolve_test_shell();
+        let script = format!(
+            r#"#!{}
+for a in "$@"; do
+    printf 'ARG:'
+    printf '%s' "$a"
+    printf '\n'
+done
+exit 0
+"#,
+            shell.to_str().unwrap()
+        );
+        std::fs::write(&runtime, script).unwrap();
+        let mut perms = std::fs::metadata(&runtime).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&runtime, perms).unwrap();
+
+        let result = run_exec_probe_with_env(
+            "m1_b23_upstream_dispatch",
+            &[
+                (PROBE_RESOLVER_PATH_ENV, resolver.as_os_str()),
+                (PROBE_CONFIG_DIR_PATH_ENV, config.as_os_str()),
+                (PROBE_FAKE_UPSTREAM_PATH_ENV, runtime.as_os_str()),
+            ],
+        );
+        assert_eq!(result.status.code(), Some(0));
+        assert_eq!(result.stderr, b"");
+        let mut expected = Vec::new();
+        expected.extend_from_slice(b"ARG:-c\n");
+        expected.extend_from_slice(b"ARG:sandbox_mode=\"danger-full-access\"\n");
+        expected.extend_from_slice(b"ARG:exec\n");
+        expected.extend_from_slice(b"ARG:b23-task\n");
+        expected.extend_from_slice(b"ARG:");
+        expected.extend_from_slice(OsStr::from_bytes(&[0xff, 0xfe, 0x80, 0x7f]).as_bytes());
+        expected.push(b'\n');
+        assert_eq!(result.stdout, expected);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b23_f_available_termux_route_crosses_b22_only() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let result = run_exec_probe_with_env(
+            "m1_b23_manager_dispatch",
+            &[("CODEX_MANAGED_BY_NPM", OsStr::new("b23-manager-inherited"))],
+        );
+        assert_eq!(result.status.code(), Some(71));
+        assert_eq!(result.stderr, b"");
+        let mut expected = Vec::new();
+        expected.extend_from_slice(b"B23_MANAGER_ENV:b23-manager-inherited\n");
+        expected.extend_from_slice(b"ARG:b23 ordinary\n");
+        expected.extend_from_slice(b"ARG:");
+        expected.extend_from_slice(OsStr::from_bytes(&[0xff, 0xfe, 0x80]).as_bytes());
+        expected.push(b'\n');
+        assert_eq!(result.stdout, expected);
     }
 
     fn m1_b12_remote_request() -> UpdateRequest<'static> {
