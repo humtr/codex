@@ -37,60 +37,61 @@ or mutation of the installed Codex product.
 
 ## Selected next action
 
-### Bundle M1-B21 — optional Manager artifact qualification boundary
+### Bundle M1-B22 — qualified Manager handoff boundary
 
 #### outcome
 
-Provide the Core-side authority boundary required for the exact `termux` public
-route to distinguish an explicitly unavailable Manager from a Manager artifact
-that is bound to the already-qualified generation. This bundle does not invoke
-Manager and does not implement Manager UX or product behavior.
+Complete the Core-side execution boundary required by exact `codex termux`: an
+explicitly unavailable Manager performs no execution, while an available Manager
+is invoked only through the B21-qualified artifact and receives the exact raw
+trailing argv. This bundle still does not implement Manager product behavior.
 
 #### boundary
 
-- in_scope: `crates/core/src/main.rs` only; pure types and validation that consume
-  `QualifiedGenerationManifest` plus an optional explicit Manager artifact
-  selection containing a raw path and observed digest.
-- out_of_scope: Manager implementation, Manager process spawn, `main` wiring,
-  generation discovery/current pointers, filesystem reads/stat/digest
-  computation, network, update/activation/rollback, dependency additions, live
-  product/runtime/resolver/Manager mutation, or numeric process-exit mapping.
+- in_scope: `crates/core/src/main.rs` only; a bounded unavailable result and a
+  Unix/Android final-exec handoff for `QualifiedManagerArtifact`.
+- out_of_scope: Manager UX/features, Manager discovery, manifest/digest/path
+  requalification, public `main` wiring, update/network/activation/rollback,
+  generation pointers, upstream launch behavior, dependencies, numeric process
+  exit mapping, or live product/runtime/resolver/Manager mutation.
 
 #### must_hold
 
-- A generation with no `manager_artifact_digest` plus no selected artifact maps
-  to one explicit `Unavailable` state rather than fabricated success.
-- A generation that declares a Manager digest requires exactly one explicit
-  selected artifact with a nonempty absolute NUL-free raw path and a nonempty
-  observed digest equal to the manifest digest before it can become `Available`.
-- A selected artifact when the manifest declares no Manager, or a missing
-  selection when the manifest declares one, fails closed with distinct typed
-  errors.
-- Digest mismatch and invalid path shape fail before any future execution could
-  receive a Manager artifact.
-- Raw non-UTF-8 absolute paths remain byte-exact; no lossy conversion, process
-  environment access, filesystem I/O, or mutation is introduced.
+- `ManagerArtifactQualification::Unavailable` never constructs a `Command`,
+  touches the filesystem, or mutates process environment; it yields one bounded
+  unavailable outcome whose text contains no artifact/path/digest data.
+- `Available` obtains its program path only from `QualifiedManagerArtifact`; no
+  alternate string/path input can select a Manager executable.
+- Every trailing raw `OsString` argument is passed in original order and bytes,
+  with no Core-owned prefix/suffix argument and no lossy conversion.
+- Manager handoff inherits stdin/stdout/stderr, TTY, signals, and ordinary
+  process environment by normal Unix `exec`; it must not apply the upstream
+  B10 contamination fence because that contract belongs to the upstream runtime.
+- Failed exec returns a typed I/O error without changing the caller's process
+  environment. A successful test-owned fake Manager demonstrates replacement
+  process identity, raw argv, standard streams, and exit/signal behavior.
 
 #### build
 
-- Reuse `QualifiedGenerationManifest` as the only generation authority and the
-  existing B13 absolute-path validation semantics instead of adding a second
-  path policy.
-- Add a small optional selection type, a qualified `Available` wrapper plus
-  explicit `Unavailable` result, and typed qualification errors.
-- Keep the result borrowed/opaque so B22 can compose `PublicDispatchRoute::Termux`
-  without rediscovering or revalidating artifact identity.
+- Add one small `TermuxManagerOutcome` for bounded unavailable state and one
+  `ManagerLaunchError` wrapper for exec failure.
+- Compose directly over B21 `ManagerArtifactQualification`; the `Available`
+  branch creates `std::process::Command` from the qualified path, appends only
+  the supplied raw trailing args, and calls Unix `CommandExt::exec`.
+- Reuse the existing subprocess probe pattern for real exec evidence rather than
+  introducing a new harness or test framework.
 
 #### verification
 
-- focused: tests for absent/absent -> Unavailable, present/matching -> Available,
-  both manifest/selection disagreement directions, empty/mismatched digest,
-  relative/empty/NUL paths, raw non-UTF-8 retention, determinism, and no process
-  environment side effect.
-- done_when: focused B21 tests pass; every pre-B21 workspace test remains green;
-  formatting and diff checks pass; locked offline build is warning-free; final
-  acceptance uses one grouped repository-required batch including the existing
-  full serial suite and default-parallel stress repetitions.
+- focused: unavailable zero-exec/static output, failed-exec typed behavior and
+  parent environment preservation, real test-owned Manager exec with raw argv/
+  streams/exit status, non-UTF-8 argv retention, and signal/process-identity
+  preservation where the current Termux test environment supports it.
+- done_when: focused B22 evidence passes; all 128 pre-B22 tests remain green;
+  formatting and diff checks pass; locked offline build is warning-free; one
+  grouped final acceptance batch runs the full serial suite and eight complete
+  default-parallel repetitions. Existing successful B21 evidence is not rerun
+  separately unless B22 mutates its qualification code.
 
 ## Milestone 1 required outcomes
 

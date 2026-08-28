@@ -497,6 +497,19 @@ Termux qualification. Produce one candidate for independent product review.
   full serial workspace suite 121/121, eight complete default-parallel full
   repetitions, formatting, `git diff --check`, and a warning-free locked build
   with offline mode and a repository-external Cargo target.
+- M1-B21 is accepted at `5847f0d8d223e6abdf8d1876fc316ac1fda7b281`.
+  The direct Lead added a pure optional Manager-artifact qualification boundary
+  over the already-qualified generation. Absent manifest binding plus absent
+  selection is one explicit `Unavailable` state; a declared Manager requires one
+  explicit absolute NUL-free raw path and a nonempty observed digest matching the
+  manifest before it can become `Available`. Presence disagreement, path-shape
+  failures, empty digest, and digest mismatch are distinct typed failures.
+- B21 focused validation `job_it2_21e09d1f28` passed 7/7. Final grouped
+  acceptance `job_it4_84accf60ab` passed the full serial workspace suite
+  128/128, eight complete default-parallel full repetitions, formatting,
+  `git diff --check`, and a warning-free locked offline build with an external
+  Cargo target. No Click plugin/Hook was used; the Workboard anti-loop discipline
+  reused evidence and avoided an extra intermediate full-suite pass.
 - Milestone 1 is not complete. The normal `main` entrypoint is still not wired to
   a qualified upstream runtime. Public dispatch execution and the complete
   real-Termux smoke gate remain unproven.
@@ -533,11 +546,12 @@ Termux qualification. Produce one candidate for independent product review.
 - M1-B18 is closed at `fdecef9f86a1f04776309ffe344b169d715c7217`.
 - M1-B19 is closed at `148b1133f1afaa91668e19b4fade13bc761b0056`.
 - M1-B20 is closed at `07ed3af8764c10f03aaf3bf83b18ffb37a32b891`.
-- Current checkpoint: M1-B21 — qualify the optional Manager artifact against the
-  already-qualified generation so the `termux` route can distinguish a bounded
-  `Unavailable` state from an explicitly selected, manifest-bound Manager
-  artifact without implementing Manager product behavior or performing I/O.
-- Worker mode remains OFF; the primary Lead implements B21 directly.
+- M1-B21 is closed at `5847f0d8d223e6abdf8d1876fc316ac1fda7b281`.
+- Current checkpoint: M1-B22 — complete the Core-side `termux` Manager handoff
+  boundary: `Unavailable` remains a bounded typed state with zero execution,
+  while `Available` final-execs only the B21-qualified Manager artifact with the
+  exact trailing raw argv and inherited standard process environment/streams.
+- Worker mode remains OFF; the primary Lead implements B22 directly.
 - The repository now uses a Click-inspired execution discipline at the
   Workboard layer: reuse successful same-revision evidence, do not reopen or
   replace an active bounded contract without new material evidence, and run the
