@@ -30,62 +30,66 @@ or mutation of the installed Codex product.
 
 ## Selected next action
 
-### Bundle M1-B10 — capture actual Termux process environment into the base-env planner
+### Bundle M1-B11 — pure generation-manifest qualification interface
 
-- Prior direct-Lead evidence: M1-R1 commit
-  `4c1a8d90d6aa028106218d349076c465af8b8535`; final validation
-  `job_i95_262b8f5b0d` passed 53/53 serial tests, eight full default-parallel
-  repetitions, focused sandbox/FD suites, formatting, and locked build.
-- Exact outcome: add the smallest Unix/Android process-environment boundary that
-  feeds the proven B8 `TermuxBaseEnvInputs` without selecting a runtime or
-  generation and without wiring normal `main`.
-- Introduce a small module-private owned snapshot containing exactly `PREFIX`,
-  `TMPDIR`, `PATH`, `SSL_CERT_FILE`, and `SSL_CERT_DIR` as raw `Option<OsString>`
-  values, plus one thin reader using only `std::env::var_os` for those five keys.
-- Keep selected `compat_dir`, fallback `cert_file`, and optional fallback
-  `cert_dir` as explicit caller inputs. The snapshot-to-plan function must be
-  pure: validate required process inputs, derive only
-  `PathBuf::from(prefix).join("bin")`, build `TermuxBaseEnvInputs`, and call the
-  existing B8 planner.
-- `PREFIX` and `TMPDIR` are required and must fail with clear module-private
-  typed errors when absent or empty. Preserve B8 planner errors as typed causes
-  or variants; do not parse error strings.
-- Do not canonicalize, stat, open, resolve symlinks, check existence, enforce a
-  Termux package/application name, read `HOME`, or hard-code any app-data root.
-  Do not derive a generation root, runtime executable, resolver path, config
-  path, compatibility-tool path, or other product path.
-- Preserve raw non-UTF-8 inherited PATH and certificate values byte-for-byte on
-  Unix. The derived prefix bin path must use native path joining. Existing B8
-  semantics remain: PATH order is explicit compatibility directory, derived
-  prefix/bin, then inherited non-empty PATH; inherited non-empty certificate
-  values win over explicit fallbacks.
-- Production B10 code must not mutate the global process environment, construct
-  or execute a `Command`, touch FD 33/34, read/write the filesystem, select a
-  generation/runtime, parse a manifest, perform networking, or change public
-  command semantics.
-- Focused tests named `m1_b10_` must cover exact prefix/bin derivation and B8
-  assignment order; absent/empty `PREFIX`; absent/empty `TMPDIR`; raw non-UTF-8
-  inherited PATH/certificate preservation; an unusual synthetic prefix proving
-  no fixed Termux app-data root; B8 error propagation; and a read-only capture
-  check showing the snapshot matches those five current process variables
-  without mutating them.
-- Keep all 53 accepted post-M1-R1 tests green. Validate with
+- Prior direct-Lead evidence: M1-B10 commit
+  `08e67e8c9fed23032ff59c38ff4765221d515d67`; final validation
+  `job_iba_22c23cddee` passed B10 6/6, the complete serial suite 59/59,
+  eight full default-parallel repetitions, formatting, `git diff --check`, and
+  the locked workspace build.
+- Exact outcome: define the smallest dependency-free, in-memory generation
+  manifest contract that binds every field required by SPEC section 6 and
+  produces a distinct qualified-manifest wrapper only after compatibility and
+  qualification validation. This bundle performs no filesystem or launch I/O.
+- Manifest data model must bind: upstream package identity and version; immutable
+  source artifact digest; expected platform and architecture; exact patch-policy
+  identifier and patch report; resulting runtime digest; zero or more named
+  helper digests; Core artifact digest; optional Manager artifact digest; Core
+  API compatibility identity; persistent schema compatibility identity;
+  qualification result; and creation metadata.
+- Keep digest values opaque at this stage. Require them to be present/non-empty,
+  but do not invent or freeze a digest algorithm, encoding, signature scheme, or
+  serialized manifest representation. Likewise, patch reports and creation
+  metadata remain opaque non-empty manifest-bound values.
+- Introduce explicit validation requirements containing the platform,
+  architecture, Core API identity, and persistent schema identity supported by
+  the current Core. Validation must reject empty required fields, mismatches in
+  those four compatibility bindings, rejected qualification status, empty helper
+  identities/digests, duplicate helper identities, and an explicitly present but
+  empty optional Manager digest.
+- Successful validation returns a module-private `Qualified...` wrapper that
+  borrows or owns the validated manifest without copying/normalizing its opaque
+  values. Later runtime/path selection must be able to require this wrapper
+  rather than an unvalidated manifest.
+- Do not define generation physical paths, `current`/`verified`/`previous`
+  pointer mechanics, runtime/helper executable paths, resolver/config paths,
+  manifest serialization/parsing, signed release manifests, updater transport,
+  anti-rollback, activation, rollback, doctor, or normal `main` wiring in B11.
+- Production B11 code must perform no filesystem access, process environment
+  read/write, Command construction, FD work, network/provider access, package
+  operation, install, activation, or live-state mutation.
+- Focused tests named `m1_b11_` must cover: one fully valid manifest; each of the
+  four compatibility mismatches; rejected qualification; missing/empty required
+  bindings across representative field classes; helper empty identity/digest and
+  duplicate identity rejection; optional Manager absent/valid/empty behavior;
+  exact qualified-wrapper retention of opaque/non-ASCII metadata; and planner
+  purity/no side effects.
+- Keep all 59 accepted post-B10 tests green. Validate with
   `CARGO_NET_OFFLINE=true`, a repository-external `CARGO_TARGET_DIR`, formatting,
-  focused B10 tests, all locked workspace tests serially, default-parallel stress
+  focused B11 tests, all locked workspace tests serially, default-parallel stress
   repetitions, and locked workspace build.
 - Worker mode is user-controlled and remains OFF. The primary `gpt-5.6-sol` /
   `max` Lead directly implements this bundle. tmcp `harness.run` may be used only
   for bounded tests/validation, never for code mutation or development.
-- Writable product path: `crates/core/src/main.rs` only. No dependency, manifest,
-  extra tracked-file, live resolver/runtime/launcher/Manager, profile, session,
-  auth, Git-ref, legacy-history, network, package, install, or activation change
-  is authorized.
-- Completion gate: the diff contains only the bounded raw process snapshot,
-  capture reader, pure snapshot-to-B8 composition, typed errors, and focused
-  tests; no fixed app-data root, filesystem I/O, global env mutation, lossy
-  conversion, product-path decision, dependency, public-surface expansion, or
-  protected-state change; Lead reruns focused/full/stress validation before
-  acceptance.
+- Writable product path: `crates/core/src/main.rs` only. No dependency, manifest
+  file, extra tracked file, live resolver/runtime/launcher/Manager, profile,
+  session, auth, Git-ref, legacy-history, network, package, install, or activation
+  change is authorized.
+- Completion gate: the diff contains only the in-memory manifest/requirements/
+  qualification types, validator, typed errors, and focused tests; no serialization,
+  physical path, runtime selection, filesystem I/O, environment I/O, dependency,
+  public-surface expansion, or protected-state change; Lead reruns focused/full/
+  stress validation before acceptance.
 
 ## Milestone 1 required outcomes
 
