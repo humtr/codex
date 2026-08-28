@@ -33,9 +33,10 @@ than interrupting ordinary implementation checkpoints.
 
 ## Branches
 
-- `main` — clean rewrite lineage
-- `rewrite/rust-core` — active Rust Core implementation
+- `main` — publication authority; not the implementation base
+- `rewrite/rust-core` — independent orphan Rust Core implementation lineage
 - `legacy/monolith` — sealed predecessor at `bf30a7d`
 
-The legacy implementation is not a source base for the rewrite.
-
+The implementation branch starts at an empty root and has no Git ancestry in
+common with `main` or the legacy implementation. Promotion to `main` is an
+explicit ref replacement after acceptance, not a merge.

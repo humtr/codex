@@ -7,6 +7,8 @@ in Git history and the `GOAL.md` acceptance ledger, not here.
 
 - Repository: `humtr/codex`
 - Active branch: `rewrite/rust-core`
+- Branch ancestry: independent empty-root lineage; do not merge or rebase
+  `main` or `legacy/monolith`
 - Normative owner: `SPEC.md`
 - Acceptance owner: `GOAL.md`
 - Current milestone: Milestone 1 — local Core
@@ -69,4 +71,3 @@ command classification before implementing runtime execution.
 
 Milestone 2 — delivery and recovery — remains defined in `SPEC.md` and is not
 current work until the Milestone 1 ledger is complete.
-

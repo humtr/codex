@@ -25,8 +25,12 @@ irreversible design decision without ambiguity.
 
 - `legacy/monolith` is sealed history at
   `bf30a7dc94d4dad7f58836c69028160856e63c58`. Never commit to or rewrite it.
-- `main` is the clean rewrite lineage and release authority.
-- `rewrite/rust-core` is the active implementation branch until promoted.
+- `main` is the publication and release authority, not an implementation base.
+- `rewrite/rust-core` is an independent orphan implementation lineage that
+  begins with an empty root. Never merge, rebase, or otherwise import `main`
+  or legacy history into it.
+- Promotion replaces `main` with the accepted `rewrite/rust-core` lineage; it
+  is not a merge between unrelated histories.
 - Do not force-push `main` or delete published branches unless the user
   explicitly authorizes that exact operation.
 
@@ -64,4 +68,3 @@ irreversible design decision without ambiguity.
 - Checkpoint planning and review agents are disabled during the two Core
   milestones. Perform an independent product review only after the Milestone 2
   acceptance candidate is complete.
-

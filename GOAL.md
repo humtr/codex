@@ -58,7 +58,11 @@ one current workboard, direct focused tests, and deferred independent review.
 
 ## User Decisions
 
-- Start a parentless Git lineage; do not branch the rewrite from old `main`.
+- Start `rewrite/rust-core` from an empty parentless root. It must have no
+  merge-base with `main` or the predecessor and must never import either
+  history.
+- Keep `main` as a separate publication authority until an accepted rewrite
+  tip explicitly replaces it; promotion is not a merge.
 - Seal the latest predecessor at
   `bf30a7dc94d4dad7f58836c69028160856e63c58` on `legacy/monolith`.
 - Keep one repository and one public `codex` entrypoint.
@@ -100,6 +104,9 @@ Termux qualification. Produce one candidate for independent product review.
 - The current development device has a native `aarch64-linux-android` Rust
   toolchain, Cargo, and Android-targeting Clang.
 - The rewrite lineage contains no legacy implementation source.
+- `rewrite/rust-core` begins at empty root
+  `b3a9da98195cff1053f012d2afa738949b5b14dc` and has no merge-base with
+  `main` or `legacy/monolith`.
 
 ### Historical Proof
 
@@ -142,4 +149,3 @@ the selected current milestone.
 The next implementer starts with the selected action in `WORKBOARD.md`. The
 legacy branch may be inspected for behavior discovery but no source file may be
 copied into the rewrite.
-
