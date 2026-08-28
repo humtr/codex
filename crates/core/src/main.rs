@@ -2003,6 +2003,80 @@ fn render_doctor_json(report: &DoctorReport) -> String {
     )
 }
 
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DoctorOutputMode {
+    Human,
+    Json,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct DoctorInvocationPlan {
+    output_mode: DoctorOutputMode,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DoctorUsageError {
+    InvalidArguments,
+}
+
+impl std::fmt::Display for DoctorUsageError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DoctorUsageError::InvalidArguments => write!(f, "usage: codex doctor [--json]"),
+        }
+    }
+}
+
+impl std::error::Error for DoctorUsageError {}
+
+/// Plans arguments following the exact leading `doctor` token.
+///
+/// No trailing argument selects human output; exactly one raw `--json` token selects JSON.
+/// Every other shape is rejected without UTF-8 decoding or echoing caller-controlled argv.
+#[allow(dead_code)]
+fn plan_doctor_invocation<I, S>(args: I) -> Result<DoctorInvocationPlan, DoctorUsageError>
+where
+    I: IntoIterator<Item = S>,
+    S: Into<OsString>,
+{
+    let mut args = args.into_iter().map(Into::into);
+    match (args.next(), args.next()) {
+        (None, None) => Ok(DoctorInvocationPlan {
+            output_mode: DoctorOutputMode::Human,
+        }),
+        (Some(arg), None) if arg.as_os_str() == OsStr::new("--json") => Ok(DoctorInvocationPlan {
+            output_mode: DoctorOutputMode::Json,
+        }),
+        _ => Err(DoctorUsageError::InvalidArguments),
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DoctorCommandOutcome {
+    output: String,
+    exit_class: DoctorExitClass,
+}
+
+/// Renders one already-composed bounded doctor report according to a validated invocation plan.
+#[allow(dead_code)]
+fn render_doctor_command(
+    plan: DoctorInvocationPlan,
+    report: &DoctorReport,
+) -> DoctorCommandOutcome {
+    let output = match plan.output_mode {
+        DoctorOutputMode::Human => render_doctor_human(report),
+        DoctorOutputMode::Json => render_doctor_json(report),
+    };
+    DoctorCommandOutcome {
+        output,
+        exit_class: doctor_exit_class(report),
+    }
+}
+
 fn main() {
     let mut args = std::env::args_os();
     let _ = args.next();
@@ -8129,5 +8203,141 @@ exit {}
             .windows(b"B17_REPORT".len())
             .any(|window| window == b"B17_REPORT"));
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn test_m1_b18_a_exact_human_and_json_invocation_plans() {
+        assert_eq!(
+            plan_doctor_invocation(std::iter::empty::<OsString>()).unwrap(),
+            DoctorInvocationPlan {
+                output_mode: DoctorOutputMode::Human
+            }
+        );
+        assert_eq!(
+            plan_doctor_invocation([OsString::from("--json")]).unwrap(),
+            DoctorInvocationPlan {
+                output_mode: DoctorOutputMode::Json
+            }
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b18_b_invalid_and_non_utf8_forms_fail_with_one_bounded_usage_error() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let cases: Vec<Vec<OsString>> = vec![
+            vec![OsString::from("")],
+            vec![OsString::from("--")],
+            vec![OsString::from("--help")],
+            vec![OsString::from("extra")],
+            vec![OsString::from("--json"), OsString::from("--json")],
+            vec![OsString::from("--json"), OsString::from("extra")],
+            vec![OsString::from_vec(vec![0xff, 0xfe, 0x80])],
+        ];
+
+        for args in cases {
+            assert_eq!(
+                plan_doctor_invocation(args).unwrap_err(),
+                DoctorUsageError::InvalidArguments
+            );
+        }
+    }
+
+    #[test]
+    fn test_m1_b18_c_usage_error_text_is_static_and_does_not_echo_rejected_argv() {
+        let secret = "--token=super-secret-doctor-value";
+        let err = plan_doctor_invocation([OsString::from(secret)]).unwrap_err();
+        let text = err.to_string();
+        assert_eq!(text, "usage: codex doctor [--json]");
+        assert!(!text.contains("super-secret"));
+        assert!(!text.contains("token"));
+    }
+
+    #[test]
+    fn test_m1_b18_d_rendering_preserves_every_semantic_exit_class_and_json_on_failure() {
+        let human = plan_doctor_invocation(std::iter::empty::<OsString>()).unwrap();
+        let json = plan_doctor_invocation([OsString::from("--json")]).unwrap();
+
+        let healthy = compose_doctor_report(
+            UpstreamDoctorStatus::Healthy,
+            CoreDoctorStatus::Healthy,
+            ManagerDoctorStatus::Healthy,
+        );
+        let healthy_outcome = render_doctor_command(human, &healthy);
+        assert_eq!(healthy_outcome.exit_class, DoctorExitClass::Success);
+        assert_eq!(
+            healthy_outcome.output,
+            "[Upstream]\nstatus: healthy\n\n[Termux Core]\nstatus: healthy\n\n[Manager]\nstatus: healthy\n\n[Summary]\nstatus: healthy\n"
+        );
+
+        let degraded = compose_doctor_report(
+            UpstreamDoctorStatus::Unsupported,
+            CoreDoctorStatus::Healthy,
+            ManagerDoctorStatus::Unavailable,
+        );
+        let degraded_outcome = render_doctor_command(json, &degraded);
+        assert_eq!(degraded_outcome.exit_class, DoctorExitClass::HealthFailure);
+        assert_eq!(
+            degraded_outcome.output,
+            "{\"schema_version\":1,\"upstream\":{\"status\":\"unsupported\"},\"termux_core\":{\"status\":\"healthy\"},\"manager\":{\"status\":\"unavailable\"},\"summary\":{\"status\":\"degraded\"}}\n"
+        );
+
+        let unhealthy = compose_doctor_report(
+            UpstreamDoctorStatus::Unhealthy,
+            CoreDoctorStatus::Healthy,
+            ManagerDoctorStatus::Healthy,
+        );
+        let unhealthy_outcome = render_doctor_command(json, &unhealthy);
+        assert_eq!(unhealthy_outcome.exit_class, DoctorExitClass::HealthFailure);
+        assert_eq!(
+            unhealthy_outcome.output,
+            "{\"schema_version\":1,\"upstream\":{\"status\":\"unhealthy\"},\"termux_core\":{\"status\":\"healthy\"},\"manager\":{\"status\":\"healthy\"},\"summary\":{\"status\":\"unhealthy\"}}\n"
+        );
+
+        let incompatible = compose_doctor_report(
+            UpstreamDoctorStatus::Healthy,
+            CoreDoctorStatus::ApiIncompatible,
+            ManagerDoctorStatus::Healthy,
+        );
+        let incompatible_outcome = render_doctor_command(json, &incompatible);
+        assert_eq!(
+            incompatible_outcome.exit_class,
+            DoctorExitClass::ApiIncompatibility
+        );
+        assert_eq!(
+            incompatible_outcome.output,
+            "{\"schema_version\":1,\"upstream\":{\"status\":\"healthy\"},\"termux_core\":{\"status\":\"api_incompatible\"},\"manager\":{\"status\":\"healthy\"},\"summary\":{\"status\":\"api_incompatible\"}}\n"
+        );
+    }
+
+    #[test]
+    fn test_m1_b18_e_planning_and_rendering_are_deterministic_and_environment_pure() {
+        let before = [
+            std::env::var_os("PREFIX"),
+            std::env::var_os("TMPDIR"),
+            std::env::var_os("PATH"),
+            std::env::var_os("SSL_CERT_FILE"),
+            std::env::var_os("SSL_CERT_DIR"),
+        ];
+        let first_plan = plan_doctor_invocation([OsString::from("--json")]).unwrap();
+        let second_plan = plan_doctor_invocation([OsString::from("--json")]).unwrap();
+        let report = compose_doctor_report(
+            UpstreamDoctorStatus::Unsupported,
+            CoreDoctorStatus::Unhealthy,
+            ManagerDoctorStatus::Unavailable,
+        );
+        let first = render_doctor_command(first_plan, &report);
+        let second = render_doctor_command(second_plan, &report);
+        let after = [
+            std::env::var_os("PREFIX"),
+            std::env::var_os("TMPDIR"),
+            std::env::var_os("PATH"),
+            std::env::var_os("SSL_CERT_FILE"),
+            std::env::var_os("SSL_CERT_DIR"),
+        ];
+        assert_eq!(first_plan, second_plan);
+        assert_eq!(first, second);
+        assert_eq!(before, after);
     }
 }
