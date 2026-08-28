@@ -29,43 +29,49 @@ or mutation of the installed Codex product.
 
 ## Selected next action
 
-### Bundle M1-B1 — minimal workspace and command classifier
+### Bundle M1-B2 — upstream final-exec primitive
 
-- Bound base: `rewrite/rust-core@5a660669055029be2b3ce53a6aa9bb7261b7290a`.
-- Exact outcome: create a locked dependency-free Cargo workspace containing one
-  Core binary and implement only the exact first-argument classifier needed to
-  distinguish Core-owned `update`, `doctor`, and `termux` commands from upstream
-  passthrough. Runtime execution remains for a later bundle.
-- Writable worker paths: `Cargo.toml`, `Cargo.lock`, `crates/core/Cargo.toml`,
-  and `crates/core/src/main.rs` only.
-- Governing contracts: `SPEC.md` section 3 requires interception only when the
-  exact first argument is `update`, `doctor`, or `termux`; every other argv
-  shape, including `--version` and `-V`, remains upstream passthrough. The
-  rewrite discipline forbids legacy source copying and unnecessary dependencies.
-- Worker configuration: one replacement `agy` CLI worker launched through a
+- Prior accepted evidence: M1-B1 commit
+  `36c98dd8882ddba18657ab3f289eace1121ff39b`.
+- Exact outcome: add the smallest Unix/Android upstream execution primitive that
+  performs a final process replacement with an explicitly supplied upstream
+  program and raw `OsString` arguments. Prove with subprocess tests that the
+  upstream process receives arguments unchanged and that stdout, stderr, and
+  exit status cross the exec boundary unchanged. This bundle does not yet pick
+  the product upstream path or wire normal `main` dispatch to a live runtime.
+- Writable worker path: `crates/core/src/main.rs` only.
+- Governing contracts: `SPEC.md` sections 3 and 5 require every non-Core command,
+  including `--version` and `-V`, to reach upstream without wrapper version
+  output and require preservation of argv, standard streams, and exit status at
+  the final execution boundary. Use raw `OsStr`/`OsString`; do not introduce
+  lossy UTF-8 conversion.
+- Worker configuration: one new `agy` CLI implementation worker through a
   bounded Task-owned shell execution, `accept-edits` mode with terminal sandbox
-  restrictions and a single non-interactive prompt. The registered `agy`
-  harness adapter is not used because its stdin prompt transport is incompatible
-  with the installed CLI; a corrected non-mutating CLI probe returned `READY`.
-  The worker has implementation authority only and may not edit authority
-  documents, commit, push, install packages, use provider tools, delegate, or
-  touch live product state.
-- Named validation: `cargo fmt --check`, `cargo test --locked --workspace`, and
-  `cargo build --locked --workspace`, all from the repository root without
-  network or package installation.
-- Protected surfaces: `AGENTS.md`, `SPEC.md`, `GOAL.md`, `WORKBOARD.md`,
-  `README.md`, `legacy/monolith`, all live launcher/runtime/Manager paths,
-  `$PREFIX/etc/resolv.conf`, profiles, sessions, auth data, and unrelated
-  worktrees/refs.
-- Completion gate: exactly one workspace member and one Core binary; committed
-  lockfile; zero external dependencies; focused tests cover empty argv, exact
-  `update`/`doctor`/`termux`, near-miss spellings, `--version`, `-V`, arbitrary
-  passthrough arguments, and a non-UTF-8 first argument on Unix/Android without
-  lossy parsing; named validation passes; no path outside the worker scope is
-  changed.
-- Integration disposition: after the worker returns, the primary Lead inspects
-  the actual diff, reruns the load-bearing validation, accepts or rejects the
-  bundle, and commits only accepted work before planning M1-B2.
+  restrictions and one non-interactive prompt. The known-incompatible registered
+  `agy` harness stdin adapter remains unused. No delegation, authority-document
+  edits, commits, pushes, package installation, or live product mutation.
+- Named validation: with `CARGO_NET_OFFLINE=true` and `CARGO_TARGET_DIR` outside
+  the repository, run `cargo fmt --check`, `cargo test --locked --workspace`,
+  and `cargo build --locked --workspace`.
+- Required focused evidence: a child process that calls the production exec
+  primitive must demonstrate exact stdout bytes, exact stderr bytes, and a
+  chosen nonzero exit status; upstream-visible argv must include unchanged
+  `--version`, unchanged `-V`, ordinary arguments, and a non-UTF-8 argument on
+  Unix. Tests must not depend on or execute the installed Codex product.
+- Explicitly deferred: product upstream-path discovery, environment
+  sanitization/planning, TTY and signal-specific probes, FD 33/34 setup,
+  sandbox-policy enforcement, doctor, Manager, updater, network behavior, and
+  live installation/activation.
+- Protected surfaces: every path except `crates/core/src/main.rs`, plus all live
+  launcher/runtime/Manager paths, `$PREFIX/etc/resolv.conf`, profiles, sessions,
+  auth data, Git refs, legacy history, and unrelated worktrees.
+- Completion gate: no new dependency or file; existing classifier tests remain
+  green; exec primitive is used by focused subprocess tests without temporary
+  wrapper output or public test-only command semantics; all named validation
+  passes; repository status contains only the authorized source path.
+- Integration disposition: the primary Lead inspects the actual source diff,
+  reruns load-bearing validation in an external target directory, and commits
+  only if the bundle gate is satisfied.
 
 ## Milestone 1 required outcomes
 

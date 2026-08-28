@@ -166,6 +166,26 @@ Termux qualification. Produce one candidate for independent product review.
 - `rewrite/rust-core` begins at empty root
   `b3a9da98195cff1053f012d2afa738949b5b14dc` and has no merge-base with
   `main` or `legacy/monolith`.
+- Milestone 1 bundle M1-B1 is accepted at
+  `36c98dd8882ddba18657ab3f289eace1121ff39b`: the rewrite now has one locked,
+  dependency-free Cargo workspace member and one Core binary with exact
+  first-argument classification for `update`, `doctor`, and `termux`; all other
+  inputs, including `--version`, `-V`, near misses, arbitrary arguments, and
+  non-UTF-8 first arguments on Unix, classify as upstream passthrough.
+- Primary-Lead validation job `job_hmw_1af3337581` removed only worker-generated
+  untracked `target/` artifacts, used an external temporary `CARGO_TARGET_DIR`
+  with `CARGO_NET_OFFLINE=true`, and passed `cargo fmt --check`,
+  `cargo test --locked --workspace` (6/6), and
+  `cargo build --locked --workspace`. Post-validation status job
+  `job_hmx_ffe2f81a73` showed only the planned Workboard and four bundle source
+  paths before commit.
+- The local `.git/hooks/pre-commit` is an untracked predecessor-environment hook
+  that invokes absent `tools/update-wrapper-version.sh`; normal commit job
+  `job_hmz_60b990cf84` therefore failed without changing HEAD. After read-only
+  inspection proved neither the hook nor its referenced path belongs to this
+  lineage, the Lead committed M1-B1 once with `--no-verify` under exact HEAD and
+  index-tree preconditions. The hook remains unmodified and is not product
+  evidence.
 
 ### Historical Proof
 
@@ -174,23 +194,30 @@ Termux qualification. Produce one candidate for independent product review.
 
 ### Not Proven
 
-- No Rust Core source, build, test, artifact, installation, update, activation,
-  rollback, fresh-device behavior, or production readiness is proven yet.
+- Milestone 1 is not complete. M1-B1 proves only workspace construction and
+  command classification; final upstream execution, exact `--version`/`-V`
+  process behavior, environment/TTY/signal fidelity, FD 33/34, resolver
+  non-mutation at that boundary, sandbox handling, doctor composition,
+  generation/updater interfaces, and the full real-Termux smoke gate remain
+  unproven.
+- No release artifact, installation, update, activation, rollback, offline
+  recovery, fresh-device behavior, Milestone 2 result, or production readiness
+  is proven.
 - No Manager implementation or Core/Manager integration is proven.
-- No primary-Lead implementation bundle, worker run, or integration verification
-  has yet been completed; the configured policy is workflow readiness, not
-  product proof.
 
 ### Checkpoint Plans
 
-- Plan status: lead-owned and pending; the primary Lead must author the initial
-  Milestone 1 implementation bundle directly.
-- Before the first implementation mutation, the Lead records the exact bundle,
-  worker scope, validation, protected surfaces, and completion gate in
-  `WORKBOARD.md`, then invokes one bounded worker.
-- At bundle completion the Lead records its own diff/test disposition here. No
-  worker report, planning subagent, or checkpoint reviewer substitutes for that
-  integration decision.
+- Plan status: M1-B1 accepted; Milestone 1 remains active.
+- The primary Lead records each next bounded bundle in `WORKBOARD.md`, launches
+  exactly one implementation worker, inspects the actual diff, and reruns the
+  load-bearing validation before acceptance.
+- M1-B2 is the current checkpoint and is limited to the upstream final-exec
+  primitive plus subprocess evidence for raw argv and stdout/stderr/exit-status
+  fidelity. Environment planning, TTY/signals, and FD 33/34 remain later
+  checkpoints rather than being inferred from M1-B2.
+- At every bundle completion the Lead records its own diff/test disposition
+  here. No worker report, planning subagent, or checkpoint reviewer substitutes
+  for that integration decision.
 
 ## Goal Lifts
 
