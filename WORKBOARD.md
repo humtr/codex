@@ -30,66 +30,43 @@ or mutation of the installed Codex product.
 
 ## Selected next action
 
-### Bundle M1-B13 — pure qualified runtime/compatibility asset selection
+### Bundle M1-B14 — qualified-runtime final launch composition
 
-- Prior direct-Lead evidence: M1-B12 commit
-  `3927ad46696875c913c9039406693c1ddd4c3231`; final validation
-  `job_iff_6b93404095` passed B12 11/11, the complete serial suite 80/80,
-  eight full default-parallel repetitions, formatting, `git diff --check`, and a
-  warning-free locked build.
-- Exact outcome: define an in-memory qualification boundary that binds the
-  runtime program, compatibility directory, and every selected helper asset to
-  an already-qualified B11 generation manifest. B13 selects no active generation
-  and performs no launch or filesystem I/O.
-- Define one runtime asset binding with a raw native program path and an opaque
-  observed digest. Define zero or more helper asset bindings with an opaque
-  helper identity, raw native asset path, and opaque observed digest. Keep the
-  compatibility directory as a separate raw native directory path because B8
-  consumes it as a PATH component; do not infer it from helper paths.
-- Runtime program, compatibility directory, and helper asset paths must be
-  non-empty absolute paths. NUL-containing paths fail. The compatibility
-  directory must also satisfy the existing B8 explicit PATH-component rule, so
-  it cannot contain `:` on Unix. Do not canonicalize, stat, resolve symlinks, or
-  require any physical filename/layout beyond these pure path-shape invariants.
-- Runtime observed digest must be non-empty and byte-for-byte equal to the B11
-  qualified manifest's `runtime_digest`.
-- Every helper binding must have a non-empty identity and observed digest. The
-  selected helper set must exactly match the qualified manifest helper set by
-  identity and digest: reject missing helpers, extra helpers, duplicate selected
-  identities, and digest mismatches. B11 already proves manifest-side helper
-  identity uniqueness. Zero selected helpers is valid only for a manifest with
-  zero helpers.
-- Successful validation returns a borrowed `QualifiedRuntimeAssets` wrapper that
-  retains the `QualifiedGenerationManifest`, runtime binding, compatibility
-  directory, and helper slice without copying, UTF-8 conversion, path
-  normalization, or digest transformation. Later runtime launch composition must
-  require this wrapper rather than raw asset inputs.
-- Do not implement generation `current`/`verified`/`previous` lookup, manifest
-  serialization/parsing, digest computation, helper execution, runtime launch,
-  resolver/config selection, environment capture, doctor, updater I/O,
-  activation, rollback, network, package operations, or normal `main` wiring.
-- Focused tests named `m1_b13_` must cover: valid runtime plus multi-helper set;
-  zero-helper manifest; empty/relative/NUL runtime path; empty/relative/NUL/colon
-  compatibility directory; empty runtime digest and digest mismatch; helper
-  empty identity/path/digest; relative/NUL helper path; missing/extra/duplicate
-  helper identities; helper digest mismatch; raw non-UTF8 Unix path retention;
-  exact borrowed-wrapper pointer retention; deterministic/no-side-effect behavior.
-- Keep all 80 accepted post-B12 tests green. Validate with
-  `CARGO_NET_OFFLINE=true`, a repository-external `CARGO_TARGET_DIR`, formatting,
-  focused B13 tests, all locked workspace tests serially, default-parallel stress
-  repetitions, warning-free locked build, and `git diff --check`.
+- Prior evidence: M1-B13 commit `71acbd8e318d50548952490e0d2fb52c7b661f9c`;
+  validation `job_igy_c7b11e3616` passed B13 10/10, full serial 90/90, eight
+  default-parallel full repetitions, formatting, diff check, and warning-free
+  locked build.
+- Add one module-private launch boundary that accepts `QualifiedRuntimeAssets`, a
+  `TermuxProcessEnvSnapshot`, explicit fallback certificate file/directory,
+  explicit resolver path, explicit managed-config directory, and raw user argv.
+- It must derive the B10 environment plan using exactly the qualified assets'
+  compatibility directory and then call the existing `launch_upstream_with_env`
+  using exactly the qualified runtime program path. Do not accept a separate raw
+  runtime program or compatibility directory at this boundary.
+- Preserve existing ordering: environment planning is pure; the existing launch
+  function still performs sandbox-policy validation before resolver/config FD I/O
+  or exec. Preserve B3 contamination fencing, B4 FD33/34 behavior, raw argv,
+  process/TTY/signal/exit semantics, and B9 env application.
+- Use a typed module-private error that distinguishes B10 environment-plan failure
+  from existing launch policy/exec failure without string parsing.
+- No active generation lookup, manifest parse/serialization, digest calculation,
+  filesystem qualification, resolver/config selection, HOME-derived path, updater
+  I/O, doctor, activation, rollback, network, package operation, or normal `main`
+  wiring belongs in B14.
+- Focused `m1_b14_` tests: invalid process snapshot fails before runtime I/O;
+  unsupported sandbox fails before invalid resolver/config I/O; real subprocess
+  exec using test-owned resolver/config/fake runtime proves the B13 runtime path
+  is used, B13 compatibility directory drives PATH, planned temp/cert values
+  arrive, sandbox prelude/raw argv remain exact, and FD33/34 expose the supplied
+  test artifacts.
+- Keep all 90 post-B13 tests green. Validate offline with an external Cargo target,
+  focused tests, full serial suite, eight default-parallel repetitions,
+  warning-free locked build, formatting, and diff check.
 - Worker mode is user-controlled and remains OFF. The primary `gpt-5.6-sol` /
-  `max` Lead directly implements this bundle. tmcp `harness.run` may be used only
-  for bounded tests/validation, never for code mutation or development.
-- Writable product path: `crates/core/src/main.rs` only. No dependency, manifest
-  file, extra tracked file, live resolver/runtime/launcher/Manager, profile,
-  session, auth, Git-ref, legacy-history, network, package, install, or activation
-  change is authorized.
-- Completion gate: the diff contains only raw asset-binding types, pure
-  validation/promotion logic, typed errors, and focused tests; no physical state
-  selection, filesystem/environment/Command/FD/network I/O, serialization,
-  dependency, public-surface expansion, or protected-state change; Lead reruns
-  focused/full/stress validation before acceptance.
+  `max` Lead directly implements this bundle. `harness.run` is test-only.
+- Writable product path: `crates/core/src/main.rs` only; no dependency, extra
+  tracked file, live product/runtime/resolver/Manager, Git-ref, install, activation,
+  package, or network change is authorized.
 
 ## Milestone 1 required outcomes
 

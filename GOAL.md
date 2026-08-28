@@ -153,6 +153,16 @@ Termux qualification. Produce one candidate for independent product review.
   current Rust source against `SPEC.md`, reopened two correctness/safety gaps,
   fixed them directly, reviewed the resulting diff, and reran the load-bearing
   validation.
+- M1-B13 is accepted at `71acbd8e318d50548952490e0d2fb52c7b661f9c`.
+  The direct Lead added a pure Unix runtime-asset qualification boundary tying an
+  explicit absolute runtime program path and observed digest, explicit
+  compatibility directory, and the exact helper-asset identity/digest set to a
+  B11 qualified generation. No filesystem stat/read/hash, active-generation
+  lookup, path canonicalization, launch, or state mutation is performed.
+- Final B13 validation `job_igy_c7b11e3616` passed all 10 B13 focused tests,
+  the full serial workspace suite 90/90, eight complete default-parallel
+  repetitions, formatting, `git diff --check`, and a warning-free locked build
+  with offline mode and a repository-external Cargo target.
 - M1-B12 is accepted at `3927ad46696875c913c9039406693c1ddd4c3231`.
   The direct Lead added a dependency-free updater admission/candidate interface:
   immutable-remote versus raw local-artifact sources, explicit signed-release
@@ -390,11 +400,12 @@ Termux qualification. Produce one candidate for independent product review.
 ### Not Proven
 
 - Milestone 1 is not complete. The normal `main` entrypoint is still not wired to
-  a qualified upstream runtime. Qualified runtime/compatibility asset selection,
+  a qualified upstream runtime. Qualified-runtime launch composition, active
   generation selection, doctor composition, and the complete real-Termux smoke
   gate remain unproven. Process-environment capture is proven by M1-B10, the pure
-  generation-manifest qualification interface by M1-B11, and the pure updater
-  admission/candidate interface by M1-B12.
+  generation-manifest qualification interface by M1-B11, the pure updater
+  admission/candidate interface by M1-B12, and runtime/compat/helper asset
+  qualification by M1-B13.
 - B4's current non-mutation proof is against test-owned resolver fixtures; the
   Milestone 1 completion gate still requires pre/post evidence that the actual
   live resolver path, content, mode, and stat identity remain unchanged during
@@ -410,24 +421,14 @@ Termux qualification. Produce one candidate for independent product review.
 - M1-B10 is closed at `08e67e8c9fed23032ff59c38ff4765221d515d67`.
 - M1-B11 is closed at `0eb9f6cd33951ff782c010d9e116ab886f70a815`.
 - M1-B12 is closed at `3927ad46696875c913c9039406693c1ddd4c3231`.
-- Current checkpoint: M1-B13 — qualify the explicit runtime program,
-  compatibility directory, and helper asset bindings against an already-qualified
-  B11 generation before any launch path can consume them.
-- Worker mode remains OFF by explicit user policy; the primary Lead implements
-  M1-B13 directly. `harness.run` remains test/validation-only.
-- B13 accepts explicit raw paths and opaque observed digests only; it performs no
-  filesystem stat/read/hash, generation-pointer lookup, serialization, or launch.
-  Runtime/helper digest bindings must match the qualified manifest byte-for-byte.
-- Runtime program and compatibility directory must be explicit absolute native
-  paths rather than PATH-search names. Helper asset paths must also be explicit
-  absolute paths. The compatibility directory remains a valid B8 PATH component.
-- The supplied helper asset set must match the qualified manifest helper set
-  exactly by unique identity and digest: no missing, extra, duplicate, empty, or
-  mismatched helper binding may promote. Zero helpers remains valid only when the
-  manifest itself declares zero helpers.
-- Success returns a borrowed `QualifiedRuntimeAssets` wrapper retaining the B11
-  qualified generation and the caller's raw asset bindings without copying or
-  normalization. A later launch-composition bundle must require this wrapper.
+- M1-B13 is closed at `71acbd8e318d50548952490e0d2fb52c7b661f9c`.
+- Current checkpoint: M1-B14 — require `QualifiedRuntimeAssets` at the real
+  launch-composition boundary, combine its compatibility directory with the B10
+  process snapshot to build the base environment, and delegate to the existing
+  sandbox/FD/final-exec path.
+- Worker mode remains OFF; the primary Lead implements B14 directly.
+- B14 keeps resolver/config and certificate fallback paths explicit, performs no
+  active-generation lookup or digest computation, and does not wire `main`.
 
 ## Goal Lifts
 
