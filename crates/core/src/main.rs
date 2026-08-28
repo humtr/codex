@@ -940,6 +940,241 @@ fn plan_termux_base_env_from_snapshot(
     plan_termux_base_env(&inputs).map_err(TermuxProcessEnvError::BaseEnv)
 }
 
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GenerationQualification {
+    Qualified,
+    Rejected,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct GenerationHelperDigest {
+    identity: String,
+    digest: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct GenerationManifest {
+    upstream_package_identity: String,
+    upstream_package_version: String,
+    source_artifact_digest: String,
+    expected_platform: String,
+    expected_architecture: String,
+    patch_policy_id: String,
+    patch_report: String,
+    runtime_digest: String,
+    helper_digests: Vec<GenerationHelperDigest>,
+    core_artifact_digest: String,
+    manager_artifact_digest: Option<String>,
+    core_api_identity: String,
+    persistent_schema_identity: String,
+    qualification: GenerationQualification,
+    creation_metadata: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct GenerationManifestRequirements<'a> {
+    platform: &'a str,
+    architecture: &'a str,
+    core_api_identity: &'a str,
+    persistent_schema_identity: &'a str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum GenerationManifestError {
+    EmptyRequirement(&'static str),
+    EmptyRequired(&'static str),
+    PlatformMismatch,
+    ArchitectureMismatch,
+    CoreApiMismatch,
+    PersistentSchemaMismatch,
+    RejectedQualification,
+    EmptyHelperIdentity(usize),
+    EmptyHelperDigest(usize),
+    DuplicateHelperIdentity { first: usize, duplicate: usize },
+    EmptyManagerDigest,
+}
+
+impl std::fmt::Display for GenerationManifestError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GenerationManifestError::EmptyRequirement(name) => {
+                write!(
+                    f,
+                    "generation manifest validation requirement '{name}' is empty"
+                )
+            }
+            GenerationManifestError::EmptyRequired(name) => {
+                write!(f, "required generation manifest binding '{name}' is empty")
+            }
+            GenerationManifestError::PlatformMismatch => {
+                write!(
+                    f,
+                    "generation manifest platform does not match Core requirements"
+                )
+            }
+            GenerationManifestError::ArchitectureMismatch => {
+                write!(
+                    f,
+                    "generation manifest architecture does not match Core requirements"
+                )
+            }
+            GenerationManifestError::CoreApiMismatch => {
+                write!(f, "generation manifest Core API identity is incompatible")
+            }
+            GenerationManifestError::PersistentSchemaMismatch => {
+                write!(
+                    f,
+                    "generation manifest persistent schema identity is incompatible"
+                )
+            }
+            GenerationManifestError::RejectedQualification => {
+                write!(
+                    f,
+                    "generation manifest qualification result is not successful"
+                )
+            }
+            GenerationManifestError::EmptyHelperIdentity(index) => {
+                write!(
+                    f,
+                    "generation manifest helper binding {index} has an empty identity"
+                )
+            }
+            GenerationManifestError::EmptyHelperDigest(index) => {
+                write!(
+                    f,
+                    "generation manifest helper binding {index} has an empty digest"
+                )
+            }
+            GenerationManifestError::DuplicateHelperIdentity { first, duplicate } => write!(
+                f,
+                "generation manifest helper binding {duplicate} duplicates helper binding {first}"
+            ),
+            GenerationManifestError::EmptyManagerDigest => {
+                write!(
+                    f,
+                    "generation manifest Manager digest is explicitly present but empty"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for GenerationManifestError {}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy)]
+struct QualifiedGenerationManifest<'a> {
+    manifest: &'a GenerationManifest,
+}
+
+#[allow(dead_code)]
+impl<'a> QualifiedGenerationManifest<'a> {
+    fn manifest(self) -> &'a GenerationManifest {
+        self.manifest
+    }
+}
+
+fn validate_non_empty_manifest_binding(
+    value: &str,
+    name: &'static str,
+) -> Result<(), GenerationManifestError> {
+    if value.is_empty() {
+        Err(GenerationManifestError::EmptyRequired(name))
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_non_empty_manifest_requirement(
+    value: &str,
+    name: &'static str,
+) -> Result<(), GenerationManifestError> {
+    if value.is_empty() {
+        Err(GenerationManifestError::EmptyRequirement(name))
+    } else {
+        Ok(())
+    }
+}
+
+#[allow(dead_code)]
+fn qualify_generation_manifest<'a>(
+    manifest: &'a GenerationManifest,
+    requirements: &GenerationManifestRequirements<'_>,
+) -> Result<QualifiedGenerationManifest<'a>, GenerationManifestError> {
+    validate_non_empty_manifest_requirement(requirements.platform, "platform")?;
+    validate_non_empty_manifest_requirement(requirements.architecture, "architecture")?;
+    validate_non_empty_manifest_requirement(requirements.core_api_identity, "core_api_identity")?;
+    validate_non_empty_manifest_requirement(
+        requirements.persistent_schema_identity,
+        "persistent_schema_identity",
+    )?;
+
+    validate_non_empty_manifest_binding(
+        &manifest.upstream_package_identity,
+        "upstream_package_identity",
+    )?;
+    validate_non_empty_manifest_binding(
+        &manifest.upstream_package_version,
+        "upstream_package_version",
+    )?;
+    validate_non_empty_manifest_binding(
+        &manifest.source_artifact_digest,
+        "source_artifact_digest",
+    )?;
+    validate_non_empty_manifest_binding(&manifest.expected_platform, "expected_platform")?;
+    validate_non_empty_manifest_binding(&manifest.expected_architecture, "expected_architecture")?;
+    validate_non_empty_manifest_binding(&manifest.patch_policy_id, "patch_policy_id")?;
+    validate_non_empty_manifest_binding(&manifest.patch_report, "patch_report")?;
+    validate_non_empty_manifest_binding(&manifest.runtime_digest, "runtime_digest")?;
+    validate_non_empty_manifest_binding(&manifest.core_artifact_digest, "core_artifact_digest")?;
+    validate_non_empty_manifest_binding(&manifest.core_api_identity, "core_api_identity")?;
+    validate_non_empty_manifest_binding(
+        &manifest.persistent_schema_identity,
+        "persistent_schema_identity",
+    )?;
+    validate_non_empty_manifest_binding(&manifest.creation_metadata, "creation_metadata")?;
+
+    if manifest.expected_platform != requirements.platform {
+        return Err(GenerationManifestError::PlatformMismatch);
+    }
+    if manifest.expected_architecture != requirements.architecture {
+        return Err(GenerationManifestError::ArchitectureMismatch);
+    }
+    if manifest.core_api_identity != requirements.core_api_identity {
+        return Err(GenerationManifestError::CoreApiMismatch);
+    }
+    if manifest.persistent_schema_identity != requirements.persistent_schema_identity {
+        return Err(GenerationManifestError::PersistentSchemaMismatch);
+    }
+    if manifest.qualification != GenerationQualification::Qualified {
+        return Err(GenerationManifestError::RejectedQualification);
+    }
+
+    if matches!(manifest.manager_artifact_digest.as_deref(), Some("")) {
+        return Err(GenerationManifestError::EmptyManagerDigest);
+    }
+
+    for (index, helper) in manifest.helper_digests.iter().enumerate() {
+        if helper.identity.is_empty() {
+            return Err(GenerationManifestError::EmptyHelperIdentity(index));
+        }
+        if helper.digest.is_empty() {
+            return Err(GenerationManifestError::EmptyHelperDigest(index));
+        }
+        for (first, previous) in manifest.helper_digests[..index].iter().enumerate() {
+            if previous.identity == helper.identity {
+                return Err(GenerationManifestError::DuplicateHelperIdentity {
+                    first,
+                    duplicate: index,
+                });
+            }
+        }
+    }
+
+    Ok(QualifiedGenerationManifest { manifest })
+}
+
 fn main() {
     let mut args = std::env::args_os();
     let _ = args.next();
@@ -4489,6 +4724,292 @@ exit 0
         assert_eq!(snapshot.inherited_path, before[2].1);
         assert_eq!(snapshot.inherited_ssl_cert_file, before[3].1);
         assert_eq!(snapshot.inherited_ssl_cert_dir, before[4].1);
+    }
+
+    fn m1_b11_valid_manifest() -> GenerationManifest {
+        GenerationManifest {
+            upstream_package_identity: "@openai/codex".to_string(),
+            upstream_package_version: "0.0.0-test".to_string(),
+            source_artifact_digest: "opaque-source-digest:v1:001122".to_string(),
+            expected_platform: "aarch64-linux-android".to_string(),
+            expected_architecture: "aarch64".to_string(),
+            patch_policy_id: "termux-policy-v1".to_string(),
+            patch_report: "opaque patch report: source occurrences verified".to_string(),
+            runtime_digest: "opaque-runtime-digest:v1:aabbcc".to_string(),
+            helper_digests: vec![
+                GenerationHelperDigest {
+                    identity: "compat-helper".to_string(),
+                    digest: "opaque-helper-digest:01".to_string(),
+                },
+                GenerationHelperDigest {
+                    identity: "runtime-helper".to_string(),
+                    digest: "opaque-helper-digest:02".to_string(),
+                },
+            ],
+            core_artifact_digest: "opaque-core-digest:v1:334455".to_string(),
+            manager_artifact_digest: None,
+            core_api_identity: "core-api-test-v1".to_string(),
+            persistent_schema_identity: "core-schema-test-v1".to_string(),
+            qualification: GenerationQualification::Qualified,
+            creation_metadata: "created-by-test;opaque=true".to_string(),
+        }
+    }
+
+    fn m1_b11_requirements() -> GenerationManifestRequirements<'static> {
+        GenerationManifestRequirements {
+            platform: "aarch64-linux-android",
+            architecture: "aarch64",
+            core_api_identity: "core-api-test-v1",
+            persistent_schema_identity: "core-schema-test-v1",
+        }
+    }
+
+    #[test]
+    fn test_m1_b11_a_valid_manifest_returns_borrowed_qualified_wrapper() {
+        let manifest = m1_b11_valid_manifest();
+        let qualified = qualify_generation_manifest(&manifest, &m1_b11_requirements())
+            .expect("valid manifest must qualify");
+        assert!(std::ptr::eq(qualified.manifest(), &manifest));
+        assert_eq!(qualified.manifest(), &manifest);
+    }
+
+    #[test]
+    fn test_m1_b11_b_each_compatibility_mismatch_is_rejected() {
+        let requirements = m1_b11_requirements();
+
+        let mut manifest = m1_b11_valid_manifest();
+        manifest.expected_platform = "other-platform".to_string();
+        assert_eq!(
+            qualify_generation_manifest(&manifest, &requirements).unwrap_err(),
+            GenerationManifestError::PlatformMismatch
+        );
+
+        let mut manifest = m1_b11_valid_manifest();
+        manifest.expected_architecture = "x86_64".to_string();
+        assert_eq!(
+            qualify_generation_manifest(&manifest, &requirements).unwrap_err(),
+            GenerationManifestError::ArchitectureMismatch
+        );
+
+        let mut manifest = m1_b11_valid_manifest();
+        manifest.core_api_identity = "other-api".to_string();
+        assert_eq!(
+            qualify_generation_manifest(&manifest, &requirements).unwrap_err(),
+            GenerationManifestError::CoreApiMismatch
+        );
+
+        let mut manifest = m1_b11_valid_manifest();
+        manifest.persistent_schema_identity = "other-schema".to_string();
+        assert_eq!(
+            qualify_generation_manifest(&manifest, &requirements).unwrap_err(),
+            GenerationManifestError::PersistentSchemaMismatch
+        );
+    }
+
+    #[test]
+    fn test_m1_b11_c_rejected_qualification_does_not_promote_manifest() {
+        let mut manifest = m1_b11_valid_manifest();
+        manifest.qualification = GenerationQualification::Rejected;
+        assert_eq!(
+            qualify_generation_manifest(&manifest, &m1_b11_requirements()).unwrap_err(),
+            GenerationManifestError::RejectedQualification
+        );
+    }
+
+    #[test]
+    fn test_m1_b11_d_required_manifest_bindings_reject_empty_representatives() {
+        let requirements = m1_b11_requirements();
+        let cases: [(&str, fn(&mut GenerationManifest)); 7] = [
+            ("upstream_package_identity", |m| {
+                m.upstream_package_identity.clear()
+            }),
+            ("source_artifact_digest", |m| {
+                m.source_artifact_digest.clear()
+            }),
+            ("expected_platform", |m| m.expected_platform.clear()),
+            ("patch_report", |m| m.patch_report.clear()),
+            ("runtime_digest", |m| m.runtime_digest.clear()),
+            ("core_artifact_digest", |m| m.core_artifact_digest.clear()),
+            ("creation_metadata", |m| m.creation_metadata.clear()),
+        ];
+
+        for (field, clear) in cases {
+            let mut manifest = m1_b11_valid_manifest();
+            clear(&mut manifest);
+            assert_eq!(
+                qualify_generation_manifest(&manifest, &requirements).unwrap_err(),
+                GenerationManifestError::EmptyRequired(field),
+                "field {field} must be required"
+            );
+        }
+    }
+
+    #[test]
+    fn test_m1_b11_e_all_other_required_scalar_bindings_are_enforced() {
+        let requirements = m1_b11_requirements();
+        let cases: [(&str, fn(&mut GenerationManifest)); 5] = [
+            ("upstream_package_version", |m| {
+                m.upstream_package_version.clear()
+            }),
+            ("expected_architecture", |m| m.expected_architecture.clear()),
+            ("patch_policy_id", |m| m.patch_policy_id.clear()),
+            ("core_api_identity", |m| m.core_api_identity.clear()),
+            ("persistent_schema_identity", |m| {
+                m.persistent_schema_identity.clear()
+            }),
+        ];
+
+        for (field, clear) in cases {
+            let mut manifest = m1_b11_valid_manifest();
+            clear(&mut manifest);
+            assert_eq!(
+                qualify_generation_manifest(&manifest, &requirements).unwrap_err(),
+                GenerationManifestError::EmptyRequired(field),
+                "field {field} must be required"
+            );
+        }
+    }
+
+    #[test]
+    fn test_m1_b11_f_helper_bindings_are_complete_and_unique() {
+        let requirements = m1_b11_requirements();
+
+        let mut manifest = m1_b11_valid_manifest();
+        manifest.helper_digests[0].identity.clear();
+        assert_eq!(
+            qualify_generation_manifest(&manifest, &requirements).unwrap_err(),
+            GenerationManifestError::EmptyHelperIdentity(0)
+        );
+
+        let mut manifest = m1_b11_valid_manifest();
+        manifest.helper_digests[1].digest.clear();
+        assert_eq!(
+            qualify_generation_manifest(&manifest, &requirements).unwrap_err(),
+            GenerationManifestError::EmptyHelperDigest(1)
+        );
+
+        let mut manifest = m1_b11_valid_manifest();
+        manifest.helper_digests[1].identity = manifest.helper_digests[0].identity.clone();
+        assert_eq!(
+            qualify_generation_manifest(&manifest, &requirements).unwrap_err(),
+            GenerationManifestError::DuplicateHelperIdentity {
+                first: 0,
+                duplicate: 1,
+            }
+        );
+
+        let mut no_helpers = m1_b11_valid_manifest();
+        no_helpers.helper_digests.clear();
+        qualify_generation_manifest(&no_helpers, &requirements)
+            .expect("zero helpers is an explicit valid manifest shape");
+    }
+
+    #[test]
+    fn test_m1_b11_g_optional_manager_digest_absent_or_nonempty_only() {
+        let requirements = m1_b11_requirements();
+
+        let absent = m1_b11_valid_manifest();
+        qualify_generation_manifest(&absent, &requirements)
+            .expect("absent optional Manager digest must be accepted");
+
+        let mut present = m1_b11_valid_manifest();
+        present.manager_artifact_digest = Some("opaque-manager-digest:v1:778899".to_string());
+        qualify_generation_manifest(&present, &requirements)
+            .expect("non-empty optional Manager digest must be accepted");
+
+        let mut empty = m1_b11_valid_manifest();
+        empty.manager_artifact_digest = Some(String::new());
+        assert_eq!(
+            qualify_generation_manifest(&empty, &requirements).unwrap_err(),
+            GenerationManifestError::EmptyManagerDigest
+        );
+    }
+
+    #[test]
+    fn test_m1_b11_h_opaque_non_ascii_values_are_retained_exactly() {
+        let mut manifest = m1_b11_valid_manifest();
+        manifest.patch_report = "패치 보고서 :: Δ ::  그대로  ".to_string();
+        manifest.creation_metadata = "생성 메타데이터=値; spaces  preserved".to_string();
+        manifest.helper_digests[0].digest = "opaque:다이제스트:ß:001".to_string();
+        let patch_ptr = manifest.patch_report.as_ptr();
+        let metadata_ptr = manifest.creation_metadata.as_ptr();
+
+        let qualified = qualify_generation_manifest(&manifest, &m1_b11_requirements())
+            .expect("opaque manifest must qualify");
+        assert_eq!(
+            qualified.manifest().patch_report,
+            "패치 보고서 :: Δ ::  그대로  "
+        );
+        assert_eq!(
+            qualified.manifest().creation_metadata,
+            "생성 메타데이터=値; spaces  preserved"
+        );
+        assert_eq!(
+            qualified.manifest().helper_digests[0].digest,
+            "opaque:다이제스트:ß:001"
+        );
+        assert_eq!(qualified.manifest().patch_report.as_ptr(), patch_ptr);
+        assert_eq!(
+            qualified.manifest().creation_metadata.as_ptr(),
+            metadata_ptr
+        );
+    }
+
+    #[test]
+    fn test_m1_b11_i_empty_validation_requirements_fail_closed() {
+        let manifest = m1_b11_valid_manifest();
+        let mut requirements = m1_b11_requirements();
+        requirements.platform = "";
+        assert_eq!(
+            qualify_generation_manifest(&manifest, &requirements).unwrap_err(),
+            GenerationManifestError::EmptyRequirement("platform")
+        );
+
+        let mut requirements = m1_b11_requirements();
+        requirements.architecture = "";
+        assert_eq!(
+            qualify_generation_manifest(&manifest, &requirements).unwrap_err(),
+            GenerationManifestError::EmptyRequirement("architecture")
+        );
+
+        let mut requirements = m1_b11_requirements();
+        requirements.core_api_identity = "";
+        assert_eq!(
+            qualify_generation_manifest(&manifest, &requirements).unwrap_err(),
+            GenerationManifestError::EmptyRequirement("core_api_identity")
+        );
+
+        let mut requirements = m1_b11_requirements();
+        requirements.persistent_schema_identity = "";
+        assert_eq!(
+            qualify_generation_manifest(&manifest, &requirements).unwrap_err(),
+            GenerationManifestError::EmptyRequirement("persistent_schema_identity")
+        );
+    }
+
+    #[test]
+    fn test_m1_b11_j_validator_is_deterministic_and_has_no_process_env_side_effect() {
+        let manifest = m1_b11_valid_manifest();
+        let requirements = m1_b11_requirements();
+        let before = [
+            std::env::var_os("PREFIX"),
+            std::env::var_os("TMPDIR"),
+            std::env::var_os("PATH"),
+        ];
+
+        let first = qualify_generation_manifest(&manifest, &requirements)
+            .expect("first qualification must succeed");
+        let second = qualify_generation_manifest(&manifest, &requirements)
+            .expect("second qualification must succeed");
+
+        let after = [
+            std::env::var_os("PREFIX"),
+            std::env::var_os("TMPDIR"),
+            std::env::var_os("PATH"),
+        ];
+        assert_eq!(before, after);
+        assert!(std::ptr::eq(first.manifest(), second.manifest()));
+        assert!(std::ptr::eq(first.manifest(), &manifest));
     }
 
     #[cfg(unix)]
