@@ -575,7 +575,8 @@ Termux qualification. Produce one candidate for independent product review.
   and the installed launcher exactly at SHA-256
   `0b0284155f2672263836029f760ba06a0cb284b7ca3a8e600ad399b43af36aff`,
   with device/inode/mode/uid/gid/size/mtime identity unchanged.
-- **Milestone 1 — local Core is closed and accepted at B24.** The required local
+- **M1-B24 established the required local Core behavior evidence, but M1-R2 has
+  reopened final product closure until real `main` wiring is complete.** The required local
   Core behavior is now proven by source, subprocess, and current-Termux evidence:
   exact public routing and upstream passthrough; upstream-only version behavior;
   environment/final-exec semantics; FD33/34 and live-resolver non-mutation;
@@ -609,7 +610,7 @@ Termux qualification. Produce one candidate for independent product review.
 - M1-B22 is closed at `a89646da18c1e0b68e146b565a847dcc4b0fd0b6`.
 - M1-B23 is closed at `c29f5f2019104ad7ab51f36754f326b48d33704c`.
 - M1-B24 is closed at `db67c0b90e1916d2ec452b8db2657dd4d504cd52`.
-- Milestone 1 is closed at M1-B24.
+- M1-B24 historical acceptance is retained, but current Milestone 1 product closure is reopened by M1-R2 until real `main` wiring is completed.
 - M2-B1 is accepted at `918c3681729ab8f6bba8f69607a88380645b3b5d`.
   It establishes the crash-safe complete-generation/atomic-activation recovery
   foundation in test-owned roots. Final validation `job_iwc_7350098964` passed
@@ -626,14 +627,36 @@ Termux qualification. Produce one candidate for independent product review.
   duplicate validators, redundant defensive state, and tests that exist only to
   support removed mechanisms are deleted or folded. Load-bearing public behavior
   remains required.
-- The first material M1-R2 finding is already confirmed at `789b84e1`: although
-  B24 proved an injectable `execute_public_entrypoint`, the actual production
-  `main()` still only classifies one argument and does not execute the public
-  dispatch path. M1-R2 must close this real product-wiring gap rather than retain
-  B24 as proof-only completion evidence.
-- Current checkpoint: M1-R2 — exhaustive Milestone 1 simplification and closure
-  audit, then full regression acceptance. M2-B2 is paused until M1-R2 closes.
-- Worker mode remains OFF; the primary Lead performs M1-R2 directly.
+- M1-R2 exhaustive simplification is implemented at
+  `2b73f4ba23726ddab0792bbba721a2835dcb86d9`. The accumulated M1 implementation
+  was reduced to 2,330 production lines and 1,624 test lines in `main.rs`; the
+  change removed 9,420 lines while adding 1,666 lines of consolidated product
+  and contract tests. Historical `test_m1_b*` bundle tests and all audited
+  duplicate/proof-only layers are absent. The retained suite passes 33/33 serial
+  with one explicit live smoke ignored by default; the explicit live
+  resolver/installed-launcher smoke passes 1/1 and three complete default-parallel
+  runs pass. M2-B1's 12 fault/recovery tests remain retained and passing.
+- R2 KEEP groups are the direct public route planner, sandbox policy, final
+  runtime FD/env/exec primitives, Termux environment snapshot/plan, generation
+  manifest qualification, runtime/Manager qualification, one updater
+  qualification gate, bounded doctor report/probe/command path, one public
+  dispatch executor, and M2-B1 activation recovery. COLLAPSE/DELETE groups are
+  duplicate B1 classification, parent FD restoration machinery, B8/B10 wrapper
+  environment planners, B12 evidence-promotion/readiness wrappers, B21/B23
+  generation-pointer mismatch machinery, B15-B19 planner/coordinator/render
+  wrappers, nested launch errors, B24's proof-only entrypoint wrapper, and the
+  unused shared-resolver fallback model. Tests were consolidated by product
+  contract rather than bundle provenance.
+- The remaining `main()` gap is now precisely classified: physical current-
+  generation context acquisition is the missing input, and SPEC assigns that
+  ownership to Milestone 2. Hiding the resulting dead paths with more
+  `allow(dead_code)` would violate R2. M2-B2 therefore owns the minimal local
+  activated-generation loader and real `main -> plan_public_dispatch ->
+  execute_public_dispatch` wiring. M1 product closure remains open only until
+  that cross-milestone connection is accepted.
+- Current checkpoint: M2-B2 — minimal activated-generation loader and real public
+  `main`. No live install/network/update or fallback ladder is included.
+- Worker mode remains OFF; the primary Lead performs M2-B2 directly.
 - The repository now uses a Click-inspired execution discipline at the
   Workboard layer: reuse successful same-revision evidence, do not reopen or
   replace an active bounded contract without new material evidence, and run the
