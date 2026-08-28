@@ -17,6 +17,36 @@ pub fn classify_first_arg(arg: Option<&OsStr>) -> CommandClass {
     }
 }
 
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PublicDispatchRoute {
+    Update(Vec<OsString>),
+    Doctor(Vec<OsString>),
+    Termux(Vec<OsString>),
+    Upstream(Vec<OsString>),
+}
+
+/// Plans public Core interception without executing any route.
+///
+/// Exact first-token `update`, `doctor`, and `termux` are consumed by Core while
+/// every trailing raw argument is retained for the selected handler. Every other
+/// shape remains an upstream route with the complete original argv unchanged.
+#[allow(dead_code)]
+fn plan_public_dispatch<I, S>(args: I) -> PublicDispatchRoute
+where
+    I: IntoIterator<Item = S>,
+    S: Into<OsString>,
+{
+    let original: Vec<OsString> = args.into_iter().map(Into::into).collect();
+    let class = classify_first_arg(original.first().map(OsString::as_os_str));
+    match class {
+        CommandClass::Update => PublicDispatchRoute::Update(original.into_iter().skip(1).collect()),
+        CommandClass::Doctor => PublicDispatchRoute::Doctor(original.into_iter().skip(1).collect()),
+        CommandClass::Termux => PublicDispatchRoute::Termux(original.into_iter().skip(1).collect()),
+        CommandClass::Passthrough => PublicDispatchRoute::Upstream(original),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum PassthroughError {
     UnsupportedSandboxMode(String),
@@ -2292,6 +2322,124 @@ mod tests {
                 sample
             );
         }
+    }
+
+    #[test]
+    fn test_m1_b20_a_exact_core_routes_consume_only_first_token_and_preserve_tail() {
+        assert_eq!(
+            plan_public_dispatch([
+                OsString::from("update"),
+                OsString::from("--channel"),
+                OsString::from("stable"),
+            ]),
+            PublicDispatchRoute::Update(vec![
+                OsString::from("--channel"),
+                OsString::from("stable"),
+            ])
+        );
+        assert_eq!(
+            plan_public_dispatch([OsString::from("doctor"), OsString::from("--json")]),
+            PublicDispatchRoute::Doctor(vec![OsString::from("--json")])
+        );
+        assert_eq!(
+            plan_public_dispatch([
+                OsString::from("termux"),
+                OsString::from("status"),
+                OsString::from("--raw"),
+            ]),
+            PublicDispatchRoute::Termux(vec![OsString::from("status"), OsString::from("--raw"),])
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b20_b_core_route_preserves_raw_non_utf8_trailing_bytes() {
+        use std::os::unix::ffi::{OsStrExt, OsStringExt};
+
+        let raw = vec![0xff, 0xfe, 0x80, b'x'];
+        let route =
+            plan_public_dispatch([OsString::from("doctor"), OsString::from_vec(raw.clone())]);
+        match route {
+            PublicDispatchRoute::Doctor(tail) => {
+                assert_eq!(tail.len(), 1);
+                assert_eq!(tail[0].as_os_str().as_bytes(), raw.as_slice());
+            }
+            other => panic!("expected doctor route, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_m1_b20_c_upstream_route_preserves_complete_version_nearmiss_and_delimiter_argv() {
+        let cases: Vec<Vec<OsString>> = vec![
+            vec![],
+            vec![OsString::from("--version")],
+            vec![OsString::from("-V")],
+            vec![OsString::from("--"), OsString::from("doctor")],
+            vec![OsString::from("Doctor")],
+            vec![OsString::from("doctorx")],
+            vec![OsString::from("--doctor")],
+            vec![OsString::from("exec"), OsString::from("termux")],
+            vec![OsString::from("sandbox"), OsString::from("linux")],
+        ];
+
+        for original in cases {
+            assert_eq!(
+                plan_public_dispatch(original.clone()),
+                PublicDispatchRoute::Upstream(original)
+            );
+        }
+        assert_eq!(
+            plan_public_dispatch([OsString::from("exec"), OsString::from("task")]),
+            PublicDispatchRoute::Upstream(vec![OsString::from("exec"), OsString::from("task"),])
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b20_d_non_utf8_first_token_is_upstream_and_all_bytes_remain_exact() {
+        use std::os::unix::ffi::{OsStrExt, OsStringExt};
+
+        let first_raw = b"update\xff".to_vec();
+        let second_raw = vec![0x80, b'a', 0xfe];
+        let route = plan_public_dispatch(vec![
+            OsString::from_vec(first_raw.clone()),
+            OsString::from_vec(second_raw.clone()),
+        ]);
+        match route {
+            PublicDispatchRoute::Upstream(argv) => {
+                assert_eq!(argv.len(), 2);
+                assert_eq!(argv[0].as_os_str().as_bytes(), first_raw.as_slice());
+                assert_eq!(argv[1].as_os_str().as_bytes(), second_raw.as_slice());
+            }
+            other => panic!("non-UTF-8 first token must route upstream, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_m1_b20_e_planning_is_deterministic_environment_pure_and_does_not_mutate_input() {
+        let before_env = [
+            std::env::var_os("PREFIX"),
+            std::env::var_os("TMPDIR"),
+            std::env::var_os("PATH"),
+        ];
+        let original = vec![
+            OsString::from("exec"),
+            OsString::from("ordinary arg with spaces"),
+            OsString::from("--custom=value"),
+        ];
+        let original_copy = original.clone();
+        let first = plan_public_dispatch(original.clone());
+        let second = plan_public_dispatch(original.clone());
+        let after_env = [
+            std::env::var_os("PREFIX"),
+            std::env::var_os("TMPDIR"),
+            std::env::var_os("PATH"),
+        ];
+
+        assert_eq!(original, original_copy);
+        assert_eq!(first, second);
+        assert_eq!(first, PublicDispatchRoute::Upstream(original_copy));
+        assert_eq!(before_env, after_env);
     }
 
     #[cfg(unix)]
