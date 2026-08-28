@@ -263,6 +263,22 @@ Termux qualification. Produce one candidate for independent product review.
   `job_hvj_d1a56ada7b` ran each of the four B7 focused tests exactly three times
   (12 actual focused runs), then passed all 38/38 workspace tests and the locked
   build with offline mode and a repository-external Cargo target.
+- Milestone 1 bundle M1-B8 is accepted at
+  `ae678fdb01b065a78f55b4e0546a8c4b12c498fa`. The module-private Unix/Android
+  base-environment planner is std-only and explicit-input-only: it plans the four
+  temporary-directory variables, certificate fallback/precedence, and raw-byte
+  PATH composition without reading process environment or filesystem state,
+  constructing a Command, choosing product paths, or wiring `main`.
+- The first B8 worker result was rejected before acceptance because one purity
+  test read the filesystem, one focused assertion used lossy string conversion,
+  and an unrequired non-Unix PATH fallback encoded Unix delimiter semantics
+  outside the current target. Correction job `job_hyc_a66aed1797` removed only
+  those expansions. Primary-Lead validation `job_hyn_2d9868514e` then ran all
+  nine B8 focused tests three times (27 real focused executions), all 47/47
+  workspace tests, formatting, and the locked workspace build with offline mode
+  and a repository-external Cargo target. The positive assignments remain a
+  bounded M1 compatibility hypothesis until applied and qualified on the real
+  Termux execution boundary.
 
 ### Historical Proof
 
@@ -275,12 +291,13 @@ Termux qualification. Produce one candidate for independent product review.
   prove isolated final-exec argv/stream/exit and contamination-fence behavior,
   M1-B4 proves isolated FD 33/34 setup/restoration plus test-resolver
   non-mutation, M1-B5 proves TTY/external-SIGTERM fidelity on the current
-  Android/Termux device, M1-B6 proves the Termux sandbox-policy planner, and
-  M1-B7 proves composition of that planner with the runtime-FD final-exec path.
-  Normal `main` is still not wired to a qualified upstream runtime. Positive
-  Termux runtime-environment planning, runtime/generation path selection,
-  doctor composition, generation/updater interfaces, and the full real-Termux
-  smoke gate remain unproven.
+  Android/Termux device, M1-B6 proves the Termux sandbox-policy planner, M1-B7
+  proves composition of that planner with the runtime-FD final-exec path, and
+  M1-B8 proves a pure explicit-input base-environment plan. That positive plan
+  is not yet applied at the final exec boundary and `main` is still not wired to
+  a qualified upstream runtime. Runtime/generation path selection, doctor
+  composition, generation/updater interfaces, and the full real-Termux smoke
+  gate remain unproven.
 - No release artifact, installation, update, activation, rollback, offline
   recovery, fresh-device behavior, Milestone 2 result, or production readiness
   is proven.
@@ -292,12 +309,12 @@ Termux qualification. Produce one candidate for independent product review.
 - The primary Lead records each next bounded bundle in `WORKBOARD.md`, launches
   exactly one implementation worker, inspects the actual diff, and reruns the
   load-bearing validation before acceptance.
-- M1-B7 is accepted at `5e5044eb3ae9286b72b16f1e1b9092f4e728bc82`.
-- M1-B8 is the current checkpoint. It defines a pure explicit-input Termux base
-  runtime-environment plan for temporary-directory, certificate, and PATH
-  compatibility without reading or mutating live environment/state and without
-  wiring that plan into `main` or the final exec path. Runtime path selection
-  and actual environment application remain later checkpoints.
+- M1-B8 is accepted at `ae678fdb01b065a78f55b4e0546a8c4b12c498fa`.
+- M1-B9 is the current checkpoint. It applies an already-built B8 environment
+  plan to the accepted B7 runtime-FD final-exec path while preserving B3's exact
+  contamination removals, argv/FD/process behavior, and parent-state
+  non-mutation. Product path selection and normal `main` wiring remain later
+  checkpoints.
 - At every bundle completion the Lead records its own diff/test disposition
   here. No worker report, planning subagent, or checkpoint reviewer substitutes
   for that integration decision.

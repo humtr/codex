@@ -29,91 +29,74 @@ or mutation of the installed Codex product.
 
 ## Selected next action
 
-### Bundle M1-B8 — explicit-input Termux base environment plan
+### Bundle M1-B9 — apply the base-environment plan at final exec
 
-- Prior accepted evidence: M1-B7 commit
-  `5e5044eb3ae9286b72b16f1e1b9092f4e728bc82`.
-- Exact outcome: add a module-private, std-only, pure environment-planning
-  function/type that receives all path/environment inputs explicitly and returns
-  deterministic child-environment assignments. It must not read `std::env`,
-  inspect the filesystem, mutate the parent environment, construct a `Command`,
-  call an exec primitive, select a product runtime/generation, or wire `main`.
-- This is a bounded Termux base-compatibility plan, not a permanent public env
-  API. `SPEC.md` requires a qualified runtime environment and selected official
-  runtime/compatibility paths but does not fix these positive variable details.
-  Sealed-predecessor read-only evidence from `job_htl_ad77938ce5`,
-  `job_htr_d0247b30c9`, and `job_hu0_0299f115d7` observed the temp/certificate/
-  PATH behavior below; B8 may implement that hypothesis for M1 validation, but
-  it is not promoted to `SPEC.md` proof until later real-Termux qualification.
-- Explicit planner inputs: selected compatibility-tool directory, actual Termux
-  prefix `bin` directory, selected temp directory, selected certificate file,
-  optional selected certificate directory, and inherited raw `PATH`,
-  `SSL_CERT_FILE`, and `SSL_CERT_DIR` values supplied by the caller. Do not
-  derive these from hard-coded app-data paths.
-- Planned assignments:
-  - `TMPDIR`, `TMP`, `TEMP`, and `SQLITE_TMPDIR` = the supplied temp directory.
-  - `SSL_CERT_FILE` = inherited non-empty raw value when supplied, otherwise the
-    supplied certificate file.
-  - `SSL_CERT_DIR` = inherited non-empty raw value when supplied; otherwise the
-    supplied optional certificate directory; if neither exists, plan no
-    `SSL_CERT_DIR` assignment.
-  - `PATH` = supplied compatibility-tool directory, then supplied prefix `bin`,
-    then inherited non-empty raw PATH. If inherited PATH is absent/empty, do not
-    create an empty trailing component.
-- Raw-value rule: preserve non-UTF-8 inherited environment bytes on Unix/Android;
-  do not use lossy conversion. PATH construction must reject or clearly report
-  an input path component that cannot be represented safely in a Unix PATH
-  rather than silently changing it.
-- Explicit exclusions: B8 must not plan or mutate `HOME`, `CODEX_HOME`, XDG
-  variables, `GODEBUG`, `BROWSER`, `CODEX_SELF_EXE`, Manager/profile/session
-  variables, approval policy, or the five contamination removals already owned
-  by B3. Do not infer a code-mode-host environment variable from predecessor
-  internals before official runtime qualification.
-- Required focused proof: deterministic exact assignments for all four temp
-  variables; inherited-vs-fallback certificate precedence including empty-value
-  cases; optional certificate-directory absence; exact PATH ordering with
-  absent/empty inherited PATH; byte-for-byte preservation of a non-UTF-8
-  inherited PATH; unusual synthetic explicit paths proving no hard-coded Termux
-  app-data root; and negative assertions that every excluded variable is absent
-  from the plan. Planner inputs/output must be independent of the current live
-  process environment.
-- Keep all 38 accepted B1-B7 tests green. Use `CARGO_NET_OFFLINE=true` and a
-  repository-external `CARGO_TARGET_DIR` for `cargo fmt --check`, focused B8
-  tests, `cargo test --locked --workspace`, and
-  `cargo build --locked --workspace`.
+- Prior accepted evidence: M1-B8 commit
+  `ae678fdb01b065a78f55b4e0546a8c4b12c498fa`.
+- Exact outcome: apply an already-built `TermuxBaseEnvPlan` to the child
+  `Command` used by the accepted runtime-FD final-exec path, while preserving
+  B3's exact five-variable contamination fence, B4 FD 33/34 behavior, B6
+  sandbox-policy ordering, and B7 argv/process composition. This bundle does not
+  derive the plan inputs or choose any product path.
+- Preserve the existing public/test-facing signatures and behavior of
+  `exec_upstream`, `exec_upstream_with_runtime_fds`, and `launch_upstream`.
+  Introduce only the smallest module-private implementation/composition needed
+  to let a new environment-aware launch path pass `Some(&TermuxBaseEnvPlan)`;
+  the existing paths must continue through the same implementation with no
+  positive plan. Do not copy the FD setup/restoration body or the five-variable
+  fence into a second implementation.
+- At child-Command construction, apply every planned `(OsString, OsString)`
+  assignment without UTF-8/lossy conversion, then enforce the exact B3 removals
+  afterward so `CODEX_MANAGED_BY_NPM`, `CODEX_MANAGED_BY_BUN`,
+  `CODEX_MANAGED_PACKAGE_ROOT`, `LD_PRELOAD`, and `LD_LIBRARY_PATH` cannot be
+  reintroduced at the final boundary. Do not call `env_clear` and do not mutate
+  the parent environment.
+- The new module-private launch composition receives the selected program,
+  resolver path, managed-config directory, original raw user argv, and a
+  pre-built environment plan explicitly. Sandbox-policy rejection still occurs
+  before resolver/config I/O or exec. No `std::env` read, runtime/generation
+  selection, hard-coded Termux path, or normal `main` wiring is authorized in
+  production B9 code.
+- Required focused real-exec proof: use only test-owned temporary
+  resolver/config/fake-upstream artifacts and an explicit B8 plan. Across the
+  actual final exec boundary prove the exact planned `TMPDIR`, `TMP`, `TEMP`,
+  `SQLITE_TMPDIR`, `SSL_CERT_FILE`, optional `SSL_CERT_DIR`, and `PATH` values
+  are visible; the exact sandbox prelude and original user argv remain ordered;
+  FD 33/34 still expose the supplied read-only resolver/config sources; all five
+  B3 variables are absent even when inherited in the probe process; and one
+  unrelated synthetic inherited variable survives. The test fake upstream must
+  not depend on the planned PATH for helper lookup.
+- Required failure proof: with a valid explicit plan but a deliberately missing
+  upstream program, the environment-aware path returns an exec error while the
+  caller's corresponding parent environment values remain byte-for-byte
+  unchanged and B4's prior FD 33/34 restoration still holds. Do not mutate the
+  parent merely to simplify this proof.
+- Raw-value rule: production application must pass `OsStr`/`OsString` values
+  directly to `Command`; no `to_str`, `to_string_lossy`, split/rejoin, or other
+  normalization is permitted. B8 already proves raw planner construction; B9
+  proves transport to the execution boundary without changing that rule.
+- Keep all 47 accepted B1-B8 tests green. Use `CARGO_NET_OFFLINE=true` and a
+  repository-external `CARGO_TARGET_DIR` for formatting, focused `m1_b9_`
+  tests, all locked workspace tests, and locked workspace build.
 - Worker configuration: one bounded `agy` CLI implementation worker in
   `accept-edits` mode through the Task-owned shell route, `fork_context: false`.
   No delegation, commits, pushes, package operations, network/update behavior,
   or live product state.
 - Writable worker path: `crates/core/src/main.rs` only. No dependency, manifest,
-  authority-document, or extra-file changes are authorized.
+  authority-document, or extra tracked-file changes are authorized.
 - Protected surfaces: every other repository path, all live resolver/runtime/
   launcher/Manager state, profiles, sessions, auth, Git refs, sealed legacy
   history, and unrelated worktrees.
-- Explicitly deferred: applying the plan to the final `Command`, selected
-  runtime/generation resolution, code-mode-host qualification, normal `main`
-  wiring, doctor, generation/updater interfaces, installation, activation, and
-  Manager behavior.
-- Completion gate: actual diff contains only the pure planner and focused tests;
-  no live env/filesystem read or mutation, path-policy decision, lossy raw-value
-  conversion, dependency, public-surface expansion, or protected-state change;
-  all named validation passes and the Lead reviews the plan as a bounded M1
-  compatibility hypothesis rather than permanent public contract.
-- Lead acceptance: the first B8 worker result from `job_hxe_74e1f9fba5` was
-  rejected because its purity test read the filesystem, one focused test used
-  lossy string conversion, and it added an unrequired non-Unix PATH fallback.
-  The bounded correction worker `job_hyc_a66aed1797` removed exactly those
-  three expansions while preserving the nine focused Unix/Android behaviors.
-  Actual-diff review confirmed the final planner remains module-private,
-  std-only, explicit-input-only, raw-byte preserving, and contains no env/
-  filesystem/Command/exec access or product path selection. Primary-Lead
-  validation `job_hyn_2d9868514e` ran all nine `m1_b8_` tests three times
-  (27 real focused executions), then all 47/47 workspace tests and the locked
-  workspace build with offline mode and a repository-external Cargo target;
-  its scope guard also confirmed the accepted B8 diff contains neither lossy
-  conversion nor filesystem-existence probes. M1-B8 is accepted for commit as
-  a bounded M1 compatibility hypothesis, not yet real-Termux qualification of
-  these positive environment assignments.
+- Explicitly deferred: deriving planner inputs from the live environment,
+  selected runtime/generation resolution, code-mode-host qualification, normal
+  `main` wiring, doctor, generation/updater interfaces, installation,
+  activation, and Manager behavior.
+- Completion gate: actual diff contains one shared execution implementation and
+  bounded environment-aware composition/tests; no duplicated FD/fence logic,
+  parent-env mutation, lossy conversion, path-policy decision, dependency,
+  public-surface expansion, or protected-state change; real exec proves the
+  positive assignments and pre-existing argv/FD/fence contracts together; Lead
+  reruns focused and full validation before acceptance.
 
 ## Milestone 1 required outcomes
 
