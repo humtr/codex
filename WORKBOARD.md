@@ -30,54 +30,59 @@ or mutation of the installed Codex product.
 
 ## Selected next action
 
-### Bundle M1-B11 — pure generation-manifest qualification interface
+### Bundle M1-B12 — pure updater admission and candidate-qualification interface
 
-- Prior direct-Lead evidence: M1-B10 commit
-  `08e67e8c9fed23032ff59c38ff4765221d515d67`; final validation
-  `job_iba_22c23cddee` passed B10 6/6, the complete serial suite 59/59,
-  eight full default-parallel repetitions, formatting, `git diff --check`, and
-  the locked workspace build.
-- Exact outcome: define the smallest dependency-free, in-memory generation
-  manifest contract that binds every field required by SPEC section 6 and
-  produces a distinct qualified-manifest wrapper only after compatibility and
-  qualification validation. This bundle performs no filesystem or launch I/O.
-- Manifest data model must bind: upstream package identity and version; immutable
-  source artifact digest; expected platform and architecture; exact patch-policy
-  identifier and patch report; resulting runtime digest; zero or more named
-  helper digests; Core artifact digest; optional Manager artifact digest; Core
-  API compatibility identity; persistent schema compatibility identity;
-  qualification result; and creation metadata.
-- Keep digest values opaque at this stage. Require them to be present/non-empty,
-  but do not invent or freeze a digest algorithm, encoding, signature scheme, or
-  serialized manifest representation. Likewise, patch reports and creation
-  metadata remain opaque non-empty manifest-bound values.
-- Introduce explicit validation requirements containing the platform,
-  architecture, Core API identity, and persistent schema identity supported by
-  the current Core. Validation must reject empty required fields, mismatches in
-  those four compatibility bindings, rejected qualification status, empty helper
-  identities/digests, duplicate helper identities, and an explicitly present but
-  empty optional Manager digest.
-- Successful validation returns a module-private `Qualified...` wrapper that
-  borrows or owns the validated manifest without copying/normalizing its opaque
-  values. Later runtime/path selection must be able to require this wrapper
-  rather than an unvalidated manifest.
-- Do not define generation physical paths, `current`/`verified`/`previous`
-  pointer mechanics, runtime/helper executable paths, resolver/config paths,
-  manifest serialization/parsing, signed release manifests, updater transport,
-  anti-rollback, activation, rollback, doctor, or normal `main` wiring in B11.
-- Production B11 code must perform no filesystem access, process environment
-  read/write, Command construction, FD work, network/provider access, package
-  operation, install, activation, or live-state mutation.
-- Focused tests named `m1_b11_` must cover: one fully valid manifest; each of the
-  four compatibility mismatches; rejected qualification; missing/empty required
-  bindings across representative field classes; helper empty identity/digest and
-  duplicate identity rejection; optional Manager absent/valid/empty behavior;
-  exact qualified-wrapper retention of opaque/non-ASCII metadata; and planner
-  purity/no side effects.
-- Keep all 59 accepted post-B10 tests green. Validate with
+- Prior direct-Lead evidence: M1-B11 commit
+  `0eb9f6cd33951ff782c010d9e116ab886f70a815`; final validation
+  `job_idt_e50502b44b` passed B11 10/10, the complete serial suite 69/69,
+  eight full default-parallel repetitions, formatting, `git diff --check`, and a
+  warning-free locked build.
+- Exact outcome: define an in-memory, dependency-free updater interface that
+  models the mandatory evidence gates in SPEC section 8 without resolving a
+  release, downloading/staging an artifact, verifying cryptography, touching the
+  filesystem, constructing a generation, or activating anything.
+- Define an update source as either an immutable remote locator or an explicit
+  local artifact path. Keep the remote locator opaque text and the local path as
+  raw `OsStr`; require only non-empty identity/path here and do not parse URLs,
+  canonicalize paths, stat files, or perform network/filesystem I/O.
+- Define admission evidence that binds a non-empty signed-release manifest
+  identity and its expected immutable source-artifact digest plus explicit
+  satisfied/rejected verdicts for: release signature, architecture policy,
+  Core-API policy, channel policy, and anti-rollback policy.
+- Do not invent the signature algorithm, keyring, release-channel ordering,
+  version ordering, anti-rollback counter/epoch, or comparison algorithm. Those
+  verdicts are inputs from future bounded verifier/policy providers. B12's job is
+  to fail closed unless every mandatory verdict is satisfied.
+- Model updater resolver dependence explicitly: an independent resolver is
+  accepted; sharing the patched runtime resolver is accepted only when a
+  non-empty qualification identity is supplied. Shared-without-qualification is
+  rejected before any later stage.
+- Successful admission returns a distinct borrowed `AdmittedUpdateRequest`
+  wrapper. No later B12 candidate qualification function accepts the raw request.
+- Define staged-artifact evidence with explicit satisfied/rejected verdicts for
+  artifact digest verification, archive safety, and compatibility metadata.
+  Define candidate evidence using the existing B11 `QualifiedGenerationManifest`,
+  a candidate-probe verdict, and verified-rollback-readiness verdict.
+- Candidate qualification must reject every failed staged/probe/rollback verdict
+  and reject when the B11 generation manifest's `source_artifact_digest` differs
+  byte-for-byte from the admitted signed-release expected digest. Success returns
+  a distinct borrowed activation-ready wrapper retaining the admitted request and
+  qualified generation without copying or normalizing opaque bindings.
+- Do not implement signed-release manifest serialization/parsing, signature/
+  digest algorithms, archive extraction, private staging paths, generation
+  construction, pointer mutation (`current`/`verified`/`previous`), activation,
+  rollback, network access, automatic update scheduling, resolver I/O, package
+  manager invocation, or normal `main` wiring in B12.
+- Focused tests named `m1_b12_` must cover: valid remote and local admission;
+  empty release identity/digest/source; every admission verdict rejection; shared
+  resolver without/with qualification; every staged-artifact verdict rejection;
+  source-digest mismatch; failed candidate probe; missing rollback readiness;
+  successful activation-ready promotion preserving exact opaque/non-ASCII values
+  and raw local path bytes; deterministic/no-side-effect behavior.
+- Keep all 69 accepted post-B11 tests green. Validate with
   `CARGO_NET_OFFLINE=true`, a repository-external `CARGO_TARGET_DIR`, formatting,
-  focused B11 tests, all locked workspace tests serially, default-parallel stress
-  repetitions, and locked workspace build.
+  focused B12 tests, all locked workspace tests serially, default-parallel stress
+  repetitions, warning-free locked build, and `git diff --check`.
 - Worker mode is user-controlled and remains OFF. The primary `gpt-5.6-sol` /
   `max` Lead directly implements this bundle. tmcp `harness.run` may be used only
   for bounded tests/validation, never for code mutation or development.
@@ -85,11 +90,11 @@ or mutation of the installed Codex product.
   file, extra tracked file, live resolver/runtime/launcher/Manager, profile,
   session, auth, Git-ref, legacy-history, network, package, install, or activation
   change is authorized.
-- Completion gate: the diff contains only the in-memory manifest/requirements/
-  qualification types, validator, typed errors, and focused tests; no serialization,
-  physical path, runtime selection, filesystem I/O, environment I/O, dependency,
-  public-surface expansion, or protected-state change; Lead reruns focused/full/
-  stress validation before acceptance.
+- Completion gate: the diff contains only updater interface/evidence/wrapper
+  types, pure validators/promotions, typed errors, and focused tests; no verifier
+  implementation, serialization, physical state path, filesystem/environment/
+  Command/FD/network I/O, dependency, public-surface expansion, or protected-
+  state change; Lead reruns focused/full/stress validation before acceptance.
 
 ## Milestone 1 required outcomes
 
