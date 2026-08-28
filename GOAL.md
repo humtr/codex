@@ -427,14 +427,31 @@ Termux qualification. Produce one candidate for independent product review.
 
 ### Not Proven
 
+- M1-B16 is accepted at `d420db8b4128d44836c89394cbbb9afc9398b1e5`.
+  The direct Lead added a supported-upstream doctor child probe that consumes
+  only B13 qualified runtime assets, B10 environment inputs, and explicit
+  resolver/config paths. Final exec and doctor now share one temporary FD33/34
+  mapping/restoration primitive and one child environment/fence helper. Doctor
+  invokes the selected raw runtime directly with the Termux-safe prelude plus
+  `doctor`, discards raw stdout/stderr, classifies only child completion status,
+  and restores parent FD state.
+- Final B16 validation `job_imd_136341d507` passed all 4 B16 focused tests, the
+  full serial workspace suite 102/102, eight complete default-parallel
+  repetitions, formatting, `git diff --check`, and a warning-free locked build
+  with offline mode and a repository-external Cargo target. B16 tests proved
+  exact safe argv/env/FD behavior, secret-like output suppression, explicit
+  nonzero-to-unhealthy classification without stderr inference, typed spawn and
+  pre-I/O environment failures, parent FD restoration, and test-owned
+  resolver/config non-mutation.
 - Milestone 1 is not complete. The normal `main` entrypoint is still not wired to
-  a qualified upstream runtime. Doctor subprocess execution/composition and the
-  complete real-Termux smoke gate remain unproven. Process-environment capture
-  is proven by M1-B10, the pure generation-manifest qualification interface by
-  M1-B11, the pure updater admission/candidate interface by M1-B12,
+  a qualified upstream runtime. Full local doctor coordination/public dispatch
+  and the complete real-Termux smoke gate remain unproven. Process-environment
+  capture is proven by M1-B10, the pure generation-manifest qualification
+  interface by M1-B11, the pure updater admission/candidate interface by M1-B12,
   runtime/compat/helper asset qualification by M1-B13, qualified-runtime final
-  launch composition by M1-B14, and the bounded redacted doctor report model by
-  M1-B15. Physical active-pointer/activation mechanics remain Milestone 2
+  launch composition by M1-B14, the bounded redacted doctor report model by
+  M1-B15, and the supported-upstream read-only doctor subprocess probe by M1-B16.
+  Physical active-pointer/activation mechanics remain Milestone 2
   delivery/recovery work and are not introduced during Milestone 1.
 - B4's current non-mutation proof is against test-owned resolver fixtures; the
   Milestone 1 completion gate still requires pre/post evidence that the actual
@@ -454,17 +471,15 @@ Termux qualification. Produce one candidate for independent product review.
 - M1-B13 is closed at `71acbd8e318d50548952490e0d2fb52c7b661f9c`.
 - M1-B14 is closed at `be6492f895185caf7d9b922b16330a1cd8f00033`.
 - M1-B15 is closed at `6bea7a53004f43178599e65a6f630c7bb06355b9`.
-- Current checkpoint: M1-B16 — add the read-only supported-upstream doctor
-  subprocess probe using only `QualifiedRuntimeAssets`, B10 environment planning,
-  and the same FD33/34 + contamination-fence execution contract as final launch.
-- Worker mode remains OFF; the primary Lead implements B16 directly.
-- B16 runs the selected runtime directly rather than recursively invoking the
-  public launcher, maps child exit success/non-success only into bounded
-  `UpstreamDoctorStatus`, and discards raw child stdout/stderr so secrets or
-  arbitrary diagnostic text cannot bypass the B15 report boundary. Unsupported
-  upstream remains an explicit caller state rather than stderr-text inference.
-- B16 does not wire public doctor argv/`main`, call Manager, mutate product state,
-  perform network/update/activation behavior, or define Milestone 2 delivery.
+- M1-B16 is closed at `d420db8b4128d44836c89394cbbb9afc9398b1e5`.
+- Current checkpoint: M1-B17 — compose the B16 supported-upstream probe or an
+  explicit unsupported capability with typed Core/Manager diagnostic states into
+  the B15 report, summary, and renderable result boundary.
+- Worker mode remains OFF; the primary Lead implements B17 directly.
+- B17 must not infer upstream support from stderr, discover/call Manager, invent
+  Core filesystem probes, select generations, parse public CLI options, or wire
+  `main`. Unsupported capability must skip B16 environment/FD/runtime I/O
+  entirely and remain explicit in the report.
 
 ## Goal Lifts
 
