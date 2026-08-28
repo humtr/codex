@@ -157,20 +157,28 @@ special files, duplicate conflicting entries, and writes outside staging.
 
 Code/artifact generations and mutable user state are separate.
 
-The intended logical layout is:
+The Milestone 2 local layout is:
 
 ```text
-$PREFIX/bin/codex                         stable public entrypoint
-~/.local/lib/codex/core/generations/     immutable generations
-~/.local/lib/codex/core/current          active pointer
-~/.local/lib/codex/core/verified         last-known-good pointer
-~/.local/lib/codex/core/previous         rollback pointer
-~/.local/share/codex/core/               Core state and journals
-~/.local/share/codex/manager/            Manager-owned mutable state
+$PREFIX/bin/codex                                      stable public entrypoint
+~/.local/lib/codex/core/generations/<id>/             immutable complete generation
+  generation.meta                                     versioned local descriptor
+  runtime                                             patched upstream executable
+  compat/                                              runtime compatibility assets
+  manager                                              optional Manager executable
+  helpers/<index>                                      optional helper artifacts
+~/.local/share/codex/core/activation-state            bounded pointer-set authority
+~/.local/share/codex/core/activation-journal[.tmp]    crash-recovery transaction state
+~/.local/share/codex/core/activation-state.tmp        atomic state publication temporary
+~/.local/share/codex/core/config/                     process-local managed config directory
+~/.local/share/codex/manager/                         Manager-owned mutable state
 ```
 
-Exact physical names may change before Milestone 2 implementation, but the
-ownership and immutability rules above may not.
+The activation-state record owns `current` and at most one effective rollback
+target; ordinary launch reads only `current`. It does not scan generations or
+implicitly fall back to another generation. The generation directory name is a
+single safe path component and generation content is complete before it can
+become `current`.
 
 A generation is complete or absent. Candidate construction occurs outside the
 active path. Activation changes one bounded pointer set only after integrity,

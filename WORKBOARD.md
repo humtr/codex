@@ -33,103 +33,94 @@ in Git history and the `GOAL.md` acceptance ledger, not here.
 
 ## Selected next action
 
-### M2-B2 — minimal activated-generation loader and real public `main`
+### M2-B3 — explicit local generation staging
 
 #### outcome
 
-Consume the smaller M1-R2 foundation and close the real product entrypoint by
-loading exactly one already-complete activated local generation, constructing
-the existing runtime/Manager/doctor dispatch context from that generation, and
-having production `main()` execute `plan_public_dispatch -> execute_public_dispatch`.
-Do not expand B2 into download, network update, multi-writer coordination, or a
-fallback ladder.
+Take one explicit caller-supplied local generation source, copy only the fixed
+B2 generation layout into a private candidate directory under the immutable
+generation root, validate that candidate with the same descriptor/loader rules,
+and atomically publish the complete candidate as an **inactive** generation.
+This is the shortest offline/bootstrap path that can be built before signed
+release admission exists.
 
-#### R2 evidence carried forward
+#### accepted input
 
-M1-R2 exhaustive simplification is implemented at
-`2b73f4ba23726ddab0792bbba721a2835dcb86d9`:
+M2-B2 is accepted at `bee38e9eb481973c00205fb8a7191cdb22392f7c` with:
 
-- production/test source was reduced from the accumulated proof-layer form to
-  2,330 production lines and 1,624 test lines;
-- historical M1 bundle-specific test names were removed and replaced by one
-  contract-oriented suite plus the retained M2-B1 fault/recovery matrix;
-- duplicate command classification, parent FD backup/restore state machines,
-  environment wrapper layers, updater evidence-promotion wrappers, Manager
-  generation-pointer comparison, doctor planner/coordinator wrappers, nested
-  launch errors, the B24 proof-only entrypoint wrapper, and the speculative
-  shared-resolver fallback model were deleted or collapsed;
-- retained behavior covers exact routing, sandbox policy, raw argv including
-  non-UTF8, upstream streams/exit/TTY/signal, environment fencing, FD33/34,
-  manifest/runtime/Manager qualification, updater qualification inputs, bounded
-  read-only doctor, and M2-B1 activation recovery;
-- serial retained suite passed 33/33 with one explicit live smoke ignored by
-  default; the explicit live resolver/launcher smoke passed 1/1; three complete
-  default-parallel suite runs passed.
-
-R2 also proved that the remaining `main()` gap is not another M1 wrapper: the
-missing input is physical active-generation context acquisition, which SPEC
-assigns to Milestone 2. Milestone 1 product closure therefore remains open only
-until B2 connects that M2-owned input to the already-proven M1 execution path.
+- real production `main -> plan_public_dispatch -> current-generation loader ->
+  qualification -> dispatch`;
+- focused B2 6/6, full serial 38/0/1-ignored, explicit live smoke 1/1,
+  default-parallel 3/3, warning-free locked release build;
+- live resolver and installed launcher identity unchanged;
+- current-only ordinary loading with no previous-generation fallback, network,
+  package-manager, generation scan, or duplicate state-root generation tree.
 
 #### boundary
 
-- Use the SPEC ownership split: immutable generation artifacts under the local
-  Core generation root and activation/journal authority under the Core state
-  root. Exact physical names may be chosen here once and kept minimal.
-- Read/recover the current activation state through the existing M2-B1 state
-  implementation; do not create a second pointer or recovery mechanism.
-- Resolve exactly one current generation. A generation identifier that is used
-  as a filesystem component must satisfy one simple path-component invariant;
-  do not add canonicalization/fallback search chains.
-- Load one small versioned local generation descriptor sufficient to bind the
-  runtime path, compatibility directory, optional Manager artifact, manifest
-  compatibility fields, and doctor capability required by the existing dispatch
-  context. Launch must not re-download or package-manage.
-- A missing/malformed/incomplete current generation fails clearly. Do not search
-  `previous`, scan other generations, or silently fall back during ordinary
-  launch. Recovery/rollback remains an explicit activation-state operation.
-- `update` remains a Core-owned handoff until the later M2 updater bundle; B2
-  must not invent network behavior merely to make the route non-dead.
-- Tests use explicit temporary HOME/state/artifact roots. The installed Codex,
-  live resolver, live Manager state, auth/session/profile state, and package
-  state remain read-only.
+- B3 accepts one explicit local **directory source** only. Archive extraction is
+  a later bundle because generic archive handling adds a separate parser/safety
+  surface; do not implement it merely to call this step an installer.
+- The source must contain exactly the B2 load-bearing generation artifacts:
+  `generation.meta`, regular `runtime`, directory `compat/`, optional regular
+  `manager`, and any declared regular `helpers/<index>` files. Copy only these
+  fixed paths; do not mirror arbitrary source-tree entries.
+- Add one descriptor `generation_id` field and require it to satisfy the same
+  single-component invariant used by activation state. The published path is
+  `generations/<generation_id>`.
+- Construct in a private candidate path under the generation root. Candidate
+  copy rejects symlinks/special files and path escape. Compatibility-directory
+  recursion copies regular files/directories only and never follows symlinks.
+- Validate the copied candidate by loading its own descriptor/layout before
+  publication. Publication is one atomic rename from candidate to the final
+  inactive generation path; final-path collision fails rather than overwriting.
+- Do **not** change `activation-state` in B3. A successfully staged generation is
+  inactive until the later digest/signature admission gate explicitly activates
+  it through the existing M2-B1 transaction.
+- Do not add lock/lease/fencing, retry ladders, candidate registries, cleanup
+  databases, alternate staging roots, network access, package-manager calls, or
+  automatic previous-generation fallback.
+- On an ordinary handled error, remove the private candidate directory created
+  by that attempt when possible; cleanup failure must not mutate active state.
 
 #### must hold
 
-- `codex --version`, `-V`, empty argv, and every non-Core command still reach the
-  selected upstream runtime with exact argv/stream/exit/TTY/signal behavior.
-- exact first-token `doctor` and `termux` still use the existing bounded Core
-  paths; `update` still remains Core-owned without live network mutation.
-- one activated generation supplies runtime and optional Manager authority; no
-  mixed-generation context or fallback ladder exists.
-- sandbox planning still occurs before runtime descriptor I/O that is avoidable
-  for an invalid request, and resolver/config FD sources remain read-only.
-- production `main()` actually reaches the public execution path; it must no
-  longer stop after planning argv.
-- release build warnings caused by unreachable M1 product paths are removed by
-  real reachability, not hidden with new `allow(dead_code)` annotations.
+- currently active generation and activation-state bytes remain unchanged by B3;
+- a published generation is complete or absent;
+- source symlinks/special files never become generation content;
+- candidate validation uses the same B2 loader format rather than a second
+  validator stack;
+- existing M1/B2 launch, sandbox, FD33/34, doctor, Manager, and current-only
+  behavior remains unchanged;
+- live resolver, installed launcher, Manager state, auth/session/profile state,
+  and package state remain read-only.
 
 #### verification
 
-- focused temporary-root loader/main tests for missing, malformed, valid
-  upstream, doctor, Manager-unavailable/available, and update-handoff cases;
-- retained M1 contract suite and M2-B1 fault/recovery suite serial;
-- explicit real-Termux resolver/installed-launcher read-only smoke;
+- focused temp-root staging tests: valid runtime-only source, optional Manager,
+  compat nested regular files, malformed descriptor, unsafe source entry,
+  final-path collision, copy failure/cleanup, and active-state non-mutation;
+- load the published inactive generation directly and prove it matches B2
+  descriptor/layout semantics while ordinary `current` still points to the old
+  generation;
+- retained full serial suite and M2-B1 fault/recovery suite;
+- explicit real-Termux resolver/installed-launcher smoke;
 - complete default-parallel repetitions after stabilization;
-- `cargo fmt --check`, `git diff --check`, and warning-free locked release build;
-- live resolver and installed launcher identity unchanged before/after the final
-  grouped gate.
+- `cargo fmt --check`, `git diff --check`, warning-free locked release build,
+  and protected live identities unchanged.
 
 #### stop lines
 
-- no live installation or activation in B2;
-- no network, package-manager, signed-release acquisition, or automatic update;
-- no new lock/lease/fencing/multi-writer protocol;
-- no implicit previous-generation fallback on launch;
-- no revival of proof-only layers deleted by M1-R2.
+- no activation of the newly staged local generation in B3;
+- no archive parser/extractor;
+- no signature or cryptographic digest implementation yet;
+- no network, package manager, automatic update, multi-writer protocol, or
+  fallback ladder;
+- no revival of proof-only M1 layers.
 
-## Next action after M2-B2
+## Next action after M2-B3
 
-Continue the shortest remaining release path: local immutable release staging and
-qualification feeding the same generation descriptor/activation contract. Add
-network acquisition or signing only in the bundle that actually needs it.
+Add the minimum signed/digest release-admission boundary needed to trust a
+staged local generation, then activate that admitted generation using the
+existing M2-B1 transaction. Keep offline/local flow working before adding remote
+acquisition.

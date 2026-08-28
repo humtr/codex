@@ -654,9 +654,34 @@ Termux qualification. Produce one candidate for independent product review.
   activated-generation loader and real `main -> plan_public_dispatch ->
   execute_public_dispatch` wiring. M1 product closure remains open only until
   that cross-milestone connection is accepted.
-- Current checkpoint: M2-B2 — minimal activated-generation loader and real public
-  `main`. No live install/network/update or fallback ladder is included.
-- Worker mode remains OFF; the primary Lead performs M2-B2 directly.
+- M2-B2 is accepted at `bee38e9eb481973c00205fb8a7191cdb22392f7c`.
+  Production `main()` now performs raw public planning, loads exactly one
+  activated generation from the M2 local layout, qualifies runtime/optional
+  Manager assets from that generation, and executes upstream/doctor/Manager
+  through the retained direct boundaries. Ordinary launch uses only `current`;
+  it does not scan generations, read `previous`, canonicalize a fallback chain,
+  use network, or invoke a package manager. The redundant in-memory
+  `GenerationQualification` state was removed because the descriptor already
+  requires `qualification=qualified`, and the duplicate state-root
+  `generations/` directory was removed in favor of the SPEC-owned immutable
+  generation root.
+- B2 acceptance evidence: focused loader/main 6/6; full serial 38 passed / 0
+  failed / 1 explicit smoke ignored by default; explicit real-Termux smoke 1/1;
+  three complete default-parallel runs; `cargo fmt --check` and
+  `git diff --check`; warning-free locked release build; live resolver and
+  installed launcher SHA/stable-stat identity unchanged before/after. The only
+  production `allow(dead_code)` is the existing M2 activation-state module's
+  write side, which is the immediate input to local staging/activation work and
+  does not hide an M1 product path.
+- With `2b73f4ba...` simplification plus B2 real entrypoint wiring, Milestone 1
+  product closure is re-accepted. M1 is no longer closed on proof-only
+  injection evidence; the real production entrypoint reaches final execution.
+- Current checkpoint: M2-B3 — explicit local generation staging. Build one
+  complete generation outside the active path from a caller-supplied local
+  source, validate the fixed layout/descriptor, and publish it atomically as an
+  inactive immutable generation. Do not activate unverified content in B3;
+  digest/signature admission and activation remain the next release gate.
+- Worker mode remains OFF; the primary Lead performs M2-B3 directly.
 - The repository now uses a Click-inspired execution discipline at the
   Workboard layer: reuse successful same-revision evidence, do not reopen or
   replace an active bounded contract without new material evidence, and run the
