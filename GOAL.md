@@ -486,6 +486,17 @@ Termux qualification. Produce one candidate for independent product review.
   nonzero-to-unhealthy classification without stderr inference, typed spawn and
   pre-I/O environment failures, parent FD restoration, and test-owned
   resolver/config non-mutation.
+- M1-B20 is accepted at `07ed3af8764c10f03aaf3bf83b18ffb37a32b891`.
+  The direct Lead added one pure public-dispatch planner over complete raw argv.
+  Only exact first-token `update`, `doctor`, and `termux` are intercepted; each
+  Core route consumes only that token and retains all trailing raw `OsString`
+  values byte-for-byte. Every other shape, including empty argv, `--version`,
+  `-V`, delimiter/near-miss forms, and non-UTF-8 first tokens, remains one
+  upstream route with the complete original argv and order preserved.
+- Final B20 validation `job_irt_1daf7615c8` passed all 5 B20 focused tests, the
+  full serial workspace suite 121/121, eight complete default-parallel full
+  repetitions, formatting, `git diff --check`, and a warning-free locked build
+  with offline mode and a repository-external Cargo target.
 - Milestone 1 is not complete. The normal `main` entrypoint is still not wired to
   a qualified upstream runtime. Public dispatch execution and the complete
   real-Termux smoke gate remain unproven.
@@ -494,11 +505,11 @@ Termux qualification. Produce one candidate for independent product review.
   interface by M1-B12, runtime/compat/helper asset qualification by M1-B13,
   qualified-runtime final launch composition by M1-B14, the bounded redacted
   doctor report model by M1-B15, the supported-upstream read-only doctor
-  subprocess probe by M1-B16, bounded local doctor coordination by M1-B17, and
-  exact doctor invocation/output planning by M1-B18, and usage-before-probe
-  ordered doctor execution by M1-B19. Physical active-pointer and activation
-  mechanics remain Milestone 2 delivery/recovery work and are not
-  introduced during Milestone 1.
+  subprocess probe by M1-B16, bounded local doctor coordination by M1-B17,
+  exact doctor invocation/output planning by M1-B18, usage-before-probe ordered
+  doctor execution by M1-B19, and exact raw-argv public routing by M1-B20.
+  Physical active-pointer and activation mechanics remain Milestone 2
+  delivery/recovery work and are not introduced during Milestone 1.
 - B4's current non-mutation proof is against test-owned resolver fixtures; the
   Milestone 1 completion gate still requires pre/post evidence that the actual
   live resolver path, content, mode, and stat identity remain unchanged during
@@ -521,12 +532,18 @@ Termux qualification. Produce one candidate for independent product review.
 - M1-B17 is closed at `64199eb4cbb1dccb351cf140c55e5e36d77d65ce`.
 - M1-B18 is closed at `fdecef9f86a1f04776309ffe344b169d715c7217`.
 - M1-B19 is closed at `148b1133f1afaa91668e19b4fade13bc761b0056`.
-- Current checkpoint: M1-B20 — add a pure public dispatch route over complete
-  raw argv so only exact first-token `update`, `doctor`, and `termux` are Core
-  routes while every other argv shape is preserved whole for upstream.
-- Worker mode remains OFF; the primary Lead implements B20 directly.
-- B20 does not execute any route, wire `main`, select a runtime/generation,
-  discover Manager state, perform update behavior, or assign process exit codes.
+- M1-B20 is closed at `07ed3af8764c10f03aaf3bf83b18ffb37a32b891`.
+- Current checkpoint: M1-B21 — qualify the optional Manager artifact against the
+  already-qualified generation so the `termux` route can distinguish a bounded
+  `Unavailable` state from an explicitly selected, manifest-bound Manager
+  artifact without implementing Manager product behavior or performing I/O.
+- Worker mode remains OFF; the primary Lead implements B21 directly.
+- The repository now uses a Click-inspired execution discipline at the
+  Workboard layer: reuse successful same-revision evidence, do not reopen or
+  replace an active bounded contract without new material evidence, and run the
+  repository-required acceptance checks as one final validation batch after the
+  implementation stabilizes. No Click plugin or Hook is installed, and these
+  workflow rules never override SPEC/GOAL acceptance requirements.
 
 ## Goal Lifts
 
