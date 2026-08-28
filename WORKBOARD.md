@@ -73,10 +73,12 @@ current/verified/previous generation set.
   empty values, embedded newline/NUL, unknown fields, duplicate fields, missing
   fields, extra records, and unsupported format versions. No lossy conversion or
   path-derived identity is permitted.
-- State replacement is durable in this order: validate inputs; create+fsync the
-  journal; fsync its directory; create+fsync the new state temporary; atomically
-  rename it over `activation-state`; fsync the directory; remove the journal;
-  fsync the directory. No active state is removed before a replacement is ready.
+- State replacement is durable in this order: validate inputs; create+fsync a
+  private journal temporary; atomically rename it to `activation-journal`; fsync
+  the directory; create+fsync the new state temporary; atomically rename it over
+  `activation-state`; fsync the directory; remove the journal; fsync the
+  directory. No active state is removed before a replacement is ready, and a
+  short/partial journal write can never become the canonical journal.
 - Recovery with a journal accepts only two coherent cases: authoritative state
   equals the recorded `before` state (transition not committed) or equals the
   recorded `after` state (transition committed). It removes the stale journal and
@@ -100,10 +102,11 @@ current/verified/previous generation set.
   typed parse/I/O/recovery error surfaces. Use a canonical versioned text format
   with fixed field order and length-bounded values; do not introduce serde or a
   hashing dependency in this bundle.
-- Use `OpenOptions::create_new` for temporary/journal creation where appropriate,
-  `File::sync_all`, same-directory `rename`, and directory `sync_all` on the
-  current Unix/Android target. Clean only transaction-owned temporary names;
-  unrelated files are never removed.
+- Use `OpenOptions::create_new` for transaction temporaries, `File::sync_all`,
+  same-directory `rename`, and directory `sync_all` on the current Unix/Android
+  target. Publish both journal and state only from fully written+synced private
+  temporaries. Recovery may clean only the fixed transaction-owned temporary
+  names; unrelated files are never removed.
 - Isolate durability calls behind a tiny internal operation/fault-point boundary
   so tests can inject one failure at each ordered step without changing the
   public state semantics. Fault injection exists only for tests and must not
@@ -117,10 +120,11 @@ current/verified/previous generation set.
 
 - focused: canonical encode/parse and malformed/collision cases; initial and
   ordinary activation; rollback-state transition semantics; failure injected
-  before/after every durable boundary; recovery from old+journal and new+journal;
-  stale-journal idempotence; malformed/ambiguous/missing-state fail-closed cases;
-  permission/create/rename/remove failures; no writes outside the test root; and
-  generation directories unchanged byte-for-byte.
+  before/after every durable boundary; partial journal/state temporary recovery;
+  recovery from old+journal and new+journal; stale-journal idempotence;
+  malformed/ambiguous/missing-state fail-closed cases; permission/create/rename/
+  remove failures; no writes outside the test root; and generation directories
+  unchanged byte-for-byte.
 - done_when: focused M2-B1 tests pass; all 139 nonignored M1/B24 default tests
   remain green with the explicit B24 smoke still ignored by default; formatting
   and diff checks pass; locked release build is warning-free; one grouped final
