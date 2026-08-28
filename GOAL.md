@@ -153,6 +153,21 @@ Termux qualification. Produce one candidate for independent product review.
   current Rust source against `SPEC.md`, reopened two correctness/safety gaps,
   fixed them directly, reviewed the resulting diff, and reran the load-bearing
   validation.
+- M1-B12 is accepted at `3927ad46696875c913c9039406693c1ddd4c3231`.
+  The direct Lead added a dependency-free updater admission/candidate interface:
+  immutable-remote versus raw local-artifact sources, explicit signed-release
+  and architecture/API/channel/anti-rollback verdicts, resolver-dependency
+  qualification, staged digest/archive/compatibility verdicts, candidate-probe
+  and rollback-readiness verdicts, source-digest binding to the B11 qualified
+  generation, and borrowed admitted/activation-ready wrappers. No verifier,
+  cryptography, serialization, network, staging, installation, or activation is
+  implemented by B12.
+- Final B12 validation `job_iff_6b93404095` passed all 11 B12 focused tests,
+  the complete serial workspace suite 80/80, eight complete default-parallel
+  repetitions, formatting, `git diff --check`, and a warning-free locked build
+  with offline mode and a repository-external Cargo target. Direct diff review
+  confirmed only `crates/core/src/main.rs` changed and the B12 production surface
+  is pure type/evidence promotion rather than updater I/O.
 - M1-B11 is accepted at `0eb9f6cd33951ff782c010d9e116ab886f70a815`.
   The direct Lead added a dependency-free in-memory generation manifest model,
   explicit Core compatibility requirements, typed qualification failures, and a
@@ -375,10 +390,11 @@ Termux qualification. Produce one candidate for independent product review.
 ### Not Proven
 
 - Milestone 1 is not complete. The normal `main` entrypoint is still not wired to
-  a qualified upstream runtime. Runtime/generation selection, doctor composition,
-  updater interfaces, and the complete real-Termux smoke gate remain unproven.
-  Process-environment capture is proven by M1-B10 and the pure generation-manifest
-  qualification interface is proven by M1-B11.
+  a qualified upstream runtime. Qualified runtime/compatibility asset selection,
+  generation selection, doctor composition, and the complete real-Termux smoke
+  gate remain unproven. Process-environment capture is proven by M1-B10, the pure
+  generation-manifest qualification interface by M1-B11, and the pure updater
+  admission/candidate interface by M1-B12.
 - B4's current non-mutation proof is against test-owned resolver fixtures; the
   Milestone 1 completion gate still requires pre/post evidence that the actual
   live resolver path, content, mode, and stat identity remain unchanged during
@@ -393,23 +409,25 @@ Termux qualification. Produce one candidate for independent product review.
 - M1-R1 is closed at `4c1a8d90d6aa028106218d349076c465af8b8535`.
 - M1-B10 is closed at `08e67e8c9fed23032ff59c38ff4765221d515d67`.
 - M1-B11 is closed at `0eb9f6cd33951ff782c010d9e116ab886f70a815`.
-- Current checkpoint: M1-B12 — define a pure updater admission and staged-candidate
-  qualification interface that makes signed-release, architecture, Core-API,
-  channel, anti-rollback, artifact-integrity, archive-safety, compatibility,
-  candidate-probe, and rollback-readiness evidence explicit prerequisites without
-  implementing network, cryptography, installation, or activation.
+- M1-B12 is closed at `3927ad46696875c913c9039406693c1ddd4c3231`.
+- Current checkpoint: M1-B13 — qualify the explicit runtime program,
+  compatibility directory, and helper asset bindings against an already-qualified
+  B11 generation before any launch path can consume them.
 - Worker mode remains OFF by explicit user policy; the primary Lead implements
-  M1-B12 directly. `harness.run` remains test/validation-only.
-- B12 must not invent a release-signature algorithm, channel ordering, semantic
-  version ordering, or anti-rollback counter. Those remain future verification/
-  policy providers. The B12 interface only accepts explicit satisfied/rejected
-  evidence and prevents a rejected or absent prerequisite from being promoted.
-- B12 must bind an admitted signed-release identity to its expected immutable
-  source-artifact digest and require the B11 qualified generation's source digest
-  to match before a staged candidate can become activation-ready.
-- Both immutable remote-artifact and explicit local-artifact sources are modeled
-  without performing I/O. A shared updater/runtime resolver dependency is rejected
-  unless an explicit non-empty qualification identity is supplied.
+  M1-B13 directly. `harness.run` remains test/validation-only.
+- B13 accepts explicit raw paths and opaque observed digests only; it performs no
+  filesystem stat/read/hash, generation-pointer lookup, serialization, or launch.
+  Runtime/helper digest bindings must match the qualified manifest byte-for-byte.
+- Runtime program and compatibility directory must be explicit absolute native
+  paths rather than PATH-search names. Helper asset paths must also be explicit
+  absolute paths. The compatibility directory remains a valid B8 PATH component.
+- The supplied helper asset set must match the qualified manifest helper set
+  exactly by unique identity and digest: no missing, extra, duplicate, empty, or
+  mismatched helper binding may promote. Zero helpers remains valid only when the
+  manifest itself declares zero helpers.
+- Success returns a borrowed `QualifiedRuntimeAssets` wrapper retaining the B11
+  qualified generation and the caller's raw asset bindings without copying or
+  normalization. A later launch-composition bundle must require this wrapper.
 
 ## Goal Lifts
 

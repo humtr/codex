@@ -30,58 +30,53 @@ or mutation of the installed Codex product.
 
 ## Selected next action
 
-### Bundle M1-B12 — pure updater admission and candidate-qualification interface
+### Bundle M1-B13 — pure qualified runtime/compatibility asset selection
 
-- Prior direct-Lead evidence: M1-B11 commit
-  `0eb9f6cd33951ff782c010d9e116ab886f70a815`; final validation
-  `job_idt_e50502b44b` passed B11 10/10, the complete serial suite 69/69,
+- Prior direct-Lead evidence: M1-B12 commit
+  `3927ad46696875c913c9039406693c1ddd4c3231`; final validation
+  `job_iff_6b93404095` passed B12 11/11, the complete serial suite 80/80,
   eight full default-parallel repetitions, formatting, `git diff --check`, and a
   warning-free locked build.
-- Exact outcome: define an in-memory, dependency-free updater interface that
-  models the mandatory evidence gates in SPEC section 8 without resolving a
-  release, downloading/staging an artifact, verifying cryptography, touching the
-  filesystem, constructing a generation, or activating anything.
-- Define an update source as either an immutable remote locator or an explicit
-  local artifact path. Keep the remote locator opaque text and the local path as
-  raw `OsStr`; require only non-empty identity/path here and do not parse URLs,
-  canonicalize paths, stat files, or perform network/filesystem I/O.
-- Define admission evidence that binds a non-empty signed-release manifest
-  identity and its expected immutable source-artifact digest plus explicit
-  satisfied/rejected verdicts for: release signature, architecture policy,
-  Core-API policy, channel policy, and anti-rollback policy.
-- Do not invent the signature algorithm, keyring, release-channel ordering,
-  version ordering, anti-rollback counter/epoch, or comparison algorithm. Those
-  verdicts are inputs from future bounded verifier/policy providers. B12's job is
-  to fail closed unless every mandatory verdict is satisfied.
-- Model updater resolver dependence explicitly: an independent resolver is
-  accepted; sharing the patched runtime resolver is accepted only when a
-  non-empty qualification identity is supplied. Shared-without-qualification is
-  rejected before any later stage.
-- Successful admission returns a distinct borrowed `AdmittedUpdateRequest`
-  wrapper. No later B12 candidate qualification function accepts the raw request.
-- Define staged-artifact evidence with explicit satisfied/rejected verdicts for
-  artifact digest verification, archive safety, and compatibility metadata.
-  Define candidate evidence using the existing B11 `QualifiedGenerationManifest`,
-  a candidate-probe verdict, and verified-rollback-readiness verdict.
-- Candidate qualification must reject every failed staged/probe/rollback verdict
-  and reject when the B11 generation manifest's `source_artifact_digest` differs
-  byte-for-byte from the admitted signed-release expected digest. Success returns
-  a distinct borrowed activation-ready wrapper retaining the admitted request and
-  qualified generation without copying or normalizing opaque bindings.
-- Do not implement signed-release manifest serialization/parsing, signature/
-  digest algorithms, archive extraction, private staging paths, generation
-  construction, pointer mutation (`current`/`verified`/`previous`), activation,
-  rollback, network access, automatic update scheduling, resolver I/O, package
-  manager invocation, or normal `main` wiring in B12.
-- Focused tests named `m1_b12_` must cover: valid remote and local admission;
-  empty release identity/digest/source; every admission verdict rejection; shared
-  resolver without/with qualification; every staged-artifact verdict rejection;
-  source-digest mismatch; failed candidate probe; missing rollback readiness;
-  successful activation-ready promotion preserving exact opaque/non-ASCII values
-  and raw local path bytes; deterministic/no-side-effect behavior.
-- Keep all 69 accepted post-B11 tests green. Validate with
+- Exact outcome: define an in-memory qualification boundary that binds the
+  runtime program, compatibility directory, and every selected helper asset to
+  an already-qualified B11 generation manifest. B13 selects no active generation
+  and performs no launch or filesystem I/O.
+- Define one runtime asset binding with a raw native program path and an opaque
+  observed digest. Define zero or more helper asset bindings with an opaque
+  helper identity, raw native asset path, and opaque observed digest. Keep the
+  compatibility directory as a separate raw native directory path because B8
+  consumes it as a PATH component; do not infer it from helper paths.
+- Runtime program, compatibility directory, and helper asset paths must be
+  non-empty absolute paths. NUL-containing paths fail. The compatibility
+  directory must also satisfy the existing B8 explicit PATH-component rule, so
+  it cannot contain `:` on Unix. Do not canonicalize, stat, resolve symlinks, or
+  require any physical filename/layout beyond these pure path-shape invariants.
+- Runtime observed digest must be non-empty and byte-for-byte equal to the B11
+  qualified manifest's `runtime_digest`.
+- Every helper binding must have a non-empty identity and observed digest. The
+  selected helper set must exactly match the qualified manifest helper set by
+  identity and digest: reject missing helpers, extra helpers, duplicate selected
+  identities, and digest mismatches. B11 already proves manifest-side helper
+  identity uniqueness. Zero selected helpers is valid only for a manifest with
+  zero helpers.
+- Successful validation returns a borrowed `QualifiedRuntimeAssets` wrapper that
+  retains the `QualifiedGenerationManifest`, runtime binding, compatibility
+  directory, and helper slice without copying, UTF-8 conversion, path
+  normalization, or digest transformation. Later runtime launch composition must
+  require this wrapper rather than raw asset inputs.
+- Do not implement generation `current`/`verified`/`previous` lookup, manifest
+  serialization/parsing, digest computation, helper execution, runtime launch,
+  resolver/config selection, environment capture, doctor, updater I/O,
+  activation, rollback, network, package operations, or normal `main` wiring.
+- Focused tests named `m1_b13_` must cover: valid runtime plus multi-helper set;
+  zero-helper manifest; empty/relative/NUL runtime path; empty/relative/NUL/colon
+  compatibility directory; empty runtime digest and digest mismatch; helper
+  empty identity/path/digest; relative/NUL helper path; missing/extra/duplicate
+  helper identities; helper digest mismatch; raw non-UTF8 Unix path retention;
+  exact borrowed-wrapper pointer retention; deterministic/no-side-effect behavior.
+- Keep all 80 accepted post-B12 tests green. Validate with
   `CARGO_NET_OFFLINE=true`, a repository-external `CARGO_TARGET_DIR`, formatting,
-  focused B12 tests, all locked workspace tests serially, default-parallel stress
+  focused B13 tests, all locked workspace tests serially, default-parallel stress
   repetitions, warning-free locked build, and `git diff --check`.
 - Worker mode is user-controlled and remains OFF. The primary `gpt-5.6-sol` /
   `max` Lead directly implements this bundle. tmcp `harness.run` may be used only
@@ -90,11 +85,11 @@ or mutation of the installed Codex product.
   file, extra tracked file, live resolver/runtime/launcher/Manager, profile,
   session, auth, Git-ref, legacy-history, network, package, install, or activation
   change is authorized.
-- Completion gate: the diff contains only updater interface/evidence/wrapper
-  types, pure validators/promotions, typed errors, and focused tests; no verifier
-  implementation, serialization, physical state path, filesystem/environment/
-  Command/FD/network I/O, dependency, public-surface expansion, or protected-
-  state change; Lead reruns focused/full/stress validation before acceptance.
+- Completion gate: the diff contains only raw asset-binding types, pure
+  validation/promotion logic, typed errors, and focused tests; no physical state
+  selection, filesystem/environment/Command/FD/network I/O, serialization,
+  dependency, public-surface expansion, or protected-state change; Lead reruns
+  focused/full/stress validation before acceptance.
 
 ## Milestone 1 required outcomes
 
