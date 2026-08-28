@@ -16,8 +16,8 @@ in Git history and the `GOAL.md` acceptance ledger, not here.
   session; owns evidence retrieval, planning, worker packets, actual diff review,
   integration validation, commits, and acceptance decisions across both Core
   milestones
-- Implementation worker: exactly one mutating worker at a time, bounded to the
-  accepted code/test paths and validation; reused only within that bundle
+- Implementation worker: disabled; the primary Lead directly implements the
+  bounded code/test changes in this Workboard
 - Planning agents, problem advisors, and checkpoint reviewers: disabled
 - Live installation or activation: prohibited in this milestone
 
@@ -70,12 +70,10 @@ or mutation of the installed Codex product.
   formatting, focused B10 tests, all locked workspace tests, and locked workspace
   build. tmcp `harness.run` may be used only to execute bounded tests/validation;
   it must not be used for implementation or product-code mutation.
-- Worker configuration: one bounded `agy` CLI implementation worker in
-  `accept-edits` mode through the Task-owned shell route, `fork_context: false`.
-  No delegation, commits, pushes, package operations, network/update behavior,
-  or live product state.
-- Writable worker path: `crates/core/src/main.rs` only. No dependency, manifest,
-  authority-document, or extra tracked-file changes are authorized.
+- Implementation owner: the primary `gpt-5.6-sol` / `max` Lead directly edits
+  `crates/core/src/main.rs` for this bundle. No implementation worker or coding
+  subagent is authorized. No dependency, manifest, or extra tracked-file change
+  is authorized.
 - Protected surfaces: every other repository path, all live resolver/runtime/
   launcher/Manager state, profiles, sessions, auth, Git refs, sealed legacy
   history, and unrelated worktrees.
@@ -127,14 +125,10 @@ or mutation of the installed Codex product.
 - Do not begin Milestone 2 work while a Milestone 1 gate is unresolved.
 - Do not implement Manager product features.
 - Do not run package installation or update commands.
-- Do not spawn a planning agent, problem advisor, checkpoint reviewer, or more
-  than one implementation worker.
-- Do not let a worker edit authority documents, commit, push, broaden its own
-  read/write scope, or touch protected live state.
-- Do not treat a worker report or worker-run test as acceptance proof until the
-  primary Lead has inspected the actual diff and rerun load-bearing validation.
-- Do not resend unchanged context or exceed the worker packet budgets in
-  `GOAL.md`.
+- Do not spawn a planning agent, problem advisor, checkpoint reviewer, or
+  implementation worker.
+- The primary Lead must keep direct edits inside the selected bundle and must
+  inspect the actual diff and rerun load-bearing validation before acceptance.
 - Do not modify `legacy/monolith` or rewrite sealed tags.
 - Do not expand the document hierarchy during ordinary implementation.
 

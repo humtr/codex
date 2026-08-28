@@ -40,49 +40,32 @@
   milestone transition
 - Additional planning agents, problem advisors, and checkpoint reviewers:
   disabled during both Core milestones
-- Primary mutation boundary: authority-document and integration changes are
-  allowed; routine product-code and test implementation is delegated
+- Primary mutation boundary: the primary Lead directly performs authority,
+  product-code, test, integration, validation, commit, and acceptance work
 - Identity rule: do not persist a live Lead identity in tracked files
 - Review policy: the Lead's validation is integration verification, not
   independent review; invoke a fresh independent product reviewer only after
   the Milestone 2 acceptance candidate is complete
 - Policy source and timestamp: user decision on 2026-08-28
 
-## Implementation Worker Policy
+## Direct Implementation Policy
 
-- Worker assistance enabled: true
-- Concurrency: exactly one mutating worker at a time in the shared worktree
-- Worker model and effort: selected by the primary Lead for each bounded bundle
-  from available implementation-capable agents and recorded with the bundle;
-  no worker may assume planning or acceptance authority
-- Worker context: `fork_context: false`
-- Reuse rule: reuse the same worker with delta-only `send_input` only inside the
-  current bundle; retire it after acceptance
-- Access mode: repository, filesystem, and shell tools only within packet-
-  authorized paths and temporary test roots; no delegation, package operations,
-  live product mutation, commits, or pushes; network/provider tools require an
-  explicit later acceptance gate and one bounded non-secret validation bundle
+- Direct implementation enabled: true
+- Implementation owner: the primary `gpt-5.6-sol` / `max` Technical Lead
+- Implementation workers/subagents: disabled by explicit user decision on
+  2026-08-28; do not invoke an implementation worker unless the user later
+  changes this policy
+- The Lead may directly edit product code and tests within the current bounded
+  `WORKBOARD.md` bundle and remains responsible for actual diff inspection,
+  load-bearing validation, commits, and acceptance
+- Planning agents, problem advisors, and checkpoint reviewers remain disabled
+  during both Core milestones
 - tmcp `harness.run` is test/validation-only. It may execute bounded test
-  harnesses, but it must not be used as an implementation/development worker or
-  as a route for product-code mutation.
-- Writable scope: product code and tests named in the accepted bundle; never
-  `AGENTS.md`, `SPEC.md`, this file, or `WORKBOARD.md`
-- Initial packet budget: at most 12,000 estimated input tokens or 48,000
-  characters without a tokenizer, with the bound branch/commit, exact bundle,
-  governing excerpts, no more than eight relevant source/test paths or snippets,
-  read/write scope, validation, protected surfaces, and completion report
-- Follow-up budget: delta-only `send_input` of at most 5,000 estimated input
-  tokens or 20,000 characters, containing prior/current commits, changed paths,
-  relevant diff or new failure evidence, changed authority, and one next action
-- Scope-expansion rule: the worker requests one exact item or path and waits;
-  only the Lead may authorize a broader packet
-- Completion report: changed paths, concise validation results, unresolved
-  failures, and protected-surface non-mutation confirmation
-- Replacement rule: resume the same worker when possible; replace it only after
-  confirmed identity loss or bundle-context mismatch, and give the replacement
-  the current diff and remaining gate instead of a broad reread
-- Authority: implementation only; the primary Lead retains planning,
-  architecture, authority-document, integration, commit, and acceptance control
+  harnesses, but it must not be used as an implementation/development agent or
+  as a route for product-code mutation
+- Package operations, live product mutation, and network/provider behavior remain
+  prohibited unless separately authorized by the applicable milestone gate
+- Identity rule: do not persist a live Lead identity in tracked files
 - Policy source and timestamp: user decision on 2026-08-28
 
 ## Current Success Threshold
@@ -130,15 +113,14 @@ one current workboard, direct focused tests, and deferred independent review.
 - Run the goal under a primary `gpt-5.6-sol` / `max` Technical Lead/Integrator
   that directly owns repository evidence, planning, integration verification,
   authority documents, commits, and acceptance decisions across both milestones.
-- Delegate bounded product-code and test implementation to one worker at a time,
-  reuse that worker only within its current bundle, and keep worker context,
-  tools, writable paths, and follow-ups narrowly scoped.
+- Have the primary Lead directly implement bounded product-code and test changes
+  within each recorded Workboard bundle; implementation workers are disabled.
 - Do not create planning subagents, problem advisors, or checkpoint reviewers
   during the Core milestones. Review the complete Milestone 2 candidate with a
   fresh independent reviewer.
 - Use exactly two Core milestones.
-- This foundation task creates documents and workflow only; implementation is
-  handed to a later implementer.
+- The foundation established documents and workflow first; current implementation
+  is now performed directly by the primary Lead under bounded Workboard bundles.
 
 ## Execution Plan
 
@@ -326,9 +308,9 @@ Termux qualification. Produce one candidate for independent product review.
 ### Checkpoint Plans
 
 - Plan status: M1-B1 accepted; Milestone 1 remains active.
-- The primary Lead records each next bounded bundle in `WORKBOARD.md`, launches
-  exactly one implementation worker, inspects the actual diff, and reruns the
-  load-bearing validation before acceptance.
+- The primary Lead records each next bounded bundle in `WORKBOARD.md`, implements
+  it directly, inspects the actual diff, and reruns load-bearing validation before
+  acceptance.
 - M1-B9 is accepted at `692cd8b0c9cc4babe273ab9bdfa9d14eabc9db0c`.
 - M1-B10 is the current checkpoint. It adds a bounded Unix/Android process-
   environment capture and pure snapshot-to-B8 composition for `PREFIX`,
@@ -336,9 +318,11 @@ Termux qualification. Produce one candidate for independent product review.
   the selected compatibility directory and certificate fallback paths explicit.
   It must not inspect or select a generation, touch the filesystem in production
   planning, or wire normal `main`.
+- M1-B10 is implemented directly by the primary Lead; no implementation worker
+  is authorized for this or subsequent bundles under the current policy.
 - At every bundle completion the Lead records its own diff/test disposition
-  here. No worker report, planning subagent, or checkpoint reviewer substitutes
-  for that integration decision.
+  here. No external implementation report, planning subagent, or checkpoint
+  reviewer substitutes for that integration decision.
 
 ## Goal Lifts
 
@@ -357,9 +341,6 @@ milestones. It must update this file before expanding `WORKBOARD.md`.
 - Stop if update recovery cannot prove one complete old or new generation.
 - Stop before implementation if the goal run is not using the configured
   primary Lead model and effort and no explicitly authorized equivalent exists.
-- Stop if the current bundle has no available worker after resume and one
-  bounded replacement attempt. Record the current diff and remaining gate; the
-  Lead must not silently become the product-code implementer.
 - Exhausting the current `WORKBOARD.md` bundle is a planning checkpoint, not a
   blocker. If the milestone gate is incomplete, the primary Lead plans and
   records the next bounded bundle itself.
@@ -374,7 +355,6 @@ continues without a routine user pause.
 Resume through the installed `$goal-md` workflow with
 `/goal resume codex-goal.md`; it must resolve to this file on
 `rewrite/rust-core` and run with the primary agent configured as
-`gpt-5.6-sol` / `max`. The primary Lead authors and records the first bounded
-Milestone 1 bundle, then invokes one implementation worker. The legacy branch
-may be inspected by the Lead for behavior discovery but no source file may be
-copied into the rewrite or delegated as migration material.
+`gpt-5.6-sol` / `max`. The primary Lead authors, records, and directly implements
+each bounded bundle. The legacy branch may be inspected by the Lead for behavior
+discovery but no source file may be copied into the rewrite.
