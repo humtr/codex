@@ -44,34 +44,39 @@ impl std::fmt::Display for PassthroughError {
 
 impl std::error::Error for PassthroughError {}
 
-fn check_unsupported_sandbox_val(val: &str) -> Option<&str> {
-    if val == "read-only" {
-        Some("read-only")
-    } else if val == "workspace-write" {
-        Some("workspace-write")
+fn normalize_sandbox_value(raw: &str) -> &str {
+    let trimmed = raw.trim();
+    let unquoted = if trimmed.len() >= 2
+        && ((trimmed.starts_with('"') && trimmed.ends_with('"'))
+            || (trimmed.starts_with('\'') && trimmed.ends_with('\'')))
+    {
+        &trimmed[1..trimmed.len() - 1]
     } else {
-        None
+        trimmed
+    };
+    unquoted.trim()
+}
+
+fn check_unsupported_sandbox_flag_val(raw: &str) -> Option<String> {
+    let val = normalize_sandbox_value(raw);
+    match val {
+        "read-only" | "workspace-write" => Some(val.to_owned()),
+        _ => None,
     }
 }
 
-fn check_unsupported_config_token(token: &str) -> Option<&str> {
-    if let Some((key, raw_val)) = token.split_once('=') {
-        if key == "sandbox_mode" {
-            let val = if (raw_val.starts_with('"') && raw_val.ends_with('"') && raw_val.len() >= 2)
-                || (raw_val.starts_with('\'') && raw_val.ends_with('\'') && raw_val.len() >= 2)
-            {
-                &raw_val[1..raw_val.len() - 1]
-            } else {
-                raw_val
-            };
-            if val == "read-only" {
-                return Some("read-only");
-            } else if val == "workspace-write" {
-                return Some("workspace-write");
-            }
-        }
+fn check_unsupported_config_token(token: &str) -> Option<String> {
+    let token = token.strip_prefix('=').unwrap_or(token);
+    let (key, raw_val) = token.split_once('=')?;
+    if normalize_sandbox_value(key) != "sandbox_mode" {
+        return None;
     }
-    None
+    let val = normalize_sandbox_value(raw_val);
+    if val.is_empty() || val == "danger-full-access" {
+        None
+    } else {
+        Some(val.to_owned())
+    }
 }
 
 /// Plans upstream passthrough arguments for Termux execution.
@@ -115,25 +120,20 @@ where
             if i + 1 < original.len() {
                 i += 1;
                 if let Some(next_str) = original[i].to_str() {
-                    if let Some(unsupported) = check_unsupported_sandbox_val(next_str) {
-                        return Err(PassthroughError::UnsupportedSandboxMode(
-                            unsupported.to_string(),
-                        ));
+                    if let Some(unsupported) = check_unsupported_sandbox_flag_val(next_str) {
+                        return Err(PassthroughError::UnsupportedSandboxMode(unsupported));
                     }
                 }
             }
         } else if let Some(val) = s.strip_prefix("--sandbox=") {
-            if let Some(unsupported) = check_unsupported_sandbox_val(val) {
-                return Err(PassthroughError::UnsupportedSandboxMode(
-                    unsupported.to_string(),
-                ));
+            if let Some(unsupported) = check_unsupported_sandbox_flag_val(val) {
+                return Err(PassthroughError::UnsupportedSandboxMode(unsupported));
             }
         } else if let Some(val) = s.strip_prefix("-s") {
             if !val.is_empty() {
-                if let Some(unsupported) = check_unsupported_sandbox_val(val) {
-                    return Err(PassthroughError::UnsupportedSandboxMode(
-                        unsupported.to_string(),
-                    ));
+                let val = val.strip_prefix('=').unwrap_or(val);
+                if let Some(unsupported) = check_unsupported_sandbox_flag_val(val) {
+                    return Err(PassthroughError::UnsupportedSandboxMode(unsupported));
                 }
             }
         } else if s == "--config" || s == "-c" {
@@ -141,17 +141,19 @@ where
                 i += 1;
                 if let Some(next_str) = original[i].to_str() {
                     if let Some(unsupported) = check_unsupported_config_token(next_str) {
-                        return Err(PassthroughError::UnsupportedSandboxMode(
-                            unsupported.to_string(),
-                        ));
+                        return Err(PassthroughError::UnsupportedSandboxMode(unsupported));
                     }
                 }
             }
         } else if let Some(token) = s.strip_prefix("--config=") {
             if let Some(unsupported) = check_unsupported_config_token(token) {
-                return Err(PassthroughError::UnsupportedSandboxMode(
-                    unsupported.to_string(),
-                ));
+                return Err(PassthroughError::UnsupportedSandboxMode(unsupported));
+            }
+        } else if let Some(token) = s.strip_prefix("-c") {
+            if !token.is_empty() {
+                if let Some(unsupported) = check_unsupported_config_token(token) {
+                    return Err(PassthroughError::UnsupportedSandboxMode(unsupported));
+                }
             }
         }
 
@@ -262,20 +264,50 @@ impl PriorFdState {
     /// - If originally `Present`, `dup2(backup_fd, target_fd)` restores the original open file
     ///   description, `fcntl(target_fd, F_SETFD, flags)` restores descriptor flags, and `close(backup_fd)`
     ///   releases the safe backup descriptor.
-    unsafe fn restore_and_cleanup(&mut self, target_fd: std::os::raw::c_int) {
+    unsafe fn restore_and_cleanup(
+        &mut self,
+        target_fd: std::os::raw::c_int,
+    ) -> std::io::Result<()> {
         match *self {
             PriorFdState::Absent => {
-                let _ = close(target_fd);
+                if close(target_fd) == 0 {
+                    return Ok(());
+                }
+                let err = std::io::Error::last_os_error();
+                if err.raw_os_error() == Some(EBADF) {
+                    Ok(())
+                } else {
+                    Err(err)
+                }
             }
             PriorFdState::Present {
                 ref mut backup_fd,
                 flags,
             } => {
-                if *backup_fd >= 0 {
-                    let _ = dup2(*backup_fd, target_fd);
-                    let _ = fcntl(target_fd, F_SETFD, flags);
-                    let _ = close(*backup_fd);
-                    *backup_fd = -1;
+                if *backup_fd < 0 {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "runtime FD restoration backup is no longer available",
+                    ));
+                }
+
+                let mut first_error = None;
+                if dup2(*backup_fd, target_fd) < 0 {
+                    first_error = Some(std::io::Error::last_os_error());
+                } else if fcntl(target_fd, F_SETFD, flags) < 0 {
+                    first_error = Some(std::io::Error::last_os_error());
+                }
+
+                if close(*backup_fd) < 0 && first_error.is_none() {
+                    first_error = Some(std::io::Error::last_os_error());
+                }
+                // close(2) may have closed the descriptor even when it reports EINTR;
+                // never retry or let Drop close a possibly-reused descriptor number.
+                *backup_fd = -1;
+
+                match first_error {
+                    Some(err) => Err(err),
+                    None => Ok(()),
                 }
             }
         }
@@ -300,11 +332,13 @@ impl FdRestorationGuard {
         })
     }
 
-    unsafe fn restore(&mut self) {
-        if self.armed {
-            self.state.restore_and_cleanup(self.target_fd);
-            self.armed = false;
+    unsafe fn restore(&mut self) -> std::io::Result<()> {
+        if !self.armed {
+            return Ok(());
         }
+        let result = self.state.restore_and_cleanup(self.target_fd);
+        self.armed = false;
+        result
     }
 }
 
@@ -313,7 +347,7 @@ impl Drop for FdRestorationGuard {
     fn drop(&mut self) {
         if self.armed {
             unsafe {
-                self.state.restore_and_cleanup(self.target_fd);
+                let _ = self.state.restore_and_cleanup(self.target_fd);
             }
             self.armed = false;
         }
@@ -376,98 +410,108 @@ where
     C: AsRef<std::path::Path>,
 {
     let res = (|| -> std::io::Result<()> {
-        // Step 1: Capture prior FD 33/34 states with restoration guards BEFORE opening or modifying any FDs.
+        // Capture FD 33 first. If capture of FD 34 fails, restore FD 33 explicitly
+        // so a restoration failure is observable rather than hidden by Drop.
         let mut guard_33 = unsafe { FdRestorationGuard::capture(RESOLVER_FD)? };
-        let mut guard_34 = unsafe { FdRestorationGuard::capture(CONFIG_DIR_FD)? };
-
-        // Step 2: Open resolver file read-only via standard library. Reject directories.
-        let resolver_file = std::fs::File::open(resolver_path.as_ref())?;
-        let res_meta = resolver_file.metadata()?;
-        if res_meta.is_dir() {
-            return Err(std::io::Error::from_raw_os_error(21 /* EISDIR */));
-        }
-
-        // Step 3: Open managed configuration directory read-only via standard library. Reject non-directories.
-        let config_file = std::fs::File::open(config_dir.as_ref())?;
-        let cfg_meta = config_file.metadata()?;
-        if !cfg_meta.is_dir() {
-            return Err(std::io::Error::from_raw_os_error(20 /* ENOTDIR */));
-        }
-
-        // Step 4: Duplicate source descriptors to safe descriptors >= SAFE_MIN_FD (35) with FD_CLOEXEC.
-        // Safety Invariants:
-        // Duplicating opened source descriptors to >= 35 before mapping guarantees that even if
-        // `File::open` allocated FD 33 or 34, mapping 33 and 34 will not overwrite or corrupt source descriptors.
-        use std::os::unix::io::AsRawFd;
-        let safe_res_fd = unsafe { fcntl(resolver_file.as_raw_fd(), F_DUPFD_CLOEXEC, SAFE_MIN_FD) };
-        if safe_res_fd < 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        drop(resolver_file);
-        let mut safe_res = SafeFd(safe_res_fd);
-
-        let safe_cfg_fd = unsafe { fcntl(config_file.as_raw_fd(), F_DUPFD_CLOEXEC, SAFE_MIN_FD) };
-        if safe_cfg_fd < 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        drop(config_file);
-        let mut safe_cfg = SafeFd(safe_cfg_fd);
-
-        // Step 5: Map safe_res to FD 33 and clear FD_CLOEXEC.
-        // Safety Invariants:
-        // `dup2` maps `safe_res.0` onto descriptor 33. `fcntl(33, F_SETFD, 0)` explicitly clears
-        // `FD_CLOEXEC`, guaranteeing that descriptor 33 survives the final execve.
-        if unsafe { dup2(safe_res.0, RESOLVER_FD) } < 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        if unsafe { fcntl(RESOLVER_FD, F_SETFD, 0 as std::os::raw::c_int) } < 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-
-        // Step 6: Map safe_cfg to FD 34 and clear FD_CLOEXEC.
-        // Safety Invariants:
-        // `dup2` maps `safe_cfg.0` onto descriptor 34. `fcntl(34, F_SETFD, 0)` explicitly clears
-        // `FD_CLOEXEC`, guaranteeing that descriptor 34 survives the final execve.
-        if unsafe { dup2(safe_cfg.0, CONFIG_DIR_FD) } < 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        if unsafe { fcntl(CONFIG_DIR_FD, F_SETFD, 0 as std::os::raw::c_int) } < 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-
-        // Step 7: Close safe temporary duplicates so they do not leak into the exec target.
-        // Safety Invariants:
-        // Closing temporary safe duplicates leaves only 33 and 34 plus ordinary caller descriptors.
-        unsafe {
-            close(safe_res.0);
-            safe_res.0 = -1;
-            close(safe_cfg.0);
-            safe_cfg.0 = -1;
-        }
-
-        // Step 8: Build and execute command with planned base environment and exact five environment removals.
-        use std::os::unix::process::CommandExt;
-        let mut cmd = std::process::Command::new(program.as_ref());
-        cmd.args(args);
-        if let Some(plan) = env_plan {
-            for (k, v) in plan.assignments() {
-                cmd.env(k, v);
+        let mut guard_34 = match unsafe { FdRestorationGuard::capture(CONFIG_DIR_FD) } {
+            Ok(guard) => guard,
+            Err(capture_err) => {
+                return match unsafe { guard_33.restore() } {
+                    Ok(()) => Err(capture_err),
+                    Err(restore_err) => Err(restore_err),
+                };
             }
-        }
-        cmd.env_remove("CODEX_MANAGED_BY_NPM")
-            .env_remove("CODEX_MANAGED_BY_BUN")
-            .env_remove("CODEX_MANAGED_PACKAGE_ROOT")
-            .env_remove("LD_PRELOAD")
-            .env_remove("LD_LIBRARY_PATH");
+        };
 
-        let err = cmd.exec();
+        // Once both prior states are captured, keep the operation error separate
+        // from restoration. Every returned setup/exec failure restores 34 then 33
+        // and a restoration failure takes precedence over the original failure.
+        let operation_err = match (|| -> std::io::Result<()> {
+            let resolver_file = std::fs::File::open(resolver_path.as_ref())?;
+            let res_meta = resolver_file.metadata()?;
+            if res_meta.is_dir() {
+                return Err(std::io::Error::from_raw_os_error(21 /* EISDIR */));
+            }
 
-        // Step 9: If cmd.exec() returns, exec failed. Explicitly restore prior FD 33/34 state.
-        unsafe {
-            guard_34.restore();
-            guard_33.restore();
+            let config_file = std::fs::File::open(config_dir.as_ref())?;
+            let cfg_meta = config_file.metadata()?;
+            if !cfg_meta.is_dir() {
+                return Err(std::io::Error::from_raw_os_error(20 /* ENOTDIR */));
+            }
+
+            use std::os::unix::io::AsRawFd;
+            let safe_res_fd =
+                unsafe { fcntl(resolver_file.as_raw_fd(), F_DUPFD_CLOEXEC, SAFE_MIN_FD) };
+            if safe_res_fd < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            drop(resolver_file);
+            let mut safe_res = SafeFd(safe_res_fd);
+
+            let safe_cfg_fd =
+                unsafe { fcntl(config_file.as_raw_fd(), F_DUPFD_CLOEXEC, SAFE_MIN_FD) };
+            if safe_cfg_fd < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            drop(config_file);
+            let mut safe_cfg = SafeFd(safe_cfg_fd);
+
+            if unsafe { dup2(safe_res.0, RESOLVER_FD) } < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            if unsafe { fcntl(RESOLVER_FD, F_SETFD, 0 as std::os::raw::c_int) } < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+
+            if unsafe { dup2(safe_cfg.0, CONFIG_DIR_FD) } < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            if unsafe { fcntl(CONFIG_DIR_FD, F_SETFD, 0 as std::os::raw::c_int) } < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+
+            // Close temporary duplicates before exec. These are test-owned/process-local
+            // descriptors; close errors are still surfaced before attempting exec.
+            let safe_res_fd = safe_res.0;
+            safe_res.0 = -1;
+            if unsafe { close(safe_res_fd) } < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            let safe_cfg_fd = safe_cfg.0;
+            safe_cfg.0 = -1;
+            if unsafe { close(safe_cfg_fd) } < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+
+            use std::os::unix::process::CommandExt;
+            let mut cmd = std::process::Command::new(program.as_ref());
+            cmd.args(args);
+            if let Some(plan) = env_plan {
+                for (k, v) in plan.assignments() {
+                    cmd.env(k, v);
+                }
+            }
+            cmd.env_remove("CODEX_MANAGED_BY_NPM")
+                .env_remove("CODEX_MANAGED_BY_BUN")
+                .env_remove("CODEX_MANAGED_PACKAGE_ROOT")
+                .env_remove("LD_PRELOAD")
+                .env_remove("LD_LIBRARY_PATH");
+
+            Err(cmd.exec())
+        })() {
+            Err(err) => err,
+            Ok(()) => unreachable!("exec never returns on success"),
+        };
+
+        let restore_34 = unsafe { guard_34.restore() };
+        let restore_33 = unsafe { guard_33.restore() };
+        if let Err(err) = restore_34 {
+            return Err(err);
         }
-        Err(err)
+        if let Err(err) = restore_33 {
+            return Err(err);
+        }
+        Err(operation_err)
     })();
 
     match res {
@@ -1376,6 +1420,98 @@ exit 0
                 let err =
                     exec_upstream_with_runtime_fds(shell, args, resolver_path, config_dir_path);
                 panic!("exec_upstream_with_runtime_fds failed to replace process: {err}");
+            }
+            "m1_r1_nonexistent_resolver" => {
+                let resolver_path = std::env::var_os(PROBE_RESOLVER_PATH_ENV)
+                    .expect("PROBE_RESOLVER_PATH_ENV must be set");
+                let config_dir_path = std::env::var_os(PROBE_CONFIG_DIR_PATH_ENV)
+                    .expect("PROBE_CONFIG_DIR_PATH_ENV must be set");
+                unsafe {
+                    close(33);
+                    close(34);
+                }
+                let err = exec_upstream_with_runtime_fds(
+                    OsStr::new("sh"),
+                    &[OsStr::new("-c"), OsStr::new("exit 0")],
+                    resolver_path,
+                    config_dir_path,
+                );
+                assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
+                assert!(unsafe { fcntl(33, F_GETFD) < 0 });
+                assert!(unsafe { fcntl(34, F_GETFD) < 0 });
+                use std::io::Write;
+                let _ = std::io::stdout().write_all(b"M1_R1_NONEXISTENT_RESOLVER_OK\n");
+                let _ = std::io::stdout().flush();
+                std::process::exit(0);
+            }
+            "m1_r1_nonexistent_config" => {
+                let resolver_path = std::env::var_os(PROBE_RESOLVER_PATH_ENV)
+                    .expect("PROBE_RESOLVER_PATH_ENV must be set");
+                let config_dir_path = std::env::var_os(PROBE_CONFIG_DIR_PATH_ENV)
+                    .expect("PROBE_CONFIG_DIR_PATH_ENV must be set");
+                unsafe {
+                    close(33);
+                    close(34);
+                }
+                let err = exec_upstream_with_runtime_fds(
+                    OsStr::new("sh"),
+                    &[OsStr::new("-c"), OsStr::new("exit 0")],
+                    resolver_path,
+                    config_dir_path,
+                );
+                assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
+                assert!(unsafe { fcntl(33, F_GETFD) < 0 });
+                assert!(unsafe { fcntl(34, F_GETFD) < 0 });
+                use std::io::Write;
+                let _ = std::io::stdout().write_all(b"M1_R1_NONEXISTENT_CONFIG_OK\n");
+                let _ = std::io::stdout().flush();
+                std::process::exit(0);
+            }
+            "m1_r1_config_is_file" => {
+                let resolver_path = std::env::var_os(PROBE_RESOLVER_PATH_ENV)
+                    .expect("PROBE_RESOLVER_PATH_ENV must be set");
+                let config_dir_path = std::env::var_os(PROBE_CONFIG_DIR_PATH_ENV)
+                    .expect("PROBE_CONFIG_DIR_PATH_ENV must be set");
+                unsafe {
+                    close(33);
+                    close(34);
+                }
+                let err = exec_upstream_with_runtime_fds(
+                    OsStr::new("sh"),
+                    &[OsStr::new("-c"), OsStr::new("exit 0")],
+                    resolver_path,
+                    config_dir_path,
+                );
+                assert_eq!(err.raw_os_error(), Some(20));
+                assert!(unsafe { fcntl(33, F_GETFD) < 0 });
+                assert!(unsafe { fcntl(34, F_GETFD) < 0 });
+                use std::io::Write;
+                let _ = std::io::stdout().write_all(b"M1_R1_CONFIG_IS_FILE_OK\n");
+                let _ = std::io::stdout().flush();
+                std::process::exit(0);
+            }
+            "m1_r1_resolver_is_dir" => {
+                let resolver_path = std::env::var_os(PROBE_RESOLVER_PATH_ENV)
+                    .expect("PROBE_RESOLVER_PATH_ENV must be set");
+                let config_dir_path = std::env::var_os(PROBE_CONFIG_DIR_PATH_ENV)
+                    .expect("PROBE_CONFIG_DIR_PATH_ENV must be set");
+                unsafe {
+                    close(33);
+                    close(34);
+                }
+                let err = exec_upstream_with_runtime_fds(
+                    OsStr::new("sh"),
+                    &[OsStr::new("-c"), OsStr::new("exit 0")],
+                    resolver_path,
+                    config_dir_path,
+                );
+                assert_eq!(err.raw_os_error(), Some(21));
+                assert!(unsafe { fcntl(33, F_GETFD) < 0 });
+                assert!(unsafe { fcntl(34, F_GETFD) < 0 });
+                use std::io::Write;
+                let _ = std::io::stdout().write_all(b"M1_R1_RESOLVER_IS_DIR_OK\n");
+                let _ = std::io::stdout().flush();
+                std::process::exit(0);
             }
             "failed_exec_restoration_absent" => {
                 let resolver_path = std::env::var_os(PROBE_RESOLVER_PATH_ENV)
@@ -2412,32 +2548,22 @@ UNRELATED_BETA:PRESENT=beta-value with spaces & = symbols\n";
     fn test_exec_upstream_with_runtime_fds_nonexistent_resolver_fails_and_restores() {
         let temp_dir = std::env::temp_dir();
         let pid = std::process::id();
-        let test_root = temp_dir.join(format!("codex-test-m1-b4-no-res-{pid}"));
+        let test_root = temp_dir.join(format!("codex-test-m1-r1-no-res-{pid}"));
         let _ = std::fs::remove_dir_all(&test_root);
-        std::fs::create_dir_all(&test_root).expect("failed to create test root");
-
-        let nonexistent_resolver = test_root.join("nonexistent-resolv.conf");
-        let config_dir = test_root.join("managed-config");
-        std::fs::create_dir_all(&config_dir).expect("create config dir");
-
-        unsafe {
-            close(33);
-            close(34);
-        }
-        assert!(unsafe { fcntl(33, F_GETFD) < 0 });
-        assert!(unsafe { fcntl(34, F_GETFD) < 0 });
-
-        let err = exec_upstream_with_runtime_fds(
-            OsStr::new("sh"),
-            &[OsStr::new("-c"), OsStr::new("exit 0")],
-            &nonexistent_resolver,
-            &config_dir,
+        std::fs::create_dir_all(&test_root).expect("create test root");
+        let resolver = test_root.join("missing-resolv.conf");
+        let config = test_root.join("managed-config");
+        std::fs::create_dir_all(&config).expect("create config dir");
+        let result = run_exec_probe_with_env(
+            "m1_r1_nonexistent_resolver",
+            &[
+                (PROBE_RESOLVER_PATH_ENV, resolver.as_os_str()),
+                (PROBE_CONFIG_DIR_PATH_ENV, config.as_os_str()),
+            ],
         );
-        assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
-
-        assert!(unsafe { fcntl(33, F_GETFD) < 0 });
-        assert!(unsafe { fcntl(34, F_GETFD) < 0 });
-
+        assert_eq!(result.status.code(), Some(0));
+        assert_eq!(result.stdout, b"M1_R1_NONEXISTENT_RESOLVER_OK\n");
+        assert_eq!(result.stderr, b"");
         let _ = std::fs::remove_dir_all(&test_root);
     }
 
@@ -2446,32 +2572,22 @@ UNRELATED_BETA:PRESENT=beta-value with spaces & = symbols\n";
     fn test_exec_upstream_with_runtime_fds_nonexistent_config_dir_fails_and_restores() {
         let temp_dir = std::env::temp_dir();
         let pid = std::process::id();
-        let test_root = temp_dir.join(format!("codex-test-m1-b4-no-cfg-{pid}"));
+        let test_root = temp_dir.join(format!("codex-test-m1-r1-no-cfg-{pid}"));
         let _ = std::fs::remove_dir_all(&test_root);
-        std::fs::create_dir_all(&test_root).expect("failed to create test root");
-
+        std::fs::create_dir_all(&test_root).expect("create test root");
         let resolver = test_root.join("resolv.conf");
         std::fs::write(&resolver, b"nameserver 127.0.0.1\n").expect("write resolver");
-        let nonexistent_config = test_root.join("nonexistent-config-dir");
-
-        unsafe {
-            close(33);
-            close(34);
-        }
-        assert!(unsafe { fcntl(33, F_GETFD) < 0 });
-        assert!(unsafe { fcntl(34, F_GETFD) < 0 });
-
-        let err = exec_upstream_with_runtime_fds(
-            OsStr::new("sh"),
-            &[OsStr::new("-c"), OsStr::new("exit 0")],
-            &resolver,
-            &nonexistent_config,
+        let config = test_root.join("missing-config");
+        let result = run_exec_probe_with_env(
+            "m1_r1_nonexistent_config",
+            &[
+                (PROBE_RESOLVER_PATH_ENV, resolver.as_os_str()),
+                (PROBE_CONFIG_DIR_PATH_ENV, config.as_os_str()),
+            ],
         );
-        assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
-
-        assert!(unsafe { fcntl(33, F_GETFD) < 0 });
-        assert!(unsafe { fcntl(34, F_GETFD) < 0 });
-
+        assert_eq!(result.status.code(), Some(0));
+        assert_eq!(result.stdout, b"M1_R1_NONEXISTENT_CONFIG_OK\n");
+        assert_eq!(result.stderr, b"");
         let _ = std::fs::remove_dir_all(&test_root);
     }
 
@@ -2480,33 +2596,23 @@ UNRELATED_BETA:PRESENT=beta-value with spaces & = symbols\n";
     fn test_exec_upstream_with_runtime_fds_config_dir_is_file_fails_and_restores() {
         let temp_dir = std::env::temp_dir();
         let pid = std::process::id();
-        let test_root = temp_dir.join(format!("codex-test-m1-b4-cfg-file-{pid}"));
+        let test_root = temp_dir.join(format!("codex-test-m1-r1-cfg-file-{pid}"));
         let _ = std::fs::remove_dir_all(&test_root);
-        std::fs::create_dir_all(&test_root).expect("failed to create test root");
-
+        std::fs::create_dir_all(&test_root).expect("create test root");
         let resolver = test_root.join("resolv.conf");
+        let config = test_root.join("config-file");
         std::fs::write(&resolver, b"nameserver 127.0.0.1\n").expect("write resolver");
-        let file_as_config = test_root.join("config-file.txt");
-        std::fs::write(&file_as_config, b"not a directory").expect("write file");
-
-        unsafe {
-            close(33);
-            close(34);
-        }
-        assert!(unsafe { fcntl(33, F_GETFD) < 0 });
-        assert!(unsafe { fcntl(34, F_GETFD) < 0 });
-
-        let err = exec_upstream_with_runtime_fds(
-            OsStr::new("sh"),
-            &[OsStr::new("-c"), OsStr::new("exit 0")],
-            &resolver,
-            &file_as_config,
+        std::fs::write(&config, b"not a directory").expect("write config file");
+        let result = run_exec_probe_with_env(
+            "m1_r1_config_is_file",
+            &[
+                (PROBE_RESOLVER_PATH_ENV, resolver.as_os_str()),
+                (PROBE_CONFIG_DIR_PATH_ENV, config.as_os_str()),
+            ],
         );
-        assert_eq!(err.raw_os_error(), Some(20 /* ENOTDIR */));
-
-        assert!(unsafe { fcntl(33, F_GETFD) < 0 });
-        assert!(unsafe { fcntl(34, F_GETFD) < 0 });
-
+        assert_eq!(result.status.code(), Some(0));
+        assert_eq!(result.stdout, b"M1_R1_CONFIG_IS_FILE_OK\n");
+        assert_eq!(result.stderr, b"");
         let _ = std::fs::remove_dir_all(&test_root);
     }
 
@@ -2515,33 +2621,23 @@ UNRELATED_BETA:PRESENT=beta-value with spaces & = symbols\n";
     fn test_exec_upstream_with_runtime_fds_resolver_is_dir_fails_and_restores() {
         let temp_dir = std::env::temp_dir();
         let pid = std::process::id();
-        let test_root = temp_dir.join(format!("codex-test-m1-b4-res-dir-{pid}"));
+        let test_root = temp_dir.join(format!("codex-test-m1-r1-res-dir-{pid}"));
         let _ = std::fs::remove_dir_all(&test_root);
-        std::fs::create_dir_all(&test_root).expect("failed to create test root");
-
-        let dir_as_resolver = test_root.join("resolv-dir");
-        std::fs::create_dir_all(&dir_as_resolver).expect("create dir");
-        let config_dir = test_root.join("managed-config");
-        std::fs::create_dir_all(&config_dir).expect("create config dir");
-
-        unsafe {
-            close(33);
-            close(34);
-        }
-        assert!(unsafe { fcntl(33, F_GETFD) < 0 });
-        assert!(unsafe { fcntl(34, F_GETFD) < 0 });
-
-        let err = exec_upstream_with_runtime_fds(
-            OsStr::new("sh"),
-            &[OsStr::new("-c"), OsStr::new("exit 0")],
-            &dir_as_resolver,
-            &config_dir,
+        std::fs::create_dir_all(&test_root).expect("create test root");
+        let resolver = test_root.join("resolver-dir");
+        let config = test_root.join("managed-config");
+        std::fs::create_dir_all(&resolver).expect("create resolver dir");
+        std::fs::create_dir_all(&config).expect("create config dir");
+        let result = run_exec_probe_with_env(
+            "m1_r1_resolver_is_dir",
+            &[
+                (PROBE_RESOLVER_PATH_ENV, resolver.as_os_str()),
+                (PROBE_CONFIG_DIR_PATH_ENV, config.as_os_str()),
+            ],
         );
-        assert_eq!(err.raw_os_error(), Some(21 /* EISDIR */));
-
-        assert!(unsafe { fcntl(33, F_GETFD) < 0 });
-        assert!(unsafe { fcntl(34, F_GETFD) < 0 });
-
+        assert_eq!(result.status.code(), Some(0));
+        assert_eq!(result.stdout, b"M1_R1_RESOLVER_IS_DIR_OK\n");
+        assert_eq!(result.stderr, b"");
         let _ = std::fs::remove_dir_all(&test_root);
     }
 
@@ -3065,57 +3161,29 @@ UNRELATED_BETA:PRESENT=beta-value with spaces & = symbols\n";
     }
 
     #[test]
-    fn test_passthrough_separate_option_consumption_and_unrecognized_forms_regression() {
+    fn test_passthrough_separate_option_consumption_and_unrelated_forms_regression() {
         let cases: Vec<Vec<&str>> = vec![
-            // Option consumes next token so trailing mode token is not reinterpreted
             vec!["--config", "--sandbox", "read-only"],
             vec!["-s", "--sandbox", "workspace-write"],
             vec!["-c", "-s", "read-only"],
             vec!["--sandbox", "-c", "sandbox_mode=read-only"],
             vec!["-s", "--config", "sandbox_mode=workspace-write"],
-            // Unrelated whitespace-key and prefix config keys remain accepted
             vec!["-c", "sandbox_mode_extra=read-only"],
             vec!["-c", "sandbox_mode_custom=workspace-write"],
             vec!["--config", "sandbox_mode_extra=read-only"],
             vec!["--config=sandbox_mode_extra=read-only"],
             vec!["--config=sandbox_mode_custom=workspace-write"],
-            vec!["-c", "sandbox_mode =read-only"],
-            vec!["-c", " sandbox_mode=read-only"],
-            // Quotes around the entire config token are not stripped
-            vec!["--config=\"sandbox_mode=read-only\""],
-            vec!["--config='sandbox_mode=workspace-write'"],
-            // Multiple quotes around config value are not stripped
-            vec!["-c", "sandbox_mode=\"\"read-only\"\""],
-            // Attached -c is not recognized as config policy form
-            vec!["-csandbox_mode=read-only"],
-            vec!["-csandbox_mode=workspace-write"],
-            // Flag values with literal shell quotes are not stripped/recognized as policy
-            vec!["-s", "\"read-only\""],
-            vec!["-s", "'workspace-write'"],
-            vec!["--sandbox", "\"read-only\""],
-            vec!["--sandbox", "'workspace-write'"],
-            vec!["--sandbox=\"read-only\""],
-            vec!["--sandbox='workspace-write'"],
-            vec!["-s\"read-only\""],
-            vec!["-s'workspace-write'"],
         ];
-
         for case in cases {
             let res = plan_passthrough_args(case.clone())
                 .unwrap_or_else(|e| panic!("expected {:?} to be accepted, got error: {e}", case));
-            assert_eq!(res.len(), case.len() + 2);
-            assert_eq!(res[0], OsStr::new("-c"));
-            assert_eq!(res[1], OsStr::new("sandbox_mode=\"danger-full-access\""));
-            for (out_elem, in_elem) in res[2..].iter().zip(case.iter()) {
-                assert_eq!(out_elem, OsStr::new(in_elem));
-            }
+            assert_eq!(&res[2..], case.as_slice());
         }
 
         #[cfg(unix)]
         {
             use std::os::unix::ffi::OsStrExt;
             let non_utf8 = OsStr::from_bytes(&[0xff, 0xfe, 0x80, 0x7f]);
-            // -s consumes non_utf8, so "read-only" at pos 2 is not treated as -s's value
             let raw_args = vec![
                 OsString::from("-s"),
                 non_utf8.to_os_string(),
@@ -3123,12 +3191,98 @@ UNRELATED_BETA:PRESENT=beta-value with spaces & = symbols\n";
             ];
             let res = plan_passthrough_args(raw_args.clone())
                 .expect("non-utf8 option value consumption should succeed");
-            assert_eq!(res[0], OsStr::new("-c"));
-            assert_eq!(res[1], OsStr::new("sandbox_mode=\"danger-full-access\""));
-            assert_eq!(res[2], OsStr::new("-s"));
             assert_eq!(res[3].as_bytes(), &[0xff, 0xfe, 0x80, 0x7f]);
             assert_eq!(res[4], OsStr::new("read-only"));
         }
+    }
+
+    #[test]
+    fn test_m1_r1_sandbox_config_whitespace_attached_and_unknown_fail_closed() {
+        let cases: Vec<(Vec<&str>, &str)> = vec![
+            (vec!["-c", "sandbox_mode =read-only"], "read-only"),
+            (
+                vec!["-c", " sandbox_mode=workspace-write"],
+                "workspace-write",
+            ),
+            (vec!["-c", " sandbox_mode = \"read-only\" "], "read-only"),
+            (vec!["-csandbox_mode=read-only"], "read-only"),
+            (
+                vec!["-csandbox_mode = 'workspace-write'"],
+                "workspace-write",
+            ),
+            (
+                vec!["--config", "sandbox_mode = \"read-only\""],
+                "read-only",
+            ),
+            (
+                vec!["--config=sandbox_mode = 'workspace-write'"],
+                "workspace-write",
+            ),
+            (
+                vec!["-c", "sandbox_mode=future-linux-sandbox"],
+                "future-linux-sandbox",
+            ),
+            (vec!["--sandbox", "\"read-only\""], "read-only"),
+            (vec!["--sandbox='workspace-write'"], "workspace-write"),
+            (vec!["-s=read-only"], "read-only"),
+            (vec!["-s='workspace-write'"], "workspace-write"),
+            (vec!["-c=sandbox_mode=read-only"], "read-only"),
+            (vec!["-c", "\"sandbox_mode\"=\"read-only\""], "read-only"),
+            (
+                vec!["-c", "'sandbox_mode'='workspace-write'"],
+                "workspace-write",
+            ),
+        ];
+        for (args, expected) in cases {
+            assert_eq!(
+                plan_passthrough_args(args),
+                Err(PassthroughError::UnsupportedSandboxMode(
+                    expected.to_string()
+                ))
+            );
+        }
+    }
+
+    #[test]
+    fn test_m1_r1_sandbox_danger_full_access_normalizes_without_rewriting_user_argv() {
+        let cases: Vec<Vec<&str>> = vec![
+            vec!["-c", " sandbox_mode = \"danger-full-access\" "],
+            vec!["-csandbox_mode=danger-full-access"],
+            vec!["-c=sandbox_mode=danger-full-access"],
+            vec!["--config=sandbox_mode = 'danger-full-access'"],
+            vec!["-s=danger-full-access"],
+            vec!["--sandbox", "\"danger-full-access\""],
+        ];
+        for case in cases {
+            let planned = plan_passthrough_args(case.clone()).expect("supported sandbox mode");
+            assert_eq!(planned[0], OsStr::new("-c"));
+            assert_eq!(
+                planned[1],
+                OsStr::new("sandbox_mode=\"danger-full-access\"")
+            );
+            for (actual, original) in planned[2..].iter().zip(case.iter()) {
+                assert_eq!(actual, OsStr::new(original));
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_r1_fd_restore_reports_syscall_failure() {
+        use std::os::unix::io::AsRawFd;
+        let devnull = std::fs::File::open("/dev/null").expect("open /dev/null");
+        let target_fd = unsafe { fcntl(devnull.as_raw_fd(), F_DUPFD_CLOEXEC, 100) };
+        assert!(target_fd >= 100);
+        let mut state = unsafe { PriorFdState::capture(target_fd) }.expect("capture high fd");
+        let backup_fd = match &state {
+            PriorFdState::Present { backup_fd, .. } => *backup_fd,
+            PriorFdState::Absent => panic!("high target fd unexpectedly absent"),
+        };
+        assert_eq!(unsafe { close(backup_fd) }, 0);
+        let err = unsafe { state.restore_and_cleanup(target_fd) }
+            .expect_err("closed backup must make restoration observable");
+        assert_eq!(err.raw_os_error(), Some(EBADF));
+        let _ = unsafe { close(target_fd) };
     }
 
     #[cfg(unix)]
