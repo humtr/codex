@@ -1672,7 +1672,7 @@ mod m2_generation_state {
         Ok(())
     }
 
-    fn validate_generation_identity(
+    pub(super) fn validate_generation_identity(
         value: &str,
         field: &'static str,
     ) -> Result<(), StateFormatError> {
@@ -2210,6 +2210,8 @@ enum LocalProductError {
         source: std::io::Error,
     },
     Descriptor(&'static str),
+    UnsafeSource(&'static str),
+    GenerationCollision,
     Manifest(GenerationManifestError),
     Runtime(RuntimeAssetError),
     Manager(ManagerArtifactError),
@@ -2238,6 +2240,10 @@ impl std::fmt::Display for LocalProductError {
                 write!(f, "{operation} failed: {source}")
             }
             LocalProductError::Descriptor(message) => f.write_str(message),
+            LocalProductError::UnsafeSource(message) => f.write_str(message),
+            LocalProductError::GenerationCollision => {
+                f.write_str("generation id is already present in the immutable generation root")
+            }
             LocalProductError::Manifest(err) => err.fmt(f),
             LocalProductError::Runtime(err) => err.fmt(f),
             LocalProductError::Manager(err) => err.fmt(f),
@@ -2273,8 +2279,14 @@ fn required_absolute_env_path(name: &'static str) -> Result<std::path::PathBuf, 
 }
 
 #[cfg(unix)]
+fn local_generation_root_from_environment() -> Result<std::path::PathBuf, LocalProductError> {
+    Ok(required_absolute_env_path("HOME")?.join(".local/lib/codex/core/generations"))
+}
+
+#[cfg(unix)]
 #[derive(Debug, Clone)]
 struct LoadedLocalGeneration {
+    generation_id: String,
     manifest: GenerationManifest,
     doctor_capability: UpstreamDoctorCapability,
     runtime_path: std::path::PathBuf,
@@ -2332,6 +2344,9 @@ fn load_local_generation(
         ));
     }
 
+    let generation_id = descriptor_field(lines.next(), "generation_id")?;
+    m2_generation_state::validate_generation_identity(generation_id, "generation_id")
+        .map_err(LocalProductError::StateFormat)?;
     let upstream_package_identity = descriptor_field(lines.next(), "upstream_package_identity")?;
     let upstream_package_version = descriptor_field(lines.next(), "upstream_package_version")?;
     let source_artifact_digest = descriptor_field(lines.next(), "source_artifact_digest")?;
@@ -2451,6 +2466,7 @@ fn load_local_generation(
     }
 
     Ok(LoadedLocalGeneration {
+        generation_id: generation_id.to_owned(),
         manifest,
         doctor_capability,
         runtime_path,
@@ -2458,6 +2474,183 @@ fn load_local_generation(
         manager_path,
         helper_paths,
     })
+}
+
+#[cfg(unix)]
+static LOCAL_STAGING_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+#[cfg(unix)]
+fn copy_local_regular_file(
+    source: &std::path::Path,
+    destination: &std::path::Path,
+    label: &'static str,
+) -> Result<(), LocalProductError> {
+    let metadata = std::fs::symlink_metadata(source).map_err(|source| LocalProductError::Io {
+        operation: "inspect local generation source",
+        source,
+    })?;
+    if !metadata.file_type().is_file() {
+        return Err(LocalProductError::UnsafeSource(label));
+    }
+    std::fs::copy(source, destination).map_err(|source| LocalProductError::Io {
+        operation: "copy local generation file",
+        source,
+    })?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn copy_local_directory_tree(
+    source: &std::path::Path,
+    destination: &std::path::Path,
+) -> Result<(), LocalProductError> {
+    let metadata = std::fs::symlink_metadata(source).map_err(|source| LocalProductError::Io {
+        operation: "inspect local generation directory",
+        source,
+    })?;
+    if !metadata.file_type().is_dir() {
+        return Err(LocalProductError::UnsafeSource(
+            "local generation directory is not a real directory",
+        ));
+    }
+    std::fs::create_dir(destination).map_err(|source| LocalProductError::Io {
+        operation: "create staged generation directory",
+        source,
+    })?;
+    for entry in std::fs::read_dir(source).map_err(|source| LocalProductError::Io {
+        operation: "read local generation directory",
+        source,
+    })? {
+        let entry = entry.map_err(|source| LocalProductError::Io {
+            operation: "read local generation directory entry",
+            source,
+        })?;
+        let file_type = entry.file_type().map_err(|source| LocalProductError::Io {
+            operation: "inspect local generation directory entry",
+            source,
+        })?;
+        let target = destination.join(entry.file_name());
+        if file_type.is_dir() {
+            copy_local_directory_tree(&entry.path(), &target)?;
+        } else if file_type.is_file() {
+            copy_local_regular_file(
+                &entry.path(),
+                &target,
+                "local generation compatibility tree contains a non-regular file",
+            )?;
+        } else {
+            return Err(LocalProductError::UnsafeSource(
+                "local generation compatibility tree contains a symlink or special file",
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn generation_path_exists(path: &std::path::Path) -> Result<bool, LocalProductError> {
+    match std::fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(source) => Err(LocalProductError::Io {
+            operation: "inspect immutable generation path",
+            source,
+        }),
+    }
+}
+
+#[cfg(unix)]
+fn stage_local_generation(
+    source_dir: &std::path::Path,
+    generation_root: &std::path::Path,
+) -> Result<String, LocalProductError> {
+    let source_metadata =
+        std::fs::symlink_metadata(source_dir).map_err(|source| LocalProductError::Io {
+            operation: "inspect local generation source root",
+            source,
+        })?;
+    if !source_metadata.file_type().is_dir() {
+        return Err(LocalProductError::UnsafeSource(
+            "local generation source must be a real directory",
+        ));
+    }
+    let root_metadata =
+        std::fs::metadata(generation_root).map_err(|source| LocalProductError::Io {
+            operation: "inspect immutable generation root",
+            source,
+        })?;
+    if !root_metadata.is_dir() {
+        return Err(LocalProductError::UnsafeSource(
+            "immutable generation root is not a directory",
+        ));
+    }
+
+    let source = load_local_generation(source_dir)?;
+    let final_path = generation_root.join(&source.generation_id);
+    if generation_path_exists(&final_path)? {
+        return Err(LocalProductError::GenerationCollision);
+    }
+    let sequence = LOCAL_STAGING_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let candidate = generation_root.join(format!(".candidate-{}-{sequence}", std::process::id()));
+    std::fs::create_dir(&candidate).map_err(|source| LocalProductError::Io {
+        operation: "create private generation candidate",
+        source,
+    })?;
+
+    let result = (|| {
+        copy_local_regular_file(
+            &source_dir.join("generation.meta"),
+            &candidate.join("generation.meta"),
+            "generation descriptor must be a regular file",
+        )?;
+        copy_local_regular_file(
+            &source.runtime_path,
+            &candidate.join("runtime"),
+            "runtime must be a regular file",
+        )?;
+        copy_local_directory_tree(&source.compatibility_dir, &candidate.join("compat"))?;
+        if let Some(manager) = source.manager_path.as_ref() {
+            copy_local_regular_file(
+                manager,
+                &candidate.join("manager"),
+                "Manager must be a regular file",
+            )?;
+        }
+        if !source.helper_paths.is_empty() {
+            std::fs::create_dir(candidate.join("helpers")).map_err(|source| {
+                LocalProductError::Io {
+                    operation: "create staged helper directory",
+                    source,
+                }
+            })?;
+            for (index, helper) in source.helper_paths.iter().enumerate() {
+                copy_local_regular_file(
+                    helper,
+                    &candidate.join("helpers").join(index.to_string()),
+                    "helper must be a regular file",
+                )?;
+            }
+        }
+        let copied = load_local_generation(&candidate)?;
+        if copied.generation_id != source.generation_id {
+            return Err(LocalProductError::Descriptor(
+                "copied generation id changed during staging",
+            ));
+        }
+        if generation_path_exists(&final_path)? {
+            return Err(LocalProductError::GenerationCollision);
+        }
+        std::fs::rename(&candidate, &final_path).map_err(|source| LocalProductError::Io {
+            operation: "publish immutable local generation",
+            source,
+        })?;
+        Ok(source.generation_id)
+    })();
+
+    if result.is_err() {
+        let _ = std::fs::remove_dir_all(&candidate);
+    }
+    result
 }
 
 #[cfg(unix)]
@@ -2469,7 +2662,13 @@ fn load_activated_generation(
     let state = m2_generation_state::recover_activation_state(&state_paths)
         .map_err(LocalProductError::State)?
         .ok_or(LocalProductError::NoCurrentGeneration)?;
-    load_local_generation(&roots.generation_root.join(state.current))
+    let loaded = load_local_generation(&roots.generation_root.join(&state.current))?;
+    if loaded.generation_id != state.current {
+        return Err(LocalProductError::Descriptor(
+            "activated generation descriptor id does not match current",
+        ));
+    }
+    Ok(loaded)
 }
 
 #[cfg(unix)]
@@ -2550,6 +2749,36 @@ fn doctor_exit_code(class: DoctorExitClass) -> i32 {
 }
 
 #[cfg(unix)]
+fn run_local_update(args: Vec<OsString>) -> i32 {
+    if args.len() != 2 || args[0] != OsStr::new("--local") || args[1].is_empty() {
+        eprintln!("usage: codex update --local <directory>");
+        return 2;
+    }
+    let generation_root = match local_generation_root_from_environment() {
+        Ok(path) => path,
+        Err(err) => {
+            eprintln!("codex update: {err}");
+            return 1;
+        }
+    };
+    if let Err(err) = std::fs::create_dir_all(&generation_root) {
+        eprintln!("codex update: create immutable generation root failed: {err}");
+        return 1;
+    }
+    let source = std::path::PathBuf::from(&args[1]);
+    match stage_local_generation(&source, &generation_root) {
+        Ok(generation_id) => {
+            println!("staged local generation {generation_id}");
+            0
+        }
+        Err(err) => {
+            eprintln!("codex update: {err}");
+            1
+        }
+    }
+}
+
+#[cfg(unix)]
 fn run_public_main<I, S>(args: I) -> i32
 where
     I: IntoIterator<Item = S>,
@@ -2563,9 +2792,7 @@ where
         }
     };
     if let PublicDispatchRoute::Update(args) = route {
-        let _ = args;
-        eprintln!("codex update: local release staging is not implemented yet");
-        return 2;
+        return run_local_update(args);
     }
     let roots = match LocalCoreRoots::from_environment() {
         Ok(roots) => roots,
@@ -3571,6 +3798,7 @@ exit 73
         let descriptor = format!(
             concat!(
                 "codex-local-generation-v1\n",
+                "generation_id\t{}\n",
                 "upstream_package_identity\t@openai/codex\n",
                 "upstream_package_version\t9.9.9\n",
                 "source_artifact_digest\tsource-digest\n",
@@ -3588,6 +3816,7 @@ exit 73
                 "upstream_doctor\t{}\n",
                 "helper_count\t0\n",
             ),
+            generation_id,
             std::env::consts::OS,
             std::env::consts::ARCH,
             if manager { "manager-digest" } else { "-" },
@@ -3800,6 +4029,263 @@ exit 73
     fn test_m2_b2_update_and_invalid_sandbox_need_no_generation_loader() {
         assert_eq!(run_public_main([OsString::from("update")]), 2);
         assert_eq!(run_public_main([OsString::from("--sandbox=read-only")]), 2);
+    }
+
+    #[cfg(unix)]
+    fn b3_candidate_entries(generation_root: &std::path::Path) -> Vec<std::ffi::OsString> {
+        let mut entries = Vec::new();
+        for entry in std::fs::read_dir(generation_root).unwrap() {
+            let entry = entry.unwrap();
+            if entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".candidate-")
+            {
+                entries.push(entry.file_name());
+            }
+        }
+        entries
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b3_stages_complete_inactive_generation_and_preserves_active_state() {
+        let (target_root, target) = b2_test_roots("b3-target");
+        b2_write_generation(&target, "active", false, "unsupported");
+        b2_activate(&target, "active");
+        let state_paths = CoreStatePaths::new(&target.state_root).unwrap();
+        let state_before = std::fs::read(&state_paths.activation_state).unwrap();
+
+        let (source_root, source) = b2_test_roots("b3-source");
+        let source_generation = b2_write_generation(&source, "next", false, "supported");
+        let nested = source_generation.join("compat/nested");
+        std::fs::create_dir(&nested).unwrap();
+        std::fs::write(nested.join("asset.txt"), b"compat-asset").unwrap();
+        std::fs::write(source_generation.join("ignored-source-file"), b"ignore-me").unwrap();
+
+        assert_eq!(
+            stage_local_generation(&source_generation, &target.generation_root).unwrap(),
+            "next"
+        );
+        assert_eq!(
+            std::fs::read(&state_paths.activation_state).unwrap(),
+            state_before
+        );
+        assert_eq!(
+            load_activated_generation(&target).unwrap().generation_id,
+            "active"
+        );
+        let staged = target.generation_root.join("next");
+        assert_eq!(
+            load_local_generation(&staged).unwrap().generation_id,
+            "next"
+        );
+        assert_eq!(
+            std::fs::read(staged.join("compat/nested/asset.txt")).unwrap(),
+            b"compat-asset"
+        );
+        assert!(!staged.join("ignored-source-file").exists());
+        assert!(b3_candidate_entries(&target.generation_root).is_empty());
+
+        let _ = std::fs::remove_dir_all(target_root);
+        let _ = std::fs::remove_dir_all(source_root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b3_stages_optional_manager_and_declared_helper_only() {
+        let (target_root, target) = b2_test_roots("b3-target-manager");
+        let (source_root, source) = b2_test_roots("b3-source-manager");
+        let source_generation = b2_write_generation(&source, "with-manager", true, "unsupported");
+        let descriptor_path = source_generation.join("generation.meta");
+        let descriptor = std::fs::read_to_string(&descriptor_path).unwrap().replace(
+            "helper_count\t0\n",
+            "helper_count\t1\nhelper\thelper-a\thelper-digest\n",
+        );
+        std::fs::write(&descriptor_path, descriptor).unwrap();
+        std::fs::create_dir(source_generation.join("helpers")).unwrap();
+        std::fs::write(source_generation.join("helpers/0"), b"helper-content").unwrap();
+        std::fs::write(source_generation.join("helpers/unlisted"), b"not-declared").unwrap();
+
+        stage_local_generation(&source_generation, &target.generation_root).unwrap();
+        let staged = target.generation_root.join("with-manager");
+        let loaded = load_local_generation(&staged).unwrap();
+        assert_eq!(loaded.manager_path, Some(staged.join("manager")));
+        assert_eq!(loaded.helper_paths, vec![staged.join("helpers/0")]);
+        assert_eq!(
+            std::fs::read(staged.join("helpers/0")).unwrap(),
+            b"helper-content"
+        );
+        assert!(!staged.join("helpers/unlisted").exists());
+
+        let _ = std::fs::remove_dir_all(target_root);
+        let _ = std::fs::remove_dir_all(source_root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b3_rejects_malformed_descriptor_without_candidate_residue() {
+        let (target_root, target) = b2_test_roots("b3-target-malformed");
+        let (source_root, source) = b2_test_roots("b3-source-malformed");
+        let source_generation = source.generation_root.join("broken");
+        std::fs::create_dir(&source_generation).unwrap();
+        std::fs::write(source_generation.join("generation.meta"), b"broken\n").unwrap();
+
+        assert!(matches!(
+            stage_local_generation(&source_generation, &target.generation_root),
+            Err(LocalProductError::Descriptor(
+                "generation descriptor format is unsupported"
+            ))
+        ));
+        assert!(!target.generation_root.join("broken").exists());
+        assert!(b3_candidate_entries(&target.generation_root).is_empty());
+
+        let _ = std::fs::remove_dir_all(target_root);
+        let _ = std::fs::remove_dir_all(source_root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b3_rejects_symlink_content_and_cleans_private_candidate() {
+        use std::os::unix::fs::symlink;
+        let (target_root, target) = b2_test_roots("b3-target-symlink");
+        let (source_root, source) = b2_test_roots("b3-source-symlink");
+        let source_generation = b2_write_generation(&source, "unsafe", false, "unsupported");
+        let outside = source_root.join("outside-secret");
+        std::fs::write(&outside, b"must-not-copy").unwrap();
+        symlink(&outside, source_generation.join("compat/link")).unwrap();
+
+        assert!(matches!(
+            stage_local_generation(&source_generation, &target.generation_root),
+            Err(LocalProductError::UnsafeSource(
+                "local generation compatibility tree contains a symlink or special file"
+            ))
+        ));
+        assert!(!target.generation_root.join("unsafe").exists());
+        assert!(b3_candidate_entries(&target.generation_root).is_empty());
+
+        let _ = std::fs::remove_dir_all(target_root);
+        let _ = std::fs::remove_dir_all(source_root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b3_final_collision_fails_without_overwrite() {
+        let (target_root, target) = b2_test_roots("b3-target-collision");
+        let (source_root, source) = b2_test_roots("b3-source-collision");
+        let source_generation = b2_write_generation(&source, "same", false, "unsupported");
+        let final_path = target.generation_root.join("same");
+        std::fs::create_dir(&final_path).unwrap();
+        std::fs::write(final_path.join("sentinel"), b"keep").unwrap();
+
+        assert!(matches!(
+            stage_local_generation(&source_generation, &target.generation_root),
+            Err(LocalProductError::GenerationCollision)
+        ));
+        assert_eq!(std::fs::read(final_path.join("sentinel")).unwrap(), b"keep");
+        assert!(b3_candidate_entries(&target.generation_root).is_empty());
+
+        let _ = std::fs::remove_dir_all(target_root);
+        let _ = std::fs::remove_dir_all(source_root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b3_descriptor_generation_id_is_single_component_and_binds_current() {
+        let (root, roots) = b2_test_roots("b3-id");
+        let generation_dir = b2_write_generation(&roots, "good", false, "unsupported");
+        let descriptor_path = generation_dir.join("generation.meta");
+        let original = std::fs::read_to_string(&descriptor_path).unwrap();
+        std::fs::write(
+            &descriptor_path,
+            original.replace("generation_id\tgood\n", "generation_id\t../escape\n"),
+        )
+        .unwrap();
+        assert!(matches!(
+            load_local_generation(&generation_dir),
+            Err(LocalProductError::StateFormat(
+                StateFormatError::IdentityControl("generation_id")
+            ))
+        ));
+
+        std::fs::write(
+            &descriptor_path,
+            original.replace("generation_id\tgood\n", "generation_id\tother\n"),
+        )
+        .unwrap();
+        b2_activate(&roots, "good");
+        assert!(matches!(
+            load_activated_generation(&roots),
+            Err(LocalProductError::Descriptor(
+                "activated generation descriptor id does not match current"
+            ))
+        ));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    const UPDATE_PROBE_ROLE: &str = "CODEX_R2_UPDATE_PROBE";
+    #[cfg(unix)]
+    const UPDATE_PROBE_SOURCE: &str = "CODEX_R2_UPDATE_SOURCE";
+
+    #[cfg(unix)]
+    #[test]
+    fn public_update_probe() {
+        if std::env::var(UPDATE_PROBE_ROLE).as_deref() != Ok("1") {
+            return;
+        }
+        let source = std::env::var_os(UPDATE_PROBE_SOURCE).unwrap();
+        let code = run_public_main([OsString::from("update"), OsString::from("--local"), source]);
+        use std::io::Write;
+        std::io::stdout().flush().unwrap();
+        std::io::stderr().flush().unwrap();
+        std::process::exit(code);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b3_public_update_local_stages_without_activation_or_prefix() {
+        let root = temp_root("b3-public-update");
+        let home = root.join("home");
+        let generation_root = home.join(".local/lib/codex/core/generations");
+
+        let source_home = root.join("source-home");
+        let source_roots = LocalCoreRoots {
+            generation_root: source_home.join("generations"),
+            state_root: source_home.join("state"),
+            config_dir: source_home.join("state/config"),
+            resolver_path: source_home.join("resolv.conf"),
+            cert_file: source_home.join("cert.pem"),
+            cert_dir: source_home.join("certs"),
+        };
+        std::fs::create_dir_all(&source_roots.generation_root).unwrap();
+        let source_generation =
+            b2_write_generation(&source_roots, "public-next", false, "unsupported");
+
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .arg("tests::public_update_probe")
+            .arg("--exact")
+            .env(UPDATE_PROBE_ROLE, "1")
+            .env(UPDATE_PROBE_SOURCE, &source_generation)
+            .env("HOME", &home)
+            .env_remove("PREFIX")
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "stdout={:?} stderr={:?}",
+            output.stdout,
+            output.stderr
+        );
+        assert!(generation_root
+            .join("public-next/generation.meta")
+            .is_file());
+        assert!(!home
+            .join(".local/share/codex/core/activation-state")
+            .exists());
+
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[cfg(unix)]
