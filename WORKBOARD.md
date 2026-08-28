@@ -29,75 +29,63 @@ or mutation of the installed Codex product.
 
 ## Selected next action
 
-### Bundle M1-B6 — explicit Termux sandbox policy planner
+### Bundle M1-B7 — explicit-input passthrough launch composition
 
-- Prior accepted evidence: M1-B5 commit
-  `85f312b7d5d0e2e8a14c9084063e437633b63480`.
-- Exact outcome: add a small std-only production argument-planning function for
-  upstream passthrough. It must reject explicit Linux sandbox requests that the
-  Termux product cannot enforce and, for accepted passthrough, prepend exactly
-  `-c` and `sandbox_mode="danger-full-access"` before the original raw argv.
-  This bundle does not wire `main` or choose a runtime executable/path.
+- Prior accepted evidence: M1-B6 commit
+  `a4b4cb3a91bd78ea07952739f054695f10bab638`.
+- Exact outcome: compose the accepted B6 passthrough-policy planner with the
+  accepted B4 runtime-FD/final-exec path through one module-private production
+  launch function. The function receives the selected upstream program,
+  resolver path, managed-config directory, and original raw user argv as
+  explicit inputs; it performs sandbox-policy planning first and only then calls
+  the existing `exec_upstream_with_runtime_fds` primitive with the planned argv.
+- This is composition, not path policy. Do not derive, hard-code, canonicalize,
+  create, repair, or select product runtime/generation/config paths in this
+  bundle. Do not wire normal `main` or implement update/doctor/Manager behavior.
 - Writable worker path: `crates/core/src/main.rs` only. No dependency, manifest,
-  file, or authority-document changes are authorized to the worker.
-- Governing contract: `SPEC.md` section 5 says Linux namespace/bwrap sandboxing
-  is not a product capability, `read-only`/`workspace-write` requests must fail
-  clearly rather than be silently weakened, and ordinary supported launch uses
-  the explicitly selected upstream no-sandbox policy. Approval policy remains
-  upstream-controlled; Core must not synthesize an approval-bypass flag.
-- Sealed predecessor evidence is discovery only, not rewrite proof. Lead jobs
-  `job_hr7_58317ca55f` and `job_hr9_78251f660c` observed these prior public
-  request forms: leading `sandbox linux`; `-s VALUE`; `--sandbox VALUE`;
-  `--sandbox=VALUE`; attached `-sread-only`/`-sworkspace-write`; `-c VALUE` or
-  `--config VALUE` where the value requests `sandbox_mode` read-only or
-  workspace-write; and `--config=sandbox_mode=...`. Scanning stops at the exact
-  `--` separator. `danger-full-access` itself is allowed.
-- Parsing boundary: inspect only UTF-8 option tokens needed to recognize the
-  ASCII policy forms; preserve every accepted original `OsString` byte-for-byte
-  and treat non-UTF-8/unrecognized argv as ordinary upstream input. Do not use
-  lossy conversion. Missing values remain upstream usage concerns rather than
-  becoming Core guesses.
-- Required behavior/tests: reject both `read-only` and `workspace-write` in each
-  observed form with a clear Termux/Linux-sandbox error; reject leading
-  `sandbox linux` before any launch planning; allow `--sandbox
-  danger-full-access`; stop policy scanning after `--`; preserve arbitrary and
-  non-UTF-8 original args exactly; prepend only the two declared config args;
-  and prove the planner never synthesizes
-  `--dangerously-bypass-approvals-and-sandbox`.
-- Keep all 26 accepted B1-B5 tests green. Use `CARGO_NET_OFFLINE=true` and a
-  repository-external `CARGO_TARGET_DIR` for `cargo fmt --check`,
-  `cargo test --locked --workspace`, and `cargo build --locked --workspace`.
+  authority-document, or extra-file changes are authorized.
+- Governing contracts: `SPEC.md` sections 3 and 5 require upstream passthrough,
+  explicit unsupported-sandbox failure, selected no-sandbox policy, read-only
+  FD 33/34 sources, final-process fidelity, and a qualified runtime environment.
+  B4/B6 acceptance in `GOAL.md` is evidence for the two primitives being
+  composed; do not duplicate or reinterpret their internals.
+- Error boundary: keep any new launch error type module-private. A policy
+  failure must be distinguishable from runtime I/O/exec failure without lossy
+  argv conversion. Unsupported sandbox input must return before the resolver,
+  config directory, or program is opened/executed.
+- Required focused proof: (1) pass an unsupported sandbox request together with
+  deliberately nonexistent program/resolver/config paths and prove the result
+  is the policy error rather than I/O; (2) for accepted ordinary input, use a
+  test-owned executable fake upstream plus temporary resolver/config roots and
+  prove after the real final exec that argv begins with exactly `-c` and
+  `sandbox_mode="danger-full-access"`, followed by every original user argument
+  in order, FD 33/34 refer to the supplied read-only sources, and the existing
+  five contamination variables are absent while an unrelated environment value
+  survives; (3) preserve existing failed-exec FD restoration behavior by
+  reusing the B4 primitive rather than copying its implementation.
+- Test-only helper artifacts must live under temporary roots and be removed by
+  the test. They must not become tracked files or public command semantics.
+- Keep all 34 accepted B1-B6 tests green. Use `CARGO_NET_OFFLINE=true` and a
+  repository-external `CARGO_TARGET_DIR` for `cargo fmt --check`, focused B7
+  tests, `cargo test --locked --workspace`, and
+  `cargo build --locked --workspace`.
 - Worker configuration: one bounded `agy` CLI implementation worker in
-  `accept-edits` mode through the Task-owned shell route. No delegation,
-  commits, pushes, package operations, network/update behavior, or live state.
-- Explicitly deferred: normal `main` dispatch/wiring, runtime/generation/config
-  path selection, actual official upstream artifact qualification, doctor,
-  manifest/updater interfaces, installation, activation, and Manager behavior.
+  `accept-edits` mode through the Task-owned shell route, `fork_context: false`.
+  No delegation, commits, pushes, package operations, network/update behavior,
+  or live product state.
 - Protected surfaces: every repository path except `crates/core/src/main.rs`,
   all live resolver/runtime/launcher/Manager state, profiles, sessions, auth,
   Git refs, sealed legacy history, and unrelated worktrees.
-- Completion gate: planner behavior is deterministic and raw-argv preserving;
-  unsupported requests fail before an exec primitive is called; accepted argv
-  receives only the selected no-sandbox config prelude; no dependency/public
-  surface expansion; all named validation passes; status contains only the
-  authorized source file.
-- Integration disposition: the primary Lead reviews every recognized/rejected
-  argv shape against SPEC plus the bounded discovery evidence, reruns full and
-  focused validation, and commits only accepted work.
-- Lead correction and acceptance: the first B6 result was rejected because it
-  exposed the planner error publicly, recognized unobserved attached `-c...` and
-  literal-quote flag forms, and could reinterpret a separate option's value as a
-  later policy option. The bounded correction keeps planner/error types private,
-  recognizes only the observed sandbox/config forms, requires an exact
-  `sandbox_mode` config key, consumes exactly one following value token for
-  separate `-s`/`--sandbox` and `-c`/`--config` forms, stops at exact `--`, and
-  preserves accepted raw `OsString` argv byte-for-byte after the exact two-arg
-  no-sandbox prelude. Primary-Lead validation job `job_ht1_c593e9a07a` passed
-  `cargo fmt --check`, all 34/34 workspace tests, three additional serial
-  repetitions of the 10 `passthrough_` focused tests, and
-  `cargo build --locked --workspace` with offline mode and a repository-external
-  Cargo target. No public launch wiring, dependency, extra file, approval-bypass
-  synthesis, or live state change was introduced. M1-B6 is accepted for commit.
+- Explicitly deferred: actual runtime/generation path selection, positive
+  runtime-environment additions not already normatively required, normal `main`
+  wiring, doctor, generation/updater interfaces, installation, activation, and
+  Manager behavior.
+- Completion gate: actual diff contains only the bounded composition and tests;
+  policy failure demonstrably precedes runtime I/O; accepted launch crosses the
+  real exec boundary with planned argv plus FD/env contracts intact; no copied
+  FD/env implementation, dependency, public-surface expansion, path-policy
+  decision, tracked test artifact, or protected-state mutation; Lead reruns the
+  load-bearing validation before acceptance.
 
 ## Milestone 1 required outcomes
 

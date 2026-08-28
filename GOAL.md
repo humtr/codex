@@ -232,6 +232,22 @@ Termux qualification. Produce one candidate for independent product review.
   workspace tests, three additional serial repetitions of each TTY and SIGTERM
   proof, and locked build with offline mode and a repository-external Cargo
   target.
+- Milestone 1 bundle M1-B6 is accepted at
+  `a4b4cb3a91bd78ea07952739f054695f10bab638`. The module-private passthrough
+  planner rejects the bounded observed Linux `read-only`/`workspace-write` and
+  leading `sandbox linux` request forms before launch planning, stops scanning
+  at exact `--`, preserves accepted raw `OsString` argv byte-for-byte, and
+  prepends only `-c` plus `sandbox_mode=\"danger-full-access\"`. It never
+  synthesizes the upstream approval-bypass flag and does not wire a runtime
+  executable or product path.
+- The first B6 worker result was rejected before acceptance because it expanded
+  unobserved forms and could reinterpret a separate option value as a later
+  policy option. The bounded correction consumed exactly one following value
+  token for separate sandbox/config options and narrowed recognition to the
+  accepted forms. Primary-Lead validation job `job_ht1_c593e9a07a` then passed
+  formatting, all 34/34 workspace tests, three serial repetitions of the 10
+  `passthrough_` tests, and the locked workspace build with offline mode and a
+  repository-external Cargo target.
 
 ### Historical Proof
 
@@ -243,11 +259,13 @@ Termux qualification. Produce one candidate for independent product review.
 - Milestone 1 is not complete. M1-B1 proves workspace/classification, M1-B2/B3
   prove isolated final-exec argv/stream/exit and contamination-fence behavior,
   M1-B4 proves isolated FD 33/34 setup/restoration plus test-resolver
-  non-mutation, and M1-B5 proves TTY/external-SIGTERM fidelity on the current
-  Android/Termux device. Normal `main` is not yet wired to a qualified upstream
-  runtime; broader runtime environment/path planning, sandbox handling, doctor
-  composition, generation/updater interfaces, and the full real-Termux smoke
-  gate remain unproven.
+  non-mutation, M1-B5 proves TTY/external-SIGTERM fidelity on the current
+  Android/Termux device, and M1-B6 proves the isolated Termux sandbox-policy
+  planner. The planner is not yet composed with the runtime-FD exec path and
+  normal `main` is not wired to a qualified upstream runtime. Runtime/generation
+  path selection, broader environment planning, doctor composition,
+  generation/updater interfaces, and the full real-Termux smoke gate remain
+  unproven.
 - No release artifact, installation, update, activation, rollback, offline
   recovery, fresh-device behavior, Milestone 2 result, or production readiness
   is proven.
@@ -259,12 +277,11 @@ Termux qualification. Produce one candidate for independent product review.
 - The primary Lead records each next bounded bundle in `WORKBOARD.md`, launches
   exactly one implementation worker, inspects the actual diff, and reruns the
   load-bearing validation before acceptance.
-- M1-B6 is the current checkpoint. It is limited to an explicit Termux sandbox
-  policy planner for upstream passthrough: reject the supported observed forms
-  of Linux `read-only`/`workspace-write` requests before runtime execution and
-  prepend only the selected upstream `danger-full-access` config for supported
-  ordinary launch. Normal `main` wiring and runtime path selection remain later
-  checkpoints.
+- M1-B6 is accepted at `a4b4cb3a91bd78ea07952739f054695f10bab638`.
+- M1-B7 is the current checkpoint. It composes the accepted sandbox planner with
+  the accepted runtime-FD final-exec path through explicit injected program,
+  resolver, and managed-config inputs. It does not choose product runtime paths
+  or wire normal `main`; those remain later checkpoints.
 - At every bundle completion the Lead records its own diff/test disposition
   here. No worker report, planning subagent, or checkpoint reviewer substitutes
   for that integration decision.
