@@ -62,6 +62,9 @@
   authorized paths and temporary test roots; no delegation, package operations,
   live product mutation, commits, or pushes; network/provider tools require an
   explicit later acceptance gate and one bounded non-secret validation bundle
+- tmcp `harness.run` is test/validation-only. It may execute bounded test
+  harnesses, but it must not be used as an implementation/development worker or
+  as a route for product-code mutation.
 - Writable scope: product code and tests named in the accepted bundle; never
   `AGENTS.md`, `SPEC.md`, this file, or `WORKBOARD.md`
 - Initial packet budget: at most 12,000 estimated input tokens or 48,000
@@ -279,6 +282,23 @@ Termux qualification. Produce one candidate for independent product review.
   and a repository-external Cargo target. The positive assignments remain a
   bounded M1 compatibility hypothesis until applied and qualified on the real
   Termux execution boundary.
+- Milestone 1 bundle M1-B9 is accepted at
+  `692cd8b0c9cc4babe273ab9bdfa9d14eabc9db0c`. One shared final-exec
+  implementation now accepts an optional `TermuxBaseEnvPlan`; positive raw
+  `OsString` assignments are applied directly to the child `Command`, then the
+  exact B3 five-variable contamination fence is enforced. Existing public/test
+  launch signatures still traverse the same implementation with no positive
+  plan, while the new module-private environment-aware launch composition
+  preserves B6 policy-before-I/O ordering and B4 FD 33/34 restoration.
+- Primary-Lead validation `job_i1l_cabb18a109` ran all three B9 focused tests
+  three times (9 actual focused executions), all 50/50 workspace tests,
+  `cargo fmt --check`, and the locked workspace build with
+  `CARGO_NET_OFFLINE=true` and a repository-external Cargo target. The worktree
+  remained limited to `crates/core/src/main.rs` before commit. Real exec proof
+  jointly observed the planned temp/certificate/PATH values, exact sandbox
+  prelude and raw user argv, FD 33/34 sources, the contamination fence, and one
+  unrelated inherited variable; failed exec preserved caller environment and
+  restored prior FD state.
 
 ### Historical Proof
 
@@ -292,12 +312,12 @@ Termux qualification. Produce one candidate for independent product review.
   M1-B4 proves isolated FD 33/34 setup/restoration plus test-resolver
   non-mutation, M1-B5 proves TTY/external-SIGTERM fidelity on the current
   Android/Termux device, M1-B6 proves the Termux sandbox-policy planner, M1-B7
-  proves composition of that planner with the runtime-FD final-exec path, and
-  M1-B8 proves a pure explicit-input base-environment plan. That positive plan
-  is not yet applied at the final exec boundary and `main` is still not wired to
-  a qualified upstream runtime. Runtime/generation path selection, doctor
-  composition, generation/updater interfaces, and the full real-Termux smoke
-  gate remain unproven.
+  proves composition of that planner with the runtime-FD final-exec path, M1-B8
+  proves a pure explicit-input base-environment plan, and M1-B9 proves that plan
+  survives the real final-exec composition. Process-environment capture and
+  runtime/generation path selection are still not connected, and `main` remains
+  unwired to a qualified upstream runtime. Doctor composition, generation/updater
+  interfaces, and the full real-Termux smoke gate remain unproven.
 - No release artifact, installation, update, activation, rollback, offline
   recovery, fresh-device behavior, Milestone 2 result, or production readiness
   is proven.
@@ -309,12 +329,13 @@ Termux qualification. Produce one candidate for independent product review.
 - The primary Lead records each next bounded bundle in `WORKBOARD.md`, launches
   exactly one implementation worker, inspects the actual diff, and reruns the
   load-bearing validation before acceptance.
-- M1-B8 is accepted at `ae678fdb01b065a78f55b4e0546a8c4b12c498fa`.
-- M1-B9 is the current checkpoint. It applies an already-built B8 environment
-  plan to the accepted B7 runtime-FD final-exec path while preserving B3's exact
-  contamination removals, argv/FD/process behavior, and parent-state
-  non-mutation. Product path selection and normal `main` wiring remain later
-  checkpoints.
+- M1-B9 is accepted at `692cd8b0c9cc4babe273ab9bdfa9d14eabc9db0c`.
+- M1-B10 is the current checkpoint. It adds a bounded Unix/Android process-
+  environment capture and pure snapshot-to-B8 composition for `PREFIX`,
+  `TMPDIR`, inherited `PATH`, `SSL_CERT_FILE`, and `SSL_CERT_DIR`, while keeping
+  the selected compatibility directory and certificate fallback paths explicit.
+  It must not inspect or select a generation, touch the filesystem in production
+  planning, or wire normal `main`.
 - At every bundle completion the Lead records its own diff/test disposition
   here. No worker report, planning subagent, or checkpoint reviewer substitutes
   for that integration decision.

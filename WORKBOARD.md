@@ -29,55 +29,47 @@ or mutation of the installed Codex product.
 
 ## Selected next action
 
-### Bundle M1-B9 — apply the base-environment plan at final exec
+### Bundle M1-B10 — capture actual Termux process environment into the base-env planner
 
-- Prior accepted evidence: M1-B8 commit
-  `ae678fdb01b065a78f55b4e0546a8c4b12c498fa`.
-- Exact outcome: apply an already-built `TermuxBaseEnvPlan` to the child
-  `Command` used by the accepted runtime-FD final-exec path, while preserving
-  B3's exact five-variable contamination fence, B4 FD 33/34 behavior, B6
-  sandbox-policy ordering, and B7 argv/process composition. This bundle does not
-  derive the plan inputs or choose any product path.
-- Preserve the existing public/test-facing signatures and behavior of
-  `exec_upstream`, `exec_upstream_with_runtime_fds`, and `launch_upstream`.
-  Introduce only the smallest module-private implementation/composition needed
-  to let a new environment-aware launch path pass `Some(&TermuxBaseEnvPlan)`;
-  the existing paths must continue through the same implementation with no
-  positive plan. Do not copy the FD setup/restoration body or the five-variable
-  fence into a second implementation.
-- At child-Command construction, apply every planned `(OsString, OsString)`
-  assignment without UTF-8/lossy conversion, then enforce the exact B3 removals
-  afterward so `CODEX_MANAGED_BY_NPM`, `CODEX_MANAGED_BY_BUN`,
-  `CODEX_MANAGED_PACKAGE_ROOT`, `LD_PRELOAD`, and `LD_LIBRARY_PATH` cannot be
-  reintroduced at the final boundary. Do not call `env_clear` and do not mutate
-  the parent environment.
-- The new module-private launch composition receives the selected program,
-  resolver path, managed-config directory, original raw user argv, and a
-  pre-built environment plan explicitly. Sandbox-policy rejection still occurs
-  before resolver/config I/O or exec. No `std::env` read, runtime/generation
-  selection, hard-coded Termux path, or normal `main` wiring is authorized in
-  production B9 code.
-- Required focused real-exec proof: use only test-owned temporary
-  resolver/config/fake-upstream artifacts and an explicit B8 plan. Across the
-  actual final exec boundary prove the exact planned `TMPDIR`, `TMP`, `TEMP`,
-  `SQLITE_TMPDIR`, `SSL_CERT_FILE`, optional `SSL_CERT_DIR`, and `PATH` values
-  are visible; the exact sandbox prelude and original user argv remain ordered;
-  FD 33/34 still expose the supplied read-only resolver/config sources; all five
-  B3 variables are absent even when inherited in the probe process; and one
-  unrelated synthetic inherited variable survives. The test fake upstream must
-  not depend on the planned PATH for helper lookup.
-- Required failure proof: with a valid explicit plan but a deliberately missing
-  upstream program, the environment-aware path returns an exec error while the
-  caller's corresponding parent environment values remain byte-for-byte
-  unchanged and B4's prior FD 33/34 restoration still holds. Do not mutate the
-  parent merely to simplify this proof.
-- Raw-value rule: production application must pass `OsStr`/`OsString` values
-  directly to `Command`; no `to_str`, `to_string_lossy`, split/rejoin, or other
-  normalization is permitted. B8 already proves raw planner construction; B9
-  proves transport to the execution boundary without changing that rule.
-- Keep all 47 accepted B1-B8 tests green. Use `CARGO_NET_OFFLINE=true` and a
-  repository-external `CARGO_TARGET_DIR` for formatting, focused `m1_b9_`
-  tests, all locked workspace tests, and locked workspace build.
+- Prior accepted evidence: M1-B9 commit
+  `692cd8b0c9cc4babe273ab9bdfa9d14eabc9db0c`.
+- Exact outcome: add the smallest Unix/Android-only process-environment boundary
+  that can feed B8's pure `TermuxBaseEnvInputs` and therefore B9's final-exec
+  composition without embedding a single Termux app-data path or selecting a
+  runtime/generation. This bundle still does not wire normal `main`.
+- Keep `compat_dir`, fallback `cert_file`, and optional fallback `cert_dir` as
+  explicit caller inputs. Read only `PREFIX`, `TMPDIR`, inherited `PATH`,
+  `SSL_CERT_FILE`, and `SSL_CERT_DIR` from the current process. Derive only the
+  prefix bin directory from `PREFIX` using native path joining; do not derive a
+  generation root, runtime executable, managed config directory, resolver path,
+  HOME-owned Core state, or compatibility-tool location.
+- Separate process I/O from planning: introduce a small owned snapshot type and
+  one thin process reader using raw `std::env::var_os`; introduce a pure
+  snapshot-to-plan composition that validates required process inputs and calls
+  the accepted B8 planner. Do not make B8 itself read global process state.
+- `PREFIX` and `TMPDIR` are required and must fail clearly when absent or empty.
+  Do not add speculative canonicalization, existence checks, symlink resolution,
+  app-package-name checks, or hard-coded `/data/data/com.termux` policy. Preserve
+  inherited non-UTF-8 `PATH` and certificate values byte-for-byte on Unix.
+- The derived prefix bin path must be exactly native `PREFIX` joined with `bin`.
+  The existing B8 PATH order remains selected `compat_dir`, derived prefix/bin,
+  then inherited non-empty PATH. The B8 certificate precedence remains unchanged:
+  inherited non-empty values win over the explicit fallback values.
+- Production B10 code must not read the filesystem, mutate the process
+  environment, construct or execute a `Command`, open FD 33/34, select a
+  generation, parse a manifest, inspect live runtime state, perform networking,
+  or change public command semantics.
+- Required focused tests named `m1_b10_`: pure synthetic snapshots proving exact
+  prefix/bin derivation and B8 assignment order; absent/empty `PREFIX` and
+  `TMPDIR` errors; raw non-UTF-8 inherited PATH/certificate preservation; and a
+  synthetic unusual prefix proving no fixed Termux app-data root is embedded.
+  Add one subprocess-only process-reader proof if needed so tests never mutate
+  the parent test process environment.
+- Keep all 50 accepted B1-B9 tests green. Validation uses
+  `CARGO_NET_OFFLINE=true` and a repository-external `CARGO_TARGET_DIR` for
+  formatting, focused B10 tests, all locked workspace tests, and locked workspace
+  build. tmcp `harness.run` may be used only to execute bounded tests/validation;
+  it must not be used for implementation or product-code mutation.
 - Worker configuration: one bounded `agy` CLI implementation worker in
   `accept-edits` mode through the Task-owned shell route, `fork_context: false`.
   No delegation, commits, pushes, package operations, network/update behavior,
@@ -87,16 +79,15 @@ or mutation of the installed Codex product.
 - Protected surfaces: every other repository path, all live resolver/runtime/
   launcher/Manager state, profiles, sessions, auth, Git refs, sealed legacy
   history, and unrelated worktrees.
-- Explicitly deferred: deriving planner inputs from the live environment,
-  selected runtime/generation resolution, code-mode-host qualification, normal
-  `main` wiring, doctor, generation/updater interfaces, installation,
-  activation, and Manager behavior.
-- Completion gate: actual diff contains one shared execution implementation and
-  bounded environment-aware composition/tests; no duplicated FD/fence logic,
-  parent-env mutation, lossy conversion, path-policy decision, dependency,
-  public-surface expansion, or protected-state change; real exec proves the
-  positive assignments and pre-existing argv/FD/fence contracts together; Lead
-  reruns focused and full validation before acceptance.
+- Explicitly deferred: generation-manifest schema and selection, runtime and
+  compatibility-tool selection, resolver/config path selection, normal `main`
+  wiring, doctor, updater interfaces, installation, activation, and Manager
+  behavior.
+- Completion gate: actual diff contains one thin raw process reader plus pure
+  snapshot-to-B8 composition and focused tests; no filesystem I/O, global env
+  mutation, lossy conversion, fixed app-data path, runtime/generation decision,
+  dependency, public-surface expansion, or protected-state change; Lead reruns
+  focused and full validation before acceptance.
 
 ## Milestone 1 required outcomes
 
