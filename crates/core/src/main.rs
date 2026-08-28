@@ -2551,6 +2551,724 @@ fn execute_public_dispatch<
 
 #[cfg(unix)]
 #[allow(dead_code)]
+mod m2_generation_state {
+    use std::io::{Read, Write};
+
+    const GENERATION_ID_MAX_BYTES: usize = 512;
+    const STATE_FILE_MAX_BYTES: usize = 16 * 1024;
+    const STATE_FORMAT: &str = "codex-activation-state-v1";
+    const JOURNAL_FORMAT: &str = "codex-activation-journal-v1";
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub(super) struct CoreStatePaths {
+        pub(super) root: std::path::PathBuf,
+        pub(super) generations: std::path::PathBuf,
+        pub(super) activation_state: std::path::PathBuf,
+        pub(super) activation_journal: std::path::PathBuf,
+        pub(super) activation_journal_temp: std::path::PathBuf,
+        pub(super) activation_state_temp: std::path::PathBuf,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub(super) struct GenerationPointerState {
+        pub(super) current: String,
+        pub(super) verified: String,
+        pub(super) previous: Option<String>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub(super) struct ActivationJournal {
+        pub(super) before: Option<GenerationPointerState>,
+        pub(super) after: GenerationPointerState,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub(super) enum StateFormatError {
+        EmptyRoot,
+        RelativeRoot,
+        NulRoot,
+        EmptyIdentity(&'static str),
+        IdentityTooLong(&'static str),
+        IdentityControl(&'static str),
+        FileTooLarge(&'static str),
+        InvalidUtf8(&'static str),
+        MissingFinalNewline(&'static str),
+        InvalidRecordCount(&'static str),
+        InvalidField(&'static str),
+        InvalidPresence(&'static str),
+        InconsistentAbsent(&'static str),
+        AmbiguousJournal,
+        NoRollbackGeneration,
+        NoChange,
+    }
+
+    impl std::fmt::Display for StateFormatError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                StateFormatError::EmptyRoot => f.write_str("Core state root is empty"),
+                StateFormatError::RelativeRoot => {
+                    f.write_str("Core state root must be an absolute path")
+                }
+                StateFormatError::NulRoot => f.write_str("Core state root contains NUL"),
+                StateFormatError::EmptyIdentity(field) => {
+                    write!(f, "generation identity '{field}' is empty")
+                }
+                StateFormatError::IdentityTooLong(field) => {
+                    write!(f, "generation identity '{field}' exceeds the size limit")
+                }
+                StateFormatError::IdentityControl(field) => write!(
+                    f,
+                    "generation identity '{field}' contains a forbidden line/control byte"
+                ),
+                StateFormatError::FileTooLarge(label) => {
+                    write!(f, "{label} exceeds the bounded state-file size")
+                }
+                StateFormatError::InvalidUtf8(label) => {
+                    write!(f, "{label} is not valid UTF-8")
+                }
+                StateFormatError::MissingFinalNewline(label) => {
+                    write!(f, "{label} is missing its canonical final newline")
+                }
+                StateFormatError::InvalidRecordCount(label) => {
+                    write!(f, "{label} has an invalid record count")
+                }
+                StateFormatError::InvalidField(label) => {
+                    write!(f, "{label} has an invalid or out-of-order field")
+                }
+                StateFormatError::InvalidPresence(label) => {
+                    write!(f, "{label} has an invalid presence marker")
+                }
+                StateFormatError::InconsistentAbsent(label) => {
+                    write!(f, "{label} encodes data for an absent value")
+                }
+                StateFormatError::AmbiguousJournal => {
+                    f.write_str("activation journal before/after states are identical")
+                }
+                StateFormatError::NoRollbackGeneration => {
+                    f.write_str("activation state has no rollback generation")
+                }
+                StateFormatError::NoChange => {
+                    f.write_str("activation transition would not change the current generation")
+                }
+            }
+        }
+    }
+
+    impl std::error::Error for StateFormatError {}
+
+    #[derive(Debug)]
+    pub(super) enum ActivationTransactionError {
+        Format(StateFormatError),
+        Io {
+            operation: &'static str,
+            source: std::io::Error,
+        },
+        UnsafeFileType(&'static str),
+        StaleAuthoritativeState,
+        PendingJournal,
+        OrphanJournalTemporary,
+        OrphanTemporaryState,
+        RecoveryConflict,
+    }
+
+    impl std::fmt::Display for ActivationTransactionError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                ActivationTransactionError::Format(err) => err.fmt(f),
+                ActivationTransactionError::Io { operation, source } => {
+                    write!(f, "{operation} failed: {source}")
+                }
+                ActivationTransactionError::UnsafeFileType(label) => {
+                    write!(f, "{label} has an unsafe file type")
+                }
+                ActivationTransactionError::StaleAuthoritativeState => f.write_str(
+                    "authoritative activation state does not match expected before state",
+                ),
+                ActivationTransactionError::PendingJournal => {
+                    f.write_str("activation journal already exists; recovery is required")
+                }
+                ActivationTransactionError::OrphanJournalTemporary => {
+                    f.write_str("orphan activation-journal temporary exists")
+                }
+                ActivationTransactionError::OrphanTemporaryState => f.write_str(
+                    "orphan activation-state temporary exists without recoverable ownership",
+                ),
+                ActivationTransactionError::RecoveryConflict => f.write_str(
+                    "activation recovery cannot match authoritative state to journal before/after",
+                ),
+            }
+        }
+    }
+
+    impl std::error::Error for ActivationTransactionError {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            match self {
+                ActivationTransactionError::Format(err) => Some(err),
+                ActivationTransactionError::Io { source, .. } => Some(source),
+                _ => None,
+            }
+        }
+    }
+
+    impl From<StateFormatError> for ActivationTransactionError {
+        fn from(value: StateFormatError) -> Self {
+            Self::Format(value)
+        }
+    }
+
+    fn io_error(operation: &'static str, source: std::io::Error) -> ActivationTransactionError {
+        ActivationTransactionError::Io { operation, source }
+    }
+
+    impl CoreStatePaths {
+        pub(super) fn new(root: &std::path::Path) -> Result<Self, StateFormatError> {
+            use std::os::unix::ffi::OsStrExt;
+
+            if root.as_os_str().is_empty() {
+                return Err(StateFormatError::EmptyRoot);
+            }
+            if root.as_os_str().as_bytes().contains(&0) {
+                return Err(StateFormatError::NulRoot);
+            }
+            if !root.is_absolute() {
+                return Err(StateFormatError::RelativeRoot);
+            }
+            Ok(Self {
+                root: root.to_path_buf(),
+                generations: root.join("generations"),
+                activation_state: root.join("activation-state"),
+                activation_journal: root.join("activation-journal"),
+                activation_journal_temp: root.join("activation-journal.tmp"),
+                activation_state_temp: root.join("activation-state.tmp"),
+            })
+        }
+    }
+
+    fn ensure_directory(
+        path: &std::path::Path,
+        label: &'static str,
+    ) -> Result<(), ActivationTransactionError> {
+        match std::fs::symlink_metadata(path) {
+            Ok(metadata) => {
+                if !metadata.file_type().is_dir() {
+                    return Err(ActivationTransactionError::UnsafeFileType(label));
+                }
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                std::fs::create_dir(path)
+                    .map_err(|err| io_error("create Core state directory", err))?;
+                let metadata = std::fs::symlink_metadata(path)
+                    .map_err(|err| io_error("inspect created Core state directory", err))?;
+                if !metadata.file_type().is_dir() {
+                    return Err(ActivationTransactionError::UnsafeFileType(label));
+                }
+            }
+            Err(err) => return Err(io_error("inspect Core state directory", err)),
+        }
+        Ok(())
+    }
+
+    pub(super) fn prepare_core_state_paths(
+        paths: &CoreStatePaths,
+    ) -> Result<(), ActivationTransactionError> {
+        ensure_directory(&paths.root, "Core state root")?;
+        ensure_directory(&paths.generations, "generation directory")?;
+        let directory = std::fs::File::open(&paths.root)
+            .map_err(|err| io_error("open Core state root for sync", err))?;
+        directory
+            .sync_all()
+            .map_err(|err| io_error("sync Core state root", err))?;
+        Ok(())
+    }
+
+    fn validate_generation_identity(
+        value: &str,
+        field: &'static str,
+    ) -> Result<(), StateFormatError> {
+        if value.is_empty() {
+            return Err(StateFormatError::EmptyIdentity(field));
+        }
+        if value.as_bytes().len() > GENERATION_ID_MAX_BYTES {
+            return Err(StateFormatError::IdentityTooLong(field));
+        }
+        if value
+            .as_bytes()
+            .iter()
+            .any(|byte| matches!(*byte, 0 | b'\n' | b'\r'))
+        {
+            return Err(StateFormatError::IdentityControl(field));
+        }
+        Ok(())
+    }
+
+    fn validate_pointer_state(state: &GenerationPointerState) -> Result<(), StateFormatError> {
+        validate_generation_identity(&state.current, "current")?;
+        validate_generation_identity(&state.verified, "verified")?;
+        if let Some(previous) = state.previous.as_deref() {
+            validate_generation_identity(previous, "previous")?;
+        }
+        Ok(())
+    }
+
+    pub(super) fn plan_initial_pointer_state(
+        complete_candidate_identity: &str,
+    ) -> Result<GenerationPointerState, StateFormatError> {
+        validate_generation_identity(complete_candidate_identity, "candidate")?;
+        Ok(GenerationPointerState {
+            current: complete_candidate_identity.to_owned(),
+            verified: complete_candidate_identity.to_owned(),
+            previous: None,
+        })
+    }
+
+    pub(super) fn plan_activation_pointer_state(
+        before: &GenerationPointerState,
+        complete_candidate_identity: &str,
+    ) -> Result<GenerationPointerState, StateFormatError> {
+        validate_pointer_state(before)?;
+        validate_generation_identity(complete_candidate_identity, "candidate")?;
+        if before.current == complete_candidate_identity {
+            return Err(StateFormatError::NoChange);
+        }
+        Ok(GenerationPointerState {
+            current: complete_candidate_identity.to_owned(),
+            verified: complete_candidate_identity.to_owned(),
+            previous: Some(before.current.clone()),
+        })
+    }
+
+    pub(super) fn plan_rollback_pointer_state(
+        before: &GenerationPointerState,
+    ) -> Result<GenerationPointerState, StateFormatError> {
+        validate_pointer_state(before)?;
+        let previous = before
+            .previous
+            .as_deref()
+            .ok_or(StateFormatError::NoRollbackGeneration)?;
+        if previous == before.current {
+            return Err(StateFormatError::NoChange);
+        }
+        Ok(GenerationPointerState {
+            current: previous.to_owned(),
+            verified: previous.to_owned(),
+            previous: Some(before.current.clone()),
+        })
+    }
+
+    pub(super) fn encode_pointer_state(
+        state: &GenerationPointerState,
+    ) -> Result<Vec<u8>, StateFormatError> {
+        validate_pointer_state(state)?;
+        let (previous_present, previous) = match state.previous.as_deref() {
+            Some(previous) => ("1", previous),
+            None => ("0", ""),
+        };
+        Ok(format!(
+            "format={STATE_FORMAT}\ncurrent={}\nverified={}\nprevious_present={previous_present}\nprevious={previous}\n",
+            state.current, state.verified
+        )
+        .into_bytes())
+    }
+
+    fn parse_lines<'a>(
+        bytes: &'a [u8],
+        label: &'static str,
+        expected_records: usize,
+    ) -> Result<Vec<&'a str>, StateFormatError> {
+        if bytes.len() > STATE_FILE_MAX_BYTES {
+            return Err(StateFormatError::FileTooLarge(label));
+        }
+        let text = std::str::from_utf8(bytes).map_err(|_| StateFormatError::InvalidUtf8(label))?;
+        if !text.ends_with('\n') {
+            return Err(StateFormatError::MissingFinalNewline(label));
+        }
+        let body = &text[..text.len() - 1];
+        let records: Vec<_> = body.split('\n').collect();
+        if records.len() != expected_records {
+            return Err(StateFormatError::InvalidRecordCount(label));
+        }
+        Ok(records)
+    }
+
+    fn parse_field<'a>(
+        line: &'a str,
+        prefix: &str,
+        label: &'static str,
+    ) -> Result<&'a str, StateFormatError> {
+        line.strip_prefix(prefix)
+            .ok_or(StateFormatError::InvalidField(label))
+    }
+
+    fn parse_presence(value: &str, label: &'static str) -> Result<bool, StateFormatError> {
+        match value {
+            "0" => Ok(false),
+            "1" => Ok(true),
+            _ => Err(StateFormatError::InvalidPresence(label)),
+        }
+    }
+
+    fn parse_pointer_values(
+        current: &str,
+        verified: &str,
+        previous_present: &str,
+        previous: &str,
+        label: &'static str,
+    ) -> Result<GenerationPointerState, StateFormatError> {
+        let has_previous = parse_presence(previous_present, label)?;
+        if !has_previous && !previous.is_empty() {
+            return Err(StateFormatError::InconsistentAbsent(label));
+        }
+        let state = GenerationPointerState {
+            current: current.to_owned(),
+            verified: verified.to_owned(),
+            previous: has_previous.then(|| previous.to_owned()),
+        };
+        validate_pointer_state(&state)?;
+        Ok(state)
+    }
+
+    pub(super) fn parse_pointer_state(
+        bytes: &[u8],
+    ) -> Result<GenerationPointerState, StateFormatError> {
+        let records = parse_lines(bytes, "activation state", 5)?;
+        if records[0] != format!("format={STATE_FORMAT}") {
+            return Err(StateFormatError::InvalidField("activation state format"));
+        }
+        let current = parse_field(records[1], "current=", "activation state current")?;
+        let verified = parse_field(records[2], "verified=", "activation state verified")?;
+        let previous_present = parse_field(
+            records[3],
+            "previous_present=",
+            "activation state previous presence",
+        )?;
+        let previous = parse_field(records[4], "previous=", "activation state previous")?;
+        parse_pointer_values(
+            current,
+            verified,
+            previous_present,
+            previous,
+            "activation state previous",
+        )
+    }
+
+    pub(super) fn encode_activation_journal(
+        journal: &ActivationJournal,
+    ) -> Result<Vec<u8>, StateFormatError> {
+        if journal.before.as_ref() == Some(&journal.after) {
+            return Err(StateFormatError::AmbiguousJournal);
+        }
+        if let Some(before) = journal.before.as_ref() {
+            validate_pointer_state(before)?;
+        }
+        validate_pointer_state(&journal.after)?;
+
+        let (
+            before_present,
+            before_current,
+            before_verified,
+            before_previous_present,
+            before_previous,
+        ) = match journal.before.as_ref() {
+            Some(before) => {
+                let (previous_present, previous) = match before.previous.as_deref() {
+                    Some(previous) => ("1", previous),
+                    None => ("0", ""),
+                };
+                (
+                    "1",
+                    before.current.as_str(),
+                    before.verified.as_str(),
+                    previous_present,
+                    previous,
+                )
+            }
+            None => ("0", "", "", "0", ""),
+        };
+        let (after_previous_present, after_previous) = match journal.after.previous.as_deref() {
+            Some(previous) => ("1", previous),
+            None => ("0", ""),
+        };
+        Ok(format!(
+            "format={JOURNAL_FORMAT}\nbefore_present={before_present}\nbefore_current={before_current}\nbefore_verified={before_verified}\nbefore_previous_present={before_previous_present}\nbefore_previous={before_previous}\nafter_current={}\nafter_verified={}\nafter_previous_present={after_previous_present}\nafter_previous={after_previous}\n",
+            journal.after.current, journal.after.verified
+        )
+        .into_bytes())
+    }
+
+    pub(super) fn parse_activation_journal(
+        bytes: &[u8],
+    ) -> Result<ActivationJournal, StateFormatError> {
+        let records = parse_lines(bytes, "activation journal", 10)?;
+        if records[0] != format!("format={JOURNAL_FORMAT}") {
+            return Err(StateFormatError::InvalidField("activation journal format"));
+        }
+        let before_present = parse_presence(
+            parse_field(records[1], "before_present=", "journal before presence")?,
+            "journal before presence",
+        )?;
+        let before_current = parse_field(records[2], "before_current=", "journal before current")?;
+        let before_verified =
+            parse_field(records[3], "before_verified=", "journal before verified")?;
+        let before_previous_present = parse_field(
+            records[4],
+            "before_previous_present=",
+            "journal before previous presence",
+        )?;
+        let before_previous =
+            parse_field(records[5], "before_previous=", "journal before previous")?;
+        let before = if before_present {
+            Some(parse_pointer_values(
+                before_current,
+                before_verified,
+                before_previous_present,
+                before_previous,
+                "journal before state",
+            )?)
+        } else {
+            if !before_current.is_empty()
+                || !before_verified.is_empty()
+                || before_previous_present != "0"
+                || !before_previous.is_empty()
+            {
+                return Err(StateFormatError::InconsistentAbsent("journal before state"));
+            }
+            None
+        };
+
+        let after_current = parse_field(records[6], "after_current=", "journal after current")?;
+        let after_verified = parse_field(records[7], "after_verified=", "journal after verified")?;
+        let after_previous_present = parse_field(
+            records[8],
+            "after_previous_present=",
+            "journal after previous presence",
+        )?;
+        let after_previous = parse_field(records[9], "after_previous=", "journal after previous")?;
+        let after = parse_pointer_values(
+            after_current,
+            after_verified,
+            after_previous_present,
+            after_previous,
+            "journal after state",
+        )?;
+        if before.as_ref() == Some(&after) {
+            return Err(StateFormatError::AmbiguousJournal);
+        }
+        Ok(ActivationJournal { before, after })
+    }
+
+    pub(super) trait ActivationIo {
+        fn write_new_synced(&mut self, path: &std::path::Path, data: &[u8]) -> std::io::Result<()>;
+        fn sync_dir(&mut self, path: &std::path::Path) -> std::io::Result<()>;
+        fn rename(&mut self, from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()>;
+        fn remove_file(&mut self, path: &std::path::Path) -> std::io::Result<()>;
+    }
+
+    pub(super) struct FsActivationIo;
+
+    impl ActivationIo for FsActivationIo {
+        fn write_new_synced(&mut self, path: &std::path::Path, data: &[u8]) -> std::io::Result<()> {
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(path)?;
+            file.write_all(data)?;
+            file.sync_all()
+        }
+
+        fn sync_dir(&mut self, path: &std::path::Path) -> std::io::Result<()> {
+            std::fs::File::open(path)?.sync_all()
+        }
+
+        fn rename(&mut self, from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
+            std::fs::rename(from, to)
+        }
+
+        fn remove_file(&mut self, path: &std::path::Path) -> std::io::Result<()> {
+            std::fs::remove_file(path)
+        }
+    }
+
+    fn path_exists(
+        path: &std::path::Path,
+        operation: &'static str,
+    ) -> Result<bool, ActivationTransactionError> {
+        match std::fs::symlink_metadata(path) {
+            Ok(_) => Ok(true),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(err) => Err(io_error(operation, err)),
+        }
+    }
+
+    fn read_bounded_regular_file(
+        path: &std::path::Path,
+        label: &'static str,
+    ) -> Result<Option<Vec<u8>>, ActivationTransactionError> {
+        let metadata = match std::fs::symlink_metadata(path) {
+            Ok(metadata) => metadata,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(err) => return Err(io_error("inspect activation state file", err)),
+        };
+        if !metadata.file_type().is_file() {
+            return Err(ActivationTransactionError::UnsafeFileType(label));
+        }
+        if metadata.len() > STATE_FILE_MAX_BYTES as u64 {
+            return Err(StateFormatError::FileTooLarge(label).into());
+        }
+        let file =
+            std::fs::File::open(path).map_err(|err| io_error("open activation state file", err))?;
+        let mut bytes = Vec::new();
+        file.take((STATE_FILE_MAX_BYTES + 1) as u64)
+            .read_to_end(&mut bytes)
+            .map_err(|err| io_error("read activation state file", err))?;
+        if bytes.len() > STATE_FILE_MAX_BYTES {
+            return Err(StateFormatError::FileTooLarge(label).into());
+        }
+        Ok(Some(bytes))
+    }
+
+    pub(super) fn read_pointer_state(
+        paths: &CoreStatePaths,
+    ) -> Result<Option<GenerationPointerState>, ActivationTransactionError> {
+        read_bounded_regular_file(&paths.activation_state, "activation state")?
+            .map(|bytes| parse_pointer_state(&bytes).map_err(ActivationTransactionError::from))
+            .transpose()
+    }
+
+    fn read_activation_journal(
+        paths: &CoreStatePaths,
+    ) -> Result<Option<ActivationJournal>, ActivationTransactionError> {
+        read_bounded_regular_file(&paths.activation_journal, "activation journal")?
+            .map(|bytes| parse_activation_journal(&bytes).map_err(ActivationTransactionError::from))
+            .transpose()
+    }
+
+    pub(super) fn activate_pointer_state_with_io<I: ActivationIo>(
+        paths: &CoreStatePaths,
+        before: Option<&GenerationPointerState>,
+        after: &GenerationPointerState,
+        io: &mut I,
+    ) -> Result<(), ActivationTransactionError> {
+        if let Some(before) = before {
+            validate_pointer_state(before)?;
+        }
+        validate_pointer_state(after)?;
+        if before == Some(after) {
+            return Err(StateFormatError::AmbiguousJournal.into());
+        }
+        let authoritative = read_pointer_state(paths)?;
+        if authoritative.as_ref() != before {
+            return Err(ActivationTransactionError::StaleAuthoritativeState);
+        }
+        if path_exists(&paths.activation_journal, "inspect activation journal")? {
+            return Err(ActivationTransactionError::PendingJournal);
+        }
+        if path_exists(
+            &paths.activation_journal_temp,
+            "inspect activation journal temporary",
+        )? {
+            return Err(ActivationTransactionError::OrphanJournalTemporary);
+        }
+        if path_exists(&paths.activation_state_temp, "inspect activation temporary")? {
+            return Err(ActivationTransactionError::OrphanTemporaryState);
+        }
+
+        let journal = ActivationJournal {
+            before: before.cloned(),
+            after: after.clone(),
+        };
+        let journal_bytes = encode_activation_journal(&journal)?;
+        let state_bytes = encode_pointer_state(after)?;
+
+        io.write_new_synced(&paths.activation_journal_temp, &journal_bytes)
+            .map_err(|err| io_error("write and sync activation journal temporary", err))?;
+        io.rename(&paths.activation_journal_temp, &paths.activation_journal)
+            .map_err(|err| io_error("publish activation journal", err))?;
+        io.sync_dir(&paths.root)
+            .map_err(|err| io_error("sync journal directory", err))?;
+        io.write_new_synced(&paths.activation_state_temp, &state_bytes)
+            .map_err(|err| io_error("write and sync activation state temporary", err))?;
+        io.rename(&paths.activation_state_temp, &paths.activation_state)
+            .map_err(|err| io_error("atomically replace activation state", err))?;
+        io.sync_dir(&paths.root)
+            .map_err(|err| io_error("sync activation state directory", err))?;
+        io.remove_file(&paths.activation_journal)
+            .map_err(|err| io_error("remove activation journal", err))?;
+        io.sync_dir(&paths.root)
+            .map_err(|err| io_error("sync final activation directory", err))?;
+        Ok(())
+    }
+
+    pub(super) fn activate_pointer_state(
+        paths: &CoreStatePaths,
+        before: Option<&GenerationPointerState>,
+        after: &GenerationPointerState,
+    ) -> Result<(), ActivationTransactionError> {
+        let mut io = FsActivationIo;
+        activate_pointer_state_with_io(paths, before, after, &mut io)
+    }
+
+    pub(super) fn recover_activation_state_with_io<I: ActivationIo>(
+        paths: &CoreStatePaths,
+        io: &mut I,
+    ) -> Result<Option<GenerationPointerState>, ActivationTransactionError> {
+        let journal_temporary_exists = path_exists(
+            &paths.activation_journal_temp,
+            "inspect activation journal temporary",
+        )?;
+        let state_temporary_exists =
+            path_exists(&paths.activation_state_temp, "inspect activation temporary")?;
+        let journal = read_activation_journal(paths)?;
+        let Some(journal) = journal else {
+            if journal_temporary_exists {
+                if state_temporary_exists {
+                    return Err(ActivationTransactionError::RecoveryConflict);
+                }
+                io.remove_file(&paths.activation_journal_temp)
+                    .map_err(|err| io_error("remove stale activation journal temporary", err))?;
+                io.sync_dir(&paths.root)
+                    .map_err(|err| io_error("sync recovered journal-temporary directory", err))?;
+                return read_pointer_state(paths);
+            }
+            if state_temporary_exists {
+                return Err(ActivationTransactionError::OrphanTemporaryState);
+            }
+            return read_pointer_state(paths);
+        };
+        if journal_temporary_exists {
+            return Err(ActivationTransactionError::OrphanJournalTemporary);
+        }
+
+        if journal.before.as_ref() == Some(&journal.after) {
+            return Err(StateFormatError::AmbiguousJournal.into());
+        }
+        let authoritative = read_pointer_state(paths)?;
+        let matches_before = authoritative == journal.before;
+        let matches_after = authoritative.as_ref() == Some(&journal.after);
+        if matches_before == matches_after {
+            return Err(ActivationTransactionError::RecoveryConflict);
+        }
+
+        if state_temporary_exists {
+            io.remove_file(&paths.activation_state_temp)
+                .map_err(|err| io_error("remove stale activation temporary", err))?;
+        }
+        io.remove_file(&paths.activation_journal)
+            .map_err(|err| io_error("remove recovered activation journal", err))?;
+        io.sync_dir(&paths.root)
+            .map_err(|err| io_error("sync recovered activation directory", err))?;
+        Ok(authoritative)
+    }
+
+    pub(super) fn recover_activation_state(
+        paths: &CoreStatePaths,
+    ) -> Result<Option<GenerationPointerState>, ActivationTransactionError> {
+        let mut io = FsActivationIo;
+        recover_activation_state_with_io(paths, &mut io)
+    }
+}
+
+#[cfg(unix)]
+#[allow(dead_code)]
 fn execute_public_entrypoint<
     'context,
     'runtime_selection,
@@ -2586,6 +3304,8 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    use super::m2_generation_state::*;
     use super::*;
 
     #[test]
@@ -8564,6 +9284,631 @@ exit 0
         assert_eq!(resolver_after, resolver_before);
         assert_eq!(launcher_after, launcher_before);
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[cfg(unix)]
+    fn m2_b1_unique_paths(label: &str) -> CoreStatePaths {
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let counter = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let root = std::env::temp_dir().join(format!(
+            "codex-m2-b1-{label}-{}-{counter}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let paths = CoreStatePaths::new(&root).expect("M2-B1 temp root must be valid");
+        prepare_core_state_paths(&paths).expect("prepare M2-B1 temp root");
+        paths
+    }
+
+    #[cfg(unix)]
+    fn m2_b1_cleanup(paths: &CoreStatePaths) {
+        let _ = std::fs::remove_dir_all(&paths.root);
+    }
+
+    #[cfg(unix)]
+    fn m2_b1_write_state(paths: &CoreStatePaths, state: &GenerationPointerState) {
+        std::fs::write(
+            &paths.activation_state,
+            encode_pointer_state(state).expect("encode test pointer state"),
+        )
+        .expect("write test pointer state");
+    }
+
+    #[cfg(unix)]
+    fn m2_b1_write_journal(paths: &CoreStatePaths, journal: &ActivationJournal) {
+        std::fs::write(
+            &paths.activation_journal,
+            encode_activation_journal(journal).expect("encode test activation journal"),
+        )
+        .expect("write test activation journal");
+    }
+
+    #[cfg(unix)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum M2B1FaultTiming {
+        Before,
+        After,
+    }
+
+    #[cfg(unix)]
+    struct M2B1FaultIo {
+        fail_call: usize,
+        timing: M2B1FaultTiming,
+        calls: usize,
+        kind: std::io::ErrorKind,
+        inner: FsActivationIo,
+    }
+
+    #[cfg(unix)]
+    impl M2B1FaultIo {
+        fn new(fail_call: usize, timing: M2B1FaultTiming) -> Self {
+            Self {
+                fail_call,
+                timing,
+                calls: 0,
+                kind: std::io::ErrorKind::Other,
+                inner: FsActivationIo,
+            }
+        }
+
+        fn with_kind(fail_call: usize, timing: M2B1FaultTiming, kind: std::io::ErrorKind) -> Self {
+            Self {
+                fail_call,
+                timing,
+                calls: 0,
+                kind,
+                inner: FsActivationIo,
+            }
+        }
+
+        fn around<T>(
+            &mut self,
+            action: impl FnOnce(&mut FsActivationIo) -> std::io::Result<T>,
+        ) -> std::io::Result<T> {
+            self.calls += 1;
+            let current = self.calls;
+            if current == self.fail_call && self.timing == M2B1FaultTiming::Before {
+                return Err(std::io::Error::new(
+                    self.kind,
+                    "injected M2-B1 fault before durable call",
+                ));
+            }
+            let result = action(&mut self.inner)?;
+            if current == self.fail_call && self.timing == M2B1FaultTiming::After {
+                return Err(std::io::Error::new(
+                    self.kind,
+                    "injected M2-B1 fault after durable call",
+                ));
+            }
+            Ok(result)
+        }
+    }
+
+    #[cfg(unix)]
+    impl ActivationIo for M2B1FaultIo {
+        fn write_new_synced(&mut self, path: &std::path::Path, data: &[u8]) -> std::io::Result<()> {
+            self.around(|inner| inner.write_new_synced(path, data))
+        }
+
+        fn sync_dir(&mut self, path: &std::path::Path) -> std::io::Result<()> {
+            self.around(|inner| inner.sync_dir(path))
+        }
+
+        fn rename(&mut self, from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
+            self.around(|inner| inner.rename(from, to))
+        }
+
+        fn remove_file(&mut self, path: &std::path::Path) -> std::io::Result<()> {
+            self.around(|inner| inner.remove_file(path))
+        }
+    }
+
+    #[cfg(unix)]
+    fn m2_b1_assert_no_transaction_files(paths: &CoreStatePaths) {
+        assert!(!paths.activation_journal.exists());
+        assert!(!paths.activation_journal_temp.exists());
+        assert!(!paths.activation_state_temp.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b1_a_paths_state_codec_and_identity_validation_are_strict() {
+        use std::os::unix::ffi::OsStringExt;
+
+        assert_eq!(
+            CoreStatePaths::new(std::path::Path::new("")),
+            Err(StateFormatError::EmptyRoot)
+        );
+        assert_eq!(
+            CoreStatePaths::new(std::path::Path::new("relative/root")),
+            Err(StateFormatError::RelativeRoot)
+        );
+        let nul = std::ffi::OsString::from_vec(vec![b'/', b't', b'm', b'p', 0, b'x']);
+        assert_eq!(
+            CoreStatePaths::new(std::path::Path::new(&nul)),
+            Err(StateFormatError::NulRoot)
+        );
+
+        let paths = m2_b1_unique_paths("codec");
+        assert_eq!(paths.generations, paths.root.join("generations"));
+        assert_eq!(paths.activation_state, paths.root.join("activation-state"));
+        assert_eq!(
+            paths.activation_journal,
+            paths.root.join("activation-journal")
+        );
+        assert_eq!(
+            paths.activation_journal_temp,
+            paths.root.join("activation-journal.tmp")
+        );
+        assert_eq!(
+            paths.activation_state_temp,
+            paths.root.join("activation-state.tmp")
+        );
+
+        let state = GenerationPointerState {
+            current: "generation = alpha 한국어".to_string(),
+            verified: "verified:β".to_string(),
+            previous: Some("previous value".to_string()),
+        };
+        let encoded = encode_pointer_state(&state).unwrap();
+        assert_eq!(
+            encoded,
+            "format=codex-activation-state-v1\ncurrent=generation = alpha 한국어\nverified=verified:β\nprevious_present=1\nprevious=previous value\n".as_bytes()
+        );
+        assert_eq!(parse_pointer_state(&encoded).unwrap(), state);
+
+        for bad in ["", "line\nbreak", "line\rbreak", "nul\0byte"] {
+            assert!(
+                plan_initial_pointer_state(bad).is_err(),
+                "bad identity {bad:?}"
+            );
+        }
+        let too_long = "x".repeat(513);
+        assert_eq!(
+            plan_initial_pointer_state(&too_long),
+            Err(StateFormatError::IdentityTooLong("candidate"))
+        );
+        m2_b1_cleanup(&paths);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b1_b_state_and_journal_parsers_fail_closed_on_malformed_inputs() {
+        let valid = GenerationPointerState {
+            current: "g1".to_string(),
+            verified: "g1".to_string(),
+            previous: None,
+        };
+        let valid_bytes = encode_pointer_state(&valid).unwrap();
+        assert_eq!(parse_pointer_state(&valid_bytes).unwrap(), valid);
+
+        let malformed_states: Vec<Vec<u8>> = vec![
+            b"format=codex-activation-state-v2\ncurrent=g1\nverified=g1\nprevious_present=0\nprevious=\n".to_vec(),
+            b"format=codex-activation-state-v1\nverified=g1\ncurrent=g1\nprevious_present=0\nprevious=\n".to_vec(),
+            b"format=codex-activation-state-v1\ncurrent=g1\nverified=g1\nprevious_present=2\nprevious=\n".to_vec(),
+            b"format=codex-activation-state-v1\ncurrent=g1\nverified=g1\nprevious_present=0\nprevious=ghost\n".to_vec(),
+            b"format=codex-activation-state-v1\ncurrent=g1\nverified=g1\nprevious_present=0\n".to_vec(),
+            b"format=codex-activation-state-v1\ncurrent=g1\nverified=g1\nprevious_present=0\nprevious=\nextra=x\n".to_vec(),
+            b"format=codex-activation-state-v1\ncurrent=g1\nverified=g1\nprevious_present=0\nprevious=".to_vec(),
+            vec![0xff, 0xfe, 0xfd, b'\n'],
+            vec![b'x'; 20_000],
+        ];
+        for malformed in malformed_states {
+            assert!(parse_pointer_state(&malformed).is_err());
+        }
+
+        let after = GenerationPointerState {
+            current: "g2".to_string(),
+            verified: "g2".to_string(),
+            previous: Some("g1".to_string()),
+        };
+        let journal = ActivationJournal {
+            before: Some(valid.clone()),
+            after: after.clone(),
+        };
+        let encoded = encode_activation_journal(&journal).unwrap();
+        assert_eq!(parse_activation_journal(&encoded).unwrap(), journal);
+        assert_eq!(
+            encode_activation_journal(&ActivationJournal {
+                before: Some(after.clone()),
+                after: after.clone(),
+            }),
+            Err(StateFormatError::AmbiguousJournal)
+        );
+        let absent_with_data = b"format=codex-activation-journal-v1\nbefore_present=0\nbefore_current=g1\nbefore_verified=\nbefore_previous_present=0\nbefore_previous=\nafter_current=g2\nafter_verified=g2\nafter_previous_present=1\nafter_previous=g1\n";
+        assert!(matches!(
+            parse_activation_journal(absent_with_data),
+            Err(StateFormatError::InconsistentAbsent("journal before state"))
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b1_c_initial_activation_upgrade_and_rollback_semantics_are_exact() {
+        let initial = plan_initial_pointer_state("g1").unwrap();
+        assert_eq!(
+            initial,
+            GenerationPointerState {
+                current: "g1".to_string(),
+                verified: "g1".to_string(),
+                previous: None,
+            }
+        );
+        let upgraded = plan_activation_pointer_state(&initial, "g2").unwrap();
+        assert_eq!(
+            upgraded,
+            GenerationPointerState {
+                current: "g2".to_string(),
+                verified: "g2".to_string(),
+                previous: Some("g1".to_string()),
+            }
+        );
+        let rollback = plan_rollback_pointer_state(&upgraded).unwrap();
+        assert_eq!(
+            rollback,
+            GenerationPointerState {
+                current: "g1".to_string(),
+                verified: "g1".to_string(),
+                previous: Some("g2".to_string()),
+            }
+        );
+        assert_eq!(
+            plan_activation_pointer_state(&initial, "g1"),
+            Err(StateFormatError::NoChange)
+        );
+        assert_eq!(
+            plan_rollback_pointer_state(&initial),
+            Err(StateFormatError::NoRollbackGeneration)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b1_d_real_activation_and_rollback_leave_only_one_authoritative_state() {
+        let paths = m2_b1_unique_paths("real");
+        let initial = plan_initial_pointer_state("g1").unwrap();
+        activate_pointer_state(&paths, None, &initial).unwrap();
+        assert_eq!(read_pointer_state(&paths).unwrap(), Some(initial.clone()));
+        m2_b1_assert_no_transaction_files(&paths);
+
+        let upgraded = plan_activation_pointer_state(&initial, "g2").unwrap();
+        activate_pointer_state(&paths, Some(&initial), &upgraded).unwrap();
+        assert_eq!(read_pointer_state(&paths).unwrap(), Some(upgraded.clone()));
+        m2_b1_assert_no_transaction_files(&paths);
+
+        let rollback = plan_rollback_pointer_state(&upgraded).unwrap();
+        activate_pointer_state(&paths, Some(&upgraded), &rollback).unwrap();
+        assert_eq!(read_pointer_state(&paths).unwrap(), Some(rollback));
+        m2_b1_assert_no_transaction_files(&paths);
+        m2_b1_cleanup(&paths);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b1_e_every_durable_boundary_recovers_to_exact_old_or_new_state() {
+        for timing in [M2B1FaultTiming::Before, M2B1FaultTiming::After] {
+            for fail_call in 1..=8 {
+                let paths = m2_b1_unique_paths(&format!("fault-{timing:?}-{fail_call}"));
+                let old = plan_initial_pointer_state("g1").unwrap();
+                activate_pointer_state(&paths, None, &old).unwrap();
+                let new = plan_activation_pointer_state(&old, "g2").unwrap();
+                let mut io = M2B1FaultIo::new(fail_call, timing);
+                let err = activate_pointer_state_with_io(&paths, Some(&old), &new, &mut io)
+                    .expect_err("injected durable-boundary fault must abort activation call");
+                assert!(matches!(err, ActivationTransactionError::Io { .. }));
+                assert_eq!(io.calls, fail_call);
+
+                let recovered = recover_activation_state(&paths).unwrap();
+                let rename_completed = match timing {
+                    M2B1FaultTiming::Before => fail_call >= 6,
+                    M2B1FaultTiming::After => fail_call >= 5,
+                };
+                assert_eq!(
+                    recovered,
+                    Some(if rename_completed {
+                        new.clone()
+                    } else {
+                        old.clone()
+                    }),
+                    "timing={timing:?} fail_call={fail_call}"
+                );
+                m2_b1_assert_no_transaction_files(&paths);
+                assert_eq!(recover_activation_state(&paths).unwrap(), recovered);
+                m2_b1_cleanup(&paths);
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b1_f_initial_activation_fault_matrix_never_fabricates_previous_state() {
+        for timing in [M2B1FaultTiming::Before, M2B1FaultTiming::After] {
+            for fail_call in 1..=8 {
+                let paths = m2_b1_unique_paths(&format!("initial-{timing:?}-{fail_call}"));
+                let new = plan_initial_pointer_state("g1").unwrap();
+                let mut io = M2B1FaultIo::new(fail_call, timing);
+                activate_pointer_state_with_io(&paths, None, &new, &mut io)
+                    .expect_err("injected initial-activation fault must abort call");
+                let recovered = recover_activation_state(&paths).unwrap();
+                let rename_completed = match timing {
+                    M2B1FaultTiming::Before => fail_call >= 6,
+                    M2B1FaultTiming::After => fail_call >= 5,
+                };
+                if rename_completed {
+                    assert_eq!(recovered, Some(new.clone()));
+                    assert_eq!(recovered.as_ref().unwrap().previous, None);
+                } else {
+                    assert_eq!(recovered, None);
+                }
+                m2_b1_assert_no_transaction_files(&paths);
+                m2_b1_cleanup(&paths);
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b1_g_partial_temporaries_and_stale_journal_recover_idempotently() {
+        let paths = m2_b1_unique_paths("partial-journal-temp");
+        let old = plan_initial_pointer_state("g1").unwrap();
+        activate_pointer_state(&paths, None, &old).unwrap();
+        std::fs::write(&paths.activation_journal_temp, b"partial-journal").unwrap();
+        assert_eq!(recover_activation_state(&paths).unwrap(), Some(old.clone()));
+        m2_b1_assert_no_transaction_files(&paths);
+        m2_b1_cleanup(&paths);
+
+        let paths = m2_b1_unique_paths("partial-state-temp");
+        activate_pointer_state(&paths, None, &old).unwrap();
+        let new = plan_activation_pointer_state(&old, "g2").unwrap();
+        m2_b1_write_journal(
+            &paths,
+            &ActivationJournal {
+                before: Some(old.clone()),
+                after: new.clone(),
+            },
+        );
+        std::fs::write(&paths.activation_state_temp, b"partial-state").unwrap();
+        assert_eq!(recover_activation_state(&paths).unwrap(), Some(old.clone()));
+        m2_b1_assert_no_transaction_files(&paths);
+        m2_b1_cleanup(&paths);
+
+        let paths = m2_b1_unique_paths("stale-journal-new");
+        activate_pointer_state(&paths, None, &old).unwrap();
+        m2_b1_write_state(&paths, &new);
+        m2_b1_write_journal(
+            &paths,
+            &ActivationJournal {
+                before: Some(old.clone()),
+                after: new.clone(),
+            },
+        );
+        assert_eq!(recover_activation_state(&paths).unwrap(), Some(new.clone()));
+        assert_eq!(recover_activation_state(&paths).unwrap(), Some(new));
+        m2_b1_assert_no_transaction_files(&paths);
+        m2_b1_cleanup(&paths);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b1_h_recovery_conflicts_and_malformed_files_fail_closed() {
+        let paths = m2_b1_unique_paths("conflict-third-state");
+        let old = plan_initial_pointer_state("g1").unwrap();
+        activate_pointer_state(&paths, None, &old).unwrap();
+        let expected_new = plan_activation_pointer_state(&old, "g2").unwrap();
+        let third = plan_activation_pointer_state(&old, "g3").unwrap();
+        m2_b1_write_state(&paths, &third);
+        m2_b1_write_journal(
+            &paths,
+            &ActivationJournal {
+                before: Some(old.clone()),
+                after: expected_new.clone(),
+            },
+        );
+        assert!(matches!(
+            recover_activation_state(&paths),
+            Err(ActivationTransactionError::RecoveryConflict)
+        ));
+        assert_eq!(read_pointer_state(&paths).unwrap(), Some(third));
+        assert!(paths.activation_journal.exists());
+        m2_b1_cleanup(&paths);
+
+        let paths = m2_b1_unique_paths("conflict-missing-state");
+        m2_b1_write_journal(
+            &paths,
+            &ActivationJournal {
+                before: Some(old.clone()),
+                after: expected_new.clone(),
+            },
+        );
+        assert!(matches!(
+            recover_activation_state(&paths),
+            Err(ActivationTransactionError::RecoveryConflict)
+        ));
+        m2_b1_cleanup(&paths);
+
+        let paths = m2_b1_unique_paths("malformed-journal");
+        activate_pointer_state(&paths, None, &old).unwrap();
+        std::fs::write(&paths.activation_journal, b"partial-canonical-journal").unwrap();
+        assert!(matches!(
+            recover_activation_state(&paths),
+            Err(ActivationTransactionError::Format(_))
+        ));
+        assert_eq!(read_pointer_state(&paths).unwrap(), Some(old.clone()));
+        assert!(paths.activation_journal.exists());
+        m2_b1_cleanup(&paths);
+
+        let paths = m2_b1_unique_paths("orphan-state-temp");
+        activate_pointer_state(&paths, None, &old).unwrap();
+        std::fs::write(&paths.activation_state_temp, b"orphan").unwrap();
+        assert!(matches!(
+            recover_activation_state(&paths),
+            Err(ActivationTransactionError::OrphanTemporaryState)
+        ));
+        m2_b1_cleanup(&paths);
+
+        let paths = m2_b1_unique_paths("both-temps-no-journal");
+        activate_pointer_state(&paths, None, &old).unwrap();
+        std::fs::write(&paths.activation_journal_temp, b"journal-temp").unwrap();
+        std::fs::write(&paths.activation_state_temp, b"state-temp").unwrap();
+        assert!(matches!(
+            recover_activation_state(&paths),
+            Err(ActivationTransactionError::RecoveryConflict)
+        ));
+        m2_b1_cleanup(&paths);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b1_i_collisions_permissions_and_unsafe_file_types_fail_closed() {
+        use std::os::unix::fs::symlink;
+
+        let paths = m2_b1_unique_paths("pending-journal");
+        let initial = plan_initial_pointer_state("g1").unwrap();
+        std::fs::write(&paths.activation_journal, b"collision").unwrap();
+        assert!(matches!(
+            activate_pointer_state(&paths, None, &initial),
+            Err(ActivationTransactionError::PendingJournal)
+        ));
+        assert_eq!(read_pointer_state(&paths).unwrap(), None);
+        m2_b1_cleanup(&paths);
+
+        let paths = m2_b1_unique_paths("pending-journal-temp");
+        std::fs::write(&paths.activation_journal_temp, b"collision").unwrap();
+        assert!(matches!(
+            activate_pointer_state(&paths, None, &initial),
+            Err(ActivationTransactionError::OrphanJournalTemporary)
+        ));
+        m2_b1_cleanup(&paths);
+
+        let paths = m2_b1_unique_paths("pending-state-temp");
+        std::fs::write(&paths.activation_state_temp, b"collision").unwrap();
+        assert!(matches!(
+            activate_pointer_state(&paths, None, &initial),
+            Err(ActivationTransactionError::OrphanTemporaryState)
+        ));
+        m2_b1_cleanup(&paths);
+
+        let paths = m2_b1_unique_paths("permission");
+        let mut io = M2B1FaultIo::with_kind(
+            1,
+            M2B1FaultTiming::Before,
+            std::io::ErrorKind::PermissionDenied,
+        );
+        match activate_pointer_state_with_io(&paths, None, &initial, &mut io) {
+            Err(ActivationTransactionError::Io { source, .. }) => {
+                assert_eq!(source.kind(), std::io::ErrorKind::PermissionDenied)
+            }
+            other => panic!("expected typed PermissionDenied, got {other:?}"),
+        }
+        assert_eq!(recover_activation_state(&paths).unwrap(), None);
+        m2_b1_cleanup(&paths);
+
+        let paths = m2_b1_unique_paths("state-symlink");
+        let outside = paths.root.with_extension("outside-state");
+        std::fs::write(&outside, encode_pointer_state(&initial).unwrap()).unwrap();
+        symlink(&outside, &paths.activation_state).unwrap();
+        assert!(matches!(
+            read_pointer_state(&paths),
+            Err(ActivationTransactionError::UnsafeFileType(
+                "activation state"
+            ))
+        ));
+        assert_eq!(
+            std::fs::read(&outside).unwrap(),
+            encode_pointer_state(&initial).unwrap()
+        );
+        let _ = std::fs::remove_file(&outside);
+        m2_b1_cleanup(&paths);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b1_j_activation_never_writes_generation_or_outside_root_content() {
+        let missing_parent = std::env::temp_dir().join(format!(
+            "codex-m2-b1-missing-parent-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let nested_root = missing_parent.join("state-root");
+        let nested_paths = CoreStatePaths::new(&nested_root).unwrap();
+        assert!(prepare_core_state_paths(&nested_paths).is_err());
+        assert!(
+            !missing_parent.exists(),
+            "preparing an explicit root must not create missing ancestors"
+        );
+
+        let paths = m2_b1_unique_paths("boundaries");
+        let outside = paths.root.with_extension("outside-sentinel");
+        let unrelated = paths.root.join("unrelated-sentinel");
+        let generation_dir = paths.generations.join("opaque-g1").join("nested");
+        std::fs::create_dir_all(&generation_dir).unwrap();
+        let generation_file = generation_dir.join("runtime.bin");
+        std::fs::write(&generation_file, b"immutable-generation-bytes\0\xff").unwrap();
+        std::fs::write(&outside, b"outside-root-sentinel").unwrap();
+        std::fs::write(&unrelated, b"unrelated-root-sentinel").unwrap();
+        let generation_before = std::fs::read(&generation_file).unwrap();
+        let outside_before = std::fs::read(&outside).unwrap();
+        let unrelated_before = std::fs::read(&unrelated).unwrap();
+
+        let initial = plan_initial_pointer_state("opaque-g1").unwrap();
+        activate_pointer_state(&paths, None, &initial).unwrap();
+        let upgraded = plan_activation_pointer_state(&initial, "opaque-g2").unwrap();
+        activate_pointer_state(&paths, Some(&initial), &upgraded).unwrap();
+
+        assert_eq!(std::fs::read(&generation_file).unwrap(), generation_before);
+        assert_eq!(std::fs::read(&outside).unwrap(), outside_before);
+        assert_eq!(std::fs::read(&unrelated).unwrap(), unrelated_before);
+        assert!(!paths.generations.join("opaque-g2").exists());
+        assert_eq!(read_pointer_state(&paths).unwrap(), Some(upgraded));
+        m2_b1_assert_no_transaction_files(&paths);
+
+        let _ = std::fs::remove_file(&outside);
+        m2_b1_cleanup(&paths);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b1_k_recovery_rejects_canonical_journal_plus_journal_temporary() {
+        let paths = m2_b1_unique_paths("double-journal");
+        let old = plan_initial_pointer_state("g1").unwrap();
+        activate_pointer_state(&paths, None, &old).unwrap();
+        let new = plan_activation_pointer_state(&old, "g2").unwrap();
+        m2_b1_write_journal(
+            &paths,
+            &ActivationJournal {
+                before: Some(old.clone()),
+                after: new,
+            },
+        );
+        std::fs::write(&paths.activation_journal_temp, b"unexpected-second-temp").unwrap();
+        assert!(matches!(
+            recover_activation_state(&paths),
+            Err(ActivationTransactionError::OrphanJournalTemporary)
+        ));
+        assert_eq!(read_pointer_state(&paths).unwrap(), Some(old));
+        assert!(paths.activation_journal.exists());
+        assert!(paths.activation_journal_temp.exists());
+        m2_b1_cleanup(&paths);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b1_l_stale_before_state_rejects_new_activation_without_mutation() {
+        let paths = m2_b1_unique_paths("stale-before");
+        let actual = plan_initial_pointer_state("g1").unwrap();
+        activate_pointer_state(&paths, None, &actual).unwrap();
+        let stale = plan_initial_pointer_state("stale").unwrap();
+        let requested = plan_activation_pointer_state(&stale, "g2").unwrap();
+        assert!(matches!(
+            activate_pointer_state(&paths, Some(&stale), &requested),
+            Err(ActivationTransactionError::StaleAuthoritativeState)
+        ));
+        assert_eq!(read_pointer_state(&paths).unwrap(), Some(actual));
+        m2_b1_assert_no_transaction_files(&paths);
+        m2_b1_cleanup(&paths);
     }
 
     fn m1_b12_remote_request() -> UpdateRequest<'static> {
