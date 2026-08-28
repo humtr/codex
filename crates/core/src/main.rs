@@ -1546,6 +1546,51 @@ where
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UpstreamDoctorCapability {
+    Supported,
+    Unsupported,
+}
+
+/// Coordinates the bounded local doctor report without inventing Core or Manager probes.
+///
+/// A supported upstream invokes the B16 qualified child probe exactly once. An unsupported
+/// upstream skips process-environment planning, runtime FD setup, and child execution entirely.
+/// Core and Manager states are already-typed caller inputs and are composed through the B15
+/// report model without broadening its output vocabulary.
+#[cfg(unix)]
+#[allow(dead_code)]
+fn compose_local_doctor<'selection, 'asset, 'generation, R, C>(
+    capability: UpstreamDoctorCapability,
+    assets: QualifiedRuntimeAssets<'selection, 'asset, 'generation>,
+    process_env: &TermuxProcessEnvSnapshot,
+    cert_file: &OsStr,
+    cert_dir: Option<&OsStr>,
+    resolver_path: R,
+    config_dir: C,
+    termux_core: CoreDoctorStatus,
+    manager: ManagerDoctorStatus,
+) -> Result<DoctorReport, QualifiedUpstreamDoctorProbeError>
+where
+    R: AsRef<std::path::Path>,
+    C: AsRef<std::path::Path>,
+{
+    let upstream = match capability {
+        UpstreamDoctorCapability::Supported => probe_qualified_upstream_doctor(
+            assets,
+            process_env,
+            cert_file,
+            cert_dir,
+            resolver_path,
+            config_dir,
+        )?,
+        UpstreamDoctorCapability::Unsupported => UpstreamDoctorStatus::Unsupported,
+    };
+
+    Ok(compose_doctor_report(upstream, termux_core, manager))
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum UpdateEvidenceVerdict {
     Satisfied,
     Rejected,
@@ -2128,6 +2173,8 @@ mod tests {
     const PROBE_CONFIG_DIR_PATH_ENV: &str = "CODEX_TEST_EXEC_CONFIG_DIR_PATH";
     #[cfg(unix)]
     const PROBE_FAKE_UPSTREAM_PATH_ENV: &str = "CODEX_TEST_EXEC_FAKE_UPSTREAM_PATH";
+    #[cfg(unix)]
+    const PROBE_B17_MODE_ENV: &str = "CODEX_TEST_B17_MODE";
 
     #[cfg(unix)]
     fn resolve_test_shell() -> std::ffi::OsString {
@@ -2208,6 +2255,120 @@ mod tests {
     }
 
     #[cfg(unix)]
+    fn run_m1_b17_coordinator_probe() -> ! {
+        let resolver_path =
+            std::env::var_os(PROBE_RESOLVER_PATH_ENV).expect("PROBE_RESOLVER_PATH_ENV must be set");
+        let config_dir_path = std::env::var_os(PROBE_CONFIG_DIR_PATH_ENV)
+            .expect("PROBE_CONFIG_DIR_PATH_ENV must be set");
+        let runtime_path = std::env::var_os(PROBE_FAKE_UPSTREAM_PATH_ENV)
+            .expect("PROBE_FAKE_UPSTREAM_PATH_ENV must be set");
+        let mode = std::env::var(PROBE_B17_MODE_ENV).expect("PROBE_B17_MODE_ENV must be set");
+        let root = std::path::Path::new(&runtime_path)
+            .parent()
+            .expect("B17 runtime path must have parent");
+        let compatibility_dir = root.join("doctor-compat-bin");
+        let prefix = root.join("doctor-prefix");
+        let temp_dir = root.join("doctor-tmp");
+        let cert_file = root.join("doctor-tls/cert.pem");
+        let cert_dir = root.join("doctor-tls/certs.d");
+
+        let mut manifest = m1_b11_valid_manifest();
+        manifest.helper_digests.clear();
+        let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements())
+            .expect("B17 probe generation must qualify");
+        let selection = RuntimeAssetSelection {
+            runtime: RuntimeAssetBinding {
+                program_path: runtime_path.as_os_str(),
+                observed_digest: manifest.runtime_digest.as_str(),
+            },
+            compatibility_dir: compatibility_dir.as_os_str(),
+            helpers: &[],
+        };
+        let qualified = qualify_runtime_assets(generation, &selection)
+            .expect("B17 probe runtime assets must qualify");
+        let snapshot = TermuxProcessEnvSnapshot {
+            prefix: Some(prefix.into_os_string()),
+            tmpdir: Some(temp_dir.into_os_string()),
+            inherited_path: Some(OsString::from(
+                "/probe/b16/inherited-a:/probe/b16/inherited-b",
+            )),
+            inherited_ssl_cert_file: None,
+            inherited_ssl_cert_dir: None,
+        };
+
+        std::env::set_var("CODEX_MANAGED_BY_NPM", "probe-b17-npm-contam");
+        std::env::set_var("CODEX_MANAGED_BY_BUN", "probe-b17-bun-contam");
+        std::env::set_var("CODEX_MANAGED_PACKAGE_ROOT", "/probe/b17/pkg/root");
+        std::env::set_var("LD_PRELOAD", "/probe/b17/preload.so");
+        std::env::set_var("LD_LIBRARY_PATH", "/probe/b17/lib");
+        std::env::set_var(
+            "CODEX_TEST_UNRELATED_M1_B16_SURVIVING_VAR",
+            "m1_b16_surviving_exact_value_27182",
+        );
+
+        let (termux_core, manager) = match mode.as_str() {
+            "healthy-degraded" => (CoreDoctorStatus::Healthy, ManagerDoctorStatus::Unavailable),
+            "unhealthy-api" => (
+                CoreDoctorStatus::ApiIncompatible,
+                ManagerDoctorStatus::Healthy,
+            ),
+            "missing-runtime" => (CoreDoctorStatus::Healthy, ManagerDoctorStatus::Healthy),
+            other => panic!("unknown B17 coordinator probe mode: {other}"),
+        };
+
+        match compose_local_doctor(
+            UpstreamDoctorCapability::Supported,
+            qualified,
+            &snapshot,
+            cert_file.as_os_str(),
+            Some(cert_dir.as_os_str()),
+            resolver_path,
+            config_dir_path,
+            termux_core,
+            manager,
+        ) {
+            Ok(report) => {
+                use std::io::Write;
+                writeln!(
+                    std::io::stdout(),
+                    "B17_REPORT:{}:{}:{}:{}",
+                    report.upstream.as_str(),
+                    report.termux_core.as_str(),
+                    report.manager.as_str(),
+                    report.summary.as_str(),
+                )
+                .expect("write B17 report");
+                write!(
+                    std::io::stdout(),
+                    "B17_HUMAN:{}",
+                    render_doctor_human(&report)
+                )
+                .expect("write B17 human report");
+                write!(
+                    std::io::stdout(),
+                    "B17_JSON:{}",
+                    render_doctor_json(&report)
+                )
+                .expect("write B17 JSON report");
+                std::io::stdout().flush().expect("flush B17 report");
+                std::process::exit(0);
+            }
+            Err(QualifiedUpstreamDoctorProbeError::Io(err))
+                if mode == "missing-runtime" && err.kind() == std::io::ErrorKind::NotFound =>
+            {
+                use std::io::Write;
+                writeln!(std::io::stdout(), "B17_IO_NOT_FOUND")
+                    .expect("write B17 missing-runtime marker");
+                std::io::stdout()
+                    .flush()
+                    .expect("flush B17 missing-runtime marker");
+                std::process::exit(0);
+            }
+            Err(err) => panic!("B17 coordinator probe failed: {err}"),
+        }
+    }
+
+    #[cfg(unix)]
     #[test]
     fn exec_probe_subprocess_entry() {
         use std::os::unix::ffi::OsStrExt;
@@ -2246,6 +2407,7 @@ mod tests {
         }
 
         match scenario.as_str() {
+            "m1_b17_coordinator_launcher" => run_m1_b17_coordinator_probe(),
             "all_evidence" => {
                 let script = r#"
 printf "STDOUT_START\n"
@@ -7834,5 +7996,138 @@ exit {}
             }
             other => panic!("expected B16 environment failure before FD I/O, got {other:?}"),
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b17_a_supported_healthy_composes_real_probe_into_degraded_report() {
+        let (root, resolver, config_dir) = m1_b16_create_runtime_root("m1-b17-healthy");
+        let runtime = m1_b16_write_doctor_runtime(&root, "doctor-healthy.sh", 0);
+        let mode = OsStr::new("healthy-degraded");
+        let result = run_exec_probe_with_env(
+            "m1_b17_coordinator_launcher",
+            &[
+                (PROBE_RESOLVER_PATH_ENV, resolver.as_os_str()),
+                (PROBE_CONFIG_DIR_PATH_ENV, config_dir.as_os_str()),
+                (PROBE_FAKE_UPSTREAM_PATH_ENV, runtime.as_os_str()),
+                (PROBE_B17_MODE_ENV, mode),
+            ],
+        );
+        assert_eq!(result.status.code(), Some(0));
+        assert_eq!(result.stderr, b"");
+        assert_eq!(
+            result.stdout,
+            b"B17_REPORT:healthy:healthy:unavailable:degraded\nB17_HUMAN:[Upstream]\nstatus: healthy\n\n[Termux Core]\nstatus: healthy\n\n[Manager]\nstatus: unavailable\n\n[Summary]\nstatus: degraded\nB17_JSON:{\"schema_version\":1,\"upstream\":{\"status\":\"healthy\"},\"termux_core\":{\"status\":\"healthy\"},\"manager\":{\"status\":\"unavailable\"},\"summary\":{\"status\":\"degraded\"}}\n"
+        );
+        assert!(!result
+            .stdout
+            .windows(b"SECRET".len())
+            .any(|window| window == b"SECRET"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b17_b_supported_unhealthy_respects_api_incompatible_precedence() {
+        let (root, resolver, config_dir) = m1_b16_create_runtime_root("m1-b17-api");
+        let runtime = m1_b16_write_doctor_runtime(&root, "doctor-unhealthy.sh", 17);
+        let mode = OsStr::new("unhealthy-api");
+        let result = run_exec_probe_with_env(
+            "m1_b17_coordinator_launcher",
+            &[
+                (PROBE_RESOLVER_PATH_ENV, resolver.as_os_str()),
+                (PROBE_CONFIG_DIR_PATH_ENV, config_dir.as_os_str()),
+                (PROBE_FAKE_UPSTREAM_PATH_ENV, runtime.as_os_str()),
+                (PROBE_B17_MODE_ENV, mode),
+            ],
+        );
+        assert_eq!(result.status.code(), Some(0));
+        assert_eq!(result.stderr, b"");
+        assert_eq!(
+            result.stdout,
+            b"B17_REPORT:unhealthy:api_incompatible:healthy:api_incompatible\nB17_HUMAN:[Upstream]\nstatus: unhealthy\n\n[Termux Core]\nstatus: api_incompatible\n\n[Manager]\nstatus: healthy\n\n[Summary]\nstatus: api_incompatible\nB17_JSON:{\"schema_version\":1,\"upstream\":{\"status\":\"unhealthy\"},\"termux_core\":{\"status\":\"api_incompatible\"},\"manager\":{\"status\":\"healthy\"},\"summary\":{\"status\":\"api_incompatible\"}}\n"
+        );
+        assert!(!result
+            .stdout
+            .windows(b"unsupported".len())
+            .any(|window| window == b"unsupported"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b17_c_unsupported_skips_probe_io_and_renders_exactly() {
+        let mut manifest = m1_b11_valid_manifest();
+        manifest.helper_digests.clear();
+        let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements())
+            .expect("B17 unsupported generation must qualify");
+        let selection = RuntimeAssetSelection {
+            runtime: RuntimeAssetBinding {
+                program_path: OsStr::new("/path/that/does/not/exist/b17-runtime"),
+                observed_digest: manifest.runtime_digest.as_str(),
+            },
+            compatibility_dir: OsStr::new("/path/that/does/not/exist/b17-compat"),
+            helpers: &[],
+        };
+        let qualified = qualify_runtime_assets(generation, &selection)
+            .expect("B17 unsupported runtime shape must qualify");
+        let invalid_snapshot = TermuxProcessEnvSnapshot {
+            prefix: None,
+            tmpdir: None,
+            inherited_path: None,
+            inherited_ssl_cert_file: None,
+            inherited_ssl_cert_dir: None,
+        };
+
+        let report = compose_local_doctor(
+            UpstreamDoctorCapability::Unsupported,
+            qualified,
+            &invalid_snapshot,
+            OsStr::new("/path/that/does/not/exist/b17-cert.pem"),
+            None,
+            std::path::Path::new("/path/that/does/not/exist/b17-resolver"),
+            std::path::Path::new("/path/that/does/not/exist/b17-config"),
+            CoreDoctorStatus::Healthy,
+            ManagerDoctorStatus::Unavailable,
+        )
+        .expect("unsupported capability must skip all probe-only I/O");
+
+        assert_eq!(report.upstream, UpstreamDoctorStatus::Unsupported);
+        assert_eq!(report.termux_core, CoreDoctorStatus::Healthy);
+        assert_eq!(report.manager, ManagerDoctorStatus::Unavailable);
+        assert_eq!(report.summary, DoctorSummaryStatus::Degraded);
+        assert_eq!(
+            render_doctor_human(&report),
+            "[Upstream]\nstatus: unsupported\n\n[Termux Core]\nstatus: healthy\n\n[Manager]\nstatus: unavailable\n\n[Summary]\nstatus: degraded\n"
+        );
+        assert_eq!(
+            render_doctor_json(&report),
+            "{\"schema_version\":1,\"upstream\":{\"status\":\"unsupported\"},\"termux_core\":{\"status\":\"healthy\"},\"manager\":{\"status\":\"unavailable\"},\"summary\":{\"status\":\"degraded\"}}\n"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b17_d_supported_spawn_error_propagates_without_report() {
+        let (root, resolver, config_dir) = m1_b16_create_runtime_root("m1-b17-missing");
+        let missing_runtime = root.join("does-not-exist-doctor-runtime");
+        let mode = OsStr::new("missing-runtime");
+        let result = run_exec_probe_with_env(
+            "m1_b17_coordinator_launcher",
+            &[
+                (PROBE_RESOLVER_PATH_ENV, resolver.as_os_str()),
+                (PROBE_CONFIG_DIR_PATH_ENV, config_dir.as_os_str()),
+                (PROBE_FAKE_UPSTREAM_PATH_ENV, missing_runtime.as_os_str()),
+                (PROBE_B17_MODE_ENV, mode),
+            ],
+        );
+        assert_eq!(result.status.code(), Some(0));
+        assert_eq!(result.stderr, b"");
+        assert_eq!(result.stdout, b"B17_IO_NOT_FOUND\n");
+        assert!(!result
+            .stdout
+            .windows(b"B17_REPORT".len())
+            .any(|window| window == b"B17_REPORT"));
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
