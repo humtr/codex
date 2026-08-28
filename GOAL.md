@@ -26,46 +26,47 @@
 - Required primary role: Technical Lead/Integrator
 - Required primary model: `gpt-5.6-sol`
 - Required reasoning effort: `max`
-- Lifecycle: keep the primary Lead across both Core milestones while its
-  context remains available and accurate; on resume rebind the branch, commit,
+- Lifecycle: keep the primary Lead across both Core milestones while its context
+  remains available and accurate; on resume rebind the branch, commit,
   `SPEC.md`, this file, and `WORKBOARD.md`
-- Planning owner: the primary Lead reads authorized repository evidence
-  directly, plans each bounded implementation bundle, and records it in
-  `WORKBOARD.md` before delegation
-- Integration owner: the primary Lead inspects actual worker diffs, reruns
-  load-bearing validation, records acceptance evidence, and commits accepted
-  work; worker reports do not establish acceptance
+- Planning owner: the primary Lead reads authorized repository evidence directly,
+  plans each bounded implementation bundle, and records it in `WORKBOARD.md`
+  before product-code mutation
+- Implementation/integration owner: while worker mode is OFF, the primary Lead
+  directly edits bounded product code/tests, inspects the actual diff, reruns
+  load-bearing validation, records acceptance evidence, and commits accepted work
 - Checkpoints: initial implementation bundle; completion or rejection of the
-  current bundle; material deviation, blocker, or authority change; and
-  milestone transition
+  current bundle; material deviation, blocker, authority change, worker-mode
+  transition, and milestone transition
 - Additional planning agents, problem advisors, and checkpoint reviewers:
-  disabled during both Core milestones
-- Primary mutation boundary: the primary Lead directly performs authority,
-  product-code, test, integration, validation, commit, and acceptance work
-- Identity rule: do not persist a live Lead identity in tracked files
+  disabled during both Core milestones unless the user explicitly changes that
+  policy
 - Review policy: the Lead's validation is integration verification, not
-  independent review; invoke a fresh independent product reviewer only after
-  the Milestone 2 acceptance candidate is complete
+  independent review; invoke a fresh independent product reviewer only after the
+  Milestone 2 acceptance candidate is complete
+- Identity rule: do not persist a live Lead identity in tracked files
 - Policy source and timestamp: user decision on 2026-08-28
 
-## Direct Implementation Policy
+## Worker Mode Control
 
-- Direct implementation enabled: true
-- Implementation owner: the primary `gpt-5.6-sol` / `max` Technical Lead
-- Implementation workers/subagents: disabled by explicit user decision on
-  2026-08-28; do not invoke an implementation worker unless the user later
-  changes this policy
-- The Lead may directly edit product code and tests within the current bounded
-  `WORKBOARD.md` bundle and remains responsible for actual diff inspection,
-  load-bearing validation, commits, and acceptance
-- Planning agents, problem advisors, and checkpoint reviewers remain disabled
-  during both Core milestones
-- tmcp `harness.run` is test/validation-only. It may execute bounded test
-  harnesses, but it must not be used as an implementation/development agent or
-  as a route for product-code mutation
+- Worker capability: available but user-controlled
+- Current worker mode: OFF
+- Authority to change worker mode: explicit user command only. The Lead must not
+  infer, auto-enable, or auto-disable worker mode from workload, context pressure,
+  test failures, or convenience
+- While OFF: do not invoke implementation workers or coding subagents. The
+  primary `gpt-5.6-sol` / `max` Lead directly implements bounded Workboard work
+- If the user later turns worker mode ON: record the transition and a bounded
+  worker contract in `WORKBOARD.md` before invoking any implementation worker;
+  worker output never becomes acceptance proof without Lead diff review and
+  load-bearing validation
+- Turning worker mode ON or OFF does not alter repository/product authority,
+  milestone gates, protected surfaces, or the Lead's acceptance ownership
+- tmcp `harness.run` is independent of worker mode and is test/validation-only;
+  it must never be used as an implementation/development agent or as a route for
+  product-code mutation
 - Package operations, live product mutation, and network/provider behavior remain
   prohibited unless separately authorized by the applicable milestone gate
-- Identity rule: do not persist a live Lead identity in tracked files
 - Policy source and timestamp: user decision on 2026-08-28
 
 ## Current Success Threshold
@@ -113,8 +114,9 @@ one current workboard, direct focused tests, and deferred independent review.
 - Run the goal under a primary `gpt-5.6-sol` / `max` Technical Lead/Integrator
   that directly owns repository evidence, planning, integration verification,
   authority documents, commits, and acceptance decisions across both milestones.
-- Have the primary Lead directly implement bounded product-code and test changes
-  within each recorded Workboard bundle; implementation workers are disabled.
+- Worker mode is controlled only by explicit user command; its current state is
+  OFF, so the primary Lead directly implements bounded product-code and test
+  changes.
 - Do not create planning subagents, problem advisors, or checkpoint reviewers
   during the Core milestones. Review the complete Milestone 2 candidate with a
   fresh independent reviewer.
@@ -139,7 +141,32 @@ Termux qualification. Produce one candidate for independent product review.
 
 ## Acceptance Ledger
 
-### Proven Now
+### Current Re-audit Evidence
+
+- On 2026-08-28 the user explicitly withdrew trust from the prior implementation
+  worker path and required a fresh Lead review from the beginning. Earlier
+  M1-B1..M1-B9 worker reports, bundle acceptance statements, and their test runs
+  are historical records only; they are not current acceptance proof until the
+  direct Lead revalidates the corresponding source behavior.
+- Fresh direct-Lead baseline at
+  `92422311301500fef0a6a5859607917f59ec6fc9` used offline mode and a
+  repository-external Cargo target: `cargo fmt --check`, locked workspace build,
+  all 50 tests with one test thread, and eight additional default-parallel full
+  workspace test runs all passed. This establishes only build/test repeatability
+  of the current source, not correctness of the prior bundle claims.
+- Fresh source review reopened sandbox-policy correctness: the current planner's
+  tests intentionally accept whitespace-bearing `sandbox_mode` config forms and
+  attached short-config forms that can represent upstream configuration. The
+  Termux contract is fail-closed for unsupported Linux sandbox requests, so this
+  parser boundary must be hardened before B6/B7/B9 semantics can be trusted.
+- Fresh source review also reopened FD-failure safety: restoration currently
+  performs best-effort syscalls without surfacing restoration failures, and some
+  failure tests mutate process-global FD 33/34 in the parallel test process.
+  Restoration error propagation and test isolation must be hardened before the
+  B4/B7/B9 failure-path claims are trusted.
+
+### Historical Bundle Ledger — revalidation pending
+
 
 - The predecessor tip `bf30a7d` contains `af640166`, which removed the Termux
   bwrap compatibility path and made unsupported sandbox requests explicit.
@@ -151,7 +178,7 @@ Termux qualification. Produce one candidate for independent product review.
 - `rewrite/rust-core` begins at empty root
   `b3a9da98195cff1053f012d2afa738949b5b14dc` and has no merge-base with
   `main` or `legacy/monolith`.
-- Milestone 1 bundle M1-B1 is accepted at
+- Milestone 1 bundle M1-B1 was historically recorded as accepted at
   `36c98dd8882ddba18657ab3f289eace1121ff39b`: the rewrite now has one locked,
   dependency-free Cargo workspace member and one Core binary with exact
   first-argument classification for `update`, `doctor`, and `termux`; all other
@@ -171,7 +198,7 @@ Termux qualification. Produce one candidate for independent product review.
   lineage, the Lead committed M1-B1 once with `--no-verify` under exact HEAD and
   index-tree preconditions. The hook remains unmodified and is not product
   evidence.
-- Milestone 1 bundle M1-B2 is accepted at
+- Milestone 1 bundle M1-B2 was historically recorded as accepted at
   `fc50b39e50bb6ef341d3cf01163ca90423bd7b13`. The std-only Unix/Android
   `exec_upstream` primitive uses final `exec` replacement with raw `OsStr`/
   `OsString` inputs. Focused subprocess evidence proves upstream-visible
@@ -183,7 +210,7 @@ Termux qualification. Produce one candidate for independent product review.
   `CARGO_TARGET_DIR`; `cargo fmt --check`, `cargo test --locked --workspace`
   (11/11), and `cargo build --locked --workspace` all passed while repository
   status remained limited to the authorized source file before commit.
-- Milestone 1 bundle M1-B3 is accepted at
+- Milestone 1 bundle M1-B3 was historically recorded as accepted at
   `815c9104c726f212ee4a51b518af14e8c133b20c`. The production exec command
   removes exactly `CODEX_MANAGED_BY_NPM`, `CODEX_MANAGED_BY_BUN`,
   `CODEX_MANAGED_PACKAGE_ROOT`, `LD_PRELOAD`, and `LD_LIBRARY_PATH` from the
@@ -193,7 +220,7 @@ Termux qualification. Produce one candidate for independent product review.
 - Primary-Lead validation job `job_hnt_c908186115` reran M1-B3 with an external
   temporary Cargo target and offline mode; formatting, 13/13 tests, and locked
   workspace build passed while status remained limited to `crates/core/src/main.rs`.
-- Milestone 1 bundle M1-B4 is accepted at
+- Milestone 1 bundle M1-B4 was historically recorded as accepted at
   `bb21ddca58589ec77a22e824c4218db5c1087daa`. The runtime-FD exec path opens
   an explicit resolver source and existing managed-config directory read-only,
   maps them to FD 33/34 with CLOEXEC cleared, uses safe CLOEXEC duplicates above
@@ -206,7 +233,7 @@ Termux qualification. Produce one candidate for independent product review.
   24/24 workspace tests, three additional serial repetitions of all 11
   `runtime_fds` tests, and locked workspace build with offline mode and an
   external Cargo target.
-- Milestone 1 bundle M1-B5 is accepted at
+- Milestone 1 bundle M1-B5 was historically recorded as accepted at
   `85f312b7d5d0e2e8a14c9084063e437633b63480`. Test-only private probes prove
   the production final `exec_upstream` boundary preserves a PTY on stdin,
   stdout, and stderr on the current Android/Termux device and preserves process
@@ -217,7 +244,7 @@ Termux qualification. Produce one candidate for independent product review.
   workspace tests, three additional serial repetitions of each TTY and SIGTERM
   proof, and locked build with offline mode and a repository-external Cargo
   target.
-- Milestone 1 bundle M1-B6 is accepted at
+- Milestone 1 bundle M1-B6 was historically recorded as accepted at
   `a4b4cb3a91bd78ea07952739f054695f10bab638`. The module-private passthrough
   planner rejects the bounded observed Linux `read-only`/`workspace-write` and
   leading `sandbox linux` request forms before launch planning, stops scanning
@@ -233,7 +260,7 @@ Termux qualification. Produce one candidate for independent product review.
   formatting, all 34/34 workspace tests, three serial repetitions of the 10
   `passthrough_` tests, and the locked workspace build with offline mode and a
   repository-external Cargo target.
-- Milestone 1 bundle M1-B7 is accepted at
+- Milestone 1 bundle M1-B7 was historically recorded as accepted at
   `5e5044eb3ae9286b72b16f1e1b9092f4e728bc82`. The module-private
   `launch_upstream` composes B6 policy planning with the accepted B4 runtime-FD
   final-exec primitive through explicit program/resolver/config/user-argv
@@ -248,7 +275,7 @@ Termux qualification. Produce one candidate for independent product review.
   `job_hvj_d1a56ada7b` ran each of the four B7 focused tests exactly three times
   (12 actual focused runs), then passed all 38/38 workspace tests and the locked
   build with offline mode and a repository-external Cargo target.
-- Milestone 1 bundle M1-B8 is accepted at
+- Milestone 1 bundle M1-B8 was historically recorded as accepted at
   `ae678fdb01b065a78f55b4e0546a8c4b12c498fa`. The module-private Unix/Android
   base-environment planner is std-only and explicit-input-only: it plans the four
   temporary-directory variables, certificate fallback/precedence, and raw-byte
@@ -264,7 +291,7 @@ Termux qualification. Produce one candidate for independent product review.
   and a repository-external Cargo target. The positive assignments remain a
   bounded M1 compatibility hypothesis until applied and qualified on the real
   Termux execution boundary.
-- Milestone 1 bundle M1-B9 is accepted at
+- Milestone 1 bundle M1-B9 was historically recorded as accepted at
   `692cd8b0c9cc4babe273ab9bdfa9d14eabc9db0c`. One shared final-exec
   implementation now accepts an optional `TermuxBaseEnvPlan`; positive raw
   `OsString` assignments are applied directly to the child `Command`, then the
@@ -289,17 +316,15 @@ Termux qualification. Produce one candidate for independent product review.
 
 ### Not Proven
 
-- Milestone 1 is not complete. M1-B1 proves workspace/classification, M1-B2/B3
-  prove isolated final-exec argv/stream/exit and contamination-fence behavior,
-  M1-B4 proves isolated FD 33/34 setup/restoration plus test-resolver
-  non-mutation, M1-B5 proves TTY/external-SIGTERM fidelity on the current
-  Android/Termux device, M1-B6 proves the Termux sandbox-policy planner, M1-B7
-  proves composition of that planner with the runtime-FD final-exec path, M1-B8
-  proves a pure explicit-input base-environment plan, and M1-B9 proves that plan
-  survives the real final-exec composition. Process-environment capture and
-  runtime/generation path selection are still not connected, and `main` remains
-  unwired to a qualified upstream runtime. Doctor composition, generation/updater
-  interfaces, and the full real-Termux smoke gate remain unproven.
+- M1-B1..M1-B9 are not currently trusted as an acceptance chain. Their source and
+  commits remain available as review material, but current acceptance requires
+  direct-Lead revalidation after the reopened sandbox and FD failure-path issues
+  are resolved.
+- The current Core is buildable and its 50 existing tests repeat successfully,
+  but the normal `main` entrypoint remains unwired to a qualified upstream
+  runtime. Process-environment capture, runtime/generation selection, doctor
+  composition, generation/updater interfaces, and the complete real-Termux
+  Milestone 1 smoke gate remain unproven.
 - No release artifact, installation, update, activation, rollback, offline
   recovery, fresh-device behavior, Milestone 2 result, or production readiness
   is proven.
@@ -307,22 +332,16 @@ Termux qualification. Produce one candidate for independent product review.
 
 ### Checkpoint Plans
 
-- Plan status: M1-B1 accepted; Milestone 1 remains active.
-- The primary Lead records each next bounded bundle in `WORKBOARD.md`, implements
-  it directly, inspects the actual diff, and reruns load-bearing validation before
-  acceptance.
-- M1-B9 is accepted at `692cd8b0c9cc4babe273ab9bdfa9d14eabc9db0c`.
-- M1-B10 is the current checkpoint. It adds a bounded Unix/Android process-
-  environment capture and pure snapshot-to-B8 composition for `PREFIX`,
-  `TMPDIR`, inherited `PATH`, `SSL_CERT_FILE`, and `SSL_CERT_DIR`, while keeping
-  the selected compatibility directory and certificate fallback paths explicit.
-  It must not inspect or select a generation, touch the filesystem in production
-  planning, or wire normal `main`.
-- M1-B10 is implemented directly by the primary Lead; no implementation worker
-  is authorized for this or subsequent bundles under the current policy.
-- At every bundle completion the Lead records its own diff/test disposition
-  here. No external implementation report, planning subagent, or checkpoint
-  reviewer substitutes for that integration decision.
+- Current checkpoint: M1-R1 — fresh B1..B9 re-audit and hardening.
+- M1-B10 process-environment capture is deferred until M1-R1 closes.
+- The primary Lead directly owns M1-R1 while worker mode remains OFF.
+- M1-R1 must harden the sandbox-policy parse boundary against recognizable
+  upstream config forms, make FD restoration failures observable rather than
+  silently best-effort on explicit failure paths, isolate tests that mutate
+  process-global FD 33/34, and then rerun focused/full/stress validation from a
+  clean tree.
+- Only after those changes pass fresh Lead review may the ledger restate which
+  B1..B9 behaviors are currently proven and resume B10.
 
 ## Goal Lifts
 

@@ -13,11 +13,12 @@ in Git history and the `GOAL.md` acceptance ledger, not here.
 - Acceptance owner: `GOAL.md`
 - Current milestone: Milestone 1 — local Core
 - Primary Technical Lead/Integrator: the main `gpt-5.6-sol` / `max` goal
-  session; owns evidence retrieval, planning, worker packets, actual diff review,
-  integration validation, commits, and acceptance decisions across both Core
-  milestones
-- Implementation worker: disabled; the primary Lead directly implements the
-  bounded code/test changes in this Workboard
+  session; owns evidence retrieval, planning, direct implementation while worker
+  mode is OFF, actual diff review, integration validation, commits, and acceptance
+  decisions across both Core milestones
+- Worker mode: user-controlled; current state OFF. Only an explicit user command
+  may change it. Do not invoke implementation workers or coding subagents while
+  OFF
 - Planning agents, problem advisors, and checkpoint reviewers: disabled
 - Live installation or activation: prohibited in this milestone
 
@@ -29,63 +30,53 @@ or mutation of the installed Codex product.
 
 ## Selected next action
 
-### Bundle M1-B10 — capture actual Termux process environment into the base-env planner
+### Bundle M1-R1 — fresh B1..B9 re-audit and hardening
 
-- Prior accepted evidence: M1-B9 commit
-  `692cd8b0c9cc4babe273ab9bdfa9d14eabc9db0c`.
-- Exact outcome: add the smallest Unix/Android-only process-environment boundary
-  that can feed B8's pure `TermuxBaseEnvInputs` and therefore B9's final-exec
-  composition without embedding a single Termux app-data path or selecting a
-  runtime/generation. This bundle still does not wire normal `main`.
-- Keep `compat_dir`, fallback `cert_file`, and optional fallback `cert_dir` as
-  explicit caller inputs. Read only `PREFIX`, `TMPDIR`, inherited `PATH`,
-  `SSL_CERT_FILE`, and `SSL_CERT_DIR` from the current process. Derive only the
-  prefix bin directory from `PREFIX` using native path joining; do not derive a
-  generation root, runtime executable, managed config directory, resolver path,
-  HOME-owned Core state, or compatibility-tool location.
-- Separate process I/O from planning: introduce a small owned snapshot type and
-  one thin process reader using raw `std::env::var_os`; introduce a pure
-  snapshot-to-plan composition that validates required process inputs and calls
-  the accepted B8 planner. Do not make B8 itself read global process state.
-- `PREFIX` and `TMPDIR` are required and must fail clearly when absent or empty.
-  Do not add speculative canonicalization, existence checks, symlink resolution,
-  app-package-name checks, or hard-coded `/data/data/com.termux` policy. Preserve
-  inherited non-UTF-8 `PATH` and certificate values byte-for-byte on Unix.
-- The derived prefix bin path must be exactly native `PREFIX` joined with `bin`.
-  The existing B8 PATH order remains selected `compat_dir`, derived prefix/bin,
-  then inherited non-empty PATH. The B8 certificate precedence remains unchanged:
-  inherited non-empty values win over the explicit fallback values.
-- Production B10 code must not read the filesystem, mutate the process
-  environment, construct or execute a `Command`, open FD 33/34, select a
-  generation, parse a manifest, inspect live runtime state, perform networking,
-  or change public command semantics.
-- Required focused tests named `m1_b10_`: pure synthetic snapshots proving exact
-  prefix/bin derivation and B8 assignment order; absent/empty `PREFIX` and
-  `TMPDIR` errors; raw non-UTF-8 inherited PATH/certificate preservation; and a
-  synthetic unusual prefix proving no fixed Termux app-data root is embedded.
-  Add one subprocess-only process-reader proof if needed so tests never mutate
-  the parent test process environment.
-- Keep all 50 accepted B1-B9 tests green. Validation uses
-  `CARGO_NET_OFFLINE=true` and a repository-external `CARGO_TARGET_DIR` for
-  formatting, focused B10 tests, all locked workspace tests, and locked workspace
-  build. tmcp `harness.run` may be used only to execute bounded tests/validation;
-  it must not be used for implementation or product-code mutation.
-- Implementation owner: the primary `gpt-5.6-sol` / `max` Lead directly edits
-  `crates/core/src/main.rs` for this bundle. No implementation worker or coding
-  subagent is authorized. No dependency, manifest, or extra tracked-file change
-  is authorized.
-- Protected surfaces: every other repository path, all live resolver/runtime/
-  launcher/Manager state, profiles, sessions, auth, Git refs, sealed legacy
-  history, and unrelated worktrees.
-- Explicitly deferred: generation-manifest schema and selection, runtime and
-  compatibility-tool selection, resolver/config path selection, normal `main`
-  wiring, doctor, updater interfaces, installation, activation, and Manager
-  behavior.
-- Completion gate: actual diff contains one thin raw process reader plus pure
-  snapshot-to-B8 composition and focused tests; no filesystem I/O, global env
-  mutation, lossy conversion, fixed app-data path, runtime/generation decision,
-  dependency, public-surface expansion, or protected-state change; Lead reruns
-  focused and full validation before acceptance.
+- Trigger: explicit user direction to distrust the prior implementation worker
+  and re-review the Rust Core from the beginning. Historical M1-B1..M1-B9
+  acceptance records are review inputs only, not current proof.
+- Fresh baseline: commit `92422311301500fef0a6a5859607917f59ec6fc9`
+  builds cleanly offline; all 50 current tests passed once serially and eight
+  additional times with the default parallel test runner. Passing those tests
+  does not close the issues found by direct source review.
+- Exact outcome: independently validate the current B1..B9 code against
+  `SPEC.md`, correct confirmed safety/correctness gaps without expanding product
+  scope, and establish a new direct-Lead baseline before any B10 work.
+- Sandbox hardening: treat recognized `sandbox_mode` configuration as a policy
+  boundary rather than relying on the prior narrow textual forms. At minimum,
+  trim surrounding configuration whitespace, recognize separate and attached
+  short `-c` config arguments plus long `--config` forms, allow only a clearly
+  normalized `danger-full-access` sandbox value, and fail closed on other
+  non-empty `sandbox_mode` values before runtime I/O. Preserve exact `--`
+  scanning semantics and raw argv for accepted requests.
+- FD restoration hardening: explicit failure paths must attempt complete cleanup
+  but must no longer silently discard restoration syscall failures. Best-effort
+  Drop cleanup may remain as a last-resort fallback; returned setup/exec paths
+  must surface a restoration failure if exact caller FD state cannot be restored.
+- Test isolation hardening: tests that close, replace, or otherwise mutate
+  process-global FD 33/34 must execute in dedicated subprocesses so the default
+  parallel Rust test runner never races on those descriptors. Test artifacts
+  remain under temporary roots only.
+- Re-audit scope includes exact first-argument dispatch; raw argv/stdout/stderr/
+  exit behavior; the five-variable child-only contamination fence; TTY/signal
+  process fidelity; FD 33/34 mapping/non-mutation/restoration; sandbox policy
+  ordering; base environment planning; and B9 final-exec composition.
+- No B10 process-environment capture, runtime/generation selection, normal
+  `main` wiring, doctor, manifest/updater implementation, Manager work, network,
+  package installation, live product mutation, or activation belongs in M1-R1.
+- Writable product path: `crates/core/src/main.rs` only. Lead-owned authority
+  updates to `GOAL.md`/`WORKBOARD.md` are allowed separately. No dependency or
+  manifest change is authorized by this bundle.
+- Worker mode remains OFF. The primary Lead implements directly. tmcp
+  `harness.run` may be used only for bounded tests/validation, never for code
+  mutation or development.
+- Validation: `CARGO_NET_OFFLINE=true`, repository-external `CARGO_TARGET_DIR`,
+  `cargo fmt --check`, focused hardening tests, all locked workspace tests both
+  serial and default-parallel, repeated parallel stress runs, and locked build.
+- Completion gate: confirmed gaps are fixed; new tests demonstrate the hardened
+  behavior; no process-global FD mutation remains in ordinary parallel tests;
+  protected live state remains unchanged; the Lead records a fresh behavior-by-
+  behavior proof disposition for B1..B9. B10 resumes only after this gate.
 
 ## Milestone 1 required outcomes
 
@@ -125,8 +116,9 @@ or mutation of the installed Codex product.
 - Do not begin Milestone 2 work while a Milestone 1 gate is unresolved.
 - Do not implement Manager product features.
 - Do not run package installation or update commands.
-- Do not spawn a planning agent, problem advisor, checkpoint reviewer, or
-  implementation worker.
+- Do not spawn a planning agent, problem advisor, or checkpoint reviewer. Do
+  not invoke an implementation worker or coding subagent while user-controlled
+  worker mode is OFF.
 - The primary Lead must keep direct edits inside the selected bundle and must
   inspect the actual diff and rerun load-bearing validation before acceptance.
 - Do not modify `legacy/monolith` or rewrite sealed tags.
