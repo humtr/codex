@@ -186,6 +186,18 @@ Termux qualification. Produce one candidate for independent product review.
   lineage, the Lead committed M1-B1 once with `--no-verify` under exact HEAD and
   index-tree preconditions. The hook remains unmodified and is not product
   evidence.
+- Milestone 1 bundle M1-B2 is accepted at
+  `fc50b39e50bb6ef341d3cf01163ca90423bd7b13`. The std-only Unix/Android
+  `exec_upstream` primitive uses final `exec` replacement with raw `OsStr`/
+  `OsString` inputs. Focused subprocess evidence proves upstream-visible
+  `--version`, `-V`, ordinary and non-UTF-8 arguments, exact raw stdout/stderr
+  bytes, chosen nonzero exit codes, and direct exec failure reporting without
+  adding public test-only command semantics.
+- Primary-Lead validation job `job_hnd_bc84d51555` reran the accepted M1-B2
+  source with `CARGO_NET_OFFLINE=true` and an external temporary
+  `CARGO_TARGET_DIR`; `cargo fmt --check`, `cargo test --locked --workspace`
+  (11/11), and `cargo build --locked --workspace` all passed while repository
+  status remained limited to the authorized source file before commit.
 
 ### Historical Proof
 
@@ -194,12 +206,13 @@ Termux qualification. Produce one candidate for independent product review.
 
 ### Not Proven
 
-- Milestone 1 is not complete. M1-B1 proves only workspace construction and
-  command classification; final upstream execution, exact `--version`/`-V`
-  process behavior, environment/TTY/signal fidelity, FD 33/34, resolver
-  non-mutation at that boundary, sandbox handling, doctor composition,
-  generation/updater interfaces, and the full real-Termux smoke gate remain
-  unproven.
+- Milestone 1 is not complete. M1-B1 proves workspace/classification and M1-B2
+  proves only the isolated final-exec primitive's raw argv/stdout/stderr/exit
+  behavior. Normal `main` is not yet wired to a qualified upstream runtime;
+  environment sanitation/planning, product runtime-path selection, TTY/signal
+  fidelity, FD 33/34, resolver non-mutation at that boundary, sandbox handling,
+  doctor composition, generation/updater interfaces, and the full real-Termux
+  smoke gate remain unproven.
 - No release artifact, installation, update, activation, rollback, offline
   recovery, fresh-device behavior, Milestone 2 result, or production readiness
   is proven.
@@ -211,10 +224,13 @@ Termux qualification. Produce one candidate for independent product review.
 - The primary Lead records each next bounded bundle in `WORKBOARD.md`, launches
   exactly one implementation worker, inspects the actual diff, and reruns the
   load-bearing validation before acceptance.
-- M1-B2 is the current checkpoint and is limited to the upstream final-exec
-  primitive plus subprocess evidence for raw argv and stdout/stderr/exit-status
-  fidelity. Environment planning, TTY/signals, and FD 33/34 remain later
-  checkpoints rather than being inferred from M1-B2.
+- M1-B3 is the current checkpoint. It is limited to preventing the five
+  SPEC-compatible package-manager/preload contamination variables observed in
+  sealed legacy evidence from reaching the upstream exec environment while
+  preserving unrelated environment entries. No legacy source or internal model
+  is copied, and no other legacy environment behavior is promoted by default.
+- TTY/signals, product runtime-path selection, and FD 33/34 remain later
+  checkpoints rather than being inferred from M1-B3.
 - At every bundle completion the Lead records its own diff/test disposition
   here. No worker report, planning subagent, or checkpoint reviewer substitutes
   for that integration decision.

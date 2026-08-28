@@ -29,49 +29,57 @@ or mutation of the installed Codex product.
 
 ## Selected next action
 
-### Bundle M1-B2 — upstream final-exec primitive
+### Bundle M1-B3 — upstream environment contamination fence
 
-- Prior accepted evidence: M1-B1 commit
-  `36c98dd8882ddba18657ab3f289eace1121ff39b`.
-- Exact outcome: add the smallest Unix/Android upstream execution primitive that
-  performs a final process replacement with an explicitly supplied upstream
-  program and raw `OsString` arguments. Prove with subprocess tests that the
-  upstream process receives arguments unchanged and that stdout, stderr, and
-  exit status cross the exec boundary unchanged. This bundle does not yet pick
-  the product upstream path or wire normal `main` dispatch to a live runtime.
+- Prior accepted evidence: M1-B2 commit
+  `fc50b39e50bb6ef341d3cf01163ca90423bd7b13`.
+- Exact outcome: ensure the final upstream exec command removes only the five
+  inherited contamination variables currently supported by both the normative
+  "no package-manager or preload variables" requirement and sealed predecessor
+  observations: `CODEX_MANAGED_BY_NPM`, `CODEX_MANAGED_BY_BUN`,
+  `CODEX_MANAGED_PACKAGE_ROOT`, `LD_PRELOAD`, and `LD_LIBRARY_PATH`. Preserve
+  unrelated environment entries unchanged. Do not mutate the parent process
+  environment as part of planning or on an exec failure.
 - Writable worker path: `crates/core/src/main.rs` only.
-- Governing contracts: `SPEC.md` sections 3 and 5 require every non-Core command,
-  including `--version` and `-V`, to reach upstream without wrapper version
-  output and require preservation of argv, standard streams, and exit status at
-  the final execution boundary. Use raw `OsStr`/`OsString`; do not introduce
-  lossy UTF-8 conversion.
+- Governing contracts: `SPEC.md` section 5 requires construction of a qualified
+  runtime environment without leaking package-manager or preload variables.
+  Sealed legacy `shell/exec.sh`, `src/wrapper/runtime_env.py`, and the
+  `runtime-exec` golden probe identify the five names above as predecessor
+  observable behavior; that evidence informs this bounded test but is not
+  rewrite proof and does not authorize copying legacy implementation.
+- Non-goals: do not adopt legacy `CODEX_SELF_EXE`, `CODEX_HOME`, TMP/TMPDIR,
+  certificate, `BROWSER`, XDG, GODEBUG, or PATH rules in this bundle; product
+  runtime-path and compatibility-tool selection remain a later Core plan, while
+  profiles remain Manager-owned.
 - Worker configuration: one new `agy` CLI implementation worker through a
   bounded Task-owned shell execution, `accept-edits` mode with terminal sandbox
-  restrictions and one non-interactive prompt. The known-incompatible registered
-  `agy` harness stdin adapter remains unused. No delegation, authority-document
-  edits, commits, pushes, package installation, or live product mutation.
-- Named validation: with `CARGO_NET_OFFLINE=true` and `CARGO_TARGET_DIR` outside
-  the repository, run `cargo fmt --check`, `cargo test --locked --workspace`,
-  and `cargo build --locked --workspace`.
-- Required focused evidence: a child process that calls the production exec
-  primitive must demonstrate exact stdout bytes, exact stderr bytes, and a
-  chosen nonzero exit status; upstream-visible argv must include unchanged
-  `--version`, unchanged `-V`, ordinary arguments, and a non-UTF-8 argument on
-  Unix. Tests must not depend on or execute the installed Codex product.
-- Explicitly deferred: product upstream-path discovery, environment
-  sanitization/planning, TTY and signal-specific probes, FD 33/34 setup,
-  sandbox-policy enforcement, doctor, Manager, updater, network behavior, and
-  live installation/activation.
-- Protected surfaces: every path except `crates/core/src/main.rs`, plus all live
-  launcher/runtime/Manager paths, `$PREFIX/etc/resolv.conf`, profiles, sessions,
-  auth data, Git refs, legacy history, and unrelated worktrees.
-- Completion gate: no new dependency or file; existing classifier tests remain
-  green; exec primitive is used by focused subprocess tests without temporary
-  wrapper output or public test-only command semantics; all named validation
-  passes; repository status contains only the authorized source path.
-- Integration disposition: the primary Lead inspects the actual source diff,
-  reruns load-bearing validation in an external target directory, and commits
-  only if the bundle gate is satisfied.
+  restrictions and one non-interactive prompt. No delegation, authority-doc
+  edits, commits, pushes, package installation, network update, or live product
+  mutation.
+- Named validation: with `CARGO_NET_OFFLINE=true` and repository-external
+  `CARGO_TARGET_DIR`, run `cargo fmt --check`,
+  `cargo test --locked --workspace`, and `cargo build --locked --workspace`.
+- Required focused evidence: in a private probe process set synthetic values for
+  all five contamination variables immediately before calling the production
+  exec primitive and prove the upstream process sees each as absent. Set at
+  least one unrelated synthetic environment entry and prove its exact value is
+  preserved. Also prove a failed exec does not clear the parent process's
+  synthetic contamination value.
+- Explicitly deferred: normal `main` upstream-path wiring, additional runtime
+  environment overrides, TTY/signals, FD 33/34, resolver checks, sandbox-policy
+  enforcement, doctor, Manager, updater, network behavior, installation, and
+  activation.
+- Protected surfaces: every repository path except `crates/core/src/main.rs`,
+  plus live launcher/runtime/Manager state, `$PREFIX/etc/resolv.conf`, profiles,
+  sessions, auth data, Git refs, sealed legacy history, and unrelated worktrees.
+- Completion gate: std-only implementation; exactly the five declared names are
+  removed from the child exec environment; unrelated environment survives;
+  parent environment is unchanged on exec failure; all M1-B1/B2 tests remain
+  green; named validation passes; status contains only the authorized source
+  file.
+- Integration disposition: the primary Lead inspects the actual diff, reruns
+  load-bearing validation outside the repository, and commits only accepted
+  work.
 
 ## Milestone 1 required outcomes
 
