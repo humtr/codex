@@ -524,9 +524,26 @@ Termux qualification. Produce one candidate for independent product review.
   `git diff --check`, a warning-free locked offline build, and source-text NUL
   absence. The same commit also replaced B21's literal-NUL test fixture with an
   equivalent numeric-byte fixture so repository text search remains reliable.
-- Milestone 1 is not complete. The normal `main` entrypoint is still not wired to
-  a qualified upstream runtime. Public dispatch execution and the complete
-  real-Termux smoke gate remain unproven.
+- M1-B23 is accepted at `c29f5f2019104ad7ab51f36754f326b48d33704c`.
+  The direct Lead composed the exact public route with the previously proven
+  Upstream, Doctor, and Manager execution boundaries over one injected qualified
+  local context. Update remains a raw-byte-preserving zero-I/O handoff to the M1
+  updater interface. During integration the Lead found and closed a latent
+  cross-generation ambiguity: Manager `Unavailable` now retains its qualified
+  generation, and context construction rejects runtime/Manager qualifications
+  from distinct manifest objects before any route can execute.
+- B23 focused validation `job_iv4_0729f98d00` passed B21 7/7, B22 4/4, and
+  B23 6/6 after the representation correction. Production diff audit
+  `job_iv5_dc87f7dca8` confirmed no new filesystem/environment/Command/lossy
+  production path and no `main` body change. Final grouped acceptance
+  `job_iv6_b5bb5f840a` passed the full serial suite 138/138, eight complete
+  default-parallel repetitions, formatting, `git diff --check`, source NUL
+  absence, and a warning-free locked offline build with an external Cargo target.
+- Milestone 1 is not complete. Qualified public-dispatch execution is proven by
+  M1-B23, but the raw-argv public entrypoint composition and complete real-Termux
+  smoke gate remain unproven. Physical active-generation discovery and installed
+  `main` context acquisition remain deferred with the pointer/activation mechanics
+  owned by Milestone 2; Milestone 1 must not invent their physical names.
   Process-environment capture is proven by M1-B10, the pure generation-manifest
   qualification interface by M1-B11, the pure updater admission/candidate
   interface by M1-B12, runtime/compat/helper asset qualification by M1-B13,
@@ -562,12 +579,12 @@ Termux qualification. Produce one candidate for independent product review.
 - M1-B20 is closed at `07ed3af8764c10f03aaf3bf83b18ffb37a32b891`.
 - M1-B21 is closed at `5847f0d8d223e6abdf8d1876fc316ac1fda7b281`.
 - M1-B22 is closed at `a89646da18c1e0b68e146b565a847dcc4b0fd0b6`.
-- Current checkpoint: M1-B23 — compose the exact B20 public route into the
-  already-proven local execution boundaries using one explicitly injected,
-  already-qualified local context. Upstream uses B14, doctor uses B19, termux
-  uses B22, and update remains a raw-argv typed handoff to the M1 updater
-  interface without performing update/network/activation behavior.
-- Worker mode remains OFF; the primary Lead implements B23 directly.
+- M1-B23 is closed at `c29f5f2019104ad7ab51f36754f326b48d33704c`.
+- Current checkpoint: M1-B24 — close the local-Core milestone with one raw-argv
+  public entrypoint composition over the B20+B23 boundary and one explicit
+  real-Termux smoke qualification that uses the actual live resolver read-only,
+  test-owned runtime/config roots, and pre/post protected-state evidence.
+- Worker mode remains OFF; the primary Lead implements and runs B24 directly.
 - The repository now uses a Click-inspired execution discipline at the
   Workboard layer: reuse successful same-revision evidence, do not reopen or
   replace an active bounded contract without new material evidence, and run the

@@ -37,79 +37,76 @@ or mutation of the installed Codex product.
 
 ## Selected next action
 
-### Bundle M1-B23 — injected qualified public-dispatch execution
+### Bundle M1-B24 — raw public entrypoint and real-Termux smoke gate
 
 #### outcome
 
-Compose the exact B20 public route into one Core execution boundary over an
-explicitly supplied, already-qualified local context. Upstream invocations cross
-B14 final exec, doctor invocations cross B19 ordered local doctor composition,
-`termux` invocations cross B22 Manager handoff, and `update` is returned as a
-bounded raw-argv handoff to the already-defined M1 updater interface without
-performing live update behavior.
+Close the Milestone 1 local-Core execution proof without inventing Milestone 2
+state layout. Add one raw-argv entrypoint composition that performs B20 planning
+then B23 execution over an already-qualified local context, and add one explicit
+ignored real-Termux smoke test that runs only when deliberately selected against
+the current device's live resolver in read-only mode with all writable artifacts
+under a test-owned temporary root.
 
 #### boundary
 
-- in_scope: `crates/core/src/main.rs` only; one borrowed local dispatch context,
-  one typed completion/error surface, one dispatcher that consumes
-  `PublicDispatchRoute` exactly once, and the minimal B21 representation
-  correction required to retain generation authority for `Unavailable` Manager.
-- out_of_scope: physical active-generation/current-pointer discovery, `main`
-  wiring, live update/network/download/staging/activation/rollback, Manager
-  discovery or features, new output/exit-code policy, dependencies, install,
-  package operations, or live product/runtime/resolver/Manager mutation.
+- in_scope: `crates/core/src/main.rs` only plus validation commands; a thin
+  `execute_public_entrypoint(raw_argv, context)` composition and test-only
+  real-Termux smoke/snapshot helpers.
+- out_of_scope: physical active-generation/current/verified/previous pointer
+  implementation, installed `main` context discovery, live launcher/runtime/
+  Manager replacement, updater network/download/activation/rollback, Manager
+  product features, dependencies, package operations, or any write under
+  `$PREFIX` except normal operating-system access metadata outside product
+  control.
 
 #### must_hold
 
-- `PublicDispatchRoute::Upstream` passes its complete raw argv exactly once to
-  B14 `launch_qualified_runtime`; no Core command token is removed or added at
-  this layer.
-- `Doctor` passes only the B20 trailing raw argv to B19; invalid usage still
-  fails before runtime/resolver/config I/O and a successful result remains the
-  bounded B15/B18 `DoctorCommandOutcome`.
-- `Termux` passes only the B20 trailing raw argv to B22. `Unavailable` remains
-  zero-exec and `Available` uses only the B21-qualified Manager executable.
-- `Update` performs no I/O and does not inspect runtime/Manager/doctor inputs; it
-  preserves every trailing raw `OsString` byte and order in a typed M1 handoff.
-- Branch-specific errors remain distinct: upstream launch, doctor command, and
-  Manager launch failures cannot be collapsed into fabricated success.
-- Both `Available` and `Unavailable` Manager qualification retain the exact
-  `QualifiedGenerationManifest` that produced the decision. B23 context
-  construction rejects a runtime/Manager generation mismatch before any route
-  executes, including two separately qualified manifest objects with otherwise
-  equal contents; no mixed-generation context is admissible.
-- The dispatcher does not discover, qualify, stat, hash, or rewrite any asset;
-  all authority is injected through already-qualified wrappers and explicit
-  read-only inputs.
+- The entrypoint calls the existing B20 planner exactly once and passes the
+  resulting route directly to B23; it has no second spelling table or branch
+  semantics of its own.
+- Exact `--version`/`-V` and arbitrary upstream raw argv remain upstream routes;
+  exact `update`/`doctor`/`termux` retain the B20 first-token consumption rules.
+- The explicit real-Termux smoke derives the resolver from the actual captured
+  `PREFIX`, opens it only through the existing read-only FD33 path, uses only a
+  temporary config directory/fake qualified runtime, and never executes or
+  rewrites the installed public `codex` launcher.
+- Smoke evidence snapshots the live resolver path target/content and stable stat
+  identity before/after and fails on any change other than access-time metadata;
+  validation also records an external SHA-256/stat snapshot of the resolver and
+  installed launcher before/after the grouped acceptance batch.
+- The smoke compares direct fake-upstream `--version` stdout/stderr/exit with the
+  Core entrypoint path byte-for-byte while also proving FD33/34 availability in
+  the Core path. No Core/Manager version text may be appended.
+- No source test containing the live resolver is part of the default suite; the
+  real smoke is ignored by default and must be invoked explicitly on the current
+  Termux device.
 
 #### build
 
-- Amend B21 `ManagerArtifactQualification::Unavailable` to retain its qualified
-  generation just as `Available` already does; preserve all prior B21 semantics.
-- Add a fallible borrowed `LocalPublicDispatchContext` constructor containing B13
-  qualified runtime, B21 Manager qualification, B10 environment snapshot/
-  certificate inputs, resolver/config paths, and the existing typed doctor
-  capability/status inputs. The constructor requires exact shared-generation
-  reference identity before producing the context.
-- Add a small `PublicDispatchCompletion` for `Update`, `Doctor`, and
-  `TermuxUnavailable`, plus a `PublicDispatchExecutionError` that wraps existing
-  branch-specific errors.
-- Implement `execute_public_dispatch(route, context)` as one match with no new
-  spelling table, discovery layer, filesystem policy, or handler abstraction.
+- Add `execute_public_entrypoint` as a generic raw-`OsString` composition over
+  `plan_public_dispatch` and `execute_public_dispatch`; do not modify `main` or
+  add a production context provider.
+- Add test-only protected-file snapshot logic using Unix metadata fields that are
+  stable across reads (device/inode/mode/uid/gid/size/mtime plus symlink target
+  when applicable) and exact content bytes; exclude atime from equality.
+- Reuse the existing exec-probe process. The B24 scenario constructs one coherent
+  qualified context using actual process env + live resolver and test-owned
+  compatibility/config/runtime paths, then calls the raw public entrypoint with
+  `--version`.
 
 #### verification
 
-- focused: B21 unavailable still generation-bound and behavior-compatible;
-  mixed-generation context rejection before execution; update zero-I/O/raw-byte
-  preservation; upstream real exec through B14 with complete raw argv; doctor
-  invalid-usage-before-I/O plus one successful bounded result; termux unavailable
-  zero-exec plus available real exec; typed branch-error preservation and no
-  cross-route handler activity.
-- done_when: focused B23 evidence passes; all 132 pre-B23 tests remain green;
-  formatting and diff checks pass; locked offline build is warning-free; one
-  grouped final acceptance batch runs the full serial suite and eight complete
-  default-parallel repetitions. B14/B19/B22 focused suites are not rerun
-  separately unless their underlying implementations are changed.
+- focused: B24 raw entrypoint route composition on zero-I/O Core routes and one
+  explicit ignored real-Termux smoke proving direct-vs-Core version parity,
+  FD33/34, resolver/launcher non-mutation, and test-owned writes only.
+- done_when: the explicit real-Termux smoke passes on the current Termux device;
+  all 138 pre-B24 default tests remain green; formatting/diff checks pass; a
+  locked release build is warning-free; one grouped final acceptance batch runs
+  the full serial suite and eight complete default-parallel repetitions while
+  external resolver/launcher SHA-256 and stable-stat snapshots remain identical.
+  If every Milestone 1 gate is then proven, the Lead records closure and replaces
+  this Workboard target with the bounded Milestone 2 delivery/recovery contract.
 
 ## Milestone 1 required outcomes
 
