@@ -1174,6 +1174,53 @@ exit 0
                 let _ = std::io::stdout().flush();
                 std::process::exit(0);
             }
+            "tty_evidence" => {
+                let script = r#"
+if test -t 0; then
+    printf "UPSTREAM_TTY_STDIN:1\n"
+else
+    printf "UPSTREAM_TTY_STDIN:0\n"
+fi
+if test -t 1; then
+    printf "UPSTREAM_TTY_STDOUT:1\n"
+else
+    printf "UPSTREAM_TTY_STDOUT:0\n"
+fi
+if test -t 2; then
+    printf "UPSTREAM_TTY_STDERR:1\n"
+else
+    printf "UPSTREAM_TTY_STDERR:0\n"
+fi
+printf "UPSTREAM_TTY_SUCCESS\n"
+exit 0
+"#;
+                let args: Vec<&OsStr> = vec![
+                    OsStr::new("-c"),
+                    OsStr::new(script),
+                    OsStr::new("upstream-probe"),
+                ];
+
+                let err = exec_upstream(shell, args);
+                panic!("exec_upstream failed to replace process: {err}");
+            }
+            "external_sigterm_evidence" => {
+                let script = r#"
+trap 'exit 73' TERM
+printf "READY:PID:%d\n" "$$"
+while true; do
+    sleep 2 &
+    wait $!
+done
+"#;
+                let args: Vec<&OsStr> = vec![
+                    OsStr::new("-c"),
+                    OsStr::new(script),
+                    OsStr::new("upstream-probe"),
+                ];
+
+                let err = exec_upstream(shell, args);
+                panic!("exec_upstream failed to replace process: {err}");
+            }
             _ => panic!("unknown probe scenario: {scenario}"),
         }
     }
@@ -1645,5 +1692,201 @@ UNRELATED_BETA:PRESENT=beta-value with spaces & = symbols\n";
         assert_eq!(result.stderr, b"");
 
         let _ = std::fs::remove_dir_all(&test_root);
+    }
+
+    #[cfg(unix)]
+    extern "C" {
+        fn kill(pid: std::os::raw::c_int, sig: std::os::raw::c_int) -> std::os::raw::c_int;
+    }
+
+    #[cfg(unix)]
+    struct ChildCleanupGuard(Option<std::process::Child>);
+
+    #[cfg(unix)]
+    impl Drop for ChildCleanupGuard {
+        fn drop(&mut self) {
+            if let Some(mut child) = self.0.take() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    }
+
+    #[cfg(target_os = "android")]
+    #[test]
+    fn test_exec_upstream_preserves_tty_attachment_on_android() {
+        let current_exe = std::env::current_exe().expect("failed to get current_exe");
+        let shell = resolve_test_shell();
+
+        let script_check = std::process::Command::new("script")
+            .arg("--version")
+            .output();
+        if script_check.is_err() {
+            panic!("util-linux script utility is required for Android PTY test");
+        }
+
+        let probe_cmd = format!(
+            "\"{}\" tests::exec_probe_subprocess_entry --exact",
+            current_exe.display()
+        );
+
+        let mut cmd = std::process::Command::new("script");
+        cmd.arg("-q")
+            .arg("-e")
+            .arg("-c")
+            .arg(probe_cmd)
+            .arg("/dev/null")
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .env(PROBE_ROLE_ENV, PROBE_ROLE_LAUNCHER)
+            .env(PROBE_SHELL_ENV, &shell)
+            .env(PROBE_SCENARIO_ENV, "tty_evidence");
+
+        let output = cmd.output().expect("failed to execute script probe");
+
+        assert!(
+            output.status.success(),
+            "script probe process failed with status {:?}, stderr: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let stdout_str = String::from_utf8_lossy(&output.stdout);
+        let lines: Vec<&str> = stdout_str
+            .lines()
+            .map(|l| l.trim_end_matches('\r').trim())
+            .filter(|l| !l.is_empty())
+            .collect();
+
+        assert!(
+            lines.contains(&"UPSTREAM_TTY_STDIN:1"),
+            "expected UPSTREAM_TTY_STDIN:1 in output: {:?}",
+            lines
+        );
+        assert!(
+            lines.contains(&"UPSTREAM_TTY_STDOUT:1"),
+            "expected UPSTREAM_TTY_STDOUT:1 in output: {:?}",
+            lines
+        );
+        assert!(
+            lines.contains(&"UPSTREAM_TTY_STDERR:1"),
+            "expected UPSTREAM_TTY_STDERR:1 in output: {:?}",
+            lines
+        );
+        assert!(
+            lines.contains(&"UPSTREAM_TTY_SUCCESS"),
+            "expected UPSTREAM_TTY_SUCCESS in output: {:?}",
+            lines
+        );
+
+        assert!(
+            !lines.contains(&"UPSTREAM_TTY_STDIN:0"),
+            "stdin was not attached to TTY"
+        );
+        assert!(
+            !lines.contains(&"UPSTREAM_TTY_STDOUT:0"),
+            "stdout was not attached to TTY"
+        );
+        assert!(
+            !lines.contains(&"UPSTREAM_TTY_STDERR:0"),
+            "stderr was not attached to TTY"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_exec_upstream_preserves_process_identity_and_signal_delivery() {
+        let current_exe = std::env::current_exe().expect("failed to get current_exe");
+        let shell = resolve_test_shell();
+
+        let mut cmd = std::process::Command::new(current_exe);
+        cmd.arg("tests::exec_probe_subprocess_entry")
+            .arg("--exact")
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .env(PROBE_ROLE_ENV, PROBE_ROLE_LAUNCHER)
+            .env(PROBE_SHELL_ENV, &shell)
+            .env(PROBE_SCENARIO_ENV, "external_sigterm_evidence");
+
+        let mut child = cmd.spawn().expect("failed to spawn probe child");
+        let child_pid = child.id();
+
+        let stdout = child.stdout.take().expect("stdout must be piped");
+        let mut guard = ChildCleanupGuard(Some(child));
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let reader_handle = std::thread::spawn(move || {
+            use std::io::BufRead;
+            let mut reader = std::io::BufReader::new(stdout);
+            let mut line = String::new();
+            while let Ok(n) = reader.read_line(&mut line) {
+                if n == 0 {
+                    break;
+                }
+                let trimmed = line.trim_end_matches(&['\r', '\n'][..]).trim();
+                if trimmed.starts_with("READY:PID:") {
+                    let _ = tx.send(Ok(trimmed.to_string()));
+                    return;
+                }
+                line.clear();
+            }
+            let _ = tx.send(Err(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "readiness marker not found before EOF",
+            )));
+        });
+
+        let ready_timeout = std::time::Duration::from_secs(5);
+        let ready_line = match rx.recv_timeout(ready_timeout) {
+            Ok(Ok(line)) => line,
+            Ok(Err(err)) => panic!("I/O error reading readiness line from probe: {err}"),
+            Err(err) => panic!("timeout waiting for upstream probe readiness: {err}"),
+        };
+
+        let reported_pid_str = ready_line
+            .strip_prefix("READY:PID:")
+            .unwrap_or_else(|| panic!("unexpected readiness line: {:?}", ready_line));
+        let reported_pid: u32 = reported_pid_str
+            .parse()
+            .unwrap_or_else(|e| panic!("failed to parse pid from {:?}: {e}", reported_pid_str));
+
+        assert_eq!(
+            reported_pid, child_pid,
+            "upstream process identity ($$) must equal spawned child PID"
+        );
+
+        const SIGTERM: std::os::raw::c_int = 15;
+        let kill_ret = unsafe { kill(reported_pid as std::os::raw::c_int, SIGTERM) };
+        assert_eq!(
+            kill_ret, 0,
+            "failed to deliver SIGTERM to process {}",
+            reported_pid
+        );
+
+        let child_ref = guard.0.as_mut().expect("child must be present");
+        let wait_timeout = std::time::Duration::from_secs(5);
+        let start = std::time::Instant::now();
+        let status = loop {
+            match child_ref.try_wait() {
+                Ok(Some(status)) => break status,
+                Ok(None) => {
+                    if start.elapsed() > wait_timeout {
+                        panic!("timed out waiting for child to exit after SIGTERM");
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+                Err(err) => panic!("error while waiting for child: {err}"),
+            }
+        };
+
+        assert_eq!(
+            status.code(),
+            Some(73),
+            "expected upstream trap exit code 73, got {:?}",
+            status
+        );
+
+        guard.0 = None;
+        let _ = reader_handle.join();
     }
 }

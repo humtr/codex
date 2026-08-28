@@ -76,6 +76,17 @@ or mutation of the installed Codex product.
   for false positives, reruns the full suite plus the new focused tests, and
   commits only if they prove the production exec boundary rather than a helper
   path.
+- Lead acceptance: the reviewed diff changes only `#[cfg(test)]` probe/test
+  code. The unique TTY markers are emitted only by the upstream shell after the
+  private Rust probe calls production `exec_upstream`; the Android PTY provider
+  is `script` only. The signal probe likewise final-execs the upstream shell,
+  waits for its `READY:PID:<pid>` marker, proves shell `$$` equals the originally
+  spawned child PID, then sends external `SIGTERM` to that exact PID and observes
+  the upstream trap's exit code 73. Cleanup guards bound failed cases. Primary-
+  Lead validation job `job_hqo_7f45af3f26` passed `cargo fmt --check`, all
+  26/26 workspace tests, three additional serial repetitions of each TTY and
+  SIGTERM test, and `cargo build --locked --workspace` with offline mode and a
+  repository-external Cargo target. M1-B5 is accepted for commit.
 
 ## Milestone 1 required outcomes
 
