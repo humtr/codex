@@ -1534,6 +1534,74 @@ fn qualify_manager_artifact<'selection, 'asset, 'generation>(
 }
 
 #[cfg(unix)]
+const TERMUX_MANAGER_UNAVAILABLE_MESSAGE: &str = "Codex Termux Manager is unavailable.";
+
+#[cfg(unix)]
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TermuxManagerOutcome {
+    Unavailable,
+}
+
+#[cfg(unix)]
+#[allow(dead_code)]
+impl TermuxManagerOutcome {
+    fn message(self) -> &'static str {
+        match self {
+            TermuxManagerOutcome::Unavailable => TERMUX_MANAGER_UNAVAILABLE_MESSAGE,
+        }
+    }
+}
+
+#[cfg(unix)]
+#[derive(Debug)]
+enum ManagerLaunchError {
+    Exec(std::io::Error),
+}
+
+#[cfg(unix)]
+impl std::fmt::Display for ManagerLaunchError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ManagerLaunchError::Exec(err) => {
+                write!(f, "failed to execute qualified Manager: {err}")
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+impl std::error::Error for ManagerLaunchError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            ManagerLaunchError::Exec(err) => Some(err),
+        }
+    }
+}
+
+#[cfg(unix)]
+#[allow(dead_code)]
+fn execute_termux_manager<'selection, 'asset, 'generation, I, S>(
+    qualification: ManagerArtifactQualification<'selection, 'asset, 'generation>,
+    args: I,
+) -> Result<TermuxManagerOutcome, ManagerLaunchError>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    match qualification {
+        ManagerArtifactQualification::Unavailable => Ok(TermuxManagerOutcome::Unavailable),
+        ManagerArtifactQualification::Available(qualified) => {
+            use std::os::unix::process::CommandExt;
+
+            let mut command = std::process::Command::new(qualified.selection().program_path);
+            command.args(args);
+            Err(ManagerLaunchError::Exec(command.exec()))
+        }
+    }
+}
+
+#[cfg(unix)]
 #[allow(dead_code)]
 #[derive(Debug)]
 enum QualifiedRuntimeLaunchError {
@@ -3640,6 +3708,73 @@ done
 
                 let err = exec_upstream(shell, args);
                 panic!("exec_upstream failed to replace process: {err}");
+            }
+            "m1_b22_manager_exec" => {
+                use std::os::unix::ffi::OsStrExt;
+
+                let mut manifest = m1_b11_valid_manifest();
+                manifest.manager_artifact_digest = Some("opaque-manager-digest:v1:b22".to_string());
+                let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements())
+                    .expect("B22 Manager generation must qualify");
+                let selection = ManagerArtifactSelection {
+                    program_path: shell.as_os_str(),
+                    observed_digest: "opaque-manager-digest:v1:b22",
+                };
+                let qualification = qualify_manager_artifact(generation, Some(&selection))
+                    .expect("B22 Manager artifact must qualify");
+
+                let script = r#"
+printf "MANAGER_NPM:%s\n" "${CODEX_MANAGED_BY_NPM-unset}"
+for a in "$@"; do
+    printf "ARG:"
+    printf "%s" "$a"
+    printf "\n"
+done
+printf "MANAGER_STDOUT:\001\002\003\377\376\n"
+printf "MANAGER_STDERR:\004\005\006\200\201\n" >&2
+exit 73
+"#;
+                let non_utf8_arg = OsStr::from_bytes(&[0xff, 0xfe, 0x80, 0x7f]);
+                let args = vec![
+                    OsString::from("-c"),
+                    OsString::from(script),
+                    OsString::from("manager-probe"),
+                    OsString::from("ordinary arg with spaces and ="),
+                    non_utf8_arg.to_os_string(),
+                ];
+
+                let err = execute_termux_manager(qualification, args)
+                    .expect_err("available Manager exec must replace the process");
+                panic!("B22 Manager failed to replace process: {err}");
+            }
+            "m1_b22_manager_signal" => {
+                let mut manifest = m1_b11_valid_manifest();
+                manifest.manager_artifact_digest =
+                    Some("opaque-manager-digest:v1:b22-signal".to_string());
+                let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements())
+                    .expect("B22 signal generation must qualify");
+                let selection = ManagerArtifactSelection {
+                    program_path: shell.as_os_str(),
+                    observed_digest: "opaque-manager-digest:v1:b22-signal",
+                };
+                let qualification = qualify_manager_artifact(generation, Some(&selection))
+                    .expect("B22 signal Manager must qualify");
+
+                let script = r#"
+trap 'exit 73' TERM
+printf "READY:PID:%d\n" "$$"
+while true; do
+    :
+done
+"#;
+                let args = vec![
+                    OsString::from("-c"),
+                    OsString::from(script),
+                    OsString::from("manager-probe"),
+                ];
+                let err = execute_termux_manager(qualification, args)
+                    .expect_err("available Manager signal probe must replace process");
+                panic!("B22 signal Manager failed to replace process: {err}");
             }
             "m1_b7_fake_upstream_launcher" => {
                 let resolver_path = std::env::var_os(PROBE_RESOLVER_PATH_ENV)
@@ -7247,7 +7382,10 @@ exit 0
             ManagerArtifactError::Path(RuntimeAssetError::RelativePath("manager_artifact"))
         );
 
-        let nul_path = OsString::from_vec(b"/manager/codex manager".to_vec());
+        let nul_path = OsString::from_vec(vec![
+            b'/', b'm', b'a', b'n', b'a', b'g', b'e', b'r', b'/', b'c', b'o', b'd', b'e', b'x', 0,
+            b'm', b'a', b'n', b'a', b'g', b'e', b'r',
+        ]);
         let nul = ManagerArtifactSelection {
             program_path: nul_path.as_os_str(),
             observed_digest: "opaque-manager-digest:v1:778899",
@@ -7341,6 +7479,171 @@ exit 0
         };
         assert!(std::ptr::eq(first.selection(), second.selection()));
         assert!(std::ptr::eq(first.selection(), &selection));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b22_a_unavailable_is_static_zero_execution_and_does_not_consume_args() {
+        let before = [
+            std::env::var_os("PREFIX"),
+            std::env::var_os("PATH"),
+            std::env::var_os("CODEX_MANAGED_BY_NPM"),
+        ];
+        let args = std::iter::from_fn(|| -> Option<OsString> {
+            panic!("Unavailable Manager must not consume trailing argv")
+        });
+        let outcome = execute_termux_manager(ManagerArtifactQualification::Unavailable, args)
+            .expect("Unavailable Manager is a bounded non-execution outcome");
+        let after = [
+            std::env::var_os("PREFIX"),
+            std::env::var_os("PATH"),
+            std::env::var_os("CODEX_MANAGED_BY_NPM"),
+        ];
+
+        assert_eq!(outcome, TermuxManagerOutcome::Unavailable);
+        assert_eq!(outcome.message(), "Codex Termux Manager is unavailable.");
+        assert!(!outcome.message().contains('/'));
+        assert!(!outcome.message().contains("digest"));
+        assert_eq!(before, after);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b22_b_failed_exec_is_typed_and_preserves_parent_environment() {
+        let mut manifest = m1_b11_valid_manifest();
+        manifest.manager_artifact_digest = Some("opaque-manager-digest:v1:b22-missing".to_string());
+        let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements()).unwrap();
+        let selection = ManagerArtifactSelection {
+            program_path: OsStr::new("/path/that/does/not/exist/codex-manager-b22"),
+            observed_digest: "opaque-manager-digest:v1:b22-missing",
+        };
+        let qualification = qualify_manager_artifact(generation, Some(&selection)).unwrap();
+        let before = [
+            std::env::var_os("PREFIX"),
+            std::env::var_os("PATH"),
+            std::env::var_os("CODEX_MANAGED_BY_NPM"),
+        ];
+
+        let err = execute_termux_manager(
+            qualification,
+            [OsString::from("status"), OsString::from("--raw")],
+        )
+        .unwrap_err();
+        let after = [
+            std::env::var_os("PREFIX"),
+            std::env::var_os("PATH"),
+            std::env::var_os("CODEX_MANAGED_BY_NPM"),
+        ];
+
+        match err {
+            ManagerLaunchError::Exec(err) => {
+                assert_eq!(err.kind(), std::io::ErrorKind::NotFound)
+            }
+        }
+        assert_eq!(before, after);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b22_c_real_exec_preserves_raw_args_environment_streams_and_exit_status() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let result = run_exec_probe_with_env(
+            "m1_b22_manager_exec",
+            &[("CODEX_MANAGED_BY_NPM", OsStr::new("manager-must-inherit"))],
+        );
+
+        assert_eq!(result.status.code(), Some(73));
+        let mut expected_stdout =
+            b"MANAGER_NPM:manager-must-inherit\nARG:ordinary arg with spaces and =\nARG:".to_vec();
+        expected_stdout.extend_from_slice(OsStr::from_bytes(&[0xff, 0xfe, 0x80, 0x7f]).as_bytes());
+        expected_stdout.extend_from_slice(b"\nMANAGER_STDOUT:");
+        expected_stdout.extend_from_slice(&[1, 2, 3, 255, 254]);
+        expected_stdout.extend_from_slice(b"\n");
+        assert_eq!(result.stdout, expected_stdout);
+        let mut expected_stderr = b"MANAGER_STDERR:".to_vec();
+        expected_stderr.extend_from_slice(&[4, 5, 6, 128, 129]);
+        expected_stderr.push(b'\n');
+        assert_eq!(result.stderr, expected_stderr);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b22_d_real_exec_preserves_process_identity_and_sigterm_delivery() {
+        let current_exe = std::env::current_exe().expect("failed to get current_exe");
+        let shell = resolve_test_shell();
+
+        let mut cmd = std::process::Command::new(current_exe);
+        cmd.arg("tests::exec_probe_subprocess_entry")
+            .arg("--exact")
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .env(PROBE_ROLE_ENV, PROBE_ROLE_LAUNCHER)
+            .env(PROBE_SHELL_ENV, &shell)
+            .env(PROBE_SCENARIO_ENV, "m1_b22_manager_signal");
+
+        let mut child = cmd.spawn().expect("failed to spawn B22 probe child");
+        let child_pid = child.id();
+        let stdout = child.stdout.take().expect("stdout must be piped");
+        let mut guard = ChildCleanupGuard(Some(child));
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let reader_handle = std::thread::spawn(move || {
+            use std::io::BufRead;
+            let mut reader = std::io::BufReader::new(stdout);
+            let mut line = String::new();
+            while let Ok(n) = reader.read_line(&mut line) {
+                if n == 0 {
+                    break;
+                }
+                let trimmed = line.trim_end_matches(&['\r', '\n'][..]).trim();
+                if trimmed.starts_with("READY:PID:") {
+                    let _ = tx.send(Ok(trimmed.to_string()));
+                    return;
+                }
+                line.clear();
+            }
+            let _ = tx.send(Err(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "B22 readiness marker not found before EOF",
+            )));
+        });
+
+        let ready_line = match rx.recv_timeout(std::time::Duration::from_secs(5)) {
+            Ok(Ok(line)) => line,
+            Ok(Err(err)) => panic!("I/O error reading B22 readiness: {err}"),
+            Err(err) => panic!("timeout waiting for B22 Manager readiness: {err}"),
+        };
+        let reported_pid: u32 = ready_line
+            .strip_prefix("READY:PID:")
+            .unwrap_or_else(|| panic!("unexpected B22 readiness line: {ready_line:?}"))
+            .parse()
+            .expect("parse B22 Manager pid");
+        assert_eq!(reported_pid, child_pid);
+
+        const SIGTERM: std::os::raw::c_int = 15;
+        assert_eq!(
+            unsafe { kill(reported_pid as std::os::raw::c_int, SIGTERM) },
+            0
+        );
+
+        let child_ref = guard.0.as_mut().expect("child must be present");
+        let start = std::time::Instant::now();
+        let status = loop {
+            match child_ref.try_wait() {
+                Ok(Some(status)) => break status,
+                Ok(None) => {
+                    if start.elapsed() > std::time::Duration::from_secs(5) {
+                        panic!("timed out waiting for B22 Manager after SIGTERM");
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+                Err(err) => panic!("error waiting for B22 Manager: {err}"),
+            }
+        };
+        assert_eq!(status.code(), Some(73));
+        guard.0 = None;
+        let _ = reader_handle.join();
     }
 
     fn m1_b12_remote_request() -> UpdateRequest<'static> {
