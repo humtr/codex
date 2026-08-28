@@ -1425,6 +1425,115 @@ fn qualify_runtime_assets<'selection, 'asset, 'generation>(
 }
 
 #[cfg(unix)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ManagerArtifactSelection<'a> {
+    program_path: &'a OsStr,
+    observed_digest: &'a str,
+}
+
+#[cfg(unix)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ManagerArtifactError {
+    UnexpectedSelection,
+    MissingSelection,
+    Path(RuntimeAssetError),
+    EmptyDigest,
+    DigestMismatch,
+}
+
+#[cfg(unix)]
+impl std::fmt::Display for ManagerArtifactError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ManagerArtifactError::UnexpectedSelection => write!(
+                f,
+                "Manager artifact was selected but the qualified generation declares no Manager"
+            ),
+            ManagerArtifactError::MissingSelection => write!(
+                f,
+                "qualified generation declares a Manager artifact but no artifact was selected"
+            ),
+            ManagerArtifactError::Path(err) => err.fmt(f),
+            ManagerArtifactError::EmptyDigest => {
+                write!(f, "selected Manager artifact observed digest is empty")
+            }
+            ManagerArtifactError::DigestMismatch => write!(
+                f,
+                "selected Manager artifact digest does not match qualified generation"
+            ),
+        }
+    }
+}
+
+#[cfg(unix)]
+impl std::error::Error for ManagerArtifactError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            ManagerArtifactError::Path(err) => Some(err),
+            _ => None,
+        }
+    }
+}
+
+#[cfg(unix)]
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy)]
+struct QualifiedManagerArtifact<'selection, 'asset, 'generation> {
+    generation: QualifiedGenerationManifest<'generation>,
+    selection: &'selection ManagerArtifactSelection<'asset>,
+}
+
+#[cfg(unix)]
+#[allow(dead_code)]
+impl<'selection, 'asset, 'generation> QualifiedManagerArtifact<'selection, 'asset, 'generation> {
+    fn generation(self) -> QualifiedGenerationManifest<'generation> {
+        self.generation
+    }
+
+    fn selection(self) -> &'selection ManagerArtifactSelection<'asset> {
+        self.selection
+    }
+}
+
+#[cfg(unix)]
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy)]
+enum ManagerArtifactQualification<'selection, 'asset, 'generation> {
+    Unavailable,
+    Available(QualifiedManagerArtifact<'selection, 'asset, 'generation>),
+}
+
+#[cfg(unix)]
+#[allow(dead_code)]
+fn qualify_manager_artifact<'selection, 'asset, 'generation>(
+    generation: QualifiedGenerationManifest<'generation>,
+    selection: Option<&'selection ManagerArtifactSelection<'asset>>,
+) -> Result<ManagerArtifactQualification<'selection, 'asset, 'generation>, ManagerArtifactError> {
+    let declared_digest = generation.manifest().manager_artifact_digest.as_deref();
+    match (declared_digest, selection) {
+        (None, None) => Ok(ManagerArtifactQualification::Unavailable),
+        (None, Some(_)) => Err(ManagerArtifactError::UnexpectedSelection),
+        (Some(_), None) => Err(ManagerArtifactError::MissingSelection),
+        (Some(expected_digest), Some(selection)) => {
+            validate_absolute_runtime_asset_path(selection.program_path, "manager_artifact")
+                .map_err(ManagerArtifactError::Path)?;
+            if selection.observed_digest.is_empty() {
+                return Err(ManagerArtifactError::EmptyDigest);
+            }
+            if selection.observed_digest != expected_digest {
+                return Err(ManagerArtifactError::DigestMismatch);
+            }
+            Ok(ManagerArtifactQualification::Available(
+                QualifiedManagerArtifact {
+                    generation,
+                    selection,
+                },
+            ))
+        }
+    }
+}
+
+#[cfg(unix)]
 #[allow(dead_code)]
 #[derive(Debug)]
 enum QualifiedRuntimeLaunchError {
@@ -7052,6 +7161,184 @@ exit 0
             std::env::var_os("PATH"),
         ];
         assert_eq!(before, after);
+        assert!(std::ptr::eq(first.selection(), second.selection()));
+        assert!(std::ptr::eq(first.selection(), &selection));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b21_a_absent_manifest_and_selection_is_explicitly_unavailable() {
+        let manifest = m1_b11_valid_manifest();
+        let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements())
+            .expect("generation without Manager must qualify");
+        let result = qualify_manager_artifact(generation, None).expect("absence is valid");
+        assert!(matches!(result, ManagerArtifactQualification::Unavailable));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b21_b_matching_manifest_and_selection_becomes_available_borrowed() {
+        let mut manifest = m1_b11_valid_manifest();
+        manifest.manager_artifact_digest = Some("opaque-manager-digest:v1:778899".to_string());
+        let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements())
+            .expect("generation with Manager must qualify");
+        let selection = ManagerArtifactSelection {
+            program_path: OsStr::new("/manager/codex-manager"),
+            observed_digest: "opaque-manager-digest:v1:778899",
+        };
+        let result = qualify_manager_artifact(generation, Some(&selection))
+            .expect("matching Manager must qualify");
+        let ManagerArtifactQualification::Available(qualified) = result else {
+            panic!("matching Manager must be available");
+        };
+        assert!(std::ptr::eq(qualified.selection(), &selection));
+        assert!(std::ptr::eq(qualified.generation().manifest(), &manifest));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b21_c_manifest_selection_presence_must_agree_both_directions() {
+        let no_manager = m1_b11_valid_manifest();
+        let no_manager_generation =
+            qualify_generation_manifest(&no_manager, &m1_b11_requirements()).unwrap();
+        let unexpected = ManagerArtifactSelection {
+            program_path: OsStr::new("/manager/codex-manager"),
+            observed_digest: "opaque-manager-digest:v1:778899",
+        };
+        assert_eq!(
+            qualify_manager_artifact(no_manager_generation, Some(&unexpected)).unwrap_err(),
+            ManagerArtifactError::UnexpectedSelection
+        );
+
+        let mut with_manager = m1_b11_valid_manifest();
+        with_manager.manager_artifact_digest = Some("opaque-manager-digest:v1:778899".to_string());
+        let with_manager_generation =
+            qualify_generation_manifest(&with_manager, &m1_b11_requirements()).unwrap();
+        assert_eq!(
+            qualify_manager_artifact(with_manager_generation, None).unwrap_err(),
+            ManagerArtifactError::MissingSelection
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b21_d_path_shape_reuses_runtime_asset_fail_closed_semantics() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let mut manifest = m1_b11_valid_manifest();
+        manifest.manager_artifact_digest = Some("opaque-manager-digest:v1:778899".to_string());
+        let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements()).unwrap();
+
+        let empty = ManagerArtifactSelection {
+            program_path: OsStr::new(""),
+            observed_digest: "opaque-manager-digest:v1:778899",
+        };
+        assert_eq!(
+            qualify_manager_artifact(generation, Some(&empty)).unwrap_err(),
+            ManagerArtifactError::Path(RuntimeAssetError::EmptyPath("manager_artifact"))
+        );
+
+        let relative = ManagerArtifactSelection {
+            program_path: OsStr::new("manager/codex-manager"),
+            observed_digest: "opaque-manager-digest:v1:778899",
+        };
+        assert_eq!(
+            qualify_manager_artifact(generation, Some(&relative)).unwrap_err(),
+            ManagerArtifactError::Path(RuntimeAssetError::RelativePath("manager_artifact"))
+        );
+
+        let nul_path = OsString::from_vec(b"/manager/codex manager".to_vec());
+        let nul = ManagerArtifactSelection {
+            program_path: nul_path.as_os_str(),
+            observed_digest: "opaque-manager-digest:v1:778899",
+        };
+        assert_eq!(
+            qualify_manager_artifact(generation, Some(&nul)).unwrap_err(),
+            ManagerArtifactError::Path(RuntimeAssetError::NulPath("manager_artifact"))
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b21_e_empty_and_mismatched_digests_fail_distinctly() {
+        let mut manifest = m1_b11_valid_manifest();
+        manifest.manager_artifact_digest = Some("opaque-manager-digest:v1:778899".to_string());
+        let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements()).unwrap();
+
+        let empty = ManagerArtifactSelection {
+            program_path: OsStr::new("/manager/codex-manager"),
+            observed_digest: "",
+        };
+        assert_eq!(
+            qualify_manager_artifact(generation, Some(&empty)).unwrap_err(),
+            ManagerArtifactError::EmptyDigest
+        );
+
+        let mismatch = ManagerArtifactSelection {
+            program_path: OsStr::new("/manager/codex-manager"),
+            observed_digest: "opaque-manager-digest:v1:different",
+        };
+        assert_eq!(
+            qualify_manager_artifact(generation, Some(&mismatch)).unwrap_err(),
+            ManagerArtifactError::DigestMismatch
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b21_f_raw_non_utf8_absolute_path_is_retained_exactly() {
+        use std::os::unix::ffi::{OsStrExt, OsStringExt};
+
+        let mut manifest = m1_b11_valid_manifest();
+        manifest.manager_artifact_digest = Some("opaque-manager-digest:v1:778899".to_string());
+        let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements()).unwrap();
+        let raw = vec![
+            b'/', b'm', b'a', b'n', b'a', b'g', b'e', b'r', b'/', 0xff, b'x',
+        ];
+        let path = OsString::from_vec(raw.clone());
+        let selection = ManagerArtifactSelection {
+            program_path: path.as_os_str(),
+            observed_digest: "opaque-manager-digest:v1:778899",
+        };
+        let result = qualify_manager_artifact(generation, Some(&selection)).unwrap();
+        let ManagerArtifactQualification::Available(qualified) = result else {
+            panic!("raw Manager path must qualify");
+        };
+        assert_eq!(
+            qualified.selection().program_path.as_bytes(),
+            raw.as_slice()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b21_g_qualification_is_deterministic_and_environment_pure() {
+        let mut manifest = m1_b11_valid_manifest();
+        manifest.manager_artifact_digest = Some("opaque-manager-digest:v1:778899".to_string());
+        let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements()).unwrap();
+        let selection = ManagerArtifactSelection {
+            program_path: OsStr::new("/manager/codex-manager"),
+            observed_digest: "opaque-manager-digest:v1:778899",
+        };
+        let before = [
+            std::env::var_os("PREFIX"),
+            std::env::var_os("TMPDIR"),
+            std::env::var_os("PATH"),
+        ];
+        let first = qualify_manager_artifact(generation, Some(&selection)).unwrap();
+        let second = qualify_manager_artifact(generation, Some(&selection)).unwrap();
+        let after = [
+            std::env::var_os("PREFIX"),
+            std::env::var_os("TMPDIR"),
+            std::env::var_os("PATH"),
+        ];
+        assert_eq!(before, after);
+        let ManagerArtifactQualification::Available(first) = first else {
+            panic!("first Manager qualification must be available");
+        };
+        let ManagerArtifactQualification::Available(second) = second else {
+            panic!("second Manager qualification must be available");
+        };
         assert!(std::ptr::eq(first.selection(), second.selection()));
         assert!(std::ptr::eq(first.selection(), &selection));
     }
