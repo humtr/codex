@@ -30,38 +30,38 @@ or mutation of the installed Codex product.
 
 ## Selected next action
 
-### Bundle M1-B18 — exact doctor invocation and output plan
+### Bundle M1-B19 — ordered local doctor command boundary
 
-- Prior evidence: M1-B17 commit `64199eb4cbb1dccb351cf140c55e5e36d77d65ce`;
-  final validation `job_inr_7ffbd3d9f8` passed B17 4/4, full serial 106/106,
-  eight default-parallel full repetitions, formatting, diff check, and
-  warning-free locked build. Earlier transient parallel evidence is retained in
-  `GOAL.md` and is not used as acceptance proof.
-- Add a pure, module-private `DoctorOutputMode` and doctor invocation planner for
-  arguments after the exact leading `doctor` token. No trailing args selects
-  human output; exactly one `--json` selects the single B15 JSON envelope.
-- Reject every other shape, including duplicate `--json`, unknown options,
-  positional arguments, `--`, and non-UTF-8 bytes, with one bounded typed usage
-  error. Its Display text must be static and must never echo or lossily decode
-  the rejected argv.
-- Add one pure result surface that renders an already-composed `DoctorReport`
-  through the selected B15 renderer and returns the existing typed
-  `DoctorExitClass`. JSON mode must still return a valid complete machine
-  envelope for degraded, unhealthy, and API-incompatible reports.
-- Usage errors remain represented by the planner's distinct error type and must
-  not be collapsed into `HealthFailure` or `ApiIncompatibility`. Do not assign
-  numeric process exit codes in B18 because SPEC requires semantic distinction
-  but does not define numbers.
-- No `main` dispatch wiring, runtime/generation discovery, B17 execution,
-  Manager/Core health discovery, filesystem/environment I/O, network, update,
-  activation, rollback, package operation, dependency addition, or product-state
-  mutation belongs in B18.
-- Focused `m1_b18_` tests must cover exact human/JSON planning, exhaustive
-  representative invalid forms including raw non-UTF-8, static non-leaking usage
-  error text, human/JSON rendering for every doctor semantic exit class, valid
-  JSON preservation on diagnostic failure, and deterministic/environment-pure
-  planning/rendering.
-- Keep all 106 post-B17 tests green. Validate offline with an external Cargo
+- Prior evidence: M1-B18 commit `fdecef9f86a1f04776309ffe344b169d715c7217`;
+  validation `job_ioy_1672a340bc` passed B18 5/5, full serial 111/111, eight
+  default-parallel full repetitions, formatting, diff check, and warning-free
+  locked build.
+- Add one module-private doctor command boundary that accepts trailing doctor
+  argv plus the explicit B17 capability/qualified-runtime/B10/FD/Core/Manager
+  inputs. It must call `plan_doctor_invocation` before `compose_local_doctor`,
+  then render the successful report with `render_doctor_command`.
+- Use one typed error that keeps B18 `DoctorUsageError` distinct from B17
+  `QualifiedUpstreamDoctorProbeError`; do not stringify, collapse, or infer the
+  error class from text.
+- Usage rejection is the load-bearing ordering contract. Invalid, duplicate,
+  positional, or non-UTF-8 doctor trailing argv supplied with Supported
+  capability and intentionally invalid process snapshot/resolver/config/runtime
+  inputs must return Usage without performing B10 planning, FD mapping, or spawn.
+- Valid Supported human/JSON paths must cross the existing B16 subprocess probe,
+  preserve raw-output suppression and bounded B15 rendering, and return the
+  existing semantic `DoctorExitClass`. Valid Unsupported paths must retain B17's
+  zero-probe-I/O behavior even with invalid probe-only inputs.
+- Probe/setup failures after a valid invocation must remain typed Probe errors
+  with no `DoctorCommandOutcome` fabricated. No numeric process exit codes are
+  assigned in B19.
+- No `main` dispatch wiring, generation/runtime discovery, Core/Manager health
+  discovery, network, update, activation, rollback, package operation,
+  dependency addition, or product-state mutation belongs in B19.
+- Focused `m1_b19_` tests must prove usage-before-I/O for UTF-8 and non-UTF-8
+  invalid forms, supported healthy human output, supported unhealthy JSON output,
+  unsupported invalid-probe-input JSON output, and supported spawn-error
+  propagation without an outcome or raw diagnostic leakage.
+- Keep all 111 post-B18 tests green. Validate offline with an external Cargo
   target, focused tests, full serial suite, eight default-parallel repetitions,
   warning-free locked build, formatting, and diff check.
 - Worker mode is user-controlled and remains OFF. The primary `gpt-5.6-sol` /

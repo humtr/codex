@@ -427,6 +427,19 @@ Termux qualification. Produce one candidate for independent product review.
 
 ### Not Proven
 
+- M1-B18 is accepted at `fdecef9f86a1f04776309ffe344b169d715c7217`.
+  The direct Lead added a pure doctor invocation/output contract over an
+  already-composed bounded report. Arguments following exact leading `doctor`
+  are accepted only as empty for human output or exactly one raw `--json` token
+  for machine output; every other shape including non-UTF-8 fails with one static
+  non-echoing usage error. Rendering preserves the B15 human/JSON envelope and
+  typed `DoctorExitClass` without assigning unspecified numeric process codes.
+- Final B18 validation `job_ioy_1672a340bc` passed all 5 B18 focused tests, the
+  full serial workspace suite 111/111, eight complete default-parallel
+  repetitions with per-run failure logs, formatting, `git diff --check`, and a
+  warning-free locked build with offline mode and a repository-external Cargo
+  target. Direct audit found no lossy argv conversion, new process/filesystem/
+  environment access, or `main` dispatch change in B18.
 - M1-B17 is accepted at `64199eb4cbb1dccb351cf140c55e5e36d77d65ce`.
   The direct Lead added a bounded local doctor coordinator: explicit Supported
   capability invokes the B16 qualified upstream probe exactly once and composes
@@ -461,14 +474,15 @@ Termux qualification. Produce one candidate for independent product review.
   pre-I/O environment failures, parent FD restoration, and test-owned
   resolver/config non-mutation.
 - Milestone 1 is not complete. The normal `main` entrypoint is still not wired to
-  a qualified upstream runtime. Public doctor invocation/output dispatch and the
-  complete real-Termux smoke gate remain unproven. Process-environment capture
-  is proven by M1-B10, the pure generation-manifest qualification interface by
-  M1-B11, the pure updater admission/candidate interface by M1-B12,
-  runtime/compat/helper asset qualification by M1-B13, qualified-runtime final
-  launch composition by M1-B14, the bounded redacted doctor report model by
-  M1-B15, the supported-upstream read-only doctor subprocess probe by M1-B16,
-  and bounded local doctor coordination by M1-B17. Physical active-pointer and
+  a qualified upstream runtime. The ordered doctor command boundary/public
+  dispatch and the complete real-Termux smoke gate remain unproven.
+  Process-environment capture is proven by M1-B10, the pure generation-manifest
+  qualification interface by M1-B11, the pure updater admission/candidate
+  interface by M1-B12, runtime/compat/helper asset qualification by M1-B13,
+  qualified-runtime final launch composition by M1-B14, the bounded redacted
+  doctor report model by M1-B15, the supported-upstream read-only doctor
+  subprocess probe by M1-B16, bounded local doctor coordination by M1-B17, and
+  exact doctor invocation/output planning by M1-B18. Physical active-pointer and
   activation mechanics remain Milestone 2 delivery/recovery work and are not
   introduced during Milestone 1.
 - B4's current non-mutation proof is against test-owned resolver fixtures; the
@@ -491,15 +505,15 @@ Termux qualification. Produce one candidate for independent product review.
 - M1-B15 is closed at `6bea7a53004f43178599e65a6f630c7bb06355b9`.
 - M1-B16 is closed at `d420db8b4128d44836c89394cbbb9afc9398b1e5`.
 - M1-B17 is closed at `64199eb4cbb1dccb351cf140c55e5e36d77d65ce`.
-- Current checkpoint: M1-B18 — define the exact public-doctor trailing-argument
-  plan and bounded output/semantic-exit surface over an already-composed B17
-  report, without selecting runtime state or wiring `main`.
-- Worker mode remains OFF; the primary Lead implements B18 directly.
-- B18 accepts only no trailing doctor args for human output or exactly `--json`
-  for the single B15 machine envelope. Every other or non-UTF-8 shape fails with
-  a bounded usage error that does not echo raw argv. Usage failure remains typed
-  separately from B15 health/API exit classes; no numeric process exit code is
-  invented because SPEC does not assign one.
+- M1-B18 is closed at `fdecef9f86a1f04776309ffe344b169d715c7217`.
+- Current checkpoint: M1-B19 — compose B18 invocation planning before B17 local
+  doctor execution so usage rejection is proven to precede every doctor
+  environment/resolver/config/FD/runtime side effect, then render the resulting
+  bounded report through B18.
+- Worker mode remains OFF; the primary Lead implements B19 directly.
+- B19 keeps capability/Core/Manager/runtime inputs explicit and does not wire
+  `main`, discover generations or Manager state, assign numeric exit codes, or
+  mutate live product state.
 
 ## Goal Lifts
 
