@@ -9,6 +9,16 @@ mkdir -p "$TMP_DIR"
 LIB_SH="$ROOT_DIR/lib/codex-termux.sh"
 INSTALL_RUNTIME="$ROOT_DIR/bin/install-runtime.sh"
 
+# This test sources the real wrapper loader. Keep a signature of the live
+# resolver so a future fixture regression cannot silently modify it.
+LIVE_RESOLV_CONF="${PREFIX:-/data/data/com.termux/files/usr}/etc/resolv.conf"
+LIVE_RESOLV_EXISTS=0
+LIVE_RESOLV_SIGNATURE=""
+if [ -e "$LIVE_RESOLV_CONF" ]; then
+    LIVE_RESOLV_EXISTS=1
+    LIVE_RESOLV_SIGNATURE="$(stat -c '%a:%s:%Y:%Z' "$LIVE_RESOLV_CONF")|$(sha256sum "$LIVE_RESOLV_CONF" | awk '{print $1}')"
+fi
+
 fail() {
     printf 'cli-surface: FAIL: %s\n' "$*" >&2
     exit 1
@@ -117,6 +127,7 @@ bash -lc '. "$1"; ROOT_DIR="$(cd "$(dirname "$1")/.." && pwd)"; stable="$CODEX_T
 CODEX_TERMUX_HOME="$TMP_DIR/home" \
 CODEX_TERMUX_STATE_DIR="$TMP_DIR/state" \
 CODEX_TERMUX_TMPDIR="$TMP_DIR/tmp" \
+CODEX_TERMUX_RESOLV_CONF="$TMP_DIR/resolv.conf" \
 bash -lc '. "$1"; stable="$CODEX_TERMUX_RUNTIME_STORE_DIR/stable-runtime"; mkdir -p "$stable" "$CODEX_TERMUX_CERT_DIR" "$(dirname "$CODEX_TERMUX_RESOLV_CONF")" "$CODEX_TERMUX_SYSTEM_CONFIG_DIR"; printf "nameserver 1.1.1.1\n" >"$CODEX_TERMUX_RESOLV_CONF"; cat >"$stable/codex" <<'"'"'SCRIPT'"'"'
 #!/bin/sh
 [ "$1" = "-c" ] || exit 9
@@ -147,4 +158,13 @@ CODEX_TERMUX_TMPDIR="$TMP_DIR/tmp" \
 TEST_TMP_DIR="$TMP_DIR" \
 bash -lc '. "$1"; source_file="$TEST_TMP_DIR/source/bin/install-runtime.sh"; mkdir -p "$(dirname "$source_file")"; printf "#!/bin/sh\nexit 0\n" >"$source_file"; chmod 755 "$source_file"; ran=""; bash() { ran="$1"; [ "$1" != "$source_file" ]; }; codex_mktemp_dir() { d="$TEST_TMP_DIR/snapshot"; rm -rf "$d"; mkdir -p "$d"; printf "%s\n" "$d"; }; codex_run_install_source_command "$source_file" install; case "$ran" in "$TEST_TMP_DIR/snapshot/source/bin/install-runtime.sh") ;; *) exit 1 ;; esac' _ "$LIB_SH"
 
+if [ "$LIVE_RESOLV_EXISTS" -eq 1 ]; then
+    [ -e "$LIVE_RESOLV_CONF" ] || fail "live resolver disappeared during cli-surface test"
+    live_resolv_signature="$(stat -c '%a:%s:%Y:%Z' "$LIVE_RESOLV_CONF")|$(sha256sum "$LIVE_RESOLV_CONF" | awk '{print $1}')"
+    [ "$live_resolv_signature" = "$LIVE_RESOLV_SIGNATURE" ] || fail "cli-surface test modified live resolver: $LIVE_RESOLV_CONF"
+else
+    [ ! -e "$LIVE_RESOLV_CONF" ] || fail "cli-surface test created live resolver: $LIVE_RESOLV_CONF"
+fi
+
+printf 'cli-surface: ok\n'
 printf 'cli-surface: ok\n'
