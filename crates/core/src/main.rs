@@ -31,9 +31,14 @@ where
     S: AsRef<OsStr>,
 {
     use std::os::unix::process::CommandExt;
-    std::process::Command::new(program.as_ref())
-        .args(args)
-        .exec()
+    let mut cmd = std::process::Command::new(program.as_ref());
+    cmd.args(args)
+        .env_remove("CODEX_MANAGED_BY_NPM")
+        .env_remove("CODEX_MANAGED_BY_BUN")
+        .env_remove("CODEX_MANAGED_PACKAGE_ROOT")
+        .env_remove("LD_PRELOAD")
+        .env_remove("LD_LIBRARY_PATH");
+    cmd.exec()
 }
 
 fn main() {
@@ -364,6 +369,115 @@ exit 7
                 let err = exec_upstream(shell, args);
                 panic!("exec_upstream failed to replace process: {err}");
             }
+            "env_fence_evidence" => {
+                std::env::set_var("CODEX_MANAGED_BY_NPM", "npm-synthetic-val-1");
+                std::env::set_var("CODEX_MANAGED_BY_BUN", "bun-synthetic-val-2");
+                std::env::set_var("CODEX_MANAGED_PACKAGE_ROOT", "/synthetic/pkg/root");
+                std::env::set_var("LD_PRELOAD", "/synthetic/lib/libtest.so");
+                std::env::set_var("LD_LIBRARY_PATH", "/synthetic/lib:/synthetic/lib64");
+                std::env::set_var("CODEX_TEST_UNRELATED_ALPHA", "alpha-exact-surviving-value");
+                std::env::set_var(
+                    "CODEX_TEST_UNRELATED_BETA",
+                    "beta-value with spaces & = symbols",
+                );
+
+                let script = r#"
+if [ -z "${CODEX_MANAGED_BY_NPM+x}" ]; then
+    printf "NPM:ABSENT\n"
+else
+    printf "NPM:PRESENT=%s\n" "$CODEX_MANAGED_BY_NPM"
+fi
+
+if [ -z "${CODEX_MANAGED_BY_BUN+x}" ]; then
+    printf "BUN:ABSENT\n"
+else
+    printf "BUN:PRESENT=%s\n" "$CODEX_MANAGED_BY_BUN"
+fi
+
+if [ -z "${CODEX_MANAGED_PACKAGE_ROOT+x}" ]; then
+    printf "PACKAGE_ROOT:ABSENT\n"
+else
+    printf "PACKAGE_ROOT:PRESENT=%s\n" "$CODEX_MANAGED_PACKAGE_ROOT"
+fi
+
+if [ -z "${LD_PRELOAD+x}" ]; then
+    printf "LD_PRELOAD:ABSENT\n"
+else
+    printf "LD_PRELOAD:PRESENT=%s\n" "$LD_PRELOAD"
+fi
+
+if [ -z "${LD_LIBRARY_PATH+x}" ]; then
+    printf "LD_LIBRARY_PATH:ABSENT\n"
+else
+    printf "LD_LIBRARY_PATH:PRESENT=%s\n" "$LD_LIBRARY_PATH"
+fi
+
+if [ -n "${CODEX_TEST_UNRELATED_ALPHA+x}" ]; then
+    printf "UNRELATED_ALPHA:PRESENT=%s\n" "$CODEX_TEST_UNRELATED_ALPHA"
+else
+    printf "UNRELATED_ALPHA:ABSENT\n"
+fi
+
+if [ -n "${CODEX_TEST_UNRELATED_BETA+x}" ]; then
+    printf "UNRELATED_BETA:PRESENT=%s\n" "$CODEX_TEST_UNRELATED_BETA"
+else
+    printf "UNRELATED_BETA:ABSENT\n"
+fi
+exit 0
+"#;
+                let args: Vec<&OsStr> = vec![
+                    OsStr::new("-c"),
+                    OsStr::new(script),
+                    OsStr::new("upstream-probe"),
+                ];
+
+                let err = exec_upstream(shell, args);
+                panic!("exec_upstream failed to replace process: {err}");
+            }
+            "env_fence_failure_preserves_env" => {
+                std::env::set_var("CODEX_MANAGED_BY_NPM", "probe-npm-failure-test");
+                std::env::set_var("CODEX_MANAGED_BY_BUN", "probe-bun-failure-test");
+                std::env::set_var("CODEX_MANAGED_PACKAGE_ROOT", "/probe/failure/pkg/root");
+                std::env::set_var("LD_PRELOAD", "/probe/fake/preload.so");
+                std::env::set_var("LD_LIBRARY_PATH", "/probe/fake/lib");
+                std::env::set_var("CODEX_TEST_UNRELATED_FAIL_VAR", "unrelated-value-999");
+
+                let err = exec_upstream(
+                    OsStr::new("/path/that/does/not/exist/codex-nonexistent-failure-probe"),
+                    &[OsStr::new("--version")],
+                );
+                assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
+
+                assert_eq!(
+                    std::env::var("CODEX_MANAGED_BY_NPM").as_deref(),
+                    Ok("probe-npm-failure-test")
+                );
+                assert_eq!(
+                    std::env::var("CODEX_MANAGED_BY_BUN").as_deref(),
+                    Ok("probe-bun-failure-test")
+                );
+                assert_eq!(
+                    std::env::var("CODEX_MANAGED_PACKAGE_ROOT").as_deref(),
+                    Ok("/probe/failure/pkg/root")
+                );
+                assert_eq!(
+                    std::env::var("LD_PRELOAD").as_deref(),
+                    Ok("/probe/fake/preload.so")
+                );
+                assert_eq!(
+                    std::env::var("LD_LIBRARY_PATH").as_deref(),
+                    Ok("/probe/fake/lib")
+                );
+                assert_eq!(
+                    std::env::var("CODEX_TEST_UNRELATED_FAIL_VAR").as_deref(),
+                    Ok("unrelated-value-999")
+                );
+
+                use std::io::Write;
+                let _ = std::io::stdout().write_all(b"EXEC_FAILURE_ENV_PRESERVED\n");
+                let _ = std::io::stdout().flush();
+                std::process::exit(0);
+            }
             _ => panic!("unknown probe scenario: {scenario}"),
         }
     }
@@ -418,5 +532,44 @@ exit 7
             &[OsStr::new("--version")],
         );
         assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_exec_upstream_sanitizes_contamination_vars_and_preserves_unrelated() {
+        let result = run_exec_probe("env_fence_evidence");
+
+        assert_eq!(result.status.code(), Some(0));
+        let stdout_str = String::from_utf8(result.stdout).expect("valid utf-8 output from probe");
+        let expected = "\
+NPM:ABSENT\n\
+BUN:ABSENT\n\
+PACKAGE_ROOT:ABSENT\n\
+LD_PRELOAD:ABSENT\n\
+LD_LIBRARY_PATH:ABSENT\n\
+UNRELATED_ALPHA:PRESENT=alpha-exact-surviving-value\n\
+UNRELATED_BETA:PRESENT=beta-value with spaces & = symbols\n";
+        assert_eq!(stdout_str, expected);
+        assert_eq!(result.stderr, b"");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_exec_upstream_failed_exec_preserves_caller_process_environment() {
+        let result = run_exec_probe("env_fence_failure_preserves_env");
+
+        assert_eq!(result.status.code(), Some(0));
+        assert_eq!(result.stdout, b"EXEC_FAILURE_ENV_PRESERVED\n");
+        assert_eq!(result.stderr, b"");
+
+        // Verify parent test runner environment is not contaminated
+        assert_ne!(
+            std::env::var("CODEX_MANAGED_BY_NPM").as_deref(),
+            Ok("probe-npm-failure-test")
+        );
+        assert_ne!(
+            std::env::var("CODEX_TEST_UNRELATED_FAIL_VAR").as_deref(),
+            Ok("unrelated-value-999")
+        );
     }
 }
