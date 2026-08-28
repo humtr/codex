@@ -50,6 +50,40 @@ irreversible design decision without ambiguity.
 - Do not add abstraction layers, compatibility shims, or dependencies without
   a current milestone requirement.
 
+## Outcome-first execution discipline
+
+- At every start or resume, bind the exact branch, HEAD, dirty state, and current
+  authority before interpreting prior reports or continuing work.
+- Convert the user's directive into both the explicit requested outcome and the
+  implied quality bar. Completion means satisfying the request **and** removing
+  same-root-cause defects that would predictably make that result incomplete.
+- A newly discovered class-level defect, duplicated proof layer, stale invariant,
+  or simplification opportunity is a breadth trigger: inspect every relevant
+  surviving instance across the current product path and affected prior bundles.
+  Do not sample when the evidence says the problem is systemic.
+- Trace findings backward to their root cause and forward to the real public
+  product path. Do not stop at the first failing test, wrapper, or local symptom.
+- Classify surviving machinery as KEEP, COLLAPSE, or DELETE. Prefer one direct
+  product path and one foundational invariant over wrappers, promotion types,
+  retries, fallback ladders, or defensive state that merely restates the same
+  fact.
+- A proof-only helper, test injection path, or internal wrapper cannot close a
+  product requirement when the real entrypoint does not reach that behavior.
+- Treat evidence rigorously: a zero-test invocation, false-positive audit, stale
+  result, or mismatched revision is not acceptance evidence. Correct the check
+  and rerun the exact load-bearing gate; reuse successful same-revision evidence
+  instead of creating validation churn.
+- Pull adjacent work into the current closure only when it follows from the same
+  root cause, removes known product debt, or is necessary for the claimed public
+  path. Do not turn proactive investigation into speculative resilience work or
+  a new subsystem.
+- Close each accepted bundle with implementation, focused regression, grouped
+  full acceptance, protected-surface verification, authority update, and commit.
+  Keep any later-bundle work separate so it cannot contaminate prior acceptance.
+- Optimize for product progress: the preferred way to exceed the requested
+  outcome is to discover and eliminate hidden blockers, stale assumptions, and
+  unnecessary machinery on the same path, not to add more features or defenses.
+
 ## Safety
 
 - Never modify `$PREFIX/etc/resolv.conf` or another system resolver file.
@@ -72,68 +106,34 @@ irreversible design decision without ambiguity.
   that owns planning, implementation delegation, integration verification, and
   acceptance decisions. Additional planners, advisors, and checkpoint
   reviewers are disabled.
-- Delegate product-code and test implementation to one bounded implementation
-  worker at a time.
+- Worker use is user-controlled. When worker mode is OFF, the primary Lead
+  implements and validates directly and must not invoke implementation workers,
+  planning agents, or checkpoint reviewers.
 - Perform an independent product review only after the Milestone 2 acceptance
   candidate is complete.
 
-## Primary Sol Technical Lead and implementation workers
+## Primary Sol Technical Lead and user-controlled workers
 
-- Start or resume the goal with the primary agent configured as
-  `gpt-5.6-sol` at `max` reasoning. That primary agent is the Technical
-  Lead/Integrator; do not create a planning subagent to replace it.
-- Keep the primary Lead across both Core milestones while its context remains
-  available and accurate. On resume, it must rebind the exact branch, commit,
-  `SPEC.md`, `GOAL.md`, and `WORKBOARD.md`. Do not persist a live agent identity
-  in tracked files.
-- The Lead reads the authorized repository evidence directly and owns
-  architecture interpretation, bounded work-bundle planning, authority-document
-  updates, worker instructions, actual diff review, integration validation,
-  commits, and acceptance-ledger decisions. It must not outsource evidence
-  selection or acceptance to the worker.
-- The Lead does not routinely implement product code or tests. Before each
-  implementation bundle it records the exact outcome, writable paths, governing
-  contracts, tests, protected surfaces, and completion gate in `WORKBOARD.md`.
-- Spawn only one implementation worker at a time with `fork_context: false`.
-  Reuse that worker with `send_input` only within its current bundle; close or
-  replace it after the bundle is accepted. Do not run concurrent workers in the
-  shared worktree.
-- A worker may use repository, filesystem, and shell tools only for the paths
-  and temporary test roots authorized in its packet. It may modify product code
-  and tests in that scope and run the named non-destructive validation. It must
-  not edit `SPEC.md`, `GOAL.md`, `WORKBOARD.md`, or `AGENTS.md`; mutate live
-  resolver/runtime/profile/session/auth/Manager state; install or update
-  packages; use network/provider tools unless the current bundle and a later
-  acceptance gate explicitly authorize one bounded non-secret validation;
-  commit or push; or delegate work.
-- The initial worker packet must contain the bound branch and commit, one exact
-  accepted bundle, governing contract excerpts, no more than eight relevant
-  source/test paths or snippets, authorized read/write scope, named validation,
-  protected surfaces, and the required completion report. It must not exceed
-  12,000 estimated input tokens or 48,000 characters without a tokenizer.
-- Every worker follow-up is delta-only: include the prior and current commit,
-  changed paths, only the relevant diff or new failure evidence, changed
-  authority if any, and one exact next action. Do not resend unchanged material.
-  A follow-up must not exceed 5,000 estimated input tokens or 20,000 characters
-  without a tokenizer.
-- The worker must return changed paths, concise validation results, unresolved
-  failures, and confirmation that protected surfaces were not touched. If it
-  needs evidence or scope outside the packet, it requests the exact item or path
-  and waits for the Lead; it must not broaden its own scope.
-- While a worker is mutating the shared worktree, the Lead waits and does not
-  make concurrent edits. Afterward the Lead inspects the actual diff, reruns the
-  load-bearing validation, and accepts or rejects the bundle. Worker summaries
-  and tests are evidence inputs, not acceptance proof by themselves.
-- Send rejected or incomplete work back to the same worker as an exact delta.
-  Replace it only when its identity is confirmed unavailable or it cannot
-  accurately restate the bundle and bound revision; a replacement receives the
-  current diff and remaining gate, not a broad repository reread.
-- The Lead handles planning changes and material diagnosis directly. Do not
-  spawn another planner, problem advisor, or checkpoint reviewer during the two
-  Core milestones. The Lead's own validation is integration verification, not
-  independent review.
-- When a bundle is accepted but the milestone gate is incomplete, the Lead
-  plans and records the next bundle itself. When Milestone 1 is proven, the same
-  Lead updates the ledger and workboard and continues into Milestone 2 without a
-  routine user pause. A fresh independent reviewer is invoked only after the
-  Milestone 2 acceptance candidate is complete.
+- Start or resume the goal with the primary agent configured as `gpt-5.6-sol` at
+  `max` reasoning. The primary Lead owns authority binding, architecture
+  interpretation, implementation direction, actual diff review, validation,
+  commits, and acceptance decisions.
+- Worker mode is controlled only by an explicit user command. Repository history,
+  previous worker usage, or an implementation bundle must never turn workers on
+  implicitly.
+- When worker mode is OFF, the primary Lead performs product-code, test,
+  integration, diagnosis, and authority-document work directly. Do not invoke
+  implementation workers, coding subagents, planners, problem advisors, or
+  checkpoint reviewers.
+- When worker mode is explicitly ON, use at most one bounded implementation
+  worker in the shared worktree at a time. The primary Lead still owns the
+  contract, writable scope, protected surfaces, actual diff review, load-bearing
+  validation, commit, and acceptance decision. Worker summaries are evidence,
+  not acceptance proof.
+- Never run concurrent mutations in the shared worktree. Do not let a worker edit
+  `SPEC.md`, `GOAL.md`, `WORKBOARD.md`, or `AGENTS.md`, mutate protected live
+  state, install packages, push, or broaden its own scope unless the current
+  user-authorized bundle explicitly permits that operation.
+- A fresh independent reviewer is reserved for the Milestone 2 acceptance
+  candidate or an explicit user request; routine bundle completion does not add
+  another review layer.

@@ -9,15 +9,16 @@ in Git history and the `GOAL.md` acceptance ledger, not here.
 - Active branch: `rewrite/rust-core`
 - Normative owner: `SPEC.md`
 - Acceptance owner: `GOAL.md`
-- Current milestone state: Milestone 2 is paused after accepted M2-B1 while the
-  user-directed M1-R2 exhaustive simplification/closure audit runs
+- Current milestone state: Milestone 2 active; M1-R2 is closed, M2-B3 is
+  accepted at `b692853a436e7df2540ccb1c52e967af4e921375`, and M2-B4 is the selected
+  implementation target
 - Worker mode: user-controlled; current state OFF. Only an explicit user command
   may change it
 - Additional agents/workers/reviewers: disabled while worker mode is OFF
 - Live product cutover/publication: not authorized
-- Click-inspired discipline: no Click plugin or Hook is installed; reuse fresh
-  evidence, avoid re-reading unchanged evidence, and batch load-bearing validation
-  once the refactor stabilizes
+- Execution discipline: follow `AGENTS.md` outcome-first closure rules; reuse
+  fresh same-revision evidence, expand to exhaustive review only on a systemic
+  breadth trigger, and batch load-bearing validation once implementation stabilizes
 
 ## Product-speed policy
 
