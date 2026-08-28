@@ -77,15 +77,27 @@ irreversible design decision without ambiguity.
 - The planning/review prohibition does not disable bounded consultation when
   implementation reaches a material problem that focused local diagnosis has
   not resolved confidently.
-- On the first such problem in an active implementation run, use one read-only
-  advisor with model `gpt-5.6-sol`, reasoning effort `max`, and
-  `fork_context: false`. Reuse that same advisor for later problems with
-  `send_input`; resume it if it was closed. Do not spawn parallel or replacement
-  advisors unless the tool confirms that the prior identity is unavailable.
-- Give the advisor only the exact problem, governing contract excerpts,
-  concise evidence and failed attempts, protected surfaces, and the decision
-  needed next. Exclude secrets, credentials, private session content, and
-  unrelated history.
+- On the first such problem in a milestone, use one read-only advisor with
+  model `gpt-5.6-sol`, reasoning effort `max`, and `fork_context: false`.
+  Reuse that same advisor for later problems in the milestone with
+  `send_input`; resume it if it was closed. Do not spawn parallel advisors.
+- Advisor access is packet-only. Instruct it not to call shell, filesystem,
+  repository, web, MCP, delegation, or other tools and never to enumerate or
+  scan the repository. The implementing agent owns all evidence retrieval.
+- The initial packet must contain the bound branch and commit, one exact
+  problem, governing contract excerpts, at most eight relevant source/test
+  snippets or diffs, concise failure evidence and attempted actions, protected
+  surfaces, and the decision needed next. The
+  packet must not exceed 12,000 estimated input tokens, or 48,000 characters
+  when no tokenizer is available.
+- Every later `send_input` is delta-only: include the prior and current commit,
+  changed paths, only the relevant diff or new evidence, and any changed
+  authority. Do not resend unchanged material. A delta packet must not exceed
+  5,000 estimated input tokens, or 20,000 characters without a tokenizer.
+- If the packet is insufficient, the advisor may request one exact additional
+  snippet or evidence item. The implementing agent retrieves and returns only
+  that item; the advisor must not read it independently. Request an answer of
+  no more than 900 words.
 - The advisor may analyze and recommend. It must not mutate files or runtime
   state, delegate, invent product semantics, authorize work, or act as a
   checkpoint planner or product reviewer.
@@ -93,3 +105,6 @@ irreversible design decision without ambiguity.
   choosing the action. Record a concise consultation and disposition in
   `GOAL.md` only when it changes a contract, current plan, acceptance claim,
   blocker, or proof requirement.
+- Replace the advisor only at a milestone boundary, when its identity is
+  confirmed unavailable, or when it cannot accurately restate the bound commit
+  and governing authority. Do not persist its live identity in tracked files.

@@ -39,14 +39,31 @@
 - Advisor model: `gpt-5.6-sol`
 - Reasoning effort: `max`
 - Advisor context: `fork_context: false`
-- Reuse rule: create one advisor on the first qualifying problem in an active
-  implementation run and reuse that identity with `send_input`; resume it when
-  possible and do not create duplicates
+- Reuse rule: create one advisor on the first qualifying problem in a milestone
+  and reuse that identity with `send_input`; resume it when possible and do not
+  create parallel advisors
+- Access mode: packet-only; the advisor may not call repository, filesystem,
+  shell, web, MCP, delegation, or other tools, enumerate files, or scan the
+  repository
+- Initial packet budget: at most 12,000 estimated input tokens or 48,000
+  characters without a tokenizer, containing the bound branch/commit, one
+  exact problem, governing contract excerpts, no more than eight relevant
+  source/test snippets or diffs, concise failures and attempts, protected
+  surfaces, and one required decision
+- Follow-up budget: delta-only `send_input` of at most 5,000 estimated input
+  tokens or 20,000 characters, containing prior/current commits, changed paths,
+  relevant new diff/evidence, and changed authority only
+- Missing-evidence rule: the advisor may request one exact additional snippet
+  or evidence item; the implementing agent retrieves it, and no independent
+  advisor read is allowed
+- Output budget: request no more than 900 words
+- Rotation rule: replace the advisor only at a milestone boundary, confirmed
+  identity loss, or failure to restate the bound commit and governing authority
 - Authority: read-only advice only; the implementing agent validates the
   result and retains all mutation, contract, and acceptance decisions
 - Record rule: persist only a concise problem, evidence, advice, disposition,
-  and next gate when the consultation materially changes this goal or its
-  acceptance ledger
+  bound commit, packet-size class, evidence-request count, and next gate when
+  the consultation materially changes this goal or its acceptance ledger
 - Policy source and timestamp: user decision on 2026-08-28
 
 ## Current Success Threshold
@@ -94,8 +111,9 @@ one current workboard, direct focused tests, and deferred independent review.
 - Disable implementation-time planning/reviewer agents and review the complete
   product candidate separately.
 - When implementation encounters a material unresolved problem, consult one
-  reusable `gpt-5.6-sol` advisor at `max` reasoning without turning it into a
-  planner, reviewer, or implementation owner.
+  reusable packet-only `gpt-5.6-sol` advisor at `max` reasoning, using
+  delta-only follow-ups and hard context budgets, without turning it into a
+  planner, reviewer, repository reader, or implementation owner.
 - Use exactly two Core milestones.
 - This foundation task creates documents and workflow only; implementation is
   handed to a later implementer.
