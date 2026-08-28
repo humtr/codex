@@ -427,6 +427,19 @@ Termux qualification. Produce one candidate for independent product review.
 
 ### Not Proven
 
+- M1-B19 is accepted at `148b1133f1afaa91668e19b4fade13bc761b0056`.
+  The direct Lead added one ordered local doctor command boundary that validates
+  B18 usage before invoking B17 local doctor composition, preserves Usage and
+  Probe as distinct typed errors, and renders a successful bounded report only
+  after probe completion. Invalid UTF-8 and ordinary invalid doctor argv are
+  therefore proven to fail before environment planning, resolver/config FD
+  setup, or runtime spawn.
+- Final B19 validation `job_iq5_44896f380d` passed all 5 B19 focused tests, the
+  full serial workspace suite 116/116, eight complete default-parallel
+  repetitions with per-run failure logs, formatting, `git diff --check`, and a
+  warning-free locked build with offline mode and a repository-external Cargo
+  target. Boundary audit found no `main` wiring, lossy argv conversion, or new
+  production filesystem path beyond the already-shared doctor/launch helpers.
 - M1-B18 is accepted at `fdecef9f86a1f04776309ffe344b169d715c7217`.
   The direct Lead added a pure doctor invocation/output contract over an
   already-composed bounded report. Arguments following exact leading `doctor`
@@ -474,16 +487,17 @@ Termux qualification. Produce one candidate for independent product review.
   pre-I/O environment failures, parent FD restoration, and test-owned
   resolver/config non-mutation.
 - Milestone 1 is not complete. The normal `main` entrypoint is still not wired to
-  a qualified upstream runtime. The ordered doctor command boundary/public
-  dispatch and the complete real-Termux smoke gate remain unproven.
+  a qualified upstream runtime. Public dispatch execution and the complete
+  real-Termux smoke gate remain unproven.
   Process-environment capture is proven by M1-B10, the pure generation-manifest
   qualification interface by M1-B11, the pure updater admission/candidate
   interface by M1-B12, runtime/compat/helper asset qualification by M1-B13,
   qualified-runtime final launch composition by M1-B14, the bounded redacted
   doctor report model by M1-B15, the supported-upstream read-only doctor
   subprocess probe by M1-B16, bounded local doctor coordination by M1-B17, and
-  exact doctor invocation/output planning by M1-B18. Physical active-pointer and
-  activation mechanics remain Milestone 2 delivery/recovery work and are not
+  exact doctor invocation/output planning by M1-B18, and usage-before-probe
+  ordered doctor execution by M1-B19. Physical active-pointer and activation
+  mechanics remain Milestone 2 delivery/recovery work and are not
   introduced during Milestone 1.
 - B4's current non-mutation proof is against test-owned resolver fixtures; the
   Milestone 1 completion gate still requires pre/post evidence that the actual
@@ -506,14 +520,13 @@ Termux qualification. Produce one candidate for independent product review.
 - M1-B16 is closed at `d420db8b4128d44836c89394cbbb9afc9398b1e5`.
 - M1-B17 is closed at `64199eb4cbb1dccb351cf140c55e5e36d77d65ce`.
 - M1-B18 is closed at `fdecef9f86a1f04776309ffe344b169d715c7217`.
-- Current checkpoint: M1-B19 — compose B18 invocation planning before B17 local
-  doctor execution so usage rejection is proven to precede every doctor
-  environment/resolver/config/FD/runtime side effect, then render the resulting
-  bounded report through B18.
-- Worker mode remains OFF; the primary Lead implements B19 directly.
-- B19 keeps capability/Core/Manager/runtime inputs explicit and does not wire
-  `main`, discover generations or Manager state, assign numeric exit codes, or
-  mutate live product state.
+- M1-B19 is closed at `148b1133f1afaa91668e19b4fade13bc761b0056`.
+- Current checkpoint: M1-B20 — add a pure public dispatch route over complete
+  raw argv so only exact first-token `update`, `doctor`, and `termux` are Core
+  routes while every other argv shape is preserved whole for upstream.
+- Worker mode remains OFF; the primary Lead implements B20 directly.
+- B20 does not execute any route, wire `main`, select a runtime/generation,
+  discover Manager state, perform update behavior, or assign process exit codes.
 
 ## Goal Lifts
 

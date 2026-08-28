@@ -30,38 +30,35 @@ or mutation of the installed Codex product.
 
 ## Selected next action
 
-### Bundle M1-B19 — ordered local doctor command boundary
+### Bundle M1-B20 — exact raw-argv public dispatch route
 
-- Prior evidence: M1-B18 commit `fdecef9f86a1f04776309ffe344b169d715c7217`;
-  validation `job_ioy_1672a340bc` passed B18 5/5, full serial 111/111, eight
+- Prior evidence: M1-B19 commit `148b1133f1afaa91668e19b4fade13bc761b0056`;
+  validation `job_iq5_44896f380d` passed B19 5/5, full serial 116/116, eight
   default-parallel full repetitions, formatting, diff check, and warning-free
   locked build.
-- Add one module-private doctor command boundary that accepts trailing doctor
-  argv plus the explicit B17 capability/qualified-runtime/B10/FD/Core/Manager
-  inputs. It must call `plan_doctor_invocation` before `compose_local_doctor`,
-  then render the successful report with `render_doctor_command`.
-- Use one typed error that keeps B18 `DoctorUsageError` distinct from B17
-  `QualifiedUpstreamDoctorProbeError`; do not stringify, collapse, or infer the
-  error class from text.
-- Usage rejection is the load-bearing ordering contract. Invalid, duplicate,
-  positional, or non-UTF-8 doctor trailing argv supplied with Supported
-  capability and intentionally invalid process snapshot/resolver/config/runtime
-  inputs must return Usage without performing B10 planning, FD mapping, or spawn.
-- Valid Supported human/JSON paths must cross the existing B16 subprocess probe,
-  preserve raw-output suppression and bounded B15 rendering, and return the
-  existing semantic `DoctorExitClass`. Valid Unsupported paths must retain B17's
-  zero-probe-I/O behavior even with invalid probe-only inputs.
-- Probe/setup failures after a valid invocation must remain typed Probe errors
-  with no `DoctorCommandOutcome` fabricated. No numeric process exit codes are
-  assigned in B19.
-- No `main` dispatch wiring, generation/runtime discovery, Core/Manager health
-  discovery, network, update, activation, rollback, package operation,
-  dependency addition, or product-state mutation belongs in B19.
-- Focused `m1_b19_` tests must prove usage-before-I/O for UTF-8 and non-UTF-8
-  invalid forms, supported healthy human output, supported unhealthy JSON output,
-  unsupported invalid-probe-input JSON output, and supported spawn-error
-  propagation without an outcome or raw diagnostic leakage.
-- Keep all 111 post-B18 tests green. Validate offline with an external Cargo
+- Add a pure module-private public dispatch plan that consumes all raw argv after
+  argv[0]. Exact first-token `update`, `doctor`, and `termux` become distinct
+  Core routes and consume only that first token; each route retains every
+  trailing raw `OsString` byte-for-byte for its later handler.
+- Every other argv shape, including empty argv, `--version`, `-V`, `--`, exact
+  upstream command names, near misses/affixes/case changes, and non-UTF-8 first
+  tokens, becomes one Upstream route retaining the complete original argv in the
+  original order. B20 must not synthesize sandbox args; B7/B14 remain the later
+  launch boundary for that behavior.
+- Reuse `classify_first_arg` as the exact classifier rather than introducing a
+  second spelling table. The public route intentionally collapses all
+  `CommandClass::Passthrough` shapes into Upstream; only the three SPEC-owned
+  commands are intercepted.
+- No route execution, `main` dispatch wiring, B19 invocation, final exec,
+  generation/runtime discovery, Core/Manager health discovery, updater action,
+  network, activation, rollback, numeric exit mapping, dependency addition, or
+  product-state mutation belongs in B20.
+- Focused `m1_b20_` tests must prove all three exact Core routes and exact tail
+  preservation; complete upstream argv preservation for empty/version/near-miss/
+  delimiter forms; raw non-UTF-8 first and trailing bytes; no accidental
+  interception of `--version`/`-V`; deterministic planning with no environment
+  side effects; and no mutation/reordering of caller-owned argv.
+- Keep all 116 post-B19 tests green. Validate offline with an external Cargo
   target, focused tests, full serial suite, eight default-parallel repetitions,
   warning-free locked build, formatting, and diff check.
 - Worker mode is user-controlled and remains OFF. The primary `gpt-5.6-sol` /
