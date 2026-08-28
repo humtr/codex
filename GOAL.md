@@ -539,25 +539,39 @@ Termux qualification. Produce one candidate for independent product review.
   `job_iv6_b5bb5f840a` passed the full serial suite 138/138, eight complete
   default-parallel repetitions, formatting, `git diff --check`, source NUL
   absence, and a warning-free locked offline build with an external Cargo target.
-- Milestone 1 is not complete. Qualified public-dispatch execution is proven by
-  M1-B23, but the raw-argv public entrypoint composition and complete real-Termux
-  smoke gate remain unproven. Physical active-generation discovery and installed
-  `main` context acquisition remain deferred with the pointer/activation mechanics
-  owned by Milestone 2; Milestone 1 must not invent their physical names.
-  Process-environment capture is proven by M1-B10, the pure generation-manifest
-  qualification interface by M1-B11, the pure updater admission/candidate
-  interface by M1-B12, runtime/compat/helper asset qualification by M1-B13,
-  qualified-runtime final launch composition by M1-B14, the bounded redacted
-  doctor report model by M1-B15, the supported-upstream read-only doctor
-  subprocess probe by M1-B16, bounded local doctor coordination by M1-B17,
-  exact doctor invocation/output planning by M1-B18, usage-before-probe ordered
-  doctor execution by M1-B19, and exact raw-argv public routing by M1-B20.
-  Physical active-pointer and activation mechanics remain Milestone 2
-  delivery/recovery work and are not introduced during Milestone 1.
-- B4's current non-mutation proof is against test-owned resolver fixtures; the
-  Milestone 1 completion gate still requires pre/post evidence that the actual
-  live resolver path, content, mode, and stat identity remain unchanged during
-  the bounded real-Termux smoke qualification.
+- M1-B24 is accepted at `db67c0b90e1916d2ec452b8db2657dd4d504cd52`.
+  The direct Lead added one thin raw-argv public entrypoint composition that
+  performs the B20 planner exactly once and passes the resulting route directly
+  into the B23 qualified dispatcher. Production `main` remains intentionally
+  unchanged because physical active-generation context acquisition belongs to
+  Milestone 2. Test-only B24 evidence added an explicit real-Termux smoke gate
+  using the actual live resolver read-only, a test-owned fake qualified runtime
+  and config root, FD33/34, and byte-exact direct-vs-Core `--version` output.
+- Focused/smoke validation `job_ivj_a0374d97fe` passed the B24 zero-I/O entrypoint
+  test and the explicitly selected real-Termux smoke 1/1 on Termux
+  `0.119.0-beta.3`, `aarch64-linux-android`. Production audit
+  `job_ivk_7d7e01c56a` confirmed the only production addition is
+  `plan_public_dispatch(raw_args) -> execute_public_dispatch(...)` with no new
+  filesystem/environment/Command/lossy path and no `main` body change. Final
+  acceptance `job_ivl_1ddcbf4dc5` passed 139 default tests with the explicit
+  smoke correctly ignored, eight complete default-parallel repetitions,
+  formatting, `git diff --check`, and a warning-free locked **release** build.
+  External pre/post evidence kept the live resolver exactly at SHA-256
+  `7e8ad76e0d200e93918ca2e93c99ff8ecd02071953bf1479819db3ac0dbb6d07`
+  and the installed launcher exactly at SHA-256
+  `0b0284155f2672263836029f760ba06a0cb284b7ca3a8e600ad399b43af36aff`,
+  with device/inode/mode/uid/gid/size/mtime identity unchanged.
+- **Milestone 1 — local Core is closed and accepted at B24.** The required local
+  Core behavior is now proven by source, subprocess, and current-Termux evidence:
+  exact public routing and upstream passthrough; upstream-only version behavior;
+  environment/final-exec semantics; FD33/34 and live-resolver non-mutation;
+  explicit sandbox behavior; bounded read-only redacted doctor composition;
+  generation/updater interfaces without live mutation; unit/integration/fault
+  coverage; and an explicit real-Termux smoke gate. No live Codex installation,
+  runtime, Manager, resolver, package, update, activation, or publication ref was
+  changed during Milestone 1. Physical generation state, installation,
+  activation, recovery, rollback, artifact delivery, and installed `main`
+  context acquisition remain Milestone 2 work and are not promoted by M1 proof.
 - No release artifact, installation, update, activation, rollback, offline
   recovery, fresh-device behavior, Milestone 2 result, or production readiness
   is proven.
@@ -580,11 +594,13 @@ Termux qualification. Produce one candidate for independent product review.
 - M1-B21 is closed at `5847f0d8d223e6abdf8d1876fc316ac1fda7b281`.
 - M1-B22 is closed at `a89646da18c1e0b68e146b565a847dcc4b0fd0b6`.
 - M1-B23 is closed at `c29f5f2019104ad7ab51f36754f326b48d33704c`.
-- Current checkpoint: M1-B24 — close the local-Core milestone with one raw-argv
-  public entrypoint composition over the B20+B23 boundary and one explicit
-  real-Termux smoke qualification that uses the actual live resolver read-only,
-  test-owned runtime/config roots, and pre/post protected-state evidence.
-- Worker mode remains OFF; the primary Lead implements and runs B24 directly.
+- M1-B24 is closed at `db67c0b90e1916d2ec452b8db2657dd4d504cd52`.
+- Milestone 1 is closed at M1-B24.
+- Current checkpoint: M2-B1 — implement the crash-safe local generation-state
+  and activation/recovery transaction foundation in test-owned roots, fixing the
+  Milestone 2 physical Core state layout and proving recovery resolves to one
+  complete old or new pointer state without mixed generations.
+- Worker mode remains OFF; the primary Lead implements M2-B1 directly.
 - The repository now uses a Click-inspired execution discipline at the
   Workboard layer: reuse successful same-revision evidence, do not reopen or
   replace an active bounded contract without new material evidence, and run the

@@ -11,160 +11,173 @@ in Git history and the `GOAL.md` acceptance ledger, not here.
   `main` or `legacy/monolith`
 - Normative owner: `SPEC.md`
 - Acceptance owner: `GOAL.md`
-- Current milestone: Milestone 1 — local Core
+- Current milestone: Milestone 2 — delivery and recovery
 - Primary Technical Lead/Integrator: the main `gpt-5.6-sol` / `max` goal
   session; owns evidence retrieval, contract compilation, direct implementation
   while worker mode is OFF, actual diff review, integration validation, commits,
-  and acceptance decisions across both Core milestones
+  and acceptance decisions
 - Worker mode: user-controlled; current state OFF. Only an explicit user command
   may change it. Do not invoke implementation workers or coding subagents while
   OFF
-- Planning agents, problem advisors, and checkpoint reviewers: disabled
-- Live installation or activation: prohibited in this milestone
-- Click-inspired discipline: no Click plugin or Hook is installed. Within one
-  selected bundle, reuse successful evidence while its revision remains current,
-  do not reopen repository-wide discovery or replace the contract without new
-  material evidence, use narrow implementation feedback only as needed, and run
-  the repository-required acceptance suite as one final validation batch once
-  the implementation is stable. Repository authority and required gates always
-  override any verification-budget concept.
+- Planning agents, problem advisors, and checkpoint reviewers: disabled until
+  the complete Milestone 2 candidate reaches the independent-review gate
+- Live product cutover: not authorized by this bundle; all mutable M2-B1 evidence
+  stays under test-owned temporary roots
+- Click-inspired discipline: no Click plugin or Hook is installed. Reuse
+  successful current evidence, do not reopen or replace this contract without
+  new material evidence, use only narrow implementation feedback, and run the
+  repository-required acceptance suite as one final grouped batch once stable.
+  Repository authority always overrides any generic verification-budget concept.
 
 ## Current objective
 
-Produce the smallest buildable Rust Core that proves local Termux execution and
-compatibility contracts without networking, self-update, Manager implementation,
-or mutation of the installed Codex product.
+Deliver a recoverable, prebuilt Core release system: immutable signed releases,
+safe acquisition/adaptation, atomic activation and rollback, offline recovery,
+concurrency/failure qualification, fresh-install/legacy-upgrade evidence, and a
+complete candidate suitable for independent review.
 
 ## Selected next action
 
-### Bundle M1-B24 — raw public entrypoint and real-Termux smoke gate
+### Bundle M2-B1 — crash-safe generation state and activation recovery
 
 #### outcome
 
-Close the Milestone 1 local-Core execution proof without inventing Milestone 2
-state layout. Add one raw-argv entrypoint composition that performs B20 planning
-then B23 execution over an already-qualified local context, and add one explicit
-ignored real-Termux smoke test that runs only when deliberately selected against
-the current device's live resolver in read-only mode with all writable artifacts
-under a test-owned temporary root.
+Fix the first Milestone 2 physical Core state representation and implement the
+smallest durable activation transaction in test-owned roots. A complete candidate
+generation may be promoted into one authoritative pointer state only through a
+journaled atomic replacement; recovery after any represented interruption must
+resolve to exactly the complete old state or complete new state and never a mixed
+current/verified/previous generation set.
 
 #### boundary
 
-- in_scope: `crates/core/src/main.rs` only plus validation commands; a thin
-  `execute_public_entrypoint(raw_argv, context)` composition and test-only
-  real-Termux smoke/snapshot helpers.
-- out_of_scope: physical active-generation/current/verified/previous pointer
-  implementation, installed `main` context discovery, live launcher/runtime/
-  Manager replacement, updater network/download/activation/rollback, Manager
-  product features, dependencies, package operations, or any write under
-  `$PREFIX` except normal operating-system access metadata outside product
-  control.
+- in_scope: `crates/core/src/main.rs` only; explicit root-derived Core state paths,
+  strict std-only pointer-state/journal encoding and parsing, durable file-write /
+  fsync / atomic-rename primitives, activation and recovery over test-owned
+  filesystem roots, and deterministic injected-failure tests around each durable
+  boundary.
+- out_of_scope: live `$HOME`/`$PREFIX` state mutation, installed launcher/context
+  wiring, network/download, signature cryptography or key rotation, archive
+  extraction/adaptation, fresh-install bootstrap, Manager features, release
+  publication, real product activation, package operations, or dependency adds.
 
 #### must_hold
 
-- The entrypoint calls the existing B20 planner exactly once and passes the
-  resulting route directly to B23; it has no second spelling table or branch
-  semantics of its own.
-- Exact `--version`/`-V` and arbitrary upstream raw argv remain upstream routes;
-  exact `update`/`doctor`/`termux` retain the B20 first-token consumption rules.
-- The explicit real-Termux smoke derives the resolver from the actual captured
-  `PREFIX`, opens it only through the existing read-only FD33 path, uses only a
-  temporary config directory/fake qualified runtime, and never executes or
-  rewrites the installed public `codex` launcher.
-- Smoke evidence snapshots the live resolver path target/content and stable stat
-  identity before/after and fails on any change other than access-time metadata;
-  validation also records an external SHA-256/stat snapshot of the resolver and
-  installed launcher before/after the grouped acceptance batch.
-- The smoke compares direct fake-upstream `--version` stdout/stderr/exit with the
-  Core entrypoint path byte-for-byte while also proving FD33/34 availability in
-  the Core path. No Core/Manager version text may be appended.
-- No source test containing the live resolver is part of the default suite; the
-  real smoke is ignored by default and must be invoked explicitly on the current
-  Termux device.
+- Milestone 2 now fixes the Core artifact/state layout under explicit roots:
+  immutable generation directories live under `generations/`; one authoritative
+  `activation-state` file stores the logical `current`, `verified`, and
+  `previous` generation identities as one bounded pointer set; one
+  `activation-journal` records exactly the before/after states while a transition
+  is pending. Temporary replacement files remain private implementation detail.
+- Generation identities are opaque nonempty single-line values; parsing rejects
+  empty values, embedded newline/NUL, unknown fields, duplicate fields, missing
+  fields, extra records, and unsupported format versions. No lossy conversion or
+  path-derived identity is permitted.
+- State replacement is durable in this order: validate inputs; create+fsync the
+  journal; fsync its directory; create+fsync the new state temporary; atomically
+  rename it over `activation-state`; fsync the directory; remove the journal;
+  fsync the directory. No active state is removed before a replacement is ready.
+- Recovery with a journal accepts only two coherent cases: authoritative state
+  equals the recorded `before` state (transition not committed) or equals the
+  recorded `after` state (transition committed). It removes the stale journal and
+  retains that complete state. Any third state, malformed journal/state, missing
+  authoritative state where one is required, or before/after ambiguity fails
+  closed without synthesizing pointers.
+- Initial activation is represented explicitly with no prior state rather than a
+  fabricated previous generation; rollback transitions must retain the former
+  verified/current identity according to the same state semantics.
+- M2-B1 never mutates a generation directory after it is presented as complete,
+  never follows a path supplied by a generation identity, and never writes
+  outside the explicit test-owned Core state root.
+- Failures before the state rename leave the old state authoritative; failures
+  after the state rename leave the new state authoritative. Recovery must make
+  both cases deterministic and idempotent, including a stale journal after a
+  successful commit.
 
 #### build
 
-- Add `execute_public_entrypoint` as a generic raw-`OsString` composition over
-  `plan_public_dispatch` and `execute_public_dispatch`; do not modify `main` or
-  add a production context provider.
-- Add test-only protected-file snapshot logic using Unix metadata fields that are
-  stable across reads (device/inode/mode/uid/gid/size/mtime plus symlink target
-  when applicable) and exact content bytes; exclude atime from equality.
-- Reuse the existing exec-probe process. The B24 scenario constructs one coherent
-  qualified context using actual process env + live resolver and test-owned
-  compatibility/config/runtime paths, then calls the raw public entrypoint with
-  `--version`.
+- Add small `CoreStatePaths`, `GenerationPointerState`, `ActivationJournal`, and
+  typed parse/I/O/recovery error surfaces. Use a canonical versioned text format
+  with fixed field order and length-bounded values; do not introduce serde or a
+  hashing dependency in this bundle.
+- Use `OpenOptions::create_new` for temporary/journal creation where appropriate,
+  `File::sync_all`, same-directory `rename`, and directory `sync_all` on the
+  current Unix/Android target. Clean only transaction-owned temporary names;
+  unrelated files are never removed.
+- Isolate durability calls behind a tiny internal operation/fault-point boundary
+  so tests can inject one failure at each ordered step without changing the
+  public state semantics. Fault injection exists only for tests and must not
+  weaken production ordering.
+- Build activation from an explicit old pointer state plus a complete candidate
+  generation identity; B12 candidate/readiness and later signed-release evidence
+  will feed this transaction in later bundles rather than being reimplemented
+  here.
 
 #### verification
 
-- focused: B24 raw entrypoint route composition on zero-I/O Core routes and one
-  explicit ignored real-Termux smoke proving direct-vs-Core version parity,
-  FD33/34, resolver/launcher non-mutation, and test-owned writes only.
-- done_when: the explicit real-Termux smoke passes on the current Termux device;
-  all 138 pre-B24 default tests remain green; formatting/diff checks pass; a
-  locked release build is warning-free; one grouped final acceptance batch runs
-  the full serial suite and eight complete default-parallel repetitions while
-  external resolver/launcher SHA-256 and stable-stat snapshots remain identical.
-  If every Milestone 1 gate is then proven, the Lead records closure and replaces
-  this Workboard target with the bounded Milestone 2 delivery/recovery contract.
+- focused: canonical encode/parse and malformed/collision cases; initial and
+  ordinary activation; rollback-state transition semantics; failure injected
+  before/after every durable boundary; recovery from old+journal and new+journal;
+  stale-journal idempotence; malformed/ambiguous/missing-state fail-closed cases;
+  permission/create/rename/remove failures; no writes outside the test root; and
+  generation directories unchanged byte-for-byte.
+- done_when: focused M2-B1 tests pass; all 139 nonignored M1/B24 default tests
+  remain green with the explicit B24 smoke still ignored by default; formatting
+  and diff checks pass; locked release build is warning-free; one grouped final
+  acceptance batch runs the full serial suite and eight complete default-parallel
+  repetitions in repository-external Cargo targets. No live product path is
+  touched.
 
-## Milestone 1 required outcomes
+## Milestone 2 required outcomes
 
-1. Create a minimal locked Cargo workspace with one Core binary and no unused
-   dependency.
-2. Implement exact first-argument routing for `update`, `doctor`, and `termux`;
-   classify every other argv shape as upstream passthrough.
-3. Prove `--version` and `-V` preserve exact upstream stdout, stderr, and exit
-   status without Core version output.
-4. Implement environment planning and final upstream execution with preserved
-   argv, standard streams, TTY, signals, and exit status.
-5. Open resolver/config sources read-only, map FD 33/34, preserve them across
-   final exec, and prove the live resolver is unchanged.
-6. Implement explicit unsupported-sandbox behavior without bwrap.
-7. Implement read-only local doctor composition with redacted human and JSON
-   output; unavailable Manager is represented explicitly.
-8. Define and validate the generation-manifest and updater interfaces without
-   performing network or live activation.
-9. Add unit, integration, fault, and real-Termux smoke tests in temporary roots.
-10. The primary Lead updates `GOAL.md` with exact Milestone 1 evidence. If every
-    gate passes, it replaces this workboard's current target with its bounded
-    Milestone 2 plan and continues.
+1. Produce prebuilt Android/Termux Core release artifacts.
+2. Implement the minimal fresh-install bootstrap.
+3. Implement signed immutable release manifests and key-rotation policy.
+4. Acquire and safely adapt official upstream artifacts.
+5. Implement atomic update, activation, recovery, and rollback.
+6. Prove offline install and recovery.
+7. Prove concurrent launch/update behavior and injected-failure recovery.
+8. Qualify isolated fresh-Termux and upgrade-from-legacy paths.
+9. Produce a complete candidate and run the fresh independent product review.
 
-## Milestone 1 completion gate
+## Milestone 2 completion gate
 
-- clean locked release build on the current Termux device;
-- all focused and integration tests pass;
-- argv/TTY/signal/exit and FD33/34 contracts pass;
-- doctor is read-only and secret-redacted;
-- resolver stat, mode, content digest, and path are unchanged;
-- no file under the live launcher/runtime/Manager paths changed;
-- no legacy implementation source was copied;
-- no network update or product activation occurred.
+- exact source, artifact digests, generation, test set, and device/runtime
+  boundary are recorded for every release claim;
+- signed release and key-rotation policy are enforced before candidate use;
+- candidate generation is complete before activation and active state never
+  resolves to a mixed generation after injected interruption;
+- update/rollback/offline recovery are crash-safe and concurrent launch/update
+  behavior is bounded;
+- fresh installation and legacy upgrade are demonstrated in isolated roots or
+  devices without damaging the current working installation;
+- prebuilt aarch64 Android/Termux artifacts require no on-device Rust toolchain;
+- no resolver/auth/profile/session/Manager-owned state is damaged;
+- the complete candidate passes the independent review gate before any publication
+  authority is changed.
 
 ## Stop lines
 
-- Do not begin Milestone 2 work while a Milestone 1 gate is unresolved.
-- Do not implement Manager product features.
-- Do not run package installation or update commands.
-- Do not spawn a planning agent, problem advisor, or checkpoint reviewer. Do
-  not invoke an implementation worker or coding subagent while user-controlled
-  worker mode is OFF.
-- Do not repeat a successful same-revision read/search or repository-wide
-  inventory without material evidence that the prior observation is stale or
-  insufficient; narrow the next observation instead.
-- Do not replace the selected bundle with a new plan for an in-scope technical
-  choice. Stop and revise authority only if the outcome, boundary, must-hold
-  conditions, or required verification truly changes.
-- The primary Lead must keep direct edits inside the selected bundle, inspect the
-  actual diff, and run the grouped load-bearing validation before acceptance.
-- Do not modify `legacy/monolith` or rewrite sealed tags.
-- Do not expand the document hierarchy during ordinary implementation.
+- Do not mutate the current installed Codex product or live resolver/Manager/user
+  state while implementing M2-B1; all mutable evidence remains test-owned.
+- Do not add network, signature, bootstrap, archive, or Manager implementation to
+  this state-transaction bundle.
+- Do not spawn a planning agent, problem advisor, checkpoint reviewer,
+  implementation worker, or coding subagent while user-controlled worker mode is
+  OFF.
+- Do not repeat a successful current-evidence read/search or repository-wide
+  inventory without material staleness; narrow the next observation instead.
+- Do not replace this contract for an in-scope technical choice. Revise authority
+  only when new material evidence changes the outcome, boundary, must-hold
+  conditions, or required verification.
+- The primary Lead must inspect the actual diff and run the grouped load-bearing
+  validation before acceptance.
+- Do not modify `legacy/monolith`, sealed tags, publication refs, or the live
+  installed launcher/runtime.
 
 ## Next milestone
 
-Milestone 2 — delivery and recovery — remains defined in `SPEC.md` and is not
-current work until the Milestone 1 ledger is complete. Completion of that ledger
-causes the same primary Lead to replace this file's current target with the
-Milestone 2 plan; it does not require a routine user stop. Exhaustion of an
-accepted bundle before then causes the Lead to compile the next bounded contract,
-not to end the task.
+There is no routine third Core milestone. Exhausting M2-B1 while Milestone 2 is
+open causes the same Lead to compile the next bounded M2 contract. Completion of
+all Milestone 2 gates produces the candidate for fresh independent review; review
+acceptance, not bundle count, controls any later publication decision.
