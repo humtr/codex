@@ -167,4 +167,3 @@ else
 fi
 
 printf 'cli-surface: ok\n'
-printf 'cli-surface: ok\n'
