@@ -84,6 +84,20 @@ or mutation of the installed Codex product.
 - Integration disposition: the primary Lead reviews every recognized/rejected
   argv shape against SPEC plus the bounded discovery evidence, reruns full and
   focused validation, and commits only accepted work.
+- Lead correction and acceptance: the first B6 result was rejected because it
+  exposed the planner error publicly, recognized unobserved attached `-c...` and
+  literal-quote flag forms, and could reinterpret a separate option's value as a
+  later policy option. The bounded correction keeps planner/error types private,
+  recognizes only the observed sandbox/config forms, requires an exact
+  `sandbox_mode` config key, consumes exactly one following value token for
+  separate `-s`/`--sandbox` and `-c`/`--config` forms, stops at exact `--`, and
+  preserves accepted raw `OsString` argv byte-for-byte after the exact two-arg
+  no-sandbox prelude. Primary-Lead validation job `job_ht1_c593e9a07a` passed
+  `cargo fmt --check`, all 34/34 workspace tests, three additional serial
+  repetitions of the 10 `passthrough_` focused tests, and
+  `cargo build --locked --workspace` with offline mode and a repository-external
+  Cargo target. No public launch wiring, dependency, extra file, approval-bypass
+  synthesis, or live state change was introduced. M1-B6 is accepted for commit.
 
 ## Milestone 1 required outcomes
 

@@ -1,4 +1,4 @@
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CommandClass {
@@ -15,6 +15,155 @@ pub fn classify_first_arg(arg: Option<&OsStr>) -> CommandClass {
         Some("termux") => CommandClass::Termux,
         _ => CommandClass::Passthrough,
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PassthroughError {
+    UnsupportedSandboxMode(String),
+    UnsupportedSandboxSubcommand,
+}
+
+impl std::fmt::Display for PassthroughError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PassthroughError::UnsupportedSandboxMode(mode) => {
+                write!(
+                    f,
+                    "Termux does not support Linux sandbox mode '{mode}': Linux namespace and bwrap sandboxing cannot be enforced"
+                )
+            }
+            PassthroughError::UnsupportedSandboxSubcommand => {
+                write!(
+                    f,
+                    "Termux does not support 'sandbox linux' subcommand: Linux namespace and bwrap sandboxing cannot be enforced"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for PassthroughError {}
+
+fn check_unsupported_sandbox_val(val: &str) -> Option<&str> {
+    if val == "read-only" {
+        Some("read-only")
+    } else if val == "workspace-write" {
+        Some("workspace-write")
+    } else {
+        None
+    }
+}
+
+fn check_unsupported_config_token(token: &str) -> Option<&str> {
+    if let Some((key, raw_val)) = token.split_once('=') {
+        if key == "sandbox_mode" {
+            let val = if (raw_val.starts_with('"') && raw_val.ends_with('"') && raw_val.len() >= 2)
+                || (raw_val.starts_with('\'') && raw_val.ends_with('\'') && raw_val.len() >= 2)
+            {
+                &raw_val[1..raw_val.len() - 1]
+            } else {
+                raw_val
+            };
+            if val == "read-only" {
+                return Some("read-only");
+            } else if val == "workspace-write" {
+                return Some("workspace-write");
+            }
+        }
+    }
+    None
+}
+
+/// Plans upstream passthrough arguments for Termux execution.
+///
+/// Validates that explicit Linux sandbox requests that Termux cannot enforce
+/// (such as `read-only`, `workspace-write`, and `sandbox linux`) fail clearly.
+/// On accepted arguments, prepends exactly `-c` and `sandbox_mode="danger-full-access"`
+/// before all original user arguments unchanged.
+#[allow(dead_code)]
+fn plan_passthrough_args<I, S>(args: I) -> Result<Vec<OsString>, PassthroughError>
+where
+    I: IntoIterator<Item = S>,
+    S: Into<OsString>,
+{
+    let original: Vec<OsString> = args.into_iter().map(Into::into).collect();
+
+    // 1. Leading argv check: exactly "sandbox", "linux" as argv[0], argv[1].
+    if original.len() >= 2
+        && original[0].to_str() == Some("sandbox")
+        && original[1].to_str() == Some("linux")
+    {
+        return Err(PassthroughError::UnsupportedSandboxSubcommand);
+    }
+
+    // 2. Scan before the first exact "--" separator.
+    let mut i = 0;
+    while i < original.len() {
+        let s = match original[i].to_str() {
+            Some(s) => s,
+            None => {
+                i += 1;
+                continue;
+            }
+        };
+
+        if s == "--" {
+            break;
+        }
+
+        if s == "--sandbox" || s == "-s" {
+            if i + 1 < original.len() {
+                i += 1;
+                if let Some(next_str) = original[i].to_str() {
+                    if let Some(unsupported) = check_unsupported_sandbox_val(next_str) {
+                        return Err(PassthroughError::UnsupportedSandboxMode(
+                            unsupported.to_string(),
+                        ));
+                    }
+                }
+            }
+        } else if let Some(val) = s.strip_prefix("--sandbox=") {
+            if let Some(unsupported) = check_unsupported_sandbox_val(val) {
+                return Err(PassthroughError::UnsupportedSandboxMode(
+                    unsupported.to_string(),
+                ));
+            }
+        } else if let Some(val) = s.strip_prefix("-s") {
+            if !val.is_empty() {
+                if let Some(unsupported) = check_unsupported_sandbox_val(val) {
+                    return Err(PassthroughError::UnsupportedSandboxMode(
+                        unsupported.to_string(),
+                    ));
+                }
+            }
+        } else if s == "--config" || s == "-c" {
+            if i + 1 < original.len() {
+                i += 1;
+                if let Some(next_str) = original[i].to_str() {
+                    if let Some(unsupported) = check_unsupported_config_token(next_str) {
+                        return Err(PassthroughError::UnsupportedSandboxMode(
+                            unsupported.to_string(),
+                        ));
+                    }
+                }
+            }
+        } else if let Some(token) = s.strip_prefix("--config=") {
+            if let Some(unsupported) = check_unsupported_config_token(token) {
+                return Err(PassthroughError::UnsupportedSandboxMode(
+                    unsupported.to_string(),
+                ));
+            }
+        }
+
+        i += 1;
+    }
+
+    let mut planned = Vec::with_capacity(original.len() + 2);
+    planned.push(OsString::from("-c"));
+    planned.push(OsString::from("sandbox_mode=\"danger-full-access\""));
+    planned.extend(original);
+
+    Ok(planned)
 }
 
 /// Executes the given upstream program with the supplied arguments, replacing the current process.
@@ -1888,5 +2037,334 @@ UNRELATED_BETA:PRESENT=beta-value with spaces & = symbols\n";
 
         guard.0 = None;
         let _ = reader_handle.join();
+    }
+
+    #[test]
+    fn test_passthrough_rejects_unsupported_sandbox_modes_all_syntaxes() {
+        let modes = ["read-only", "workspace-write"];
+        for mode in modes {
+            let test_cases: Vec<Vec<String>> = vec![
+                vec!["-s".into(), mode.into()],
+                vec!["--sandbox".into(), mode.into()],
+                vec![format!("--sandbox={mode}")],
+                vec![format!("-s{mode}")],
+                vec!["-c".into(), format!("sandbox_mode={mode}")],
+                vec!["--config".into(), format!("sandbox_mode={mode}")],
+                vec![format!("--config=sandbox_mode={mode}")],
+                // Quoted config values
+                vec!["-c".into(), format!("sandbox_mode=\"{mode}\"")],
+                vec!["-c".into(), format!("sandbox_mode='{mode}'")],
+                vec!["--config".into(), format!("sandbox_mode=\"{mode}\"")],
+                vec!["--config".into(), format!("sandbox_mode='{mode}'")],
+                vec![format!("--config=sandbox_mode=\"{mode}\"")],
+                vec![format!("--config=sandbox_mode='{mode}'")],
+            ];
+
+            for case in test_cases {
+                let result = plan_passthrough_args(case.clone());
+                assert_eq!(
+                    result,
+                    Err(PassthroughError::UnsupportedSandboxMode(mode.to_string())),
+                    "expected rejection for case {:?}",
+                    case
+                );
+                let msg = result.unwrap_err().to_string();
+                assert!(
+                    msg.contains("Termux"),
+                    "error message '{msg}' must mention Termux"
+                );
+                assert!(
+                    msg.contains("Linux sandbox"),
+                    "error message '{msg}' must mention Linux sandbox"
+                );
+                assert!(
+                    msg.contains(mode),
+                    "error message '{msg}' must mention mode '{mode}'"
+                );
+                assert!(
+                    msg.contains("cannot be enforced"),
+                    "error message '{msg}' must mention cannot be enforced"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_passthrough_rejects_leading_sandbox_linux_subcommand() {
+        let cases: Vec<Vec<&str>> = vec![
+            vec!["sandbox", "linux"],
+            vec!["sandbox", "linux", "--help"],
+            vec!["sandbox", "linux", "run", "--some-flag"],
+        ];
+
+        for case in cases {
+            let result = plan_passthrough_args(case.clone());
+            assert_eq!(
+                result,
+                Err(PassthroughError::UnsupportedSandboxSubcommand),
+                "expected rejection for leading sandbox linux case {:?}",
+                case
+            );
+            let msg = result.unwrap_err().to_string();
+            assert!(
+                msg.contains("Termux"),
+                "error message '{msg}' must mention Termux"
+            );
+            assert!(
+                msg.contains("'sandbox linux'"),
+                "error message '{msg}' must mention 'sandbox linux'"
+            );
+            assert!(
+                msg.contains("cannot be enforced"),
+                "error message '{msg}' must mention cannot be enforced"
+            );
+        }
+    }
+
+    #[test]
+    fn test_passthrough_allows_danger_full_access_forms() {
+        let cases: Vec<Vec<&str>> = vec![
+            vec!["--sandbox", "danger-full-access"],
+            vec!["--sandbox=danger-full-access"],
+            vec!["-s", "danger-full-access"],
+            vec!["-sdanger-full-access"],
+            vec!["-c", "sandbox_mode=danger-full-access"],
+            vec!["-c", "sandbox_mode=\"danger-full-access\""],
+            vec!["-c", "sandbox_mode='danger-full-access'"],
+            vec!["--config", "sandbox_mode=danger-full-access"],
+            vec!["--config", "sandbox_mode=\"danger-full-access\""],
+            vec!["--config=sandbox_mode=danger-full-access"],
+            vec!["--config=sandbox_mode=\"danger-full-access\""],
+            vec!["--config=sandbox_mode='danger-full-access'"],
+        ];
+
+        for case in cases {
+            let res = plan_passthrough_args(case.clone())
+                .unwrap_or_else(|e| panic!("expected {:?} to be accepted, got error: {e}", case));
+            assert_eq!(res.len(), case.len() + 2);
+            assert_eq!(res[0], OsStr::new("-c"));
+            assert_eq!(res[1], OsStr::new("sandbox_mode=\"danger-full-access\""));
+            for (out_elem, in_elem) in res[2..].iter().zip(case.iter()) {
+                assert_eq!(out_elem, OsStr::new(in_elem));
+            }
+        }
+    }
+
+    #[test]
+    fn test_passthrough_double_dash_stops_scanning() {
+        let cases: Vec<Vec<&str>> = vec![
+            vec!["--", "--sandbox", "read-only"],
+            vec!["run", "--", "-sworkspace-write"],
+            vec!["--", "sandbox", "linux"],
+            vec!["--", "-c", "sandbox_mode=read-only"],
+            vec![
+                "exec",
+                "task",
+                "--",
+                "--config=sandbox_mode=workspace-write",
+                "-sread-only",
+            ],
+        ];
+
+        for case in cases {
+            let res = plan_passthrough_args(case.clone()).unwrap_or_else(|e| {
+                panic!("expected {:?} to be accepted after '--', got: {e}", case)
+            });
+            assert_eq!(res.len(), case.len() + 2);
+            assert_eq!(res[0], OsStr::new("-c"));
+            assert_eq!(res[1], OsStr::new("sandbox_mode=\"danger-full-access\""));
+            for (out_elem, in_elem) in res[2..].iter().zip(case.iter()) {
+                assert_eq!(out_elem, OsStr::new(in_elem));
+            }
+        }
+    }
+
+    #[test]
+    fn test_passthrough_preserves_arbitrary_and_non_utf8_arguments() {
+        let arbitrary_cases: Vec<Vec<&str>> = vec![
+            vec!["exec", "foo", "bar", "--flag=value"],
+            vec!["run", "--opt=123", "arg with space and =", "-j8"],
+        ];
+
+        for case in arbitrary_cases {
+            let res = plan_passthrough_args(case.clone()).expect("arbitrary args should succeed");
+            assert_eq!(res[0], OsStr::new("-c"));
+            assert_eq!(res[1], OsStr::new("sandbox_mode=\"danger-full-access\""));
+            for (out_elem, in_elem) in res[2..].iter().zip(case.iter()) {
+                assert_eq!(out_elem, OsStr::new(in_elem));
+            }
+        }
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt;
+            let non_utf8 = OsStr::from_bytes(&[0xff, 0xfe, 0x80, 0x7f]);
+            let raw_args = vec![
+                OsString::from("exec"),
+                non_utf8.to_os_string(),
+                OsString::from("--custom-flag"),
+            ];
+            let res = plan_passthrough_args(raw_args.clone())
+                .expect("non-utf8 passthrough should succeed");
+            assert_eq!(res[0], OsStr::new("-c"));
+            assert_eq!(res[1], OsStr::new("sandbox_mode=\"danger-full-access\""));
+            assert_eq!(res[2], OsStr::new("exec"));
+            assert_eq!(res[3].as_bytes(), &[0xff, 0xfe, 0x80, 0x7f]);
+            assert_eq!(res[4], OsStr::new("--custom-flag"));
+        }
+    }
+
+    #[test]
+    fn test_passthrough_ordinary_input_prelude_and_no_synthesized_bypass() {
+        // Empty argv
+        let empty_res = plan_passthrough_args(Vec::<&str>::new()).expect("empty argv");
+        assert_eq!(
+            empty_res,
+            vec![
+                OsString::from("-c"),
+                OsString::from("sandbox_mode=\"danger-full-access\""),
+            ]
+        );
+
+        // Ordinary argv
+        let ordinary = vec!["run", "my_app", "--verbose"];
+        let ord_res = plan_passthrough_args(ordinary.clone()).expect("ordinary args");
+        assert_eq!(ord_res[0], OsStr::new("-c"));
+        assert_eq!(
+            ord_res[1],
+            OsStr::new("sandbox_mode=\"danger-full-access\"")
+        );
+        for (out_elem, in_elem) in ord_res[2..].iter().zip(ordinary.iter()) {
+            assert_eq!(out_elem, OsStr::new(in_elem));
+        }
+        assert!(
+            !ord_res
+                .iter()
+                .any(|a| a == "--dangerously-bypass-approvals-and-sandbox"),
+            "Core must never synthesize --dangerously-bypass-approvals-and-sandbox"
+        );
+
+        // Explicit user-supplied bypass option is preserved unchanged without synthesis
+        let user_bypass = vec!["--dangerously-bypass-approvals-and-sandbox", "run"];
+        let bypass_res = plan_passthrough_args(user_bypass.clone()).expect("user bypass");
+        assert_eq!(
+            bypass_res,
+            vec![
+                OsString::from("-c"),
+                OsString::from("sandbox_mode=\"danger-full-access\""),
+                OsString::from("--dangerously-bypass-approvals-and-sandbox"),
+                OsString::from("run"),
+            ]
+        );
+        let count = bypass_res
+            .iter()
+            .filter(|a| *a == "--dangerously-bypass-approvals-and-sandbox")
+            .count();
+        assert_eq!(
+            count, 1,
+            "must preserve exactly the user-supplied token without duplicates"
+        );
+    }
+
+    #[test]
+    fn test_passthrough_missing_option_values_and_unrelated_configs_accepted() {
+        let cases: Vec<Vec<&str>> = vec![
+            // Missing option values are preserved for upstream error handling
+            vec!["-s"],
+            vec!["--sandbox"],
+            vec!["-c"],
+            vec!["--config"],
+            vec!["-s", "--other-flag"],
+            vec!["--config", "-s"],
+            // Unrelated configs and flags containing read-only or workspace-write
+            vec!["-c", "model=read-only"],
+            vec!["-c", "prompt=file-is-read-only"],
+            vec!["--config", "workspace_root=workspace-write"],
+            vec!["--config=custom_setting=read-only"],
+            vec!["exec", "read-only"],
+            vec!["exec", "workspace-write"],
+            vec!["run", "sandbox", "linux"], // Not leading
+            vec!["sandbox", "macos"],
+            vec!["sandbox"],
+            vec!["linux", "sandbox"],
+        ];
+
+        for case in cases {
+            let res = plan_passthrough_args(case.clone())
+                .unwrap_or_else(|e| panic!("expected {:?} to be accepted, got: {e}", case));
+            assert_eq!(res.len(), case.len() + 2);
+            assert_eq!(res[0], OsStr::new("-c"));
+            assert_eq!(res[1], OsStr::new("sandbox_mode=\"danger-full-access\""));
+            for (out_elem, in_elem) in res[2..].iter().zip(case.iter()) {
+                assert_eq!(out_elem, OsStr::new(in_elem));
+            }
+        }
+    }
+
+    #[test]
+    fn test_passthrough_separate_option_consumption_and_unrecognized_forms_regression() {
+        let cases: Vec<Vec<&str>> = vec![
+            // Option consumes next token so trailing mode token is not reinterpreted
+            vec!["--config", "--sandbox", "read-only"],
+            vec!["-s", "--sandbox", "workspace-write"],
+            vec!["-c", "-s", "read-only"],
+            vec!["--sandbox", "-c", "sandbox_mode=read-only"],
+            vec!["-s", "--config", "sandbox_mode=workspace-write"],
+            // Unrelated whitespace-key and prefix config keys remain accepted
+            vec!["-c", "sandbox_mode_extra=read-only"],
+            vec!["-c", "sandbox_mode_custom=workspace-write"],
+            vec!["--config", "sandbox_mode_extra=read-only"],
+            vec!["--config=sandbox_mode_extra=read-only"],
+            vec!["--config=sandbox_mode_custom=workspace-write"],
+            vec!["-c", "sandbox_mode =read-only"],
+            vec!["-c", " sandbox_mode=read-only"],
+            // Quotes around the entire config token are not stripped
+            vec!["--config=\"sandbox_mode=read-only\""],
+            vec!["--config='sandbox_mode=workspace-write'"],
+            // Multiple quotes around config value are not stripped
+            vec!["-c", "sandbox_mode=\"\"read-only\"\""],
+            // Attached -c is not recognized as config policy form
+            vec!["-csandbox_mode=read-only"],
+            vec!["-csandbox_mode=workspace-write"],
+            // Flag values with literal shell quotes are not stripped/recognized as policy
+            vec!["-s", "\"read-only\""],
+            vec!["-s", "'workspace-write'"],
+            vec!["--sandbox", "\"read-only\""],
+            vec!["--sandbox", "'workspace-write'"],
+            vec!["--sandbox=\"read-only\""],
+            vec!["--sandbox='workspace-write'"],
+            vec!["-s\"read-only\""],
+            vec!["-s'workspace-write'"],
+        ];
+
+        for case in cases {
+            let res = plan_passthrough_args(case.clone())
+                .unwrap_or_else(|e| panic!("expected {:?} to be accepted, got error: {e}", case));
+            assert_eq!(res.len(), case.len() + 2);
+            assert_eq!(res[0], OsStr::new("-c"));
+            assert_eq!(res[1], OsStr::new("sandbox_mode=\"danger-full-access\""));
+            for (out_elem, in_elem) in res[2..].iter().zip(case.iter()) {
+                assert_eq!(out_elem, OsStr::new(in_elem));
+            }
+        }
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt;
+            let non_utf8 = OsStr::from_bytes(&[0xff, 0xfe, 0x80, 0x7f]);
+            // -s consumes non_utf8, so "read-only" at pos 2 is not treated as -s's value
+            let raw_args = vec![
+                OsString::from("-s"),
+                non_utf8.to_os_string(),
+                OsString::from("read-only"),
+            ];
+            let res = plan_passthrough_args(raw_args.clone())
+                .expect("non-utf8 option value consumption should succeed");
+            assert_eq!(res[0], OsStr::new("-c"));
+            assert_eq!(res[1], OsStr::new("sandbox_mode=\"danger-full-access\""));
+            assert_eq!(res[2], OsStr::new("-s"));
+            assert_eq!(res[3].as_bytes(), &[0xff, 0xfe, 0x80, 0x7f]);
+            assert_eq!(res[4], OsStr::new("read-only"));
+        }
     }
 }
