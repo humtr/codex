@@ -29,57 +29,58 @@ or mutation of the installed Codex product.
 
 ## Selected next action
 
-### Bundle M1-B3 — upstream environment contamination fence
+### Bundle M1-B4 — FD 33/34 runtime inheritance
 
-- Prior accepted evidence: M1-B2 commit
-  `fc50b39e50bb6ef341d3cf01163ca90423bd7b13`.
-- Exact outcome: ensure the final upstream exec command removes only the five
-  inherited contamination variables currently supported by both the normative
-  "no package-manager or preload variables" requirement and sealed predecessor
-  observations: `CODEX_MANAGED_BY_NPM`, `CODEX_MANAGED_BY_BUN`,
-  `CODEX_MANAGED_PACKAGE_ROOT`, `LD_PRELOAD`, and `LD_LIBRARY_PATH`. Preserve
-  unrelated environment entries unchanged. Do not mutate the parent process
-  environment as part of planning or on an exec failure.
-- Writable worker path: `crates/core/src/main.rs` only.
-- Governing contracts: `SPEC.md` section 5 requires construction of a qualified
-  runtime environment without leaking package-manager or preload variables.
-  Sealed legacy `shell/exec.sh`, `src/wrapper/runtime_env.py`, and the
-  `runtime-exec` golden probe identify the five names above as predecessor
-  observable behavior; that evidence informs this bounded test but is not
-  rewrite proof and does not authorize copying legacy implementation.
-- Non-goals: do not adopt legacy `CODEX_SELF_EXE`, `CODEX_HOME`, TMP/TMPDIR,
-  certificate, `BROWSER`, XDG, GODEBUG, or PATH rules in this bundle; product
-  runtime-path and compatibility-tool selection remain a later Core plan, while
-  profiles remain Manager-owned.
-- Worker configuration: one new `agy` CLI implementation worker through a
-  bounded Task-owned shell execution, `accept-edits` mode with terminal sandbox
-  restrictions and one non-interactive prompt. No delegation, authority-doc
-  edits, commits, pushes, package installation, network update, or live product
-  mutation.
-- Named validation: with `CARGO_NET_OFFLINE=true` and repository-external
-  `CARGO_TARGET_DIR`, run `cargo fmt --check`,
+- Prior accepted evidence: M1-B3 commit
+  `815c9104c726f212ee4a51b518af14e8c133b20c`.
+- Exact outcome: add a production final-exec path that accepts an explicit
+  resolver file path and an existing managed-config directory path, opens both
+  read-only, maps the resolver to FD 33 and the directory to FD 34 without
+  lossy path conversion, and preserves those descriptors across exec. If any
+  setup step or the final exec fails, restore the caller's prior FD 33/34 state
+  before returning the error.
+- Writable worker path: `crates/core/src/main.rs` only. No manifest or dependency
+  changes are authorized.
+- Governing contracts: `SPEC.md` section 5 requires FD 33 to expose the selected
+  resolver source read-only, FD 34 to expose the process-local managed config
+  directory, both to survive final exec, and the resolver source never to be
+  created, rewritten, chmodded, repaired, or deleted by Core. M1 remains
+  temporary-root only and must not touch live resolver/runtime state.
+- Implementation constraint: standard library plus the smallest target-local
+  Unix/Android FFI required for descriptor duplication/flags is allowed inside
+  this source file; do not add a crate. The implementation must handle source
+  descriptors that collide with 33/34, must ensure mapped descriptors are not
+  close-on-exec, and must not leak backup/source duplicate descriptors into the
+  exec target. A failed exec must not leave caller FD 33/34 altered.
+- Worker configuration: one new bounded `agy` CLI implementation worker in
+  `accept-edits` mode through the Task-owned shell route. No delegation,
+  authority-doc edits, commits, pushes, package operations, network update, or
+  live product mutation.
+- Named validation: `CARGO_NET_OFFLINE=true` with repository-external
+  `CARGO_TARGET_DIR`; run `cargo fmt --check`,
   `cargo test --locked --workspace`, and `cargo build --locked --workspace`.
-- Required focused evidence: in a private probe process set synthetic values for
-  all five contamination variables immediately before calling the production
-  exec primitive and prove the upstream process sees each as absent. Set at
-  least one unrelated synthetic environment entry and prove its exact value is
-  preserved. Also prove a failed exec does not clear the parent process's
-  synthetic contamination value.
-- Explicitly deferred: normal `main` upstream-path wiring, additional runtime
-  environment overrides, TTY/signals, FD 33/34, resolver checks, sandbox-policy
-  enforcement, doctor, Manager, updater, network behavior, installation, and
-  activation.
+- Required focused evidence: use only test-owned temporary resolver/config
+  paths. A private exec probe must observe FD 33 as the exact resolver file with
+  its original bytes, FD 34 as the exact config directory, and FD 33 must reject
+  a write attempt. Capture resolver path, bytes, Unix mode, inode/device, size,
+  and modification timestamp before and after the probe and prove they remain
+  unchanged. A separate failed-exec probe must prove both the originally-absent
+  FD case and an existing-sentinel FD case are restored after failure.
+- Keep all M1-B1/B2/B3 argv, stream, exit, and environment-fence tests green.
+- Explicitly deferred: creating or mutating managed config contents, exact
+  product runtime/config path selection, normal `main` wiring, TTY/signals,
+  sandbox-policy parsing, doctor, generation/updater interfaces, network,
+  installation, and activation.
 - Protected surfaces: every repository path except `crates/core/src/main.rs`,
-  plus live launcher/runtime/Manager state, `$PREFIX/etc/resolv.conf`, profiles,
-  sessions, auth data, Git refs, sealed legacy history, and unrelated worktrees.
-- Completion gate: std-only implementation; exactly the five declared names are
-  removed from the child exec environment; unrelated environment survives;
-  parent environment is unchanged on exec failure; all M1-B1/B2 tests remain
-  green; named validation passes; status contains only the authorized source
-  file.
-- Integration disposition: the primary Lead inspects the actual diff, reruns
-  load-bearing validation outside the repository, and commits only accepted
-  work.
+  plus the live resolver, launcher/runtime/Manager paths, profiles, sessions,
+  auth data, Git refs, sealed legacy history, and unrelated worktrees.
+- Completion gate: no dependency/file expansion; read-only FD setup survives
+  exec; resolver metadata/content/path evidence is unchanged; failed setup/exec
+  restores prior FD 33/34 state; all named validation passes; status contains
+  only the authorized source file.
+- Integration disposition: the primary Lead reviews unsafe/FFI boundaries and
+  actual diff, reruns load-bearing validation in an external target directory,
+  and commits only accepted work.
 
 ## Milestone 1 required outcomes
 

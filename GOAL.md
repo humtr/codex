@@ -198,6 +198,16 @@ Termux qualification. Produce one candidate for independent product review.
   `CARGO_TARGET_DIR`; `cargo fmt --check`, `cargo test --locked --workspace`
   (11/11), and `cargo build --locked --workspace` all passed while repository
   status remained limited to the authorized source file before commit.
+- Milestone 1 bundle M1-B3 is accepted at
+  `815c9104c726f212ee4a51b518af14e8c133b20c`. The production exec command
+  removes exactly `CODEX_MANAGED_BY_NPM`, `CODEX_MANAGED_BY_BUN`,
+  `CODEX_MANAGED_PACKAGE_ROOT`, `LD_PRELOAD`, and `LD_LIBRARY_PATH` from the
+  child exec environment without `env_clear` or parent-process mutation;
+  unrelated environment entries are preserved. Failed exec evidence proves the
+  caller process retains its synthetic inherited values.
+- Primary-Lead validation job `job_hnt_c908186115` reran M1-B3 with an external
+  temporary Cargo target and offline mode; formatting, 13/13 tests, and locked
+  workspace build passed while status remained limited to `crates/core/src/main.rs`.
 
 ### Historical Proof
 
@@ -224,13 +234,11 @@ Termux qualification. Produce one candidate for independent product review.
 - The primary Lead records each next bounded bundle in `WORKBOARD.md`, launches
   exactly one implementation worker, inspects the actual diff, and reruns the
   load-bearing validation before acceptance.
-- M1-B3 is the current checkpoint. It is limited to preventing the five
-  SPEC-compatible package-manager/preload contamination variables observed in
-  sealed legacy evidence from reaching the upstream exec environment while
-  preserving unrelated environment entries. No legacy source or internal model
-  is copied, and no other legacy environment behavior is promoted by default.
-- TTY/signals, product runtime-path selection, and FD 33/34 remain later
-  checkpoints rather than being inferred from M1-B3.
+- M1-B4 is the current checkpoint. It is limited to read-only resolver/config
+  source opening, FD 33/34 inheritance across the final exec boundary, and
+  restoration of any prior FD 33/34 state when exec fails. Resolver/config
+  creation, product path selection, TTY/signals, and normal `main` wiring remain
+  separate checkpoints.
 - At every bundle completion the Lead records its own diff/test disposition
   here. No worker report, planning subagent, or checkpoint reviewer substitutes
   for that integration decision.
