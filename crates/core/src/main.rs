@@ -1381,6 +1381,77 @@ fn qualify_runtime_assets<'selection, 'asset, 'generation>(
     })
 }
 
+#[cfg(unix)]
+#[allow(dead_code)]
+#[derive(Debug)]
+enum QualifiedRuntimeLaunchError {
+    Environment(TermuxProcessEnvError),
+    Launch(LaunchError),
+}
+
+#[cfg(unix)]
+impl std::fmt::Display for QualifiedRuntimeLaunchError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            QualifiedRuntimeLaunchError::Environment(err) => err.fmt(f),
+            QualifiedRuntimeLaunchError::Launch(err) => err.fmt(f),
+        }
+    }
+}
+
+#[cfg(unix)]
+impl std::error::Error for QualifiedRuntimeLaunchError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            QualifiedRuntimeLaunchError::Environment(err) => Some(err),
+            QualifiedRuntimeLaunchError::Launch(err) => Some(err),
+        }
+    }
+}
+
+/// Composes a previously qualified runtime selection into the existing final launch path.
+///
+/// The runtime program and compatibility directory come only from `QualifiedRuntimeAssets`.
+/// Process-environment planning is pure and occurs before any resolver/config descriptor I/O.
+/// Once it succeeds, the existing launch boundary retains sandbox-policy-before-I/O ordering,
+/// FD 33/34 handling, environment fencing, raw argv, and final `exec` process semantics.
+#[cfg(unix)]
+#[allow(dead_code)]
+fn launch_qualified_runtime<'selection, 'asset, 'generation, R, C, I, S>(
+    assets: QualifiedRuntimeAssets<'selection, 'asset, 'generation>,
+    process_env: &TermuxProcessEnvSnapshot,
+    cert_file: &OsStr,
+    cert_dir: Option<&OsStr>,
+    resolver_path: R,
+    config_dir: C,
+    args: I,
+) -> QualifiedRuntimeLaunchError
+where
+    R: AsRef<std::path::Path>,
+    C: AsRef<std::path::Path>,
+    I: IntoIterator<Item = S>,
+    S: Into<OsString>,
+{
+    let selection = assets.selection();
+    let env_plan = match plan_termux_base_env_from_snapshot(
+        process_env,
+        selection.compatibility_dir,
+        cert_file,
+        cert_dir,
+    ) {
+        Ok(plan) => plan,
+        Err(err) => return QualifiedRuntimeLaunchError::Environment(err),
+    };
+
+    QualifiedRuntimeLaunchError::Launch(launch_upstream_with_env(
+        selection.runtime.program_path,
+        resolver_path,
+        config_dir,
+        args,
+        &env_plan,
+    ))
+}
+
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum UpdateEvidenceVerdict {
@@ -2854,6 +2925,77 @@ done
                     &plan,
                 );
                 panic!("launch_upstream_with_env failed to replace process: {err}");
+            }
+            "m1_b14_qualified_runtime_launcher" => {
+                let resolver_path = std::env::var_os(PROBE_RESOLVER_PATH_ENV)
+                    .expect("PROBE_RESOLVER_PATH_ENV must be set");
+                let config_dir_path = std::env::var_os(PROBE_CONFIG_DIR_PATH_ENV)
+                    .expect("PROBE_CONFIG_DIR_PATH_ENV must be set");
+                let fake_upstream_path = std::env::var_os(PROBE_FAKE_UPSTREAM_PATH_ENV)
+                    .expect("PROBE_FAKE_UPSTREAM_PATH_ENV must be set");
+                let root = std::path::Path::new(&fake_upstream_path)
+                    .parent()
+                    .expect("fake runtime must have parent");
+                let compatibility_dir = root.join("qualified-compat-bin");
+                let prefix = root.join("qualified-prefix");
+                let temp_dir = root.join("qualified-tmp");
+                let cert_file = root.join("qualified-tls/cert.pem");
+                let cert_dir = root.join("qualified-tls/certs.d");
+
+                let mut manifest = m1_b11_valid_manifest();
+                manifest.helper_digests.clear();
+                let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements())
+                    .expect("B14 probe generation must qualify");
+                let selection = RuntimeAssetSelection {
+                    runtime: RuntimeAssetBinding {
+                        program_path: fake_upstream_path.as_os_str(),
+                        observed_digest: manifest.runtime_digest.as_str(),
+                    },
+                    compatibility_dir: compatibility_dir.as_os_str(),
+                    helpers: &[],
+                };
+                let qualified = qualify_runtime_assets(generation, &selection)
+                    .expect("B14 probe runtime assets must qualify");
+                let snapshot = TermuxProcessEnvSnapshot {
+                    prefix: Some(prefix.into_os_string()),
+                    tmpdir: Some(temp_dir.into_os_string()),
+                    inherited_path: Some(OsString::from(
+                        "/probe/b14/inherited-a:/probe/b14/inherited-b",
+                    )),
+                    inherited_ssl_cert_file: None,
+                    inherited_ssl_cert_dir: None,
+                };
+
+                std::env::set_var("CODEX_MANAGED_BY_NPM", "probe-b14-npm-contam");
+                std::env::set_var("CODEX_MANAGED_BY_BUN", "probe-b14-bun-contam");
+                std::env::set_var("CODEX_MANAGED_PACKAGE_ROOT", "/probe/b14/pkg/root");
+                std::env::set_var("LD_PRELOAD", "/probe/b14/preload.so");
+                std::env::set_var("LD_LIBRARY_PATH", "/probe/b14/lib");
+                std::env::set_var(
+                    "CODEX_TEST_UNRELATED_M1_B14_SURVIVING_VAR",
+                    "m1_b14_surviving_exact_value_31415",
+                );
+
+                use std::os::unix::ffi::OsStrExt;
+                let non_utf8_arg = OsStr::from_bytes(&[0xff, 0xfe, 0x80, 0x7f]);
+                let user_args: Vec<OsString> = vec![
+                    OsString::from("exec"),
+                    OsString::from("qualified_task"),
+                    OsString::from("--qualified-flag=value"),
+                    OsString::from("ordinary qualified arg with spaces"),
+                    non_utf8_arg.to_os_string(),
+                ];
+
+                let err = launch_qualified_runtime(
+                    qualified,
+                    &snapshot,
+                    cert_file.as_os_str(),
+                    Some(cert_dir.as_os_str()),
+                    resolver_path,
+                    config_dir_path,
+                    user_args,
+                );
+                panic!("launch_qualified_runtime failed to replace process: {err}");
             }
             "m1_b9_failed_exec_launcher" => {
                 use std::os::unix::fs::MetadataExt;
@@ -6588,5 +6730,282 @@ exit 0
                 }
             }
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b14_a_invalid_process_snapshot_fails_before_runtime_io() {
+        let mut manifest = m1_b11_valid_manifest();
+        manifest.helper_digests.clear();
+        let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements())
+            .expect("generation must qualify");
+        let selection = RuntimeAssetSelection {
+            runtime: RuntimeAssetBinding {
+                program_path: OsStr::new("/path/that/does/not/exist/b14-runtime"),
+                observed_digest: manifest.runtime_digest.as_str(),
+            },
+            compatibility_dir: OsStr::new("/qualified/b14/compat"),
+            helpers: &[],
+        };
+        let qualified = qualify_runtime_assets(generation, &selection)
+            .expect("runtime asset shape must qualify");
+        let snapshot = TermuxProcessEnvSnapshot {
+            prefix: None,
+            tmpdir: Some(OsString::from("/qualified/b14/tmp")),
+            inherited_path: None,
+            inherited_ssl_cert_file: None,
+            inherited_ssl_cert_dir: None,
+        };
+
+        let err = launch_qualified_runtime(
+            qualified,
+            &snapshot,
+            OsStr::new("/qualified/b14/cert.pem"),
+            None,
+            std::path::Path::new("/path/that/does/not/exist/b14-resolver"),
+            std::path::Path::new("/path/that/does/not/exist/b14-config"),
+            [OsStr::new("--version")],
+        );
+        match err {
+            QualifiedRuntimeLaunchError::Environment(env_err) => {
+                assert_eq!(env_err, TermuxProcessEnvError::MissingRequired("PREFIX"));
+            }
+            QualifiedRuntimeLaunchError::Launch(launch_err) => {
+                panic!("environment planning must fail before runtime I/O: {launch_err}");
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b14_b_sandbox_policy_still_fails_before_runtime_io() {
+        let mut manifest = m1_b11_valid_manifest();
+        manifest.helper_digests.clear();
+        let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements())
+            .expect("generation must qualify");
+        let selection = RuntimeAssetSelection {
+            runtime: RuntimeAssetBinding {
+                program_path: OsStr::new("/path/that/does/not/exist/b14-runtime"),
+                observed_digest: manifest.runtime_digest.as_str(),
+            },
+            compatibility_dir: OsStr::new("/qualified/b14/compat"),
+            helpers: &[],
+        };
+        let qualified = qualify_runtime_assets(generation, &selection)
+            .expect("runtime asset shape must qualify");
+        let snapshot = TermuxProcessEnvSnapshot {
+            prefix: Some(OsString::from("/qualified/b14/prefix")),
+            tmpdir: Some(OsString::from("/qualified/b14/tmp")),
+            inherited_path: Some(OsString::from("/inherited/b14/bin")),
+            inherited_ssl_cert_file: None,
+            inherited_ssl_cert_dir: None,
+        };
+
+        let err = launch_qualified_runtime(
+            qualified,
+            &snapshot,
+            OsStr::new("/qualified/b14/cert.pem"),
+            None,
+            std::path::Path::new("/path/that/does/not/exist/b14-resolver"),
+            std::path::Path::new("/path/that/does/not/exist/b14-config"),
+            [OsStr::new("-s"), OsStr::new("read-only")],
+        );
+        match err {
+            QualifiedRuntimeLaunchError::Launch(LaunchError::Policy(policy_err)) => {
+                assert_eq!(
+                    policy_err,
+                    PassthroughError::UnsupportedSandboxMode("read-only".to_string())
+                );
+            }
+            QualifiedRuntimeLaunchError::Launch(LaunchError::Exec(exec_err)) => {
+                panic!("sandbox policy must fail before resolver/config I/O: {exec_err}");
+            }
+            QualifiedRuntimeLaunchError::Environment(env_err) => {
+                panic!("valid process snapshot unexpectedly failed: {env_err}");
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b14_c_qualified_assets_drive_real_exec_composition() {
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp_dir = std::env::temp_dir();
+        let pid = std::process::id();
+        let test_root = temp_dir.join(format!("codex-test-m1-b14-real-exec-{pid}"));
+        let _ = std::fs::remove_dir_all(&test_root);
+        std::fs::create_dir_all(&test_root).expect("failed to create B14 test root");
+
+        let resolver_path = test_root.join("resolv.conf");
+        let config_dir_path = test_root.join("managed-config");
+        std::fs::create_dir_all(&config_dir_path).expect("failed to create B14 config dir");
+        std::fs::write(
+            config_dir_path.join("marker.txt"),
+            b"B14_CONFIG_DIR_MARKER_CONTENT",
+        )
+        .expect("write B14 config marker");
+        std::fs::write(
+            &resolver_path,
+            b"# synthetic B14 resolv.conf\nnameserver 203.0.113.14\n",
+        )
+        .expect("write B14 resolver");
+
+        let shell = resolve_test_shell();
+        let fake_upstream_path = test_root.join("qualified-runtime.sh");
+        let compatibility_dir = test_root.join("qualified-compat-bin");
+        let prefix = test_root.join("qualified-prefix");
+        let qualified_tmp = test_root.join("qualified-tmp");
+        let cert_file = test_root.join("qualified-tls/cert.pem");
+        let cert_dir = test_root.join("qualified-tls/certs.d");
+
+        let script_content = format!(
+            r##"#!{}
+if [ "$1" != "-c" ]; then
+    printf "B14_ARGV_MISMATCH_1:%s\n" "$1" >&2
+    exit 11
+fi
+if [ "$2" != 'sandbox_mode="danger-full-access"' ]; then
+    printf "B14_ARGV_MISMATCH_2:%s\n" "$2" >&2
+    exit 12
+fi
+if [ "$3" != "exec" ] || [ "$4" != "qualified_task" ]; then
+    printf "B14_ARGV_MISMATCH_TASK:%s:%s\n" "$3" "$4" >&2
+    exit 13
+fi
+if [ "$5" != "--qualified-flag=value" ]; then
+    printf "B14_ARGV_MISMATCH_FLAG:%s\n" "$5" >&2
+    exit 14
+fi
+if [ "$6" != "ordinary qualified arg with spaces" ]; then
+    printf "B14_ARGV_MISMATCH_ORDINARY:%s\n" "$6" >&2
+    exit 15
+fi
+for a in "$@"; do
+    printf "ARG:%s\n" "$a"
+done
+
+res_content=""
+while IFS= read -r line || [ -n "$line" ]; do
+    if [ -z "$res_content" ]; then
+        res_content="$line"
+    else
+        res_content="$res_content
+$line"
+    fi
+done < /proc/self/fd/33
+expected_res="# synthetic B14 resolv.conf
+nameserver 203.0.113.14"
+if [ "$res_content" != "$expected_res" ]; then
+    printf "B14_RESOLVER_MISMATCH:%s\n" "$res_content" >&2
+    exit 20
+fi
+if [ ! -d /proc/self/fd/34 ] || [ ! -f /proc/self/fd/34/marker.txt ]; then
+    printf "B14_CONFIG_FD_MISSING\n" >&2
+    exit 21
+fi
+marker_content=""
+while IFS= read -r line || [ -n "$line" ]; do
+    if [ -z "$marker_content" ]; then
+        marker_content="$line"
+    else
+        marker_content="$marker_content
+$line"
+    fi
+done < /proc/self/fd/34/marker.txt
+if [ "$marker_content" != "B14_CONFIG_DIR_MARKER_CONTENT" ]; then
+    printf "B14_CONFIG_MARKER_MISMATCH:%s\n" "$marker_content" >&2
+    exit 22
+fi
+
+if [ "$TMPDIR" != "{}" ] || [ "$TMP" != "{}" ] || [ "$TEMP" != "{}" ] || [ "$SQLITE_TMPDIR" != "{}" ]; then
+    printf "B14_TMP_ENV_MISMATCH:%s:%s:%s:%s\n" "$TMPDIR" "$TMP" "$TEMP" "$SQLITE_TMPDIR" >&2
+    exit 30
+fi
+if [ "$SSL_CERT_FILE" != "{}" ] || [ "$SSL_CERT_DIR" != "{}" ]; then
+    printf "B14_CERT_ENV_MISMATCH:%s:%s\n" "$SSL_CERT_FILE" "$SSL_CERT_DIR" >&2
+    exit 31
+fi
+if [ "$PATH" != "{}:{}/bin:/probe/b14/inherited-a:/probe/b14/inherited-b" ]; then
+    printf "B14_PATH_MISMATCH:%s\n" "$PATH" >&2
+    exit 32
+fi
+
+if [ -n "${{CODEX_MANAGED_BY_NPM+x}}" ]; then
+    printf "B14_ENV_FENCE_FAILED:CODEX_MANAGED_BY_NPM\n" >&2
+    exit 40
+fi
+if [ -n "${{CODEX_MANAGED_BY_BUN+x}}" ]; then
+    printf "B14_ENV_FENCE_FAILED:CODEX_MANAGED_BY_BUN\n" >&2
+    exit 40
+fi
+if [ -n "${{CODEX_MANAGED_PACKAGE_ROOT+x}}" ]; then
+    printf "B14_ENV_FENCE_FAILED:CODEX_MANAGED_PACKAGE_ROOT\n" >&2
+    exit 40
+fi
+if [ -n "${{LD_PRELOAD+x}}" ]; then
+    printf "B14_ENV_FENCE_FAILED:LD_PRELOAD\n" >&2
+    exit 40
+fi
+if [ -n "${{LD_LIBRARY_PATH+x}}" ]; then
+    printf "B14_ENV_FENCE_FAILED:LD_LIBRARY_PATH\n" >&2
+    exit 40
+fi
+if [ "$CODEX_TEST_UNRELATED_M1_B14_SURVIVING_VAR" != "m1_b14_surviving_exact_value_31415" ]; then
+    printf "B14_UNRELATED_ENV_MISMATCH:%s\n" "$CODEX_TEST_UNRELATED_M1_B14_SURVIVING_VAR" >&2
+    exit 41
+fi
+
+printf "M1_B14_QUALIFIED_REAL_EXEC_SUCCESS\n"
+exit 0
+"##,
+            shell.to_str().expect("valid shell path"),
+            qualified_tmp.display(),
+            qualified_tmp.display(),
+            qualified_tmp.display(),
+            qualified_tmp.display(),
+            cert_file.display(),
+            cert_dir.display(),
+            compatibility_dir.display(),
+            prefix.display(),
+        );
+
+        std::fs::write(&fake_upstream_path, script_content).expect("write B14 fake runtime");
+        let mut perms = std::fs::metadata(&fake_upstream_path)
+            .expect("B14 runtime metadata")
+            .permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&fake_upstream_path, perms).expect("set B14 runtime permissions");
+
+        let result = run_exec_probe_with_env(
+            "m1_b14_qualified_runtime_launcher",
+            &[
+                (PROBE_RESOLVER_PATH_ENV, resolver_path.as_os_str()),
+                (PROBE_CONFIG_DIR_PATH_ENV, config_dir_path.as_os_str()),
+                (PROBE_FAKE_UPSTREAM_PATH_ENV, fake_upstream_path.as_os_str()),
+            ],
+        );
+        assert_eq!(
+            result.status.code(),
+            Some(0),
+            "stderr: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert_eq!(result.stderr, b"");
+
+        let mut expected_stdout = Vec::new();
+        expected_stdout.extend_from_slice(b"ARG:-c\n");
+        expected_stdout.extend_from_slice(b"ARG:sandbox_mode=\"danger-full-access\"\n");
+        expected_stdout.extend_from_slice(b"ARG:exec\n");
+        expected_stdout.extend_from_slice(b"ARG:qualified_task\n");
+        expected_stdout.extend_from_slice(b"ARG:--qualified-flag=value\n");
+        expected_stdout.extend_from_slice(b"ARG:ordinary qualified arg with spaces\n");
+        expected_stdout.extend_from_slice(b"ARG:");
+        expected_stdout.extend_from_slice(OsStr::from_bytes(&[0xff, 0xfe, 0x80, 0x7f]).as_bytes());
+        expected_stdout.extend_from_slice(b"\nM1_B14_QUALIFIED_REAL_EXEC_SUCCESS\n");
+        assert_eq!(result.stdout, expected_stdout);
+
+        let _ = std::fs::remove_dir_all(&test_root);
     }
 }
