@@ -81,6 +81,16 @@ or mutation of the installed Codex product.
 - Integration disposition: the primary Lead reviews unsafe/FFI boundaries and
   actual diff, reruns load-bearing validation in an external target directory,
   and commits only accepted work.
+- Lead review correction and acceptance: the first worker incorrectly treated
+  every failed `fcntl(F_GETFD)` probe as descriptor absence. The bounded
+  correction now treats only `EBADF` as `Absent` and propagates every other
+  probe error. Primary-Lead validation job `job_hol_118858c4b8` passed
+  `cargo fmt --check`, all 24 workspace tests, three additional serial repeats
+  of all 11 `runtime_fds` tests, and `cargo build --locked --workspace` with
+  offline mode and a repository-external Cargo target. The reviewed diff keeps
+  resolver opens read-only, uses safe CLOEXEC backups/duplicates above FD 34,
+  restores prior FD 33/34 state on failure, and leaks no bundle-created source
+  or backup descriptor across successful exec. M1-B4 is accepted for commit.
 
 ## Milestone 1 required outcomes
 
