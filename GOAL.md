@@ -153,6 +153,21 @@ Termux qualification. Produce one candidate for independent product review.
   current Rust source against `SPEC.md`, reopened two correctness/safety gaps,
   fixed them directly, reviewed the resulting diff, and reran the load-bearing
   validation.
+- M1-B14 is accepted at `be6492f895185caf7d9b922b16330a1cd8f00033`.
+  The direct Lead added a typed qualified-runtime launch boundary that accepts no
+  separate raw runtime program or compatibility directory: it consumes the B13
+  `QualifiedRuntimeAssets`, derives the B10 environment plan from the captured
+  process snapshot and the qualified compatibility directory, then delegates to
+  the existing sandbox-before-I/O FD33/34 final-exec path using the qualified
+  runtime program. No active-generation lookup, digest calculation, filesystem
+  qualification, network, activation, or normal `main` wiring was added.
+- Final B14 validation `job_ijk_b7acb35e72` passed all 3 B14 focused tests, the
+  full serial workspace suite 93/93, eight complete default-parallel workspace
+  repetitions, formatting, `git diff --check`, and a warning-free locked build
+  with offline mode and a repository-external Cargo target. The real subprocess
+  test jointly proved qualified runtime selection, qualified compatibility PATH,
+  B10 temp/certificate assignments, exact sandbox prelude/raw argv, FD33/34,
+  contamination fencing, and unrelated-environment preservation.
 - M1-B13 is accepted at `71acbd8e318d50548952490e0d2fb52c7b661f9c`.
   The direct Lead added a pure Unix runtime-asset qualification boundary tying an
   explicit absolute runtime program path and observed digest, explicit
@@ -400,12 +415,13 @@ Termux qualification. Produce one candidate for independent product review.
 ### Not Proven
 
 - Milestone 1 is not complete. The normal `main` entrypoint is still not wired to
-  a qualified upstream runtime. Qualified-runtime launch composition, active
-  generation selection, doctor composition, and the complete real-Termux smoke
-  gate remain unproven. Process-environment capture is proven by M1-B10, the pure
-  generation-manifest qualification interface by M1-B11, the pure updater
-  admission/candidate interface by M1-B12, and runtime/compat/helper asset
-  qualification by M1-B13.
+  a qualified upstream runtime. Doctor composition/execution and the complete
+  real-Termux smoke gate remain unproven. Process-environment capture is proven
+  by M1-B10, the pure generation-manifest qualification interface by M1-B11, the
+  pure updater admission/candidate interface by M1-B12, runtime/compat/helper
+  asset qualification by M1-B13, and qualified-runtime final launch composition
+  by M1-B14. Physical active-pointer/activation mechanics remain Milestone 2
+  delivery/recovery work and are not introduced during Milestone 1.
 - B4's current non-mutation proof is against test-owned resolver fixtures; the
   Milestone 1 completion gate still requires pre/post evidence that the actual
   live resolver path, content, mode, and stat identity remain unchanged during
@@ -422,13 +438,15 @@ Termux qualification. Produce one candidate for independent product review.
 - M1-B11 is closed at `0eb9f6cd33951ff782c010d9e116ab886f70a815`.
 - M1-B12 is closed at `3927ad46696875c913c9039406693c1ddd4c3231`.
 - M1-B13 is closed at `71acbd8e318d50548952490e0d2fb52c7b661f9c`.
-- Current checkpoint: M1-B14 — require `QualifiedRuntimeAssets` at the real
-  launch-composition boundary, combine its compatibility directory with the B10
-  process snapshot to build the base environment, and delegate to the existing
-  sandbox/FD/final-exec path.
-- Worker mode remains OFF; the primary Lead implements B14 directly.
-- B14 keeps resolver/config and certificate fallback paths explicit, performs no
-  active-generation lookup or digest computation, and does not wire `main`.
+- M1-B14 is closed at `be6492f895185caf7d9b922b16330a1cd8f00033`.
+- Current checkpoint: M1-B15 — build the dependency-free, read-only doctor
+  composition model and deterministic human/JSON renderers before wiring any
+  actual upstream doctor process.
+- Worker mode remains OFF; the primary Lead implements B15 directly.
+- B15 accepts only bounded typed diagnostic section states, so arbitrary raw
+  upstream/auth/session/notification content cannot enter the output model. It
+  performs no process execution, filesystem/environment access, Manager call,
+  generation selection, network access, or `main` wiring.
 
 ## Goal Lifts
 

@@ -30,36 +30,40 @@ or mutation of the installed Codex product.
 
 ## Selected next action
 
-### Bundle M1-B14 — qualified-runtime final launch composition
+### Bundle M1-B15 — typed read-only doctor composition surface
 
-- Prior evidence: M1-B13 commit `71acbd8e318d50548952490e0d2fb52c7b661f9c`;
-  validation `job_igy_c7b11e3616` passed B13 10/10, full serial 90/90, eight
+- Prior evidence: M1-B14 commit `be6492f895185caf7d9b922b16330a1cd8f00033`;
+  validation `job_ijk_b7acb35e72` passed B14 3/3, full serial 93/93, eight
   default-parallel full repetitions, formatting, diff check, and warning-free
   locked build.
-- Add one module-private launch boundary that accepts `QualifiedRuntimeAssets`, a
-  `TermuxProcessEnvSnapshot`, explicit fallback certificate file/directory,
-  explicit resolver path, explicit managed-config directory, and raw user argv.
-- It must derive the B10 environment plan using exactly the qualified assets'
-  compatibility directory and then call the existing `launch_upstream_with_env`
-  using exactly the qualified runtime program path. Do not accept a separate raw
-  runtime program or compatibility directory at this boundary.
-- Preserve existing ordering: environment planning is pure; the existing launch
-  function still performs sandbox-policy validation before resolver/config FD I/O
-  or exec. Preserve B3 contamination fencing, B4 FD33/34 behavior, raw argv,
-  process/TTY/signal/exit semantics, and B9 env application.
-- Use a typed module-private error that distinguishes B10 environment-plan failure
-  from existing launch policy/exec failure without string parsing.
-- No active generation lookup, manifest parse/serialization, digest calculation,
-  filesystem qualification, resolver/config selection, HOME-derived path, updater
-  I/O, doctor, activation, rollback, network, package operation, or normal `main`
-  wiring belongs in B14.
-- Focused `m1_b14_` tests: invalid process snapshot fails before runtime I/O;
-  unsupported sandbox fails before invalid resolver/config I/O; real subprocess
-  exec using test-owned resolver/config/fake runtime proves the B13 runtime path
-  is used, B13 compatibility directory drives PATH, planned temp/cert values
-  arrive, sandbox prelude/raw argv remain exact, and FD33/34 expose the supplied
-  test artifacts.
-- Keep all 90 post-B13 tests green. Validate offline with an external Cargo target,
+- Add a dependency-free, module-private doctor report model with separate typed
+  state domains for upstream, Termux Core, and Manager diagnostics. Upstream may
+  be healthy, unhealthy, or unsupported; Core may be healthy, unhealthy, or API
+  incompatible; Manager may be healthy, unhealthy, unavailable, or API
+  incompatible.
+- Compose those states into one deterministic summary with explicit precedence:
+  API incompatibility, then unhealthy, then degraded for unsupported/unavailable,
+  otherwise healthy. Keep the semantic exit class typed; do not freeze numeric
+  process exit codes or public CLI option parsing in B15.
+- Add deterministic human rendering with clearly separated Upstream, Termux Core,
+  Manager, and Summary sections, plus exactly one dependency-free JSON envelope
+  with `schema_version: 1` and the SPEC keys `upstream`, `termux_core`, `manager`,
+  and `summary`.
+- The B15 output model accepts no arbitrary diagnostic strings, raw upstream
+  output, auth/session/notification content, paths, environment values, or other
+  caller-controlled payloads. All emitted text is selected from bounded static
+  status vocabulary, providing a fail-closed redaction baseline before process
+  capture/parsing is introduced.
+- No upstream process execution, filesystem or environment access, Manager call,
+  generation/runtime selection, resolver/config I/O, network behavior, update,
+  activation, rollback, dependency addition, or normal `main` wiring belongs in
+  B15. Actual raw upstream doctor execution/composition is a later bounded bundle.
+- Focused `m1_b15_` tests must cover all section-state combinations and summary
+  precedence, explicit unsupported upstream/unavailable Manager representation,
+  exact human section separation, exact valid JSON envelope rendering, and prove
+  the renderer output vocabulary is bounded and deterministic with no process
+  environment side effects.
+- Keep all 93 post-B14 tests green. Validate offline with an external Cargo target,
   focused tests, full serial suite, eight default-parallel repetitions,
   warning-free locked build, formatting, and diff check.
 - Worker mode is user-controlled and remains OFF. The primary `gpt-5.6-sol` /
