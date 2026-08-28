@@ -30,35 +30,38 @@ or mutation of the installed Codex product.
 
 ## Selected next action
 
-### Bundle M1-B17 — bounded local doctor coordinator
+### Bundle M1-B18 — exact doctor invocation and output plan
 
-- Prior evidence: M1-B16 commit `d420db8b4128d44836c89394cbbb9afc9398b1e5`;
-  validation `job_imd_136341d507` passed B16 4/4, full serial 102/102, eight
-  default-parallel full repetitions, formatting, diff check, and warning-free
-  locked build.
-- Add an explicit `UpstreamDoctorCapability` with only `Supported` and
-  `Unsupported`, and one module-private local doctor coordinator. It accepts the
-  B13 qualified runtime assets and B10/FD inputs needed only for a supported
-  probe plus already-typed B15 Core and Manager diagnostic states.
-- For `Supported`, call B16 exactly once and feed only its bounded
-  `UpstreamDoctorStatus` into B15 `compose_doctor_report`. Propagate B16 typed
-  setup/spawn errors instead of fabricating a report.
-- For `Unsupported`, perform no B10 environment planning, resolver/config access,
-  FD mapping, runtime spawn, or stderr parsing; feed explicit
-  `UpstreamDoctorStatus::Unsupported` into B15 and compose normally. This path
-  must succeed even when the supplied probe-only environment/paths are invalid,
-  proving capability controls I/O rather than error text.
-- Core and Manager states remain explicit typed inputs. B17 must not invent a
-  Core filesystem health algorithm, discover or invoke Manager, infer Manager
-  availability from artifact presence, or broaden the B15 output vocabulary.
-- No human/JSON public option parsing, numeric process-exit mapping, `main`
-  dispatch wiring, generation discovery, network, update, activation, rollback,
-  package operation, or product-state mutation belongs in B17.
-- Focused `m1_b17_` tests must prove supported healthy/unhealthy composition,
-  B15 summary precedence over the real B16 result, unsupported I/O skipping,
-  supported typed-error propagation without a report, and exact deterministic
-  human/JSON rendering of coordinator-produced reports without raw upstream text.
-- Keep all 102 post-B16 tests green. Validate offline with an external Cargo
+- Prior evidence: M1-B17 commit `64199eb4cbb1dccb351cf140c55e5e36d77d65ce`;
+  final validation `job_inr_7ffbd3d9f8` passed B17 4/4, full serial 106/106,
+  eight default-parallel full repetitions, formatting, diff check, and
+  warning-free locked build. Earlier transient parallel evidence is retained in
+  `GOAL.md` and is not used as acceptance proof.
+- Add a pure, module-private `DoctorOutputMode` and doctor invocation planner for
+  arguments after the exact leading `doctor` token. No trailing args selects
+  human output; exactly one `--json` selects the single B15 JSON envelope.
+- Reject every other shape, including duplicate `--json`, unknown options,
+  positional arguments, `--`, and non-UTF-8 bytes, with one bounded typed usage
+  error. Its Display text must be static and must never echo or lossily decode
+  the rejected argv.
+- Add one pure result surface that renders an already-composed `DoctorReport`
+  through the selected B15 renderer and returns the existing typed
+  `DoctorExitClass`. JSON mode must still return a valid complete machine
+  envelope for degraded, unhealthy, and API-incompatible reports.
+- Usage errors remain represented by the planner's distinct error type and must
+  not be collapsed into `HealthFailure` or `ApiIncompatibility`. Do not assign
+  numeric process exit codes in B18 because SPEC requires semantic distinction
+  but does not define numbers.
+- No `main` dispatch wiring, runtime/generation discovery, B17 execution,
+  Manager/Core health discovery, filesystem/environment I/O, network, update,
+  activation, rollback, package operation, dependency addition, or product-state
+  mutation belongs in B18.
+- Focused `m1_b18_` tests must cover exact human/JSON planning, exhaustive
+  representative invalid forms including raw non-UTF-8, static non-leaking usage
+  error text, human/JSON rendering for every doctor semantic exit class, valid
+  JSON preservation on diagnostic failure, and deterministic/environment-pure
+  planning/rendering.
+- Keep all 106 post-B17 tests green. Validate offline with an external Cargo
   target, focused tests, full serial suite, eight default-parallel repetitions,
   warning-free locked build, formatting, and diff check.
 - Worker mode is user-controlled and remains OFF. The primary `gpt-5.6-sol` /
