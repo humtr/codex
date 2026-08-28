@@ -208,6 +208,19 @@ Termux qualification. Produce one candidate for independent product review.
 - Primary-Lead validation job `job_hnt_c908186115` reran M1-B3 with an external
   temporary Cargo target and offline mode; formatting, 13/13 tests, and locked
   workspace build passed while status remained limited to `crates/core/src/main.rs`.
+- Milestone 1 bundle M1-B4 is accepted at
+  `bb21ddca58589ec77a22e824c4218db5c1087daa`. The runtime-FD exec path opens
+  an explicit resolver source and existing managed-config directory read-only,
+  maps them to FD 33/34 with CLOEXEC cleared, uses safe CLOEXEC duplicates above
+  FD 34 to avoid source/target collisions, and restores originally absent or
+  present caller FD 33/34 state when setup or exec fails. Resolver-content and
+  Unix metadata evidence proves the test resolver is unchanged across exec.
+- Lead review found and corrected one pre-acceptance defect: only `EBADF` now
+  classifies an `F_GETFD` probe as descriptor absence; all other probe errors
+  propagate. Primary-Lead validation job `job_hol_118858c4b8` passed formatting,
+  24/24 workspace tests, three additional serial repetitions of all 11
+  `runtime_fds` tests, and locked workspace build with offline mode and an
+  external Cargo target.
 
 ### Historical Proof
 
@@ -216,13 +229,13 @@ Termux qualification. Produce one candidate for independent product review.
 
 ### Not Proven
 
-- Milestone 1 is not complete. M1-B1 proves workspace/classification and M1-B2
-  proves only the isolated final-exec primitive's raw argv/stdout/stderr/exit
-  behavior. Normal `main` is not yet wired to a qualified upstream runtime;
-  environment sanitation/planning, product runtime-path selection, TTY/signal
-  fidelity, FD 33/34, resolver non-mutation at that boundary, sandbox handling,
-  doctor composition, generation/updater interfaces, and the full real-Termux
-  smoke gate remain unproven.
+- Milestone 1 is not complete. M1-B1 proves workspace/classification, M1-B2/B3
+  prove the isolated final-exec argv/stream/exit and contamination-fence behavior,
+  and M1-B4 proves isolated FD 33/34 setup/restoration plus test-resolver
+  non-mutation. Normal `main` is not yet wired to a qualified upstream runtime;
+  broader runtime environment/path planning, TTY/signal fidelity, sandbox
+  handling, doctor composition, generation/updater interfaces, and the full
+  real-Termux smoke gate remain unproven.
 - No release artifact, installation, update, activation, rollback, offline
   recovery, fresh-device behavior, Milestone 2 result, or production readiness
   is proven.
@@ -234,11 +247,10 @@ Termux qualification. Produce one candidate for independent product review.
 - The primary Lead records each next bounded bundle in `WORKBOARD.md`, launches
   exactly one implementation worker, inspects the actual diff, and reruns the
   load-bearing validation before acceptance.
-- M1-B4 is the current checkpoint. It is limited to read-only resolver/config
-  source opening, FD 33/34 inheritance across the final exec boundary, and
-  restoration of any prior FD 33/34 state when exec fails. Resolver/config
-  creation, product path selection, TTY/signals, and normal `main` wiring remain
-  separate checkpoints.
+- M1-B5 is the current checkpoint. It is limited to TTY and external-signal
+  fidelity evidence across the already accepted final-exec primitive. It must
+  not select product runtime paths, wire normal `main`, or add new launch
+  semantics.
 - At every bundle completion the Lead records its own diff/test disposition
   here. No worker report, planning subagent, or checkpoint reviewer substitutes
   for that integration decision.

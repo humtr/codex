@@ -29,68 +29,53 @@ or mutation of the installed Codex product.
 
 ## Selected next action
 
-### Bundle M1-B4 — FD 33/34 runtime inheritance
+### Bundle M1-B5 — TTY and external-signal fidelity evidence
 
-- Prior accepted evidence: M1-B3 commit
-  `815c9104c726f212ee4a51b518af14e8c133b20c`.
-- Exact outcome: add a production final-exec path that accepts an explicit
-  resolver file path and an existing managed-config directory path, opens both
-  read-only, maps the resolver to FD 33 and the directory to FD 34 without
-  lossy path conversion, and preserves those descriptors across exec. If any
-  setup step or the final exec fails, restore the caller's prior FD 33/34 state
-  before returning the error.
-- Writable worker path: `crates/core/src/main.rs` only. No manifest or dependency
-  changes are authorized.
-- Governing contracts: `SPEC.md` section 5 requires FD 33 to expose the selected
-  resolver source read-only, FD 34 to expose the process-local managed config
-  directory, both to survive final exec, and the resolver source never to be
-  created, rewritten, chmodded, repaired, or deleted by Core. M1 remains
-  temporary-root only and must not touch live resolver/runtime state.
-- Implementation constraint: standard library plus the smallest target-local
-  Unix/Android FFI required for descriptor duplication/flags is allowed inside
-  this source file; do not add a crate. The implementation must handle source
-  descriptors that collide with 33/34, must ensure mapped descriptors are not
-  close-on-exec, and must not leak backup/source duplicate descriptors into the
-  exec target. A failed exec must not leave caller FD 33/34 altered.
-- Worker configuration: one new bounded `agy` CLI implementation worker in
-  `accept-edits` mode through the Task-owned shell route. No delegation,
-  authority-doc edits, commits, pushes, package operations, network update, or
-  live product mutation.
-- Named validation: `CARGO_NET_OFFLINE=true` with repository-external
-  `CARGO_TARGET_DIR`; run `cargo fmt --check`,
+- Prior accepted evidence: M1-B4 commit
+  `bb21ddca58589ec77a22e824c4218db5c1087daa`.
+- Exact outcome: add focused private subprocess tests proving the existing
+  production `exec_upstream` boundary preserves an attached terminal on stdin,
+  stdout, and stderr and preserves the process identity needed for an external
+  `SIGTERM` sent after exec to reach the upstream process. No product behavior
+  change is expected or authorized unless a test exposes a real defect.
+- Writable worker path: `crates/core/src/main.rs` only; tests remain private to
+  the Rust test binary and may not add public flags, subcommands, or output.
+- Governing contract: `SPEC.md` section 5 requires preservation of stdin,
+  stdout, stderr, TTY behavior, signals, and upstream exit status. B2 already
+  proves raw streams/exit; B5 supplies the missing TTY/signal evidence.
+- Current real-Termux test capability: read-only Lead probe job
+  `job_hpc_c69baf49b3` observed installed `script`, `setsid`, and `stty` tools
+  on the current aarch64 Android device. No package installation is authorized.
+- TTY evidence: on Android, launch the existing private Rust exec probe beneath
+  `script` solely as a test PTY provider; inside the probe call the production
+  `exec_upstream` primitive and have the upstream shell prove `-t 0`, `-t 1`,
+  and `-t 2`. The assertion must distinguish the upstream payload from
+  `script`'s own wrapper output and must not invoke the installed Codex product.
+  If a portable source-level test can avoid `script` with a smaller safe FFI
+  surface, that is also acceptable, but no new dependency may be added.
+- Signal evidence: spawn an isolated private probe that final-execs an upstream
+  shell which prints a readiness marker, installs a `SIGTERM` trap, and waits.
+  The parent records the child PID, waits for readiness, sends `SIGTERM` to that
+  same PID using the smallest Unix FFI needed, and proves the upstream trap ran
+  and exited with the chosen code. Apply a bounded timeout/kill cleanup so a
+  failed test cannot hang the suite.
+- Keep all 24 accepted B1-B4 tests green. Use repository-external
+  `CARGO_TARGET_DIR` and `CARGO_NET_OFFLINE=true` for `cargo fmt --check`,
   `cargo test --locked --workspace`, and `cargo build --locked --workspace`.
-- Required focused evidence: use only test-owned temporary resolver/config
-  paths. A private exec probe must observe FD 33 as the exact resolver file with
-  its original bytes, FD 34 as the exact config directory, and FD 33 must reject
-  a write attempt. Capture resolver path, bytes, Unix mode, inode/device, size,
-  and modification timestamp before and after the probe and prove they remain
-  unchanged. A separate failed-exec probe must prove both the originally-absent
-  FD case and an existing-sentinel FD case are restored after failure.
-- Keep all M1-B1/B2/B3 argv, stream, exit, and environment-fence tests green.
-- Explicitly deferred: creating or mutating managed config contents, exact
-  product runtime/config path selection, normal `main` wiring, TTY/signals,
-  sandbox-policy parsing, doctor, generation/updater interfaces, network,
-  installation, and activation.
+- Explicitly deferred: runtime/generation path selection, additional environment
+  planning, normal `main` wiring, sandbox policy, doctor, manifest/updater
+  interfaces, network, installation, activation, and Manager behavior.
 - Protected surfaces: every repository path except `crates/core/src/main.rs`,
-  plus the live resolver, launcher/runtime/Manager paths, profiles, sessions,
-  auth data, Git refs, sealed legacy history, and unrelated worktrees.
-- Completion gate: no dependency/file expansion; read-only FD setup survives
-  exec; resolver metadata/content/path evidence is unchanged; failed setup/exec
-  restores prior FD 33/34 state; all named validation passes; status contains
-  only the authorized source file.
-- Integration disposition: the primary Lead reviews unsafe/FFI boundaries and
-  actual diff, reruns load-bearing validation in an external target directory,
-  and commits only accepted work.
-- Lead review correction and acceptance: the first worker incorrectly treated
-  every failed `fcntl(F_GETFD)` probe as descriptor absence. The bounded
-  correction now treats only `EBADF` as `Absent` and propagates every other
-  probe error. Primary-Lead validation job `job_hol_118858c4b8` passed
-  `cargo fmt --check`, all 24 workspace tests, three additional serial repeats
-  of all 11 `runtime_fds` tests, and `cargo build --locked --workspace` with
-  offline mode and a repository-external Cargo target. The reviewed diff keeps
-  resolver opens read-only, uses safe CLOEXEC backups/duplicates above FD 34,
-  restores prior FD 33/34 state on failure, and leaks no bundle-created source
-  or backup descriptor across successful exec. M1-B4 is accepted for commit.
+  all live resolver/runtime/launcher/Manager state, profiles, sessions, auth,
+  Git refs, legacy history, and unrelated worktrees.
+- Completion gate: TTY proof covers all three standard descriptors; signal proof
+  delivers `SIGTERM` externally after the upstream readiness marker and observes
+  the upstream-selected exit/result; no hang, public test surface, dependency,
+  or extra file; all prior and named validation passes.
+- Integration disposition: the primary Lead reviews the actual test mechanics
+  for false positives, reruns the full suite plus the new focused tests, and
+  commits only if they prove the production exec boundary rather than a helper
+  path.
 
 ## Milestone 1 required outcomes
 
