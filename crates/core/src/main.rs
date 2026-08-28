@@ -453,6 +453,82 @@ where
     }
 }
 
+#[derive(Debug)]
+enum LaunchError {
+    Policy(PassthroughError),
+    Exec(std::io::Error),
+}
+
+impl std::fmt::Display for LaunchError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LaunchError::Policy(err) => write!(f, "{err}"),
+            LaunchError::Exec(err) => write!(f, "{err}"),
+        }
+    }
+}
+
+impl std::error::Error for LaunchError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            LaunchError::Policy(err) => Some(err),
+            LaunchError::Exec(err) => Some(err),
+        }
+    }
+}
+
+impl From<PassthroughError> for LaunchError {
+    fn from(err: PassthroughError) -> Self {
+        LaunchError::Policy(err)
+    }
+}
+
+impl From<std::io::Error> for LaunchError {
+    fn from(err: std::io::Error) -> Self {
+        LaunchError::Exec(err)
+    }
+}
+
+/// Launches the upstream program with planned sandbox-policy arguments and runtime file descriptors.
+///
+/// Inputs are explicit: the selected upstream program, resolver path, managed-config directory,
+/// and original raw user argv.
+///
+/// Sandbox-policy planning is performed first. If the user arguments request an unsupported Linux
+/// sandbox mode or subcommand, a `LaunchError::Policy` error is returned immediately before any
+/// runtime file descriptor manipulation or program execution is attempted.
+///
+/// Once policy planning succeeds, delegates execution to `exec_upstream_with_runtime_fds`, which
+/// maps the resolver file to FD 33 and the configuration directory to FD 34, fences contamination
+/// environment variables, and replaces the current process image.
+///
+/// If process replacement succeeds, this function never returns.
+/// If planning or execution fails, it returns the corresponding `LaunchError`.
+#[cfg(unix)]
+#[allow(dead_code)]
+fn launch_upstream<P, R, C, I, S>(
+    program: P,
+    resolver_path: R,
+    config_dir: C,
+    args: I,
+) -> LaunchError
+where
+    P: AsRef<OsStr>,
+    R: AsRef<std::path::Path>,
+    C: AsRef<std::path::Path>,
+    I: IntoIterator<Item = S>,
+    S: Into<OsString>,
+{
+    let planned_args = match plan_passthrough_args(args) {
+        Ok(args) => args,
+        Err(policy_err) => return LaunchError::Policy(policy_err),
+    };
+
+    let exec_err =
+        exec_upstream_with_runtime_fds(program, &planned_args, resolver_path, config_dir);
+    LaunchError::Exec(exec_err)
+}
+
 fn main() {
     let mut args = std::env::args_os();
     let _ = args.next();
@@ -621,6 +697,8 @@ mod tests {
     const PROBE_RESOLVER_PATH_ENV: &str = "CODEX_TEST_EXEC_RESOLVER_PATH";
     #[cfg(unix)]
     const PROBE_CONFIG_DIR_PATH_ENV: &str = "CODEX_TEST_EXEC_CONFIG_DIR_PATH";
+    #[cfg(unix)]
+    const PROBE_FAKE_UPSTREAM_PATH_ENV: &str = "CODEX_TEST_EXEC_FAKE_UPSTREAM_PATH";
 
     #[cfg(unix)]
     fn resolve_test_shell() -> std::ffi::OsString {
@@ -1369,6 +1447,163 @@ done
 
                 let err = exec_upstream(shell, args);
                 panic!("exec_upstream failed to replace process: {err}");
+            }
+            "m1_b7_fake_upstream_launcher" => {
+                let resolver_path = std::env::var_os(PROBE_RESOLVER_PATH_ENV)
+                    .expect("PROBE_RESOLVER_PATH_ENV must be set");
+                let config_dir_path = std::env::var_os(PROBE_CONFIG_DIR_PATH_ENV)
+                    .expect("PROBE_CONFIG_DIR_PATH_ENV must be set");
+                let fake_upstream_path = std::env::var_os(PROBE_FAKE_UPSTREAM_PATH_ENV)
+                    .expect("PROBE_FAKE_UPSTREAM_PATH_ENV must be set");
+
+                std::env::set_var("CODEX_MANAGED_BY_NPM", "probe-npm-contam-val");
+                std::env::set_var("CODEX_MANAGED_BY_BUN", "probe-bun-contam-val");
+                std::env::set_var("CODEX_MANAGED_PACKAGE_ROOT", "/probe/fake/pkg/root");
+                std::env::set_var("LD_PRELOAD", "/probe/fake/preload.so");
+                std::env::set_var("LD_LIBRARY_PATH", "/probe/fake/lib");
+                std::env::set_var(
+                    "CODEX_TEST_UNRELATED_M1_B7_SURVIVING_VAR",
+                    "m1_b7_surviving_exact_value_84920",
+                );
+
+                use std::os::unix::ffi::OsStrExt;
+                let non_utf8_arg = OsStr::from_bytes(&[0xff, 0xfe, 0x80, 0x7f]);
+                let user_args: Vec<OsString> = vec![
+                    OsString::from("exec"),
+                    OsString::from("custom_task"),
+                    OsString::from("--custom-flag=val1"),
+                    OsString::from("ordinary arg with spaces and ="),
+                    non_utf8_arg.to_os_string(),
+                ];
+
+                let err = launch_upstream(
+                    fake_upstream_path,
+                    resolver_path,
+                    config_dir_path,
+                    user_args,
+                );
+                panic!("launch_upstream failed to replace process: {err}");
+            }
+            "m1_b7_failed_exec_restoration_absent" => {
+                let resolver_path = std::env::var_os(PROBE_RESOLVER_PATH_ENV)
+                    .expect("PROBE_RESOLVER_PATH_ENV must be set");
+                let config_dir_path = std::env::var_os(PROBE_CONFIG_DIR_PATH_ENV)
+                    .expect("PROBE_CONFIG_DIR_PATH_ENV must be set");
+
+                unsafe {
+                    close(33);
+                    close(34);
+                }
+                assert!(unsafe { fcntl(33, F_GETFD) < 0 });
+                assert!(unsafe { fcntl(34, F_GETFD) < 0 });
+
+                let err = launch_upstream(
+                    OsStr::new("/path/that/does/not/exist/codex-m1-b7-nonexistent-bin"),
+                    resolver_path,
+                    config_dir_path,
+                    &[OsStr::new("--version")],
+                );
+                match err {
+                    LaunchError::Exec(io_err) => {
+                        assert_eq!(io_err.kind(), std::io::ErrorKind::NotFound);
+                    }
+                    LaunchError::Policy(p_err) => {
+                        panic!("unexpected policy error on valid args: {p_err}");
+                    }
+                }
+
+                assert!(unsafe { fcntl(33, F_GETFD) < 0 });
+                assert!(unsafe { fcntl(34, F_GETFD) < 0 });
+
+                use std::io::Write;
+                let _ = std::io::stdout().write_all(b"M1_B7_RESTORED_ABSENT_SUCCESS\n");
+                let _ = std::io::stdout().flush();
+                std::process::exit(0);
+            }
+            "m1_b7_failed_exec_restoration_sentinels" => {
+                use std::os::unix::fs::MetadataExt;
+                use std::os::unix::io::AsRawFd;
+                use std::os::unix::io::FromRawFd;
+
+                let resolver_path = std::env::var_os(PROBE_RESOLVER_PATH_ENV)
+                    .expect("PROBE_RESOLVER_PATH_ENV must be set");
+                let config_dir_path = std::env::var_os(PROBE_CONFIG_DIR_PATH_ENV)
+                    .expect("PROBE_CONFIG_DIR_PATH_ENV must be set");
+
+                let temp_dir = std::env::temp_dir();
+                let pid = std::process::id();
+                let sentinel33_path = temp_dir.join(format!("codex-m1-b7-sentinel-33-{pid}.tmp"));
+                let sentinel34_path = temp_dir.join(format!("codex-m1-b7-sentinel-34-{pid}.tmp"));
+
+                let s33_bytes = b"ORIGINAL_M1_B7_SENTINEL_33_DATA";
+                let s34_bytes = b"ORIGINAL_M1_B7_SENTINEL_34_DATA";
+                std::fs::write(&sentinel33_path, s33_bytes).expect("write sentinel 33");
+                std::fs::write(&sentinel34_path, s34_bytes).expect("write sentinel 34");
+
+                let f33 = std::fs::OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .open(&sentinel33_path)
+                    .expect("open sentinel 33");
+                let f34 = std::fs::OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .open(&sentinel34_path)
+                    .expect("open sentinel 34");
+
+                let meta33 = f33.metadata().expect("meta sentinel 33");
+                let meta34 = f34.metadata().expect("meta sentinel 34");
+
+                unsafe {
+                    dup2(f33.as_raw_fd(), 33);
+                    dup2(f34.as_raw_fd(), 34);
+                }
+                drop(f33);
+                drop(f34);
+
+                let err = launch_upstream(
+                    OsStr::new("/path/that/does/not/exist/codex-m1-b7-nonexistent-bin"),
+                    resolver_path,
+                    config_dir_path,
+                    &[OsStr::new("--version")],
+                );
+                match err {
+                    LaunchError::Exec(io_err) => {
+                        assert_eq!(io_err.kind(), std::io::ErrorKind::NotFound);
+                    }
+                    LaunchError::Policy(p_err) => {
+                        panic!("unexpected policy error on valid args: {p_err}");
+                    }
+                }
+
+                let restored_meta33 = std::fs::metadata("/proc/self/fd/33").expect("stat fd 33");
+                assert_eq!(restored_meta33.dev(), meta33.dev());
+                assert_eq!(restored_meta33.ino(), meta33.ino());
+
+                let mut buf33 = Vec::new();
+                unsafe {
+                    use std::io::Read;
+                    use std::io::Seek;
+                    let mut file = std::fs::File::from_raw_fd(33);
+                    let _ = file.rewind();
+                    file.read_to_end(&mut buf33).expect("read restored fd 33");
+                    file.write_all(b"_APPENDED")
+                        .expect("write to restored fd 33");
+                    std::mem::forget(file);
+                }
+                assert_eq!(&buf33[..s33_bytes.len()], s33_bytes);
+
+                let restored_meta34 = std::fs::metadata("/proc/self/fd/34").expect("stat fd 34");
+                assert_eq!(restored_meta34.dev(), meta34.dev());
+                assert_eq!(restored_meta34.ino(), meta34.ino());
+
+                let _ = std::fs::remove_file(&sentinel33_path);
+                let _ = std::fs::remove_file(&sentinel34_path);
+
+                use std::io::Write;
+                let _ = std::io::stdout().write_all(b"M1_B7_RESTORED_SENTINELS_SUCCESS\n");
+                let _ = std::io::stdout().flush();
+                std::process::exit(0);
             }
             _ => panic!("unknown probe scenario: {scenario}"),
         }
@@ -2366,5 +2601,317 @@ UNRELATED_BETA:PRESENT=beta-value with spaces & = symbols\n";
             assert_eq!(res[3].as_bytes(), &[0xff, 0xfe, 0x80, 0x7f]);
             assert_eq!(res[4], OsStr::new("read-only"));
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b7_policy_before_io_rejection() {
+        let nonexistent_prog = OsStr::new("/path/that/does/not/exist/codex-bin-999");
+        let nonexistent_resolver =
+            std::path::Path::new("/path/that/does/not/exist/resolv-999.conf");
+        let nonexistent_config = std::path::Path::new("/path/that/does/not/exist/config-dir-999");
+
+        let cases: Vec<(Vec<&str>, PassthroughError)> = vec![
+            (
+                vec!["-s", "read-only"],
+                PassthroughError::UnsupportedSandboxMode("read-only".to_string()),
+            ),
+            (
+                vec!["--sandbox", "workspace-write"],
+                PassthroughError::UnsupportedSandboxMode("workspace-write".to_string()),
+            ),
+            (
+                vec!["--sandbox=read-only"],
+                PassthroughError::UnsupportedSandboxMode("read-only".to_string()),
+            ),
+            (
+                vec!["-sworkspace-write"],
+                PassthroughError::UnsupportedSandboxMode("workspace-write".to_string()),
+            ),
+            (
+                vec!["sandbox", "linux"],
+                PassthroughError::UnsupportedSandboxSubcommand,
+            ),
+            (
+                vec!["sandbox", "linux", "run", "--flag"],
+                PassthroughError::UnsupportedSandboxSubcommand,
+            ),
+            (
+                vec!["-c", "sandbox_mode=read-only"],
+                PassthroughError::UnsupportedSandboxMode("read-only".to_string()),
+            ),
+            (
+                vec!["--config=sandbox_mode=workspace-write"],
+                PassthroughError::UnsupportedSandboxMode("workspace-write".to_string()),
+            ),
+            (
+                vec!["-c", "sandbox_mode=\"read-only\""],
+                PassthroughError::UnsupportedSandboxMode("read-only".to_string()),
+            ),
+            (
+                vec!["--config", "sandbox_mode='workspace-write'"],
+                PassthroughError::UnsupportedSandboxMode("workspace-write".to_string()),
+            ),
+        ];
+
+        for (args, expected_policy_err) in cases {
+            let err = launch_upstream(
+                nonexistent_prog,
+                nonexistent_resolver,
+                nonexistent_config,
+                args.clone(),
+            );
+
+            match err {
+                LaunchError::Policy(policy_err) => {
+                    assert_eq!(
+                        policy_err, expected_policy_err,
+                        "expected policy error {:?} for args {:?}",
+                        expected_policy_err, args
+                    );
+                    let msg = policy_err.to_string();
+                    assert!(
+                        msg.contains("Termux"),
+                        "error msg '{msg}' must mention Termux"
+                    );
+                    assert!(
+                        msg.contains("cannot be enforced"),
+                        "error msg '{msg}' must mention cannot be enforced"
+                    );
+                }
+                LaunchError::Exec(exec_err) => {
+                    panic!(
+                        "launch_upstream must reject policy before I/O, but got Exec error: {exec_err} for args {:?}",
+                        args
+                    );
+                }
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b7_accepted_real_exec_composition() {
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp_dir = std::env::temp_dir();
+        let pid = std::process::id();
+        let test_root = temp_dir.join(format!("codex-test-m1-b7-real-exec-{pid}"));
+        let _ = std::fs::remove_dir_all(&test_root);
+        std::fs::create_dir_all(&test_root).expect("failed to create test root");
+
+        let resolver_path = test_root.join("resolv.conf");
+        let config_dir_path = test_root.join("managed-config");
+        std::fs::create_dir_all(&config_dir_path).expect("failed to create config dir");
+
+        let marker_path = config_dir_path.join("marker.txt");
+        std::fs::write(&marker_path, b"CONFIG_DIR_MARKER_CONTENT").expect("write marker");
+        let resolver_bytes = b"# synthetic resolv.conf\nnameserver 198.51.100.1\n";
+        std::fs::write(&resolver_path, resolver_bytes).expect("write resolver");
+
+        let shell = resolve_test_shell();
+        let fake_upstream_path = test_root.join("fake_upstream.sh");
+
+        let script_content = format!(
+            r##"#!{}
+if [ "$1" != "-c" ]; then
+    printf "ARGV_MISMATCH: 1 is '%s', expected '-c'\n" "$1" >&2
+    exit 11
+fi
+
+if [ "$2" != 'sandbox_mode="danger-full-access"' ]; then
+    printf "ARGV_MISMATCH: 2 is '%s', expected 'sandbox_mode=\"danger-full-access\"'\n" "$2" >&2
+    exit 12
+fi
+
+if [ "$3" != "exec" ]; then
+    printf "ARGV_MISMATCH: 3 is '%s', expected 'exec'\n" "$3" >&2
+    exit 13
+fi
+
+if [ "$4" != "custom_task" ]; then
+    printf "ARGV_MISMATCH: 4 is '%s', expected 'custom_task'\n" "$4" >&2
+    exit 14
+fi
+
+if [ "$5" != "--custom-flag=val1" ]; then
+    printf "ARGV_MISMATCH: 5 is '%s', expected '--custom-flag=val1'\n" "$5" >&2
+    exit 15
+fi
+
+if [ "$6" != "ordinary arg with spaces and =" ]; then
+    printf "ARGV_MISMATCH: 6 is '%s', expected 'ordinary arg with spaces and ='\n" "$6" >&2
+    exit 16
+fi
+
+for a in "$@"; do
+    printf "ARG:%s\n" "$a"
+done
+
+res_content=$(cat /proc/self/fd/33 2>/dev/null)
+expected_res="# synthetic resolv.conf
+nameserver 198.51.100.1"
+if [ "$res_content" != "$expected_res" ]; then
+    printf "RESOLVER_FD33_MISMATCH: got '%s'\n" "$res_content" >&2
+    exit 20
+fi
+
+while read -r key val; do
+    if [ "$key" = "flags:" ]; then
+        case "$val" in
+            *0|*4) ;;
+            *)
+                printf "RESOLVER_FD33_NOT_RDONLY: flags '%s'\n" "$val" >&2
+                exit 21
+                ;;
+        esac
+        break
+    fi
+done < /proc/self/fdinfo/33
+
+if [ ! -d /proc/self/fd/34 ]; then
+    printf "CONFIG_FD34_NOT_DIRECTORY\n" >&2
+    exit 30
+fi
+if [ ! -f /proc/self/fd/34/marker.txt ]; then
+    printf "CONFIG_FD34_MARKER_MISSING\n" >&2
+    exit 31
+fi
+marker_content=$(cat /proc/self/fd/34/marker.txt)
+if [ "$marker_content" != "CONFIG_DIR_MARKER_CONTENT" ]; then
+    printf "CONFIG_FD34_MARKER_MISMATCH: '%s'\n" "$marker_content" >&2
+    exit 32
+fi
+
+if [ -n "${{CODEX_MANAGED_BY_NPM+x}}" ]; then
+    printf "ENV_FENCE_FAILED: CODEX_MANAGED_BY_NPM is present: %s\n" "$CODEX_MANAGED_BY_NPM" >&2
+    exit 40
+fi
+if [ -n "${{CODEX_MANAGED_BY_BUN+x}}" ]; then
+    printf "ENV_FENCE_FAILED: CODEX_MANAGED_BY_BUN is present: %s\n" "$CODEX_MANAGED_BY_BUN" >&2
+    exit 41
+fi
+if [ -n "${{CODEX_MANAGED_PACKAGE_ROOT+x}}" ]; then
+    printf "ENV_FENCE_FAILED: CODEX_MANAGED_PACKAGE_ROOT is present: %s\n" "$CODEX_MANAGED_PACKAGE_ROOT" >&2
+    exit 42
+fi
+if [ -n "${{LD_PRELOAD+x}}" ]; then
+    printf "ENV_FENCE_FAILED: LD_PRELOAD is present: %s\n" "$LD_PRELOAD" >&2
+    exit 43
+fi
+if [ -n "${{LD_LIBRARY_PATH+x}}" ]; then
+    printf "ENV_FENCE_FAILED: LD_LIBRARY_PATH is present: %s\n" "$LD_LIBRARY_PATH" >&2
+    exit 44
+fi
+
+if [ "$CODEX_TEST_UNRELATED_M1_B7_SURVIVING_VAR" != "m1_b7_surviving_exact_value_84920" ]; then
+    printf "UNRELATED_ENV_MISMATCH: got '%s'\n" "$CODEX_TEST_UNRELATED_M1_B7_SURVIVING_VAR" >&2
+    exit 50
+fi
+
+printf "M1_B7_REAL_EXEC_SUCCESS\n"
+exit 0
+"##,
+            shell.to_str().expect("valid shell path")
+        );
+
+        std::fs::write(&fake_upstream_path, script_content).expect("write fake upstream");
+        let mut perms = std::fs::metadata(&fake_upstream_path)
+            .expect("metadata")
+            .permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&fake_upstream_path, perms).expect("set permissions 0755");
+
+        let result = run_exec_probe_with_env(
+            "m1_b7_fake_upstream_launcher",
+            &[
+                (PROBE_RESOLVER_PATH_ENV, resolver_path.as_os_str()),
+                (PROBE_CONFIG_DIR_PATH_ENV, config_dir_path.as_os_str()),
+                (PROBE_FAKE_UPSTREAM_PATH_ENV, fake_upstream_path.as_os_str()),
+            ],
+        );
+
+        assert_eq!(
+            result.status.code(),
+            Some(0),
+            "stderr: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert_eq!(result.stderr, b"");
+
+        let mut expected_stdout = Vec::new();
+        expected_stdout.extend_from_slice(b"ARG:-c\n");
+        expected_stdout.extend_from_slice(b"ARG:sandbox_mode=\"danger-full-access\"\n");
+        expected_stdout.extend_from_slice(b"ARG:exec\n");
+        expected_stdout.extend_from_slice(b"ARG:custom_task\n");
+        expected_stdout.extend_from_slice(b"ARG:--custom-flag=val1\n");
+        expected_stdout.extend_from_slice(b"ARG:ordinary arg with spaces and =\n");
+        expected_stdout.extend_from_slice(b"ARG:");
+        expected_stdout.extend_from_slice(OsStr::from_bytes(&[0xff, 0xfe, 0x80, 0x7f]).as_bytes());
+        expected_stdout.extend_from_slice(b"\n");
+        expected_stdout.extend_from_slice(b"M1_B7_REAL_EXEC_SUCCESS\n");
+
+        assert_eq!(result.stdout, expected_stdout);
+
+        let _ = std::fs::remove_dir_all(&test_root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b7_failed_exec_restores_absent() {
+        let temp_dir = std::env::temp_dir();
+        let pid = std::process::id();
+        let test_root = temp_dir.join(format!("codex-test-m1-b7-fail-absent-{pid}"));
+        let _ = std::fs::remove_dir_all(&test_root);
+        std::fs::create_dir_all(&test_root).expect("failed to create test root");
+
+        let resolver_path = test_root.join("resolv.conf");
+        let config_dir_path = test_root.join("managed-config");
+        std::fs::create_dir_all(&config_dir_path).expect("failed to create config dir");
+        std::fs::write(&resolver_path, b"nameserver 1.1.1.1\n").expect("write resolver");
+
+        let result = run_exec_probe_with_env(
+            "m1_b7_failed_exec_restoration_absent",
+            &[
+                (PROBE_RESOLVER_PATH_ENV, resolver_path.as_os_str()),
+                (PROBE_CONFIG_DIR_PATH_ENV, config_dir_path.as_os_str()),
+            ],
+        );
+
+        assert_eq!(result.status.code(), Some(0));
+        assert_eq!(result.stdout, b"M1_B7_RESTORED_ABSENT_SUCCESS\n");
+        assert_eq!(result.stderr, b"");
+
+        let _ = std::fs::remove_dir_all(&test_root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b7_failed_exec_restores_sentinels() {
+        let temp_dir = std::env::temp_dir();
+        let pid = std::process::id();
+        let test_root = temp_dir.join(format!("codex-test-m1-b7-fail-sentinels-{pid}"));
+        let _ = std::fs::remove_dir_all(&test_root);
+        std::fs::create_dir_all(&test_root).expect("failed to create test root");
+
+        let resolver_path = test_root.join("resolv.conf");
+        let config_dir_path = test_root.join("managed-config");
+        std::fs::create_dir_all(&config_dir_path).expect("failed to create config dir");
+        std::fs::write(&resolver_path, b"nameserver 1.1.1.1\n").expect("write resolver");
+
+        let result = run_exec_probe_with_env(
+            "m1_b7_failed_exec_restoration_sentinels",
+            &[
+                (PROBE_RESOLVER_PATH_ENV, resolver_path.as_os_str()),
+                (PROBE_CONFIG_DIR_PATH_ENV, config_dir_path.as_os_str()),
+            ],
+        );
+
+        assert_eq!(result.status.code(), Some(0));
+        assert_eq!(result.stdout, b"M1_B7_RESTORED_SENTINELS_SUCCESS\n");
+        assert_eq!(result.stderr, b"");
+
+        let _ = std::fs::remove_dir_all(&test_root);
     }
 }
