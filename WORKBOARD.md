@@ -51,8 +51,9 @@ performing live update behavior.
 #### boundary
 
 - in_scope: `crates/core/src/main.rs` only; one borrowed local dispatch context,
-  one typed completion/error surface, and one dispatcher that consumes
-  `PublicDispatchRoute` exactly once.
+  one typed completion/error surface, one dispatcher that consumes
+  `PublicDispatchRoute` exactly once, and the minimal B21 representation
+  correction required to retain generation authority for `Unavailable` Manager.
 - out_of_scope: physical active-generation/current-pointer discovery, `main`
   wiring, live update/network/download/staging/activation/rollback, Manager
   discovery or features, new output/exit-code policy, dependencies, install,
@@ -72,15 +73,24 @@ performing live update behavior.
   preserves every trailing raw `OsString` byte and order in a typed M1 handoff.
 - Branch-specific errors remain distinct: upstream launch, doctor command, and
   Manager launch failures cannot be collapsed into fabricated success.
+- Both `Available` and `Unavailable` Manager qualification retain the exact
+  `QualifiedGenerationManifest` that produced the decision. B23 context
+  construction rejects a runtime/Manager generation mismatch before any route
+  executes, including two separately qualified manifest objects with otherwise
+  equal contents; no mixed-generation context is admissible.
 - The dispatcher does not discover, qualify, stat, hash, or rewrite any asset;
   all authority is injected through already-qualified wrappers and explicit
   read-only inputs.
 
 #### build
 
-- Add a borrowed `LocalPublicDispatchContext` containing B13 qualified runtime,
-  B21 Manager qualification, B10 environment snapshot/certificate inputs,
-  resolver/config paths, and the existing typed doctor capability/status inputs.
+- Amend B21 `ManagerArtifactQualification::Unavailable` to retain its qualified
+  generation just as `Available` already does; preserve all prior B21 semantics.
+- Add a fallible borrowed `LocalPublicDispatchContext` constructor containing B13
+  qualified runtime, B21 Manager qualification, B10 environment snapshot/
+  certificate inputs, resolver/config paths, and the existing typed doctor
+  capability/status inputs. The constructor requires exact shared-generation
+  reference identity before producing the context.
 - Add a small `PublicDispatchCompletion` for `Update`, `Doctor`, and
   `TermuxUnavailable`, plus a `PublicDispatchExecutionError` that wraps existing
   branch-specific errors.
@@ -89,10 +99,12 @@ performing live update behavior.
 
 #### verification
 
-- focused: update zero-I/O/raw-byte preservation; upstream real exec through B14
-  with complete raw argv; doctor invalid-usage-before-I/O plus one successful
-  bounded result; termux unavailable zero-exec plus available real exec; typed
-  branch-error preservation and no cross-route handler activity.
+- focused: B21 unavailable still generation-bound and behavior-compatible;
+  mixed-generation context rejection before execution; update zero-I/O/raw-byte
+  preservation; upstream real exec through B14 with complete raw argv; doctor
+  invalid-usage-before-I/O plus one successful bounded result; termux unavailable
+  zero-exec plus available real exec; typed branch-error preservation and no
+  cross-route handler activity.
 - done_when: focused B23 evidence passes; all 132 pre-B23 tests remain green;
   formatting and diff checks pass; locked offline build is warning-free; one
   grouped final acceptance batch runs the full serial suite and eight complete
