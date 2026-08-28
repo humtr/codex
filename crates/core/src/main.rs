@@ -2077,6 +2077,71 @@ fn render_doctor_command(
     }
 }
 
+#[cfg(unix)]
+#[allow(dead_code)]
+#[derive(Debug)]
+enum LocalDoctorCommandError {
+    Usage(DoctorUsageError),
+    Probe(QualifiedUpstreamDoctorProbeError),
+}
+
+#[cfg(unix)]
+impl std::fmt::Display for LocalDoctorCommandError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LocalDoctorCommandError::Usage(err) => err.fmt(f),
+            LocalDoctorCommandError::Probe(err) => err.fmt(f),
+        }
+    }
+}
+
+#[cfg(unix)]
+impl std::error::Error for LocalDoctorCommandError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            LocalDoctorCommandError::Usage(err) => Some(err),
+            LocalDoctorCommandError::Probe(err) => Some(err),
+        }
+    }
+}
+
+/// Runs one bounded local doctor command with usage validation before any probe I/O.
+#[cfg(unix)]
+#[allow(dead_code)]
+fn run_local_doctor_command<'selection, 'asset, 'generation, I, S, R, C>(
+    args: I,
+    capability: UpstreamDoctorCapability,
+    assets: QualifiedRuntimeAssets<'selection, 'asset, 'generation>,
+    process_env: &TermuxProcessEnvSnapshot,
+    cert_file: &OsStr,
+    cert_dir: Option<&OsStr>,
+    resolver_path: R,
+    config_dir: C,
+    termux_core: CoreDoctorStatus,
+    manager: ManagerDoctorStatus,
+) -> Result<DoctorCommandOutcome, LocalDoctorCommandError>
+where
+    I: IntoIterator<Item = S>,
+    S: Into<OsString>,
+    R: AsRef<std::path::Path>,
+    C: AsRef<std::path::Path>,
+{
+    let plan = plan_doctor_invocation(args).map_err(LocalDoctorCommandError::Usage)?;
+    let report = compose_local_doctor(
+        capability,
+        assets,
+        process_env,
+        cert_file,
+        cert_dir,
+        resolver_path,
+        config_dir,
+        termux_core,
+        manager,
+    )
+    .map_err(LocalDoctorCommandError::Probe)?;
+    Ok(render_doctor_command(plan, &report))
+}
+
 fn main() {
     let mut args = std::env::args_os();
     let _ = args.next();
@@ -2249,6 +2314,8 @@ mod tests {
     const PROBE_FAKE_UPSTREAM_PATH_ENV: &str = "CODEX_TEST_EXEC_FAKE_UPSTREAM_PATH";
     #[cfg(unix)]
     const PROBE_B17_MODE_ENV: &str = "CODEX_TEST_B17_MODE";
+    #[cfg(unix)]
+    const PROBE_B19_MODE_ENV: &str = "CODEX_TEST_B19_MODE";
 
     #[cfg(unix)]
     fn resolve_test_shell() -> std::ffi::OsString {
@@ -2326,6 +2393,117 @@ mod tests {
     #[cfg(unix)]
     fn run_exec_probe(scenario: &str) -> ProbeResult {
         run_exec_probe_with_env(scenario, &[])
+    }
+
+    #[cfg(unix)]
+    fn run_m1_b19_command_probe() -> ! {
+        let resolver_path =
+            std::env::var_os(PROBE_RESOLVER_PATH_ENV).expect("PROBE_RESOLVER_PATH_ENV must be set");
+        let config_dir_path = std::env::var_os(PROBE_CONFIG_DIR_PATH_ENV)
+            .expect("PROBE_CONFIG_DIR_PATH_ENV must be set");
+        let runtime_path = std::env::var_os(PROBE_FAKE_UPSTREAM_PATH_ENV)
+            .expect("PROBE_FAKE_UPSTREAM_PATH_ENV must be set");
+        let mode = std::env::var(PROBE_B19_MODE_ENV).expect("PROBE_B19_MODE_ENV must be set");
+        let root = std::path::Path::new(&runtime_path)
+            .parent()
+            .expect("B19 runtime path must have parent");
+        let compatibility_dir = root.join("doctor-compat-bin");
+        let prefix = root.join("doctor-prefix");
+        let temp_dir = root.join("doctor-tmp");
+        let cert_file = root.join("doctor-tls/cert.pem");
+        let cert_dir = root.join("doctor-tls/certs.d");
+
+        let mut manifest = m1_b11_valid_manifest();
+        manifest.helper_digests.clear();
+        let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements())
+            .expect("B19 probe generation must qualify");
+        let selection = RuntimeAssetSelection {
+            runtime: RuntimeAssetBinding {
+                program_path: runtime_path.as_os_str(),
+                observed_digest: manifest.runtime_digest.as_str(),
+            },
+            compatibility_dir: compatibility_dir.as_os_str(),
+            helpers: &[],
+        };
+        let qualified = qualify_runtime_assets(generation, &selection)
+            .expect("B19 probe runtime assets must qualify");
+        let snapshot = TermuxProcessEnvSnapshot {
+            prefix: Some(prefix.into_os_string()),
+            tmpdir: Some(temp_dir.into_os_string()),
+            inherited_path: Some(OsString::from(
+                "/probe/b16/inherited-a:/probe/b16/inherited-b",
+            )),
+            inherited_ssl_cert_file: None,
+            inherited_ssl_cert_dir: None,
+        };
+
+        std::env::set_var("CODEX_MANAGED_BY_NPM", "probe-b19-npm-contam");
+        std::env::set_var("CODEX_MANAGED_BY_BUN", "probe-b19-bun-contam");
+        std::env::set_var("CODEX_MANAGED_PACKAGE_ROOT", "/probe/b19/pkg/root");
+        std::env::set_var("LD_PRELOAD", "/probe/b19/preload.so");
+        std::env::set_var("LD_LIBRARY_PATH", "/probe/b19/lib");
+        std::env::set_var(
+            "CODEX_TEST_UNRELATED_M1_B16_SURVIVING_VAR",
+            "m1_b16_surviving_exact_value_27182",
+        );
+
+        let (args, core, manager) = match mode.as_str() {
+            "healthy-human" => (
+                Vec::<OsString>::new(),
+                CoreDoctorStatus::Healthy,
+                ManagerDoctorStatus::Healthy,
+            ),
+            "unhealthy-json" => (
+                vec![OsString::from("--json")],
+                CoreDoctorStatus::Healthy,
+                ManagerDoctorStatus::Healthy,
+            ),
+            "missing-json" => (
+                vec![OsString::from("--json")],
+                CoreDoctorStatus::Healthy,
+                ManagerDoctorStatus::Healthy,
+            ),
+            other => panic!("unknown B19 command probe mode: {other}"),
+        };
+
+        match run_local_doctor_command(
+            args,
+            UpstreamDoctorCapability::Supported,
+            qualified,
+            &snapshot,
+            cert_file.as_os_str(),
+            Some(cert_dir.as_os_str()),
+            resolver_path,
+            config_dir_path,
+            core,
+            manager,
+        ) {
+            Ok(outcome) => {
+                let exit = match outcome.exit_class {
+                    DoctorExitClass::Success => "success",
+                    DoctorExitClass::HealthFailure => "health_failure",
+                    DoctorExitClass::ApiIncompatibility => "api_incompatibility",
+                };
+                use std::io::Write;
+                writeln!(std::io::stdout(), "B19_EXIT:{exit}").expect("write B19 exit class");
+                write!(std::io::stdout(), "B19_OUTPUT:{}", outcome.output)
+                    .expect("write B19 output");
+                std::io::stdout().flush().expect("flush B19 output");
+                std::process::exit(0);
+            }
+            Err(LocalDoctorCommandError::Probe(QualifiedUpstreamDoctorProbeError::Io(err)))
+                if mode == "missing-json" && err.kind() == std::io::ErrorKind::NotFound =>
+            {
+                use std::io::Write;
+                writeln!(std::io::stdout(), "B19_PROBE_NOT_FOUND")
+                    .expect("write B19 missing-runtime marker");
+                std::io::stdout()
+                    .flush()
+                    .expect("flush B19 missing-runtime marker");
+                std::process::exit(0);
+            }
+            Err(err) => panic!("B19 command probe failed: {err}"),
+        }
     }
 
     #[cfg(unix)]
@@ -2481,6 +2659,7 @@ mod tests {
         }
 
         match scenario.as_str() {
+            "m1_b19_command_launcher" => run_m1_b19_command_probe(),
             "m1_b17_coordinator_launcher" => run_m1_b17_coordinator_probe(),
             "all_evidence" => {
                 let script = r#"
@@ -8339,5 +8518,188 @@ exit {}
         assert_eq!(first_plan, second_plan);
         assert_eq!(first, second);
         assert_eq!(before, after);
+    }
+
+    #[cfg(unix)]
+    fn m1_b19_assert_usage_before_probe_io(args: Vec<OsString>) {
+        let mut manifest = m1_b11_valid_manifest();
+        manifest.helper_digests.clear();
+        let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements())
+            .expect("B19 usage-order generation must qualify");
+        let selection = RuntimeAssetSelection {
+            runtime: RuntimeAssetBinding {
+                program_path: OsStr::new("/path/that/does/not/exist/b19-runtime"),
+                observed_digest: manifest.runtime_digest.as_str(),
+            },
+            compatibility_dir: OsStr::new("/path/that/does/not/exist/b19-compat"),
+            helpers: &[],
+        };
+        let qualified = qualify_runtime_assets(generation, &selection)
+            .expect("B19 usage-order runtime shape must qualify");
+        let invalid_snapshot = TermuxProcessEnvSnapshot {
+            prefix: None,
+            tmpdir: None,
+            inherited_path: None,
+            inherited_ssl_cert_file: None,
+            inherited_ssl_cert_dir: None,
+        };
+
+        match run_local_doctor_command(
+            args,
+            UpstreamDoctorCapability::Supported,
+            qualified,
+            &invalid_snapshot,
+            OsStr::new("/path/that/does/not/exist/b19-cert.pem"),
+            None,
+            std::path::Path::new("/path/that/does/not/exist/b19-resolver"),
+            std::path::Path::new("/path/that/does/not/exist/b19-config"),
+            CoreDoctorStatus::Healthy,
+            ManagerDoctorStatus::Healthy,
+        ) {
+            Err(LocalDoctorCommandError::Usage(DoctorUsageError::InvalidArguments)) => {}
+            Err(LocalDoctorCommandError::Probe(err)) => {
+                panic!("B19 usage must fail before probe I/O, got probe error: {err}")
+            }
+            Ok(outcome) => panic!("invalid B19 usage unexpectedly produced outcome: {outcome:?}"),
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b19_a_usage_rejection_precedes_probe_io_for_utf8_and_non_utf8() {
+        use std::os::unix::ffi::OsStringExt;
+
+        m1_b19_assert_usage_before_probe_io(vec![OsString::from("--secret-invalid-option")]);
+        m1_b19_assert_usage_before_probe_io(vec![
+            OsString::from("--json"),
+            OsString::from("--json"),
+        ]);
+        m1_b19_assert_usage_before_probe_io(vec![OsString::from_vec(vec![0xff, 0xfe, 0x80])]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b19_b_supported_healthy_human_crosses_real_probe_and_renders() {
+        let (root, resolver, config_dir) = m1_b16_create_runtime_root("m1-b19-healthy");
+        let runtime = m1_b16_write_doctor_runtime(&root, "doctor-healthy.sh", 0);
+        let mode = OsStr::new("healthy-human");
+        let result = run_exec_probe_with_env(
+            "m1_b19_command_launcher",
+            &[
+                (PROBE_RESOLVER_PATH_ENV, resolver.as_os_str()),
+                (PROBE_CONFIG_DIR_PATH_ENV, config_dir.as_os_str()),
+                (PROBE_FAKE_UPSTREAM_PATH_ENV, runtime.as_os_str()),
+                (PROBE_B19_MODE_ENV, mode),
+            ],
+        );
+        assert_eq!(result.status.code(), Some(0));
+        assert_eq!(result.stderr, b"");
+        assert_eq!(
+            result.stdout,
+            b"B19_EXIT:success\nB19_OUTPUT:[Upstream]\nstatus: healthy\n\n[Termux Core]\nstatus: healthy\n\n[Manager]\nstatus: healthy\n\n[Summary]\nstatus: healthy\n"
+        );
+        assert!(!result
+            .stdout
+            .windows(b"SECRET".len())
+            .any(|window| window == b"SECRET"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b19_c_supported_nonzero_json_preserves_bounded_failure_envelope() {
+        let (root, resolver, config_dir) = m1_b16_create_runtime_root("m1-b19-unhealthy");
+        let runtime = m1_b16_write_doctor_runtime(&root, "doctor-unhealthy.sh", 17);
+        let mode = OsStr::new("unhealthy-json");
+        let result = run_exec_probe_with_env(
+            "m1_b19_command_launcher",
+            &[
+                (PROBE_RESOLVER_PATH_ENV, resolver.as_os_str()),
+                (PROBE_CONFIG_DIR_PATH_ENV, config_dir.as_os_str()),
+                (PROBE_FAKE_UPSTREAM_PATH_ENV, runtime.as_os_str()),
+                (PROBE_B19_MODE_ENV, mode),
+            ],
+        );
+        assert_eq!(result.status.code(), Some(0));
+        assert_eq!(result.stderr, b"");
+        assert_eq!(
+            result.stdout,
+            b"B19_EXIT:health_failure\nB19_OUTPUT:{\"schema_version\":1,\"upstream\":{\"status\":\"unhealthy\"},\"termux_core\":{\"status\":\"healthy\"},\"manager\":{\"status\":\"healthy\"},\"summary\":{\"status\":\"unhealthy\"}}\n"
+        );
+        assert!(!result
+            .stdout
+            .windows(b"unsupported".len())
+            .any(|window| window == b"unsupported"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b19_d_unsupported_valid_json_skips_invalid_probe_inputs() {
+        let mut manifest = m1_b11_valid_manifest();
+        manifest.helper_digests.clear();
+        let generation = qualify_generation_manifest(&manifest, &m1_b11_requirements())
+            .expect("B19 unsupported generation must qualify");
+        let selection = RuntimeAssetSelection {
+            runtime: RuntimeAssetBinding {
+                program_path: OsStr::new("/path/that/does/not/exist/b19-runtime"),
+                observed_digest: manifest.runtime_digest.as_str(),
+            },
+            compatibility_dir: OsStr::new("/path/that/does/not/exist/b19-compat"),
+            helpers: &[],
+        };
+        let qualified = qualify_runtime_assets(generation, &selection)
+            .expect("B19 unsupported runtime shape must qualify");
+        let invalid_snapshot = TermuxProcessEnvSnapshot {
+            prefix: None,
+            tmpdir: None,
+            inherited_path: None,
+            inherited_ssl_cert_file: None,
+            inherited_ssl_cert_dir: None,
+        };
+
+        let outcome = run_local_doctor_command(
+            [OsString::from("--json")],
+            UpstreamDoctorCapability::Unsupported,
+            qualified,
+            &invalid_snapshot,
+            OsStr::new("/path/that/does/not/exist/b19-cert.pem"),
+            None,
+            std::path::Path::new("/path/that/does/not/exist/b19-resolver"),
+            std::path::Path::new("/path/that/does/not/exist/b19-config"),
+            CoreDoctorStatus::Healthy,
+            ManagerDoctorStatus::Unavailable,
+        )
+        .expect("B19 unsupported command must skip probe-only I/O");
+        assert_eq!(outcome.exit_class, DoctorExitClass::HealthFailure);
+        assert_eq!(
+            outcome.output,
+            "{\"schema_version\":1,\"upstream\":{\"status\":\"unsupported\"},\"termux_core\":{\"status\":\"healthy\"},\"manager\":{\"status\":\"unavailable\"},\"summary\":{\"status\":\"degraded\"}}\n"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m1_b19_e_valid_supported_spawn_failure_propagates_probe_without_outcome() {
+        let (root, resolver, config_dir) = m1_b16_create_runtime_root("m1-b19-missing");
+        let missing_runtime = root.join("does-not-exist-doctor-runtime");
+        let mode = OsStr::new("missing-json");
+        let result = run_exec_probe_with_env(
+            "m1_b19_command_launcher",
+            &[
+                (PROBE_RESOLVER_PATH_ENV, resolver.as_os_str()),
+                (PROBE_CONFIG_DIR_PATH_ENV, config_dir.as_os_str()),
+                (PROBE_FAKE_UPSTREAM_PATH_ENV, missing_runtime.as_os_str()),
+                (PROBE_B19_MODE_ENV, mode),
+            ],
+        );
+        assert_eq!(result.status.code(), Some(0));
+        assert_eq!(result.stderr, b"");
+        assert_eq!(result.stdout, b"B19_PROBE_NOT_FOUND\n");
+        assert!(!result
+            .stdout
+            .windows(b"B19_OUTPUT".len())
+            .any(|window| window == b"B19_OUTPUT"));
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
