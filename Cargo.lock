@@ -5,3 +5,10 @@ version = 4
 [[package]]
 name = "codex"
 version = "0.1.0"
+dependencies = [
+ "codex-release-builder",
+]
+
+[[package]]
+name = "codex-release-builder"
+version = "0.1.0"

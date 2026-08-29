@@ -5762,6 +5762,215 @@ esac
     }
 
     #[cfg(unix)]
+    fn b6_write_octal(field: &mut [u8], value: u64) {
+        field.fill(b'0');
+        let value = format!("{value:o}");
+        let start = field.len() - value.len() - 1;
+        field[start..start + value.len()].copy_from_slice(value.as_bytes());
+        field[field.len() - 1] = 0;
+    }
+
+    #[cfg(unix)]
+    fn b6_tar_header(path: &str, kind: u8, size: usize) -> [u8; 512] {
+        let mut header = [0u8; 512];
+        header[..path.len()].copy_from_slice(path.as_bytes());
+        b6_write_octal(
+            &mut header[100..108],
+            if kind == b'5' { 0o755 } else { 0o644 },
+        );
+        b6_write_octal(&mut header[108..116], 1001);
+        b6_write_octal(&mut header[116..124], 1001);
+        b6_write_octal(&mut header[124..136], size as u64);
+        b6_write_octal(&mut header[136..148], 1_787_793_845);
+        header[148..156].fill(b' ');
+        header[156] = kind;
+        header[257..263].copy_from_slice(b"ustar\0");
+        header[263..265].copy_from_slice(b"00");
+        let checksum: u64 = header.iter().map(|byte| u64::from(*byte)).sum();
+        let checksum = format!("{checksum:06o}");
+        header[148..154].copy_from_slice(checksum.as_bytes());
+        header[154] = 0;
+        header[155] = b' ';
+        header
+    }
+
+    #[cfg(unix)]
+    fn b6_append_tar_entry(tar: &mut Vec<u8>, path: &str, kind: u8, data: &[u8]) {
+        tar.extend_from_slice(&b6_tar_header(path, kind, data.len()));
+        tar.extend_from_slice(data);
+        let padding = (512 - data.len() % 512) % 512;
+        tar.resize(tar.len() + padding, 0);
+    }
+
+    #[cfg(unix)]
+    fn b6_static_aarch64_elf(runtime: bool) -> Vec<u8> {
+        let mut bytes = vec![0u8; 120];
+        bytes[..4].copy_from_slice(b"\x7fELF");
+        bytes[4] = 2;
+        bytes[5] = 1;
+        bytes[6] = 1;
+        bytes[16..18].copy_from_slice(&2u16.to_le_bytes());
+        bytes[18..20].copy_from_slice(&183u16.to_le_bytes());
+        bytes[20..24].copy_from_slice(&1u32.to_le_bytes());
+        bytes[32..40].copy_from_slice(&64u64.to_le_bytes());
+        bytes[52..54].copy_from_slice(&64u16.to_le_bytes());
+        bytes[54..56].copy_from_slice(&56u16.to_le_bytes());
+        bytes[56..58].copy_from_slice(&1u16.to_le_bytes());
+        bytes[64..68].copy_from_slice(&1u32.to_le_bytes());
+        if runtime {
+            for source in [
+                "/etc/resolv.conf",
+                "/etc/codex/managed_config.toml",
+                "/etc/codex/config.toml",
+                "/etc/codex/requirements.toml",
+                "/etc/resolv.conf",
+            ] {
+                bytes.extend_from_slice(source.as_bytes());
+                bytes.push(0);
+            }
+        }
+        bytes
+    }
+
+    #[cfg(unix)]
+    fn b6_write_official_shape_archive(
+        gzip: &std::path::Path,
+        archive: &std::path::Path,
+    ) -> Vec<u8> {
+        use std::io::Write as _;
+
+        let runtime = b6_static_aarch64_elf(true);
+        let host = b6_static_aarch64_elf(false);
+        let package = b"{\n  \"layoutVersion\": 1,\n  \"version\": \"0.150.1\",\n  \"target\": \"aarch64-unknown-linux-musl\",\n  \"variant\": \"codex\",\n  \"entrypoint\": \"bin/codex\",\n  \"resourcesDir\": \"codex-resources\",\n  \"pathDir\": \"codex-path\"\n}\n";
+        let mut tar = Vec::new();
+        for (path, kind, data) in [
+            ("bin/", b'5', &[][..]),
+            ("bin/codex", b'0', runtime.as_slice()),
+            ("bin/codex-code-mode-host", b'0', host.as_slice()),
+            ("codex-package.json", b'0', package.as_slice()),
+            ("codex-path/", b'5', &[][..]),
+            ("codex-path/rg", b'0', b"excluded-rg".as_slice()),
+            ("codex-resources/", b'5', &[][..]),
+            ("codex-resources/bwrap", b'0', b"excluded-bwrap".as_slice()),
+            ("codex-resources/zsh/", b'5', &[][..]),
+            ("codex-resources/zsh/bin/", b'5', &[][..]),
+            (
+                "codex-resources/zsh/bin/zsh",
+                b'0',
+                b"excluded-zsh".as_slice(),
+            ),
+        ] {
+            b6_append_tar_entry(&mut tar, path, kind, data);
+        }
+        tar.resize(tar.len() + 1024, 0);
+
+        let output = std::fs::File::create(archive).unwrap();
+        let mut child = std::process::Command::new(gzip)
+            .args(["-cn"])
+            .env_clear()
+            .stdin(std::process::Stdio::piped())
+            .stdout(output)
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        child.stdin.take().unwrap().write_all(&tar).unwrap();
+        assert!(child.wait().unwrap().success());
+        runtime
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b6_builder_output_enters_existing_signed_release_admission() {
+        use std::ffi::OsString;
+
+        let root = temp_root("b6-builder-admission");
+        let openssl = b4_termux_openssl();
+        let prefix = std::path::PathBuf::from(std::env::var_os("PREFIX").unwrap());
+        let gzip = prefix.join("bin/gzip");
+        assert!(gzip.is_file(), "Termux gzip is required for B6 proof");
+        let archive = root.join("codex-package-aarch64-unknown-linux-musl.tar.gz");
+        let raw_runtime = b6_write_official_shape_archive(&gzip, &archive);
+        let archive_sha256 = openssl_sha256(&openssl, &archive).unwrap();
+        let core = std::fs::canonicalize(std::env::current_exe().unwrap()).unwrap();
+        let core_sha256 = openssl_sha256(&openssl, &core).unwrap();
+        let generation = root.join("unsigned-generation");
+        let args = vec![
+            OsString::from("build"),
+            OsString::from("--version"),
+            OsString::from("0.150.1"),
+            OsString::from("--archive"),
+            archive.as_os_str().to_owned(),
+            OsString::from("--archive-sha256"),
+            OsString::from(&archive_sha256),
+            OsString::from("--generation-id"),
+            OsString::from("b6-signed-admission"),
+            OsString::from("--core"),
+            core.as_os_str().to_owned(),
+            OsString::from("--creation-metadata"),
+            OsString::from("m2-b6-integration"),
+            OsString::from("--gzip"),
+            gzip.as_os_str().to_owned(),
+            OsString::from("--openssl"),
+            openssl.as_os_str().to_owned(),
+            OsString::from("--output"),
+            generation.as_os_str().to_owned(),
+        ];
+        assert_eq!(codex_release_builder::run_from_args(args), 0);
+
+        let private_key = root.join("keys/private.pem");
+        let public_key = root.join("keys/public.pem");
+        b4_generate_release_keypair(&openssl, &private_key, &public_key);
+        b4_write_signed_release(&generation, 1, &openssl, &private_key);
+        let (release, loaded) =
+            verify_local_release_bundle(&generation, &openssl, &public_key).unwrap();
+
+        assert_eq!(release.generation_id, "b6-signed-admission");
+        assert_eq!(
+            release
+                .files
+                .iter()
+                .map(|file| file.relative_path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["compat/codex-code-mode-host", "generation.meta", "runtime"]
+        );
+        assert_eq!(loaded.generation_id, "b6-signed-admission");
+        assert_eq!(
+            loaded.manifest.upstream_package_identity,
+            "openai/codex:codex-package-aarch64-unknown-linux-musl.tar.gz"
+        );
+        assert_eq!(loaded.manifest.upstream_package_version, "0.150.1");
+        assert_eq!(loaded.manifest.source_artifact_digest, archive_sha256);
+        assert_eq!(loaded.manifest.expected_platform, "android");
+        assert_eq!(loaded.manifest.expected_architecture, "aarch64");
+        assert_eq!(loaded.manifest.patch_policy_id, "termux-fd-remap-v1");
+        assert!(loaded
+            .manifest
+            .patch_report
+            .ends_with("source_counts=2,1,1,1;changed_bytes=54"));
+        assert_eq!(
+            loaded.manifest.runtime_digest,
+            openssl_sha256(&openssl, &generation.join("runtime")).unwrap()
+        );
+        assert_eq!(loaded.manifest.core_artifact_digest, core_sha256);
+        assert!(loaded.manifest.helper_digests.is_empty());
+        assert_eq!(loaded.manifest.manager_artifact_digest, None);
+        assert_eq!(
+            loaded.doctor_capability,
+            UpstreamDoctorCapability::Supported
+        );
+        assert_eq!(
+            std::fs::read(generation.join("compat/codex-code-mode-host")).unwrap(),
+            b6_static_aarch64_elf(false)
+        );
+        let runtime = std::fs::read(generation.join("runtime")).unwrap();
+        assert_eq!(runtime.len(), raw_runtime.len());
+        assert_ne!(runtime, raw_runtime);
+        assert!(!root.join("state").exists());
+
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
     fn b4_source_roots(root: &std::path::Path, openssl: &std::path::Path) -> LocalCoreRoots {
         LocalCoreRoots {
             generation_root: root.join("source-generations"),
