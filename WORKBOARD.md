@@ -102,45 +102,32 @@ second binary is assumed merely to make component code reachable.
 
 #### current checkpoint
 
-- Bound branch/HEAD: clean
-  `rewrite/rust-core@c39c338d6238d3e8aba128d8fa522d0e9de66d83`, ahead of its remote by four
-  commits. No push, live acquisition, publication, install, or cutover is
-  authorized.
-- Slice 0 is selected. No B6 product mutation has begun. Its first work is
-  read-only authority discovery: identify the current official upstream artifact
-  publication and exact supported Android/Termux input, inspect only the minimum
-  accepted legacy behavior needed for failure constraints, decide the release-
-  time/device-time owner and real entrypoint, update `SPEC.md`, and establish a
-  runnable B5 baseline.
-- If no immutable official artifact can be identified, or the required format/
-  patch policy cannot be stated exactly, stop before extractor or patcher code.
+- Resume bound clean `rewrite/rust-core@2b9e032525cae511a78d48805729a7ffb75a69d5`,
+  ahead of its remote by five commits. The B5 product source is byte-identical
+  to accepted `c39c338`; no product mutation, push, publication, install, or
+  cutover occurred.
+- User-approved Slice 0 inspection pinned official package `0.150.1` at archive
+  SHA-256 `1ecac3f87823efb98153233b076ea3d6e34a7a8cebe43c5285dc5f79e1514639`.
+  Its 11-entry ustar/PAX layout, two static selected AArch64 binaries, and exact
+  2/1/1/1 unpatched source counts match the revised Section 6 contract. The
+  repository-external inspection root was removed after verification.
+- The approved owner is one non-installed release-production
+  `codex-release-builder` that accepts a pinned local archive. It adds no device
+  acquisition path, public command, signing key, activation path, or new
+  persistent layout. `SPEC.md` carries only this contract delta.
+- Slice 0 is closed and Slice 1 is selected. Accepted same-source B5 build/test
+  evidence is reused; the document-only authority slice did not trigger another
+  build or test run.
 
 #### vertical proof map
 
 | Slice | Exact outcome | Exit gate | State |
 | --- | --- | --- | --- |
-| 0 — authority, owner, and baseline | Resolve the official immutable artifact identity, accepted format/target, release-time versus device-time owner, and real executable entrypoint; encode them in `SPEC.md`; establish a runnable B5 baseline | primary-source/authorized local evidence is exact; SPEC diff reviewed before product mutation; warning-free build and nonzero B5 public baseline | selected |
-| 1 — bounded safe extraction | Admit exactly the selected artifact format and extract only the declared target files into a private test-owned root; reject absolute/traversal paths, escaping links, special files, duplicates, and layout drift | named real-entrypoint extraction success/failure matrix passes; no output escapes and no generic/fallback format survives review | blocked by slice 0 |
-| 2 — immutable acquisition and source binding | Acquire or accept the exact selected official artifact through the Slice 0 owner, enforce transport/size/digest identity before adaptation, and leave no usable partial on failure | named identity/transport/bound/cleanup matrix passes through the real entrypoint; observed bytes equal the declared immutable digest | blocked by slice 1 |
-| 3 — exact Termux adaptation | Verify expected unpatched occurrences, reject already-patched/unexpected layouts, apply one exact patch policy, and emit a deterministic patch report plus runtime/helper digests | named drift/already-patched/count/output-digest regressions pass; no heuristic search, optional patch branch, or fallback policy remains | blocked by slice 2 |
-| 4 — qualified generation integration | Bind artifact identity, extraction result, patch report, runtime/helpers, and existing Core compatibility fields into one generation input consumed by the existing release path without activation | named end-to-end fixture and affected B1-B5 groups pass nonzero; direct review proves one manifest authority and no second updater/activator | blocked by slice 3 |
-| 5 — grouped acceptance | Add no new product behavior; run final bundle proof and synchronize authority | full serial and three complete parallel suites, explicit live read-only smoke, format/diff, warning-free locked release, zero residue, protected identities unchanged, GOAL update, commit | blocked by slice 4 |
-
-#### contract questions Slice 0 must close
-
-- Which official OpenAI publication, package/version coordinate, asset name,
-  platform, and architecture form the sole upstream artifact authority?
-- Which immutable value binds acquisition: exact digest plus immutable versioned
-  URL/release identity, with no mutable latest/discovery fallback?
-- Does acquisition/adaptation execute in release production, on device, or both;
-  which existing or new executable surface reaches it without exposing a new
-  unsupported public `codex` command?
-- What exact archive/container format and byte/file/count bounds are accepted?
-- Which target files and source occurrences are expected, what exact bytes are
-  transformed, and what deterministic patch-policy identity/report binds the
-  result?
-- How does the qualified result feed the existing generation/release manifest
-  without introducing signing-key material into Core or on-device state?
+| 0 — authority and owner | Bind the exact official artifact, release-production owner, real builder entrypoint, accepted format, patch policy, and unchanged generation layout in SPEC | user approval and exact artifact-body evidence; SPEC diff reviewed before product mutation; accepted same-source B5 evidence remains applicable | closed |
+| 1 — pinned archive to selected files | Through the real builder entrypoint, verify one local archive identity and bounds, parse only the accepted ustar/PAX layout, validate metadata/ELF target, and create only private selected raw files | one named happy regression and one table-driven malformed/archive-escape matrix pass nonzero; warning-free relevant build; no tar path creates output | selected |
+| 2 — adaptation and unsigned generation | Apply the exact 2/1/1/1 patch policy, bind deterministic report/digests, and publish the complete existing-layout unsigned generation atomically | named source-count/already-patched/output-digest/complete-or-absent regressions pass nonzero; actual diff maps every production branch | blocked by slice 1 |
+| 3 — existing release-path integration | Wrap the builder result in the existing test-owned v2 signing path and prove B4/B5 admission sees the exact generation without a second updater or activator | named end-to-end builder-to-existing-admission regression and affected focused B4/B5 groups pass nonzero | blocked by slice 2 |
+| 4 — grouped acceptance | Add no new product behavior; run final bundle proof and synchronize authority | full serial and three complete parallel suites, explicit live read-only smoke, format/diff, warning-free locked release, zero residue, protected identities unchanged, GOAL update, commit | blocked by slice 3 |
 
 #### protected surfaces
 
@@ -160,8 +147,8 @@ second binary is assumed merely to make component code reachable.
   on-device product state;
 - no live generation creation, activation, rollback, launcher replacement,
   release upload, branch publication, or device cutover;
-- no public command, second binary, networking dependency, or external package
-  until Slice 0 assigns the exact owner and `SPEC.md` is revised first;
+- no public command, on-device raw-artifact path, networking dependency, signing
+  operation, or external package;
 - no worker, planner, or reviewer unless the user explicitly turns worker mode
   on.
 

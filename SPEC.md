@@ -142,6 +142,79 @@ silently weakening the request.
 
 ## 6. Artifact and patch qualification
 
+The sole upstream input for the first supported target is the exact versioned
+OpenAI asset
+`https://releases.openai.com/codex/releases/<version>/codex-package-aarch64-unknown-linux-musl.tar.gz`,
+where `<version>` is an explicitly selected stable `MAJOR.MINOR.PATCH` value.
+Release production supplies that version, a local regular-file copy of the
+archive, and its exact lowercase SHA-256. Mutable `latest` or channel names,
+discovery, mirrors, and source fallbacks are not artifact authority.
+
+Acquisition and adaptation are release-production work, not an on-device Core
+update path. The real entrypoint is one non-installed workspace executable named
+`codex-release-builder`. Its `build` operation accepts the version, archive and
+digest, generation identity, Core artifact, creation metadata, and an absent
+output directory. It performs no discovery, signing, activation, or live-state
+mutation and emits only an unsigned generation source for the existing
+`codex-release-v2` signing and delivery path.
+
+The accepted archive is gzip-compressed POSIX ustar. A per-entry POSIX PAX
+header is optional and may contain only `mtime`; all other extended semantics
+are rejected. There are at most 32 logical entries, paths are canonical relative
+UTF-8 of at most 256 bytes, the compressed archive is at most 256 MiB, each
+regular file is at most 384 MiB, and total regular-file payload is at most
+512 MiB. Duplicate paths, absolute or dot/dot-dot paths, links, special files,
+unknown entry types, malformed headers, and nonzero trailing content are
+rejected. Archive ownership and modes are not output authority.
+
+The archive contains exactly these directories and regular files:
+
+```text
+bin/
+bin/codex
+bin/codex-code-mode-host
+codex-package.json
+codex-path/
+codex-path/rg
+codex-resources/
+codex-resources/bwrap
+codex-resources/zsh/
+codex-resources/zsh/bin/
+codex-resources/zsh/bin/zsh
+```
+
+`codex-package.json` must bind layout version `1`, the requested version, target
+`aarch64-unknown-linux-musl`, variant `codex`, entrypoint `bin/codex`, resources
+directory `codex-resources`, and path directory `codex-path`. `bin/codex` and
+`bin/codex-code-mode-host` must be little-endian 64-bit AArch64 ELF files with
+no `PT_INTERP`. They are the only selected binaries. The Linux `rg` and `zsh`
+artifacts are excluded, and `bwrap` is excluded by the Section 5 sandbox
+contract.
+
+Patch policy `termux-fd-remap-v1` changes only `bin/codex` through these
+equal-length substitutions:
+
+| Source bytes | Required count | Replacement bytes |
+| --- | ---: | --- |
+| `/etc/resolv.conf` | 2 | `/proc/self/fd/33` |
+| `/etc/codex/config.toml` | 1 | `/dev/fd/34/config.toml` |
+| `/etc/codex/requirements.toml` | 1 | `/dev/fd/34/requirements.toml` |
+| `/etc/codex/managed_config.toml` | 1 | `/dev/fd/34/managed_config.toml` |
+
+Every replacement must occur zero times before adaptation. Missing, extra, or
+already-patched occurrences reject the input. The output differs only at the
+selected byte positions; its deterministic patch report binds the archive,
+raw-runtime, adapted-runtime, and code-mode-host SHA-256 values, the four source
+counts, and the changed-byte count.
+
+The unsigned output contains exactly `generation.meta`, the adapted `runtime`,
+and unmodified `compat/codex-code-mode-host`; the first target declares zero
+`helpers/<index>` artifacts without changing that optional generation contract.
+Every output is create-new in private staging and the absent destination is
+published complete-or-absent. Failure never publishes a partial generation,
+changes an existing destination, signs or activates content, or writes outside
+the selected output parent.
+
 An upstream runtime is accepted only when all declared inputs and outputs are
 bound in a generation manifest:
 
@@ -175,6 +248,7 @@ $PREFIX/bin/codex                                      stable public entrypoint
   release.sig                                         Ed25519 signature over release.manifest
   runtime                                             patched upstream executable
   compat/                                              runtime compatibility assets
+    codex-code-mode-host                              first-target PATH compatibility executable
   manager                                              optional Manager executable
   helpers/<index>                                      optional helper artifacts
 ~/.local/lib/codex/core/generations/.acquire-*/        private incomplete remote source; never activatable
