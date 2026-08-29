@@ -46,6 +46,7 @@ The launcher intercepts only an exact first argument of `update`, `doctor`, or
 | `codex [UPSTREAM_ARGS...]` | Core | execute upstream with original arguments |
 | `codex --version`, `codex -V` | upstream | print exactly the upstream version output |
 | `codex update --local <DIRECTORY>` | Core | verify, stage, probe, and activate one compatible local generation |
+| `codex update --remote <HTTPS_BASE_URL>` | Core | acquire one immutable signed generation and activate it through the local update path |
 | `codex update --rollback` | Core | explicitly swap to the one retained complete previous generation |
 | `codex doctor [OPTIONS]` | Core | combine upstream and Termux diagnostics |
 | `codex termux [COMMAND]` | Manager boundary | invoke the Manager artifact or report it unavailable |
@@ -53,8 +54,10 @@ The launcher intercepts only an exact first argument of `update`, `doctor`, or
 `codex version` is not introduced. Wrapper/Core/Manager version rows must not
 be appended to upstream `--version` or `-V` output.
 
-The Milestone 2 offline update surface accepts exactly `--local <DIRECTORY>` or
-`--rollback`. Rollback is an explicit Core operation, not an ordinary-launch
+The Milestone 2 update surface accepts exactly `--local <DIRECTORY>`,
+`--remote <HTTPS_BASE_URL>`, or `--rollback`. The local form and rollback remain fully
+offline. The remote form is an explicit immutable source, not automatic release
+discovery. Rollback is an explicit Core operation, not an ordinary-launch
 fallback and not a search through generation history.
 
 Internal release IDs, component digests, API versions, and schema versions are
@@ -174,6 +177,7 @@ $PREFIX/bin/codex                                      stable public entrypoint
   compat/                                              runtime compatibility assets
   manager                                              optional Manager executable
   helpers/<index>                                      optional helper artifacts
+~/.local/lib/codex/core/generations/.acquire-*/        private incomplete remote source; never activatable
 ~/.local/lib/codex/core/release-public-key.pem         bootstrap-provisioned trust anchor
 ~/.local/share/codex/core/activation-state            current + one previous rollback target
 ~/.local/share/codex/core/activation-journal[.tmp]    crash-recovery transaction state
@@ -262,11 +266,63 @@ trust key at `~/.local/lib/codex/core/release-public-key.pem`. Core does not
 search for alternate keys or accept an untrusted key supplied beside a release.
 The signed `release.manifest` is strict/versioned and binds generation identity,
 monotonic release sequence, supported channel, platform, architecture, Core API,
-persistent schema, and a SHA-256 inventory of every load-bearing generation
-file. The signature is over the exact manifest bytes. On Termux, Core may use
+persistent schema, and a SHA-256 plus exact regular-file permission-mode inventory
+of every load-bearing generation file. The current format is
+`codex-release-v2`; the mode-blind v1 format is not retained as a compatibility
+path. Each canonical inventory record contains path, lowercase SHA-256, and four
+octal permission digits. Special permission bits are rejected; every file must
+be owner-readable and runtime/Manager/helper files must be owner-executable. The
+signature is over the exact manifest bytes. On Termux, Core may use
 the already-present `$PREFIX/bin/openssl` for Ed25519 verification and SHA-256;
 it must fail clearly if that executable or the pinned public key is unavailable
 and must never install a crypto package itself.
+
+`codex update --remote <HTTPS_BASE_URL>` adds only acquisition in front of that
+same local admission/staging/probe/activation path. The base is at most 4,096
+ASCII bytes, begins exactly with `https://`, ends in `/`, and contains no
+credentials, query, fragment, whitespace/control byte, or backslash. It names
+one generation directory: after signature admission, its final path component
+must equal the manifest generation identity encoded as canonical UTF-8 URL-path
+bytes. Core never follows a redirect or tries another URL.
+
+The remote resources are exactly `<base>release.manifest`,
+`<base>release.sig`, and the files named by the signed inventory. Inventory URLs
+are derived only by preserving `/` separators and percent-encoding every UTF-8
+path byte outside the RFC 3986 unreserved set. Every resulting resource URL is
+also at most 4,096 ASCII bytes. Core verifies the bounded manifest and signature
+with the bootstrap-pinned key before acquiring generation content, then verifies
+the assembled bundle again through the local B4 admission before staging. This
+file-addressed release transport is not an archive and does not weaken the
+archive-safety requirements for later upstream-artifact work.
+
+Remote acquisition creates directories with owner-only access, creates response
+files owner-readable, and after each content digest succeeds applies the exact
+signed permission mode before whole-bundle verification. Local admission checks
+the same mode inventory before and after staging. Mode reconstruction therefore
+does not depend on HTTP metadata, curl defaults, or a blanket executable bit.
+
+Remote transport is exactly the existing `$PREFIX/bin/curl`, independent of the
+patched upstream runtime and compatibility resolver. Before network I/O, Core
+requires that curl, `$PREFIX/bin/openssl`, and the pinned public key are present.
+The curl child loads no user config, inherits no environment/proxy settings,
+permits HTTPS only, uses the Termux certificate file/directory, applies a
+15-second connect timeout and a 300-second transfer timeout, and writes response
+bytes only to a caller-created regular file. Manifest and signature retain their
+128 KiB and 1 KiB limits; each generation-file response is limited to 512 MiB
+and the sum of all response bytes is limited to 1 GiB. Curl and Core both enforce
+the applicable remaining byte bound. A transport or bound failure is terminal
+for that explicit attempt.
+
+Acquisition uses one create-new `.acquire-<pid>-<counter>` directory beneath the
+generation root and create-new output files beneath that directory. Core attempts
+cleanup after every acquisition outcome, and remote success is impossible until
+that cleanup succeeds. A cleanup error is terminal and preserves the authoritative
+activation pointers. An uncatchable process kill or a filesystem cleanup failure
+may leave a dot-prefixed partial directory; Core never scans, launches, verifies
+as a generation, or activates such a path, and later work must not add a retry,
+fallback, or registry merely for it. Remote success reports
+`activated remote generation <id>`; every failure preserves the authoritative
+activation pointers.
 
 ## 9. Doctor contract
 

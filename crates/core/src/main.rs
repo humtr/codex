@@ -2163,13 +2163,25 @@ const CORE_API_IDENTITY: &str = "core-api-v1";
 #[cfg(unix)]
 const PERSISTENT_SCHEMA_IDENTITY: &str = "schema-v1";
 #[cfg(unix)]
-const LOCAL_RELEASE_FORMAT: &str = "codex-release-v1";
+const LOCAL_RELEASE_FORMAT: &str = "codex-release-v2";
 #[cfg(unix)]
 const LOCAL_RELEASE_CHANNEL: &str = "stable";
 #[cfg(unix)]
 const LOCAL_RELEASE_MAX_BYTES: usize = 128 * 1024;
 #[cfg(unix)]
 const LOCAL_RELEASE_MAX_FILES: usize = 4096;
+#[cfg(unix)]
+const LOCAL_RELEASE_SIGNATURE_MAX_BYTES: u64 = 1024;
+#[cfg(unix)]
+const REMOTE_RELEASE_URL_MAX_BYTES: usize = 4096;
+#[cfg(unix)]
+const REMOTE_RELEASE_FILE_MAX_BYTES: u64 = 512 * 1024 * 1024;
+#[cfg(unix)]
+const REMOTE_RELEASE_TOTAL_MAX_BYTES: u64 = 1024 * 1024 * 1024;
+#[cfg(unix)]
+const REMOTE_CONNECT_TIMEOUT_SECONDS: &str = "15";
+#[cfg(unix)]
+const REMOTE_TRANSFER_TIMEOUT_SECONDS: &str = "300";
 
 #[cfg(unix)]
 #[derive(Debug, Clone)]
@@ -2182,6 +2194,7 @@ struct LocalCoreRoots {
     cert_dir: std::path::PathBuf,
     release_public_key: std::path::PathBuf,
     openssl: std::path::PathBuf,
+    curl: std::path::PathBuf,
 }
 
 #[cfg(unix)]
@@ -2199,6 +2212,7 @@ impl LocalCoreRoots {
             cert_dir: prefix.join("etc/tls/certs"),
             release_public_key: home.join(".local/lib/codex/core/release-public-key.pem"),
             openssl: prefix.join("bin/openssl"),
+            curl: prefix.join("bin/curl"),
         })
     }
 }
@@ -2220,11 +2234,16 @@ enum LocalProductError {
     GenerationCollision,
     Release(&'static str),
     OpenSslUnavailable,
+    CurlUnavailable,
     TrustedReleaseKeyUnavailable,
     OpenSslFailed(&'static str),
+    Remote(&'static str),
+    RemoteTransportFailed,
+    RemoteResponseTooLarge,
     SignatureRejected,
     ReleasePolicy(&'static str),
     ReleaseDigestMismatch,
+    ReleaseModeMismatch,
     ReleaseSequenceRollback,
     CandidateProbe(&'static str),
     Manifest(GenerationManifestError),
@@ -2261,11 +2280,19 @@ impl std::fmt::Display for LocalProductError {
             }
             LocalProductError::Release(message) => f.write_str(message),
             LocalProductError::OpenSslUnavailable => f.write_str("Termux OpenSSL is unavailable"),
+            LocalProductError::CurlUnavailable => f.write_str("Termux curl is unavailable"),
             LocalProductError::TrustedReleaseKeyUnavailable => {
                 f.write_str("trusted release public key is unavailable")
             }
             LocalProductError::OpenSslFailed(operation) => {
                 write!(f, "OpenSSL {operation} failed")
+            }
+            LocalProductError::Remote(message) => f.write_str(message),
+            LocalProductError::RemoteTransportFailed => {
+                f.write_str("remote release transport failed")
+            }
+            LocalProductError::RemoteResponseTooLarge => {
+                f.write_str("remote release response exceeds its byte bound")
             }
             LocalProductError::SignatureRejected => {
                 f.write_str("release signature verification failed")
@@ -2273,6 +2300,9 @@ impl std::fmt::Display for LocalProductError {
             LocalProductError::ReleasePolicy(message) => f.write_str(message),
             LocalProductError::ReleaseDigestMismatch => {
                 f.write_str("release file inventory digest mismatch")
+            }
+            LocalProductError::ReleaseModeMismatch => {
+                f.write_str("release file inventory mode mismatch")
             }
             LocalProductError::ReleaseSequenceRollback => {
                 f.write_str("release sequence is not newer than the active release")
@@ -2314,9 +2344,273 @@ fn required_absolute_env_path(name: &'static str) -> Result<std::path::PathBuf, 
 
 #[cfg(unix)]
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ReleaseFileDigest {
+struct RemoteReleaseBase {
+    value: String,
+}
+
+#[cfg(unix)]
+fn valid_remote_port(value: &str) -> bool {
+    !value.is_empty()
+        && value.as_bytes().iter().all(u8::is_ascii_digit)
+        && value.parse::<u16>().is_ok_and(|port| port != 0)
+}
+
+#[cfg(unix)]
+fn valid_remote_authority(value: &str) -> bool {
+    if value.is_empty() || value.contains('@') {
+        return false;
+    }
+    if let Some(ipv6) = value.strip_prefix('[') {
+        let Some((address, suffix)) = ipv6.split_once(']') else {
+            return false;
+        };
+        if address.parse::<std::net::Ipv6Addr>().is_err() {
+            return false;
+        }
+        return suffix.is_empty() || suffix.strip_prefix(':').is_some_and(valid_remote_port);
+    }
+
+    let mut authority = value.split(':');
+    let host = authority.next().unwrap_or_default();
+    let port = authority.next();
+    if authority.next().is_some() || port.is_some_and(|port| !valid_remote_port(port)) {
+        return false;
+    }
+    !host.is_empty()
+        && host.split('.').all(|label| {
+            !label.is_empty()
+                && label.len() <= 63
+                && !label.starts_with('-')
+                && !label.ends_with('-')
+                && label
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        })
+}
+
+#[cfg(unix)]
+fn remote_unreserved(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~')
+}
+
+#[cfg(unix)]
+fn uppercase_hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+#[cfg(unix)]
+fn valid_canonical_remote_path_component(value: &str) -> bool {
+    if value.is_empty() || matches!(value, "." | "..") {
+        return false;
+    }
+    let bytes = value.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if remote_unreserved(bytes[index]) {
+            index += 1;
+            continue;
+        }
+        if bytes[index] != b'%' || index + 2 >= bytes.len() {
+            return false;
+        }
+        let Some(high) = uppercase_hex_value(bytes[index + 1]) else {
+            return false;
+        };
+        let Some(low) = uppercase_hex_value(bytes[index + 2]) else {
+            return false;
+        };
+        let decoded = (high << 4) | low;
+        if remote_unreserved(decoded)
+            || decoded.is_ascii_control()
+            || matches!(decoded, b'/' | b'\\')
+        {
+            return false;
+        }
+        index += 3;
+    }
+    true
+}
+
+#[cfg(unix)]
+fn percent_encode_remote_path(value: &str) -> String {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+
+    let mut encoded = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        if byte == b'/' || remote_unreserved(byte) {
+            encoded.push(byte as char);
+        } else {
+            encoded.push('%');
+            encoded.push(HEX[(byte >> 4) as usize] as char);
+            encoded.push(HEX[(byte & 0x0f) as usize] as char);
+        }
+    }
+    encoded
+}
+
+#[cfg(unix)]
+impl RemoteReleaseBase {
+    fn parse(value: &OsStr) -> Result<Self, LocalProductError> {
+        let value = value.to_str().ok_or(LocalProductError::Remote(
+            "remote release base URL is not UTF-8",
+        ))?;
+        if value.is_empty()
+            || value.len() > REMOTE_RELEASE_URL_MAX_BYTES
+            || !value.is_ascii()
+            || value
+                .bytes()
+                .any(|byte| byte.is_ascii_whitespace() || byte.is_ascii_control())
+            || value.contains(['?', '#', '\\'])
+            || !value.ends_with('/')
+        {
+            return Err(LocalProductError::Remote(
+                "remote release base URL is not canonical",
+            ));
+        }
+        let remainder = value
+            .strip_prefix("https://")
+            .ok_or(LocalProductError::Remote(
+                "remote release base URL must use HTTPS",
+            ))?;
+        let (authority, path) = remainder.split_once('/').ok_or(LocalProductError::Remote(
+            "remote release base URL has no generation path",
+        ))?;
+        let path = path.strip_suffix('/').unwrap_or_default();
+        if !valid_remote_authority(authority)
+            || path.is_empty()
+            || !path.split('/').all(valid_canonical_remote_path_component)
+        {
+            return Err(LocalProductError::Remote(
+                "remote release base URL is not canonical",
+            ));
+        }
+        Ok(Self {
+            value: value.to_owned(),
+        })
+    }
+
+    fn resource_url(&self, relative_path: &str) -> Result<String, LocalProductError> {
+        if !matches!(relative_path, "release.manifest" | "release.sig")
+            && !valid_release_relative_path(relative_path)
+        {
+            return Err(LocalProductError::Remote(
+                "remote release resource path is invalid",
+            ));
+        }
+        let url = format!(
+            "{}{}",
+            self.value,
+            percent_encode_remote_path(relative_path)
+        );
+        if url.len() > REMOTE_RELEASE_URL_MAX_BYTES {
+            return Err(LocalProductError::Remote(
+                "remote release resource URL is too large",
+            ));
+        }
+        Ok(url)
+    }
+
+    fn matches_generation_identity(&self, generation_id: &str) -> Result<bool, LocalProductError> {
+        m2_generation_state::validate_generation_identity(generation_id, "remote generation_id")
+            .map_err(LocalProductError::StateFormat)?;
+        let expected = percent_encode_remote_path(generation_id);
+        Ok(self
+            .value
+            .strip_suffix('/')
+            .and_then(|value| value.rsplit('/').next())
+            == Some(expected.as_str()))
+    }
+}
+
+#[cfg(unix)]
+fn ensure_curl_available(curl: &std::path::Path) -> Result<(), LocalProductError> {
+    let metadata =
+        std::fs::symlink_metadata(curl).map_err(|_| LocalProductError::CurlUnavailable)?;
+    if !metadata.file_type().is_file() {
+        return Err(LocalProductError::CurlUnavailable);
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn fetch_remote_file(
+    roots: &LocalCoreRoots,
+    url: &str,
+    output: &std::fs::File,
+    max_bytes: u64,
+) -> Result<u64, LocalProductError> {
+    ensure_curl_available(&roots.curl)?;
+    if max_bytes == 0 || max_bytes > REMOTE_RELEASE_TOTAL_MAX_BYTES {
+        return Err(LocalProductError::Remote(
+            "remote release response bound is invalid",
+        ));
+    }
+    let metadata = output.metadata().map_err(|source| LocalProductError::Io {
+        operation: "inspect remote release output",
+        source,
+    })?;
+    if !metadata.file_type().is_file() || metadata.len() != 0 {
+        return Err(LocalProductError::Remote(
+            "remote release output must be an empty regular file",
+        ));
+    }
+    let child_output = output.try_clone().map_err(|source| LocalProductError::Io {
+        operation: "duplicate remote release output",
+        source,
+    })?;
+    let status = std::process::Command::new(&roots.curl)
+        .arg("--disable")
+        .args(["--fail", "--silent", "--show-error", "--proto", "=https"])
+        .arg("--cacert")
+        .arg(&roots.cert_file)
+        .arg("--capath")
+        .arg(&roots.cert_dir)
+        .args([
+            "--connect-timeout",
+            REMOTE_CONNECT_TIMEOUT_SECONDS,
+            "--max-time",
+            REMOTE_TRANSFER_TIMEOUT_SECONDS,
+            "--max-filesize",
+        ])
+        .arg(max_bytes.to_string())
+        .arg("--url")
+        .arg(url)
+        .env_clear()
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::from(child_output))
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map_err(|_| LocalProductError::CurlUnavailable)?;
+    if !status.success() {
+        return Err(LocalProductError::RemoteTransportFailed);
+    }
+    output.sync_all().map_err(|source| LocalProductError::Io {
+        operation: "sync remote release output",
+        source,
+    })?;
+    let observed = output
+        .metadata()
+        .map_err(|source| LocalProductError::Io {
+            operation: "inspect downloaded remote release output",
+            source,
+        })?
+        .len();
+    if observed > max_bytes {
+        return Err(LocalProductError::RemoteResponseTooLarge);
+    }
+    Ok(observed)
+}
+
+#[cfg(unix)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ReleaseFileEntry {
     relative_path: String,
     sha256: String,
+    mode: u32,
 }
 
 #[cfg(unix)]
@@ -2329,7 +2623,7 @@ struct LocalReleaseManifest {
     expected_architecture: String,
     core_api_identity: String,
     persistent_schema_identity: String,
-    files: Vec<ReleaseFileDigest>,
+    files: Vec<ReleaseFileEntry>,
 }
 
 #[cfg(unix)]
@@ -2352,6 +2646,35 @@ fn valid_positive_decimal(value: &str) -> bool {
 #[cfg(unix)]
 fn valid_nonnegative_decimal(value: &str) -> bool {
     value == "0" || valid_positive_decimal(value)
+}
+
+#[cfg(unix)]
+fn parse_release_file_mode(value: &str, relative_path: &str) -> Result<u32, LocalProductError> {
+    if value.len() != 4
+        || !value.starts_with('0')
+        || !value.as_bytes()[1..]
+            .iter()
+            .all(|byte| matches!(*byte, b'0'..=b'7'))
+    {
+        return Err(LocalProductError::Release(
+            "release file inventory mode is invalid",
+        ));
+    }
+    let mode = u32::from_str_radix(value, 8)
+        .map_err(|_| LocalProductError::Release("release file inventory mode is invalid"))?;
+    if mode & 0o400 == 0 {
+        return Err(LocalProductError::ReleasePolicy(
+            "release file is not owner-readable",
+        ));
+    }
+    if (matches!(relative_path, "runtime" | "manager") || relative_path.starts_with("helpers/"))
+        && mode & 0o100 == 0
+    {
+        return Err(LocalProductError::ReleasePolicy(
+            "release executable file is not owner-executable",
+        ));
+    }
+    Ok(mode)
 }
 
 #[cfg(unix)]
@@ -2454,6 +2777,10 @@ fn parse_local_release_manifest(bytes: &[u8]) -> Result<LocalReleaseManifest, Lo
             .ok_or(LocalProductError::Release(
                 "release file inventory digest is invalid",
             ))?;
+        let mode = parts.next().ok_or(LocalProductError::Release(
+            "release file inventory mode is missing",
+        ))?;
+        let mode = parse_release_file_mode(mode, relative_path)?;
         if parts.next().is_some() {
             return Err(LocalProductError::Release(
                 "release file inventory entry has extra fields",
@@ -2468,9 +2795,10 @@ fn parse_local_release_manifest(bytes: &[u8]) -> Result<LocalReleaseManifest, Lo
             ));
         }
         previous = Some(relative_path.to_owned());
-        files.push(ReleaseFileDigest {
+        files.push(ReleaseFileEntry {
             relative_path: relative_path.to_owned(),
             sha256: sha256.to_owned(),
+            mode,
         });
     }
     if lines.next().is_some() {
@@ -2550,7 +2878,9 @@ fn verify_release_signature(
             operation: "inspect release signature",
             source,
         })?;
-    if !signature_metadata.file_type().is_file() || signature_metadata.len() > 1024 {
+    if !signature_metadata.file_type().is_file()
+        || signature_metadata.len() > LOCAL_RELEASE_SIGNATURE_MAX_BYTES
+    {
         return Err(LocalProductError::Release(
             "release signature is not a bounded regular file",
         ));
@@ -2950,16 +3280,25 @@ fn verify_release_inventory(
         if openssl_sha256(openssl, &generation_dir.join(&file.relative_path))? != file.sha256 {
             return Err(LocalProductError::ReleaseDigestMismatch);
         }
+        use std::os::unix::fs::PermissionsExt as _;
+        let metadata = std::fs::symlink_metadata(generation_dir.join(&file.relative_path))
+            .map_err(|source| LocalProductError::Io {
+                operation: "inspect release file mode",
+                source,
+            })?;
+        if metadata.permissions().mode() & 0o7777 != file.mode {
+            return Err(LocalProductError::ReleaseModeMismatch);
+        }
     }
     Ok(loaded)
 }
 
 #[cfg(unix)]
-fn verify_local_release_bundle(
+fn verify_local_release_control(
     generation_dir: &std::path::Path,
     openssl: &std::path::Path,
     trusted_key: &std::path::Path,
-) -> Result<(LocalReleaseManifest, LoadedLocalGeneration), LocalProductError> {
+) -> Result<LocalReleaseManifest, LocalProductError> {
     ensure_openssl_available(openssl)?;
     ensure_trusted_release_key(trusted_key)?;
     ensure_real_directory(
@@ -2992,6 +3331,16 @@ fn verify_local_release_bundle(
         &generation_dir.join("release.sig"),
     )?;
     validate_local_release_policy(&manifest)?;
+    Ok(manifest)
+}
+
+#[cfg(unix)]
+fn verify_local_release_bundle(
+    generation_dir: &std::path::Path,
+    openssl: &std::path::Path,
+    trusted_key: &std::path::Path,
+) -> Result<(LocalReleaseManifest, LoadedLocalGeneration), LocalProductError> {
+    let manifest = verify_local_release_control(generation_dir, openssl, trusted_key)?;
     let loaded = verify_release_inventory(openssl, generation_dir, &manifest)?;
     Ok((manifest, loaded))
 }
@@ -3334,11 +3683,18 @@ fn probe_release_candidate(
 }
 
 #[cfg(unix)]
-fn activate_signed_local_release(
+#[derive(Debug)]
+struct PreparedLocalActivation {
+    before: Option<m2_generation_state::GenerationPointerState>,
+    generation_id: String,
+    staged_loaded: LoadedLocalGeneration,
+}
+
+#[cfg(unix)]
+fn prepare_signed_local_release(
     source_dir: &std::path::Path,
     roots: &LocalCoreRoots,
-    process_env: &TermuxProcessEnvSnapshot,
-) -> Result<String, LocalProductError> {
+) -> Result<PreparedLocalActivation, LocalProductError> {
     let (source_release, _) =
         verify_local_release_bundle(source_dir, &roots.openssl, &roots.release_public_key)?;
     let state_paths = m2_generation_state::CoreStatePaths::new(&roots.state_root)
@@ -3372,22 +3728,297 @@ fn activate_signed_local_release(
         ));
     }
 
+    Ok(PreparedLocalActivation {
+        before,
+        generation_id,
+        staged_loaded,
+    })
+}
+
+#[cfg(unix)]
+fn activate_prepared_local_release(
+    prepared: PreparedLocalActivation,
+    roots: &LocalCoreRoots,
+    process_env: &TermuxProcessEnvSnapshot,
+) -> Result<String, LocalProductError> {
     std::fs::create_dir_all(&roots.config_dir).map_err(|source| LocalProductError::Io {
         operation: "create Core config directory",
         source,
     })?;
-    probe_release_candidate(&staged_loaded, roots, process_env)?;
+    probe_release_candidate(&prepared.staged_loaded, roots, process_env)?;
 
+    let state_paths = m2_generation_state::CoreStatePaths::new(&roots.state_root)
+        .map_err(LocalProductError::StateFormat)?;
     m2_generation_state::prepare_core_state_paths(&state_paths)
         .map_err(LocalProductError::State)?;
-    let after = match before.as_ref() {
-        Some(before) => m2_generation_state::plan_activation_pointer_state(before, &generation_id),
-        None => m2_generation_state::plan_initial_pointer_state(&generation_id),
+    let after = match prepared.before.as_ref() {
+        Some(before) => {
+            m2_generation_state::plan_activation_pointer_state(before, &prepared.generation_id)
+        }
+        None => m2_generation_state::plan_initial_pointer_state(&prepared.generation_id),
     }
     .map_err(LocalProductError::StateFormat)?;
-    m2_generation_state::activate_pointer_state(&state_paths, before.as_ref(), &after)
+    m2_generation_state::activate_pointer_state(&state_paths, prepared.before.as_ref(), &after)
         .map_err(LocalProductError::State)?;
-    Ok(generation_id)
+    Ok(prepared.generation_id)
+}
+
+#[cfg(unix)]
+fn activate_signed_local_release(
+    source_dir: &std::path::Path,
+    roots: &LocalCoreRoots,
+    process_env: &TermuxProcessEnvSnapshot,
+) -> Result<String, LocalProductError> {
+    let prepared = prepare_signed_local_release(source_dir, roots)?;
+    activate_prepared_local_release(prepared, roots, process_env)
+}
+
+#[cfg(unix)]
+static REMOTE_ACQUISITION_COUNTER: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+#[cfg(unix)]
+fn create_remote_acquisition_root(path: &std::path::Path) -> Result<(), LocalProductError> {
+    use std::os::unix::fs::DirBuilderExt;
+
+    let mut builder = std::fs::DirBuilder::new();
+    builder.mode(0o700);
+    builder
+        .create(path)
+        .map_err(|source| LocalProductError::Io {
+            operation: "create private remote acquisition root",
+            source,
+        })
+}
+
+#[cfg(unix)]
+fn ensure_remote_private_directory(path: &std::path::Path) -> Result<(), LocalProductError> {
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_dir() => {}
+        Ok(_) => {
+            return Err(LocalProductError::UnsafeSource(
+                "remote acquisition path contains a non-directory",
+            ))
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            let mut builder = std::fs::DirBuilder::new();
+            builder.mode(0o700);
+            builder
+                .create(path)
+                .map_err(|source| LocalProductError::Io {
+                    operation: "create remote acquisition directory",
+                    source,
+                })?;
+        }
+        Err(source) => {
+            return Err(LocalProductError::Io {
+                operation: "inspect remote acquisition directory",
+                source,
+            })
+        }
+    }
+    let mut permissions = std::fs::symlink_metadata(path)
+        .map_err(|source| LocalProductError::Io {
+            operation: "inspect created remote acquisition directory",
+            source,
+        })?
+        .permissions();
+    permissions.set_mode(0o700);
+    std::fs::set_permissions(path, permissions).map_err(|source| LocalProductError::Io {
+        operation: "set remote acquisition directory permissions",
+        source,
+    })?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn create_remote_output(path: &std::path::Path) -> Result<std::fs::File, LocalProductError> {
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
+        .map_err(|source| LocalProductError::Io {
+            operation: "create remote release output",
+            source,
+        })?;
+    let mut permissions = file
+        .metadata()
+        .map_err(|source| LocalProductError::Io {
+            operation: "inspect created remote release output",
+            source,
+        })?
+        .permissions();
+    permissions.set_mode(0o600);
+    file.set_permissions(permissions)
+        .map_err(|source| LocalProductError::Io {
+            operation: "set remote release output permissions",
+            source,
+        })?;
+    Ok(file)
+}
+
+#[cfg(unix)]
+fn ensure_remote_resource_parent(
+    acquisition_root: &std::path::Path,
+    relative_path: &str,
+) -> Result<(), LocalProductError> {
+    if !valid_release_relative_path(relative_path) {
+        return Err(LocalProductError::Remote(
+            "remote release resource path is invalid",
+        ));
+    }
+    let Some(parent) = std::path::Path::new(relative_path).parent() else {
+        return Ok(());
+    };
+    let mut current = acquisition_root.to_path_buf();
+    for component in parent.components() {
+        let std::path::Component::Normal(component) = component else {
+            return Err(LocalProductError::Remote(
+                "remote release resource path is invalid",
+            ));
+        };
+        current.push(component);
+        ensure_remote_private_directory(&current)?;
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn fetch_remote_resource(
+    roots: &LocalCoreRoots,
+    base: &RemoteReleaseBase,
+    relative_path: &str,
+    destination: &std::path::Path,
+    response_limit: u64,
+    acquired_bytes: &mut u64,
+) -> Result<(), LocalProductError> {
+    let remaining = REMOTE_RELEASE_TOTAL_MAX_BYTES
+        .checked_sub(*acquired_bytes)
+        .ok_or(LocalProductError::RemoteResponseTooLarge)?;
+    let limit = response_limit.min(remaining);
+    if limit == 0 {
+        return Err(LocalProductError::RemoteResponseTooLarge);
+    }
+    let url = base.resource_url(relative_path)?;
+    let output = create_remote_output(destination)?;
+    let observed = fetch_remote_file(roots, &url, &output, limit)?;
+    *acquired_bytes = acquired_bytes
+        .checked_add(observed)
+        .filter(|total| *total <= REMOTE_RELEASE_TOTAL_MAX_BYTES)
+        .ok_or(LocalProductError::RemoteResponseTooLarge)?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn acquire_remote_release_source(
+    roots: &LocalCoreRoots,
+    base: &RemoteReleaseBase,
+    acquisition_root: &std::path::Path,
+) -> Result<(), LocalProductError> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let mut acquired_bytes = 0;
+    fetch_remote_resource(
+        roots,
+        base,
+        "release.manifest",
+        &acquisition_root.join("release.manifest"),
+        LOCAL_RELEASE_MAX_BYTES as u64,
+        &mut acquired_bytes,
+    )?;
+    fetch_remote_resource(
+        roots,
+        base,
+        "release.sig",
+        &acquisition_root.join("release.sig"),
+        LOCAL_RELEASE_SIGNATURE_MAX_BYTES,
+        &mut acquired_bytes,
+    )?;
+    let manifest =
+        verify_local_release_control(acquisition_root, &roots.openssl, &roots.release_public_key)?;
+    if !base.matches_generation_identity(&manifest.generation_id)? {
+        return Err(LocalProductError::Remote(
+            "remote release base does not match signed generation identity",
+        ));
+    }
+
+    ensure_remote_private_directory(&acquisition_root.join("compat"))?;
+    for file in &manifest.files {
+        ensure_remote_resource_parent(acquisition_root, &file.relative_path)?;
+        let destination = acquisition_root.join(&file.relative_path);
+        fetch_remote_resource(
+            roots,
+            base,
+            &file.relative_path,
+            &destination,
+            REMOTE_RELEASE_FILE_MAX_BYTES,
+            &mut acquired_bytes,
+        )?;
+        if openssl_sha256(&roots.openssl, &destination)? != file.sha256 {
+            return Err(LocalProductError::ReleaseDigestMismatch);
+        }
+        let mut permissions = std::fs::symlink_metadata(&destination)
+            .map_err(|source| LocalProductError::Io {
+                operation: "inspect acquired remote release file",
+                source,
+            })?
+            .permissions();
+        permissions.set_mode(file.mode);
+        std::fs::set_permissions(&destination, permissions).map_err(|source| {
+            LocalProductError::Io {
+                operation: "apply signed remote release file mode",
+                source,
+            }
+        })?;
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn activate_signed_remote_release(
+    base: &OsStr,
+    roots: &LocalCoreRoots,
+    process_env: &TermuxProcessEnvSnapshot,
+) -> Result<String, LocalProductError> {
+    let base = RemoteReleaseBase::parse(base)?;
+    ensure_openssl_available(&roots.openssl)?;
+    ensure_trusted_release_key(&roots.release_public_key)?;
+    ensure_curl_available(&roots.curl)?;
+    std::fs::create_dir_all(&roots.generation_root).map_err(|source| LocalProductError::Io {
+        operation: "create immutable generation root",
+        source,
+    })?;
+    ensure_real_directory(
+        &roots.generation_root,
+        "inspect immutable generation root",
+        "immutable generation root is not a real directory",
+    )?;
+    let sequence = REMOTE_ACQUISITION_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let acquisition_root = roots
+        .generation_root
+        .join(format!(".acquire-{}-{sequence}", std::process::id()));
+    create_remote_acquisition_root(&acquisition_root)?;
+
+    let prepared = (|| {
+        acquire_remote_release_source(roots, &base, &acquisition_root)?;
+        prepare_signed_local_release(&acquisition_root, roots)
+    })();
+    let cleanup =
+        std::fs::remove_dir_all(&acquisition_root).map_err(|source| LocalProductError::Io {
+            operation: "remove remote acquisition directory",
+            source,
+        });
+    let prepared = match (prepared, cleanup) {
+        (_, Err(err)) => return Err(err),
+        (Err(err), Ok(())) => return Err(err),
+        (Ok(prepared), Ok(())) => prepared,
+    };
+    activate_prepared_local_release(prepared, roots, process_env)
 }
 
 #[cfg(unix)]
@@ -3410,11 +4041,14 @@ fn rollback_signed_local_release(roots: &LocalCoreRoots) -> Result<String, Local
 }
 
 #[cfg(unix)]
-fn run_local_update(args: Vec<OsString>) -> i32 {
+fn run_core_update(args: Vec<OsString>) -> i32 {
     let local = args.len() == 2 && args[0] == OsStr::new("--local") && !args[1].is_empty();
+    let remote = args.len() == 2 && args[0] == OsStr::new("--remote") && !args[1].is_empty();
     let rollback = args.len() == 1 && args[0] == OsStr::new("--rollback");
-    if !local && !rollback {
-        eprintln!("usage: codex update (--local <directory> | --rollback)");
+    if !local && !remote && !rollback {
+        eprintln!(
+            "usage: codex update (--local <DIRECTORY> | --remote <HTTPS_BASE_URL> | --rollback)"
+        );
         return 2;
     }
     let roots = match LocalCoreRoots::from_environment() {
@@ -3424,10 +4058,14 @@ fn run_local_update(args: Vec<OsString>) -> i32 {
             return 1;
         }
     };
-    let result = if local {
+    let result = if local || remote {
         let process_env = capture_termux_process_env();
-        let source = std::path::PathBuf::from(&args[1]);
-        activate_signed_local_release(&source, &roots, &process_env)
+        if local {
+            let source = std::path::PathBuf::from(&args[1]);
+            activate_signed_local_release(&source, &roots, &process_env)
+        } else {
+            activate_signed_remote_release(&args[1], &roots, &process_env)
+        }
     } else {
         rollback_signed_local_release(&roots)
     };
@@ -3435,6 +4073,8 @@ fn run_local_update(args: Vec<OsString>) -> i32 {
         Ok(generation_id) => {
             if rollback {
                 println!("rolled back to local generation {generation_id}");
+            } else if remote {
+                println!("activated remote generation {generation_id}");
             } else {
                 println!("activated local generation {generation_id}");
             }
@@ -3461,7 +4101,7 @@ where
         }
     };
     if let PublicDispatchRoute::Update(args) = route {
-        return run_local_update(args);
+        return run_core_update(args);
     }
     let roots = match LocalCoreRoots::from_environment() {
         Ok(roots) => roots,
@@ -3836,9 +4476,18 @@ mod tests {
         let id = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let root =
             std::env::temp_dir().join(format!("codex-r2-{label}-{}-{id}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+        remove_temp_root(&root);
         std::fs::create_dir_all(&root).unwrap();
         root
+    }
+
+    fn remove_temp_root(path: impl AsRef<std::path::Path>) {
+        let path = path.as_ref();
+        match std::fs::remove_dir_all(path) {
+            Ok(()) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => panic!("remove test temporary root {}: {err}", path.display()),
+        }
     }
 
     #[cfg(unix)]
@@ -3862,6 +4511,11 @@ mod tests {
         let shell = std::str::from_utf8(shell.as_bytes()).expect("test shell path must be UTF-8");
         let path = root.join("fake-codex");
         let body = r#"
+if [ "${CODEX_TEST_REQUIRE_NO_ACQUISITION:-}" = "1" ]; then
+  for acquisition in "$HOME"/.local/lib/codex/core/generations/.acquire-*; do
+    [ ! -e "$acquisition" ] || exit 96
+  done
+fi
 if [ "$1" = "-c" ]; then
   [ "$2" = 'sandbox_mode="danger-full-access"' ] || exit 91
   shift 2
@@ -4117,7 +4771,7 @@ exit 73
         assert!(result.stdout.windows(6).any(|w| w == b"ENV_OK"));
         assert!(result.stderr.windows(11).any(|w| w == b"STDERR_MARK"));
         assert_eq!(std::fs::read(&resolver).unwrap(), before);
-        let _ = std::fs::remove_dir_all(root);
+        remove_temp_root(root);
     }
 
     #[cfg(unix)]
@@ -4132,7 +4786,7 @@ exit 73
         assert_eq!(through.status.code(), direct.status.code());
         assert_eq!(through.stdout, direct.stdout);
         assert_eq!(through.stderr, direct.stderr);
-        let _ = std::fs::remove_dir_all(root);
+        remove_temp_root(root);
     }
 
     #[cfg(unix)]
@@ -4182,7 +4836,7 @@ exit 73
         assert_eq!(unsafe { kill(child.id() as i32, 15) }, 0);
         let status = child.wait().unwrap();
         assert_eq!(status.code(), Some(143));
-        let _ = std::fs::remove_dir_all(root);
+        remove_temp_root(root);
     }
 
     #[cfg(unix)]
@@ -4221,7 +4875,7 @@ exit 73
             .unwrap();
         drop(master);
         assert_eq!(status.code(), Some(0));
-        let _ = std::fs::remove_dir_all(root);
+        remove_temp_root(root);
     }
 
     #[cfg(unix)]
@@ -4308,7 +4962,7 @@ exit 73
             .contains("\"upstream\":{\"status\":\"healthy\"}"));
         assert!(!outcome.output.contains("SECRET-UPSTREAM"));
         assert_eq!(std::fs::read(&resolver).unwrap(), before);
-        let _ = std::fs::remove_dir_all(root);
+        remove_temp_root(root);
     }
 
     #[cfg(unix)]
@@ -4372,7 +5026,7 @@ exit 73
             .windows(b"ARGS:<status><".len())
             .any(|w| w == b"ARGS:<status><"));
         assert!(result.stdout.windows(2).any(|w| w == [0xff, b'm']));
-        let _ = std::fs::remove_dir_all(root);
+        remove_temp_root(root);
     }
 
     #[cfg(unix)]
@@ -4427,7 +5081,7 @@ exit 73
         assert_eq!(through.stderr, direct.stderr);
         assert_eq!(protected_snapshot(&resolver).unwrap(), resolver_before);
         assert_eq!(protected_snapshot(&launcher).unwrap(), launcher_before);
-        let _ = std::fs::remove_dir_all(root);
+        remove_temp_root(root);
     }
 
     #[cfg(unix)]
@@ -4442,6 +5096,7 @@ exit 73
             cert_dir: root.join("certs"),
             release_public_key: root.join("release-public-key.pem"),
             openssl: root.join("openssl"),
+            curl: root.join("curl"),
         };
         std::fs::create_dir(&roots.generation_root).unwrap();
         std::fs::write(&roots.resolver_path, b"nameserver 127.0.0.1\n").unwrap();
@@ -4534,7 +5189,7 @@ exit 73
                 ..
             })
         ));
-        let _ = std::fs::remove_dir_all(root);
+        remove_temp_root(root);
     }
 
     #[cfg(unix)]
@@ -4551,7 +5206,7 @@ exit 73
                 "generation descriptor format is unsupported"
             ))
         ));
-        let _ = std::fs::remove_dir_all(root);
+        remove_temp_root(root);
     }
 
     #[cfg(unix)]
@@ -4572,7 +5227,7 @@ exit 73
             loaded.doctor_capability,
             UpstreamDoctorCapability::Supported
         );
-        let _ = std::fs::remove_dir_all(root);
+        remove_temp_root(root);
     }
 
     #[cfg(unix)]
@@ -4608,7 +5263,7 @@ exit 73
                 .unwrap(),
             PublicDispatchCompletion::TermuxUnavailable(TERMUX_MANAGER_UNAVAILABLE_MESSAGE)
         );
-        let _ = std::fs::remove_dir_all(root);
+        remove_temp_root(root);
     }
 
     #[cfg(unix)]
@@ -4651,6 +5306,7 @@ exit 73
             cert_dir: prefix.join("etc/tls/certs"),
             release_public_key: home.join(".local/lib/codex/core/release-public-key.pem"),
             openssl: prefix.join("bin/openssl"),
+            curl: prefix.join("bin/curl"),
         };
         std::fs::create_dir_all(&roots.generation_root).unwrap();
         std::fs::create_dir_all(roots.state_root.parent().unwrap()).unwrap();
@@ -4685,7 +5341,7 @@ exit 73
         assert_eq!(version.status.code(), Some(0));
         assert!(version.stdout.ends_with(b"codex-upstream 9.9.9\n"));
         assert_eq!(version.stderr, b"version-stderr\n");
-        let _ = std::fs::remove_dir_all(&root);
+        remove_temp_root(&root);
 
         let root = b2_public_main_fixture("b2-main-manager", true);
         let manager = run_public_main_probe(&root, "manager");
@@ -4694,7 +5350,7 @@ exit 73
             .stdout
             .windows(b"ARGS:<status>".len())
             .any(|w| w == b"ARGS:<status>"));
-        let _ = std::fs::remove_dir_all(root);
+        remove_temp_root(root);
     }
 
     #[cfg(unix)]
@@ -4777,8 +5433,8 @@ exit 73
         assert!(!staged.join("ignored-source-file").exists());
         assert!(b3_candidate_entries(&target.generation_root).is_empty());
 
-        let _ = std::fs::remove_dir_all(target_root);
-        let _ = std::fs::remove_dir_all(source_root);
+        remove_temp_root(target_root);
+        remove_temp_root(source_root);
     }
 
     #[cfg(unix)]
@@ -4809,8 +5465,8 @@ exit 73
         );
         assert!(!staged.join("helpers/unlisted").exists());
 
-        let _ = std::fs::remove_dir_all(target_root);
-        let _ = std::fs::remove_dir_all(source_root);
+        remove_temp_root(target_root);
+        remove_temp_root(source_root);
     }
 
     #[cfg(unix)]
@@ -4831,8 +5487,8 @@ exit 73
         assert!(!target.generation_root.join("broken").exists());
         assert!(b3_candidate_entries(&target.generation_root).is_empty());
 
-        let _ = std::fs::remove_dir_all(target_root);
-        let _ = std::fs::remove_dir_all(source_root);
+        remove_temp_root(target_root);
+        remove_temp_root(source_root);
     }
 
     #[cfg(unix)]
@@ -4856,8 +5512,8 @@ exit 73
         assert!(!target.generation_root.join("unsafe").exists());
         assert!(b3_candidate_entries(&target.generation_root).is_empty());
 
-        let _ = std::fs::remove_dir_all(target_root);
-        let _ = std::fs::remove_dir_all(source_root);
+        remove_temp_root(target_root);
+        remove_temp_root(source_root);
     }
 
     #[cfg(unix)]
@@ -4877,8 +5533,8 @@ exit 73
         assert_eq!(std::fs::read(final_path.join("sentinel")).unwrap(), b"keep");
         assert!(b3_candidate_entries(&target.generation_root).is_empty());
 
-        let _ = std::fs::remove_dir_all(target_root);
-        let _ = std::fs::remove_dir_all(source_root);
+        remove_temp_root(target_root);
+        remove_temp_root(source_root);
     }
 
     #[cfg(unix)]
@@ -4912,13 +5568,15 @@ exit 73
                 "activated generation descriptor id does not match current"
             ))
         ));
-        let _ = std::fs::remove_dir_all(root);
+        remove_temp_root(root);
     }
 
     #[cfg(unix)]
     const UPDATE_PROBE_ROLE: &str = "CODEX_R2_UPDATE_PROBE";
     #[cfg(unix)]
     const UPDATE_PROBE_SOURCE: &str = "CODEX_R2_UPDATE_SOURCE";
+    #[cfg(unix)]
+    const UPDATE_PROBE_REMOTE: &str = "CODEX_R2_UPDATE_REMOTE";
 
     #[cfg(unix)]
     fn b4_termux_openssl() -> std::path::PathBuf {
@@ -4994,6 +5652,11 @@ exit 73
             &runtime,
             format!(
                 r#"#!{shell}
+if [ "${{CODEX_TEST_REQUIRE_NO_ACQUISITION:-}}" = "1" ]; then
+  for acquisition in "$HOME"/.local/lib/codex/core/generations/.acquire-*; do
+    [ ! -e "$acquisition" ] || exit 96
+  done
+fi
 if [ "$1" = "-c" ]; then
   [ "$2" = 'sandbox_mode="danger-full-access"' ] || exit 90
   shift 2
@@ -5033,13 +5696,20 @@ esac
     fn b4_exact_release_inventory(
         generation_dir: &std::path::Path,
         openssl: &std::path::Path,
-    ) -> Vec<ReleaseFileDigest> {
+    ) -> Vec<ReleaseFileEntry> {
+        use std::os::unix::fs::PermissionsExt;
+
         let loaded = load_local_generation(generation_dir).unwrap();
         exact_release_file_paths(generation_dir, &loaded)
             .unwrap()
             .into_iter()
-            .map(|relative_path| ReleaseFileDigest {
+            .map(|relative_path| ReleaseFileEntry {
                 sha256: openssl_sha256(openssl, &generation_dir.join(&relative_path)).unwrap(),
+                mode: std::fs::symlink_metadata(generation_dir.join(&relative_path))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o7777,
                 relative_path,
             })
             .collect()
@@ -5051,7 +5721,7 @@ esac
         release_sequence: u64,
         openssl: &std::path::Path,
         private_key: &std::path::Path,
-        files: &[ReleaseFileDigest],
+        files: &[ReleaseFileEntry],
     ) {
         use std::fmt::Write as _;
 
@@ -5081,8 +5751,8 @@ esac
         for relative_path in files {
             writeln!(
                 &mut manifest,
-                "file\t{}\t{}",
-                relative_path.relative_path, relative_path.sha256
+                "file\t{}\t{}\t{:04o}",
+                relative_path.relative_path, relative_path.sha256, relative_path.mode
             )
             .unwrap();
         }
@@ -5102,6 +5772,7 @@ esac
             cert_dir: root.join("source-certs"),
             release_public_key: root.join("unused-source-public-key.pem"),
             openssl: openssl.to_owned(),
+            curl: root.join("unused-source-curl"),
         }
     }
 
@@ -5140,6 +5811,8 @@ esac
             .arg("--nocapture")
             .env(UPDATE_PROBE_ROLE, "1")
             .env(UPDATE_PROBE_SOURCE, source_generation)
+            .env_remove(UPDATE_PROBE_REMOTE)
+            .env_remove("CODEX_TEST_REQUIRE_NO_ACQUISITION")
             .env("HOME", home)
             .env("PREFIX", prefix)
             .env("TMPDIR", tmp)
@@ -5161,6 +5834,32 @@ esac
             .arg("--nocapture")
             .env(UPDATE_PROBE_ROLE, "1")
             .env_remove(UPDATE_PROBE_SOURCE)
+            .env_remove(UPDATE_PROBE_REMOTE)
+            .env_remove("CODEX_TEST_REQUIRE_NO_ACQUISITION")
+            .env("HOME", home)
+            .env("PREFIX", prefix)
+            .env("TMPDIR", tmp)
+            .env_remove("SSL_CERT_FILE")
+            .env_remove("SSL_CERT_DIR")
+            .output()
+            .unwrap()
+    }
+
+    #[cfg(unix)]
+    fn b5_run_public_remote_update(
+        base: &str,
+        home: &std::path::Path,
+        prefix: &std::path::Path,
+        tmp: &std::path::Path,
+    ) -> std::process::Output {
+        std::process::Command::new(std::env::current_exe().unwrap())
+            .arg("tests::public_update_probe")
+            .arg("--exact")
+            .arg("--nocapture")
+            .env(UPDATE_PROBE_ROLE, "1")
+            .env_remove(UPDATE_PROBE_SOURCE)
+            .env(UPDATE_PROBE_REMOTE, base)
+            .env("CODEX_TEST_REQUIRE_NO_ACQUISITION", "1")
             .env("HOME", home)
             .env("PREFIX", prefix)
             .env("TMPDIR", tmp)
@@ -5303,7 +6002,7 @@ esac
                 "core_api_identity\t{}\n",
                 "persistent_schema_identity\t{}\n",
                 "file_count\t1\n",
-                "file\tgeneration.meta\t{}\n",
+                "file\tgeneration.meta\t{}\t0644\n",
             ),
             LOCAL_RELEASE_FORMAT,
             LOCAL_RELEASE_CHANNEL,
@@ -5321,11 +6020,20 @@ esac
         if std::env::var(UPDATE_PROBE_ROLE).as_deref() != Ok("1") {
             return;
         }
-        let code = match std::env::var_os(UPDATE_PROBE_SOURCE) {
-            Some(source) => {
+        let code = match (
+            std::env::var_os(UPDATE_PROBE_SOURCE),
+            std::env::var_os(UPDATE_PROBE_REMOTE),
+        ) {
+            (Some(source), None) => {
                 run_public_main([OsString::from("update"), OsString::from("--local"), source])
             }
-            None => run_public_main([OsString::from("update"), OsString::from("--rollback")]),
+            (None, Some(remote)) => {
+                run_public_main([OsString::from("update"), OsString::from("--remote"), remote])
+            }
+            (None, None) => {
+                run_public_main([OsString::from("update"), OsString::from("--rollback")])
+            }
+            (Some(_), Some(_)) => panic!("update probe source is ambiguous"),
         };
         use std::io::Write;
         std::io::stdout().flush().unwrap();
@@ -5341,10 +6049,12 @@ esac
         assert_eq!(parsed.generation_id, "manifest-only");
         assert_eq!(parsed.release_sequence, 1);
         assert_eq!(parsed.files.len(), 1);
+        assert_eq!(parsed.files[0].mode, 0o644);
 
         let invalid_text = [
             valid.trim_end_matches('\n').to_string(),
             valid.replacen(LOCAL_RELEASE_FORMAT, "unsupported-release", 1),
+            valid.replacen(LOCAL_RELEASE_FORMAT, "codex-release-v1", 1),
             valid.replacen(
                 "release_sequence\t1\nchannel\tstable\n",
                 "channel\tstable\nrelease_sequence\t1\n",
@@ -5360,6 +6070,10 @@ esac
                 &format!("file_count\t{}\n", LOCAL_RELEASE_MAX_FILES + 1),
                 1,
             ),
+            valid.replacen("\t0644\n", "\t644\n", 1),
+            valid.replacen("\t0644\n", "\t0844\n", 1),
+            valid.replacen("\t0644\n", "\t0044\n", 1),
+            valid.replacen("file\tgeneration.meta\t", "file\truntime\t", 1),
             format!("{valid}unexpected\tfield\n"),
             valid.replace('\n', "\r\n"),
         ];
@@ -5442,7 +6156,7 @@ esac
 
         std::fs::write(&manifest_path, exact).unwrap();
         verify_local_release_bundle(&source_generation, &openssl, &public_key).unwrap();
-        let _ = std::fs::remove_dir_all(root);
+        remove_temp_root(root);
     }
 
     #[cfg(unix)]
@@ -5536,7 +6250,7 @@ esac
             b"release channel is not supported",
         );
 
-        let _ = std::fs::remove_dir_all(root);
+        remove_temp_root(root);
     }
 
     #[cfg(unix)]
@@ -5628,12 +6342,14 @@ esac
             ))
         ));
 
-        let _ = std::fs::remove_dir_all(root);
+        remove_temp_root(root);
     }
 
     #[cfg(unix)]
     #[test]
     fn test_m2_b4_inventory_source_digest_and_file_set_fail_before_staging() {
+        use std::os::unix::fs::PermissionsExt;
+
         let root = temp_root("b4-inventory-source-failures");
         let openssl = b4_termux_openssl();
         let private_key = root.join("keys/private.pem");
@@ -5669,12 +6385,29 @@ esac
             b"release file inventory digest mismatch",
         );
 
+        let mode_mismatch =
+            b2_write_generation(&source_roots, "mode-mismatch", false, "unsupported");
+        b4_write_signed_release(&mode_mismatch, 2, &openssl, &private_key);
+        let runtime = mode_mismatch.join("runtime");
+        let mut permissions = std::fs::metadata(&runtime).unwrap().permissions();
+        permissions.set_mode(permissions.mode() & !0o100);
+        std::fs::set_permissions(&runtime, permissions).unwrap();
+        assert!(matches!(
+            verify_local_release_bundle(&mode_mismatch, &openssl, &public_key),
+            Err(LocalProductError::ReleaseModeMismatch)
+        ));
+        run_rejected(
+            "mode-mismatch",
+            &mode_mismatch,
+            b"release file inventory mode mismatch",
+        );
+
         let omitted = b2_write_generation(&source_roots, "omitted-file", false, "unsupported");
         let files: Vec<_> = b4_exact_release_inventory(&omitted, &openssl)
             .into_iter()
             .filter(|file| file.relative_path != "runtime")
             .collect();
-        b4_write_signed_release_inventory(&omitted, 2, &openssl, &private_key, &files);
+        b4_write_signed_release_inventory(&omitted, 3, &openssl, &private_key, &files);
         assert!(matches!(
             verify_local_release_bundle(&omitted, &openssl, &public_key),
             Err(LocalProductError::Release(
@@ -5689,12 +6422,13 @@ esac
 
         let missing = b2_write_generation(&source_roots, "missing-file", false, "unsupported");
         let mut files = b4_exact_release_inventory(&missing, &openssl);
-        files.push(ReleaseFileDigest {
+        files.push(ReleaseFileEntry {
             relative_path: "compat/missing".to_string(),
             sha256: "0".repeat(64),
+            mode: 0o644,
         });
         files.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
-        b4_write_signed_release_inventory(&missing, 3, &openssl, &private_key, &files);
+        b4_write_signed_release_inventory(&missing, 4, &openssl, &private_key, &files);
         assert!(matches!(
             verify_local_release_bundle(&missing, &openssl, &public_key),
             Err(LocalProductError::Release(
@@ -5708,7 +6442,7 @@ esac
         );
 
         let unlisted = b2_write_generation(&source_roots, "unlisted-file", false, "unsupported");
-        b4_write_signed_release(&unlisted, 4, &openssl, &private_key);
+        b4_write_signed_release(&unlisted, 5, &openssl, &private_key);
         std::fs::write(unlisted.join("compat/unlisted"), b"unlisted").unwrap();
         assert!(matches!(
             verify_local_release_bundle(&unlisted, &openssl, &public_key),
@@ -5722,12 +6456,14 @@ esac
             b"release file inventory does not exactly match generation content",
         );
 
-        let _ = std::fs::remove_dir_all(root);
+        remove_temp_root(root);
     }
 
     #[cfg(unix)]
     #[test]
     fn test_m2_b4_inventory_staged_copy_retains_metadata_and_reverifies_digest() {
+        use std::os::unix::fs::PermissionsExt;
+
         let root = temp_root("b4-inventory-staged-copy");
         let openssl = b4_termux_openssl();
         let private_key = root.join("keys/private.pem");
@@ -5745,6 +6481,11 @@ esac
         std::fs::write(&descriptor_path, descriptor).unwrap();
         std::fs::create_dir(source.join("helpers")).unwrap();
         std::fs::write(source.join("helpers/0"), b"helper-content").unwrap();
+        let mut helper_mode = std::fs::metadata(source.join("helpers/0"))
+            .unwrap()
+            .permissions();
+        helper_mode.set_mode(0o700);
+        std::fs::set_permissions(source.join("helpers/0"), helper_mode).unwrap();
         std::fs::create_dir(source.join("compat/nested")).unwrap();
         std::fs::write(source.join("compat/nested/asset"), b"compat-content").unwrap();
         b4_write_signed_release(&source, 7, &openssl, &private_key);
@@ -5790,8 +6531,8 @@ esac
         assert!(staged.is_dir());
         assert!(b3_candidate_entries(&target.generation_root).is_empty());
 
-        let _ = std::fs::remove_dir_all(target_root);
-        let _ = std::fs::remove_dir_all(root);
+        remove_temp_root(target_root);
+        remove_temp_root(root);
     }
 
     #[cfg(unix)]
@@ -5887,7 +6628,7 @@ esac
         assert!(!state_root.join("activation-journal").exists());
         assert!(!state_root.join("config").exists());
 
-        let _ = std::fs::remove_dir_all(root);
+        remove_temp_root(root);
     }
 
     #[cfg(unix)]
@@ -5939,7 +6680,7 @@ esac
         assert!(!state_paths.activation_journal_temp.exists());
         assert!(!state_paths.activation_state_temp.exists());
 
-        let _ = std::fs::remove_dir_all(root);
+        remove_temp_root(root);
     }
 
     #[cfg(unix)]
@@ -5983,7 +6724,7 @@ esac
         assert!(!state_paths.activation_journal_temp.exists());
         assert!(!state_paths.activation_state_temp.exists());
 
-        let _ = std::fs::remove_dir_all(root);
+        remove_temp_root(root);
     }
 
     #[cfg(unix)]
@@ -6033,7 +6774,7 @@ esac
         assert!(!generation_root.join("identity-next").exists());
         m2_b1_assert_no_transaction_files(&state_paths);
 
-        let _ = std::fs::remove_dir_all(root);
+        remove_temp_root(root);
     }
 
     #[cfg(unix)]
@@ -6096,7 +6837,7 @@ esac
         assert!(!state_paths.activation_journal_temp.exists());
         assert!(!state_paths.activation_state_temp.exists());
 
-        let _ = std::fs::remove_dir_all(root);
+        remove_temp_root(root);
     }
 
     #[cfg(unix)]
@@ -6140,7 +6881,7 @@ esac
         }
         m2_b1_assert_no_transaction_files(&state_paths);
 
-        let _ = std::fs::remove_dir_all(root);
+        remove_temp_root(root);
     }
 
     #[cfg(unix)]
@@ -6218,7 +6959,1184 @@ esac
         );
         m2_b1_assert_no_transaction_files(&state_paths);
 
-        let _ = std::fs::remove_dir_all(root);
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    fn b5_shell_quote_text(value: &str) -> String {
+        format!("'{}'", value.replace('\'', "'\"'\"'"))
+    }
+
+    #[cfg(unix)]
+    fn b5_shell_quote(value: &std::path::Path) -> String {
+        b5_shell_quote_text(value.to_str().expect("B5 fixture path must be UTF-8"))
+    }
+
+    #[cfg(unix)]
+    fn b5_write_fake_curl(
+        path: &std::path::Path,
+        log: &std::path::Path,
+        body: &str,
+        exit_code: i32,
+    ) {
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::PermissionsExt;
+
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let shell = resolve_test_shell();
+        let shell = std::str::from_utf8(shell.as_bytes()).expect("test shell path must be UTF-8");
+        let log = b5_shell_quote(log);
+        let body = b5_shell_quote_text(body);
+        std::fs::write(
+            path,
+            format!(
+                r#"#!{shell}
+if [ "${{HOME+x}}" = x ] || [ "${{CURL_HOME+x}}" = x ] || [ "${{HTTP_PROXY+x}}" = x ] || [ "${{HTTPS_PROXY+x}}" = x ]; then
+  exit 97
+fi
+: > {log}
+for argument in "$@"; do
+  printf '%s\n' "$argument" >> {log}
+done
+printf '%s' {body}
+exit {exit_code}
+"#
+            ),
+        )
+        .unwrap();
+        let mut permissions = std::fs::metadata(path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(path, permissions).unwrap();
+    }
+
+    #[cfg(unix)]
+    fn b5_write_release_curl(
+        path: &std::path::Path,
+        log: &std::path::Path,
+        base: &str,
+        release_root: &std::path::Path,
+    ) {
+        b5_write_release_curl_with_fault(path, log, base, release_root, None);
+    }
+
+    #[cfg(unix)]
+    fn b5_write_release_curl_with_fault(
+        path: &std::path::Path,
+        log: &std::path::Path,
+        base: &str,
+        release_root: &std::path::Path,
+        fault: Option<(&str, &str, i32)>,
+    ) {
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::PermissionsExt;
+
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let shell = resolve_test_shell();
+        let shell = std::str::from_utf8(shell.as_bytes()).expect("test shell path must be UTF-8");
+        let prefix = std::path::PathBuf::from(std::env::var_os("PREFIX").unwrap());
+        let cat = prefix.join("bin/cat");
+        assert!(
+            cat.is_file(),
+            "Termux cat is required for B5 fixture transport"
+        );
+        let log = b5_shell_quote(log);
+        let base = b5_shell_quote_text(base);
+        let release_root = b5_shell_quote(release_root);
+        let cat = b5_shell_quote(&cat);
+        let (fault_relative, fault_body, fault_exit) = fault.unwrap_or(("", "", 0));
+        let fault_relative = b5_shell_quote_text(fault_relative);
+        let fault_body = b5_shell_quote_text(fault_body);
+        std::fs::write(
+            path,
+            format!(
+                r#"#!{shell}
+if [ "${{HOME+x}}" = x ] || [ "${{CURL_HOME+x}}" = x ] || [ "${{HTTP_PROXY+x}}" = x ] || [ "${{HTTPS_PROXY+x}}" = x ]; then
+  exit 97
+fi
+base={base}
+release_root={release_root}
+cat_path={cat}
+fault_relative={fault_relative}
+fault_body={fault_body}
+fault_exit={fault_exit}
+printf 'CALL\n' >> {log}
+url=
+while [ "$#" -gt 0 ]; do
+  printf '%s\n' "$1" >> {log}
+  if [ "$1" = "--url" ]; then
+    shift
+    [ "$#" -gt 0 ] || exit 98
+    printf '%s\n' "$1" >> {log}
+    url="$1"
+  fi
+  shift
+done
+case "$url" in
+  "$base"*) relative="${{url#"$base"}}" ;;
+  *) exit 99 ;;
+esac
+case "$relative" in
+  release.manifest|release.sig|generation.meta|runtime|manager|helpers/*|compat/*) ;;
+  *) exit 100 ;;
+esac
+if [ -n "$fault_relative" ] && [ "$relative" = "$fault_relative" ]; then
+  printf '%s' "$fault_body"
+  exit "$fault_exit"
+fi
+exec "$cat_path" "$release_root/$relative"
+"#
+            ),
+        )
+        .unwrap();
+        let mut permissions = std::fs::metadata(path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(path, permissions).unwrap();
+    }
+
+    #[cfg(unix)]
+    fn b5_write_cleanup_blocking_curl(path: &std::path::Path, generation_root: &std::path::Path) {
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::PermissionsExt;
+
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let shell = resolve_test_shell();
+        let shell = std::str::from_utf8(shell.as_bytes()).expect("test shell path must be UTF-8");
+        let prefix = std::path::PathBuf::from(std::env::var_os("PREFIX").unwrap());
+        let chmod = prefix.join("bin/chmod");
+        assert!(
+            chmod.is_file(),
+            "Termux chmod is required for B5 cleanup proof"
+        );
+        let generation_root = b5_shell_quote(generation_root);
+        let chmod = b5_shell_quote(&chmod);
+        std::fs::write(
+            path,
+            format!(
+                r#"#!{shell}
+if [ "${{HOME+x}}" = x ] || [ "${{HTTP_PROXY+x}}" = x ] || [ "${{HTTPS_PROXY+x}}" = x ]; then
+  exit 97
+fi
+printf 'manifest'
+for acquisition in {generation_root}/.acquire-*; do
+  [ -d "$acquisition" ] || continue
+  {chmod} 000 "$acquisition" || exit 98
+done
+exit 0
+"#
+            ),
+        )
+        .unwrap();
+        let mut permissions = std::fs::metadata(path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(path, permissions).unwrap();
+    }
+
+    #[cfg(unix)]
+    struct B5RemoteFixture {
+        root: std::path::PathBuf,
+        home: std::path::PathBuf,
+        prefix: std::path::PathBuf,
+        tmp: std::path::PathBuf,
+        openssl: std::path::PathBuf,
+        private_key: std::path::PathBuf,
+        release: std::path::PathBuf,
+        base: String,
+        curl_log: std::path::PathBuf,
+    }
+
+    #[cfg(unix)]
+    fn b5_remote_fixture(label: &str, generation_id: &str) -> B5RemoteFixture {
+        let root = temp_root(label);
+        let openssl = b4_termux_openssl();
+        let (home, prefix, tmp) = b4_prepare_public_environment(&root, &openssl, true);
+        let private_key = root.join("keys/private.pem");
+        let public_key = root.join("keys/public.pem");
+        b4_generate_release_keypair(&openssl, &private_key, &public_key);
+        b4_install_trusted_release_key(&home, &public_key);
+
+        let source_roots = b4_source_roots(&root.join("release-server"), &openssl);
+        std::fs::create_dir_all(&source_roots.generation_root).unwrap();
+        let release = b2_write_generation(&source_roots, generation_id, false, "unsupported");
+        b4_write_signed_release(&release, 1, &openssl, &private_key);
+
+        let base = format!("https://releases.example.invalid/codex/{generation_id}/");
+        let curl_log = root.join("curl-log");
+        b5_write_release_curl(&prefix.join("bin/curl"), &curl_log, &base, &release);
+        B5RemoteFixture {
+            root,
+            home,
+            prefix,
+            tmp,
+            openssl,
+            private_key,
+            release,
+            base,
+            curl_log,
+        }
+    }
+
+    #[cfg(unix)]
+    fn b5_assert_public_remote_rejected(fixture: &B5RemoteFixture, base: &str, expected: &[u8]) {
+        let output =
+            b5_run_public_remote_update(base, &fixture.home, &fixture.prefix, &fixture.tmp);
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "stdout={:?} stderr={:?}",
+            output.stdout,
+            output.stderr
+        );
+        assert!(
+            output
+                .stderr
+                .windows(expected.len())
+                .any(|window| window == expected),
+            "stderr={:?}",
+            output.stderr
+        );
+    }
+
+    #[cfg(unix)]
+    fn b5_assert_no_remote_generation_or_state(home: &std::path::Path) {
+        let generation_root = home.join(".local/lib/codex/core/generations");
+        if generation_root.exists() {
+            assert_eq!(std::fs::read_dir(&generation_root).unwrap().count(), 0);
+        }
+        let state_root = home.join(".local/share/codex/core");
+        assert!(!state_root.join("activation-state").exists());
+        assert!(!state_root.join("activation-journal").exists());
+        assert!(!state_root.join("activation-journal.tmp").exists());
+        assert!(!state_root.join("activation-state.tmp").exists());
+        assert!(!state_root.join("config").exists());
+    }
+
+    #[cfg(unix)]
+    fn b5_assert_no_acquisition(generation_root: &std::path::Path) {
+        assert!(std::fs::read_dir(generation_root).unwrap().all(|entry| {
+            !entry
+                .unwrap()
+                .file_name()
+                .as_encoded_bytes()
+                .starts_with(b".acquire-")
+        }));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b5_remote_public_happy_path_reuses_b4_and_restores_signed_modes() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = temp_root("b5-remote-public-happy");
+        let openssl = b4_termux_openssl();
+        let (home, prefix, tmp) = b4_prepare_public_environment(&root, &openssl, true);
+        let private_key = root.join("keys/private.pem");
+        let public_key = root.join("keys/public.pem");
+        b4_generate_release_keypair(&openssl, &private_key, &public_key);
+        b4_install_trusted_release_key(&home, &public_key);
+
+        let source_roots = b4_source_roots(&root.join("release-server"), &openssl);
+        std::fs::create_dir_all(&source_roots.generation_root).unwrap();
+        let release = b2_write_generation(&source_roots, "remote-initial", true, "supported");
+        let descriptor_path = release.join("generation.meta");
+        let descriptor = std::fs::read_to_string(&descriptor_path).unwrap().replace(
+            "helper_count\t0\n",
+            "helper_count\t1\nhelper\thelper-a\thelper-digest\n",
+        );
+        std::fs::write(&descriptor_path, descriptor).unwrap();
+        std::fs::create_dir(release.join("helpers")).unwrap();
+        std::fs::write(release.join("helpers/0"), b"helper").unwrap();
+        let mut helper_mode = std::fs::metadata(release.join("helpers/0"))
+            .unwrap()
+            .permissions();
+        helper_mode.set_mode(0o710);
+        std::fs::set_permissions(release.join("helpers/0"), helper_mode).unwrap();
+        std::fs::create_dir(release.join("compat/nested")).unwrap();
+        std::fs::write(release.join("compat/nested/data"), b"compat-data").unwrap();
+        let mut data_mode = std::fs::metadata(release.join("compat/nested/data"))
+            .unwrap()
+            .permissions();
+        data_mode.set_mode(0o640);
+        std::fs::set_permissions(release.join("compat/nested/data"), data_mode).unwrap();
+        let encoded_asset = release.join("compat/space name/é?%#/asset");
+        std::fs::create_dir_all(encoded_asset.parent().unwrap()).unwrap();
+        std::fs::write(&encoded_asset, b"encoded-compat-data").unwrap();
+        let mut encoded_mode = std::fs::metadata(&encoded_asset).unwrap().permissions();
+        encoded_mode.set_mode(0o600);
+        std::fs::set_permissions(&encoded_asset, encoded_mode).unwrap();
+        b4_write_signed_release(&release, 1, &openssl, &private_key);
+
+        let encoded_server_asset = release.join("compat/space%20name/%C3%A9%3F%25%23/asset");
+        std::fs::create_dir_all(encoded_server_asset.parent().unwrap()).unwrap();
+        std::fs::copy(&encoded_asset, &encoded_server_asset).unwrap();
+        std::fs::write(release.join("compat/server-only"), b"unsigned-server-file").unwrap();
+
+        let base = "https://releases.example.invalid/codex/remote-initial/";
+        let curl_log = root.join("curl-log");
+        b5_write_release_curl(&prefix.join("bin/curl"), &curl_log, base, &release);
+        let output = b5_run_public_remote_update(base, &home, &prefix, &tmp);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "stdout={:?} stderr={:?}",
+            output.stdout,
+            output.stderr
+        );
+        let expected = b"activated remote generation remote-initial\n";
+        assert!(
+            output
+                .stdout
+                .windows(expected.len())
+                .any(|window| window == expected),
+            "stdout={:?}",
+            output.stdout
+        );
+
+        let state_paths = CoreStatePaths::new(&home.join(".local/share/codex/core")).unwrap();
+        assert_eq!(
+            read_pointer_state(&state_paths).unwrap(),
+            Some(GenerationPointerState {
+                current: "remote-initial".to_string(),
+                previous: None,
+            })
+        );
+        let generation_root = home.join(".local/lib/codex/core/generations");
+        let installed = generation_root.join("remote-initial");
+        let (manifest, loaded) =
+            verify_local_release_bundle(&installed, &openssl, &public_key).unwrap();
+        assert_eq!(loaded.generation_id, "remote-initial");
+        for file in &manifest.files {
+            assert_eq!(
+                std::fs::symlink_metadata(installed.join(&file.relative_path))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o7777,
+                file.mode,
+                "{}",
+                file.relative_path
+            );
+        }
+        b5_assert_no_acquisition(&generation_root);
+        m2_b1_assert_no_transaction_files(&state_paths);
+        let curl_log = std::fs::read_to_string(curl_log).unwrap();
+        assert_eq!(
+            curl_log.lines().filter(|line| *line == "CALL").count(),
+            manifest.files.len() + 2
+        );
+        assert!(curl_log.contains(&format!("{base}release.manifest\n")));
+        assert!(curl_log.contains(&format!("{base}compat/nested/data\n")));
+        assert!(curl_log.contains(&format!(
+            "{base}compat/space%20name/%C3%A9%3F%25%23/asset\n"
+        )));
+        assert!(!curl_log.contains(&format!("{base}compat/server-only\n")));
+        assert!(!curl_log.lines().any(|line| line == "--location"));
+        assert_eq!(
+            std::fs::read(installed.join("compat/space name/é?%#/asset")).unwrap(),
+            b"encoded-compat-data"
+        );
+        assert!(!installed.join("compat/server-only").exists());
+        assert!(!installed.join("compat/space%20name").exists());
+
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b5_remote_public_control_and_transport_failures_preserve_state() {
+        {
+            let fixture = b5_remote_fixture("b5-invalid-url", "invalid-url");
+            b5_assert_public_remote_rejected(
+                &fixture,
+                "http://releases.example.invalid/codex/invalid-url/",
+                b"remote release base URL must use HTTPS",
+            );
+            b5_assert_no_remote_generation_or_state(&fixture.home);
+            remove_temp_root(fixture.root);
+        }
+
+        {
+            let fixture = b5_remote_fixture("b5-missing-curl", "missing-curl");
+            std::fs::remove_file(fixture.prefix.join("bin/curl")).unwrap();
+            b5_assert_public_remote_rejected(
+                &fixture,
+                &fixture.base,
+                b"Termux curl is unavailable",
+            );
+            b5_assert_no_remote_generation_or_state(&fixture.home);
+            remove_temp_root(fixture.root);
+        }
+
+        {
+            let fixture = b5_remote_fixture("b5-control-transport", "control-transport");
+            b5_write_fake_curl(
+                &fixture.prefix.join("bin/curl"),
+                &fixture.curl_log,
+                "partial",
+                22,
+            );
+            b5_assert_public_remote_rejected(
+                &fixture,
+                &fixture.base,
+                b"remote release transport failed",
+            );
+            b5_assert_no_remote_generation_or_state(&fixture.home);
+            remove_temp_root(fixture.root);
+        }
+
+        {
+            let fixture = b5_remote_fixture("b5-missing-signature", "missing-signature");
+            std::fs::remove_file(fixture.release.join("release.sig")).unwrap();
+            b5_assert_public_remote_rejected(
+                &fixture,
+                &fixture.base,
+                b"remote release transport failed",
+            );
+            b5_assert_no_remote_generation_or_state(&fixture.home);
+            remove_temp_root(fixture.root);
+        }
+
+        {
+            let fixture = b5_remote_fixture("b5-control-oversize", "control-oversize");
+            let oversized = "x".repeat(LOCAL_RELEASE_MAX_BYTES + 1);
+            b5_write_fake_curl(
+                &fixture.prefix.join("bin/curl"),
+                &fixture.curl_log,
+                &oversized,
+                0,
+            );
+            b5_assert_public_remote_rejected(
+                &fixture,
+                &fixture.base,
+                b"remote release response exceeds its byte bound",
+            );
+            b5_assert_no_remote_generation_or_state(&fixture.home);
+            remove_temp_root(fixture.root);
+        }
+
+        {
+            let fixture = b5_remote_fixture("b5-signature-oversize", "signature-oversize");
+            std::fs::write(
+                fixture.release.join("release.sig"),
+                vec![b'x'; LOCAL_RELEASE_SIGNATURE_MAX_BYTES as usize + 1],
+            )
+            .unwrap();
+            b5_assert_public_remote_rejected(
+                &fixture,
+                &fixture.base,
+                b"remote release response exceeds its byte bound",
+            );
+            b5_assert_no_remote_generation_or_state(&fixture.home);
+            remove_temp_root(fixture.root);
+        }
+
+        {
+            let fixture = b5_remote_fixture("b5-malformed-control", "malformed-control");
+            std::fs::write(fixture.release.join("release.manifest"), b"not-a-release\n").unwrap();
+            b5_assert_public_remote_rejected(
+                &fixture,
+                &fixture.base,
+                b"release manifest format is unsupported",
+            );
+            b5_assert_no_remote_generation_or_state(&fixture.home);
+            remove_temp_root(fixture.root);
+        }
+
+        {
+            let fixture = b5_remote_fixture("b5-wrong-key", "wrong-key");
+            let wrong_private = fixture.root.join("wrong/private.pem");
+            let wrong_public = fixture.root.join("wrong/public.pem");
+            b4_generate_release_keypair(&fixture.openssl, &wrong_private, &wrong_public);
+            b4_install_trusted_release_key(&fixture.home, &wrong_public);
+            b5_assert_public_remote_rejected(
+                &fixture,
+                &fixture.base,
+                b"release signature verification failed",
+            );
+            b5_assert_no_remote_generation_or_state(&fixture.home);
+            remove_temp_root(fixture.root);
+        }
+
+        {
+            let fixture = b5_remote_fixture("b5-bad-signature", "bad-signature");
+            std::fs::write(fixture.release.join("release.sig"), b"rejected-signature").unwrap();
+            b5_assert_public_remote_rejected(
+                &fixture,
+                &fixture.base,
+                b"release signature verification failed",
+            );
+            b5_assert_no_remote_generation_or_state(&fixture.home);
+            remove_temp_root(fixture.root);
+        }
+
+        {
+            let fixture = b5_remote_fixture("b5-policy", "policy");
+            let manifest_path = fixture.release.join("release.manifest");
+            let manifest = std::fs::read_to_string(&manifest_path)
+                .unwrap()
+                .replace("channel\tstable\n", "channel\tunsupported\n");
+            std::fs::write(&manifest_path, manifest).unwrap();
+            b4_sign_release_manifest(&fixture.release, &fixture.openssl, &fixture.private_key);
+            b5_assert_public_remote_rejected(
+                &fixture,
+                &fixture.base,
+                b"release channel is not supported",
+            );
+            b5_assert_no_remote_generation_or_state(&fixture.home);
+            remove_temp_root(fixture.root);
+        }
+
+        {
+            let fixture = b5_remote_fixture("b5-base-identity", "signed-identity");
+            let mismatched = "https://releases.example.invalid/codex/other-identity/";
+            b5_write_release_curl(
+                &fixture.prefix.join("bin/curl"),
+                &fixture.curl_log,
+                mismatched,
+                &fixture.release,
+            );
+            b5_assert_public_remote_rejected(
+                &fixture,
+                mismatched,
+                b"remote release base does not match signed generation identity",
+            );
+            b5_assert_no_remote_generation_or_state(&fixture.home);
+            remove_temp_root(fixture.root);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b5_remote_cleanup_failure_is_terminal_and_nonactivatable() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let fixture = b5_remote_fixture("b5-cleanup-failure", "cleanup-failure");
+        let generation_root = fixture.home.join(".local/lib/codex/core/generations");
+        b5_write_cleanup_blocking_curl(&fixture.prefix.join("bin/curl"), &generation_root);
+        b5_assert_public_remote_rejected(
+            &fixture,
+            &fixture.base,
+            b"remove remote acquisition directory failed",
+        );
+
+        let mut entries = std::fs::read_dir(&generation_root).unwrap();
+        let acquisition = entries.next().unwrap().unwrap().path();
+        assert!(entries.next().is_none());
+        assert!(acquisition
+            .file_name()
+            .unwrap()
+            .as_encoded_bytes()
+            .starts_with(b".acquire-"));
+        let state_root = fixture.home.join(".local/share/codex/core");
+        assert!(!state_root.join("activation-state").exists());
+        assert!(!state_root.join("activation-journal").exists());
+
+        let mut permissions = std::fs::symlink_metadata(&acquisition)
+            .unwrap()
+            .permissions();
+        permissions.set_mode(0o700);
+        std::fs::set_permissions(&acquisition, permissions).unwrap();
+        std::fs::remove_dir_all(&acquisition).unwrap();
+        remove_temp_root(fixture.root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b5_remote_public_content_failures_are_clean_and_nonactivating() {
+        {
+            let fixture = b5_remote_fixture("b5-missing-content", "missing-content");
+            std::fs::remove_file(fixture.release.join("runtime")).unwrap();
+            b5_assert_public_remote_rejected(
+                &fixture,
+                &fixture.base,
+                b"remote release transport failed",
+            );
+            b5_assert_no_remote_generation_or_state(&fixture.home);
+            remove_temp_root(fixture.root);
+        }
+
+        {
+            let fixture = b5_remote_fixture("b5-interrupted-content", "interrupted-content");
+            b5_write_release_curl_with_fault(
+                &fixture.prefix.join("bin/curl"),
+                &fixture.curl_log,
+                &fixture.base,
+                &fixture.release,
+                Some(("runtime", "partial-runtime", 22)),
+            );
+            b5_assert_public_remote_rejected(
+                &fixture,
+                &fixture.base,
+                b"remote release transport failed",
+            );
+            b5_assert_no_remote_generation_or_state(&fixture.home);
+            remove_temp_root(fixture.root);
+        }
+
+        {
+            let fixture = b5_remote_fixture("b5-content-digest", "content-digest");
+            std::fs::write(fixture.release.join("runtime"), b"tampered-runtime").unwrap();
+            b5_assert_public_remote_rejected(
+                &fixture,
+                &fixture.base,
+                b"release file inventory digest mismatch",
+            );
+            b5_assert_no_remote_generation_or_state(&fixture.home);
+            remove_temp_root(fixture.root);
+        }
+
+        {
+            let fixture = b5_remote_fixture("b5-unsafe-mode", "unsafe-mode");
+            let manifest_path = fixture.release.join("release.manifest");
+            let manifest = std::fs::read_to_string(&manifest_path).unwrap();
+            let runtime_line = manifest
+                .lines()
+                .find(|line| line.starts_with("file\truntime\t"))
+                .unwrap();
+            let (runtime_fields, _) = runtime_line.rsplit_once('\t').unwrap();
+            let manifest = manifest.replacen(runtime_line, &format!("{runtime_fields}\t0644"), 1);
+            std::fs::write(&manifest_path, manifest).unwrap();
+            b4_sign_release_manifest(&fixture.release, &fixture.openssl, &fixture.private_key);
+            b5_assert_public_remote_rejected(
+                &fixture,
+                &fixture.base,
+                b"release executable file is not owner-executable",
+            );
+            b5_assert_no_remote_generation_or_state(&fixture.home);
+            remove_temp_root(fixture.root);
+        }
+
+        {
+            let fixture = b5_remote_fixture("b5-output-collision", "output-collision");
+            let conflict = fixture.release.join("compat/conflict");
+            std::fs::write(&conflict, b"conflict-file").unwrap();
+            let mut files = b4_exact_release_inventory(&fixture.release, &fixture.openssl);
+            files.push(ReleaseFileEntry {
+                relative_path: "compat/conflict/nested".to_string(),
+                sha256: "0".repeat(64),
+                mode: 0o644,
+            });
+            files.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
+            b4_write_signed_release_inventory(
+                &fixture.release,
+                1,
+                &fixture.openssl,
+                &fixture.private_key,
+                &files,
+            );
+            b5_assert_public_remote_rejected(
+                &fixture,
+                &fixture.base,
+                b"remote acquisition path contains a non-directory",
+            );
+            b5_assert_no_remote_generation_or_state(&fixture.home);
+            remove_temp_root(fixture.root);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b5_content_response_and_aggregate_bounds_use_the_same_fetch_path() {
+        let (root, mut roots) = b2_test_roots("b5-content-bounds");
+        roots.curl = root.join("bin/curl");
+        let log = root.join("curl-arguments");
+        let base = RemoteReleaseBase::parse(OsStr::new(
+            "https://releases.example.invalid/codex/content-bounds/",
+        ))
+        .unwrap();
+
+        let first_acquisition = root.join(".acquire-first");
+        create_remote_acquisition_root(&first_acquisition).unwrap();
+        b5_write_fake_curl(&roots.curl, &log, "12345", 0);
+        let mut acquired = 0;
+        assert!(matches!(
+            fetch_remote_resource(
+                &roots,
+                &base,
+                "runtime",
+                &first_acquisition.join("runtime"),
+                4,
+                &mut acquired,
+            ),
+            Err(LocalProductError::RemoteResponseTooLarge)
+        ));
+        assert_eq!(acquired, 0);
+        assert_eq!(
+            std::fs::metadata(first_acquisition.join("runtime"))
+                .unwrap()
+                .len(),
+            5
+        );
+        std::fs::remove_dir_all(&first_acquisition).unwrap();
+
+        let aggregate_acquisition = root.join(".acquire-aggregate");
+        create_remote_acquisition_root(&aggregate_acquisition).unwrap();
+        b5_write_fake_curl(&roots.curl, &log, "abc", 0);
+        let mut acquired = REMOTE_RELEASE_TOTAL_MAX_BYTES - 2;
+        assert!(matches!(
+            fetch_remote_resource(
+                &roots,
+                &base,
+                "runtime",
+                &aggregate_acquisition.join("runtime"),
+                REMOTE_RELEASE_FILE_MAX_BYTES,
+                &mut acquired,
+            ),
+            Err(LocalProductError::RemoteResponseTooLarge)
+        ));
+        assert_eq!(acquired, REMOTE_RELEASE_TOTAL_MAX_BYTES - 2);
+        let arguments: Vec<_> = std::fs::read_to_string(&log)
+            .unwrap()
+            .lines()
+            .map(str::to_owned)
+            .collect();
+        assert!(arguments
+            .windows(2)
+            .any(|pair| pair == ["--max-filesize", "2"]));
+
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b5_remote_public_forward_antirollback_probe_and_rollback_integration() {
+        let root = temp_root("b5-update-integration");
+        let openssl = b4_termux_openssl();
+        let (home, prefix, tmp) = b4_prepare_public_environment(&root, &openssl, true);
+        let private_key = root.join("keys/private.pem");
+        let public_key = root.join("keys/public.pem");
+        b4_generate_release_keypair(&openssl, &private_key, &public_key);
+        b4_install_trusted_release_key(&home, &public_key);
+
+        let source_roots = b4_source_roots(&root.join("release-server"), &openssl);
+        std::fs::create_dir_all(&source_roots.generation_root).unwrap();
+        let first = b2_write_generation(&source_roots, "local-first", false, "supported");
+        b4_write_probe_runtime(&first, 0, 0);
+        b4_write_signed_release(&first, 1, &openssl, &private_key);
+        b4_assert_public_update_activated(&first, &home, &prefix, &tmp, "local-first");
+
+        let state_paths = CoreStatePaths::new(&home.join(".local/share/codex/core")).unwrap();
+        assert_eq!(
+            read_pointer_state(&state_paths).unwrap(),
+            Some(GenerationPointerState {
+                current: "local-first".to_string(),
+                previous: None,
+            })
+        );
+
+        let remote_second = b2_write_generation(&source_roots, "remote-second", false, "supported");
+        b4_write_probe_runtime(&remote_second, 0, 0);
+        b4_write_signed_release(&remote_second, 2, &openssl, &private_key);
+        let second_base = "https://releases.example.invalid/codex/remote-second/";
+        let curl_log = root.join("curl-log");
+        b5_write_release_curl(
+            &prefix.join("bin/curl"),
+            &curl_log,
+            second_base,
+            &remote_second,
+        );
+        let second_output = b5_run_public_remote_update(second_base, &home, &prefix, &tmp);
+        assert_eq!(
+            second_output.status.code(),
+            Some(0),
+            "stdout={:?} stderr={:?}",
+            second_output.stdout,
+            second_output.stderr
+        );
+        assert!(second_output
+            .stdout
+            .windows(b"activated remote generation remote-second\n".len())
+            .any(|window| window == b"activated remote generation remote-second\n"));
+        let expected_forward = GenerationPointerState {
+            current: "remote-second".to_string(),
+            previous: Some("local-first".to_string()),
+        };
+        assert_eq!(
+            read_pointer_state(&state_paths).unwrap(),
+            Some(expected_forward.clone())
+        );
+
+        let not_newer = b2_write_generation(&source_roots, "remote-not-newer", false, "supported");
+        b4_write_probe_runtime(&not_newer, 0, 0);
+        b4_write_signed_release(&not_newer, 2, &openssl, &private_key);
+        let not_newer_base = "https://releases.example.invalid/codex/remote-not-newer/";
+        b5_write_release_curl(
+            &prefix.join("bin/curl"),
+            &curl_log,
+            not_newer_base,
+            &not_newer,
+        );
+        let not_newer_output = b5_run_public_remote_update(not_newer_base, &home, &prefix, &tmp);
+        assert_eq!(not_newer_output.status.code(), Some(1));
+        assert!(not_newer_output
+            .stderr
+            .windows(b"release sequence is not newer than the active release".len())
+            .any(|window| window == b"release sequence is not newer than the active release"));
+        assert_eq!(
+            read_pointer_state(&state_paths).unwrap(),
+            Some(expected_forward.clone())
+        );
+
+        let probe_failure =
+            b2_write_generation(&source_roots, "remote-probe-failure", false, "supported");
+        b4_write_probe_runtime(&probe_failure, 17, 0);
+        b4_write_signed_release(&probe_failure, 3, &openssl, &private_key);
+        let probe_base = "https://releases.example.invalid/codex/remote-probe-failure/";
+        b5_write_release_curl(
+            &prefix.join("bin/curl"),
+            &curl_log,
+            probe_base,
+            &probe_failure,
+        );
+        let probe_output = b5_run_public_remote_update(probe_base, &home, &prefix, &tmp);
+        assert_eq!(probe_output.status.code(), Some(1));
+        assert!(probe_output
+            .stderr
+            .windows(b"candidate version probe was unhealthy".len())
+            .any(|window| window == b"candidate version probe was unhealthy"));
+        assert_eq!(
+            read_pointer_state(&state_paths).unwrap(),
+            Some(expected_forward.clone())
+        );
+
+        let generation_root = home.join(".local/lib/codex/core/generations");
+        assert!(!generation_root.join("remote-not-newer").exists());
+        let inactive = generation_root.join("remote-probe-failure");
+        let (inactive_release, inactive_loaded) =
+            verify_local_release_bundle(&inactive, &openssl, &public_key).unwrap();
+        assert_eq!(inactive_release.release_sequence, 3);
+        assert_eq!(inactive_loaded.generation_id, "remote-probe-failure");
+        b5_assert_no_acquisition(&generation_root);
+        m2_b1_assert_no_transaction_files(&state_paths);
+
+        b4_assert_public_rollback_activated(&home, &prefix, &tmp, "local-first");
+        assert_eq!(
+            read_pointer_state(&state_paths).unwrap(),
+            Some(GenerationPointerState {
+                current: "local-first".to_string(),
+                previous: Some("remote-second".to_string()),
+            })
+        );
+        b5_assert_no_acquisition(&generation_root);
+        m2_b1_assert_no_transaction_files(&state_paths);
+
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b5_transport_url_contract_is_canonical_and_bounded() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let base = RemoteReleaseBase::parse(OsStr::new(
+            "https://releases.example.invalid/codex/generation-1/",
+        ))
+        .unwrap();
+        assert!(base.matches_generation_identity("generation-1").unwrap());
+        assert!(!base.matches_generation_identity("generation-2").unwrap());
+        assert_eq!(
+            base.resource_url("release.manifest").unwrap(),
+            "https://releases.example.invalid/codex/generation-1/release.manifest"
+        );
+        assert_eq!(
+            base.resource_url("compat/space name/é?%#").unwrap(),
+            "https://releases.example.invalid/codex/generation-1/compat/space%20name/%C3%A9%3F%25%23"
+        );
+        assert!(matches!(
+            base.resource_url("../escape"),
+            Err(LocalProductError::Remote(
+                "remote release resource path is invalid"
+            ))
+        ));
+
+        let unicode =
+            RemoteReleaseBase::parse(OsStr::new("https://example.invalid/releases/g%C3%A9n/"))
+                .unwrap();
+        assert!(unicode.matches_generation_identity("gén").unwrap());
+
+        for invalid in [
+            "",
+            "http://example.invalid/releases/g/",
+            "HTTPS://example.invalid/releases/g/",
+            "https://example.invalid/",
+            "https://user@example.invalid/releases/g/",
+            "https://example.invalid/releases/g/?query",
+            "https://example.invalid/releases/g/#fragment",
+            "https://example.invalid/releases//g/",
+            "https://example.invalid/releases/../g/",
+            "https://example.invalid/releases/%67/",
+            "https://example.invalid/releases/%2f/",
+            "https://example.invalid/releases/%GG/",
+            "https://bad_host.invalid/releases/g/",
+            "https://example.invalid:0/releases/g/",
+            "https://example.invalid:bad/releases/g/",
+            "https://example.invalid/releases/g\\/",
+            "https://example.invalid/releases/white space/",
+            "https://example.invalid/releases/line\nbreak/",
+            "https://example.invalid/releases/직접/",
+            "https://[1:::2]/releases/g/",
+            "https://[1.2.3.4]/releases/g/",
+            "https://[2001:db8::1]extra/releases/g/",
+        ] {
+            assert!(
+                RemoteReleaseBase::parse(OsStr::new(invalid)).is_err(),
+                "{invalid:?}"
+            );
+        }
+        assert!(RemoteReleaseBase::parse(OsStr::new(
+            "https://[2001:db8::1]:443/releases/generation-1/"
+        ))
+        .is_ok());
+        assert!(RemoteReleaseBase::parse(&OsString::from_vec(vec![
+            b'h', b't', b't', b'p', b's', b':', b'/', b'/', 0xff, b'/',
+        ]))
+        .is_err());
+
+        let oversized = format!(
+            "https://example.invalid/{}/",
+            "a".repeat(REMOTE_RELEASE_URL_MAX_BYTES)
+        );
+        assert!(RemoteReleaseBase::parse(OsStr::new(&oversized)).is_err());
+        let near_limit = format!(
+            "https://example.invalid/{}/",
+            "a".repeat(REMOTE_RELEASE_URL_MAX_BYTES - 26)
+        );
+        let near_limit = RemoteReleaseBase::parse(OsStr::new(&near_limit)).unwrap();
+        assert!(matches!(
+            near_limit.resource_url("runtime"),
+            Err(LocalProductError::Remote(
+                "remote release resource URL is too large"
+            ))
+        ));
+        assert_eq!(REMOTE_RELEASE_FILE_MAX_BYTES, 512 * 1024 * 1024);
+        assert_eq!(REMOTE_RELEASE_TOTAL_MAX_BYTES, 1024 * 1024 * 1024);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b5_transport_private_paths_are_create_new_and_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = temp_root("b5-transport-private-paths");
+        let acquisition = root.join(".acquire-test");
+        create_remote_acquisition_root(&acquisition).unwrap();
+        let acquisition_mode = std::fs::symlink_metadata(&acquisition)
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o7777;
+        assert_eq!(acquisition_mode & 0o077, 0);
+        assert!(create_remote_acquisition_root(&acquisition).is_err());
+
+        let nested = acquisition.join("compat/nested");
+        ensure_remote_private_directory(&acquisition.join("compat")).unwrap();
+        ensure_remote_private_directory(&nested).unwrap();
+        assert_eq!(
+            std::fs::symlink_metadata(&nested)
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o7777,
+            0o700
+        );
+
+        let output_path = nested.join("asset");
+        let output = create_remote_output(&output_path).unwrap();
+        assert_eq!(
+            output.metadata().unwrap().permissions().mode() & 0o7777,
+            0o600
+        );
+        assert!(create_remote_output(&output_path).is_err());
+
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b5_transport_pinned_curl_argv_environment_and_output_are_exact() {
+        let (root, mut roots) = b2_test_roots("b5-transport-exact");
+        roots.curl = root.join("bin/curl");
+        let log = root.join("curl-arguments");
+        b5_write_fake_curl(&roots.curl, &log, "body", 0);
+        let output_path = root.join("remote-output");
+        let output = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&output_path)
+            .unwrap();
+        let url = "https://example.invalid/releases/generation-1/release.manifest";
+        assert_eq!(fetch_remote_file(&roots, url, &output, 17).unwrap(), 4);
+        assert_eq!(std::fs::read(&output_path).unwrap(), b"body");
+        let arguments: Vec<_> = std::fs::read_to_string(&log)
+            .unwrap()
+            .lines()
+            .map(str::to_owned)
+            .collect();
+        assert_eq!(
+            arguments,
+            vec![
+                "--disable",
+                "--fail",
+                "--silent",
+                "--show-error",
+                "--proto",
+                "=https",
+                "--cacert",
+                roots.cert_file.to_str().unwrap(),
+                "--capath",
+                roots.cert_dir.to_str().unwrap(),
+                "--connect-timeout",
+                REMOTE_CONNECT_TIMEOUT_SECONDS,
+                "--max-time",
+                REMOTE_TRANSFER_TIMEOUT_SECONDS,
+                "--max-filesize",
+                "17",
+                "--url",
+                url,
+            ]
+        );
+        assert!(!arguments.iter().any(|argument| argument == "--location"));
+
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b5_transport_failures_and_output_bounds_fail_closed() {
+        use std::os::unix::fs::symlink;
+
+        let (root, mut roots) = b2_test_roots("b5-transport-failures");
+        let log = root.join("curl-arguments");
+        roots.curl = root.join("bin/curl");
+        b5_write_fake_curl(&roots.curl, &log, "partial", 22);
+        let failed_path = root.join("failed-output");
+        let failed = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&failed_path)
+            .unwrap();
+        assert!(matches!(
+            fetch_remote_file(
+                &roots,
+                "https://example.invalid/releases/g/release.manifest",
+                &failed,
+                32,
+            ),
+            Err(LocalProductError::RemoteTransportFailed)
+        ));
+        assert_eq!(std::fs::read(&failed_path).unwrap(), b"partial");
+
+        b5_write_fake_curl(&roots.curl, &log, "12345", 0);
+        let oversized_path = root.join("oversized-output");
+        let oversized = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&oversized_path)
+            .unwrap();
+        assert!(matches!(
+            fetch_remote_file(
+                &roots,
+                "https://example.invalid/releases/g/runtime",
+                &oversized,
+                4,
+            ),
+            Err(LocalProductError::RemoteResponseTooLarge)
+        ));
+        assert_eq!(std::fs::metadata(&oversized_path).unwrap().len(), 5);
+
+        let prefilled_path = root.join("prefilled-output");
+        std::fs::write(&prefilled_path, b"x").unwrap();
+        let prefilled = std::fs::OpenOptions::new()
+            .write(true)
+            .open(&prefilled_path)
+            .unwrap();
+        assert!(matches!(
+            fetch_remote_file(
+                &roots,
+                "https://example.invalid/releases/g/runtime",
+                &prefilled,
+                4,
+            ),
+            Err(LocalProductError::Remote(
+                "remote release output must be an empty regular file"
+            ))
+        ));
+        let directory = std::fs::File::open(&root).unwrap();
+        assert!(matches!(
+            fetch_remote_file(
+                &roots,
+                "https://example.invalid/releases/g/runtime",
+                &directory,
+                4,
+            ),
+            Err(LocalProductError::Remote(
+                "remote release output must be an empty regular file"
+            ))
+        ));
+        let empty_path = root.join("invalid-bound-output");
+        let empty = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&empty_path)
+            .unwrap();
+        assert!(matches!(
+            fetch_remote_file(
+                &roots,
+                "https://example.invalid/releases/g/runtime",
+                &empty,
+                0,
+            ),
+            Err(LocalProductError::Remote(
+                "remote release response bound is invalid"
+            ))
+        ));
+        assert!(matches!(
+            fetch_remote_file(
+                &roots,
+                "https://example.invalid/releases/g/runtime",
+                &empty,
+                REMOTE_RELEASE_TOTAL_MAX_BYTES + 1,
+            ),
+            Err(LocalProductError::Remote(
+                "remote release response bound is invalid"
+            ))
+        ));
+
+        let real_curl = roots.curl.clone();
+        roots.curl = root.join("missing-curl");
+        let missing_path = root.join("missing-output");
+        let missing = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(missing_path)
+            .unwrap();
+        assert!(matches!(
+            fetch_remote_file(
+                &roots,
+                "https://example.invalid/releases/g/runtime",
+                &missing,
+                4,
+            ),
+            Err(LocalProductError::CurlUnavailable)
+        ));
+        roots.curl = root.join("curl-link");
+        symlink(&real_curl, &roots.curl).unwrap();
+        let linked_path = root.join("linked-output");
+        let linked = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(linked_path)
+            .unwrap();
+        assert!(matches!(
+            fetch_remote_file(
+                &roots,
+                "https://example.invalid/releases/g/runtime",
+                &linked,
+                4,
+            ),
+            Err(LocalProductError::CurlUnavailable)
+        ));
+
+        remove_temp_root(root);
     }
 
     #[cfg(unix)]
@@ -6229,7 +8147,7 @@ esac
             "codex-m2-b1-{label}-{}-{counter}",
             std::process::id()
         ));
-        let _ = std::fs::remove_dir_all(&root);
+        remove_temp_root(&root);
         let paths = CoreStatePaths::new(&root).expect("M2-B1 temp root must be valid");
         prepare_core_state_paths(&paths).expect("prepare M2-B1 temp root");
         paths
@@ -6237,7 +8155,7 @@ esac
 
     #[cfg(unix)]
     fn m2_b1_cleanup(paths: &CoreStatePaths) {
-        let _ = std::fs::remove_dir_all(&paths.root);
+        remove_temp_root(&paths.root);
     }
 
     #[cfg(unix)]
@@ -6819,7 +8737,7 @@ esac
         m2_b1_assert_no_transaction_files(&paths);
 
         let _ = std::fs::remove_file(&outside);
-        let _ = std::fs::remove_dir_all(&generation_root);
+        remove_temp_root(&generation_root);
         m2_b1_cleanup(&paths);
     }
 
