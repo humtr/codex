@@ -742,6 +742,46 @@ Termux qualification. Produce one candidate for independent product review.
 - Same-revision evidence reuse remains required. It prevents redundant full-suite
   churn but never permits skipping a red slice gate. No Click plugin or Hook is
   installed, and this workflow does not override SPEC/GOAL acceptance.
+- M2-B4 — signed local release admission and atomic activation — is accepted at
+  `8483d2b2db488af032d6f9829639f971e2b5ff3f`. Exact
+  `codex update --local <DIRECTORY>` now admits only the bootstrap-pinned
+  Ed25519 key and strict signed SHA-256 inventory, enforces release policy and
+  sequence before candidate execution, stages and re-verifies one complete
+  generation, runs version/declared-doctor probes, and atomically activates it.
+  Exact `codex update --rollback` verifies and swaps only the retained signed
+  `previous` generation. Activation state is the single v2 `current` plus
+  optional `previous` model; `verified`, unsigned staging, proof-only rollback,
+  duplicate qualification, and fallback machinery are absent.
+- The accepted B4 source SHA-256 is
+  `ea8c840a7f4bff1dcbe3fd3ae36b16b5acb4e0389b8ec8304a069584a1fa49ba`
+  and its parent-relative source-diff SHA-256 is
+  `3d5b17788c66aacf3fda26d317112c1b1e23e2ae3257d64f05dbbee4600f69c5`.
+  Final evidence passed focused activation 4/4, public rollback 2/2, the full
+  serial suite 59 passed / 0 failed / 1 explicit smoke ignored, three isolated
+  complete default-parallel runs each 59/0/1, explicit real-Termux read-only
+  smoke 1/1, formatting/diff checks, and a warning-free locked release build.
+  Live resolver and installed launcher SHA-256 plus device/inode/mode/uid/gid/
+  size/mtime identities were unchanged; no live generation, activation,
+  Manager, resolver, auth/session/profile, package, or publication state changed.
+- B4's final product-path review caught one same-class defect after the first
+  grouped run: forward update had not bound the recovered `current` pointer name
+  to its signed generation identity. Acceptance was reopened, all installed
+  target checks were collapsed into one verifier, a public pre-staging
+  regression was added, and the complete grouped batch was rerun on the repaired
+  source. A mistyped nonexistent Cargo package produced no test execution and was
+  explicitly excluded from evidence. This closes the earlier large-change
+  failure mode with slice-local stop-on-red proof rather than end-batched tests.
+- Current checkpoint: M2-B5 — immutable HTTPS release acquisition. Add the
+  smallest remote signed-release file acquisition adapter that feeds the exact
+  B4 admission/staging/probe/activation path. Define its public and transport
+  contract in `SPEC.md` before product code; do not create a second updater,
+  archive path, release-discovery service, automatic checker, or fallback.
+- M2-B5 starts from clean `rewrite/rust-core@8483d2b2db488af032d6f9829639f971e2b5ff3f`.
+  Read-only feasibility found dependency-free Core plus Termux curl 8.21.0 at
+  `$PREFIX/bin/curl` with HTTPS/OpenSSL support. No remote endpoint is yet
+  authoritative and no live network request is acceptance evidence; transport
+  tests use a pinned fake curl in temporary roots. Worker mode remains OFF and
+  the primary Lead performs M2-B5 directly.
 
 ## Goal Lifts
 
