@@ -782,6 +782,46 @@ Termux qualification. Produce one candidate for independent product review.
   authoritative and no live network request is acceptance evidence; transport
   tests use a pinned fake curl in temporary roots. Worker mode remains OFF and
   the primary Lead performs M2-B5 directly.
+- M2-B5 — immutable HTTPS release acquisition — is accepted at
+  `c39c338d6238d3e8aba128d8fa522d0e9de66d83`. Exact
+  `codex update --remote <HTTPS_BASE_URL>` now validates one bounded canonical
+  HTTPS generation base, invokes only `$PREFIX/bin/curl` with config/environment
+  disabled and explicit CA/time/byte policy, admits bounded signed control before
+  content, reconstructs only the signed file inventory in a private `.acquire-*`
+  root, removes acquisition before probes/activation, and reuses the exact B4
+  admission, staging, probe, atomic activation, anti-rollback, and rollback path.
+  There is no discovery, redirect, retry, mirror, fallback URL, archive path,
+  second updater, or live-network acceptance claim.
+- B5 replaced the mode-blind release v1 format with strict
+  `codex-release-v2`: every signed file record binds lowercase SHA-256 and exact
+  four-octal-digit regular-file mode; special bits are impossible, every file is
+  owner-readable, and runtime/Manager/helpers are owner-executable. Local source,
+  remote reconstruction, staged generation, current verification, and rollback
+  all use the same v2 check. The accepted source SHA-256 is
+  `d5c5f69da6ce8d7f52b20ce8d426d3948e3452566a3a4f075dca67fd1e773dca`
+  and its parent-relative source-diff SHA-256 is
+  `747c4cc5fd3086454696179713b2e3120c967947c907ee00add3e75636e63196`.
+- Final B5 evidence passed the full serial suite at 69 passed / 0 failed / 1
+  explicit smoke ignored, three complete default-parallel suites each at
+  69/0/1, the explicit real-Termux read-only smoke at 1/1, formatting/diff
+  checks, and a warning-free locked release build. Live resolver and installed
+  launcher SHA-256 plus device/inode/mode/uid/gid/size/mtime identities were
+  unchanged; no live network, generation, activation, Manager, resolver,
+  auth/profile/session, package, launcher, or publication state changed.
+- The first otherwise-green grouped B5 batch was rejected because post-run
+  inspection found one leaked B4 test root. The whole retained test cleanup
+  class discarded `remove_dir_all` errors. B5 replaced it with one strict helper
+  that tolerates only `NotFound`, removed the disposable leaked fixture, proved
+  the affected regression 1/1, observed zero residue, and reran the entire
+  grouped batch above on the repaired source. This extends the earlier
+  stop-on-red lesson from test counts/warnings to cleanup evidence: a green test
+  exit cannot override contradictory filesystem state.
+- Current checkpoint: M2-B6 — official upstream artifact acquisition and safe
+  adaptation. First resolve and encode the exact official artifact authority,
+  archive format, release-time versus device-time ownership boundary, and real
+  executable entrypoint in `SPEC.md`; no unwired extractor, proof-only adapter,
+  or new public command is assumed before that contract slice closes. Worker
+  mode remains OFF and the primary Lead performs M2-B6 directly.
 
 ## Goal Lifts
 
