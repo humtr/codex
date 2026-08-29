@@ -45,12 +45,17 @@ The launcher intercepts only an exact first argument of `update`, `doctor`, or
 | --- | --- | --- |
 | `codex [UPSTREAM_ARGS...]` | Core | execute upstream with original arguments |
 | `codex --version`, `codex -V` | upstream | print exactly the upstream version output |
-| `codex update [OPTIONS]` | Core | install a verified compatible generation |
+| `codex update --local <DIRECTORY>` | Core | verify, stage, probe, and activate one compatible local generation |
+| `codex update --rollback` | Core | explicitly swap to the one retained complete previous generation |
 | `codex doctor [OPTIONS]` | Core | combine upstream and Termux diagnostics |
 | `codex termux [COMMAND]` | Manager boundary | invoke the Manager artifact or report it unavailable |
 
 `codex version` is not introduced. Wrapper/Core/Manager version rows must not
 be appended to upstream `--version` or `-V` output.
+
+The Milestone 2 offline update surface accepts exactly `--local <DIRECTORY>` or
+`--rollback`. Rollback is an explicit Core operation, not an ordinary-launch
+fallback and not a search through generation history.
 
 Internal release IDs, component digests, API versions, and schema versions are
 still mandatory for update, diagnosis, and rollback. They may appear only on a
@@ -236,6 +241,14 @@ Normal installation and update must not require on-device compilation.
 7. retain one complete previous generation as rollback state;
 8. report failure without damaging the active generation.
 
+`codex update --rollback` must recover any pending activation transaction,
+require the one retained `previous` target, verify that target through the same
+pinned-key signed-release admission used for local update, and atomically swap
+`current` and `previous`. It deliberately does not apply forward-update
+anti-rollback policy. Missing, malformed, or unverifiable rollback state fails
+without changing the authoritative pointers; rollback never scans generations
+or constructs a fallback ladder.
+
 Automatic update checks must be bounded and fail open when a verified runtime
 already exists. Ordinary `codex` launch must not depend on network success or
 silently run a package manager.
@@ -352,4 +365,3 @@ covered by the following rules:
 
 This policy may be revised when the product demonstrates a real coordination
 need. Documentation ceremony alone is not a reason to add another owner.
-
