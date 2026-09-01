@@ -1466,12 +1466,13 @@ fn execute_public_dispatch<
 
 #[cfg(unix)]
 mod m2_generation_state {
+    use super::ReleasePublicKey;
     use std::io::{Read, Write};
 
     const GENERATION_ID_MAX_BYTES: usize = 512;
     const STATE_FILE_MAX_BYTES: usize = 16 * 1024;
-    const STATE_FORMAT: &str = "codex-activation-state-v2";
-    const JOURNAL_FORMAT: &str = "codex-activation-journal-v2";
+    const STATE_FORMAT: &str = "codex-activation-state-v3";
+    const JOURNAL_FORMAT: &str = "codex-activation-journal-v3";
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub(super) struct CoreStatePaths {
@@ -1484,8 +1485,11 @@ mod m2_generation_state {
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub(super) struct GenerationPointerState {
+        pub(super) update_key: ReleasePublicKey,
         pub(super) current: String,
+        pub(super) current_key: ReleasePublicKey,
         pub(super) previous: Option<String>,
+        pub(super) previous_key: Option<ReleasePublicKey>,
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1715,6 +1719,11 @@ mod m2_generation_state {
 
     fn validate_pointer_state(state: &GenerationPointerState) -> Result<(), StateFormatError> {
         validate_generation_identity(&state.current, "current")?;
+        if state.previous.is_some() != state.previous_key.is_some() {
+            return Err(StateFormatError::InconsistentAbsent(
+                "previous verifier key",
+            ));
+        }
         if let Some(previous) = state.previous.as_deref() {
             validate_generation_identity(previous, "previous")?;
             if previous == state.current {
@@ -1724,19 +1733,35 @@ mod m2_generation_state {
         Ok(())
     }
 
-    pub(super) fn plan_initial_pointer_state(
+    #[cfg(test)]
+    pub(super) fn plan_initial_pointer_state_with_key(
         complete_candidate_identity: &str,
+        candidate_key: ReleasePublicKey,
     ) -> Result<GenerationPointerState, StateFormatError> {
         validate_generation_identity(complete_candidate_identity, "candidate")?;
         Ok(GenerationPointerState {
+            update_key: candidate_key,
             current: complete_candidate_identity.to_owned(),
+            current_key: candidate_key,
             previous: None,
+            previous_key: None,
         })
     }
 
-    pub(super) fn plan_activation_pointer_state(
+    #[cfg(test)]
+    pub(super) fn plan_initial_pointer_state(
+        complete_candidate_identity: &str,
+    ) -> Result<GenerationPointerState, StateFormatError> {
+        plan_initial_pointer_state_with_key(
+            complete_candidate_identity,
+            ReleasePublicKey([0x11; 32]),
+        )
+    }
+
+    pub(super) fn plan_activation_pointer_state_with_key(
         before: &GenerationPointerState,
         complete_candidate_identity: &str,
+        candidate_key: ReleasePublicKey,
     ) -> Result<GenerationPointerState, StateFormatError> {
         validate_pointer_state(before)?;
         validate_generation_identity(complete_candidate_identity, "candidate")?;
@@ -1744,9 +1769,24 @@ mod m2_generation_state {
             return Err(StateFormatError::NoChange);
         }
         Ok(GenerationPointerState {
+            update_key: candidate_key,
             current: complete_candidate_identity.to_owned(),
+            current_key: candidate_key,
             previous: Some(before.current.clone()),
+            previous_key: Some(before.current_key),
         })
+    }
+
+    #[cfg(test)]
+    pub(super) fn plan_activation_pointer_state(
+        before: &GenerationPointerState,
+        complete_candidate_identity: &str,
+    ) -> Result<GenerationPointerState, StateFormatError> {
+        plan_activation_pointer_state_with_key(
+            before,
+            complete_candidate_identity,
+            before.update_key,
+        )
     }
 
     pub(super) fn plan_rollback_pointer_state(
@@ -1757,9 +1797,15 @@ mod m2_generation_state {
             .previous
             .as_deref()
             .ok_or(StateFormatError::NoRollbackGeneration)?;
+        let previous_key = before
+            .previous_key
+            .ok_or(StateFormatError::NoRollbackGeneration)?;
         Ok(GenerationPointerState {
+            update_key: before.update_key,
             current: previous.to_owned(),
+            current_key: previous_key,
             previous: Some(before.current.clone()),
+            previous_key: Some(before.current_key),
         })
     }
 
@@ -1767,13 +1813,21 @@ mod m2_generation_state {
         state: &GenerationPointerState,
     ) -> Result<Vec<u8>, StateFormatError> {
         validate_pointer_state(state)?;
-        let (previous_present, previous) = match state.previous.as_deref() {
-            Some(previous) => ("1", previous),
-            None => ("0", ""),
-        };
+        let (previous_present, previous, previous_key) =
+            match (state.previous.as_deref(), state.previous_key) {
+                (Some(previous), Some(previous_key)) => ("1", previous, previous_key.to_hex()),
+                (None, None) => ("0", "", String::new()),
+                _ => {
+                    return Err(StateFormatError::InconsistentAbsent(
+                        "previous verifier key",
+                    ))
+                }
+            };
         Ok(format!(
-            "format={STATE_FORMAT}\ncurrent={}\nprevious_present={previous_present}\nprevious={previous}\n",
-            state.current
+            "format={STATE_FORMAT}\nupdate_key={}\ncurrent={}\ncurrent_key={}\nprevious_present={previous_present}\nprevious={previous}\nprevious_key={previous_key}\n",
+            state.update_key.to_hex(),
+            state.current,
+            state.current_key.to_hex(),
         )
         .into_bytes())
     }
@@ -1815,19 +1869,36 @@ mod m2_generation_state {
         }
     }
 
+    fn parse_key(value: &str, label: &'static str) -> Result<ReleasePublicKey, StateFormatError> {
+        ReleasePublicKey::parse_hex(value).ok_or(StateFormatError::InvalidField(label))
+    }
+
     fn parse_pointer_values(
+        update_key: &str,
         current: &str,
+        current_key: &str,
         previous_present: &str,
         previous: &str,
+        previous_key: &str,
         label: &'static str,
     ) -> Result<GenerationPointerState, StateFormatError> {
         let has_previous = parse_presence(previous_present, label)?;
-        if !has_previous && !previous.is_empty() {
+        if !has_previous && (!previous.is_empty() || !previous_key.is_empty()) {
+            return Err(StateFormatError::InconsistentAbsent(label));
+        }
+        if has_previous && (previous.is_empty() || previous_key.is_empty()) {
             return Err(StateFormatError::InconsistentAbsent(label));
         }
         let state = GenerationPointerState {
+            update_key: parse_key(update_key, "update key")?,
             current: current.to_owned(),
+            current_key: parse_key(current_key, "current verifier key")?,
             previous: has_previous.then(|| previous.to_owned()),
+            previous_key: if has_previous {
+                Some(parse_key(previous_key, "previous verifier key")?)
+            } else {
+                None
+            },
         };
         validate_pointer_state(&state)?;
         Ok(state)
@@ -1836,21 +1907,28 @@ mod m2_generation_state {
     pub(super) fn parse_pointer_state(
         bytes: &[u8],
     ) -> Result<GenerationPointerState, StateFormatError> {
-        let records = parse_lines(bytes, "activation state", 4)?;
+        let records = parse_lines(bytes, "activation state", 7)?;
         if records[0] != format!("format={STATE_FORMAT}") {
             return Err(StateFormatError::InvalidField("activation state format"));
         }
-        let current = parse_field(records[1], "current=", "activation state current")?;
+        let update_key = parse_field(records[1], "update_key=", "activation state update key")?;
+        let current = parse_field(records[2], "current=", "activation state current")?;
+        let current_key = parse_field(records[3], "current_key=", "activation state current key")?;
         let previous_present = parse_field(
-            records[2],
+            records[4],
             "previous_present=",
             "activation state previous presence",
         )?;
-        let previous = parse_field(records[3], "previous=", "activation state previous")?;
+        let previous = parse_field(records[5], "previous=", "activation state previous")?;
+        let previous_key =
+            parse_field(records[6], "previous_key=", "activation state previous key")?;
         parse_pointer_values(
+            update_key,
             current,
+            current_key,
             previous_present,
             previous,
+            previous_key,
             "activation state previous",
         )
     }
@@ -1866,24 +1944,65 @@ mod m2_generation_state {
         }
         validate_pointer_state(&journal.after)?;
 
-        let (before_present, before_current, before_previous_present, before_previous) =
-            match journal.before.as_ref() {
-                Some(before) => {
-                    let (previous_present, previous) = match before.previous.as_deref() {
-                        Some(previous) => ("1", previous),
-                        None => ("0", ""),
+        let (
+            before_present,
+            before_update_key,
+            before_current,
+            before_current_key,
+            before_previous_present,
+            before_previous,
+            before_previous_key,
+        ) = match journal.before.as_ref() {
+            Some(before) => {
+                let (previous_present, previous, previous_key) =
+                    match (before.previous.as_deref(), before.previous_key) {
+                        (Some(previous), Some(previous_key)) => {
+                            ("1", previous, previous_key.to_hex())
+                        }
+                        (None, None) => ("0", "", String::new()),
+                        _ => {
+                            return Err(StateFormatError::InconsistentAbsent(
+                                "journal before previous",
+                            ))
+                        }
                     };
-                    ("1", before.current.as_str(), previous_present, previous)
-                }
-                None => ("0", "", "0", ""),
-            };
-        let (after_previous_present, after_previous) = match journal.after.previous.as_deref() {
-            Some(previous) => ("1", previous),
-            None => ("0", ""),
+                (
+                    "1",
+                    before.update_key.to_hex(),
+                    before.current.as_str(),
+                    before.current_key.to_hex(),
+                    previous_present,
+                    previous,
+                    previous_key,
+                )
+            }
+            None => (
+                "0",
+                String::new(),
+                "",
+                String::new(),
+                "0",
+                "",
+                String::new(),
+            ),
+        };
+        let (after_previous_present, after_previous, after_previous_key) = match (
+            journal.after.previous.as_deref(),
+            journal.after.previous_key,
+        ) {
+            (Some(previous), Some(previous_key)) => ("1", previous, previous_key.to_hex()),
+            (None, None) => ("0", "", String::new()),
+            _ => {
+                return Err(StateFormatError::InconsistentAbsent(
+                    "journal after previous",
+                ))
+            }
         };
         Ok(format!(
-            "format={JOURNAL_FORMAT}\nbefore_present={before_present}\nbefore_current={before_current}\nbefore_previous_present={before_previous_present}\nbefore_previous={before_previous}\nafter_current={}\nafter_previous_present={after_previous_present}\nafter_previous={after_previous}\n",
-            journal.after.current
+            "format={JOURNAL_FORMAT}\nbefore_present={before_present}\nbefore_update_key={before_update_key}\nbefore_current={before_current}\nbefore_current_key={before_current_key}\nbefore_previous_present={before_previous_present}\nbefore_previous={before_previous}\nbefore_previous_key={before_previous_key}\nafter_update_key={}\nafter_current={}\nafter_current_key={}\nafter_previous_present={after_previous_present}\nafter_previous={after_previous}\nafter_previous_key={after_previous_key}\n",
+            journal.after.update_key.to_hex(),
+            journal.after.current,
+            journal.after.current_key.to_hex(),
         )
         .into_bytes())
     }
@@ -1891,7 +2010,7 @@ mod m2_generation_state {
     pub(super) fn parse_activation_journal(
         bytes: &[u8],
     ) -> Result<ActivationJournal, StateFormatError> {
-        let records = parse_lines(bytes, "activation journal", 8)?;
+        let records = parse_lines(bytes, "activation journal", 14)?;
         if records[0] != format!("format={JOURNAL_FORMAT}") {
             return Err(StateFormatError::InvalidField("activation journal format"));
         }
@@ -1899,42 +2018,78 @@ mod m2_generation_state {
             parse_field(records[1], "before_present=", "journal before presence")?,
             "journal before presence",
         )?;
-        let before_current = parse_field(records[2], "before_current=", "journal before current")?;
+        let before_update_key = parse_field(
+            records[2],
+            "before_update_key=",
+            "journal before update key",
+        )?;
+        let before_current = parse_field(records[3], "before_current=", "journal before current")?;
+        let before_current_key = parse_field(
+            records[4],
+            "before_current_key=",
+            "journal before current key",
+        )?;
         let before_previous_present = parse_field(
-            records[3],
+            records[5],
             "before_previous_present=",
             "journal before previous presence",
         )?;
         let before_previous =
-            parse_field(records[4], "before_previous=", "journal before previous")?;
+            parse_field(records[6], "before_previous=", "journal before previous")?;
+        let before_previous_key = parse_field(
+            records[7],
+            "before_previous_key=",
+            "journal before previous key",
+        )?;
         let before = if before_present {
             Some(parse_pointer_values(
+                before_update_key,
                 before_current,
+                before_current_key,
                 before_previous_present,
                 before_previous,
+                before_previous_key,
                 "journal before state",
             )?)
         } else {
-            if !before_current.is_empty()
+            if !before_update_key.is_empty()
+                || !before_current.is_empty()
+                || !before_current_key.is_empty()
                 || before_previous_present != "0"
                 || !before_previous.is_empty()
+                || !before_previous_key.is_empty()
             {
                 return Err(StateFormatError::InconsistentAbsent("journal before state"));
             }
             None
         };
 
-        let after_current = parse_field(records[5], "after_current=", "journal after current")?;
+        let after_update_key =
+            parse_field(records[8], "after_update_key=", "journal after update key")?;
+        let after_current = parse_field(records[9], "after_current=", "journal after current")?;
+        let after_current_key = parse_field(
+            records[10],
+            "after_current_key=",
+            "journal after current key",
+        )?;
         let after_previous_present = parse_field(
-            records[6],
+            records[11],
             "after_previous_present=",
             "journal after previous presence",
         )?;
-        let after_previous = parse_field(records[7], "after_previous=", "journal after previous")?;
+        let after_previous = parse_field(records[12], "after_previous=", "journal after previous")?;
+        let after_previous_key = parse_field(
+            records[13],
+            "after_previous_key=",
+            "journal after previous key",
+        )?;
         let after = parse_pointer_values(
+            after_update_key,
             after_current,
+            after_current_key,
             after_previous_present,
             after_previous,
+            after_previous_key,
             "journal after state",
         )?;
         if before.as_ref() == Some(&after) {
@@ -2163,7 +2318,7 @@ const CORE_API_IDENTITY: &str = "core-api-v1";
 #[cfg(unix)]
 const PERSISTENT_SCHEMA_IDENTITY: &str = "schema-v1";
 #[cfg(unix)]
-const LOCAL_RELEASE_FORMAT: &str = "codex-release-v2";
+const LOCAL_RELEASE_FORMAT: &str = "codex-release-v3";
 #[cfg(unix)]
 const LOCAL_RELEASE_CHANNEL: &str = "stable";
 #[cfg(unix)]
@@ -2192,7 +2347,6 @@ struct LocalCoreRoots {
     resolver_path: std::path::PathBuf,
     cert_file: std::path::PathBuf,
     cert_dir: std::path::PathBuf,
-    release_public_key: std::path::PathBuf,
     openssl: std::path::PathBuf,
     curl: std::path::PathBuf,
 }
@@ -2210,7 +2364,6 @@ impl LocalCoreRoots {
             resolver_path: prefix.join("etc/resolv.conf"),
             cert_file: prefix.join("etc/tls/cert.pem"),
             cert_dir: prefix.join("etc/tls/certs"),
-            release_public_key: home.join(".local/lib/codex/core/release-public-key.pem"),
             openssl: prefix.join("bin/openssl"),
             curl: prefix.join("bin/curl"),
         })
@@ -2235,6 +2388,7 @@ enum LocalProductError {
     Release(&'static str),
     OpenSslUnavailable,
     CurlUnavailable,
+    #[cfg(test)]
     TrustedReleaseKeyUnavailable,
     OpenSslFailed(&'static str),
     Remote(&'static str),
@@ -2281,6 +2435,7 @@ impl std::fmt::Display for LocalProductError {
             LocalProductError::Release(message) => f.write_str(message),
             LocalProductError::OpenSslUnavailable => f.write_str("Termux OpenSSL is unavailable"),
             LocalProductError::CurlUnavailable => f.write_str("Termux curl is unavailable"),
+            #[cfg(test)]
             LocalProductError::TrustedReleaseKeyUnavailable => {
                 f.write_str("trusted release public key is unavailable")
             }
@@ -2494,8 +2649,10 @@ impl RemoteReleaseBase {
     }
 
     fn resource_url(&self, relative_path: &str) -> Result<String, LocalProductError> {
-        if !matches!(relative_path, "release.manifest" | "release.sig")
-            && !valid_release_relative_path(relative_path)
+        if !matches!(
+            relative_path,
+            "release.manifest" | "release.sig" | "release-authority.sig"
+        ) && !valid_release_relative_path(relative_path)
         {
             return Err(LocalProductError::Remote(
                 "remote release resource path is invalid",
@@ -2614,6 +2771,51 @@ struct ReleaseFileEntry {
 }
 
 #[cfg(unix)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ReleasePublicKey([u8; 32]);
+
+#[cfg(unix)]
+impl ReleasePublicKey {
+    fn parse_hex(value: &str) -> Option<Self> {
+        if value.len() != 64 {
+            return None;
+        }
+        fn nibble(byte: u8) -> Option<u8> {
+            match byte {
+                b'0'..=b'9' => Some(byte - b'0'),
+                b'a'..=b'f' => Some(byte - b'a' + 10),
+                _ => None,
+            }
+        }
+        let bytes = value.as_bytes();
+        let mut raw = [0u8; 32];
+        for (index, output) in raw.iter_mut().enumerate() {
+            *output = (nibble(bytes[index * 2])? << 4) | nibble(bytes[index * 2 + 1])?;
+        }
+        Some(Self(raw))
+    }
+
+    fn to_hex(self) -> String {
+        let mut value = String::with_capacity(64);
+        for byte in self.0 {
+            use std::fmt::Write as _;
+            write!(&mut value, "{byte:02x}").expect("writing into String cannot fail");
+        }
+        value
+    }
+
+    fn subject_public_key_info_der(self) -> [u8; 44] {
+        const PREFIX: [u8; 12] = [
+            0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00,
+        ];
+        let mut der = [0u8; 44];
+        der[..PREFIX.len()].copy_from_slice(&PREFIX);
+        der[PREFIX.len()..].copy_from_slice(&self.0);
+        der
+    }
+}
+
+#[cfg(unix)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct LocalReleaseManifest {
     generation_id: String,
@@ -2623,6 +2825,7 @@ struct LocalReleaseManifest {
     expected_architecture: String,
     core_api_identity: String,
     persistent_schema_identity: String,
+    release_public_key: ReleasePublicKey,
     files: Vec<ReleaseFileEntry>,
 }
 
@@ -2741,6 +2944,10 @@ fn parse_local_release_manifest(bytes: &[u8]) -> Result<LocalReleaseManifest, Lo
     let expected_architecture = descriptor_field(lines.next(), "expected_architecture")?;
     let core_api_identity = descriptor_field(lines.next(), "core_api_identity")?;
     let persistent_schema_identity = descriptor_field(lines.next(), "persistent_schema_identity")?;
+    let release_public_key = descriptor_field(lines.next(), "release_public_key")?;
+    let release_public_key = ReleasePublicKey::parse_hex(release_public_key).ok_or(
+        LocalProductError::Release("release public key is not canonical Ed25519 hex"),
+    )?;
     let file_count = descriptor_field(lines.next(), "file_count")?;
     if !valid_positive_decimal(file_count) {
         return Err(LocalProductError::Release("release file count is invalid"));
@@ -2814,6 +3021,7 @@ fn parse_local_release_manifest(bytes: &[u8]) -> Result<LocalReleaseManifest, Lo
         expected_architecture: expected_architecture.to_owned(),
         core_api_identity: core_api_identity.to_owned(),
         persistent_schema_identity: persistent_schema_identity.to_owned(),
+        release_public_key,
         files,
     })
 }
@@ -2856,7 +3064,7 @@ fn ensure_openssl_available(openssl: &std::path::Path) -> Result<(), LocalProduc
     Ok(())
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, test))]
 fn ensure_trusted_release_key(key: &std::path::Path) -> Result<(), LocalProductError> {
     let metadata = std::fs::symlink_metadata(key)
         .map_err(|_| LocalProductError::TrustedReleaseKeyUnavailable)?;
@@ -2866,13 +3074,44 @@ fn ensure_trusted_release_key(key: &std::path::Path) -> Result<(), LocalProductE
     Ok(())
 }
 
-#[cfg(unix)]
-fn verify_release_signature(
+#[cfg(all(unix, test))]
+fn release_public_key_from_pem(
     openssl: &std::path::Path,
     trusted_key: &std::path::Path,
+) -> Result<ReleasePublicKey, LocalProductError> {
+    ensure_openssl_available(openssl)?;
+    ensure_trusted_release_key(trusted_key)?;
+    let output = std::process::Command::new(openssl)
+        .args(["pkey", "-pubin", "-in"])
+        .arg(trusted_key)
+        .args(["-outform", "DER"])
+        .env_clear()
+        .stderr(std::process::Stdio::null())
+        .output()
+        .map_err(|_| LocalProductError::OpenSslUnavailable)?;
+    const PREFIX: [u8; 12] = [
+        0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00,
+    ];
+    if !output.status.success()
+        || output.stdout.len() != 44
+        || output.stdout[..PREFIX.len()] != PREFIX
+    {
+        return Err(LocalProductError::TrustedReleaseKeyUnavailable);
+    }
+    let mut raw = [0u8; 32];
+    raw.copy_from_slice(&output.stdout[PREFIX.len()..]);
+    Ok(ReleasePublicKey(raw))
+}
+
+#[cfg(unix)]
+fn verify_release_signature_with_key(
+    openssl: &std::path::Path,
+    trusted_key: ReleasePublicKey,
     manifest_path: &std::path::Path,
     signature_path: &std::path::Path,
 ) -> Result<(), LocalProductError> {
+    use std::io::Write as _;
+
     let signature_metadata =
         std::fs::symlink_metadata(signature_path).map_err(|source| LocalProductError::Io {
             operation: "inspect release signature",
@@ -2885,22 +3124,62 @@ fn verify_release_signature(
             "release signature is not a bounded regular file",
         ));
     }
-    let status = std::process::Command::new(openssl)
-        .args(["pkeyutl", "-verify", "-rawin", "-pubin", "-inkey"])
-        .arg(trusted_key)
+    let mut child = std::process::Command::new(openssl)
+        .args([
+            "pkeyutl",
+            "-verify",
+            "-rawin",
+            "-pubin",
+            "-keyform",
+            "DER",
+            "-inkey",
+            "/dev/stdin",
+        ])
         .arg("-in")
         .arg(manifest_path)
         .arg("-sigfile")
         .arg(signature_path)
         .env_clear()
+        .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
-        .status()
+        .spawn()
         .map_err(|_| LocalProductError::OpenSslUnavailable)?;
+    child
+        .stdin
+        .take()
+        .ok_or(LocalProductError::OpenSslFailed("public-key input"))?
+        .write_all(&trusted_key.subject_public_key_info_der())
+        .map_err(|_| LocalProductError::OpenSslFailed("public-key input"))?;
+    let status = child
+        .wait()
+        .map_err(|_| LocalProductError::OpenSslFailed("signature verification"))?;
     if status.success() {
         Ok(())
     } else {
         Err(LocalProductError::SignatureRejected)
+    }
+}
+
+#[cfg(unix)]
+fn release_authority_signature_present(path: &std::path::Path) -> Result<bool, LocalProductError> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_file() => {
+            if metadata.len() > LOCAL_RELEASE_SIGNATURE_MAX_BYTES {
+                return Err(LocalProductError::Release(
+                    "release authority signature is not a bounded regular file",
+                ));
+            }
+            Ok(true)
+        }
+        Ok(_) => Err(LocalProductError::Release(
+            "release authority signature is not a bounded regular file",
+        )),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(source) => Err(LocalProductError::Io {
+            operation: "inspect release authority signature",
+            source,
+        }),
     }
 }
 
@@ -3294,13 +3573,9 @@ fn verify_release_inventory(
 }
 
 #[cfg(unix)]
-fn verify_local_release_control(
+fn read_local_release_manifest(
     generation_dir: &std::path::Path,
-    openssl: &std::path::Path,
-    trusted_key: &std::path::Path,
-) -> Result<LocalReleaseManifest, LocalProductError> {
-    ensure_openssl_available(openssl)?;
-    ensure_trusted_release_key(trusted_key)?;
+) -> Result<(std::path::PathBuf, LocalReleaseManifest), LocalProductError> {
     ensure_real_directory(
         generation_dir,
         "inspect release generation root",
@@ -3323,10 +3598,36 @@ fn verify_local_release_control(
         operation: "read release manifest",
         source,
     })?;
-    let manifest = parse_local_release_manifest(&bytes)?;
-    verify_release_signature(
+    Ok((manifest_path, parse_local_release_manifest(&bytes)?))
+}
+
+#[cfg(unix)]
+fn verify_local_release_control_with_key(
+    generation_dir: &std::path::Path,
+    openssl: &std::path::Path,
+    update_key: ReleasePublicKey,
+) -> Result<LocalReleaseManifest, LocalProductError> {
+    ensure_openssl_available(openssl)?;
+    let (manifest_path, manifest) = read_local_release_manifest(generation_dir)?;
+    let authority_path = generation_dir.join("release-authority.sig");
+    let has_authority = release_authority_signature_present(&authority_path)?;
+    if manifest.release_public_key == update_key {
+        if has_authority {
+            return Err(LocalProductError::Release(
+                "release authority signature is unexpected for a non-rotation",
+            ));
+        }
+    } else {
+        if !has_authority {
+            return Err(LocalProductError::Release(
+                "release authority signature is required for key rotation",
+            ));
+        }
+        verify_release_signature_with_key(openssl, update_key, &manifest_path, &authority_path)?;
+    }
+    verify_release_signature_with_key(
         openssl,
-        trusted_key,
+        manifest.release_public_key,
         &manifest_path,
         &generation_dir.join("release.sig"),
     )?;
@@ -3335,31 +3636,53 @@ fn verify_local_release_control(
 }
 
 #[cfg(unix)]
+fn verify_local_release_bundle_with_key(
+    generation_dir: &std::path::Path,
+    openssl: &std::path::Path,
+    update_key: ReleasePublicKey,
+) -> Result<(LocalReleaseManifest, LoadedLocalGeneration), LocalProductError> {
+    let manifest = verify_local_release_control_with_key(generation_dir, openssl, update_key)?;
+    let loaded = verify_release_inventory(openssl, generation_dir, &manifest)?;
+    Ok((manifest, loaded))
+}
+
+#[cfg(all(unix, test))]
 fn verify_local_release_bundle(
     generation_dir: &std::path::Path,
     openssl: &std::path::Path,
     trusted_key: &std::path::Path,
 ) -> Result<(LocalReleaseManifest, LoadedLocalGeneration), LocalProductError> {
-    let manifest = verify_local_release_control(generation_dir, openssl, trusted_key)?;
-    let loaded = verify_release_inventory(openssl, generation_dir, &manifest)?;
-    Ok((manifest, loaded))
+    let update_key = release_public_key_from_pem(openssl, trusted_key)?;
+    verify_local_release_bundle_with_key(generation_dir, openssl, update_key)
 }
 
 #[cfg(unix)]
 fn verify_installed_local_release(
     roots: &LocalCoreRoots,
     generation_id: &str,
+    verifier_key: ReleasePublicKey,
     mismatch: &'static str,
 ) -> Result<(LocalReleaseManifest, LoadedLocalGeneration), LocalProductError> {
-    let verified = verify_local_release_bundle(
-        &roots.generation_root.join(generation_id),
+    ensure_openssl_available(&roots.openssl)?;
+    let generation_dir = roots.generation_root.join(generation_id);
+    let (manifest_path, manifest) = read_local_release_manifest(&generation_dir)?;
+    if manifest.release_public_key != verifier_key {
+        return Err(LocalProductError::Release(
+            "installed release key does not match state verifier key",
+        ));
+    }
+    verify_release_signature_with_key(
         &roots.openssl,
-        &roots.release_public_key,
+        verifier_key,
+        &manifest_path,
+        &generation_dir.join("release.sig"),
     )?;
-    if verified.1.generation_id != generation_id {
+    validate_local_release_policy(&manifest)?;
+    let loaded = verify_release_inventory(&roots.openssl, &generation_dir, &manifest)?;
+    if loaded.generation_id != generation_id {
         return Err(LocalProductError::Descriptor(mismatch));
     }
-    Ok(verified)
+    Ok((manifest, loaded))
 }
 
 #[cfg(unix)]
@@ -3479,6 +3802,14 @@ fn stage_local_generation(
             &candidate.join("release.sig"),
             "release signature must be a regular file",
         )?;
+        let authority_signature = source_dir.join("release-authority.sig");
+        if release_authority_signature_present(&authority_signature)? {
+            copy_local_regular_file(
+                &authority_signature,
+                &candidate.join("release-authority.sig"),
+                "release authority signature must be a regular file",
+            )?;
+        }
         copy_local_regular_file(
             &source.runtime_path,
             &candidate.join("runtime"),
@@ -3685,8 +4016,9 @@ fn probe_release_candidate(
 #[cfg(unix)]
 #[derive(Debug)]
 struct PreparedLocalActivation {
-    before: Option<m2_generation_state::GenerationPointerState>,
+    before: m2_generation_state::GenerationPointerState,
     generation_id: String,
+    release_key: ReleasePublicKey,
     staged_loaded: LoadedLocalGeneration,
 }
 
@@ -3695,21 +4027,21 @@ fn prepare_signed_local_release(
     source_dir: &std::path::Path,
     roots: &LocalCoreRoots,
 ) -> Result<PreparedLocalActivation, LocalProductError> {
-    let (source_release, _) =
-        verify_local_release_bundle(source_dir, &roots.openssl, &roots.release_public_key)?;
     let state_paths = m2_generation_state::CoreStatePaths::new(&roots.state_root)
         .map_err(LocalProductError::StateFormat)?;
     let before = m2_generation_state::recover_activation_state(&state_paths)
-        .map_err(LocalProductError::State)?;
-    if let Some(current) = before.as_ref() {
-        let (current_release, _) = verify_installed_local_release(
-            roots,
-            &current.current,
-            "active generation descriptor id does not match current",
-        )?;
-        if source_release.release_sequence <= current_release.release_sequence {
-            return Err(LocalProductError::ReleaseSequenceRollback);
-        }
+        .map_err(LocalProductError::State)?
+        .ok_or(LocalProductError::NoCurrentGeneration)?;
+    let (source_release, _) =
+        verify_local_release_bundle_with_key(source_dir, &roots.openssl, before.update_key)?;
+    let (current_release, _) = verify_installed_local_release(
+        roots,
+        &before.current,
+        before.current_key,
+        "active generation descriptor id does not match current",
+    )?;
+    if source_release.release_sequence <= current_release.release_sequence {
+        return Err(LocalProductError::ReleaseSequenceRollback);
     }
 
     std::fs::create_dir_all(&roots.generation_root).map_err(|source| LocalProductError::Io {
@@ -3720,6 +4052,7 @@ fn prepare_signed_local_release(
     let (staged_release, staged_loaded) = verify_installed_local_release(
         roots,
         &generation_id,
+        source_release.release_public_key,
         "staged generation descriptor id does not match publication path",
     )?;
     if staged_release != source_release {
@@ -3731,6 +4064,7 @@ fn prepare_signed_local_release(
     Ok(PreparedLocalActivation {
         before,
         generation_id,
+        release_key: source_release.release_public_key,
         staged_loaded,
     })
 }
@@ -3751,14 +4085,13 @@ fn activate_prepared_local_release(
         .map_err(LocalProductError::StateFormat)?;
     m2_generation_state::prepare_core_state_paths(&state_paths)
         .map_err(LocalProductError::State)?;
-    let after = match prepared.before.as_ref() {
-        Some(before) => {
-            m2_generation_state::plan_activation_pointer_state(before, &prepared.generation_id)
-        }
-        None => m2_generation_state::plan_initial_pointer_state(&prepared.generation_id),
-    }
+    let after = m2_generation_state::plan_activation_pointer_state_with_key(
+        &prepared.before,
+        &prepared.generation_id,
+        prepared.release_key,
+    )
     .map_err(LocalProductError::StateFormat)?;
-    m2_generation_state::activate_pointer_state(&state_paths, prepared.before.as_ref(), &after)
+    m2_generation_state::activate_pointer_state(&state_paths, Some(&prepared.before), &after)
         .map_err(LocalProductError::State)?;
     Ok(prepared.generation_id)
 }
@@ -3919,6 +4252,7 @@ fn acquire_remote_release_source(
     roots: &LocalCoreRoots,
     base: &RemoteReleaseBase,
     acquisition_root: &std::path::Path,
+    update_key: ReleasePublicKey,
 ) -> Result<(), LocalProductError> {
     use std::os::unix::fs::PermissionsExt;
 
@@ -3931,6 +4265,7 @@ fn acquire_remote_release_source(
         LOCAL_RELEASE_MAX_BYTES as u64,
         &mut acquired_bytes,
     )?;
+    let (_, parsed_manifest) = read_local_release_manifest(acquisition_root)?;
     fetch_remote_resource(
         roots,
         base,
@@ -3939,8 +4274,18 @@ fn acquire_remote_release_source(
         LOCAL_RELEASE_SIGNATURE_MAX_BYTES,
         &mut acquired_bytes,
     )?;
+    if parsed_manifest.release_public_key != update_key {
+        fetch_remote_resource(
+            roots,
+            base,
+            "release-authority.sig",
+            &acquisition_root.join("release-authority.sig"),
+            LOCAL_RELEASE_SIGNATURE_MAX_BYTES,
+            &mut acquired_bytes,
+        )?;
+    }
     let manifest =
-        verify_local_release_control(acquisition_root, &roots.openssl, &roots.release_public_key)?;
+        verify_local_release_control_with_key(acquisition_root, &roots.openssl, update_key)?;
     if !base.matches_generation_identity(&manifest.generation_id)? {
         return Err(LocalProductError::Remote(
             "remote release base does not match signed generation identity",
@@ -3986,8 +4331,12 @@ fn activate_signed_remote_release(
     process_env: &TermuxProcessEnvSnapshot,
 ) -> Result<String, LocalProductError> {
     let base = RemoteReleaseBase::parse(base)?;
+    let state_paths = m2_generation_state::CoreStatePaths::new(&roots.state_root)
+        .map_err(LocalProductError::StateFormat)?;
+    let before = m2_generation_state::recover_activation_state(&state_paths)
+        .map_err(LocalProductError::State)?
+        .ok_or(LocalProductError::NoCurrentGeneration)?;
     ensure_openssl_available(&roots.openssl)?;
-    ensure_trusted_release_key(&roots.release_public_key)?;
     ensure_curl_available(&roots.curl)?;
     std::fs::create_dir_all(&roots.generation_root).map_err(|source| LocalProductError::Io {
         operation: "create immutable generation root",
@@ -4005,7 +4354,7 @@ fn activate_signed_remote_release(
     create_remote_acquisition_root(&acquisition_root)?;
 
     let prepared = (|| {
-        acquire_remote_release_source(roots, &base, &acquisition_root)?;
+        acquire_remote_release_source(roots, &base, &acquisition_root, before.update_key)?;
         prepare_signed_local_release(&acquisition_root, roots)
     })();
     let cleanup =
@@ -4033,6 +4382,7 @@ fn rollback_signed_local_release(roots: &LocalCoreRoots) -> Result<String, Local
     verify_installed_local_release(
         roots,
         &after.current,
+        after.current_key,
         "rollback generation descriptor id does not match previous",
     )?;
     m2_generation_state::activate_pointer_state(&state_paths, Some(&before), &after)
@@ -5094,7 +5444,6 @@ exit 73
             resolver_path: root.join("resolv.conf"),
             cert_file: root.join("cert.pem"),
             cert_dir: root.join("certs"),
-            release_public_key: root.join("release-public-key.pem"),
             openssl: root.join("openssl"),
             curl: root.join("curl"),
         };
@@ -5304,7 +5653,6 @@ exit 73
             resolver_path: prefix.join("etc/resolv.conf"),
             cert_file: prefix.join("etc/tls/cert.pem"),
             cert_dir: prefix.join("etc/tls/certs"),
-            release_public_key: home.join(".local/lib/codex/core/release-public-key.pem"),
             openssl: prefix.join("bin/openssl"),
             curl: prefix.join("bin/curl"),
         };
@@ -5616,10 +5964,11 @@ exit 73
     }
 
     #[cfg(unix)]
-    fn b4_sign_release_manifest(
+    fn b4_sign_release_manifest_to(
         generation_dir: &std::path::Path,
         openssl: &std::path::Path,
         private_key: &std::path::Path,
+        output_name: &str,
     ) {
         let signed = std::process::Command::new(openssl)
             .args(["pkeyutl", "-sign", "-rawin", "-inkey"])
@@ -5627,13 +5976,42 @@ exit 73
             .arg("-in")
             .arg(generation_dir.join("release.manifest"))
             .arg("-out")
-            .arg(generation_dir.join("release.sig"))
+            .arg(generation_dir.join(output_name))
             .env_clear()
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .status()
             .unwrap();
         assert!(signed.success(), "sign test release manifest");
+    }
+
+    #[cfg(unix)]
+    fn b4_sign_release_manifest(
+        generation_dir: &std::path::Path,
+        openssl: &std::path::Path,
+        private_key: &std::path::Path,
+    ) {
+        b4_sign_release_manifest_to(generation_dir, openssl, private_key, "release.sig");
+    }
+
+    #[cfg(unix)]
+    fn b4_public_key_from_private(
+        openssl: &std::path::Path,
+        private_key: &std::path::Path,
+    ) -> ReleasePublicKey {
+        let output = std::process::Command::new(openssl)
+            .args(["pkey", "-in"])
+            .arg(private_key)
+            .args(["-pubout", "-outform", "DER"])
+            .env_clear()
+            .stderr(std::process::Stdio::null())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        assert_eq!(output.stdout.len(), 44);
+        let mut raw = [0u8; 32];
+        raw.copy_from_slice(&output.stdout[12..]);
+        ReleasePublicKey(raw)
     }
 
     #[cfg(unix)]
@@ -5723,9 +6101,29 @@ esac
         private_key: &std::path::Path,
         files: &[ReleaseFileEntry],
     ) {
+        b4_write_signed_release_inventory_with_authority(
+            generation_dir,
+            release_sequence,
+            openssl,
+            private_key,
+            None,
+            files,
+        );
+    }
+
+    #[cfg(unix)]
+    fn b4_write_signed_release_inventory_with_authority(
+        generation_dir: &std::path::Path,
+        release_sequence: u64,
+        openssl: &std::path::Path,
+        private_key: &std::path::Path,
+        authority_private_key: Option<&std::path::Path>,
+        files: &[ReleaseFileEntry],
+    ) {
         use std::fmt::Write as _;
 
         let loaded = load_local_generation(generation_dir).unwrap();
+        let release_public_key = b4_public_key_from_private(openssl, private_key).to_hex();
         let mut manifest = format!(
             concat!(
                 "{}\n",
@@ -5736,6 +6134,7 @@ esac
                 "expected_architecture\t{}\n",
                 "core_api_identity\t{}\n",
                 "persistent_schema_identity\t{}\n",
+                "release_public_key\t{}\n",
                 "file_count\t{}\n",
             ),
             LOCAL_RELEASE_FORMAT,
@@ -5746,6 +6145,7 @@ esac
             std::env::consts::ARCH,
             CORE_API_IDENTITY,
             PERSISTENT_SCHEMA_IDENTITY,
+            release_public_key,
             files.len(),
         );
         for relative_path in files {
@@ -5759,6 +6159,17 @@ esac
         let manifest_path = generation_dir.join("release.manifest");
         std::fs::write(&manifest_path, manifest).unwrap();
         b4_sign_release_manifest(generation_dir, openssl, private_key);
+        let authority_path = generation_dir.join("release-authority.sig");
+        if let Some(authority_private_key) = authority_private_key {
+            b4_sign_release_manifest_to(
+                generation_dir,
+                openssl,
+                authority_private_key,
+                "release-authority.sig",
+            );
+        } else if authority_path.exists() {
+            std::fs::remove_file(authority_path).unwrap();
+        }
     }
 
     #[cfg(unix)]
@@ -5979,7 +6390,6 @@ esac
             resolver_path: root.join("source-resolv.conf"),
             cert_file: root.join("source-cert.pem"),
             cert_dir: root.join("source-certs"),
-            release_public_key: root.join("unused-source-public-key.pem"),
             openssl: openssl.to_owned(),
             curl: root.join("unused-source-curl"),
         }
@@ -6021,6 +6431,7 @@ esac
             .env(UPDATE_PROBE_ROLE, "1")
             .env(UPDATE_PROBE_SOURCE, source_generation)
             .env_remove(UPDATE_PROBE_REMOTE)
+            .env("CODEX_TEST_BOOTSTRAP_FIRST", "1")
             .env_remove("CODEX_TEST_REQUIRE_NO_ACQUISITION")
             .env("HOME", home)
             .env("PREFIX", prefix)
@@ -6083,6 +6494,89 @@ esac
         let pinned = home.join(".local/lib/codex/core/release-public-key.pem");
         std::fs::create_dir_all(pinned.parent().unwrap()).unwrap();
         std::fs::copy(public_key, pinned).unwrap();
+    }
+
+    #[cfg(unix)]
+    fn b7_public_roots(home: &std::path::Path, prefix: &std::path::Path) -> LocalCoreRoots {
+        let state_root = home.join(".local/share/codex/core");
+        LocalCoreRoots {
+            generation_root: home.join(".local/lib/codex/core/generations"),
+            config_dir: state_root.join("config"),
+            state_root,
+            resolver_path: prefix.join("etc/resolv.conf"),
+            cert_file: prefix.join("etc/tls/cert.pem"),
+            cert_dir: prefix.join("etc/tls/certs"),
+            openssl: prefix.join("bin/openssl"),
+            curl: prefix.join("bin/curl"),
+        }
+    }
+
+    #[cfg(unix)]
+    fn b7_bootstrap_initial_release(
+        source_generation: &std::path::Path,
+        home: &std::path::Path,
+        prefix: &std::path::Path,
+        bootstrap_public_key: &std::path::Path,
+    ) -> Result<GenerationPointerState, LocalProductError> {
+        let roots = b7_public_roots(home, prefix);
+        let bootstrap_key = release_public_key_from_pem(&roots.openssl, bootstrap_public_key)?;
+        let (manifest, loaded) =
+            verify_local_release_bundle_with_key(source_generation, &roots.openssl, bootstrap_key)?;
+        if manifest.release_public_key != bootstrap_key {
+            return Err(LocalProductError::Release(
+                "bootstrap release key does not match pinned key",
+            ));
+        }
+        std::fs::create_dir_all(&roots.generation_root).map_err(|source| {
+            LocalProductError::Io {
+                operation: "create bootstrap generation root",
+                source,
+            }
+        })?;
+        let generation_id = stage_local_generation(source_generation, &roots.generation_root)?;
+        if generation_id != loaded.generation_id {
+            return Err(LocalProductError::Descriptor(
+                "bootstrap generation descriptor id does not match source",
+            ));
+        }
+        let (_, installed) = verify_installed_local_release(
+            &roots,
+            &generation_id,
+            bootstrap_key,
+            "bootstrap generation descriptor id does not match publication path",
+        )?;
+        if installed.generation_id != generation_id {
+            return Err(LocalProductError::Descriptor(
+                "bootstrap generation descriptor id does not match installed generation",
+            ));
+        }
+        std::fs::create_dir_all(roots.state_root.parent().unwrap()).map_err(|source| {
+            LocalProductError::Io {
+                operation: "create bootstrap state parent",
+                source,
+            }
+        })?;
+        let paths =
+            CoreStatePaths::new(&roots.state_root).map_err(LocalProductError::StateFormat)?;
+        prepare_core_state_paths(&paths).map_err(LocalProductError::State)?;
+        std::fs::create_dir(&roots.config_dir).map_err(|source| LocalProductError::Io {
+            operation: "create bootstrap config directory",
+            source,
+        })?;
+        let state = plan_initial_pointer_state_with_key(&generation_id, bootstrap_key)
+            .map_err(LocalProductError::StateFormat)?;
+        activate_pointer_state(&paths, None, &state).map_err(LocalProductError::State)?;
+        Ok(state)
+    }
+
+    #[cfg(unix)]
+    fn b7_seed_initial_release(
+        source_generation: &std::path::Path,
+        home: &std::path::Path,
+        prefix: &std::path::Path,
+        bootstrap_public_key: &std::path::Path,
+    ) -> GenerationPointerState {
+        b7_bootstrap_initial_release(source_generation, home, prefix, bootstrap_public_key).unwrap()
     }
 
     #[cfg(unix)]
@@ -6210,6 +6704,7 @@ esac
                 "expected_architecture\t{}\n",
                 "core_api_identity\t{}\n",
                 "persistent_schema_identity\t{}\n",
+                "release_public_key\t{}\n",
                 "file_count\t1\n",
                 "file\tgeneration.meta\t{}\t0644\n",
             ),
@@ -6219,6 +6714,7 @@ esac
             std::env::consts::ARCH,
             CORE_API_IDENTITY,
             PERSISTENT_SCHEMA_IDENTITY,
+            "0".repeat(64),
             "0".repeat(64),
         )
     }
@@ -6234,7 +6730,38 @@ esac
             std::env::var_os(UPDATE_PROBE_REMOTE),
         ) {
             (Some(source), None) => {
-                run_public_main([OsString::from("update"), OsString::from("--local"), source])
+                if std::env::var("CODEX_TEST_BOOTSTRAP_FIRST").as_deref() == Ok("1") {
+                    let home = std::path::PathBuf::from(std::env::var_os("HOME").unwrap());
+                    let prefix = std::path::PathBuf::from(std::env::var_os("PREFIX").unwrap());
+                    let state_paths =
+                        CoreStatePaths::new(&home.join(".local/share/codex/core")).unwrap();
+                    if read_pointer_state(&state_paths).unwrap().is_none() {
+                        let pinned = home.join(".local/lib/codex/core/release-public-key.pem");
+                        match b7_bootstrap_initial_release(
+                            std::path::Path::new(&source),
+                            &home,
+                            &prefix,
+                            &pinned,
+                        ) {
+                            Ok(state) => {
+                                println!("activated local generation {}", state.current);
+                                0
+                            }
+                            Err(error) => {
+                                eprintln!("codex update: {error}");
+                                1
+                            }
+                        }
+                    } else {
+                        run_public_main([
+                            OsString::from("update"),
+                            OsString::from("--local"),
+                            source,
+                        ])
+                    }
+                } else {
+                    run_public_main([OsString::from("update"), OsString::from("--local"), source])
+                }
             }
             (None, Some(remote)) => {
                 run_public_main([OsString::from("update"), OsString::from("--remote"), remote])
@@ -6335,6 +6862,94 @@ esac
                 Err(LocalProductError::ReleasePolicy(_))
             ));
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b7_slice1_signed_transition_admission_is_bounded_and_dual_proved() {
+        let root = temp_root("b7-slice1-transition");
+        let openssl = b4_termux_openssl();
+        let old_private = root.join("keys/old-private.pem");
+        let old_public = root.join("keys/old-public.pem");
+        let new_private = root.join("keys/new-private.pem");
+        let new_public = root.join("keys/new-public.pem");
+        let wrong_private = root.join("keys/wrong-private.pem");
+        let wrong_public = root.join("keys/wrong-public.pem");
+        b4_generate_release_keypair(&openssl, &old_private, &old_public);
+        b4_generate_release_keypair(&openssl, &new_private, &new_public);
+        b4_generate_release_keypair(&openssl, &wrong_private, &wrong_public);
+        let old_key = release_public_key_from_pem(&openssl, &old_public).unwrap();
+        let new_key = release_public_key_from_pem(&openssl, &new_public).unwrap();
+        assert_ne!(old_key, new_key);
+
+        let source_roots = b4_source_roots(&root.join("source"), &openssl);
+        std::fs::create_dir_all(&source_roots.generation_root).unwrap();
+        let non_rotation =
+            b2_write_generation(&source_roots, "b7-non-rotation", false, "unsupported");
+        b4_write_signed_release(&non_rotation, 1, &openssl, &old_private);
+        let admitted =
+            verify_local_release_control_with_key(&non_rotation, &openssl, old_key).unwrap();
+        assert_eq!(admitted.release_public_key, old_key);
+        b4_sign_release_manifest_to(
+            &non_rotation,
+            &openssl,
+            &old_private,
+            "release-authority.sig",
+        );
+        assert!(matches!(
+            verify_local_release_control_with_key(&non_rotation, &openssl, old_key),
+            Err(LocalProductError::Release(
+                "release authority signature is unexpected for a non-rotation"
+            ))
+        ));
+        std::fs::remove_file(non_rotation.join("release-authority.sig")).unwrap();
+
+        let rotation = b2_write_generation(&source_roots, "b7-rotation", false, "unsupported");
+        let files = b4_exact_release_inventory(&rotation, &openssl);
+        b4_write_signed_release_inventory_with_authority(
+            &rotation,
+            2,
+            &openssl,
+            &new_private,
+            Some(&old_private),
+            &files,
+        );
+        let admitted = verify_local_release_control_with_key(&rotation, &openssl, old_key).unwrap();
+        assert_eq!(admitted.release_public_key, new_key);
+
+        std::fs::remove_file(rotation.join("release-authority.sig")).unwrap();
+        assert!(matches!(
+            verify_local_release_control_with_key(&rotation, &openssl, old_key),
+            Err(LocalProductError::Release(
+                "release authority signature is required for key rotation"
+            ))
+        ));
+        b4_sign_release_manifest_to(&rotation, &openssl, &wrong_private, "release-authority.sig");
+        assert!(matches!(
+            verify_local_release_control_with_key(&rotation, &openssl, old_key),
+            Err(LocalProductError::SignatureRejected)
+        ));
+        b4_sign_release_manifest_to(&rotation, &openssl, &old_private, "release-authority.sig");
+        b4_sign_release_manifest_to(&rotation, &openssl, &old_private, "release.sig");
+        assert!(matches!(
+            verify_local_release_control_with_key(&rotation, &openssl, old_key),
+            Err(LocalProductError::SignatureRejected)
+        ));
+
+        for invalid in [
+            "",
+            &"0".repeat(63),
+            &"0".repeat(65),
+            &"A".repeat(64),
+            &"g".repeat(64),
+        ] {
+            assert!(ReleasePublicKey::parse_hex(invalid).is_none());
+        }
+        assert_eq!(
+            ReleasePublicKey::parse_hex(&old_key.to_hex()),
+            Some(old_key)
+        );
+        remove_temp_root(root);
     }
 
     #[cfg(unix)]
@@ -6441,7 +7056,7 @@ esac
             "wrong-pinned-key",
             true,
             Some(&wrong_public),
-            b"release signature verification failed",
+            b"release authority signature is required for key rotation",
         );
 
         let manifest_path = source_generation.join("release.manifest");
@@ -6863,8 +7478,13 @@ esac
         assert_eq!(
             read_pointer_state(&state_paths).unwrap(),
             Some(GenerationPointerState {
+                update_key: release_public_key_from_pem(&live_openssl, &trusted_public_key)
+                    .unwrap(),
                 current: "public-first".to_string(),
+                current_key: release_public_key_from_pem(&live_openssl, &trusted_public_key)
+                    .unwrap(),
                 previous: None,
+                previous_key: None,
             })
         );
 
@@ -6874,8 +7494,15 @@ esac
         assert_eq!(
             read_pointer_state(&state_paths).unwrap(),
             Some(GenerationPointerState {
+                update_key: release_public_key_from_pem(&live_openssl, &trusted_public_key)
+                    .unwrap(),
                 current: "public-next".to_string(),
+                current_key: release_public_key_from_pem(&live_openssl, &trusted_public_key)
+                    .unwrap(),
                 previous: Some("public-first".to_string()),
+                previous_key: Some(
+                    release_public_key_from_pem(&live_openssl, &trusted_public_key).unwrap()
+                ),
             })
         );
         for generation_id in ["public-first", "public-next"] {
@@ -7051,6 +7678,193 @@ esac
 
     #[cfg(unix)]
     #[test]
+    fn test_m2_b7_slice3_local_rotation_and_rollback_preserve_forward_authority() {
+        let root = temp_root("b7-slice3-local-rotation");
+        let openssl = b4_termux_openssl();
+        let (home, prefix, tmp) = b4_prepare_public_environment(&root, &openssl, true);
+        let old_private = root.join("keys/old-private.pem");
+        let old_public = root.join("keys/old-public.pem");
+        let new_private = root.join("keys/new-private.pem");
+        let new_public = root.join("keys/new-public.pem");
+        b4_generate_release_keypair(&openssl, &old_private, &old_public);
+        b4_generate_release_keypair(&openssl, &new_private, &new_public);
+        let old_key = release_public_key_from_pem(&openssl, &old_public).unwrap();
+        let new_key = release_public_key_from_pem(&openssl, &new_public).unwrap();
+        assert_ne!(old_key, new_key);
+        b4_install_trusted_release_key(&home, &old_public);
+
+        let source_roots = b4_source_roots(&root.join("source"), &openssl);
+        std::fs::create_dir_all(&source_roots.generation_root).unwrap();
+        let g0 = b2_write_generation(&source_roots, "rotation-g0", false, "unsupported");
+        b4_write_signed_release(&g0, 1, &openssl, &old_private);
+        b7_seed_initial_release(
+            &g0,
+            &home,
+            &prefix,
+            &home.join(".local/lib/codex/core/release-public-key.pem"),
+        );
+        std::fs::remove_file(home.join(".local/lib/codex/core/release-public-key.pem")).unwrap();
+
+        let g1 = b2_write_generation(&source_roots, "rotation-g1", false, "unsupported");
+        let g1_files = b4_exact_release_inventory(&g1, &openssl);
+        b4_write_signed_release_inventory_with_authority(
+            &g1,
+            2,
+            &openssl,
+            &new_private,
+            Some(&old_private),
+            &g1_files,
+        );
+        b4_assert_public_update_activated(&g1, &home, &prefix, &tmp, "rotation-g1");
+
+        let state_paths = CoreStatePaths::new(&home.join(".local/share/codex/core")).unwrap();
+        let forward = read_pointer_state(&state_paths).unwrap().unwrap();
+        assert_eq!(forward.update_key, new_key);
+        assert_eq!(forward.current, "rotation-g1");
+        assert_eq!(forward.current_key, new_key);
+        assert_eq!(forward.previous.as_deref(), Some("rotation-g0"));
+        assert_eq!(forward.previous_key, Some(old_key));
+        assert!(!home
+            .join(".local/lib/codex/core/release-public-key.pem")
+            .exists());
+
+        b4_assert_public_rollback_activated(&home, &prefix, &tmp, "rotation-g0");
+        let rolled_back = read_pointer_state(&state_paths).unwrap().unwrap();
+        assert_eq!(rolled_back.update_key, new_key);
+        assert_eq!(rolled_back.current, "rotation-g0");
+        assert_eq!(rolled_back.current_key, old_key);
+        assert_eq!(rolled_back.previous.as_deref(), Some("rotation-g1"));
+        assert_eq!(rolled_back.previous_key, Some(new_key));
+
+        let old_authority_attempt = b2_write_generation(
+            &source_roots,
+            "rotation-old-authority",
+            false,
+            "unsupported",
+        );
+        b4_write_signed_release(&old_authority_attempt, 3, &openssl, &old_private);
+        b4_assert_public_update_rejected(
+            &old_authority_attempt,
+            &home,
+            &prefix,
+            &tmp,
+            b"release authority signature is required for key rotation",
+        );
+        assert_eq!(
+            read_pointer_state(&state_paths).unwrap().unwrap(),
+            rolled_back
+        );
+        m2_b1_assert_no_transaction_files(&state_paths);
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b7_slice3_core_never_falls_back_to_bootstrap_key_without_v3_state() {
+        let root = temp_root("b7-slice3-no-bootstrap-fallback");
+        let openssl = b4_termux_openssl();
+        let (home, prefix, _) = b4_prepare_public_environment(&root, &openssl, true);
+        let private_key = root.join("keys/private.pem");
+        let public_key = root.join("keys/public.pem");
+        b4_generate_release_keypair(&openssl, &private_key, &public_key);
+        b4_install_trusted_release_key(&home, &public_key);
+        let source_roots = b4_source_roots(&root.join("source"), &openssl);
+        std::fs::create_dir_all(&source_roots.generation_root).unwrap();
+        let release = b2_write_generation(&source_roots, "no-state-release", false, "unsupported");
+        b4_write_signed_release(&release, 1, &openssl, &private_key);
+
+        let roots = b7_public_roots(&home, &prefix);
+        let process_env = capture_termux_process_env();
+        assert!(matches!(
+            activate_signed_local_release(&release, &roots, &process_env),
+            Err(LocalProductError::NoCurrentGeneration)
+        ));
+        assert!(home
+            .join(".local/lib/codex/core/release-public-key.pem")
+            .is_file());
+        assert!(!roots.generation_root.exists());
+        let state_paths = CoreStatePaths::new(&roots.state_root).unwrap();
+        assert!(read_pointer_state(&state_paths).unwrap().is_none());
+        m2_b1_assert_no_transaction_files(&state_paths);
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b7_slice3_remote_rotation_reuses_state_authority_and_local_activation() {
+        let root = temp_root("b7-slice3-remote-rotation");
+        let openssl = b4_termux_openssl();
+        let (home, prefix, tmp) = b4_prepare_public_environment(&root, &openssl, true);
+        let old_private = root.join("keys/old-private.pem");
+        let old_public = root.join("keys/old-public.pem");
+        let new_private = root.join("keys/new-private.pem");
+        let new_public = root.join("keys/new-public.pem");
+        b4_generate_release_keypair(&openssl, &old_private, &old_public);
+        b4_generate_release_keypair(&openssl, &new_private, &new_public);
+        let old_key = release_public_key_from_pem(&openssl, &old_public).unwrap();
+        let new_key = release_public_key_from_pem(&openssl, &new_public).unwrap();
+        b4_install_trusted_release_key(&home, &old_public);
+
+        let source_roots = b4_source_roots(&root.join("server"), &openssl);
+        std::fs::create_dir_all(&source_roots.generation_root).unwrap();
+        let g0 = b2_write_generation(&source_roots, "remote-rotation-g0", false, "unsupported");
+        b4_write_signed_release(&g0, 1, &openssl, &old_private);
+        b7_seed_initial_release(
+            &g0,
+            &home,
+            &prefix,
+            &home.join(".local/lib/codex/core/release-public-key.pem"),
+        );
+        std::fs::remove_file(home.join(".local/lib/codex/core/release-public-key.pem")).unwrap();
+
+        let g1 = b2_write_generation(&source_roots, "remote-rotation-g1", false, "unsupported");
+        let files = b4_exact_release_inventory(&g1, &openssl);
+        b4_write_signed_release_inventory_with_authority(
+            &g1,
+            2,
+            &openssl,
+            &new_private,
+            Some(&old_private),
+            &files,
+        );
+        let base = "https://releases.example.invalid/codex/remote-rotation-g1/";
+        let curl_log = root.join("curl-log");
+        b5_write_release_curl(&prefix.join("bin/curl"), &curl_log, base, &g1);
+        let output = b5_run_public_remote_update(base, &home, &prefix, &tmp);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "stdout={:?} stderr={:?}",
+            output.stdout,
+            output.stderr
+        );
+
+        let state_paths = CoreStatePaths::new(&home.join(".local/share/codex/core")).unwrap();
+        let state = read_pointer_state(&state_paths).unwrap().unwrap();
+        assert_eq!(state.update_key, new_key);
+        assert_eq!(state.current, "remote-rotation-g1");
+        assert_eq!(state.current_key, new_key);
+        assert_eq!(state.previous.as_deref(), Some("remote-rotation-g0"));
+        assert_eq!(state.previous_key, Some(old_key));
+        assert!(!home
+            .join(".local/lib/codex/core/release-public-key.pem")
+            .exists());
+        b5_assert_no_acquisition(&home.join(".local/lib/codex/core/generations"));
+        m2_b1_assert_no_transaction_files(&state_paths);
+
+        let log = std::fs::read_to_string(curl_log).unwrap();
+        assert!(log.contains(&format!("{base}release.manifest\n")));
+        assert!(log.contains(&format!("{base}release.sig\n")));
+        assert!(log.contains(&format!("{base}release-authority.sig\n")));
+        assert_eq!(
+            log.lines().filter(|line| *line == "CALL").count(),
+            files.len() + 3
+        );
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn test_m2_b4_recovery_public_rollback_swaps_exact_signed_previous() {
         let root = temp_root("b4-public-rollback");
         let openssl = b4_termux_openssl();
@@ -7074,8 +7888,11 @@ esac
         assert_eq!(
             read_pointer_state(&state_paths).unwrap(),
             Some(GenerationPointerState {
+                update_key: release_public_key_from_pem(&openssl, &public_key).unwrap(),
                 current: "rollback-first".to_string(),
+                current_key: release_public_key_from_pem(&openssl, &public_key).unwrap(),
                 previous: Some("rollback-next".to_string()),
+                previous_key: Some(release_public_key_from_pem(&openssl, &public_key).unwrap()),
             })
         );
         let generation_root = home.join(".local/lib/codex/core/generations");
@@ -7285,7 +8102,7 @@ case "$url" in
   *) exit 99 ;;
 esac
 case "$relative" in
-  release.manifest|release.sig|generation.meta|runtime|manager|helpers/*|compat/*) ;;
+  release.manifest|release.sig|release-authority.sig|generation.meta|runtime|manager|helpers/*|compat/*) ;;
   *) exit 100 ;;
 esac
 if [ -n "$fault_relative" ] && [ "$relative" = "$fault_relative" ]; then
@@ -7365,8 +8182,17 @@ exit 0
 
         let source_roots = b4_source_roots(&root.join("release-server"), &openssl);
         std::fs::create_dir_all(&source_roots.generation_root).unwrap();
+        let current = b2_write_generation(&source_roots, "fixture-current", false, "unsupported");
+        b4_write_signed_release(&current, 1, &openssl, &private_key);
+        b7_seed_initial_release(
+            &current,
+            &home,
+            &prefix,
+            &home.join(".local/lib/codex/core/release-public-key.pem"),
+        );
+        std::fs::remove_file(home.join(".local/lib/codex/core/release-public-key.pem")).unwrap();
         let release = b2_write_generation(&source_roots, generation_id, false, "unsupported");
-        b4_write_signed_release(&release, 1, &openssl, &private_key);
+        b4_write_signed_release(&release, 2, &openssl, &private_key);
 
         let base = format!("https://releases.example.invalid/codex/{generation_id}/");
         let curl_log = root.join("curl-log");
@@ -7408,15 +8234,18 @@ exit 0
     #[cfg(unix)]
     fn b5_assert_no_remote_generation_or_state(home: &std::path::Path) {
         let generation_root = home.join(".local/lib/codex/core/generations");
-        if generation_root.exists() {
-            assert_eq!(std::fs::read_dir(&generation_root).unwrap().count(), 0);
-        }
+        let entries: Vec<_> = std::fs::read_dir(&generation_root)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(entries, vec![std::ffi::OsString::from("fixture-current")]);
         let state_root = home.join(".local/share/codex/core");
-        assert!(!state_root.join("activation-state").exists());
-        assert!(!state_root.join("activation-journal").exists());
-        assert!(!state_root.join("activation-journal.tmp").exists());
-        assert!(!state_root.join("activation-state.tmp").exists());
-        assert!(!state_root.join("config").exists());
+        let state_paths = CoreStatePaths::new(&state_root).unwrap();
+        let state = read_pointer_state(&state_paths).unwrap().unwrap();
+        assert_eq!(state.current, "fixture-current");
+        assert!(state.previous.is_none());
+        m2_b1_assert_no_transaction_files(&state_paths);
+        assert!(state_root.join("config").is_dir());
     }
 
     #[cfg(unix)]
@@ -7445,6 +8274,15 @@ exit 0
 
         let source_roots = b4_source_roots(&root.join("release-server"), &openssl);
         std::fs::create_dir_all(&source_roots.generation_root).unwrap();
+        let current = b2_write_generation(&source_roots, "remote-bootstrap", false, "unsupported");
+        b4_write_signed_release(&current, 1, &openssl, &private_key);
+        b7_seed_initial_release(
+            &current,
+            &home,
+            &prefix,
+            &home.join(".local/lib/codex/core/release-public-key.pem"),
+        );
+        std::fs::remove_file(home.join(".local/lib/codex/core/release-public-key.pem")).unwrap();
         let release = b2_write_generation(&source_roots, "remote-initial", true, "supported");
         let descriptor_path = release.join("generation.meta");
         let descriptor = std::fs::read_to_string(&descriptor_path).unwrap().replace(
@@ -7472,7 +8310,7 @@ exit 0
         let mut encoded_mode = std::fs::metadata(&encoded_asset).unwrap().permissions();
         encoded_mode.set_mode(0o600);
         std::fs::set_permissions(&encoded_asset, encoded_mode).unwrap();
-        b4_write_signed_release(&release, 1, &openssl, &private_key);
+        b4_write_signed_release(&release, 2, &openssl, &private_key);
 
         let encoded_server_asset = release.join("compat/space%20name/%C3%A9%3F%25%23/asset");
         std::fs::create_dir_all(encoded_server_asset.parent().unwrap()).unwrap();
@@ -7504,8 +8342,11 @@ exit 0
         assert_eq!(
             read_pointer_state(&state_paths).unwrap(),
             Some(GenerationPointerState {
+                update_key: release_public_key_from_pem(&openssl, &public_key).unwrap(),
                 current: "remote-initial".to_string(),
-                previous: None,
+                current_key: release_public_key_from_pem(&openssl, &public_key).unwrap(),
+                previous: Some("remote-bootstrap".to_string()),
+                previous_key: Some(release_public_key_from_pem(&openssl, &public_key).unwrap()),
             })
         );
         let generation_root = home.join(".local/lib/codex/core/generations");
@@ -7655,7 +8496,15 @@ exit 0
             let wrong_private = fixture.root.join("wrong/private.pem");
             let wrong_public = fixture.root.join("wrong/public.pem");
             b4_generate_release_keypair(&fixture.openssl, &wrong_private, &wrong_public);
-            b4_install_trusted_release_key(&fixture.home, &wrong_public);
+            let files = b4_exact_release_inventory(&fixture.release, &fixture.openssl);
+            b4_write_signed_release_inventory_with_authority(
+                &fixture.release,
+                2,
+                &fixture.openssl,
+                &wrong_private,
+                Some(&wrong_private),
+                &files,
+            );
             b5_assert_public_remote_rejected(
                 &fixture,
                 &fixture.base,
@@ -7727,16 +8576,26 @@ exit 0
             b"remove remote acquisition directory failed",
         );
 
-        let mut entries = std::fs::read_dir(&generation_root).unwrap();
-        let acquisition = entries.next().unwrap().unwrap().path();
-        assert!(entries.next().is_none());
-        assert!(acquisition
-            .file_name()
+        let entries: Vec<_> = std::fs::read_dir(&generation_root)
             .unwrap()
-            .as_encoded_bytes()
-            .starts_with(b".acquire-"));
+            .map(|entry| entry.unwrap().path())
+            .collect();
+        assert_eq!(entries.len(), 2);
+        assert!(entries.iter().any(|path| path.ends_with("fixture-current")));
+        let acquisition = entries
+            .into_iter()
+            .find(|path| {
+                path.file_name()
+                    .unwrap()
+                    .as_encoded_bytes()
+                    .starts_with(b".acquire-")
+            })
+            .expect("cleanup failure must leave only the private acquisition plus current");
         let state_root = fixture.home.join(".local/share/codex/core");
-        assert!(!state_root.join("activation-state").exists());
+        let state_paths = CoreStatePaths::new(&state_root).unwrap();
+        let state = read_pointer_state(&state_paths).unwrap().unwrap();
+        assert_eq!(state.current, "fixture-current");
+        assert!(state.previous.is_none());
         assert!(!state_root.join("activation-journal").exists());
 
         let mut permissions = std::fs::symlink_metadata(&acquisition)
@@ -7927,8 +8786,11 @@ exit 0
         assert_eq!(
             read_pointer_state(&state_paths).unwrap(),
             Some(GenerationPointerState {
+                update_key: release_public_key_from_pem(&openssl, &public_key).unwrap(),
                 current: "local-first".to_string(),
+                current_key: release_public_key_from_pem(&openssl, &public_key).unwrap(),
                 previous: None,
+                previous_key: None,
             })
         );
 
@@ -7956,8 +8818,11 @@ exit 0
             .windows(b"activated remote generation remote-second\n".len())
             .any(|window| window == b"activated remote generation remote-second\n"));
         let expected_forward = GenerationPointerState {
+            update_key: release_public_key_from_pem(&openssl, &public_key).unwrap(),
             current: "remote-second".to_string(),
+            current_key: release_public_key_from_pem(&openssl, &public_key).unwrap(),
             previous: Some("local-first".to_string()),
+            previous_key: Some(release_public_key_from_pem(&openssl, &public_key).unwrap()),
         };
         assert_eq!(
             read_pointer_state(&state_paths).unwrap(),
@@ -8021,8 +8886,11 @@ exit 0
         assert_eq!(
             read_pointer_state(&state_paths).unwrap(),
             Some(GenerationPointerState {
+                update_key: release_public_key_from_pem(&openssl, &public_key).unwrap(),
                 current: "local-first".to_string(),
+                current_key: release_public_key_from_pem(&openssl, &public_key).unwrap(),
                 previous: Some("remote-second".to_string()),
+                previous_key: Some(release_public_key_from_pem(&openssl, &public_key).unwrap()),
             })
         );
         b5_assert_no_acquisition(&generation_root);
@@ -8507,13 +9375,22 @@ exit 0
         );
 
         let state = GenerationPointerState {
+            update_key: ReleasePublicKey([0x11; 32]),
             current: "generation = alpha 한국어".to_string(),
+            current_key: ReleasePublicKey([0x22; 32]),
             previous: Some("previous value".to_string()),
+            previous_key: Some(ReleasePublicKey([0x33; 32])),
         };
         let encoded = encode_pointer_state(&state).unwrap();
         assert_eq!(
             encoded,
-            "format=codex-activation-state-v2\ncurrent=generation = alpha 한국어\nprevious_present=1\nprevious=previous value\n".as_bytes()
+            format!(
+                "format=codex-activation-state-v3\nupdate_key={}\ncurrent=generation = alpha 한국어\ncurrent_key={}\nprevious_present=1\nprevious=previous value\nprevious_key={}\n",
+                ReleasePublicKey([0x11; 32]).to_hex(),
+                ReleasePublicKey([0x22; 32]).to_hex(),
+                ReleasePublicKey([0x33; 32]).to_hex(),
+            )
+            .as_bytes()
         );
         assert_eq!(parse_pointer_state(&encoded).unwrap(), state);
 
@@ -8544,35 +9421,39 @@ exit 0
     #[cfg(unix)]
     #[test]
     fn test_m2_b1_b_state_and_journal_parsers_fail_closed_on_malformed_inputs() {
-        let valid = GenerationPointerState {
-            current: "g1".to_string(),
-            previous: None,
-        };
+        let valid = plan_initial_pointer_state("g1").unwrap();
         let valid_bytes = encode_pointer_state(&valid).unwrap();
         assert_eq!(parse_pointer_state(&valid_bytes).unwrap(), valid);
         let duplicate = GenerationPointerState {
+            update_key: valid.update_key,
             current: "g1".to_string(),
+            current_key: valid.current_key,
             previous: Some("g1".to_string()),
+            previous_key: Some(valid.current_key),
         };
         assert_eq!(
             encode_pointer_state(&duplicate),
             Err(StateFormatError::NoChange)
         );
+        let duplicate_bytes = format!(
+            "format=codex-activation-state-v3\nupdate_key={}\ncurrent=g1\ncurrent_key={}\nprevious_present=1\nprevious=g1\nprevious_key={}\n",
+            valid.update_key.to_hex(),
+            valid.current_key.to_hex(),
+            valid.current_key.to_hex(),
+        );
         assert_eq!(
-            parse_pointer_state(
-                b"format=codex-activation-state-v2\ncurrent=g1\nprevious_present=1\nprevious=g1\n"
-            ),
+            parse_pointer_state(duplicate_bytes.as_bytes()),
             Err(StateFormatError::NoChange)
         );
 
+        let key = valid.update_key.to_hex();
         let malformed_states: Vec<Vec<u8>> = vec![
-            b"format=codex-activation-state-v1\ncurrent=g1\nprevious_present=0\nprevious=\n".to_vec(),
-            b"format=codex-activation-state-v2\nprevious_present=0\ncurrent=g1\nprevious=\n".to_vec(),
-            b"format=codex-activation-state-v2\ncurrent=g1\nprevious_present=2\nprevious=\n".to_vec(),
-            b"format=codex-activation-state-v2\ncurrent=g1\nprevious_present=0\nprevious=ghost\n".to_vec(),
-            b"format=codex-activation-state-v2\ncurrent=g1\nprevious_present=0\n".to_vec(),
-            b"format=codex-activation-state-v2\ncurrent=g1\nprevious_present=0\nprevious=\nextra=x\n".to_vec(),
-            b"format=codex-activation-state-v2\ncurrent=g1\nprevious_present=0\nprevious=".to_vec(),
+            b"format=codex-activation-state-v2\ncurrent=g1\nprevious_present=0\nprevious=\n".to_vec(),
+            format!("format=codex-activation-state-v3\ncurrent=g1\nupdate_key={key}\ncurrent_key={key}\nprevious_present=0\nprevious=\nprevious_key=\n").into_bytes(),
+            format!("format=codex-activation-state-v3\nupdate_key={key}\ncurrent=g1\ncurrent_key={key}\nprevious_present=2\nprevious=\nprevious_key=\n").into_bytes(),
+            format!("format=codex-activation-state-v3\nupdate_key={key}\ncurrent=g1\ncurrent_key={key}\nprevious_present=0\nprevious=ghost\nprevious_key=\n").into_bytes(),
+            format!("format=codex-activation-state-v3\nupdate_key={key}\ncurrent=g1\ncurrent_key={key}\nprevious_present=1\nprevious=g0\nprevious_key=\n").into_bytes(),
+            format!("format=codex-activation-state-v3\nupdate_key={}\ncurrent=g1\ncurrent_key={key}\nprevious_present=0\nprevious=\nprevious_key=\n", "A".repeat(64)).into_bytes(),
             vec![0xff, 0xfe, 0xfd, b'\n'],
             vec![b'x'; 20_000],
         ];
@@ -8580,10 +9461,7 @@ exit 0
             assert!(parse_pointer_state(&malformed).is_err());
         }
 
-        let after = GenerationPointerState {
-            current: "g2".to_string(),
-            previous: Some("g1".to_string()),
-        };
+        let after = plan_activation_pointer_state(&valid, "g2").unwrap();
         let journal = ActivationJournal {
             before: Some(valid.clone()),
             after: after.clone(),
@@ -8597,9 +9475,16 @@ exit 0
             }),
             Err(StateFormatError::AmbiguousJournal)
         );
-        let absent_with_data = b"format=codex-activation-journal-v2\nbefore_present=0\nbefore_current=g1\nbefore_previous_present=0\nbefore_previous=\nafter_current=g2\nafter_previous_present=1\nafter_previous=g1\n";
+        let absent_with_data = format!(
+            "format=codex-activation-journal-v3\nbefore_present=0\nbefore_update_key={}\nbefore_current=g1\nbefore_current_key={}\nbefore_previous_present=0\nbefore_previous=\nbefore_previous_key=\nafter_update_key={}\nafter_current=g2\nafter_current_key={}\nafter_previous_present=1\nafter_previous=g1\nafter_previous_key={}\n",
+            valid.update_key.to_hex(),
+            valid.current_key.to_hex(),
+            after.update_key.to_hex(),
+            after.current_key.to_hex(),
+            after.previous_key.unwrap().to_hex(),
+        );
         assert!(matches!(
-            parse_activation_journal(absent_with_data),
+            parse_activation_journal(absent_with_data.as_bytes()),
             Err(StateFormatError::InconsistentAbsent("journal before state"))
         ));
     }
@@ -8607,28 +9492,38 @@ exit 0
     #[cfg(unix)]
     #[test]
     fn test_m2_b1_c_initial_activation_upgrade_and_rollback_semantics_are_exact() {
+        let key = ReleasePublicKey([0x11; 32]);
         let initial = plan_initial_pointer_state("g1").unwrap();
         assert_eq!(
             initial,
             GenerationPointerState {
+                update_key: key,
                 current: "g1".to_string(),
+                current_key: key,
                 previous: None,
+                previous_key: None,
             }
         );
         let upgraded = plan_activation_pointer_state(&initial, "g2").unwrap();
         assert_eq!(
             upgraded,
             GenerationPointerState {
+                update_key: key,
                 current: "g2".to_string(),
+                current_key: key,
                 previous: Some("g1".to_string()),
+                previous_key: Some(key),
             }
         );
         let rollback = plan_rollback_pointer_state(&upgraded).unwrap();
         assert_eq!(
             rollback,
             GenerationPointerState {
+                update_key: key,
                 current: "g1".to_string(),
+                current_key: key,
                 previous: Some("g2".to_string()),
+                previous_key: Some(key),
             }
         );
         assert_eq!(
@@ -8638,6 +9533,39 @@ exit 0
         assert_eq!(
             plan_rollback_pointer_state(&initial),
             Err(StateFormatError::NoRollbackGeneration)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b7_slice2_rotation_state_and_rollback_keep_forward_authority() {
+        let k0 = ReleasePublicKey([0x21; 32]);
+        let k1 = ReleasePublicKey([0x42; 32]);
+        let initial = plan_initial_pointer_state_with_key("g0", k0).unwrap();
+        let forward = plan_activation_pointer_state_with_key(&initial, "g1", k1).unwrap();
+        assert_eq!(forward.update_key, k1);
+        assert_eq!(forward.current, "g1");
+        assert_eq!(forward.current_key, k1);
+        assert_eq!(forward.previous.as_deref(), Some("g0"));
+        assert_eq!(forward.previous_key, Some(k0));
+        assert_eq!(
+            parse_pointer_state(&encode_pointer_state(&forward).unwrap()).unwrap(),
+            forward
+        );
+
+        let rollback = plan_rollback_pointer_state(&forward).unwrap();
+        assert_eq!(rollback.update_key, k1);
+        assert_eq!(rollback.current, "g0");
+        assert_eq!(rollback.current_key, k0);
+        assert_eq!(rollback.previous.as_deref(), Some("g1"));
+        assert_eq!(rollback.previous_key, Some(k1));
+        let journal = ActivationJournal {
+            before: Some(forward.clone()),
+            after: rollback.clone(),
+        };
+        assert_eq!(
+            parse_activation_journal(&encode_activation_journal(&journal).unwrap()).unwrap(),
+            journal
         );
     }
 

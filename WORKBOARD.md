@@ -9,9 +9,8 @@ in Git history and the `GOAL.md` acceptance ledger, not here.
 - Active branch: `rewrite/rust-core`
 - Normative owner: `SPEC.md`
 - Acceptance owner: `GOAL.md`
-- Current milestone state: Milestone 2 active; M2-B6 is accepted at
-  `92787c85e4bc27de867f800d1414125d6247a210`; M2-B7 is the selected
-  implementation target
+- Current milestone state: Milestone 2 active; M2-B7 signed trust-key rotation
+  is accepted by the current authority state; M2-B8 is selected
 - Worker mode: user-controlled; current state OFF. Only an explicit user command
   may change it
 - Additional agents/workers/reviewers: disabled while worker mode is OFF
@@ -23,127 +22,105 @@ in Git history and the `GOAL.md` acceptance ledger, not here.
 
 ## Product-speed policy
 
-- Add only the trust transition required to replace a compromised or expiring
-  bootstrap key while retaining the one explicit signed rollback target. Do not
-  build general PKI, key discovery, a key server, or an unbounded keyring.
-- Preserve one local and one remote updater. Rotation must reuse their exact
-  signed admission, staging, activation, recovery, and rollback path rather than
-  add a second trust updater.
-- Resolve transition authorization, durable key ownership, activation ordering,
-  crash recovery, and previous-generation verification together before changing
-  the manifest or trust-anchor format.
-- Keep ordinary launch independent of OpenSSL, network, Manager, and key-rotation
-  availability. Bootstrap packaging and device qualification remain later
-  bundles; B7 must not implement them opportunistically.
-- Keep Core dependency-free unless a vertical slice proves the existing Termux
-  OpenSSL plus bounded Rust code cannot meet the approved contract. Do not
-  install packages during development.
+- Build only the delivery pieces already required by `SPEC.md`: one prebuilt
+  Termux Core artifact and the smallest fresh-install bootstrap needed to verify
+  one immutable `codex-release-v3`, stage/probe it, initialize v3 state, and
+  activate the first complete generation.
+- Reuse B6 artifact adaptation plus the accepted B7 release/trust/state formats.
+  Do not add a second updater, alternate bootstrap trust path, package-manager
+  installer, discovery service, archive fallback, or another persistent state
+  owner.
+- Fresh bootstrap may use the bootstrap-provisioned Ed25519 key only before v3
+  state exists. After initial activation, Core owns the accepted v3 state and the
+  bootstrap key is not a Core recovery fallback.
+- Keep release production separate from device installation. Building and
+  qualifying prebuilt artifacts may compile in the release workspace; the
+  supported install/update path must not require compilation on the target
+  device.
+- B8 is not live cutover or device qualification. Offline-device recovery,
+  fresh-Termux qualification, legacy upgrade, launch/update overlap proof, and
+  final independent review remain separate gates unless fresh authority later
+  selects them.
 
 ## Mandatory bundle execution method
 
-- Bind branch, HEAD, dirty state, source identity, and authorities at every
-  resume. A dirty resume records every red gate here before product mutation.
-- Update `SPEC.md` before changing the signed manifest, trust-anchor ownership,
-  persistent trust state, activation/rollback behavior, or security policy.
-  Because B7 changes a security property, report the exact proposed SPEC delta
-  and obtain user approval before that edit or any product mutation.
-- Each slice closes vertically with its production behavior, named regression,
-  nonzero focused invocation, relevant warning-free build/test result, and Lead
-  diff inspection.
-- A failed compile, zero-test or rejected test command, stale assertion, warning,
-  leaked temporary root, unmapped production branch, or mismatched revision
-  freezes new behavior until the whole affected class is dispositioned
-  KEEP/COLLAPSE/DELETE.
-- Cheap compile and focused gates run at slice boundaries. The full serial suite,
-  three complete default-parallel runs, explicit live read-only smoke, protected
-  identity check, and locked release build run only after all behavior slices are
-  green.
-- On acceptance, reduce this proof map into `GOAL.md`, replace this Workboard
-  item, and commit. Do not preserve a parallel roadmap or evidence hierarchy.
+- Fresh-bind branch, HEAD, dirty state, current authority, and protected live
+  identities before each implementation resume.
+- The registered validation metadata is currently stale and npm-bound for this
+  Rust orphan lineage. Repair that project validation routing before the first
+  B8 product mutation, prove a green direct Rust baseline, and do not count the
+  historical npm ENOENT as product evidence.
+- Update `SPEC.md` first if B8 discovers that the existing bootstrap/artifact
+  contract is insufficient. A new security-property change still requires
+  explicit user approval before mutation; implementation choices within the
+  accepted contract do not.
+- Each slice closes vertically with production behavior, named nonzero focused
+  proof, warning-free compile/build as relevant, and Lead diff inspection. A red
+  compile/test/warning, leaked temporary root, stale assertion, or mismatched
+  revision freezes new behavior until repaired.
+- Run the full serial suite, three complete default-parallel suites, explicit
+  live read-only smoke, zero-residue check, protected identity comparison, and
+  warning-free locked release build only after all B8 behavior slices are green.
+- On acceptance, reduce B8 evidence into `GOAL.md`, replace this Workboard item,
+  and commit. Do not publish or cut over without separate authority.
 
 ## Selected next action
 
-### M2-B7 — signed trust-key rotation and rollback compatibility
+### M2-B8 — prebuilt Core and minimal fresh bootstrap
 
 #### outcome
 
-Define and implement the smallest signed trust transition that lets a release
-replace the bootstrap-pinned Ed25519 verification key without accepting an
-untrusted adjacent key, weakening anti-rollback, creating a second updater, or
-making the one retained previous generation unverifiable. Key transition and
-generation activation must recover together to one complete old or new trust and
-generation state.
-
-Slice 0 is authority-only. It must trace the accepted B4/B5 trust, inventory,
-activation, recovery, and rollback path; compare the minimum viable transition
-shapes; and report one exact recommended contract. No `SPEC.md`, product code,
-manifest format, or persistent layout changes until the user approves that
-security choice.
+Produce and qualify the smallest release-production Core artifact and
+fresh-install bootstrap that can start from no installed Core/v3 state, verify
+one immutable v3 release through the bootstrap-provisioned key, construct one
+complete initial generation, run the required self/probe checks, and initialize
+one authoritative v3 state. The result must feed the same generation layout and
+future updater path already accepted in B4-B7 without on-device compilation or a
+second installer/update protocol.
 
 #### accepted input
 
-- B6 implementation:
-  `92787c85e4bc27de867f800d1414125d6247a210`.
-- B6 release-builder library SHA-256:
-  `5cf290e919adaa4ef92f1715cff4cb0cdb2f6ad9973020f0111f60f00f4019ca`.
-- B6 final evidence: full serial Core 70/0/1-ignored plus builder 5/0; three
-  complete default-parallel runs at the same counts; explicit live read-only
-  smoke 1/1; warning-free locked release build; zero test-root residue; exact
-  protected live identities.
-- B4/B5 admit `codex-release-v2` only through one bootstrap-provisioned Ed25519
-  public key, exact-manifest signature verification, monotonic release sequence,
-  complete generation staging, and one explicit signed previous target.
-- Current production has no key-rotation statement, next-key field, durable trust
-  transaction, previous trust key, alternate-key search, or recovery rule tying
-  trust state to generation state. Historical or hypothetical formats are not
-  implementation authority.
-
-#### current checkpoint
-
-- Selection bound clean `rewrite/rust-core@92787c85e4bc27de867f800d1414125d6247a210`,
-  ahead of its remote by seven commits. B6 changed no installed or active product
-  state and no branch was published.
-- Remaining Milestone 2 gates are prebuilt Core/bootstrap, signed key rotation,
-  launch/update overlap proof, offline device recovery, isolated fresh-Termux
-  and legacy-upgrade qualification, and the final independent review. Rotation
-  precedes bootstrap so bootstrap does not freeze an unreviewed trust format.
-- No rotation design has user approval. `SPEC.md` and product code remain frozen
-  while Slice 0 is selected. Worker mode remains OFF and the primary Lead owns
-  the authority analysis directly.
+- B7 Core source SHA-256:
+  `c4e501ece0ac6ccf75a01409f7e8e804297b326a5ead6317516f9f9755f1a3e0`.
+- B7 approved SPEC SHA-256:
+  `4ca9035c9c1a31c5afc3e9d4de978b304c96c687d03c0bee0aa446078fe11647`.
+- B7 final grouped evidence: Core 75/0/1-ignored plus builder 5/0 in serial and
+  each of three complete parallel runs; explicit live read-only smoke 1/1;
+  warning-free locked release; zero test-root residue; exact protected live
+  identities unchanged.
+- B6 release builder already accepts an explicit Core artifact and produces one
+  complete unsigned generation source without signing, installation, activation,
+  or live-state mutation.
+- B7 defines the only initial trust transition: the bootstrap key may authenticate
+  the first v3 release and initialize `update_key/current/current_key`; Core does
+  not fall back to that key after state exists.
 
 #### vertical proof map
 
 | Slice | Exact outcome | Exit gate | State |
 | --- | --- | --- | --- |
-| 0 — trust-transition authority | Exhaustively trace current key consumers and transaction boundaries, compare minimum transition shapes, and bind authorization, state, activation, rollback, and recovery semantics | exact recommended SPEC delta reported; user approval; SPEC-only diff reviewed; no product mutation | selected |
-| 1 — signed transition admission | Admit only the approved current-key-authorized transition through the existing v2 successor format and local/remote verifier | named valid-transition and malformed/unauthorized-key matrices pass nonzero; ordinary non-rotating releases remain one direct path | blocked by slice 0 |
-| 2 — atomic trust activation and recovery | Couple the bounded trust-state change to generation activation/recovery so every outcome is complete old or new and the retained previous release remains verifiable | focused activation, rollback, stale-journal, kill-point, and no-partial-state regressions pass nonzero | blocked by slice 1 |
-| 3 — updater integration | Prove local, remote, current verification, and rollback reuse the same trust policy with no launch dependency or second updater | one end-to-end local transition, one remote reuse, one rollback regression, and affected B4/B5 groups pass nonzero | blocked by slice 2 |
-| 4 — grouped acceptance | Add no new product behavior; run final bundle proof and synchronize authority | full serial and three complete parallel suites, explicit live read-only smoke, format/diff, warning-free locked release, zero residue, protected identities unchanged, GOAL update, commit | blocked by slice 3 |
+| 0 — fresh authority and validation routing | Rebind the committed B7 state, repair Rust project-validation metadata, inventory current release/build/bootstrap boundaries, and select the smallest artifact/bootstrap implementation shape without changing product behavior | canonical Rust validation route works nonzero; direct baseline agrees; exact B8 file/artifact boundary recorded; no product mutation | selected |
+| 1 — prebuilt Core artifact | Produce one immutable release-production Core artifact with explicit platform/architecture identity and digest, without installing it or claiming target-device compilation | named artifact build/identity/digest tests pass nonzero; warning-free locked release build; no live mutation | blocked by slice 0 |
+| 2 — fresh bootstrap initial trust | Implement only the bootstrap operations already authorized by SPEC/B7: environment check, immutable v3 admission with bootstrap key, complete staging/probe, and initial v3 state activation in isolated roots | valid local initial install plus malformed/key-mismatch/probe/fault matrix pass nonzero; no fallback or partial state | blocked by slice 1 |
+| 3 — release-production integration | Feed the prebuilt Core artifact through B6 generation production and the same v3 signed-release fixture/bootstrap path; prove no duplicate updater or archive/install path appears | one complete release-production-to-bootstrap flow and affected B6/B7 groups pass nonzero | blocked by slice 2 |
+| 4 — grouped acceptance | Add no new behavior; run final bundle proof and synchronize authority | full serial + three complete parallel suites, explicit live read-only smoke, format/diff, warning-free locked release, zero residue, protected identities unchanged, GOAL update, commit | blocked by slice 3 |
 
 #### protected surfaces
 
-- `$PREFIX/etc/resolv.conf`, installed `$PREFIX/bin/codex`, live generations and
-  activation/trust state, Manager state, auth/profile/session data, package
-  state, private signing keys, and publication branches remain read-only.
-- All signing keys used in tests are ephemeral and repository-external. No test
-  key becomes product trust authority or persists after its test root is removed.
+- `$PREFIX/bin/codex`, `$PREFIX/etc/resolv.conf`, current live generations/trust
+  state, Manager state, auth/profile/session data, package state, and publication
+  refs remain read-only throughout B8 development and acceptance.
+- No private signing key is stored in Core, bootstrap, repository product data,
+  or persistent device state. Test signing keys remain ephemeral and external to
+  product trust.
 
 #### stop lines
 
-- no SPEC or product mutation before explicit user approval of the security
-  contract;
-- no untrusted key beside a release, alternate-key search, network key lookup,
-  CA/PKI subsystem, unbounded key history, or private key in Core;
-- no second updater, ordinary-launch verification dependency, fallback ladder,
-  multi-writer protocol, bootstrap implementation, device cutover, or release
-  publication;
+- no live installation, activation, device cutover, or publication;
+- no package-manager install or supported on-device compilation path;
+- no second updater/bootstrap recovery authority, adjacent-key trust, discovery,
+  mirror/fallback service, general PKI, or unbounded keyring;
+- no security-contract expansion without fresh SPEC-first user approval;
 - no legacy source copying or translation;
 - no worker, planner, or reviewer unless the user explicitly turns worker mode
   on.
-
-## Next action after M2-B7
-
-After rotation is accepted, select the prebuilt Core and minimal fresh-bootstrap
-bundle from fresh authority. B7 does not pre-order or claim device installation,
-offline qualification, legacy upgrade, or independent-review evidence.

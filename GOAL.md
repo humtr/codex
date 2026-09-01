@@ -846,12 +846,71 @@ Termux qualification. Produce one candidate for independent product review.
   corrected before evidence was reused. The shared pre-commit hook referenced a
   script absent from the orphan lineage, so the already-validated exact staged
   diff was committed with `--no-verify`; the hook did not change source or index.
-- Current checkpoint: M2-B7 — signed trust-key rotation and rollback
-  compatibility. Slice 0 is authority-only: trace the accepted B4/B5 trust and
-  transaction path, compare the smallest bounded transition shapes, and report
-  one exact recommended security contract. No SPEC or product mutation is
-  authorized until the user approves that contract. Worker mode remains OFF and
-  the primary Lead performs the analysis directly.
+- M2-B7 — signed trust-key rotation and rollback compatibility — is accepted by
+  this authority update from base
+  `253156c37a2bd22af8faae0bce03587999ffd136`. The user approved the exact
+  security contract before mutation. `codex-release-v3` now binds one canonical
+  32-byte Ed25519 release key, requires the candidate-key `release.sig` over the
+  exact manifest, and requires a second `release-authority.sig` by the current
+  update key only when that key changes. Adjacent/discovered keys, PKI/keyserver
+  trust, unbounded key history, and a second updater remain absent.
+- B7 upgrades durable authority to one `codex-activation-state-v3` /
+  `codex-activation-journal-v3` transaction containing `update_key`,
+  `current/current_key`, and the optional `previous/previous_key` pair. Forward
+  activation advances update authority with the accepted candidate. Explicit
+  rollback swaps only generation/verifier pairs and never rolls back
+  `update_key`; a rotated-away key therefore cannot regain forward signing
+  authority through runtime rollback. Installed-generation verification binds
+  the state verifier key to the manifest release key before signature/inventory
+  admission, and ordinary launch remains independent of OpenSSL, network, and
+  trust verification.
+- Bootstrap trust is now explicitly one-way. The pinned
+  `release-public-key.pem` may initialize the first v3 state only in the later
+  bootstrap bundle; production Core update/recovery owns no bootstrap-key path
+  and fails closed when v3 state is absent rather than reconstructing authority
+  from the old bootstrap key. Local and remote update, current verification,
+  staging, activation, recovery, and rollback reuse the same bounded trust
+  policy; remote rotation conditionally acquires the authority signature before
+  any generation payload.
+- The accepted B7 Core source SHA-256 is
+  `c4e501ece0ac6ccf75a01409f7e8e804297b326a5ead6317516f9f9755f1a3e0`,
+  its parent-relative binary-diff SHA-256 is
+  `06ccbd8cbd42f156de861e753df778dac3f6f29a60648fd48fa228759c8b4fc6`,
+  and the approved B7 specification SHA-256 is
+  `4ca9035c9c1a31c5afc3e9d4de978b304c96c687d03c0bee0aa446078fe11647`.
+  Focused proof closed signed-transition admission 1/1, state rotation 1/1,
+  local/remote/rollback integration 3/3, the B1 trust+generation fault matrix
+  12/12, B4 14/14, B5 10/10, and the B6 admission bridge 1/1.
+- Final B7 evidence was rerun from scratch after the last warning repair on one
+  final formatted source. The full serial workspace suite passed Core
+  75/0/1-ignored plus builder 5/0; three complete default-parallel workspace
+  suites each passed the same counts; the explicit real-Termux read-only smoke
+  passed 1/1; and the locked release build passed with `-D warnings`. Test-root
+  residue was zero and the generated untracked `target/` build tree was removed.
+  The installed launcher remained SHA-256
+  `0b0284155f2672263836029f760ba06a0cb284b7ca3a8e600ad399b43af36aff`
+  with the exact pre-run device/inode/mode/uid/gid/size/mtime identity, and live
+  `resolv.conf` remained SHA-256
+  `7e8ad76e0d200e93918ca2e93c99ff8ecd02071953bf1479819db3ac0dbb6d07`
+  with its exact pre-run identity. No live generation/trust state, resolver,
+  installed launcher, Manager, auth/profile/session, package, network authority,
+  or publication state changed.
+- B7 rejected and repaired each red gate before proceeding: the registered
+  validation metadata was found stale and npm-bound before any product mutation,
+  so zero Rust tests from that path were counted; direct Cargo established the
+  green baseline instead. The first raw-key OpenSSL path required `/dev/stdin`,
+  stale v2 assertions/fixtures were updated only after their new fail-closed
+  meaning was proven, and the first final release build exposed one production
+  dead-code warning after bootstrap removal. That planner was narrowed to
+  test-only bootstrap fixtures and the entire grouped acceptance was rerun.
+  Registered project validation metadata remains an administrative mismatch and
+  must be repaired before the next product slice relies on it.
+- Current checkpoint: M2-B8 — prebuilt Core and minimal fresh bootstrap. Start
+  from fresh authority, repair the Rust validation routing, then define and prove
+  the smallest non-installed prebuilt Core artifact plus fresh-install bootstrap
+  that initializes the already-accepted v3 trust state. Do not claim live device
+  installation, offline qualification, legacy upgrade, or final independent
+  review in this bundle. Worker mode remains OFF.
 
 ## Goal Lifts
 

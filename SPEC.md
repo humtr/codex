@@ -155,8 +155,9 @@ update path. The real entrypoint is one non-installed workspace executable named
 `codex-release-builder`. Its `build` operation accepts the version, archive and
 digest, generation identity, Core artifact, creation metadata, and an absent
 output directory. It performs no discovery, signing, activation, or live-state
-mutation and emits only an unsigned generation source for the existing
-`codex-release-v2` signing and delivery path.
+mutation and emits only an unsigned generation source for the
+`codex-release-v3` signing and delivery path. `codex-release-v2` remains
+implementation history and is not retained as a release compatibility path.
 
 The accepted archive is gzip-compressed POSIX ustar. A per-entry POSIX PAX
 header is optional and may contain only `mtime`; all other extended semantics
@@ -244,59 +245,78 @@ The Milestone 2 local layout is:
 $PREFIX/bin/codex                                      stable public entrypoint
 ~/.local/lib/codex/core/generations/<id>/             immutable complete generation
   generation.meta                                     versioned local descriptor
-  release.manifest                                    signed release/integrity inventory
-  release.sig                                         Ed25519 signature over release.manifest
+  release.manifest                                    signed release/integrity inventory + release key
+  release.sig                                         candidate-key Ed25519 signature over exact manifest
+  release-authority.sig                               rotation-only current-key signature over exact manifest
   runtime                                             patched upstream executable
   compat/                                              runtime compatibility assets
     codex-code-mode-host                              first-target PATH compatibility executable
   manager                                              optional Manager executable
   helpers/<index>                                      optional helper artifacts
 ~/.local/lib/codex/core/generations/.acquire-*/        private incomplete remote source; never activatable
-~/.local/lib/codex/core/release-public-key.pem         bootstrap-provisioned trust anchor
-~/.local/share/codex/core/activation-state            current + one previous rollback target
+~/.local/lib/codex/core/release-public-key.pem         bootstrap-only initial trust seed; never update fallback
+~/.local/share/codex/core/activation-state            authoritative generation + bounded trust state
 ~/.local/share/codex/core/activation-journal[.tmp]    crash-recovery transaction state
 ~/.local/share/codex/core/activation-state.tmp        atomic state publication temporary
 ~/.local/share/codex/core/config/                     process-local managed config directory
 ~/.local/share/codex/manager/                         Manager-owned mutable state
 ```
 
-The activation-state record owns `current` and at most one `previous` rollback
-target; there is no separate `verified` pointer. Only content that has already
-passed release admission and candidate probes may become `current`, so a second
-pointer duplicating `current` is redundant. Ordinary launch reads only
-`current`. It does not scan generations or implicitly fall back to another
-generation. The generation directory name is a single safe path component and
-generation content is complete before it can become `current`.
+The authoritative state format is `codex-activation-state-v3`. It owns one
+forward `update_key`, one `current` generation with its exact `current_key`, and
+at most one `previous` generation with its exact `previous_key`. Ed25519 public
+keys in state are the canonical 32 raw key bytes encoded as exactly 64 lowercase
+hex digits. The `previous` generation and `previous_key` are present or absent as
+one pair. There is no separate `verified` pointer, keyring, discovered-key set,
+or unbounded key history.
+
+Only content that has already passed release admission and candidate probes may
+become `current`. Ordinary launch reads only `current`; it does not perform
+signature verification, consult `update_key` or either generation verifier key,
+scan generations, contact the network, invoke OpenSSL, or implicitly fall back
+to another generation. The generation directory name is one safe path component
+and generation content is complete before it can become `current`.
 
 A generation is complete or absent. Candidate construction occurs outside the
-active path. Activation changes one bounded pointer set only after integrity,
-runtime, and doctor probes pass.
+active path. Forward activation publishes one complete new state: the candidate
+becomes `(current, current_key)`, the old current pair becomes
+`(previous, previous_key)`, and `update_key` becomes the candidate release key.
+For a non-rotating release the old and new update keys are equal. For a key
+rotation they differ.
 
-Activation and rollback must be recoverable after process kill, power loss,
-short write, full storage, permission failure, and a stale journal. Recovery
-must resolve to one complete old or new generation and must never synthesize a
-mixed generation.
+The authoritative journal format is `codex-activation-journal-v3`. Its before
+and after records contain the entire bounded trust-and-generation state, not only
+generation identities. Activation, rollback, and recovery therefore treat
+`update_key`, both generation identities, and both generation verifier keys as
+one transaction. After process kill, power loss, short write, full storage,
+permission failure, or a stale journal, recovery must resolve to exactly one
+complete old or new trust-and-generation state and must never synthesize a mixed
+state.
 
 Core optimizes for the shortest correct release path rather than speculative
-defense layers. Complete-or-absent generations, atomic activation, and recovery
-to one complete last-known-good generation are the primary safety invariants.
-Do not add a second mechanism for a failure already covered by those invariants.
-If a simpler base invariant makes an existing check, retry path, pointer role,
-or fallback redundant, remove the redundant mechanism instead of maintaining
-both.
+defense layers. Complete-or-absent generations, one atomic state transaction,
+and recovery to one complete last-known-good state are the primary safety
+invariants. Do not add a second trust updater, key-file transaction, fallback
+key search, or recovery mechanism for a failure already covered by those
+invariants. If a simpler base invariant makes an existing check, retry path,
+pointer role, or fallback redundant, remove the redundant mechanism instead of
+maintaining both.
 
 One installer/updater transaction is the normal product model. Simultaneous
 install or update attempts are not a first-class coordination feature and do
 not by themselves justify locks, leases, fencing tokens, or a multi-writer
 protocol. If attempts overlap, the required outcome is limited to preserving a
-complete generation boundary: one attempt may succeed while another fails or
-retries, and recovery may return to the already complete last-known-good
-generation. Launch must never observe a mixed or partially constructed
-generation.
+complete state boundary: one attempt may succeed while another fails or retries,
+and recovery may return to the already complete last-known-good state. Launch
+must never observe a mixed or partially constructed generation.
 
 `previous` is the only rollback pointer and is not permission to build a
 fallback ladder. Rollback is an explicit bounded activation-state transition;
-ordinary launch never consults `previous` automatically.
+ordinary launch never consults `previous` automatically. Rollback swaps only the
+`(current, current_key)` and `(previous, previous_key)` pairs. It never rolls
+back `update_key`, so a key removed from forward-update authority by an accepted
+rotation cannot regain that authority merely because the user rolls back the
+runtime generation.
 
 ## 8. Installation and update
 
@@ -309,65 +329,114 @@ Normal installation and update must not require on-device compilation.
 
 `codex update` must:
 
-1. resolve an immutable signed release manifest;
-2. enforce architecture, API, channel, and anti-rollback policy;
+1. recover the authoritative v3 state and resolve one immutable signed release
+   manifest against its `update_key`;
+2. enforce architecture, API, channel, and the existing monotonic
+   release-sequence anti-rollback policy;
 3. download into a private staging location or accept an explicit local
    artifact;
-4. verify signature, digest, archive safety, and compatibility metadata;
+4. verify the required current-authority and candidate-key signatures, exact
+   digest/mode inventory, archive safety where applicable, and compatibility
+   metadata;
 5. build and probe a complete candidate generation;
-6. atomically activate it;
-7. retain one complete previous generation as rollback state;
-8. report failure without damaging the active generation.
+6. atomically publish the new trust-and-generation state;
+7. retain one complete previous generation with its exact verifier key as
+   rollback state;
+8. report failure without damaging the active trust-and-generation state.
+
+The signed release format is `codex-release-v3`; v1 and v2 are not retained as
+release compatibility paths. In addition to generation identity, monotonic
+release sequence, supported channel, platform, architecture, Core API,
+persistent schema, and the exact SHA-256 plus regular-file permission-mode
+inventory of every load-bearing generation file, the manifest binds exactly one
+`release_public_key`. That value is exactly 64 lowercase hexadecimal digits
+encoding the 32 raw bytes of the candidate Ed25519 public key. Each canonical
+inventory record continues to contain path, lowercase SHA-256, and four octal
+permission digits. Special permission bits are rejected; every file must be
+owner-readable and runtime/Manager/helper files must be owner-executable.
+
+`release.sig` is always an Ed25519 signature by the manifest's
+`release_public_key` over the exact manifest bytes. For an ordinary non-rotating
+update, `release_public_key` must equal the recovered authoritative `update_key`;
+`release.sig` is then the only release signature and no
+`release-authority.sig` is accepted. For a rotation, `release_public_key` differs
+from `update_key`; `release-authority.sig` is then mandatory and must verify over
+the same exact manifest bytes with the current `update_key` before Core treats
+the candidate key as trusted, after which `release.sig` must verify with the
+candidate key. A rotation is rejected if either proof is missing or invalid.
+Core never accepts an adjacent key file, alternate-key search, network key
+lookup, CA/PKI chain, key server, or unbounded keyring as authority.
+
+Before forward admission, Core recovers the v3 state. Installed-generation
+verification requires the signed manifest `release_public_key` to equal the
+selected state verifier key before `release.sig` is verified with that key. Core
+applies that rule to the installed current generation with `current_key` and uses
+that signed current release for the existing release-sequence anti-rollback
+comparison. After staging and probing the candidate, successful activation sets
+`update_key` and `current_key` to the candidate release key, sets `current` to the
+candidate generation, and moves the former `(current, current_key)` pair to
+`(previous, previous_key)` in the same atomic transaction.
 
 `codex update --rollback` must recover any pending activation transaction,
-require the one retained `previous` target, verify that target through the same
-pinned-key signed-release admission used for local update, and atomically swap
-`current` and `previous`. It deliberately does not apply forward-update
-anti-rollback policy. Missing, malformed, or unverifiable rollback state fails
-without changing the authoritative pointers; rollback never scans generations
-or constructs a fallback ladder.
+require the one retained `(previous, previous_key)` pair, verify exactly that
+previous generation with `previous_key`, and atomically swap the current and
+previous generation/verifier pairs. It deliberately does not apply forward
+release-sequence anti-rollback policy and deliberately leaves `update_key`
+unchanged. Missing, malformed, mismatched, or unverifiable rollback state fails
+without changing authoritative state; rollback never scans generations,
+searches keys, restores a rotated-away key to forward authority, or constructs a
+fallback ladder.
+
+Fresh bootstrap owns the only permitted use of
+`~/.local/lib/codex/core/release-public-key.pem`. Before any v3 activation state
+exists, bootstrap may verify one initial v3 release only when the manifest
+`release_public_key` exactly equals that pinned key and `release.sig` verifies
+with it; successful initial activation initializes `update_key`, `current_key`,
+and `current` from that release with no previous pair. Once v3 state has been
+established, Core update and recovery never treat the bootstrap key file as a
+fallback or reconstruction source. Absence or corruption of authoritative trust
+state after initialization fails closed rather than re-authorizing an old
+bootstrap key. Bootstrap implementation remains a later Milestone 2 bundle.
 
 Automatic update checks must be bounded and fail open when a verified runtime
-already exists. Ordinary `codex` launch must not depend on network success or
-silently run a package manager.
+already exists. Ordinary `codex` launch must not depend on network success,
+OpenSSL availability, key rotation, or silently run a package manager.
 
 The updater must not depend on the same resolver implementation as the patched
 upstream runtime without an explicit qualification proving that dependency.
 Offline local-artifact installation and recovery are required before release.
+On Termux, update and explicit rollback may use the already-present
+`$PREFIX/bin/openssl` for Ed25519 verification and SHA-256; they must fail
+clearly if it is unavailable and must never install a crypto package themselves.
 
-For the local/offline release path, the bootstrap provisions one Ed25519 public
-trust key at `~/.local/lib/codex/core/release-public-key.pem`. Core does not
-search for alternate keys or accept an untrusted key supplied beside a release.
-The signed `release.manifest` is strict/versioned and binds generation identity,
-monotonic release sequence, supported channel, platform, architecture, Core API,
-persistent schema, and a SHA-256 plus exact regular-file permission-mode inventory
-of every load-bearing generation file. The current format is
-`codex-release-v2`; the mode-blind v1 format is not retained as a compatibility
-path. Each canonical inventory record contains path, lowercase SHA-256, and four
-octal permission digits. Special permission bits are rejected; every file must
-be owner-readable and runtime/Manager/helper files must be owner-executable. The
-signature is over the exact manifest bytes. On Termux, Core may use
-the already-present `$PREFIX/bin/openssl` for Ed25519 verification and SHA-256;
-it must fail clearly if that executable or the pinned public key is unavailable
-and must never install a crypto package itself.
+`codex update --remote <HTTPS_BASE_URL>` adds only acquisition in front of the
+same local admission/staging/probe/activation path. Core first recovers the
+v3 state, so the authoritative `update_key` is known before any candidate trust
+transition. The base is at most 4,096 ASCII bytes, begins exactly with
+`https://`, ends in `/`, and contains no credentials, query, fragment,
+whitespace/control byte, or backslash. It names one generation directory: after
+signature admission, its final path component must equal the manifest generation
+identity encoded as canonical UTF-8 URL-path bytes. Core never follows a
+redirect or tries another URL.
 
-`codex update --remote <HTTPS_BASE_URL>` adds only acquisition in front of that
-same local admission/staging/probe/activation path. The base is at most 4,096
-ASCII bytes, begins exactly with `https://`, ends in `/`, and contains no
-credentials, query, fragment, whitespace/control byte, or backslash. It names
-one generation directory: after signature admission, its final path component
-must equal the manifest generation identity encoded as canonical UTF-8 URL-path
-bytes. Core never follows a redirect or tries another URL.
+The remote control resources are `<base>release.manifest` and
+`<base>release.sig`, plus `<base>release-authority.sig` exactly when the parsed
+manifest key differs from the recovered `update_key`. Core may parse the bounded
+manifest to select that fixed signature set, but the candidate key is not trusted
+by parsing. For a non-rotation it verifies `release.sig` with `update_key`. For a
+rotation it verifies `release-authority.sig` with `update_key` first and only then
+verifies `release.sig` with the manifest candidate key. No generation content is
+acquired before this control admission succeeds. The remaining remote resources
+are exactly the files named by the signed inventory.
 
-The remote resources are exactly `<base>release.manifest`,
-`<base>release.sig`, and the files named by the signed inventory. Inventory URLs
-are derived only by preserving `/` separators and percent-encoding every UTF-8
-path byte outside the RFC 3986 unreserved set. Every resulting resource URL is
-also at most 4,096 ASCII bytes. Core verifies the bounded manifest and signature
-with the bootstrap-pinned key before acquiring generation content, then verifies
-the assembled bundle again through the local B4 admission before staging. This
-file-addressed release transport is not an archive and does not weaken the
-archive-safety requirements for later upstream-artifact work.
+Inventory URLs are derived only by preserving `/` separators and percent-
+encoding every UTF-8 path byte outside the RFC 3986 unreserved set. Every
+resulting resource URL is also at most 4,096 ASCII bytes. After signed control
+admission, Core reconstructs the exact inventory, verifies the assembled bundle
+again through the same local v3 admission, and feeds the existing staging,
+probe, activation, and recovery path. This file-addressed release transport is
+not an archive and does not weaken the archive-safety requirements for later
+upstream-artifact work.
 
 Remote acquisition creates directories with owner-only access, creates response
 files owner-readable, and after each content digest succeeds applies the exact
@@ -377,15 +446,16 @@ does not depend on HTTP metadata, curl defaults, or a blanket executable bit.
 
 Remote transport is exactly the existing `$PREFIX/bin/curl`, independent of the
 patched upstream runtime and compatibility resolver. Before network I/O, Core
-requires that curl, `$PREFIX/bin/openssl`, and the pinned public key are present.
-The curl child loads no user config, inherits no environment/proxy settings,
-permits HTTPS only, uses the Termux certificate file/directory, applies a
-15-second connect timeout and a 300-second transfer timeout, and writes response
-bytes only to a caller-created regular file. Manifest and signature retain their
-128 KiB and 1 KiB limits; each generation-file response is limited to 512 MiB
-and the sum of all response bytes is limited to 1 GiB. Curl and Core both enforce
-the applicable remaining byte bound. A transport or bound failure is terminal
-for that explicit attempt.
+requires curl, `$PREFIX/bin/openssl`, and a valid recovered v3 trust state; Core
+remote update never falls back to the bootstrap key file. The curl child loads no
+user config, inherits no environment/proxy settings, permits HTTPS only, uses
+the Termux certificate file/directory, applies a 15-second connect timeout and a
+300-second transfer timeout, and writes response bytes only to a caller-created
+regular file. The manifest limit remains 128 KiB and each signature file is
+limited to 1 KiB; each generation-file response is limited to 512 MiB and the
+sum of all response bytes is limited to 1 GiB. Curl and Core both enforce the
+applicable remaining byte bound. A transport or bound failure is terminal for
+that explicit attempt.
 
 Acquisition uses one create-new `.acquire-<pid>-<counter>` directory beneath the
 generation root and create-new output files beneath that directory. Core attempts
