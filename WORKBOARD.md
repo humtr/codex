@@ -46,10 +46,13 @@ in Git history and the `GOAL.md` acceptance ledger, not here.
 
 - Fresh-bind branch, HEAD, dirty state, current authority, and protected live
   identities before each implementation resume.
-- The registered validation metadata is currently stale and npm-bound for this
-  Rust orphan lineage. Repair that project validation routing before the first
-  B8 product mutation, prove a green direct Rust baseline, and do not count the
-  historical npm ENOENT as product evidence.
+- Project-specific validation profiles are now Rust-bound at codex project
+  registry revision 3: `portable` is locked workspace check, `portable-install`
+  is locked workspace build, and `portable-test` is the locked serial workspace
+  suite. Use those registered profiles as canonical validation. The separate
+  `project.validation.describe` helper remains tmcp Node-only and still requires
+  an absent `package.json`; record that tooling limitation but never count it as
+  product evidence.
 - Update `SPEC.md` first if B8 discovers that the existing bootstrap/artifact
   contract is insufficient. A new security-property change still requires
   explicit user approval before mutation; implementation choices within the
@@ -95,12 +98,78 @@ second installer/update protocol.
   the first v3 release and initialize `update_key/current/current_key`; Core does
   not fall back to that key after state exists.
 
+#### current checkpoint
+
+- Slice 0 rebound clean local `rewrite/rust-core@3fb2ded0c5e78a4b6711b7231da55714eff27920`.
+  Remote `origin/rewrite/rust-core` remains `253156c37a2bd22af8faae0bce03587999ffd136`;
+  B7 is one local unpushed commit and Slice 0 does not publish it.
+- The codex project registry was repaired from the inherited npm profiles to
+  project-specific Rust profiles. Canonical `portable-test` executed
+  `cargo test --workspace --locked -- --test-threads=1` and passed Core
+  75/0/1-ignored plus release-builder 5/0. An independent direct Cargo serial run
+  passed the exact same counts. Canonical `portable` (`cargo check --workspace
+  --locked`) and `portable-install` (`cargo build --workspace --locked`) also
+  passed. `project.validation.describe` still fails before discovery because tmcp
+  hard-codes `package.json`; this is a separate tmcp tooling limitation, not a
+  codex validation-route failure.
+- The canonical Slice 0 authority commit was rejected before commit because the
+  shared pre-commit hook still references absent orphan-lineage
+  `tools/update-wrapper-version.sh`. HEAD and the staged authority content were
+  unchanged. As in the accepted B6/B7 precedent, only an exact revalidated
+  WORKBOARD-only staged tree may be committed with `--no-verify`; the hook itself
+  is not modified in this product bundle.
+- Fresh authority found the existing SPEC sufficient. Its SHA-256 remains
+  `4ca9035c9c1a31c5afc3e9d4de978b304c96c687d03c0bee0aa446078fe11647`;
+  Slice 0 changed no SPEC or product source. Temporary Cargo build output was
+  removed and the checkout returned clean before this authority update.
+- Read-only feasibility built the current release Core only to inspect its target
+  identity: it is ELF64 little-endian AArch64 PIE for Android, dynamically linked
+  through `/system/bin/linker64`. Therefore B8 must not apply B6's upstream
+  static/no-`PT_INTERP` rule to Core. The observed temporary artifact SHA-256
+  `8585a2eb63d2066298418e5c95d9a89bb5e4909e2f3f9dad94b451bbb4a8c502`
+  is feasibility evidence only and is not a release identity or acceptance pin.
+
+#### Slice 0 selected implementation boundary
+
+The B8 product boundary is exactly three source paths; expansion requires a
+fresh authority check before mutation:
+
+1. `crates/release-builder/src/lib.rs` — keep the existing `build --core
+   <ABSOLUTE_FILE>` interface and generation output. Strengthen that existing Core
+   input boundary to require the qualified Android/AArch64 Core executable shape,
+   hash the exact Core bytes, and continue binding that SHA-256 as
+   `generation.meta.core_artifact_digest`. The Core artifact is the single
+   release-mode `codex` executable itself: no seal sidecar, extra manifest,
+   alternate archive, new persistent format, or second release-production tool.
+   `crates/release-builder/src/main.rs`, workspace membership, and Cargo lockfile
+   are not expected to change.
+2. `bootstrap/codex-bootstrap` — add one small local fresh-install bootstrap. It
+   may operate only while authoritative v3 state is absent. Before executing the
+   candidate Core it independently checks the bootstrap-pinned key against the v3
+   manifest key, verifies `release.sig`, verifies the signed `generation.meta`
+   inventory binding, and compares the exact candidate Core SHA-256 with signed
+   `generation.meta.core_artifact_digest`. Only that authenticated Core may be
+   staged/self-tested and invoked for initial activation. It is not an updater,
+   rollback path, package installer, or post-install recovery authority.
+3. `crates/core/src/main.rs` — add one exact bootstrap-only initial activation
+   route for the already-authenticated Core. It must refuse an existing v3 state,
+   use the bootstrap key only for this explicit first-install path, and reuse the
+   accepted B7 local v3 admission, immutable generation staging, candidate probe,
+   and atomic `codex-activation-state-v3` transaction. Ordinary launch,
+   `codex update`, remote update, rollback, and state recovery receive no
+   bootstrap fallback.
+
+B6 already makes `generation.meta.core_artifact_digest` part of the generation
+metadata and v3 signs/inventories `generation.meta`, so this boundary adds no new
+trust object. Slice 3 must prove the same one Core digest flows from the qualified
+prebuilt executable through B6 generation production into bootstrap verification.
+
 #### vertical proof map
 
 | Slice | Exact outcome | Exit gate | State |
 | --- | --- | --- | --- |
-| 0 — fresh authority and validation routing | Rebind the committed B7 state, repair Rust project-validation metadata, inventory current release/build/bootstrap boundaries, and select the smallest artifact/bootstrap implementation shape without changing product behavior | canonical Rust validation route works nonzero; direct baseline agrees; exact B8 file/artifact boundary recorded; no product mutation | selected |
-| 1 — prebuilt Core artifact | Produce one immutable release-production Core artifact with explicit platform/architecture identity and digest, without installing it or claiming target-device compilation | named artifact build/identity/digest tests pass nonzero; warning-free locked release build; no live mutation | blocked by slice 0 |
+| 0 — fresh authority and validation routing | Rebind the committed B7 state, repair Rust project-validation metadata, inventory current release/build/bootstrap boundaries, and select the smallest artifact/bootstrap implementation shape without changing product behavior | canonical Rust validation route works nonzero; direct baseline agrees; exact B8 file/artifact boundary recorded; no product mutation | complete: project-registry Cargo profiles green; canonical and direct serial both Core 75/0/1 + builder 5/0; exact three-file boundary recorded; SPEC/product unchanged |
+| 1 — prebuilt Core artifact | Produce one immutable release-production Core artifact with explicit platform/architecture identity and digest, without installing it or claiming target-device compilation | named artifact build/identity/digest tests pass nonzero; warning-free locked release build; no live mutation | selected |
 | 2 — fresh bootstrap initial trust | Implement only the bootstrap operations already authorized by SPEC/B7: environment check, immutable v3 admission with bootstrap key, complete staging/probe, and initial v3 state activation in isolated roots | valid local initial install plus malformed/key-mismatch/probe/fault matrix pass nonzero; no fallback or partial state | blocked by slice 1 |
 | 3 — release-production integration | Feed the prebuilt Core artifact through B6 generation production and the same v3 signed-release fixture/bootstrap path; prove no duplicate updater or archive/install path appears | one complete release-production-to-bootstrap flow and affected B6/B7 groups pass nonzero | blocked by slice 2 |
 | 4 — grouped acceptance | Add no new behavior; run final bundle proof and synchronize authority | full serial + three complete parallel suites, explicit live read-only smoke, format/diff, warning-free locked release, zero residue, protected identities unchanged, GOAL update, commit | blocked by slice 3 |
