@@ -10639,4 +10639,121 @@ exit 0
         m2_b1_assert_no_transaction_files(&paths);
         m2_b1_cleanup(&paths);
     }
+
+    #[cfg(unix)]
+    struct M2B9PauseIo {
+        pause_after_call: usize,
+        calls: usize,
+        reached: std::sync::mpsc::Sender<usize>,
+        resume: std::sync::mpsc::Receiver<()>,
+        inner: FsActivationIo,
+    }
+
+    #[cfg(unix)]
+    impl M2B9PauseIo {
+        fn new(
+            pause_after_call: usize,
+            reached: std::sync::mpsc::Sender<usize>,
+            resume: std::sync::mpsc::Receiver<()>,
+        ) -> Self {
+            Self {
+                pause_after_call,
+                calls: 0,
+                reached,
+                resume,
+                inner: FsActivationIo,
+            }
+        }
+
+        fn around<T>(
+            &mut self,
+            action: impl FnOnce(&mut FsActivationIo) -> std::io::Result<T>,
+        ) -> std::io::Result<T> {
+            self.calls += 1;
+            let current = self.calls;
+            let result = action(&mut self.inner)?;
+            if current == self.pause_after_call {
+                self.reached.send(current).map_err(|_| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::BrokenPipe,
+                        "M2-B9 pause observer disappeared",
+                    )
+                })?;
+                self.resume.recv().map_err(|_| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::BrokenPipe,
+                        "M2-B9 pause release disappeared",
+                    )
+                })?;
+            }
+            Ok(result)
+        }
+    }
+
+    #[cfg(unix)]
+    impl ActivationIo for M2B9PauseIo {
+        fn write_new_synced(&mut self, path: &std::path::Path, data: &[u8]) -> std::io::Result<()> {
+            self.around(|inner| inner.write_new_synced(path, data))
+        }
+
+        fn sync_dir(&mut self, path: &std::path::Path) -> std::io::Result<()> {
+            self.around(|inner| inner.sync_dir(path))
+        }
+
+        fn rename(&mut self, from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
+            self.around(|inner| inner.rename(from, to))
+        }
+
+        fn remove_file(&mut self, path: &std::path::Path) -> std::io::Result<()> {
+            self.around(|inner| inner.remove_file(path))
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b9_slice0_overlap_harness_binds_real_loader_and_durable_boundary() {
+        let (root, roots) = b2_test_roots("b9-slice0-harness");
+        b2_write_generation(&roots, "b9-old", false, "unsupported");
+        b2_write_generation(&roots, "b9-new", false, "unsupported");
+        b2_activate(&roots, "b9-old");
+
+        assert_eq!(
+            load_activated_generation(&roots).unwrap().generation_id,
+            "b9-old"
+        );
+        let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+        let old = read_pointer_state(&paths).unwrap().unwrap();
+        let new = plan_activation_pointer_state_with_key(&old, "b9-new", old.update_key).unwrap();
+        let (reached_tx, reached_rx) = std::sync::mpsc::channel();
+        let (resume_tx, resume_rx) = std::sync::mpsc::channel();
+
+        let calls = std::thread::scope(|scope| {
+            let activation = scope.spawn(|| {
+                let mut io = M2B9PauseIo::new(3, reached_tx, resume_rx);
+                activate_pointer_state_with_io(&paths, Some(&old), &new, &mut io).unwrap();
+                io.calls
+            });
+            assert_eq!(
+                reached_rx
+                    .recv_timeout(std::time::Duration::from_secs(5))
+                    .unwrap(),
+                3
+            );
+            assert!(paths.activation_journal.is_file());
+            assert!(!paths.activation_journal_temp.exists());
+            assert!(!paths.activation_state_temp.exists());
+            assert_eq!(read_pointer_state(&paths).unwrap(), Some(old.clone()));
+            resume_tx.send(()).unwrap();
+            activation.join().unwrap()
+        });
+
+        assert_eq!(calls, 8);
+        assert_eq!(read_pointer_state(&paths).unwrap(), Some(new));
+        assert_eq!(
+            load_activated_generation(&roots).unwrap().generation_id,
+            "b9-new"
+        );
+        m2_b1_assert_no_transaction_files(&paths);
+        remove_temp_root(root);
+    }
 }
