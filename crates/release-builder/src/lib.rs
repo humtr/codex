@@ -24,6 +24,7 @@ const CORE_API_IDENTITY: &str = "core-api-v1";
 const PERSISTENT_SCHEMA_IDENTITY: &str = "schema-v1";
 const PACKAGE_IDENTITY: &str = "openai/codex:codex-package-aarch64-unknown-linux-musl.tar.gz";
 const PATCH_POLICY_ID: &str = "termux-fd-remap-v1";
+const ANDROID_AARCH64_INTERPRETER: &[u8] = b"/system/bin/linker64\0";
 
 const PATCHES: [(&[u8], &[u8], usize); 4] = [
     (b"/etc/resolv.conf", b"/proc/self/fd/33", 2),
@@ -281,10 +282,9 @@ fn validate_request(request: &BuildRequest) -> Result<(), BuilderError> {
             "upstream archive exceeds its byte bound",
         ));
     }
-    ensure_regular_file(
+    ensure_executable(
         &request.core,
-        "inspect Core artifact",
-        "Core artifact is not a regular file",
+        "Core artifact is not an executable regular file",
     )?;
     ensure_executable(&request.gzip, "gzip is not an executable regular file")?;
     ensure_executable(
@@ -333,6 +333,34 @@ fn openssl_sha256(openssl: &Path, file: &Path) -> Result<String, BuilderError> {
         write!(&mut hex, "{byte:02x}").expect("writing into a String cannot fail");
     }
     Ok(hex)
+}
+
+fn snapshot_core_artifact(request: &BuildRequest, staging: &Path) -> Result<String, BuilderError> {
+    let mut source =
+        File::open(&request.core).map_err(|source| io_error("open Core artifact", source))?;
+    let metadata = source
+        .metadata()
+        .map_err(|source| io_error("inspect opened Core artifact", source))?;
+    if !metadata.file_type().is_file() || metadata.permissions().mode() & 0o111 == 0 {
+        return Err(BuilderError::Invalid(
+            "opened Core artifact is not an executable regular file",
+        ));
+    }
+
+    let snapshot_path = staging.join(".core-artifact");
+    let mut snapshot = create_private_file(&snapshot_path)?;
+    io::copy(&mut source, &mut snapshot)
+        .map_err(|source| io_error("snapshot Core artifact", source))?;
+    snapshot
+        .sync_all()
+        .map_err(|source| io_error("sync Core artifact snapshot", source))?;
+    drop(snapshot);
+
+    validate_android_aarch64_core_elf(&snapshot_path)?;
+    let sha256 = openssl_sha256(&request.openssl, &snapshot_path)?;
+    std::fs::remove_file(&snapshot_path)
+        .map_err(|source| io_error("remove Core artifact snapshot", source))?;
+    Ok(sha256)
 }
 
 fn create_staging(output: &Path) -> Result<PathBuf, BuilderError> {
@@ -774,6 +802,81 @@ fn validate_static_aarch64_elf(path: &Path) -> Result<(), BuilderError> {
     Ok(())
 }
 
+fn validate_android_aarch64_core_elf(path: &Path) -> Result<(), BuilderError> {
+    let mut file = File::open(path).map_err(|source| io_error("open Core ELF", source))?;
+    let file_len = file
+        .metadata()
+        .map_err(|source| io_error("inspect Core ELF", source))?
+        .len();
+    let mut header = [0u8; 64];
+    file.read_exact(&mut header)
+        .map_err(|source| io_error("read Core ELF header", source))?;
+    if &header[..4] != b"\x7fELF"
+        || header[4] != 2
+        || header[5] != 1
+        || header[6] != 1
+        || little_u16(&header[16..18]) != 3
+        || little_u16(&header[18..20]) != 183
+        || little_u32(&header[20..24]) != 1
+        || little_u16(&header[52..54]) != 64
+        || little_u16(&header[54..56]) != 56
+    {
+        return Err(BuilderError::Invalid(
+            "Core artifact is not a supported Android AArch64 PIE ELF",
+        ));
+    }
+    let program_offset = little_u64(&header[32..40]);
+    let program_count = u64::from(little_u16(&header[56..58]));
+    if program_count == 0 {
+        return Err(BuilderError::Invalid("Core ELF has no program headers"));
+    }
+    program_count
+        .checked_mul(56)
+        .and_then(|length| program_offset.checked_add(length))
+        .filter(|end| *end <= file_len)
+        .ok_or(BuilderError::Invalid(
+            "Core ELF program headers are malformed",
+        ))?;
+
+    let mut interpreter = None;
+    let mut program_header = [0u8; 56];
+    for index in 0..program_count {
+        file.seek(SeekFrom::Start(program_offset + index * 56))
+            .map_err(|source| io_error("seek Core ELF program header", source))?;
+        file.read_exact(&mut program_header)
+            .map_err(|source| io_error("read Core ELF program header", source))?;
+        if little_u32(&program_header[..4]) != 3 {
+            continue;
+        }
+        if interpreter.is_some() {
+            return Err(BuilderError::Invalid(
+                "Core ELF has multiple PT_INTERP program headers",
+            ));
+        }
+        let offset = little_u64(&program_header[8..16]);
+        let size = little_u64(&program_header[32..40]);
+        let end = offset
+            .checked_add(size)
+            .filter(|end| *end <= file_len)
+            .ok_or(BuilderError::Invalid("Core ELF interpreter is malformed"))?;
+        let size = usize::try_from(size)
+            .map_err(|_| BuilderError::Invalid("Core ELF interpreter is malformed"))?;
+        let mut value = vec![0u8; size];
+        file.seek(SeekFrom::Start(offset))
+            .map_err(|source| io_error("seek Core ELF interpreter", source))?;
+        file.read_exact(&mut value)
+            .map_err(|source| io_error("read Core ELF interpreter", source))?;
+        let _ = end;
+        interpreter = Some(value);
+    }
+    if interpreter.as_deref() != Some(ANDROID_AARCH64_INTERPRETER) {
+        return Err(BuilderError::Invalid(
+            "Core artifact does not use the Android AArch64 dynamic linker",
+        ));
+    }
+    Ok(())
+}
+
 fn parse_archive<R: Read>(
     reader: &mut R,
     staging: &Path,
@@ -937,7 +1040,6 @@ struct AdaptedGeneration {
     raw_runtime_sha256: String,
     runtime_sha256: String,
     code_mode_host_sha256: String,
-    core_sha256: String,
     changed_bytes: usize,
 }
 
@@ -1028,7 +1130,6 @@ fn adapt_selected_runtime(
 
     let runtime_sha256 = openssl_sha256(&request.openssl, &runtime_path)?;
     let code_mode_host_sha256 = openssl_sha256(&request.openssl, &selected.code_mode_host)?;
-    let core_sha256 = openssl_sha256(&request.openssl, &request.core)?;
     std::fs::remove_file(&selected.raw_runtime)
         .map_err(|source| io_error("remove selected raw runtime", source))?;
 
@@ -1036,7 +1137,6 @@ fn adapt_selected_runtime(
         raw_runtime_sha256,
         runtime_sha256,
         code_mode_host_sha256,
-        core_sha256,
         changed_bytes,
     })
 }
@@ -1045,6 +1145,7 @@ fn write_generation_descriptor(
     request: &BuildRequest,
     staging: &Path,
     adapted: &AdaptedGeneration,
+    core_sha256: &str,
 ) -> Result<(), BuilderError> {
     let patch_report = format!(
         "{PATCH_POLICY_ID};archive_sha256={};raw_runtime_sha256={};runtime_sha256={};code_mode_host_sha256={};source_counts=2,1,1,1;changed_bytes={}",
@@ -1083,7 +1184,7 @@ fn write_generation_descriptor(
         PATCH_POLICY_ID,
         patch_report,
         adapted.runtime_sha256,
-        adapted.core_sha256,
+        core_sha256,
         CORE_API_IDENTITY,
         PERSISTENT_SCHEMA_IDENTITY,
         request.creation_metadata
@@ -1139,9 +1240,10 @@ fn complete_and_publish(
     request: &BuildRequest,
     staging: &Path,
     selected: ArchiveSelection,
+    core_sha256: &str,
 ) -> Result<(), BuilderError> {
     let adapted = adapt_selected_runtime(request, staging, selected)?;
-    write_generation_descriptor(request, staging, &adapted)?;
+    write_generation_descriptor(request, staging, &adapted, core_sha256)?;
     set_mode(
         &staging.join("compat"),
         0o755,
@@ -1173,11 +1275,12 @@ fn build(request: &BuildRequest) -> Result<(), BuilderError> {
     validate_request(request)?;
     let staging = create_staging(&request.output)?;
     let result = (|| {
+        let core_sha256 = snapshot_core_artifact(request, &staging)?;
         let archive = snapshot_archive(request, &staging)?;
         let selected = select_archive(request, &archive, &staging)?;
         std::fs::remove_file(&archive)
             .map_err(|source| io_error("remove upstream archive snapshot", source))?;
-        complete_and_publish(request, &staging, selected)
+        complete_and_publish(request, &staging, selected, &core_sha256)
     })();
     match (result, cleanup_staging(&staging)) {
         (_, Err(error)) => Err(error),
@@ -1297,6 +1400,28 @@ mod tests {
         bytes[54..56].copy_from_slice(&56u16.to_le_bytes());
         bytes[56..58].copy_from_slice(&1u16.to_le_bytes());
         bytes[64..68].copy_from_slice(&(if interpreter { 3u32 } else { 1u32 }).to_le_bytes());
+        bytes
+    }
+
+    fn fake_core_elf(interpreter: &[u8]) -> Vec<u8> {
+        let interpreter_offset = 120usize;
+        let mut bytes = vec![0u8; interpreter_offset + interpreter.len()];
+        bytes[..4].copy_from_slice(b"\x7fELF");
+        bytes[4] = 2;
+        bytes[5] = 1;
+        bytes[6] = 1;
+        bytes[16..18].copy_from_slice(&3u16.to_le_bytes());
+        bytes[18..20].copy_from_slice(&183u16.to_le_bytes());
+        bytes[20..24].copy_from_slice(&1u32.to_le_bytes());
+        bytes[32..40].copy_from_slice(&64u64.to_le_bytes());
+        bytes[52..54].copy_from_slice(&64u16.to_le_bytes());
+        bytes[54..56].copy_from_slice(&56u16.to_le_bytes());
+        bytes[56..58].copy_from_slice(&1u16.to_le_bytes());
+        bytes[64..68].copy_from_slice(&3u32.to_le_bytes());
+        bytes[72..80].copy_from_slice(&(interpreter_offset as u64).to_le_bytes());
+        bytes[96..104].copy_from_slice(&(interpreter.len() as u64).to_le_bytes());
+        bytes[104..112].copy_from_slice(&(interpreter.len() as u64).to_le_bytes());
+        bytes[interpreter_offset..].copy_from_slice(interpreter);
         bytes
     }
 
@@ -1430,7 +1555,8 @@ mod tests {
         let archive = root.join("codex-package-aarch64-unknown-linux-musl.tar.gz");
         gzip_tar(&gzip, &make_tar(&entries, corrupt_header), &archive);
         let core = root.join("codex-core");
-        std::fs::write(&core, b"test Core artifact").unwrap();
+        std::fs::write(&core, fake_core_elf(ANDROID_AARCH64_INTERPRETER)).unwrap();
+        set_mode(&core, 0o700, "set test Core mode").unwrap();
         let archive_sha256 = openssl_sha256(&openssl, &archive).unwrap();
         let raw_runtime = entries
             .iter()
@@ -1542,7 +1668,7 @@ mod tests {
                 "metadata" => case_fixture.request.creation_metadata = "line\nbreak".to_owned(),
                 "relative-path" => case_fixture.request.output = PathBuf::from("relative-output"),
                 "non-executable-tool" => {
-                    case_fixture.request.gzip = case_fixture.request.core.clone()
+                    case_fixture.request.gzip = case_fixture.request.archive.clone()
                 }
                 _ => unreachable!(),
             }
@@ -1761,6 +1887,87 @@ mod tests {
         );
         assert!(no_builder_staging(&fixture.root));
         fixture.remove();
+    }
+
+    #[test]
+    fn test_m2_b8_slice1_core_artifact_identity_and_digest_are_exact() {
+        let fixture = fixture("b8-core-exact", happy_entries("0.150.1"), false);
+        let expected_core = std::fs::read(&fixture.request.core).unwrap();
+        let expected_sha256 =
+            openssl_sha256(&fixture.request.openssl, &fixture.request.core).unwrap();
+
+        let staging = fixture.root.join("core-snapshot-stage");
+        create_private_dir(&staging).unwrap();
+        let selected_sha256 = snapshot_core_artifact(&fixture.request, &staging).unwrap();
+        assert_eq!(selected_sha256, expected_sha256);
+        assert!(std::fs::read_dir(&staging).unwrap().next().is_none());
+        std::fs::write(&fixture.request.core, b"mutated after selection").unwrap();
+        assert_eq!(selected_sha256, expected_sha256);
+        assert_ne!(
+            openssl_sha256(&fixture.request.openssl, &fixture.request.core).unwrap(),
+            selected_sha256
+        );
+        std::fs::write(&fixture.request.core, expected_core).unwrap();
+        set_mode(&fixture.request.core, 0o700, "restore test Core mode").unwrap();
+        std::fs::remove_dir(&staging).unwrap();
+
+        assert_eq!(run_from_args(request_args(&fixture.request)), 0);
+        let descriptor =
+            std::fs::read_to_string(fixture.request.output.join("generation.meta")).unwrap();
+        assert!(descriptor.contains(&format!("core_artifact_digest\t{expected_sha256}\n")));
+        assert!(no_builder_staging(&fixture.root));
+        fixture.remove();
+    }
+
+    #[test]
+    fn test_m2_b8_slice1_core_artifact_rejection_matrix_is_fail_closed() {
+        for case in [
+            "not-executable",
+            "not-elf",
+            "wrong-type",
+            "wrong-machine",
+            "no-interp",
+            "wrong-interp",
+        ] {
+            let fixture = fixture(case, happy_entries("0.150.1"), false);
+            match case {
+                "not-executable" => {
+                    set_mode(&fixture.request.core, 0o600, "clear test Core execute mode").unwrap()
+                }
+                "not-elf" => std::fs::write(&fixture.request.core, b"not an ELF").unwrap(),
+                "wrong-type" => {
+                    let mut core = fake_core_elf(ANDROID_AARCH64_INTERPRETER);
+                    core[16..18].copy_from_slice(&2u16.to_le_bytes());
+                    std::fs::write(&fixture.request.core, core).unwrap();
+                }
+                "wrong-machine" => {
+                    let mut core = fake_core_elf(ANDROID_AARCH64_INTERPRETER);
+                    core[18..20].copy_from_slice(&62u16.to_le_bytes());
+                    std::fs::write(&fixture.request.core, core).unwrap();
+                }
+                "no-interp" => {
+                    let mut core = fake_core_elf(ANDROID_AARCH64_INTERPRETER);
+                    core[64..68].copy_from_slice(&1u32.to_le_bytes());
+                    std::fs::write(&fixture.request.core, core).unwrap();
+                }
+                "wrong-interp" => std::fs::write(
+                    &fixture.request.core,
+                    fake_core_elf(b"/lib/ld-linux-aarch64.so.1\0"),
+                )
+                .unwrap(),
+                _ => unreachable!(),
+            }
+            if case != "not-executable" {
+                set_mode(&fixture.request.core, 0o700, "set mutated test Core mode").unwrap();
+            }
+            assert!(build(&fixture.request).is_err(), "case {case} succeeded");
+            assert!(
+                !fixture.request.output.exists(),
+                "case {case} published output"
+            );
+            assert!(no_builder_staging(&fixture.root));
+            fixture.remove();
+        }
     }
 
     #[test]

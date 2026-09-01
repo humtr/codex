@@ -128,6 +128,32 @@ second installer/update protocol.
   static/no-`PT_INTERP` rule to Core. The observed temporary artifact SHA-256
   `8585a2eb63d2066298418e5c95d9a89bb5e4909e2f3f9dad94b451bbb4a8c502`
   is feasibility evidence only and is not a release identity or acceptance pin.
+- Slice 1 strengthened only the existing B6 `build --core` boundary. Builder now
+  snapshots the opened executable Core into private staging before upstream
+  adaptation, requires that exact snapshot to be an ELF64 little-endian AArch64
+  PIE with the exact Android `/system/bin/linker64` interpreter, hashes the
+  snapshot, removes it before publication, and passes only that selected digest
+  to the existing `generation.meta.core_artifact_digest` field. No Core copy,
+  sidecar, manifest, archive, persistent format, or alternate production tool is
+  added to the unsigned generation.
+- The first Slice 1 focused command stopped before tests because `cargo fmt
+  --check` found formatting-only drift. No behavior gate failed. The source was
+  formatted and the exact gate was rerun. Canonical project-registry `portable`
+  check then passed; the two named B8 Slice 1 regressions passed 2/2; the complete
+  affected release-builder suite passed 7/7 serial; `cargo fmt --check` and `git
+  diff --check` passed; and a warning-free locked release Core build produced the
+  expected ELF64 little-endian AArch64 PIE using `/system/bin/linker64`. Its
+  same-revision SHA-256 was
+  `8585a2eb63d2066298418e5c95d9a89bb5e4909e2f3f9dad94b451bbb4a8c502`.
+  That digest is Slice 1 proof for the built artifact, not a permanent release
+  pin. Lead diff inspection found only the selected builder qualification/digest
+  path plus its mapped tests.
+- The normal Slice 1 commit was rejected before commit by the already-known
+  shared pre-commit hook because orphan-lineage `tools/update-wrapper-version.sh`
+  is absent. HEAD and the staged product/authority tree were unchanged. Slice 1
+  therefore uses the accepted exact-tree `--no-verify` precedent only after
+  re-staging this record and revalidating that the index contains exactly the
+  builder source and `WORKBOARD.md`; the hook remains untouched.
 
 #### Slice 0 selected implementation boundary
 
@@ -169,8 +195,8 @@ prebuilt executable through B6 generation production into bootstrap verification
 | Slice | Exact outcome | Exit gate | State |
 | --- | --- | --- | --- |
 | 0 — fresh authority and validation routing | Rebind the committed B7 state, repair Rust project-validation metadata, inventory current release/build/bootstrap boundaries, and select the smallest artifact/bootstrap implementation shape without changing product behavior | canonical Rust validation route works nonzero; direct baseline agrees; exact B8 file/artifact boundary recorded; no product mutation | complete: project-registry Cargo profiles green; canonical and direct serial both Core 75/0/1 + builder 5/0; exact three-file boundary recorded; SPEC/product unchanged |
-| 1 — prebuilt Core artifact | Produce one immutable release-production Core artifact with explicit platform/architecture identity and digest, without installing it or claiming target-device compilation | named artifact build/identity/digest tests pass nonzero; warning-free locked release build; no live mutation | selected |
-| 2 — fresh bootstrap initial trust | Implement only the bootstrap operations already authorized by SPEC/B7: environment check, immutable v3 admission with bootstrap key, complete staging/probe, and initial v3 state activation in isolated roots | valid local initial install plus malformed/key-mismatch/probe/fault matrix pass nonzero; no fallback or partial state | blocked by slice 1 |
+| 1 — prebuilt Core artifact | Produce one immutable release-production Core artifact with explicit platform/architecture identity and digest, without installing it or claiming target-device compilation | named artifact build/identity/digest tests pass nonzero; warning-free locked release build; no live mutation | complete: canonical check green; B8 focused 2/2; affected builder 7/7 serial; format/diff clean; locked release Core identity/digest proven; no live mutation |
+| 2 — fresh bootstrap initial trust | Implement only the bootstrap operations already authorized by SPEC/B7: environment check, immutable v3 admission with bootstrap key, complete staging/probe, and initial v3 state activation in isolated roots | valid local initial install plus malformed/key-mismatch/probe/fault matrix pass nonzero; no fallback or partial state | selected |
 | 3 — release-production integration | Feed the prebuilt Core artifact through B6 generation production and the same v3 signed-release fixture/bootstrap path; prove no duplicate updater or archive/install path appears | one complete release-production-to-bootstrap flow and affected B6/B7 groups pass nonzero | blocked by slice 2 |
 | 4 — grouped acceptance | Add no new behavior; run final bundle proof and synchronize authority | full serial + three complete parallel suites, explicit live read-only smoke, format/diff, warning-free locked release, zero residue, protected identities unchanged, GOAL update, commit | blocked by slice 3 |
 
