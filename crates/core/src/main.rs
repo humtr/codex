@@ -6427,19 +6427,19 @@ esac
     }
 
     #[cfg(unix)]
-    fn b6_write_official_shape_archive(
+    fn b6_write_official_shape_archive_with_runtime(
         gzip: &std::path::Path,
         archive: &std::path::Path,
-    ) -> Vec<u8> {
+        runtime: &[u8],
+    ) {
         use std::io::Write as _;
 
-        let runtime = b6_static_aarch64_elf(true);
         let host = b6_static_aarch64_elf(false);
         let package = b"{\n  \"layoutVersion\": 1,\n  \"version\": \"0.150.1\",\n  \"target\": \"aarch64-unknown-linux-musl\",\n  \"variant\": \"codex\",\n  \"entrypoint\": \"bin/codex\",\n  \"resourcesDir\": \"codex-resources\",\n  \"pathDir\": \"codex-path\"\n}\n";
         let mut tar = Vec::new();
         for (path, kind, data) in [
             ("bin/", b'5', &[][..]),
-            ("bin/codex", b'0', runtime.as_slice()),
+            ("bin/codex", b'0', runtime),
             ("bin/codex-code-mode-host", b'0', host.as_slice()),
             ("codex-package.json", b'0', package.as_slice()),
             ("codex-path/", b'5', &[][..]),
@@ -6469,6 +6469,75 @@ esac
             .unwrap();
         child.stdin.take().unwrap().write_all(&tar).unwrap();
         assert!(child.wait().unwrap().success());
+    }
+
+    #[cfg(unix)]
+    fn b6_write_official_shape_archive(
+        gzip: &std::path::Path,
+        archive: &std::path::Path,
+    ) -> Vec<u8> {
+        let runtime = b6_static_aarch64_elf(true);
+        b6_write_official_shape_archive_with_runtime(gzip, archive, &runtime);
+        runtime
+    }
+
+    #[cfg(unix)]
+    fn b8_compile_static_probe_runtime(root: &std::path::Path) -> std::path::PathBuf {
+        let prefix = std::path::PathBuf::from(std::env::var_os("PREFIX").unwrap());
+        let clang = prefix.join("bin/clang");
+        assert!(
+            clang.is_file(),
+            "Termux clang is required for B8 integration proof"
+        );
+        let source = root.join("b8-static-probe.S");
+        let runtime = root.join("b8-static-probe");
+        std::fs::write(
+            &source,
+            concat!(
+                ".text\n",
+                ".global _start\n",
+                ".type _start,%function\n",
+                "_start:\n",
+                "  mov x0, #0\n",
+                "  mov x8, #93\n",
+                "  svc #0\n",
+                ".section .rodata\n",
+                ".ascii \"/etc/resolv.conf\\0\"\n",
+                ".ascii \"/etc/resolv.conf\\0\"\n",
+                ".ascii \"/etc/codex/managed_config.toml\\0\"\n",
+                ".ascii \"/etc/codex/config.toml\\0\"\n",
+                ".ascii \"/etc/codex/requirements.toml\\0\"\n",
+            ),
+        )
+        .unwrap();
+        let output = std::process::Command::new(&clang)
+            .args([
+                "-nostdlib",
+                "-static",
+                "-Wl,--build-id=none",
+                "-Wl,-e,_start",
+            ])
+            .arg(&source)
+            .arg("-o")
+            .arg(&runtime)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "clang stdout={:?} stderr={:?}",
+            output.stdout,
+            output.stderr
+        );
+        assert!(std::process::Command::new(&runtime)
+            .args(["-c", "sandbox_mode=\"danger-full-access\"", "--version"])
+            .status()
+            .unwrap()
+            .success());
+        assert!(std::process::Command::new(&runtime)
+            .args(["-c", "sandbox_mode=\"danger-full-access\"", "doctor"])
+            .status()
+            .unwrap()
+            .success());
         runtime
     }
 
@@ -6561,6 +6630,159 @@ esac
         assert_ne!(runtime, raw_runtime);
         assert!(!root.join("state").exists());
 
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b8_slice3_release_production_to_bootstrap_flow() {
+        use std::ffi::OsString;
+
+        let Some(core_input) = std::env::var_os("CODEX_B8_RELEASE_CORE") else {
+            return;
+        };
+        let core = std::fs::canonicalize(core_input).unwrap();
+        assert!(core.is_absolute());
+        assert!(core.is_file());
+
+        let root = temp_root("b8-slice3-release-production");
+        let openssl = b4_termux_openssl();
+        let live_prefix = std::path::PathBuf::from(std::env::var_os("PREFIX").unwrap());
+        let gzip = live_prefix.join("bin/gzip");
+        assert!(
+            gzip.is_file(),
+            "Termux gzip is required for B8 integration proof"
+        );
+        let runtime_source = b8_compile_static_probe_runtime(&root);
+        let raw_runtime = std::fs::read(&runtime_source).unwrap();
+        let archive = root.join("codex-package-aarch64-unknown-linux-musl.tar.gz");
+        b6_write_official_shape_archive_with_runtime(&gzip, &archive, &raw_runtime);
+        let archive_sha256 = openssl_sha256(&openssl, &archive).unwrap();
+        let core_sha256 = openssl_sha256(&openssl, &core).unwrap();
+        let generation = root.join("unsigned-generation");
+        let args = vec![
+            OsString::from("build"),
+            OsString::from("--version"),
+            OsString::from("0.150.1"),
+            OsString::from("--archive"),
+            archive.as_os_str().to_owned(),
+            OsString::from("--archive-sha256"),
+            OsString::from(&archive_sha256),
+            OsString::from("--generation-id"),
+            OsString::from("b8-release-production"),
+            OsString::from("--core"),
+            core.as_os_str().to_owned(),
+            OsString::from("--creation-metadata"),
+            OsString::from("m2-b8-release-production"),
+            OsString::from("--gzip"),
+            gzip.as_os_str().to_owned(),
+            OsString::from("--openssl"),
+            openssl.as_os_str().to_owned(),
+            OsString::from("--output"),
+            generation.as_os_str().to_owned(),
+        ];
+        assert_eq!(codex_release_builder::run_from_args(args), 0);
+        let descriptor = std::fs::read_to_string(generation.join("generation.meta")).unwrap();
+        assert!(descriptor.contains(&format!("core_artifact_digest\t{core_sha256}\n")));
+        assert_ne!(
+            std::fs::read(generation.join("runtime")).unwrap(),
+            raw_runtime
+        );
+        assert!(std::process::Command::new(generation.join("runtime"))
+            .args(["-c", "sandbox_mode=\"danger-full-access\"", "--version"])
+            .status()
+            .unwrap()
+            .success());
+        assert!(std::process::Command::new(generation.join("runtime"))
+            .args(["-c", "sandbox_mode=\"danger-full-access\"", "doctor"])
+            .status()
+            .unwrap()
+            .success());
+
+        let private_key = root.join("keys/private.pem");
+        let public_key = root.join("keys/public.pem");
+        b4_generate_release_keypair(&openssl, &private_key, &public_key);
+        b4_write_signed_release(&generation, 1, &openssl, &private_key);
+        let (signed_release, loaded) =
+            verify_local_release_bundle(&generation, &openssl, &public_key).unwrap();
+        assert_eq!(signed_release.generation_id, "b8-release-production");
+        assert_eq!(loaded.manifest.core_artifact_digest, core_sha256);
+        assert_eq!(loaded.manifest.source_artifact_digest, archive_sha256);
+
+        let (home, prefix, tmp) = b4_prepare_public_environment(&root, &openssl, true);
+        let bootstrap = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../bootstrap/codex-bootstrap");
+        let output = std::process::Command::new(&bootstrap)
+            .args([
+                core.as_os_str(),
+                generation.as_os_str(),
+                public_key.as_os_str(),
+            ])
+            .env("HOME", &home)
+            .env("PREFIX", &prefix)
+            .env("TMPDIR", &tmp)
+            .env_remove(INTERNAL_BOOTSTRAP_MODE_ENV)
+            .env_remove(INTERNAL_BOOTSTRAP_SOURCE_ENV)
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "stdout={:?} stderr={:?}",
+            output.stdout,
+            output.stderr
+        );
+        let installed_core = prefix.join("bin/codex");
+        assert_eq!(
+            openssl_sha256(&openssl, &installed_core).unwrap(),
+            core_sha256
+        );
+        let roots = b7_public_roots(&home, &prefix);
+        let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+        let state = read_pointer_state(&paths).unwrap().unwrap();
+        assert_eq!(state.current, "b8-release-production");
+        assert_eq!(state.previous, None);
+        assert_eq!(state.previous_key, None);
+        let (installed_release, installed_loaded) = verify_installed_local_release(
+            &roots,
+            "b8-release-production",
+            state.current_key,
+            "B8 integration installed generation id mismatch",
+        )
+        .unwrap();
+        assert_eq!(installed_release, signed_release);
+        assert_eq!(installed_loaded.manifest.core_artifact_digest, core_sha256);
+        assert_eq!(
+            openssl_sha256(
+                &openssl,
+                &roots
+                    .generation_root
+                    .join("b8-release-production/generation.meta"),
+            )
+            .unwrap(),
+            signed_release
+                .files
+                .iter()
+                .find(|file| file.relative_path == "generation.meta")
+                .unwrap()
+                .sha256
+        );
+        assert!(std::process::Command::new(&installed_core)
+            .arg("--version")
+            .env("HOME", &home)
+            .env("PREFIX", &prefix)
+            .env("TMPDIR", &tmp)
+            .status()
+            .unwrap()
+            .success());
+        assert!(std::fs::read_dir(&tmp).unwrap().all(|entry| {
+            !entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".codex-bootstrap.")
+        }));
+        assert!(!root.join("state").exists());
         remove_temp_root(root);
     }
 

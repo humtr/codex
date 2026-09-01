@@ -200,6 +200,37 @@ second installer/update protocol.
   the staged Core/bootstrap/authority tree were unchanged. The accepted
   `--no-verify` precedent is permitted only after this record is staged and the
   exact three-path index is revalidated; the shared hook remains untouched.
+- Slice 3 adds no production behavior. Its one environment-gated integration
+  regression reuses the B6 official-shape archive fixture, compiles a temporary
+  static AArch64 probe runtime only as release-workspace test input, builds the
+  actual locked release Core, feeds that Core through the real B6 builder, signs
+  the resulting generation with the existing v3 fixture, and invokes the actual
+  fresh bootstrap against isolated HOME/PREFIX/TMPDIR roots. The same release
+  Core SHA-256
+  `28217cd50b417b94ac13975be7f7ca094b25ca4484db6a406f791c5b2584906e`
+  is proven at builder `core_artifact_digest`, bootstrap input, installed stable
+  Core, and installed signed-generation verification. B6 byte adaptation is
+  proven by a changed runtime that still executes the Core version and doctor
+  candidate probes after adaptation.
+- The first Slice 3 integration run completed B6 production, v3 admission,
+  bootstrap, and initial activation successfully, then failed only because the
+  test incorrectly required public `doctor` exit 0 while current accepted
+  Manager-unavailable status intentionally yields a degraded/nonzero doctor
+  summary. That stale assertion was replaced by ordinary `--version` passthrough
+  success; no product behavior changed. The exact integration rerun then passed
+  1/1 with the release Core digest above.
+- Final Slice 3 affected proof is green: release-builder 7/7 serial; B7 trust
+  rotation group 5/5; B8 Slice 2 bootstrap group 4/4; pre-existing B6 signed
+  admission 1/1; canonical project-registry `portable` check green; format and
+  diff checks green. Lead diff inspection found only test-module fixture
+  refactoring plus the integration regression. No updater, archive/install path,
+  public command, trust object, persistent state owner, or production source
+  behavior was added, so the existing SPEC remains sufficient.
+- The normal Slice 3 commit was rejected before commit by the same orphan-lineage
+  pre-commit hook because `tools/update-wrapper-version.sh` is absent. HEAD and
+  the staged Core-test/authority tree were unchanged. The accepted `--no-verify`
+  precedent is permitted only after this record is staged and the exact two-path
+  index is revalidated; the shared hook remains untouched.
 
 #### Slice 0 selected implementation boundary
 
@@ -243,8 +274,8 @@ prebuilt executable through B6 generation production into bootstrap verification
 | 0 — fresh authority and validation routing | Rebind the committed B7 state, repair Rust project-validation metadata, inventory current release/build/bootstrap boundaries, and select the smallest artifact/bootstrap implementation shape without changing product behavior | canonical Rust validation route works nonzero; direct baseline agrees; exact B8 file/artifact boundary recorded; no product mutation | complete: project-registry Cargo profiles green; canonical and direct serial both Core 75/0/1 + builder 5/0; exact three-file boundary recorded; SPEC/product unchanged |
 | 1 — prebuilt Core artifact | Produce one immutable release-production Core artifact with explicit platform/architecture identity and digest, without installing it or claiming target-device compilation | named artifact build/identity/digest tests pass nonzero; warning-free locked release build; no live mutation | complete: canonical check green; B8 focused 2/2; affected builder 7/7 serial; format/diff clean; locked release Core identity/digest proven; no live mutation |
 | 2 — fresh bootstrap initial trust | Implement only the bootstrap operations already authorized by SPEC/B7: environment check, immutable v3 admission with bootstrap key, complete staging/probe, and initial v3 state activation in isolated roots | valid local initial install plus malformed/key-mismatch/probe/fault matrix pass nonzero; no fallback or partial state | complete: B8 focused 4/4 + initial transaction fault 1/1; canonical check green; final Core serial 80/0/1; locked release build and format/shell/diff checks green; no fallback/live mutation |
-| 3 — release-production integration | Feed the prebuilt Core artifact through B6 generation production and the same v3 signed-release fixture/bootstrap path; prove no duplicate updater or archive/install path appears | one complete release-production-to-bootstrap flow and affected B6/B7 groups pass nonzero | selected |
-| 4 — grouped acceptance | Add no new behavior; run final bundle proof and synchronize authority | full serial + three complete parallel suites, explicit live read-only smoke, format/diff, warning-free locked release, zero residue, protected identities unchanged, GOAL update, commit | blocked by slice 3 |
+| 3 — release-production integration | Feed the prebuilt Core artifact through B6 generation production and the same v3 signed-release fixture/bootstrap path; prove no duplicate updater or archive/install path appears | one complete release-production-to-bootstrap flow and affected B6/B7 groups pass nonzero | complete: actual locked release Core → B6 builder → v3 signing/admission → real bootstrap → installed v3 state passed 1/1; builder 7/7, B7 5/5, B8 Slice2 4/4, B6 admission 1/1, canonical check green; test-only diff |
+| 4 — grouped acceptance | Add no new behavior; run final bundle proof and synchronize authority | full serial + three complete parallel suites, explicit live read-only smoke, format/diff, warning-free locked release, zero residue, protected identities unchanged, GOAL update, commit | selected |
 
 #### protected surfaces
 
