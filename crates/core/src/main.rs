@@ -3867,7 +3867,7 @@ fn load_activated_generation(
 ) -> Result<LoadedLocalGeneration, LocalProductError> {
     let state_paths = m2_generation_state::CoreStatePaths::new(&roots.state_root)
         .map_err(LocalProductError::StateFormat)?;
-    let state = m2_generation_state::recover_activation_state(&state_paths)
+    let state = m2_generation_state::read_pointer_state(&state_paths)
         .map_err(LocalProductError::State)?
         .ok_or(LocalProductError::NoCurrentGeneration)?;
     let loaded = load_local_generation(&roots.generation_root.join(&state.current))?;
@@ -10755,5 +10755,67 @@ exit 0
         );
         m2_b1_assert_no_transaction_files(&paths);
         remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b9_slice1_ordinary_launch_cannot_disrupt_successful_activation() {
+        for pause_after_call in [1usize, 3, 4, 6] {
+            let (root, roots) = b2_test_roots(&format!("b9-slice1-overlap-{pause_after_call}"));
+            b2_write_generation(&roots, "b9-old", false, "unsupported");
+            b2_write_generation(&roots, "b9-new", false, "unsupported");
+            b2_activate(&roots, "b9-old");
+
+            let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+            let old = read_pointer_state(&paths).unwrap().unwrap();
+            let new =
+                plan_activation_pointer_state_with_key(&old, "b9-new", old.update_key).unwrap();
+            let (reached_tx, reached_rx) = std::sync::mpsc::channel();
+            let (resume_tx, resume_rx) = std::sync::mpsc::channel();
+
+            let (observed_generation, activation_result, calls) = std::thread::scope(|scope| {
+                let activation = scope.spawn(|| {
+                    let mut io = M2B9PauseIo::new(pause_after_call, reached_tx, resume_rx);
+                    let result = activate_pointer_state_with_io(&paths, Some(&old), &new, &mut io);
+                    (result, io.calls)
+                });
+                assert_eq!(
+                    reached_rx
+                        .recv_timeout(std::time::Duration::from_secs(5))
+                        .unwrap(),
+                    pause_after_call
+                );
+                let observed = load_activated_generation(&roots).map(|loaded| loaded.generation_id);
+                resume_tx.send(()).unwrap();
+                let (result, calls) = activation.join().unwrap();
+                (observed, result, calls)
+            });
+
+            let final_state = read_pointer_state(&paths).unwrap();
+            let transaction_files = (
+                paths.activation_journal.exists(),
+                paths.activation_journal_temp.exists(),
+                paths.activation_state_temp.exists(),
+            );
+            remove_temp_root(&root);
+
+            let observed_generation = observed_generation.unwrap_or_else(|error| {
+                panic!("pause_after_call={pause_after_call}: ordinary launch failed: {error}")
+            });
+            assert!(
+                observed_generation == "b9-old" || observed_generation == "b9-new",
+                "pause_after_call={pause_after_call}: observed {observed_generation:?}"
+            );
+            assert!(
+                activation_result.is_ok(),
+                "pause_after_call={pause_after_call}: ordinary launch disrupted activation after {calls} durable calls: {activation_result:?}; final_state={final_state:?}; transaction_files={transaction_files:?}"
+            );
+            assert_eq!(
+                final_state.as_ref().map(|state| state.current.as_str()),
+                Some("b9-new"),
+                "pause_after_call={pause_after_call}"
+            );
+            assert_eq!(transaction_files, (false, false, false));
+        }
     }
 }

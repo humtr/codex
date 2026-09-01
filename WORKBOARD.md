@@ -133,14 +133,45 @@ not invent a production lock merely to serialize the test.
   the established exact-tree `--no-verify` precedent only after this record is
   re-staged and the exact two-path index, absence of `target/`, and clean
   unstaged/untracked state are revalidated; the shared hook remains untouched.
+- Slice 1 first stopped on formatting-only drift before its behavior test; the
+  exact regression was formatted without adding behavior. The corrected named
+  overlap proof then failed nonzero at durable call 1: while updater paused after
+  writing/syncing `activation-journal.tmp`, ordinary
+  `load_activated_generation` called `recover_activation_state`, removed that
+  updater-owned temporary, and the updater's next journal publication failed
+  with ENOENT. Authoritative state remained the complete old state and no
+  transaction residue remained. This is a concrete launch/update overlap defect,
+  not a hypothetical coordination case.
+- Fresh SPEC recheck after the red shows no contract delta is required: SPEC
+  already says ordinary launch reads only `current`, while `codex update` must
+  recover v3 state before update. The selected minimal repair therefore removes
+  recovery ownership from ordinary launch only: `load_activated_generation`
+  reads the authoritative pointer with `read_pointer_state` and keeps all
+  updater/rollback recovery paths unchanged. This adds no lock, retry, fallback,
+  state owner, persistent object, trust behavior, or public surface.
+- After that one-line repair, the exact Slice 1 overlap regression passed 1/1
+  across durable calls 1, 3, 4, and 6 with zero focused residue. The existing B2
+  loader regressions passed 3/3, the Slice 0 harness remained green 1/1, `cargo
+  fmt --check` and `git diff --check` passed, and canonical project-registry
+  `portable` locked workspace check passed. Lead diff inspection found exactly
+  one production behavior line (`recover_activation_state` ->
+  `read_pointer_state`) plus the mapped Slice 1 regression and this authority
+  record; no updater/recovery implementation, public surface, or persistent
+  format changed.
+- The normal Slice 1 commit was rejected before commit by the same known
+  orphan-lineage pre-commit hook because `tools/update-wrapper-version.sh` is
+  absent. HEAD and the exact staged Core/WORKBOARD tree remained unchanged.
+  Slice 1 may therefore use the established `--no-verify` precedent only after
+  this record is re-staged and the exact two-path index, clean unstaged/untracked
+  state, and absence of `target/` are revalidated; the hook remains untouched.
 
 #### vertical proof map
 
 | Slice | Exact outcome | Exit gate | State |
 | --- | --- | --- | --- |
 | 0 — overlap authority and harness | Rebind accepted B8, trace the real launch loader plus activation/recovery durable boundaries, and build the smallest isolated synchronization/fault harness without changing production behavior | exact observation points and old/new invariants recorded; baseline canonical check green; no product mutation | complete: canonical check green; exact 8-call boundary traced; test-only pause harness focused 1/1; format/diff clean; zero focused residue |
-| 1 — successful activation overlap | Hold a launch-capable old generation, overlap repeated ordinary launches with one successful activation to a complete new generation, and classify every launch observation | named overlap regression proves every completed launch is wholly old or wholly new; no mixed generation, fallback, or launch-time coordination | selected |
-| 2 — failed update overlap | Overlap ordinary launches with a candidate/update failure before authoritative activation and prove the old current remains the only launchable generation | named injected-failure regression passes across the selected pre-activation failure boundaries; state/current and launch observations remain old and complete | blocked by slice 1 |
+| 1 — successful activation overlap | Hold a launch-capable old generation, overlap repeated ordinary launches with one successful activation to a complete new generation, and classify every launch observation | named overlap regression proves every completed launch is wholly old or wholly new; no mixed generation, fallback, or launch-time coordination | complete: concrete call-1 defect reproduced; one-line ordinary-loader repair; Slice 1 1/1, B2 loader 3/3, Slice 0 1/1, canonical check green, zero focused residue |
+| 2 — failed update overlap | Overlap ordinary launches with a candidate/update failure before authoritative activation and prove the old current remains the only launchable generation | named injected-failure regression passes across the selected pre-activation failure boundaries; state/current and launch observations remain old and complete | selected |
 | 3 — recovery overlap | Exercise recoverable activation journal states while launches and recovery interleave, proving recovery resolves to one complete old/new state and launch never consumes temporary/journal state as a generation | named recovery-overlap matrix passes at each existing durable boundary; no new recovery mechanism | blocked by slice 2 |
 | 4 — grouped acceptance | Add no new behavior; run final bundle proof and synchronize authority | full serial + three complete parallel suites, explicit live read-only smoke, warning-free locked release, format/diff, zero residue, protected identities unchanged, GOAL update, commit | blocked by slice 3 |
 
