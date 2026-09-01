@@ -905,12 +905,88 @@ Termux qualification. Produce one candidate for independent product review.
   test-only bootstrap fixtures and the entire grouped acceptance was rerun.
   Registered project validation metadata remains an administrative mismatch and
   must be repaired before the next product slice relies on it.
-- Current checkpoint: M2-B8 — prebuilt Core and minimal fresh bootstrap. Start
-  from fresh authority, repair the Rust validation routing, then define and prove
-  the smallest non-installed prebuilt Core artifact plus fresh-install bootstrap
-  that initializes the already-accepted v3 trust state. Do not claim live device
-  installation, offline qualification, legacy upgrade, or final independent
-  review in this bundle. Worker mode remains OFF.
+- M2-B8 — prebuilt Core and minimal fresh bootstrap — is accepted at product tip
+  `192fcece0b416004bddd9181e24b1245290ebe81` by this authority update. The B6
+  `--core` input now snapshots and qualifies exactly one ELF64 little-endian
+  AArch64 PIE using `/system/bin/linker64`, then binds the selected bytes through
+  the existing `generation.meta.core_artifact_digest`; no Core copy, sidecar,
+  alternate manifest/archive, or second release-production protocol was added.
+  The accepted release-builder source SHA-256 is
+  `aaa8ac051bf634bdf8fda799ca194b228b11e61e41fd1837570f979daefb4c9b`.
+- Fresh bootstrap is one local audited script,
+  `bootstrap/codex-bootstrap`, SHA-256
+  `c1b107699a64c08cc49a99ceb433c3dd1b6c7ca53637fb0b53cc73b6ce35e9fa`.
+  Before executing or publishing Core it snapshots the Core, bootstrap key, v3
+  manifest/signature, and `generation.meta`; verifies the manifest with the
+  pinned key; requires the signed release key to equal that key; verifies the
+  signed descriptor digest/mode; and requires the Core SHA-256 to equal the
+  descriptor's signed `core_artifact_digest`. It then publishes only the
+  canonical initial key seed and stable Core entrypoint via same-directory
+  create-new/no-clobber temporaries and invokes the authenticated Core for
+  self-test and first activation. It has no network, package-manager, compiler,
+  update, rollback, discovery, or post-state recovery path.
+- Core source SHA-256
+  `6b401eb2890e6bad3117685cb7ce156690a5dfe53b0bab83fba7c5d335ca22bf`
+  adds only the private fresh-bootstrap entry before public dispatch. That path
+  derives the canonical `release-public-key.pem`, requires authoritative v3
+  state to remain absent after normal journal recovery, refuses initial key
+  rotation, and reuses the accepted B7 v3 admission, candidate probe, immutable
+  staging, installed re-verification, and initial state transaction. Once v3
+  state exists it fails closed; ordinary launch, local/remote update, rollback,
+  and recovery gained no bootstrap fallback or new trust source. The normative
+  SPEC therefore remains unchanged at SHA-256
+  `4ca9035c9c1a31c5afc3e9d4de978b304c96c687d03c0bee0aa446078fe11647`.
+- B8 artifact and integration proof is exact. Slice 1 focused Core-artifact
+  qualification passed 2/2 and the complete affected builder suite passed 7/7.
+  Slice 2 bootstrap proof passed 4/4 plus the existing initial-activation durable
+  fault matrix 1/1. Slice 3 passed one complete release-production flow using an
+  actual locked release Core: release Core -> B6 official-shape generation -> v3
+  signing/admission -> real bootstrap -> isolated installed Core/v3 state. The
+  same release Core SHA-256
+  `28217cd50b417b94ac13975be7f7ca094b25ca4484db6a406f791c5b2584906e`
+  was proven at builder descriptor, bootstrap input, installed stable Core, and
+  installed signed-generation verification; affected B7 5/5, B8 bootstrap 4/4,
+  B6 admission 1/1, and builder 7/7 also remained green.
+- Final B8 grouped acceptance was rerun on committed product tip `192fcece...`.
+  The project-registry canonical serial workspace suite passed Core
+  81/0/1-ignored plus builder 7/0; three complete default-parallel workspace
+  suites each passed the same counts; the explicit real-Termux read-only smoke
+  passed 1/1; `cargo fmt --check`, bootstrap shell syntax, and `git diff --check`
+  passed; and the locked workspace release build passed with `-D warnings`.
+  Test-root residue was zero and generated `target/` was removed. The installed
+  launcher remained SHA-256
+  `0b0284155f2672263836029f760ba06a0cb284b7ca3a8e600ad399b43af36aff`
+  with identity
+  `65089|1260183|755|10379|10379|7512|2026-08-28 01:28:18.815391370 +0900`,
+  while live `resolv.conf` remained SHA-256
+  `7e8ad76e0d200e93918ca2e93c99ff8ecd02071953bf1479819db3ac0dbb6d07`
+  with identity
+  `65089|94666|600|10379|10379|38|2026-08-28 01:04:03.530430900 +0900`.
+  No live generation/trust state, resolver, launcher, Manager,
+  auth/profile/session, package, network authority, publication ref, or private
+  signing-key state changed.
+- B8 rejected non-evidence and local proof defects instead of carrying them
+  forward: a formatting-only Slice 1 stop; a legacy test-fixture mode mismatch;
+  an exact test filter that selected zero tests; an Android hard-link permission
+  failure replaced by no-clobber rename; and a stale Slice 3 expectation that
+  `doctor` must exit zero while Manager remains intentionally unavailable. Each
+  affected gate was rerun after repair. The inherited tmcp
+  `project.validation.describe` package.json discovery remains a separate tooling
+  limitation, while project-registry Cargo validation revision 3 is canonical.
+  Each Slice 1-3 normal commit was also rejected before commit by the known
+  orphan-lineage hook referencing absent `tools/update-wrapper-version.sh`; after
+  exact index revalidation the established `--no-verify` closure was used. No B8
+  commit was pushed or published.
+- Current checkpoint: M2-B9 — launch/update overlap and injected-failure proof.
+  Fresh-bind the accepted B8 state and prove in isolated roots that ordinary
+  launches overlapping successful activation, failed activation, and recovery
+  can observe only complete old or complete new generations. Add no speculative
+  lock, lease, fencing token, multi-writer protocol, or fallback path; first use
+  the existing immutable-generation plus atomic-state invariants and change
+  production behavior only if a concrete failing overlap demonstrates a gap.
+  Offline qualification, isolated fresh-Termux/legacy-upgrade qualification, and
+  final independent product review remain later Milestone 2 gates. Worker mode
+  remains OFF.
 
 ## Goal Lifts
 
