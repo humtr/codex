@@ -1733,7 +1733,6 @@ mod m2_generation_state {
         Ok(())
     }
 
-    #[cfg(test)]
     pub(super) fn plan_initial_pointer_state_with_key(
         complete_candidate_identity: &str,
         candidate_key: ReleasePublicKey,
@@ -2337,6 +2336,10 @@ const REMOTE_RELEASE_TOTAL_MAX_BYTES: u64 = 1024 * 1024 * 1024;
 const REMOTE_CONNECT_TIMEOUT_SECONDS: &str = "15";
 #[cfg(unix)]
 const REMOTE_TRANSFER_TIMEOUT_SECONDS: &str = "300";
+#[cfg(unix)]
+const INTERNAL_BOOTSTRAP_MODE_ENV: &str = "CODEX_TERMUX_INTERNAL_BOOTSTRAP";
+#[cfg(unix)]
+const INTERNAL_BOOTSTRAP_SOURCE_ENV: &str = "CODEX_TERMUX_INTERNAL_BOOTSTRAP_SOURCE";
 
 #[cfg(unix)]
 #[derive(Debug, Clone)]
@@ -2388,7 +2391,6 @@ enum LocalProductError {
     Release(&'static str),
     OpenSslUnavailable,
     CurlUnavailable,
-    #[cfg(test)]
     TrustedReleaseKeyUnavailable,
     OpenSslFailed(&'static str),
     Remote(&'static str),
@@ -2435,7 +2437,6 @@ impl std::fmt::Display for LocalProductError {
             LocalProductError::Release(message) => f.write_str(message),
             LocalProductError::OpenSslUnavailable => f.write_str("Termux OpenSSL is unavailable"),
             LocalProductError::CurlUnavailable => f.write_str("Termux curl is unavailable"),
-            #[cfg(test)]
             LocalProductError::TrustedReleaseKeyUnavailable => {
                 f.write_str("trusted release public key is unavailable")
             }
@@ -3064,7 +3065,7 @@ fn ensure_openssl_available(openssl: &std::path::Path) -> Result<(), LocalProduc
     Ok(())
 }
 
-#[cfg(all(unix, test))]
+#[cfg(unix)]
 fn ensure_trusted_release_key(key: &std::path::Path) -> Result<(), LocalProductError> {
     let metadata = std::fs::symlink_metadata(key)
         .map_err(|_| LocalProductError::TrustedReleaseKeyUnavailable)?;
@@ -3074,7 +3075,7 @@ fn ensure_trusted_release_key(key: &std::path::Path) -> Result<(), LocalProductE
     Ok(())
 }
 
-#[cfg(all(unix, test))]
+#[cfg(unix)]
 fn release_public_key_from_pem(
     openssl: &std::path::Path,
     trusted_key: &std::path::Path,
@@ -4371,6 +4372,185 @@ fn activate_signed_remote_release(
 }
 
 #[cfg(unix)]
+fn bootstrap_public_key_path() -> Result<std::path::PathBuf, LocalProductError> {
+    Ok(required_absolute_env_path("HOME")?.join(".local/lib/codex/core/release-public-key.pem"))
+}
+
+#[cfg(unix)]
+fn bootstrap_self_test(
+    roots: &LocalCoreRoots,
+    bootstrap_public_key: &std::path::Path,
+) -> Result<(), LocalProductError> {
+    let state_paths = m2_generation_state::CoreStatePaths::new(&roots.state_root)
+        .map_err(LocalProductError::StateFormat)?;
+    if m2_generation_state::read_pointer_state(&state_paths)
+        .map_err(LocalProductError::State)?
+        .is_some()
+    {
+        return Err(LocalProductError::Release(
+            "fresh bootstrap requires absent authoritative v3 state",
+        ));
+    }
+    ensure_openssl_available(&roots.openssl)?;
+    let _ = release_public_key_from_pem(&roots.openssl, bootstrap_public_key)?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn bootstrap_initial_signed_local_release(
+    source_dir: &std::path::Path,
+    roots: &LocalCoreRoots,
+    bootstrap_public_key: &std::path::Path,
+    process_env: &TermuxProcessEnvSnapshot,
+) -> Result<String, LocalProductError> {
+    let state_paths = m2_generation_state::CoreStatePaths::new(&roots.state_root)
+        .map_err(LocalProductError::StateFormat)?;
+    if m2_generation_state::recover_activation_state(&state_paths)
+        .map_err(LocalProductError::State)?
+        .is_some()
+    {
+        return Err(LocalProductError::Release(
+            "fresh bootstrap requires absent authoritative v3 state",
+        ));
+    }
+
+    let bootstrap_key = release_public_key_from_pem(&roots.openssl, bootstrap_public_key)?;
+    let (manifest, loaded) =
+        verify_local_release_bundle_with_key(source_dir, &roots.openssl, bootstrap_key)?;
+    if manifest.release_public_key != bootstrap_key {
+        return Err(LocalProductError::Release(
+            "bootstrap release key does not match pinned key",
+        ));
+    }
+
+    std::fs::create_dir_all(&roots.config_dir).map_err(|source| LocalProductError::Io {
+        operation: "create bootstrap config directory",
+        source,
+    })?;
+    probe_release_candidate(&loaded, roots, process_env)?;
+    m2_generation_state::prepare_core_state_paths(&state_paths)
+        .map_err(LocalProductError::State)?;
+    let after = m2_generation_state::plan_initial_pointer_state_with_key(
+        &loaded.generation_id,
+        bootstrap_key,
+    )
+    .map_err(LocalProductError::StateFormat)?;
+
+    std::fs::create_dir_all(&roots.generation_root).map_err(|source| LocalProductError::Io {
+        operation: "create bootstrap generation root",
+        source,
+    })?;
+    let destination = roots.generation_root.join(&loaded.generation_id);
+    let mut published_new = false;
+    let installed = if destination.exists() {
+        let (installed_manifest, installed) = verify_installed_local_release(
+            roots,
+            &loaded.generation_id,
+            bootstrap_key,
+            "bootstrap generation descriptor id does not match publication path",
+        )?;
+        if installed_manifest != manifest {
+            return Err(LocalProductError::GenerationCollision);
+        }
+        installed
+    } else {
+        let generation_id = stage_local_generation(source_dir, &roots.generation_root)?;
+        if generation_id != loaded.generation_id {
+            return Err(LocalProductError::Descriptor(
+                "bootstrap generation descriptor id does not match source",
+            ));
+        }
+        published_new = true;
+        match verify_installed_local_release(
+            roots,
+            &generation_id,
+            bootstrap_key,
+            "bootstrap generation descriptor id does not match publication path",
+        ) {
+            Ok((installed_manifest, installed)) if installed_manifest == manifest => installed,
+            Ok(_) => {
+                let _ = std::fs::remove_dir_all(&destination);
+                return Err(LocalProductError::Release(
+                    "bootstrap installed release does not match authenticated source",
+                ));
+            }
+            Err(err) => {
+                let _ = std::fs::remove_dir_all(&destination);
+                return Err(err);
+            }
+        }
+    };
+    if installed.generation_id != loaded.generation_id {
+        if published_new {
+            let _ = std::fs::remove_dir_all(&destination);
+        }
+        return Err(LocalProductError::Descriptor(
+            "bootstrap installed generation id does not match authenticated source",
+        ));
+    }
+
+    m2_generation_state::activate_pointer_state(&state_paths, None, &after)
+        .map_err(LocalProductError::State)?;
+    Ok(after.current)
+}
+
+#[cfg(unix)]
+fn run_internal_bootstrap_mode() -> Option<i32> {
+    let mode = std::env::var_os(INTERNAL_BOOTSTRAP_MODE_ENV)?;
+    let roots = match LocalCoreRoots::from_environment() {
+        Ok(roots) => roots,
+        Err(err) => {
+            eprintln!("codex bootstrap: {err}");
+            return Some(1);
+        }
+    };
+    let bootstrap_public_key = match bootstrap_public_key_path() {
+        Ok(path) => path,
+        Err(err) => {
+            eprintln!("codex bootstrap: {err}");
+            return Some(1);
+        }
+    };
+    let result = if mode == OsStr::new("self-test") {
+        if std::env::var_os(INTERNAL_BOOTSTRAP_SOURCE_ENV).is_some() {
+            Err(LocalProductError::Release(
+                "bootstrap self-test does not accept a release source",
+            ))
+        } else {
+            bootstrap_self_test(&roots, &bootstrap_public_key).map(|_| String::new())
+        }
+    } else if mode == OsStr::new("activate") {
+        match required_absolute_env_path(INTERNAL_BOOTSTRAP_SOURCE_ENV) {
+            Ok(source) => {
+                let process_env = capture_termux_process_env();
+                bootstrap_initial_signed_local_release(
+                    &source,
+                    &roots,
+                    &bootstrap_public_key,
+                    &process_env,
+                )
+            }
+            Err(err) => Err(err),
+        }
+    } else {
+        eprintln!("codex bootstrap: unsupported internal bootstrap mode");
+        return Some(2);
+    };
+    match result {
+        Ok(generation_id) => {
+            if !generation_id.is_empty() {
+                println!("activated initial local generation {generation_id}");
+            }
+            Some(0)
+        }
+        Err(err) => {
+            eprintln!("codex bootstrap: {err}");
+            Some(1)
+        }
+    }
+}
+
+#[cfg(unix)]
 fn rollback_signed_local_release(roots: &LocalCoreRoots) -> Result<String, LocalProductError> {
     let state_paths = m2_generation_state::CoreStatePaths::new(&roots.state_root)
         .map_err(LocalProductError::StateFormat)?;
@@ -4480,6 +4660,9 @@ where
 
 #[cfg(unix)]
 fn main() {
+    if let Some(code) = run_internal_bootstrap_mode() {
+        std::process::exit(code);
+    }
     let mut args = std::env::args_os();
     let _ = args.next();
     std::process::exit(run_public_main(args));
@@ -6577,6 +6760,321 @@ esac
         bootstrap_public_key: &std::path::Path,
     ) -> GenerationPointerState {
         b7_bootstrap_initial_release(source_generation, home, prefix, bootstrap_public_key).unwrap()
+    }
+
+    #[cfg(unix)]
+    const B8_BOOTSTRAP_PROBE_ROLE: &str = "CODEX_B8_BOOTSTRAP_PROBE";
+
+    #[cfg(unix)]
+    #[test]
+    fn b8_private_bootstrap_probe() {
+        if std::env::var(B8_BOOTSTRAP_PROBE_ROLE).as_deref() != Ok("1") {
+            return;
+        }
+        let code = run_internal_bootstrap_mode().unwrap_or(2);
+        use std::io::Write;
+        std::io::stdout().flush().unwrap();
+        std::io::stderr().flush().unwrap();
+        std::process::exit(code);
+    }
+
+    #[cfg(unix)]
+    fn b8_process_env(prefix: &std::path::Path, tmp: &std::path::Path) -> TermuxProcessEnvSnapshot {
+        TermuxProcessEnvSnapshot {
+            prefix: Some(prefix.as_os_str().to_owned()),
+            tmpdir: Some(tmp.as_os_str().to_owned()),
+            inherited_path: None,
+            inherited_ssl_cert_file: None,
+            inherited_ssl_cert_dir: None,
+        }
+    }
+
+    #[cfg(unix)]
+    fn b8_bind_core_digest(
+        generation: &std::path::Path,
+        openssl: &std::path::Path,
+        core: &std::path::Path,
+    ) {
+        let descriptor_path = generation.join("generation.meta");
+        let descriptor = std::fs::read_to_string(&descriptor_path).unwrap();
+        let digest = openssl_sha256(openssl, core).unwrap();
+        assert!(descriptor.contains("core_artifact_digest\tcore-digest\n"));
+        std::fs::write(
+            &descriptor_path,
+            descriptor.replace(
+                "core_artifact_digest\tcore-digest\n",
+                &format!("core_artifact_digest\t{digest}\n"),
+            ),
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = std::fs::metadata(&descriptor_path).unwrap().permissions();
+        permissions.set_mode(0o644);
+        std::fs::set_permissions(descriptor_path, permissions).unwrap();
+    }
+
+    #[cfg(unix)]
+    fn b8_write_core_probe_wrapper(path: &std::path::Path) {
+        use std::os::unix::fs::PermissionsExt;
+        let test_binary = std::env::current_exe().unwrap();
+        let shell = resolve_test_shell();
+        let script = format!(
+            "#!{}\n{}=1 exec '{}' tests::b8_private_bootstrap_probe --exact --nocapture\n",
+            shell.display(),
+            B8_BOOTSTRAP_PROBE_ROLE,
+            test_binary.display()
+        );
+        std::fs::write(path, script).unwrap();
+        let mut permissions = std::fs::metadata(path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(path, permissions).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b8_slice2_core_initial_bootstrap_is_exact_and_one_shot() {
+        let root = temp_root("b8-slice2-core-initial");
+        let live_openssl = b4_termux_openssl();
+        let (home, prefix, tmp) = b4_prepare_public_environment(&root, &live_openssl, true);
+        let source = b4_source_roots(&root, &live_openssl);
+        std::fs::create_dir(&source.generation_root).unwrap();
+        let release = b2_write_generation(&source, "bootstrap-g0", false, "supported");
+        b4_write_probe_runtime(&release, 0, 0);
+        let private_key = root.join("keys/private.pem");
+        let public_key = root.join("keys/public.pem");
+        b4_generate_release_keypair(&live_openssl, &private_key, &public_key);
+        b4_write_signed_release(&release, 1, &live_openssl, &private_key);
+        b4_install_trusted_release_key(&home, &public_key);
+
+        let roots = b7_public_roots(&home, &prefix);
+        let process_env = b8_process_env(&prefix, &tmp);
+        let pin = home.join(".local/lib/codex/core/release-public-key.pem");
+        bootstrap_self_test(&roots, &pin).unwrap();
+        assert_eq!(
+            bootstrap_initial_signed_local_release(&release, &roots, &pin, &process_env).unwrap(),
+            "bootstrap-g0"
+        );
+        let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+        let state = read_pointer_state(&paths).unwrap().unwrap();
+        let key = release_public_key_from_pem(&roots.openssl, &pin).unwrap();
+        assert_eq!(state.update_key, key);
+        assert_eq!(state.current, "bootstrap-g0");
+        assert_eq!(state.current_key, key);
+        assert_eq!(state.previous, None);
+        assert_eq!(state.previous_key, None);
+        assert!(roots.generation_root.join("bootstrap-g0").is_dir());
+        assert!(matches!(
+            bootstrap_self_test(&roots, &pin),
+            Err(LocalProductError::Release(
+                "fresh bootstrap requires absent authoritative v3 state"
+            ))
+        ));
+        assert!(matches!(
+            bootstrap_initial_signed_local_release(&release, &roots, &pin, &process_env),
+            Err(LocalProductError::Release(
+                "fresh bootstrap requires absent authoritative v3 state"
+            ))
+        ));
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b8_slice2_core_bootstrap_rejections_leave_no_authoritative_state() {
+        for case in [
+            "wrong-key",
+            "rotating-key",
+            "probe-failure",
+            "tampered-manifest",
+        ] {
+            let root = temp_root(&format!("b8-slice2-{case}"));
+            let live_openssl = b4_termux_openssl();
+            let (home, prefix, tmp) = b4_prepare_public_environment(&root, &live_openssl, true);
+            let source = b4_source_roots(&root, &live_openssl);
+            std::fs::create_dir(&source.generation_root).unwrap();
+            let release = b2_write_generation(&source, case, false, "supported");
+            b4_write_probe_runtime(&release, if case == "probe-failure" { 17 } else { 0 }, 0);
+            let old_private = root.join("keys/old-private.pem");
+            let old_public = root.join("keys/old-public.pem");
+            let new_private = root.join("keys/new-private.pem");
+            let new_public = root.join("keys/new-public.pem");
+            b4_generate_release_keypair(&live_openssl, &old_private, &old_public);
+            b4_generate_release_keypair(&live_openssl, &new_private, &new_public);
+            match case {
+                "wrong-key" | "probe-failure" | "tampered-manifest" => {
+                    b4_write_signed_release(&release, 1, &live_openssl, &old_private)
+                }
+                "rotating-key" => {
+                    let files = b4_exact_release_inventory(&release, &live_openssl);
+                    b4_write_signed_release_inventory_with_authority(
+                        &release,
+                        1,
+                        &live_openssl,
+                        &new_private,
+                        Some(&old_private),
+                        &files,
+                    );
+                }
+                _ => unreachable!(),
+            }
+            if case == "tampered-manifest" {
+                let manifest_path = release.join("release.manifest");
+                let mut manifest = std::fs::read(&manifest_path).unwrap();
+                manifest.push(b'\n');
+                std::fs::write(manifest_path, manifest).unwrap();
+            }
+            let pin_source = if case == "wrong-key" {
+                &new_public
+            } else {
+                &old_public
+            };
+            b4_install_trusted_release_key(&home, pin_source);
+            let roots = b7_public_roots(&home, &prefix);
+            let process_env = b8_process_env(&prefix, &tmp);
+            let pin = home.join(".local/lib/codex/core/release-public-key.pem");
+            assert!(
+                bootstrap_initial_signed_local_release(&release, &roots, &pin, &process_env)
+                    .is_err(),
+                "case {case} unexpectedly activated"
+            );
+            let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+            assert_eq!(read_pointer_state(&paths).unwrap(), None, "case {case}");
+            assert!(!paths.activation_journal.exists(), "case {case}");
+            assert!(!paths.activation_journal_temp.exists(), "case {case}");
+            assert!(!paths.activation_state_temp.exists(), "case {case}");
+            assert!(!roots.generation_root.join(case).exists(), "case {case}");
+            remove_temp_root(root);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b8_slice2_bootstrap_script_installs_through_private_core_path() {
+        let root = temp_root("b8-slice2-script");
+        let live_openssl = b4_termux_openssl();
+        let (home, prefix, tmp) = b4_prepare_public_environment(&root, &live_openssl, true);
+        let source = b4_source_roots(&root, &live_openssl);
+        std::fs::create_dir(&source.generation_root).unwrap();
+        let release = b2_write_generation(&source, "script-g0", false, "supported");
+        b4_write_probe_runtime(&release, 0, 0);
+        let core = root.join("prebuilt-codex");
+        b8_write_core_probe_wrapper(&core);
+        b8_bind_core_digest(&release, &live_openssl, &core);
+        let private_key = root.join("keys/private.pem");
+        let public_key = root.join("keys/public.pem");
+        b4_generate_release_keypair(&live_openssl, &private_key, &public_key);
+        b4_write_signed_release(&release, 1, &live_openssl, &private_key);
+        let bootstrap = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../bootstrap/codex-bootstrap");
+        let output = std::process::Command::new(&bootstrap)
+            .args([
+                core.as_os_str(),
+                release.as_os_str(),
+                public_key.as_os_str(),
+            ])
+            .env("HOME", &home)
+            .env("PREFIX", &prefix)
+            .env("TMPDIR", &tmp)
+            .env_remove(INTERNAL_BOOTSTRAP_MODE_ENV)
+            .env_remove(INTERNAL_BOOTSTRAP_SOURCE_ENV)
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "stdout={:?} stderr={:?}",
+            output.stdout,
+            output.stderr
+        );
+        assert!(prefix.join("bin/codex").is_file());
+        assert_eq!(
+            openssl_sha256(&live_openssl, &prefix.join("bin/codex")).unwrap(),
+            openssl_sha256(&live_openssl, &core).unwrap()
+        );
+        let roots = b7_public_roots(&home, &prefix);
+        let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+        let state = read_pointer_state(&paths).unwrap().unwrap();
+        assert_eq!(state.current, "script-g0");
+        assert_eq!(state.previous, None);
+        assert!(roots.generation_root.join("script-g0").is_dir());
+        assert!(std::fs::read_dir(&tmp).unwrap().all(|entry| !entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with(".codex-bootstrap.")));
+
+        let second = std::process::Command::new(&bootstrap)
+            .args([
+                core.as_os_str(),
+                release.as_os_str(),
+                public_key.as_os_str(),
+            ])
+            .env("HOME", &home)
+            .env("PREFIX", &prefix)
+            .env("TMPDIR", &tmp)
+            .output()
+            .unwrap();
+        assert_eq!(second.status.code(), Some(1));
+        assert!(second
+            .stderr
+            .windows(b"existing authoritative v3 state".len())
+            .any(|w| { w == b"existing authoritative v3 state" }));
+        assert_eq!(read_pointer_state(&paths).unwrap().unwrap(), state);
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b8_slice2_bootstrap_script_core_digest_mismatch_fails_before_install() {
+        let root = temp_root("b8-slice2-script-digest");
+        let live_openssl = b4_termux_openssl();
+        let (home, prefix, tmp) = b4_prepare_public_environment(&root, &live_openssl, true);
+        let source = b4_source_roots(&root, &live_openssl);
+        std::fs::create_dir(&source.generation_root).unwrap();
+        let release = b2_write_generation(&source, "script-digest", false, "supported");
+        b4_write_probe_runtime(&release, 0, 0);
+        let authenticated_core = root.join("authenticated-codex");
+        b8_write_core_probe_wrapper(&authenticated_core);
+        b8_bind_core_digest(&release, &live_openssl, &authenticated_core);
+        let private_key = root.join("keys/private.pem");
+        let public_key = root.join("keys/public.pem");
+        b4_generate_release_keypair(&live_openssl, &private_key, &public_key);
+        b4_write_signed_release(&release, 1, &live_openssl, &private_key);
+        let wrong_core = root.join("wrong-codex");
+        std::fs::copy(&authenticated_core, &wrong_core).unwrap();
+        use std::io::Write as _;
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&wrong_core)
+            .unwrap()
+            .write_all(b"\n# digest mismatch\n")
+            .unwrap();
+        let bootstrap = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../bootstrap/codex-bootstrap");
+        let output = std::process::Command::new(&bootstrap)
+            .args([
+                wrong_core.as_os_str(),
+                release.as_os_str(),
+                public_key.as_os_str(),
+            ])
+            .env("HOME", &home)
+            .env("PREFIX", &prefix)
+            .env("TMPDIR", &tmp)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output
+            .stderr
+            .windows(b"Core artifact does not match".len())
+            .any(|w| { w == b"Core artifact does not match" }));
+        assert!(!prefix.join("bin/codex").exists());
+        assert!(!home
+            .join(".local/lib/codex/core/release-public-key.pem")
+            .exists());
+        assert!(!home
+            .join(".local/share/codex/core/activation-state")
+            .exists());
+        remove_temp_root(root);
     }
 
     #[cfg(unix)]

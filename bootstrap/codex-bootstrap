@@ -1,0 +1,200 @@
+#!/data/data/com.termux/files/usr/bin/sh
+set -eu
+umask 077
+LC_ALL=C
+export LC_ALL
+
+fail() {
+  printf '%s\n' "codex-bootstrap: $*" >&2
+  exit 1
+}
+
+[ "$#" -eq 3 ] || fail 'usage: codex-bootstrap <CORE_ARTIFACT> <SIGNED_RELEASE_DIR> <BOOTSTRAP_PUBLIC_KEY>'
+core_input=$1
+release_dir=$2
+key_input=$3
+
+case ${HOME-} in /*) ;; *) fail 'HOME must be an absolute path' ;; esac
+case ${PREFIX-} in /*) ;; *) fail 'PREFIX must be an absolute path' ;; esac
+case ${TMPDIR-} in /*) ;; *) fail 'TMPDIR must be an absolute path' ;; esac
+case $core_input in /*) ;; *) fail 'Core artifact path must be absolute' ;; esac
+case $release_dir in /*) ;; *) fail 'signed release path must be absolute' ;; esac
+case $key_input in /*) ;; *) fail 'bootstrap public key path must be absolute' ;; esac
+
+[ -d "$TMPDIR" ] && [ ! -L "$TMPDIR" ] || fail 'TMPDIR must be a real directory'
+[ -f "$core_input" ] && [ ! -L "$core_input" ] && [ -x "$core_input" ] || fail 'Core artifact must be an executable regular file'
+[ -d "$release_dir" ] && [ ! -L "$release_dir" ] || fail 'signed release must be a real directory'
+[ -f "$key_input" ] && [ ! -L "$key_input" ] || fail 'bootstrap public key must be a regular file'
+
+manifest=$release_dir/release.manifest
+signature=$release_dir/release.sig
+descriptor=$release_dir/generation.meta
+[ -f "$manifest" ] && [ ! -L "$manifest" ] || fail 'release.manifest must be a regular file'
+[ -f "$signature" ] && [ ! -L "$signature" ] || fail 'release.sig must be a regular file'
+[ -f "$descriptor" ] && [ ! -L "$descriptor" ] || fail 'generation.meta must be a regular file'
+
+openssl=$PREFIX/bin/openssl
+[ -x "$openssl" ] || fail 'Termux OpenSSL is unavailable'
+
+state=$HOME/.local/share/codex/core/activation-state
+if [ -e "$state" ] || [ -L "$state" ]; then
+  fail 'fresh bootstrap refuses existing authoritative v3 state'
+fi
+
+work=$TMPDIR/.codex-bootstrap.$$
+[ ! -e "$work" ] && [ ! -L "$work" ] || fail 'private bootstrap workspace already exists'
+mkdir "$work"
+cleanup() {
+  rm -rf "$work"
+}
+trap cleanup EXIT HUP INT TERM
+
+key_snapshot=$work/release-public-key.pem
+core_snapshot=$work/codex
+manifest_snapshot=$work/release.manifest
+signature_snapshot=$work/release.sig
+descriptor_snapshot=$work/generation.meta
+cat "$key_input" > "$key_snapshot"
+chmod 600 "$key_snapshot"
+cat "$core_input" > "$core_snapshot"
+chmod 755 "$core_snapshot"
+cat "$manifest" > "$manifest_snapshot"
+cat "$signature" > "$signature_snapshot"
+cat "$descriptor" > "$descriptor_snapshot"
+chmod 600 "$manifest_snapshot" "$signature_snapshot" "$descriptor_snapshot"
+manifest=$manifest_snapshot
+signature=$signature_snapshot
+descriptor=$descriptor_snapshot
+
+hex_file() {
+  od -An -v -tx1 "$1" | tr -d ' \n'
+}
+
+key_raw_hex() {
+  input=$1
+  der=$work/key.der
+  rm -f "$der"
+  "$openssl" pkey -pubin -in "$input" -outform DER -out "$der" >/dev/null 2>&1 || fail 'bootstrap public key is not a valid Ed25519 public key'
+  der_hex=$(hex_file "$der")
+  rm -f "$der"
+  [ "${#der_hex}" -eq 88 ] || fail 'bootstrap public key DER is not canonical Ed25519 SPKI'
+  case $der_hex in
+    302a300506032b6570032100[0-9a-f][0-9a-f]*) ;;
+    *) fail 'bootstrap public key DER is not canonical Ed25519 SPKI' ;;
+  esac
+  raw=${der_hex#302a300506032b6570032100}
+  [ "${#raw}" -eq 64 ] || fail 'bootstrap public key raw value is not 32 bytes'
+  printf '%s\n' "$raw"
+}
+
+sha256_hex() {
+  input=$1
+  binary=$work/sha256.bin
+  rm -f "$binary"
+  "$openssl" dgst -sha256 -binary "$input" > "$binary" 2>/dev/null || fail 'OpenSSL SHA-256 failed'
+  digest=$(hex_file "$binary")
+  rm -f "$binary"
+  [ "${#digest}" -eq 64 ] || fail 'OpenSSL SHA-256 output is malformed'
+  printf '%s\n' "$digest"
+}
+
+pinned_raw=$(key_raw_hex "$key_snapshot")
+"$openssl" pkeyutl -verify -rawin -pubin -inkey "$key_snapshot" -in "$manifest" -sigfile "$signature" >/dev/null 2>&1 || fail 'release signature verification failed'
+
+manifest_key=
+manifest_key_count=0
+descriptor_digest=
+descriptor_mode=
+descriptor_count=0
+tab=$(printf '\t')
+while IFS="$tab" read -r f1 f2 f3 f4 extra; do
+  case $f1 in
+    release_public_key)
+      [ -z "$f3$f4$extra" ] || fail 'release_public_key record is malformed'
+      manifest_key_count=$((manifest_key_count + 1))
+      manifest_key=$f2
+      ;;
+    file)
+      if [ "$f2" = generation.meta ]; then
+        [ -z "$extra" ] || fail 'generation.meta inventory record is malformed'
+        descriptor_count=$((descriptor_count + 1))
+        descriptor_digest=$f3
+        descriptor_mode=$f4
+      fi
+      ;;
+  esac
+done < "$manifest"
+[ "$manifest_key_count" -eq 1 ] || fail 'signed manifest must contain exactly one release_public_key'
+[ "${#manifest_key}" -eq 64 ] || fail 'signed release_public_key is not canonical'
+case $manifest_key in *[!0-9a-f]*) fail 'signed release_public_key is not canonical' ;; esac
+[ "$manifest_key" = "$pinned_raw" ] || fail 'signed release key does not match bootstrap key'
+[ "$descriptor_count" -eq 1 ] || fail 'signed manifest must inventory generation.meta exactly once'
+[ "${#descriptor_digest}" -eq 64 ] || fail 'signed generation.meta digest is not canonical'
+case $descriptor_digest in *[!0-9a-f]*) fail 'signed generation.meta digest is not canonical' ;; esac
+[ "$descriptor_mode" = 0644 ] || fail 'signed generation.meta mode is not canonical'
+[ "$(sha256_hex "$descriptor")" = "$descriptor_digest" ] || fail 'generation.meta does not match signed inventory'
+
+core_digest=
+core_digest_count=0
+while IFS="$tab" read -r f1 f2 extra; do
+  if [ "$f1" = core_artifact_digest ]; then
+    [ -z "$extra" ] || fail 'core_artifact_digest record is malformed'
+    core_digest_count=$((core_digest_count + 1))
+    core_digest=$f2
+  fi
+done < "$descriptor"
+[ "$core_digest_count" -eq 1 ] || fail 'generation.meta must contain exactly one core_artifact_digest'
+[ "${#core_digest}" -eq 64 ] || fail 'core_artifact_digest is not canonical'
+case $core_digest in *[!0-9a-f]*) fail 'core_artifact_digest is not canonical' ;; esac
+[ "$(sha256_hex "$core_snapshot")" = "$core_digest" ] || fail 'Core artifact does not match signed generation metadata'
+
+pin=$HOME/.local/lib/codex/core/release-public-key.pem
+pin_parent=${pin%/*}
+mkdir -p "$pin_parent"
+if [ -e "$pin" ] || [ -L "$pin" ]; then
+  [ -f "$pin" ] && [ ! -L "$pin" ] || fail 'existing bootstrap trust seed is not a regular file'
+  [ "$(key_raw_hex "$pin")" = "$pinned_raw" ] || fail 'existing bootstrap trust seed does not match requested key'
+else
+  pin_tmp=$pin_parent/.release-public-key.pem.bootstrap.$$
+  [ ! -e "$pin_tmp" ] && [ ! -L "$pin_tmp" ] || fail 'bootstrap trust temporary already exists'
+  cat "$key_snapshot" > "$pin_tmp"
+  chmod 644 "$pin_tmp"
+  if ! mv -n "$pin_tmp" "$pin"; then
+    rm -f "$pin_tmp"
+    fail 'bootstrap trust seed publication failed'
+  fi
+  if [ -e "$pin_tmp" ] || [ -L "$pin_tmp" ]; then
+    rm -f "$pin_tmp"
+    fail 'bootstrap trust seed publication collided'
+  fi
+fi
+
+unset CODEX_TERMUX_INTERNAL_BOOTSTRAP_SOURCE || :
+CODEX_TERMUX_INTERNAL_BOOTSTRAP=self-test "$core_snapshot" || fail 'authenticated Core self-test failed'
+
+mkdir -p "$PREFIX/bin"
+destination=$PREFIX/bin/codex
+if [ -e "$destination" ] || [ -L "$destination" ]; then
+  [ -f "$destination" ] && [ ! -L "$destination" ] || fail 'existing Codex entrypoint is not a regular file'
+  [ "$(sha256_hex "$destination")" = "$core_digest" ] || fail 'existing Codex entrypoint differs from authenticated Core artifact'
+  rm -f "$core_snapshot"
+else
+  destination_tmp=$PREFIX/bin/.codex.bootstrap.$$
+  [ ! -e "$destination_tmp" ] && [ ! -L "$destination_tmp" ] || fail 'Codex entrypoint temporary already exists'
+  cat "$core_snapshot" > "$destination_tmp"
+  chmod 755 "$destination_tmp"
+  if ! mv -n "$destination_tmp" "$destination"; then
+    rm -f "$destination_tmp"
+    fail 'Codex entrypoint publication failed'
+  fi
+  if [ -e "$destination_tmp" ] || [ -L "$destination_tmp" ]; then
+    rm -f "$destination_tmp"
+    fail 'Codex entrypoint publication collided'
+  fi
+fi
+
+CODEX_TERMUX_INTERNAL_BOOTSTRAP=activate \
+CODEX_TERMUX_INTERNAL_BOOTSTRAP_SOURCE="$release_dir" \
+  "$destination" || fail 'initial v3 activation failed'
+
+printf '%s\n' 'codex-bootstrap: initial installation complete'

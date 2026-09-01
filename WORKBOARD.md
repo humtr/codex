@@ -154,6 +154,52 @@ second installer/update protocol.
   therefore uses the accepted exact-tree `--no-verify` precedent only after
   re-staging this record and revalidating that the index contains exactly the
   builder source and `WORKBOARD.md`; the hook remains untouched.
+- Slice 2 adds only the accepted fresh-install boundary. `bootstrap/codex-bootstrap`
+  accepts one absolute prebuilt Core path, one absolute local signed-release
+  directory, and one absolute bootstrap public-key path. It snapshots the Core,
+  key, `release.manifest`, `release.sig`, and `generation.meta` into owner-only
+  temporary storage before verification; verifies the exact manifest signature
+  with the snapshot key; requires the signed manifest release key to equal that
+  key; verifies the signed `generation.meta` digest/mode; and requires the Core
+  snapshot SHA-256 to equal signed `generation.meta.core_artifact_digest` before
+  publishing either the canonical bootstrap seed or stable Core entrypoint.
+  Same-directory create-new temporaries plus no-clobber rename publish the key
+  and entrypoint without an overwrite path. The bootstrap has no network,
+  package-manager, compiler, rollback, update, discovery, or post-state recovery
+  behavior.
+- Core now exposes only a private bootstrap execution mode before public dispatch.
+  It never accepts a trust key through that mode: it derives only
+  `~/.local/lib/codex/core/release-public-key.pem`, rejects an authoritative v3
+  state after existing journal recovery, reuses the B7 v3 signed-release
+  admission, probe, immutable staging, installed re-verification, and initial
+  `codex-activation-state-v3` transaction, and refuses initial key rotation.
+  Once v3 state exists, both bootstrap self-test and activation fail closed;
+  ordinary launch, local/remote update, rollback, and recovery gained no
+  bootstrap fallback.
+- Slice 2 stopped on three proof issues and repaired only their local causes.
+  First, two script regressions correctly rejected a legacy test fixture whose
+  `generation.meta` mode did not match real B6 `0644`; the fixture was aligned
+  with B6 output and the product check was retained. Second, an exact fault test
+  filter initially selected zero tests, so that run was discarded and the full
+  `tests::...` name was rerun 1/1. Third, TOCTOU hardening first used hard links,
+  which Android app storage rejected with permission denied; publication was
+  changed to same-directory no-clobber rename and the hardening was retained.
+- Final Slice 2 proof is green: four named B8 bootstrap regressions pass 4/4;
+  the existing initial-activation durable-boundary fault matrix passes 1/1;
+  canonical project-registry `portable` check passes; the final Core serial suite
+  passes 80/0/1-ignored; a warning-free locked release Core build passes; shell
+  syntax, `cargo fmt --check`, and `git diff --check` pass. The rejection matrix
+  covers wrong bootstrap key, attempted initial rotation, probe failure, tampered
+  manifest, Core-digest mismatch before install, one-shot state ownership, and
+  exact private Core activation. Test roots are isolated and no live product,
+  trust, resolver, generation, package, or publication state was mutated. Lead
+  diff inspection found no new trust object, persistent state owner, public
+  command, updater, or recovery protocol, so the existing SPEC remains sufficient.
+- The normal Slice 2 commit was rejected before commit by the same orphan-lineage
+  pre-commit hook because `tools/update-wrapper-version.sh` is absent. HEAD and
+  the staged Core/bootstrap/authority tree were unchanged. The accepted
+  `--no-verify` precedent is permitted only after this record is staged and the
+  exact three-path index is revalidated; the shared hook remains untouched.
 
 #### Slice 0 selected implementation boundary
 
@@ -196,8 +242,8 @@ prebuilt executable through B6 generation production into bootstrap verification
 | --- | --- | --- | --- |
 | 0 — fresh authority and validation routing | Rebind the committed B7 state, repair Rust project-validation metadata, inventory current release/build/bootstrap boundaries, and select the smallest artifact/bootstrap implementation shape without changing product behavior | canonical Rust validation route works nonzero; direct baseline agrees; exact B8 file/artifact boundary recorded; no product mutation | complete: project-registry Cargo profiles green; canonical and direct serial both Core 75/0/1 + builder 5/0; exact three-file boundary recorded; SPEC/product unchanged |
 | 1 — prebuilt Core artifact | Produce one immutable release-production Core artifact with explicit platform/architecture identity and digest, without installing it or claiming target-device compilation | named artifact build/identity/digest tests pass nonzero; warning-free locked release build; no live mutation | complete: canonical check green; B8 focused 2/2; affected builder 7/7 serial; format/diff clean; locked release Core identity/digest proven; no live mutation |
-| 2 — fresh bootstrap initial trust | Implement only the bootstrap operations already authorized by SPEC/B7: environment check, immutable v3 admission with bootstrap key, complete staging/probe, and initial v3 state activation in isolated roots | valid local initial install plus malformed/key-mismatch/probe/fault matrix pass nonzero; no fallback or partial state | selected |
-| 3 — release-production integration | Feed the prebuilt Core artifact through B6 generation production and the same v3 signed-release fixture/bootstrap path; prove no duplicate updater or archive/install path appears | one complete release-production-to-bootstrap flow and affected B6/B7 groups pass nonzero | blocked by slice 2 |
+| 2 — fresh bootstrap initial trust | Implement only the bootstrap operations already authorized by SPEC/B7: environment check, immutable v3 admission with bootstrap key, complete staging/probe, and initial v3 state activation in isolated roots | valid local initial install plus malformed/key-mismatch/probe/fault matrix pass nonzero; no fallback or partial state | complete: B8 focused 4/4 + initial transaction fault 1/1; canonical check green; final Core serial 80/0/1; locked release build and format/shell/diff checks green; no fallback/live mutation |
+| 3 — release-production integration | Feed the prebuilt Core artifact through B6 generation production and the same v3 signed-release fixture/bootstrap path; prove no duplicate updater or archive/install path appears | one complete release-production-to-bootstrap flow and affected B6/B7 groups pass nonzero | selected |
 | 4 — grouped acceptance | Add no new behavior; run final bundle proof and synchronize authority | full serial + three complete parallel suites, explicit live read-only smoke, format/diff, warning-free locked release, zero residue, protected identities unchanged, GOAL update, commit | blocked by slice 3 |
 
 #### protected surfaces
