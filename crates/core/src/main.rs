@@ -6669,6 +6669,97 @@ esac
 
     #[cfg(unix)]
     #[test]
+    fn test_m2_b10_slice1_fresh_offline_install_from_release_artifact() {
+        let Some(core) = b10_release_core_from_env() else {
+            return;
+        };
+        let root = temp_root("b10-slice1-offline-install");
+        let openssl = b4_termux_openssl();
+        let private_key = root.join("keys/private.pem");
+        let public_key = root.join("keys/public.pem");
+        b4_generate_release_keypair(&openssl, &private_key, &public_key);
+        let generation = b10_build_signed_release(
+            &root,
+            &core,
+            "b10-offline-g0",
+            1,
+            &openssl,
+            &private_key,
+            &public_key,
+        );
+        let (signed_release, _) =
+            verify_local_release_bundle(&generation, &openssl, &public_key).unwrap();
+        let core_sha256 = openssl_sha256(&openssl, &core).unwrap();
+
+        let (home, prefix, tmp) = b4_prepare_public_environment(&root, &openssl, true);
+        let network_log = b10_install_network_denial_sentinel(&prefix);
+        let bootstrap = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../bootstrap/codex-bootstrap");
+        let output = std::process::Command::new(&bootstrap)
+            .args([
+                core.as_os_str(),
+                generation.as_os_str(),
+                public_key.as_os_str(),
+            ])
+            .env("HOME", &home)
+            .env("PREFIX", &prefix)
+            .env("TMPDIR", &tmp)
+            .env_remove(INTERNAL_BOOTSTRAP_MODE_ENV)
+            .env_remove(INTERNAL_BOOTSTRAP_SOURCE_ENV)
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "stdout={:?} stderr={:?}",
+            output.stdout,
+            output.stderr
+        );
+        assert!(!network_log.exists());
+
+        let installed_core = prefix.join("bin/codex");
+        assert_eq!(
+            openssl_sha256(&openssl, &installed_core).unwrap(),
+            core_sha256
+        );
+        let roots = b7_public_roots(&home, &prefix);
+        let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+        let state = read_pointer_state(&paths).unwrap().unwrap();
+        assert_eq!(state.current, "b10-offline-g0");
+        assert_eq!(state.previous, None);
+        assert_eq!(state.previous_key, None);
+        assert_eq!(state.update_key, state.current_key);
+        let (installed_release, installed_loaded) = verify_installed_local_release(
+            &roots,
+            "b10-offline-g0",
+            state.current_key,
+            "B10 offline bootstrap installed generation id mismatch",
+        )
+        .unwrap();
+        assert_eq!(installed_release, signed_release);
+        assert_eq!(installed_loaded.manifest.core_artifact_digest, core_sha256);
+        assert!(std::process::Command::new(&installed_core)
+            .arg("--version")
+            .env("HOME", &home)
+            .env("PREFIX", &prefix)
+            .env("TMPDIR", &tmp)
+            .status()
+            .unwrap()
+            .success());
+        assert!(!network_log.exists());
+        assert!(std::fs::read_dir(&tmp).unwrap().all(|entry| {
+            !entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".codex-bootstrap.")
+        }));
+        m2_b1_assert_no_transaction_files(&paths);
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn test_m2_b6_builder_output_enters_existing_signed_release_admission() {
         use std::ffi::OsString;
 
