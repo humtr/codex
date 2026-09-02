@@ -6542,6 +6542,132 @@ esac
     }
 
     #[cfg(unix)]
+    fn b10_release_core_from_env() -> Option<std::path::PathBuf> {
+        let input = std::env::var_os("CODEX_B10_RELEASE_CORE")?;
+        let core = std::fs::canonicalize(input).unwrap();
+        assert!(core.is_absolute());
+        assert!(core.is_file());
+        Some(core)
+    }
+
+    #[cfg(unix)]
+    fn b10_install_network_denial_sentinel(prefix: &std::path::Path) -> std::path::PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+
+        let curl = prefix.join("bin/curl");
+        let log = prefix.join("b10-network-acquisition-attempted");
+        let shell = resolve_test_shell();
+        let script = format!(
+            "#!{}\nprintf '%s\\n' 'network acquisition attempted' >> \"$PREFIX/b10-network-acquisition-attempted\"\nexit 97\n",
+            shell.display()
+        );
+        std::fs::write(&curl, script).unwrap();
+        let mut permissions = std::fs::metadata(&curl).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&curl, permissions).unwrap();
+        assert!(!log.exists());
+        log
+    }
+
+    #[cfg(unix)]
+    fn b10_build_signed_release(
+        root: &std::path::Path,
+        core: &std::path::Path,
+        generation_id: &str,
+        release_sequence: u64,
+        openssl: &std::path::Path,
+        private_key: &std::path::Path,
+        public_key: &std::path::Path,
+    ) -> std::path::PathBuf {
+        use std::ffi::OsString;
+
+        let release_root = root.join(format!("release-{generation_id}"));
+        std::fs::create_dir_all(&release_root).unwrap();
+        let live_prefix = std::path::PathBuf::from(std::env::var_os("PREFIX").unwrap());
+        let gzip = live_prefix.join("bin/gzip");
+        assert!(
+            gzip.is_file(),
+            "Termux gzip is required for B10 qualification"
+        );
+        let runtime_source = b8_compile_static_probe_runtime(&release_root);
+        let raw_runtime = std::fs::read(&runtime_source).unwrap();
+        let archive = release_root.join("codex-package-aarch64-unknown-linux-musl.tar.gz");
+        b6_write_official_shape_archive_with_runtime(&gzip, &archive, &raw_runtime);
+        let archive_sha256 = openssl_sha256(openssl, &archive).unwrap();
+        let core_sha256 = openssl_sha256(openssl, core).unwrap();
+        let generation = release_root.join("generation");
+        let args = vec![
+            OsString::from("build"),
+            OsString::from("--version"),
+            OsString::from("0.150.1"),
+            OsString::from("--archive"),
+            archive.as_os_str().to_owned(),
+            OsString::from("--archive-sha256"),
+            OsString::from(&archive_sha256),
+            OsString::from("--generation-id"),
+            OsString::from(generation_id),
+            OsString::from("--core"),
+            core.as_os_str().to_owned(),
+            OsString::from("--creation-metadata"),
+            OsString::from(format!("m2-b10-offline-{generation_id}")),
+            OsString::from("--gzip"),
+            gzip.as_os_str().to_owned(),
+            OsString::from("--openssl"),
+            openssl.as_os_str().to_owned(),
+            OsString::from("--output"),
+            generation.as_os_str().to_owned(),
+        ];
+        assert_eq!(codex_release_builder::run_from_args(args), 0);
+        b4_write_signed_release(&generation, release_sequence, openssl, private_key);
+        let (manifest, loaded) =
+            verify_local_release_bundle(&generation, openssl, public_key).unwrap();
+        assert_eq!(manifest.generation_id, generation_id);
+        assert_eq!(manifest.release_sequence, release_sequence);
+        assert_eq!(loaded.manifest.core_artifact_digest, core_sha256);
+        assert_eq!(loaded.manifest.source_artifact_digest, archive_sha256);
+        generation
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b10_slice0_release_fixture_and_network_denial_boundary_are_exact() {
+        let Some(core) = b10_release_core_from_env() else {
+            return;
+        };
+        let root = temp_root("b10-slice0-offline-boundary");
+        let openssl = b4_termux_openssl();
+        let private_key = root.join("keys/private.pem");
+        let public_key = root.join("keys/public.pem");
+        b4_generate_release_keypair(&openssl, &private_key, &public_key);
+        let generation = b10_build_signed_release(
+            &root,
+            &core,
+            "b10-offline-g0",
+            1,
+            &openssl,
+            &private_key,
+            &public_key,
+        );
+        let (home, prefix, tmp) = b4_prepare_public_environment(&root, &openssl, true);
+        let network_log = b10_install_network_denial_sentinel(&prefix);
+        let (manifest, loaded) =
+            verify_local_release_bundle(&generation, &openssl, &public_key).unwrap();
+        assert_eq!(manifest.generation_id, "b10-offline-g0");
+        assert_eq!(manifest.release_sequence, 1);
+        assert_eq!(
+            loaded.manifest.core_artifact_digest,
+            openssl_sha256(&openssl, &core).unwrap()
+        );
+        assert!(!network_log.exists());
+        assert!(!prefix.join("bin/codex").exists());
+        assert!(!home
+            .join(".local/share/codex/core/activation-state")
+            .exists());
+        assert!(tmp.is_dir());
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
     #[test]
     fn test_m2_b6_builder_output_enters_existing_signed_release_admission() {
         use std::ffi::OsString;
