@@ -164,6 +164,28 @@ silently replace a failed local path with another authority source.
   the established `--no-verify` closure only after restaging this record,
   revalidating those two paths, confirming no unstaged/untracked path and no
   `target/`, and leaving the hook untouched.
+- Slice 2 creates actual release-produced g0 sequence 1 and g1 sequence 2 with
+  the same trusted key, bootstraps g0 offline under the network-denial sentinel,
+  runs the installed Core's public `update --local` against g1, launches the new
+  current, then runs the installed Core's public `update --rollback` and launches
+  the retained g0. The focused end-to-end proof passed 1/1: forward state was
+  current g1 / previous g0 with unchanged update authority and exact signed g1
+  re-verification; rollback state was current g0 / previous g1 with the same
+  forward authority and exact signed g0 re-verification; release sequences were
+  1 then 2; all ordinary launches succeeded; no transaction residue remained;
+  and the network-attempt log stayed absent throughout bootstrap, local update,
+  both launches, and rollback. B10 Slice 0-2 passed together 3/3 with zero B10
+  temp-root residue; format/diff and canonical project-registry `portable`
+  locked workspace check passed. Lead diff inspection found exactly one new
+  test-only qualification; no production/bootstrap/recovery behavior, persistent
+  format, trust source, public contract, or SPEC changed.
+- The normal Slice 2 commit was rejected before commit solely by the same
+  inherited hook because `tools/update-wrapper-version.sh` is absent. HEAD stayed
+  `a8a9166...` and exact staged Core/WORKBOARD tree
+  `74a19d14c5224be0f4dd015eaad4c0f64b08959e` was unchanged. Slice 2 may use
+  the established `--no-verify` closure only after restaging this record,
+  revalidating those two paths, confirming no unstaged/untracked path and no
+  `target/`, and leaving the hook untouched.
 
 #### vertical proof map
 
@@ -171,8 +193,8 @@ silently replace a failed local path with another authority source.
 | --- | --- | --- | --- |
 | 0 — offline authority and fixture boundary | Fresh-bind B9, trace the exact bootstrap/local-update/recovery/rollback entrypoints and establish a network-denial sentinel plus release-produced local fixture without product changes | canonical baseline green; exact no-network observables and one-path invariants recorded; no production mutation | complete: actual release Core + release-builder signed fixture, network-denial sentinel, focused 1/1, B8 integration 1/1, canonical check green, zero focused residue; test-only change only |
 | 1 — fresh offline install | Build/qualify an actual release Core and signed initial generation, then run real bootstrap in an isolated root while remote acquisition is unavailable | named end-to-end proof establishes stable Core + v3 state + complete current generation and launches it; network sentinel untouched | complete: focused 1/1, B10 2/2, installed Core/state/signed generation/launch exact, sentinel untouched, canonical check green, zero residue; test-only change only |
-| 2 — offline local update and rollback | From the offline-installed generation, activate a newer signed local artifact through public `update --local`, launch it, then use public explicit rollback to the retained signed previous generation | named proof passes current/previous/trust/sequence checks and both launches; no remote acquisition or bootstrap fallback | selected |
-| 3 — offline transaction recovery | Starting from recoverable activation-journal states, prove the existing updater/recovery path resolves one complete old/new state offline and explicit rollback remains usable when a valid previous generation exists | named recovery matrix passes without a second recovery mechanism, state reconstruction, network path, or mixed generation | blocked by slice 2 |
+| 2 — offline local update and rollback | From the offline-installed generation, activate a newer signed local artifact through public `update --local`, launch it, then use public explicit rollback to the retained signed previous generation | named proof passes current/previous/trust/sequence checks and both launches; no remote acquisition or bootstrap fallback | complete: actual g0 seq1/g1 seq2, public local update + both launches + public rollback, signed-state checks exact, sentinel untouched, focused 1/1, B10 3/3, canonical check green, zero residue; test-only change only |
+| 3 — offline transaction recovery | Starting from recoverable activation-journal states, prove the existing updater/recovery path resolves one complete old/new state offline and explicit rollback remains usable when a valid previous generation exists | named recovery matrix passes without a second recovery mechanism, state reconstruction, network path, or mixed generation | selected |
 | 4 — grouped acceptance | Add no new behavior; run final bundle proof and synchronize authority | full serial + three complete parallel suites, explicit live read-only smoke, warning-free locked release, format/syntax/diff, zero residue, protected identities unchanged, GOAL update, commit | blocked by slice 3 |
 
 #### protected surfaces

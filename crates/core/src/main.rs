@@ -6760,6 +6760,153 @@ esac
 
     #[cfg(unix)]
     #[test]
+    fn test_m2_b10_slice2_offline_local_update_and_rollback_use_signed_generations_only() {
+        let Some(core) = b10_release_core_from_env() else {
+            return;
+        };
+        let root = temp_root("b10-slice2-offline-update");
+        let openssl = b4_termux_openssl();
+        let private_key = root.join("keys/private.pem");
+        let public_key = root.join("keys/public.pem");
+        b4_generate_release_keypair(&openssl, &private_key, &public_key);
+        let g0 = b10_build_signed_release(
+            &root,
+            &core,
+            "b10-offline-g0",
+            1,
+            &openssl,
+            &private_key,
+            &public_key,
+        );
+        let g1 = b10_build_signed_release(
+            &root,
+            &core,
+            "b10-offline-g1",
+            2,
+            &openssl,
+            &private_key,
+            &public_key,
+        );
+        let (g0_release, _) = verify_local_release_bundle(&g0, &openssl, &public_key).unwrap();
+        let (g1_release, _) = verify_local_release_bundle(&g1, &openssl, &public_key).unwrap();
+        assert_eq!(g0_release.release_sequence, 1);
+        assert_eq!(g1_release.release_sequence, 2);
+
+        let (home, prefix, tmp) = b4_prepare_public_environment(&root, &openssl, true);
+        let network_log = b10_install_network_denial_sentinel(&prefix);
+        let bootstrap = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../bootstrap/codex-bootstrap");
+        let bootstrap_output = std::process::Command::new(&bootstrap)
+            .args([core.as_os_str(), g0.as_os_str(), public_key.as_os_str()])
+            .env("HOME", &home)
+            .env("PREFIX", &prefix)
+            .env("TMPDIR", &tmp)
+            .env_remove(INTERNAL_BOOTSTRAP_MODE_ENV)
+            .env_remove(INTERNAL_BOOTSTRAP_SOURCE_ENV)
+            .output()
+            .unwrap();
+        assert_eq!(
+            bootstrap_output.status.code(),
+            Some(0),
+            "stdout={:?} stderr={:?}",
+            bootstrap_output.stdout,
+            bootstrap_output.stderr
+        );
+        assert!(!network_log.exists());
+
+        let installed_core = prefix.join("bin/codex");
+        let roots = b7_public_roots(&home, &prefix);
+        let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+        let initial = read_pointer_state(&paths).unwrap().unwrap();
+        assert_eq!(initial.current, "b10-offline-g0");
+        assert_eq!(initial.previous, None);
+
+        let update = std::process::Command::new(&installed_core)
+            .arg("update")
+            .arg("--local")
+            .arg(&g1)
+            .env("HOME", &home)
+            .env("PREFIX", &prefix)
+            .env("TMPDIR", &tmp)
+            .output()
+            .unwrap();
+        assert_eq!(
+            update.status.code(),
+            Some(0),
+            "stdout={:?} stderr={:?}",
+            update.stdout,
+            update.stderr
+        );
+        assert!(!network_log.exists());
+        let forward = read_pointer_state(&paths).unwrap().unwrap();
+        assert_eq!(forward.current, "b10-offline-g1");
+        assert_eq!(forward.previous.as_deref(), Some("b10-offline-g0"));
+        assert_eq!(forward.update_key, initial.update_key);
+        assert_eq!(forward.current_key, initial.current_key);
+        assert_eq!(forward.previous_key, Some(initial.current_key));
+        let (installed_g1, _) = verify_installed_local_release(
+            &roots,
+            "b10-offline-g1",
+            forward.current_key,
+            "B10 offline local update generation id mismatch",
+        )
+        .unwrap();
+        assert_eq!(installed_g1, g1_release);
+        assert!(std::process::Command::new(&installed_core)
+            .arg("--version")
+            .env("HOME", &home)
+            .env("PREFIX", &prefix)
+            .env("TMPDIR", &tmp)
+            .status()
+            .unwrap()
+            .success());
+        assert!(!network_log.exists());
+
+        let rollback = std::process::Command::new(&installed_core)
+            .arg("update")
+            .arg("--rollback")
+            .env("HOME", &home)
+            .env("PREFIX", &prefix)
+            .env("TMPDIR", &tmp)
+            .output()
+            .unwrap();
+        assert_eq!(
+            rollback.status.code(),
+            Some(0),
+            "stdout={:?} stderr={:?}",
+            rollback.stdout,
+            rollback.stderr
+        );
+        assert!(!network_log.exists());
+        let rolled_back = read_pointer_state(&paths).unwrap().unwrap();
+        assert_eq!(rolled_back.current, "b10-offline-g0");
+        assert_eq!(rolled_back.previous.as_deref(), Some("b10-offline-g1"));
+        assert_eq!(rolled_back.update_key, forward.update_key);
+        assert_eq!(rolled_back.current_key, initial.current_key);
+        assert_eq!(rolled_back.previous_key, Some(forward.current_key));
+        let (installed_g0, _) = verify_installed_local_release(
+            &roots,
+            "b10-offline-g0",
+            rolled_back.current_key,
+            "B10 offline rollback generation id mismatch",
+        )
+        .unwrap();
+        assert_eq!(installed_g0, g0_release);
+        assert!(std::process::Command::new(&installed_core)
+            .arg("--version")
+            .env("HOME", &home)
+            .env("PREFIX", &prefix)
+            .env("TMPDIR", &tmp)
+            .status()
+            .unwrap()
+            .success());
+        assert!(!network_log.exists());
+        m2_b1_assert_no_transaction_files(&paths);
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn test_m2_b6_builder_output_enters_existing_signed_release_admission() {
         use std::ffi::OsString;
 
