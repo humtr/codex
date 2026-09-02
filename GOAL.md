@@ -977,14 +977,60 @@ Termux qualification. Produce one candidate for independent product review.
   orphan-lineage hook referencing absent `tools/update-wrapper-version.sh`; after
   exact index revalidation the established `--no-verify` closure was used. No B8
   commit was pushed or published.
-- Current checkpoint: M2-B9 — launch/update overlap and injected-failure proof.
-  Fresh-bind the accepted B8 state and prove in isolated roots that ordinary
-  launches overlapping successful activation, failed activation, and recovery
-  can observe only complete old or complete new generations. Add no speculative
-  lock, lease, fencing token, multi-writer protocol, or fallback path; first use
-  the existing immutable-generation plus atomic-state invariants and change
-  production behavior only if a concrete failing overlap demonstrates a gap.
-  Offline qualification, isolated fresh-Termux/legacy-upgrade qualification, and
+- M2-B9 — launch/update overlap and injected-failure proof — is accepted at
+  product tip `377fed80710e131ef6558118afcb45031818b302`. Slice 0 established a
+  test-only pause harness over the existing eight-call activation durability
+  boundary. Slice 1 then reproduced a concrete overlap defect: ordinary launch
+  invoked recovery while an updater-owned `activation-journal.tmp` was durable,
+  removed that temporary, and caused the updater's next publication to fail with
+  ENOENT. The repair is deliberately one production behavior line: ordinary
+  `load_activated_generation` now reads the authoritative pointer with
+  `read_pointer_state`, while update, rollback, and explicit transaction recovery
+  retain recovery ownership. No lock, retry, fallback, second state owner,
+  persistent format, trust behavior, public surface, or SPEC delta was added.
+- B9 focused proof closed every selected overlap class. Successful activation
+  overlap passed 1/1 across durable calls 1, 3, 4, and 6; failed pre-activation
+  update passed 1/1 across both before/after faults at calls 1 through 4; recovery
+  overlap passed 1/1 across all sixteen before/after activation fault states and
+  inserted ordinary launch after the first real recovery durable call wherever
+  cleanup was required. All four B9 regressions passed together, the existing B1
+  every-durable-boundary and partial/stale recovery regressions remained green,
+  and the ordinary loader never mutated updater/recovery-owned journal or
+  temporary files. The accepted Core source SHA-256 is
+  `130f1097f9d31bdedf7a5212daf9dc3be6b5027e2481863708135411d00cb317`;
+  the B9 Core diff from B8 authority commit `0bcac01...` has SHA-256
+  `dca5dfc9bf5f15406d54afef8fcfc371149f534cf49c046824b9fe979fc43fc6`;
+  normative SPEC remains
+  `4ca9035c9c1a31c5afc3e9d4de978b304c96c687d03c0bee0aa446078fe11647`.
+- Final B9 grouped acceptance ran on clean committed product tip `377fed8...`.
+  The canonical locked serial workspace suite passed Core 85/0/1-ignored plus
+  release-builder 7/0; three complete default-parallel workspace suites each
+  passed the same counts; the explicit real-Termux read-only smoke passed 1/1;
+  `cargo fmt --check`, bootstrap shell syntax, and `git diff --check` passed; and
+  the locked workspace release build passed with `-D warnings`. B9 temp-root
+  residue was rechecked with an explicit zero assertion after discarding a noisy
+  output-helper invocation, generated `target/` was removed, and checkout
+  returned clean. The installed launcher remained SHA-256
+  `0b0284155f2672263836029f760ba06a0cb284b7ca3a8e600ad399b43af36aff`
+  with identity
+  `65089|1260183|755|10379|10379|7512|2026-08-28 01:28:18.815391370 +0900`,
+  while live `resolv.conf` remained SHA-256
+  `7e8ad76e0d200e93918ca2e93c99ff8ecd02071953bf1479819db3ac0dbb6d07`
+  with identity
+  `65089|94666|600|10379|10379|38|2026-08-28 01:04:03.530430900 +0900`.
+  No live generation/trust state, resolver, launcher, Manager,
+  auth/profile/session, package, network authority, publication ref, or private
+  signing-key state changed. Slice 0-3 normal commits were rejected before commit
+  by the known orphan-lineage hook referencing absent
+  `tools/update-wrapper-version.sh`; each exact staged tree was revalidated and
+  closed with the established `--no-verify` precedent without changing the hook.
+- Current checkpoint: M2-B10 — offline local-artifact install/recovery
+  qualification. Prove from release-produced local artifacts, in isolated roots
+  with network acquisition unavailable, that the existing fresh bootstrap,
+  `codex update --local`, v3 transaction recovery, and explicit rollback form one
+  complete offline delivery/recovery path. Do not invent state reconstruction
+  from the bootstrap key after v3 initialization, a second installer/updater, or
+  a fallback chain. Isolated fresh-Termux/upgrade-from-legacy qualification and
   final independent product review remain later Milestone 2 gates. Worker mode
   remains OFF.
 
