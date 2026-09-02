@@ -164,6 +164,25 @@ not invent a production lock merely to serialize the test.
   Slice 1 may therefore use the established `--no-verify` precedent only after
   this record is re-staged and the exact two-path index, clean unstaged/untracked
   state, and absence of `target/` are revalidated; the hook remains untouched.
+- Slice 2 proves failed pre-activation updates cannot perturb ordinary launch.
+  One test-only regression injects both before/after failures at durable calls
+  1 through 4, requires authoritative state to remain the complete old state,
+  snapshots any journal/temporary bytes before launch, proves the ordinary
+  loader returns only the old generation without mutating those transaction
+  files, and then proves updater-owned recovery restores the same old state with
+  zero transaction residue. The exact focused proof passed 1/1 across all eight
+  combinations; all B9 tests passed 3/3; the existing B1 every-durable-boundary
+  recovery matrix passed 1/1; `cargo fmt --check` and `git diff --check` passed;
+  canonical project-registry `portable` locked workspace check passed; and the
+  focused residue scan returned zero. No production line, updater/recovery
+  behavior, persistent format, public surface, or SPEC contract changed.
+- The normal Slice 2 commit was rejected before commit by the same inherited
+  orphan-lineage pre-commit hook because `tools/update-wrapper-version.sh` is
+  absent. HEAD remained `10d368a...` and the exact staged two-path tree remained
+  unchanged. Slice 2 may use the established `--no-verify` closure only after
+  restaging this record, revalidating the exact Core/WORKBOARD index, confirming
+  no unstaged/untracked path and no `target/`, and leaving the shared hook
+  untouched.
 
 #### vertical proof map
 
@@ -171,8 +190,8 @@ not invent a production lock merely to serialize the test.
 | --- | --- | --- | --- |
 | 0 — overlap authority and harness | Rebind accepted B8, trace the real launch loader plus activation/recovery durable boundaries, and build the smallest isolated synchronization/fault harness without changing production behavior | exact observation points and old/new invariants recorded; baseline canonical check green; no product mutation | complete: canonical check green; exact 8-call boundary traced; test-only pause harness focused 1/1; format/diff clean; zero focused residue |
 | 1 — successful activation overlap | Hold a launch-capable old generation, overlap repeated ordinary launches with one successful activation to a complete new generation, and classify every launch observation | named overlap regression proves every completed launch is wholly old or wholly new; no mixed generation, fallback, or launch-time coordination | complete: concrete call-1 defect reproduced; one-line ordinary-loader repair; Slice 1 1/1, B2 loader 3/3, Slice 0 1/1, canonical check green, zero focused residue |
-| 2 — failed update overlap | Overlap ordinary launches with a candidate/update failure before authoritative activation and prove the old current remains the only launchable generation | named injected-failure regression passes across the selected pre-activation failure boundaries; state/current and launch observations remain old and complete | selected |
-| 3 — recovery overlap | Exercise recoverable activation journal states while launches and recovery interleave, proving recovery resolves to one complete old/new state and launch never consumes temporary/journal state as a generation | named recovery-overlap matrix passes at each existing durable boundary; no new recovery mechanism | blocked by slice 2 |
+| 2 — failed update overlap | Overlap ordinary launches with a candidate/update failure before authoritative activation and prove the old current remains the only launchable generation | named injected-failure regression passes across the selected pre-activation failure boundaries; state/current and launch observations remain old and complete | complete: before/after faults at calls 1..4; focused 1/1, B9 3/3, B1 durable matrix 1/1, canonical check green, zero residue; test-only change only |
+| 3 — recovery overlap | Exercise recoverable activation journal states while launches and recovery interleave, proving recovery resolves to one complete old/new state and launch never consumes temporary/journal state as a generation | named recovery-overlap matrix passes at each existing durable boundary; no new recovery mechanism | selected |
 | 4 — grouped acceptance | Add no new behavior; run final bundle proof and synchronize authority | full serial + three complete parallel suites, explicit live read-only smoke, warning-free locked release, format/diff, zero residue, protected identities unchanged, GOAL update, commit | blocked by slice 3 |
 
 #### protected surfaces

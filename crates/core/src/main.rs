@@ -10818,4 +10818,60 @@ exit 0
             assert_eq!(transaction_files, (false, false, false));
         }
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b9_slice2_failed_pre_activation_update_keeps_launch_old() {
+        for timing in [M2B1FaultTiming::Before, M2B1FaultTiming::After] {
+            for fail_call in 1usize..=4 {
+                let label = format!("b9-slice2-fault-{timing:?}-{fail_call}");
+                let (root, roots) = b2_test_roots(&label);
+                b2_write_generation(&roots, "b9-old", false, "unsupported");
+                b2_write_generation(&roots, "b9-new", false, "unsupported");
+                b2_activate(&roots, "b9-old");
+
+                let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+                let old = read_pointer_state(&paths).unwrap().unwrap();
+                let new =
+                    plan_activation_pointer_state_with_key(&old, "b9-new", old.update_key).unwrap();
+                let mut io = M2B1FaultIo::new(fail_call, timing);
+                let failure = activate_pointer_state_with_io(&paths, Some(&old), &new, &mut io)
+                    .expect_err("pre-activation injected fault must abort update");
+                assert!(matches!(failure, ActivationTransactionError::Io { .. }));
+                assert_eq!(io.calls, fail_call);
+                assert_eq!(read_pointer_state(&paths).unwrap(), Some(old.clone()));
+
+                let journal_before = std::fs::read(&paths.activation_journal).ok();
+                let journal_temp_before = std::fs::read(&paths.activation_journal_temp).ok();
+                let state_temp_before = std::fs::read(&paths.activation_state_temp).ok();
+                assert_eq!(
+                    load_activated_generation(&roots).unwrap().generation_id,
+                    "b9-old",
+                    "timing={timing:?} fail_call={fail_call}"
+                );
+                assert_eq!(read_pointer_state(&paths).unwrap(), Some(old.clone()));
+                assert_eq!(
+                    std::fs::read(&paths.activation_journal).ok(),
+                    journal_before
+                );
+                assert_eq!(
+                    std::fs::read(&paths.activation_journal_temp).ok(),
+                    journal_temp_before
+                );
+                assert_eq!(
+                    std::fs::read(&paths.activation_state_temp).ok(),
+                    state_temp_before
+                );
+
+                assert_eq!(recover_activation_state(&paths).unwrap(), Some(old.clone()));
+                assert_eq!(read_pointer_state(&paths).unwrap(), Some(old));
+                assert_eq!(
+                    load_activated_generation(&roots).unwrap().generation_id,
+                    "b9-old"
+                );
+                m2_b1_assert_no_transaction_files(&paths);
+                remove_temp_root(root);
+            }
+        }
+    }
 }
