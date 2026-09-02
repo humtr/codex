@@ -6907,6 +6907,173 @@ esac
 
     #[cfg(unix)]
     #[test]
+    fn test_m2_b10_slice3_offline_recovery_preserves_signed_rollback() {
+        let Some(core) = b10_release_core_from_env() else {
+            return;
+        };
+        let root = temp_root("b10-slice3-offline-recovery");
+        let openssl = b4_termux_openssl();
+        let private_key = root.join("keys/private.pem");
+        let public_key = root.join("keys/public.pem");
+        b4_generate_release_keypair(&openssl, &private_key, &public_key);
+        let g0 = b10_build_signed_release(
+            &root,
+            &core,
+            "b10-offline-g0",
+            1,
+            &openssl,
+            &private_key,
+            &public_key,
+        );
+        let g1 = b10_build_signed_release(
+            &root,
+            &core,
+            "b10-offline-g1",
+            2,
+            &openssl,
+            &private_key,
+            &public_key,
+        );
+        let (g0_release, _) = verify_local_release_bundle(&g0, &openssl, &public_key).unwrap();
+        let (g1_release, _) = verify_local_release_bundle(&g1, &openssl, &public_key).unwrap();
+
+        for fail_call in [3usize, 6usize] {
+            let target_root = root.join(format!("target-{fail_call}"));
+            let (home, prefix, tmp) = b4_prepare_public_environment(&target_root, &openssl, true);
+            let network_log = b10_install_network_denial_sentinel(&prefix);
+            let bootstrap = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../bootstrap/codex-bootstrap");
+            let bootstrap_output = std::process::Command::new(&bootstrap)
+                .args([core.as_os_str(), g0.as_os_str(), public_key.as_os_str()])
+                .env("HOME", &home)
+                .env("PREFIX", &prefix)
+                .env("TMPDIR", &tmp)
+                .env_remove(INTERNAL_BOOTSTRAP_MODE_ENV)
+                .env_remove(INTERNAL_BOOTSTRAP_SOURCE_ENV)
+                .output()
+                .unwrap();
+            assert_eq!(
+                bootstrap_output.status.code(),
+                Some(0),
+                "fail_call={fail_call} stdout={:?} stderr={:?}",
+                bootstrap_output.stdout,
+                bootstrap_output.stderr
+            );
+
+            let installed_core = prefix.join("bin/codex");
+            let update = std::process::Command::new(&installed_core)
+                .arg("update")
+                .arg("--local")
+                .arg(&g1)
+                .env("HOME", &home)
+                .env("PREFIX", &prefix)
+                .env("TMPDIR", &tmp)
+                .output()
+                .unwrap();
+            assert_eq!(
+                update.status.code(),
+                Some(0),
+                "fail_call={fail_call} stdout={:?} stderr={:?}",
+                update.stdout,
+                update.stderr
+            );
+            assert!(!network_log.exists());
+
+            let roots = b7_public_roots(&home, &prefix);
+            let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+            let forward = read_pointer_state(&paths).unwrap().unwrap();
+            assert_eq!(forward.current, "b10-offline-g1");
+            assert_eq!(forward.previous.as_deref(), Some("b10-offline-g0"));
+            let planned_rollback = plan_rollback_pointer_state(&forward).unwrap();
+            let mut io = M2B1FaultIo::new(fail_call, M2B1FaultTiming::After);
+            let failure =
+                activate_pointer_state_with_io(&paths, Some(&forward), &planned_rollback, &mut io)
+                    .expect_err("injected recoverable rollback fault must abort activation call");
+            assert!(matches!(failure, ActivationTransactionError::Io { .. }));
+            assert_eq!(io.calls, fail_call);
+            assert!(paths.activation_journal.is_file());
+            assert!(!network_log.exists());
+
+            let expected_recovered = if fail_call == 3 {
+                forward.clone()
+            } else {
+                planned_rollback.clone()
+            };
+            assert_eq!(
+                recover_activation_state(&paths).unwrap(),
+                Some(expected_recovered.clone())
+            );
+            assert_eq!(
+                read_pointer_state(&paths).unwrap(),
+                Some(expected_recovered.clone())
+            );
+            m2_b1_assert_no_transaction_files(&paths);
+
+            let expected_release = if expected_recovered.current == "b10-offline-g1" {
+                &g1_release
+            } else {
+                &g0_release
+            };
+            let (recovered_release, _) = verify_installed_local_release(
+                &roots,
+                &expected_recovered.current,
+                expected_recovered.current_key,
+                "B10 offline recovered generation id mismatch",
+            )
+            .unwrap();
+            assert_eq!(&recovered_release, expected_release);
+            assert!(std::process::Command::new(&installed_core)
+                .arg("--version")
+                .env("HOME", &home)
+                .env("PREFIX", &prefix)
+                .env("TMPDIR", &tmp)
+                .status()
+                .unwrap()
+                .success());
+            assert!(!network_log.exists());
+
+            let expected_after_public_rollback =
+                plan_rollback_pointer_state(&expected_recovered).unwrap();
+            let rollback = std::process::Command::new(&installed_core)
+                .arg("update")
+                .arg("--rollback")
+                .env("HOME", &home)
+                .env("PREFIX", &prefix)
+                .env("TMPDIR", &tmp)
+                .output()
+                .unwrap();
+            assert_eq!(
+                rollback.status.code(),
+                Some(0),
+                "fail_call={fail_call} stdout={:?} stderr={:?}",
+                rollback.stdout,
+                rollback.stderr
+            );
+            let after_public_rollback = read_pointer_state(&paths).unwrap().unwrap();
+            assert_eq!(after_public_rollback, expected_after_public_rollback);
+            assert_eq!(after_public_rollback.update_key, forward.update_key);
+            let expected_rollback_release = if after_public_rollback.current == "b10-offline-g1" {
+                &g1_release
+            } else {
+                &g0_release
+            };
+            let (rolled_release, _) = verify_installed_local_release(
+                &roots,
+                &after_public_rollback.current,
+                after_public_rollback.current_key,
+                "B10 offline post-recovery rollback generation id mismatch",
+            )
+            .unwrap();
+            assert_eq!(&rolled_release, expected_rollback_release);
+            assert!(!network_log.exists());
+            m2_b1_assert_no_transaction_files(&paths);
+            remove_temp_root(target_root);
+        }
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn test_m2_b6_builder_output_enters_existing_signed_release_admission() {
         use std::ffi::OsString;
 

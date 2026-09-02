@@ -186,6 +186,30 @@ silently replace a failed local path with another authority source.
   the established `--no-verify` closure only after restaging this record,
   revalidating those two paths, confirming no unstaged/untracked path and no
   `target/`, and leaving the hook untouched.
+- Slice 3 reuses actual release-produced signed g0/g1 and creates two recoverable
+  rollback transactions after a normal offline bootstrap and public local update:
+  an injected after-call-3 failure leaves authoritative g1 plus durable journal,
+  while an injected after-call-6 failure leaves authoritative g0 plus durable
+  journal. Existing `recover_activation_state` resolves exactly to those complete
+  old/new states, the recovered current re-verifies through its state-bound key,
+  ordinary launch succeeds, and public `update --rollback` remains usable to the
+  other already-installed signed generation in both cases. The network sentinel
+  remains untouched and transaction residue is zero. The first post-format
+  focused run was manually cancelled after an unexpectedly long no-log interval
+  and is not counted as evidence; an immediate time-boxed rerun passed 1/1 in
+  5.77s test time with zero residue. B10 Slice 0-3 then passed together 4/4, B1
+  every-durable-boundary and partial/stale recovery each passed 1/1, format/diff
+  and canonical project-registry `portable` locked workspace check passed, and
+  Lead diff inspection found exactly one new test-only qualification. No
+  production recovery mechanism, bootstrap/update/rollback behavior, persistent
+  state, trust source, public contract, or SPEC changed.
+- The normal Slice 3 commit was rejected before commit solely by the same
+  inherited hook because `tools/update-wrapper-version.sh` is absent. HEAD stayed
+  `94d8bd1...` and exact staged Core/WORKBOARD tree
+  `9e4757f0f170baa54bcdd4af48c3bf1bce5eb5bd` was unchanged. Slice 3 may use
+  the established `--no-verify` closure only after restaging this record,
+  revalidating those two paths, confirming no unstaged/untracked path and no
+  `target/`, and leaving the hook untouched.
 
 #### vertical proof map
 
@@ -194,8 +218,8 @@ silently replace a failed local path with another authority source.
 | 0 — offline authority and fixture boundary | Fresh-bind B9, trace the exact bootstrap/local-update/recovery/rollback entrypoints and establish a network-denial sentinel plus release-produced local fixture without product changes | canonical baseline green; exact no-network observables and one-path invariants recorded; no production mutation | complete: actual release Core + release-builder signed fixture, network-denial sentinel, focused 1/1, B8 integration 1/1, canonical check green, zero focused residue; test-only change only |
 | 1 — fresh offline install | Build/qualify an actual release Core and signed initial generation, then run real bootstrap in an isolated root while remote acquisition is unavailable | named end-to-end proof establishes stable Core + v3 state + complete current generation and launches it; network sentinel untouched | complete: focused 1/1, B10 2/2, installed Core/state/signed generation/launch exact, sentinel untouched, canonical check green, zero residue; test-only change only |
 | 2 — offline local update and rollback | From the offline-installed generation, activate a newer signed local artifact through public `update --local`, launch it, then use public explicit rollback to the retained signed previous generation | named proof passes current/previous/trust/sequence checks and both launches; no remote acquisition or bootstrap fallback | complete: actual g0 seq1/g1 seq2, public local update + both launches + public rollback, signed-state checks exact, sentinel untouched, focused 1/1, B10 3/3, canonical check green, zero residue; test-only change only |
-| 3 — offline transaction recovery | Starting from recoverable activation-journal states, prove the existing updater/recovery path resolves one complete old/new state offline and explicit rollback remains usable when a valid previous generation exists | named recovery matrix passes without a second recovery mechanism, state reconstruction, network path, or mixed generation | selected |
-| 4 — grouped acceptance | Add no new behavior; run final bundle proof and synchronize authority | full serial + three complete parallel suites, explicit live read-only smoke, warning-free locked release, format/syntax/diff, zero residue, protected identities unchanged, GOAL update, commit | blocked by slice 3 |
+| 3 — offline transaction recovery | Starting from recoverable activation-journal states, prove the existing updater/recovery path resolves one complete old/new state offline and explicit rollback remains usable when a valid previous generation exists | named recovery matrix passes without a second recovery mechanism, state reconstruction, network path, or mixed generation | complete: durable old/new journal states, existing recovery exact, signed current verified, public rollback usable both ways, sentinel untouched, focused 1/1, B10 4/4, B1 recovery 2/2, canonical check green, zero residue; test-only change only |
+| 4 — grouped acceptance | Add no new behavior; run final bundle proof and synchronize authority | full serial + three complete parallel suites, explicit live read-only smoke, warning-free locked release, format/syntax/diff, zero residue, protected identities unchanged, GOAL update, commit | selected |
 
 #### protected surfaces
 
