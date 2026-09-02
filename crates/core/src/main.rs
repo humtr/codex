@@ -10874,4 +10874,93 @@ exit 0
             }
         }
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b9_slice3_recovery_overlap_reads_only_complete_authoritative_generation() {
+        for timing in [M2B1FaultTiming::Before, M2B1FaultTiming::After] {
+            for fail_call in 1usize..=8 {
+                let label = format!("b9-slice3-recovery-{timing:?}-{fail_call}");
+                let (root, roots) = b2_test_roots(&label);
+                b2_write_generation(&roots, "b9-old", false, "unsupported");
+                b2_write_generation(&roots, "b9-new", false, "unsupported");
+                b2_activate(&roots, "b9-old");
+
+                let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+                let old = read_pointer_state(&paths).unwrap().unwrap();
+                let new =
+                    plan_activation_pointer_state_with_key(&old, "b9-new", old.update_key).unwrap();
+                let mut fault_io = M2B1FaultIo::new(fail_call, timing);
+                let failure =
+                    activate_pointer_state_with_io(&paths, Some(&old), &new, &mut fault_io)
+                        .expect_err("injected durable-boundary fault must abort activation");
+                assert!(matches!(failure, ActivationTransactionError::Io { .. }));
+                assert_eq!(fault_io.calls, fail_call);
+
+                let authoritative = read_pointer_state(&paths).unwrap().unwrap();
+                assert!(authoritative == old || authoritative == new);
+                let expected_generation = authoritative.current.clone();
+                let transaction_snapshot = || {
+                    (
+                        std::fs::read(&paths.activation_journal).ok(),
+                        std::fs::read(&paths.activation_journal_temp).ok(),
+                        std::fs::read(&paths.activation_state_temp).ok(),
+                    )
+                };
+
+                let before_launch = transaction_snapshot();
+                assert_eq!(
+                    load_activated_generation(&roots).unwrap().generation_id,
+                    expected_generation,
+                    "before recovery timing={timing:?} fail_call={fail_call}"
+                );
+                assert_eq!(transaction_snapshot(), before_launch);
+
+                let has_recovery_io = paths.activation_journal.exists()
+                    || paths.activation_journal_temp.exists()
+                    || paths.activation_state_temp.exists();
+                let recovered = if has_recovery_io {
+                    let (reached_tx, reached_rx) = std::sync::mpsc::channel();
+                    let (resume_tx, resume_rx) = std::sync::mpsc::channel();
+                    std::thread::scope(|scope| {
+                        let recovery = scope.spawn(|| {
+                            let mut io = M2B9PauseIo::new(1, reached_tx, resume_rx);
+                            let result = recover_activation_state_with_io(&paths, &mut io);
+                            (result, io.calls)
+                        });
+                        assert_eq!(
+                            reached_rx
+                                .recv_timeout(std::time::Duration::from_secs(5))
+                                .unwrap(),
+                            1,
+                            "timing={timing:?} fail_call={fail_call}"
+                        );
+                        let during_recovery = transaction_snapshot();
+                        assert_eq!(
+                            load_activated_generation(&roots).unwrap().generation_id,
+                            expected_generation,
+                            "during recovery timing={timing:?} fail_call={fail_call}"
+                        );
+                        assert_eq!(transaction_snapshot(), during_recovery);
+                        resume_tx.send(()).unwrap();
+                        let (result, calls) = recovery.join().unwrap();
+                        assert!(calls >= 1);
+                        result.unwrap()
+                    })
+                } else {
+                    recover_activation_state(&paths).unwrap()
+                };
+
+                assert_eq!(recovered, Some(authoritative.clone()));
+                assert_eq!(read_pointer_state(&paths).unwrap(), Some(authoritative));
+                assert_eq!(
+                    load_activated_generation(&roots).unwrap().generation_id,
+                    expected_generation,
+                    "after recovery timing={timing:?} fail_call={fail_call}"
+                );
+                m2_b1_assert_no_transaction_files(&paths);
+                remove_temp_root(root);
+            }
+        }
+    }
 }
