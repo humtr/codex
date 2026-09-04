@@ -12,9 +12,12 @@ The rewrite has one public command, `codex`, and two internal layers:
 
 ## Current status
 
-Only the product and work-system foundation exists on this lineage. There is no
-new Rust implementation or installable release yet. Do not replace a working
-Codex installation from this branch.
+The Rust Core implementation through M2-B10 is accepted in the `GOAL.md`
+acceptance ledger. `WORKBOARD.md` currently tracks M2-B11 isolated
+fresh-Termux and legacy-upgrade qualification.
+
+This branch is not installed over the working Codex runtime. Release delivery
+and promotion to `main` remain separate acceptance gates.
 
 Implementation is intentionally split into two milestones:
 
