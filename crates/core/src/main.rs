@@ -3791,7 +3791,7 @@ impl GenerationPublishIo for FsGenerationPublishIo {
     }
 
     fn rename(&mut self, from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
-        std::fs::rename(from, to)
+        rename_noreplace(from, to)
     }
 }
 
@@ -3958,11 +3958,16 @@ fn stage_local_generation_with_io<I: GenerationPublishIo>(
         if generation_path_exists(&final_path)? {
             return Err(LocalProductError::GenerationCollision);
         }
-        io.rename(&candidate, &final_path)
-            .map_err(|source| LocalProductError::Io {
-                operation: "publish immutable local generation",
-                source,
-            })?;
+        io.rename(&candidate, &final_path).map_err(|source| {
+            if source.kind() == std::io::ErrorKind::AlreadyExists {
+                LocalProductError::GenerationCollision
+            } else {
+                LocalProductError::Io {
+                    operation: "publish immutable local generation",
+                    source,
+                }
+            }
+        })?;
         io.sync_dir(generation_root)
             .map_err(|source| LocalProductError::Io {
                 operation: "sync immutable generation root",
@@ -6951,6 +6956,54 @@ exit 73
                 assert!(b3_candidate_entries(&target.generation_root).is_empty());
             }
         }
+
+        remove_temp_root(target_root);
+        remove_temp_root(source_root);
+    }
+
+    #[cfg(unix)]
+    struct M2R1GenerationCollisionIo {
+        inner: FsGenerationPublishIo,
+    }
+
+    #[cfg(unix)]
+    impl GenerationPublishIo for M2R1GenerationCollisionIo {
+        fn sync_file(&mut self, path: &std::path::Path) -> std::io::Result<()> {
+            self.inner.sync_file(path)
+        }
+
+        fn sync_dir(&mut self, path: &std::path::Path) -> std::io::Result<()> {
+            self.inner.sync_dir(path)
+        }
+
+        fn rename(&mut self, from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
+            std::fs::create_dir(to)?;
+            std::fs::write(to.join("sentinel"), b"preserve")?;
+            self.inner.rename(from, to)
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_r1_generation_collision_race_never_replaces_existing_directory() {
+        let (target_root, target) = b2_test_roots("m2-r1-generation-collision-race-target");
+        let (source_root, source) = b2_test_roots("m2-r1-generation-collision-race-source");
+        let source_generation =
+            b2_write_generation(&source, "m2-r1-generation-race", false, "supported");
+        b3_write_required_release_files(&source_generation);
+        let final_path = target.generation_root.join("m2-r1-generation-race");
+        let mut io = M2R1GenerationCollisionIo {
+            inner: FsGenerationPublishIo,
+        };
+        assert!(matches!(
+            stage_local_generation_with_io(&source_generation, &target.generation_root, &mut io,),
+            Err(LocalProductError::GenerationCollision)
+        ));
+        assert_eq!(
+            std::fs::read(final_path.join("sentinel")).unwrap(),
+            b"preserve"
+        );
+        assert!(b3_candidate_entries(&target.generation_root).is_empty());
 
         remove_temp_root(target_root);
         remove_temp_root(source_root);

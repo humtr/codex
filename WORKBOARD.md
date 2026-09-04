@@ -8,14 +8,17 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 
 - Repository: `humtr/codex`.
 - Active branch: `rewrite/rust-core`.
-- Bound M2-R1 implementation tip: f4fa0b53518f49cd7077d2765bf68f713dc38fe0.
-- M2-R1 durability closure is accepted in `GOAL.md`; the implementation tip is
-  clean and no uncommitted product change is being carried in.
+- Bound M2-R1 implementation base: f4fa0b53518f49cd7077d2765bf68f713dc38fe0.
+- Review follow-up is being validated on
+  `rewrite/rust-core@d90e3f080c88f51b29bc2c1fc1949d48cdeb9afd` with one
+  uncommitted Core publication change; the base M2-R1 closure remains accepted
+  in `GOAL.md` until this follow-up is closed.
 - Remote `origin/rewrite/rust-core` remains at
   `253156c37a2bd22af8faae0bce03587999ffd136`; the local branch is ahead and
   no push is authorized.
-- Current milestone: M2 delivery/recovery is active; M2-R1 is accepted and
-  independent product review is the next gate. Promotion remains after review.
+- Current milestone: M2 delivery/recovery is active; the M2-R1 review follow-up
+  is the current implementation slice, after which independent product review
+  remains the next gate. Promotion remains after review.
 - The inherited pre-commit hook references absent
   `tools/update-wrapper-version.sh`; do not modify it. If it alone rejects an
   exact, revalidated staged tree, use the established `--no-verify` closure.
@@ -69,14 +72,30 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 
 ## Next action
 
+### M2-R1 review follow-up — generation collision race
+
+- Observable contract: immutable generation publication must never replace a
+  complete generation that appears after the pre-publish existence check.
+- Production path: `FsGenerationPublishIo::rename` uses the existing Unix
+  no-replace primitive; the publish error maps `AlreadyExists` to the existing
+  `GenerationCollision` outcome.
+- Focused regression: `test_m2_r1_generation_collision_race_never_replaces_existing_directory`
+  injects an existing destination between the check and publish, verifies the
+  sentinel remains intact, and verifies candidate cleanup.
+- Slice state: focused compile/test is green (`2/2` M2-R1 generation tests);
+  grouped acceptance, protected-surface verification, actual diff review, and
+  commit remain pending.
+- Protected surfaces: live launcher, resolver, installed generation/trust
+  state, Manager, auth/profile/session data, and publication refs remain
+  untouched.
+
 ### M2 independent product review candidate
 
-M2-R1 is accepted at product tip `f4fa0b53518f49cd7077d2765bf68f713dc38fe0`;
-accepted evidence and KEEP/COLLAPSE/DELETE disposition are recorded in
-`GOAL.md`. Review `SPEC.md`, `GOAL.md`, and the committed M2-R1 product path as
-one candidate. Keep review read-only until findings are recorded. Do not
-promote to `main`, push, replace the live launcher, mutate the live resolver,
-or invoke bounded device qualification without explicit authorization.
+After the follow-up is accepted, review `SPEC.md`, `GOAL.md`, and the
+committed M2-R1 product path as one candidate. Keep review read-only until
+findings are recorded. Do not promote to `main`, push, replace the live
+launcher, mutate the live resolver, or invoke bounded device qualification
+without explicit authorization.
 
 Worker mode remains OFF; the primary Lead owns every slice, validation step,
 authority update, and acceptance decision.
