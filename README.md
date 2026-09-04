@@ -17,9 +17,12 @@ are accepted in the `GOAL.md` acceptance ledger. The R3 alignment of upstream
 update/doctor behavior and code-mode companion placement is also accepted;
 `WORKBOARD.md` has no active implementation bundle.
 
-The current R3 worktree changes are not installed over the working Codex
-runtime. Future release delivery or another promotion to `main` remains a
-separate acceptance gate.
+The R3 Core launcher is now installed in the working Termux runtime through a
+bounded, digest-checked device cutover. The existing signed v1 generation
+remains active, so `codex doctor` reports its legacy `compat/` layout as
+`migration_required` until a newly signed v2 generation is delivered. Future
+signed release delivery or another promotion to `main` remains a separate
+acceptance gate.
 
 Implementation is intentionally split into two milestones:
 

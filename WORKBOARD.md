@@ -26,7 +26,10 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
   M2 delivery/recovery,
   release-install qualification, and authorized local Termux cutover remain
   accepted at `rewrite/rust-core@c9873ae6e678ad0af1d2ff4299a396536b6d51dd`.
-  Local `main` remains at the prior publication tip
+  The R3 Core launcher has since been reflected in the bounded live Termux
+  runtime; the live signed v1 generation remains active and is reported as
+  `migration_required` until a signed v2 generation is delivered. Local `main`
+  remains at the prior publication tip
   `57034e4cd2d4f259c9046ac11073dc0b7f7dbb47`; no second main promotion or
   remote push was authorized or performed.
 - The inherited pre-commit hook references absent
@@ -41,7 +44,7 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 - `main` remains publication authority and was locally promoted by direct ref
   replacement to the previously accepted `rewrite/rust-core` tip; this is not a
   merge or rebase. Remote refs remain unchanged and no push was performed; the
-  authorized local live cutover is recorded in `GOAL.md`.
+  authorized local live cutovers are recorded in `GOAL.md`.
 - Worker mode is OFF. The primary Lead owns implementation, validation,
   authority updates, commit, and acceptance.
 
@@ -92,7 +95,8 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 
 R3 upstream update/doctor/code-mode contract alignment is accepted in the
 `GOAL.md` ledger. The accepted implementation is on `rewrite/rust-core`; the
-current `main`, remote refs, and protected live Termux state were not changed.
+R3 Core launcher is reflected in live Termux, while `main`, remote refs,
+generation/trust state, and the resolver remain unchanged.
 
 - Bare and ordinary `codex update` argv now reaches the qualified upstream
   updater; exact signed-generation selectors remain Core-owned.
@@ -100,6 +104,9 @@ current `main`, remote refs, and protected live Termux state were not changed.
   `compat/` generations are read only for bounded migration.
 - `codex doctor` now composes bounded upstream output with the Termux diagnosis
   in human and schema-2 JSON forms.
+- The live launcher now runs this R3 path. The active signed generation is
+  still v1/`compat/`, so the live Termux diagnosis intentionally exposes the
+  pending v2 migration.
 - No further implementation is authorized by this bundle. A new product
   change requires an explicit scope, authority update, and a new vertical
   proof map.

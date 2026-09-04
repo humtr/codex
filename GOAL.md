@@ -1440,6 +1440,44 @@ Termux qualification. Produce one candidate for independent product review.
   creation, and any second update/doctor implementation path. Worker mode
   remains OFF.
 
+## R3 Bounded Live Runtime Reflection (2026-09-04)
+
+- After the R3 implementation was accepted, the user explicitly authorized a
+  bounded local Termux runtime cutover. The exact source was
+  `rewrite/rust-core@f205404bac151b2c618ca2534c711a808ae52b01`; the locked
+  release-built Core artifact was installed at `$PREFIX/bin/codex` with
+  SHA-256
+  `01ffd7930018639c26e15c0008494b89f86b4571cfd55228fe22c2185f34370d`.
+- The previous launcher digest
+  `8c84beb9c729e110f8a24e35d355eee6803a3b14f10296a8d7b97fd6ca4b0fc2` was
+  copied before the same-directory atomic replacement to the private temporary
+  recovery path
+  `/data/data/com.termux/files/usr/tmp/codex-r3-cutover.VGcHeC/codex.previous`.
+  The backup is a device-test recovery aid, not a new product trust source.
+- Post-cutover live checks passed: `codex --version` reported `0.150.1`; human
+  `codex doctor` printed the bounded `[Upstream Codex doctor]` report and the
+  `[Termux doctor]` section; `codex doctor --json` returned schema 2 with the
+  upstream output and Termux fields; `codex update --help` reached upstream
+  help with exit 0; and the current root code-mode companion and runtime both
+  executed successfully.
+- The active live generation and v3 activation state were not rewritten. It is
+  the existing signed `codex-local-generation-v1` with the legacy
+  `compat/codex-code-mode-host` layout, plus the previously existing root alias;
+  therefore the new Core correctly reports `legacy-compat-v1` and
+  `migration_required`. No unsigned or newly self-signed v2 bundle was
+  introduced. A permanent v2 live migration requires a newly signed release
+  accepted by the existing trust boundary.
+- Protected-surface verification after cutover kept live `resolv.conf` at
+  SHA-256
+  `7e8ad76e0d200e93918ca2e93c99ff8ecd02071953bf1479819db3ac0dbb6d07`, the
+  bootstrap trust seed and activation-state identities unchanged, and left
+  `main`, its backup, legacy history, and remote refs untouched. No bwrap was
+  invoked, installed, repaired, or selected.
+- Disposition: KEEP the R3 Core launcher as the bounded live implementation;
+  KEEP the existing signed generation and trust/state authority unchanged;
+  DEFER only the authenticated v2 generation delivery needed to remove the
+  live migration marker. Worker mode remains OFF.
+
 ## Goal Lifts
 
 No lift is active. A proposed lift must identify a concrete product risk or
