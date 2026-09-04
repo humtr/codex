@@ -6687,6 +6687,106 @@ exit 73
 
     #[cfg(unix)]
     #[test]
+    fn test_install_frontend_forwards_exact_bootstrap_argv_and_rejects_invalid_bundle() {
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::{symlink, PermissionsExt};
+
+        let install_source =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../install.sh");
+        let shell = resolve_test_shell();
+        let root = temp_root("install-frontend");
+        let install = root.join("install.sh");
+        std::fs::copy(&install_source, &install).unwrap();
+        let mut install_mode = std::fs::metadata(&install).unwrap().permissions();
+        install_mode.set_mode(0o755);
+        std::fs::set_permissions(&install, install_mode).unwrap();
+
+        let bootstrap_dir = root.join("bootstrap");
+        std::fs::create_dir(&bootstrap_dir).unwrap();
+        let bootstrap = bootstrap_dir.join("codex-bootstrap");
+        let record = root.join("argv");
+        std::fs::write(
+            &bootstrap,
+            format!(
+                "#!{}\nprintf '%s\\n' \"$#\" > \"$CODEX_TEST_INSTALL_ARGV\"\nfor arg in \"$@\"; do printf '%s\\n' \"$arg\" >> \"$CODEX_TEST_INSTALL_ARGV\"; done\nexit 37\n",
+                std::str::from_utf8(shell.as_bytes()).unwrap()
+            ),
+        )
+        .unwrap();
+        let mut bootstrap_mode = std::fs::metadata(&bootstrap).unwrap().permissions();
+        bootstrap_mode.set_mode(0o755);
+        std::fs::set_permissions(&bootstrap, bootstrap_mode).unwrap();
+
+        let fresh_args = ["/tmp/core", "/tmp/release", "/tmp/key"];
+        let fresh = std::process::Command::new(&shell)
+            .arg(&install)
+            .args(fresh_args)
+            .env("CODEX_TEST_INSTALL_ARGV", &record)
+            .output()
+            .unwrap();
+        assert_eq!(fresh.status.code(), Some(37));
+        assert_eq!(
+            std::fs::read_to_string(&record).unwrap(),
+            "3\n/tmp/core\n/tmp/release\n/tmp/key\n"
+        );
+
+        let legacy_args = [
+            "upgrade-legacy",
+            "/tmp/core",
+            "/tmp/release",
+            "/tmp/key",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        ];
+        let legacy = std::process::Command::new(&shell)
+            .arg(&install)
+            .args(legacy_args)
+            .env("CODEX_TEST_INSTALL_ARGV", &record)
+            .output()
+            .unwrap();
+        assert_eq!(legacy.status.code(), Some(37));
+        assert_eq!(
+            std::fs::read_to_string(&record).unwrap(),
+            "5\nupgrade-legacy\n/tmp/core\n/tmp/release\n/tmp/key\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+        );
+
+        let missing_root = temp_root("install-frontend-missing");
+        let missing_install = missing_root.join("install.sh");
+        std::fs::copy(&install_source, &missing_install).unwrap();
+        let missing = std::process::Command::new(&shell)
+            .arg(&missing_install)
+            .args(fresh_args)
+            .output()
+            .unwrap();
+        assert_eq!(missing.status.code(), Some(1));
+        assert!(missing
+            .stderr
+            .windows(b"bundled bootstrap must be a regular executable".len())
+            .any(|window| window == b"bundled bootstrap must be a regular executable"));
+
+        let symlink_root = temp_root("install-frontend-symlink");
+        let symlink_install = symlink_root.join("install.sh");
+        std::fs::copy(&install_source, &symlink_install).unwrap();
+        let symlink_dir = symlink_root.join("bootstrap");
+        std::fs::create_dir(&symlink_dir).unwrap();
+        symlink(&bootstrap, symlink_dir.join("codex-bootstrap")).unwrap();
+        let linked = std::process::Command::new(&shell)
+            .arg(&symlink_install)
+            .args(fresh_args)
+            .output()
+            .unwrap();
+        assert_eq!(linked.status.code(), Some(1));
+        assert!(linked
+            .stderr
+            .windows(b"bundled bootstrap must be a regular executable".len())
+            .any(|window| window == b"bundled bootstrap must be a regular executable"));
+
+        remove_temp_root(root);
+        remove_temp_root(missing_root);
+        remove_temp_root(symlink_root);
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn test_manager_available_exec_uses_qualified_path_and_preserves_raw_argv() {
         let (root, runtime, resolver, config) = prepare_exec_fixture("manager");
         let result = run_product_probe("manager", &root, &runtime, &resolver, &config);

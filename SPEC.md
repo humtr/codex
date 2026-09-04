@@ -347,6 +347,24 @@ runtime generation.
 
 ## 8. Installation and update
 
+The release bundle ships one human-facing `install.sh` delivery frontend. It
+accepts exactly the two bootstrap forms below and forwards their original
+arguments, without compiling, downloading, signing, discovering releases, or
+implementing a second installation protocol:
+
+```text
+install.sh <CORE_ARTIFACT> <SIGNED_RELEASE_DIR> <BOOTSTRAP_PUBLIC_KEY>
+install.sh upgrade-legacy <CORE_ARTIFACT> <SIGNED_RELEASE_DIR> <BOOTSTRAP_PUBLIC_KEY> <EXPECTED_LEGACY_ENTRYPOINT_SHA256>
+```
+
+`install.sh` must locate a sibling `bootstrap/codex-bootstrap` that is a
+regular non-symlink executable and then `exec` it with the exact original
+argv. A missing, symlinked, or non-executable sibling fails before any target
+mutation. The frontend owns no trust, generation, entrypoint, or recovery
+state; all validation and writes remain behind the audited bootstrap boundary.
+The fresh form keeps the existing no-clobber rule, while the
+`upgrade-legacy` form is the sole explicit legacy entrypoint handoff.
+
 Fresh installation uses a small audited bootstrap because Core cannot install
 itself before it exists. The bootstrap may only detect the environment,
 retrieve or accept a local immutable release, verify it, stage Core, run a
@@ -454,6 +472,14 @@ state identities before and after the handoff rather than adopting a legacy
 schema.
 
 Normal installation and update must not require on-device compilation.
+
+After bootstrap, the formal update path is the installed Core command surface
+`codex update --local <DIRECTORY>`, `codex update --remote <HTTPS_BASE_URL>`,
+or `codex update --rollback`. `install.sh` is not an update dispatcher and
+must not bypass the authenticated local admission, staging, probe, activation,
+or rollback path. The local and remote forms use the same forward activation
+transaction, and rollback remains the explicit swap of the one retained
+complete previous generation.
 
 `codex update` must:
 

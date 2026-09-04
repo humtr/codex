@@ -22,8 +22,8 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
   `253156c37a2bd22af8faae0bce03587999ffd136`; the local branch is ahead and
   no push is authorized.
 - Current milestone: M2 delivery/recovery is accepted and locally promoted;
-  M2-R1, M2-R2, and the required independent product review are closed. Remote
-  publication and live cutover remain separate authorization boundaries.
+  the active bundle is the release install/update qualification and explicitly
+  authorized local Termux cutover. Remote publication remains separate.
 - The inherited pre-commit hook references absent
   `tools/update-wrapper-version.sh`; do not modify it. If it alone rejects an
   exact, revalidated staged tree, use the established `--no-verify` closure.
@@ -82,43 +82,36 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 
 ## Next action
 
-### M2 final acceptance / local promotion closeout
+### M2 release install/update qualification and local cutover
 
-- M2-R2 independent-review remediation is accepted at
-  `rewrite/rust-core@a56a85cb88d3866ddc52134aae6dedaf88ac6c1f`.
-- Closed findings: active generation loading now rejects generation-root and
-  selected asset symlink escapes; activation and explicit recovery writers
-  share one kernel-held state-root lock without a persistent lock record;
-  valid `doctor --json` probe/setup failure produces a redacted unhealthy
-  machine report with nonzero health-failure status.
-- Focused proof: M2-R2 `3 passed, 0 failed`; adjacent M2-B9 `4 passed, 0
-  failed`; adjacent M2-B2 `6 passed, 0 failed`; and the corrected B4
-  source-admission regression `1 passed, 0 failed`.
-- Final grouped proof: locked workspace serial Core `113 passed, 0 failed,
-  1 ignored` and release-builder `7 passed, 0 failed`; three independent
-  default-parallel repetitions passed the same counts. Warnings-denied locked
-  release build, formatting, bootstrap shell syntax, and `git diff --check`
-  passed. Explicit real-Termux read-only smoke passed `1 passed, 0 failed`.
-- Protected surfaces remain unchanged: live launcher and resolver identities
-  remain the recorded hashes, and no installed generation/trust state,
-  Manager, auth/profile/session data, package state, push, promotion, or live
-  cutover was touched. All disposable roots were external and the final
-  canonical residue scan is empty.
-- The fresh independent review is complete: no new public-path, bwrap,
-  generation, state/recovery, doctor, bootstrap, release, or protected-surface
-  defect remained. Its clippy red gate was closed in the review-only cleanup
-  commit above, and the corrected warning-denied gate passes.
-- Review proof on the current revision: M2-R2 `3 passed, 0 failed`; corrected
-  doctor focused proof `1 passed, 0 failed`; serial Core `113 passed, 0 failed,
-  1 ignored`; release-builder `7 passed, 0 failed`; three independent
-  default-parallel repetitions with the same counts; release build,
-  formatting, bootstrap syntax, diff check, and real-Termux read-only smoke
-  all passed. A mistaken zero-test doctor filter was discarded and not used as
-  evidence.
-- M2 final acceptance and local `main` promotion are complete. The old local
-  `main` remains recoverable at `legacy/main-pre-m2-20260904`; remote
-  publication, live launcher/resolver changes, and bounded device
-  qualification remain out of scope until separately authorized.
+- Bound source is `rewrite/rust-core@57034e4cd2d4f259c9046ac11073dc0b7f7dbb47`,
+  also the local `main` promotion tip. The code acceptance evidence recorded
+  above is reused because this bundle changes only the delivery frontend and
+  qualification path until a product defect is found.
+- Slice 1 — installation contract: update `SPEC.md` first; focused proof is
+  `sh -n install.sh` plus a nonzero invalid-argument invocation. Protected
+  surface: no target or live-state writes.
+- Slice 2 — delivery frontend: add `install.sh` as an exact-argv `exec` into
+  `bootstrap/codex-bootstrap`; focused proof must cover fresh and
+  `upgrade-legacy` grammar forwarding and missing/symlinked bootstrap refusal.
+- Slice 3 — disposable qualification: use a release-built Core, the official
+  pinned upstream archive, and a job-private signing key to exercise fresh
+  install, legacy handoff, `codex update --local`, explicit rollback, and
+  failure/recovery. Reuse the existing Core update path; do not add a second
+  updater or compile on the target.
+- Slice 4 — authorized local cutover: verify the current legacy entrypoint
+  digest, run `install.sh upgrade-legacy` against the authenticated release,
+  then verify installed `codex --version`, `codex doctor --json`, local update,
+  rollback readiness, state/generation integrity, and bwrap fail-closed
+  behavior. Preserve resolver, auth/profile/session, Manager, package, and
+  unrelated user state.
+- Slice gate: stop on a zero-test invocation, compile/warning failure, any
+  trust or generation mismatch, failed cleanup, unexpected bwrap invocation,
+  or protected-surface identity change. Keep all build/release roots external
+  and remove job-private signing material after qualification.
+- No remote push or remote publication is part of this bundle. Worker mode
+  remains OFF; the primary Lead owns implementation, validation, cutover, and
+  acceptance.
 
 Worker mode remains OFF; the primary Lead owns every slice, validation step,
 authority update, and acceptance decision.
