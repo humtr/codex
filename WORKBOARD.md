@@ -21,9 +21,12 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 - Remote `origin/rewrite/rust-core` remains at
   `253156c37a2bd22af8faae0bce03587999ffd136`; the local branch is ahead and
   no push is authorized.
-- Current milestone: M2 delivery/recovery is accepted and locally promoted;
-  the active bundle is the release install/update qualification and explicitly
-  authorized local Termux cutover. Remote publication remains separate.
+- Current milestone: M2 delivery/recovery and the follow-on release
+  install/update qualification plus authorized local Termux cutover are accepted
+  at `rewrite/rust-core@ab072b35d0b1d78354de88a16b89433727592636`. Local
+  `main` remains at the prior publication tip
+  `57034e4cd2d4f259c9046ac11073dc0b7f7dbb47`; no second main promotion or
+  remote push was authorized or performed.
 - The inherited pre-commit hook references absent
   `tools/update-wrapper-version.sh`; do not modify it. If it alone rejects an
   exact, revalidated staged tree, use the established `--no-verify` closure.
@@ -33,9 +36,10 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
   `37f0a775ddc64d1641655a0cc83c0c2e681df704` was not contained by the sealed
   `legacy/monolith` history. It is preserved by the exact local backup branch
   `legacy/main-pre-m2-20260904`.
-- `main` remains publication authority and is locally promoted by direct ref
-  replacement to this accepted `rewrite/rust-core` tip; this is not a merge or
-  rebase. Remote refs remain unchanged and no push or live cutover is included.
+- `main` remains publication authority and was locally promoted by direct ref
+  replacement to the previously accepted `rewrite/rust-core` tip; this is not a
+  merge or rebase. Remote refs remain unchanged and no push was performed; the
+  authorized local live cutover is recorded in `GOAL.md`.
 - Worker mode is OFF. The primary Lead owns implementation, validation,
   authority updates, commit, and acceptance.
 
@@ -82,36 +86,23 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 
 ## Next action
 
-### M2 release install/update qualification and local cutover
+### No active implementation bundle
 
-- Bound source is `rewrite/rust-core@57034e4cd2d4f259c9046ac11073dc0b7f7dbb47`,
-  also the local `main` promotion tip. The code acceptance evidence recorded
-  above is reused because this bundle changes only the delivery frontend and
-  qualification path until a product defect is found.
-- Slice 1 — installation contract: update `SPEC.md` first; focused proof is
-  `sh -n install.sh` plus a nonzero invalid-argument invocation. Protected
-  surface: no target or live-state writes.
-- Slice 2 — delivery frontend: add `install.sh` as an exact-argv `exec` into
-  `bootstrap/codex-bootstrap`; focused proof must cover fresh and
-  `upgrade-legacy` grammar forwarding and missing/symlinked bootstrap refusal.
-- Slice 3 — disposable qualification: use a release-built Core, the official
-  pinned upstream archive, and a job-private signing key to exercise fresh
-  install, legacy handoff, `codex update --local`, explicit rollback, and
-  failure/recovery. Reuse the existing Core update path; do not add a second
-  updater or compile on the target.
-- Slice 4 — authorized local cutover: verify the current legacy entrypoint
-  digest, run `install.sh upgrade-legacy` against the authenticated release,
-  then verify installed `codex --version`, `codex doctor --json`, local update,
-  rollback readiness, state/generation integrity, and bwrap fail-closed
-  behavior. Preserve resolver, auth/profile/session, Manager, package, and
-  unrelated user state.
-- Slice gate: stop on a zero-test invocation, compile/warning failure, any
-  trust or generation mismatch, failed cleanup, unexpected bwrap invocation,
-  or protected-surface identity change. Keep all build/release roots external
-  and remove job-private signing material after qualification.
-- No remote push or remote publication is part of this bundle. Worker mode
-  remains OFF; the primary Lead owns implementation, validation, cutover, and
-  acceptance.
+The release install/update qualification and explicitly authorized local
+Termux cutover are closed at
+`rewrite/rust-core@ab072b35d0b1d78354de88a16b89433727592636`; accepted evidence,
+artifact identities, and protected-surface results are in `GOAL.md`.
+
+- The live stable launcher is the accepted Core artifact, with v1 active and
+  v2 retained as the explicit rollback generation. The resolver and Core-outside
+  protected state remain unchanged.
+- The formal update surface remains the existing Core
+  `codex update --local`, `codex update --remote`, and `codex update --rollback`
+  path. No second installer/updater, bwrap repair path, remote publication, or
+  push was added.
+- Further implementation or publication work requires an explicit new scope;
+  worker mode remains OFF and `main` remains at its previously promoted local
+  publication tip.
 
 Worker mode remains OFF; the primary Lead owns every slice, validation step,
 authority update, and acceptance decision.

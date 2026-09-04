@@ -1296,6 +1296,75 @@ Termux qualification. Produce one candidate for independent product review.
   repetitions, corrected focused review gates, warnings-denied release build,
   formatting, bootstrap syntax, diff check, and read-only real-Termux smoke.
 
+## M2 Release Install/Update Qualification and Local Termux Cutover (2026-09-04)
+
+- After local M2 promotion, the user requested a formal `install.sh` delivery
+  frontend and authorized replacement of the working local Termux runtime.
+  `SPEC.md` was updated before implementation to make `install.sh` an exact
+  argv-forwarding frontend into the existing audited bootstrap; trust,
+  generation, update, rollback, and recovery ownership remain in Core.
+- This follow-on bundle is bound to
+  `rewrite/rust-core@ab072b35d0b1d78354de88a16b89433727592636`. The normative
+  SPEC SHA-256 is `728b0e938406ee830222a943293dd6089021d6c7fd7dc30677583b411f9bc0b1`;
+  `install.sh` is `b9c1026fa58a2449714fd12ba09cb225bdcab77a7c47f52ec3be2d7934372efa`,
+  Core source is `cd1c2b20c294452dd075bb98382333553c8169a3612153363cbb33a8bd6c8f61`,
+  bootstrap source is `4cda45ad448d110c224854724ab8229fc9aa431d27ea4c818ab574046b1005db`,
+  and the release-builder artifact is
+  `7742288c621af679ad8ccc2bf61a08fd73f6d8d154045fd2b280898d2b294f16`.
+- The focused install regression passed `1 passed, 0 failed`, covering exact
+  fresh and `upgrade-legacy` argv forwarding plus missing and symlinked
+  bootstrap refusal. `sh -n install.sh`, the invalid-argument nonzero
+  no-mutation check, `cargo fmt --all -- --check`, and warnings-denied
+  workspace clippy passed.
+- The release qualification used the official pinned
+  `codex-package-aarch64-unknown-linux-musl.tar.gz` for Codex `0.150.1`,
+  SHA-256 `1ecac3f87823efb98153233b076ea3d6e34a7a8cebe43c5285dc5f79e1514639`,
+  and a job-private Ed25519 signing key. The prebuilt Core artifact is
+  `8c84beb9c729e110f8a24e35d355eee6803a3b14f10296a8d7b97fd6ca4b0fc2`; its
+  selected runtime digest is
+  `946b4337efbef5cea4eb50ace81fe17cd3fc62f53820f8db4183e505e5f6082b`.
+  The signed stable generations were v1
+  `local-20260904-57034e4` (sequence 1; manifest
+  `274e2b0ad6b584508e20daf05d9f111b516f47d9821335b33615ac7fb323f348`,
+  signature `fbd25fce60679e00a742f0708fa6f32cad083faef50bbd0ce5a5254b4513925f`)
+  and v2 `local-20260904-57034e4-update` (sequence 2; manifest
+  `11f49b476ab0d3c2c244b63c1825bd2cc0ea3d33a845d0607ffc151c46d51c5d`,
+  signature `c9e85bef1f9b2b504bb6ddde89d1fd01394bd3eca5cfa435dfb7770309895606`).
+  Release and signing material remained outside the repository; the private
+  signing key was job-private and was removed after qualification.
+- Separate disposable fresh and legacy roots both reached the real official
+  runtime and reported `codex-cli 0.150.1`. Fresh installation produced a
+  valid redacted `doctor --json` envelope (`rc=1` because Manager was
+  unavailable), rejected explicit Linux sandbox mode with `rc=2`, and had no
+  `bwrap` in the selected generation. Both roots completed local update to v2
+  and explicit rollback to v1; legacy handoff additionally rejected rollback
+  before a previous generation existed. The workspace locked serial suite on
+  this revision passed Core `114 passed, 0 failed, 1 ignored` and
+  release-builder `7 passed, 0 failed`; `git diff --check` passed.
+- The live preflight confirmed the old stable launcher digest
+  `0b0284155f2672263836029f760ba06a0cb284b7ca3a8e600ad399b43af36aff` and no
+  pre-existing v3 Core state. Authorized
+  `install.sh upgrade-legacy` replaced it with the authenticated Core artifact.
+  Live verification reported `codex-cli 0.150.1`, a valid redacted doctor
+  envelope (`rc=1`), and explicit sandbox rejection (`rc=2`). The final live
+  state is v1 active with v2 retained for rollback; the launcher SHA is
+  `8c84beb9c729e110f8a24e35d355eee6803a3b14f10296a8d7b97fd6ca4b0fc2`.
+  Live `codex update --local` advanced to v2 and `codex update --rollback`
+  returned to v1 without changing the launcher.
+- Protected-surface verification found the live resolver unchanged at
+  `7e8ad76e0d200e93918ca2e93c99ff8ecd02071953bf1479819db3ac0dbb6d07` and
+  preserved resolver, auth/profile/session, Manager, package, and unrelated
+  user-state identities outside the declared Core roots. No bwrap artifact was
+  selected or invoked. No remote publication or push was performed, and the
+  new install/cutover commit is on `rewrite/rust-core`; local `main` remains at
+  its previously promoted tip.
+- Disposition: KEEP the single `install.sh`→bootstrap delivery boundary and
+  the existing authenticated Core update/rollback authority; COLLAPSE no new
+  installer, updater, trust source, or fallback layer; DELETE no bwrap repair
+  or legacy fallback path. The M2 release install/update qualification and
+  authorized local cutover are complete. Further work requires an explicit new
+  scope; worker mode remains OFF.
+
 ## Goal Lifts
 
 No lift is active. A proposed lift must identify a concrete product risk or
