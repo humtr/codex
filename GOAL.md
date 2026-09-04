@@ -86,9 +86,14 @@ The goal is complete only when both milestones in `SPEC.md` pass their declared
 tests and a fresh supported Termux installation can install, run, diagnose,
 update, recover, and roll back the Rust Core without requiring an on-device Rust
 toolchain or modifying protected user/system state. The top-level bare
-`codex update` path must remain wrapper-owned: it may activate only a signed
-generation that the wrapper release pipeline has already adapted and
-qualified, and must never delegate to the upstream self-updater.
+`codex update` path remains wrapper-owned: it first consumes a signed adapted
+generation from the wrapper channel and, when that publication is unavailable
+at the transport boundary, may resolve the official latest (or explicitly
+selected) release metadata, bind its exact version and package digest, then use
+the prebuilt in-Core release-builder fallback to fetch the exact official
+versioned archive, adapt, sign, qualify, and activate one local generation. It
+must never delegate to the upstream self-updater or activate an unsigned/raw
+upstream runtime.
 
 Manager product features are not part of this two-milestone completion claim.
 Their boundary must be preserved so they can be implemented separately without
@@ -155,6 +160,16 @@ one current workboard, direct focused tests, and deferred independent review.
   the current vertical slice/proof map, and production behavior must not advance
   past a red or unmapped slice. Historical tests never authorize a compatibility
   branch after the public product path has replaced their behavior.
+- Make the no-argument `codex update` a complete remote-to-local path. Explicit
+  `--local`, `--remote`, and `--rollback` selectors remain secondary operations.
+  A local build may use only the prebuilt release-builder routines, the official
+  versioned upstream archive, and the recovered update authority; it must retain
+  the existing signed admission, atomic activation, and rollback boundaries.
+- Permit best-effort publication of a successfully activated local build to
+  `humtr/codex`/`main` through an authenticated local GitHub CLI, after release
+  files and before the signed index, without making remote publication or
+  account credentials a trust source. Private signing keys remain excluded from
+  repository and device artifacts.
 
 ## Execution Plan
 
@@ -1632,6 +1647,31 @@ Termux qualification. Produce one candidate for independent product review.
   upstream source authority; DELETE no Core fallback or raw-package path.
   External publication with the active update key is still a separately
   authorized operational step, so live `codex update` remains fail-closed.
+
+## R7 Unified Bare Update (in progress)
+
+- The user has expanded the post-M2 update requirement: one bare `codex update`
+  must first look for a signed adapted build in `humtr/codex`; when the remote
+  channel or its release is transport-unavailable, it must locally fetch the
+  official latest (or explicitly selected) release metadata, bind its exact
+  stable version and AArch64 package digest, fetch the exact official upstream
+  archive, and run the prebuilt Rust release-builder
+  routines, sign and qualify the adapted generation, and replace the active
+  runtime through the existing atomic Core activation path. `--local`,
+  `--remote`, and `--rollback` remain secondary explicit operations.
+- Local fallback is not a Rust/Cargo self-compilation path. It requires the
+  active release `update_key` private key through the bounded configured key
+  path, never copies or prints that key, and cannot activate a locally produced
+  generation when the key is absent or mismatched.
+- A successfully activated local publication is retained under the Core-owned
+  local publication store. If GitHub CLI account authentication is available,
+  Core may best-effort publish the release tree and then the signed index to
+  `humtr/codex`/`main`; upload failure must not undo the local activation.
+- R7 is not accepted yet. Its proof slices are remote-hit routing, transport
+  absence fallback, local build/sign/admission/activation, invalid-remote
+  fail-closed behavior, optional upload isolation, protected-state checks, and
+  grouped acceptance on one committed revision. No live runtime cutover or
+  remote push is part of the source implementation proof.
 
 ## Goal Lifts
 

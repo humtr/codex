@@ -21,12 +21,11 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 - Remote `origin/rewrite/rust-core` remains at
   `253156c37a2bd22af8faae0bce03587999ffd136`; the local branch is ahead and
   no push is authorized.
-- Current milestone: R6 signed wrapper publication is accepted on top of the
-  accepted R5 official upstream build-input acquisition commit on
-  `rewrite/rust-core`.
+- Current milestone: R7 unified bare update is in progress on top of the
+  accepted R6 signed wrapper publication commit on `rewrite/rust-core`.
   R4's Core ownership, signed-generation admission, and doctor behavior remain
   the implementation baseline. Local `main` remains the publication authority;
-  no second main promotion or remote push is authorized.
+  no source-history promotion is needed for R7.
 - The inherited pre-commit hook references absent
   `tools/update-wrapper-version.sh`; do not modify it. If it alone rejects an
   exact, revalidated staged tree, use the established `--no-verify` closure.
@@ -62,9 +61,10 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
   auth/profile/session data, and package state are protected.
 - Do not copy legacy implementation or internal data models into the rewrite.
   Inspect legacy behavior only through observable qualification outcomes.
-- Do not introduce another fallback, promotion wrapper, trust source, or
-  compatibility layer without first updating `SPEC.md` and mapping a focused
-  regression.
+- Do not introduce another trust source, promotion wrapper, or compatibility
+  layer without first updating `SPEC.md` and mapping a focused regression. R7's
+  local path is one transport fallback into the existing signed admission and
+  activation authority, not a second updater or an unsigned escape hatch.
 
 ## Mandatory execution gates
 
@@ -84,22 +84,37 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 7. Reserve a fresh independent product review for the completed Milestone 2
    acceptance candidate; this bundle directly closes the recorded findings.
 
-## Next action
+## Current R7 vertical proof map
 
-R6 is accepted: the non-installed Rust release builder now validates the R5
-first-target generation, emits a Core-compatible v3 manifest and stable signed
-index, signs both with an explicitly supplied Ed25519 private key, and
-atomically produces `releases/<generation-id>/` plus the index files. Focused
-builder and Core admission regressions prove the real format, signatures,
-inventory, modes, URL identity, source preservation, collision handling,
-symlink rejection, and staging cleanup. Detailed evidence is recorded in
-`GOAL.md`.
+1. Remote-hit path — completed in the focused
+   `test_r7_signed_channel_hit_skips_local_build_and_publication` regression;
+   the existing signed index/release acquisition and activation remain the
+   unchanged path.
+2. Transport-absence fallback — completed in the focused local fallback
+   regression; only automatic-channel transport unavailability enters local
+   production, while signed-channel verification failures remain terminal.
+3. Local production — run the prebuilt release-builder routines with the
+   official latest metadata (or one bounded explicit version), bind the exact
+   stable version and AArch64 package digest, fetch the exact official archive,
+   sign with the current update key, persist publication locally, and feed its
+   signed release into the existing local activation path. Completed with a
+   nonzero end-to-end fixture using the official metadata shape and a real
+   Termux probe binary.
+4. Optional publication — after local activation only, use authenticated
+   `$PREFIX/bin/gh` to publish release files before `update-index-v1` to
+   `humtr/codex`/`main`; no key upload and no rollback on upload failure. Add a
+   fake-GitHub-CLI regression proving ordering and activation isolation;
+   completed for successful ordering and authenticated upload failure
+   isolation.
+5. Stabilization — run focused nonzero tests, relevant compile/clippy gates,
+   actual diff audit, grouped workspace acceptance, protected identity checks,
+   and commit the accepted R7 bundle. Do not cut over the live runtime or push
+   remote refs in this source bundle.
 
-The next separately authorized operation is external publication of a real
-release output using the active Core `update_key` private key. No upload to
-OpenAI or the wrapper distribution surface was performed by R6; live
-`codex update` must remain fail-closed until an operator publishes the output
-and the installed runtime can fetch it.
+The active slice is 5: implementation slices 1–4 are locally proven and await
+grouped acceptance, protected-surface verification, final diff inspection,
+authority evidence reduction, and commit. Worker mode remains OFF; the primary
+Lead owns every slice.
 
 Worker mode remains OFF; the primary Lead owns every slice, validation step,
 authority update, and acceptance decision.

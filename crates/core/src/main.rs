@@ -3021,6 +3021,32 @@ const DEFAULT_UPDATE_INDEX_URL: &str =
 #[cfg(unix)]
 const UPDATE_INDEX_URL_ENV: &str = "CODEX_TERMUX_UPDATE_INDEX_URL";
 #[cfg(unix)]
+const UPDATE_VERSION_ENV: &str = "CODEX_TERMUX_UPDATE_VERSION";
+#[cfg(unix)]
+const UPDATE_PRIVATE_KEY_ENV: &str = "CODEX_TERMUX_UPDATE_PRIVATE_KEY";
+#[cfg(unix)]
+const DEFAULT_UPSTREAM_LATEST_URL: &str = "https://releases.openai.com/codex/channels/latest";
+#[cfg(unix)]
+const UPSTREAM_RELEASE_METADATA_BASE: &str = "https://releases.openai.com/codex/releases";
+#[cfg(unix)]
+const UPSTREAM_PACKAGE_ASSET: &str = "codex-package-aarch64-unknown-linux-musl.tar.gz";
+#[cfg(unix)]
+const UPSTREAM_RELEASE_METADATA_MAX_BYTES: usize = 128 * 1024;
+#[cfg(unix)]
+const UPDATE_PRIVATE_KEY_MAX_BYTES: u64 = 16 * 1024;
+#[cfg(unix)]
+const LOCAL_PUBLICATION_ROOT_RELATIVE: &str = ".local/lib/codex/core/publications";
+#[cfg(unix)]
+const LOCAL_UPDATE_METADATA: &str = "codex-termux-local-update-v1";
+#[cfg(unix)]
+const GITHUB_REPOSITORY: &str = "humtr/codex";
+#[cfg(unix)]
+const GITHUB_BRANCH: &str = "main";
+#[cfg(unix)]
+const GITHUB_HOST: &str = "github.com";
+#[cfg(unix)]
+const GITHUB_RESPONSE_MAX_BYTES: usize = 16 * 1024;
+#[cfg(unix)]
 const BOOTSTRAP_PUBLIC_KEY_MAX_BYTES: u64 = 16 * 1024;
 #[cfg(unix)]
 const CORE_ARTIFACT_MAX_BYTES: u64 = 64 * 1024 * 1024;
@@ -3104,6 +3130,7 @@ enum LocalProductError {
     UpdateIndex(&'static str),
     RemoteTransportFailed,
     RemoteResponseTooLarge,
+    LocalUpdate(&'static str),
     SignatureRejected,
     ReleasePolicy(&'static str),
     ReleaseDigestMismatch,
@@ -3161,6 +3188,7 @@ impl std::fmt::Display for LocalProductError {
             LocalProductError::RemoteResponseTooLarge => {
                 f.write_str("remote release response exceeds its byte bound")
             }
+            LocalProductError::LocalUpdate(message) => f.write_str(message),
             LocalProductError::SignatureRejected => {
                 f.write_str("release signature verification failed")
             }
@@ -3514,6 +3542,489 @@ fn parse_signed_update_index(bytes: &[u8]) -> Result<SignedUpdateIndex, LocalPro
         generation_id: generation_id.to_owned(),
         release_base,
     })
+}
+
+#[cfg(unix)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct OfficialReleaseMetadata {
+    version: String,
+    package_sha256: String,
+}
+
+#[cfg(unix)]
+fn valid_update_version(value: &str) -> bool {
+    if value.is_empty() || value.len() > 64 || !value.is_ascii() {
+        return false;
+    }
+    let mut components = value.split('.');
+    let mut count = 0;
+    for component in components.by_ref() {
+        count += 1;
+        if component.is_empty()
+            || !component.bytes().all(|byte| byte.is_ascii_digit())
+            || (component.len() > 1 && component.starts_with('0'))
+            || component.parse::<u64>().is_err()
+        {
+            return false;
+        }
+    }
+    count == 3
+}
+
+#[cfg(unix)]
+struct JsonCursor<'a> {
+    bytes: &'a [u8],
+    index: usize,
+}
+
+#[cfg(unix)]
+impl<'a> JsonCursor<'a> {
+    fn new(bytes: &'a [u8]) -> Self {
+        Self { bytes, index: 0 }
+    }
+
+    fn error<T>(&self) -> Result<T, LocalProductError> {
+        Err(LocalProductError::LocalUpdate(
+            "upstream release metadata is malformed",
+        ))
+    }
+
+    fn skip_whitespace(&mut self) {
+        while self
+            .bytes
+            .get(self.index)
+            .is_some_and(|byte| matches!(*byte, b' ' | b'\t' | b'\r' | b'\n'))
+        {
+            self.index += 1;
+        }
+    }
+
+    fn expect(&mut self, expected: u8) -> Result<(), LocalProductError> {
+        self.skip_whitespace();
+        if self.bytes.get(self.index) != Some(&expected) {
+            return self.error();
+        }
+        self.index += 1;
+        Ok(())
+    }
+
+    fn string(&mut self) -> Result<String, LocalProductError> {
+        self.skip_whitespace();
+        if self.bytes.get(self.index) != Some(&b'"') {
+            return self.error();
+        }
+        self.index += 1;
+        let mut value = Vec::new();
+        loop {
+            let Some(&byte) = self.bytes.get(self.index) else {
+                return self.error();
+            };
+            match byte {
+                b'"' => {
+                    self.index += 1;
+                    return String::from_utf8(value).map_err(|_| {
+                        LocalProductError::LocalUpdate("upstream release metadata is malformed")
+                    });
+                }
+                b'\\' => {
+                    self.index += 1;
+                    let Some(&escape) = self.bytes.get(self.index) else {
+                        return self.error();
+                    };
+                    self.index += 1;
+                    match escape {
+                        b'"' | b'\\' | b'/' => value.push(escape),
+                        b'b' => value.push(0x08),
+                        b'f' => value.push(0x0c),
+                        b'n' => value.push(b'\n'),
+                        b'r' => value.push(b'\r'),
+                        b't' => value.push(b'\t'),
+                        b'u' => {
+                            let Some(codepoint) = self.hex_codepoint() else {
+                                return self.error();
+                            };
+                            let Some(character) = char::from_u32(codepoint) else {
+                                return self.error();
+                            };
+                            let mut encoded = [0; 4];
+                            value.extend_from_slice(character.encode_utf8(&mut encoded).as_bytes());
+                        }
+                        _ => return self.error(),
+                    }
+                }
+                0..=0x1f => return self.error(),
+                _ => {
+                    let start = self.index;
+                    while let Some(&next) = self.bytes.get(self.index) {
+                        if matches!(next, b'"' | b'\\' | 0..=0x1f) {
+                            break;
+                        }
+                        self.index += 1;
+                    }
+                    let chunk =
+                        std::str::from_utf8(&self.bytes[start..self.index]).map_err(|_| {
+                            LocalProductError::LocalUpdate("upstream release metadata is malformed")
+                        })?;
+                    value.extend_from_slice(chunk.as_bytes());
+                }
+            }
+        }
+    }
+
+    fn hex_codepoint(&mut self) -> Option<u32> {
+        let end = self.index.checked_add(4)?;
+        let bytes = self.bytes.get(self.index..end)?;
+        let mut value: u32 = 0;
+        for byte in bytes {
+            value = value.checked_mul(16)?;
+            value += match byte {
+                b'0'..=b'9' => u32::from(byte - b'0'),
+                b'a'..=b'f' => u32::from(byte - b'a' + 10),
+                b'A'..=b'F' => u32::from(byte - b'A' + 10),
+                _ => return None,
+            };
+        }
+        self.index = end;
+        Some(value)
+    }
+
+    fn literal(&mut self, literal: &[u8]) -> Result<(), LocalProductError> {
+        self.skip_whitespace();
+        let end = self.index.saturating_add(literal.len());
+        if self.bytes.get(self.index..end) != Some(literal) {
+            return self.error();
+        }
+        self.index = end;
+        Ok(())
+    }
+
+    fn skip_number(&mut self) -> Result<(), LocalProductError> {
+        self.skip_whitespace();
+        let mut index = self.index;
+        if self.bytes.get(index) == Some(&b'-') {
+            index += 1;
+        }
+        match self.bytes.get(index) {
+            Some(b'0') => {
+                index += 1;
+                if self
+                    .bytes
+                    .get(index)
+                    .is_some_and(|byte| byte.is_ascii_digit())
+                {
+                    return self.error();
+                }
+            }
+            Some(b'1'..=b'9') => {
+                index += 1;
+                while self
+                    .bytes
+                    .get(index)
+                    .is_some_and(|byte| byte.is_ascii_digit())
+                {
+                    index += 1;
+                }
+            }
+            _ => return self.error(),
+        }
+        if self.bytes.get(index) == Some(&b'.') {
+            index += 1;
+            let start = index;
+            while self
+                .bytes
+                .get(index)
+                .is_some_and(|byte| byte.is_ascii_digit())
+            {
+                index += 1;
+            }
+            if start == index {
+                return self.error();
+            }
+        }
+        if self
+            .bytes
+            .get(index)
+            .is_some_and(|byte| matches!(*byte, b'e' | b'E'))
+        {
+            index += 1;
+            if self
+                .bytes
+                .get(index)
+                .is_some_and(|byte| matches!(*byte, b'+' | b'-'))
+            {
+                index += 1;
+            }
+            let start = index;
+            while self
+                .bytes
+                .get(index)
+                .is_some_and(|byte| byte.is_ascii_digit())
+            {
+                index += 1;
+            }
+            if start == index {
+                return self.error();
+            }
+        }
+        if self
+            .bytes
+            .get(index)
+            .is_some_and(|byte| !matches!(*byte, b' ' | b'\t' | b'\r' | b'\n' | b',' | b']' | b'}'))
+        {
+            return self.error();
+        }
+        self.index = index;
+        Ok(())
+    }
+
+    fn skip_value(&mut self, depth: usize) -> Result<(), LocalProductError> {
+        if depth > 32 {
+            return self.error();
+        }
+        self.skip_whitespace();
+        match self.bytes.get(self.index) {
+            Some(b'"') => self.string().map(|_| ()),
+            Some(b'{') => {
+                self.index += 1;
+                self.skip_whitespace();
+                if self.bytes.get(self.index) == Some(&b'}') {
+                    self.index += 1;
+                    return Ok(());
+                }
+                loop {
+                    self.string()?;
+                    self.expect(b':')?;
+                    self.skip_value(depth + 1)?;
+                    self.skip_whitespace();
+                    match self.bytes.get(self.index) {
+                        Some(b',') => self.index += 1,
+                        Some(b'}') => {
+                            self.index += 1;
+                            return Ok(());
+                        }
+                        _ => return self.error(),
+                    }
+                }
+            }
+            Some(b'[') => {
+                self.index += 1;
+                self.skip_whitespace();
+                if self.bytes.get(self.index) == Some(&b']') {
+                    self.index += 1;
+                    return Ok(());
+                }
+                loop {
+                    self.skip_value(depth + 1)?;
+                    self.skip_whitespace();
+                    match self.bytes.get(self.index) {
+                        Some(b',') => self.index += 1,
+                        Some(b']') => {
+                            self.index += 1;
+                            return Ok(());
+                        }
+                        _ => return self.error(),
+                    }
+                }
+            }
+            Some(b't') => self.literal(b"true"),
+            Some(b'f') => self.literal(b"false"),
+            Some(b'n') => self.literal(b"null"),
+            Some(b'-' | b'0'..=b'9') => self.skip_number(),
+            _ => self.error(),
+        }
+    }
+
+    fn parse_assets(&mut self, wanted_asset: &str) -> Result<Option<String>, LocalProductError> {
+        self.expect(b'[')?;
+        self.skip_whitespace();
+        if self.bytes.get(self.index) == Some(&b']') {
+            self.index += 1;
+            return Ok(None);
+        }
+        let mut wanted_digest = None;
+        loop {
+            self.expect(b'{')?;
+            let mut name = None;
+            let mut digest = None;
+            self.skip_whitespace();
+            if self.bytes.get(self.index) == Some(&b'}') {
+                self.index += 1;
+            } else {
+                loop {
+                    let key = self.string()?;
+                    self.expect(b':')?;
+                    match key.as_str() {
+                        "name" => {
+                            if name.is_some() {
+                                return self.error();
+                            }
+                            name = Some(self.string()?);
+                        }
+                        "digest" => {
+                            if digest.is_some() {
+                                return self.error();
+                            }
+                            digest = Some(self.string()?);
+                        }
+                        _ => self.skip_value(0)?,
+                    }
+                    self.skip_whitespace();
+                    match self.bytes.get(self.index) {
+                        Some(b',') => self.index += 1,
+                        Some(b'}') => {
+                            self.index += 1;
+                            break;
+                        }
+                        _ => return self.error(),
+                    }
+                }
+            }
+            if name.as_deref() == Some(wanted_asset) {
+                if wanted_digest.is_some() {
+                    return self.error();
+                }
+                let digest = digest.ok_or(LocalProductError::LocalUpdate(
+                    "upstream release metadata is missing the package digest",
+                ))?;
+                wanted_digest = Some(digest);
+            }
+            self.skip_whitespace();
+            match self.bytes.get(self.index) {
+                Some(b',') => self.index += 1,
+                Some(b']') => {
+                    self.index += 1;
+                    return Ok(wanted_digest);
+                }
+                _ => return self.error(),
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+fn parse_official_release_metadata(
+    bytes: &[u8],
+    requested_version: Option<&str>,
+) -> Result<OfficialReleaseMetadata, LocalProductError> {
+    let mut cursor = JsonCursor::new(bytes);
+    cursor.expect(b'{')?;
+    let mut tag_name = None;
+    let mut package_digest = None;
+    let mut assets_seen = false;
+    cursor.skip_whitespace();
+    if cursor.bytes.get(cursor.index) == Some(&b'}') {
+        return Err(LocalProductError::LocalUpdate(
+            "upstream release metadata is incomplete",
+        ));
+    }
+    loop {
+        let key = cursor.string()?;
+        cursor.expect(b':')?;
+        match key.as_str() {
+            "tag_name" => {
+                if tag_name.is_some() {
+                    return cursor.error();
+                }
+                tag_name = Some(cursor.string()?);
+            }
+            "assets" => {
+                if assets_seen {
+                    return cursor.error();
+                }
+                assets_seen = true;
+                package_digest = cursor.parse_assets(UPSTREAM_PACKAGE_ASSET)?;
+            }
+            _ => cursor.skip_value(0)?,
+        }
+        cursor.skip_whitespace();
+        match cursor.bytes.get(cursor.index) {
+            Some(b',') => cursor.index += 1,
+            Some(b'}') => {
+                cursor.index += 1;
+                break;
+            }
+            _ => return cursor.error(),
+        }
+    }
+    cursor.skip_whitespace();
+    if cursor.index != cursor.bytes.len() {
+        return cursor.error();
+    }
+    let tag_name = tag_name.ok_or(LocalProductError::LocalUpdate(
+        "upstream release metadata has no release tag",
+    ))?;
+    let version = tag_name
+        .strip_prefix("rust-v")
+        .ok_or(LocalProductError::LocalUpdate(
+            "upstream release metadata has an unsupported tag",
+        ))?;
+    if !valid_update_version(version) {
+        return Err(LocalProductError::LocalUpdate(
+            "upstream release metadata has a non-stable version",
+        ));
+    }
+    if requested_version.is_some_and(|requested| requested != version) {
+        return Err(LocalProductError::LocalUpdate(
+            "upstream release metadata version does not match the requested version",
+        ));
+    }
+    let package_sha256 = package_digest
+        .ok_or(LocalProductError::LocalUpdate(
+            "upstream release metadata has no target package",
+        ))?
+        .strip_prefix("sha256:")
+        .filter(|digest| valid_sha256_hex(digest))
+        .ok_or(LocalProductError::LocalUpdate(
+            "upstream release metadata package digest is invalid",
+        ))?
+        .to_owned();
+    Ok(OfficialReleaseMetadata {
+        version: version.to_owned(),
+        package_sha256,
+    })
+}
+
+#[cfg(unix)]
+fn resolve_official_release_metadata(
+    roots: &LocalCoreRoots,
+    staging_root: &std::path::Path,
+) -> Result<OfficialReleaseMetadata, LocalProductError> {
+    let requested = std::env::var_os(UPDATE_VERSION_ENV);
+    let requested_version = requested.as_deref().and_then(OsStr::to_str);
+    if requested.is_some() && requested_version.is_none() {
+        return Err(LocalProductError::LocalUpdate(
+            "local update version is not UTF-8",
+        ));
+    }
+    if let Some(version) = requested_version {
+        if !valid_update_version(version) {
+            return Err(LocalProductError::LocalUpdate(
+                "local update version must be MAJOR.MINOR.PATCH",
+            ));
+        }
+    }
+    let url = requested_version
+        .map(|version| format!("{UPSTREAM_RELEASE_METADATA_BASE}/{version}/release.json"))
+        .unwrap_or_else(|| DEFAULT_UPSTREAM_LATEST_URL.to_owned());
+    parse_update_index_url(OsStr::new(&url)).map_err(|_| {
+        LocalProductError::LocalUpdate("upstream release metadata URL is not canonical")
+    })?;
+    let path = staging_root.join("upstream-release.json");
+    let output = create_remote_output(&path)?;
+    fetch_remote_file(
+        roots,
+        &url,
+        &output,
+        UPSTREAM_RELEASE_METADATA_MAX_BYTES as u64,
+    )?;
+    let bytes = read_bounded_regular_file(
+        &path,
+        UPSTREAM_RELEASE_METADATA_MAX_BYTES,
+        "read upstream release metadata",
+        LocalProductError::LocalUpdate("upstream release metadata exceeds its byte bound"),
+        LocalProductError::LocalUpdate("upstream release metadata is not a regular file"),
+    )?;
+    parse_official_release_metadata(&bytes, requested_version)
 }
 
 #[cfg(unix)]
@@ -3934,6 +4445,87 @@ fn release_public_key_from_pem(
         || output.stdout[..PREFIX.len()] != PREFIX
     {
         return Err(LocalProductError::TrustedReleaseKeyUnavailable);
+    }
+    let mut raw = [0u8; 32];
+    raw.copy_from_slice(&output.stdout[PREFIX.len()..]);
+    Ok(ReleasePublicKey(raw))
+}
+
+#[cfg(unix)]
+fn configured_update_private_key(
+    home: &std::path::Path,
+) -> Result<std::path::PathBuf, LocalProductError> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let path = std::env::var_os(UPDATE_PRIVATE_KEY_ENV)
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| home.join(".config/codex/termux/update-private-key.pem"));
+    if path.as_os_str().is_empty() || !path.is_absolute() {
+        return Err(LocalProductError::LocalUpdate(
+            "local update signing key path must be an absolute path",
+        ));
+    }
+    let metadata = std::fs::symlink_metadata(&path)
+        .map_err(|_| LocalProductError::LocalUpdate("local update signing key is unavailable"))?;
+    if !metadata.file_type().is_file()
+        || metadata.len() == 0
+        || metadata.len() > UPDATE_PRIVATE_KEY_MAX_BYTES
+        || metadata.permissions().mode() & 0o077 != 0
+        || metadata.permissions().mode() & 0o400 == 0
+    {
+        return Err(LocalProductError::LocalUpdate(
+            "local update signing key is unavailable or insecure",
+        ));
+    }
+    let canonical = std::fs::canonicalize(&path)
+        .map_err(|_| LocalProductError::LocalUpdate("local update signing key is unavailable"))?;
+    if canonical != path {
+        return Err(LocalProductError::LocalUpdate(
+            "local update signing key must not be a symlink",
+        ));
+    }
+    Ok(path)
+}
+
+#[cfg(unix)]
+fn release_public_key_from_private_pem(
+    openssl: &std::path::Path,
+    private_key: &std::path::Path,
+) -> Result<ReleasePublicKey, LocalProductError> {
+    use std::os::unix::fs::PermissionsExt;
+
+    ensure_openssl_available(openssl)?;
+    let metadata = std::fs::symlink_metadata(private_key)
+        .map_err(|_| LocalProductError::LocalUpdate("local update signing key is unavailable"))?;
+    if !metadata.file_type().is_file()
+        || metadata.len() == 0
+        || metadata.len() > UPDATE_PRIVATE_KEY_MAX_BYTES
+        || metadata.permissions().mode() & 0o077 != 0
+        || metadata.permissions().mode() & 0o400 == 0
+    {
+        return Err(LocalProductError::LocalUpdate(
+            "local update signing key is unavailable or insecure",
+        ));
+    }
+    let output = std::process::Command::new(openssl)
+        .args(["pkey", "-in"])
+        .arg(private_key)
+        .args(["-pubout", "-outform", "DER"])
+        .env_clear()
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .map_err(|_| LocalProductError::OpenSslUnavailable)?;
+    const PREFIX: [u8; 12] = [
+        0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00,
+    ];
+    if !output.status.success()
+        || output.stdout.len() != 44
+        || output.stdout[..PREFIX.len()] != PREFIX
+    {
+        return Err(LocalProductError::LocalUpdate(
+            "local update signing key is not a supported Ed25519 key",
+        ));
     }
     let mut raw = [0u8; 32];
     raw.copy_from_slice(&output.stdout[PREFIX.len()..]);
@@ -5332,6 +5924,493 @@ fn activate_signed_local_release(
 }
 
 #[cfg(unix)]
+fn create_local_update_staging_root(
+    state_root: &std::path::Path,
+) -> Result<std::path::PathBuf, LocalProductError> {
+    use std::os::unix::fs::DirBuilderExt;
+
+    ensure_real_directory(
+        state_root,
+        "inspect Core update state root",
+        "Core update state root is not a real directory",
+    )?;
+    for _ in 0..32 {
+        let sequence = LOCAL_STAGING_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path = state_root.join(format!(".local-update-{}-{sequence}", std::process::id()));
+        match std::fs::symlink_metadata(&path) {
+            Ok(_) => continue,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                let mut builder = std::fs::DirBuilder::new();
+                builder.mode(0o700);
+                match builder.create(&path) {
+                    Ok(()) => return Ok(path),
+                    Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(source) => {
+                        return Err(LocalProductError::Io {
+                            operation: "create private local update staging root",
+                            source,
+                        })
+                    }
+                }
+            }
+            Err(source) => {
+                return Err(LocalProductError::Io {
+                    operation: "inspect local update staging root",
+                    source,
+                })
+            }
+        }
+    }
+    Err(LocalProductError::LocalUpdate(
+        "could not allocate a unique local update staging root",
+    ))
+}
+
+#[cfg(unix)]
+fn ensure_local_publication_root(
+    home: &std::path::Path,
+) -> Result<std::path::PathBuf, LocalProductError> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = home.join(LOCAL_PUBLICATION_ROOT_RELATIVE);
+    ensure_real_directory_tree(
+        &root,
+        "prepare local publication store",
+        "local publication store contains a symlink or special file",
+    )?;
+    let mut permissions = std::fs::symlink_metadata(&root)
+        .map_err(|source| LocalProductError::Io {
+            operation: "inspect local publication store",
+            source,
+        })?
+        .permissions();
+    permissions.set_mode(0o700);
+    std::fs::set_permissions(&root, permissions).map_err(|source| LocalProductError::Io {
+        operation: "set local publication store permissions",
+        source,
+    })?;
+    let canonical = std::fs::canonicalize(&root).map_err(|source| LocalProductError::Io {
+        operation: "resolve local publication store",
+        source,
+    })?;
+    if canonical != root {
+        return Err(LocalProductError::UnsafeSource(
+            "local publication store contains a symlink",
+        ));
+    }
+    Ok(root)
+}
+
+#[cfg(unix)]
+fn local_update_generation_id() -> String {
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_secs());
+    let sequence = LOCAL_STAGING_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    format!("local-{timestamp}-{}-{sequence}", std::process::id())
+}
+
+#[cfg(unix)]
+fn activate_local_built_update(
+    roots: &LocalCoreRoots,
+    process_env: &TermuxProcessEnvSnapshot,
+) -> Result<(String, std::path::PathBuf), LocalProductError> {
+    let state_paths = m2_generation_state::CoreStatePaths::new(&roots.state_root)
+        .map_err(LocalProductError::StateFormat)?;
+    let before = m2_generation_state::recover_activation_state(&state_paths)
+        .map_err(LocalProductError::State)?
+        .ok_or(LocalProductError::NoCurrentGeneration)?;
+    let (current_release, _) = verify_installed_local_release(
+        roots,
+        &before.current,
+        before.current_key,
+        "active generation descriptor id does not match current",
+    )?;
+    let release_sequence =
+        current_release
+            .release_sequence
+            .checked_add(1)
+            .ok_or(LocalProductError::LocalUpdate(
+                "local update release sequence is exhausted",
+            ))?;
+    let home = required_absolute_env_path("HOME")?;
+    let private_key = configured_update_private_key(&home)?;
+    let signing_key = release_public_key_from_private_pem(&roots.openssl, &private_key)?;
+    if signing_key != before.update_key {
+        return Err(LocalProductError::LocalUpdate(
+            "local update signing key does not match the active update authority",
+        ));
+    }
+    let staging_root = create_local_update_staging_root(&roots.state_root)?;
+    let result = (|| {
+        let publication_root = ensure_local_publication_root(&home)?;
+        let metadata = resolve_official_release_metadata(roots, &staging_root)?;
+        let generation_id = local_update_generation_id();
+        let archive = staging_root.join(UPSTREAM_PACKAGE_ASSET);
+        let archive_digest = codex_release_builder::fetch_archive(
+            &metadata.version,
+            &roots.curl,
+            &roots.openssl,
+            &archive,
+        )
+        .map_err(|_| {
+            LocalProductError::LocalUpdate("official upstream archive acquisition failed")
+        })?;
+        if archive_digest != metadata.package_sha256 {
+            return Err(LocalProductError::LocalUpdate(
+                "official upstream archive digest does not match release metadata",
+            ));
+        }
+        let core = std::fs::canonicalize(std::env::current_exe().map_err(|source| {
+            LocalProductError::Io {
+                operation: "resolve running Core artifact",
+                source,
+            }
+        })?)
+        .map_err(|source| LocalProductError::Io {
+            operation: "resolve running Core artifact",
+            source,
+        })?;
+        let gzip = roots
+            .curl
+            .parent()
+            .ok_or(LocalProductError::LocalUpdate(
+                "Termux tool directory is unavailable",
+            ))?
+            .join("gzip");
+        let unsigned_generation = staging_root.join("unsigned-generation");
+        let creation_metadata = format!("{LOCAL_UPDATE_METADATA};version={}", metadata.version);
+        codex_release_builder::build_generation(
+            &metadata.version,
+            &archive,
+            &archive_digest,
+            &generation_id,
+            &core,
+            &creation_metadata,
+            &gzip,
+            &roots.openssl,
+            &unsigned_generation,
+        )
+        .map_err(|_| LocalProductError::LocalUpdate("local upstream adaptation failed"))?;
+        let release_base = format!(
+            "https://raw.githubusercontent.com/{GITHUB_REPOSITORY}/{GITHUB_BRANCH}/releases/{generation_id}/"
+        );
+        let publication = publication_root.join(&generation_id);
+        codex_release_builder::publish_generation(
+            &unsigned_generation,
+            &release_sequence.to_string(),
+            &release_base,
+            &private_key,
+            &roots.openssl,
+            &publication,
+        )
+        .map_err(|_| LocalProductError::LocalUpdate("local signed publication failed"))?;
+        let published_generation = publication.join("releases").join(&generation_id);
+        let cleanup =
+            std::fs::remove_dir_all(&staging_root).map_err(|source| LocalProductError::Io {
+                operation: "remove private local update staging",
+                source,
+            });
+        cleanup?;
+        let activated = activate_signed_local_release(&published_generation, roots, process_env)?;
+        Ok((activated, publication))
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_dir_all(&staging_root);
+    }
+    result
+}
+
+#[cfg(unix)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GithubPublicationOutcome {
+    Skipped,
+    Published,
+    Failed,
+}
+
+#[cfg(unix)]
+fn github_cli_path(roots: &LocalCoreRoots) -> Option<std::path::PathBuf> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let path = roots.curl.parent()?.join("gh");
+    let metadata = std::fs::symlink_metadata(&path).ok()?;
+    if !metadata.file_type().is_file() || metadata.permissions().mode() & 0o111 == 0 {
+        return None;
+    }
+    Some(path)
+}
+
+#[cfg(unix)]
+fn github_command(gh: &std::path::Path, home: &std::path::Path) -> std::process::Command {
+    let mut command = std::process::Command::new(gh);
+    command
+        .env_clear()
+        .env("HOME", home)
+        .env("GH_CONFIG_DIR", home.join(".config/gh"));
+    for name in [
+        "GH_TOKEN",
+        "GITHUB_TOKEN",
+        "GH_ENTERPRISE_TOKEN",
+        "GITHUB_ENTERPRISE_TOKEN",
+    ] {
+        if let Some(value) = std::env::var_os(name) {
+            command.env(name, value);
+        }
+    }
+    command
+}
+
+#[cfg(unix)]
+fn github_authenticated(gh: &std::path::Path, home: &std::path::Path) -> bool {
+    github_command(gh, home)
+        .args(["auth", "status", "--hostname", GITHUB_HOST])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+#[cfg(unix)]
+fn valid_github_content_sha(value: &str) -> bool {
+    value.len() == 40
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f' | b'A'..=b'F'))
+}
+
+#[cfg(unix)]
+fn github_content_sha(
+    gh: &std::path::Path,
+    home: &std::path::Path,
+    path: &str,
+) -> Result<Option<String>, ()> {
+    let endpoint = format!("repos/{GITHUB_REPOSITORY}/contents/{path}?ref={GITHUB_BRANCH}");
+    let output = github_command(gh, home)
+        .args(["api", "--hostname", GITHUB_HOST, &endpoint, "--jq", ".sha"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .map_err(|_| ())?;
+    if output.status.success() {
+        if output.stdout.len() > GITHUB_RESPONSE_MAX_BYTES {
+            return Err(());
+        }
+        let sha = std::str::from_utf8(&output.stdout)
+            .map_err(|_| ())?
+            .trim()
+            .to_owned();
+        if !valid_github_content_sha(&sha) {
+            return Err(());
+        }
+        return Ok(Some(sha));
+    }
+
+    let output = github_command(gh, home)
+        .args([
+            "api",
+            "--hostname",
+            GITHUB_HOST,
+            "--include",
+            "--silent",
+            &endpoint,
+        ])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .map_err(|_| ())?;
+    if output.stdout.len() > GITHUB_RESPONSE_MAX_BYTES {
+        return Err(());
+    }
+    if output.stdout.windows(3).any(|window| window == b"404") {
+        Ok(None)
+    } else {
+        Err(())
+    }
+}
+
+#[cfg(unix)]
+fn github_base64_value(byte: u8) -> u8 {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    ALPHABET[byte as usize]
+}
+
+#[cfg(unix)]
+fn write_github_base64(output: &mut impl std::io::Write, file: &std::path::Path) -> Result<(), ()> {
+    use std::io::Read as _;
+
+    let metadata = std::fs::symlink_metadata(file).map_err(|_| ())?;
+    if !metadata.file_type().is_file() || metadata.len() > REMOTE_RELEASE_FILE_MAX_BYTES {
+        return Err(());
+    }
+    let mut input = std::fs::File::open(file).map_err(|_| ())?;
+    let mut bytes = [0u8; 3];
+    loop {
+        let mut length = 0;
+        while length < bytes.len() {
+            let read = input.read(&mut bytes[length..]).map_err(|_| ())?;
+            if read == 0 {
+                break;
+            }
+            length += read;
+        }
+        if length == 0 {
+            return Ok(());
+        }
+        let first = bytes[0] >> 2;
+        let second = ((bytes[0] & 0x03) << 4) | (bytes[1] >> 4);
+        output
+            .write_all(&[github_base64_value(first), github_base64_value(second)])
+            .map_err(|_| ())?;
+        if length == 1 {
+            output.write_all(b"==").map_err(|_| ())?;
+        } else {
+            let third = ((bytes[1] & 0x0f) << 2) | (bytes[2] >> 6);
+            output
+                .write_all(&[github_base64_value(third)])
+                .map_err(|_| ())?;
+            if length == 2 {
+                output.write_all(b"=").map_err(|_| ())?;
+            } else {
+                output
+                    .write_all(&[github_base64_value(bytes[2] & 0x3f)])
+                    .map_err(|_| ())?;
+            }
+        }
+        if length < bytes.len() {
+            return Ok(());
+        }
+    }
+}
+
+#[cfg(unix)]
+fn github_put_file(
+    gh: &std::path::Path,
+    home: &std::path::Path,
+    path: &str,
+    file: &std::path::Path,
+    message: &str,
+    sha: Option<&str>,
+) -> Result<(), ()> {
+    use std::io::Write as _;
+
+    let endpoint = format!("repos/{GITHUB_REPOSITORY}/contents/{path}");
+    let mut command = github_command(gh, home);
+    let mut child = command
+        .args([
+            "api",
+            "--hostname",
+            GITHUB_HOST,
+            "--method",
+            "PUT",
+            &endpoint,
+            "--input",
+            "-",
+            "--silent",
+        ])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|_| ())?;
+    let result = (|| {
+        let mut input = child.stdin.take().ok_or(())?;
+        write!(input, "{{\"message\":\"{message}\",\"content\":\"").map_err(|_| ())?;
+        write_github_base64(&mut input, file)?;
+        write!(input, "\",\"branch\":\"{GITHUB_BRANCH}\"").map_err(|_| ())?;
+        if let Some(sha) = sha {
+            write!(input, ",\"sha\":\"{sha}\"").map_err(|_| ())?;
+        }
+        input.write_all(b"}").map_err(|_| ())?;
+        drop(input);
+        if child.wait().map_err(|_| ())?.success() {
+            Ok(())
+        } else {
+            Err(())
+        }
+    })();
+    if result.is_err() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    result
+}
+
+#[cfg(unix)]
+fn publish_local_update_to_github(
+    roots: &LocalCoreRoots,
+    publication: &std::path::Path,
+    generation_id: &str,
+) -> GithubPublicationOutcome {
+    let Some(gh) = github_cli_path(roots) else {
+        return GithubPublicationOutcome::Skipped;
+    };
+    let Ok(home) = required_absolute_env_path("HOME") else {
+        return GithubPublicationOutcome::Skipped;
+    };
+    if !github_authenticated(&gh, &home) {
+        return GithubPublicationOutcome::Skipped;
+    }
+    let release = publication.join("releases").join(generation_id);
+    let message = format!("codex update: publish {generation_id}");
+    for (name, file) in [
+        ("generation.meta", release.join("generation.meta")),
+        ("runtime", release.join("runtime")),
+        (CODE_MODE_HOST_FILE, release.join(CODE_MODE_HOST_FILE)),
+        ("release.manifest", release.join("release.manifest")),
+        ("release.sig", release.join("release.sig")),
+    ] {
+        if github_put_file(
+            &gh,
+            &home,
+            &format!("releases/{generation_id}/{name}"),
+            &file,
+            &message,
+            None,
+        )
+        .is_err()
+        {
+            return GithubPublicationOutcome::Failed;
+        }
+    }
+    let index = publication.join("update-index-v1");
+    let index_signature = publication.join("update-index-v1.sig");
+    let index_sha = match github_content_sha(&gh, &home, "update-index-v1") {
+        Ok(sha) => sha,
+        Err(()) => return GithubPublicationOutcome::Failed,
+    };
+    let index_signature_sha = match github_content_sha(&gh, &home, "update-index-v1.sig") {
+        Ok(sha) => sha,
+        Err(()) => return GithubPublicationOutcome::Failed,
+    };
+    if github_put_file(
+        &gh,
+        &home,
+        "update-index-v1.sig",
+        &index_signature,
+        &message,
+        index_signature_sha.as_deref(),
+    )
+    .is_err()
+    {
+        return GithubPublicationOutcome::Failed;
+    }
+    if github_put_file(
+        &gh,
+        &home,
+        "update-index-v1",
+        &index,
+        &message,
+        index_sha.as_deref(),
+    )
+    .is_err()
+    {
+        return GithubPublicationOutcome::Failed;
+    }
+    GithubPublicationOutcome::Published
+}
+
+#[cfg(unix)]
 static REMOTE_ACQUISITION_COUNTER: std::sync::atomic::AtomicU64 =
     std::sync::atomic::AtomicU64::new(0);
 
@@ -5631,6 +6710,22 @@ fn activate_signed_update_channel(
         ));
     }
     Ok(activated)
+}
+
+#[cfg(unix)]
+fn activate_unified_update(
+    roots: &LocalCoreRoots,
+    process_env: &TermuxProcessEnvSnapshot,
+) -> Result<(String, bool, GithubPublicationOutcome), LocalProductError> {
+    match activate_signed_update_channel(roots, process_env) {
+        Ok(generation_id) => Ok((generation_id, false, GithubPublicationOutcome::Skipped)),
+        Err(LocalProductError::RemoteTransportFailed) => {
+            let (generation_id, publication) = activate_local_built_update(roots, process_env)?;
+            let upload = publish_local_update_to_github(roots, &publication, &generation_id);
+            Ok((generation_id, true, upload))
+        }
+        Err(error) => Err(error),
+    }
 }
 
 #[cfg(unix)]
@@ -6684,9 +7779,24 @@ fn run_core_update(args: Vec<OsString>) -> i32 {
             }
         };
         let process_env = capture_termux_process_env();
-        return match activate_signed_update_channel(&roots, &process_env) {
-            Ok(generation_id) => {
-                println!("activated channel generation {generation_id}");
+        return match activate_unified_update(&roots, &process_env) {
+            Ok((generation_id, locally_built, upload)) => {
+                if locally_built {
+                    println!("activated local-built generation {generation_id}");
+                    match upload {
+                        GithubPublicationOutcome::Published => {
+                            println!("published local generation {generation_id}");
+                        }
+                        GithubPublicationOutcome::Failed => {
+                            eprintln!(
+                                "codex update: local generation activated; GitHub publication failed"
+                            );
+                        }
+                        GithubPublicationOutcome::Skipped => {}
+                    }
+                } else {
+                    println!("activated channel generation {generation_id}");
+                }
                 0
             }
             Err(err) => {
@@ -8964,6 +10074,10 @@ exit 73
     const UPDATE_PROBE_REMOTE: &str = "CODEX_R2_UPDATE_REMOTE";
     #[cfg(unix)]
     const UPDATE_PROBE_CHANNEL: &str = "CODEX_R4_UPDATE_CHANNEL";
+    #[cfg(unix)]
+    const GITHUB_UPLOAD_PROBE_ROLE: &str = "CODEX_R7_GITHUB_UPLOAD_PROBE";
+    #[cfg(unix)]
+    const GITHUB_UPLOAD_PUBLICATION: &str = "CODEX_R7_GITHUB_UPLOAD_PUBLICATION";
 
     #[cfg(unix)]
     fn b4_termux_openssl() -> std::path::PathBuf {
@@ -11156,6 +12270,250 @@ esac
 
     #[cfg(unix)]
     #[test]
+    fn test_r7_official_release_metadata_binds_stable_version_and_target_digest() {
+        let digest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let metadata = format!(
+            "{{\"assets\":[{{\"name\":\"other\",\"digest\":\"sha256:{digest}\"}},{{\"name\":\"{UPSTREAM_PACKAGE_ASSET}\",\"digest\":\"sha256:{digest}\"}}],\"tag_name\":\"rust-v1.2.3\"}}"
+        );
+        assert_eq!(
+            parse_official_release_metadata(metadata.as_bytes(), None).unwrap(),
+            OfficialReleaseMetadata {
+                version: "1.2.3".to_owned(),
+                package_sha256: digest.to_owned(),
+            }
+        );
+        assert!(matches!(
+            parse_official_release_metadata(metadata.as_bytes(), Some("1.2.4")),
+            Err(LocalProductError::LocalUpdate(
+                "upstream release metadata version does not match the requested version"
+            ))
+        ));
+        assert!(matches!(
+            parse_official_release_metadata(
+                br#"{"assets":[],"tag_name":"rust-v1.2.3",,"bad":true}"#,
+                None
+            ),
+            Err(LocalProductError::LocalUpdate(
+                "upstream release metadata is malformed"
+            ))
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_r7_signed_channel_hit_skips_local_build_and_publication() {
+        let fixture = b5_channel_fixture("r7-channel-hit", "r7-channel-next");
+        let output = b5_run_public_channel_update(
+            &fixture.index_url,
+            &fixture.home,
+            &fixture.prefix,
+            &fixture.tmp,
+        );
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "stdout={:?} stderr={:?}",
+            output.stdout,
+            output.stderr
+        );
+        assert!(output
+            .stdout
+            .windows(b"activated channel generation r7-channel-next\n".len())
+            .any(|window| window == b"activated channel generation r7-channel-next\n"));
+        assert!(!fixture.home.join(LOCAL_PUBLICATION_ROOT_RELATIVE).exists());
+        let calls = std::fs::read_to_string(&fixture.curl_log).unwrap();
+        assert!(calls.contains(&fixture.index_url));
+        assert!(calls.contains(&fixture.base));
+        assert!(!calls.contains(DEFAULT_UPSTREAM_LATEST_URL));
+        remove_temp_root(fixture.root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_r7_bare_update_transport_fallback_builds_and_activates_local_release() {
+        let root = temp_root("r7-local-fallback");
+        let openssl = b4_termux_openssl();
+        let (home, prefix, tmp) = b4_prepare_public_environment(&root, &openssl, true);
+        let prefix_openssl = prefix.join("bin/openssl");
+        std::fs::remove_file(&prefix_openssl).unwrap();
+        std::fs::copy(&openssl, &prefix_openssl).unwrap();
+        let live_gzip =
+            std::path::PathBuf::from(std::env::var_os("PREFIX").unwrap()).join("bin/gzip");
+        let fixture_gzip = prefix.join("bin/gzip");
+        std::fs::copy(&live_gzip, &fixture_gzip).unwrap();
+
+        let private_key = root.join("keys/private.pem");
+        let public_key = root.join("keys/public.pem");
+        b4_generate_release_keypair(&openssl, &private_key, &public_key);
+        b4_install_trusted_release_key(&home, &public_key);
+        let source_roots = b4_source_roots(&root.join("source"), &openssl);
+        std::fs::create_dir_all(&source_roots.generation_root).unwrap();
+        let current = b2_write_generation(&source_roots, "r7-current", false, "unsupported");
+        b4_write_signed_release(&current, 1, &openssl, &private_key);
+        b7_seed_initial_release(
+            &current,
+            &home,
+            &prefix,
+            &home.join(".local/lib/codex/core/release-public-key.pem"),
+        );
+        std::fs::remove_file(home.join(".local/lib/codex/core/release-public-key.pem")).unwrap();
+
+        let runtime_source = b8_compile_static_probe_runtime(&root);
+        let archive = root.join(UPSTREAM_PACKAGE_ASSET);
+        let raw_runtime = std::fs::read(&runtime_source).unwrap();
+        b6_write_official_shape_archive_with_runtime(&fixture_gzip, &archive, &raw_runtime);
+        let archive_digest = openssl_sha256(&openssl, &archive).unwrap();
+        let metadata_path = root.join("upstream-release.json");
+        std::fs::write(
+            &metadata_path,
+            format!(
+                "{{\"tag_name\":\"rust-v0.150.1\",\"assets\":[{{\"name\":\"{UPSTREAM_PACKAGE_ASSET}\",\"digest\":\"sha256:{archive_digest}\"}}]}}"
+            ),
+        )
+        .unwrap();
+        let index_url = "https://updates.example.invalid/codex/update-index-v1";
+        let metadata_url = DEFAULT_UPSTREAM_LATEST_URL.to_owned();
+        let archive_url =
+            format!("{UPSTREAM_RELEASE_METADATA_BASE}/0.150.1/{UPSTREAM_PACKAGE_ASSET}");
+        let curl_log = root.join("r7-curl-log");
+        b7_write_local_update_curl(
+            &prefix.join("bin/curl"),
+            &curl_log,
+            index_url,
+            &metadata_url,
+            &metadata_path,
+            &archive_url,
+            &archive,
+        );
+        b7_write_fake_github_cli(
+            &prefix.join("bin/gh"),
+            &root.join("r7-gh-log"),
+            &root.join("r7-gh-body"),
+            77,
+        );
+
+        let output =
+            b7_run_public_local_fallback(index_url, None, &private_key, &home, &prefix, &tmp);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "stdout={:?} stderr={:?}",
+            output.stdout,
+            output.stderr
+        );
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert!(stdout.contains("activated local-built generation local-"));
+        assert!(String::from_utf8_lossy(&output.stderr)
+            .contains("local generation activated; GitHub publication failed"));
+        let calls = std::fs::read_to_string(&curl_log).unwrap();
+        assert!(calls.contains(index_url));
+        assert!(calls.contains(&metadata_url));
+        assert!(calls.contains(&archive_url));
+
+        let roots = b7_public_roots(&home, &prefix);
+        let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+        let state = read_pointer_state(&paths).unwrap().unwrap();
+        assert!(state.current.starts_with("local-"));
+        assert_eq!(state.previous.as_deref(), Some("r7-current"));
+        let (_, loaded) = verify_installed_local_release(
+            &roots,
+            &state.current,
+            state.current_key,
+            "R7 local fallback generation id mismatch",
+        )
+        .unwrap();
+        assert_eq!(loaded.manifest.upstream_package_version, "0.150.1");
+        assert_eq!(loaded.generation_layout, GenerationLayout::RootCodeModeHost);
+        let publication = home
+            .join(LOCAL_PUBLICATION_ROOT_RELATIVE)
+            .join(&state.current);
+        assert!(publication.join("update-index-v1").is_file());
+        assert!(publication
+            .join("releases")
+            .join(&state.current)
+            .join(CODE_MODE_HOST_FILE)
+            .is_file());
+        assert!(std::fs::read_dir(&roots.state_root).unwrap().all(|entry| {
+            !entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".local-update-")
+        }));
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_r7_authenticated_github_publication_is_ordered_and_activation_independent() {
+        let root = temp_root("r7-github-publication");
+        let home = root.join("home");
+        let prefix = root.join("prefix");
+        let publication = home.join(LOCAL_PUBLICATION_ROOT_RELATIVE).join("local-g1");
+        let release = publication.join("releases/local-g1");
+        std::fs::create_dir_all(&release).unwrap();
+        for name in [
+            "generation.meta",
+            "runtime",
+            CODE_MODE_HOST_FILE,
+            "release.manifest",
+            "release.sig",
+        ] {
+            std::fs::write(release.join(name), format!("fixture-{name}")).unwrap();
+        }
+        std::fs::write(publication.join("update-index-v1"), b"index").unwrap();
+        std::fs::write(publication.join("update-index-v1.sig"), b"signature").unwrap();
+        std::fs::create_dir_all(prefix.join("bin")).unwrap();
+        let log = root.join("gh-log");
+        let body = root.join("gh-body");
+        b7_write_fake_github_cli(&prefix.join("bin/gh"), &log, &body, 0);
+
+        let state_sentinel = home.join(".local/share/codex/core/activation-state");
+        std::fs::create_dir_all(state_sentinel.parent().unwrap()).unwrap();
+        std::fs::write(&state_sentinel, b"state-before-upload").unwrap();
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .arg("tests::github_upload_probe")
+            .arg("--exact")
+            .arg("--nocapture")
+            .env(GITHUB_UPLOAD_PROBE_ROLE, "1")
+            .env(GITHUB_UPLOAD_PUBLICATION, &publication)
+            .env("HOME", &home)
+            .env("PREFIX", &prefix)
+            .env("TMPDIR", root.join("tmp"))
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "stdout={:?} stderr={:?}",
+            output.stdout,
+            output.stderr
+        );
+        let log = std::fs::read_to_string(&log).unwrap();
+        let puts: Vec<_> = log
+            .lines()
+            .filter(|line| line.starts_with("PUT "))
+            .collect();
+        assert_eq!(puts.len(), 7);
+        assert!(puts[0].ends_with("releases/local-g1/generation.meta"));
+        assert!(puts[1].ends_with("releases/local-g1/runtime"));
+        assert!(puts[2].ends_with(&format!("releases/local-g1/{CODE_MODE_HOST_FILE}")));
+        assert!(puts[3].ends_with("releases/local-g1/release.manifest"));
+        assert!(puts[4].ends_with("releases/local-g1/release.sig"));
+        assert!(puts[5].ends_with("update-index-v1.sig"));
+        assert!(puts[6].ends_with("update-index-v1"));
+        assert!(!std::fs::read_to_string(&body)
+            .unwrap()
+            .contains("private-key"));
+        assert_eq!(
+            std::fs::read(&state_sentinel).unwrap(),
+            b"state-before-upload"
+        );
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn test_m2_b8_slice3_release_production_to_bootstrap_flow() {
         use std::ffi::OsString;
 
@@ -11439,6 +12797,39 @@ esac
             .env_remove("SSL_CERT_DIR")
             .output()
             .unwrap()
+    }
+
+    #[cfg(unix)]
+    fn b7_run_public_local_fallback(
+        index_url: &str,
+        version: Option<&str>,
+        private_key: &std::path::Path,
+        home: &std::path::Path,
+        prefix: &std::path::Path,
+        tmp: &std::path::Path,
+    ) -> std::process::Output {
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command
+            .arg("tests::public_update_probe")
+            .arg("--exact")
+            .arg("--nocapture")
+            .env(UPDATE_PROBE_ROLE, "1")
+            .env(UPDATE_PROBE_CHANNEL, "1")
+            .env_remove(UPDATE_PROBE_SOURCE)
+            .env_remove(UPDATE_PROBE_REMOTE)
+            .env("CODEX_TERMUX_UPDATE_INDEX_URL", index_url)
+            .env(UPDATE_PRIVATE_KEY_ENV, private_key)
+            .env("HOME", home)
+            .env("PREFIX", prefix)
+            .env("TMPDIR", tmp)
+            .env_remove("SSL_CERT_FILE")
+            .env_remove("SSL_CERT_DIR");
+        if let Some(version) = version {
+            command.env(UPDATE_VERSION_ENV, version);
+        } else {
+            command.env_remove(UPDATE_VERSION_ENV);
+        }
+        command.output().unwrap()
     }
 
     #[cfg(unix)]
@@ -12485,6 +13876,33 @@ esac
         std::io::stdout().flush().unwrap();
         std::io::stderr().flush().unwrap();
         std::process::exit(code);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn github_upload_probe() {
+        if std::env::var(GITHUB_UPLOAD_PROBE_ROLE).as_deref() != Ok("1") {
+            return;
+        }
+        let roots = LocalCoreRoots::from_environment().unwrap();
+        let publication = std::path::PathBuf::from(
+            std::env::var_os(GITHUB_UPLOAD_PUBLICATION).expect("publication path is required"),
+        );
+        let generation_id = publication
+            .join("releases")
+            .read_dir()
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .file_name()
+            .into_string()
+            .unwrap();
+        assert_eq!(
+            publish_local_update_to_github(&roots, &publication, &generation_id),
+            GithubPublicationOutcome::Published
+        );
+        std::process::exit(0);
     }
 
     #[cfg(unix)]
@@ -14028,6 +15446,137 @@ exec "$cat_path" "$release_root/$relative"
             ),
         )
         .unwrap();
+        let mut permissions = std::fs::metadata(path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(path, permissions).unwrap();
+    }
+
+    #[cfg(unix)]
+    fn b7_write_local_update_curl(
+        path: &std::path::Path,
+        log: &std::path::Path,
+        index_url: &str,
+        metadata_url: &str,
+        metadata_path: &std::path::Path,
+        archive_url: &str,
+        archive_path: &std::path::Path,
+    ) {
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::PermissionsExt;
+
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let shell = resolve_test_shell();
+        let shell = std::str::from_utf8(shell.as_bytes()).expect("test shell path must be UTF-8");
+        let cat = std::path::PathBuf::from(std::env::var_os("PREFIX").unwrap()).join("bin/cat");
+        assert!(
+            cat.is_file(),
+            "Termux cat is required for R7 fixture transport"
+        );
+        let log = b5_shell_quote(log);
+        let signature_url = format!("{index_url}.sig");
+        let index_url = b5_shell_quote_text(index_url);
+        let signature_url = b5_shell_quote_text(&signature_url);
+        let metadata_url = b5_shell_quote_text(metadata_url);
+        let metadata_path = b5_shell_quote(metadata_path);
+        let archive_url = b5_shell_quote_text(archive_url);
+        let archive_path = b5_shell_quote(archive_path);
+        let cat = b5_shell_quote(&cat);
+        let script = format!(
+            concat!(
+                "#!{}\n",
+                "index_url={}\n",
+                "signature_url={}\n",
+                "metadata_url={}\n",
+                "metadata_path={}\n",
+                "archive_url={}\n",
+                "archive_path={}\n",
+                "cat_path={}\n",
+                "url=\n",
+                "while [ \"$#\" -gt 0 ]; do\n",
+                "  if [ \"$1\" = \"--url\" ]; then\n",
+                "    shift\n",
+                "    [ \"$#\" -gt 0 ] || exit 98\n",
+                "    url=\"$1\"\n",
+                "  fi\n",
+                "  shift\n",
+                "done\n",
+                "printf '%s\\n' \"$url\" >> {}\n",
+                "case \"$url\" in\n",
+                "  \"$index_url\"|\"$signature_url\") exit 7 ;;\n",
+                "  \"$metadata_url\") exec \"$cat_path\" \"$metadata_path\" ;;\n",
+                "  \"$archive_url\") exec \"$cat_path\" \"$archive_path\" ;;\n",
+                "  *) exit 99 ;;\n",
+                "esac\n"
+            ),
+            shell,
+            index_url,
+            signature_url,
+            metadata_url,
+            metadata_path,
+            archive_url,
+            archive_path,
+            cat,
+            log,
+        );
+        std::fs::write(path, script).unwrap();
+        let mut permissions = std::fs::metadata(path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(path, permissions).unwrap();
+    }
+
+    #[cfg(unix)]
+    fn b7_write_fake_github_cli(
+        path: &std::path::Path,
+        log: &std::path::Path,
+        body: &std::path::Path,
+        exit_put: i32,
+    ) {
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::PermissionsExt;
+
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let shell = resolve_test_shell();
+        let shell = std::str::from_utf8(shell.as_bytes()).expect("test shell path must be UTF-8");
+        let cat = std::path::PathBuf::from(std::env::var_os("PREFIX").unwrap()).join("bin/cat");
+        let log = b5_shell_quote(log);
+        let body = b5_shell_quote(body);
+        let cat = b5_shell_quote(&cat);
+        let script = format!(
+            concat!(
+                "#!{}\n",
+                "cat_path={}\n",
+                "printf 'CALL\\n' >> {}\n",
+                "for argument in \"$@\"; do printf '%s\\n' \"$argument\" >> {}; done\n",
+                "if [ \"$1\" = \"auth\" ]; then exit 0; fi\n",
+                "method=\n",
+                "endpoint=\n",
+                "expect_method=\n",
+                "for argument in \"$@\"; do\n",
+                "  if [ \"$expect_method\" = \"1\" ]; then method=\"$argument\"; expect_method=; fi\n",
+                "  if [ \"$argument\" = \"--method\" ]; then expect_method=1; fi\n",
+                "  case \"$argument\" in repos/*) endpoint=\"$argument\" ;; esac\n",
+                "done\n",
+                "if [ \"$method\" = \"PUT\" ]; then\n",
+                "  printf 'PUT %s\\n' \"$endpoint\" >> {}\n",
+                "  printf 'BODY\\n' >> {}\n",
+                "  \"$cat_path\" >> {}\n",
+                "  printf '\\nEND\\n' >> {}\n",
+                "  exit {}\n",
+                "fi\n",
+                "printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\n'\n",
+                "exit 0\n"
+            ),
+            shell,
+            cat,
+            log,
+            log,
+            log,
+            body,
+            body,
+            body,
+            exit_put,
+        );
+        std::fs::write(path, script).unwrap();
         let mut permissions = std::fs::metadata(path).unwrap().permissions();
         permissions.set_mode(0o755);
         std::fs::set_permissions(path, permissions).unwrap();

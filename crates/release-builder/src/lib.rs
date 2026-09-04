@@ -2341,6 +2341,70 @@ fn build(request: &BuildRequest) -> Result<(), BuilderError> {
     }
 }
 
+/// Runs the bounded official-archive acquisition without going through the
+/// human-facing command dispatcher. Core uses this for its local update path.
+pub fn fetch_archive(
+    version: &str,
+    curl: &Path,
+    openssl: &Path,
+    output: &Path,
+) -> Result<String, String> {
+    fetch(&FetchRequest {
+        version: version.to_owned(),
+        curl: curl.to_owned(),
+        openssl: openssl.to_owned(),
+        output: output.to_owned(),
+    })
+    .map_err(|error| error.to_string())
+}
+
+/// Runs the bounded upstream adaptation into one absent unsigned generation.
+#[allow(clippy::too_many_arguments)]
+pub fn build_generation(
+    version: &str,
+    archive: &Path,
+    archive_sha256: &str,
+    generation_id: &str,
+    core: &Path,
+    creation_metadata: &str,
+    gzip: &Path,
+    openssl: &Path,
+    output: &Path,
+) -> Result<(), String> {
+    build(&BuildRequest {
+        version: version.to_owned(),
+        archive: archive.to_owned(),
+        archive_sha256: archive_sha256.to_owned(),
+        generation_id: generation_id.to_owned(),
+        core: core.to_owned(),
+        creation_metadata: creation_metadata.to_owned(),
+        gzip: gzip.to_owned(),
+        openssl: openssl.to_owned(),
+        output: output.to_owned(),
+    })
+    .map_err(|error| error.to_string())
+}
+
+/// Signs one qualified generation into a complete local publication tree.
+pub fn publish_generation(
+    generation: &Path,
+    release_sequence: &str,
+    release_base: &str,
+    private_key: &Path,
+    openssl: &Path,
+    output: &Path,
+) -> Result<String, String> {
+    publish(&PublishRequest {
+        generation: generation.to_owned(),
+        release_sequence: release_sequence.to_owned(),
+        release_base: release_base.to_owned(),
+        private_key: private_key.to_owned(),
+        openssl: openssl.to_owned(),
+        output: output.to_owned(),
+    })
+    .map_err(|error| error.to_string())
+}
+
 pub fn run_from_args<I, S>(args: I) -> i32
 where
     I: IntoIterator<Item = S>,

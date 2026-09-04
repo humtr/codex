@@ -51,7 +51,7 @@ adapted generation.
 | --- | --- | --- |
 | `codex [UPSTREAM_ARGS...]` | Core | execute upstream with original arguments |
 | `codex --version`, `codex -V` | upstream | print exactly the upstream version output |
-| `codex update` | Core | resolve the signed stable wrapper release channel, acquire its already-patched generation, and activate it through the authenticated Core path |
+| `codex update` | Core | resolve the signed stable wrapper release channel; when the wrapper release is unavailable, build and sign one qualified local generation from the official upstream archive, then activate it through the authenticated Core path |
 | `codex update --help` | Core | print the wrapper-owned update usage without invoking upstream or changing state |
 | `codex update [INVALID_ARGS...]` | Core | reject unsupported updater options without invoking upstream or changing state |
 | `codex update --local <DIRECTORY>` | Core | verify, stage, probe, and activate one compatible local generation |
@@ -66,11 +66,19 @@ be appended to upstream `--version` or `-V` output.
 The Core-owned update surface accepts exactly no arguments, `--help`,
 `--local <DIRECTORY>`, `--remote <HTTPS_BASE_URL>`, or `--rollback` after
 `update`. A malformed invocation beginning with one of those Core selectors is
-a Core usage error. The local form and rollback remain fully offline. The
-explicit remote form is an immutable signed-generation source. No top-level
-`codex update` argument is passed to upstream, and Core never invokes a package
-manager or an upstream self-updater. Rollback is an explicit Core operation,
-not an ordinary-launch fallback and not a search through generation history.
+a Core usage error. The no-argument form is the primary product path: it first
+tries the signed stable wrapper channel and, only when that channel or its
+already-published release is unavailable at the transport boundary, runs the
+local release-production fallback defined in Section 8. A verified index with
+an invalid signature, malformed fields, an incompatible release, a digest or
+mode mismatch, a candidate-probe failure, or an activation failure is never
+converted into a local-build fallback. The explicit local, remote, and rollback
+forms remain secondary diagnostic/recovery paths; local and rollback remain
+offline, and the explicit remote form remains an immutable signed-generation
+source. No top-level `codex update` argument is passed to upstream, and Core
+never invokes a package manager or an upstream self-updater. Rollback is an
+explicit Core operation, not an ordinary-launch fallback and not a search
+through generation history.
 
 Internal release IDs, component digests, API versions, and schema versions are
 still mandatory for update, diagnosis, and rollback. They may appear only on a
@@ -173,9 +181,13 @@ Acquisition and adaptation are release-production work. The wrapper release
 pipeline retrieves the exact official package, supplies its pinned digest to
 the real non-installed workspace executable named `codex-release-builder`,
 and signs the resulting adapted generation for delivery. The installed Core
-does not compile, run the release builder, patch a raw upstream executable, or
-execute an upstream self-updater; its update path accepts only the signed
-adapted generation produced by that pipeline. The builder's `fetch` operation
+does not compile itself, install a Rust toolchain, or execute an upstream
+self-updater. It contains the same bounded release-production routines needed
+by the no-argument local fallback; those routines may fetch the official
+archive, adapt the raw runtime, qualify the result, and sign it with the
+already-authorized update key. The fallback never accepts a raw archive as an
+activation candidate and never bypasses signed local admission. The builder's
+`fetch` operation
 accepts one explicit stable `MAJOR.MINOR.PATCH` version, constructs only the
 canonical official archive URL above, and downloads that archive with bounded
 HTTPS transport into one absent local regular-file output. It prints the exact
@@ -241,6 +253,52 @@ inventory, lowercase SHA-256 digest, and four-octal-digit regular-file mode
 for each of the three generation files. The local `releases/<id>` tree is the
 directory to map to the URL represented by `release_base`; `publish` performs
 no network upload and does not assume that the URL is hosted by OpenAI.
+
+The no-argument local fallback resolves the upstream version before building.
+When `CODEX_TERMUX_UPDATE_VERSION` is set, it must be one explicit stable
+`MAJOR.MINOR.PATCH` value and Core fetches that exact version's official
+`release.json`. Otherwise Core fetches the bounded official
+`https://releases.openai.com/codex/channels/latest` metadata, extracts the
+`rust-v<version>` tag and the digest for the exact
+`codex-package-aarch64-unknown-linux-musl.tar.gz` asset, and then uses only
+that resolved stable version. The metadata is a version/digest selector, not
+an activation authority: the builder still downloads the exact versioned
+archive, and Core compares the resulting archive digest to the metadata
+digest before adaptation. Missing, malformed, non-stable, mismatched, or
+unavailable metadata fails closed; no mirror, package manager, mutable raw
+runtime, or upstream self-updater is accepted.
+
+The fallback uses the running authenticated Core executable as the `--core`
+input, the Termux `curl`, `gzip`, and `openssl` tools, and the private signing key at
+`CODEX_TERMUX_UPDATE_PRIVATE_KEY` when set, otherwise at
+`$HOME/.config/codex/termux/update-private-key.pem`. The key path must be an
+absolute regular file of at most 16 KiB, mode `0600` or stricter, and its
+derived public key must equal the recovered v3 `update_key`; a missing or
+mismatched key fails closed before activation. The private key is read only
+for local signing, is never copied into a generation, publication, repository,
+or upload, and is never printed.
+
+The local fallback allocates a fresh generation identity and release sequence
+greater than the active signed release, writes the complete signed publication
+under
+`~/.local/lib/codex/core/publications/<generation_id>/`, and activates its
+`releases/<generation_id>/` child through the same local admission, candidate
+probe, atomic state transaction, and one-generation rollback path as every
+other update. The publication store is wrapper-owned release content, not
+mutable user or Manager state. Temporary archive/build material is private,
+bounded, and removed before success is reported. The fallback never invokes,
+installs, selects, or repairs `bwrap`.
+
+After a successful local activation, Core may publish the complete local tree
+to the fixed wrapper publication target `humtr/codex` on branch `main` when
+the local GitHub CLI at `$PREFIX/bin/gh` reports an authenticated account.
+This optional best-effort step is attempted only after activation, uploads the
+new release files before replacing the signed `update-index-v1`, never uploads
+the private key, and reports upload failure without undoing the locally
+activated generation. It changes no OpenAI repository and does not make remote
+publication a prerequisite for local success. The account credential and the
+release `update_key` private key are separate authorities; account
+authentication alone cannot authorize a release for Core.
 
 All source files are snapshotted into private staging, revalidated as regular
 files, and copied without following symlinks. Final modes are applied before
@@ -355,6 +413,7 @@ $PREFIX/bin/codex                                      stable public entrypoint
   manager                                              optional Manager executable
   helpers/<index>                                      optional helper artifacts
 ~/.local/lib/codex/core/generations/.acquire-*/        private incomplete remote source; never activatable
+~/.local/lib/codex/core/publications/<id>/             locally built signed publication cache
 ~/.local/lib/codex/core/release-public-key.pem         bootstrap-only initial trust seed; never update fallback
 ~/.local/share/codex/core/activation-state            authoritative generation + bounded trust state
 ~/.local/share/codex/core/activation-journal[.tmp]    crash-recovery transaction state
@@ -558,7 +617,10 @@ migration input nor copied into Core state. Qualification compares protected-
 state identities before and after the handoff rather than adopting a legacy
 schema.
 
-Normal installation and update must not require on-device compilation.
+Normal installation and update must not require on-device Rust, Cargo, or
+Clang compilation. The no-argument update fallback is a bounded execution of
+the prebuilt release-builder routines already contained in Core; it is not a
+Core self-recompile or a package-manager installation.
 
 After bootstrap, the Core owns every top-level `codex update` form. `install.sh`
 is not an update dispatcher and must not bypass the authenticated local
@@ -566,8 +628,9 @@ admission, staging, probe, activation, or rollback path. The local, explicit
 remote, and automatic channel forms use the same forward activation
 transaction, and rollback remains the explicit swap of the one retained
 complete previous generation. A bare `codex update` is never the upstream
-command: it resolves a wrapper-owned signed channel and therefore cannot
-install an unpatched upstream runtime.
+command: it resolves a wrapper-owned signed channel or builds one through the
+local fallback below, and therefore cannot install an unpatched upstream
+runtime.
 
 The automatic stable channel is represented by a bounded signed index. Its
 default control URL is
@@ -591,21 +654,29 @@ the signed identity. After index signature verification, Core invokes the
 existing signed remote-generation acquisition path. Index transport failure,
 signature failure, malformed discovery, or release qualification failure is a
 hard failure for that attempt; there is no fallback to upstream, a package
-manager, an alternate mirror, or a raw package.
+manager, an alternate mirror, or a raw package. A transport-level absence or
+ unavailability while resolving the automatic channel may enter the local
+ release-production fallback below; an index or release that was received but
+ failed signature, format, policy, digest, mode, compatibility, probe, or
+ activation validation may not.
 
 The signed index is a pointer to an already-adapted wrapper generation, not an
 upstream source authority. The only upstream source authority is the official
 versioned OpenAI archive acquired by the release-production `fetch` operation
-and consumed by `build` before qualification and signing. Consequently, an
-installed Core update never downloads a raw upstream archive or runs a build;
-it downloads and verifies the published adapted generation selected by the
-signed index.
+and consumed by `build` before qualification and signing. In the primary
+no-argument path, when the wrapper publication is transport-unavailable, Core
+may perform that same fetch/build/publish sequence locally and then feed the
+result to signed local admission. It never downloads a raw upstream archive
+directly into the active generation and never runs an upstream self-updater.
 
 `codex update` must:
 
 1. recover the authoritative v3 state and resolve one immutable signed wrapper
    release against its `update_key` (automatic update first verifies the signed
-   channel index, while explicit remote update starts from its supplied base);
+   channel index, while explicit remote update starts from its supplied base;
+   transport-level automatic-channel absence enters the local build path,
+   which resolves and digest-binds one exact official upstream version before
+   building);
 2. enforce architecture, API, channel, and the existing monotonic
    release-sequence anti-rollback policy;
 3. download into a private staging location or accept an explicit local
@@ -613,7 +684,9 @@ signed index.
 4. verify the required current-authority and candidate-key signatures, exact
    digest/mode inventory, archive safety where applicable, and compatibility
    metadata;
-5. build and probe a complete candidate generation;
+5. resolve the exact official upstream version and package digest, then build,
+   sign, and probe a complete candidate generation when the local fallback is
+   selected;
 6. atomically publish the new trust-and-generation state;
 7. retain one complete previous generation with its exact verifier key as
    rollback state;

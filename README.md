@@ -18,26 +18,32 @@ boundary, signed-channel admission, doctor presentation, and code-mode
 companion placement are also accepted. R5 adds the Rust release-builder fetch
 path for official upstream build inputs. R6 adds the non-installed publisher
 that creates the signed wrapper index and adapted release tree consumed by
-Core; its acceptance evidence is recorded in `GOAL.md`.
+Core. R7 is implementing the unified bare-update fallback; its acceptance
+evidence is not recorded yet.
 
 The R4 Core launcher is installed in the working Termux runtime through a
-bounded, digest-checked device cutover. Ordinary `codex update` is now owned by
-Core and can activate only a signed generation prepared by the wrapper release
-pipeline; it never delegates to the upstream self-updater. The existing signed
-v1 generation remains active, so `codex doctor` reports its legacy `compat/`
-layout as `migration_required` until a newly signed root-level companion
-generation is delivered. Publishing that signed channel to the external wrapper
-distribution surface remains a separate operational gate.
+bounded, digest-checked device cutover. Ordinary `codex update` is owned by
+Core and can activate only a signed generation. It first consumes a signed
+adapted build from `humtr/codex`; when that channel is unavailable at the
+transport boundary, the in-process prebuilt release-builder path resolves the
+official upstream release metadata, verifies the exact package digest, builds
+and signs a Termux generation, and activates it through the same admission
+path. It never delegates to the upstream self-updater. An authenticated `gh`
+account may publish the successfully activated local bundle afterward. The
+existing signed v1 generation remains active, so `codex doctor` reports its
+legacy `compat/` layout as `migration_required` until a newly signed root-level
+companion generation is delivered.
 
 `codex-release-builder fetch --version <MAJOR.MINOR.PATCH>` obtains only the
-official versioned OpenAI archive, prints its exact SHA-256, and leaves the
-installed Core out of the build step. The release pipeline passes that archive
-and digest to `codex-release-builder build`, then passes the unsigned generation
-to `codex-release-builder publish` with the current release private key. The
-publisher emits `update-index-v1[.sig]` and `releases/<generation-id>/` using
-the Core `codex-release-v3` format; it performs no upload to OpenAI or any
-remote service. A deployment must publish that generated tree through the
-wrapper's chosen distribution surface before live `codex update` can succeed.
+official versioned OpenAI archive and prints its exact SHA-256. The release
+pipeline passes that archive and digest to `codex-release-builder build`, then
+passes the unsigned generation to `codex-release-builder publish` with the
+current release private key. Bare Core update uses those same prebuilt library
+routines when the wrapper channel is unavailable; it does not compile Rust or
+install a toolchain on-device. The publisher emits `update-index-v1[.sig]` and
+`releases/<generation-id>/` using the Core `codex-release-v3` format. Optional
+GitHub publication is performed only after local activation and never uploads
+the signing key.
 
 The publication command is:
 
