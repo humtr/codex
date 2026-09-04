@@ -1648,7 +1648,7 @@ Termux qualification. Produce one candidate for independent product review.
   External publication with the active update key is still a separately
   authorized operational step, so live `codex update` remains fail-closed.
 
-## R7 Unified Bare Update (in progress)
+## R7 Unified Bare Update (accepted)
 
 - The user has expanded the post-M2 update requirement: one bare `codex update`
   must first look for a signed adapted build in `humtr/codex`; when the remote
@@ -1667,11 +1667,33 @@ Termux qualification. Produce one candidate for independent product review.
   local publication store. If GitHub CLI account authentication is available,
   Core may best-effort publish the release tree and then the signed index to
   `humtr/codex`/`main`; upload failure must not undo the local activation.
-- R7 is not accepted yet. Its proof slices are remote-hit routing, transport
-  absence fallback, local build/sign/admission/activation, invalid-remote
-  fail-closed behavior, optional upload isolation, protected-state checks, and
-  grouped acceptance on one committed revision. No live runtime cutover or
-  remote push is part of the source implementation proof.
+- R7 is accepted at product tip `55d8a49` on `rewrite/rust-core`. The remote-hit
+  regression proves a signed `humtr/codex` channel release is used without
+  entering local production. The transport-absence regression proves the
+  official latest metadata is resolved to one stable version and target digest,
+  the exact versioned archive is fetched, the prebuilt release-builder adapts
+  it, the current update authority signs it, and the existing signed local
+  admission atomically activates it while retaining the previous generation.
+  Existing R4/R5 failure matrices continue to prove invalid received channel
+  content fails closed rather than entering fallback.
+- The optional authenticated GitHub path is accepted as best effort: it runs
+  only after local activation, uploads the five release files before the
+  signed index pair, never uploads the private signing key, and leaves local
+  activation successful when an upload fails. The local signed publication is
+  retained under the Core-owned publication store.
+- Final evidence on this revision: R7 focused Core tests `4 passed, 0 failed`;
+  locked workspace tests Core `124 passed, 0 failed, 1 ignored` and
+  release-builder `9 passed, 0 failed` in two final complete runs;
+  `cargo fmt --check`, workspace clippy with `-D warnings`, release build, and
+  `git diff --check` passed. Protected resolver, trust-seed, and activation
+  state digests remained respectively
+  `7e8ad76e0d200e93918ca2e93c99ff8ecd02071953bf1479819db3ac0dbb6d07`,
+  `03336cc8ac082c8afc900543e27220c391b536717165c9b3f1caa9cceb3d5790`, and
+  `ccc443ae8615ed58bb22884104a67c31369dcb1f9c73b8ab8f15900353a0b94a`.
+  No installed launcher/runtime, profiles, sessions, auth data, Manager
+  state, bwrap state, remote ref, or `main` promotion changed; generated
+  `target/` remains untracked. Live runtime cutover and remote push remain
+  separate operational actions and were not performed by this source bundle.
 
 ## Goal Lifts
 

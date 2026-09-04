@@ -21,8 +21,9 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 - Remote `origin/rewrite/rust-core` remains at
   `253156c37a2bd22af8faae0bce03587999ffd136`; the local branch is ahead and
   no push is authorized.
-- Current milestone: R7 unified bare update is in progress on top of the
-  accepted R6 signed wrapper publication commit on `rewrite/rust-core`.
+- Current milestone: R7 unified bare update is accepted at
+  `55d8a49` on `rewrite/rust-core`, on top of the accepted R6 signed wrapper
+  publication commit.
   R4's Core ownership, signed-generation admission, and doctor behavior remain
   the implementation baseline. Local `main` remains the publication authority;
   no source-history promotion is needed for R7.
@@ -84,7 +85,7 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 7. Reserve a fresh independent product review for the completed Milestone 2
    acceptance candidate; this bundle directly closes the recorded findings.
 
-## Current R7 vertical proof map
+## R7 closure
 
 1. Remote-hit path — completed in the focused
    `test_r7_signed_channel_hit_skips_local_build_and_publication` regression;
@@ -93,28 +94,27 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 2. Transport-absence fallback — completed in the focused local fallback
    regression; only automatic-channel transport unavailability enters local
    production, while signed-channel verification failures remain terminal.
-3. Local production — run the prebuilt release-builder routines with the
+3. Local production — completed by running the prebuilt release-builder routines with the
    official latest metadata (or one bounded explicit version), bind the exact
    stable version and AArch64 package digest, fetch the exact official archive,
    sign with the current update key, persist publication locally, and feed its
    signed release into the existing local activation path. Completed with a
    nonzero end-to-end fixture using the official metadata shape and a real
    Termux probe binary.
-4. Optional publication — after local activation only, use authenticated
+4. Optional publication — completed after local activation only, using authenticated
    `$PREFIX/bin/gh` to publish release files before `update-index-v1` to
    `humtr/codex`/`main`; no key upload and no rollback on upload failure. Add a
    fake-GitHub-CLI regression proving ordering and activation isolation;
    completed for successful ordering and authenticated upload failure
    isolation.
-5. Stabilization — run focused nonzero tests, relevant compile/clippy gates,
-   actual diff audit, grouped workspace acceptance, protected identity checks,
-   and commit the accepted R7 bundle. Do not cut over the live runtime or push
-   remote refs in this source bundle.
+5. Stabilization — completed with the focused and grouped workspace suites,
+   clippy, release build, format/diff checks, protected identity checks, actual
+   staged diff audit, and commit `55d8a49`. Do not cut over the live runtime or
+   push remote refs in this source bundle.
 
-The active slice is 5: implementation slices 1–4 are locally proven and await
-grouped acceptance, protected-surface verification, final diff inspection,
-authority evidence reduction, and commit. Worker mode remains OFF; the primary
-Lead owns every slice.
+R7 is closed. No new implementation slice is active. A bounded live cutover or
+authenticated external publication, if later desired, requires its own explicit
+operational authorization; neither is part of this source commit.
 
 Worker mode remains OFF; the primary Lead owns every slice, validation step,
 authority update, and acceptance decision.

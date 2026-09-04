@@ -18,8 +18,7 @@ boundary, signed-channel admission, doctor presentation, and code-mode
 companion placement are also accepted. R5 adds the Rust release-builder fetch
 path for official upstream build inputs. R6 adds the non-installed publisher
 that creates the signed wrapper index and adapted release tree consumed by
-Core. R7 is implementing the unified bare-update fallback; its acceptance
-evidence is not recorded yet.
+Core. R7's unified bare-update fallback is accepted in `GOAL.md`.
 
 The R4 Core launcher is installed in the working Termux runtime through a
 bounded, digest-checked device cutover. Ordinary `codex update` is owned by
