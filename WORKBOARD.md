@@ -8,15 +8,14 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 
 - Repository: `humtr/codex`.
 - Active branch: `rewrite/rust-core`.
-- Bound HEAD at B11 selection: `40d04dcb5a02687fc48a1897e36309c387edc91f`.
-- B11 legacy-contract definition resumed from clean
-  `7e1fe0c0699773511504dbaa99d62b25b0c7327f`; this authority change remains
-  documentation-only until its vertical implementation slices pass.
+- Bound B11 implementation tip: `c61f712cac0d3822a5ca66e48115215ff2722c07`.
+- B11 legacy-handoff contract is implemented and acceptance evidence is closed
+  in `GOAL.md`; no product mutation remains pending in this workboard.
 - Remote `origin/rewrite/rust-core` remains at
   `253156c37a2bd22af8faae0bce03587999ffd136`; the local branch is ahead and
   no push is authorized.
-- Current milestone: M2 delivery/recovery is active; M2-B10 is accepted and
-  M2-B11 is the selected bundle.
+- Current milestone: M2 delivery/recovery is active; M2-B10 and M2-B11 are
+  accepted acceptance candidates, with independent product review next.
 - The inherited pre-commit hook references absent
   `tools/update-wrapper-version.sh`; do not modify it. If it alone rejects an
   exact, revalidated staged tree, use the established `--no-verify` closure.
@@ -29,9 +28,9 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 
 ## Product-speed policy
 
-- B11 remains qualification-first. The concrete legacy gap is now the absence
-  of an explicit safe handoff from a non-v3 entrypoint to the accepted Core.
-  Production work is limited to the exact bootstrap boundary now defined in
+- The accepted B11 path is qualification-first. Its concrete legacy gap was the
+  absence of an explicit safe handoff from a non-v3 entrypoint to the accepted
+  Core; the implementation is limited to the exact bootstrap boundary in
   `SPEC.md`.
 - Use a release-built, locked Core and signed local artifacts as the only
   product input. Build outputs stay in private temporary roots; no generated
@@ -60,183 +59,21 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
    nonzero focused invocation, relevant compile/test success, and diff review.
 4. Stop on compilation failure, zero tests, stale expectations, unexpected
    warnings/dead paths, or missing proof mapping.
-5. Close B11 only after grouped acceptance, release and formatting checks,
-   protected-surface verification, authority update, and commit.
-6. Reserve independent product review for the completed Milestone 2 acceptance
-   candidate.
+5. B11's grouped acceptance, release/formatting checks, protected-surface
+   verification, authority update, and implementation commit are complete.
+6. Reserve independent product review for this completed Milestone 2
+   acceptance candidate.
 
-## Selected next action
+## Next action
 
-### M2-B11 — isolated fresh-Termux and upgrade-from-legacy qualification
+### M2 independent product review candidate
 
-#### Outcome
+M2-B11 is closed at product tip c61f712cac0d3822a5ca66e48115215ff2722c07;
+accepted evidence and KEEP/COLLAPSE/DELETE disposition are recorded in GOAL.md.
 
-Qualify the accepted prebuilt Rust Core and signed local artifacts on both a
-fresh supported Termux environment and a separately provisioned disposable
-legacy-upgrade environment. Demonstrate that installation, normal launch,
-version/doctor checks, update activation, failure recovery, and rollback
-remain usable without touching the current live installation.
-
-#### Accepted input
-
-- Accepted B10 tip: `40d04dcb5a02687fc48a1897e36309c387edc91f`.
-- Accepted B10 baseline SPEC SHA-256:
-  `4ca9035c9c1a31c5afc3e9d4de978b304c96c687d03c0bee0aa446078fe11647`.
-- Current B11 legacy-handoff SPEC SHA-256:
-  `9ebe9a60a819c514beda09f7f70c86b7df4e375989c20be5752fc8cb6f132e4a`.
-- Current Core, release-builder, and bootstrap source identities are recorded
-  in the B10 ledger in `GOAL.md`.
-- Use the B10 release Core artifact
-  `12bd6c525026d74df8f9784444cebfee45d33f3f00af5512b59168f38a9c8d01` and
-  release-builder artifact
-  `d1db9e39f5b90dbf8f71e33b7f1a2fb80f6bd7399123278301328c77abeeb5ec` as the
-  release-qualified inputs, or regenerate them in a private temporary root
-  and record the new same-revision digests.
-- The B11 slice 0 product-boundary proof passed in a private temporary target:
-  the locked `-D warnings` release build succeeded, and the release Core
-  rejected both `--sandbox=read-only` and `sandbox linux` with status 2 and the
-  explicit bwrap non-enforcement error before any generation or activation
-  state was created. This validates the product fail-closed boundary; the
-  separate Codex-runner bwrap sandbox error is not a product-path result.
-- The current device remains protected from install, activation, update,
-  rollback, launcher replacement, and resolver mutation. On 2026-09-04 the
-  user authorized one bounded read-only legacy qualification smoke: invoke the
-  live launcher only with `--version`, then verify launcher/resolver identities.
-  No other live command or state path is in scope.
-
-#### Bounded device smoke evidence
-
-- With the user's explicit 2026-09-04 authorization, the protected live
-  legacy launcher was invoked only as `/data/data/com.termux/files/usr/bin/codex
-  --version`; it exited 0 and returned `codex-cli 0.150.1`.
-- Launcher SHA-256 remained
-  `0b0284155f2672263836029f760ba06a0cb284b7ca3a8e600ad399b43af36aff`;
-  its inode/mode/uid/gid/size/mtime remained
-  `1260183|755|10379|10379|7512|2026-08-28 01:28:18.815391370 +0900`.
-- Resolver SHA-256 remained
-  `7e8ad76e0d200e93918ca2e93c99ff8ecd02071953bf1479819db3ac0dbb6d07`;
-  its inode/mode/uid/gid/size/mtime remained
-  `94666|600|10379|10379|38|2026-08-28 01:04:03.530430900 +0900`.
-- No install, update, rollback, doctor, launcher replacement, resolver write,
-  or other live state path was exercised. This is device smoke evidence only;
-  it does not claim legacy-upgrade acceptance.
-
-#### Vertical proof map
-
-| Slice | Observable outcome | Focused proof | State |
-| --- | --- | --- | --- |
-| 0 | Assemble the release-qualified Core, bootstrap, signed local manifest, and disposable environment inputs with network disabled where required. | Release-builder plus existing B10 artifact/signature checks; release-built Core sandbox fail-closed proof; record nonzero tests and exact digests. | complete |
-| 1 | A fresh supported Termux root installs the prebuilt Core and can launch, report version, run doctor, and use the accepted local update/recovery path offline. | Fresh-root end-to-end qualification using only release inputs; inspect installed paths and state. | complete (isolated root) |
-| 2a | Exact `upgrade-legacy` grammar and target classification distinguish fresh, same-Core retry, legacy, prepared/completed handoff, and conflict without executing legacy code. | Bootstrap focused regressions for every classification and no-mutation refusal; retain the existing nonzero safe-refusal proof. | selected (SPEC defined; implementation pending) |
-| 2b | The authenticated release becomes one complete recoverable initial v3 state before any public entrypoint replacement, and exact prepared/completed retries are idempotent. | Focused initial-state, mismatched-state/key/generation, interruption, and same-input resume regressions. | pending |
-| 2c | The last atomic operation replaces only the explicitly digest-bound legacy entrypoint and exposes the accepted Core while protected state remains identical. | Disposable legacy-root end-to-end qualification with entrypoint digest/mode checks, version/doctor, and network denial. | pending |
-| 3 | Failure injection, first Core update/rollback, cleanup, and repeatability remain valid in both disposable roots, with no live-state mutation. | Existing B10 recovery regressions plus legacy pre/post-commit boundaries and repeated bounded runs. | pending |
-| 4 | The bundle is ready for the Milestone 2 independent product review. | Grouped locked suite, release build, formatting, shell syntax, diff review, protected-surface verification, and authority closure. | pending |
-
-#### Slice 1 closure evidence
-
-- The focused proof
-  `tests::test_m2_b11_slice1_fresh_root_public_path_includes_doctor` ran
-  against the current locked release-built Core with `-D warnings` and
-  completed `1 passed, 0 failed`. It created a fresh disposable
-  Termux-shaped HOME/PREFIX/TMPDIR root only.
-- The release bootstrap exited 0; installed Core `--version` exited 0;
-  `doctor` produced the expected healthy upstream / unavailable Manager /
-  degraded summary (exit 1); signed offline local update exited 0; doctor
-  remained usable after update; explicit rollback exited 0; and doctor
-  remained usable after rollback.
-- The network-denial sentinel was never touched. Final v3 state was
-  `current=b11-fresh-g0`, `previous=b11-fresh-g1`; no activation
-  transaction or bootstrap temporary residue remained.
-- This isolated fresh-root slice does not claim a second physical Termux
-  installation; that device-level qualification remains distinct under the
-  SPEC acceptance principles.
-- Current Slice 1 source SHA-256 is
-  `8c897a4b93eae89bf69d4afb1625f28d083901889edc5f24c6734d29565f0a74`.
-  The release Core artifact is
-  `12bd6c525026d74df8f9784444cebfee45d33f3f00af5512b59168f38a9c8d01`;
-  the release-builder artifact is
-  `d1db9e39f5b90dbf8f71e33b7f1a2fb80f6bd7399123278301328c77abeeb5ec`;
-  bootstrap is
-  `c1b107699a64c08cc49a99ceb433c3dd1b6c7ca53637fb0b53cc73b6ce35e9fa`;
-  and SPEC is
-  `4ca9035c9c1a31c5afc3e9d4de978b304c96c687d03c0bee0aa446078fe11647`.
-
-#### Slice 2 authority decision
-
-- On 2026-09-04 the user directed re-review and normative definition before
-  implementation. The selected contract is the exact local-only
-  `codex-bootstrap upgrade-legacy <CORE_ARTIFACT> <SIGNED_RELEASE_DIR>
-  <BOOTSTRAP_PUBLIC_KEY> <EXPECTED_LEGACY_ENTRYPOINT_SHA256>` boundary.
-- The expected legacy digest is an explicit replacement-target guard, not a
-  trust source or persisted field. Existing `codex-release-v3`, bootstrap-key
-  trust, and `codex-activation-state-v3` remain unchanged.
-- The handoff is activation-first and entrypoint-last. A complete exact initial
-  v3 state is prepared and recoverable before the legacy entrypoint is
-  atomically replaced and its parent directory synchronized.
-- The prepared state itself is the bounded resume fact. No second journal,
-  backup launcher, legacy generation, new release format, fallback, or Manager
-  authority is introduced.
-- The handoff is one-way: initial `previous` is absent, and later explicit
-  rollback remains only between signed Core generations.
-- This decision does not expand the bounded live-device authorization. Product
-  mutation and qualification remain limited to disposable roots.
-
-#### Slice 2 preflight
-
-- Read-only lookup found no second Termux app/prefix or disposable legacy root;
-  only the protected live prefix is present.
-- The original preflight found that the prior SPEC defined fresh bootstrap and
-  public update/rollback but no legacy-handoff command. The then-current
-  bootstrap therefore correctly refused existing authoritative v3 state and a
-  differing `PREFIX/bin/codex`.
-- The sealed legacy branch remains historical evidence only; no legacy source or
-  internal model was copied. The preflight's concrete failure-atomicity gap was
-  closed by the shared entrypoint precheck and its focused regression.
-- The current SPEC now defines the supported handoff boundary. Slice 2 remains
-  pending its disposable-root implementation and vertical proof; no product
-  implementation is claimed by this authority-only change.
-
-#### Slice 2 safe-boundary evidence
-
-- The focused proof
-  `tests::test_m2_b11_slice2_bootstrap_rejects_legacy_entrypoint_without_persistent_state`
-  ran against the release-qualified Core with `-D warnings` and completed
-  `1 passed, 0 failed`.
-- The affected `bootstrap` focused group completed `8 passed, 0 failed`; it
-  covered the B7/B8 bootstrap paths, the fresh Slice 1 path, and this
-  legacy-entrypoint refusal path.
-- Bootstrap now validates an existing entrypoint before publishing the
-  bootstrap trust seed, then rechecks the same invariant before publication
-  to cover the no-coordination race without adding an upgrade protocol.
-- The legacy entrypoint bytes and mode remained unchanged; no network sentinel,
-  trust seed, v3 activation state, or temporary bootstrap residue remained.
-- Current Slice 2 source SHA-256 is
-  `e0578a76aa41d8d22c205f76adbbbec0eebb5018dbe9c0387fcc5d55f68d985e`;
-  bootstrap is
-  `9924e12cd97dcabc4f9fe59b24a48ae4b2efb399d71a825c54161bf474470586`;
-  the release Core remains
-  `12bd6c525026d74df8f9784444cebfee45d33f3f00af5512b59168f38a9c8d01`;
-  and the release-builder artifact remains
-  `d1db9e39f5b90dbf8f71e33b7f1a2fb80f6bd7399123278301328c77abeeb5ec`.
-
-#### Environment and safety boundary
-
-- The qualification roots must be disposable and explicitly distinct from the
-  current Termux prefix. Do not mutate `/data/data/com.termux/files/usr/bin/codex`,
-  `/data/data/com.termux/files/usr/etc/resolv.conf`, installed generations,
-  trust/key state, Manager state, auth, profiles, sessions, or package state.
-- Do not install Rust, Cargo, Clang, or other build dependencies into a
-  qualification root. The device-side input is the prebuilt release output.
-- Network denial is part of the offline proof. Any network-dependent step must
-  be explicitly isolated and recorded; normal launch must not depend on it.
-- If an environment cannot be provisioned without touching protected live state,
-  stop the slice and report the external-environment requirement. Do not
-  weaken the contract or silently substitute a zero-test invocation.
-
-#### B11 completion record
-
-Pending. The current SPEC selects the bounded legacy-handoff contract, but no
-product code implements it yet. Complete Slices 2a through 4 vertically, then
-move accepted evidence and KEEP/COLLAPSE/DELETE disposition to `GOAL.md`,
-replace this item with the next milestone action, and commit the closed bundle.
+- Review SPEC.md, GOAL.md, and the committed B11 product path as one acceptance candidate.
+- Keep the review read-only; record findings before any additional product mutation.
+- Do not promote to main, push, replace the live launcher, mutate the live resolver,
+  or invoke bounded device qualification without explicit authorization.
+- Worker mode remains OFF; the primary Lead owns the review handoff and any
+  follow-up bounded bundle.

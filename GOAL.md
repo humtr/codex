@@ -1062,12 +1062,18 @@ Termux qualification. Produce one candidate for independent product review.
   `7e8ad76e0d200e93918ca2e93c99ff8ecd02071953bf1479819db3ac0dbb6d07`, with no
   live generation/trust state, resolver, launcher, Manager, auth/profile/session,
   package, or publication state changed.
-- Current checkpoint: M2-B11 — isolated fresh-Termux and upgrade-from-legacy
-  qualification. B10 is closed; the next bundle must qualify the accepted
-  prebuilt Core and signed local artifacts on a fresh supported environment and
-  a disposable legacy-upgrade environment without mutating the current live
-  installation. Final independent product review remains the later Milestone 2
-  gate. Worker mode remains OFF.
+- At B10 closure, the next selected bundle was M2-B11 — isolated fresh-Termux
+  and upgrade-from-legacy qualification. That bundle is now accepted below;
+  final independent product review remains the later Milestone 2 gate. Worker
+  mode remains OFF.
+
+- M2-B11 — isolated fresh-Termux and digest-bound upgrade-from-legacy handoff — is accepted at product tip `c61f712cac0d3822a5ca66e48115215ff2722c07`. The implementation adds the exact local-only `codex-bootstrap upgrade-legacy <CORE_ARTIFACT> <SIGNED_RELEASE_DIR> <BOOTSTRAP_PUBLIC_KEY> <EXPECTED_LEGACY_ENTRYPOINT_SHA256>` path and preserves the existing v3 state, trust, update, rollback, and Manager boundaries.
+- The normative B11 contract is SPEC SHA-256 `9ebe9a60a819c514beda09f7f70c86b7df4e375989c20be5752fc8cb6f132e4a`. The expected legacy digest is only an explicit replacement-target selector. Handoff prepares and verifies one complete signed initial v3 state before same-directory atomic entrypoint replacement; prepared and completed retries are exact and idempotent. No legacy discovery/import/execution, backup, second journal, fallback, or new release schema was added.
+- Core continues to fail closed for explicit unsupported Linux sandbox modes with status 2 and never invokes, installs, downloads, or repairs bwrap. Ordinary launch remains independent of bwrap and Manager availability.
+- The focused B11 group passed `9 passed, 0 failed` with the actual release Core, covering fresh qualification, exact grammar and digest classes, no-mutation conflicts, prepared-state resume and interruption, key/previous conflicts, atomic replacement, version/doctor, and the first post-handoff signed Core update plus rollback. A mistaken bare exact filter that selected zero tests was discarded; the corrected substring invocation supplied the counted evidence.
+- Final locked validation passed: serial workspace Core `98 passed, 0 failed, 1 ignored` and release-builder `7 passed, 0 failed`; three default-parallel workspace repetitions passed the same counts. The locked `-D warnings` release Core build, `cargo fmt --check`, bootstrap shell syntax, and `git diff --check` also passed. Final source identities are Core `1da1096633e2c1b8c242970b7f545ce6109d5641a4baf2d3b9aa36de2d8fc3cc`, bootstrap `9a9285ee838ccf2665feb3c5055f66f03623e8abc9ba11e2633d15b7a31bb3e9`, release-builder source `aaa8ac051bf634bdf8fda799ca194b228b11e61e41fd1837570f979daefb4c9b`, and release Core artifact `d5587f0846648cfd920ae4d67498b1228cae8e45b6f751b09a4446d7de2eda74`.
+- Disposition: KEEP the existing signed v3 admission, state authority, recovery, and one direct stable-entrypoint path; COLLAPSE handoff resume into that existing initial-state path and the existing activation boundary; DELETE legacy fallback/import/backup machinery and any bwrap repair path. No live launcher, resolver, auth/profile/session, Manager, package, or publication state changed, and no `codex-r2-*` test residue remains.
+- Current checkpoint: M2 independent product review candidate. B11 is accepted for review, but no independent reviewer, promotion to `main`, push, or live cutover has been performed. Worker mode remains OFF.
 
 ## Goal Lifts
 
