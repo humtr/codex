@@ -166,6 +166,8 @@ mutation and emits only an unsigned generation source for the
 `codex-release-v3` signing and delivery path. `codex-release-v2` remains
 implementation history and is not retained as a release compatibility path.
 
+The release builder complete output boundary is durable: final file modes are set before the corresponding final file synchronization, the complete staging tree is synchronized bottom-up, the no-replace output publication is atomic, and the output parent is synchronized before the build reports success. A failed publication leaves no accepted output.
+
 The accepted archive is gzip-compressed POSIX ustar. A per-entry POSIX PAX
 header is optional and may contain only `mtime`; all other extended semantics
 are rejected. There are at most 32 logical entries, paths are canonical relative
@@ -284,6 +286,8 @@ scan generations, contact the network, invoke OpenSSL, or implicitly fall back
 to another generation. The generation directory name is one safe path component
 and generation content is complete before it can become `current`.
 
+For durability, complete means that every regular file has its final bytes and final mode written and synchronized, every generation directory is synchronized after its children in bottom-up order, the complete candidate directory is atomically renamed into the generation root, and the generation root is synchronized after that rename. A failure before the candidate rename leaves no activatable generation. A failure after the rename but before generation-root synchronization may retain that exact complete candidate without changing authoritative state; a retry may reuse it only after signed installed-generation verification and repeating the required tree and root synchronization. A differing, incomplete, or unverifiable existing directory is a conflict and is never activated.
+
 A generation is complete or absent. Candidate construction occurs outside the
 active path. Forward activation publishes one complete new state: the candidate
 becomes `(current, current_key)`, the old current pair becomes
@@ -348,6 +352,10 @@ authorized bootstrap to replace; it is not release authority, is not persisted,
 and does not alter `codex-release-v3`. Candidate trust continues to come only
 from the bootstrap public key and the exact signed release.
 
+Fresh bootstrap uses the same authenticated Core publication boundary for its stable entrypoint: after self-test, Core creates a private same-directory temporary, writes the exact authenticated bytes, sets and verifies mode `0755`, synchronizes the file after its final mode, atomically publishes without replacing a differing existing target, and synchronizes `$PREFIX/bin` before invoking the stable entrypoint. If publication is interrupted after rename or its parent synchronization fails, activation has not been invoked; a same-Core retry must revalidate the target and re-establish parent durability before activation.
+
+Bootstrap trust-seed publication is also owned by the authenticated Core. The shell bootstrap may snapshot and validate the supplied key, but it must not directly publish the persistent pin. Core writes the exact key bytes to a private temporary in the pin directory, sets final mode `0644` before synchronizing the file, verifies the parsed key, atomically publishes without replacing a differing existing pin, and synchronizes the pin parent before continuing. An existing matching pin is revalidated, repaired to mode `0644` when necessary, and re-synchronized; a differing, symlink, or special-file pin fails without replacement. A failure after rename but before parent synchronization leaves no activation state and is retryable only after the same-key verification and parent synchronization complete.
+
 Bootstrap classifies the target after resolving any recoverable activation
 transaction:
 
@@ -393,6 +401,8 @@ temporary, set and verify mode `0755` and the authenticated Core digest,
 revalidate the legacy entrypoint against the explicit expected digest, atomically
 replace `$PREFIX/bin/codex`, and durably synchronize its parent directory. That
 completed parent-directory durability boundary is the handoff commit.
+
+A completed handoff retry is successful only after it revalidates the authenticated Core target and synchronizes the entrypoint parent directory; an already-Core target does not bypass that synchronization. If the synchronization fails, bootstrap reports failure and remains retryable without changing authoritative state.
 
 If interruption or failure occurs before the entrypoint commit, the legacy
 entrypoint remains the public executable. A complete prepared initial Core state

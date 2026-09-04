@@ -194,20 +194,10 @@ publish_bootstrap_pin() {
   if [ -e "$pin" ] || [ -L "$pin" ]; then
     [ -f "$pin" ] && [ ! -L "$pin" ] || fail 'existing bootstrap trust seed is not a regular file'
     [ "$(key_raw_hex "$pin")" = "$pinned_raw" ] || fail 'existing bootstrap trust seed does not match requested key'
-  else
-    pin_tmp=$pin_parent/.release-public-key.pem.bootstrap.$$
-    [ ! -e "$pin_tmp" ] && [ ! -L "$pin_tmp" ] || fail 'bootstrap trust temporary already exists'
-    cat "$key_snapshot" > "$pin_tmp"
-    chmod 644 "$pin_tmp"
-    if ! mv -n "$pin_tmp" "$pin"; then
-      rm -f "$pin_tmp"
-      fail 'bootstrap trust seed publication failed'
-    fi
-    if [ -e "$pin_tmp" ] || [ -L "$pin_tmp" ]; then
-      rm -f "$pin_tmp"
-      fail 'bootstrap trust seed publication collided'
-    fi
   fi
+  CODEX_TERMUX_INTERNAL_BOOTSTRAP=publish-bootstrap-pin \
+  CODEX_TERMUX_INTERNAL_BOOTSTRAP_KEY="$key_snapshot" \
+    "$core_snapshot" || fail 'bootstrap trust seed publication failed'
 }
 
 if [ "$bootstrap_mode" = fresh ]; then
@@ -217,22 +207,9 @@ if [ "$bootstrap_mode" = fresh ]; then
 
   mkdir -p "$PREFIX/bin"
   validate_existing_entrypoint
-  if [ -e "$destination" ] || [ -L "$destination" ]; then
-    rm -f "$core_snapshot"
-  else
-    destination_tmp=$PREFIX/bin/.codex.bootstrap.$$
-    [ ! -e "$destination_tmp" ] && [ ! -L "$destination_tmp" ] || fail 'Codex entrypoint temporary already exists'
-    cat "$core_snapshot" > "$destination_tmp"
-    chmod 755 "$destination_tmp"
-    if ! mv -n "$destination_tmp" "$destination"; then
-      rm -f "$destination_tmp"
-      fail 'Codex entrypoint publication failed'
-    fi
-    if [ -e "$destination_tmp" ] || [ -L "$destination_tmp" ]; then
-      rm -f "$destination_tmp"
-      fail 'Codex entrypoint publication collided'
-    fi
-  fi
+  CODEX_TERMUX_INTERNAL_BOOTSTRAP=publish-fresh-entrypoint \
+  CODEX_TERMUX_INTERNAL_BOOTSTRAP_CORE="$core_snapshot" \
+    "$core_snapshot" || fail 'fresh Core entrypoint publication failed'
 
   CODEX_TERMUX_INTERNAL_BOOTSTRAP=activate \
   CODEX_TERMUX_INTERNAL_BOOTSTRAP_SOURCE="$release_dir" \

@@ -8,14 +8,16 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 
 - Repository: `humtr/codex`.
 - Active branch: `rewrite/rust-core`.
-- Bound B11 implementation tip: `c61f712cac0d3822a5ca66e48115215ff2722c07`.
-- B11 legacy-handoff contract is implemented and acceptance evidence is closed
-  in `GOAL.md`; no product mutation remains pending in this workboard.
+- Bound M2-R1 implementation tip: bb083b41c61cb3112b70b68822940efe1fbcc89b.
+- The bound tip is clean and is the exact starting point for the durability
+  closure below. Its baseline is release-buildable, B11-focused green, and
+  full-workspace green; no uncommitted product change is being carried in.
 - Remote `origin/rewrite/rust-core` remains at
   `253156c37a2bd22af8faae0bce03587999ffd136`; the local branch is ahead and
   no push is authorized.
-- Current milestone: M2 delivery/recovery is active; M2-B10 and M2-B11 are
-  accepted acceptance candidates, with independent product review next.
+- Current milestone: M2 delivery/recovery is active; M2-R1 closes the
+  independent-review findings on the already accepted B10/B11 path. Promotion
+  and independent review remain after this bounded closure.
 - The inherited pre-commit hook references absent
   `tools/update-wrapper-version.sh`; do not modify it. If it alone rejects an
   exact, revalidated staged tree, use the established `--no-verify` closure.
@@ -59,21 +61,55 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
    nonzero focused invocation, relevant compile/test success, and diff review.
 4. Stop on compilation failure, zero tests, stale expectations, unexpected
    warnings/dead paths, or missing proof mapping.
-5. B11's grouped acceptance, release/formatting checks, protected-surface
-   verification, authority update, and implementation commit are complete.
-6. Reserve independent product review for this completed Milestone 2
+5. Each M2-R1 slice must close with its mapped nonzero focused regression,
+   relevant compile/test proof, and actual diff inspection before the next
+   independent contract starts.
+6. The final M2-R1 batch must repeat grouped acceptance, protected-surface
+   verification, authority updates, and the implementation commit.
+7. Reserve independent product review for the completed Milestone 2
    acceptance candidate.
 
 ## Next action
 
-### M2 independent product review candidate
+### M2-R1 durability closure
 
-M2-B11 is closed at product tip c61f712cac0d3822a5ca66e48115215ff2722c07;
-accepted evidence and KEEP/COLLAPSE/DELETE disposition are recorded in GOAL.md.
+Bound baseline: `bb083b41c61cb3112b70b68822940efe1fbcc89b`, clean on
+`rewrite/rust-core`. The baseline gates are recorded in the implementation
+turn: locked release build with warnings denied, B11-focused proof, serial
+workspace acceptance, formatting/shell/diff checks, and protected-surface
+verification all pass. The following slices are the live proof map for this
+bundle:
 
-- Review SPEC.md, GOAL.md, and the committed B11 product path as one acceptance candidate.
-- Keep the review read-only; record findings before any additional product mutation.
-- Do not promote to main, push, replace the live launcher, mutate the live resolver,
-  or invoke bounded device qualification without explicit authorization.
-- Worker mode remains OFF; the primary Lead owns the review handoff and any
-  follow-up bounded bundle.
+1. **Generation publication durability** — define and implement final-file
+   sync, bottom-up generation-tree sync, atomic publication, generation-root
+   sync, and exact reuse after a post-rename sync failure. Focused proof:
+   injected publication-boundary failures plus a public update retry that
+   reuses the exact signed generation. Protected surfaces: state roots and
+   live launcher remain untouched. Focused M2-R1 generation-fault and public
+   reuse tests pass; M2-B3 6/6 and M2-B4 14/14 remain green. `completed`.
+2. **Fresh bootstrap publication durability** — move trust-seed and stable
+   entrypoint publication behind authenticated Core, preserving differing-target
+   rejection and same-Core retry. Focused proof: trust-seed and stable-entrypoint
+   parent-sync fault coverage through the public bootstrap script. Protected
+   surfaces: only disposable prefix/home roots. Focused trust-seed and
+   entrypoint retry tests pass; M2-B8 5/5 remains green. `completed`.
+3. **Legacy handoff retry durability** — every successful completed retry must
+   synchronize the entrypoint parent, including an already-Core target.
+   Focused proof: post-rename parent-sync failure, repeated retry while the
+   parent remains unsynchronized, then successful recovery. Focused retry
+   test passes; M2-B11 9/9 remains green. `completed`.
+4. **Builder final-mode durability and authority close** — sync runtime and
+   descriptor files after their final modes are set; update README status and
+   close accepted evidence in `GOAL.md`. Focused proof: release-builder mode
+   and complete-output tests plus grouped acceptance. Builder focused proof
+   passes 1/1 after final-mode sync changes. `completed`.
+5. **M2-R1 acceptance batch** — run the release build, focused slices, serial
+   full workspace suite, formatting/shell/diff checks, protected-surface
+   verification, inspect the exact diff, then commit. No push, promotion,
+   live launcher replacement, resolver mutation, or device qualification is in
+   scope. Locked warnings-denied release build passed; serial workspace passed
+   Core 103/0/1-ignored and builder 7/0; three default-parallel repetitions
+   passed; protected launcher/resolver identities were unchanged. `completed`.
+
+Worker mode remains OFF; the primary Lead owns every slice, validation step,
+authority update, and acceptance decision.

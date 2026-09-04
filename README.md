@@ -12,9 +12,10 @@ The rewrite has one public command, `codex`, and two internal layers:
 
 ## Current status
 
-The Rust Core implementation through M2-B10 is accepted in the `GOAL.md`
-acceptance ledger. `WORKBOARD.md` currently tracks M2-B11 isolated
-fresh-Termux and legacy-upgrade qualification.
+The Rust Core implementation through M2-B11 is accepted in the `GOAL.md`
+acceptance ledger. `WORKBOARD.md` currently tracks the bounded M2-R1 durability
+closure for generation publication, fresh/legacy entrypoint retries, and final
+release-builder modes before independent product review.
 
 This branch is not installed over the working Codex runtime. Release delivery
 and promotion to `main` remain separate acceptance gates.

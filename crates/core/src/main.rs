@@ -2396,6 +2396,7 @@ enum LocalProductError {
     UnsafeSource(&'static str),
     GenerationCollision,
     Release(&'static str),
+    Bootstrap(&'static str),
     LegacyHandoff(&'static str),
     OpenSslUnavailable,
     CurlUnavailable,
@@ -2443,6 +2444,7 @@ impl std::fmt::Display for LocalProductError {
                 f.write_str("generation id is already present in the immutable generation root")
             }
             LocalProductError::Release(message) => f.write_str(message),
+            LocalProductError::Bootstrap(message) => f.write_str(message),
             LocalProductError::LegacyHandoff(message) => f.write_str(message),
             LocalProductError::OpenSslUnavailable => f.write_str("Termux OpenSSL is unavailable"),
             LocalProductError::CurlUnavailable => f.write_str("Termux curl is unavailable"),
@@ -3769,9 +3771,107 @@ fn generation_path_exists(path: &std::path::Path) -> Result<bool, LocalProductEr
 }
 
 #[cfg(unix)]
+trait GenerationPublishIo {
+    fn sync_file(&mut self, path: &std::path::Path) -> std::io::Result<()>;
+    fn sync_dir(&mut self, path: &std::path::Path) -> std::io::Result<()>;
+    fn rename(&mut self, from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()>;
+}
+
+#[cfg(unix)]
+struct FsGenerationPublishIo;
+
+#[cfg(unix)]
+impl GenerationPublishIo for FsGenerationPublishIo {
+    fn sync_file(&mut self, path: &std::path::Path) -> std::io::Result<()> {
+        std::fs::File::open(path)?.sync_all()
+    }
+
+    fn sync_dir(&mut self, path: &std::path::Path) -> std::io::Result<()> {
+        std::fs::File::open(path)?.sync_all()
+    }
+
+    fn rename(&mut self, from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
+        std::fs::rename(from, to)
+    }
+}
+
+#[cfg(unix)]
+fn sync_generation_tree<I: GenerationPublishIo>(
+    path: &std::path::Path,
+    io: &mut I,
+) -> Result<(), LocalProductError> {
+    let metadata = std::fs::symlink_metadata(path).map_err(|source| LocalProductError::Io {
+        operation: "inspect generation publication path",
+        source,
+    })?;
+    let file_type = metadata.file_type();
+    if file_type.is_file() {
+        io.sync_file(path).map_err(|source| LocalProductError::Io {
+            operation: "sync immutable generation file",
+            source,
+        })?;
+        return Ok(());
+    }
+    if !file_type.is_dir() {
+        return Err(LocalProductError::UnsafeSource(
+            "generation publication tree contains a symlink or special file",
+        ));
+    }
+
+    for entry in std::fs::read_dir(path).map_err(|source| LocalProductError::Io {
+        operation: "read generation publication directory",
+        source,
+    })? {
+        let entry = entry.map_err(|source| LocalProductError::Io {
+            operation: "read generation publication entry",
+            source,
+        })?;
+        let entry_type = entry.file_type().map_err(|source| LocalProductError::Io {
+            operation: "inspect generation publication entry",
+            source,
+        })?;
+        if !entry_type.is_file() && !entry_type.is_dir() {
+            return Err(LocalProductError::UnsafeSource(
+                "generation publication tree contains a symlink or special file",
+            ));
+        }
+        sync_generation_tree(&entry.path(), io)?;
+    }
+    io.sync_dir(path).map_err(|source| LocalProductError::Io {
+        operation: "sync immutable generation directory",
+        source,
+    })?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn sync_complete_generation(
+    generation_path: &std::path::Path,
+    generation_root: &std::path::Path,
+) -> Result<(), LocalProductError> {
+    let mut io = FsGenerationPublishIo;
+    sync_generation_tree(generation_path, &mut io)?;
+    io.sync_dir(generation_root)
+        .map_err(|source| LocalProductError::Io {
+            operation: "sync immutable generation root",
+            source,
+        })
+}
+
+#[cfg(unix)]
 fn stage_local_generation(
     source_dir: &std::path::Path,
     generation_root: &std::path::Path,
+) -> Result<String, LocalProductError> {
+    let mut io = FsGenerationPublishIo;
+    stage_local_generation_with_io(source_dir, generation_root, &mut io)
+}
+
+#[cfg(unix)]
+fn stage_local_generation_with_io<I: GenerationPublishIo>(
+    source_dir: &std::path::Path,
+    generation_root: &std::path::Path,
+    io: &mut I,
 ) -> Result<String, LocalProductError> {
     ensure_real_directory(
         source_dir,
@@ -3854,13 +3954,20 @@ fn stage_local_generation(
                 "copied generation id changed during staging",
             ));
         }
+        sync_generation_tree(&candidate, io)?;
         if generation_path_exists(&final_path)? {
             return Err(LocalProductError::GenerationCollision);
         }
-        std::fs::rename(&candidate, &final_path).map_err(|source| LocalProductError::Io {
-            operation: "publish immutable local generation",
-            source,
-        })?;
+        io.rename(&candidate, &final_path)
+            .map_err(|source| LocalProductError::Io {
+                operation: "publish immutable local generation",
+                source,
+            })?;
+        io.sync_dir(generation_root)
+            .map_err(|source| LocalProductError::Io {
+                operation: "sync immutable generation root",
+                source,
+            })?;
         Ok(source.generation_id)
     })();
 
@@ -4042,7 +4149,7 @@ fn prepare_signed_local_release(
     let before = m2_generation_state::recover_activation_state(&state_paths)
         .map_err(LocalProductError::State)?
         .ok_or(LocalProductError::NoCurrentGeneration)?;
-    let (source_release, _) =
+    let (source_release, source_loaded) =
         verify_local_release_bundle_with_key(source_dir, &roots.openssl, before.update_key)?;
     let (current_release, _) = verify_installed_local_release(
         roots,
@@ -4058,18 +4165,43 @@ fn prepare_signed_local_release(
         operation: "create immutable generation root",
         source,
     })?;
-    let generation_id = stage_local_generation(source_dir, &roots.generation_root)?;
-    let (staged_release, staged_loaded) = verify_installed_local_release(
-        roots,
-        &generation_id,
-        source_release.release_public_key,
-        "staged generation descriptor id does not match publication path",
-    )?;
-    if staged_release != source_release {
-        return Err(LocalProductError::Release(
-            "staged signed release differs from admitted source",
-        ));
-    }
+    let destination = roots.generation_root.join(&source_loaded.generation_id);
+    let (generation_id, staged_loaded) = if generation_path_exists(&destination)? {
+        let (staged_release, staged_loaded) =
+            verify_local_release_bundle_with_key(&destination, &roots.openssl, before.update_key)?;
+        if staged_release != source_release
+            || staged_loaded.generation_id != source_loaded.generation_id
+        {
+            return Err(LocalProductError::GenerationCollision);
+        }
+        sync_complete_generation(&destination, &roots.generation_root)?;
+        (source_loaded.generation_id.clone(), staged_loaded)
+    } else {
+        let generation_id = stage_local_generation(source_dir, &roots.generation_root)?;
+        let staged_result = verify_local_release_bundle_with_key(
+            &roots.generation_root.join(&generation_id),
+            &roots.openssl,
+            before.update_key,
+        );
+        match staged_result {
+            Ok((staged_release, staged_loaded))
+                if staged_release == source_release
+                    && staged_loaded.generation_id == source_loaded.generation_id =>
+            {
+                (generation_id, staged_loaded)
+            }
+            Ok(_) => {
+                let _ = std::fs::remove_dir_all(&destination);
+                return Err(LocalProductError::Release(
+                    "staged signed release differs from admitted source",
+                ));
+            }
+            Err(err) => {
+                let _ = std::fs::remove_dir_all(&destination);
+                return Err(err);
+            }
+        }
+    };
 
     Ok(PreparedLocalActivation {
         before,
@@ -4386,6 +4518,167 @@ fn bootstrap_public_key_path() -> Result<std::path::PathBuf, LocalProductError> 
 }
 
 #[cfg(unix)]
+static BOOTSTRAP_TRUST_SEED_COUNTER: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+#[cfg(unix)]
+fn verify_bootstrap_trust_seed(
+    roots: &LocalCoreRoots,
+    destination: &std::path::Path,
+    expected_key: ReleasePublicKey,
+) -> Result<(), LocalProductError> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let actual_key = release_public_key_from_pem(&roots.openssl, destination)?;
+    if actual_key != expected_key {
+        return Err(LocalProductError::Bootstrap(
+            "existing bootstrap trust seed does not match requested key",
+        ));
+    }
+    let metadata =
+        std::fs::symlink_metadata(destination).map_err(|source| LocalProductError::Io {
+            operation: "inspect bootstrap trust seed",
+            source,
+        })?;
+    let mut permissions = metadata.permissions();
+    permissions.set_mode(0o644);
+    if metadata.permissions().mode() & 0o7777 != 0o644 {
+        std::fs::set_permissions(destination, permissions).map_err(|source| {
+            LocalProductError::Io {
+                operation: "set bootstrap trust seed mode",
+                source,
+            }
+        })?;
+        let updated =
+            std::fs::symlink_metadata(destination).map_err(|source| LocalProductError::Io {
+                operation: "inspect bootstrap trust seed mode",
+                source,
+            })?;
+        if !updated.file_type().is_file() || updated.permissions().mode() & 0o7777 != 0o644 {
+            return Err(LocalProductError::Bootstrap(
+                "bootstrap trust seed mode could not be established",
+            ));
+        }
+    }
+    std::fs::File::open(destination)
+        .and_then(|file| file.sync_all())
+        .map_err(|source| LocalProductError::Io {
+            operation: "sync bootstrap trust seed",
+            source,
+        })?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn publish_bootstrap_trust_seed(
+    roots: &LocalCoreRoots,
+    key_source: &std::path::Path,
+) -> Result<(), LocalProductError> {
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+    ensure_regular_file(
+        key_source,
+        "inspect bootstrap public key",
+        "bootstrap public key must be a regular non-symlink file",
+    )?;
+    let expected_key = release_public_key_from_pem(&roots.openssl, key_source)?;
+    let destination = bootstrap_public_key_path()?;
+    let parent = destination.parent().ok_or(LocalProductError::Bootstrap(
+        "bootstrap trust seed has no parent directory",
+    ))?;
+    std::fs::create_dir_all(parent).map_err(|source| LocalProductError::Io {
+        operation: "create bootstrap trust seed parent",
+        source,
+    })?;
+    ensure_real_directory(
+        parent,
+        "inspect bootstrap trust seed parent",
+        "bootstrap trust seed parent must be a real directory",
+    )?;
+
+    match std::fs::symlink_metadata(&destination) {
+        Ok(_) => {
+            verify_bootstrap_trust_seed(roots, &destination, expected_key)?;
+            return sync_directory(parent);
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(source) => {
+            return Err(LocalProductError::Io {
+                operation: "inspect bootstrap trust seed",
+                source,
+            });
+        }
+    }
+
+    let sequence = BOOTSTRAP_TRUST_SEED_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let temporary = parent.join(format!(
+        ".release-public-key.pem.bootstrap-{}-{sequence}",
+        std::process::id()
+    ));
+    let result = (|| {
+        let mut input =
+            std::fs::File::open(key_source).map_err(|source| LocalProductError::Io {
+                operation: "open bootstrap public key",
+                source,
+            })?;
+        let mut output = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&temporary)
+            .map_err(|source| LocalProductError::Io {
+                operation: "create bootstrap trust seed temporary",
+                source,
+            })?;
+        std::io::copy(&mut input, &mut output).map_err(|source| LocalProductError::Io {
+            operation: "copy bootstrap public key",
+            source,
+        })?;
+        let mut permissions = output
+            .metadata()
+            .map_err(|source| LocalProductError::Io {
+                operation: "inspect bootstrap trust seed temporary",
+                source,
+            })?
+            .permissions();
+        permissions.set_mode(0o644);
+        output
+            .set_permissions(permissions)
+            .map_err(|source| LocalProductError::Io {
+                operation: "set bootstrap trust seed temporary mode",
+                source,
+            })?;
+        output.sync_all().map_err(|source| LocalProductError::Io {
+            operation: "sync bootstrap trust seed temporary",
+            source,
+        })?;
+        drop(output);
+        verify_bootstrap_trust_seed(roots, &temporary, expected_key)?;
+        match rename_noreplace(&temporary, &destination) {
+            Ok(()) => {}
+            Err(source) if source.kind() == std::io::ErrorKind::AlreadyExists => {
+                std::fs::remove_file(&temporary).map_err(|source| LocalProductError::Io {
+                    operation: "remove collided bootstrap trust seed temporary",
+                    source,
+                })?;
+                verify_bootstrap_trust_seed(roots, &destination, expected_key)?;
+            }
+            Err(source) => {
+                return Err(LocalProductError::Io {
+                    operation: "atomically publish bootstrap trust seed",
+                    source,
+                });
+            }
+        }
+        sync_directory(parent)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result
+}
+
+#[cfg(unix)]
 fn bootstrap_self_test(
     roots: &LocalCoreRoots,
     bootstrap_public_key: &std::path::Path,
@@ -4451,16 +4744,13 @@ fn bootstrap_initial_signed_local_release(
     })?;
     let destination = roots.generation_root.join(&loaded.generation_id);
     let mut published_new = false;
-    let installed = if destination.exists() {
-        let (installed_manifest, installed) = verify_installed_local_release(
-            roots,
-            &loaded.generation_id,
-            bootstrap_key,
-            "bootstrap generation descriptor id does not match publication path",
-        )?;
+    let installed = if generation_path_exists(&destination)? {
+        let (installed_manifest, installed) =
+            verify_local_release_bundle_with_key(&destination, &roots.openssl, bootstrap_key)?;
         if installed_manifest != manifest {
             return Err(LocalProductError::GenerationCollision);
         }
+        sync_complete_generation(&destination, &roots.generation_root)?;
         installed
     } else {
         let generation_id = stage_local_generation(source_dir, &roots.generation_root)?;
@@ -4470,11 +4760,10 @@ fn bootstrap_initial_signed_local_release(
             ));
         }
         published_new = true;
-        match verify_installed_local_release(
-            roots,
-            &generation_id,
+        match verify_local_release_bundle_with_key(
+            &roots.generation_root.join(&generation_id),
+            &roots.openssl,
             bootstrap_key,
-            "bootstrap generation descriptor id does not match publication path",
         ) {
             Ok((installed_manifest, installed)) if installed_manifest == manifest => installed,
             Ok(_) => {
@@ -4797,6 +5086,195 @@ fn create_handoff_entrypoint_temp(
 }
 
 #[cfg(unix)]
+fn rename_noreplace(
+    source: &std::path::Path,
+    destination: &std::path::Path,
+) -> std::io::Result<()> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+
+    const AT_FDCWD: i32 = -100;
+    const RENAME_NOREPLACE: u32 = 1;
+    unsafe extern "C" {
+        fn renameat2(
+            olddirfd: i32,
+            oldpath: *const std::ffi::c_char,
+            newdirfd: i32,
+            newpath: *const std::ffi::c_char,
+            flags: u32,
+        ) -> i32;
+    }
+    let source = CString::new(source.as_os_str().as_bytes()).map_err(|_| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "source path contains NUL")
+    })?;
+    let destination = CString::new(destination.as_os_str().as_bytes()).map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "destination path contains NUL",
+        )
+    })?;
+    // SAFETY: both C strings are NUL-terminated and live for the duration of the call.
+    let result = unsafe {
+        renameat2(
+            AT_FDCWD,
+            source.as_ptr(),
+            AT_FDCWD,
+            destination.as_ptr(),
+            RENAME_NOREPLACE,
+        )
+    };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(unix)]
+fn sync_directory(parent: &std::path::Path) -> Result<(), LocalProductError> {
+    let directory = std::fs::File::open(parent).map_err(|source| LocalProductError::Io {
+        operation: "open directory for sync",
+        source,
+    })?;
+    directory
+        .sync_all()
+        .map_err(|source| LocalProductError::Io {
+            operation: "sync directory",
+            source,
+        })
+}
+
+#[cfg(unix)]
+fn verify_fresh_core_entrypoint(
+    roots: &LocalCoreRoots,
+    destination: &std::path::Path,
+    core_digest: &str,
+) -> Result<(), LocalProductError> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let metadata = std::fs::symlink_metadata(destination).map_err(|source| {
+        if source.kind() == std::io::ErrorKind::NotFound {
+            LocalProductError::Bootstrap("fresh Core entrypoint is absent")
+        } else {
+            LocalProductError::Io {
+                operation: "inspect fresh Core entrypoint",
+                source,
+            }
+        }
+    })?;
+    if !metadata.file_type().is_file() {
+        return Err(LocalProductError::Bootstrap(
+            "fresh Core entrypoint must be a regular non-symlink file",
+        ));
+    }
+    if openssl_sha256(&roots.openssl, destination)? != core_digest {
+        return Err(LocalProductError::Bootstrap(
+            "fresh Core entrypoint differs from authenticated Core artifact",
+        ));
+    }
+    if metadata.permissions().mode() & 0o7777 != 0o755 {
+        let mut permissions = metadata.permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(destination, permissions).map_err(|source| {
+            LocalProductError::Io {
+                operation: "set fresh Core entrypoint mode",
+                source,
+            }
+        })?;
+        let updated =
+            std::fs::symlink_metadata(destination).map_err(|source| LocalProductError::Io {
+                operation: "inspect fresh Core entrypoint mode",
+                source,
+            })?;
+        if !updated.file_type().is_file() || updated.permissions().mode() & 0o7777 != 0o755 {
+            return Err(LocalProductError::Bootstrap(
+                "fresh Core entrypoint mode could not be established",
+            ));
+        }
+        std::fs::File::open(destination)
+            .and_then(|file| file.sync_all())
+            .map_err(|source| LocalProductError::Io {
+                operation: "sync fresh Core entrypoint after final mode",
+                source,
+            })?;
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn publish_fresh_core_entrypoint(
+    roots: &LocalCoreRoots,
+    core_artifact: &std::path::Path,
+) -> Result<(), LocalProductError> {
+    use std::os::unix::fs::PermissionsExt;
+
+    ensure_regular_file(
+        core_artifact,
+        "inspect authenticated Core artifact",
+        "authenticated Core artifact must be a regular non-symlink file",
+    )?;
+    let core_metadata =
+        std::fs::symlink_metadata(core_artifact).map_err(|source| LocalProductError::Io {
+            operation: "inspect authenticated Core artifact",
+            source,
+        })?;
+    if core_metadata.permissions().mode() & 0o7777 != 0o755 {
+        return Err(LocalProductError::Bootstrap(
+            "authenticated Core artifact must have mode 0755",
+        ));
+    }
+    let core_digest = openssl_sha256(&roots.openssl, core_artifact)?;
+    let destination = stable_core_entrypoint_path(roots)?;
+    let parent = destination.parent().ok_or(LocalProductError::Bootstrap(
+        "Core entrypoint has no parent directory",
+    ))?;
+    ensure_real_directory(
+        parent,
+        "inspect Core entrypoint parent",
+        "Core entrypoint parent must be a real directory",
+    )?;
+
+    match std::fs::symlink_metadata(&destination) {
+        Ok(_) => {
+            verify_fresh_core_entrypoint(roots, &destination, &core_digest)?;
+            return sync_directory(parent);
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(source) => {
+            return Err(LocalProductError::Io {
+                operation: "inspect fresh Core entrypoint",
+                source,
+            });
+        }
+    }
+
+    let temporary = create_handoff_entrypoint_temp(roots, core_artifact, &core_digest)?;
+    let result = (|| {
+        match rename_noreplace(&temporary, &destination) {
+            Ok(()) => {}
+            Err(source) if source.kind() == std::io::ErrorKind::AlreadyExists => {
+                std::fs::remove_file(&temporary).map_err(|source| LocalProductError::Io {
+                    operation: "remove collided fresh Core entrypoint temporary",
+                    source,
+                })?;
+                verify_fresh_core_entrypoint(roots, &destination, &core_digest)?;
+            }
+            Err(source) => {
+                return Err(LocalProductError::Io {
+                    operation: "atomically publish fresh Core entrypoint",
+                    source,
+                });
+            }
+        }
+        sync_directory(parent)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result
+}
+
+#[cfg(unix)]
 fn commit_handoff_entrypoint(
     roots: &LocalCoreRoots,
     core_artifact: &std::path::Path,
@@ -4811,7 +5289,7 @@ fn commit_handoff_entrypoint(
         ))?;
     let current = read_legacy_handoff_entrypoint(roots, expected_legacy_digest, core_digest)?;
     if current == LegacyEntrypointClass::Core {
-        return Ok(());
+        return sync_directory(parent);
     }
     let temporary = create_handoff_entrypoint_temp(roots, core_artifact, core_digest)?;
     let result = (|| {
@@ -4821,23 +5299,13 @@ fn commit_handoff_entrypoint(
                 operation: "remove obsolete Core entrypoint temporary",
                 source,
             })?;
-            return Ok(());
+            return sync_directory(parent);
         }
         std::fs::rename(&temporary, &destination).map_err(|source| LocalProductError::Io {
             operation: "atomically replace legacy Codex entrypoint",
             source,
         })?;
-        let directory = std::fs::File::open(parent).map_err(|source| LocalProductError::Io {
-            operation: "open Core entrypoint parent for sync",
-            source,
-        })?;
-        directory
-            .sync_all()
-            .map_err(|source| LocalProductError::Io {
-                operation: "sync Core entrypoint parent",
-                source,
-            })?;
-        Ok(())
+        sync_directory(parent)
     })();
     if result.is_err() {
         let _ = std::fs::remove_file(&temporary);
@@ -4903,8 +5371,9 @@ fn run_internal_bootstrap_mode() -> Option<i32> {
             return Some(1);
         }
     };
-    let supplied_key_mode =
-        mode == OsStr::new("handoff-self-test") || mode == OsStr::new("handoff");
+    let supplied_key_mode = mode == OsStr::new("handoff-self-test")
+        || mode == OsStr::new("handoff")
+        || mode == OsStr::new("publish-bootstrap-pin");
     let bootstrap_public_key = match if supplied_key_mode {
         required_absolute_env_path(INTERNAL_BOOTSTRAP_KEY_ENV)
     } else {
@@ -4931,6 +5400,13 @@ fn run_internal_bootstrap_mode() -> Option<i32> {
             ))
         } else {
             bootstrap_handoff_self_test(&roots, &bootstrap_public_key).map(|_| String::new())
+        }
+    } else if mode == OsStr::new("publish-bootstrap-pin") {
+        publish_bootstrap_trust_seed(&roots, &bootstrap_public_key).map(|_| String::new())
+    } else if mode == OsStr::new("publish-fresh-entrypoint") {
+        match required_absolute_env_path(INTERNAL_BOOTSTRAP_CORE_ENV) {
+            Ok(core) => publish_fresh_core_entrypoint(&roots, &core).map(|_| String::new()),
+            Err(err) => Err(err),
         }
     } else if mode == OsStr::new("activate") {
         match required_absolute_env_path(INTERNAL_BOOTSTRAP_SOURCE_ENV) {
@@ -6362,6 +6838,125 @@ exit 73
     }
 
     #[cfg(unix)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum M2R1GenerationFaultTiming {
+        Before,
+        After,
+    }
+
+    #[cfg(unix)]
+    struct M2R1GenerationFaultIo {
+        fail_call: usize,
+        timing: M2R1GenerationFaultTiming,
+        calls: usize,
+        inner: FsGenerationPublishIo,
+    }
+
+    #[cfg(unix)]
+    impl M2R1GenerationFaultIo {
+        fn new(fail_call: usize, timing: M2R1GenerationFaultTiming) -> Self {
+            Self {
+                fail_call,
+                timing,
+                calls: 0,
+                inner: FsGenerationPublishIo,
+            }
+        }
+
+        fn around(
+            &mut self,
+            action: impl FnOnce(&mut FsGenerationPublishIo) -> std::io::Result<()>,
+        ) -> std::io::Result<()> {
+            self.calls += 1;
+            let current = self.calls;
+            if current == self.fail_call && self.timing == M2R1GenerationFaultTiming::Before {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "injected M2-R1 generation fault before durable call",
+                ));
+            }
+            action(&mut self.inner)?;
+            if current == self.fail_call && self.timing == M2R1GenerationFaultTiming::After {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "injected M2-R1 generation fault after durable call",
+                ));
+            }
+            Ok(())
+        }
+    }
+
+    #[cfg(unix)]
+    impl GenerationPublishIo for M2R1GenerationFaultIo {
+        fn sync_file(&mut self, path: &std::path::Path) -> std::io::Result<()> {
+            self.around(|inner| inner.sync_file(path))
+        }
+
+        fn sync_dir(&mut self, path: &std::path::Path) -> std::io::Result<()> {
+            self.around(|inner| inner.sync_dir(path))
+        }
+
+        fn rename(&mut self, from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
+            self.inner.rename(from, to)
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_r1_generation_publication_faults_preserve_complete_or_absent_boundary() {
+        let (target_root, target) = b2_test_roots("m2-r1-generation-fault-target");
+        let (source_root, source) = b2_test_roots("m2-r1-generation-fault-source");
+        let source_generation =
+            b2_write_generation(&source, "m2-r1-generation", false, "supported");
+        b3_write_required_release_files(&source_generation);
+        std::fs::create_dir(source_generation.join("compat/nested")).unwrap();
+        std::fs::write(
+            source_generation.join("compat/nested/asset"),
+            b"durability-boundary",
+        )
+        .unwrap();
+
+        let mut successful_io =
+            M2R1GenerationFaultIo::new(usize::MAX, M2R1GenerationFaultTiming::Before);
+        stage_local_generation_with_io(
+            &source_generation,
+            &target.generation_root,
+            &mut successful_io,
+        )
+        .unwrap();
+        let durable_calls = successful_io.calls;
+        assert!(durable_calls >= 5);
+        let final_path = target.generation_root.join("m2-r1-generation");
+        assert!(final_path.is_dir());
+        std::fs::remove_dir_all(&final_path).unwrap();
+
+        for timing in [
+            M2R1GenerationFaultTiming::Before,
+            M2R1GenerationFaultTiming::After,
+        ] {
+            for fail_call in 1..=durable_calls {
+                let mut fault_io = M2R1GenerationFaultIo::new(fail_call, timing);
+                assert!(stage_local_generation_with_io(
+                    &source_generation,
+                    &target.generation_root,
+                    &mut fault_io,
+                )
+                .is_err());
+                if fail_call == durable_calls {
+                    assert!(final_path.is_dir());
+                    std::fs::remove_dir_all(&final_path).unwrap();
+                } else {
+                    assert!(!final_path.exists());
+                }
+                assert!(b3_candidate_entries(&target.generation_root).is_empty());
+            }
+        }
+
+        remove_temp_root(target_root);
+        remove_temp_root(source_root);
+    }
+
+    #[cfg(unix)]
     #[test]
     fn test_m2_b3_stages_complete_inactive_generation_and_preserves_active_state() {
         let (target_root, target) = b2_test_roots("b3-target");
@@ -7746,6 +8341,99 @@ esac
             })
         );
         assert_eq!(legacy_mode, 0o751);
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_r1_legacy_handoff_retries_parent_sync_after_post_rename_failure() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = temp_root("m2-r1-legacy-entrypoint-retry");
+        let openssl = b4_termux_openssl();
+        let source = b4_source_roots(&root, &openssl);
+        std::fs::create_dir(&source.generation_root).unwrap();
+        let release = b2_write_generation(&source, "m2-r1-legacy-g0", false, "supported");
+        b4_write_probe_runtime(&release, 0, 0);
+        let core = root.join("prebuilt-codex");
+        b8_write_core_probe_wrapper(&core);
+        b8_bind_core_digest(&release, &openssl, &core);
+        let private_key = root.join("keys/private.pem");
+        let public_key = root.join("keys/public.pem");
+        b4_generate_release_keypair(&openssl, &private_key, &public_key);
+        b4_write_signed_release(&release, 1, &openssl, &private_key);
+        let (home, prefix, tmp) = b4_prepare_public_environment(&root, &openssl, true);
+        let (entrypoint, expected_legacy_digest, legacy_mode) =
+            b11_write_legacy_entrypoint(&prefix, &openssl, b"legacy-post-rename\n");
+        let bin = prefix.join("bin");
+        let mut bin_permissions = std::fs::metadata(&bin).unwrap().permissions();
+        bin_permissions.set_mode(0o300);
+        std::fs::set_permissions(&bin, bin_permissions).unwrap();
+
+        let first = b11_run_legacy_handoff(
+            &core,
+            &release,
+            &public_key,
+            &expected_legacy_digest,
+            &home,
+            &prefix,
+            &tmp,
+        );
+        assert_eq!(first.status.code(), Some(1));
+        assert_eq!(
+            openssl_sha256(&openssl, &entrypoint).unwrap(),
+            openssl_sha256(&openssl, &core).unwrap()
+        );
+        let roots = b7_public_roots(&home, &prefix);
+        let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+        let prepared = read_pointer_state(&paths).unwrap().unwrap();
+        assert_eq!(prepared.current, "m2-r1-legacy-g0");
+        assert_eq!(prepared.previous, None);
+        assert_eq!(
+            std::fs::metadata(&entrypoint).unwrap().permissions().mode() & 0o7777,
+            0o755
+        );
+
+        let second = b11_run_legacy_handoff(
+            &core,
+            &release,
+            &public_key,
+            &expected_legacy_digest,
+            &home,
+            &prefix,
+            &tmp,
+        );
+        assert_eq!(second.status.code(), Some(1));
+        assert_eq!(read_pointer_state(&paths).unwrap(), Some(prepared.clone()));
+
+        let mut bin_permissions = std::fs::metadata(&bin).unwrap().permissions();
+        bin_permissions.set_mode(0o755);
+        std::fs::set_permissions(&bin, bin_permissions).unwrap();
+        let completed = b11_run_legacy_handoff(
+            &core,
+            &release,
+            &public_key,
+            &expected_legacy_digest,
+            &home,
+            &prefix,
+            &tmp,
+        );
+        assert_eq!(
+            completed.status.code(),
+            Some(0),
+            "stdout={:?} stderr={:?}",
+            completed.stdout,
+            completed.stderr
+        );
+        assert_eq!(read_pointer_state(&paths).unwrap(), Some(prepared));
+        assert_eq!(legacy_mode, 0o751);
+        assert!(std::fs::read_dir(&bin).unwrap().all(|entry| {
+            !entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".codex.legacy-handoff-")
+        }));
         remove_temp_root(root);
     }
 
@@ -9219,6 +9907,185 @@ esac
 
     #[cfg(unix)]
     #[test]
+    fn test_m2_r1_fresh_bootstrap_retries_after_entrypoint_parent_sync_failure() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = temp_root("m2-r1-fresh-entrypoint-retry");
+        let live_openssl = b4_termux_openssl();
+        let (home, prefix, tmp) = b4_prepare_public_environment(&root, &live_openssl, true);
+        let source = b4_source_roots(&root, &live_openssl);
+        std::fs::create_dir(&source.generation_root).unwrap();
+        let release = b2_write_generation(&source, "m2-r1-fresh-g0", false, "supported");
+        b4_write_probe_runtime(&release, 0, 0);
+        let core = root.join("prebuilt-codex");
+        b8_write_core_probe_wrapper(&core);
+        b8_bind_core_digest(&release, &live_openssl, &core);
+        let private_key = root.join("keys/private.pem");
+        let public_key = root.join("keys/public.pem");
+        b4_generate_release_keypair(&live_openssl, &private_key, &public_key);
+        b4_write_signed_release(&release, 1, &live_openssl, &private_key);
+
+        let bootstrap = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../bootstrap/codex-bootstrap");
+        let run_bootstrap = || {
+            std::process::Command::new(&bootstrap)
+                .args([
+                    core.as_os_str(),
+                    release.as_os_str(),
+                    public_key.as_os_str(),
+                ])
+                .env("HOME", &home)
+                .env("PREFIX", &prefix)
+                .env("TMPDIR", &tmp)
+                .output()
+                .unwrap()
+        };
+        let bin = prefix.join("bin");
+        let mut bin_permissions = std::fs::metadata(&bin).unwrap().permissions();
+        bin_permissions.set_mode(0o300);
+        std::fs::set_permissions(&bin, bin_permissions).unwrap();
+
+        let first = run_bootstrap();
+        assert_eq!(first.status.code(), Some(1));
+        let entrypoint = bin.join("codex");
+        assert!(entrypoint.is_file());
+        assert_eq!(
+            openssl_sha256(&live_openssl, &entrypoint).unwrap(),
+            openssl_sha256(&live_openssl, &core).unwrap()
+        );
+        let paths = CoreStatePaths::new(&home.join(".local/share/codex/core")).unwrap();
+        assert_eq!(read_pointer_state(&paths).unwrap(), None);
+        assert!(!paths.activation_journal.exists());
+        assert!(!paths.activation_journal_temp.exists());
+        assert!(!paths.activation_state_temp.exists());
+
+        let mut entrypoint_permissions = std::fs::metadata(&entrypoint).unwrap().permissions();
+        entrypoint_permissions.set_mode(0o751);
+        std::fs::set_permissions(&entrypoint, entrypoint_permissions).unwrap();
+        let second = run_bootstrap();
+        assert_eq!(second.status.code(), Some(1));
+        assert_eq!(read_pointer_state(&paths).unwrap(), None);
+        assert_eq!(
+            std::fs::metadata(&entrypoint).unwrap().permissions().mode() & 0o7777,
+            0o755
+        );
+
+        let mut bin_permissions = std::fs::metadata(&bin).unwrap().permissions();
+        bin_permissions.set_mode(0o755);
+        std::fs::set_permissions(&bin, bin_permissions).unwrap();
+        let completed = run_bootstrap();
+        assert_eq!(
+            completed.status.code(),
+            Some(0),
+            "stdout={:?} stderr={:?}",
+            completed.stdout,
+            completed.stderr
+        );
+        assert_eq!(
+            read_pointer_state(&paths).unwrap().unwrap().current,
+            "m2-r1-fresh-g0"
+        );
+        assert_eq!(
+            std::fs::metadata(&entrypoint).unwrap().permissions().mode() & 0o7777,
+            0o755
+        );
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_r1_fresh_bootstrap_retries_after_trust_seed_parent_sync_failure() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = temp_root("m2-r1-fresh-trust-seed-retry");
+        let live_openssl = b4_termux_openssl();
+        let (home, prefix, tmp) = b4_prepare_public_environment(&root, &live_openssl, true);
+        let source = b4_source_roots(&root, &live_openssl);
+        std::fs::create_dir(&source.generation_root).unwrap();
+        let release = b2_write_generation(&source, "m2-r1-pin-g0", false, "supported");
+        b4_write_probe_runtime(&release, 0, 0);
+        let core = root.join("prebuilt-codex");
+        b8_write_core_probe_wrapper(&core);
+        b8_bind_core_digest(&release, &live_openssl, &core);
+        let private_key = root.join("keys/private.pem");
+        let public_key = root.join("keys/public.pem");
+        b4_generate_release_keypair(&live_openssl, &private_key, &public_key);
+        b4_write_signed_release(&release, 1, &live_openssl, &private_key);
+
+        let bootstrap = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../bootstrap/codex-bootstrap");
+        let run_bootstrap = || {
+            std::process::Command::new(&bootstrap)
+                .args([
+                    core.as_os_str(),
+                    release.as_os_str(),
+                    public_key.as_os_str(),
+                ])
+                .env("HOME", &home)
+                .env("PREFIX", &prefix)
+                .env("TMPDIR", &tmp)
+                .output()
+                .unwrap()
+        };
+        let pin_parent = home.join(".local/lib/codex/core");
+        std::fs::create_dir_all(&pin_parent).unwrap();
+        let mut pin_permissions = std::fs::metadata(&pin_parent).unwrap().permissions();
+        pin_permissions.set_mode(0o300);
+        std::fs::set_permissions(&pin_parent, pin_permissions).unwrap();
+
+        let first = run_bootstrap();
+        assert_eq!(first.status.code(), Some(1));
+        let pin = pin_parent.join("release-public-key.pem");
+        assert!(pin.is_file());
+        let roots = b7_public_roots(&home, &prefix);
+        assert_eq!(
+            release_public_key_from_pem(&roots.openssl, &pin).unwrap(),
+            release_public_key_from_pem(&live_openssl, &public_key).unwrap()
+        );
+        let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+        assert_eq!(read_pointer_state(&paths).unwrap(), None);
+        assert!(!prefix.join("bin/codex").exists());
+
+        let mut pin_file_permissions = std::fs::metadata(&pin).unwrap().permissions();
+        pin_file_permissions.set_mode(0o600);
+        std::fs::set_permissions(&pin, pin_file_permissions).unwrap();
+        let second = run_bootstrap();
+        assert_eq!(second.status.code(), Some(1));
+        assert_eq!(read_pointer_state(&paths).unwrap(), None);
+        assert!(!prefix.join("bin/codex").exists());
+        assert_eq!(
+            std::fs::metadata(&pin).unwrap().permissions().mode() & 0o7777,
+            0o644
+        );
+
+        let mut pin_permissions = std::fs::metadata(&pin_parent).unwrap().permissions();
+        pin_permissions.set_mode(0o755);
+        std::fs::set_permissions(&pin_parent, pin_permissions).unwrap();
+        let completed = run_bootstrap();
+        assert_eq!(
+            completed.status.code(),
+            Some(0),
+            "stdout={:?} stderr={:?}",
+            completed.stdout,
+            completed.stderr
+        );
+        assert_eq!(
+            read_pointer_state(&paths).unwrap().unwrap().current,
+            "m2-r1-pin-g0"
+        );
+        assert!(prefix.join("bin/codex").is_file());
+        assert!(std::fs::read_dir(&pin_parent).unwrap().all(|entry| {
+            !entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".release-public-key.pem.bootstrap-")
+        }));
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn test_m2_b8_slice2_bootstrap_script_core_digest_mismatch_fails_before_install() {
         let root = temp_root("b8-slice2-script-digest");
         let live_openssl = b4_termux_openssl();
@@ -10144,6 +11011,61 @@ esac
         assert!(!state_root.join("activation-journal").exists());
         assert!(!state_root.join("config").exists());
 
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_r1_public_update_reuses_generation_after_root_sync_failure() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = temp_root("m2-r1-generation-retry");
+        let live_openssl = b4_termux_openssl();
+        let (home, prefix, tmp) = b4_prepare_public_environment(&root, &live_openssl, true);
+        let generation_root = home.join(".local/lib/codex/core/generations");
+        let state_root = home.join(".local/share/codex/core");
+        let trusted_public_key = home.join(".local/lib/codex/core/release-public-key.pem");
+        let private_key = root.join("signing-private.pem");
+        b4_generate_release_keypair(&live_openssl, &private_key, &trusted_public_key);
+
+        let source_roots = b4_source_roots(&root, &live_openssl);
+        std::fs::create_dir_all(&source_roots.generation_root).unwrap();
+        let first = b2_write_generation(&source_roots, "m2-r1-first", false, "unsupported");
+        b4_write_signed_release(&first, 1, &live_openssl, &private_key);
+        b4_assert_public_update_activated(&first, &home, &prefix, &tmp, "m2-r1-first");
+        let state_paths = CoreStatePaths::new(&state_root).unwrap();
+        let state_before = std::fs::read(&state_paths.activation_state).unwrap();
+
+        let next = b2_write_generation(&source_roots, "m2-r1-next", false, "supported");
+        b4_write_signed_release(&next, 2, &live_openssl, &private_key);
+        let mut generation_permissions = std::fs::metadata(&generation_root).unwrap().permissions();
+        generation_permissions.set_mode(0o300);
+        std::fs::set_permissions(&generation_root, generation_permissions).unwrap();
+
+        let first_failure = b4_run_public_update(&next, &home, &prefix, &tmp);
+        assert_eq!(first_failure.status.code(), Some(1));
+        assert_eq!(
+            std::fs::read(&state_paths.activation_state).unwrap(),
+            state_before
+        );
+        assert!(generation_root.join("m2-r1-next").is_dir());
+
+        let second_failure = b4_run_public_update(&next, &home, &prefix, &tmp);
+        assert_eq!(second_failure.status.code(), Some(1));
+        assert_eq!(
+            std::fs::read(&state_paths.activation_state).unwrap(),
+            state_before
+        );
+        assert!(generation_root.join("m2-r1-next").is_dir());
+
+        let mut generation_permissions = std::fs::metadata(&generation_root).unwrap().permissions();
+        generation_permissions.set_mode(0o755);
+        std::fs::set_permissions(&generation_root, generation_permissions).unwrap();
+        b4_assert_public_update_activated(&next, &home, &prefix, &tmp, "m2-r1-next");
+        let state = read_pointer_state(&state_paths).unwrap().unwrap();
+        assert_eq!(state.current, "m2-r1-next");
+        assert_eq!(state.previous.as_deref(), Some("m2-r1-first"));
+        assert!(b3_candidate_entries(&generation_root).is_empty());
         remove_temp_root(root);
     }
 

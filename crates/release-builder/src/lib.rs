@@ -1123,6 +1123,9 @@ fn adapt_selected_runtime(
         .map_err(|source| io_error("sync adapted runtime", source))?;
     drop(runtime_file);
     set_mode(&runtime_path, 0o755, "set adapted runtime mode")?;
+    File::open(&runtime_path)
+        .and_then(|file| file.sync_all())
+        .map_err(|source| io_error("sync adapted runtime after final mode", source))?;
     set_mode(&selected.code_mode_host, 0o755, "set code-mode-host mode")?;
     File::open(&selected.code_mode_host)
         .and_then(|file| file.sync_all())
@@ -1197,6 +1200,9 @@ fn write_generation_descriptor(
         .map_err(|source| io_error("sync generation descriptor", source))?;
     drop(file);
     set_mode(&path, 0o644, "set generation descriptor mode")?;
+    File::open(&path)
+        .and_then(|file| file.sync_all())
+        .map_err(|source| io_error("sync generation descriptor after final mode", source))?;
     Ok(())
 }
 
