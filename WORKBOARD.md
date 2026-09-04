@@ -9,16 +9,14 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 - Repository: `humtr/codex`.
 - Active branch: `rewrite/rust-core`.
 - Bound M2-R1 implementation base: f4fa0b53518f49cd7077d2765bf68f713dc38fe0.
-- Review follow-up is being validated on
-  `rewrite/rust-core@d90e3f080c88f51b29bc2c1fc1949d48cdeb9afd` with one
-  uncommitted Core publication change; the base M2-R1 closure remains accepted
-  in `GOAL.md` until this follow-up is closed.
+- M2-R1 review follow-up is accepted at
+  `rewrite/rust-core@084531b42bbcd6235c32393a576a09265269974e` and its evidence
+  is recorded in `GOAL.md`.
 - Remote `origin/rewrite/rust-core` remains at
   `253156c37a2bd22af8faae0bce03587999ffd136`; the local branch is ahead and
   no push is authorized.
-- Current milestone: M2 delivery/recovery is active; the M2-R1 review follow-up
-  is the current implementation slice, after which independent product review
-  remains the next gate. Promotion remains after review.
+- Current milestone: M2 delivery/recovery is active; M2-R1 is accepted and
+  independent product review is the next gate. Promotion remains after review.
 - The inherited pre-commit hook references absent
   `tools/update-wrapper-version.sh`; do not modify it. If it alone rejects an
   exact, revalidated staged tree, use the established `--no-verify` closure.
@@ -82,16 +80,16 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 - Focused regression: `test_m2_r1_generation_collision_race_never_replaces_existing_directory`
   injects an existing destination between the check and publish, verifies the
   sentinel remains intact, and verifies candidate cleanup.
-- Slice state: focused compile/test is green (`2/2` M2-R1 generation tests);
-  grouped acceptance, protected-surface verification, actual diff review, and
-  commit remain pending.
+- Slice state: accepted at `084531b42bbcd6235c32393a576a09265269974e`; focused, grouped, protected-surface,
+  release-build, smoke, and diff gates are green.
 - Protected surfaces: live launcher, resolver, installed generation/trust
   state, Manager, auth/profile/session data, and publication refs remain
   untouched.
 
 ### M2 independent product review candidate
 
-After the follow-up is accepted, review `SPEC.md`, `GOAL.md`, and the
+M2-R1 follow-up is accepted at `084531b42bbcd6235c32393a576a09265269974e`;
+review `SPEC.md`, `GOAL.md`, and the
 committed M2-R1 product path as one candidate. Keep review read-only until
 findings are recorded. Do not promote to `main`, push, replace the live
 launcher, mutate the live resolver, or invoke bounded device qualification

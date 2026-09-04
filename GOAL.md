@@ -1082,6 +1082,43 @@ Termux qualification. Produce one candidate for independent product review.
 - Disposition: KEEP one signed v3 admission/state/recovery authority and one direct stable-entrypoint path; COLLAPSE fresh trust-seed publication, fresh entrypoint publication, and legacy retry publication behind the authenticated Core durability boundary; DELETE shell-side persistent publication, retry bypasses, legacy fallback/import/backup machinery, and any bwrap repair path. Core still fails closed for unsupported Linux sandbox requests and never invokes or repairs bwrap.
 - Current checkpoint: M2 independent product review candidate. M2-R1 is accepted for review, but no independent reviewer, promotion to `main`, push, live cutover, or bounded device qualification has been performed. Worker mode remains OFF.
 
+- M2-R1 review follow-up — generation collision race — is accepted at product
+  tip `084531b42bbcd6235c32393a576a09265269974e`
+  (`fix: protect immutable generation publication`). The review
+  follow-up closed a concrete race in which the pre-publish existence check
+  could be invalidated and ordinary Unix rename could replace an existing
+  generation directory. The real generation publication path now uses the
+  existing no-replace primitive and maps an atomic destination collision to the
+  existing `GenerationCollision` result; no activation-state or legacy-entrypoint
+  replacement semantics were changed.
+- The focused regression
+  `test_m2_r1_generation_collision_race_never_replaces_existing_directory`
+  injects a destination after the check, proves the existing sentinel survives,
+  proves the collision result, and proves candidate cleanup. The paired M2-R1
+  generation durability test also remained green: focused generation group
+  `2 passed, 0 failed`; the initial exact smoke filter that selected zero tests
+  was discarded and the corrected substring invocation selected the intended
+  one smoke test.
+- Final grouped acceptance on the formatted source passed the locked serial
+  workspace suite `104 passed, 0 failed, 1 ignored` and three independent
+  default-parallel repetitions with the same counts; release-builder passed
+  `7 passed, 0 failed`. `cargo fmt --check`, `git diff --check`, bootstrap
+  shell syntax, and the locked warnings-denied workspace release build all
+  passed. The explicit real-Termux read-only smoke passed `1 passed, 0 failed`.
+- The final source hash is Core
+  `1cfc6f0aa0c392a755845e9a37a96366ce40ff2a2c7be0408eac39f569fdfcc2` against
+  SPEC hash `3bcadc1831eb73a1f6e5e6813f4c015e8da039abbcb3310f32ebee6f0db28702`.
+  Test and build target roots were removed with zero residue. Protected
+  launcher and resolver hashes and device/stat identities remained unchanged;
+  no live generation/trust, resolver, launcher, Manager, auth/profile/session,
+  package, network, publication, push, or promotion state changed.
+- Exhaustive rename disposition for this class is complete: KEEP no-replace
+  generation publication and the existing release-builder no-replace output;
+  KEEP intentional activation-state replacement and digest-bound legacy
+  entrypoint replacement; DELETE no new fallback, retry, lock, bwrap repair,
+  or second publication path. Independent product review remains the next
+  gate; worker mode remains OFF.
+
 ## Goal Lifts
 
 No lift is active. A proposed lift must identify a concrete product risk or
