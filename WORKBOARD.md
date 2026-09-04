@@ -21,16 +21,21 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 - Remote `origin/rewrite/rust-core` remains at
   `253156c37a2bd22af8faae0bce03587999ffd136`; the local branch is ahead and
   no push is authorized.
-- Current milestone: M2 delivery/recovery is active; M2-R1, M2-R2, and the
-  required independent product review are accepted. Final acceptance or
-  promotion remains an explicit authorization boundary.
+- Current milestone: M2 delivery/recovery is accepted and locally promoted;
+  M2-R1, M2-R2, and the required independent product review are closed. Remote
+  publication and live cutover remain separate authorization boundaries.
 - The inherited pre-commit hook references absent
   `tools/update-wrapper-version.sh`; do not modify it. If it alone rejects an
   exact, revalidated staged tree, use the established `--no-verify` closure.
 - `legacy/monolith` remains sealed at
   `bf30a7dc94d4dad7f58836c69028160856e63c58`.
-- `main` remains publication authority. No merge, promotion, push, or live
-  cutover is authorized by this bundle.
+- The pre-promotion local `main` at
+  `37f0a775ddc64d1641655a0cc83c0c2e681df704` was not contained by the sealed
+  `legacy/monolith` history. It is preserved by the exact local backup branch
+  `legacy/main-pre-m2-20260904`.
+- `main` remains publication authority and is locally promoted by direct ref
+  replacement to this accepted `rewrite/rust-core` tip; this is not a merge or
+  rebase. Remote refs remain unchanged and no push or live cutover is included.
 - Worker mode is OFF. The primary Lead owns implementation, validation,
   authority updates, commit, and acceptance.
 
@@ -77,7 +82,7 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 
 ## Next action
 
-### M2 final acceptance / explicit promotion decision
+### M2 final acceptance / local promotion closeout
 
 - M2-R2 independent-review remediation is accepted at
   `rewrite/rust-core@a56a85cb88d3866ddc52134aae6dedaf88ac6c1f`.
@@ -110,9 +115,10 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
   formatting, bootstrap syntax, diff check, and real-Termux read-only smoke
   all passed. A mistaken zero-test doctor filter was discarded and not used as
   evidence.
-- The next action is an explicit final acceptance/promotion decision. Until
-  separately authorized, do not promote to `main`, push, replace the live
-  launcher, mutate the live resolver, or invoke bounded device qualification.
+- M2 final acceptance and local `main` promotion are complete. The old local
+  `main` remains recoverable at `legacy/main-pre-m2-20260904`; remote
+  publication, live launcher/resolver changes, and bounded device
+  qualification remain out of scope until separately authorized.
 
 Worker mode remains OFF; the primary Lead owns every slice, validation step,
 authority update, and acceptance decision.

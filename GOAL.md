@@ -1272,6 +1272,30 @@ Termux qualification. Produce one candidate for independent product review.
   promotion decision. No promotion to `main`, push, live cutover, or bounded
   device qualification has been performed. Worker mode remains OFF.
 
+## M2 Final Acceptance and Local Promotion (2026-09-04)
+
+- The user approved the completed M2 candidate for local publication and
+  authorized promotion of `main`.
+- Before promotion, the exact local `main` was
+  `37f0a775ddc64d1641655a0cc83c0c2e681df704`. It was not reachable from the
+  sealed `legacy/monolith` branch at
+  `bf30a7dc94d4dad7f58836c69028160856e63c58`, and no existing legacy backup
+  ref contained it.
+- The old `main` was preserved before replacement as the exact local branch
+  `legacy/main-pre-m2-20260904` at
+  `37f0a775ddc64d1641655a0cc83c0c2e681df704`. The sealed
+  `legacy/monolith` branch was left unchanged.
+- The accepted `rewrite/rust-core` candidate, including this provenance
+  record, is promoted to local `main` by direct ref replacement. The
+  independent rewrite history remains unmerged with legacy history. Remote
+  tracking refs, push state, installed runtime, live resolver, and bounded
+  device state are unchanged.
+- The M2 acceptance evidence immediately preceding this record remains the
+  load-bearing proof: locked Core `113 passed, 0 failed, 1 ignored`,
+  release-builder `7 passed, 0 failed`, three matching default-parallel
+  repetitions, corrected focused review gates, warnings-denied release build,
+  formatting, bootstrap syntax, diff check, and read-only real-Termux smoke.
+
 ## Goal Lifts
 
 No lift is active. A proposed lift must identify a concrete product risk or
