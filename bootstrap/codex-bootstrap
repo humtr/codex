@@ -9,10 +9,20 @@ fail() {
   exit 1
 }
 
-[ "$#" -eq 3 ] || fail 'usage: codex-bootstrap <CORE_ARTIFACT> <SIGNED_RELEASE_DIR> <BOOTSTRAP_PUBLIC_KEY>'
-core_input=$1
-release_dir=$2
-key_input=$3
+if [ "$#" -eq 3 ]; then
+  bootstrap_mode=fresh
+  core_input=$1
+  release_dir=$2
+  key_input=$3
+elif [ "$#" -eq 5 ] && [ "$1" = upgrade-legacy ]; then
+  bootstrap_mode=legacy
+  core_input=$2
+  release_dir=$3
+  key_input=$4
+  expected_legacy_digest=$5
+else
+  fail 'usage: codex-bootstrap <CORE_ARTIFACT> <SIGNED_RELEASE_DIR> <BOOTSTRAP_PUBLIC_KEY> | codex-bootstrap upgrade-legacy <CORE_ARTIFACT> <SIGNED_RELEASE_DIR> <BOOTSTRAP_PUBLIC_KEY> <EXPECTED_LEGACY_ENTRYPOINT_SHA256>'
+fi
 
 case ${HOME-} in /*) ;; *) fail 'HOME must be an absolute path' ;; esac
 case ${PREFIX-} in /*) ;; *) fail 'PREFIX must be an absolute path' ;; esac
@@ -20,6 +30,12 @@ case ${TMPDIR-} in /*) ;; *) fail 'TMPDIR must be an absolute path' ;; esac
 case $core_input in /*) ;; *) fail 'Core artifact path must be absolute' ;; esac
 case $release_dir in /*) ;; *) fail 'signed release path must be absolute' ;; esac
 case $key_input in /*) ;; *) fail 'bootstrap public key path must be absolute' ;; esac
+if [ "$bootstrap_mode" = legacy ]; then
+  [ "${#expected_legacy_digest}" -eq 64 ] || fail 'expected legacy entrypoint digest must be exactly 64 lowercase hexadecimal digits'
+  case $expected_legacy_digest in
+    *[!0-9a-f]*) fail 'expected legacy entrypoint digest must be exactly 64 lowercase hexadecimal digits' ;;
+  esac
+fi
 
 [ -d "$TMPDIR" ] && [ ! -L "$TMPDIR" ] || fail 'TMPDIR must be a real directory'
 [ -f "$core_input" ] && [ ! -L "$core_input" ] && [ -x "$core_input" ] || fail 'Core artifact must be an executable regular file'
@@ -37,8 +53,10 @@ openssl=$PREFIX/bin/openssl
 [ -x "$openssl" ] || fail 'Termux OpenSSL is unavailable'
 
 state=$HOME/.local/share/codex/core/activation-state
-if [ -e "$state" ] || [ -L "$state" ]; then
-  fail 'fresh bootstrap refuses existing authoritative v3 state'
+if [ "$bootstrap_mode" = fresh ]; then
+  if [ -e "$state" ] || [ -L "$state" ]; then
+    fail 'fresh bootstrap refuses existing authoritative v3 state'
+  fi
 fi
 
 work=$TMPDIR/.codex-bootstrap.$$
@@ -154,53 +172,97 @@ validate_existing_entrypoint() {
     [ "$(sha256_hex "$destination")" = "$core_digest" ] || fail 'existing Codex entrypoint differs from authenticated Core artifact'
   fi
 }
-validate_existing_entrypoint
-
-pin=$HOME/.local/lib/codex/core/release-public-key.pem
-pin_parent=${pin%/*}
-mkdir -p "$pin_parent"
-if [ -e "$pin" ] || [ -L "$pin" ]; then
-  [ -f "$pin" ] && [ ! -L "$pin" ] || fail 'existing bootstrap trust seed is not a regular file'
-  [ "$(key_raw_hex "$pin")" = "$pinned_raw" ] || fail 'existing bootstrap trust seed does not match requested key'
+validate_legacy_entrypoint() {
+  [ -e "$destination" ] || [ -L "$destination" ] || fail 'legacy handoff requires an existing Codex entrypoint'
+  [ -f "$destination" ] && [ ! -L "$destination" ] || fail 'existing Codex entrypoint must be a regular non-symlink file'
+  [ "$expected_legacy_digest" != "$core_digest" ] || fail 'expected legacy entrypoint digest must differ from authenticated Core digest'
+  actual_entrypoint_digest=$(sha256_hex "$destination")
+  [ "$actual_entrypoint_digest" = "$expected_legacy_digest" ] ||
+    [ "$actual_entrypoint_digest" = "$core_digest" ] ||
+    fail 'existing Codex entrypoint matches neither explicit legacy target nor authenticated Core artifact'
+}
+if [ "$bootstrap_mode" = fresh ]; then
+  validate_existing_entrypoint
 else
-  pin_tmp=$pin_parent/.release-public-key.pem.bootstrap.$$
-  [ ! -e "$pin_tmp" ] && [ ! -L "$pin_tmp" ] || fail 'bootstrap trust temporary already exists'
-  cat "$key_snapshot" > "$pin_tmp"
-  chmod 644 "$pin_tmp"
-  if ! mv -n "$pin_tmp" "$pin"; then
-    rm -f "$pin_tmp"
-    fail 'bootstrap trust seed publication failed'
-  fi
-  if [ -e "$pin_tmp" ] || [ -L "$pin_tmp" ]; then
-    rm -f "$pin_tmp"
-    fail 'bootstrap trust seed publication collided'
-  fi
+  validate_legacy_entrypoint
 fi
 
-unset CODEX_TERMUX_INTERNAL_BOOTSTRAP_SOURCE || :
-CODEX_TERMUX_INTERNAL_BOOTSTRAP=self-test "$core_snapshot" || fail 'authenticated Core self-test failed'
+publish_bootstrap_pin() {
+  pin=$HOME/.local/lib/codex/core/release-public-key.pem
+  pin_parent=${pin%/*}
+  mkdir -p "$pin_parent"
+  if [ -e "$pin" ] || [ -L "$pin" ]; then
+    [ -f "$pin" ] && [ ! -L "$pin" ] || fail 'existing bootstrap trust seed is not a regular file'
+    [ "$(key_raw_hex "$pin")" = "$pinned_raw" ] || fail 'existing bootstrap trust seed does not match requested key'
+  else
+    pin_tmp=$pin_parent/.release-public-key.pem.bootstrap.$$
+    [ ! -e "$pin_tmp" ] && [ ! -L "$pin_tmp" ] || fail 'bootstrap trust temporary already exists'
+    cat "$key_snapshot" > "$pin_tmp"
+    chmod 644 "$pin_tmp"
+    if ! mv -n "$pin_tmp" "$pin"; then
+      rm -f "$pin_tmp"
+      fail 'bootstrap trust seed publication failed'
+    fi
+    if [ -e "$pin_tmp" ] || [ -L "$pin_tmp" ]; then
+      rm -f "$pin_tmp"
+      fail 'bootstrap trust seed publication collided'
+    fi
+  fi
+}
 
-mkdir -p "$PREFIX/bin"
-validate_existing_entrypoint
-if [ -e "$destination" ] || [ -L "$destination" ]; then
-  rm -f "$core_snapshot"
+if [ "$bootstrap_mode" = fresh ]; then
+  publish_bootstrap_pin
+  unset CODEX_TERMUX_INTERNAL_BOOTSTRAP_SOURCE || :
+  CODEX_TERMUX_INTERNAL_BOOTSTRAP=self-test "$core_snapshot" || fail 'authenticated Core self-test failed'
+
+  mkdir -p "$PREFIX/bin"
+  validate_existing_entrypoint
+  if [ -e "$destination" ] || [ -L "$destination" ]; then
+    rm -f "$core_snapshot"
+  else
+    destination_tmp=$PREFIX/bin/.codex.bootstrap.$$
+    [ ! -e "$destination_tmp" ] && [ ! -L "$destination_tmp" ] || fail 'Codex entrypoint temporary already exists'
+    cat "$core_snapshot" > "$destination_tmp"
+    chmod 755 "$destination_tmp"
+    if ! mv -n "$destination_tmp" "$destination"; then
+      rm -f "$destination_tmp"
+      fail 'Codex entrypoint publication failed'
+    fi
+    if [ -e "$destination_tmp" ] || [ -L "$destination_tmp" ]; then
+      rm -f "$destination_tmp"
+      fail 'Codex entrypoint publication collided'
+    fi
+  fi
+
+  CODEX_TERMUX_INTERNAL_BOOTSTRAP=activate \
+  CODEX_TERMUX_INTERNAL_BOOTSTRAP_SOURCE="$release_dir" \
+    "$destination" || fail 'initial v3 activation failed'
+
+  printf '%s\n' 'codex-bootstrap: initial installation complete'
 else
-  destination_tmp=$PREFIX/bin/.codex.bootstrap.$$
-  [ ! -e "$destination_tmp" ] && [ ! -L "$destination_tmp" ] || fail 'Codex entrypoint temporary already exists'
-  cat "$core_snapshot" > "$destination_tmp"
-  chmod 755 "$destination_tmp"
-  if ! mv -n "$destination_tmp" "$destination"; then
-    rm -f "$destination_tmp"
-    fail 'Codex entrypoint publication failed'
+  unset CODEX_TERMUX_INTERNAL_BOOTSTRAP_SOURCE \
+    CODEX_TERMUX_INTERNAL_BOOTSTRAP_CORE \
+    CODEX_TERMUX_INTERNAL_BOOTSTRAP_EXPECTED_LEGACY_ENTRYPOINT_SHA256 || :
+  CODEX_TERMUX_INTERNAL_BOOTSTRAP=handoff-self-test \
+  CODEX_TERMUX_INTERNAL_BOOTSTRAP_KEY="$key_snapshot" \
+    "$core_snapshot" || fail 'authenticated Core self-test failed'
+
+  journal=$HOME/.local/share/codex/core/activation-journal
+  journal_tmp=$HOME/.local/share/codex/core/activation-journal.tmp
+  state_tmp=$HOME/.local/share/codex/core/activation-state.tmp
+  if [ ! -e "$state" ] && [ ! -L "$state" ] &&
+    [ ! -e "$journal" ] && [ ! -L "$journal" ] &&
+    [ ! -e "$journal_tmp" ] && [ ! -L "$journal_tmp" ] &&
+    [ ! -e "$state_tmp" ] && [ ! -L "$state_tmp" ]; then
+    publish_bootstrap_pin
   fi
-  if [ -e "$destination_tmp" ] || [ -L "$destination_tmp" ]; then
-    rm -f "$destination_tmp"
-    fail 'Codex entrypoint publication collided'
-  fi
+
+  CODEX_TERMUX_INTERNAL_BOOTSTRAP=handoff \
+  CODEX_TERMUX_INTERNAL_BOOTSTRAP_SOURCE="$release_dir" \
+  CODEX_TERMUX_INTERNAL_BOOTSTRAP_KEY="$key_snapshot" \
+  CODEX_TERMUX_INTERNAL_BOOTSTRAP_CORE="$core_snapshot" \
+  CODEX_TERMUX_INTERNAL_BOOTSTRAP_EXPECTED_LEGACY_ENTRYPOINT_SHA256="$expected_legacy_digest" \
+    "$core_snapshot" || fail 'legacy handoff failed'
+
+  printf '%s\n' 'codex-bootstrap: legacy handoff complete'
 fi
-
-CODEX_TERMUX_INTERNAL_BOOTSTRAP=activate \
-CODEX_TERMUX_INTERNAL_BOOTSTRAP_SOURCE="$release_dir" \
-  "$destination" || fail 'initial v3 activation failed'
-
-printf '%s\n' 'codex-bootstrap: initial installation complete'

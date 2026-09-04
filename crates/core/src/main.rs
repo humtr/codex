@@ -2340,6 +2340,13 @@ const REMOTE_TRANSFER_TIMEOUT_SECONDS: &str = "300";
 const INTERNAL_BOOTSTRAP_MODE_ENV: &str = "CODEX_TERMUX_INTERNAL_BOOTSTRAP";
 #[cfg(unix)]
 const INTERNAL_BOOTSTRAP_SOURCE_ENV: &str = "CODEX_TERMUX_INTERNAL_BOOTSTRAP_SOURCE";
+#[cfg(unix)]
+const INTERNAL_BOOTSTRAP_KEY_ENV: &str = "CODEX_TERMUX_INTERNAL_BOOTSTRAP_KEY";
+#[cfg(unix)]
+const INTERNAL_BOOTSTRAP_CORE_ENV: &str = "CODEX_TERMUX_INTERNAL_BOOTSTRAP_CORE";
+#[cfg(unix)]
+const INTERNAL_BOOTSTRAP_EXPECTED_ENTRYPOINT_DIGEST_ENV: &str =
+    "CODEX_TERMUX_INTERNAL_BOOTSTRAP_EXPECTED_LEGACY_ENTRYPOINT_SHA256";
 
 #[cfg(unix)]
 #[derive(Debug, Clone)]
@@ -2389,6 +2396,7 @@ enum LocalProductError {
     UnsafeSource(&'static str),
     GenerationCollision,
     Release(&'static str),
+    LegacyHandoff(&'static str),
     OpenSslUnavailable,
     CurlUnavailable,
     TrustedReleaseKeyUnavailable,
@@ -2435,6 +2443,7 @@ impl std::fmt::Display for LocalProductError {
                 f.write_str("generation id is already present in the immutable generation root")
             }
             LocalProductError::Release(message) => f.write_str(message),
+            LocalProductError::LegacyHandoff(message) => f.write_str(message),
             LocalProductError::OpenSslUnavailable => f.write_str("Termux OpenSSL is unavailable"),
             LocalProductError::CurlUnavailable => f.write_str("Termux curl is unavailable"),
             LocalProductError::TrustedReleaseKeyUnavailable => {
@@ -4495,6 +4504,396 @@ fn bootstrap_initial_signed_local_release(
 }
 
 #[cfg(unix)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LegacyEntrypointClass {
+    Legacy,
+    Core,
+}
+
+#[cfg(unix)]
+fn is_canonical_sha256(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+#[cfg(unix)]
+fn classify_legacy_entrypoint_digest(
+    actual_digest: &str,
+    expected_legacy_digest: &str,
+    core_digest: &str,
+) -> Result<LegacyEntrypointClass, LocalProductError> {
+    if !is_canonical_sha256(expected_legacy_digest) {
+        return Err(LocalProductError::LegacyHandoff(
+            "expected legacy entrypoint digest must be exactly 64 lowercase hexadecimal digits",
+        ));
+    }
+    if expected_legacy_digest == core_digest {
+        return Err(LocalProductError::LegacyHandoff(
+            "expected legacy entrypoint digest must differ from authenticated Core digest",
+        ));
+    }
+    if actual_digest == expected_legacy_digest {
+        Ok(LegacyEntrypointClass::Legacy)
+    } else if actual_digest == core_digest {
+        Ok(LegacyEntrypointClass::Core)
+    } else {
+        Err(LocalProductError::LegacyHandoff(
+            "entrypoint digest matches neither explicit legacy target nor authenticated Core",
+        ))
+    }
+}
+
+#[cfg(unix)]
+fn stable_core_entrypoint_path(
+    roots: &LocalCoreRoots,
+) -> Result<std::path::PathBuf, LocalProductError> {
+    let etc_dir = roots
+        .resolver_path
+        .parent()
+        .ok_or(LocalProductError::LegacyHandoff(
+            "Core resolver path has no parent directory",
+        ))?;
+    let prefix = etc_dir.parent().ok_or(LocalProductError::LegacyHandoff(
+        "Core resolver path has no Termux prefix",
+    ))?;
+    Ok(prefix.join("bin/codex"))
+}
+
+#[cfg(unix)]
+fn read_legacy_handoff_entrypoint(
+    roots: &LocalCoreRoots,
+    expected_legacy_digest: &str,
+    core_digest: &str,
+) -> Result<LegacyEntrypointClass, LocalProductError> {
+    let destination = stable_core_entrypoint_path(roots)?;
+    let parent = destination
+        .parent()
+        .ok_or(LocalProductError::LegacyHandoff(
+            "Core entrypoint has no parent directory",
+        ))?;
+    ensure_real_directory(
+        parent,
+        "inspect Core entrypoint parent",
+        "Core entrypoint parent must be a real directory",
+    )?;
+    let metadata = std::fs::symlink_metadata(&destination).map_err(|source| {
+        if source.kind() == std::io::ErrorKind::NotFound {
+            LocalProductError::LegacyHandoff("legacy handoff requires an existing Codex entrypoint")
+        } else {
+            LocalProductError::Io {
+                operation: "inspect existing Codex entrypoint",
+                source,
+            }
+        }
+    })?;
+    if !metadata.file_type().is_file() {
+        return Err(LocalProductError::LegacyHandoff(
+            "existing Codex entrypoint must be a regular non-symlink file",
+        ));
+    }
+    let actual_digest = openssl_sha256(&roots.openssl, &destination)?;
+    classify_legacy_entrypoint_digest(&actual_digest, expected_legacy_digest, core_digest)
+}
+
+#[cfg(unix)]
+fn bootstrap_handoff_self_test(
+    roots: &LocalCoreRoots,
+    bootstrap_public_key: &std::path::Path,
+) -> Result<(), LocalProductError> {
+    ensure_openssl_available(&roots.openssl)?;
+    let _ = release_public_key_from_pem(&roots.openssl, bootstrap_public_key)?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn verify_handoff_state_matches_candidate(
+    source_dir: &std::path::Path,
+    roots: &LocalCoreRoots,
+    state: &m2_generation_state::GenerationPointerState,
+    supplied_key: ReleasePublicKey,
+    core_digest: &str,
+) -> Result<m2_generation_state::GenerationPointerState, LocalProductError> {
+    if state.update_key != supplied_key || state.current_key != supplied_key {
+        return Err(LocalProductError::LegacyHandoff(
+            "prepared handoff state does not match supplied bootstrap key",
+        ));
+    }
+    if state.previous.is_some() || state.previous_key.is_some() {
+        return Err(LocalProductError::LegacyHandoff(
+            "prepared handoff state must not contain a previous generation",
+        ));
+    }
+    let (source_release, source_loaded) =
+        verify_local_release_bundle_with_key(source_dir, &roots.openssl, supplied_key)?;
+    if source_release.release_public_key != state.current_key
+        || source_loaded.generation_id != state.current
+    {
+        return Err(LocalProductError::LegacyHandoff(
+            "signed handoff release does not match prepared generation state",
+        ));
+    }
+    if source_loaded.manifest.core_artifact_digest != core_digest {
+        return Err(LocalProductError::LegacyHandoff(
+            "signed handoff release does not match authenticated Core artifact",
+        ));
+    }
+    let (installed_release, installed_loaded) = verify_installed_local_release(
+        roots,
+        &state.current,
+        state.current_key,
+        "prepared handoff generation descriptor id does not match current",
+    )?;
+    if installed_release != source_release
+        || installed_loaded.generation_id != source_loaded.generation_id
+    {
+        return Err(LocalProductError::LegacyHandoff(
+            "installed prepared generation does not match signed handoff release",
+        ));
+    }
+    Ok(state.clone())
+}
+
+#[cfg(unix)]
+fn bootstrap_handoff_prepare_state(
+    source_dir: &std::path::Path,
+    roots: &LocalCoreRoots,
+    bootstrap_public_key: &std::path::Path,
+    core_digest: &str,
+    process_env: &TermuxProcessEnvSnapshot,
+) -> Result<m2_generation_state::GenerationPointerState, LocalProductError> {
+    let state_paths = m2_generation_state::CoreStatePaths::new(&roots.state_root)
+        .map_err(LocalProductError::StateFormat)?;
+    let supplied_key = release_public_key_from_pem(&roots.openssl, bootstrap_public_key)?;
+    let before = m2_generation_state::recover_activation_state(&state_paths)
+        .map_err(LocalProductError::State)?;
+    if let Some(state) = before {
+        return verify_handoff_state_matches_candidate(
+            source_dir,
+            roots,
+            &state,
+            supplied_key,
+            core_digest,
+        );
+    }
+
+    let (source_release, source_loaded) =
+        verify_local_release_bundle_with_key(source_dir, &roots.openssl, supplied_key)?;
+    if source_release.release_public_key != supplied_key {
+        return Err(LocalProductError::LegacyHandoff(
+            "bootstrap release key does not match supplied bootstrap key",
+        ));
+    }
+    if source_loaded.manifest.core_artifact_digest != core_digest {
+        return Err(LocalProductError::LegacyHandoff(
+            "signed handoff release does not match authenticated Core artifact",
+        ));
+    }
+    bootstrap_initial_signed_local_release(source_dir, roots, bootstrap_public_key, process_env)?;
+    let state = m2_generation_state::read_pointer_state(&state_paths)
+        .map_err(LocalProductError::State)?
+        .ok_or(LocalProductError::LegacyHandoff(
+            "initial handoff activation did not publish authoritative state",
+        ))?;
+    verify_handoff_state_matches_candidate(source_dir, roots, &state, supplied_key, core_digest)
+}
+
+#[cfg(unix)]
+static LEGACY_HANDOFF_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+#[cfg(unix)]
+fn create_handoff_entrypoint_temp(
+    roots: &LocalCoreRoots,
+    core_artifact: &std::path::Path,
+    core_digest: &str,
+) -> Result<std::path::PathBuf, LocalProductError> {
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+    ensure_regular_file(
+        core_artifact,
+        "inspect authenticated Core artifact",
+        "authenticated Core artifact must be a regular non-symlink file",
+    )?;
+    let destination = stable_core_entrypoint_path(roots)?;
+    let parent = destination
+        .parent()
+        .ok_or(LocalProductError::LegacyHandoff(
+            "Core entrypoint has no parent directory",
+        ))?;
+    ensure_real_directory(
+        parent,
+        "inspect Core entrypoint parent",
+        "Core entrypoint parent must be a real directory",
+    )?;
+    let sequence = LEGACY_HANDOFF_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let temporary = parent.join(format!(
+        ".codex.legacy-handoff-{}-{sequence}",
+        std::process::id()
+    ));
+    let result = (|| {
+        let mut input =
+            std::fs::File::open(core_artifact).map_err(|source| LocalProductError::Io {
+                operation: "open authenticated Core artifact",
+                source,
+            })?;
+        let mut output = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&temporary)
+            .map_err(|source| LocalProductError::Io {
+                operation: "create private Core entrypoint temporary",
+                source,
+            })?;
+        std::io::copy(&mut input, &mut output).map_err(|source| LocalProductError::Io {
+            operation: "copy authenticated Core artifact",
+            source,
+        })?;
+        output.sync_all().map_err(|source| LocalProductError::Io {
+            operation: "sync private Core entrypoint temporary",
+            source,
+        })?;
+        let mut permissions = output
+            .metadata()
+            .map_err(|source| LocalProductError::Io {
+                operation: "inspect private Core entrypoint temporary",
+                source,
+            })?
+            .permissions();
+        permissions.set_mode(0o755);
+        output
+            .set_permissions(permissions)
+            .map_err(|source| LocalProductError::Io {
+                operation: "set private Core entrypoint temporary mode",
+                source,
+            })?;
+        output.sync_all().map_err(|source| LocalProductError::Io {
+            operation: "resync private Core entrypoint temporary",
+            source,
+        })?;
+        drop(output);
+        let metadata =
+            std::fs::symlink_metadata(&temporary).map_err(|source| LocalProductError::Io {
+                operation: "inspect prepared Core entrypoint temporary",
+                source,
+            })?;
+        if !metadata.file_type().is_file() || metadata.permissions().mode() & 0o7777 != 0o755 {
+            return Err(LocalProductError::LegacyHandoff(
+                "private Core entrypoint temporary is not an executable 0755 regular file",
+            ));
+        }
+        if openssl_sha256(&roots.openssl, &temporary)? != core_digest {
+            return Err(LocalProductError::LegacyHandoff(
+                "private Core entrypoint temporary digest does not match authenticated Core",
+            ));
+        }
+        Ok(temporary.clone())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result
+}
+
+#[cfg(unix)]
+fn commit_handoff_entrypoint(
+    roots: &LocalCoreRoots,
+    core_artifact: &std::path::Path,
+    expected_legacy_digest: &str,
+    core_digest: &str,
+) -> Result<(), LocalProductError> {
+    let destination = stable_core_entrypoint_path(roots)?;
+    let parent = destination
+        .parent()
+        .ok_or(LocalProductError::LegacyHandoff(
+            "Core entrypoint has no parent directory",
+        ))?;
+    let current = read_legacy_handoff_entrypoint(roots, expected_legacy_digest, core_digest)?;
+    if current == LegacyEntrypointClass::Core {
+        return Ok(());
+    }
+    let temporary = create_handoff_entrypoint_temp(roots, core_artifact, core_digest)?;
+    let result = (|| {
+        let current = read_legacy_handoff_entrypoint(roots, expected_legacy_digest, core_digest)?;
+        if current == LegacyEntrypointClass::Core {
+            std::fs::remove_file(&temporary).map_err(|source| LocalProductError::Io {
+                operation: "remove obsolete Core entrypoint temporary",
+                source,
+            })?;
+            return Ok(());
+        }
+        std::fs::rename(&temporary, &destination).map_err(|source| LocalProductError::Io {
+            operation: "atomically replace legacy Codex entrypoint",
+            source,
+        })?;
+        let directory = std::fs::File::open(parent).map_err(|source| LocalProductError::Io {
+            operation: "open Core entrypoint parent for sync",
+            source,
+        })?;
+        directory
+            .sync_all()
+            .map_err(|source| LocalProductError::Io {
+                operation: "sync Core entrypoint parent",
+                source,
+            })?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result
+}
+
+#[cfg(unix)]
+fn bootstrap_legacy_handoff(
+    source_dir: &std::path::Path,
+    roots: &LocalCoreRoots,
+    bootstrap_public_key: &std::path::Path,
+    core_artifact: &std::path::Path,
+    expected_legacy_digest: &str,
+    process_env: &TermuxProcessEnvSnapshot,
+) -> Result<String, LocalProductError> {
+    ensure_openssl_available(&roots.openssl)?;
+    ensure_regular_file(
+        core_artifact,
+        "inspect authenticated Core artifact",
+        "authenticated Core artifact must be a regular non-symlink file",
+    )?;
+    let core_metadata =
+        std::fs::symlink_metadata(core_artifact).map_err(|source| LocalProductError::Io {
+            operation: "inspect authenticated Core artifact",
+            source,
+        })?;
+    use std::os::unix::fs::PermissionsExt;
+    if core_metadata.permissions().mode() & 0o7777 != 0o755 {
+        return Err(LocalProductError::LegacyHandoff(
+            "authenticated Core artifact must have mode 0755",
+        ));
+    }
+    let core_digest = openssl_sha256(&roots.openssl, core_artifact)?;
+    let _ = read_legacy_handoff_entrypoint(roots, expected_legacy_digest, &core_digest)?;
+    bootstrap_handoff_self_test(roots, bootstrap_public_key)?;
+    let state = bootstrap_handoff_prepare_state(
+        source_dir,
+        roots,
+        bootstrap_public_key,
+        &core_digest,
+        process_env,
+    )?;
+    #[cfg(test)]
+    if std::env::var_os("CODEX_TEST_LEGACY_HANDOFF_STOP_BEFORE_COMMIT").as_deref()
+        == Some(OsStr::new("1"))
+    {
+        return Err(LocalProductError::LegacyHandoff(
+            "test interruption before legacy entrypoint commit",
+        ));
+    }
+    commit_handoff_entrypoint(roots, core_artifact, expected_legacy_digest, &core_digest)?;
+    Ok(state.current)
+}
+
+#[cfg(unix)]
 fn run_internal_bootstrap_mode() -> Option<i32> {
     let mode = std::env::var_os(INTERNAL_BOOTSTRAP_MODE_ENV)?;
     let roots = match LocalCoreRoots::from_environment() {
@@ -4504,7 +4903,13 @@ fn run_internal_bootstrap_mode() -> Option<i32> {
             return Some(1);
         }
     };
-    let bootstrap_public_key = match bootstrap_public_key_path() {
+    let supplied_key_mode =
+        mode == OsStr::new("handoff-self-test") || mode == OsStr::new("handoff");
+    let bootstrap_public_key = match if supplied_key_mode {
+        required_absolute_env_path(INTERNAL_BOOTSTRAP_KEY_ENV)
+    } else {
+        bootstrap_public_key_path()
+    } {
         Ok(path) => path,
         Err(err) => {
             eprintln!("codex bootstrap: {err}");
@@ -4519,6 +4924,14 @@ fn run_internal_bootstrap_mode() -> Option<i32> {
         } else {
             bootstrap_self_test(&roots, &bootstrap_public_key).map(|_| String::new())
         }
+    } else if mode == OsStr::new("handoff-self-test") {
+        if std::env::var_os(INTERNAL_BOOTSTRAP_SOURCE_ENV).is_some() {
+            Err(LocalProductError::LegacyHandoff(
+                "legacy handoff self-test does not accept a release source",
+            ))
+        } else {
+            bootstrap_handoff_self_test(&roots, &bootstrap_public_key).map(|_| String::new())
+        }
     } else if mode == OsStr::new("activate") {
         match required_absolute_env_path(INTERNAL_BOOTSTRAP_SOURCE_ENV) {
             Ok(source) => {
@@ -4532,6 +4945,29 @@ fn run_internal_bootstrap_mode() -> Option<i32> {
             }
             Err(err) => Err(err),
         }
+    } else if mode == OsStr::new("handoff") {
+        match (
+            required_absolute_env_path(INTERNAL_BOOTSTRAP_SOURCE_ENV),
+            required_absolute_env_path(INTERNAL_BOOTSTRAP_CORE_ENV),
+            std::env::var(INTERNAL_BOOTSTRAP_EXPECTED_ENTRYPOINT_DIGEST_ENV).map_err(|_| {
+                LocalProductError::LegacyHandoff(
+                    "expected legacy entrypoint digest is missing or not Unicode",
+                )
+            }),
+        ) {
+            (Ok(source), Ok(core), Ok(expected)) => {
+                let process_env = capture_termux_process_env();
+                bootstrap_legacy_handoff(
+                    &source,
+                    &roots,
+                    &bootstrap_public_key,
+                    &core,
+                    &expected,
+                    &process_env,
+                )
+            }
+            (Err(err), _, _) | (_, Err(err), _) | (_, _, Err(err)) => Err(err),
+        }
     } else {
         eprintln!("codex bootstrap: unsupported internal bootstrap mode");
         return Some(2);
@@ -4539,7 +4975,11 @@ fn run_internal_bootstrap_mode() -> Option<i32> {
     match result {
         Ok(generation_id) => {
             if !generation_id.is_empty() {
-                println!("activated initial local generation {generation_id}");
+                if mode == OsStr::new("handoff") {
+                    println!("completed legacy handoff to local generation {generation_id}");
+                } else {
+                    println!("activated initial local generation {generation_id}");
+                }
             }
             Some(0)
         }
@@ -5354,17 +5794,17 @@ exit 73
             .stderr(std::process::Stdio::null())
             .spawn()
             .unwrap();
+        let mut runtime_pid = None;
         for _ in 0..500 {
-            if pid_file.exists() {
-                break;
+            if let Ok(value) = std::fs::read_to_string(&pid_file) {
+                if let Ok(parsed) = value.trim().parse::<u32>() {
+                    runtime_pid = Some(parsed);
+                    break;
+                }
             }
             std::thread::sleep(std::time::Duration::from_millis(2));
         }
-        let runtime_pid: u32 = std::fs::read_to_string(&pid_file)
-            .unwrap()
-            .trim()
-            .parse()
-            .unwrap();
+        let runtime_pid = runtime_pid.expect("runtime did not publish a parseable pid");
         assert_eq!(runtime_pid, child.id());
         assert_eq!(unsafe { kill(child.id() as i32, 15) }, 0);
         let status = child.wait().unwrap();
@@ -6993,6 +7433,770 @@ esac
                 .starts_with(".codex-bootstrap.")
         }));
         remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    fn b11_run_legacy_handoff(
+        core: &std::path::Path,
+        release: &std::path::Path,
+        public_key: &std::path::Path,
+        expected_legacy_digest: &str,
+        home: &std::path::Path,
+        prefix: &std::path::Path,
+        tmp: &std::path::Path,
+    ) -> std::process::Output {
+        let bootstrap = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../bootstrap/codex-bootstrap");
+        std::process::Command::new(bootstrap)
+            .args([
+                OsStr::new("upgrade-legacy"),
+                core.as_os_str(),
+                release.as_os_str(),
+                public_key.as_os_str(),
+                OsStr::new(expected_legacy_digest),
+            ])
+            .env("HOME", home)
+            .env("PREFIX", prefix)
+            .env("TMPDIR", tmp)
+            .env_remove(INTERNAL_BOOTSTRAP_MODE_ENV)
+            .env_remove(INTERNAL_BOOTSTRAP_SOURCE_ENV)
+            .env_remove(INTERNAL_BOOTSTRAP_KEY_ENV)
+            .env_remove(INTERNAL_BOOTSTRAP_CORE_ENV)
+            .env_remove(INTERNAL_BOOTSTRAP_EXPECTED_ENTRYPOINT_DIGEST_ENV)
+            .output()
+            .unwrap()
+    }
+    #[cfg(unix)]
+    fn b11_run_legacy_handoff_before_commit(
+        core: &std::path::Path,
+        release: &std::path::Path,
+        public_key: &std::path::Path,
+        expected_legacy_digest: &str,
+        home: &std::path::Path,
+        prefix: &std::path::Path,
+        tmp: &std::path::Path,
+    ) -> std::process::Output {
+        let bootstrap = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../bootstrap/codex-bootstrap");
+        std::process::Command::new(bootstrap)
+            .args([
+                OsStr::new("upgrade-legacy"),
+                core.as_os_str(),
+                release.as_os_str(),
+                public_key.as_os_str(),
+                OsStr::new(expected_legacy_digest),
+            ])
+            .env("HOME", home)
+            .env("PREFIX", prefix)
+            .env("TMPDIR", tmp)
+            .env("CODEX_TEST_LEGACY_HANDOFF_STOP_BEFORE_COMMIT", "1")
+            .env_remove(INTERNAL_BOOTSTRAP_MODE_ENV)
+            .env_remove(INTERNAL_BOOTSTRAP_SOURCE_ENV)
+            .env_remove(INTERNAL_BOOTSTRAP_KEY_ENV)
+            .env_remove(INTERNAL_BOOTSTRAP_CORE_ENV)
+            .env_remove(INTERNAL_BOOTSTRAP_EXPECTED_ENTRYPOINT_DIGEST_ENV)
+            .output()
+            .unwrap()
+    }
+
+    #[cfg(unix)]
+    fn b11_write_legacy_entrypoint(
+        prefix: &std::path::Path,
+        openssl: &std::path::Path,
+        bytes: &[u8],
+    ) -> (std::path::PathBuf, String, u32) {
+        use std::os::unix::fs::PermissionsExt;
+
+        let entrypoint = prefix.join("bin/codex");
+        std::fs::write(&entrypoint, bytes).unwrap();
+        let mut permissions = std::fs::metadata(&entrypoint).unwrap().permissions();
+        permissions.set_mode(0o751);
+        std::fs::set_permissions(&entrypoint, permissions).unwrap();
+        let digest = openssl_sha256(openssl, &entrypoint).unwrap();
+        let mode = std::fs::metadata(&entrypoint).unwrap().permissions().mode() & 0o7777;
+        (entrypoint, digest, mode)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b11_slice2a_classifies_exact_entrypoint_digests() {
+        let expected = "a".repeat(64);
+        let core = "b".repeat(64);
+        assert_eq!(
+            classify_legacy_entrypoint_digest(&expected, &expected, &core).unwrap(),
+            LegacyEntrypointClass::Legacy
+        );
+        assert_eq!(
+            classify_legacy_entrypoint_digest(&core, &expected, &core).unwrap(),
+            LegacyEntrypointClass::Core
+        );
+        assert!(classify_legacy_entrypoint_digest("c", &expected, &core).is_err());
+        assert!(classify_legacy_entrypoint_digest(&expected, &core, &core).is_err());
+        assert!(classify_legacy_entrypoint_digest(&expected, &"A".repeat(64), &core).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b11_slice2a_upgrade_grammar_and_conflicts_fail_without_mutation() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+
+        let bootstrap = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../bootstrap/codex-bootstrap");
+        let usage = std::process::Command::new(&bootstrap)
+            .arg("upgrade-legacy")
+            .output()
+            .unwrap();
+        assert_eq!(usage.status.code(), Some(1));
+        assert!(String::from_utf8_lossy(&usage.stderr).contains("usage: codex-bootstrap"));
+
+        let root = temp_root("b11-slice2a-conflicts");
+        let openssl = b4_termux_openssl();
+        let source = b4_source_roots(&root, &openssl);
+        std::fs::create_dir(&source.generation_root).unwrap();
+        let release = b2_write_generation(&source, "b11-conflict-g0", false, "supported");
+        b4_write_probe_runtime(&release, 0, 0);
+        let core = root.join("prebuilt-codex");
+        b8_write_core_probe_wrapper(&core);
+        b8_bind_core_digest(&release, &openssl, &core);
+        let private_key = root.join("keys/private.pem");
+        let public_key = root.join("keys/public.pem");
+        b4_generate_release_keypair(&openssl, &private_key, &public_key);
+        b4_write_signed_release(&release, 1, &openssl, &private_key);
+        let (home, prefix, tmp) = b4_prepare_public_environment(&root, &openssl, true);
+        let (entrypoint, legacy_digest, legacy_mode) =
+            b11_write_legacy_entrypoint(&prefix, &openssl, b"legacy-conflict\n");
+        let legacy_bytes = std::fs::read(&entrypoint).unwrap();
+
+        let wrong_digest = "0".repeat(64);
+        let wrong = b11_run_legacy_handoff(
+            &core,
+            &release,
+            &public_key,
+            &wrong_digest,
+            &home,
+            &prefix,
+            &tmp,
+        );
+        assert_eq!(wrong.status.code(), Some(1));
+        assert_eq!(std::fs::read(&entrypoint).unwrap(), legacy_bytes);
+        assert_eq!(
+            std::fs::metadata(&entrypoint).unwrap().permissions().mode() & 0o7777,
+            legacy_mode
+        );
+        assert!(!home
+            .join(".local/lib/codex/core/release-public-key.pem")
+            .exists());
+        assert!(!home
+            .join(".local/share/codex/core/activation-state")
+            .exists());
+
+        let core_bytes = std::fs::read(&core).unwrap();
+        std::fs::write(&entrypoint, &core_bytes).unwrap();
+        let mut core_permissions = std::fs::metadata(&entrypoint).unwrap().permissions();
+        core_permissions.set_mode(0o755);
+        std::fs::set_permissions(&entrypoint, core_permissions).unwrap();
+        let same_core = b11_run_legacy_handoff(
+            &core,
+            &release,
+            &public_key,
+            &legacy_digest,
+            &home,
+            &prefix,
+            &tmp,
+        );
+        assert_eq!(
+            same_core.status.code(),
+            Some(0),
+            "stdout={:?} stderr={:?}",
+            same_core.stdout,
+            same_core.stderr
+        );
+        let roots = b7_public_roots(&home, &prefix);
+        let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+        let state_before_symlink = std::fs::read(&paths.activation_state).unwrap();
+        assert_eq!(
+            read_pointer_state(&paths).unwrap().unwrap().current,
+            "b11-conflict-g0"
+        );
+
+        std::fs::remove_file(&entrypoint).unwrap();
+        let legacy_target = root.join("legacy-target");
+        std::fs::write(&legacy_target, &legacy_bytes).unwrap();
+        symlink(&legacy_target, &entrypoint).unwrap();
+        let symlink_attempt = b11_run_legacy_handoff(
+            &core,
+            &release,
+            &public_key,
+            &legacy_digest,
+            &home,
+            &prefix,
+            &tmp,
+        );
+        assert_eq!(symlink_attempt.status.code(), Some(1));
+        assert!(std::fs::symlink_metadata(&entrypoint)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert!(home
+            .join(".local/lib/codex/core/release-public-key.pem")
+            .is_file());
+        assert_eq!(
+            std::fs::read(&paths.activation_state).unwrap(),
+            state_before_symlink
+        );
+
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b11_slice2b_legacy_handoff_prepares_and_retries_exact_state() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = temp_root("b11-slice2b-prepared");
+        let openssl = b4_termux_openssl();
+        let source = b4_source_roots(&root, &openssl);
+        std::fs::create_dir(&source.generation_root).unwrap();
+        let release = b2_write_generation(&source, "b11-prepared-g0", false, "supported");
+        b4_write_probe_runtime(&release, 0, 0);
+        let core = root.join("prebuilt-codex");
+        b8_write_core_probe_wrapper(&core);
+        b8_bind_core_digest(&release, &openssl, &core);
+        let private_key = root.join("keys/private.pem");
+        let public_key = root.join("keys/public.pem");
+        b4_generate_release_keypair(&openssl, &private_key, &public_key);
+        b4_write_signed_release(&release, 1, &openssl, &private_key);
+        let (home, prefix, tmp) = b4_prepare_public_environment(&root, &openssl, true);
+        let roots = b7_public_roots(&home, &prefix);
+        let initial = b7_seed_initial_release(&release, &home, &prefix, &public_key);
+        assert_eq!(initial.current, "b11-prepared-g0");
+        assert_eq!(initial.previous, None);
+        let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+        let state_before = std::fs::read(&paths.activation_state).unwrap();
+        let (entrypoint, expected_legacy_digest, legacy_mode) =
+            b11_write_legacy_entrypoint(&prefix, &openssl, b"legacy-prepared\n");
+        let legacy_bytes = std::fs::read(&entrypoint).unwrap();
+
+        let prepared = b11_run_legacy_handoff(
+            &core,
+            &release,
+            &public_key,
+            &expected_legacy_digest,
+            &home,
+            &prefix,
+            &tmp,
+        );
+        assert_eq!(
+            prepared.status.code(),
+            Some(0),
+            "stdout={:?} stderr={:?}",
+            prepared.stdout,
+            prepared.stderr
+        );
+        assert_eq!(
+            std::fs::read(&paths.activation_state).unwrap(),
+            state_before
+        );
+        assert_eq!(
+            openssl_sha256(&openssl, &entrypoint).unwrap(),
+            openssl_sha256(&openssl, &core).unwrap()
+        );
+        assert_ne!(std::fs::read(&entrypoint).unwrap(), legacy_bytes);
+        assert_eq!(
+            std::fs::metadata(&entrypoint).unwrap().permissions().mode() & 0o7777,
+            0o755
+        );
+        assert!(!home
+            .join(".local/lib/codex/core/release-public-key.pem")
+            .exists());
+        m2_b1_assert_no_transaction_files(&paths);
+
+        let completed_state = std::fs::read(&paths.activation_state).unwrap();
+        let completed = b11_run_legacy_handoff(
+            &core,
+            &release,
+            &public_key,
+            &expected_legacy_digest,
+            &home,
+            &prefix,
+            &tmp,
+        );
+        assert_eq!(
+            completed.status.code(),
+            Some(0),
+            "stdout={:?} stderr={:?}",
+            completed.stdout,
+            completed.stderr
+        );
+        assert_eq!(
+            std::fs::read(&paths.activation_state).unwrap(),
+            completed_state
+        );
+        assert_eq!(
+            std::fs::metadata(&entrypoint).unwrap().permissions().mode() & 0o7777,
+            0o755
+        );
+        assert!(
+            !std::fs::read_dir(prefix.join("bin")).unwrap().any(|entry| {
+                entry
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".codex.legacy-handoff-")
+            })
+        );
+        assert_eq!(legacy_mode, 0o751);
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b11_slice2c_legacy_handoff_replaces_only_digest_bound_entrypoint() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = temp_root("b11-slice2c-legacy");
+        let openssl = b4_termux_openssl();
+        let source = b4_source_roots(&root, &openssl);
+        std::fs::create_dir(&source.generation_root).unwrap();
+        let release = b2_write_generation(&source, "b11-legacy-g0", false, "supported");
+        b4_write_probe_runtime(&release, 0, 0);
+        let core = root.join("prebuilt-codex");
+        b8_write_core_probe_wrapper(&core);
+        b8_bind_core_digest(&release, &openssl, &core);
+        let private_key = root.join("keys/private.pem");
+        let public_key = root.join("keys/public.pem");
+        b4_generate_release_keypair(&openssl, &private_key, &public_key);
+        b4_write_signed_release(&release, 1, &openssl, &private_key);
+        let (home, prefix, tmp) = b4_prepare_public_environment(&root, &openssl, true);
+        let (entrypoint, expected_legacy_digest, legacy_mode) =
+            b11_write_legacy_entrypoint(&prefix, &openssl, b"legacy-e2e\n");
+        let legacy_bytes = std::fs::read(&entrypoint).unwrap();
+
+        let output = b11_run_legacy_handoff(
+            &core,
+            &release,
+            &public_key,
+            &expected_legacy_digest,
+            &home,
+            &prefix,
+            &tmp,
+        );
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "stdout={:?} stderr={:?}",
+            output.stdout,
+            output.stderr
+        );
+        assert_eq!(
+            openssl_sha256(&openssl, &entrypoint).unwrap(),
+            openssl_sha256(&openssl, &core).unwrap()
+        );
+        assert_eq!(
+            std::fs::metadata(&entrypoint).unwrap().permissions().mode() & 0o7777,
+            0o755
+        );
+        assert_eq!(legacy_mode, 0o751);
+        assert_ne!(std::fs::read(&entrypoint).unwrap(), legacy_bytes);
+
+        let roots = b7_public_roots(&home, &prefix);
+        let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+        let state = read_pointer_state(&paths).unwrap().unwrap();
+        assert_eq!(state.current, "b11-legacy-g0");
+        assert_eq!(state.previous, None);
+        assert_eq!(state.previous_key, None);
+        assert_eq!(state.update_key, state.current_key);
+        let (_, installed) = verify_installed_local_release(
+            &roots,
+            "b11-legacy-g0",
+            state.current_key,
+            "B11 legacy handoff generation id mismatch",
+        )
+        .unwrap();
+        assert_eq!(installed.generation_id, "b11-legacy-g0");
+        assert!(home
+            .join(".local/lib/codex/core/release-public-key.pem")
+            .is_file());
+        assert!(
+            !std::fs::read_dir(prefix.join("bin")).unwrap().any(|entry| {
+                entry
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".codex.legacy-handoff-")
+            })
+        );
+        assert!(std::fs::read_dir(&tmp).unwrap().all(|entry| {
+            !entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".codex-bootstrap.")
+        }));
+        m2_b1_assert_no_transaction_files(&paths);
+        remove_temp_root(root);
+    }
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b11_slice2b_interruption_leaves_prepared_state_and_legacy_entrypoint() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = temp_root("b11-slice2b-interruption");
+        let openssl = b4_termux_openssl();
+        let source = b4_source_roots(&root, &openssl);
+        std::fs::create_dir(&source.generation_root).unwrap();
+        let release = b2_write_generation(&source, "b11-interrupt-g0", false, "supported");
+        b4_write_probe_runtime(&release, 0, 0);
+        let core = root.join("prebuilt-codex");
+        b8_write_core_probe_wrapper(&core);
+        b8_bind_core_digest(&release, &openssl, &core);
+        let private_key = root.join("keys/private.pem");
+        let public_key = root.join("keys/public.pem");
+        b4_generate_release_keypair(&openssl, &private_key, &public_key);
+        b4_write_signed_release(&release, 1, &openssl, &private_key);
+        let (home, prefix, tmp) = b4_prepare_public_environment(&root, &openssl, true);
+        let (entrypoint, expected_legacy_digest, legacy_mode) =
+            b11_write_legacy_entrypoint(&prefix, &openssl, b"legacy-interrupted\n");
+        let legacy_bytes = std::fs::read(&entrypoint).unwrap();
+        let roots = b7_public_roots(&home, &prefix);
+        let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+
+        let interrupted = b11_run_legacy_handoff_before_commit(
+            &core,
+            &release,
+            &public_key,
+            &expected_legacy_digest,
+            &home,
+            &prefix,
+            &tmp,
+        );
+        assert_eq!(
+            interrupted.status.code(),
+            Some(1),
+            "stdout={:?} stderr={:?}",
+            interrupted.stdout,
+            interrupted.stderr
+        );
+        assert_eq!(std::fs::read(&entrypoint).unwrap(), legacy_bytes);
+        assert_eq!(
+            std::fs::metadata(&entrypoint).unwrap().permissions().mode() & 0o7777,
+            legacy_mode
+        );
+        let prepared = read_pointer_state(&paths).unwrap().unwrap();
+        assert_eq!(prepared.current, "b11-interrupt-g0");
+        assert_eq!(prepared.previous, None);
+        assert!(home
+            .join(".local/lib/codex/core/release-public-key.pem")
+            .is_file());
+        m2_b1_assert_no_transaction_files(&paths);
+
+        let state_before_retry = std::fs::read(&paths.activation_state).unwrap();
+        let resumed = b11_run_legacy_handoff(
+            &core,
+            &release,
+            &public_key,
+            &expected_legacy_digest,
+            &home,
+            &prefix,
+            &tmp,
+        );
+        assert_eq!(
+            resumed.status.code(),
+            Some(0),
+            "stdout={:?} stderr={:?}",
+            resumed.stdout,
+            resumed.stderr
+        );
+        assert_eq!(
+            std::fs::read(&paths.activation_state).unwrap(),
+            state_before_retry
+        );
+        assert_eq!(
+            openssl_sha256(&openssl, &entrypoint).unwrap(),
+            openssl_sha256(&openssl, &core).unwrap()
+        );
+        assert_eq!(
+            std::fs::metadata(&entrypoint).unwrap().permissions().mode() & 0o7777,
+            0o755
+        );
+        assert_ne!(std::fs::read(&entrypoint).unwrap(), legacy_bytes);
+        assert!(
+            !std::fs::read_dir(prefix.join("bin")).unwrap().any(|entry| {
+                entry
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".codex.legacy-handoff-")
+            })
+        );
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b11_slice2c_release_core_legacy_handoff_public_path() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let Some(core) = b10_release_core_from_env() else {
+            return;
+        };
+        let root = temp_root("b11-slice2c-release-core");
+        let openssl = b4_termux_openssl();
+        let private_key = root.join("keys/private.pem");
+        let public_key = root.join("keys/public.pem");
+        b4_generate_release_keypair(&openssl, &private_key, &public_key);
+        let release = b10_build_signed_release(
+            &root,
+            &core,
+            "b11-release-legacy-g0",
+            1,
+            &openssl,
+            &private_key,
+            &public_key,
+        );
+        let next_release = b10_build_signed_release(
+            &root,
+            &core,
+            "b11-release-legacy-g1",
+            2,
+            &openssl,
+            &private_key,
+            &public_key,
+        );
+        let (home, prefix, tmp) = b4_prepare_public_environment(&root, &openssl, true);
+        let network_log = b10_install_network_denial_sentinel(&prefix);
+        let (entrypoint, expected_legacy_digest, legacy_mode) =
+            b11_write_legacy_entrypoint(&prefix, &openssl, b"legacy-release-core\n");
+
+        let output = b11_run_legacy_handoff(
+            &core,
+            &release,
+            &public_key,
+            &expected_legacy_digest,
+            &home,
+            &prefix,
+            &tmp,
+        );
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "stdout={:?} stderr={:?}",
+            output.stdout,
+            output.stderr
+        );
+        assert!(!network_log.exists());
+        assert_eq!(
+            openssl_sha256(&openssl, &entrypoint).unwrap(),
+            openssl_sha256(&openssl, &core).unwrap()
+        );
+        assert_eq!(
+            std::fs::metadata(&entrypoint).unwrap().permissions().mode() & 0o7777,
+            0o755
+        );
+        assert_eq!(legacy_mode, 0o751);
+
+        let version = std::process::Command::new(&entrypoint)
+            .arg("--version")
+            .env("HOME", &home)
+            .env("PREFIX", &prefix)
+            .env("TMPDIR", &tmp)
+            .output()
+            .unwrap();
+        assert_eq!(
+            version.status.code(),
+            Some(0),
+            "stdout={:?} stderr={:?}",
+            version.stdout,
+            version.stderr
+        );
+        let doctor = std::process::Command::new(&entrypoint)
+            .arg("doctor")
+            .env("HOME", &home)
+            .env("PREFIX", &prefix)
+            .env("TMPDIR", &tmp)
+            .output()
+            .unwrap();
+        assert_eq!(doctor.status.code(), Some(1));
+        assert!(String::from_utf8_lossy(&doctor.stdout).contains("[Summary]\nstatus: degraded"));
+        let update = std::process::Command::new(&entrypoint)
+            .args(["update", "--local"])
+            .arg(&next_release)
+            .env("HOME", &home)
+            .env("PREFIX", &prefix)
+            .env("TMPDIR", &tmp)
+            .output()
+            .unwrap();
+        assert_eq!(
+            update.status.code(),
+            Some(0),
+            "stdout={:?} stderr={:?}",
+            update.stdout,
+            update.stderr
+        );
+        assert!(!network_log.exists());
+        let roots = b7_public_roots(&home, &prefix);
+        let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+        let forward = read_pointer_state(&paths).unwrap().unwrap();
+        assert_eq!(forward.current, "b11-release-legacy-g1");
+        assert_eq!(forward.previous.as_deref(), Some("b11-release-legacy-g0"));
+        let updated_doctor = std::process::Command::new(&entrypoint)
+            .arg("doctor")
+            .env("HOME", &home)
+            .env("PREFIX", &prefix)
+            .env("TMPDIR", &tmp)
+            .output()
+            .unwrap();
+        assert_eq!(updated_doctor.status.code(), Some(1));
+        assert!(
+            String::from_utf8_lossy(&updated_doctor.stdout).contains("[Summary]\nstatus: degraded")
+        );
+        let rollback = std::process::Command::new(&entrypoint)
+            .args(["update", "--rollback"])
+            .env("HOME", &home)
+            .env("PREFIX", &prefix)
+            .env("TMPDIR", &tmp)
+            .output()
+            .unwrap();
+        assert_eq!(rollback.status.code(), Some(0));
+        assert!(!network_log.exists());
+
+        let state = read_pointer_state(&paths).unwrap().unwrap();
+        assert_eq!(state.current, "b11-release-legacy-g0");
+        assert_eq!(state.previous.as_deref(), Some("b11-release-legacy-g1"));
+        let rolled_back_doctor = std::process::Command::new(&entrypoint)
+            .arg("doctor")
+            .env("HOME", &home)
+            .env("PREFIX", &prefix)
+            .env("TMPDIR", &tmp)
+            .output()
+            .unwrap();
+        assert_eq!(rolled_back_doctor.status.code(), Some(1));
+        assert!(String::from_utf8_lossy(&rolled_back_doctor.stdout)
+            .contains("[Summary]\nstatus: degraded"));
+        m2_b1_assert_no_transaction_files(&paths);
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b11_slice2b_prepared_state_rejects_key_and_previous_conflicts() {
+        {
+            let root = temp_root("b11-slice2b-key-conflict");
+            let openssl = b4_termux_openssl();
+            let source = b4_source_roots(&root, &openssl);
+            std::fs::create_dir(&source.generation_root).unwrap();
+            let release = b2_write_generation(&source, "b11-key-conflict-g0", false, "supported");
+            b4_write_probe_runtime(&release, 0, 0);
+            let core = root.join("prebuilt-codex");
+            b8_write_core_probe_wrapper(&core);
+            b8_bind_core_digest(&release, &openssl, &core);
+            let old_private_key = root.join("keys/old-private.pem");
+            let old_public_key = root.join("keys/old-public.pem");
+            let new_private_key = root.join("keys/new-private.pem");
+            let new_public_key = root.join("keys/new-public.pem");
+            b4_generate_release_keypair(&openssl, &old_private_key, &old_public_key);
+            b4_generate_release_keypair(&openssl, &new_private_key, &new_public_key);
+            b4_write_signed_release(&release, 1, &openssl, &old_private_key);
+            let (home, prefix, tmp) = b4_prepare_public_environment(&root, &openssl, true);
+            b7_seed_initial_release(&release, &home, &prefix, &old_public_key);
+            let (entrypoint, expected_legacy_digest, _) =
+                b11_write_legacy_entrypoint(&prefix, &openssl, b"legacy-key-conflict\n");
+            let legacy_bytes = std::fs::read(&entrypoint).unwrap();
+            let roots = b7_public_roots(&home, &prefix);
+            let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+            let state_before = std::fs::read(&paths.activation_state).unwrap();
+
+            b4_write_signed_release(&release, 1, &openssl, &new_private_key);
+            let output = b11_run_legacy_handoff(
+                &core,
+                &release,
+                &new_public_key,
+                &expected_legacy_digest,
+                &home,
+                &prefix,
+                &tmp,
+            );
+            assert_eq!(
+                output.status.code(),
+                Some(1),
+                "stdout={:?} stderr={:?}",
+                output.stdout,
+                output.stderr
+            );
+            assert_eq!(
+                std::fs::read(&paths.activation_state).unwrap(),
+                state_before
+            );
+            assert_eq!(std::fs::read(&entrypoint).unwrap(), legacy_bytes);
+            assert!(!home
+                .join(".local/lib/codex/core/release-public-key.pem")
+                .exists());
+            remove_temp_root(root);
+        }
+
+        {
+            let root = temp_root("b11-slice2b-previous-conflict");
+            let openssl = b4_termux_openssl();
+            let source = b4_source_roots(&root, &openssl);
+            std::fs::create_dir(&source.generation_root).unwrap();
+            let g0 = b2_write_generation(&source, "b11-previous-g0", false, "supported");
+            b4_write_probe_runtime(&g0, 0, 0);
+            let g1 = b2_write_generation(&source, "b11-previous-g1", false, "supported");
+            b4_write_probe_runtime(&g1, 0, 0);
+            let core = root.join("prebuilt-codex");
+            b8_write_core_probe_wrapper(&core);
+            b8_bind_core_digest(&g0, &openssl, &core);
+            b8_bind_core_digest(&g1, &openssl, &core);
+            let private_key = root.join("keys/private.pem");
+            let public_key = root.join("keys/public.pem");
+            b4_generate_release_keypair(&openssl, &private_key, &public_key);
+            b4_write_signed_release(&g0, 1, &openssl, &private_key);
+            b4_write_signed_release(&g1, 2, &openssl, &private_key);
+            let (home, prefix, tmp) = b4_prepare_public_environment(&root, &openssl, true);
+            b7_seed_initial_release(&g0, &home, &prefix, &public_key);
+            let roots = b7_public_roots(&home, &prefix);
+            let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+            let before = read_pointer_state(&paths).unwrap().unwrap();
+            let staged_id = stage_local_generation(&g1, &roots.generation_root).unwrap();
+            assert_eq!(staged_id, "b11-previous-g1");
+            let after =
+                plan_activation_pointer_state_with_key(&before, &staged_id, before.current_key)
+                    .unwrap();
+            activate_pointer_state(&paths, Some(&before), &after).unwrap();
+            let (entrypoint, expected_legacy_digest, _) =
+                b11_write_legacy_entrypoint(&prefix, &openssl, b"legacy-previous-conflict\n");
+            let legacy_bytes = std::fs::read(&entrypoint).unwrap();
+            let state_before = std::fs::read(&paths.activation_state).unwrap();
+
+            let output = b11_run_legacy_handoff(
+                &core,
+                &g1,
+                &public_key,
+                &expected_legacy_digest,
+                &home,
+                &prefix,
+                &tmp,
+            );
+            assert_eq!(
+                output.status.code(),
+                Some(1),
+                "stdout={:?} stderr={:?}",
+                output.stdout,
+                output.stderr
+            );
+            assert_eq!(
+                std::fs::read(&paths.activation_state).unwrap(),
+                state_before
+            );
+            assert_eq!(std::fs::read(&entrypoint).unwrap(), legacy_bytes);
+            let state = read_pointer_state(&paths).unwrap().unwrap();
+            assert_eq!(state.current, "b11-previous-g1");
+            assert_eq!(state.previous.as_deref(), Some("b11-previous-g0"));
+            assert!(!home
+                .join(".local/lib/codex/core/release-public-key.pem")
+                .exists());
+            remove_temp_root(root);
+        }
     }
 
     #[cfg(unix)]
