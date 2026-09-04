@@ -189,6 +189,69 @@ for the `codex-release-v3` signing and delivery path.
 `codex-release-v2` remains implementation history and is not retained as a
 release compatibility path.
 
+Release production then exposes one non-installed `publish` operation with the
+exact form:
+
+```text
+codex-release-builder publish --generation <ABSOLUTE_DIRECTORY> \
+  --release-sequence <POSITIVE_DECIMAL> \
+  --release-base <HTTPS_BASE_URL> \
+  --private-key <ABSOLUTE_FILE> \
+  --openssl <ABSOLUTE_EXECUTABLE> \
+  --output <ABSENT_ABSOLUTE_DIRECTORY>
+```
+
+`publish` accepts only the current R5 first-target generation layout: a real
+directory containing exactly `generation.meta`, `runtime`, and the root-level
+`codex-code-mode-host`, all as regular non-symlink files. The descriptor must
+be a qualified `codex-local-generation-v2` with the supported Android/AArch64,
+Core API, persistent-schema, and root-companion bindings. The generation
+identity must be a safe URL path component and the supplied canonical HTTPS
+release base must end in that encoded identity. The release sequence is a
+positive decimal and the base follows the same bounded canonical URL grammar
+as `codex update --remote`.
+
+The operation derives one raw Ed25519 public key from the supplied private PEM
+using the explicit OpenSSL executable. It emits the non-rotating v3 form only:
+the derived key is written as `release_public_key`, `release.sig` signs the
+exact `release.manifest` with that key, and no `release-authority.sig` is
+created. Therefore an operator must supply the current Core `update_key`
+private key for the resulting automatic or explicit update to be admissible;
+this operation does not implement key rotation. The private key is read only
+for derivation/signing, is never copied into the output, and is never written
+to the repository or device state.
+
+The complete publication output is:
+
+```text
+<output>/update-index-v1
+<output>/update-index-v1.sig
+<output>/releases/<generation_id>/release.manifest
+<output>/releases/<generation_id>/release.sig
+<output>/releases/<generation_id>/generation.meta
+<output>/releases/<generation_id>/runtime
+<output>/releases/<generation_id>/codex-code-mode-host
+```
+
+The index contains exactly the four records and final newline defined below,
+with the supplied generation identity and release base, and its sibling
+`update-index-v1.sig` signs those exact index bytes with the same key. The
+release manifest contains the exact v3 fields, a lexicographically sorted
+inventory, lowercase SHA-256 digest, and four-octal-digit regular-file mode
+for each of the three generation files. The local `releases/<id>` tree is the
+directory to map to the URL represented by `release_base`; `publish` performs
+no network upload and does not assume that the URL is hosted by OpenAI.
+
+All source files are snapshotted into private staging, revalidated as regular
+files, and copied without following symlinks. Final modes are applied before
+file synchronization; the complete index and release tree are synchronized
+bottom-up and the absent output directory is atomically published with
+`RENAME_NOREPLACE`, followed by output-parent synchronization. A failure
+leaves no accepted output, preserves an existing destination, and does not
+alter the source generation or any live Core state. The official OpenAI
+versioned archive remains the only upstream source authority; this publication
+tree is wrapper-owned distribution content.
+
 The release builder complete output boundary is durable: final file modes are set before the corresponding final file synchronization, the complete staging tree is synchronized bottom-up, the no-replace output publication is atomic, and the output parent is synchronized before the build reports success. A failed publication leaves no accepted output.
 
 The accepted archive is gzip-compressed POSIX ustar. A per-entry POSIX PAX

@@ -29,6 +29,15 @@ const UPSTREAM_ARCHIVE_NAME: &str = "codex-package-aarch64-unknown-linux-musl.ta
 const RELEASE_CONNECT_TIMEOUT_SECONDS: &str = "15";
 const RELEASE_TRANSFER_TIMEOUT_SECONDS: &str = "300";
 const PATCH_POLICY_ID: &str = "termux-fd-remap-v1";
+const RELEASE_INDEX_FORMAT: &str = "codex-update-index-v1";
+const RELEASE_CHANNEL: &str = "stable";
+const RELEASE_URL_MAX_BYTES: usize = 4096;
+const RELEASE_MANIFEST_MAX_BYTES: u64 = 128 * 1024;
+const RELEASE_SIGNATURE_BYTES: u64 = 64;
+const RELEASE_PRIVATE_KEY_MAX_BYTES: u64 = 16 * 1024;
+const RELEASE_FILE_MAX_BYTES: u64 = 512 * 1024 * 1024;
+const RELEASE_TOTAL_FILE_MAX_BYTES: u64 = 1024 * 1024 * 1024;
+const GENERATION_DESCRIPTOR_MAX_BYTES: u64 = 64 * 1024;
 const ANDROID_AARCH64_INTERPRETER: &[u8] = b"/system/bin/linker64\0";
 
 const PATCHES: [(&[u8], &[u8], usize); 4] = [
@@ -70,6 +79,10 @@ const USAGE: &str = concat!(
     "--archive <ABSOLUTE_FILE> --archive-sha256 <LOWERCASE_SHA256> ",
     "--generation-id <ID> --core <ABSOLUTE_FILE> --creation-metadata <VALUE> ",
     "--gzip <ABSOLUTE_EXECUTABLE> --openssl <ABSOLUTE_EXECUTABLE> ",
+    "--output <ABSENT_ABSOLUTE_DIRECTORY>\n",
+    "       codex-release-builder publish --generation <ABSOLUTE_DIRECTORY> ",
+    "--release-sequence <POSITIVE_DECIMAL> --release-base <HTTPS_BASE_URL> ",
+    "--private-key <ABSOLUTE_FILE> --openssl <ABSOLUTE_EXECUTABLE> ",
     "--output <ABSENT_ABSOLUTE_DIRECTORY>"
 );
 
@@ -137,6 +150,16 @@ struct FetchRequest {
     output: PathBuf,
 }
 
+#[derive(Debug, Clone)]
+struct PublishRequest {
+    generation: PathBuf,
+    release_sequence: String,
+    release_base: String,
+    private_key: PathBuf,
+    openssl: PathBuf,
+    output: PathBuf,
+}
+
 #[derive(Default)]
 struct RequestFields {
     version: Option<String>,
@@ -154,6 +177,16 @@ struct RequestFields {
 struct FetchFields {
     version: Option<String>,
     curl: Option<PathBuf>,
+    openssl: Option<PathBuf>,
+    output: Option<PathBuf>,
+}
+
+#[derive(Default)]
+struct PublishFields {
+    generation: Option<PathBuf>,
+    release_sequence: Option<String>,
+    release_base: Option<String>,
+    private_key: Option<PathBuf>,
     openssl: Option<PathBuf>,
     output: Option<PathBuf>,
 }
@@ -238,6 +271,40 @@ where
     })
 }
 
+fn parse_publish_request<I, S>(args: I) -> Result<PublishRequest, BuilderError>
+where
+    I: IntoIterator<Item = S>,
+    S: Into<OsString>,
+{
+    let mut args = args.into_iter().map(Into::into);
+    if args.next().as_deref() != Some(OsStr::new("publish")) {
+        return Err(BuilderError::Usage);
+    }
+    let mut fields = PublishFields::default();
+    while let Some(flag) = args.next() {
+        let value = args.next().ok_or(BuilderError::Usage)?;
+        match flag.to_str() {
+            Some("--generation") => set_once(&mut fields.generation, PathBuf::from(value))?,
+            Some("--release-sequence") => {
+                set_once(&mut fields.release_sequence, text_value(value)?)?
+            }
+            Some("--release-base") => set_once(&mut fields.release_base, text_value(value)?)?,
+            Some("--private-key") => set_once(&mut fields.private_key, PathBuf::from(value))?,
+            Some("--openssl") => set_once(&mut fields.openssl, PathBuf::from(value))?,
+            Some("--output") => set_once(&mut fields.output, PathBuf::from(value))?,
+            _ => return Err(BuilderError::Usage),
+        }
+    }
+    Ok(PublishRequest {
+        generation: fields.generation.ok_or(BuilderError::Usage)?,
+        release_sequence: fields.release_sequence.ok_or(BuilderError::Usage)?,
+        release_base: fields.release_base.ok_or(BuilderError::Usage)?,
+        private_key: fields.private_key.ok_or(BuilderError::Usage)?,
+        openssl: fields.openssl.ok_or(BuilderError::Usage)?,
+        output: fields.output.ok_or(BuilderError::Usage)?,
+    })
+}
+
 fn valid_stable_version(value: &str) -> bool {
     if value.is_empty() || value.len() > 64 || !value.is_ascii() {
         return false;
@@ -279,6 +346,144 @@ fn valid_generation_id(value: &str) -> bool {
         && value != "."
         && value != ".."
         && !value.as_bytes().contains(&b'/')
+}
+
+fn valid_positive_decimal(value: &str) -> bool {
+    let Some(first) = value.as_bytes().first() else {
+        return false;
+    };
+    matches!(*first, b'1'..=b'9') && value.as_bytes()[1..].iter().all(u8::is_ascii_digit)
+}
+
+fn valid_publish_generation_id(value: &str) -> bool {
+    valid_generation_id(value)
+        && value.is_ascii()
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~'))
+}
+
+fn publish_remote_port(value: &str) -> bool {
+    !value.is_empty()
+        && value.as_bytes().iter().all(u8::is_ascii_digit)
+        && value.parse::<u16>().is_ok_and(|port| port != 0)
+}
+
+fn publish_remote_authority(value: &str) -> bool {
+    if value.is_empty() || value.contains('@') {
+        return false;
+    }
+    if let Some(ipv6) = value.strip_prefix('[') {
+        let Some((address, suffix)) = ipv6.split_once(']') else {
+            return false;
+        };
+        if address.parse::<std::net::Ipv6Addr>().is_err() {
+            return false;
+        }
+        return suffix.is_empty() || suffix.strip_prefix(':').is_some_and(publish_remote_port);
+    }
+
+    let mut authority = value.split(':');
+    let host = authority.next().unwrap_or_default();
+    let port = authority.next();
+    if authority.next().is_some() || port.is_some_and(|port| !publish_remote_port(port)) {
+        return false;
+    }
+    !host.is_empty()
+        && host.split('.').all(|label| {
+            !label.is_empty()
+                && label.len() <= 63
+                && !label.starts_with('-')
+                && !label.ends_with('-')
+                && label
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        })
+}
+
+fn publish_remote_unreserved(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~')
+}
+
+fn publish_uppercase_hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn valid_publish_remote_path_component(value: &str) -> bool {
+    if value.is_empty() || matches!(value, "." | "..") {
+        return false;
+    }
+    let bytes = value.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if publish_remote_unreserved(bytes[index]) {
+            index += 1;
+            continue;
+        }
+        if bytes[index] != b'%' || index + 2 >= bytes.len() {
+            return false;
+        }
+        let Some(high) = publish_uppercase_hex_value(bytes[index + 1]) else {
+            return false;
+        };
+        let Some(low) = publish_uppercase_hex_value(bytes[index + 2]) else {
+            return false;
+        };
+        let decoded = (high << 4) | low;
+        if publish_remote_unreserved(decoded)
+            || decoded.is_ascii_control()
+            || matches!(decoded, b'/' | b'\\')
+        {
+            return false;
+        }
+        index += 3;
+    }
+    true
+}
+
+fn publish_percent_encode_path(value: &str) -> String {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+
+    let mut encoded = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        if publish_remote_unreserved(byte) {
+            encoded.push(byte as char);
+        } else {
+            encoded.push('%');
+            encoded.push(HEX[(byte >> 4) as usize] as char);
+            encoded.push(HEX[(byte & 0x0f) as usize] as char);
+        }
+    }
+    encoded
+}
+
+fn valid_publish_release_base(value: &str, generation_id: &str) -> bool {
+    if value.is_empty()
+        || value.len() > RELEASE_URL_MAX_BYTES
+        || !value.is_ascii()
+        || value
+            .bytes()
+            .any(|byte| byte.is_ascii_whitespace() || byte.is_ascii_control())
+        || value.contains(['?', '#', '\\'])
+        || !value.ends_with('/')
+    {
+        return false;
+    }
+    let Some(remainder) = value.strip_prefix("https://") else {
+        return false;
+    };
+    let Some((authority, path)) = remainder.split_once('/') else {
+        return false;
+    };
+    let path = path.strip_suffix('/').unwrap_or_default();
+    path.split('/').next_back() == Some(publish_percent_encode_path(generation_id).as_str())
+        && publish_remote_authority(authority)
+        && !path.is_empty()
+        && path.split('/').all(valid_publish_remote_path_component)
 }
 
 fn canonical_absolute_path(path: &Path) -> bool {
@@ -430,6 +635,75 @@ fn validate_fetch_request(request: &FetchRequest) -> Result<(), BuilderError> {
     Ok(())
 }
 
+fn validate_publish_request(request: &PublishRequest) -> Result<(), BuilderError> {
+    if !valid_positive_decimal(&request.release_sequence)
+        || request.release_sequence.parse::<u64>().is_err()
+    {
+        return Err(BuilderError::Invalid("release sequence is invalid"));
+    }
+    if !canonical_absolute_path(&request.generation)
+        || !canonical_absolute_path(&request.private_key)
+        || !canonical_absolute_path(&request.openssl)
+        || !canonical_absolute_path(&request.output)
+    {
+        return Err(BuilderError::Invalid(
+            "publish paths must be canonical absolute paths",
+        ));
+    }
+    let generation_metadata = std::fs::symlink_metadata(&request.generation)
+        .map_err(|source| io_error("inspect publication generation", source))?;
+    if !generation_metadata.file_type().is_dir() {
+        return Err(BuilderError::Invalid(
+            "publication generation is not a real directory",
+        ));
+    }
+    let generation_canonical = std::fs::canonicalize(&request.generation)
+        .map_err(|source| io_error("resolve publication generation", source))?;
+    if generation_canonical != request.generation {
+        return Err(BuilderError::Invalid(
+            "publication generation contains a symlinked path",
+        ));
+    }
+    let private_key = ensure_regular_file(
+        &request.private_key,
+        "inspect release private key",
+        "release private key is not a regular file",
+    )?;
+    if private_key.len() == 0 || private_key.len() > RELEASE_PRIVATE_KEY_MAX_BYTES {
+        return Err(BuilderError::Invalid(
+            "release private key exceeds its byte bound",
+        ));
+    }
+    ensure_executable(
+        &request.openssl,
+        "OpenSSL is not an executable regular file",
+    )?;
+    match std::fs::symlink_metadata(&request.output) {
+        Ok(_) => return Err(BuilderError::Invalid("publication output already exists")),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+        Err(source) => return Err(io_error("inspect publication output", source)),
+    }
+    let parent = request
+        .output
+        .parent()
+        .ok_or(BuilderError::Invalid("publication output has no parent"))?;
+    let metadata = std::fs::symlink_metadata(parent)
+        .map_err(|source| io_error("inspect publication output parent", source))?;
+    if !metadata.file_type().is_dir() {
+        return Err(BuilderError::Invalid(
+            "publication output parent is not a real directory",
+        ));
+    }
+    let canonical = std::fs::canonicalize(parent)
+        .map_err(|source| io_error("resolve publication output parent", source))?;
+    if canonical != parent {
+        return Err(BuilderError::Invalid(
+            "publication output parent contains a symlink",
+        ));
+    }
+    Ok(())
+}
+
 fn openssl_sha256(openssl: &Path, file: &Path) -> Result<String, BuilderError> {
     let output = Command::new(openssl)
         .args(["dgst", "-sha256", "-binary"])
@@ -448,6 +722,557 @@ fn openssl_sha256(openssl: &Path, file: &Path) -> Result<String, BuilderError> {
         write!(&mut hex, "{byte:02x}").expect("writing into a String cannot fail");
     }
     Ok(hex)
+}
+
+#[derive(Debug)]
+struct PublishFile {
+    relative_path: &'static str,
+    snapshot_path: PathBuf,
+    sha256: String,
+    mode: u32,
+}
+
+#[derive(Debug)]
+struct PublishGeneration {
+    generation_id: String,
+    files: Vec<PublishFile>,
+}
+
+fn validate_publish_file_mode(
+    metadata: &std::fs::Metadata,
+    executable: bool,
+    message: &'static str,
+) -> Result<u32, BuilderError> {
+    let mode = metadata.permissions().mode() & 0o7777;
+    if mode & 0o7000 != 0 || mode & 0o400 == 0 || (executable && mode & 0o100 == 0) {
+        return Err(BuilderError::Invalid(message));
+    }
+    Ok(mode)
+}
+
+fn validate_publish_generation_layout(root: &Path) -> Result<(), BuilderError> {
+    let metadata = std::fs::symlink_metadata(root)
+        .map_err(|source| io_error("inspect publication generation", source))?;
+    if !metadata.file_type().is_dir() {
+        return Err(BuilderError::Invalid(
+            "publication generation is not a real directory",
+        ));
+    }
+    let expected = ["generation.meta", "runtime", "codex-code-mode-host"];
+    let mut seen = BTreeSet::new();
+    for entry in
+        std::fs::read_dir(root).map_err(|source| io_error("read publication generation", source))?
+    {
+        let entry =
+            entry.map_err(|source| io_error("read publication generation entry", source))?;
+        let name = entry
+            .file_name()
+            .into_string()
+            .map_err(|_| BuilderError::Invalid("publication generation path is not UTF-8"))?;
+        if !expected.contains(&name.as_str()) || !seen.insert(name.clone()) {
+            return Err(BuilderError::Invalid(
+                "publication generation layout is not the supported first target",
+            ));
+        }
+        let file_metadata = ensure_regular_file(
+            &entry.path(),
+            "inspect publication generation file",
+            "publication generation contains a non-regular file",
+        )?;
+        validate_publish_file_mode(
+            &file_metadata,
+            name == "runtime" || name == "codex-code-mode-host",
+            "publication generation file mode is unsafe",
+        )?;
+    }
+    if seen.len() != expected.len() {
+        return Err(BuilderError::Invalid(
+            "publication generation layout is incomplete",
+        ));
+    }
+    Ok(())
+}
+
+fn snapshot_publish_file(
+    source: &Path,
+    destination: &Path,
+    max_bytes: u64,
+    openssl: &Path,
+    executable: bool,
+) -> Result<(String, u32, u64), BuilderError> {
+    let source_metadata = ensure_regular_file(
+        source,
+        "inspect publication source file",
+        "publication source file is not a regular file",
+    )?;
+    let source_file =
+        File::open(source).map_err(|source| io_error("open publication source file", source))?;
+    let opened_metadata = source_file
+        .metadata()
+        .map_err(|source| io_error("inspect opened publication source file", source))?;
+    if !opened_metadata.file_type().is_file() || opened_metadata.len() > max_bytes {
+        return Err(BuilderError::Invalid(
+            "publication source file exceeds its byte bound",
+        ));
+    }
+    let mode = validate_publish_file_mode(
+        &source_metadata,
+        executable,
+        "publication source file mode is unsafe",
+    )?;
+    let mut output = create_private_file(destination)?;
+    let mut source_file = source_file;
+    let mut bounded = Read::by_ref(&mut source_file).take(max_bytes.saturating_add(1));
+    let copied = io::copy(&mut bounded, &mut output)
+        .map_err(|source| io_error("snapshot publication source file", source))?;
+    if copied > max_bytes || copied != opened_metadata.len() {
+        return Err(BuilderError::Invalid(
+            "publication source file changed during snapshot",
+        ));
+    }
+    let final_source_metadata = source_file
+        .metadata()
+        .map_err(|source| io_error("inspect publication source after snapshot", source))?;
+    if final_source_metadata.len() != copied {
+        return Err(BuilderError::Invalid(
+            "publication source file changed during snapshot",
+        ));
+    }
+    output
+        .sync_all()
+        .map_err(|source| io_error("sync publication source snapshot", source))?;
+    drop(output);
+    set_mode(destination, mode, "set publication source snapshot mode")?;
+    File::open(destination)
+        .and_then(|file| file.sync_all())
+        .map_err(|source| io_error("sync publication source snapshot mode", source))?;
+    let sha256 = openssl_sha256(openssl, destination)?;
+    Ok((sha256, mode, copied))
+}
+
+fn publish_descriptor_field<'a>(
+    lines: &mut std::str::Lines<'a>,
+    expected: &'static str,
+) -> Result<&'a str, BuilderError> {
+    let line = lines
+        .next()
+        .ok_or(BuilderError::Invalid("generation descriptor is incomplete"))?;
+    let Some((name, value)) = line.split_once('\t') else {
+        return Err(BuilderError::Invalid(
+            "generation descriptor field is malformed",
+        ));
+    };
+    if name != expected || !valid_line_value(value, TEXT_VALUE_MAX_BYTES) {
+        return Err(BuilderError::Invalid(
+            "generation descriptor field is invalid",
+        ));
+    }
+    Ok(value)
+}
+
+fn validate_publish_patch_report(
+    value: &str,
+    source_digest: &str,
+    runtime_digest: &str,
+    code_mode_host_digest: &str,
+) -> Result<(), BuilderError> {
+    let mut fields = value.split(';');
+    if fields.next() != Some(PATCH_POLICY_ID) {
+        return Err(BuilderError::Invalid(
+            "generation patch policy report is invalid",
+        ));
+    }
+    let archive_digest = fields
+        .next()
+        .and_then(|field| field.strip_prefix("archive_sha256="));
+    let raw_runtime_digest = fields
+        .next()
+        .and_then(|field| field.strip_prefix("raw_runtime_sha256="));
+    let adapted_runtime_digest = fields
+        .next()
+        .and_then(|field| field.strip_prefix("runtime_sha256="));
+    let host_digest = fields
+        .next()
+        .and_then(|field| field.strip_prefix("code_mode_host_sha256="));
+    let source_counts = fields.next();
+    let changed_bytes = fields.next();
+    if fields.next().is_some()
+        || archive_digest != Some(source_digest)
+        || raw_runtime_digest.is_none_or(|digest| !valid_lower_sha256(digest))
+        || adapted_runtime_digest != Some(runtime_digest)
+        || host_digest != Some(code_mode_host_digest)
+        || source_counts != Some("source_counts=2,1,1,1")
+        || changed_bytes != Some("changed_bytes=54")
+    {
+        return Err(BuilderError::Invalid(
+            "generation patch policy report is invalid",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_publish_generation_descriptor(
+    descriptor_path: &Path,
+    runtime_path: &Path,
+    code_mode_host_path: &Path,
+    openssl: &Path,
+) -> Result<String, BuilderError> {
+    let metadata = ensure_regular_file(
+        descriptor_path,
+        "inspect publication generation descriptor",
+        "publication generation descriptor is not a regular file",
+    )?;
+    if metadata.len() > GENERATION_DESCRIPTOR_MAX_BYTES {
+        return Err(BuilderError::Invalid(
+            "publication generation descriptor exceeds its byte bound",
+        ));
+    }
+    let bytes = std::fs::read(descriptor_path)
+        .map_err(|source| io_error("read publication generation descriptor", source))?;
+    if !bytes.ends_with(b"\n") || bytes.contains(&b'\r') {
+        return Err(BuilderError::Invalid(
+            "publication generation descriptor line ending is invalid",
+        ));
+    }
+    let text = std::str::from_utf8(&bytes)
+        .map_err(|_| BuilderError::Invalid("publication generation descriptor is not UTF-8"))?;
+    let mut lines = text.lines();
+    if lines.next() != Some(GENERATION_FORMAT) {
+        return Err(BuilderError::Invalid(
+            "publication generation descriptor format is unsupported",
+        ));
+    }
+    let generation_id = publish_descriptor_field(&mut lines, "generation_id")?;
+    if !valid_publish_generation_id(generation_id) {
+        return Err(BuilderError::Invalid(
+            "publication generation identity is not a safe URL component",
+        ));
+    }
+    let package_identity = publish_descriptor_field(&mut lines, "upstream_package_identity")?;
+    let package_version = publish_descriptor_field(&mut lines, "upstream_package_version")?;
+    if package_identity != PACKAGE_IDENTITY || !valid_stable_version(package_version) {
+        return Err(BuilderError::Invalid(
+            "publication generation upstream binding is invalid",
+        ));
+    }
+    let source_digest = publish_descriptor_field(&mut lines, "source_artifact_digest")?;
+    let expected_platform = publish_descriptor_field(&mut lines, "expected_platform")?;
+    let expected_architecture = publish_descriptor_field(&mut lines, "expected_architecture")?;
+    if !valid_lower_sha256(source_digest)
+        || expected_platform != "android"
+        || expected_architecture != "aarch64"
+    {
+        return Err(BuilderError::Invalid(
+            "publication generation platform binding is invalid",
+        ));
+    }
+    if publish_descriptor_field(&mut lines, "patch_policy_id")? != PATCH_POLICY_ID {
+        return Err(BuilderError::Invalid(
+            "publication generation patch policy is invalid",
+        ));
+    }
+    let patch_report = publish_descriptor_field(&mut lines, "patch_report")?;
+    let runtime_digest = publish_descriptor_field(&mut lines, "runtime_digest")?;
+    let core_artifact_digest = publish_descriptor_field(&mut lines, "core_artifact_digest")?;
+    let manager_artifact_digest = publish_descriptor_field(&mut lines, "manager_artifact_digest")?;
+    if !valid_lower_sha256(runtime_digest)
+        || !valid_lower_sha256(core_artifact_digest)
+        || manager_artifact_digest != "-"
+    {
+        return Err(BuilderError::Invalid(
+            "publication generation artifact binding is invalid",
+        ));
+    }
+    if publish_descriptor_field(&mut lines, "core_api_identity")? != CORE_API_IDENTITY
+        || publish_descriptor_field(&mut lines, "persistent_schema_identity")?
+            != PERSISTENT_SCHEMA_IDENTITY
+        || publish_descriptor_field(&mut lines, "qualification")? != "qualified"
+        || publish_descriptor_field(&mut lines, "creation_metadata").is_err()
+        || publish_descriptor_field(&mut lines, "upstream_doctor")? != "supported"
+        || publish_descriptor_field(&mut lines, "helper_count")? != "0"
+        || lines.next().is_some()
+    {
+        return Err(BuilderError::Invalid(
+            "publication generation qualification binding is invalid",
+        ));
+    }
+    let actual_runtime_digest = openssl_sha256(openssl, runtime_path)?;
+    let actual_host_digest = openssl_sha256(openssl, code_mode_host_path)?;
+    if actual_runtime_digest != runtime_digest {
+        return Err(BuilderError::Invalid(
+            "publication runtime digest does not match its descriptor",
+        ));
+    }
+    validate_publish_patch_report(
+        patch_report,
+        source_digest,
+        runtime_digest,
+        &actual_host_digest,
+    )?;
+    Ok(generation_id.to_owned())
+}
+
+fn snapshot_publish_generation(
+    source_root: &Path,
+    staging: &Path,
+    openssl: &Path,
+) -> Result<PublishGeneration, BuilderError> {
+    validate_publish_generation_layout(source_root)?;
+    let source_snapshot_root = staging.join(".generation-source");
+    create_private_dir(&source_snapshot_root)?;
+    let mut total_size = 0u64;
+    let mut files = Vec::with_capacity(3);
+    for (relative_path, max_bytes, executable) in [
+        ("generation.meta", GENERATION_DESCRIPTOR_MAX_BYTES, false),
+        ("runtime", RELEASE_FILE_MAX_BYTES, true),
+        ("codex-code-mode-host", RELEASE_FILE_MAX_BYTES, true),
+    ] {
+        let destination = source_snapshot_root.join(relative_path);
+        let (sha256, mode, size) = snapshot_publish_file(
+            &source_root.join(relative_path),
+            &destination,
+            max_bytes,
+            openssl,
+            executable,
+        )?;
+        total_size = total_size
+            .checked_add(size)
+            .filter(|total| *total <= RELEASE_TOTAL_FILE_MAX_BYTES)
+            .ok_or(BuilderError::Invalid(
+                "publication generation exceeds its total byte bound",
+            ))?;
+        files.push(PublishFile {
+            relative_path,
+            snapshot_path: destination,
+            sha256,
+            mode,
+        });
+    }
+    validate_publish_generation_layout(&source_snapshot_root)?;
+    let generation_id = validate_publish_generation_descriptor(
+        &source_snapshot_root.join("generation.meta"),
+        &source_snapshot_root.join("runtime"),
+        &source_snapshot_root.join("codex-code-mode-host"),
+        openssl,
+    )?;
+    files.sort_by_key(|file| file.relative_path);
+    Ok(PublishGeneration {
+        generation_id,
+        files,
+    })
+}
+
+fn openssl_public_key(openssl: &Path, private_key: &Path) -> Result<[u8; 32], BuilderError> {
+    let output = Command::new(openssl)
+        .args(["pkey", "-in"])
+        .arg(private_key)
+        .args(["-pubout", "-outform", "DER"])
+        .env_clear()
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .map_err(|source| io_error("derive release public key", source))?;
+    const PREFIX: [u8; 12] = [
+        0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00,
+    ];
+    if !output.status.success()
+        || output.stdout.len() != 44
+        || output.stdout[..PREFIX.len()] != PREFIX
+    {
+        return Err(BuilderError::Tool(
+            "release private key is not an Ed25519 private key",
+        ));
+    }
+    let mut public_key = [0u8; 32];
+    public_key.copy_from_slice(&output.stdout[PREFIX.len()..]);
+    Ok(public_key)
+}
+
+fn public_key_hex(public_key: &[u8; 32]) -> String {
+    let mut hex = String::with_capacity(64);
+    for byte in public_key {
+        use std::fmt::Write as _;
+        write!(&mut hex, "{byte:02x}").expect("writing into a String cannot fail");
+    }
+    hex
+}
+
+fn write_published_file(
+    path: &Path,
+    bytes: &[u8],
+    mode: u32,
+    operation: &'static str,
+) -> Result<(), BuilderError> {
+    let mut file = create_private_file(path)?;
+    file.write_all(bytes)
+        .map_err(|source| io_error(operation, source))?;
+    drop(file);
+    set_mode(path, mode, operation)?;
+    File::open(path)
+        .and_then(|file| file.sync_all())
+        .map_err(|source| io_error(operation, source))
+}
+
+fn sign_published_file(
+    openssl: &Path,
+    private_key: &Path,
+    input: &Path,
+    signature: &Path,
+) -> Result<(), BuilderError> {
+    let placeholder = create_private_file(signature)?;
+    drop(placeholder);
+    let status = Command::new(openssl)
+        .args(["pkeyutl", "-sign", "-rawin", "-inkey"])
+        .arg(private_key)
+        .arg("-in")
+        .arg(input)
+        .arg("-out")
+        .arg(signature)
+        .env_clear()
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|source| io_error("sign publication file", source))?;
+    if !status.success() {
+        return Err(BuilderError::Tool("OpenSSL release signature failed"));
+    }
+    let metadata = ensure_regular_file(
+        signature,
+        "inspect publication signature",
+        "publication signature is not a regular file",
+    )?;
+    if metadata.len() != RELEASE_SIGNATURE_BYTES {
+        return Err(BuilderError::Tool(
+            "OpenSSL release signature has invalid size",
+        ));
+    }
+    set_mode(signature, 0o644, "set publication signature mode")?;
+    File::open(signature)
+        .and_then(|file| file.sync_all())
+        .map_err(|source| io_error("sync publication signature", source))
+}
+
+fn release_manifest_bytes(
+    generation_id: &str,
+    release_sequence: &str,
+    public_key: &[u8; 32],
+    files: &[PublishFile],
+) -> Result<Vec<u8>, BuilderError> {
+    use std::fmt::Write as _;
+
+    let mut manifest = format!(
+        concat!(
+            "codex-release-v3\n",
+            "generation_id\t{}\n",
+            "release_sequence\t{}\n",
+            "channel\t{}\n",
+            "expected_platform\tandroid\n",
+            "expected_architecture\taarch64\n",
+            "core_api_identity\t{}\n",
+            "persistent_schema_identity\t{}\n",
+            "release_public_key\t{}\n",
+            "file_count\t{}\n",
+        ),
+        generation_id,
+        release_sequence,
+        RELEASE_CHANNEL,
+        CORE_API_IDENTITY,
+        PERSISTENT_SCHEMA_IDENTITY,
+        public_key_hex(public_key),
+        files.len(),
+    );
+    for file in files {
+        writeln!(
+            &mut manifest,
+            "file\t{}\t{}\t{:04o}",
+            file.relative_path, file.sha256, file.mode
+        )
+        .expect("writing into String cannot fail");
+    }
+    if manifest.len() as u64 > RELEASE_MANIFEST_MAX_BYTES {
+        return Err(BuilderError::Invalid(
+            "release manifest exceeds its byte bound",
+        ));
+    }
+    Ok(manifest.into_bytes())
+}
+
+fn update_index_bytes(generation_id: &str, release_base: &str) -> Vec<u8> {
+    format!(
+        "{RELEASE_INDEX_FORMAT}\nchannel\t{RELEASE_CHANNEL}\ngeneration_id\t{generation_id}\nrelease_base\t{release_base}\n"
+    )
+    .into_bytes()
+}
+
+fn publish(request: &PublishRequest) -> Result<String, BuilderError> {
+    validate_publish_request(request)?;
+    let staging = create_staging(&request.output)?;
+    let result = (|| {
+        let generation =
+            snapshot_publish_generation(&request.generation, &staging, &request.openssl)?;
+        if !valid_publish_release_base(&request.release_base, &generation.generation_id) {
+            return Err(BuilderError::Invalid(
+                "release base is not canonical or does not match generation identity",
+            ));
+        }
+        let public_key = openssl_public_key(&request.openssl, &request.private_key)?;
+        let releases = staging.join("releases");
+        let release_dir = releases.join(&generation.generation_id);
+        create_private_dir(&releases)?;
+        create_private_dir(&release_dir)?;
+        for file in &generation.files {
+            rename_noreplace(&file.snapshot_path, &release_dir.join(file.relative_path))?;
+        }
+        std::fs::remove_dir(staging.join(".generation-source"))
+            .map_err(|source| io_error("remove publication source staging", source))?;
+
+        let manifest = release_manifest_bytes(
+            &generation.generation_id,
+            &request.release_sequence,
+            &public_key,
+            &generation.files,
+        )?;
+        let manifest_path = release_dir.join("release.manifest");
+        write_published_file(&manifest_path, &manifest, 0o644, "write release manifest")?;
+        sign_published_file(
+            &request.openssl,
+            &request.private_key,
+            &manifest_path,
+            &release_dir.join("release.sig"),
+        )?;
+
+        let index = update_index_bytes(&generation.generation_id, &request.release_base);
+        let index_path = staging.join("update-index-v1");
+        write_published_file(&index_path, &index, 0o644, "write update index")?;
+        sign_published_file(
+            &request.openssl,
+            &request.private_key,
+            &index_path,
+            &staging.join("update-index-v1.sig"),
+        )?;
+
+        set_mode(&release_dir, 0o755, "set release directory mode")?;
+        sync_directory(&release_dir, "sync published release directory")?;
+        set_mode(&releases, 0o755, "set releases directory mode")?;
+        sync_directory(&releases, "sync published releases directory")?;
+        set_mode(&staging, 0o755, "set publication root mode")?;
+        sync_directory(&staging, "sync complete signed publication")?;
+        rename_noreplace(&staging, &request.output)?;
+        sync_directory(
+            request
+                .output
+                .parent()
+                .ok_or(BuilderError::Invalid("publication output has no parent"))?,
+            "sync published output parent",
+        )?;
+        Ok(generation.generation_id)
+    })();
+    match (result, cleanup_staging(&staging)) {
+        (_, Err(error)) => Err(error),
+        (Err(error), Ok(())) => Err(error),
+        (Ok(generation_id), Ok(())) => Ok(generation_id),
+    }
 }
 
 fn snapshot_core_artifact(request: &BuildRequest, staging: &Path) -> Result<String, BuilderError> {
@@ -506,7 +1331,6 @@ fn create_staging(output: &Path) -> Result<PathBuf, BuilderError> {
     Ok(staging)
 }
 
-#[cfg(test)]
 fn create_private_dir(path: &Path) -> Result<(), BuilderError> {
     let mut builder = std::fs::DirBuilder::new();
     builder.mode(0o700);
@@ -1559,6 +2383,25 @@ where
                 }
             }
         }
+        Some("publish") => {
+            let request = match parse_publish_request(args) {
+                Ok(request) => request,
+                Err(error) => {
+                    eprintln!("codex-release-builder: {error}");
+                    return 2;
+                }
+            };
+            match publish(&request) {
+                Ok(generation_id) => {
+                    println!("generation_id\t{generation_id}");
+                    0
+                }
+                Err(error) => {
+                    eprintln!("codex-release-builder: {error}");
+                    1
+                }
+            }
+        }
         _ => {
             eprintln!("codex-release-builder: {USAGE}");
             2
@@ -1928,6 +2771,73 @@ fi
             "--output".into(),
             request.output.as_os_str().to_owned(),
         ]
+    }
+
+    fn publish_args(request: &PublishRequest) -> Vec<OsString> {
+        vec![
+            "publish".into(),
+            "--generation".into(),
+            request.generation.as_os_str().to_owned(),
+            "--release-sequence".into(),
+            request.release_sequence.clone().into(),
+            "--release-base".into(),
+            request.release_base.clone().into(),
+            "--private-key".into(),
+            request.private_key.as_os_str().to_owned(),
+            "--openssl".into(),
+            request.openssl.as_os_str().to_owned(),
+            "--output".into(),
+            request.output.as_os_str().to_owned(),
+        ]
+    }
+
+    fn generate_publish_key(openssl: &Path, private_key: &Path) {
+        let generated = Command::new(openssl)
+            .args(["genpkey", "-algorithm", "ED25519", "-out"])
+            .arg(private_key)
+            .env_clear()
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .unwrap();
+        assert!(generated.success(), "generate test release key");
+        set_mode(private_key, 0o600, "set test release key mode").unwrap();
+    }
+
+    fn verify_publish_signature(
+        openssl: &Path,
+        private_key: &Path,
+        input: &Path,
+        signature: &Path,
+        public_key: &Path,
+    ) {
+        let exported = Command::new(openssl)
+            .args(["pkey", "-in"])
+            .arg(private_key)
+            .args(["-pubout", "-out"])
+            .arg(public_key)
+            .env_clear()
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .unwrap();
+        assert!(exported.success(), "export test release public key");
+        let verified = Command::new(openssl)
+            .args(["pkeyutl", "-verify", "-rawin", "-pubin", "-inkey"])
+            .arg(public_key)
+            .arg("-in")
+            .arg(input)
+            .arg("-sigfile")
+            .arg(signature)
+            .env_clear()
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .unwrap();
+        assert!(verified.success(), "verify publication signature");
     }
 
     fn no_builder_staging(root: &Path) -> bool {
@@ -2464,5 +3374,140 @@ fi
             b"destination"
         );
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn test_r6_publish_emits_core_compatible_signed_tree_and_fails_closed() {
+        let fixture = fixture("r6-publish", happy_entries("0.150.1"), false);
+        assert_eq!(run_from_args(request_args(&fixture.request)), 0);
+        let private_key = fixture.root.join("release-private.pem");
+        let public_key = fixture.root.join("release-public.pem");
+        generate_publish_key(&fixture.request.openssl, &private_key);
+        let request = PublishRequest {
+            generation: fixture.request.output.clone(),
+            release_sequence: "7".to_owned(),
+            release_base: "https://releases.example.invalid/codex/releases/test-generation/"
+                .to_owned(),
+            private_key: private_key.clone(),
+            openssl: fixture.request.openssl.clone(),
+            output: fixture.root.join("publication"),
+        };
+
+        let mut missing_value = publish_args(&request);
+        missing_value.pop();
+        assert_eq!(run_from_args(missing_value), 2);
+        let mut unknown_flag = publish_args(&request);
+        unknown_flag.extend([OsString::from("--channel"), OsString::from("stable")]);
+        assert_eq!(run_from_args(unknown_flag), 2);
+
+        assert_eq!(run_from_args(publish_args(&request)), 0);
+        let publication = &request.output;
+        let release = publication.join("releases/test-generation");
+        let runtime_digest =
+            openssl_sha256(&fixture.request.openssl, &release.join("runtime")).unwrap();
+        let host_digest = openssl_sha256(
+            &fixture.request.openssl,
+            &release.join("codex-code-mode-host"),
+        )
+        .unwrap();
+        let descriptor_digest =
+            openssl_sha256(&fixture.request.openssl, &release.join("generation.meta")).unwrap();
+        let expected_manifest = format!(
+            concat!(
+                "codex-release-v3\n",
+                "generation_id\ttest-generation\n",
+                "release_sequence\t7\n",
+                "channel\tstable\n",
+                "expected_platform\tandroid\n",
+                "expected_architecture\taarch64\n",
+                "core_api_identity\tcore-api-v1\n",
+                "persistent_schema_identity\tschema-v1\n",
+                "release_public_key\t{}\n",
+                "file_count\t3\n",
+                "file\tcodex-code-mode-host\t{}\t0755\n",
+                "file\tgeneration.meta\t{}\t0644\n",
+                "file\truntime\t{}\t0755\n"
+            ),
+            public_key_hex(&openssl_public_key(&fixture.request.openssl, &private_key).unwrap()),
+            host_digest,
+            descriptor_digest,
+            runtime_digest,
+        );
+        assert_eq!(
+            std::fs::read_to_string(release.join("release.manifest")).unwrap(),
+            expected_manifest
+        );
+        assert_eq!(
+            std::fs::read_to_string(publication.join("update-index-v1")).unwrap(),
+            "codex-update-index-v1\nchannel\tstable\ngeneration_id\ttest-generation\nrelease_base\thttps://releases.example.invalid/codex/releases/test-generation/\n"
+        );
+        assert!(!release.join("release-authority.sig").exists());
+        verify_publish_signature(
+            &fixture.request.openssl,
+            &private_key,
+            &release.join("release.manifest"),
+            &release.join("release.sig"),
+            &public_key,
+        );
+        verify_publish_signature(
+            &fixture.request.openssl,
+            &private_key,
+            &publication.join("update-index-v1"),
+            &publication.join("update-index-v1.sig"),
+            &public_key,
+        );
+        assert_eq!(
+            std::fs::read(release.join("runtime")).unwrap(),
+            std::fs::read(fixture.request.output.join("runtime")).unwrap()
+        );
+        assert_eq!(
+            std::fs::read(release.join("codex-code-mode-host")).unwrap(),
+            std::fs::read(fixture.request.output.join("codex-code-mode-host")).unwrap()
+        );
+        assert!(!publication.join("release-private.pem").exists());
+        assert!(no_builder_staging(&fixture.root));
+
+        for (label, mutation) in [
+            ("bad-base", "base"),
+            ("bad-sequence", "sequence"),
+            ("missing-key", "key"),
+        ] {
+            let mut invalid = request.clone();
+            invalid.output = fixture.root.join(format!("publication-{label}"));
+            match mutation {
+                "base" => invalid.release_base = "http://example.invalid/test-generation/".into(),
+                "sequence" => invalid.release_sequence = "0".into(),
+                "key" => invalid.private_key = fixture.root.join("missing-key.pem"),
+                _ => unreachable!(),
+            }
+            assert_eq!(run_from_args(publish_args(&invalid)), 1, "case {label}");
+            assert!(!invalid.output.exists(), "case {label} published output");
+            assert!(no_builder_staging(&fixture.root));
+        }
+
+        let collision_output = fixture.root.join("publication-collision");
+        create_private_dir(&collision_output).unwrap();
+        let sentinel = collision_output.join("sentinel");
+        std::fs::write(&sentinel, b"preserve").unwrap();
+        let collision_request = PublishRequest {
+            output: collision_output,
+            ..request.clone()
+        };
+        assert_eq!(run_from_args(publish_args(&collision_request)), 1);
+        assert_eq!(std::fs::read(sentinel).unwrap(), b"preserve");
+        assert!(no_builder_staging(&fixture.root));
+
+        let symlink_output = fixture.root.join("publication-symlink");
+        let host = fixture.request.output.join("codex-code-mode-host");
+        std::fs::remove_file(&host).unwrap();
+        std::os::unix::fs::symlink(fixture.request.output.join("runtime"), &host).unwrap();
+        let symlink_request = PublishRequest {
+            output: symlink_output.clone(),
+            ..collision_request
+        };
+        assert_eq!(run_from_args(publish_args(&symlink_request)), 1);
+        assert!(!symlink_output.exists());
+        assert!(no_builder_staging(&fixture.root));
+        fixture.remove();
     }
 }

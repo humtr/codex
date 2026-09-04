@@ -21,8 +21,9 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 - Remote `origin/rewrite/rust-core` remains at
   `253156c37a2bd22af8faae0bce03587999ffd136`; the local branch is ahead and
   no push is authorized.
-- Current milestone: R5 official upstream build-input acquisition is accepted
-  by the implementation commit on `rewrite/rust-core`.
+- Current milestone: R6 signed wrapper publication is accepted on top of the
+  accepted R5 official upstream build-input acquisition commit on
+  `rewrite/rust-core`.
   R4's Core ownership, signed-generation admission, and doctor behavior remain
   the implementation baseline. Local `main` remains the publication authority;
   no second main promotion or remote push is authorized.
@@ -85,12 +86,20 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 
 ## Next action
 
-No implementation bundle is active. R5 is accepted: the release environment
-now has a Rust-owned `codex-release-builder fetch` path for the exact official
-OpenAI versioned archive, and the existing `build` path consumes its pinned
-digest and produces the adapted generation. The next separately authorized
-operation is to publish a signed wrapper index and adapted generation assets;
-installed Core must continue to fail closed until those assets exist.
+R6 is accepted: the non-installed Rust release builder now validates the R5
+first-target generation, emits a Core-compatible v3 manifest and stable signed
+index, signs both with an explicitly supplied Ed25519 private key, and
+atomically produces `releases/<generation-id>/` plus the index files. Focused
+builder and Core admission regressions prove the real format, signatures,
+inventory, modes, URL identity, source preservation, collision handling,
+symlink rejection, and staging cleanup. Detailed evidence is recorded in
+`GOAL.md`.
+
+The next separately authorized operation is external publication of a real
+release output using the active Core `update_key` private key. No upload to
+OpenAI or the wrapper distribution surface was performed by R6; live
+`codex update` must remain fail-closed until an operator publishes the output
+and the installed runtime can fetch it.
 
 Worker mode remains OFF; the primary Lead owns every slice, validation step,
 authority update, and acceptance decision.

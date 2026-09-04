@@ -1582,6 +1582,57 @@ Termux qualification. Produce one candidate for independent product review.
   publication is available. This bundle does not claim that external
   publication has been completed.
 
+## R6 Signed Wrapper Publication (accepted)
+
+- R6 closed the release-production boundary left open by R5. The non-installed
+  `codex-release-builder publish` command accepts one qualified R5
+  `codex-local-generation-v2`, a positive release sequence, a canonical HTTPS
+  generation base, an explicit OpenSSL executable, and an explicitly supplied
+  Ed25519 private PEM. It does not upload to OpenAI or any remote service and
+  does not touch installed Core or live user state.
+- The publisher accepts exactly the first-target root layout (`generation.meta`,
+  `runtime`, and root `codex-code-mode-host`), rejects symlinks, special files,
+  unsafe modes, malformed qualification bindings, non-safe generation IDs,
+  noncanonical/mismatched release bases, invalid keys, existing outputs, and
+  unsupported arguments. It snapshots bounded inputs into private staging and
+  verifies the descriptor, runtime digest, host digest, patch report, and
+  source stability before publication.
+- It derives the raw public key with the explicit OpenSSL tool, writes the
+  exact Core `codex-release-v3` manifest with sorted digest/mode inventory,
+  writes the exact four-record `codex-update-index-v1`, signs each exact byte
+  sequence with `release.sig` and `update-index-v1.sig`, and intentionally
+  emits no rotation authority signature. The complete output is an atomic
+  `update-index-v1[.sig]` plus `releases/<generation-id>/`; the private key is
+  never copied into it. The R6 Core integration regression passes this output
+  through the production Core v3 release verifier.
+- The focused R6 release-builder regression passed `1/1` and exercised actual
+  OpenSSL verification, exact manifest/index bytes, inventory digests and
+  modes, source equality, private-key exclusion, strict parser rejection,
+  output-collision sentinel preservation, symlink rejection, and staging
+  cleanup. The renamed Core integration regression also passed `1/1` against
+  the real Core admission path.
+- Final acceptance passed the locked workspace suite serially with Core `119
+  passed, 0 failed, 1 ignored` and release-builder `9 passed, 0 failed`, then
+  passed three consecutive complete default-parallel repetitions with the
+  same counts. An earlier parallel attempt independently hit the inherited
+  test-only `ETXTBSY` race in an unrelated temp executable test; that test
+  passed in isolation, serial execution, and all three final repetitions. The
+  final locked workspace clippy run with `-D warnings`, release workspace
+  build, `cargo fmt --check`, and `git diff --check` all passed.
+- Protected live identities remained unchanged: resolver
+  `7e8ad76e0d200e93918ca2e93c99ff8ecd02071953bf1479819db3ac0dbb6d07`, trust
+  seed `03336cc8ac082c8afc900543e27220c391b536717165c9b3f1caa9cceb3d5790`,
+  and activation state
+  `ccc443ae8615ed58bb22884104a67c31369dcb1f9c73b8ab8f15900353a0b94a`.
+  No launcher/runtime, profiles, sessions, auth data, Manager state, bwrap,
+  remote ref, or `main` promotion was changed; generated `target/` remains
+  untracked and no publication artifact was committed.
+- Disposition: KEEP one direct wrapper publisher feeding the existing signed
+  Core update boundary; KEEP official OpenAI archive acquisition as the only
+  upstream source authority; DELETE no Core fallback or raw-package path.
+  External publication with the active update key is still a separately
+  authorized operational step, so live `codex update` remains fail-closed.
+
 ## Goal Lifts
 
 No lift is active. A proposed lift must identify a concrete product risk or

@@ -11046,7 +11046,7 @@ esac
 
     #[cfg(unix)]
     #[test]
-    fn test_m2_b6_builder_output_enters_existing_signed_release_admission() {
+    fn test_r6_builder_publish_output_enters_existing_signed_release_admission() {
         use std::ffi::OsString;
 
         let root = temp_root("b6-builder-admission");
@@ -11086,9 +11086,26 @@ esac
         let private_key = root.join("keys/private.pem");
         let public_key = root.join("keys/public.pem");
         b4_generate_release_keypair(&openssl, &private_key, &public_key);
-        b4_write_signed_release(&generation, 1, &openssl, &private_key);
+        let publication = root.join("publication");
+        let publish_args = vec![
+            OsString::from("publish"),
+            OsString::from("--generation"),
+            generation.as_os_str().to_owned(),
+            OsString::from("--release-sequence"),
+            OsString::from("1"),
+            OsString::from("--release-base"),
+            OsString::from("https://releases.example.invalid/codex/releases/b6-signed-admission/"),
+            OsString::from("--private-key"),
+            private_key.as_os_str().to_owned(),
+            OsString::from("--openssl"),
+            openssl.as_os_str().to_owned(),
+            OsString::from("--output"),
+            publication.as_os_str().to_owned(),
+        ];
+        assert_eq!(codex_release_builder::run_from_args(publish_args), 0);
+        let published_generation = publication.join("releases/b6-signed-admission");
         let (release, loaded) =
-            verify_local_release_bundle(&generation, &openssl, &public_key).unwrap();
+            verify_local_release_bundle(&published_generation, &openssl, &public_key).unwrap();
 
         assert_eq!(release.generation_id, "b6-signed-admission");
         assert_eq!(
@@ -11115,7 +11132,7 @@ esac
             .ends_with("source_counts=2,1,1,1;changed_bytes=54"));
         assert_eq!(
             loaded.manifest.runtime_digest,
-            openssl_sha256(&openssl, &generation.join("runtime")).unwrap()
+            openssl_sha256(&openssl, &published_generation.join("runtime")).unwrap()
         );
         assert_eq!(loaded.manifest.core_artifact_digest, core_sha256);
         assert!(loaded.manifest.helper_digests.is_empty());
@@ -11125,12 +11142,13 @@ esac
             UpstreamDoctorCapability::Supported
         );
         assert_eq!(
-            std::fs::read(generation.join(CODE_MODE_HOST_FILE)).unwrap(),
+            std::fs::read(published_generation.join(CODE_MODE_HOST_FILE)).unwrap(),
             b6_static_aarch64_elf(false)
         );
-        let runtime = std::fs::read(generation.join("runtime")).unwrap();
+        let runtime = std::fs::read(published_generation.join("runtime")).unwrap();
         assert_eq!(runtime.len(), raw_runtime.len());
         assert_ne!(runtime, raw_runtime);
+        assert!(!generation.join("release.manifest").exists());
         assert!(!root.join("state").exists());
 
         remove_temp_root(root);
