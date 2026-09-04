@@ -1172,6 +1172,60 @@ Termux qualification. Produce one candidate for independent product review.
   to `main`, push, live cutover, or bounded device qualification has been
   performed. Worker mode remains OFF.
 
+- M2-R2 — independent-review remediation — is accepted at implementation
+  commit `a56a85cb88d3866ddc52134aae6dedaf88ac6c1f`. The selected active
+  generation is now confined to real directories and regular non-symlink
+  descriptor, runtime, Manager, helper, and compatibility paths before public
+  launch; ordinary launch cannot follow a generation-root symlink escape.
+  Activation and explicit recovery writers now serialize on one kernel-held
+  exclusive state-root lock, with no persistent lock record and automatic
+  kernel release on process exit. A contending writer returns `WriterBusy`
+  before touching journal/state files. Valid `doctor` arguments now turn
+  upstream probe/setup failure into a redacted `unhealthy` status so
+  `doctor --json` still emits a machine report with nonzero health-failure
+  status; usage errors remain distinct.
+- The M2-R2 normative SPEC SHA-256 is
+  `9f5db58c49d1572d794f2b60035fc07f3a68390d1e165df670649bd2daad2d8e`.
+  Final source identities are Core
+  `2d79d7185fe16aed80982509f1be78526713f9c76806b9e956b6a5f1da01918`,
+  bootstrap
+  `4cda45ad448d110c224854724ab8229fc9aa431d27ea4c818ab574046b1005db`, and
+  release-builder
+  `ce09449e603806ea8bf8571f5978b11a58974f40ddba736ad2924204a0b40d1d`. The
+  locked warnings-denied release artifacts used in final proof were Core
+  `189f96259a606d9c9d1d8df5a1f8338d07ad7c02f4d33733934e0a5f3cd497ca` and
+  release-builder
+  `7742288c621af679ad8ccc2bf61a08fd73f6d8d154045fd2b280898d2b294f16`.
+- Focused proof passed: M2-R2 `3 passed, 0 failed` (six public generation
+  symlink cases, writer contention/release, and public `doctor --json`
+  failure), adjacent M2-B9 `4 passed, 0 failed`, M2-B2 `6 passed, 0 failed`,
+  and the corrected B4 source-admission regression `1 passed, 0 failed`.
+  Final locked serial workspace proof passed Core `113 passed, 0 failed,
+  1 ignored` and release-builder `7 passed, 0 failed`; three independent
+  default-parallel repetitions passed the same counts. The locked `-D
+  warnings` release build, formatting, bootstrap shell syntax, and
+  `git diff --check` passed. Explicit real-Termux read-only smoke passed
+  `1 passed, 0 failed`.
+- Protected launcher SHA-256 remains
+  `0b0284155f2672263836029f760ba06a0cb284b7ca3a8e600ad399b43af36aff` with
+  stat identity `65089|1260183|755|10379|10379|7512|2026-08-28
+  01:28:18.815391370 +0900`; live `resolv.conf` remains
+  `7e8ad76e0d200e93918ca2e93c99ff8ecd02071953bf1479819db3ac0dbb6d07` with
+  stat identity `65089|94666|600|10379|10379|38|2026-08-28
+  01:04:03.530430900 +0900`. All test/build roots were external and the
+  final canonical residue scan is empty. No installed launcher/runtime,
+  resolver, generation/trust, Manager, auth/profile/session, package,
+  publication, push, promotion, or live cutover state changed.
+- Disposition: KEEP one signed v3 generation/state/recovery authority, one
+  direct stable-entrypoint path, no-replace publication, and the ordinary
+  launch lock-free boundary; COLLAPSE active asset confinement and writer
+  serialization into those existing Core paths; DELETE the stale multi-writer
+  window, nested symlink consumption, raw doctor probe-error path, and any
+  additional lock/fallback/bwrap-repair machinery. Current checkpoint: repaired
+  M2 independent product review candidate; no fresh independent reviewer,
+  promotion to `main`, push, live cutover, or bounded device qualification has
+  been performed. Worker mode remains OFF.
+
 ## Goal Lifts
 
 No lift is active. A proposed lift must identify a concrete product risk or
