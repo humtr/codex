@@ -85,7 +85,10 @@
 The goal is complete only when both milestones in `SPEC.md` pass their declared
 tests and a fresh supported Termux installation can install, run, diagnose,
 update, recover, and roll back the Rust Core without requiring an on-device Rust
-toolchain or modifying protected user/system state.
+toolchain or modifying protected user/system state. The top-level bare
+`codex update` path must remain wrapper-owned: it may activate only a signed
+generation that the wrapper release pipeline has already adapted and
+qualified, and must never delegate to the upstream self-updater.
 
 Manager product features are not part of this two-milestone completion claim.
 Their boundary must be preserved so they can be implemented separately without
@@ -1477,6 +1480,64 @@ Termux qualification. Produce one candidate for independent product review.
   KEEP the existing signed generation and trust/state authority unchanged;
   DEFER only the authenticated v2 generation delivery needed to remove the
   live migration marker. Worker mode remains OFF.
+
+## R4 Wrapper-Owned Safe Update and Doctor Presentation Repair (accepted)
+
+- The user correction reopened the R3 bare-update decision: passing ordinary
+  `codex update` arguments to upstream could install an unpatched upstream
+  runtime. `SPEC.md` now makes every top-level update form Core-owned. The
+  installed wrapper never runs the upstream self-updater; the wrapper release
+  pipeline obtains the exact official package, applies the existing Termux
+  patch policy through `codex-release-builder`, qualifies and signs the
+  resulting generation, and publishes it for Core activation.
+- Bare `codex update` now verifies a bounded, signed `update-index-v1` with the
+  current v3 `update_key`, validates the stable channel, generation identity,
+  and canonical immutable release base, then reuses the existing signed
+  remote-generation admission, staging, probe, anti-rollback, and activation
+  path. Bad transport, signature, index format, release qualification, or
+  activation fails closed without upstream/package-manager/raw-package
+  fallback. `--help`, malformed options, explicit local/remote selectors, and
+  rollback remain deterministic Core paths.
+- `codex doctor` now gives the supported upstream doctor a bounded PTY when
+  human output is an interactive color-capable terminal, retains safe ANSI SGR
+  markup, removes progress-line controls, and keeps non-TTY/`NO_COLOR`/JSON
+  output plain and redacted. The Termux section uses the upstream-style
+  `Codex Termux Wrapper Doctor` header and Runtime/Support/Wrapper/State/Store
+  groups while retaining generation, code-mode migration, Manager, and the
+  explicit `bwrap is not used` diagnosis.
+- Focused proof passed: the signed wrapper-channel public-path test covered
+  successful adapted v2 activation, bad index signature, malformed signed
+  index, no upstream invocation, no fallback, and unchanged old state on
+  failure; the doctor contract test covered redaction/plain-vs-colored
+  rendering; the PTY test covered SGR preservation, CRLF normalization, and
+  progress cleanup. The final locked workspace suite passed Core `119 passed,
+  0 failed, 1 ignored` and release-builder `7 passed, 0 failed`; three complete
+  default-parallel workspace repetitions passed the same counts.
+- `cargo clippy --locked -p codex --all-targets -- -D warnings`, the locked
+  workspace clippy run, the locked release-builder suite, `cargo fmt --check`,
+  `git diff --check`, and the locked release Core build passed. The release
+  artifact SHA-256 is
+  `27519c6a505024f69c8800b78c0088b9d5be3b071543c5298c619d1ad93f4636`.
+- The bounded live cutover completed after those gates. Only
+  `/data/data/com.termux/files/usr/bin/codex` was atomically replaced with
+  that exact artifact; the previous launcher is recoverable at
+  `/data/data/com.termux/files/usr/tmp/codex-r4-cutover.Ifsy4h/codex.previous`
+  with SHA-256
+  `01ffd7930018639c26e15c0008494b89f86b4571cfd55228fe22c2185f34370d`.
+  The live launcher now has the artifact digest. Post-cutover checks confirmed
+  the wrapper update usage, malformed-argument rejection, signed-channel
+  transport failure closure, code-mode host availability, and PTY SGR output.
+  The resolver (`7e8ad76e0d200e93918ca2e93c99ff8ecd02071953bf1479819db3ac0dbb6d07`),
+  trust seed (`03336cc8ac082c8afc900543e27220c391b536717165c9b3f1caa9cceb3d5790`),
+  and activation state (`ccc443ae8615ed58bb22884104a67c31369dcb1f9c73b8ab8f15900353a0b94a`)
+  remained unchanged. No bwrap invocation or repair was performed.
+- The live selected generation remains the existing signed v1
+  `legacy-compat-v1` generation, so its `code_mode_host` status is still
+  `migration_required`; the new release pipeline will clear that marker only
+  when a signed root-level companion generation is published. Until the
+  wrapper channel publishes a signed index and adapted release assets, an
+  automatic update is expected to fail closed rather than install an
+  unpatched upstream runtime.
 
 ## Goal Lifts
 

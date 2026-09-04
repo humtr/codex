@@ -40,16 +40,20 @@ In descending order:
 
 The launcher classifies only an exact first argument of `update`, `doctor`, or
 `termux`. Every other invocation is passed to upstream Codex. `update` is a
-shared boundary: only the exact Core forms below are owned by Core; an empty
-`update` argument list, `update --help`, and all other upstream update options
-are passed to upstream Codex unchanged so that the upstream distribution
-updater remains the source of upstream Codex contents.
+Core-owned safety boundary: the installed wrapper must never execute the
+upstream distribution updater, because that updater can install an unadapted
+runtime on Termux. The wrapper release pipeline obtains the official upstream
+package, applies the accepted Termux patch, qualifies it, and publishes a
+signed generation; the installed Core obtains and activates only that signed
+adapted generation.
 
 | Command | Owner | Required behavior |
 | --- | --- | --- |
 | `codex [UPSTREAM_ARGS...]` | Core | execute upstream with original arguments |
 | `codex --version`, `codex -V` | upstream | print exactly the upstream version output |
-| `codex update [UPSTREAM_ARGS...]` | upstream | execute upstream's update command with the original `update` argv, except for the exact Core forms below |
+| `codex update` | Core | resolve the signed stable wrapper release channel, acquire its already-patched generation, and activate it through the authenticated Core path |
+| `codex update --help` | Core | print the wrapper-owned update usage without invoking upstream or changing state |
+| `codex update [INVALID_ARGS...]` | Core | reject unsupported updater options without invoking upstream or changing state |
 | `codex update --local <DIRECTORY>` | Core | verify, stage, probe, and activate one compatible local generation |
 | `codex update --remote <HTTPS_BASE_URL>` | Core | acquire one immutable signed generation and activate it through the local update path |
 | `codex update --rollback` | Core | explicitly swap to the one retained complete previous generation |
@@ -59,14 +63,13 @@ updater remains the source of upstream Codex contents.
 `codex version` is not introduced. Wrapper/Core/Manager version rows must not
 be appended to upstream `--version` or `-V` output.
 
-The Core-owned update surface accepts exactly `--local <DIRECTORY>`,
-`--remote <HTTPS_BASE_URL>`, or `--rollback` after `update`. A malformed
-invocation beginning with one of those Core selectors is a Core usage error.
-The local form and rollback remain fully offline. The remote form is an
-explicit immutable signed-generation source, not automatic release discovery.
-All other `update` argv, including no arguments and upstream `--help`, use the
-normal upstream execution boundary and therefore retain upstream repository
-acquisition and upstream exit behavior. Rollback is an explicit Core operation,
+The Core-owned update surface accepts exactly no arguments, `--help`,
+`--local <DIRECTORY>`, `--remote <HTTPS_BASE_URL>`, or `--rollback` after
+`update`. A malformed invocation beginning with one of those Core selectors is
+a Core usage error. The local form and rollback remain fully offline. The
+explicit remote form is an immutable signed-generation source. No top-level
+`codex update` argument is passed to upstream, and Core never invokes a package
+manager or an upstream self-updater. Rollback is an explicit Core operation,
 not an ordinary-launch fallback and not a search through generation history.
 
 Internal release IDs, component digests, API versions, and schema versions are
@@ -166,14 +169,19 @@ Release production supplies that version, a local regular-file copy of the
 archive, and its exact lowercase SHA-256. Mutable `latest` or channel names,
 discovery, mirrors, and source fallbacks are not artifact authority.
 
-Acquisition and adaptation are release-production work, not an on-device Core
-update path. The real entrypoint is one non-installed workspace executable named
-`codex-release-builder`. Its `build` operation accepts the version, archive and
-digest, generation identity, Core artifact, creation metadata, and an absent
-output directory. It performs no discovery, signing, activation, or live-state
-mutation and emits only an unsigned generation source for the
-`codex-release-v3` signing and delivery path. `codex-release-v2` remains
-implementation history and is not retained as a release compatibility path.
+Acquisition and adaptation are release-production work. The wrapper release
+pipeline retrieves the exact official package, supplies its pinned digest to
+the real non-installed workspace executable named `codex-release-builder`,
+and signs the resulting adapted generation for delivery. The installed Core
+does not compile, run the release builder, patch a raw upstream executable, or
+execute an upstream self-updater; its update path accepts only the signed
+adapted generation produced by that pipeline. The builder's `build` operation
+accepts the version, archive and digest, generation identity, Core artifact,
+creation metadata, and an absent output directory. It performs no discovery,
+signing, activation, or live-state mutation and emits only an unsigned
+generation source for the `codex-release-v3` signing and delivery path.
+`codex-release-v2` remains implementation history and is not retained as a
+release compatibility path.
 
 The release builder complete output boundary is durable: final file modes are set before the corresponding final file synchronization, the complete staging tree is synchronized bottom-up, the no-replace output publication is atomic, and the output parent is synchronized before the build reports success. A failed publication leaves no accepted output.
 
@@ -483,20 +491,44 @@ schema.
 
 Normal installation and update must not require on-device compilation.
 
-After bootstrap, the Core-owned update path is the installed Core command
-surface `codex update --local <DIRECTORY>`, `codex update --remote
-<HTTPS_BASE_URL>`, or `codex update --rollback`. `install.sh` is not an update
-dispatcher and must not bypass the authenticated local admission, staging,
-probe, activation, or rollback path. The local and remote forms use the same
-forward activation transaction, and rollback remains the explicit swap of the
-one retained complete previous generation. A bare `codex update` is deliberately
-the upstream command, preserving the upstream Codex repository/update source;
-it does not silently become a Core generation update.
+After bootstrap, the Core owns every top-level `codex update` form. `install.sh`
+is not an update dispatcher and must not bypass the authenticated local
+admission, staging, probe, activation, or rollback path. The local, explicit
+remote, and automatic channel forms use the same forward activation
+transaction, and rollback remains the explicit swap of the one retained
+complete previous generation. A bare `codex update` is never the upstream
+command: it resolves a wrapper-owned signed channel and therefore cannot
+install an unpatched upstream runtime.
+
+The automatic stable channel is represented by a bounded signed index. Its
+default control URL is
+`https://raw.githubusercontent.com/humtr/codex/main/update-index-v1`; a
+deployment or test may supply the same canonical HTTPS URL through
+`CODEX_TERMUX_UPDATE_INDEX_URL`. The URL is only a location hint: the index
+bytes and its sibling `<URL>.sig` are verified with the recovered v3
+`update_key` before Core trusts any field. The exact index format is:
+
+```text
+codex-update-index-v1
+channel\tstable
+generation_id\t<ID>
+release_base\thttps://<host>/<path>/<ID>/
+```
+
+It has exactly these four records and a final newline. The generation identity
+is a safe path component, the release base is the canonical immutable
+generation base already defined below, and its final path component must match
+the signed identity. After index signature verification, Core invokes the
+existing signed remote-generation acquisition path. Index transport failure,
+signature failure, malformed discovery, or release qualification failure is a
+hard failure for that attempt; there is no fallback to upstream, a package
+manager, an alternate mirror, or a raw package.
 
 `codex update` must:
 
-1. recover the authoritative v3 state and resolve one immutable signed release
-   manifest against its `update_key`;
+1. recover the authoritative v3 state and resolve one immutable signed wrapper
+   release against its `update_key` (automatic update first verifies the signed
+   channel index, while explicit remote update starts from its supplied base);
 2. enforce architecture, API, channel, and the existing monotonic
    release-sequence anti-rollback policy;
 3. download into a private staging location or accept an explicit local
@@ -635,6 +667,12 @@ fallback, or registry merely for it. Remote success reports
 `activated remote generation <id>`; every failure preserves the authoritative
 activation pointers.
 
+Automatic channel discovery uses the same curl, certificate, timeout, and
+owner-only temporary rules. It fetches only the bounded index and its sibling
+signature, verifies the exact index bytes with the recovered `update_key`, and
+then delegates to the explicit signed remote-generation path. The index is not
+an alternate trust source and never authorizes a raw upstream package.
+
 ## 9. Doctor contract
 
 `codex doctor` is read-only. It runs the raw upstream doctor when supported and
@@ -662,6 +700,18 @@ rather than concatenated documents:
   "summary": {}
 }
 ```
+
+When human output is connected to a TTY and `NO_COLOR` is absent, Core gives the
+upstream doctor a bounded pseudo-terminal so its own headings, progress
+cleanup, and ANSI SGR markup retain the upstream layout. Core normalizes
+carriage-return/erase controls and preserves only safe SGR sequences before
+composition. Non-TTY output and explicit `NO_COLOR` remain plain. The Termux
+doctor section follows the upstream doctor presentation: a `Codex Termux
+Wrapper Doctor` status header,
+`Runtime`, `Support`, `Wrapper`, `State`, and `Store` groups, colored health
+rows when enabled, and a bounded summary. It reports the selected generation,
+root-level code-mode companion or migration state, and the explicit reason that
+Linux bwrap sandboxing is not used.
 
 Unsupported upstream or Manager diagnostics are represented explicitly and do
 not fabricate success. Diagnostic failure returns nonzero while preserving a

@@ -1097,27 +1097,87 @@ struct QualifiedUpstreamDoctorResult {
 }
 
 #[cfg(unix)]
-fn strip_doctor_terminal_controls(value: &str) -> String {
-    let mut result = String::with_capacity(value.len());
-    let mut in_escape = false;
-    let mut csi_escape = false;
-    for character in value.chars() {
-        if in_escape {
-            if !csi_escape && character == '[' {
-                csi_escape = true;
-            } else if (csi_escape || !character.is_ascii_digit())
-                && ('@'..='~').contains(&character)
-            {
-                in_escape = false;
-                csi_escape = false;
-            }
-            continue;
+#[derive(Debug, Clone, Copy)]
+struct DoctorCaptureOptions {
+    json: bool,
+    use_color: bool,
+}
+
+#[cfg(unix)]
+fn sanitize_doctor_terminal_controls(value: &str, preserve_sgr: bool) -> String {
+    fn erase_current_line(output: &mut String) {
+        if let Some(newline) = output.rfind('\n') {
+            output.truncate(newline + 1);
+        } else {
+            output.clear();
         }
-        if character == '\u{1b}' {
-            in_escape = true;
-            csi_escape = false;
-        } else if character == '\n' || character == '\t' || !character.is_control() {
-            result.push(character);
+    }
+
+    let mut result = String::with_capacity(value.len());
+    let bytes = value.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'\r' => {
+                if bytes.get(index + 1) != Some(&b'\n') {
+                    erase_current_line(&mut result);
+                }
+                index += 1;
+            }
+            b'\n' | b'\t' => {
+                result.push(bytes[index] as char);
+                index += 1;
+            }
+            0x1b => {
+                if bytes.get(index + 1) == Some(&b'[') {
+                    let parameter_start = index + 2;
+                    let Some(final_offset) = bytes[parameter_start..]
+                        .iter()
+                        .position(|byte| (b'@'..=b'~').contains(byte))
+                    else {
+                        break;
+                    };
+                    let final_index = parameter_start + final_offset;
+                    let parameters = &bytes[parameter_start..final_index];
+                    if bytes[final_index] == b'K' {
+                        erase_current_line(&mut result);
+                    } else if preserve_sgr
+                        && bytes[final_index] == b'm'
+                        && parameters
+                            .iter()
+                            .all(|byte| byte.is_ascii_digit() || *byte == b';')
+                    {
+                        result.push_str(&value[index..=final_index]);
+                    }
+                    index = final_index + 1;
+                } else if bytes.get(index + 1) == Some(&b']') {
+                    index += 2;
+                    while index < bytes.len() {
+                        if bytes[index] == 0x07 {
+                            index += 1;
+                            break;
+                        }
+                        if bytes[index] == 0x1b && bytes.get(index + 1) == Some(&b'\\') {
+                            index += 2;
+                            break;
+                        }
+                        index += 1;
+                    }
+                } else {
+                    index = (index + 2).min(bytes.len());
+                }
+            }
+            byte if byte.is_ascii_control() => {
+                index += 1;
+            }
+            _ => {
+                let character = value[index..]
+                    .chars()
+                    .next()
+                    .expect("valid UTF-8 input has a character at every byte boundary");
+                result.push(character);
+                index += character.len_utf8();
+            }
         }
     }
     result
@@ -1233,17 +1293,70 @@ fn redact_doctor_line(mut line: String) -> String {
 }
 
 #[cfg(unix)]
-fn redact_doctor_output(bytes: &[u8]) -> String {
+fn redact_doctor_output(bytes: &[u8], preserve_sgr: bool) -> String {
     let text = String::from_utf8_lossy(bytes);
-    let mut output = String::with_capacity(text.len());
-    for chunk in text.split_inclusive('\n') {
+    let styled = sanitize_doctor_terminal_controls(&text, preserve_sgr);
+    let plain = sanitize_doctor_terminal_controls(&text, false);
+    let mut redacted = String::with_capacity(plain.len());
+    for chunk in plain.split_inclusive('\n') {
         let (line, newline) = chunk
             .strip_suffix('\n')
             .map_or((chunk, ""), |line| (line, "\n"));
-        output.push_str(&redact_doctor_line(strip_doctor_terminal_controls(line)));
-        output.push_str(newline);
+        redacted.push_str(&redact_doctor_line(line.to_owned()));
+        redacted.push_str(newline);
     }
-    output
+    if preserve_sgr && redacted == plain {
+        styled
+    } else {
+        redacted
+    }
+}
+
+#[cfg(unix)]
+fn doctor_color_enabled() -> bool {
+    use std::io::IsTerminal as _;
+
+    std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none()
+}
+
+#[cfg(unix)]
+fn doctor_shell_quote(value: &OsStr) -> OsString {
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+
+    let mut quoted = Vec::with_capacity(value.as_bytes().len() + 2);
+    quoted.push(b'\'');
+    for byte in value.as_bytes() {
+        if *byte == b'\'' {
+            quoted.extend_from_slice(b"'\"'\"'");
+        } else {
+            quoted.push(*byte);
+        }
+    }
+    quoted.push(b'\'');
+    OsString::from_vec(quoted)
+}
+
+#[cfg(unix)]
+fn doctor_script_command(runtime: &OsStr, json: bool) -> OsString {
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+
+    let quoted_runtime = doctor_shell_quote(runtime);
+    let mut command = quoted_runtime.as_bytes().to_vec();
+    command.extend_from_slice(b" -c 'sandbox_mode=\"danger-full-access\"' doctor");
+    if json {
+        command.extend_from_slice(b" --json");
+    }
+    OsString::from_vec(command)
+}
+
+#[cfg(unix)]
+fn doctor_pty_path(process_env: &TermuxProcessEnvSnapshot) -> Option<std::path::PathBuf> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let prefix = process_env.prefix.as_deref()?;
+    let path = std::path::Path::new(prefix).join("bin/script");
+    let metadata = std::fs::symlink_metadata(&path).ok()?;
+    (metadata.file_type().is_file() && metadata.permissions().mode() & 0o111 != 0).then_some(path)
 }
 
 #[cfg(unix)]
@@ -1254,7 +1367,7 @@ fn capture_qualified_upstream_doctor<'selection, 'asset, R, C>(
     cert_dir: Option<&OsStr>,
     resolver_path: R,
     config_dir: C,
-    json: bool,
+    options: DoctorCaptureOptions,
 ) -> Result<QualifiedUpstreamDoctorResult, QualifiedUpstreamDoctorProbeError>
 where
     R: AsRef<std::path::Path>,
@@ -1262,6 +1375,8 @@ where
 {
     use std::io::Read as _;
 
+    let json = options.json;
+    let mut use_color = options.use_color;
     let selection = assets.selection();
     let env_plan = plan_termux_env(
         process_env,
@@ -1272,13 +1387,29 @@ where
     .map_err(QualifiedUpstreamDoctorProbeError::Environment)?;
     let runtime_fds = RuntimeFdSources::open(resolver_path, config_dir)
         .map_err(QualifiedUpstreamDoctorProbeError::Io)?;
-    let mut cmd = std::process::Command::new(selection.runtime.program_path);
-    cmd.args(["-c", "sandbox_mode=\"danger-full-access\"", "doctor"]);
-    if json {
-        cmd.arg("--json");
+    let pty_path = (!json && use_color)
+        .then(|| doctor_pty_path(process_env))
+        .flatten();
+    let mut cmd = if let Some(script) = pty_path.as_ref() {
+        let mut command = std::process::Command::new(script);
+        command
+            .args(["-qefc"])
+            .arg(doctor_script_command(selection.runtime.program_path, json))
+            .arg("/dev/null");
+        command
+    } else {
+        use_color = false;
+        std::process::Command::new(selection.runtime.program_path)
+    };
+    if pty_path.is_none() {
+        cmd.args(["-c", "sandbox_mode=\"danger-full-access\"", "doctor"]);
+        if json {
+            cmd.arg("--json");
+        }
     }
     cmd.stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null());
+        .stderr(std::process::Stdio::null())
+        .stdin(std::process::Stdio::null());
     apply_child_env_plan_and_fence(&mut cmd, Some(&env_plan));
     runtime_fds.configure(&mut cmd);
     let mut child = cmd.spawn().map_err(QualifiedUpstreamDoctorProbeError::Io)?;
@@ -1306,7 +1437,7 @@ where
         } else {
             UpstreamDoctorStatus::Unhealthy
         },
-        output: redact_doctor_output(&bytes),
+        output: redact_doctor_output(&bytes, use_color && !json),
     })
 }
 
@@ -1330,7 +1461,10 @@ where
         cert_dir,
         resolver_path,
         config_dir,
-        false,
+        DoctorCaptureOptions {
+            json: false,
+            use_color: false,
+        },
     )?
     .status)
 }
@@ -1475,9 +1609,57 @@ fn doctor_exit_class(report: &DoctorReport) -> DoctorExitClass {
     }
 }
 
-fn render_doctor_human(report: &DoctorReport) -> String {
+fn doctor_color(text: &str, code: u16, enabled: bool) -> String {
+    if enabled {
+        format!("\x1b[38;5;{code}m{text}\x1b[39m")
+    } else {
+        text.to_owned()
+    }
+}
+
+fn doctor_bold(text: &str, enabled: bool) -> String {
+    if enabled {
+        format!("\x1b[1m{text}\x1b[22m")
+    } else {
+        text.to_owned()
+    }
+}
+
+fn doctor_dim(text: &str, enabled: bool) -> String {
+    doctor_color(text, 240, enabled)
+}
+
+fn doctor_row(output: &mut String, name: &str, description: &str, healthy: bool, color: bool) {
+    let marker = if healthy {
+        doctor_color("✓", 10, color)
+    } else {
+        doctor_color("✗", 196, color)
+    };
+    let description = if healthy {
+        doctor_dim(description, color)
+    } else {
+        description.to_owned()
+    };
+    output.push_str(&format!("  {marker} {name:<14} {description}\n"));
+}
+
+fn doctor_warning(output: &mut String, name: &str, description: &str, color: bool) {
+    let marker = doctor_color("⚠", 214, color);
+    output.push_str(&format!("  {marker} {name:<14} {description}\n"));
+}
+
+fn doctor_detail(output: &mut String, name: &str, value: &str, color: bool) {
+    output.push_str("    ");
+    output.push_str(&doctor_dim(name, color));
+    output.push_str(": ");
+    output.push_str(value);
+    output.push('\n');
+}
+
+fn render_doctor_human(report: &DoctorReport, color: bool) -> String {
     let mut output = String::new();
-    output.push_str("[Upstream Codex doctor]\nstatus: ");
+    output.push_str("[Upstream Codex doctor]\n");
+    output.push_str("status: ");
     output.push_str(report.upstream.status.as_str());
     output.push('\n');
     if report.upstream.output.is_empty() {
@@ -1487,27 +1669,180 @@ fn render_doctor_human(report: &DoctorReport) -> String {
         if !report.upstream.output.ends_with('\n') {
             output.push('\n');
         }
+        if color {
+            output.push_str("\x1b[0m");
+        }
     }
-    output.push_str("\n[Termux doctor]\n");
-    output.push_str("core: ");
-    output.push_str(report.termux_core.status.as_str());
-    output.push('\n');
-    output.push_str("generation_id: ");
-    output.push_str(&report.termux_core.generation_id);
-    output.push('\n');
-    output.push_str("layout: ");
-    output.push_str(report.termux_core.generation_layout.as_str());
-    output.push_str("\nruntime: healthy\ncode_mode_host: ");
-    output.push_str(match report.termux_core.generation_layout {
+
+    let code_mode_status = match report.termux_core.generation_layout {
         GenerationLayout::RootCodeModeHost => "healthy",
         GenerationLayout::LegacyCompat => "migration_required",
-    });
-    output.push_str("\nsandbox: unsupported (bwrap is not used)\n");
-    output.push_str("\n[Manager]\nstatus: ");
-    output.push_str(report.manager.as_str());
-    output.push_str("\n\n[Summary]\nstatus: ");
-    output.push_str(report.summary.as_str());
+    };
+    let core_healthy = report.termux_core.status == CoreDoctorStatus::Healthy;
+    let code_mode_healthy = code_mode_status == "healthy";
+    let manager_healthy = report.manager == ManagerDoctorStatus::Healthy;
+    let summary_healthy = report.summary == DoctorSummaryStatus::Healthy;
+    let mut ok_count = 0;
+    let mut warning_count = 1;
+    let mut failure_count = 0;
+
+    output.push_str("\n[Termux doctor]\n");
+    let header = format!(
+        "Codex Termux Wrapper Doctor · generation {} · status {}",
+        report.termux_core.generation_id,
+        report.termux_core.status.as_str()
+    );
+    output.push_str(&doctor_bold(&header, color));
     output.push('\n');
+
+    output.push('\n');
+    output.push_str(&doctor_bold("Runtime", color));
+    output.push('\n');
+    doctor_row(
+        &mut output,
+        "runtime",
+        "selected runtime is qualified",
+        true,
+        color,
+    );
+    ok_count += 1;
+    doctor_detail(
+        &mut output,
+        "generation_id",
+        &report.termux_core.generation_id,
+        color,
+    );
+    doctor_detail(
+        &mut output,
+        "layout",
+        report.termux_core.generation_layout.as_str(),
+        color,
+    );
+    doctor_row(
+        &mut output,
+        "code host",
+        "code-mode companion is beside the runtime",
+        code_mode_healthy,
+        color,
+    );
+    if code_mode_healthy {
+        ok_count += 1;
+    } else {
+        failure_count += 1;
+    }
+    doctor_detail(&mut output, "code_mode_host", code_mode_status, color);
+
+    output.push('\n');
+    output.push_str(&doctor_bold("Support", color));
+    output.push('\n');
+    doctor_warning(
+        &mut output,
+        "sandbox",
+        "Linux namespace/mount sandboxing is unsupported on Termux; bwrap is not used",
+        color,
+    );
+    doctor_detail(
+        &mut output,
+        "sandbox",
+        "unsupported (bwrap is not used)",
+        color,
+    );
+
+    output.push('\n');
+    output.push_str(&doctor_bold("Wrapper", color));
+    output.push('\n');
+    doctor_row(
+        &mut output,
+        "core",
+        "Core API and selected generation are compatible",
+        core_healthy,
+        color,
+    );
+    if core_healthy {
+        ok_count += 1;
+    } else {
+        failure_count += 1;
+    }
+    doctor_detail(
+        &mut output,
+        "core",
+        report.termux_core.status.as_str(),
+        color,
+    );
+
+    output.push('\n');
+    output.push_str(&doctor_bold("State", color));
+    output.push('\n');
+    doctor_row(
+        &mut output,
+        "current",
+        "one complete generation is selected",
+        true,
+        color,
+    );
+    ok_count += 1;
+    doctor_detail(
+        &mut output,
+        "generation",
+        &report.termux_core.generation_id,
+        color,
+    );
+
+    output.push('\n');
+    output.push_str(&doctor_bold("Store", color));
+    output.push('\n');
+    doctor_row(
+        &mut output,
+        "generation",
+        "immutable generation is loaded from the Core store",
+        true,
+        color,
+    );
+    ok_count += 1;
+
+    output.push_str("\n[Manager]\n");
+    if manager_healthy {
+        doctor_row(
+            &mut output,
+            "status",
+            "Manager artifact is available",
+            true,
+            color,
+        );
+        ok_count += 1;
+    } else {
+        doctor_warning(&mut output, "status", report.manager.as_str(), color);
+        warning_count += 1;
+    }
+
+    output.push_str("\n[Summary]\n");
+    doctor_row(
+        &mut output,
+        "status",
+        report.summary.as_str(),
+        summary_healthy,
+        color,
+    );
+    if summary_healthy {
+        ok_count += 1;
+    } else {
+        failure_count += 1;
+    }
+    output.push('\n');
+    output.push_str(&doctor_dim(
+        "─────────────────────────────────────────────────────────────",
+        color,
+    ));
+    output.push('\n');
+    let summary_status = if summary_healthy {
+        doctor_color("healthy", 10, color)
+    } else {
+        doctor_color(report.summary.as_str(), 196, color)
+    };
+    output.push_str(&format!(
+        "{} ok · {} warn · {} fail {}\n",
+        ok_count, warning_count, failure_count, summary_status
+    ));
     output
 }
 
@@ -1629,7 +1964,10 @@ where
             context.cert_dir,
             context.resolver_path,
             context.config_dir,
-            mode == DoctorOutputMode::Json,
+            DoctorCaptureOptions {
+                json: mode == DoctorOutputMode::Json,
+                use_color: mode == DoctorOutputMode::Human && doctor_color_enabled(),
+            },
         ) {
             Ok(result) => result,
             Err(_) => QualifiedUpstreamDoctorResult {
@@ -1652,7 +1990,7 @@ where
         context.manager_doctor_status,
     );
     let output = match mode {
-        DoctorOutputMode::Human => render_doctor_human(&report),
+        DoctorOutputMode::Human => render_doctor_human(&report, doctor_color_enabled()),
         DoctorOutputMode::Json => render_doctor_json(&report),
     };
     Ok(DoctorCommandOutcome {
@@ -2676,6 +3014,13 @@ const LOCAL_RELEASE_SIGNATURE_MAX_BYTES: u64 = 1024;
 #[cfg(unix)]
 const DOCTOR_OUTPUT_MAX_BYTES: usize = 64 * 1024;
 #[cfg(unix)]
+const UPDATE_INDEX_MAX_BYTES: usize = 16 * 1024;
+#[cfg(unix)]
+const DEFAULT_UPDATE_INDEX_URL: &str =
+    "https://raw.githubusercontent.com/humtr/codex/main/update-index-v1";
+#[cfg(unix)]
+const UPDATE_INDEX_URL_ENV: &str = "CODEX_TERMUX_UPDATE_INDEX_URL";
+#[cfg(unix)]
 const BOOTSTRAP_PUBLIC_KEY_MAX_BYTES: u64 = 16 * 1024;
 #[cfg(unix)]
 const CORE_ARTIFACT_MAX_BYTES: u64 = 64 * 1024 * 1024;
@@ -2756,6 +3101,7 @@ enum LocalProductError {
     TrustedReleaseKeyUnavailable,
     OpenSslFailed(&'static str),
     Remote(&'static str),
+    UpdateIndex(&'static str),
     RemoteTransportFailed,
     RemoteResponseTooLarge,
     SignatureRejected,
@@ -2808,6 +3154,7 @@ impl std::fmt::Display for LocalProductError {
                 write!(f, "OpenSSL {operation} failed")
             }
             LocalProductError::Remote(message) => f.write_str(message),
+            LocalProductError::UpdateIndex(message) => f.write_str(message),
             LocalProductError::RemoteTransportFailed => {
                 f.write_str("remote release transport failed")
             }
@@ -3046,6 +3393,127 @@ impl RemoteReleaseBase {
             .and_then(|value| value.rsplit('/').next())
             == Some(expected.as_str()))
     }
+}
+
+#[cfg(unix)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SignedUpdateIndex {
+    generation_id: String,
+    release_base: RemoteReleaseBase,
+}
+
+#[cfg(unix)]
+fn parse_update_index_url(value: &OsStr) -> Result<String, LocalProductError> {
+    let value = value.to_str().ok_or(LocalProductError::UpdateIndex(
+        "update index URL is not UTF-8",
+    ))?;
+    if value.is_empty()
+        || value.len() > REMOTE_RELEASE_URL_MAX_BYTES
+        || !value.is_ascii()
+        || value
+            .bytes()
+            .any(|byte| byte.is_ascii_whitespace() || byte.is_ascii_control())
+        || value.contains(['?', '#', '\\'])
+    {
+        return Err(LocalProductError::UpdateIndex(
+            "update index URL is not canonical",
+        ));
+    }
+    let remainder = value
+        .strip_prefix("https://")
+        .ok_or(LocalProductError::UpdateIndex(
+            "update index URL must use HTTPS",
+        ))?;
+    let (authority, path) = remainder
+        .split_once('/')
+        .ok_or(LocalProductError::UpdateIndex(
+            "update index URL has no resource path",
+        ))?;
+    if !valid_remote_authority(authority)
+        || path.is_empty()
+        || path.ends_with('/')
+        || !path.split('/').all(valid_canonical_remote_path_component)
+    {
+        return Err(LocalProductError::UpdateIndex(
+            "update index URL is not canonical",
+        ));
+    }
+    Ok(value.to_owned())
+}
+
+#[cfg(unix)]
+fn configured_update_index_url() -> Result<String, LocalProductError> {
+    let value = std::env::var_os(UPDATE_INDEX_URL_ENV)
+        .unwrap_or_else(|| OsString::from(DEFAULT_UPDATE_INDEX_URL));
+    parse_update_index_url(&value)
+}
+
+#[cfg(unix)]
+fn update_index_field<'a>(
+    line: Option<&'a str>,
+    expected: &'static str,
+) -> Result<&'a str, LocalProductError> {
+    let line = line.ok_or(LocalProductError::UpdateIndex("update index is incomplete"))?;
+    let mut fields = line.split('\t');
+    if fields.next() != Some(expected) {
+        return Err(LocalProductError::UpdateIndex(
+            "update index field is invalid",
+        ));
+    }
+    let value =
+        fields
+            .next()
+            .filter(|value| !value.is_empty())
+            .ok_or(LocalProductError::UpdateIndex(
+                "update index field is invalid",
+            ))?;
+    if fields.next().is_some() || value.bytes().any(|byte| byte.is_ascii_control()) {
+        return Err(LocalProductError::UpdateIndex(
+            "update index field is invalid",
+        ));
+    }
+    Ok(value)
+}
+
+#[cfg(unix)]
+fn parse_signed_update_index(bytes: &[u8]) -> Result<SignedUpdateIndex, LocalProductError> {
+    if !bytes.ends_with(b"\n") {
+        return Err(LocalProductError::UpdateIndex(
+            "update index is missing its final newline",
+        ));
+    }
+    let text = std::str::from_utf8(bytes)
+        .map_err(|_| LocalProductError::UpdateIndex("update index is not UTF-8"))?;
+    let mut lines = text.lines();
+    if lines.next() != Some("codex-update-index-v1") {
+        return Err(LocalProductError::UpdateIndex(
+            "update index format is unsupported",
+        ));
+    }
+    if update_index_field(lines.next(), "channel")? != LOCAL_RELEASE_CHANNEL {
+        return Err(LocalProductError::UpdateIndex(
+            "update index channel is not supported",
+        ));
+    }
+    let generation_id = update_index_field(lines.next(), "generation_id")?;
+    m2_generation_state::validate_generation_identity(generation_id, "update index generation_id")
+        .map_err(LocalProductError::StateFormat)?;
+    let release_base = update_index_field(lines.next(), "release_base")?;
+    if lines.next().is_some() {
+        return Err(LocalProductError::UpdateIndex(
+            "update index has unexpected trailing fields",
+        ));
+    }
+    let release_base = RemoteReleaseBase::parse(OsStr::new(release_base))?;
+    if !release_base.matches_generation_identity(generation_id)? {
+        return Err(LocalProductError::UpdateIndex(
+            "update index release base does not match generation identity",
+        ));
+    }
+    Ok(SignedUpdateIndex {
+        generation_id: generation_id.to_owned(),
+        release_base,
+    })
 }
 
 #[cfg(unix)]
@@ -5081,6 +5549,91 @@ fn acquire_remote_release_source(
 }
 
 #[cfg(unix)]
+fn activate_signed_update_channel(
+    roots: &LocalCoreRoots,
+    process_env: &TermuxProcessEnvSnapshot,
+) -> Result<String, LocalProductError> {
+    let state_paths = m2_generation_state::CoreStatePaths::new(&roots.state_root)
+        .map_err(LocalProductError::StateFormat)?;
+    let before = m2_generation_state::recover_activation_state(&state_paths)
+        .map_err(LocalProductError::State)?
+        .ok_or(LocalProductError::NoCurrentGeneration)?;
+    ensure_real_directory(
+        &roots.state_root,
+        "inspect Core update state root",
+        "Core update state root is not a real directory",
+    )?;
+    ensure_real_directory(
+        &roots.generation_root,
+        "inspect immutable generation root",
+        "immutable generation root is not a real directory",
+    )?;
+    ensure_openssl_available(&roots.openssl)?;
+    ensure_curl_available(&roots.curl)?;
+
+    let index_url = configured_update_index_url()?;
+    let signature_url = format!("{index_url}.sig");
+    parse_update_index_url(OsStr::new(&signature_url))?;
+    let sequence = REMOTE_ACQUISITION_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let acquisition_root = roots
+        .state_root
+        .join(format!(".update-index-{}-{sequence}", std::process::id()));
+    create_remote_acquisition_root(&acquisition_root)?;
+
+    let result = (|| {
+        let index_path = acquisition_root.join("update-index");
+        let signature_path = acquisition_root.join("update-index.sig");
+        let index_output = create_remote_output(&index_path)?;
+        fetch_remote_file(
+            roots,
+            &index_url,
+            &index_output,
+            UPDATE_INDEX_MAX_BYTES as u64,
+        )?;
+        let signature_output = create_remote_output(&signature_path)?;
+        fetch_remote_file(
+            roots,
+            &signature_url,
+            &signature_output,
+            LOCAL_RELEASE_SIGNATURE_MAX_BYTES,
+        )?;
+        verify_release_signature_with_key(
+            &roots.openssl,
+            before.update_key,
+            &index_path,
+            &signature_path,
+        )?;
+        let index = read_bounded_regular_file(
+            &index_path,
+            UPDATE_INDEX_MAX_BYTES,
+            "read signed update index",
+            LocalProductError::UpdateIndex("update index exceeds its byte bound"),
+            LocalProductError::UpdateIndex("update index is not a bounded regular file"),
+        )?;
+        parse_signed_update_index(&index)
+    })();
+    let cleanup =
+        std::fs::remove_dir_all(&acquisition_root).map_err(|source| LocalProductError::Io {
+            operation: "remove update index acquisition directory",
+            source,
+        });
+    let index = match (result, cleanup) {
+        (_, Err(err)) => return Err(err),
+        (Err(err), Ok(())) => return Err(err),
+        (Ok(index), Ok(())) => index,
+    };
+
+    let activated =
+        activate_signed_remote_release(OsStr::new(&index.release_base.value), roots, process_env)?;
+    if activated != index.generation_id {
+        return Err(LocalProductError::UpdateIndex(
+            "activated generation does not match update index identity",
+        ));
+    }
+    Ok(activated)
+}
+
+#[cfg(unix)]
 fn activate_signed_remote_release(
     base: &OsStr,
     roots: &LocalCoreRoots,
@@ -6109,25 +6662,48 @@ fn rollback_signed_local_release(roots: &LocalCoreRoots) -> Result<String, Local
 }
 
 #[cfg(unix)]
-fn is_core_update_selector(args: &[OsString]) -> bool {
-    matches!(
-        args.first().map(OsString::as_os_str),
-        Some(value)
-            if value == OsStr::new("--local")
-                || value == OsStr::new("--remote")
-                || value == OsStr::new("--rollback")
-    )
+const UPDATE_USAGE: &str =
+    "usage: codex update [--help] | --local <DIRECTORY> | --remote <HTTPS_BASE_URL> | --rollback";
+
+#[cfg(unix)]
+fn print_update_usage() {
+    println!("{UPDATE_USAGE}");
+    println!(
+        "automatic update retrieves a signed, Termux-patched release from the wrapper channel"
+    );
 }
 
 #[cfg(unix)]
 fn run_core_update(args: Vec<OsString>) -> i32 {
+    if args.is_empty() {
+        let roots = match LocalCoreRoots::from_environment() {
+            Ok(roots) => roots,
+            Err(err) => {
+                eprintln!("codex update: {err}");
+                return 1;
+            }
+        };
+        let process_env = capture_termux_process_env();
+        return match activate_signed_update_channel(&roots, &process_env) {
+            Ok(generation_id) => {
+                println!("activated channel generation {generation_id}");
+                0
+            }
+            Err(err) => {
+                eprintln!("codex update: {err}");
+                1
+            }
+        };
+    }
+    if args.len() == 1 && args[0] == OsStr::new("--help") {
+        print_update_usage();
+        return 0;
+    }
     let local = args.len() == 2 && args[0] == OsStr::new("--local") && !args[1].is_empty();
     let remote = args.len() == 2 && args[0] == OsStr::new("--remote") && !args[1].is_empty();
     let rollback = args.len() == 1 && args[0] == OsStr::new("--rollback");
     if !local && !remote && !rollback {
-        eprintln!(
-            "usage: codex update (--local <DIRECTORY> | --remote <HTTPS_BASE_URL> | --rollback)"
-        );
+        eprintln!("{UPDATE_USAGE}");
         return 2;
     }
     let roots = match LocalCoreRoots::from_environment() {
@@ -6167,43 +6743,6 @@ fn run_core_update(args: Vec<OsString>) -> i32 {
 }
 
 #[cfg(unix)]
-fn run_upstream_update(args: Vec<OsString>) -> i32 {
-    let mut upstream_args = Vec::with_capacity(args.len() + 1);
-    upstream_args.push(OsString::from("update"));
-    upstream_args.extend(args);
-    let planned = match plan_passthrough_args(upstream_args) {
-        Ok(planned) => planned,
-        Err(err) => {
-            eprintln!("codex: {err}");
-            return 2;
-        }
-    };
-    let roots = match LocalCoreRoots::from_environment() {
-        Ok(roots) => roots,
-        Err(err) => {
-            eprintln!("codex: {err}");
-            return 1;
-        }
-    };
-    let process_env = capture_termux_process_env();
-    match execute_activated_route(PublicDispatchRoute::Upstream(planned), &roots, &process_env) {
-        Ok(PublicDispatchCompletion::Update(_)) => 2,
-        Ok(PublicDispatchCompletion::Doctor(outcome)) => {
-            print!("{}", outcome.output);
-            doctor_exit_code(outcome.exit_class)
-        }
-        Ok(PublicDispatchCompletion::TermuxUnavailable(message)) => {
-            eprintln!("{message}");
-            1
-        }
-        Err(err) => {
-            eprintln!("codex: {err}");
-            1
-        }
-    }
-}
-
-#[cfg(unix)]
 fn run_public_main<I, S>(args: I) -> i32
 where
     I: IntoIterator<Item = S>,
@@ -6217,11 +6756,7 @@ where
         }
     };
     if let PublicDispatchRoute::Update(args) = route {
-        return if is_core_update_selector(&args) {
-            run_core_update(args)
-        } else {
-            run_upstream_update(args)
-        };
+        return run_core_update(args);
     }
     let roots = match LocalCoreRoots::from_environment() {
         Ok(roots) => roots,
@@ -6604,6 +7139,7 @@ mod tests {
 
         let redacted = redact_doctor_output(
             b"status=ok api_key=sk-secret-value\n\x1b[31mBearer bearer-secret\x1b[0m\n",
+            false,
         );
         assert!(redacted.contains("status=ok"));
         assert!(!redacted.contains("sk-secret-value"));
@@ -6613,6 +7149,7 @@ mod tests {
         let redacted_multiple = redact_doctor_output(
             "π api_key=first-secret api_key=second-secret token=third-secret authorization=Bearer bearer-secret\n"
                 .as_bytes(),
+            false,
         );
         assert!(redacted_multiple.contains("π"));
         assert_eq!(redacted_multiple.matches("[redacted]").count(), 4);
@@ -6621,12 +7158,95 @@ mod tests {
         assert!(!redacted_multiple.contains("third-secret"));
         assert!(!redacted_multiple.contains("bearer-secret"));
 
-        let redacted_markers = redact_doctor_output(b"sk-first sess-second ghp_third sk-fourth\n");
+        let redacted_markers =
+            redact_doctor_output(b"sk-first sess-second ghp_third sk-fourth\n", false);
         assert_eq!(redacted_markers.matches("[redacted]").count(), 4);
         assert!(!redacted_markers.contains("first"));
         assert!(!redacted_markers.contains("second"));
         assert!(!redacted_markers.contains("third"));
         assert!(!redacted_markers.contains("fourth"));
+
+        let styled = redact_doctor_output(
+            b"\x1b[32mdoctor ok\x1b[39m\r\x1b[2K\x1b[1mfinal\x1b[22m\n",
+            true,
+        );
+        assert_eq!(styled, "\x1b[1mfinal\x1b[22m\n");
+        assert!(!render_doctor_human(&report, false).contains('\u{1b}'));
+        assert!(render_doctor_human(&report, true).contains("\x1b[1m"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_r4_doctor_pty_preserves_clean_upstream_sgr_and_layout() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (root, runtime, resolver, config) = prepare_exec_fixture("r4-doctor-pty");
+        let prefix = root.join("prefix");
+        let script_source =
+            std::path::PathBuf::from(std::env::var_os("PREFIX").unwrap()).join("bin/script");
+        assert!(
+            script_source.is_file(),
+            "Termux script is required for PTY proof"
+        );
+        std::fs::create_dir_all(prefix.join("bin")).unwrap();
+        let script = prefix.join("bin/script");
+        std::fs::copy(&script_source, &script).unwrap();
+        let mut script_mode = std::fs::metadata(&script).unwrap().permissions();
+        script_mode.set_mode(0o755);
+        std::fs::set_permissions(&script, script_mode).unwrap();
+
+        let clean_runtime = root.join("clean-runtime");
+        let clean_body = std::fs::read_to_string(&runtime)
+            .unwrap()
+            .replace("api_key=sk-upstream-secret", "status=ok");
+        std::fs::write(&clean_runtime, clean_body).unwrap();
+        let mut runtime_mode = std::fs::metadata(&clean_runtime).unwrap().permissions();
+        runtime_mode.set_mode(0o755);
+        std::fs::set_permissions(&clean_runtime, runtime_mode).unwrap();
+
+        let manifest = valid_manifest(false, false);
+        let generation = qualify_generation_manifest(&manifest, &requirements()).unwrap();
+        let compat = root.join("compat");
+        let cert_file = root.join("cert.pem");
+        let cert_dir = root.join("certs");
+        let selection = RuntimeAssetSelection {
+            runtime: RuntimeAssetBinding {
+                program_path: clean_runtime.as_os_str(),
+                observed_digest: "runtime-digest",
+            },
+            compatibility_dir: compat.as_os_str(),
+            helpers: &[],
+        };
+        let assets = qualify_runtime_assets(generation, &selection).unwrap();
+        let snapshot = TermuxProcessEnvSnapshot {
+            prefix: Some(prefix.into_os_string()),
+            tmpdir: Some(root.join("tmp").into_os_string()),
+            inherited_path: None,
+            inherited_ssl_cert_file: None,
+            inherited_ssl_cert_dir: None,
+        };
+        let output = capture_qualified_upstream_doctor(
+            assets,
+            &snapshot,
+            cert_file.as_os_str(),
+            Some(cert_dir.as_os_str()),
+            &resolver,
+            &config,
+            DoctorCaptureOptions {
+                json: false,
+                use_color: true,
+            },
+        )
+        .unwrap();
+        assert_eq!(output.status, UpstreamDoctorStatus::Healthy);
+        assert!(output
+            .output
+            .contains("\x1b[1mupstream doctor ok\x1b[22m status=ok"));
+        assert!(!output.output.contains("checking upstream"));
+        assert!(!output.output.contains('\r'));
+        assert!(!output.output.contains("\x1b[2K"));
+        assert!(output.output.contains("\x1b[22m"));
+        remove_temp_root(root);
     }
 
     #[cfg(unix)]
@@ -6704,6 +7324,11 @@ if [ "$1" = "doctor" ]; then
   fi
   if [ "$2" = "--json" ]; then
     printf '{"status":"ok","api_key":"sk-upstream-secret"}\n'
+  elif [ -t 1 ]; then
+    printf '\033[2K\r'
+    printf '\033[33mchecking upstream\033[39m'
+    printf '\r\033[2K'
+    printf '\033[1mupstream doctor ok\033[22m api_key=sk-upstream-secret\n'
   else
     printf 'upstream doctor ok api_key=sk-upstream-secret\n'
   fi
@@ -7652,6 +8277,7 @@ exit 73
                 OsString::from("code_mode_host"),
             ],
             "update-bare" => vec![OsString::from("update")],
+            "update-help" => vec![OsString::from("update"), OsString::from("--help")],
             "manager" => vec![OsString::from("termux"), OsString::from("status")],
             "doctor" => vec![OsString::from("doctor"), OsString::from("--json")],
             "doctor-human" => vec![OsString::from("doctor")],
@@ -7755,20 +8381,33 @@ exit 73
 
         let root = b2_public_main_fixture("b2-main-update", false);
         let update = run_public_main_probe(&root, "update");
-        assert_eq!(update.status.code(), Some(73));
+        assert_eq!(update.status.code(), Some(2));
+        assert!(!update.stdout.windows(b"ARGS:".len()).any(|w| w == b"ARGS:"));
         assert!(update
-            .stdout
-            .windows(b"<update><--help><--disable><code_mode_host>".len())
-            .any(|window| window == b"<update><--help><--disable><code_mode_host>"));
+            .stderr
+            .windows(UPDATE_USAGE.len())
+            .any(|window| window == UPDATE_USAGE.as_bytes()));
         remove_temp_root(root);
 
         let root = b2_public_main_fixture("b2-main-update-bare", false);
         let update = run_public_main_probe(&root, "update-bare");
-        assert_eq!(update.status.code(), Some(73));
+        assert_eq!(update.status.code(), Some(1));
+        assert!(!update.stdout.windows(b"ARGS:".len()).any(|w| w == b"ARGS:"));
+        assert!(update
+            .stderr
+            .windows(b"OpenSSL".len())
+            .any(|w| w == b"OpenSSL"));
+        assert!(!update.stderr.windows(b"ARGS:".len()).any(|w| w == b"ARGS:"));
+        remove_temp_root(root);
+
+        let root = b2_public_main_fixture("b2-main-update-help", false);
+        let update = run_public_main_probe(&root, "update-help");
+        assert_eq!(update.status.code(), Some(0));
         assert!(update
             .stdout
-            .windows(b"ARGS:<update>".len())
-            .any(|window| window == b"ARGS:<update>"));
+            .windows(UPDATE_USAGE.len())
+            .any(|window| window == UPDATE_USAGE.as_bytes()));
+        assert!(update.stderr.is_empty());
         remove_temp_root(root);
     }
 
@@ -7923,13 +8562,21 @@ exit 73
     #[cfg(unix)]
     #[test]
     fn test_m2_b2_update_and_invalid_sandbox_need_no_generation_loader() {
-        assert!(!is_core_update_selector(&[]));
-        assert!(is_core_update_selector(&[
-            OsString::from("--local"),
-            OsString::from("/tmp/release"),
-        ]));
-        assert!(is_core_update_selector(&[OsString::from("--remote")]));
-        assert!(is_core_update_selector(&[OsString::from("--rollback")]));
+        assert_eq!(
+            plan_public_dispatch(["update"]).unwrap(),
+            PublicDispatchRoute::Update(vec![])
+        );
+        assert_eq!(
+            plan_public_dispatch(["update", "--local", "/tmp/release"]).unwrap(),
+            PublicDispatchRoute::Update(vec![
+                OsString::from("--local"),
+                OsString::from("/tmp/release")
+            ])
+        );
+        assert_eq!(
+            plan_public_dispatch(["update", "--help"]).unwrap(),
+            PublicDispatchRoute::Update(vec![OsString::from("--help")])
+        );
         assert_eq!(run_public_main([OsString::from("--sandbox=read-only")]), 2);
     }
 
@@ -8315,6 +8962,8 @@ exit 73
     const UPDATE_PROBE_SOURCE: &str = "CODEX_R2_UPDATE_SOURCE";
     #[cfg(unix)]
     const UPDATE_PROBE_REMOTE: &str = "CODEX_R2_UPDATE_REMOTE";
+    #[cfg(unix)]
+    const UPDATE_PROBE_CHANNEL: &str = "CODEX_R4_UPDATE_CHANNEL";
 
     #[cfg(unix)]
     fn b4_termux_openssl() -> std::path::PathBuf {
@@ -8382,6 +9031,28 @@ exit 73
         private_key: &std::path::Path,
     ) {
         b4_sign_release_manifest_to(generation_dir, openssl, private_key, "release.sig");
+    }
+
+    #[cfg(unix)]
+    fn b4_sign_update_index(
+        index_path: &std::path::Path,
+        signature_path: &std::path::Path,
+        openssl: &std::path::Path,
+        private_key: &std::path::Path,
+    ) {
+        let signed = std::process::Command::new(openssl)
+            .args(["pkeyutl", "-sign", "-rawin", "-inkey"])
+            .arg(private_key)
+            .arg("-in")
+            .arg(index_path)
+            .arg("-out")
+            .arg(signature_path)
+            .env_clear()
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .unwrap();
+        assert!(signed.success(), "sign test update index");
     }
 
     #[cfg(unix)]
@@ -10727,6 +11398,32 @@ esac
     }
 
     #[cfg(unix)]
+    fn b5_run_public_channel_update(
+        index_url: &str,
+        home: &std::path::Path,
+        prefix: &std::path::Path,
+        tmp: &std::path::Path,
+    ) -> std::process::Output {
+        std::process::Command::new(std::env::current_exe().unwrap())
+            .arg("tests::public_update_probe")
+            .arg("--exact")
+            .arg("--nocapture")
+            .env(UPDATE_PROBE_ROLE, "1")
+            .env(UPDATE_PROBE_CHANNEL, "1")
+            .env_remove(UPDATE_PROBE_SOURCE)
+            .env_remove(UPDATE_PROBE_REMOTE)
+            .env("CODEX_TERMUX_UPDATE_INDEX_URL", index_url)
+            .env("CODEX_TEST_REQUIRE_NO_ACQUISITION", "1")
+            .env("HOME", home)
+            .env("PREFIX", prefix)
+            .env("TMPDIR", tmp)
+            .env_remove("SSL_CERT_FILE")
+            .env_remove("SSL_CERT_DIR")
+            .output()
+            .unwrap()
+    }
+
+    #[cfg(unix)]
     fn b4_install_trusted_release_key(home: &std::path::Path, public_key: &std::path::Path) {
         let pinned = home.join(".local/lib/codex/core/release-public-key.pem");
         std::fs::create_dir_all(pinned.parent().unwrap()).unwrap();
@@ -11710,32 +12407,44 @@ esac
         if std::env::var(UPDATE_PROBE_ROLE).as_deref() != Ok("1") {
             return;
         }
-        let code = match (
-            std::env::var_os(UPDATE_PROBE_SOURCE),
-            std::env::var_os(UPDATE_PROBE_REMOTE),
-        ) {
-            (Some(source), None) => {
-                if std::env::var("CODEX_TEST_BOOTSTRAP_FIRST").as_deref() == Ok("1") {
-                    let home = std::path::PathBuf::from(std::env::var_os("HOME").unwrap());
-                    let prefix = std::path::PathBuf::from(std::env::var_os("PREFIX").unwrap());
-                    let state_paths =
-                        CoreStatePaths::new(&home.join(".local/share/codex/core")).unwrap();
-                    if read_pointer_state(&state_paths).unwrap().is_none() {
-                        let pinned = home.join(".local/lib/codex/core/release-public-key.pem");
-                        match b7_bootstrap_initial_release(
-                            std::path::Path::new(&source),
-                            &home,
-                            &prefix,
-                            &pinned,
-                        ) {
-                            Ok(state) => {
-                                println!("activated local generation {}", state.current);
-                                0
+        let code = if std::env::var(UPDATE_PROBE_CHANNEL).as_deref() == Ok("1") {
+            assert!(std::env::var_os(UPDATE_PROBE_SOURCE).is_none());
+            assert!(std::env::var_os(UPDATE_PROBE_REMOTE).is_none());
+            run_public_main([OsString::from("update")])
+        } else {
+            match (
+                std::env::var_os(UPDATE_PROBE_SOURCE),
+                std::env::var_os(UPDATE_PROBE_REMOTE),
+            ) {
+                (Some(source), None) => {
+                    if std::env::var("CODEX_TEST_BOOTSTRAP_FIRST").as_deref() == Ok("1") {
+                        let home = std::path::PathBuf::from(std::env::var_os("HOME").unwrap());
+                        let prefix = std::path::PathBuf::from(std::env::var_os("PREFIX").unwrap());
+                        let state_paths =
+                            CoreStatePaths::new(&home.join(".local/share/codex/core")).unwrap();
+                        if read_pointer_state(&state_paths).unwrap().is_none() {
+                            let pinned = home.join(".local/lib/codex/core/release-public-key.pem");
+                            match b7_bootstrap_initial_release(
+                                std::path::Path::new(&source),
+                                &home,
+                                &prefix,
+                                &pinned,
+                            ) {
+                                Ok(state) => {
+                                    println!("activated local generation {}", state.current);
+                                    0
+                                }
+                                Err(error) => {
+                                    eprintln!("codex update: {error}");
+                                    1
+                                }
                             }
-                            Err(error) => {
-                                eprintln!("codex update: {error}");
-                                1
-                            }
+                        } else {
+                            run_public_main([
+                                OsString::from("update"),
+                                OsString::from("--local"),
+                                source,
+                            ])
                         }
                     } else {
                         run_public_main([
@@ -11744,17 +12453,15 @@ esac
                             source,
                         ])
                     }
-                } else {
-                    run_public_main([OsString::from("update"), OsString::from("--local"), source])
                 }
+                (None, Some(remote)) => {
+                    run_public_main([OsString::from("update"), OsString::from("--remote"), remote])
+                }
+                (None, None) => {
+                    run_public_main([OsString::from("update"), OsString::from("--rollback")])
+                }
+                (Some(_), Some(_)) => panic!("update probe source is ambiguous"),
             }
-            (None, Some(remote)) => {
-                run_public_main([OsString::from("update"), OsString::from("--remote"), remote])
-            }
-            (None, None) => {
-                run_public_main([OsString::from("update"), OsString::from("--rollback")])
-            }
-            (Some(_), Some(_)) => panic!("update probe source is ambiguous"),
         };
         use std::io::Write;
         std::io::stdout().flush().unwrap();
@@ -13229,6 +13936,297 @@ exec "$cat_path" "$release_root/$relative"
         let mut permissions = std::fs::metadata(path).unwrap().permissions();
         permissions.set_mode(0o755);
         std::fs::set_permissions(path, permissions).unwrap();
+    }
+
+    #[cfg(unix)]
+    fn b5_write_channel_curl(
+        path: &std::path::Path,
+        log: &std::path::Path,
+        index_url: &str,
+        index_path: &std::path::Path,
+        signature_path: &std::path::Path,
+        base: &str,
+        release_root: &std::path::Path,
+    ) {
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::PermissionsExt;
+
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let shell = resolve_test_shell();
+        let shell = std::str::from_utf8(shell.as_bytes()).expect("test shell path must be UTF-8");
+        let prefix = std::path::PathBuf::from(std::env::var_os("PREFIX").unwrap());
+        let cat = prefix.join("bin/cat");
+        assert!(
+            cat.is_file(),
+            "Termux cat is required for channel transport"
+        );
+        let log = b5_shell_quote(log);
+        let signature_url = format!("{index_url}.sig");
+        let index_url = b5_shell_quote_text(index_url);
+        let signature_url = b5_shell_quote_text(&signature_url);
+        let index_path = b5_shell_quote(index_path);
+        let signature_path = b5_shell_quote(signature_path);
+        let base = b5_shell_quote_text(base);
+        let release_root = b5_shell_quote(release_root);
+        let cat = b5_shell_quote(&cat);
+        std::fs::write(
+            path,
+            format!(
+                r#"#!{shell}
+if [ "${{HOME+x}}" = x ] || [ "${{CURL_HOME+x}}" = x ] || [ "${{HTTP_PROXY+x}}" = x ] || [ "${{HTTPS_PROXY+x}}" = x ]; then
+  exit 97
+fi
+index_url={index_url}
+signature_url={signature_url}
+index_path={index_path}
+signature_path={signature_path}
+base={base}
+release_root={release_root}
+cat_path={cat}
+printf 'CALL\n' >> {log}
+url=
+while [ "$#" -gt 0 ]; do
+  printf '%s\n' "$1" >> {log}
+  if [ "$1" = "--url" ]; then
+    shift
+    [ "$#" -gt 0 ] || exit 98
+    printf '%s\n' "$1" >> {log}
+    url="$1"
+  fi
+  shift
+done
+case "$url" in
+  "$index_url") exec "$cat_path" "$index_path" ;;
+  "$signature_url") exec "$cat_path" "$signature_path" ;;
+  "$base"*) relative="${{url#"$base"}}" ;;
+  *) exit 99 ;;
+esac
+case "$relative" in
+  release.manifest|release.sig|release-authority.sig|generation.meta|runtime|manager|helpers/*|codex-code-mode-host|compat/*) ;;
+  *) exit 100 ;;
+esac
+exec "$cat_path" "$release_root/$relative"
+"#
+            ),
+        )
+        .unwrap();
+        let mut permissions = std::fs::metadata(path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(path, permissions).unwrap();
+    }
+
+    #[cfg(unix)]
+    struct B5ChannelFixture {
+        root: std::path::PathBuf,
+        home: std::path::PathBuf,
+        prefix: std::path::PathBuf,
+        tmp: std::path::PathBuf,
+        openssl: std::path::PathBuf,
+        private_key: std::path::PathBuf,
+        current_id: String,
+        base: String,
+        index_url: String,
+        index_path: std::path::PathBuf,
+        signature_path: std::path::PathBuf,
+        curl_log: std::path::PathBuf,
+    }
+
+    #[cfg(unix)]
+    fn b5_channel_fixture(label: &str, generation_id: &str) -> B5ChannelFixture {
+        let root = temp_root(label);
+        let openssl = b4_termux_openssl();
+        let (home, prefix, tmp) = b4_prepare_public_environment(&root, &openssl, true);
+        let private_key = root.join("keys/private.pem");
+        let public_key = root.join("keys/public.pem");
+        b4_generate_release_keypair(&openssl, &private_key, &public_key);
+        b4_install_trusted_release_key(&home, &public_key);
+
+        let source_roots = b4_source_roots(&root.join("release-server"), &openssl);
+        std::fs::create_dir_all(&source_roots.generation_root).unwrap();
+        let current_id = "channel-current".to_owned();
+        let current = b2_write_generation(&source_roots, &current_id, false, "unsupported");
+        b4_write_signed_release(&current, 1, &openssl, &private_key);
+        b7_seed_initial_release(
+            &current,
+            &home,
+            &prefix,
+            &home.join(".local/lib/codex/core/release-public-key.pem"),
+        );
+        std::fs::remove_file(home.join(".local/lib/codex/core/release-public-key.pem")).unwrap();
+
+        let release = b2_write_root_generation(&source_roots, generation_id, false, "supported");
+        b4_write_signed_release(&release, 2, &openssl, &private_key);
+        let base = format!("https://releases.example.invalid/codex/{generation_id}/");
+        let index_url = "https://updates.example.invalid/codex/update-index-v1".to_owned();
+        let index_path = root.join("update-index-v1");
+        let signature_path = root.join("update-index-v1.sig");
+        std::fs::write(
+            &index_path,
+            format!(
+                "codex-update-index-v1\nchannel\tstable\ngeneration_id\t{generation_id}\nrelease_base\t{base}\n"
+            ),
+        )
+        .unwrap();
+        b4_sign_update_index(&index_path, &signature_path, &openssl, &private_key);
+        let curl_log = root.join("curl-log");
+        b5_write_channel_curl(
+            &prefix.join("bin/curl"),
+            &curl_log,
+            &index_url,
+            &index_path,
+            &signature_path,
+            &base,
+            &release,
+        );
+        B5ChannelFixture {
+            root,
+            home,
+            prefix,
+            tmp,
+            openssl,
+            private_key,
+            current_id,
+            base,
+            index_url,
+            index_path,
+            signature_path,
+            curl_log,
+        }
+    }
+
+    #[cfg(unix)]
+    fn b5_assert_channel_rejected(fixture: &B5ChannelFixture, expected: &[u8]) {
+        let output = b5_run_public_channel_update(
+            &fixture.index_url,
+            &fixture.home,
+            &fixture.prefix,
+            &fixture.tmp,
+        );
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "stdout={:?} stderr={:?}",
+            output.stdout,
+            output.stderr
+        );
+        assert!(
+            output
+                .stderr
+                .windows(expected.len())
+                .any(|window| window == expected),
+            "stderr={:?}",
+            output.stderr
+        );
+        let state_paths =
+            CoreStatePaths::new(&fixture.home.join(".local/share/codex/core")).unwrap();
+        let state = read_pointer_state(&state_paths).unwrap().unwrap();
+        assert_eq!(state.current, fixture.current_id);
+        assert!(state.previous.is_none());
+        let generation_root = fixture.home.join(".local/lib/codex/core/generations");
+        let entries: Vec<_> = std::fs::read_dir(&generation_root)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(entries, vec![std::ffi::OsString::from(&fixture.current_id)]);
+        assert!(!fixture
+            .home
+            .join(".local/share/codex/core/.update-index")
+            .exists());
+        let state_root = fixture.home.join(".local/share/codex/core");
+        assert!(std::fs::read_dir(&state_root).unwrap().all(|entry| {
+            !entry
+                .unwrap()
+                .file_name()
+                .as_encoded_bytes()
+                .starts_with(b".update-index-")
+        }));
+        b5_assert_no_acquisition(&generation_root);
+        let calls = std::fs::read_to_string(&fixture.curl_log).unwrap();
+        assert!(calls.contains(&fixture.index_url));
+        assert!(calls.contains(&format!("{}.sig", fixture.index_url)));
+        assert!(!calls.contains("release.manifest"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_r4_bare_update_uses_only_signed_wrapper_channel() {
+        {
+            let fixture = b5_channel_fixture("r4-channel-happy", "channel-next");
+            let output = b5_run_public_channel_update(
+                &fixture.index_url,
+                &fixture.home,
+                &fixture.prefix,
+                &fixture.tmp,
+            );
+            assert_eq!(
+                output.status.code(),
+                Some(0),
+                "stdout={:?} stderr={:?}",
+                output.stdout,
+                output.stderr
+            );
+            assert!(output
+                .stdout
+                .windows(b"activated channel generation channel-next\n".len())
+                .any(|window| window == b"activated channel generation channel-next\n"));
+            assert!(output.stderr.is_empty(), "stderr={:?}", output.stderr);
+
+            let state_paths =
+                CoreStatePaths::new(&fixture.home.join(".local/share/codex/core")).unwrap();
+            let state = read_pointer_state(&state_paths).unwrap().unwrap();
+            let release_key = b4_public_key_from_private(&fixture.openssl, &fixture.private_key);
+            assert_eq!(state.current, "channel-next");
+            assert_eq!(state.previous.as_deref(), Some("channel-current"));
+            assert_eq!(state.update_key, release_key);
+            let generation_root = fixture.home.join(".local/lib/codex/core/generations");
+            b5_assert_no_acquisition(&generation_root);
+            let installed = generation_root.join("channel-next");
+            let loaded = load_local_generation(&installed).unwrap();
+            assert_eq!(loaded.generation_layout, GenerationLayout::RootCodeModeHost);
+            assert!(installed.join(CODE_MODE_HOST_FILE).is_file());
+            assert!(!fixture
+                .home
+                .join(".local/share/codex/core/.update-index")
+                .exists());
+            let state_root = fixture.home.join(".local/share/codex/core");
+            assert!(std::fs::read_dir(&state_root).unwrap().all(|entry| {
+                !entry
+                    .unwrap()
+                    .file_name()
+                    .as_encoded_bytes()
+                    .starts_with(b".update-index-")
+            }));
+            let calls = std::fs::read_to_string(&fixture.curl_log).unwrap();
+            assert!(calls.contains(&fixture.index_url));
+            assert!(calls.contains(&format!("{}.sig", fixture.index_url)));
+            assert!(calls.contains("release.manifest"));
+            assert!(!calls.contains("codex update"));
+            remove_temp_root(fixture.root);
+        }
+
+        {
+            let fixture = b5_channel_fixture("r4-channel-bad-signature", "channel-bad");
+            std::fs::write(&fixture.signature_path, b"not-a-signature").unwrap();
+            b5_assert_channel_rejected(&fixture, b"release signature verification failed");
+            remove_temp_root(fixture.root);
+        }
+
+        {
+            let fixture = b5_channel_fixture("r4-channel-malformed", "channel-malformed");
+            let malformed = format!(
+                "codex-update-index-v1\nchannel\tstable\ngeneration_id\tchannel-malformed\nrelease_base\t{}",
+                fixture.base
+            );
+            std::fs::write(&fixture.index_path, malformed).unwrap();
+            b4_sign_update_index(
+                &fixture.index_path,
+                &fixture.signature_path,
+                &fixture.openssl,
+                &fixture.private_key,
+            );
+            b5_assert_channel_rejected(&fixture, b"update index is missing its final newline");
+            remove_temp_root(fixture.root);
+        }
     }
 
     #[cfg(unix)]

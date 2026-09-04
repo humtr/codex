@@ -13,16 +13,19 @@ The rewrite has one public command, `codex`, and two internal layers:
 ## Current status
 
 The Rust Core implementation through M2 and the authorized local install/cutover
-are accepted in the `GOAL.md` acceptance ledger. The R3 alignment of upstream
-update/doctor behavior and code-mode companion placement is also accepted;
-`WORKBOARD.md` has no active implementation bundle.
+are accepted in the `GOAL.md` acceptance ledger. The R4 wrapper-owned update
+boundary, signed-channel admission, doctor presentation, and code-mode
+companion placement are also accepted; `WORKBOARD.md` has no active
+implementation bundle.
 
-The R3 Core launcher is now installed in the working Termux runtime through a
-bounded, digest-checked device cutover. The existing signed v1 generation
-remains active, so `codex doctor` reports its legacy `compat/` layout as
-`migration_required` until a newly signed v2 generation is delivered. Future
-signed release delivery or another promotion to `main` remains a separate
-acceptance gate.
+The R4 Core launcher is installed in the working Termux runtime through a
+bounded, digest-checked device cutover. Ordinary `codex update` is now owned by
+Core and can activate only a signed generation prepared by the wrapper release
+pipeline; it never delegates to the upstream self-updater. The existing signed
+v1 generation remains active, so `codex doctor` reports its legacy `compat/`
+layout as `migration_required` until a newly signed root-level companion
+generation is delivered. Publishing that signed channel or promoting R4 to
+`main` remains a separate acceptance gate.
 
 Implementation is intentionally split into two milestones:
 
