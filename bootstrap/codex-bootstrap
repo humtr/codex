@@ -147,6 +147,14 @@ done < "$descriptor"
 [ "${#core_digest}" -eq 64 ] || fail 'core_artifact_digest is not canonical'
 case $core_digest in *[!0-9a-f]*) fail 'core_artifact_digest is not canonical' ;; esac
 [ "$(sha256_hex "$core_snapshot")" = "$core_digest" ] || fail 'Core artifact does not match signed generation metadata'
+destination=$PREFIX/bin/codex
+validate_existing_entrypoint() {
+  if [ -e "$destination" ] || [ -L "$destination" ]; then
+    [ -f "$destination" ] && [ ! -L "$destination" ] || fail 'existing Codex entrypoint is not a regular file'
+    [ "$(sha256_hex "$destination")" = "$core_digest" ] || fail 'existing Codex entrypoint differs from authenticated Core artifact'
+  fi
+}
+validate_existing_entrypoint
 
 pin=$HOME/.local/lib/codex/core/release-public-key.pem
 pin_parent=${pin%/*}
@@ -173,10 +181,8 @@ unset CODEX_TERMUX_INTERNAL_BOOTSTRAP_SOURCE || :
 CODEX_TERMUX_INTERNAL_BOOTSTRAP=self-test "$core_snapshot" || fail 'authenticated Core self-test failed'
 
 mkdir -p "$PREFIX/bin"
-destination=$PREFIX/bin/codex
+validate_existing_entrypoint
 if [ -e "$destination" ] || [ -L "$destination" ]; then
-  [ -f "$destination" ] && [ ! -L "$destination" ] || fail 'existing Codex entrypoint is not a regular file'
-  [ "$(sha256_hex "$destination")" = "$core_digest" ] || fail 'existing Codex entrypoint differs from authenticated Core artifact'
   rm -f "$core_snapshot"
 else
   destination_tmp=$PREFIX/bin/.codex.bootstrap.$$

@@ -6900,6 +6900,103 @@ esac
 
     #[cfg(unix)]
     #[test]
+    fn test_m2_b11_slice2_bootstrap_rejects_legacy_entrypoint_without_persistent_state() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let Some(core) = b10_release_core_from_env() else {
+            return;
+        };
+        let root = temp_root("b11-slice2-legacy-entrypoint");
+        let openssl = b4_termux_openssl();
+        let private_key = root.join("keys/private.pem");
+        let public_key = root.join("keys/public.pem");
+        b4_generate_release_keypair(&openssl, &private_key, &public_key);
+        let (home, prefix, tmp) = b4_prepare_public_environment(&root, &openssl, true);
+        let legacy_entrypoint = prefix.join("bin/codex");
+        std::fs::write(&legacy_entrypoint, b"legacy-codex-entrypoint\n").unwrap();
+        let mut legacy_permissions = std::fs::metadata(&legacy_entrypoint).unwrap().permissions();
+        legacy_permissions.set_mode(0o755);
+        std::fs::set_permissions(&legacy_entrypoint, legacy_permissions).unwrap();
+        let legacy_bytes = std::fs::read(&legacy_entrypoint).unwrap();
+        let legacy_mode = std::fs::metadata(&legacy_entrypoint)
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o7777;
+        let network_log = b10_install_network_denial_sentinel(&prefix);
+        let generation = b10_build_signed_release(
+            &root,
+            &core,
+            "b11-legacy-g0",
+            1,
+            &openssl,
+            &private_key,
+            &public_key,
+        );
+
+        let bootstrap = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../bootstrap/codex-bootstrap");
+        let output = std::process::Command::new(&bootstrap)
+            .args([
+                core.as_os_str(),
+                generation.as_os_str(),
+                public_key.as_os_str(),
+            ])
+            .env("HOME", &home)
+            .env("PREFIX", &prefix)
+            .env("TMPDIR", &tmp)
+            .env_remove(INTERNAL_BOOTSTRAP_MODE_ENV)
+            .env_remove(INTERNAL_BOOTSTRAP_SOURCE_ENV)
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "stdout={:?} stderr={:?}",
+            output.stdout,
+            output.stderr
+        );
+        assert!(output
+            .stderr
+            .windows(b"existing Codex entrypoint differs from authenticated Core artifact".len())
+            .any(|window| {
+                window == b"existing Codex entrypoint differs from authenticated Core artifact"
+            }));
+        assert_eq!(std::fs::read(&legacy_entrypoint).unwrap(), legacy_bytes);
+        assert_eq!(
+            std::fs::metadata(&legacy_entrypoint)
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o7777,
+            legacy_mode
+        );
+        assert!(!network_log.exists());
+        assert!(!home
+            .join(".local/lib/codex/core/release-public-key.pem")
+            .exists());
+        assert!(!home
+            .join(".local/share/codex/core/activation-state")
+            .exists());
+        assert!(std::fs::read_dir(prefix.join("bin")).unwrap().all(|entry| {
+            !entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".codex.bootstrap.")
+        }));
+        assert!(std::fs::read_dir(&tmp).unwrap().all(|entry| {
+            !entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".codex-bootstrap.")
+        }));
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn test_m2_b10_slice2_offline_local_update_and_rollback_use_signed_generations_only() {
         let Some(core) = b10_release_core_from_env() else {
             return;

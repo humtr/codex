@@ -101,7 +101,7 @@ remain usable without touching the current live installation.
 | --- | --- | --- | --- |
 | 0 | Assemble the release-qualified Core, bootstrap, signed local manifest, and disposable environment inputs with network disabled where required. | Release-builder plus existing B10 artifact/signature checks; release-built Core sandbox fail-closed proof; record nonzero tests and exact digests. | complete |
 | 1 | A fresh supported Termux root installs the prebuilt Core and can launch, report version, run doctor, and use the accepted local update/recovery path offline. | Fresh-root end-to-end qualification using only release inputs; inspect installed paths and state. | complete (isolated root) |
-| 2 | A separately provisioned legacy root upgrades through the supported boundary while preserving required user state and exposing the accepted Core path. | Legacy-upgrade end-to-end qualification; compare only observable behavior and protected-state identities. | selected |
+| 2 | A separately provisioned legacy root upgrades through the supported boundary while preserving required user state and exposing the accepted Core path. | Legacy-upgrade end-to-end qualification; compare only observable behavior and protected-state identities. | in progress (safe refusal complete; upgrade pending) |
 | 3 | Failure injection, rollback, cleanup, and repeatability remain valid in both disposable roots, with no residue or live-state mutation. | B10 recovery regressions plus environment-specific checks and repeated bounded runs. | pending |
 | 4 | The bundle is ready for the Milestone 2 independent product review. | Grouped locked suite, release build, formatting, shell syntax, diff review, protected-surface verification, and authority closure. | pending |
 
@@ -143,10 +143,35 @@ remain usable without touching the current live installation.
   existing authoritative v3 state and an existing differing
   `PREFIX/bin/codex`, so it cannot be treated as an upgrade protocol.
 - The sealed legacy branch is historical evidence only; no legacy source or
-  internal model was copied. No production or SPEC mutation is justified by
-  this preflight.
+  internal model was copied. The preflight exposed a concrete
+  failure-atomicity gap in fresh bootstrap; only the shared entrypoint
+  precheck and its focused regression were added, and no legacy upgrade
+  protocol was invented.
 - Slice 2 remains pending an explicitly provisioned disposable legacy
   environment and a specified supported upgrade boundary.
+
+#### Slice 2 safe-boundary evidence
+
+- The focused proof
+  `tests::test_m2_b11_slice2_bootstrap_rejects_legacy_entrypoint_without_persistent_state`
+  ran against the release-qualified Core with `-D warnings` and completed
+  `1 passed, 0 failed`.
+- The affected `bootstrap` focused group completed `8 passed, 0 failed`; it
+  covered the B7/B8 bootstrap paths, the fresh Slice 1 path, and this
+  legacy-entrypoint refusal path.
+- Bootstrap now validates an existing entrypoint before publishing the
+  bootstrap trust seed, then rechecks the same invariant before publication
+  to cover the no-coordination race without adding an upgrade protocol.
+- The legacy entrypoint bytes and mode remained unchanged; no network sentinel,
+  trust seed, v3 activation state, or temporary bootstrap residue remained.
+- Current Slice 2 source SHA-256 is
+  `e0578a76aa41d8d22c205f76adbbbec0eebb5018dbe9c0387fcc5d55f68d985e`;
+  bootstrap is
+  `9924e12cd97dcabc4f9fe59b24a48ae4b2efb399d71a825c54161bf474470586`;
+  the release Core remains
+  `12bd6c525026d74df8f9784444cebfee45d33f3f00af5512b59168f38a9c8d01`;
+  and the release-builder artifact remains
+  `d1db9e39f5b90dbf8f71e33b7f1a2fb80f6bd7399123278301328c77abeeb5ec`.
 
 #### Environment and safety boundary
 
