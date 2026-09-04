@@ -140,6 +140,13 @@ are enforced. Ordinary supported launch uses the explicitly selected upstream
 no-sandbox policy; unsupported sandbox requests fail clearly rather than
 silently weakening the request.
 
+Core never invokes, installs, downloads, or repairs `bwrap`. An explicit Linux
+sandbox-policy rejection is a Core usage/policy failure with process status 2
+and must occur before resolver/configuration descriptor setup, upstream
+execution, generation construction, bootstrap publication, or activation-state
+mutation. A failure of a development runner's own sandbox is infrastructure
+evidence only and is not a product-path result.
+
 ## 6. Artifact and patch qualification
 
 The sole upstream input for the first supported target is the exact versioned
@@ -325,6 +332,93 @@ itself before it exists. The bootstrap may only detect the environment,
 retrieve or accept a local immutable release, verify it, stage Core, run a
 self-test, and activate the initial generation.
 
+The bootstrap command surface has exactly two local-only forms:
+
+```text
+codex-bootstrap <CORE_ARTIFACT> <SIGNED_RELEASE_DIR> <BOOTSTRAP_PUBLIC_KEY>
+codex-bootstrap upgrade-legacy <CORE_ARTIFACT> <SIGNED_RELEASE_DIR> <BOOTSTRAP_PUBLIC_KEY> <EXPECTED_LEGACY_ENTRYPOINT_SHA256>
+```
+
+The first form is fresh bootstrap and never replaces a differing existing
+`$PREFIX/bin/codex`. The second form is the sole supported legacy handoff. It is
+not a `codex update` mode, Manager operation, package-manager action, or legacy
+state migration. `EXPECTED_LEGACY_ENTRYPOINT_SHA256` is exactly 64 lowercase
+hexadecimal digits. It identifies the one entrypoint the user has explicitly
+authorized bootstrap to replace; it is not release authority, is not persisted,
+and does not alter `codex-release-v3`. Candidate trust continues to come only
+from the bootstrap public key and the exact signed release.
+
+Bootstrap classifies the target after resolving any recoverable activation
+transaction:
+
+- a **fresh target** has no authoritative v3 state or transaction residue and
+  has no `$PREFIX/bin/codex`;
+- a **same-Core bootstrap retry** has no authoritative v3 state or transaction
+  residue and has one regular non-symlink entrypoint whose digest equals the
+  authenticated Core artifact digest;
+- a **legacy handoff target** has no authoritative v3 state or transaction
+  residue and has one regular non-symlink entrypoint whose digest equals the
+  explicit expected legacy digest and differs from the authenticated Core
+  artifact digest;
+- a **prepared legacy handoff** has that same legacy entrypoint and one complete
+  recovered initial v3 state whose `update_key` and `current_key` equal the
+  candidate release key, whose `current` equals the candidate generation, and
+  whose `previous` pair is absent, and whose installed current generation
+  verifies with `current_key`; and
+- a **completed legacy handoff retry** has that exact initial state and an
+  entrypoint whose digest equals the authenticated Core artifact digest.
+
+On a prepared or completed handoff retry, the recovered v3 keys and the signed
+installed generation are the authority. The supplied bootstrap key and release
+must match that state exactly, but bootstrap must not use them to reinitialize,
+reconstruct, replace, or weaken the authoritative state.
+
+Any symlink or non-regular entrypoint, digest mismatch, incompatible bootstrap
+key, other v3 state, mismatched prepared generation/key, retained previous pair,
+or other transaction residue is a conflicting target and fails without
+changing it. Bootstrap must not classify every non-Core file as legacy, scan for
+another launcher, execute the legacy entrypoint, infer a legacy version from its
+output, or inspect/import a legacy internal schema. It may inspect only the
+entrypoint type, mode, and bytes needed to bind the explicit digest.
+
+Legacy handoff is activation-first and entrypoint-last. Before modifying Core
+state or the public entrypoint, bootstrap snapshots and verifies the same Core,
+key, manifest, signature, descriptor, and Core-artifact binding required for
+fresh bootstrap and completes the authenticated Core self-test. It then uses the
+existing initial v3 admission, complete-generation staging, candidate probes,
+installed-generation verification, and activation transaction to establish the
+candidate as `current` with no `previous` pair. Only after that complete state is
+recoverable may bootstrap create a same-directory private Core entrypoint
+temporary, set and verify mode `0755` and the authenticated Core digest,
+revalidate the legacy entrypoint against the explicit expected digest, atomically
+replace `$PREFIX/bin/codex`, and durably synchronize its parent directory. That
+completed parent-directory durability boundary is the handoff commit.
+
+If interruption or failure occurs before the entrypoint commit, the legacy
+entrypoint remains the public executable. A complete prepared initial Core state
+may remain and is resumable only with the same authenticated release, bootstrap
+key, Core artifact, and expected legacy digest. If interruption occurs after the
+entrypoint commit, the new Core sees the already complete initial v3 state. A
+completed handoff retry is idempotent. This ordering is the recovery invariant;
+legacy handoff adds no second journal, backup launcher, trust source, generation
+type, fallback path, or persistent-schema field.
+
+Successful legacy handoff is one-way. It does not retain or automatically run
+the old entrypoint, and ordinary launch never falls back to it. The initial v3
+state has no `previous` pair, so `codex update --rollback` fails clearly until a
+later successful Core update establishes one previous Core generation. Rollback
+then remains exclusively a swap between signed Core generations and never
+restores legacy code.
+
+Legacy handoff may create or change only the stable Core entrypoint and the Core
+roots declared in Section 7, plus private temporary files needed for that
+operation. It must leave the resolver, auth, profile, session, Manager, package,
+and all other non-Core state untouched. Except for the explicitly replaced
+entrypoint, legacy-owned user/state files remain in place and are neither read as
+migration input nor copied into Core state. Qualification compares protected-
+state identities before and after the handoff rather than adopting a legacy
+schema.
+
 Normal installation and update must not require on-device compilation.
 
 `codex update` must:
@@ -387,16 +481,17 @@ without changing authoritative state; rollback never scans generations,
 searches keys, restores a rotated-away key to forward authority, or constructs a
 fallback ladder.
 
-Fresh bootstrap owns the only permitted use of
-`~/.local/lib/codex/core/release-public-key.pem`. Before any v3 activation state
-exists, bootstrap may verify one initial v3 release only when the manifest
-`release_public_key` exactly equals that pinned key and `release.sig` verifies
-with it; successful initial activation initializes `update_key`, `current_key`,
-and `current` from that release with no previous pair. Once v3 state has been
-established, Core update and recovery never treat the bootstrap key file as a
-fallback or reconstruction source. Absence or corruption of authoritative trust
-state after initialization fails closed rather than re-authorizing an old
-bootstrap key. Bootstrap implementation remains a later Milestone 2 bundle.
+Initial bootstrap, whether fresh or an explicit legacy handoff, owns the only
+permitted use of `~/.local/lib/codex/core/release-public-key.pem`. Before any v3
+activation state exists, bootstrap may verify one initial v3 release only when
+the manifest `release_public_key` exactly equals that pinned key and
+`release.sig` verifies with it; successful initial activation initializes
+`update_key`, `current_key`, and `current` from that release with no previous
+pair. Once v3 state has been established, Core update and recovery never treat
+the bootstrap key file as a fallback or reconstruction source. Absence or
+corruption of authoritative trust state after initialization fails closed rather
+than re-authorizing an old bootstrap key. The two bootstrap forms share this one
+initial trust rule and create no second bootstrap or update authority.
 
 Automatic update checks must be bounded and fail open when a verified runtime
 already exists. Ordinary `codex` launch must not depend on network success,
@@ -520,7 +615,7 @@ working Codex runtime.
 Deliver:
 
 - prebuilt Android/Termux Core release artifacts;
-- minimal fresh-install bootstrap;
+- minimal fresh-install and explicit legacy-handoff bootstrap;
 - signed immutable release manifests and key-rotation policy;
 - official upstream artifact acquisition and safe adaptation;
 - atomic update, activation, recovery, and rollback;

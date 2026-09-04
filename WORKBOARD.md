@@ -9,6 +9,9 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 - Repository: `humtr/codex`.
 - Active branch: `rewrite/rust-core`.
 - Bound HEAD at B11 selection: `40d04dcb5a02687fc48a1897e36309c387edc91f`.
+- B11 legacy-contract definition resumed from clean
+  `7e1fe0c0699773511504dbaa99d62b25b0c7327f`; this authority change remains
+  documentation-only until its vertical implementation slices pass.
 - Remote `origin/rewrite/rust-core` remains at
   `253156c37a2bd22af8faae0bce03587999ffd136`; the local branch is ahead and
   no push is authorized.
@@ -26,9 +29,10 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 
 ## Product-speed policy
 
-- B11 is qualification-first. Do not add production behavior unless a
-  concrete fresh-environment or legacy-upgrade failure proves the accepted
-  contract incomplete.
+- B11 remains qualification-first. The concrete legacy gap is now the absence
+  of an explicit safe handoff from a non-v3 entrypoint to the accepted Core.
+  Production work is limited to the exact bootstrap boundary now defined in
+  `SPEC.md`.
 - Use a release-built, locked Core and signed local artifacts as the only
   product input. Build outputs stay in private temporary roots; no generated
   artifact is committed.
@@ -76,8 +80,10 @@ remain usable without touching the current live installation.
 #### Accepted input
 
 - Accepted B10 tip: `40d04dcb5a02687fc48a1897e36309c387edc91f`.
-- Accepted SPEC SHA-256:
+- Accepted B10 baseline SPEC SHA-256:
   `4ca9035c9c1a31c5afc3e9d4de978b304c96c687d03c0bee0aa446078fe11647`.
+- Current B11 legacy-handoff SPEC SHA-256:
+  `9ebe9a60a819c514beda09f7f70c86b7df4e375989c20be5752fc8cb6f132e4a`.
 - Current Core, release-builder, and bootstrap source identities are recorded
   in the B10 ledger in `GOAL.md`.
 - Use the B10 release Core artifact
@@ -121,8 +127,10 @@ remain usable without touching the current live installation.
 | --- | --- | --- | --- |
 | 0 | Assemble the release-qualified Core, bootstrap, signed local manifest, and disposable environment inputs with network disabled where required. | Release-builder plus existing B10 artifact/signature checks; release-built Core sandbox fail-closed proof; record nonzero tests and exact digests. | complete |
 | 1 | A fresh supported Termux root installs the prebuilt Core and can launch, report version, run doctor, and use the accepted local update/recovery path offline. | Fresh-root end-to-end qualification using only release inputs; inspect installed paths and state. | complete (isolated root) |
-| 2 | A separately provisioned legacy root upgrades through the supported boundary while preserving required user state and exposing the accepted Core path. | Legacy-upgrade end-to-end qualification; compare only observable behavior and protected-state identities. | in progress (safe refusal complete; upgrade pending) |
-| 3 | Failure injection, rollback, cleanup, and repeatability remain valid in both disposable roots, with no residue or live-state mutation. | B10 recovery regressions plus environment-specific checks and repeated bounded runs. | pending |
+| 2a | Exact `upgrade-legacy` grammar and target classification distinguish fresh, same-Core retry, legacy, prepared/completed handoff, and conflict without executing legacy code. | Bootstrap focused regressions for every classification and no-mutation refusal; retain the existing nonzero safe-refusal proof. | selected (SPEC defined; implementation pending) |
+| 2b | The authenticated release becomes one complete recoverable initial v3 state before any public entrypoint replacement, and exact prepared/completed retries are idempotent. | Focused initial-state, mismatched-state/key/generation, interruption, and same-input resume regressions. | pending |
+| 2c | The last atomic operation replaces only the explicitly digest-bound legacy entrypoint and exposes the accepted Core while protected state remains identical. | Disposable legacy-root end-to-end qualification with entrypoint digest/mode checks, version/doctor, and network denial. | pending |
+| 3 | Failure injection, first Core update/rollback, cleanup, and repeatability remain valid in both disposable roots, with no live-state mutation. | Existing B10 recovery regressions plus legacy pre/post-commit boundaries and repeated bounded runs. | pending |
 | 4 | The bundle is ready for the Milestone 2 independent product review. | Grouped locked suite, release build, formatting, shell syntax, diff review, protected-surface verification, and authority closure. | pending |
 
 #### Slice 1 closure evidence
@@ -154,21 +162,40 @@ remain usable without touching the current live installation.
   and SPEC is
   `4ca9035c9c1a31c5afc3e9d4de978b304c96c687d03c0bee0aa446078fe11647`.
 
+#### Slice 2 authority decision
+
+- On 2026-09-04 the user directed re-review and normative definition before
+  implementation. The selected contract is the exact local-only
+  `codex-bootstrap upgrade-legacy <CORE_ARTIFACT> <SIGNED_RELEASE_DIR>
+  <BOOTSTRAP_PUBLIC_KEY> <EXPECTED_LEGACY_ENTRYPOINT_SHA256>` boundary.
+- The expected legacy digest is an explicit replacement-target guard, not a
+  trust source or persisted field. Existing `codex-release-v3`, bootstrap-key
+  trust, and `codex-activation-state-v3` remain unchanged.
+- The handoff is activation-first and entrypoint-last. A complete exact initial
+  v3 state is prepared and recoverable before the legacy entrypoint is
+  atomically replaced and its parent directory synchronized.
+- The prepared state itself is the bounded resume fact. No second journal,
+  backup launcher, legacy generation, new release format, fallback, or Manager
+  authority is introduced.
+- The handoff is one-way: initial `previous` is absent, and later explicit
+  rollback remains only between signed Core generations.
+- This decision does not expand the bounded live-device authorization. Product
+  mutation and qualification remain limited to disposable roots.
+
 #### Slice 2 preflight
 
 - Read-only lookup found no second Termux app/prefix or disposable legacy root;
   only the protected live prefix is present.
-- SPEC defines fresh bootstrap and public update/rollback, but no
-  legacy-migration command or procedure. The bootstrap explicitly refuses
-  existing authoritative v3 state and an existing differing
-  `PREFIX/bin/codex`, so it cannot be treated as an upgrade protocol.
-- The sealed legacy branch is historical evidence only; no legacy source or
-  internal model was copied. The preflight exposed a concrete
-  failure-atomicity gap in fresh bootstrap; only the shared entrypoint
-  precheck and its focused regression were added, and no legacy upgrade
-  protocol was invented.
-- Slice 2 remains pending an explicitly provisioned disposable legacy
-  environment and a specified supported upgrade boundary.
+- The original preflight found that the prior SPEC defined fresh bootstrap and
+  public update/rollback but no legacy-handoff command. The then-current
+  bootstrap therefore correctly refused existing authoritative v3 state and a
+  differing `PREFIX/bin/codex`.
+- The sealed legacy branch remains historical evidence only; no legacy source or
+  internal model was copied. The preflight's concrete failure-atomicity gap was
+  closed by the shared entrypoint precheck and its focused regression.
+- The current SPEC now defines the supported handoff boundary. Slice 2 remains
+  pending its disposable-root implementation and vertical proof; no product
+  implementation is claimed by this authority-only change.
 
 #### Slice 2 safe-boundary evidence
 
@@ -209,7 +236,7 @@ remain usable without touching the current live installation.
 
 #### B11 completion record
 
-Pending. No production mutation is selected before the fresh and legacy
-qualification results identify a concrete contract gap. On completion, move
-accepted evidence and KEEP/COLLAPSE/DELETE disposition to `GOAL.md`, replace
-this item with the next milestone action, and commit the closed bundle.
+Pending. The current SPEC selects the bounded legacy-handoff contract, but no
+product code implements it yet. Complete Slices 2a through 4 vertically, then
+move accepted evidence and KEEP/COLLAPSE/DELETE disposition to `GOAL.md`,
+replace this item with the next milestone action, and commit the closed bundle.
