@@ -1119,6 +1119,59 @@ Termux qualification. Produce one candidate for independent product review.
   or second publication path. Independent product review remains the next
   gate; worker mode remains OFF.
 
+- M2-R1 independent-review remediation — bootstrap authority/residue,
+  generation-root confinement, and bounded control/artifact I/O — is accepted
+  at implementation commit
+  `33b4bf3f6a4fcff7d2f7bbf67bb1d24b76b73d48`. Fresh bootstrap now passes the
+  bounded authenticated key/Core snapshots into Core activation, binds the
+  signed generation's `core_artifact_digest` to that Core, and preflights v3
+  transaction residue before trust-seed, entrypoint, generation, or activation
+  publication. Local/remote/installed generation paths reject symlink or
+  non-directory generation roots before reuse or publication. Descriptor and
+  manifest loads, bootstrap snapshots and Core/key copies, and release-builder
+  Core snapshots enforce their bounds before and during consumption.
+- Focused proof passed: Core `m2_r1_` group `11 passed, 0 failed`, the corrected
+  exact Core-binding regression `1 passed, 0 failed`, and release-builder B8
+  Core-artifact group `2 passed, 0 failed`. A prior unqualified exact filter
+  selected zero tests and was discarded as non-evidence; the namespaced exact
+  invocation selected the intended one test.
+- Final grouped acceptance passed the locked workspace serial suite with Core
+  `110 passed, 0 failed, 1 ignored` and release-builder `7 passed, 0 failed`.
+  Three independent default-parallel workspace repetitions passed the same
+  counts. The locked `-D warnings` release build, `cargo fmt --all -- --check`,
+  bootstrap shell syntax, and `git diff --check` passed. The explicit
+  real-Termux read-only smoke passed `1 passed, 0 failed`.
+- Final authority/source identities are SPEC
+  `dca2439c87567710e5a8fe7a219b16837b9454af0eb4b69d9db37a430f2be49e`, Core
+  `02944a17348dcb0b822135e53ce71600e7e2440568d5a1a2d42be7e69117a094`,
+  bootstrap
+  `4cda45ad448d110c224854724ab8229fc9aa431d27ea4c818ab574046b1005db`, and
+  release-builder
+  `957dc5f6d46b280f7a8d4e24e1f25d0bfb589a82fb8664fde9b047dbf393005f`.
+  The warnings-denied release artifacts used in the final build were Core
+  `6de619aa3a233e1a4354c625daaf9840cfdf7f21dd110468428945c1fff97f37` and
+  release-builder
+  `7742288c621af679ad8ccc2bf61a08fd73f6d8d154045fd2b280898d2b294f16`.
+- The three stale disposable roots observed after the parallel batch were
+  confirmed unused, moved to a recoverable quarantine, and placed in the
+  system trash; the corrected focused run produced no new root and the final
+  canonical residue scan is empty. Protected launcher SHA-256 remains
+  `0b0284155f2672263836029f760ba06a0cb284b7ca3a8e600ad399b43af36aff` and
+  live `resolv.conf` remains
+  `7e8ad76e0d200e93918ca2e93c99ff8ecd02071953bf1479819db3ac0dbb6d07`, with
+  device/stat identities unchanged. No live generation/trust, resolver,
+  launcher, Manager, auth/profile/session, package, push, or promotion state
+  changed.
+- Disposition: KEEP one signed v3 admission/state/recovery authority, one
+  direct stable-entrypoint path, and atomic no-replace generation publication;
+  COLLAPSE fresh bootstrap binding/residue checks and bounded-input handling
+  into those existing Core boundaries; DELETE no fallback, repair, lock, or
+  second publication path. Core still fails closed for explicit unsupported
+  Linux sandbox requests and never invokes or repairs bwrap. Current checkpoint:
+  M2 independent product review candidate; no independent reviewer, promotion
+  to `main`, push, live cutover, or bounded device qualification has been
+  performed. Worker mode remains OFF.
+
 ## Goal Lifts
 
 No lift is active. A proposed lift must identify a concrete product risk or

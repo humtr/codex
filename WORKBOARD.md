@@ -8,10 +8,11 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 
 - Repository: `humtr/codex`.
 - Active branch: `rewrite/rust-core`.
-- Bound M2-R1 implementation base: f4fa0b53518f49cd7077d2765bf68f713dc38fe0.
-- M2-R1 review follow-up is accepted at
-  `rewrite/rust-core@084531b42bbcd6235c32393a576a09265269974e` and its evidence
-  is recorded in `GOAL.md`.
+- Bound M2-R1 implementation base:
+  `rewrite/rust-core@33b4bf3f6a4fcff7d2f7bbf67bb1d24b76b73d48`.
+- M2-R1 review follow-up and its three-finding remediation are accepted at
+  the implementation commit above; detailed evidence and disposition are
+  recorded in `GOAL.md`.
 - Remote `origin/rewrite/rust-core` remains at
   `253156c37a2bd22af8faae0bce03587999ffd136`; the local branch is ahead and
   no push is authorized.
@@ -70,47 +71,30 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 
 ## Next action
 
-### M2-R1 independent-review remediation — three findings
+### M2 independent product review candidate
 
-- Bound base: `rewrite/rust-core@c9de9bf36ea36b96ffc75cc998a8d80cf71b9cf7`.
-  The current source tree is intentionally dirty only with this remediation;
-  no unrelated changes are in scope.
-- Slice 1 — fresh bootstrap authority and residue: the authenticated Core
-  activation path must receive the supplied key/Core snapshots, bind the signed
-  generation's `core_artifact_digest` to that Core, and resolve all v3
-  transaction residue before trust-seed or entrypoint publication. Production
-  paths are `bootstrap_self_test`, `run_internal_bootstrap_mode`, and
-  `bootstrap_initial_signed_local_release`. Focused regressions are
-  `test_m2_r1_fresh_bootstrap_preflights_transaction_residue_before_publication`
-  and `test_m2_r1_fresh_bootstrap_rechecks_core_binding_after_source_swap`.
-  State: implementation and focused proof green; actual diff review pending.
-- Slice 2 — generation-root confinement: local update, fresh bootstrap,
-  remote acquisition, installed verification, and ordinary loading must reject
-  a symlink/non-directory generation root before any root-dependent mutation or
-  existing-destination reuse. Production paths are the generation-root
-  callers of `ensure_real_directory_tree`/`ensure_real_directory`.
-  Focused regression is
-  `test_m2_r1_fresh_bootstrap_rejects_symlink_generation_root_with_existing_destination`;
-  the existing empty-root update regression remains required. State: pending
-  final slice review.
-- Slice 3 — bounded control/artifact reads: descriptor and manifest loads,
-  bootstrap snapshots, bootstrap Core/key publication copies, and release-builder
-  Core snapshots must enforce their normative byte limits before and during
-  reads/copies. Production paths are `load_local_generation`, local manifest
-  loading, `bootstrap/codex-bootstrap`, and `snapshot_core_artifact`.
-  Focused regressions are
-  `test_m2_r1_generation_descriptor_read_is_bounded_before_loading`,
-  `test_m2_r1_bootstrap_snapshots_enforce_input_bounds_before_publication`, and
-  the B8 Core-artifact rejection matrix. State: pending final slice review.
-- Final batch: rerun the grouped locked workspace suite, repeated parallel
-  suites, warnings-denied release build, formatting/diff checks, explicit
-  real-Termux read-only smoke, and protected-surface identity checks. Then
-  update `GOAL.md`, replace this bundle with the post-review gate, inspect the
-  staged tree, and commit. Do not promote to `main`, push, replace the live
-  launcher, mutate the live resolver, or invoke bounded device qualification.
-- Protected surfaces: live launcher, resolver, installed generation/trust
-  state, Manager, auth/profile/session data, package state, and publication
-  refs remain untouched.
+- M2-R1 independent-review remediation is accepted at
+  `rewrite/rust-core@33b4bf3f6a4fcff7d2f7bbf67bb1d24b76b73d48`.
+- Closed slices: fresh bootstrap now preflights recoverable/residual v3 state,
+  carries authenticated key/Core inputs into activation, and checks the signed
+  generation's Core digest; generation roots are rejected when symlinked or
+  non-directories; descriptor, manifest, bootstrap, and release-builder Core
+  reads/copies are bounded before and during consumption.
+- Focused proof: Core `m2_r1_` group `11/11`, corrected exact Core binding
+  regression `1/1`, and release-builder B8 Core-artifact group `2/2`.
+- Final grouped proof: locked workspace serial Core `110 passed, 0 failed,
+  1 ignored` and release-builder `7 passed, 0 failed`; three independent
+  default-parallel repetitions passed the same counts. Warnings-denied locked
+  release build, formatting, bootstrap shell syntax, and `git diff --check`
+  passed. Explicit real-Termux read-only smoke passed `1/1`.
+- Protected surfaces remain unchanged: live launcher and resolver identities
+  remain the recorded hashes, and no installed generation/trust state,
+  Manager, auth/profile/session data, package state, push, promotion, or live
+  cutover was touched. No canonical `codex-r2-*` or `codex-m2r1-*` residue
+  remains.
+- Review is read-only until findings are recorded. Do not promote to `main`,
+  push, replace the live launcher, mutate the live resolver, or invoke bounded
+  device qualification without explicit authorization.
 
 Worker mode remains OFF; the primary Lead owns every slice, validation step,
 authority update, and acceptance decision.
