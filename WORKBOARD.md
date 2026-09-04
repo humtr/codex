@@ -92,8 +92,28 @@ remain usable without touching the current live installation.
   explicit bwrap non-enforcement error before any generation or activation
   state was created. This validates the product fail-closed boundary; the
   separate Codex-runner bwrap sandbox error is not a product-path result.
-- The current device is observation-only for B11. Its live launcher and
-  `resolv.conf` identities must remain unchanged.
+- The current device remains protected from install, activation, update,
+  rollback, launcher replacement, and resolver mutation. On 2026-09-04 the
+  user authorized one bounded read-only legacy qualification smoke: invoke the
+  live launcher only with `--version`, then verify launcher/resolver identities.
+  No other live command or state path is in scope.
+
+#### Bounded device smoke evidence
+
+- With the user's explicit 2026-09-04 authorization, the protected live
+  legacy launcher was invoked only as `/data/data/com.termux/files/usr/bin/codex
+  --version`; it exited 0 and returned `codex-cli 0.150.1`.
+- Launcher SHA-256 remained
+  `0b0284155f2672263836029f760ba06a0cb284b7ca3a8e600ad399b43af36aff`;
+  its inode/mode/uid/gid/size/mtime remained
+  `1260183|755|10379|10379|7512|2026-08-28 01:28:18.815391370 +0900`.
+- Resolver SHA-256 remained
+  `7e8ad76e0d200e93918ca2e93c99ff8ecd02071953bf1479819db3ac0dbb6d07`;
+  its inode/mode/uid/gid/size/mtime remained
+  `94666|600|10379|10379|38|2026-08-28 01:04:03.530430900 +0900`.
+- No install, update, rollback, doctor, launcher replacement, resolver write,
+  or other live state path was exercised. This is device smoke evidence only;
+  it does not claim legacy-upgrade acceptance.
 
 #### Vertical proof map
 
