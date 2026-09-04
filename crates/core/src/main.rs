@@ -1317,40 +1317,48 @@ where
 }
 
 #[cfg(unix)]
-fn run_local_doctor_command<'selection, 'asset, I, S, R, C>(
+fn run_local_doctor_command<
+    'context,
+    'runtime_selection,
+    'runtime_asset,
+    'manager_selection,
+    'manager_asset,
+    I,
+    S,
+>(
     args: I,
-    capability: UpstreamDoctorCapability,
-    assets: QualifiedRuntimeAssets<'selection, 'asset>,
-    process_env: &TermuxProcessEnvSnapshot,
-    cert_file: &OsStr,
-    cert_dir: Option<&OsStr>,
-    resolver_path: R,
-    config_dir: C,
-    termux_core: CoreDoctorStatus,
-    manager: ManagerDoctorStatus,
+    context: LocalPublicDispatchContext<
+        'context,
+        'runtime_selection,
+        'runtime_asset,
+        'manager_selection,
+        'manager_asset,
+    >,
 ) -> Result<DoctorCommandOutcome, LocalDoctorCommandError>
 where
     I: IntoIterator<Item = S>,
     S: Into<OsString>,
-    R: AsRef<std::path::Path>,
-    C: AsRef<std::path::Path>,
 {
     let mode = doctor_output_mode(args)?;
-    let upstream = match capability {
+    let upstream = match context.doctor_capability {
         UpstreamDoctorCapability::Supported => match probe_qualified_upstream_doctor(
-            assets,
-            process_env,
-            cert_file,
-            cert_dir,
-            resolver_path,
-            config_dir,
+            context.runtime_assets,
+            context.process_env,
+            context.cert_file,
+            context.cert_dir,
+            context.resolver_path,
+            context.config_dir,
         ) {
             Ok(status) => status,
             Err(_) => UpstreamDoctorStatus::Unhealthy,
         },
         UpstreamDoctorCapability::Unsupported => UpstreamDoctorStatus::Unsupported,
     };
-    let report = compose_doctor_report(upstream, termux_core, manager);
+    let report = compose_doctor_report(
+        upstream,
+        context.core_doctor_status,
+        context.manager_doctor_status,
+    );
     let output = match mode {
         DoctorOutputMode::Human => render_doctor_human(&report),
         DoctorOutputMode::Json => render_doctor_json(&report),
@@ -1439,20 +1447,9 @@ fn execute_public_dispatch<
 ) -> Result<PublicDispatchCompletion, PublicDispatchExecutionError> {
     match route {
         PublicDispatchRoute::Update(args) => Ok(PublicDispatchCompletion::Update(args)),
-        PublicDispatchRoute::Doctor(args) => run_local_doctor_command(
-            args,
-            context.doctor_capability,
-            context.runtime_assets,
-            context.process_env,
-            context.cert_file,
-            context.cert_dir,
-            context.resolver_path,
-            context.config_dir,
-            context.core_doctor_status,
-            context.manager_doctor_status,
-        )
-        .map(PublicDispatchCompletion::Doctor)
-        .map_err(PublicDispatchExecutionError::Doctor),
+        PublicDispatchRoute::Doctor(args) => run_local_doctor_command(args, context)
+            .map(PublicDispatchCompletion::Doctor)
+            .map_err(PublicDispatchExecutionError::Doctor),
         PublicDispatchRoute::Termux(args) => execute_termux_manager(context.manager_artifact, args)
             .map(PublicDispatchCompletion::TermuxUnavailable)
             .map_err(PublicDispatchExecutionError::Manager),
@@ -1754,7 +1751,7 @@ mod m2_generation_state {
         if value.is_empty() {
             return Err(StateFormatError::EmptyIdentity(field));
         }
-        if value.as_bytes().len() > GENERATION_ID_MAX_BYTES {
+        if value.len() > GENERATION_ID_MAX_BYTES {
             return Err(StateFormatError::IdentityTooLong(field));
         }
         if value == "."
@@ -6259,34 +6256,6 @@ exit 73
     const PROBE_STDERR: &str = "CODEX_R2_PROBE_STDERR";
 
     #[cfg(unix)]
-    fn probe_context<'a>(
-        manifest: &'a GenerationManifest,
-        selection: &'a RuntimeAssetSelection<'a>,
-        manager_selection: Option<&'a ManagerArtifactSelection<'a>>,
-        snapshot: &'a TermuxProcessEnvSnapshot,
-        cert_file: &'a OsStr,
-        cert_dir: &'a OsStr,
-        resolver: &'a std::path::Path,
-        config: &'a std::path::Path,
-    ) -> LocalPublicDispatchContext<'a, 'a, 'a, 'a, 'a> {
-        let generation = qualify_generation_manifest(manifest, &requirements()).unwrap();
-        let assets = qualify_runtime_assets(generation, selection).unwrap();
-        let manager = qualify_manager_artifact(generation, manager_selection).unwrap();
-        LocalPublicDispatchContext {
-            runtime_assets: assets,
-            manager_artifact: manager,
-            process_env: snapshot,
-            cert_file,
-            cert_dir: Some(cert_dir),
-            resolver_path: resolver,
-            config_dir: config,
-            doctor_capability: UpstreamDoctorCapability::Supported,
-            core_doctor_status: CoreDoctorStatus::Healthy,
-            manager_doctor_status: ManagerDoctorStatus::Unavailable,
-        }
-    }
-
-    #[cfg(unix)]
     #[test]
     fn product_exec_probe() {
         use std::os::fd::AsRawFd;
@@ -6357,16 +6326,25 @@ exit 73
             other => panic!("unknown probe scenario {other}"),
         };
         let route = plan_public_dispatch(raw_args).unwrap();
-        let context = probe_context(
-            &manifest,
-            &selection,
+        let generation = qualify_generation_manifest(&manifest, &requirements()).unwrap();
+        let assets = qualify_runtime_assets(generation, &selection).unwrap();
+        let manager = qualify_manager_artifact(
+            generation,
             (scenario == "manager").then_some(&manager_selection),
-            &snapshot,
-            cert.as_os_str(),
-            cert_dir.as_os_str(),
-            &resolver,
-            &config,
-        );
+        )
+        .unwrap();
+        let context = LocalPublicDispatchContext {
+            runtime_assets: assets,
+            manager_artifact: manager,
+            process_env: &snapshot,
+            cert_file: cert.as_os_str(),
+            cert_dir: Some(cert_dir.as_os_str()),
+            resolver_path: &resolver,
+            config_dir: &config,
+            doctor_capability: UpstreamDoctorCapability::Supported,
+            core_doctor_status: CoreDoctorStatus::Healthy,
+            manager_doctor_status: ManagerDoctorStatus::Unavailable,
+        };
         match execute_public_dispatch(route, context) {
             Err(PublicDispatchExecutionError::Upstream(RuntimeLaunchError::Exec(err))) => {
                 panic!("upstream exec failed: {err}")
@@ -6629,18 +6607,23 @@ exit 73
             inherited_ssl_cert_file: None,
             inherited_ssl_cert_dir: None,
         };
+        let cert_file = root.join("cert.pem");
+        let cert_dir = root.join("certs");
         let before = std::fs::read(&resolver).unwrap();
         let outcome = run_local_doctor_command(
             [OsString::from("--json")],
-            UpstreamDoctorCapability::Supported,
-            assets,
-            &snapshot,
-            root.join("cert.pem").as_os_str(),
-            Some(root.join("certs").as_os_str()),
-            &resolver,
-            &config,
-            CoreDoctorStatus::Healthy,
-            ManagerDoctorStatus::Unavailable,
+            LocalPublicDispatchContext {
+                runtime_assets: assets,
+                manager_artifact: ManagerArtifact::Unavailable,
+                process_env: &snapshot,
+                cert_file: cert_file.as_os_str(),
+                cert_dir: Some(cert_dir.as_os_str()),
+                resolver_path: &resolver,
+                config_dir: &config,
+                doctor_capability: UpstreamDoctorCapability::Supported,
+                core_doctor_status: CoreDoctorStatus::Healthy,
+                manager_doctor_status: ManagerDoctorStatus::Unavailable,
+            },
         )
         .unwrap();
         assert_eq!(outcome.exit_class, DoctorExitClass::HealthFailure);
@@ -7256,15 +7239,13 @@ exit 73
             self.calls += 1;
             let current = self.calls;
             if current == self.fail_call && self.timing == M2R1GenerationFaultTiming::Before {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
+                return Err(std::io::Error::other(
                     "injected M2-R1 generation fault before durable call",
                 ));
             }
             action(&mut self.inner)?;
             if current == self.fail_call && self.timing == M2R1GenerationFaultTiming::After {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
+                return Err(std::io::Error::other(
                     "injected M2-R1 generation fault after durable call",
                 ));
             }

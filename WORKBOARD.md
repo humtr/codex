@@ -102,5 +102,13 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
   the live resolver, or invoke bounded device qualification without explicit
   authorization.
 
+- Review red gate resolved: `cargo clippy --locked --workspace --all-targets
+  -- -D warnings` exposed five existing warning-denied findings in the Core
+  production/test source (two `too_many_arguments`, one `needless_as_bytes`,
+  and two `io_other`). The existing dispatch context now owns the doctor
+  inputs, the one test helper is inline, and the remaining expressions use
+  the direct forms; the corrected gate passes without expanding product
+  behavior.
+
 Worker mode remains OFF; the primary Lead owns every slice, validation step,
 authority update, and acceptance decision.
