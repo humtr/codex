@@ -1,246 +1,127 @@
 # Rust Core Workboard
 
-This file owns only the current implementation target. Completed detail belongs
-in Git history and the `GOAL.md` acceptance ledger, not here.
+This file owns only the active implementation bundle. Accepted evidence and
+historical disposition belong in `GOAL.md`; normative behavior belongs in
+`SPEC.md`.
 
 ## Current routing
 
-- Repository: `humtr/codex`
-- Active branch: `rewrite/rust-core`
-- Normative owner: `SPEC.md`
-- Acceptance owner: `GOAL.md`
-- Current milestone state: Milestone 2 active; M2-B9 launch/update overlap and
-  injected-failure proof is accepted by the paired `GOAL.md` authority update at
-  product tip `377fed80710e131ef6558118afcb45031818b302`; M2-B10 is selected
-- Remote `origin/rewrite/rust-core` remains
-  `253156c37a2bd22af8faae0bce03587999ffd136`; no B7-B9 commit is published
-- Worker mode: user-controlled; current state OFF. Only an explicit user command
-  may change it
-- Additional agents/workers/reviewers: disabled while worker mode is OFF
-- Live product cutover/publication: not authorized
-- The inherited pre-commit hook still references absent
-  `tools/update-wrapper-version.sh`. Do not modify or bypass it speculatively;
-  when it alone rejects an already validated exact staged tree, record the
-  failure, revalidate that tree, and only then use the established `--no-verify`
-  closure
-- The normal B9 acceptance authority commit was rejected before commit by that
-  exact inherited hook failure. HEAD remained `377fed80710e131ef6558118afcb45031818b302`
-  and the staged GOAL/WORKBOARD tree remained
-  `fad5d112114d7fe74d909690d8f5a656f0ce092a`. The authority closure may use the
-  established `--no-verify` precedent only after this record is staged and the
-  exact two-path index, absence of unstaged/untracked paths, and absence of
-  `target/` are revalidated; the hook remains untouched
-- Execution discipline: follow `AGENTS.md` outcome-first closure rules; close one
-  vertical proof slice before beginning another independent contract, stop on
-  every red/nonzero-proof failure, and reserve grouped acceptance for the stable
-  bundle
+- Repository: `humtr/codex`.
+- Active branch: `rewrite/rust-core`.
+- Bound HEAD at B11 selection: `40d04dcb5a02687fc48a1897e36309c387edc91f`.
+- Remote `origin/rewrite/rust-core` remains at
+  `253156c37a2bd22af8faae0bce03587999ffd136`; the local branch is ahead and
+  no push is authorized.
+- Current milestone: M2 delivery/recovery is active; M2-B10 is accepted and
+  M2-B11 is the selected bundle.
+- The inherited pre-commit hook references absent
+  `tools/update-wrapper-version.sh`; do not modify it. If it alone rejects an
+  exact, revalidated staged tree, use the established `--no-verify` closure.
+- `legacy/monolith` remains sealed at
+  `bf30a7dc94d4dad7f58836c69028160856e63c58`.
+- `main` remains publication authority. No merge, promotion, push, or live
+  cutover is authorized by this bundle.
+- Worker mode is OFF. The primary Lead owns implementation, validation,
+  authority updates, commit, and acceptance.
 
 ## Product-speed policy
 
-- B10 is qualification-first. The accepted implementation already has exactly
-  the offline-capable product paths required by SPEC: fresh bootstrap for the
-  first v3 state, `codex update --local` for later signed local artifacts, the
-  existing v3 transaction recovery, and explicit `--rollback`.
-- Prove those paths with release-produced artifacts before adding production
-  behavior. A failing proof may justify a minimal repair inside the existing
-  contract; it does not justify a second installer/updater or a new recovery
-  state owner.
-- Offline means the selected flow must need no remote acquisition. Tests must
-  make network acquisition observably unavailable and fail if the product tries
-  to invoke curl or another network path. The already-present local OpenSSL
-  dependency remains permitted exactly as SPEC states.
-- Offline recovery does not mean reconstructing authoritative v3 state from the
-  bootstrap key after initialization. Corrupt or absent authoritative trust state
-  still fails closed. Recovery here is the existing activation-journal recovery
-  plus explicit last-known-good rollback using already installed/signed local
-  generations.
-- Do not add package-manager use, network fallback, release discovery, generation
-  scan, bootstrap-key fallback, alternate trust source, second state machine, or
-  fallback chain merely to satisfy qualification.
+- B11 is qualification-first. Do not add production behavior unless a
+  concrete fresh-environment or legacy-upgrade failure proves the accepted
+  contract incomplete.
+- Use a release-built, locked Core and signed local artifacts as the only
+  product input. Build outputs stay in private temporary roots; no generated
+  artifact is committed.
+- The bwrap resolution is an explicit product boundary: Core does not invoke
+  or repair bwrap on Termux. Ordinary launch uses the accepted no-sandbox
+  policy; explicit unsupported Linux sandbox requests fail closed with a clear
+  error; the official input archive may contain bwrap, but final generation
+  selection consumes and discards that resource.
+- Fresh-Termux and legacy-upgrade checks must target separate disposable
+  environments. The current installed launcher, resolver, Manager state,
+  auth/profile/session data, and package state are protected.
+- Do not copy legacy implementation or internal data models into the rewrite.
+  Inspect legacy behavior only through observable qualification outcomes.
+- Do not introduce another fallback, promotion wrapper, trust source, or
+  compatibility layer without first updating `SPEC.md` and mapping a focused
+  regression.
 
-## Mandatory bundle execution method
+## Mandatory execution gates
 
-- Fresh-bind branch, HEAD, dirty state, authority files, remote branch, and
-  protected live identities before product mutation and after every local commit.
-- Project registry revision 3 Rust profiles are canonical: `portable` is locked
-  workspace check, `portable-install` is locked workspace build, and
-  `portable-test` is the locked serial workspace suite. The separate tmcp
-  `project.validation.describe` package.json limitation is not product evidence.
-- All B10 install/update/recovery proof uses isolated HOME/PREFIX/TMPDIR roots.
-  Never bootstrap, activate, update, roll back, or recover the installed live
-  product during development or acceptance.
-- Prefer test-only fixtures and fault injection around the existing B8 bootstrap,
-  B4/B7 local update/rollback, and B1 state transaction boundaries. Test
-  instrumentation must not create a public command, persistent format, trust
-  source, or release path.
-- Use release-produced local artifacts, not ad-hoc incomplete generation
-  directories, for end-to-end qualification claims. Bind source/artifact hashes
-  in the acceptance evidence.
-- Update `SPEC.md` first only if a concrete failing proof requires a normative
-  behavior/security change. Any new security-property change, trust object, or
-  persistent state owner requires explicit user approval before that mutation.
-- Each slice closes with a named nonzero focused proof, relevant canonical
-  check/build, zero residue, and Lead diff inspection. A red gate freezes new
-  behavior until its local cause is repaired and rerun.
-- After all B10 proof slices are green, run full serial, three complete parallel
-  suites, explicit live read-only smoke, warning-free locked release, format /
-  bootstrap syntax / diff checks, zero residue, and protected identity comparison.
-  Then reduce evidence into `GOAL.md`, select the isolated fresh-Termux /
-  upgrade-from-legacy qualification bundle, and commit. Do not push or cut over
-  without separate authority.
+1. Rebind branch, HEAD, dirty state, authority revisions, and protected live
+   identities before every resume.
+2. Use the canonical project registry and revision-3 private project root for
+   all disposable qualification environments.
+3. Keep each slice vertical: production change if any, focused regression,
+   nonzero focused invocation, relevant compile/test success, and diff review.
+4. Stop on compilation failure, zero tests, stale expectations, unexpected
+   warnings/dead paths, or missing proof mapping.
+5. Close B11 only after grouped acceptance, release and formatting checks,
+   protected-surface verification, authority update, and commit.
+6. Reserve independent product review for the completed Milestone 2 acceptance
+   candidate.
 
 ## Selected next action
 
-### M2-B10 — offline local-artifact install/recovery qualification
+### M2-B11 — isolated fresh-Termux and upgrade-from-legacy qualification
 
-#### outcome
+#### Outcome
 
-Prove one complete no-network delivery and recovery story using the already
-accepted product paths and actual release-produced local artifacts: fresh offline
-bootstrap into an isolated root, later signed `codex update --local`, ordinary
-launch from the activated generation, recoverable v3 transaction cleanup, and
-explicit last-known-good rollback. No step may require remote acquisition or
-silently replace a failed local path with another authority source.
+Qualify the accepted prebuilt Rust Core and signed local artifacts on both a
+fresh supported Termux environment and a separately provisioned disposable
+legacy-upgrade environment. Demonstrate that installation, normal launch,
+version/doctor checks, update activation, failure recovery, and rollback
+remain usable without touching the current live installation.
 
-#### accepted input
+#### Accepted input
 
-- Accepted B9 product tip:
-  `377fed80710e131ef6558118afcb45031818b302`.
+- Accepted B10 tip: `40d04dcb5a02687fc48a1897e36309c387edc91f`.
 - Accepted SPEC SHA-256:
   `4ca9035c9c1a31c5afc3e9d4de978b304c96c687d03c0bee0aa446078fe11647`.
-- B9 Core source SHA-256:
-  `130f1097f9d31bdedf7a5212daf9dc3be6b5027e2481863708135411d00cb317`.
-- Existing B8 release production qualifies the prebuilt Core and produces the
-  signed-generation inputs used by bootstrap; B8 fresh bootstrap owns only first
-  v3-state establishment; B4/B7 own signed local update/rollback; B1 owns the
-  sole durable activation/recovery transaction.
-- SPEC requires offline local-artifact installation and recovery before release,
-  while explicitly requiring post-initialization authoritative state loss or
-  corruption to fail closed rather than re-authorize the bootstrap key.
-- B9 grouped acceptance passed canonical serial Core 85/0/1-ignored plus builder
-  7/0, three complete parallel suites at the same counts, explicit live read-only
-  smoke 1/1, warning-free locked release, format/syntax/diff checks, zero B9
-  residue, and exact protected launcher/resolver identity preservation.
-- Slice 0 fresh-bound clean authority HEAD `ca2331d...` and unchanged remote
-  `253156c...`; canonical project-registry `portable` locked workspace check was
-  green before and after the test-only fixture change. The exact product
-  entrypoints remain B8 fresh bootstrap, B4/B7 public local update/rollback, and
-  the sole B1 v3 recovery state machine. A test-only B10 fixture now reuses the
-  real B8 release-production pipeline: release-mode Core -> static probe runtime
-  -> official-shape local archive -> `codex-release-builder` -> signed v3 local
-  generation. A test-only isolated `PREFIX/bin/curl` sentinel logs any attempted
-  acquisition and exits 97; no production path or persistent/public contract was
-  changed. The first Slice 0 gate stopped only on rustfmt layout drift, then the
-  formatted exact change passed `cargo fmt --check` and `git diff --check`.
-  With an actual locked release Core, the named Slice 0 fixture proof passed 1/1
-  and left zero matching temp-root residue; the existing B8 release-production
-  to real-bootstrap integration also passed 1/1 with the same release Core.
-  Lead diff inspection found only test-module helpers/harness additions and no
-  production behavior mutation.
-- The normal Slice 0 commit was rejected before commit solely by the inherited
-  orphan-lineage hook because `tools/update-wrapper-version.sh` is absent. HEAD
-  remained `ca2331d...` and the exact staged Core/WORKBOARD tree remained
-  `f79b227cb3a78d06ef6e5e6b6f0cd3c1fc74f06a`. Slice 0 may use the established
-  `--no-verify` closure only after restaging this record, revalidating exactly
-  those two paths, confirming no unstaged/untracked path and no `target/`, and
-  leaving the shared hook untouched.
-- Slice 1 uses the same actual release-produced g0 fixture and runs the real
-  `bootstrap/codex-bootstrap` into isolated HOME/PREFIX/TMPDIR after replacing
-  isolated curl with the Slice 0 denial sentinel. The focused proof passed 1/1:
-  bootstrap exited zero, installed stable Core SHA matched the authenticated
-  release Core, authoritative v3 state contained current g0 with no previous and
-  one current/update key, the installed signed generation reverified, ordinary
-  `--version` launch succeeded, no bootstrap transaction residue remained, and
-  the network-attempt log stayed absent before and after launch. B10 Slice 0-1
-  then passed together 2/2 with zero B10 temp-root residue; format/diff checks
-  and canonical project-registry `portable` locked workspace check passed.
-  Lead diff inspection found exactly one additional test-only end-to-end test;
-  no production/bootstrap script behavior, persistent state, public surface,
-  trust contract, or SPEC changed.
-- The normal Slice 1 commit was rejected before commit solely by the same
-  inherited hook because `tools/update-wrapper-version.sh` is absent. HEAD stayed
-  `19402be...` and exact staged Core/WORKBOARD tree
-  `4fdfd45a426aae486a4a2c1a29546fd66a0a2028` was unchanged. Slice 1 may use
-  the established `--no-verify` closure only after restaging this record,
-  revalidating those two paths, confirming no unstaged/untracked path and no
-  `target/`, and leaving the hook untouched.
-- Slice 2 creates actual release-produced g0 sequence 1 and g1 sequence 2 with
-  the same trusted key, bootstraps g0 offline under the network-denial sentinel,
-  runs the installed Core's public `update --local` against g1, launches the new
-  current, then runs the installed Core's public `update --rollback` and launches
-  the retained g0. The focused end-to-end proof passed 1/1: forward state was
-  current g1 / previous g0 with unchanged update authority and exact signed g1
-  re-verification; rollback state was current g0 / previous g1 with the same
-  forward authority and exact signed g0 re-verification; release sequences were
-  1 then 2; all ordinary launches succeeded; no transaction residue remained;
-  and the network-attempt log stayed absent throughout bootstrap, local update,
-  both launches, and rollback. B10 Slice 0-2 passed together 3/3 with zero B10
-  temp-root residue; format/diff and canonical project-registry `portable`
-  locked workspace check passed. Lead diff inspection found exactly one new
-  test-only qualification; no production/bootstrap/recovery behavior, persistent
-  format, trust source, public contract, or SPEC changed.
-- The normal Slice 2 commit was rejected before commit solely by the same
-  inherited hook because `tools/update-wrapper-version.sh` is absent. HEAD stayed
-  `a8a9166...` and exact staged Core/WORKBOARD tree
-  `74a19d14c5224be0f4dd015eaad4c0f64b08959e` was unchanged. Slice 2 may use
-  the established `--no-verify` closure only after restaging this record,
-  revalidating those two paths, confirming no unstaged/untracked path and no
-  `target/`, and leaving the hook untouched.
-- Slice 3 reuses actual release-produced signed g0/g1 and creates two recoverable
-  rollback transactions after a normal offline bootstrap and public local update:
-  an injected after-call-3 failure leaves authoritative g1 plus durable journal,
-  while an injected after-call-6 failure leaves authoritative g0 plus durable
-  journal. Existing `recover_activation_state` resolves exactly to those complete
-  old/new states, the recovered current re-verifies through its state-bound key,
-  ordinary launch succeeds, and public `update --rollback` remains usable to the
-  other already-installed signed generation in both cases. The network sentinel
-  remains untouched and transaction residue is zero. The first post-format
-  focused run was manually cancelled after an unexpectedly long no-log interval
-  and is not counted as evidence; an immediate time-boxed rerun passed 1/1 in
-  5.77s test time with zero residue. B10 Slice 0-3 then passed together 4/4, B1
-  every-durable-boundary and partial/stale recovery each passed 1/1, format/diff
-  and canonical project-registry `portable` locked workspace check passed, and
-  Lead diff inspection found exactly one new test-only qualification. No
-  production recovery mechanism, bootstrap/update/rollback behavior, persistent
-  state, trust source, public contract, or SPEC changed.
-- The normal Slice 3 commit was rejected before commit solely by the same
-  inherited hook because `tools/update-wrapper-version.sh` is absent. HEAD stayed
-  `94d8bd1...` and exact staged Core/WORKBOARD tree
-  `9e4757f0f170baa54bcdd4af48c3bf1bce5eb5bd` was unchanged. Slice 3 may use
-  the established `--no-verify` closure only after restaging this record,
-  revalidating those two paths, confirming no unstaged/untracked path and no
-  `target/`, and leaving the hook untouched.
+- Current Core, release-builder, and bootstrap source identities are recorded
+  in the B10 ledger in `GOAL.md`.
+- Use the B10 release Core artifact
+  `12bd6c525026d74df8f9784444cebfee45d33f3f00af5512b59168f38a9c8d01` and
+  release-builder artifact
+  `d1db9e39f5b90dbf8f71e33b7f1a2fb80f6bd7399123278301328c77abe5ec` as the
+  release-qualified inputs, or regenerate them in a private temporary root
+  and record the new same-revision digests.
+- The B11 slice 0 product-boundary proof passed in a private temporary target:
+  the locked `-D warnings` release build succeeded, and the release Core
+  rejected both `--sandbox=read-only` and `sandbox linux` with status 2 and the
+  explicit bwrap non-enforcement error before any generation or activation
+  state was created. This validates the product fail-closed boundary; the
+  separate Codex-runner bwrap sandbox error is not a product-path result.
+- The current device is observation-only for B11. Its live launcher and
+  `resolv.conf` identities must remain unchanged.
 
-#### vertical proof map
+#### Vertical proof map
 
-| Slice | Exact outcome | Exit gate | State |
+| Slice | Observable outcome | Focused proof | State |
 | --- | --- | --- | --- |
-| 0 — offline authority and fixture boundary | Fresh-bind B9, trace the exact bootstrap/local-update/recovery/rollback entrypoints and establish a network-denial sentinel plus release-produced local fixture without product changes | canonical baseline green; exact no-network observables and one-path invariants recorded; no production mutation | complete: actual release Core + release-builder signed fixture, network-denial sentinel, focused 1/1, B8 integration 1/1, canonical check green, zero focused residue; test-only change only |
-| 1 — fresh offline install | Build/qualify an actual release Core and signed initial generation, then run real bootstrap in an isolated root while remote acquisition is unavailable | named end-to-end proof establishes stable Core + v3 state + complete current generation and launches it; network sentinel untouched | complete: focused 1/1, B10 2/2, installed Core/state/signed generation/launch exact, sentinel untouched, canonical check green, zero residue; test-only change only |
-| 2 — offline local update and rollback | From the offline-installed generation, activate a newer signed local artifact through public `update --local`, launch it, then use public explicit rollback to the retained signed previous generation | named proof passes current/previous/trust/sequence checks and both launches; no remote acquisition or bootstrap fallback | complete: actual g0 seq1/g1 seq2, public local update + both launches + public rollback, signed-state checks exact, sentinel untouched, focused 1/1, B10 3/3, canonical check green, zero residue; test-only change only |
-| 3 — offline transaction recovery | Starting from recoverable activation-journal states, prove the existing updater/recovery path resolves one complete old/new state offline and explicit rollback remains usable when a valid previous generation exists | named recovery matrix passes without a second recovery mechanism, state reconstruction, network path, or mixed generation | complete: durable old/new journal states, existing recovery exact, signed current verified, public rollback usable both ways, sentinel untouched, focused 1/1, B10 4/4, B1 recovery 2/2, canonical check green, zero residue; test-only change only |
-| 4 — grouped acceptance | Add no new behavior; run final bundle proof and synchronize authority | full serial + three complete parallel suites, explicit live read-only smoke, warning-free locked release, format/syntax/diff, zero residue, protected identities unchanged, GOAL update, commit | selected |
+| 0 | Assemble the release-qualified Core, bootstrap, signed local manifest, and disposable environment inputs with network disabled where required. | Release-builder plus existing B10 artifact/signature checks; release-built Core sandbox fail-closed proof; record nonzero tests and exact digests. | complete |
+| 1 | A fresh supported Termux root installs the prebuilt Core and can launch, report version, run doctor, and use the accepted local update/recovery path offline. | Fresh-root end-to-end qualification using only release inputs; inspect installed paths and state. | selected |
+| 2 | A separately provisioned legacy root upgrades through the supported boundary while preserving required user state and exposing the accepted Core path. | Legacy-upgrade end-to-end qualification; compare only observable behavior and protected-state identities. | pending |
+| 3 | Failure injection, rollback, cleanup, and repeatability remain valid in both disposable roots, with no residue or live-state mutation. | B10 recovery regressions plus environment-specific checks and repeated bounded runs. | pending |
+| 4 | The bundle is ready for the Milestone 2 independent product review. | Grouped locked suite, release build, formatting, shell syntax, diff review, protected-surface verification, and authority closure. | pending |
 
-#### protected surfaces
+#### Environment and safety boundary
 
-- `$PREFIX/bin/codex`, `$PREFIX/etc/resolv.conf`, installed live generations and
-  trust state, Manager state, auth/profile/session data, package state, and
-  publication refs remain read-only throughout B10 development and acceptance.
-- No private signing key may enter Core, repository product data, or persistent
-  device state. Test signing material remains ephemeral in isolated roots.
+- The qualification roots must be disposable and explicitly distinct from the
+  current Termux prefix. Do not mutate `/data/data/com.termux/files/usr/bin/codex`,
+  `/data/data/com.termux/files/usr/etc/resolv.conf`, installed generations,
+  trust/key state, Manager state, auth, profiles, sessions, or package state.
+- Do not install Rust, Cargo, Clang, or other build dependencies into a
+  qualification root. The device-side input is the prebuilt release output.
+- Network denial is part of the offline proof. Any network-dependent step must
+  be explicitly isolated and recorded; normal launch must not depend on it.
+- If an environment cannot be provisioned without touching protected live state,
+  stop the slice and report the external-environment requirement. Do not
+  weaken the contract or silently substitute a zero-test invocation.
 
-#### stop lines
+#### B11 completion record
 
-- no live installation, activation, recovery, rollback, device cutover, or
-  publication;
-- no remote acquisition in an offline proof and no package-manager invocation;
-- no bootstrap-key fallback after v3 initialization, state reconstruction from
-  bootstrap material, second installer/updater, second state owner, alternate
-  recovery protocol, release discovery, generation scan, or fallback ladder;
-- no weakening signed inventory, key rotation, anti-rollback, previous-generation
-  verification, or complete-old/new transaction invariants;
-- no normative security-contract expansion without fresh SPEC-first explicit
-  user approval;
-- no legacy source copying or translation;
-- no worker, planner, or reviewer unless the user explicitly turns worker mode
-  on.
+Pending. No production mutation is selected before the fresh and legacy
+qualification results identify a concrete contract gap. On completion, move
+accepted evidence and KEEP/COLLAPSE/DELETE disposition to `GOAL.md`, replace
+this item with the next milestone action, and commit the closed bundle.

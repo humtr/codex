@@ -1024,15 +1024,50 @@ Termux qualification. Produce one candidate for independent product review.
   by the known orphan-lineage hook referencing absent
   `tools/update-wrapper-version.sh`; each exact staged tree was revalidated and
   closed with the established `--no-verify` precedent without changing the hook.
-- Current checkpoint: M2-B10 — offline local-artifact install/recovery
-  qualification. Prove from release-produced local artifacts, in isolated roots
-  with network acquisition unavailable, that the existing fresh bootstrap,
-  `codex update --local`, v3 transaction recovery, and explicit rollback form one
-  complete offline delivery/recovery path. Do not invent state reconstruction
-  from the bootstrap key after v3 initialization, a second installer/updater, or
-  a fallback chain. Isolated fresh-Termux/upgrade-from-legacy qualification and
-  final independent product review remain later Milestone 2 gates. Worker mode
-  remains OFF.
+- M2-B10 — offline local-artifact install/recovery qualification — is accepted at
+  product tip `40d04dcb5a02687fc48a1897e36309c387edc91f` by this authority update.
+  The B10 commits add only test-owned release fixtures and end-to-end
+  regressions after the accepted B9 production behavior; no public command,
+  persistent format, trust source, recovery owner, or SPEC contract changed.
+- B10 is bound to the accepted SPEC SHA-256
+  `4ca9035c9c1a31c5afc3e9d4de978b304c96c687d03c0bee0aa446078fe11647`, current
+  Core source SHA-256
+  `6118d3d10c072b209906d532904574e30ad90b7f5d08777ff5cd8c31f7105f38`,
+  release-builder source SHA-256
+  `aaa8ac051bf634bdf8fda799ca194b228b11e61e41fd1837570f979daefb4c9b`,
+  bootstrap SHA-256
+  `c1b107699a64c08cc49a99ceb433c3dd1b6c7ca53637fb0b53cc73b6ce35e9fa`, and
+  the official upstream `0.150.1` archive SHA-256
+  `1ecac3f87823efb98153233b076ea3d6e34a7a8cebe43c5285dc5f79e1514639`.
+  The locked `-D warnings` release artifacts used for the final proof were Core
+  `12bd6c525026d74df8f9784444cebfee45d33f3f00af5512b59168f38a9c8d01` and
+  release-builder
+  `d1db9e39f5b90dbf8f71e33b7f1a2fb80f6bd7399123278301328c77abe5ec`.
+- B10 focused validation ran with `CODEX_B10_RELEASE_CORE` bound to that actual
+  locked release Core and passed all four slices 4/4: release fixture/network
+  denial, fresh offline bootstrap, signed local update plus explicit rollback,
+  and injected transaction recovery with rollback still usable. The grouped
+  locked serial workspace suite passed Core 89/0/1-ignored plus builder 7/0;
+  three complete default-parallel repetitions passed the same counts. The
+  explicit real-Termux read-only smoke passed 1/1, the locked `-D warnings`
+  release build passed, formatting, bootstrap shell syntax, and `git diff
+  --check` passed, and all B10/test-builder temporary roots plus repository
+  `target/` were absent afterward.
+- An environment-less invocation in which the B10 tests early-returned was
+  rejected as non-evidence. No B10 acceptance count uses that run; the counts
+  above came from the actual release-Core-bound focused and grouped commands.
+  Live launcher SHA-256 remained
+  `0b0284155f2672263836029f760ba06a0cb284b7ca3a8e600ad399b43af36aff` and live
+  `resolv.conf` remained
+  `7e8ad76e0d200e93918ca2e93c99ff8ecd02071953bf1479819db3ac0dbb6d07`, with no
+  live generation/trust state, resolver, launcher, Manager, auth/profile/session,
+  package, or publication state changed.
+- Current checkpoint: M2-B11 — isolated fresh-Termux and upgrade-from-legacy
+  qualification. B10 is closed; the next bundle must qualify the accepted
+  prebuilt Core and signed local artifacts on a fresh supported environment and
+  a disposable legacy-upgrade environment without mutating the current live
+  installation. Final independent product review remains the later Milestone 2
+  gate. Worker mode remains OFF.
 
 ## Goal Lifts
 
