@@ -13,6 +13,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 const ARCHIVE_MAX_BYTES: u64 = 256 * 1024 * 1024;
 const ENTRY_MAX_BYTES: u64 = 384 * 1024 * 1024;
 const PAYLOAD_MAX_BYTES: u64 = 512 * 1024 * 1024;
+const CORE_ARTIFACT_MAX_BYTES: u64 = 64 * 1024 * 1024;
 const PATH_MAX_BYTES: usize = 256;
 const LOGICAL_ENTRY_MAX: usize = 32;
 const PAX_PAYLOAD_MAX_BYTES: u64 = 512;
@@ -282,10 +283,21 @@ fn validate_request(request: &BuildRequest) -> Result<(), BuilderError> {
             "upstream archive exceeds its byte bound",
         ));
     }
-    ensure_executable(
+    let core = ensure_regular_file(
         &request.core,
+        "inspect Core artifact",
         "Core artifact is not an executable regular file",
     )?;
+    if core.permissions().mode() & 0o111 == 0 {
+        return Err(BuilderError::Invalid(
+            "Core artifact is not an executable regular file",
+        ));
+    }
+    if core.len() > CORE_ARTIFACT_MAX_BYTES {
+        return Err(BuilderError::Invalid(
+            "Core artifact exceeds its byte bound",
+        ));
+    }
     ensure_executable(&request.gzip, "gzip is not an executable regular file")?;
     ensure_executable(
         &request.openssl,
@@ -336,7 +348,7 @@ fn openssl_sha256(openssl: &Path, file: &Path) -> Result<String, BuilderError> {
 }
 
 fn snapshot_core_artifact(request: &BuildRequest, staging: &Path) -> Result<String, BuilderError> {
-    let mut source =
+    let source =
         File::open(&request.core).map_err(|source| io_error("open Core artifact", source))?;
     let metadata = source
         .metadata()
@@ -346,11 +358,22 @@ fn snapshot_core_artifact(request: &BuildRequest, staging: &Path) -> Result<Stri
             "opened Core artifact is not an executable regular file",
         ));
     }
+    if metadata.len() > CORE_ARTIFACT_MAX_BYTES {
+        return Err(BuilderError::Invalid(
+            "opened Core artifact exceeds its byte bound",
+        ));
+    }
 
     let snapshot_path = staging.join(".core-artifact");
     let mut snapshot = create_private_file(&snapshot_path)?;
-    io::copy(&mut source, &mut snapshot)
+    let mut bounded = source.take(CORE_ARTIFACT_MAX_BYTES.saturating_add(1));
+    let copied = io::copy(&mut bounded, &mut snapshot)
         .map_err(|source| io_error("snapshot Core artifact", source))?;
+    if copied > CORE_ARTIFACT_MAX_BYTES {
+        return Err(BuilderError::Invalid(
+            "Core artifact exceeds its byte bound",
+        ));
+    }
     snapshot
         .sync_all()
         .map_err(|source| io_error("sync Core artifact snapshot", source))?;
@@ -1934,6 +1957,7 @@ mod tests {
             "wrong-machine",
             "no-interp",
             "wrong-interp",
+            "oversized",
         ] {
             let fixture = fixture(case, happy_entries("0.150.1"), false);
             match case {
@@ -1961,6 +1985,13 @@ mod tests {
                     fake_core_elf(b"/lib/ld-linux-aarch64.so.1\0"),
                 )
                 .unwrap(),
+                "oversized" => {
+                    let core = OpenOptions::new()
+                        .write(true)
+                        .open(&fixture.request.core)
+                        .unwrap();
+                    core.set_len(CORE_ARTIFACT_MAX_BYTES + 1).unwrap();
+                }
                 _ => unreachable!(),
             }
             if case != "not-executable" {

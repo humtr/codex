@@ -2327,6 +2327,10 @@ const LOCAL_RELEASE_MAX_FILES: usize = 4096;
 #[cfg(unix)]
 const LOCAL_RELEASE_SIGNATURE_MAX_BYTES: u64 = 1024;
 #[cfg(unix)]
+const BOOTSTRAP_PUBLIC_KEY_MAX_BYTES: u64 = 16 * 1024;
+#[cfg(unix)]
+const CORE_ARTIFACT_MAX_BYTES: u64 = 64 * 1024 * 1024;
+#[cfg(unix)]
 const REMOTE_RELEASE_URL_MAX_BYTES: usize = 4096;
 #[cfg(unix)]
 const REMOTE_RELEASE_FILE_MAX_BYTES: u64 = 512 * 1024 * 1024;
@@ -3080,7 +3084,7 @@ fn ensure_openssl_available(openssl: &std::path::Path) -> Result<(), LocalProduc
 fn ensure_trusted_release_key(key: &std::path::Path) -> Result<(), LocalProductError> {
     let metadata = std::fs::symlink_metadata(key)
         .map_err(|_| LocalProductError::TrustedReleaseKeyUnavailable)?;
-    if !metadata.file_type().is_file() {
+    if !metadata.file_type().is_file() || metadata.len() > BOOTSTRAP_PUBLIC_KEY_MAX_BYTES {
         return Err(LocalProductError::TrustedReleaseKeyUnavailable);
     }
     Ok(())
@@ -3257,15 +3261,13 @@ fn load_local_generation(
     generation_dir: &std::path::Path,
 ) -> Result<LoadedLocalGeneration, LocalProductError> {
     let descriptor_path = generation_dir.join("generation.meta");
-    let bytes = std::fs::read(&descriptor_path).map_err(|source| LocalProductError::Io {
-        operation: "read activated generation descriptor",
-        source,
-    })?;
-    if bytes.len() > LOCAL_GENERATION_MAX_BYTES {
-        return Err(LocalProductError::Descriptor(
-            "generation descriptor is too large",
-        ));
-    }
+    let bytes = read_bounded_regular_file(
+        &descriptor_path,
+        LOCAL_GENERATION_MAX_BYTES,
+        "read activated generation descriptor",
+        LocalProductError::Descriptor("generation descriptor is too large"),
+        LocalProductError::UnsafeSource("generation descriptor must be a regular file"),
+    )?;
     if !bytes.ends_with(b"\n") {
         return Err(LocalProductError::Descriptor(
             "generation descriptor is missing its final newline",
@@ -3438,6 +3440,88 @@ fn ensure_real_directory(
 }
 
 #[cfg(unix)]
+fn ensure_real_directory_if_present(
+    path: &std::path::Path,
+    operation: &'static str,
+    message: &'static str,
+) -> Result<(), LocalProductError> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_dir() => Ok(()),
+        Ok(_) => Err(LocalProductError::UnsafeSource(message)),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(source) => Err(LocalProductError::Io { operation, source }),
+    }
+}
+
+#[cfg(unix)]
+fn ensure_real_directory_tree(
+    path: &std::path::Path,
+    operation: &'static str,
+    message: &'static str,
+) -> Result<(), LocalProductError> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_dir() => Ok(()),
+        Ok(_) => Err(LocalProductError::UnsafeSource(message)),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            let parent = path.parent().ok_or(LocalProductError::Io {
+                operation,
+                source: std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "directory path has no parent",
+                ),
+            })?;
+            if parent == path {
+                return Err(LocalProductError::Io {
+                    operation,
+                    source: std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "directory path cannot be created",
+                    ),
+                });
+            }
+            ensure_real_directory_tree(parent, operation, message)?;
+            match std::fs::create_dir(path) {
+                Ok(()) => {}
+                Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(source) => return Err(LocalProductError::Io { operation, source }),
+            }
+            ensure_real_directory(path, operation, message)
+        }
+        Err(source) => Err(LocalProductError::Io { operation, source }),
+    }
+}
+
+#[cfg(unix)]
+fn read_bounded_regular_file(
+    path: &std::path::Path,
+    maximum: usize,
+    operation: &'static str,
+    too_large: LocalProductError,
+    not_regular: LocalProductError,
+) -> Result<Vec<u8>, LocalProductError> {
+    use std::io::Read as _;
+
+    let metadata = std::fs::symlink_metadata(path)
+        .map_err(|source| LocalProductError::Io { operation, source })?;
+    if !metadata.file_type().is_file() {
+        return Err(not_regular);
+    }
+    if metadata.len() > maximum as u64 {
+        return Err(too_large);
+    }
+    let file =
+        std::fs::File::open(path).map_err(|source| LocalProductError::Io { operation, source })?;
+    let mut bytes = Vec::with_capacity(std::cmp::min(metadata.len() as usize, maximum));
+    file.take(maximum as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|source| LocalProductError::Io { operation, source })?;
+    if bytes.len() > maximum {
+        return Err(too_large);
+    }
+    Ok(bytes)
+}
+
+#[cfg(unix)]
 fn ensure_regular_file(
     path: &std::path::Path,
     operation: &'static str,
@@ -3447,6 +3531,55 @@ fn ensure_regular_file(
         .map_err(|source| LocalProductError::Io { operation, source })?;
     if !metadata.file_type().is_file() {
         return Err(LocalProductError::UnsafeSource(message));
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn inspect_authenticated_core_artifact(
+    path: &std::path::Path,
+) -> Result<std::fs::Metadata, LocalProductError> {
+    let metadata = std::fs::symlink_metadata(path).map_err(|source| LocalProductError::Io {
+        operation: "inspect authenticated Core artifact",
+        source,
+    })?;
+    if !metadata.file_type().is_file() {
+        return Err(LocalProductError::UnsafeSource(
+            "authenticated Core artifact must be a regular non-symlink file",
+        ));
+    }
+    if metadata.len() > CORE_ARTIFACT_MAX_BYTES {
+        return Err(LocalProductError::Bootstrap(
+            "authenticated Core artifact exceeds its byte bound",
+        ));
+    }
+    Ok(metadata)
+}
+
+#[cfg(unix)]
+fn authenticated_core_digest(
+    roots: &LocalCoreRoots,
+    path: &std::path::Path,
+) -> Result<String, LocalProductError> {
+    inspect_authenticated_core_artifact(path)?;
+    openssl_sha256(&roots.openssl, path)
+}
+
+#[cfg(unix)]
+fn copy_bounded_file_contents(
+    input: &mut std::fs::File,
+    output: &mut std::fs::File,
+    maximum: u64,
+    operation: &'static str,
+    too_large: &'static str,
+) -> Result<(), LocalProductError> {
+    use std::io::Read as _;
+
+    let mut bounded = input.take(maximum.saturating_add(1));
+    let copied = std::io::copy(&mut bounded, output)
+        .map_err(|source| LocalProductError::Io { operation, source })?;
+    if copied > maximum {
+        return Err(LocalProductError::Bootstrap(too_large));
     }
     Ok(())
 }
@@ -3594,22 +3727,13 @@ fn read_local_release_manifest(
         "release generation root must be a real directory",
     )?;
     let manifest_path = generation_dir.join("release.manifest");
-    let manifest_metadata =
-        std::fs::symlink_metadata(&manifest_path).map_err(|source| LocalProductError::Io {
-            operation: "inspect release manifest",
-            source,
-        })?;
-    if !manifest_metadata.file_type().is_file()
-        || manifest_metadata.len() as usize > LOCAL_RELEASE_MAX_BYTES
-    {
-        return Err(LocalProductError::Release(
-            "release manifest is not a bounded regular file",
-        ));
-    }
-    let bytes = std::fs::read(&manifest_path).map_err(|source| LocalProductError::Io {
-        operation: "read release manifest",
-        source,
-    })?;
+    let bytes = read_bounded_regular_file(
+        &manifest_path,
+        LOCAL_RELEASE_MAX_BYTES,
+        "read release manifest",
+        LocalProductError::Release("release manifest is not a bounded regular file"),
+        LocalProductError::Release("release manifest is not a bounded regular file"),
+    )?;
     Ok((manifest_path, parse_local_release_manifest(&bytes)?))
 }
 
@@ -3675,6 +3799,11 @@ fn verify_installed_local_release(
     verifier_key: ReleasePublicKey,
     mismatch: &'static str,
 ) -> Result<(LocalReleaseManifest, LoadedLocalGeneration), LocalProductError> {
+    ensure_real_directory(
+        &roots.generation_root,
+        "inspect immutable generation root",
+        "immutable generation root is not a real directory",
+    )?;
     ensure_openssl_available(&roots.openssl)?;
     let generation_dir = roots.generation_root.join(generation_id);
     let (manifest_path, manifest) = read_local_release_manifest(&generation_dir)?;
@@ -3986,6 +4115,11 @@ fn stage_local_generation_with_io<I: GenerationPublishIo>(
 fn load_activated_generation(
     roots: &LocalCoreRoots,
 ) -> Result<LoadedLocalGeneration, LocalProductError> {
+    ensure_real_directory(
+        &roots.generation_root,
+        "inspect immutable generation root",
+        "immutable generation root is not a real directory",
+    )?;
     let state_paths = m2_generation_state::CoreStatePaths::new(&roots.state_root)
         .map_err(LocalProductError::StateFormat)?;
     let state = m2_generation_state::read_pointer_state(&state_paths)
@@ -4154,6 +4288,11 @@ fn prepare_signed_local_release(
     let before = m2_generation_state::recover_activation_state(&state_paths)
         .map_err(LocalProductError::State)?
         .ok_or(LocalProductError::NoCurrentGeneration)?;
+    ensure_real_directory(
+        &roots.generation_root,
+        "inspect immutable generation root",
+        "immutable generation root is not a real directory",
+    )?;
     let (source_release, source_loaded) =
         verify_local_release_bundle_with_key(source_dir, &roots.openssl, before.update_key)?;
     let (current_release, _) = verify_installed_local_release(
@@ -4166,10 +4305,6 @@ fn prepare_signed_local_release(
         return Err(LocalProductError::ReleaseSequenceRollback);
     }
 
-    std::fs::create_dir_all(&roots.generation_root).map_err(|source| LocalProductError::Io {
-        operation: "create immutable generation root",
-        source,
-    })?;
     let destination = roots.generation_root.join(&source_loaded.generation_id);
     let (generation_id, staged_loaded) = if generation_path_exists(&destination)? {
         let (staged_release, staged_loaded) =
@@ -4483,17 +4618,13 @@ fn activate_signed_remote_release(
     let before = m2_generation_state::recover_activation_state(&state_paths)
         .map_err(LocalProductError::State)?
         .ok_or(LocalProductError::NoCurrentGeneration)?;
-    ensure_openssl_available(&roots.openssl)?;
-    ensure_curl_available(&roots.curl)?;
-    std::fs::create_dir_all(&roots.generation_root).map_err(|source| LocalProductError::Io {
-        operation: "create immutable generation root",
-        source,
-    })?;
     ensure_real_directory(
         &roots.generation_root,
         "inspect immutable generation root",
         "immutable generation root is not a real directory",
     )?;
+    ensure_openssl_available(&roots.openssl)?;
+    ensure_curl_available(&roots.curl)?;
     let sequence = REMOTE_ACQUISITION_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let acquisition_root = roots
         .generation_root
@@ -4635,10 +4766,13 @@ fn publish_bootstrap_trust_seed(
                 operation: "create bootstrap trust seed temporary",
                 source,
             })?;
-        std::io::copy(&mut input, &mut output).map_err(|source| LocalProductError::Io {
-            operation: "copy bootstrap public key",
-            source,
-        })?;
+        copy_bounded_file_contents(
+            &mut input,
+            &mut output,
+            BOOTSTRAP_PUBLIC_KEY_MAX_BYTES,
+            "copy bootstrap public key",
+            "bootstrap public key exceeds its byte bound",
+        )?;
         let mut permissions = output
             .metadata()
             .map_err(|source| LocalProductError::Io {
@@ -4690,7 +4824,7 @@ fn bootstrap_self_test(
 ) -> Result<(), LocalProductError> {
     let state_paths = m2_generation_state::CoreStatePaths::new(&roots.state_root)
         .map_err(LocalProductError::StateFormat)?;
-    if m2_generation_state::read_pointer_state(&state_paths)
+    if m2_generation_state::recover_activation_state(&state_paths)
         .map_err(LocalProductError::State)?
         .is_some()
     {
@@ -4698,6 +4832,11 @@ fn bootstrap_self_test(
             "fresh bootstrap requires absent authoritative v3 state",
         ));
     }
+    ensure_real_directory_if_present(
+        &roots.generation_root,
+        "inspect immutable generation root",
+        "immutable generation root is not a real directory",
+    )?;
     ensure_openssl_available(&roots.openssl)?;
     let _ = release_public_key_from_pem(&roots.openssl, bootstrap_public_key)?;
     Ok(())
@@ -4708,6 +4847,7 @@ fn bootstrap_initial_signed_local_release(
     source_dir: &std::path::Path,
     roots: &LocalCoreRoots,
     bootstrap_public_key: &std::path::Path,
+    core_artifact: &std::path::Path,
     process_env: &TermuxProcessEnvSnapshot,
 ) -> Result<String, LocalProductError> {
     let state_paths = m2_generation_state::CoreStatePaths::new(&roots.state_root)
@@ -4722,6 +4862,7 @@ fn bootstrap_initial_signed_local_release(
     }
 
     let bootstrap_key = release_public_key_from_pem(&roots.openssl, bootstrap_public_key)?;
+    let core_digest = authenticated_core_digest(roots, core_artifact)?;
     let (manifest, loaded) =
         verify_local_release_bundle_with_key(source_dir, &roots.openssl, bootstrap_key)?;
     if manifest.release_public_key != bootstrap_key {
@@ -4729,6 +4870,17 @@ fn bootstrap_initial_signed_local_release(
             "bootstrap release key does not match pinned key",
         ));
     }
+    if loaded.manifest.core_artifact_digest != core_digest {
+        return Err(LocalProductError::Bootstrap(
+            "bootstrap release does not match authenticated Core artifact",
+        ));
+    }
+
+    ensure_real_directory_tree(
+        &roots.generation_root,
+        "inspect immutable generation root",
+        "immutable generation root is not a real directory",
+    )?;
 
     std::fs::create_dir_all(&roots.config_dir).map_err(|source| LocalProductError::Io {
         operation: "create bootstrap config directory",
@@ -4743,10 +4895,6 @@ fn bootstrap_initial_signed_local_release(
     )
     .map_err(LocalProductError::StateFormat)?;
 
-    std::fs::create_dir_all(&roots.generation_root).map_err(|source| LocalProductError::Io {
-        operation: "create bootstrap generation root",
-        source,
-    })?;
     let destination = roots.generation_root.join(&loaded.generation_id);
     let mut published_new = false;
     let installed = if generation_path_exists(&destination)? {
@@ -4954,6 +5102,7 @@ fn bootstrap_handoff_prepare_state(
     source_dir: &std::path::Path,
     roots: &LocalCoreRoots,
     bootstrap_public_key: &std::path::Path,
+    core_artifact: &std::path::Path,
     core_digest: &str,
     process_env: &TermuxProcessEnvSnapshot,
 ) -> Result<m2_generation_state::GenerationPointerState, LocalProductError> {
@@ -4984,7 +5133,13 @@ fn bootstrap_handoff_prepare_state(
             "signed handoff release does not match authenticated Core artifact",
         ));
     }
-    bootstrap_initial_signed_local_release(source_dir, roots, bootstrap_public_key, process_env)?;
+    bootstrap_initial_signed_local_release(
+        source_dir,
+        roots,
+        bootstrap_public_key,
+        core_artifact,
+        process_env,
+    )?;
     let state = m2_generation_state::read_pointer_state(&state_paths)
         .map_err(LocalProductError::State)?
         .ok_or(LocalProductError::LegacyHandoff(
@@ -5004,11 +5159,7 @@ fn create_handoff_entrypoint_temp(
 ) -> Result<std::path::PathBuf, LocalProductError> {
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
-    ensure_regular_file(
-        core_artifact,
-        "inspect authenticated Core artifact",
-        "authenticated Core artifact must be a regular non-symlink file",
-    )?;
+    inspect_authenticated_core_artifact(core_artifact)?;
     let destination = stable_core_entrypoint_path(roots)?;
     let parent = destination
         .parent()
@@ -5040,10 +5191,13 @@ fn create_handoff_entrypoint_temp(
                 operation: "create private Core entrypoint temporary",
                 source,
             })?;
-        std::io::copy(&mut input, &mut output).map_err(|source| LocalProductError::Io {
-            operation: "copy authenticated Core artifact",
-            source,
-        })?;
+        copy_bounded_file_contents(
+            &mut input,
+            &mut output,
+            CORE_ARTIFACT_MAX_BYTES,
+            "copy authenticated Core artifact",
+            "authenticated Core artifact exceeds its byte bound",
+        )?;
         output.sync_all().map_err(|source| LocalProductError::Io {
             operation: "sync private Core entrypoint temporary",
             source,
@@ -5213,22 +5367,13 @@ fn publish_fresh_core_entrypoint(
 ) -> Result<(), LocalProductError> {
     use std::os::unix::fs::PermissionsExt;
 
-    ensure_regular_file(
-        core_artifact,
-        "inspect authenticated Core artifact",
-        "authenticated Core artifact must be a regular non-symlink file",
-    )?;
-    let core_metadata =
-        std::fs::symlink_metadata(core_artifact).map_err(|source| LocalProductError::Io {
-            operation: "inspect authenticated Core artifact",
-            source,
-        })?;
+    let core_metadata = inspect_authenticated_core_artifact(core_artifact)?;
     if core_metadata.permissions().mode() & 0o7777 != 0o755 {
         return Err(LocalProductError::Bootstrap(
             "authenticated Core artifact must have mode 0755",
         ));
     }
-    let core_digest = openssl_sha256(&roots.openssl, core_artifact)?;
+    let core_digest = authenticated_core_digest(roots, core_artifact)?;
     let destination = stable_core_entrypoint_path(roots)?;
     let parent = destination.parent().ok_or(LocalProductError::Bootstrap(
         "Core entrypoint has no parent directory",
@@ -5328,29 +5473,21 @@ fn bootstrap_legacy_handoff(
     process_env: &TermuxProcessEnvSnapshot,
 ) -> Result<String, LocalProductError> {
     ensure_openssl_available(&roots.openssl)?;
-    ensure_regular_file(
-        core_artifact,
-        "inspect authenticated Core artifact",
-        "authenticated Core artifact must be a regular non-symlink file",
-    )?;
-    let core_metadata =
-        std::fs::symlink_metadata(core_artifact).map_err(|source| LocalProductError::Io {
-            operation: "inspect authenticated Core artifact",
-            source,
-        })?;
+    let core_metadata = inspect_authenticated_core_artifact(core_artifact)?;
     use std::os::unix::fs::PermissionsExt;
     if core_metadata.permissions().mode() & 0o7777 != 0o755 {
         return Err(LocalProductError::LegacyHandoff(
             "authenticated Core artifact must have mode 0755",
         ));
     }
-    let core_digest = openssl_sha256(&roots.openssl, core_artifact)?;
+    let core_digest = authenticated_core_digest(roots, core_artifact)?;
     let _ = read_legacy_handoff_entrypoint(roots, expected_legacy_digest, &core_digest)?;
     bootstrap_handoff_self_test(roots, bootstrap_public_key)?;
     let state = bootstrap_handoff_prepare_state(
         source_dir,
         roots,
         bootstrap_public_key,
+        core_artifact,
         &core_digest,
         process_env,
     )?;
@@ -5376,7 +5513,9 @@ fn run_internal_bootstrap_mode() -> Option<i32> {
             return Some(1);
         }
     };
-    let supplied_key_mode = mode == OsStr::new("handoff-self-test")
+    let supplied_key_mode = mode == OsStr::new("self-test")
+        || mode == OsStr::new("activate")
+        || mode == OsStr::new("handoff-self-test")
         || mode == OsStr::new("handoff")
         || mode == OsStr::new("publish-bootstrap-pin");
     let bootstrap_public_key = match if supplied_key_mode {
@@ -5414,17 +5553,21 @@ fn run_internal_bootstrap_mode() -> Option<i32> {
             Err(err) => Err(err),
         }
     } else if mode == OsStr::new("activate") {
-        match required_absolute_env_path(INTERNAL_BOOTSTRAP_SOURCE_ENV) {
-            Ok(source) => {
+        match (
+            required_absolute_env_path(INTERNAL_BOOTSTRAP_SOURCE_ENV),
+            required_absolute_env_path(INTERNAL_BOOTSTRAP_CORE_ENV),
+        ) {
+            (Ok(source), Ok(core)) => {
                 let process_env = capture_termux_process_env();
                 bootstrap_initial_signed_local_release(
                     &source,
                     &roots,
                     &bootstrap_public_key,
+                    &core,
                     &process_env,
                 )
             }
-            Err(err) => Err(err),
+            (Err(err), _) | (_, Err(err)) => Err(err),
         }
     } else if mode == OsStr::new("handoff") {
         match (
@@ -9645,12 +9788,11 @@ esac
                 "bootstrap release key does not match pinned key",
             ));
         }
-        std::fs::create_dir_all(&roots.generation_root).map_err(|source| {
-            LocalProductError::Io {
-                operation: "create bootstrap generation root",
-                source,
-            }
-        })?;
+        ensure_real_directory_tree(
+            &roots.generation_root,
+            "inspect immutable generation root",
+            "immutable generation root is not a real directory",
+        )?;
         let generation_id = stage_local_generation(source_generation, &roots.generation_root)?;
         if generation_id != loaded.generation_id {
             return Err(LocalProductError::Descriptor(
@@ -9705,6 +9847,56 @@ esac
     fn b8_private_bootstrap_probe() {
         if std::env::var(B8_BOOTSTRAP_PROBE_ROLE).as_deref() != Ok("1") {
             return;
+        }
+        let code = run_internal_bootstrap_mode().unwrap_or(2);
+        use std::io::Write;
+        std::io::stdout().flush().unwrap();
+        std::io::stderr().flush().unwrap();
+        std::process::exit(code);
+    }
+
+    #[cfg(unix)]
+    const B8_BOOTSTRAP_SWAP_ROLE: &str = "CODEX_B8_BOOTSTRAP_SWAP_PROBE";
+    #[cfg(unix)]
+    const B8_BOOTSTRAP_SWAP_SOURCE: &str = "CODEX_B8_BOOTSTRAP_SWAP_SOURCE";
+    #[cfg(unix)]
+    const B8_BOOTSTRAP_SWAP_REPLACEMENT: &str = "CODEX_B8_BOOTSTRAP_SWAP_REPLACEMENT";
+
+    #[cfg(unix)]
+    fn b8_write_core_swap_wrapper(path: &std::path::Path) {
+        use std::os::unix::fs::PermissionsExt;
+        let test_binary = std::env::current_exe().unwrap();
+        let shell = resolve_test_shell();
+        let script = format!(
+            "#!{}\n{}=1 exec '{}' tests::b8_private_bootstrap_swap_probe --exact --nocapture\n",
+            shell.display(),
+            B8_BOOTSTRAP_SWAP_ROLE,
+            test_binary.display()
+        );
+        std::fs::write(path, script).unwrap();
+        let mut permissions = std::fs::metadata(path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(path, permissions).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn b8_private_bootstrap_swap_probe() {
+        if std::env::var(B8_BOOTSTRAP_SWAP_ROLE).as_deref() != Ok("1") {
+            return;
+        }
+        if std::env::var(INTERNAL_BOOTSTRAP_MODE_ENV).as_deref() == Ok("activate") {
+            let source = std::path::PathBuf::from(
+                std::env::var_os(B8_BOOTSTRAP_SWAP_SOURCE).expect("bootstrap swap source"),
+            );
+            let replacement = std::path::PathBuf::from(
+                std::env::var_os(B8_BOOTSTRAP_SWAP_REPLACEMENT)
+                    .expect("bootstrap swap replacement"),
+            );
+            std::fs::remove_dir_all(&source).unwrap();
+            let staged = source.with_extension("bootstrap-swap");
+            copy_local_directory_tree(&replacement, &staged).unwrap();
+            std::fs::rename(staged, source).unwrap();
         }
         let code = run_internal_bootstrap_mode().unwrap_or(2);
         use std::io::Write;
@@ -9775,6 +9967,9 @@ esac
         std::fs::create_dir(&source.generation_root).unwrap();
         let release = b2_write_generation(&source, "bootstrap-g0", false, "supported");
         b4_write_probe_runtime(&release, 0, 0);
+        let core = root.join("prebuilt-codex");
+        b8_write_core_probe_wrapper(&core);
+        b8_bind_core_digest(&release, &live_openssl, &core);
         let private_key = root.join("keys/private.pem");
         let public_key = root.join("keys/public.pem");
         b4_generate_release_keypair(&live_openssl, &private_key, &public_key);
@@ -9786,7 +9981,8 @@ esac
         let pin = home.join(".local/lib/codex/core/release-public-key.pem");
         bootstrap_self_test(&roots, &pin).unwrap();
         assert_eq!(
-            bootstrap_initial_signed_local_release(&release, &roots, &pin, &process_env).unwrap(),
+            bootstrap_initial_signed_local_release(&release, &roots, &pin, &core, &process_env,)
+                .unwrap(),
             "bootstrap-g0"
         );
         let paths = CoreStatePaths::new(&roots.state_root).unwrap();
@@ -9805,11 +10001,129 @@ esac
             ))
         ));
         assert!(matches!(
-            bootstrap_initial_signed_local_release(&release, &roots, &pin, &process_env),
+            bootstrap_initial_signed_local_release(&release, &roots, &pin, &core, &process_env,),
             Err(LocalProductError::Release(
                 "fresh bootstrap requires absent authoritative v3 state"
             ))
         ));
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_r1_fresh_bootstrap_preflights_transaction_residue_before_publication() {
+        let root = temp_root("m2-r1-fresh-bootstrap-residue");
+        let live_openssl = b4_termux_openssl();
+        let (home, prefix, tmp) = b4_prepare_public_environment(&root, &live_openssl, true);
+        let source = b4_source_roots(&root, &live_openssl);
+        std::fs::create_dir(&source.generation_root).unwrap();
+        let release = b2_write_generation(&source, "residue-g0", false, "supported");
+        b4_write_probe_runtime(&release, 0, 0);
+        let core = root.join("prebuilt-codex");
+        b8_write_core_probe_wrapper(&core);
+        b8_bind_core_digest(&release, &live_openssl, &core);
+        let private_key = root.join("keys/private.pem");
+        let public_key = root.join("keys/public.pem");
+        b4_generate_release_keypair(&live_openssl, &private_key, &public_key);
+        b4_write_signed_release(&release, 1, &live_openssl, &private_key);
+
+        let state_root = home.join(".local/share/codex/core");
+        std::fs::create_dir_all(&state_root).unwrap();
+        let state_temp = state_root.join("activation-state.tmp");
+        std::fs::write(&state_temp, b"orphan").unwrap();
+        let bootstrap = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../bootstrap/codex-bootstrap");
+        let output = std::process::Command::new(&bootstrap)
+            .args([
+                core.as_os_str(),
+                release.as_os_str(),
+                public_key.as_os_str(),
+            ])
+            .env("HOME", &home)
+            .env("PREFIX", &prefix)
+            .env("TMPDIR", &tmp)
+            .output()
+            .unwrap();
+
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output
+            .stderr
+            .windows(b"orphan activation-state temporary exists".len())
+            .any(|window| window == b"orphan activation-state temporary exists"));
+        assert!(!home
+            .join(".local/lib/codex/core/release-public-key.pem")
+            .exists());
+        assert!(!prefix.join("bin/codex").exists());
+        assert!(!state_root.join("activation-state").exists());
+        assert_eq!(std::fs::read(&state_temp).unwrap(), b"orphan");
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_r1_fresh_bootstrap_rechecks_core_binding_after_source_swap() {
+        let root = temp_root("m2-r1-fresh-bootstrap-core-binding");
+        let live_openssl = b4_termux_openssl();
+        let (home, prefix, tmp) = b4_prepare_public_environment(&root, &live_openssl, true);
+        let source = b4_source_roots(&root, &live_openssl);
+        std::fs::create_dir(&source.generation_root).unwrap();
+        let first = b2_write_generation(&source, "binding-g0", false, "supported");
+        b4_write_probe_runtime(&first, 0, 0);
+        let first_core = root.join("prebuilt-codex-first");
+        b8_write_core_swap_wrapper(&first_core);
+        b8_bind_core_digest(&first, &live_openssl, &first_core);
+        let second = b2_write_generation(&source, "binding-g1", false, "supported");
+        b4_write_probe_runtime(&second, 0, 0);
+        let second_core = root.join("prebuilt-codex-second");
+        b8_write_core_probe_wrapper(&second_core);
+        use std::io::Write as _;
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&second_core)
+            .unwrap()
+            .write_all(b"\n# distinct authenticated Core\n")
+            .unwrap();
+        b8_bind_core_digest(&second, &live_openssl, &second_core);
+        let private_key = root.join("keys/private.pem");
+        let public_key = root.join("keys/public.pem");
+        b4_generate_release_keypair(&live_openssl, &private_key, &public_key);
+        b4_write_signed_release(&first, 1, &live_openssl, &private_key);
+        b4_write_signed_release(&second, 2, &live_openssl, &private_key);
+
+        let bootstrap = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../bootstrap/codex-bootstrap");
+        let output = std::process::Command::new(&bootstrap)
+            .args([
+                first_core.as_os_str(),
+                first.as_os_str(),
+                public_key.as_os_str(),
+            ])
+            .env("HOME", &home)
+            .env("PREFIX", &prefix)
+            .env("TMPDIR", &tmp)
+            .env(B8_BOOTSTRAP_SWAP_SOURCE, &first)
+            .env(B8_BOOTSTRAP_SWAP_REPLACEMENT, &second)
+            .output()
+            .unwrap();
+
+        assert_eq!(output.status.code(), Some(1));
+        assert!(
+            output
+                .stderr
+                .windows(b"bootstrap release does not match authenticated Core artifact".len())
+                .any(|window| {
+                    window == b"bootstrap release does not match authenticated Core artifact"
+                }),
+            "stderr={:?}",
+            output.stderr
+        );
+        assert!(!home
+            .join(".local/share/codex/core/activation-state")
+            .exists());
+        assert!(!home
+            .join(".local/lib/codex/core/generations")
+            .join("binding-g1")
+            .exists());
         remove_temp_root(root);
     }
 
@@ -9829,6 +10143,9 @@ esac
             std::fs::create_dir(&source.generation_root).unwrap();
             let release = b2_write_generation(&source, case, false, "supported");
             b4_write_probe_runtime(&release, if case == "probe-failure" { 17 } else { 0 }, 0);
+            let core = root.join("prebuilt-codex");
+            b8_write_core_probe_wrapper(&core);
+            b8_bind_core_digest(&release, &live_openssl, &core);
             let old_private = root.join("keys/old-private.pem");
             let old_public = root.join("keys/old-public.pem");
             let new_private = root.join("keys/new-private.pem");
@@ -9868,8 +10185,14 @@ esac
             let process_env = b8_process_env(&prefix, &tmp);
             let pin = home.join(".local/lib/codex/core/release-public-key.pem");
             assert!(
-                bootstrap_initial_signed_local_release(&release, &roots, &pin, &process_env)
-                    .is_err(),
+                bootstrap_initial_signed_local_release(
+                    &release,
+                    &roots,
+                    &pin,
+                    &core,
+                    &process_env,
+                )
+                .is_err(),
                 "case {case} unexpectedly activated"
             );
             let paths = CoreStatePaths::new(&roots.state_root).unwrap();
@@ -9956,6 +10279,80 @@ esac
             .any(|w| { w == b"existing authoritative v3 state" }));
         assert_eq!(read_pointer_state(&paths).unwrap().unwrap(), state);
         remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_r1_bootstrap_snapshots_enforce_input_bounds_before_publication() {
+        for case in ["key", "manifest", "signature", "descriptor"] {
+            let root = temp_root(&format!("m2-r1-bootstrap-bound-{case}"));
+            let live_openssl = b4_termux_openssl();
+            let (home, prefix, tmp) = b4_prepare_public_environment(&root, &live_openssl, true);
+            let source = b4_source_roots(&root, &live_openssl);
+            std::fs::create_dir(&source.generation_root).unwrap();
+            let release = b2_write_generation(&source, case, false, "supported");
+            b4_write_probe_runtime(&release, 0, 0);
+            let core = root.join("prebuilt-codex");
+            b8_write_core_probe_wrapper(&core);
+            b8_bind_core_digest(&release, &live_openssl, &core);
+            let private_key = root.join("keys/private.pem");
+            let public_key = root.join("keys/public.pem");
+            b4_generate_release_keypair(&live_openssl, &private_key, &public_key);
+            b4_write_signed_release(&release, 1, &live_openssl, &private_key);
+
+            let (bounded_path, maximum, label) = match case {
+                "key" => (public_key.clone(), 16 * 1024, "bootstrap public key"),
+                "manifest" => (
+                    release.join("release.manifest"),
+                    128 * 1024,
+                    "release.manifest",
+                ),
+                "signature" => (release.join("release.sig"), 1024, "release.sig"),
+                "descriptor" => (
+                    release.join("generation.meta"),
+                    64 * 1024,
+                    "generation.meta",
+                ),
+                _ => unreachable!(),
+            };
+            let file = std::fs::OpenOptions::new()
+                .write(true)
+                .open(&bounded_path)
+                .unwrap();
+            file.set_len(maximum + 1).unwrap();
+
+            let bootstrap = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../bootstrap/codex-bootstrap");
+            let output = std::process::Command::new(&bootstrap)
+                .args([
+                    core.as_os_str(),
+                    release.as_os_str(),
+                    public_key.as_os_str(),
+                ])
+                .env("HOME", &home)
+                .env("PREFIX", &prefix)
+                .env("TMPDIR", &tmp)
+                .output()
+                .unwrap();
+            let expected = format!("{label} exceeds its byte bound");
+            assert_eq!(output.status.code(), Some(1), "case {case}");
+            assert!(
+                output
+                    .stderr
+                    .windows(expected.len())
+                    .any(|window| window == expected.as_bytes()),
+                "case {case}: stderr={:?}",
+                output.stderr
+            );
+            assert!(!prefix.join("bin/codex").exists(), "case {case}");
+            assert!(!home
+                .join(".local/lib/codex/core/release-public-key.pem")
+                .exists());
+            assert!(!home
+                .join(".local/share/codex/core/activation-state")
+                .exists());
+            remove_temp_root(root);
+        }
     }
 
     #[cfg(unix)]
@@ -10783,6 +11180,27 @@ esac
 
     #[cfg(unix)]
     #[test]
+    fn test_m2_r1_generation_descriptor_read_is_bounded_before_loading() {
+        let (root, roots) = b2_test_roots("m2-r1-bounded-descriptor");
+        let generation = b2_write_generation(&roots, "oversized-descriptor", false, "unsupported");
+        let descriptor = generation.join("generation.meta");
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .open(&descriptor)
+            .unwrap();
+        file.set_len((LOCAL_GENERATION_MAX_BYTES + 1) as u64)
+            .unwrap();
+        assert!(matches!(
+            load_local_generation(&generation),
+            Err(LocalProductError::Descriptor(
+                "generation descriptor is too large"
+            ))
+        ));
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn test_m2_b4_inventory_source_digest_and_file_set_fail_before_staging() {
         use std::os::unix::fs::PermissionsExt;
 
@@ -11064,6 +11482,56 @@ esac
         assert!(!state_root.join("activation-journal").exists());
         assert!(!state_root.join("config").exists());
 
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_r1_fresh_bootstrap_rejects_symlink_generation_root_with_existing_destination() {
+        use std::os::unix::fs::symlink;
+
+        let root = temp_root("m2-r1-fresh-bootstrap-generation-root");
+        let openssl = b4_termux_openssl();
+        let (home, prefix, tmp) = b4_prepare_public_environment(&root, &openssl, true);
+        let source_roots = b4_source_roots(&root.join("source"), &openssl);
+        std::fs::create_dir_all(&source_roots.generation_root).unwrap();
+        let release = b2_write_generation(&source_roots, "rooted-g0", false, "unsupported");
+        let private_key = root.join("signing-private.pem");
+        let public_key = root.join("signing-public.pem");
+        b4_generate_release_keypair(&openssl, &private_key, &public_key);
+        let core = root.join("prebuilt-codex");
+        b8_write_core_probe_wrapper(&core);
+        b8_bind_core_digest(&release, &openssl, &core);
+        b4_write_signed_release(&release, 1, &openssl, &private_key);
+        b4_install_trusted_release_key(&home, &public_key);
+
+        let outside_generation_root = root.join("outside-generation-root");
+        std::fs::create_dir(&outside_generation_root).unwrap();
+        let outside_generation = outside_generation_root.join("rooted-g0");
+        copy_local_directory_tree(&release, &outside_generation).unwrap();
+        let descriptor_before = std::fs::read(outside_generation.join("generation.meta")).unwrap();
+        let generation_root = home.join(".local/lib/codex/core/generations");
+        std::fs::create_dir_all(generation_root.parent().unwrap()).unwrap();
+        symlink(&outside_generation_root, &generation_root).unwrap();
+
+        let roots = b7_public_roots(&home, &prefix);
+        let pin = home.join(".local/lib/codex/core/release-public-key.pem");
+        let process_env = b8_process_env(&prefix, &tmp);
+        assert!(matches!(
+            bootstrap_initial_signed_local_release(&release, &roots, &pin, &core, &process_env),
+            Err(LocalProductError::UnsafeSource(
+                "immutable generation root is not a real directory"
+            ))
+        ));
+        assert_eq!(
+            std::fs::read(outside_generation.join("generation.meta")).unwrap(),
+            descriptor_before
+        );
+        let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+        assert_eq!(read_pointer_state(&paths).unwrap(), None);
+        assert!(!paths.activation_journal.exists());
+        assert!(!paths.activation_state_temp.exists());
+        assert!(!roots.config_dir.exists());
         remove_temp_root(root);
     }
 

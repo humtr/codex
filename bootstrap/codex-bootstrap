@@ -52,6 +52,30 @@ descriptor=$release_dir/generation.meta
 openssl=$PREFIX/bin/openssl
 [ -x "$openssl" ] || fail 'Termux OpenSSL is unavailable'
 
+bounded_snapshot() {
+  bounded_source=$1
+  bounded_target=$2
+  bounded_limit=$3
+  bounded_label=$4
+  head -c "$((bounded_limit + 1))" "$bounded_source" > "$bounded_target" ||
+    fail "could not snapshot $bounded_label"
+  bounded_size=$(wc -c < "$bounded_target" | tr -d '[:space:]') ||
+    fail "could not inspect $bounded_label snapshot"
+  case $bounded_size in
+    ''|*[!0-9]*) fail "could not inspect $bounded_label snapshot" ;;
+  esac
+  if [ "$bounded_size" -gt "$bounded_limit" ]; then
+    rm -f "$bounded_target"
+    fail "$bounded_label exceeds its byte bound"
+  fi
+}
+
+bootstrap_key_max=$((16 * 1024))
+core_artifact_max=$((64 * 1024 * 1024))
+manifest_max=$((128 * 1024))
+signature_max=1024
+descriptor_max=$((64 * 1024))
+
 state=$HOME/.local/share/codex/core/activation-state
 if [ "$bootstrap_mode" = fresh ]; then
   if [ -e "$state" ] || [ -L "$state" ]; then
@@ -72,13 +96,13 @@ core_snapshot=$work/codex
 manifest_snapshot=$work/release.manifest
 signature_snapshot=$work/release.sig
 descriptor_snapshot=$work/generation.meta
-cat "$key_input" > "$key_snapshot"
+bounded_snapshot "$key_input" "$key_snapshot" "$bootstrap_key_max" 'bootstrap public key'
 chmod 600 "$key_snapshot"
-cat "$core_input" > "$core_snapshot"
+bounded_snapshot "$core_input" "$core_snapshot" "$core_artifact_max" 'Core artifact'
 chmod 755 "$core_snapshot"
-cat "$manifest" > "$manifest_snapshot"
-cat "$signature" > "$signature_snapshot"
-cat "$descriptor" > "$descriptor_snapshot"
+bounded_snapshot "$manifest" "$manifest_snapshot" "$manifest_max" 'release.manifest'
+bounded_snapshot "$signature" "$signature_snapshot" "$signature_max" 'release.sig'
+bounded_snapshot "$descriptor" "$descriptor_snapshot" "$descriptor_max" 'generation.meta'
 chmod 600 "$manifest_snapshot" "$signature_snapshot" "$descriptor_snapshot"
 manifest=$manifest_snapshot
 signature=$signature_snapshot
@@ -201,9 +225,13 @@ publish_bootstrap_pin() {
 }
 
 if [ "$bootstrap_mode" = fresh ]; then
+  unset CODEX_TERMUX_INTERNAL_BOOTSTRAP_SOURCE \
+    CODEX_TERMUX_INTERNAL_BOOTSTRAP_CORE \
+    CODEX_TERMUX_INTERNAL_BOOTSTRAP_EXPECTED_LEGACY_ENTRYPOINT_SHA256 || :
+  CODEX_TERMUX_INTERNAL_BOOTSTRAP=self-test \
+  CODEX_TERMUX_INTERNAL_BOOTSTRAP_KEY="$key_snapshot" \
+    "$core_snapshot" || fail 'authenticated Core self-test failed'
   publish_bootstrap_pin
-  unset CODEX_TERMUX_INTERNAL_BOOTSTRAP_SOURCE || :
-  CODEX_TERMUX_INTERNAL_BOOTSTRAP=self-test "$core_snapshot" || fail 'authenticated Core self-test failed'
 
   mkdir -p "$PREFIX/bin"
   validate_existing_entrypoint
@@ -213,6 +241,8 @@ if [ "$bootstrap_mode" = fresh ]; then
 
   CODEX_TERMUX_INTERNAL_BOOTSTRAP=activate \
   CODEX_TERMUX_INTERNAL_BOOTSTRAP_SOURCE="$release_dir" \
+  CODEX_TERMUX_INTERNAL_BOOTSTRAP_KEY="$key_snapshot" \
+  CODEX_TERMUX_INTERNAL_BOOTSTRAP_CORE="$core_snapshot" \
     "$destination" || fail 'initial v3 activation failed'
 
   printf '%s\n' 'codex-bootstrap: initial installation complete'

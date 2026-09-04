@@ -225,6 +225,11 @@ published complete-or-absent. Failure never publishes a partial generation,
 changes an existing destination, signs or activates content, or writes outside
 the selected output parent.
 
+The release builder accepts only a regular executable Core artifact of at most
+64 MiB. It must enforce this bound before and during its private snapshot, so a
+source that grows after initial inspection still cannot produce an unbounded
+copy. The resulting descriptor binds the exact snapshot digest.
+
 An upstream runtime is accepted only when all declared inputs and outputs are
 bound in a generation manifest:
 
@@ -355,6 +360,14 @@ from the bootstrap public key and the exact signed release.
 Fresh bootstrap uses the same authenticated Core publication boundary for its stable entrypoint: after self-test, Core creates a private same-directory temporary, writes the exact authenticated bytes, sets and verifies mode `0755`, synchronizes the file after its final mode, atomically publishes without replacing a differing existing target, and synchronizes `$PREFIX/bin` before invoking the stable entrypoint. If publication is interrupted after rename or its parent synchronization fails, activation has not been invoked; a same-Core retry must revalidate the target and re-establish parent durability before activation.
 
 Bootstrap trust-seed publication is also owned by the authenticated Core. The shell bootstrap may snapshot and validate the supplied key, but it must not directly publish the persistent pin. Core writes the exact key bytes to a private temporary in the pin directory, sets final mode `0644` before synchronizing the file, verifies the parsed key, atomically publishes without replacing a differing existing pin, and synchronizes the pin parent before continuing. An existing matching pin is revalidated, repaired to mode `0644` when necessary, and re-synchronized; a differing, symlink, or special-file pin fails without replacement. A failure after rename but before parent synchronization leaves no activation state and is retryable only after the same-key verification and parent synchronization complete.
+
+Before any bootstrap snapshot is consumed, each bounded input is checked and
+copied through a bounded path: the bootstrap public-key PEM is at most 16 KiB,
+the authenticated Core artifact is at most 64 MiB, `release.manifest` is at
+most 128 KiB, `release.sig` is at most 1 KiB, and `generation.meta` is at most
+64 KiB. A bound failure occurs before trust-seed, entrypoint, generation, or
+activation publication. Core uses the same bounds for direct authenticated
+inputs and for persistent descriptor loading.
 
 Bootstrap classifies the target after resolving any recoverable activation
 transaction:

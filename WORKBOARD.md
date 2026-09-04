@@ -70,30 +70,47 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 
 ## Next action
 
-### M2-R1 review follow-up — generation collision race
+### M2-R1 independent-review remediation — three findings
 
-- Observable contract: immutable generation publication must never replace a
-  complete generation that appears after the pre-publish existence check.
-- Production path: `FsGenerationPublishIo::rename` uses the existing Unix
-  no-replace primitive; the publish error maps `AlreadyExists` to the existing
-  `GenerationCollision` outcome.
-- Focused regression: `test_m2_r1_generation_collision_race_never_replaces_existing_directory`
-  injects an existing destination between the check and publish, verifies the
-  sentinel remains intact, and verifies candidate cleanup.
-- Slice state: accepted at `084531b42bbcd6235c32393a576a09265269974e`; focused, grouped, protected-surface,
-  release-build, smoke, and diff gates are green.
+- Bound base: `rewrite/rust-core@c9de9bf36ea36b96ffc75cc998a8d80cf71b9cf7`.
+  The current source tree is intentionally dirty only with this remediation;
+  no unrelated changes are in scope.
+- Slice 1 — fresh bootstrap authority and residue: the authenticated Core
+  activation path must receive the supplied key/Core snapshots, bind the signed
+  generation's `core_artifact_digest` to that Core, and resolve all v3
+  transaction residue before trust-seed or entrypoint publication. Production
+  paths are `bootstrap_self_test`, `run_internal_bootstrap_mode`, and
+  `bootstrap_initial_signed_local_release`. Focused regressions are
+  `test_m2_r1_fresh_bootstrap_preflights_transaction_residue_before_publication`
+  and `test_m2_r1_fresh_bootstrap_rechecks_core_binding_after_source_swap`.
+  State: implementation and focused proof green; actual diff review pending.
+- Slice 2 — generation-root confinement: local update, fresh bootstrap,
+  remote acquisition, installed verification, and ordinary loading must reject
+  a symlink/non-directory generation root before any root-dependent mutation or
+  existing-destination reuse. Production paths are the generation-root
+  callers of `ensure_real_directory_tree`/`ensure_real_directory`.
+  Focused regression is
+  `test_m2_r1_fresh_bootstrap_rejects_symlink_generation_root_with_existing_destination`;
+  the existing empty-root update regression remains required. State: pending
+  final slice review.
+- Slice 3 — bounded control/artifact reads: descriptor and manifest loads,
+  bootstrap snapshots, bootstrap Core/key publication copies, and release-builder
+  Core snapshots must enforce their normative byte limits before and during
+  reads/copies. Production paths are `load_local_generation`, local manifest
+  loading, `bootstrap/codex-bootstrap`, and `snapshot_core_artifact`.
+  Focused regressions are
+  `test_m2_r1_generation_descriptor_read_is_bounded_before_loading`,
+  `test_m2_r1_bootstrap_snapshots_enforce_input_bounds_before_publication`, and
+  the B8 Core-artifact rejection matrix. State: pending final slice review.
+- Final batch: rerun the grouped locked workspace suite, repeated parallel
+  suites, warnings-denied release build, formatting/diff checks, explicit
+  real-Termux read-only smoke, and protected-surface identity checks. Then
+  update `GOAL.md`, replace this bundle with the post-review gate, inspect the
+  staged tree, and commit. Do not promote to `main`, push, replace the live
+  launcher, mutate the live resolver, or invoke bounded device qualification.
 - Protected surfaces: live launcher, resolver, installed generation/trust
-  state, Manager, auth/profile/session data, and publication refs remain
-  untouched.
-
-### M2 independent product review candidate
-
-M2-R1 follow-up is accepted at `084531b42bbcd6235c32393a576a09265269974e`;
-review `SPEC.md`, `GOAL.md`, and the
-committed M2-R1 product path as one candidate. Keep review read-only until
-findings are recorded. Do not promote to `main`, push, replace the live
-launcher, mutate the live resolver, or invoke bounded device qualification
-without explicit authorization.
+  state, Manager, auth/profile/session data, package state, and publication
+  refs remain untouched.
 
 Worker mode remains OFF; the primary Lead owns every slice, validation step,
 authority update, and acceptance decision.
