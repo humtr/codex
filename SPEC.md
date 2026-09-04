@@ -38,13 +38,18 @@ In descending order:
 
 ## 3. Public command contract
 
-The launcher intercepts only an exact first argument of `update`, `doctor`, or
-`termux`. Every other invocation is passed to upstream Codex.
+The launcher classifies only an exact first argument of `update`, `doctor`, or
+`termux`. Every other invocation is passed to upstream Codex. `update` is a
+shared boundary: only the exact Core forms below are owned by Core; an empty
+`update` argument list, `update --help`, and all other upstream update options
+are passed to upstream Codex unchanged so that the upstream distribution
+updater remains the source of upstream Codex contents.
 
 | Command | Owner | Required behavior |
 | --- | --- | --- |
 | `codex [UPSTREAM_ARGS...]` | Core | execute upstream with original arguments |
 | `codex --version`, `codex -V` | upstream | print exactly the upstream version output |
+| `codex update [UPSTREAM_ARGS...]` | upstream | execute upstream's update command with the original `update` argv, except for the exact Core forms below |
 | `codex update --local <DIRECTORY>` | Core | verify, stage, probe, and activate one compatible local generation |
 | `codex update --remote <HTTPS_BASE_URL>` | Core | acquire one immutable signed generation and activate it through the local update path |
 | `codex update --rollback` | Core | explicitly swap to the one retained complete previous generation |
@@ -54,11 +59,15 @@ The launcher intercepts only an exact first argument of `update`, `doctor`, or
 `codex version` is not introduced. Wrapper/Core/Manager version rows must not
 be appended to upstream `--version` or `-V` output.
 
-The Milestone 2 update surface accepts exactly `--local <DIRECTORY>`,
-`--remote <HTTPS_BASE_URL>`, or `--rollback`. The local form and rollback remain fully
-offline. The remote form is an explicit immutable source, not automatic release
-discovery. Rollback is an explicit Core operation, not an ordinary-launch
-fallback and not a search through generation history.
+The Core-owned update surface accepts exactly `--local <DIRECTORY>`,
+`--remote <HTTPS_BASE_URL>`, or `--rollback` after `update`. A malformed
+invocation beginning with one of those Core selectors is a Core usage error.
+The local form and rollback remain fully offline. The remote form is an
+explicit immutable signed-generation source, not automatic release discovery.
+All other `update` argv, including no arguments and upstream `--help`, use the
+normal upstream execution boundary and therefore retain upstream repository
+acquisition and upstream exit behavior. Rollback is an explicit Core operation,
+not an ordinary-launch fallback and not a search through generation history.
 
 Internal release IDs, component digests, API versions, and schema versions are
 still mandatory for update, diagnosis, and rollback. They may appear only on a
@@ -218,8 +227,10 @@ raw-runtime, adapted-runtime, and code-mode-host SHA-256 values, the four source
 counts, and the changed-byte count.
 
 The unsigned output contains exactly `generation.meta`, the adapted `runtime`,
-and unmodified `compat/codex-code-mode-host`; the first target declares zero
-`helpers/<index>` artifacts without changing that optional generation contract.
+and an unmodified root-level `codex-code-mode-host` beside `runtime`; the first
+target declares zero `helpers/<index>` artifacts without changing that optional
+generation contract. The root-level placement is required because upstream
+Codex resolves this companion beside its own executable, not through `PATH`.
 Every output is create-new in private staging and the absent destination is
 published complete-or-absent. Failure never publishes a partial generation,
 changes an existing destination, signs or activates content, or writes outside
@@ -263,8 +274,7 @@ $PREFIX/bin/codex                                      stable public entrypoint
   release.sig                                         candidate-key Ed25519 signature over exact manifest
   release-authority.sig                               rotation-only current-key signature over exact manifest
   runtime                                             patched upstream executable
-  compat/                                              runtime compatibility assets
-    codex-code-mode-host                              first-target PATH compatibility executable
+  codex-code-mode-host                                first-target companion beside runtime
   manager                                              optional Manager executable
   helpers/<index>                                      optional helper artifacts
 ~/.local/lib/codex/core/generations/.acquire-*/        private incomplete remote source; never activatable
@@ -473,13 +483,15 @@ schema.
 
 Normal installation and update must not require on-device compilation.
 
-After bootstrap, the formal update path is the installed Core command surface
-`codex update --local <DIRECTORY>`, `codex update --remote <HTTPS_BASE_URL>`,
-or `codex update --rollback`. `install.sh` is not an update dispatcher and
-must not bypass the authenticated local admission, staging, probe, activation,
-or rollback path. The local and remote forms use the same forward activation
-transaction, and rollback remains the explicit swap of the one retained
-complete previous generation.
+After bootstrap, the Core-owned update path is the installed Core command
+surface `codex update --local <DIRECTORY>`, `codex update --remote
+<HTTPS_BASE_URL>`, or `codex update --rollback`. `install.sh` is not an update
+dispatcher and must not bypass the authenticated local admission, staging,
+probe, activation, or rollback path. The local and remote forms use the same
+forward activation transaction, and rollback remains the explicit swap of the
+one retained complete previous generation. A bare `codex update` is deliberately
+the upstream command, preserving the upstream Codex repository/update source;
+it does not silently become a Core generation update.
 
 `codex update` must:
 
@@ -626,17 +638,26 @@ activation pointers.
 ## 9. Doctor contract
 
 `codex doctor` is read-only. It runs the raw upstream doctor when supported and
-adds Core and Manager sections without recursively invoking the public
-launcher.
+adds a Termux Core/Manager diagnosis without recursively invoking the public
+launcher. Human output includes the bounded upstream doctor output itself, not
+only its exit-status projection.
 
-Human output contains clearly separated upstream, Core, and Manager sections.
-`--json` emits one redacted envelope rather than concatenated documents:
+Human output contains clearly separated `Upstream Codex doctor`, `Termux
+doctor`, Manager, and summary sections. `--json` emits one redacted envelope
+rather than concatenated documents:
 
 ```json
 {
-  "schema_version": 1,
-  "upstream": {},
-  "termux_core": {},
+  "schema_version": 2,
+  "upstream": {"status": "healthy", "output": "..."},
+  "termux_core": {
+    "status": "healthy",
+    "generation_id": "...",
+    "layout": "root-code-mode-host-v2",
+    "runtime": {"status": "healthy"},
+    "code_mode_host": {"status": "healthy"},
+    "sandbox": {"status": "unsupported", "reason": "bwrap is not used"}
+  },
   "manager": {},
   "summary": {}
 }
@@ -646,14 +667,25 @@ Unsupported upstream or Manager diagnostics are represented explicitly and do
 not fabricate success. Diagnostic failure returns nonzero while preserving a
 valid machine report when `--json` was requested. After valid doctor argument
 parsing, an upstream probe/setup failure is represented as a redacted
-`unhealthy` upstream status rather than an error string, and the command still
-returns its nonzero health-failure status. Usage errors remain distinct from
-health failures and API incompatibility.
+`unhealthy` upstream status with empty output rather than an error string, and
+the command still returns its nonzero health-failure status. Upstream doctor
+output is capped at 64 KiB, has terminal control sequences and credential-like
+values redacted before composition, and is emitted as a JSON string in the
+envelope. Usage errors remain distinct from health failures and API
+incompatibility.
 
 Doctor must not expose tokens, OAuth data, cookies, auth-derived private data,
 notification content, or unredacted session content. A filesystem snapshot
 before and after doctor must be unchanged except for operating-system access
 metadata outside product control.
+
+Generation descriptors written by the current release builder use
+`codex-local-generation-v2` and the root-level companion layout above. Core
+continues to read an already-installed `codex-local-generation-v1` generation
+with `compat/codex-code-mode-host` only as a bounded migration input; it never
+produces that layout, and it never treats an unlisted root-level symlink as the
+companion. The next authenticated generation is the required permanent repair
+for such an old layout.
 
 ## 10. Milestones
 

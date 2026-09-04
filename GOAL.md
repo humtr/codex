@@ -1365,6 +1365,81 @@ Termux qualification. Produce one candidate for independent product review.
   authorized local cutover are complete. Further work requires an explicit new
   scope; worker mode remains OFF.
 
+## R3 Upstream Update/Doctor and Code-Mode Contract Alignment (accepted)
+
+- The current user-authorized threshold is that the installed Core preserves
+  upstream `codex update` ownership for bare/ordinary update argv so the
+  upstream Codex distribution updater remains the source of upstream contents,
+  while exact signed-generation selectors remain Core-owned. `codex doctor`
+  must expose the actual bounded upstream doctor output together with a
+  Termux diagnosis, rather than reducing upstream diagnostics to a status bit.
+- This is the explicit R3 refinement of the earlier broad top-level update
+  reservation: Core still owns the Termux execution boundary and signed local
+  generation operations, but it must not replace upstream's own update command
+  or repository source for ordinary update argv.
+- The release-production path must emit the code-mode host as one regular
+  root-level generation file beside `runtime`, matching upstream's
+  `current_exe().parent()` lookup. Existing v1 `compat/` generations are only
+  migration inputs; no new release may reproduce that layout or depend on a
+  symlink alias.
+- The local audit established the prior observable sources: legacy top-level
+  `codex update` passed through to upstream, legacy `codex termux update` used
+  `npm pack` for the `@openai/codex` linux-arm64 package, and legacy wrapper
+  doctor exposed a detailed Termux health report. The rewrite expresses these
+  ownership and diagnostic outcomes through the current signed-generation and
+  read-only Core contracts rather than copying legacy implementation.
+- R3-A closes the update ownership defect: only exact `--local`, `--remote`,
+  and `--rollback` selectors remain Core-owned; bare `codex update`,
+  `update --help`, and other upstream update argv now use the final qualified
+  upstream execution boundary, preserving the upstream updater as the source
+  of upstream contents. The public-main fake-runtime proof covers bare update,
+  optioned update, nonzero upstream exit propagation, and the selector
+  classification boundary.
+- R3-B closes the code-mode placement defect: release-builder output is
+  `codex-local-generation-v2` with one regular root-level
+  `codex-code-mode-host` beside `runtime`. Core uses that file directly and
+  puts its generation root on the compatibility PATH. Existing v1
+  `compat/codex-code-mode-host` generations remain read-only migration inputs;
+  v2 rejects compatibility directories and root-level symlink companions.
+  Remote acquisition creates only manifest-declared parents, so it cannot
+  recreate the old empty `compat/` shape.
+- R3-C closes the doctor projection defect: human `codex doctor` now includes
+  bounded upstream doctor output plus a Termux doctor section, while JSON uses
+  schema 2 with redacted upstream output, generation/layout/runtime/code-mode
+  details, explicit bwrap non-use, Manager status, and summary status. Output
+  is capped at 64 KiB; terminal controls and credential-like values are
+  removed before composition. Probe failure and overflow retain a valid JSON
+  envelope and nonzero health result, and the focused public-path tests prove
+  doctor remains read-only.
+- Focused R3 proof passed: Core update/public-main, doctor capture/composition
+  and overflow, root/v1 layout migration, and release-builder output tests all
+  passed. The final locked serial workspace suite passed Core `117 passed,
+  0 failed, 1 ignored` and release-builder `7 passed, 0 failed`; three
+  independent default-parallel workspace repetitions passed the same counts.
+  `cargo clippy --locked --workspace --all-targets -- -D warnings`, release
+  build, formatting, bootstrap shell syntax, and `git diff --check` passed.
+- A mistaken release-builder filter selected zero tests and was discarded. Two
+  stale v1 inventory fixtures were then corrected to include the existing
+  compatibility host; the corrected exact tests and the complete suites passed.
+  No zero-test invocation is counted as acceptance evidence.
+- Protected-surface verification after the final proof found the live Core
+  SHA-256 still `8c84beb9c729e110f8a24e35d355eee6803a3b14f10296a8d7b97fd6ca4b0fc2`
+  and live resolver SHA-256 still
+  `7e8ad76e0d200e93918ca2e93c99ff8ecd02071953bf1479819db3ac0dbb6d07` with
+  unchanged resolver stat identity. No installed launcher/runtime, live
+  generation/trust, resolver, Manager, auth/profile/session, package,
+  publication, push, promotion, or bwrap state was changed. The current R3
+  bundle is committed only on `rewrite/rust-core`; `main` and its backup remain
+  untouched.
+- Disposition: KEEP one final upstream execution boundary, one exact Core
+  signed-generation update authority, one v2 root companion invariant, and
+  one composed bounded doctor report. COLLAPSE the old PATH-only code-mode
+  assumption and status-only doctor projection into those direct boundaries;
+  retain v1 reading only as a bounded migration input. DELETE the old
+  root-level symlink repair requirement, unconditional remote `compat/`
+  creation, and any second update/doctor implementation path. Worker mode
+  remains OFF.
+
 ## Goal Lifts
 
 No lift is active. A proposed lift must identify a concrete product risk or

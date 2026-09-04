@@ -12,13 +12,14 @@ The rewrite has one public command, `codex`, and two internal layers:
 
 ## Current status
 
-The Rust Core implementation through M2-B11 is accepted in the `GOAL.md`
-acceptance ledger. `WORKBOARD.md` currently tracks the bounded M2-R1 durability
-closure for generation publication, fresh/legacy entrypoint retries, and final
-release-builder modes before independent product review.
+The Rust Core implementation through M2 and the authorized local install/cutover
+are accepted in the `GOAL.md` acceptance ledger. The R3 alignment of upstream
+update/doctor behavior and code-mode companion placement is also accepted;
+`WORKBOARD.md` has no active implementation bundle.
 
-This branch is not installed over the working Codex runtime. Release delivery
-and promotion to `main` remain separate acceptance gates.
+The current R3 worktree changes are not installed over the working Codex
+runtime. Future release delivery or another promotion to `main` remains a
+separate acceptance gate.
 
 Implementation is intentionally split into two milestones:
 

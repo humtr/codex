@@ -8,8 +8,8 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 
 - Repository: `humtr/codex`.
 - Active branch: `rewrite/rust-core`.
-- Bound M2-R2 implementation base:
-  `rewrite/rust-core@a56a85cb88d3866ddc52134aae6dedaf88ac6c1f`.
+- Bound R3 implementation base:
+  `rewrite/rust-core@c9873ae6e678ad0af1d2ff4299a396536b6d51dd`.
 - M2-R1 review follow-up and its three-finding remediation are accepted at
   `rewrite/rust-core@33b4bf3f6a4fcff7d2f7bbf67bb1d24b76b73d48`; detailed
   evidence and disposition are recorded in `GOAL.md`.
@@ -21,10 +21,12 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 - Remote `origin/rewrite/rust-core` remains at
   `253156c37a2bd22af8faae0bce03587999ffd136`; the local branch is ahead and
   no push is authorized.
-- Current milestone: M2 delivery/recovery and the follow-on release
-  install/update qualification plus authorized local Termux cutover are accepted
-  at `rewrite/rust-core@ab072b35d0b1d78354de88a16b89433727592636`. Local
-  `main` remains at the prior publication tip
+- Current milestone: R3 upstream update/doctor contract alignment and
+  code-mode companion placement, accepted in the current bundle. The preceding
+  M2 delivery/recovery,
+  release-install qualification, and authorized local Termux cutover remain
+  accepted at `rewrite/rust-core@c9873ae6e678ad0af1d2ff4299a396536b6d51dd`.
+  Local `main` remains at the prior publication tip
   `57034e4cd2d4f259c9046ac11073dc0b7f7dbb47`; no second main promotion or
   remote push was authorized or performed.
 - The inherited pre-commit hook references absent
@@ -88,21 +90,19 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 
 ### No active implementation bundle
 
-The release install/update qualification and explicitly authorized local
-Termux cutover are closed at
-`rewrite/rust-core@ab072b35d0b1d78354de88a16b89433727592636`; accepted evidence,
-artifact identities, and protected-surface results are in `GOAL.md`.
+R3 upstream update/doctor/code-mode contract alignment is accepted in the
+`GOAL.md` ledger. The accepted implementation is on `rewrite/rust-core`; the
+current `main`, remote refs, and protected live Termux state were not changed.
 
-- The live stable launcher is the accepted Core artifact, with v1 active and
-  v2 retained as the explicit rollback generation. The resolver and Core-outside
-  protected state remain unchanged.
-- The formal update surface remains the existing Core
-  `codex update --local`, `codex update --remote`, and `codex update --rollback`
-  path. No second installer/updater, bwrap repair path, remote publication, or
-  push was added.
-- Further implementation or publication work requires an explicit new scope;
-  worker mode remains OFF and `main` remains at its previously promoted local
-  publication tip.
+- Bare and ordinary `codex update` argv now reaches the qualified upstream
+  updater; exact signed-generation selectors remain Core-owned.
+- New release generations use the root-level code-mode companion, while v1
+  `compat/` generations are read only for bounded migration.
+- `codex doctor` now composes bounded upstream output with the Termux diagnosis
+  in human and schema-2 JSON forms.
+- No further implementation is authorized by this bundle. A new product
+  change requires an explicit scope, authority update, and a new vertical
+  proof map.
 
 Worker mode remains OFF; the primary Lead owns every slice, validation step,
 authority update, and acceptance decision.

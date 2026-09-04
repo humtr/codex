@@ -20,7 +20,7 @@ const PAX_PAYLOAD_MAX_BYTES: u64 = 512;
 const GENERATION_ID_MAX_BYTES: usize = 512;
 const TEXT_VALUE_MAX_BYTES: usize = 512;
 const TAR_BLOCK_BYTES: usize = 512;
-const GENERATION_FORMAT: &str = "codex-local-generation-v1";
+const GENERATION_FORMAT: &str = "codex-local-generation-v2";
 const CORE_API_IDENTITY: &str = "core-api-v1";
 const PERSISTENT_SCHEMA_IDENTITY: &str = "schema-v1";
 const PACKAGE_IDENTITY: &str = "openai/codex:codex-package-aarch64-unknown-linux-musl.tar.gz";
@@ -403,6 +403,7 @@ fn create_staging(output: &Path) -> Result<PathBuf, BuilderError> {
     Ok(staging)
 }
 
+#[cfg(test)]
 fn create_private_dir(path: &Path) -> Result<(), BuilderError> {
     let mut builder = std::fs::DirBuilder::new();
     builder.mode(0o700);
@@ -905,10 +906,8 @@ fn parse_archive<R: Read>(
     staging: &Path,
     version: &str,
 ) -> Result<ArchiveSelection, BuilderError> {
-    let compat = staging.join("compat");
-    create_private_dir(&compat)?;
     let raw_runtime = staging.join(".raw-runtime");
-    let code_mode_host = compat.join("codex-code-mode-host");
+    let code_mode_host = staging.join("codex-code-mode-host");
     let mut seen = BTreeSet::new();
     let mut logical_entries = 0usize;
     let mut total_payload = 0u64;
@@ -1273,12 +1272,6 @@ fn complete_and_publish(
 ) -> Result<(), BuilderError> {
     let adapted = adapt_selected_runtime(request, staging, selected)?;
     write_generation_descriptor(request, staging, &adapted, core_sha256)?;
-    set_mode(
-        &staging.join("compat"),
-        0o755,
-        "set compatibility directory mode",
-    )?;
-    sync_directory(&staging.join("compat"), "sync compatibility directory")?;
     sync_directory(staging, "sync complete unsigned generation")?;
     rename_noreplace(staging, &request.output)?;
     sync_directory(
@@ -1741,7 +1734,10 @@ mod tests {
         top_level.sort();
         assert_eq!(
             top_level,
-            vec![OsString::from(".raw-runtime"), OsString::from("compat")]
+            vec![
+                OsString::from(".raw-runtime"),
+                OsString::from("codex-code-mode-host")
+            ]
         );
         std::fs::remove_dir_all(&selected_root).unwrap();
 
@@ -1811,7 +1807,7 @@ mod tests {
         assert_eq!(run_from_args(request_args(&fixture.request)), 0);
 
         let runtime_path = fixture.request.output.join("runtime");
-        let host_path = fixture.request.output.join("compat/codex-code-mode-host");
+        let host_path = fixture.request.output.join("codex-code-mode-host");
         let descriptor_path = fixture.request.output.join("generation.meta");
         let runtime = std::fs::read(&runtime_path).unwrap();
         assert_eq!(runtime.len(), fixture.raw_runtime.len());
@@ -1857,7 +1853,7 @@ mod tests {
         let host_sha256 = openssl_sha256(&fixture.request.openssl, &host_path).unwrap();
         let expected_descriptor = format!(
             concat!(
-                "codex-local-generation-v1\n",
+                "codex-local-generation-v2\n",
                 "generation_id\ttest-generation\n",
                 "upstream_package_identity\topenai/codex:codex-package-aarch64-unknown-linux-musl.tar.gz\n",
                 "upstream_package_version\t0.150.1\n",
@@ -1897,16 +1893,12 @@ mod tests {
         assert_eq!(
             top_level,
             vec![
-                OsString::from("compat"),
+                OsString::from("codex-code-mode-host"),
                 OsString::from("generation.meta"),
                 OsString::from("runtime")
             ]
         );
-        let compat_entries: Vec<_> = std::fs::read_dir(fixture.request.output.join("compat"))
-            .unwrap()
-            .map(|entry| entry.unwrap().file_name())
-            .collect();
-        assert_eq!(compat_entries, vec![OsString::from("codex-code-mode-host")]);
+        assert!(!fixture.request.output.join("compat").exists());
 
         let descriptor_before_retry = std::fs::read(&descriptor_path).unwrap();
         assert_eq!(run_from_args(request_args(&fixture.request)), 1);

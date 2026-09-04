@@ -1025,6 +1025,7 @@ where
 enum QualifiedUpstreamDoctorProbeError {
     Environment(TermuxProcessEnvError),
     Io(std::io::Error),
+    OutputTooLarge,
 }
 
 #[cfg(unix)]
@@ -1033,6 +1034,9 @@ impl std::fmt::Display for QualifiedUpstreamDoctorProbeError {
         match self {
             QualifiedUpstreamDoctorProbeError::Environment(err) => err.fmt(f),
             QualifiedUpstreamDoctorProbeError::Io(err) => err.fmt(f),
+            QualifiedUpstreamDoctorProbeError::OutputTooLarge => {
+                f.write_str("upstream doctor output exceeds its byte bound")
+            }
         }
     }
 }
@@ -1043,6 +1047,7 @@ impl std::error::Error for QualifiedUpstreamDoctorProbeError {
         match self {
             QualifiedUpstreamDoctorProbeError::Environment(err) => Some(err),
             QualifiedUpstreamDoctorProbeError::Io(err) => Some(err),
+            QualifiedUpstreamDoctorProbeError::OutputTooLarge => None,
         }
     }
 }
@@ -1085,6 +1090,227 @@ where
 }
 
 #[cfg(unix)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct QualifiedUpstreamDoctorResult {
+    status: UpstreamDoctorStatus,
+    output: String,
+}
+
+#[cfg(unix)]
+fn strip_doctor_terminal_controls(value: &str) -> String {
+    let mut result = String::with_capacity(value.len());
+    let mut in_escape = false;
+    let mut csi_escape = false;
+    for character in value.chars() {
+        if in_escape {
+            if !csi_escape && character == '[' {
+                csi_escape = true;
+            } else if (csi_escape || !character.is_ascii_digit())
+                && ('@'..='~').contains(&character)
+            {
+                in_escape = false;
+                csi_escape = false;
+            }
+            continue;
+        }
+        if character == '\u{1b}' {
+            in_escape = true;
+            csi_escape = false;
+        } else if character == '\n' || character == '\t' || !character.is_control() {
+            result.push(character);
+        }
+    }
+    result
+}
+
+#[cfg(unix)]
+fn redact_doctor_line(mut line: String) -> String {
+    const SENSITIVE_KEYS: [&str; 11] = [
+        "access_token",
+        "refresh_token",
+        "oauth_token",
+        "token",
+        "api_key",
+        "authorization",
+        "cookie",
+        "client_secret",
+        "secret",
+        "private_key",
+        "password",
+    ];
+
+    for key in SENSITIVE_KEYS {
+        let mut search_from = 0;
+        loop {
+            let lowered = line.to_ascii_lowercase();
+            let Some(key_offset) = lowered[search_from..].find(key) else {
+                break;
+            };
+            let key_start = search_from + key_offset;
+            let after_key = key_start + key.len();
+            let Some(delimiter_offset) = line[after_key..].find([':', '=']) else {
+                search_from = after_key;
+                continue;
+            };
+            let delimiter = after_key + delimiter_offset;
+            let mut value_start = delimiter + 1;
+            while let Some(character) = line[value_start..].chars().next() {
+                if character == ' ' || character == '\t' {
+                    value_start += character.len_utf8();
+                } else {
+                    break;
+                }
+            }
+            let quoted = line[value_start..].starts_with('"');
+            if quoted {
+                value_start += 1;
+            }
+            let mut value_end = value_start;
+            for (offset, character) in line[value_start..].char_indices() {
+                let is_end = if quoted {
+                    character == '"'
+                } else if matches!(key, "authorization" | "cookie") {
+                    character == ',' || character == '}' || character == ']'
+                } else {
+                    character == '"'
+                        || character == ','
+                        || character == '}'
+                        || character.is_ascii_whitespace()
+                };
+                if is_end {
+                    break;
+                }
+                value_end = value_start + offset + character.len_utf8();
+            }
+            if value_end == value_start {
+                search_from = after_key;
+                continue;
+            }
+            if line[value_start..].starts_with("[redacted]") {
+                search_from = value_start + "[redacted]".len();
+                continue;
+            }
+            line.replace_range(value_start..value_end, "[redacted]");
+            search_from = value_start + "[redacted]".len();
+            if search_from >= line.len() {
+                break;
+            }
+        }
+    }
+
+    for marker in ["bearer ", "sk-", "sess-", "ghp_"] {
+        let mut search_from = 0;
+        loop {
+            let lowered = line.to_ascii_lowercase();
+            let Some(marker_offset) = lowered[search_from..].find(marker) else {
+                break;
+            };
+            let start = search_from + marker_offset;
+            let value_start = start + marker.len();
+            let mut value_end = value_start;
+            for (offset, character) in line[value_start..].char_indices() {
+                if character == '"'
+                    || character == '\''
+                    || character == ','
+                    || character.is_ascii_whitespace()
+                {
+                    break;
+                }
+                value_end = value_start + offset + character.len_utf8();
+            }
+            if value_end == value_start {
+                search_from = value_start;
+                continue;
+            }
+            line.replace_range(value_start..value_end, "[redacted]");
+            search_from = value_start + "[redacted]".len();
+            if search_from >= line.len() {
+                break;
+            }
+        }
+    }
+    line
+}
+
+#[cfg(unix)]
+fn redact_doctor_output(bytes: &[u8]) -> String {
+    let text = String::from_utf8_lossy(bytes);
+    let mut output = String::with_capacity(text.len());
+    for chunk in text.split_inclusive('\n') {
+        let (line, newline) = chunk
+            .strip_suffix('\n')
+            .map_or((chunk, ""), |line| (line, "\n"));
+        output.push_str(&redact_doctor_line(strip_doctor_terminal_controls(line)));
+        output.push_str(newline);
+    }
+    output
+}
+
+#[cfg(unix)]
+fn capture_qualified_upstream_doctor<'selection, 'asset, R, C>(
+    assets: QualifiedRuntimeAssets<'selection, 'asset>,
+    process_env: &TermuxProcessEnvSnapshot,
+    cert_file: &OsStr,
+    cert_dir: Option<&OsStr>,
+    resolver_path: R,
+    config_dir: C,
+    json: bool,
+) -> Result<QualifiedUpstreamDoctorResult, QualifiedUpstreamDoctorProbeError>
+where
+    R: AsRef<std::path::Path>,
+    C: AsRef<std::path::Path>,
+{
+    use std::io::Read as _;
+
+    let selection = assets.selection();
+    let env_plan = plan_termux_env(
+        process_env,
+        selection.compatibility_dir,
+        cert_file,
+        cert_dir,
+    )
+    .map_err(QualifiedUpstreamDoctorProbeError::Environment)?;
+    let runtime_fds = RuntimeFdSources::open(resolver_path, config_dir)
+        .map_err(QualifiedUpstreamDoctorProbeError::Io)?;
+    let mut cmd = std::process::Command::new(selection.runtime.program_path);
+    cmd.args(["-c", "sandbox_mode=\"danger-full-access\"", "doctor"]);
+    if json {
+        cmd.arg("--json");
+    }
+    cmd.stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null());
+    apply_child_env_plan_and_fence(&mut cmd, Some(&env_plan));
+    runtime_fds.configure(&mut cmd);
+    let mut child = cmd.spawn().map_err(QualifiedUpstreamDoctorProbeError::Io)?;
+    let stdout = child.stdout.take().ok_or_else(|| {
+        QualifiedUpstreamDoctorProbeError::Io(std::io::Error::other(
+            "upstream doctor stdout is unavailable",
+        ))
+    })?;
+    let mut bytes = Vec::new();
+    stdout
+        .take((DOCTOR_OUTPUT_MAX_BYTES + 1) as u64)
+        .read_to_end(&mut bytes)
+        .map_err(QualifiedUpstreamDoctorProbeError::Io)?;
+    if bytes.len() > DOCTOR_OUTPUT_MAX_BYTES {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(QualifiedUpstreamDoctorProbeError::OutputTooLarge);
+    }
+    let status = child
+        .wait()
+        .map_err(QualifiedUpstreamDoctorProbeError::Io)?;
+    Ok(QualifiedUpstreamDoctorResult {
+        status: if status.success() {
+            UpstreamDoctorStatus::Healthy
+        } else {
+            UpstreamDoctorStatus::Unhealthy
+        },
+        output: redact_doctor_output(&bytes),
+    })
+}
+
+#[cfg(unix)]
 fn probe_qualified_upstream_doctor<'selection, 'asset, R, C>(
     assets: QualifiedRuntimeAssets<'selection, 'asset>,
     process_env: &TermuxProcessEnvSnapshot,
@@ -1097,21 +1323,16 @@ where
     R: AsRef<std::path::Path>,
     C: AsRef<std::path::Path>,
 {
-    Ok(
-        if probe_qualified_upstream_command(
-            assets,
-            process_env,
-            cert_file,
-            cert_dir,
-            resolver_path,
-            config_dir,
-            &["-c", "sandbox_mode=\"danger-full-access\"", "doctor"],
-        )? {
-            UpstreamDoctorStatus::Healthy
-        } else {
-            UpstreamDoctorStatus::Unhealthy
-        },
-    )
+    Ok(capture_qualified_upstream_doctor(
+        assets,
+        process_env,
+        cert_file,
+        cert_dir,
+        resolver_path,
+        config_dir,
+        false,
+    )?
+    .status)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1199,29 +1420,36 @@ enum DoctorExitClass {
     ApiIncompatibility,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TermuxCoreDoctorReport {
+    status: CoreDoctorStatus,
+    generation_id: String,
+    generation_layout: GenerationLayout,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct DoctorReport {
-    upstream: UpstreamDoctorStatus,
-    termux_core: CoreDoctorStatus,
+    upstream: QualifiedUpstreamDoctorResult,
+    termux_core: TermuxCoreDoctorReport,
     manager: ManagerDoctorStatus,
     summary: DoctorSummaryStatus,
 }
 
 fn compose_doctor_report(
-    upstream: UpstreamDoctorStatus,
-    termux_core: CoreDoctorStatus,
+    upstream: QualifiedUpstreamDoctorResult,
+    termux_core: TermuxCoreDoctorReport,
     manager: ManagerDoctorStatus,
 ) -> DoctorReport {
-    let summary = if termux_core == CoreDoctorStatus::ApiIncompatible
+    let summary = if termux_core.status == CoreDoctorStatus::ApiIncompatible
         || manager == ManagerDoctorStatus::ApiIncompatible
     {
         DoctorSummaryStatus::ApiIncompatible
-    } else if upstream == UpstreamDoctorStatus::Unhealthy
-        || termux_core == CoreDoctorStatus::Unhealthy
+    } else if upstream.status == UpstreamDoctorStatus::Unhealthy
+        || termux_core.status == CoreDoctorStatus::Unhealthy
         || manager == ManagerDoctorStatus::Unhealthy
     {
         DoctorSummaryStatus::Unhealthy
-    } else if upstream == UpstreamDoctorStatus::Unsupported
+    } else if upstream.status == UpstreamDoctorStatus::Unsupported
         || manager == ManagerDoctorStatus::Unavailable
     {
         DoctorSummaryStatus::Degraded
@@ -1248,20 +1476,73 @@ fn doctor_exit_class(report: &DoctorReport) -> DoctorExitClass {
 }
 
 fn render_doctor_human(report: &DoctorReport) -> String {
-    format!(
-        "[Upstream]\nstatus: {}\n\n[Termux Core]\nstatus: {}\n\n[Manager]\nstatus: {}\n\n[Summary]\nstatus: {}\n",
-        report.upstream.as_str(),
-        report.termux_core.as_str(),
-        report.manager.as_str(),
-        report.summary.as_str(),
-    )
+    let mut output = String::new();
+    output.push_str("[Upstream Codex doctor]\nstatus: ");
+    output.push_str(report.upstream.status.as_str());
+    output.push('\n');
+    if report.upstream.output.is_empty() {
+        output.push_str("output: (none)\n");
+    } else {
+        output.push_str(&report.upstream.output);
+        if !report.upstream.output.ends_with('\n') {
+            output.push('\n');
+        }
+    }
+    output.push_str("\n[Termux doctor]\n");
+    output.push_str("core: ");
+    output.push_str(report.termux_core.status.as_str());
+    output.push('\n');
+    output.push_str("generation_id: ");
+    output.push_str(&report.termux_core.generation_id);
+    output.push('\n');
+    output.push_str("layout: ");
+    output.push_str(report.termux_core.generation_layout.as_str());
+    output.push_str("\nruntime: healthy\ncode_mode_host: ");
+    output.push_str(match report.termux_core.generation_layout {
+        GenerationLayout::RootCodeModeHost => "healthy",
+        GenerationLayout::LegacyCompat => "migration_required",
+    });
+    output.push_str("\nsandbox: unsupported (bwrap is not used)\n");
+    output.push_str("\n[Manager]\nstatus: ");
+    output.push_str(report.manager.as_str());
+    output.push_str("\n\n[Summary]\nstatus: ");
+    output.push_str(report.summary.as_str());
+    output.push('\n');
+    output
+}
+
+fn json_escape(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            '"' => escaped.push_str("\\\""),
+            '\\' => escaped.push_str("\\\\"),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            character if character.is_control() => {
+                use std::fmt::Write as _;
+                write!(&mut escaped, "\\u{:04x}", character as u32)
+                    .expect("writing into String cannot fail");
+            }
+            character => escaped.push(character),
+        }
+    }
+    escaped
 }
 
 fn render_doctor_json(report: &DoctorReport) -> String {
     format!(
-        "{{\"schema_version\":1,\"upstream\":{{\"status\":\"{}\"}},\"termux_core\":{{\"status\":\"{}\"}},\"manager\":{{\"status\":\"{}\"}},\"summary\":{{\"status\":\"{}\"}}}}\n",
-        report.upstream.as_str(),
-        report.termux_core.as_str(),
+        "{{\"schema_version\":2,\"upstream\":{{\"status\":\"{}\",\"output\":\"{}\"}},\"termux_core\":{{\"status\":\"{}\",\"generation_id\":\"{}\",\"layout\":\"{}\",\"runtime\":{{\"status\":\"healthy\"}},\"code_mode_host\":{{\"status\":\"{}\"}},\"sandbox\":{{\"status\":\"unsupported\",\"reason\":\"bwrap is not used\"}}}},\"manager\":{{\"status\":\"{}\"}},\"summary\":{{\"status\":\"{}\"}}}}\n",
+        report.upstream.status.as_str(),
+        json_escape(&report.upstream.output),
+        report.termux_core.status.as_str(),
+        json_escape(&report.termux_core.generation_id),
+        report.termux_core.generation_layout.as_str(),
+        match report.termux_core.generation_layout {
+            GenerationLayout::RootCodeModeHost => "healthy",
+            GenerationLayout::LegacyCompat => "migration_required",
+        },
         report.manager.as_str(),
         report.summary.as_str(),
     )
@@ -1341,22 +1622,33 @@ where
 {
     let mode = doctor_output_mode(args)?;
     let upstream = match context.doctor_capability {
-        UpstreamDoctorCapability::Supported => match probe_qualified_upstream_doctor(
+        UpstreamDoctorCapability::Supported => match capture_qualified_upstream_doctor(
             context.runtime_assets,
             context.process_env,
             context.cert_file,
             context.cert_dir,
             context.resolver_path,
             context.config_dir,
+            mode == DoctorOutputMode::Json,
         ) {
-            Ok(status) => status,
-            Err(_) => UpstreamDoctorStatus::Unhealthy,
+            Ok(result) => result,
+            Err(_) => QualifiedUpstreamDoctorResult {
+                status: UpstreamDoctorStatus::Unhealthy,
+                output: String::new(),
+            },
         },
-        UpstreamDoctorCapability::Unsupported => UpstreamDoctorStatus::Unsupported,
+        UpstreamDoctorCapability::Unsupported => QualifiedUpstreamDoctorResult {
+            status: UpstreamDoctorStatus::Unsupported,
+            output: String::new(),
+        },
     };
     let report = compose_doctor_report(
         upstream,
-        context.core_doctor_status,
+        TermuxCoreDoctorReport {
+            status: context.core_doctor_status,
+            generation_id: context.generation_id.to_owned(),
+            generation_layout: context.generation_layout,
+        },
         context.manager_doctor_status,
     );
     let output = match mode {
@@ -1387,6 +1679,8 @@ struct LocalPublicDispatchContext<
     config_dir: &'context std::path::Path,
     doctor_capability: UpstreamDoctorCapability,
     core_doctor_status: CoreDoctorStatus,
+    generation_id: &'context str,
+    generation_layout: GenerationLayout,
     manager_doctor_status: ManagerDoctorStatus,
 }
 
@@ -2360,7 +2654,9 @@ mod m2_generation_state {
 }
 
 #[cfg(unix)]
-const LOCAL_GENERATION_FORMAT: &str = "codex-local-generation-v1";
+const LEGACY_GENERATION_FORMAT: &str = "codex-local-generation-v1";
+const LOCAL_GENERATION_FORMAT: &str = "codex-local-generation-v2";
+const CODE_MODE_HOST_FILE: &str = "codex-code-mode-host";
 #[cfg(unix)]
 const LOCAL_GENERATION_MAX_BYTES: usize = 64 * 1024;
 #[cfg(unix)]
@@ -2377,6 +2673,8 @@ const LOCAL_RELEASE_MAX_BYTES: usize = 128 * 1024;
 const LOCAL_RELEASE_MAX_FILES: usize = 4096;
 #[cfg(unix)]
 const LOCAL_RELEASE_SIGNATURE_MAX_BYTES: u64 = 1024;
+#[cfg(unix)]
+const DOCTOR_OUTPUT_MAX_BYTES: usize = 64 * 1024;
 #[cfg(unix)]
 const BOOTSTRAP_PUBLIC_KEY_MAX_BYTES: u64 = 16 * 1024;
 #[cfg(unix)]
@@ -2937,7 +3235,8 @@ fn parse_release_file_mode(value: &str, relative_path: &str) -> Result<u32, Loca
             "release file is not owner-readable",
         ));
     }
-    if (matches!(relative_path, "runtime" | "manager") || relative_path.starts_with("helpers/"))
+    if (matches!(relative_path, "runtime" | "manager" | CODE_MODE_HOST_FILE)
+        || relative_path.starts_with("helpers/"))
         && mode & 0o100 == 0
     {
         return Err(LocalProductError::ReleasePolicy(
@@ -2962,7 +3261,10 @@ fn valid_release_relative_path(value: &str) -> bool {
     {
         return false;
     }
-    if matches!(value, "generation.meta" | "runtime" | "manager") {
+    if matches!(
+        value,
+        "generation.meta" | "runtime" | "manager" | CODE_MODE_HOST_FILE
+    ) {
         return true;
     }
     if let Some(index) = value.strip_prefix("helpers/") {
@@ -3275,12 +3577,31 @@ fn openssl_sha256(
 }
 
 #[cfg(unix)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GenerationLayout {
+    RootCodeModeHost,
+    LegacyCompat,
+}
+
+#[cfg(unix)]
+impl GenerationLayout {
+    fn as_str(self) -> &'static str {
+        match self {
+            GenerationLayout::RootCodeModeHost => "root-code-mode-host-v2",
+            GenerationLayout::LegacyCompat => "legacy-compat-v1",
+        }
+    }
+}
+
+#[cfg(unix)]
 #[derive(Debug, Clone)]
 struct LoadedLocalGeneration {
     generation_id: String,
     manifest: GenerationManifest,
     doctor_capability: UpstreamDoctorCapability,
+    generation_layout: GenerationLayout,
     runtime_path: std::path::PathBuf,
+    code_mode_host_path: std::path::PathBuf,
     compatibility_dir: std::path::PathBuf,
     manager_path: Option<std::path::PathBuf>,
     helper_paths: Vec<std::path::PathBuf>,
@@ -3332,11 +3653,15 @@ fn load_local_generation(
     let text = std::str::from_utf8(&bytes)
         .map_err(|_| LocalProductError::Descriptor("generation descriptor is not UTF-8"))?;
     let mut lines = text.lines();
-    if lines.next() != Some(LOCAL_GENERATION_FORMAT) {
-        return Err(LocalProductError::Descriptor(
-            "generation descriptor format is unsupported",
-        ));
-    }
+    let generation_layout = match lines.next() {
+        Some(LOCAL_GENERATION_FORMAT) => GenerationLayout::RootCodeModeHost,
+        Some(LEGACY_GENERATION_FORMAT) => GenerationLayout::LegacyCompat,
+        _ => {
+            return Err(LocalProductError::Descriptor(
+                "generation descriptor format is unsupported",
+            ))
+        }
+    };
 
     let generation_id = descriptor_field(lines.next(), "generation_id")?;
     m2_generation_state::validate_generation_identity(generation_id, "generation_id")
@@ -3441,7 +3766,6 @@ fn load_local_generation(
     };
 
     let runtime_path = generation_dir.join("runtime");
-    let compatibility_dir = generation_dir.join("compat");
     if !runtime_path.is_file() {
         return Err(LocalProductError::Descriptor(
             "activated generation runtime is missing",
@@ -3452,16 +3776,52 @@ fn load_local_generation(
         "inspect activated generation runtime",
         "activated generation runtime must be a regular file",
     )?;
-    if !compatibility_dir.is_dir() {
-        return Err(LocalProductError::Descriptor(
-            "activated generation compatibility directory is missing",
-        ));
-    }
-    ensure_real_directory(
-        &compatibility_dir,
-        "inspect activated generation compatibility directory",
-        "activated generation compatibility directory must be a real directory",
-    )?;
+    let (code_mode_host_path, compatibility_dir) = match generation_layout {
+        GenerationLayout::RootCodeModeHost => {
+            let code_mode_host_path = generation_dir.join(CODE_MODE_HOST_FILE);
+            ensure_regular_file(
+                &code_mode_host_path,
+                "inspect activated generation code-mode host",
+                "activated generation code-mode host must be a regular file",
+            )?;
+            let legacy_compatibility_dir = generation_dir.join("compat");
+            match std::fs::symlink_metadata(&legacy_compatibility_dir) {
+                Ok(_) => {
+                    return Err(LocalProductError::UnsafeSource(
+                        "v2 generation must not contain a compatibility directory",
+                    ))
+                }
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                Err(source) => {
+                    return Err(LocalProductError::Io {
+                        operation: "inspect activated generation compatibility directory",
+                        source,
+                    })
+                }
+            }
+            (code_mode_host_path, generation_dir.to_path_buf())
+        }
+        GenerationLayout::LegacyCompat => {
+            let compatibility_dir = generation_dir.join("compat");
+            if !compatibility_dir.is_dir() {
+                return Err(LocalProductError::Descriptor(
+                    "activated generation compatibility directory is missing",
+                ));
+            }
+            ensure_real_directory(
+                &compatibility_dir,
+                "inspect activated generation compatibility directory",
+                "activated generation compatibility directory must be a real directory",
+            )?;
+            let code_mode_host_path = compatibility_dir.join(CODE_MODE_HOST_FILE);
+            ensure_regular_file(
+                &code_mode_host_path,
+                "inspect legacy generation code-mode host",
+                "legacy generation code-mode host must be a regular file",
+            )?;
+            (code_mode_host_path, compatibility_dir)
+        }
+    };
     let manager_path = manifest
         .manager_artifact_digest
         .as_ref()
@@ -3505,7 +3865,9 @@ fn load_local_generation(
         generation_id: generation_id.to_owned(),
         manifest,
         doctor_capability,
+        generation_layout,
         runtime_path,
+        code_mode_host_path,
         compatibility_dir,
         manager_path,
         helper_paths,
@@ -3732,7 +4094,16 @@ fn exact_release_file_paths(
         "inspect release runtime",
         "release runtime must be a regular file",
     )?;
+    ensure_regular_file(
+        &loaded.code_mode_host_path,
+        "inspect release code-mode host",
+        "release code-mode host must be a regular file",
+    )?;
     let mut files = vec!["generation.meta".to_owned(), "runtime".to_owned()];
+    match loaded.generation_layout {
+        GenerationLayout::RootCodeModeHost => files.push(CODE_MODE_HOST_FILE.to_owned()),
+        GenerationLayout::LegacyCompat => {}
+    }
     if let Some(manager_path) = loaded.manager_path.as_ref() {
         ensure_regular_file(
             manager_path,
@@ -3754,7 +4125,9 @@ fn exact_release_file_paths(
             "release file count is outside the supported bound",
         ));
     }
-    collect_compat_release_files(generation_dir, &loaded.compatibility_dir, &mut files)?;
+    if loaded.generation_layout == GenerationLayout::LegacyCompat {
+        collect_compat_release_files(generation_dir, &loaded.compatibility_dir, &mut files)?;
+    }
     files.sort();
     Ok(files)
 }
@@ -4141,7 +4514,16 @@ fn stage_local_generation_with_io<I: GenerationPublishIo>(
             &candidate.join("runtime"),
             "runtime must be a regular file",
         )?;
-        copy_local_directory_tree(&source.compatibility_dir, &candidate.join("compat"))?;
+        match source.generation_layout {
+            GenerationLayout::RootCodeModeHost => copy_local_regular_file(
+                &source.code_mode_host_path,
+                &candidate.join(CODE_MODE_HOST_FILE),
+                "code-mode host must be a regular file",
+            )?,
+            GenerationLayout::LegacyCompat => {
+                copy_local_directory_tree(&source.compatibility_dir, &candidate.join("compat"))?
+            }
+        }
         if let Some(manager) = source.manager_path.as_ref() {
             copy_local_regular_file(
                 manager,
@@ -4289,6 +4671,10 @@ fn execute_activated_route(
             ManagerArtifact::Unavailable => ManagerDoctorStatus::Unavailable,
             ManagerArtifact::Available(_) => ManagerDoctorStatus::Healthy,
         };
+        let core_doctor_status = match loaded.generation_layout {
+            GenerationLayout::RootCodeModeHost => CoreDoctorStatus::Healthy,
+            GenerationLayout::LegacyCompat => CoreDoctorStatus::Unhealthy,
+        };
         let context = LocalPublicDispatchContext {
             runtime_assets,
             manager_artifact,
@@ -4298,7 +4684,9 @@ fn execute_activated_route(
             resolver_path: &roots.resolver_path,
             config_dir: &roots.config_dir,
             doctor_capability: loaded.doctor_capability,
-            core_doctor_status: CoreDoctorStatus::Healthy,
+            core_doctor_status,
+            generation_id: &loaded.generation_id,
+            generation_layout: loaded.generation_layout,
             manager_doctor_status,
         };
         execute_public_dispatch(route, context).map_err(LocalProductError::Dispatch)
@@ -4661,7 +5049,6 @@ fn acquire_remote_release_source(
         ));
     }
 
-    ensure_remote_private_directory(&acquisition_root.join("compat"))?;
     for file in &manifest.files {
         ensure_remote_resource_parent(acquisition_root, &file.relative_path)?;
         let destination = acquisition_root.join(&file.relative_path);
@@ -5722,6 +6109,17 @@ fn rollback_signed_local_release(roots: &LocalCoreRoots) -> Result<String, Local
 }
 
 #[cfg(unix)]
+fn is_core_update_selector(args: &[OsString]) -> bool {
+    matches!(
+        args.first().map(OsString::as_os_str),
+        Some(value)
+            if value == OsStr::new("--local")
+                || value == OsStr::new("--remote")
+                || value == OsStr::new("--rollback")
+    )
+}
+
+#[cfg(unix)]
 fn run_core_update(args: Vec<OsString>) -> i32 {
     let local = args.len() == 2 && args[0] == OsStr::new("--local") && !args[1].is_empty();
     let remote = args.len() == 2 && args[0] == OsStr::new("--remote") && !args[1].is_empty();
@@ -5769,6 +6167,43 @@ fn run_core_update(args: Vec<OsString>) -> i32 {
 }
 
 #[cfg(unix)]
+fn run_upstream_update(args: Vec<OsString>) -> i32 {
+    let mut upstream_args = Vec::with_capacity(args.len() + 1);
+    upstream_args.push(OsString::from("update"));
+    upstream_args.extend(args);
+    let planned = match plan_passthrough_args(upstream_args) {
+        Ok(planned) => planned,
+        Err(err) => {
+            eprintln!("codex: {err}");
+            return 2;
+        }
+    };
+    let roots = match LocalCoreRoots::from_environment() {
+        Ok(roots) => roots,
+        Err(err) => {
+            eprintln!("codex: {err}");
+            return 1;
+        }
+    };
+    let process_env = capture_termux_process_env();
+    match execute_activated_route(PublicDispatchRoute::Upstream(planned), &roots, &process_env) {
+        Ok(PublicDispatchCompletion::Update(_)) => 2,
+        Ok(PublicDispatchCompletion::Doctor(outcome)) => {
+            print!("{}", outcome.output);
+            doctor_exit_code(outcome.exit_class)
+        }
+        Ok(PublicDispatchCompletion::TermuxUnavailable(message)) => {
+            eprintln!("{message}");
+            1
+        }
+        Err(err) => {
+            eprintln!("codex: {err}");
+            1
+        }
+    }
+}
+
+#[cfg(unix)]
 fn run_public_main<I, S>(args: I) -> i32
 where
     I: IntoIterator<Item = S>,
@@ -5782,7 +6217,11 @@ where
         }
     };
     if let PublicDispatchRoute::Update(args) = route {
-        return run_core_update(args);
+        return if is_core_update_selector(&args) {
+            run_core_update(args)
+        } else {
+            run_upstream_update(args)
+        };
     }
     let roots = match LocalCoreRoots::from_environment() {
         Ok(roots) => roots,
@@ -6131,16 +6570,26 @@ mod tests {
     #[test]
     fn test_doctor_report_and_usage_keep_bounded_public_contract() {
         let report = compose_doctor_report(
-            UpstreamDoctorStatus::Unsupported,
-            CoreDoctorStatus::Healthy,
+            QualifiedUpstreamDoctorResult {
+                status: UpstreamDoctorStatus::Unsupported,
+                output: String::new(),
+            },
+            TermuxCoreDoctorReport {
+                status: CoreDoctorStatus::Healthy,
+                generation_id: "test-generation".to_owned(),
+                generation_layout: GenerationLayout::RootCodeModeHost,
+            },
             ManagerDoctorStatus::Unavailable,
         );
         assert_eq!(report.summary, DoctorSummaryStatus::Degraded);
         assert_eq!(doctor_exit_class(&report), DoctorExitClass::HealthFailure);
-        assert_eq!(
-            render_doctor_json(&report),
-            "{\"schema_version\":1,\"upstream\":{\"status\":\"unsupported\"},\"termux_core\":{\"status\":\"healthy\"},\"manager\":{\"status\":\"unavailable\"},\"summary\":{\"status\":\"degraded\"}}\n"
-        );
+        let json = render_doctor_json(&report);
+        assert!(json.contains("\"schema_version\":2"));
+        assert!(json.contains("\"upstream\":{\"status\":\"unsupported\",\"output\":\"\"}"));
+        assert!(json.contains("\"generation_id\":\"test-generation\""));
+        assert!(json.contains("\"layout\":\"root-code-mode-host-v2\""));
+        assert!(json.contains("\"code_mode_host\":{\"status\":\"healthy\"}"));
+        assert!(json.contains("\"reason\":\"bwrap is not used\""));
         assert_eq!(
             doctor_output_mode(Vec::<OsString>::new()).unwrap(),
             DoctorOutputMode::Human
@@ -6152,6 +6601,32 @@ mod tests {
         let err = doctor_output_mode([OsString::from("secret-value")]).unwrap_err();
         assert_eq!(err.to_string(), "usage: codex doctor [--json]");
         assert!(!err.to_string().contains("secret-value"));
+
+        let redacted = redact_doctor_output(
+            b"status=ok api_key=sk-secret-value\n\x1b[31mBearer bearer-secret\x1b[0m\n",
+        );
+        assert!(redacted.contains("status=ok"));
+        assert!(!redacted.contains("sk-secret-value"));
+        assert!(!redacted.contains("bearer-secret"));
+        assert!(!redacted.contains('\u{1b}'));
+
+        let redacted_multiple = redact_doctor_output(
+            "π api_key=first-secret api_key=second-secret token=third-secret authorization=Bearer bearer-secret\n"
+                .as_bytes(),
+        );
+        assert!(redacted_multiple.contains("π"));
+        assert_eq!(redacted_multiple.matches("[redacted]").count(), 4);
+        assert!(!redacted_multiple.contains("first-secret"));
+        assert!(!redacted_multiple.contains("second-secret"));
+        assert!(!redacted_multiple.contains("third-secret"));
+        assert!(!redacted_multiple.contains("bearer-secret"));
+
+        let redacted_markers = redact_doctor_output(b"sk-first sess-second ghp_third sk-fourth\n");
+        assert_eq!(redacted_markers.matches("[redacted]").count(), 4);
+        assert!(!redacted_markers.contains("first"));
+        assert!(!redacted_markers.contains("second"));
+        assert!(!redacted_markers.contains("third"));
+        assert!(!redacted_markers.contains("fourth"));
     }
 
     #[cfg(unix)]
@@ -6219,7 +6694,19 @@ if [ "$1" = "tty" ]; then
   exit 88
 fi
 if [ "$1" = "doctor" ]; then
-  printf 'SECRET-UPSTREAM-STDOUT\n'
+  if [ "${CODEX_TEST_DOCTOR_LARGE:-}" = "1" ]; then
+    i=0
+    while [ "$i" -le 65536 ]; do
+      printf x
+      i=$((i + 1))
+    done
+    exit 0
+  fi
+  if [ "$2" = "--json" ]; then
+    printf '{"status":"ok","api_key":"sk-upstream-secret"}\n'
+  else
+    printf 'upstream doctor ok api_key=sk-upstream-secret\n'
+  fi
   printf 'SECRET-UPSTREAM-STDERR\n' >&2
   exit "${CODEX_TEST_DOCTOR_EXIT:-0}"
 fi
@@ -6343,6 +6830,8 @@ exit 73
             config_dir: &config,
             doctor_capability: UpstreamDoctorCapability::Supported,
             core_doctor_status: CoreDoctorStatus::Healthy,
+            generation_id: "test-generation",
+            generation_layout: GenerationLayout::RootCodeModeHost,
             manager_doctor_status: ManagerDoctorStatus::Unavailable,
         };
         match execute_public_dispatch(route, context) {
@@ -6586,7 +7075,7 @@ exit 73
 
     #[cfg(unix)]
     #[test]
-    fn test_doctor_is_bounded_read_only_and_maps_upstream_status_only() {
+    fn test_doctor_is_bounded_read_only_and_preserves_upstream_report() {
         let (root, runtime, resolver, config) = prepare_exec_fixture("doctor");
         let manifest = valid_manifest(false, false);
         let generation = qualify_generation_manifest(&manifest, &requirements()).unwrap();
@@ -6622,6 +7111,8 @@ exit 73
                 config_dir: &config,
                 doctor_capability: UpstreamDoctorCapability::Supported,
                 core_doctor_status: CoreDoctorStatus::Healthy,
+                generation_id: "test-generation",
+                generation_layout: GenerationLayout::RootCodeModeHost,
                 manager_doctor_status: ManagerDoctorStatus::Unavailable,
             },
         )
@@ -6629,7 +7120,8 @@ exit 73
         assert_eq!(outcome.exit_class, DoctorExitClass::HealthFailure);
         assert!(outcome
             .output
-            .contains("\"upstream\":{\"status\":\"healthy\"}"));
+            .contains("\"upstream\":{\"status\":\"healthy\",\"output\":\""));
+        assert!(outcome.output.contains("{\\\"status\\\":\\\"ok\\\""));
         assert!(!outcome.output.contains("SECRET-UPSTREAM"));
         assert_eq!(std::fs::read(&resolver).unwrap(), before);
         remove_temp_root(root);
@@ -6666,6 +7158,8 @@ exit 73
             config_dir: std::path::Path::new("/missing/config"),
             doctor_capability: UpstreamDoctorCapability::Supported,
             core_doctor_status: CoreDoctorStatus::Healthy,
+            generation_id: "test-generation",
+            generation_layout: GenerationLayout::RootCodeModeHost,
             manager_doctor_status: ManagerDoctorStatus::Unavailable,
         };
         assert_eq!(
@@ -6887,6 +7381,11 @@ exit 73
         let fake = write_fake_runtime(&generation_dir);
         let runtime = generation_dir.join("runtime");
         std::fs::rename(fake, &runtime).unwrap();
+        std::fs::copy(
+            &runtime,
+            generation_dir.join("compat").join(CODE_MODE_HOST_FILE),
+        )
+        .unwrap();
         if manager {
             std::fs::copy(&runtime, generation_dir.join("manager")).unwrap();
         }
@@ -6918,6 +7417,30 @@ exit 73
             CORE_API_IDENTITY,
             PERSISTENT_SCHEMA_IDENTITY,
             doctor,
+        );
+        std::fs::write(generation_dir.join("generation.meta"), descriptor).unwrap();
+        generation_dir
+    }
+
+    #[cfg(unix)]
+    fn b2_write_root_generation(
+        roots: &LocalCoreRoots,
+        generation_id: &str,
+        manager: bool,
+        doctor: &str,
+    ) -> std::path::PathBuf {
+        let generation_dir = b2_write_generation(roots, generation_id, manager, doctor);
+        std::fs::rename(
+            generation_dir.join("compat").join(CODE_MODE_HOST_FILE),
+            generation_dir.join(CODE_MODE_HOST_FILE),
+        )
+        .unwrap();
+        std::fs::remove_dir(generation_dir.join("compat")).unwrap();
+        let descriptor = std::fs::read_to_string(generation_dir.join("generation.meta")).unwrap();
+        let descriptor = descriptor.replacen(
+            "codex-local-generation-v1\n",
+            "codex-local-generation-v2\n",
+            1,
         );
         std::fs::write(generation_dir.join("generation.meta"), descriptor).unwrap();
         generation_dir
@@ -7004,6 +7527,11 @@ exit 73
         b2_activate(&roots, "g1");
         let loaded = load_activated_generation(&roots).unwrap();
         assert_eq!(loaded.runtime_path, generation_dir.join("runtime"));
+        assert_eq!(loaded.generation_layout, GenerationLayout::LegacyCompat);
+        assert_eq!(
+            loaded.code_mode_host_path,
+            generation_dir.join("compat").join(CODE_MODE_HOST_FILE)
+        );
         assert_eq!(loaded.compatibility_dir, generation_dir.join("compat"));
         assert_eq!(loaded.manager_path, Some(generation_dir.join("manager")));
         assert_eq!(
@@ -7015,6 +7543,56 @@ exit 73
             UpstreamDoctorCapability::Supported
         );
         remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_r3_root_code_mode_host_layout_is_selected_and_legacy_layout_stages() {
+        let (root, roots) = b2_test_roots("r3-root-code-mode-host");
+        let generation_dir = b2_write_root_generation(&roots, "root-v2", false, "supported");
+        b2_activate(&roots, "root-v2");
+        let loaded = load_activated_generation(&roots).unwrap();
+        assert_eq!(loaded.generation_layout, GenerationLayout::RootCodeModeHost);
+        assert_eq!(loaded.generation_layout.as_str(), "root-code-mode-host-v2");
+        assert_eq!(
+            loaded.code_mode_host_path,
+            generation_dir.join(CODE_MODE_HOST_FILE)
+        );
+        assert_eq!(loaded.compatibility_dir, generation_dir);
+
+        use std::os::unix::fs::symlink;
+        let host_path = generation_dir.join(CODE_MODE_HOST_FILE);
+        let outside_host = generation_dir
+            .parent()
+            .unwrap()
+            .join("outside-code-mode-host");
+        std::fs::rename(&host_path, &outside_host).unwrap();
+        symlink(&outside_host, &host_path).unwrap();
+        assert!(matches!(
+            load_activated_generation(&roots),
+            Err(LocalProductError::UnsafeSource(
+                "activated generation code-mode host must be a regular file"
+            ))
+        ));
+
+        let (legacy_root, legacy) = b2_test_roots("r3-legacy-code-mode-host");
+        let legacy_generation = b2_write_generation(&legacy, "legacy-v1", false, "supported");
+        b3_write_required_release_files(&legacy_generation);
+        stage_local_generation(&legacy_generation, &roots.generation_root).unwrap();
+        let staged = roots.generation_root.join("legacy-v1");
+        let staged_loaded = load_local_generation(&staged).unwrap();
+        assert_eq!(
+            staged_loaded.generation_layout,
+            GenerationLayout::LegacyCompat
+        );
+        assert_eq!(staged_loaded.generation_layout.as_str(), "legacy-compat-v1");
+        assert_eq!(
+            std::fs::read(staged.join("compat").join(CODE_MODE_HOST_FILE)).unwrap(),
+            std::fs::read(legacy_generation.join("compat").join(CODE_MODE_HOST_FILE)).unwrap()
+        );
+
+        remove_temp_root(root);
+        remove_temp_root(legacy_root);
     }
 
     #[cfg(unix)]
@@ -7041,7 +7619,7 @@ exit 73
                 assert_eq!(outcome.exit_class, DoctorExitClass::HealthFailure);
                 assert!(outcome
                     .output
-                    .contains("\"upstream\":{\"status\":\"unsupported\"}"));
+                    .contains("\"upstream\":{\"status\":\"unsupported\",\"output\":\"\"}"));
             }
             other => panic!("unexpected doctor result: {other:?}"),
         }
@@ -7067,8 +7645,20 @@ exit 73
         let scenario = std::env::var(MAIN_PROBE_ARGS).unwrap();
         let args = match scenario.as_str() {
             "version" => vec![OsString::from("--version")],
+            "update" => vec![
+                OsString::from("update"),
+                OsString::from("--help"),
+                OsString::from("--disable"),
+                OsString::from("code_mode_host"),
+            ],
+            "update-bare" => vec![OsString::from("update")],
             "manager" => vec![OsString::from("termux"), OsString::from("status")],
             "doctor" => vec![OsString::from("doctor"), OsString::from("--json")],
+            "doctor-human" => vec![OsString::from("doctor")],
+            "doctor-overflow" => {
+                std::env::set_var("CODEX_TEST_DOCTOR_LARGE", "1");
+                vec![OsString::from("doctor"), OsString::from("--json")]
+            }
             other => panic!("unknown main probe scenario {other}"),
         };
         let code = run_public_main(args);
@@ -7109,13 +7699,21 @@ exit 73
     #[cfg(unix)]
     fn b2_public_main_doctor_fixture(label: &str) -> std::path::PathBuf {
         let root = b2_public_main_fixture(label, false);
-        let descriptor = root.join("home/.local/lib/codex/core/generations/g1/generation.meta");
+        let generation = root.join("home/.local/lib/codex/core/generations/g1");
+        std::fs::rename(
+            generation.join("compat").join(CODE_MODE_HOST_FILE),
+            generation.join(CODE_MODE_HOST_FILE),
+        )
+        .unwrap();
+        std::fs::remove_dir(generation.join("compat")).unwrap();
+        let descriptor = generation.join("generation.meta");
         let contents = std::fs::read_to_string(&descriptor).unwrap();
         let contents = contents.replacen(
             "upstream_doctor\tunsupported\n",
             "upstream_doctor\tsupported\n",
             1,
         );
+        let contents = contents.replacen(LEGACY_GENERATION_FORMAT, LOCAL_GENERATION_FORMAT, 1);
         assert_ne!(contents, std::fs::read_to_string(&descriptor).unwrap());
         std::fs::write(descriptor, contents).unwrap();
         root
@@ -7153,6 +7751,59 @@ exit 73
             .stdout
             .windows(b"ARGS:<status>".len())
             .any(|w| w == b"ARGS:<status>"));
+        remove_temp_root(root);
+
+        let root = b2_public_main_fixture("b2-main-update", false);
+        let update = run_public_main_probe(&root, "update");
+        assert_eq!(update.status.code(), Some(73));
+        assert!(update
+            .stdout
+            .windows(b"<update><--help><--disable><code_mode_host>".len())
+            .any(|window| window == b"<update><--help><--disable><code_mode_host>"));
+        remove_temp_root(root);
+
+        let root = b2_public_main_fixture("b2-main-update-bare", false);
+        let update = run_public_main_probe(&root, "update-bare");
+        assert_eq!(update.status.code(), Some(73));
+        assert!(update
+            .stdout
+            .windows(b"ARGS:<update>".len())
+            .any(|window| window == b"ARGS:<update>"));
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_r3_public_main_human_doctor_composes_upstream_and_termux_reports() {
+        let root = b2_public_main_doctor_fixture("r3-main-doctor-human");
+        let result = run_public_main_probe(&root, "doctor-human");
+        assert_eq!(result.status.code(), Some(1));
+        let stdout = String::from_utf8(result.stdout).unwrap();
+        assert!(stdout.contains("[Upstream Codex doctor]"));
+        assert!(stdout.contains("upstream doctor ok"));
+        assert!(stdout.contains("[Termux doctor]"));
+        assert!(stdout.contains("generation_id: g1"));
+        assert!(stdout.contains("layout: root-code-mode-host-v2"));
+        assert!(stdout.contains("code_mode_host: healthy"));
+        assert!(stdout.contains("sandbox: unsupported (bwrap is not used)"));
+        assert!(stdout.contains("[Summary]"));
+        assert!(!stdout.contains("sk-upstream-secret"));
+        assert!(!stdout.contains("SECRET-UPSTREAM-STDERR"));
+        assert!(result.stderr.is_empty(), "stderr: {:?}", result.stderr);
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_r3_public_main_doctor_caps_upstream_output() {
+        let root = b2_public_main_doctor_fixture("r3-main-doctor-overflow");
+        let result = run_public_main_probe(&root, "doctor-overflow");
+        assert_eq!(result.status.code(), Some(1));
+        let stdout = String::from_utf8(result.stdout).unwrap();
+        assert!(stdout.contains("\"upstream\":{\"status\":\"unhealthy\",\"output\":\"\"}"));
+        assert!(stdout.contains("\"summary\":{\"status\":\"unhealthy\"}"));
+        assert!(!stdout.contains("xxxxxxxx"));
+        assert!(result.stderr.is_empty(), "stderr: {:?}", result.stderr);
         remove_temp_root(root);
     }
 
@@ -7261,8 +7912,8 @@ exit 73
         let result = run_public_main_probe(&root, "doctor");
         assert_eq!(result.status.code(), Some(1));
         let stdout = String::from_utf8(result.stdout).unwrap();
-        assert!(stdout.contains("\"upstream\":{\"status\":\"unhealthy\"}"));
-        assert!(stdout.contains("\"termux_core\":{\"status\":\"healthy\"}"));
+        assert!(stdout.contains("\"upstream\":{\"status\":\"unhealthy\",\"output\":\"\"}"));
+        assert!(stdout.contains("\"termux_core\":{\"status\":\"healthy\",\"generation_id\":"));
         assert!(stdout.contains("\"summary\":{\"status\":\"unhealthy\"}"));
         assert!(!stdout.contains("resolv.conf"));
         assert!(result.stderr.is_empty(), "stderr: {:?}", result.stderr);
@@ -7272,7 +7923,13 @@ exit 73
     #[cfg(unix)]
     #[test]
     fn test_m2_b2_update_and_invalid_sandbox_need_no_generation_loader() {
-        assert_eq!(run_public_main([OsString::from("update")]), 2);
+        assert!(!is_core_update_selector(&[]));
+        assert!(is_core_update_selector(&[
+            OsString::from("--local"),
+            OsString::from("/tmp/release"),
+        ]));
+        assert!(is_core_update_selector(&[OsString::from("--remote")]));
+        assert!(is_core_update_selector(&[OsString::from("--rollback")]));
         assert_eq!(run_public_main([OsString::from("--sandbox=read-only")]), 2);
     }
 
@@ -9769,7 +10426,7 @@ esac
                 .iter()
                 .map(|file| file.relative_path.as_str())
                 .collect::<Vec<_>>(),
-            vec!["compat/codex-code-mode-host", "generation.meta", "runtime"]
+            vec!["codex-code-mode-host", "generation.meta", "runtime"]
         );
         assert_eq!(loaded.generation_id, "b6-signed-admission");
         assert_eq!(
@@ -9797,7 +10454,7 @@ esac
             UpstreamDoctorCapability::Supported
         );
         assert_eq!(
-            std::fs::read(generation.join("compat/codex-code-mode-host")).unwrap(),
+            std::fs::read(generation.join(CODE_MODE_HOST_FILE)).unwrap(),
             b6_static_aarch64_elf(false)
         );
         let runtime = std::fs::read(generation.join("runtime")).unwrap();
@@ -11457,6 +12114,7 @@ esac
         assert_eq!(
             exact_release_file_paths(&generation, &loaded).unwrap(),
             vec![
+                "compat/codex-code-mode-host".to_string(),
                 "compat/nested/asset".to_string(),
                 "generation.meta".to_string(),
                 "helpers/0".to_string(),
@@ -11743,7 +12401,7 @@ esac
 
         let compat_link = b2_write_generation(&source_roots, "compat-link", false, "unsupported");
         b4_write_signed_release(&compat_link, 2, &openssl, &private_key);
-        std::fs::remove_dir(compat_link.join("compat")).unwrap();
+        std::fs::remove_dir_all(compat_link.join("compat")).unwrap();
         let outside_compat = root.join("outside-compat");
         std::fs::create_dir(&outside_compat).unwrap();
         std::fs::write(outside_compat.join("outside"), b"outside").unwrap();
