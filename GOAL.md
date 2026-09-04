@@ -1226,6 +1226,52 @@ Termux qualification. Produce one candidate for independent product review.
   promotion to `main`, push, live cutover, or bounded device qualification has
   been performed. Worker mode remains OFF.
 
+- The required independent product review of the repaired M2 candidate is
+  complete at implementation review commit
+  `5a7a5292f38876087a5c9b5a41b1dd7e8dbf082b`.
+  The primary Lead performed a fresh read-only audit of the public dispatch,
+  bwrap boundary, runtime/FD environment, generation confinement, activation
+  and recovery state machine, bootstrap, remote/local release paths, doctor
+  envelope, and protected live surfaces. No new product-contract, public-path,
+  state-integrity, bwrap, or protected-surface finding remained.
+- The review initially exposed five warning-denied clippy findings. They were
+  closed in the same-scope review commit by reusing the existing dispatch
+  context, removing a one-use test helper, and applying direct standard-library
+  forms; no product behavior or public contract changed. The corrected
+  `cargo clippy --locked --workspace --all-targets -- -D warnings` gate passes.
+- Review source identities are Core
+  `8144b92b078a84c62b9758aba247d9f492a151c2d02c2fa6cd59f7185e52bc5d`,
+  bootstrap
+  `4cda45ad448d110c224854724ab8229fc9aa431d27ea4c818ab574046b1005db`, and
+  release-builder
+  `957dc5f6d46b280f7a8d4e24e1f25d0bfb589a82fb8664fde9b047dbf393005f`; the
+  normative SPEC remains
+  `9f5db58c49d1572d794f2b60035fc07f3a68390d1e165df670649bd2daad2d8e`. The
+  warning-denied locked release artifacts are Core
+  `358c105360c9754fee287f394139065a9e1c4996b95fa5b627653ccb63a08542` and
+  release-builder
+  `7742288c621af679ad8ccc2bf61a08fd73f6d8d154045fd2b280898d2b294f16`.
+- Corrected focused proof passed M2-R2 `3 passed, 0 failed` and the direct
+  doctor regression `1 passed, 0 failed`; the initial bare doctor filter that
+  selected zero tests was discarded and is not acceptance evidence. The
+  current revision's serial workspace suite passed Core `113 passed, 0 failed,
+  1 ignored` and release-builder `7 passed, 0 failed`; three independent
+  default-parallel repetitions passed the same counts. Formatting, bootstrap
+  shell syntax, `git diff --check`, and the warnings-denied release build
+  passed. The explicit real-Termux read-only smoke passed `1 passed, 0 failed`.
+- Protected launcher and resolver hashes/stat identities remain unchanged, the
+  canonical external-residue scan is empty, and no installed launcher/runtime,
+  resolver, generation/trust, Manager, auth/profile/session, package,
+  publication, push, promotion, or live cutover state changed.
+- Final disposition: KEEP the one signed v3 admission/state/recovery authority,
+  one direct stable-entrypoint path, no-replace publication, ordinary
+  lock-free launch, and the explicit no-sandbox/bwrap boundary; COLLAPSE the
+  review-only lint cleanup into existing context/test paths; DELETE no new
+  fallback, repair, trust, lock, or review layer. Current checkpoint: M2 is
+  independently reviewed and ready for an explicit final acceptance or
+  promotion decision. No promotion to `main`, push, live cutover, or bounded
+  device qualification has been performed. Worker mode remains OFF.
+
 ## Goal Lifts
 
 No lift is active. A proposed lift must identify a concrete product risk or

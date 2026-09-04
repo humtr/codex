@@ -15,13 +15,15 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
   evidence and disposition are recorded in `GOAL.md`.
 - M2-R2 independent-review remediation is accepted at the implementation
   commit above; detailed evidence and disposition are recorded in `GOAL.md`.
+- The independent product review is complete at
+  `rewrite/rust-core@5a7a5292f38876087a5c9b5a41b1dd7e8dbf082b`; the review-only
+  clippy cleanup is included there and did not expand product behavior.
 - Remote `origin/rewrite/rust-core` remains at
   `253156c37a2bd22af8faae0bce03587999ffd136`; the local branch is ahead and
   no push is authorized.
-- Current milestone: M2 delivery/recovery is active; M2-R1 is accepted and
-  M2-R2 is accepted after closing the three recorded independent-review
-  findings. A fresh independent product review and final acceptance remain
-  before promotion.
+- Current milestone: M2 delivery/recovery is active; M2-R1, M2-R2, and the
+  required independent product review are accepted. Final acceptance or
+  promotion remains an explicit authorization boundary.
 - The inherited pre-commit hook references absent
   `tools/update-wrapper-version.sh`; do not modify it. If it alone rejects an
   exact, revalidated staged tree, use the established `--no-verify` closure.
@@ -75,7 +77,7 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 
 ## Next action
 
-### M2 independent product review candidate
+### M2 final acceptance / explicit promotion decision
 
 - M2-R2 independent-review remediation is accepted at
   `rewrite/rust-core@a56a85cb88d3866ddc52134aae6dedaf88ac6c1f`.
@@ -97,18 +99,20 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
   Manager, auth/profile/session data, package state, push, promotion, or live
   cutover was touched. All disposable roots were external and the final
   canonical residue scan is empty.
-- Review is read-only until a fresh independent product review records its
-  result. Do not promote to `main`, push, replace the live launcher, mutate
-  the live resolver, or invoke bounded device qualification without explicit
-  authorization.
-
-- Review red gate resolved: `cargo clippy --locked --workspace --all-targets
-  -- -D warnings` exposed five existing warning-denied findings in the Core
-  production/test source (two `too_many_arguments`, one `needless_as_bytes`,
-  and two `io_other`). The existing dispatch context now owns the doctor
-  inputs, the one test helper is inline, and the remaining expressions use
-  the direct forms; the corrected gate passes without expanding product
-  behavior.
+- The fresh independent review is complete: no new public-path, bwrap,
+  generation, state/recovery, doctor, bootstrap, release, or protected-surface
+  defect remained. Its clippy red gate was closed in the review-only cleanup
+  commit above, and the corrected warning-denied gate passes.
+- Review proof on the current revision: M2-R2 `3 passed, 0 failed`; corrected
+  doctor focused proof `1 passed, 0 failed`; serial Core `113 passed, 0 failed,
+  1 ignored`; release-builder `7 passed, 0 failed`; three independent
+  default-parallel repetitions with the same counts; release build,
+  formatting, bootstrap syntax, diff check, and real-Termux read-only smoke
+  all passed. A mistaken zero-test doctor filter was discarded and not used as
+  evidence.
+- The next action is an explicit final acceptance/promotion decision. Until
+  separately authorized, do not promote to `main`, push, replace the live
+  launcher, mutate the live resolver, or invoke bounded device qualification.
 
 Worker mode remains OFF; the primary Lead owns every slice, validation step,
 authority update, and acceptance decision.
