@@ -21,12 +21,11 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 - Remote `origin/rewrite/rust-core` remains at
   `253156c37a2bd22af8faae0bce03587999ffd136`; the local branch is ahead and
   no push is authorized.
-- Current milestone: R4 wrapper-owned safe update and doctor presentation
-  repair is accepted. Its implementation, focused regressions, grouped
-  acceptance, protected-surface verification, and bounded live reflection are
-  recorded in `GOAL.md`. Local `main` remains at the prior publication tip
-  `57034e4cd2d4f259c9046ac11073dc0b7f7dbb47`; no second main promotion or
-  remote push is authorized.
+- Current milestone: R5 official upstream build-input acquisition is accepted
+  by the implementation commit on `rewrite/rust-core`.
+  R4's Core ownership, signed-generation admission, and doctor behavior remain
+  the implementation baseline. Local `main` remains the publication authority;
+  no second main promotion or remote push is authorized.
 - The inherited pre-commit hook references absent
   `tools/update-wrapper-version.sh`; do not modify it. If it alone rejects an
   exact, revalidated staged tree, use the established `--no-verify` closure.
@@ -86,12 +85,12 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 
 ## Next action
 
-No implementation bundle is active. R4 is accepted and reflected in the
-bounded local runtime; its detailed evidence and remaining operational
-condition are in `GOAL.md`. The next separately accepted operation is to use
-the release pipeline to publish a signed wrapper update index and its adapted,
-qualified generation assets. Core must continue to fail closed until those
-assets exist.
+No implementation bundle is active. R5 is accepted: the release environment
+now has a Rust-owned `codex-release-builder fetch` path for the exact official
+OpenAI versioned archive, and the existing `build` path consumes its pinned
+digest and produces the adapted generation. The next separately authorized
+operation is to publish a signed wrapper index and adapted generation assets;
+installed Core must continue to fail closed until those assets exist.
 
 Worker mode remains OFF; the primary Lead owns every slice, validation step,
 authority update, and acceptance decision.

@@ -175,11 +175,17 @@ the real non-installed workspace executable named `codex-release-builder`,
 and signs the resulting adapted generation for delivery. The installed Core
 does not compile, run the release builder, patch a raw upstream executable, or
 execute an upstream self-updater; its update path accepts only the signed
-adapted generation produced by that pipeline. The builder's `build` operation
-accepts the version, archive and digest, generation identity, Core artifact,
-creation metadata, and an absent output directory. It performs no discovery,
-signing, activation, or live-state mutation and emits only an unsigned
-generation source for the `codex-release-v3` signing and delivery path.
+adapted generation produced by that pipeline. The builder's `fetch` operation
+accepts one explicit stable `MAJOR.MINOR.PATCH` version, constructs only the
+canonical official archive URL above, and downloads that archive with bounded
+HTTPS transport into one absent local regular-file output. It prints the exact
+lowercase SHA-256 for the subsequent build invocation. `fetch` performs no
+channel discovery, mirror selection, source fallback, signing, generation
+activation, or live-state mutation. The builder's `build` operation accepts the
+version, archive and digest, generation identity, Core artifact, creation
+metadata, and an absent output directory. It performs no discovery, signing,
+activation, or live-state mutation and emits only an unsigned generation source
+for the `codex-release-v3` signing and delivery path.
 `codex-release-v2` remains implementation history and is not retained as a
 release compatibility path.
 
@@ -523,6 +529,14 @@ existing signed remote-generation acquisition path. Index transport failure,
 signature failure, malformed discovery, or release qualification failure is a
 hard failure for that attempt; there is no fallback to upstream, a package
 manager, an alternate mirror, or a raw package.
+
+The signed index is a pointer to an already-adapted wrapper generation, not an
+upstream source authority. The only upstream source authority is the official
+versioned OpenAI archive acquired by the release-production `fetch` operation
+and consumed by `build` before qualification and signing. Consequently, an
+installed Core update never downloads a raw upstream archive or runs a build;
+it downloads and verifies the published adapted generation selected by the
+signed index.
 
 `codex update` must:
 

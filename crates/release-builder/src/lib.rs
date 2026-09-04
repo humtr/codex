@@ -24,6 +24,10 @@ const GENERATION_FORMAT: &str = "codex-local-generation-v2";
 const CORE_API_IDENTITY: &str = "core-api-v1";
 const PERSISTENT_SCHEMA_IDENTITY: &str = "schema-v1";
 const PACKAGE_IDENTITY: &str = "openai/codex:codex-package-aarch64-unknown-linux-musl.tar.gz";
+const OFFICIAL_RELEASE_BASE: &str = "https://releases.openai.com/codex/releases";
+const UPSTREAM_ARCHIVE_NAME: &str = "codex-package-aarch64-unknown-linux-musl.tar.gz";
+const RELEASE_CONNECT_TIMEOUT_SECONDS: &str = "15";
+const RELEASE_TRANSFER_TIMEOUT_SECONDS: &str = "300";
 const PATCH_POLICY_ID: &str = "termux-fd-remap-v1";
 const ANDROID_AARCH64_INTERPRETER: &[u8] = b"/system/bin/linker64\0";
 
@@ -58,7 +62,16 @@ const EXPECTED_FILES: [&str; 6] = [
     "codex-resources/zsh/bin/zsh",
 ];
 
-const USAGE: &str = "usage: codex-release-builder build --version <MAJOR.MINOR.PATCH> --archive <ABSOLUTE_FILE> --archive-sha256 <LOWERCASE_SHA256> --generation-id <ID> --core <ABSOLUTE_FILE> --creation-metadata <VALUE> --gzip <ABSOLUTE_EXECUTABLE> --openssl <ABSOLUTE_EXECUTABLE> --output <ABSENT_ABSOLUTE_DIRECTORY>";
+const USAGE: &str = concat!(
+    "usage: codex-release-builder fetch --version <MAJOR.MINOR.PATCH> ",
+    "--curl <ABSOLUTE_EXECUTABLE> --openssl <ABSOLUTE_EXECUTABLE> ",
+    "--output <ABSENT_ABSOLUTE_FILE>\n",
+    "       codex-release-builder build --version <MAJOR.MINOR.PATCH> ",
+    "--archive <ABSOLUTE_FILE> --archive-sha256 <LOWERCASE_SHA256> ",
+    "--generation-id <ID> --core <ABSOLUTE_FILE> --creation-metadata <VALUE> ",
+    "--gzip <ABSOLUTE_EXECUTABLE> --openssl <ABSOLUTE_EXECUTABLE> ",
+    "--output <ABSENT_ABSOLUTE_DIRECTORY>"
+);
 
 static STAGING_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -116,6 +129,14 @@ struct BuildRequest {
     output: PathBuf,
 }
 
+#[derive(Debug)]
+struct FetchRequest {
+    version: String,
+    curl: PathBuf,
+    openssl: PathBuf,
+    output: PathBuf,
+}
+
 #[derive(Default)]
 struct RequestFields {
     version: Option<String>,
@@ -125,6 +146,14 @@ struct RequestFields {
     core: Option<PathBuf>,
     creation_metadata: Option<String>,
     gzip: Option<PathBuf>,
+    openssl: Option<PathBuf>,
+    output: Option<PathBuf>,
+}
+
+#[derive(Default)]
+struct FetchFields {
+    version: Option<String>,
+    curl: Option<PathBuf>,
     openssl: Option<PathBuf>,
     output: Option<PathBuf>,
 }
@@ -181,6 +210,34 @@ where
     })
 }
 
+fn parse_fetch_request<I, S>(args: I) -> Result<FetchRequest, BuilderError>
+where
+    I: IntoIterator<Item = S>,
+    S: Into<OsString>,
+{
+    let mut args = args.into_iter().map(Into::into);
+    if args.next().as_deref() != Some(OsStr::new("fetch")) {
+        return Err(BuilderError::Usage);
+    }
+    let mut fields = FetchFields::default();
+    while let Some(flag) = args.next() {
+        let value = args.next().ok_or(BuilderError::Usage)?;
+        match flag.to_str() {
+            Some("--version") => set_once(&mut fields.version, text_value(value)?)?,
+            Some("--curl") => set_once(&mut fields.curl, PathBuf::from(value))?,
+            Some("--openssl") => set_once(&mut fields.openssl, PathBuf::from(value))?,
+            Some("--output") => set_once(&mut fields.output, PathBuf::from(value))?,
+            _ => return Err(BuilderError::Usage),
+        }
+    }
+    Ok(FetchRequest {
+        version: fields.version.ok_or(BuilderError::Usage)?,
+        curl: fields.curl.ok_or(BuilderError::Usage)?,
+        openssl: fields.openssl.ok_or(BuilderError::Usage)?,
+        output: fields.output.ok_or(BuilderError::Usage)?,
+    })
+}
+
 fn valid_stable_version(value: &str) -> bool {
     if value.is_empty() || value.len() > 64 || !value.is_ascii() {
         return false;
@@ -198,6 +255,10 @@ fn valid_stable_version(value: &str) -> bool {
         }
     }
     count == 3
+}
+
+fn official_archive_url(version: &str) -> String {
+    format!("{OFFICIAL_RELEASE_BASE}/{version}/{UPSTREAM_ARCHIVE_NAME}")
 }
 
 fn valid_lower_sha256(value: &str) -> bool {
@@ -323,6 +384,48 @@ fn validate_request(request: &BuildRequest) -> Result<(), BuilderError> {
         .map_err(|source| io_error("resolve output parent", source))?;
     if canonical != parent {
         return Err(BuilderError::Invalid("output parent contains a symlink"));
+    }
+    Ok(())
+}
+
+fn validate_fetch_request(request: &FetchRequest) -> Result<(), BuilderError> {
+    if !valid_stable_version(&request.version) {
+        return Err(BuilderError::Invalid("release version is invalid"));
+    }
+    for path in [&request.curl, &request.openssl, &request.output] {
+        if !canonical_absolute_path(path) {
+            return Err(BuilderError::Invalid(
+                "fetch paths must be canonical absolute paths",
+            ));
+        }
+    }
+    ensure_executable(&request.curl, "curl is not an executable regular file")?;
+    ensure_executable(
+        &request.openssl,
+        "OpenSSL is not an executable regular file",
+    )?;
+    match std::fs::symlink_metadata(&request.output) {
+        Ok(_) => return Err(BuilderError::Invalid("fetch output already exists")),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+        Err(source) => return Err(io_error("inspect fetch output", source)),
+    }
+    let parent = request
+        .output
+        .parent()
+        .ok_or(BuilderError::Invalid("fetch output has no parent"))?;
+    let metadata = std::fs::symlink_metadata(parent)
+        .map_err(|source| io_error("inspect fetch output parent", source))?;
+    if !metadata.file_type().is_dir() {
+        return Err(BuilderError::Invalid(
+            "fetch output parent is not a real directory",
+        ));
+    }
+    let canonical = std::fs::canonicalize(parent)
+        .map_err(|source| io_error("resolve fetch output parent", source))?;
+    if canonical != parent {
+        return Err(BuilderError::Invalid(
+            "fetch output parent contains a symlink",
+        ));
     }
     Ok(())
 }
@@ -491,6 +594,109 @@ fn snapshot_archive(request: &BuildRequest, staging: &Path) -> Result<PathBuf, B
         return Err(BuilderError::ArchiveDigestMismatch);
     }
     Ok(snapshot_path)
+}
+
+fn create_fetch_staging(output: &Path) -> Result<PathBuf, BuilderError> {
+    let parent = output
+        .parent()
+        .ok_or(BuilderError::Invalid("fetch output has no parent"))?;
+    let sequence = STAGING_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let staging = parent.join(format!(
+        ".codex-release-fetch-{}-{sequence}",
+        std::process::id()
+    ));
+    let mut builder = std::fs::DirBuilder::new();
+    builder.mode(0o700);
+    builder
+        .create(&staging)
+        .map_err(|source| io_error("create private fetch staging", source))?;
+    Ok(staging)
+}
+
+fn cleanup_fetch_staging(staging: &Path) -> Result<(), BuilderError> {
+    match std::fs::symlink_metadata(staging) {
+        Ok(_) => std::fs::remove_dir_all(staging)
+            .map_err(|source| io_error("remove private fetch staging", source)),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(source) => Err(io_error("inspect private fetch staging", source)),
+    }
+}
+
+fn fetch(request: &FetchRequest) -> Result<String, BuilderError> {
+    validate_fetch_request(request)?;
+    let staging = create_fetch_staging(&request.output)?;
+    let result = (|| {
+        let archive = staging.join(UPSTREAM_ARCHIVE_NAME);
+        let output = create_private_file(&archive)?;
+        let child_output = output
+            .try_clone()
+            .map_err(|source| io_error("duplicate fetch archive output", source))?;
+        let url = official_archive_url(&request.version);
+        let status = Command::new(&request.curl)
+            .args([
+                "--disable",
+                "--fail",
+                "--silent",
+                "--show-error",
+                "--proto",
+                "=https",
+                "--connect-timeout",
+                RELEASE_CONNECT_TIMEOUT_SECONDS,
+                "--max-time",
+                RELEASE_TRANSFER_TIMEOUT_SECONDS,
+                "--max-filesize",
+            ])
+            .arg(ARCHIVE_MAX_BYTES.to_string())
+            .args(["--url", url.as_str()])
+            .env_clear()
+            .stdin(Stdio::null())
+            .stdout(Stdio::from(child_output))
+            .stderr(Stdio::null())
+            .status()
+            .map_err(|source| io_error("start official upstream archive download", source))?;
+        if !status.success() {
+            return Err(BuilderError::Tool(
+                "official upstream archive download failed",
+            ));
+        }
+        output
+            .sync_all()
+            .map_err(|source| io_error("sync downloaded upstream archive", source))?;
+        let metadata = output
+            .metadata()
+            .map_err(|source| io_error("inspect downloaded upstream archive", source))?;
+        if !metadata.file_type().is_file() {
+            return Err(BuilderError::Invalid(
+                "downloaded upstream archive is not a regular file",
+            ));
+        }
+        if metadata.len() == 0 {
+            return Err(BuilderError::Invalid(
+                "downloaded upstream archive is empty",
+            ));
+        }
+        if metadata.len() > ARCHIVE_MAX_BYTES {
+            return Err(BuilderError::Invalid(
+                "downloaded upstream archive exceeds its byte bound",
+            ));
+        }
+        drop(output);
+        let digest = openssl_sha256(&request.openssl, &archive)?;
+        rename_noreplace(&archive, &request.output)?;
+        sync_directory(
+            request
+                .output
+                .parent()
+                .ok_or(BuilderError::Invalid("fetch output has no parent"))?,
+            "sync fetched archive parent",
+        )?;
+        Ok(digest)
+    })();
+    match (result, cleanup_fetch_staging(&staging)) {
+        (_, Err(error)) => Err(error),
+        (Err(error), Ok(())) => Err(error),
+        (Ok(digest), Ok(())) => Ok(digest),
+    }
 }
 
 #[derive(Debug)]
@@ -1316,18 +1522,46 @@ where
     I: IntoIterator<Item = S>,
     S: Into<OsString>,
 {
-    let request = match parse_request(args) {
-        Ok(request) => request,
-        Err(error) => {
-            eprintln!("codex-release-builder: {error}");
-            return 2;
+    let args: Vec<OsString> = args.into_iter().map(Into::into).collect();
+    match args.first().and_then(|argument| argument.to_str()) {
+        Some("fetch") => {
+            let request = match parse_fetch_request(args) {
+                Ok(request) => request,
+                Err(error) => {
+                    eprintln!("codex-release-builder: {error}");
+                    return 2;
+                }
+            };
+            match fetch(&request) {
+                Ok(digest) => {
+                    println!("archive_sha256\t{digest}");
+                    0
+                }
+                Err(error) => {
+                    eprintln!("codex-release-builder: {error}");
+                    1
+                }
+            }
         }
-    };
-    match build(&request) {
-        Ok(()) => 0,
-        Err(error) => {
-            eprintln!("codex-release-builder: {error}");
-            1
+        Some("build") => {
+            let request = match parse_request(args) {
+                Ok(request) => request,
+                Err(error) => {
+                    eprintln!("codex-release-builder: {error}");
+                    return 2;
+                }
+            };
+            match build(&request) {
+                Ok(()) => 0,
+                Err(error) => {
+                    eprintln!("codex-release-builder: {error}");
+                    1
+                }
+            }
+        }
+        _ => {
+            eprintln!("codex-release-builder: {USAGE}");
+            2
         }
     }
 }
@@ -1401,11 +1635,59 @@ mod tests {
             .flat_map(|path| std::env::split_paths(&path).collect::<Vec<_>>())
             .map(|directory| directory.join(name))
             .find(|path| {
-                std::fs::symlink_metadata(path).is_ok_and(|metadata| {
+                std::fs::metadata(path).is_ok_and(|metadata| {
                     metadata.file_type().is_file() && metadata.permissions().mode() & 0o111 != 0
                 })
             })
             .unwrap_or_else(|| panic!("required test tool is unavailable: {name}"))
+    }
+
+    fn shell_quote(value: &str) -> String {
+        format!("'{}'", value.replace('\'', "'\"'\"'"))
+    }
+
+    fn write_fetch_curl(path: &Path, log: &Path, source: &Path, exit_code: i32) {
+        use std::os::unix::fs::PermissionsExt;
+
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let shell = find_tool("sh");
+        let cat = find_tool("cat");
+        let shell = shell.to_str().expect("test shell path must be UTF-8");
+        let cat = cat.to_str().expect("test cat path must be UTF-8");
+        let log = shell_quote(log.to_str().expect("test log path must be UTF-8"));
+        let source = shell_quote(source.to_str().expect("test source path must be UTF-8"));
+        std::fs::write(
+            path,
+            format!(
+                r#"#!{shell}
+if [ "${{HOME+x}}" = x ] || [ "${{CURL_HOME+x}}" = x ] || [ "${{HTTP_PROXY+x}}" = x ] || [ "${{HTTPS_PROXY+x}}" = x ]; then
+  exit 97
+fi
+: > {log}
+for argument in "$@"; do
+  printf '%s\n' "$argument" >> {log}
+done
+if [ {exit_code} -ne 0 ]; then
+  exit {exit_code}
+fi
+{cat} {source}
+"#
+            ),
+        )
+        .unwrap();
+        let mut permissions = std::fs::metadata(path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(path, permissions).unwrap();
+    }
+
+    fn no_fetch_staging(root: &Path) -> bool {
+        std::fs::read_dir(root).unwrap().all(|entry| {
+            !entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".codex-release-fetch-")
+        })
     }
 
     fn fake_elf(interpreter: bool) -> Vec<u8> {
@@ -1634,6 +1916,20 @@ mod tests {
         ]
     }
 
+    fn fetch_args(request: &FetchRequest) -> Vec<OsString> {
+        vec![
+            "fetch".into(),
+            "--version".into(),
+            request.version.clone().into(),
+            "--curl".into(),
+            request.curl.as_os_str().to_owned(),
+            "--openssl".into(),
+            request.openssl.as_os_str().to_owned(),
+            "--output".into(),
+            request.output.as_os_str().to_owned(),
+        ]
+    }
+
     fn no_builder_staging(root: &Path) -> bool {
         std::fs::read_dir(root).unwrap().all(|entry| {
             !entry
@@ -1701,6 +1997,124 @@ mod tests {
             assert!(!case_fixture.request.output.exists());
             case_fixture.remove();
         }
+    }
+
+    #[test]
+    fn test_r5_official_fetch_uses_pinned_source_and_fail_closed_output() {
+        let fixture = fixture("official-fetch", happy_entries("0.153.3"), false);
+        let curl = fixture.root.join("bin/fetch-curl");
+        let log = fixture.root.join("curl-arguments");
+        write_fetch_curl(&curl, &log, &fixture.request.archive, 0);
+        let output = fixture.root.join("downloaded-archive.tar.gz");
+        let request = FetchRequest {
+            version: "0.153.3".to_owned(),
+            curl: curl.clone(),
+            openssl: fixture.request.openssl.clone(),
+            output: output.clone(),
+        };
+
+        let valid_args = fetch_args(&request);
+        assert!(parse_fetch_request(valid_args.clone()).is_ok());
+        for mutation in ["missing-value", "duplicate", "unknown"] {
+            let mut args = valid_args.clone();
+            match mutation {
+                "missing-value" => {
+                    args.pop();
+                }
+                "duplicate" => {
+                    args.extend([OsString::from("--version"), OsString::from("0.153.3")]);
+                }
+                "unknown" => {
+                    args.extend([OsString::from("--channel"), OsString::from("stable")]);
+                }
+                _ => unreachable!(),
+            }
+            assert!(matches!(
+                parse_fetch_request(args),
+                Err(BuilderError::Usage)
+            ));
+        }
+
+        let expected_digest = openssl_sha256(&request.openssl, &fixture.request.archive).unwrap();
+        assert_eq!(run_from_args(valid_args), 0);
+        assert_eq!(
+            std::fs::read(&output).unwrap(),
+            std::fs::read(&fixture.request.archive).unwrap()
+        );
+        assert_eq!(
+            openssl_sha256(&request.openssl, &output).unwrap(),
+            expected_digest
+        );
+        let generated = fixture.root.join("generation-from-official");
+        let build_request = BuildRequest {
+            version: request.version.clone(),
+            archive: output.clone(),
+            archive_sha256: expected_digest.clone(),
+            generation_id: "official-fetch-generation".to_owned(),
+            core: fixture.request.core.clone(),
+            creation_metadata: "r5-fetch-test".to_owned(),
+            gzip: fixture.request.gzip.clone(),
+            openssl: request.openssl.clone(),
+            output: generated.clone(),
+        };
+        assert_eq!(run_from_args(request_args(&build_request)), 0);
+        assert!(generated.join("runtime").is_file());
+        assert!(generated.join("codex-code-mode-host").is_file());
+        assert_eq!(
+            std::fs::metadata(&output).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert!(no_fetch_staging(&fixture.root));
+
+        let arguments: Vec<_> = std::fs::read_to_string(&log)
+            .unwrap()
+            .lines()
+            .map(str::to_owned)
+            .collect();
+        assert_eq!(
+            arguments,
+            vec![
+                "--disable",
+                "--fail",
+                "--silent",
+                "--show-error",
+                "--proto",
+                "=https",
+                "--connect-timeout",
+                RELEASE_CONNECT_TIMEOUT_SECONDS,
+                "--max-time",
+                RELEASE_TRANSFER_TIMEOUT_SECONDS,
+                "--max-filesize",
+                &ARCHIVE_MAX_BYTES.to_string(),
+                "--url",
+                official_archive_url("0.153.3").as_str(),
+            ]
+        );
+
+        let collision = fixture.root.join("collision.tar.gz");
+        std::fs::write(&collision, b"preserve").unwrap();
+        let collision_request = FetchRequest {
+            output: collision.clone(),
+            ..request
+        };
+        assert!(fetch(&collision_request).is_err());
+        assert_eq!(std::fs::read(&collision).unwrap(), b"preserve");
+        assert!(no_fetch_staging(&fixture.root));
+
+        let failure_curl = fixture.root.join("bin/failure-curl");
+        let failure_log = fixture.root.join("failure-arguments");
+        write_fetch_curl(&failure_curl, &failure_log, &fixture.request.archive, 22);
+        let failed_output = fixture.root.join("failed-archive.tar.gz");
+        let failed_request = FetchRequest {
+            version: "0.153.3".to_owned(),
+            curl: failure_curl,
+            openssl: fixture.request.openssl.clone(),
+            output: failed_output.clone(),
+        };
+        assert!(fetch(&failed_request).is_err());
+        assert!(!failed_output.exists());
+        assert!(no_fetch_staging(&fixture.root));
+        fixture.remove();
     }
 
     #[test]

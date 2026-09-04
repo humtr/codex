@@ -15,7 +15,8 @@ The rewrite has one public command, `codex`, and two internal layers:
 The Rust Core implementation through M2 and the authorized local install/cutover
 are accepted in the `GOAL.md` acceptance ledger. The R4 wrapper-owned update
 boundary, signed-channel admission, doctor presentation, and code-mode
-companion placement are also accepted; `WORKBOARD.md` has no active
+companion placement are also accepted. R5 adds the Rust release-builder fetch
+path for official upstream build inputs; `WORKBOARD.md` has no active
 implementation bundle.
 
 The R4 Core launcher is installed in the working Termux runtime through a
@@ -26,6 +27,13 @@ v1 generation remains active, so `codex doctor` reports its legacy `compat/`
 layout as `migration_required` until a newly signed root-level companion
 generation is delivered. Publishing that signed channel or promoting R4 to
 `main` remains a separate acceptance gate.
+
+`codex-release-builder fetch --version <MAJOR.MINOR.PATCH>` obtains only the
+official versioned OpenAI archive, prints its exact SHA-256, and leaves the
+installed Core out of the build step. The release pipeline passes that archive
+and digest to `codex-release-builder build`, then signs and publishes the
+adapted generation. The current live update remains fail-closed until that
+signed publication exists.
 
 Implementation is intentionally split into two milestones:
 

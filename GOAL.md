@@ -1539,6 +1539,49 @@ Termux qualification. Produce one candidate for independent product review.
   automatic update is expected to fail closed rather than install an
   unpatched upstream runtime.
 
+## R5 Official Upstream Build-Input Acquisition (accepted)
+
+- The user correction was resolved at the correct boundary: the legacy
+  on-device `npm pack -> patch -> activate` path remains behavior evidence only.
+  The installed Rust Core still does not compile, invoke the release builder,
+  patch a raw upstream executable, or run an upstream self-updater. Release
+  production now has a Rust-owned `codex-release-builder fetch` operation that
+  accepts one explicit stable `MAJOR.MINOR.PATCH` version and constructs only
+  the official OpenAI archive URL
+  `https://releases.openai.com/codex/releases/<version>/codex-package-aarch64-unknown-linux-musl.tar.gz`.
+- The fetch path uses bounded HTTPS `curl` with a cleared environment, validates
+  the executable tools and canonical output parent, streams into a private
+  temporary archive, computes the exact lowercase SHA-256 with OpenSSL, and
+  publishes the archive with `RENAME_NOREPLACE` followed by parent sync. It
+  rejects channel discovery, mirrors, fallbacks, existing outputs, empty or
+  oversized responses, and transport failures without leaving fetch staging.
+  The printed digest is the input to the existing Rust adaptation/build path;
+  no signing, activation, or live-state mutation occurs.
+- The focused R5 regression exercised the actual `fetch` dispatch and strict
+  grammar, exact official URL and curl argv, environment clearing, archive and
+  digest identity, fetch-to-build generation production, output collision
+  preservation, transport failure cleanup, and the existing adapted output
+  boundary. It passed `1/1` with no warnings.
+- Final acceptance passed the locked workspace suite once and in three complete
+  parallel repetitions: Core `119 passed, 0 failed, 1 ignored` and
+  release-builder `8 passed, 0 failed` each time. Workspace clippy with
+  `-D warnings`, release Core build, `cargo fmt --check`, and
+  `git diff --check` passed. The final R5 source identities are recorded by the
+  implementation commit; no generated `target/` output is part of the change.
+- Protected live identities remained unchanged: resolver
+  `7e8ad76e0d200e93918ca2e93c99ff8ecd02071953bf1479819db3ac0dbb6d07`, trust
+  seed `03336cc8ac082c8afc900543e27220c391b536717165c9b3f1caa9cceb3d5790`,
+  and activation state
+  `ccc443ae8615ed58bb22884104a67c31369dcb1f9c73b8ab8f15900353a0b94a`.
+  No launcher, runtime, resolver, auth/profile/session, Manager, publication,
+  push, promotion, or bwrap state was changed.
+- Disposition: KEEP one official-source release fetch feeding the existing
+  Rust builder; KEEP the signed-generation Core update boundary; DELETE no
+  fallback or on-device build path. Live `codex update` remains intentionally
+  fail-closed until an authorized signed wrapper index and adapted generation
+  publication is available. This bundle does not claim that external
+  publication has been completed.
+
 ## Goal Lifts
 
 No lift is active. A proposed lift must identify a concrete product risk or
