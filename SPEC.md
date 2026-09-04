@@ -289,7 +289,12 @@ become `current`. Ordinary launch reads only `current`; it does not perform
 signature verification, consult `update_key` or either generation verifier key,
 scan generations, contact the network, invoke OpenSSL, or implicitly fall back
 to another generation. The generation directory name is one safe path component
-and generation content is complete before it can become `current`.
+and generation content is complete before it can become `current`. Before
+ordinary launch consumes that generation, Core must verify the selected
+generation directory and every selected asset parent directory is a real
+directory, and every selected runtime, Manager, helper, and descriptor file is
+a regular non-symlink file. Ordinary launch must not follow a symlink from the
+generation root to content outside that generation.
 
 For durability, complete means that every regular file has its final bytes and final mode written and synchronized, every generation directory is synchronized after its children in bottom-up order, the complete candidate directory is atomically renamed into the generation root, and the generation root is synchronized after that rename. A failure before the candidate rename leaves no activatable generation. A failure after the rename but before generation-root synchronization may retain that exact complete candidate without changing authoritative state; a retry may reuse it only after signed installed-generation verification and repeating the required tree and root synchronization. A differing, incomplete, or unverifiable existing directory is a conflict and is never activated.
 
@@ -323,8 +328,14 @@ install or update attempts are not a first-class coordination feature and do
 not by themselves justify locks, leases, fencing tokens, or a multi-writer
 protocol. If attempts overlap, the required outcome is limited to preserving a
 complete state boundary: one attempt may succeed while another fails or retries,
-and recovery may return to the already complete last-known-good state. Launch
-must never observe a mixed or partially constructed generation.
+and recovery may return to the already complete last-known-good state. Because
+the activation journal is a single pathname, Core serializes activation and
+explicit recovery writers with one exclusive kernel-held lock on the state-root
+directory. The lock is coordination only: it is not authoritative state, is
+not read by ordinary launch, introduces no persistent lock record, and is
+released by the kernel when the owning process exits. A contending writer
+fails or retries before touching journal/state files. Launch must never observe
+a mixed or partially constructed generation.
 
 `previous` is the only rollback pointer and is not permission to build a
 fallback ladder. Rollback is an explicit bounded activation-state transition;
@@ -607,8 +618,11 @@ Human output contains clearly separated upstream, Core, and Manager sections.
 
 Unsupported upstream or Manager diagnostics are represented explicitly and do
 not fabricate success. Diagnostic failure returns nonzero while preserving a
-valid machine report when `--json` was requested. Usage errors remain distinct
-from health failures and API incompatibility.
+valid machine report when `--json` was requested. After valid doctor argument
+parsing, an upstream probe/setup failure is represented as a redacted
+`unhealthy` upstream status rather than an error string, and the command still
+returns its nonzero health-failure status. Usage errors remain distinct from
+health failures and API incompatibility.
 
 Doctor must not expose tokens, OAuth data, cookies, auth-derived private data,
 notification content, or unredacted session content. A filesystem snapshot

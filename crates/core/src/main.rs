@@ -187,11 +187,18 @@ pub const CONFIG_DIR_FD: std::os::raw::c_int = 34;
 const SAFE_MIN_FD: std::os::raw::c_int = 35;
 #[cfg(unix)]
 const F_DUPFD_CLOEXEC: std::os::raw::c_int = 1030;
+#[cfg(unix)]
+const FLOCK_EX: std::os::raw::c_int = 2;
+#[cfg(unix)]
+const FLOCK_NB: std::os::raw::c_int = 4;
+#[cfg(unix)]
+const FLOCK_UN: std::os::raw::c_int = 8;
 
 #[cfg(unix)]
 extern "C" {
     fn dup2(oldfd: std::os::raw::c_int, newfd: std::os::raw::c_int) -> std::os::raw::c_int;
     fn fcntl(fd: std::os::raw::c_int, cmd: std::os::raw::c_int, ...) -> std::os::raw::c_int;
+    fn flock(fd: std::os::raw::c_int, operation: std::os::raw::c_int) -> std::os::raw::c_int;
 }
 
 #[cfg(unix)]
@@ -1276,7 +1283,6 @@ struct DoctorCommandOutcome {
 #[derive(Debug)]
 enum LocalDoctorCommandError {
     Usage,
-    Probe(QualifiedUpstreamDoctorProbeError),
 }
 
 #[cfg(unix)]
@@ -1284,7 +1290,6 @@ impl std::fmt::Display for LocalDoctorCommandError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             LocalDoctorCommandError::Usage => f.write_str("usage: codex doctor [--json]"),
-            LocalDoctorCommandError::Probe(err) => err.fmt(f),
         }
     }
 }
@@ -1294,7 +1299,6 @@ impl std::error::Error for LocalDoctorCommandError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             LocalDoctorCommandError::Usage => None,
-            LocalDoctorCommandError::Probe(err) => Some(err),
         }
     }
 }
@@ -1333,15 +1337,17 @@ where
 {
     let mode = doctor_output_mode(args)?;
     let upstream = match capability {
-        UpstreamDoctorCapability::Supported => probe_qualified_upstream_doctor(
+        UpstreamDoctorCapability::Supported => match probe_qualified_upstream_doctor(
             assets,
             process_env,
             cert_file,
             cert_dir,
             resolver_path,
             config_dir,
-        )
-        .map_err(LocalDoctorCommandError::Probe)?,
+        ) {
+            Ok(status) => status,
+            Err(_) => UpstreamDoctorStatus::Unhealthy,
+        },
         UpstreamDoctorCapability::Unsupported => UpstreamDoctorStatus::Unsupported,
     };
     let report = compose_doctor_report(upstream, termux_core, manager);
@@ -1466,8 +1472,9 @@ fn execute_public_dispatch<
 
 #[cfg(unix)]
 mod m2_generation_state {
-    use super::ReleasePublicKey;
+    use super::{flock, ReleasePublicKey, FLOCK_EX, FLOCK_NB, FLOCK_UN};
     use std::io::{Read, Write};
+    use std::os::fd::AsRawFd;
 
     const GENERATION_ID_MAX_BYTES: usize = 512;
     const STATE_FILE_MAX_BYTES: usize = 16 * 1024;
@@ -1585,6 +1592,7 @@ mod m2_generation_state {
         OrphanJournalTemporary,
         OrphanTemporaryState,
         RecoveryConflict,
+        WriterBusy,
     }
 
     impl std::fmt::Display for ActivationTransactionError {
@@ -1612,6 +1620,9 @@ mod m2_generation_state {
                 ActivationTransactionError::RecoveryConflict => f.write_str(
                     "activation recovery cannot match authoritative state to journal before/after",
                 ),
+                ActivationTransactionError::WriterBusy => {
+                    f.write_str("another activation transaction is in progress; retry later")
+                }
             }
         }
     }
@@ -1634,6 +1645,47 @@ mod m2_generation_state {
 
     fn io_error(operation: &'static str, source: std::io::Error) -> ActivationTransactionError {
         ActivationTransactionError::Io { operation, source }
+    }
+
+    #[derive(Debug)]
+    pub(super) struct ActivationLockGuard {
+        file: Option<std::fs::File>,
+    }
+
+    impl Drop for ActivationLockGuard {
+        fn drop(&mut self) {
+            if let Some(file) = self.file.as_ref() {
+                let _ = unsafe { flock(file.as_raw_fd(), FLOCK_UN) };
+            }
+        }
+    }
+
+    pub(super) fn acquire_activation_lock(
+        paths: &CoreStatePaths,
+    ) -> Result<ActivationLockGuard, ActivationTransactionError> {
+        let metadata = match std::fs::symlink_metadata(&paths.root) {
+            Ok(metadata) => metadata,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(ActivationLockGuard { file: None })
+            }
+            Err(source) => return Err(io_error("inspect Core state root for writer lock", source)),
+        };
+        if !metadata.file_type().is_dir() {
+            return Err(ActivationTransactionError::UnsafeFileType(
+                "Core state root",
+            ));
+        }
+        let file = std::fs::File::open(&paths.root)
+            .map_err(|source| io_error("open Core state root for writer lock", source))?;
+        let result = unsafe { flock(file.as_raw_fd(), FLOCK_EX | FLOCK_NB) };
+        if result == 0 {
+            return Ok(ActivationLockGuard { file: Some(file) });
+        }
+        let source = std::io::Error::last_os_error();
+        if source.kind() == std::io::ErrorKind::WouldBlock {
+            return Err(ActivationTransactionError::WriterBusy);
+        }
+        Err(io_error("acquire Core state writer lock", source))
     }
 
     impl CoreStatePaths {
@@ -2189,6 +2241,7 @@ mod m2_generation_state {
         after: &GenerationPointerState,
         io: &mut I,
     ) -> Result<(), ActivationTransactionError> {
+        let _lock = acquire_activation_lock(paths)?;
         if let Some(before) = before {
             validate_pointer_state(before)?;
         }
@@ -2252,6 +2305,7 @@ mod m2_generation_state {
         paths: &CoreStatePaths,
         io: &mut I,
     ) -> Result<Option<GenerationPointerState>, ActivationTransactionError> {
+        let _lock = acquire_activation_lock(paths)?;
         let journal_temporary_exists = path_exists(
             &paths.activation_journal_temp,
             "inspect activation journal temporary",
@@ -3260,6 +3314,11 @@ fn descriptor_field<'a>(
 fn load_local_generation(
     generation_dir: &std::path::Path,
 ) -> Result<LoadedLocalGeneration, LocalProductError> {
+    ensure_real_directory(
+        generation_dir,
+        "read activated generation descriptor",
+        "activated generation directory must be a real directory",
+    )?;
     let descriptor_path = generation_dir.join("generation.meta");
     let bytes = read_bounded_regular_file(
         &descriptor_path,
@@ -3391,11 +3450,21 @@ fn load_local_generation(
             "activated generation runtime is missing",
         ));
     }
+    ensure_regular_file(
+        &runtime_path,
+        "inspect activated generation runtime",
+        "activated generation runtime must be a regular file",
+    )?;
     if !compatibility_dir.is_dir() {
         return Err(LocalProductError::Descriptor(
             "activated generation compatibility directory is missing",
         ));
     }
+    ensure_real_directory(
+        &compatibility_dir,
+        "inspect activated generation compatibility directory",
+        "activated generation compatibility directory must be a real directory",
+    )?;
     let manager_path = manifest
         .manager_artifact_digest
         .as_ref()
@@ -3405,6 +3474,13 @@ fn load_local_generation(
             "activated generation Manager is missing",
         ));
     }
+    if let Some(manager_path) = manager_path.as_ref() {
+        ensure_regular_file(
+            manager_path,
+            "inspect activated generation Manager",
+            "activated generation Manager must be a regular file",
+        )?;
+    }
     let helper_paths: Vec<_> = (0..manifest.helper_digests.len())
         .map(|index| generation_dir.join("helpers").join(index.to_string()))
         .collect();
@@ -3412,6 +3488,20 @@ fn load_local_generation(
         return Err(LocalProductError::Descriptor(
             "activated generation helper is missing",
         ));
+    }
+    if !helper_paths.is_empty() {
+        ensure_real_directory(
+            &generation_dir.join("helpers"),
+            "inspect activated generation helper directory",
+            "activated generation helper directory must be a real directory",
+        )?;
+        for helper_path in &helper_paths {
+            ensure_regular_file(
+                helper_path,
+                "inspect activated generation helper",
+                "activated generation helper must be a regular file",
+            )?;
+        }
     }
 
     Ok(LoadedLocalGeneration {
@@ -6751,6 +6841,24 @@ exit 73
     }
 
     #[cfg(unix)]
+    fn b2_add_helper(generation_dir: &std::path::Path) {
+        let descriptor_path = generation_dir.join("generation.meta");
+        let descriptor = std::fs::read_to_string(&descriptor_path).unwrap();
+        let descriptor = descriptor.replacen(
+            "helper_count\t0\n",
+            "helper_count\t1\nhelper\thelper-a\thelper-digest\n",
+            1,
+        );
+        assert_ne!(
+            descriptor,
+            std::fs::read_to_string(&descriptor_path).unwrap()
+        );
+        std::fs::create_dir(generation_dir.join("helpers")).unwrap();
+        std::fs::write(generation_dir.join("helpers/0"), b"helper-content").unwrap();
+        std::fs::write(descriptor_path, descriptor).unwrap();
+    }
+
+    #[cfg(unix)]
     fn b2_activate(roots: &LocalCoreRoots, generation_id: &str) -> GenerationPointerState {
         let paths = CoreStatePaths::new(&roots.state_root).unwrap();
         prepare_core_state_paths(&paths).unwrap();
@@ -6877,6 +6985,7 @@ exit 73
         let args = match scenario.as_str() {
             "version" => vec![OsString::from("--version")],
             "manager" => vec![OsString::from("termux"), OsString::from("status")],
+            "doctor" => vec![OsString::from("doctor"), OsString::from("--json")],
             other => panic!("unknown main probe scenario {other}"),
         };
         let code = run_public_main(args);
@@ -6915,10 +7024,26 @@ exit 73
     }
 
     #[cfg(unix)]
+    fn b2_public_main_doctor_fixture(label: &str) -> std::path::PathBuf {
+        let root = b2_public_main_fixture(label, false);
+        let descriptor = root.join("home/.local/lib/codex/core/generations/g1/generation.meta");
+        let contents = std::fs::read_to_string(&descriptor).unwrap();
+        let contents = contents.replacen(
+            "upstream_doctor\tunsupported\n",
+            "upstream_doctor\tsupported\n",
+            1,
+        );
+        assert_ne!(contents, std::fs::read_to_string(&descriptor).unwrap());
+        std::fs::write(descriptor, contents).unwrap();
+        root
+    }
+
+    #[cfg(unix)]
     fn run_public_main_probe(root: &std::path::Path, scenario: &str) -> std::process::Output {
         std::process::Command::new(std::env::current_exe().unwrap())
             .arg("tests::public_main_probe")
             .arg("--exact")
+            .arg("--nocapture")
             .env(MAIN_PROBE_ROLE, "1")
             .env(MAIN_PROBE_ARGS, scenario)
             .env("HOME", root.join("home"))
@@ -6945,6 +7070,119 @@ exit 73
             .stdout
             .windows(b"ARGS:<status>".len())
             .any(|w| w == b"ARGS:<status>"));
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    fn b2_assert_public_version_rejects_symlink<F>(
+        label: &str,
+        manager: bool,
+        helper: bool,
+        mutate: F,
+    ) where
+        F: FnOnce(&std::path::Path),
+    {
+        let root = b2_public_main_fixture(label, manager);
+        let generation_dir = root.join("home/.local/lib/codex/core/generations/g1");
+        if helper {
+            b2_add_helper(&generation_dir);
+        }
+        mutate(&generation_dir);
+        let result = run_public_main_probe(&root, "version");
+        assert_eq!(result.status.code(), Some(1));
+        assert!(
+            result.stderr.starts_with(b"codex: "),
+            "stderr: {:?}",
+            result.stderr
+        );
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_r2_public_main_rejects_nested_generation_symlink_paths() {
+        use std::os::unix::fs::symlink;
+
+        b2_assert_public_version_rejects_symlink(
+            "m2-r2-generation-root-symlink",
+            false,
+            false,
+            |generation_dir| {
+                let outside = generation_dir.parent().unwrap().join("outside-generation");
+                std::fs::rename(generation_dir, &outside).unwrap();
+                symlink(outside, generation_dir).unwrap();
+            },
+        );
+        b2_assert_public_version_rejects_symlink(
+            "m2-r2-runtime-symlink",
+            false,
+            false,
+            |generation_dir| {
+                let path = generation_dir.join("runtime");
+                let outside = generation_dir.parent().unwrap().join("outside-runtime");
+                std::fs::rename(&path, &outside).unwrap();
+                symlink(outside, path).unwrap();
+            },
+        );
+        b2_assert_public_version_rejects_symlink(
+            "m2-r2-compat-symlink",
+            false,
+            false,
+            |generation_dir| {
+                let path = generation_dir.join("compat");
+                let outside = generation_dir.parent().unwrap().join("outside-compat");
+                std::fs::rename(&path, &outside).unwrap();
+                symlink(outside, path).unwrap();
+            },
+        );
+        b2_assert_public_version_rejects_symlink(
+            "m2-r2-manager-symlink",
+            true,
+            false,
+            |generation_dir| {
+                let path = generation_dir.join("manager");
+                let outside = generation_dir.parent().unwrap().join("outside-manager");
+                std::fs::rename(&path, &outside).unwrap();
+                symlink(outside, path).unwrap();
+            },
+        );
+        b2_assert_public_version_rejects_symlink(
+            "m2-r2-helper-parent-symlink",
+            false,
+            true,
+            |generation_dir| {
+                let path = generation_dir.join("helpers");
+                let outside = generation_dir.parent().unwrap().join("outside-helpers");
+                std::fs::rename(&path, &outside).unwrap();
+                symlink(outside, path).unwrap();
+            },
+        );
+        b2_assert_public_version_rejects_symlink(
+            "m2-r2-helper-leaf-symlink",
+            false,
+            true,
+            |generation_dir| {
+                let path = generation_dir.join("helpers/0");
+                let outside = generation_dir.parent().unwrap().join("outside-helper");
+                std::fs::rename(&path, &outside).unwrap();
+                symlink(outside, path).unwrap();
+            },
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_r2_public_main_doctor_json_preserves_probe_failure_envelope() {
+        let root = b2_public_main_doctor_fixture("m2-r2-doctor-probe-failure");
+        std::fs::remove_file(root.join("prefix/etc/resolv.conf")).unwrap();
+        let result = run_public_main_probe(&root, "doctor");
+        assert_eq!(result.status.code(), Some(1));
+        let stdout = String::from_utf8(result.stdout).unwrap();
+        assert!(stdout.contains("\"upstream\":{\"status\":\"unhealthy\"}"));
+        assert!(stdout.contains("\"termux_core\":{\"status\":\"healthy\"}"));
+        assert!(stdout.contains("\"summary\":{\"status\":\"unhealthy\"}"));
+        assert!(!stdout.contains("resolv.conf"));
+        assert!(result.stderr.is_empty(), "stderr: {:?}", result.stderr);
         remove_temp_root(root);
     }
 
@@ -11419,7 +11657,7 @@ esac
         run_source_rejected(
             "runtime-link",
             &runtime_link,
-            b"release runtime must be a regular file",
+            b"activated generation runtime must be a regular file",
         );
 
         let compat_link = b2_write_generation(&source_roots, "compat-link", false, "unsupported");
@@ -11432,7 +11670,7 @@ esac
         run_source_rejected(
             "compat-link",
             &compat_link,
-            b"release compatibility tree contains a symlink or special file",
+            b"activated generation compatibility directory must be a real directory",
         );
 
         let source_link_target =
@@ -14051,6 +14289,38 @@ exit 0
             Err(ActivationTransactionError::StaleAuthoritativeState)
         ));
         assert_eq!(read_pointer_state(&paths).unwrap(), Some(actual));
+        m2_b1_assert_no_transaction_files(&paths);
+        m2_b1_cleanup(&paths);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_r2_activation_writers_are_serialized_before_state_mutation() {
+        let paths = m2_b1_unique_paths("m2-r2-writer-lock");
+        let old = plan_initial_pointer_state("g1").unwrap();
+        activate_pointer_state(&paths, None, &old).unwrap();
+        let new = plan_activation_pointer_state(&old, "g2").unwrap();
+        let held_lock = acquire_activation_lock(&paths).unwrap();
+        let contender_paths = paths.clone();
+        let contender_before = old.clone();
+        let contender_after = new.clone();
+        let contender = std::thread::spawn(move || {
+            activate_pointer_state(&contender_paths, Some(&contender_before), &contender_after)
+        });
+        assert!(matches!(
+            contender.join().unwrap(),
+            Err(ActivationTransactionError::WriterBusy)
+        ));
+        assert!(matches!(
+            recover_activation_state(&paths),
+            Err(ActivationTransactionError::WriterBusy)
+        ));
+        assert_eq!(read_pointer_state(&paths).unwrap(), Some(old.clone()));
+        m2_b1_assert_no_transaction_files(&paths);
+
+        drop(held_lock);
+        activate_pointer_state(&paths, Some(&old), &new).unwrap();
+        assert_eq!(read_pointer_state(&paths).unwrap(), Some(new));
         m2_b1_assert_no_transaction_files(&paths);
         m2_b1_cleanup(&paths);
     }
