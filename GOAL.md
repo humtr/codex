@@ -1042,7 +1042,7 @@ Termux qualification. Produce one candidate for independent product review.
   The locked `-D warnings` release artifacts used for the final proof were Core
   `12bd6c525026d74df8f9784444cebfee45d33f3f00af5512b59168f38a9c8d01` and
   release-builder
-  `d1db9e39f5b90dbf8f71e33b7f1a2fb80f6bd7399123278301328c77abe5ec`.
+  `d1db9e39f5b90dbf8f71e33b7f1a2fb80f6bd7399123278301328c77abeeb5ec`.
 - B10 focused validation ran with `CODEX_B10_RELEASE_CORE` bound to that actual
   locked release Core and passed all four slices 4/4: release fixture/network
   denial, fresh offline bootstrap, signed local update plus explicit rollback,

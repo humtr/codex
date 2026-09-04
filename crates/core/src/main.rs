@@ -6760,6 +6760,146 @@ esac
 
     #[cfg(unix)]
     #[test]
+    fn test_m2_b11_slice1_fresh_root_public_path_includes_doctor() {
+        let Some(core) = b10_release_core_from_env() else {
+            return;
+        };
+        let root = temp_root("b11-slice1-fresh-public-path");
+        let openssl = b4_termux_openssl();
+        let private_key = root.join("keys/private.pem");
+        let public_key = root.join("keys/public.pem");
+        b4_generate_release_keypair(&openssl, &private_key, &public_key);
+        let g0 = b10_build_signed_release(
+            &root,
+            &core,
+            "b11-fresh-g0",
+            1,
+            &openssl,
+            &private_key,
+            &public_key,
+        );
+        let g1 = b10_build_signed_release(
+            &root,
+            &core,
+            "b11-fresh-g1",
+            2,
+            &openssl,
+            &private_key,
+            &public_key,
+        );
+
+        let (home, prefix, tmp) = b4_prepare_public_environment(&root, &openssl, true);
+        let network_log = b10_install_network_denial_sentinel(&prefix);
+        let bootstrap = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../bootstrap/codex-bootstrap");
+        let bootstrap_output = std::process::Command::new(&bootstrap)
+            .args([core.as_os_str(), g0.as_os_str(), public_key.as_os_str()])
+            .env("HOME", &home)
+            .env("PREFIX", &prefix)
+            .env("TMPDIR", &tmp)
+            .env_remove(INTERNAL_BOOTSTRAP_MODE_ENV)
+            .env_remove(INTERNAL_BOOTSTRAP_SOURCE_ENV)
+            .output()
+            .unwrap();
+        assert_eq!(
+            bootstrap_output.status.code(),
+            Some(0),
+            "stdout={:?} stderr={:?}",
+            bootstrap_output.stdout,
+            bootstrap_output.stderr
+        );
+        assert!(!network_log.exists());
+
+        let installed_core = prefix.join("bin/codex");
+        let run_installed = |args: &[&str]| {
+            std::process::Command::new(&installed_core)
+                .args(args)
+                .env("HOME", &home)
+                .env("PREFIX", &prefix)
+                .env("TMPDIR", &tmp)
+                .output()
+                .unwrap()
+        };
+
+        let version = run_installed(&["--version"]);
+        assert!(
+            version.status.success(),
+            "stdout={:?} stderr={:?}",
+            version.stdout,
+            version.stderr
+        );
+
+        let doctor = run_installed(&["doctor"]);
+        assert_eq!(
+            doctor.status.code(),
+            Some(1),
+            "stdout={:?} stderr={:?}",
+            doctor.stdout,
+            doctor.stderr
+        );
+        let doctor_output = String::from_utf8_lossy(&doctor.stdout);
+        assert!(doctor_output.contains("[Upstream]\nstatus: healthy"));
+        assert!(doctor_output.contains("[Manager]\nstatus: unavailable"));
+        assert!(doctor_output.contains("[Summary]\nstatus: degraded"));
+
+        let update = std::process::Command::new(&installed_core)
+            .args(["update", "--local"])
+            .arg(&g1)
+            .env("HOME", &home)
+            .env("PREFIX", &prefix)
+            .env("TMPDIR", &tmp)
+            .output()
+            .unwrap();
+        assert_eq!(
+            update.status.code(),
+            Some(0),
+            "stdout={:?} stderr={:?}",
+            update.stdout,
+            update.stderr
+        );
+        assert!(!network_log.exists());
+
+        let updated_doctor = run_installed(&["doctor"]);
+        assert_eq!(updated_doctor.status.code(), Some(1));
+        let updated_doctor_output = String::from_utf8_lossy(&updated_doctor.stdout);
+        assert!(updated_doctor_output.contains("[Upstream]\nstatus: healthy"));
+        assert!(updated_doctor_output.contains("[Summary]\nstatus: degraded"));
+
+        let rollback = run_installed(&["update", "--rollback"]);
+        assert_eq!(
+            rollback.status.code(),
+            Some(0),
+            "stdout={:?} stderr={:?}",
+            rollback.stdout,
+            rollback.stderr
+        );
+        assert!(!network_log.exists());
+
+        let rolled_back_doctor = run_installed(&["doctor"]);
+        assert_eq!(rolled_back_doctor.status.code(), Some(1));
+        let rolled_back_doctor_output = String::from_utf8_lossy(&rolled_back_doctor.stdout);
+        assert!(rolled_back_doctor_output.contains("[Upstream]\nstatus: healthy"));
+        assert!(rolled_back_doctor_output.contains("[Summary]\nstatus: degraded"));
+        assert!(!network_log.exists());
+
+        let roots = b7_public_roots(&home, &prefix);
+        let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+        let state = read_pointer_state(&paths).unwrap().unwrap();
+        assert_eq!(state.current, "b11-fresh-g0");
+        assert_eq!(state.previous.as_deref(), Some("b11-fresh-g1"));
+        m2_b1_assert_no_transaction_files(&paths);
+        assert!(std::fs::read_dir(&tmp).unwrap().all(|entry| {
+            !entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".codex-bootstrap.")
+        }));
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn test_m2_b10_slice2_offline_local_update_and_rollback_use_signed_generations_only() {
         let Some(core) = b10_release_core_from_env() else {
             return;

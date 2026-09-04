@@ -83,7 +83,7 @@ remain usable without touching the current live installation.
 - Use the B10 release Core artifact
   `12bd6c525026d74df8f9784444cebfee45d33f3f00af5512b59168f38a9c8d01` and
   release-builder artifact
-  `d1db9e39f5b90dbf8f71e33b7f1a2fb80f6bd7399123278301328c77abe5ec` as the
+  `d1db9e39f5b90dbf8f71e33b7f1a2fb80f6bd7399123278301328c77abeeb5ec` as the
   release-qualified inputs, or regenerate them in a private temporary root
   and record the new same-revision digests.
 - The B11 slice 0 product-boundary proof passed in a private temporary target:
@@ -100,10 +100,53 @@ remain usable without touching the current live installation.
 | Slice | Observable outcome | Focused proof | State |
 | --- | --- | --- | --- |
 | 0 | Assemble the release-qualified Core, bootstrap, signed local manifest, and disposable environment inputs with network disabled where required. | Release-builder plus existing B10 artifact/signature checks; release-built Core sandbox fail-closed proof; record nonzero tests and exact digests. | complete |
-| 1 | A fresh supported Termux root installs the prebuilt Core and can launch, report version, run doctor, and use the accepted local update/recovery path offline. | Fresh-root end-to-end qualification using only release inputs; inspect installed paths and state. | selected |
-| 2 | A separately provisioned legacy root upgrades through the supported boundary while preserving required user state and exposing the accepted Core path. | Legacy-upgrade end-to-end qualification; compare only observable behavior and protected-state identities. | pending |
+| 1 | A fresh supported Termux root installs the prebuilt Core and can launch, report version, run doctor, and use the accepted local update/recovery path offline. | Fresh-root end-to-end qualification using only release inputs; inspect installed paths and state. | complete (isolated root) |
+| 2 | A separately provisioned legacy root upgrades through the supported boundary while preserving required user state and exposing the accepted Core path. | Legacy-upgrade end-to-end qualification; compare only observable behavior and protected-state identities. | selected |
 | 3 | Failure injection, rollback, cleanup, and repeatability remain valid in both disposable roots, with no residue or live-state mutation. | B10 recovery regressions plus environment-specific checks and repeated bounded runs. | pending |
 | 4 | The bundle is ready for the Milestone 2 independent product review. | Grouped locked suite, release build, formatting, shell syntax, diff review, protected-surface verification, and authority closure. | pending |
+
+#### Slice 1 closure evidence
+
+- The focused proof
+  `tests::test_m2_b11_slice1_fresh_root_public_path_includes_doctor` ran
+  against the current locked release-built Core with `-D warnings` and
+  completed `1 passed, 0 failed`. It created a fresh disposable
+  Termux-shaped HOME/PREFIX/TMPDIR root only.
+- The release bootstrap exited 0; installed Core `--version` exited 0;
+  `doctor` produced the expected healthy upstream / unavailable Manager /
+  degraded summary (exit 1); signed offline local update exited 0; doctor
+  remained usable after update; explicit rollback exited 0; and doctor
+  remained usable after rollback.
+- The network-denial sentinel was never touched. Final v3 state was
+  `current=b11-fresh-g0`, `previous=b11-fresh-g1`; no activation
+  transaction or bootstrap temporary residue remained.
+- This isolated fresh-root slice does not claim a second physical Termux
+  installation; that device-level qualification remains distinct under the
+  SPEC acceptance principles.
+- Current Slice 1 source SHA-256 is
+  `8c897a4b93eae89bf69d4afb1625f28d083901889edc5f24c6734d29565f0a74`.
+  The release Core artifact is
+  `12bd6c525026d74df8f9784444cebfee45d33f3f00af5512b59168f38a9c8d01`;
+  the release-builder artifact is
+  `d1db9e39f5b90dbf8f71e33b7f1a2fb80f6bd7399123278301328c77abeeb5ec`;
+  bootstrap is
+  `c1b107699a64c08cc49a99ceb433c3dd1b6c7ca53637fb0b53cc73b6ce35e9fa`;
+  and SPEC is
+  `4ca9035c9c1a31c5afc3e9d4de978b304c96c687d03c0bee0aa446078fe11647`.
+
+#### Slice 2 preflight
+
+- Read-only lookup found no second Termux app/prefix or disposable legacy root;
+  only the protected live prefix is present.
+- SPEC defines fresh bootstrap and public update/rollback, but no
+  legacy-migration command or procedure. The bootstrap explicitly refuses
+  existing authoritative v3 state and an existing differing
+  `PREFIX/bin/codex`, so it cannot be treated as an upgrade protocol.
+- The sealed legacy branch is historical evidence only; no legacy source or
+  internal model was copied. No production or SPEC mutation is justified by
+  this preflight.
+- Slice 2 remains pending an explicitly provisioned disposable legacy
+  environment and a specified supported upgrade boundary.
 
 #### Environment and safety boundary
 
