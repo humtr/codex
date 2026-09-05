@@ -27,8 +27,9 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
   Termux condition where the outer Codex environment supplies `NO_COLOR=1` is
   covered by the explicit `codex doctor --color` path, and redaction no longer
   strips safe upstream SGR. The live launcher and generation are recorded in
-  `GOAL.md`; local `main` remains the publication authority and no remote push
-  or GitHub publication was part of R9.2.
+  `GOAL.md`; the complete local publication is also published to the fixed
+  `humtr/codex` Release/index channel. Local `main` remains the publication
+  authority; no source-history push was part of R9.2.
 - The inherited pre-commit hook references absent
   `tools/update-wrapper-version.sh`; do not modify it. If it alone rejects an
   exact, revalidated staged tree, use the established `--no-verify` closure.
@@ -205,7 +206,8 @@ point. The current R9.2 scope is:
    protected live identity checks, and bounded Termux PTY public-path proof all
    passed. A subsequent bounded local signed publication activated generation
    `local-1788578457-0-1` and atomically reflected the accepted Core launcher;
-   no remote publication or source-history push was performed.
+   the five Release assets and ordered signed index publication are complete;
+   no source-history push was performed.
 
 R9.2 source closure is accepted with the evidence recorded in `GOAL.md`. No
 source implementation slice is active after R9.2; its authorized live

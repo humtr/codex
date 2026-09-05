@@ -1862,14 +1862,23 @@ Termux qualification. Produce one candidate for independent product review.
   upstream SGR, showed both upstream-first and Termux sections, omitted the
   synthetic heading, and returned the expected health-failure status from the
   unavailable Manager; default human and JSON doctor output remained plain.
+- The complete local publication was then sent to the fixed authenticated
+  `humtr/codex` publication target. Release tag `local-1788578457-0-1` is
+  non-draft and non-prerelease with all five signed generation assets. The
+  remote `update-index-v1` and `update-index-v1.sig` bytes match the local
+  publication exactly, and the remote signature verifies with the pinned trust
+  public key. The signed index now points to the new generation and its Release
+  base; the remote publication branch tip is `856268e93cd29244f59635e5ee84c36a0b5b37d0`.
 - Protected live identities remained unchanged: `resolv.conf`
   `7e8ad76e0d200e93918ca2e93c99ff8ecd02071953bf1479819db3ac0dbb6d07`, trust
   seed `62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c`,
   and the backup launcher
   `5c493c581ffb894ecbd2841c1ccdc8fbbf2b74c23d184468e8ebacc356548bac`.
-  No auth/profile/session, Manager, remote publication/ref, `main`, or bwrap
-  state was changed; activation state changed only through the authenticated
-  Core update transaction, and no generated artifact was committed.
+  No auth/profile/session, Manager, resolver, trust, bwrap, or source-history
+  ref was changed; activation state changed only through the authenticated
+  Core update transaction, and no generated artifact was committed. The
+  publication target's `main` changed only through the ordered signed-index
+  publication above.
 - Disposition: KEEP one direct upstream-first doctor path, one bounded Termux
   PTY capture, and one fail-closed redaction invariant. COLLAPSE the prior
   all-or-nothing decolorization after redaction into range-preserving SGR
