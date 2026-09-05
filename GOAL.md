@@ -1893,6 +1893,35 @@ Termux qualification. Produce one candidate for independent product review.
   all-or-nothing decolorization after redaction into range-preserving SGR
   redaction; retain plain fallback only for an impossible mapping mismatch.
 
+## Local Main Lineage Promotion (2026-09-05)
+
+- After R9.2 source, live, remote-publication, and disposable-consumer
+  qualification were complete, the user-authorized local source promotion was
+  performed. The exact pre-promotion local `main` was
+  `57034e4cd2d4f259c9046ac11073dc0b7f7dbb47` and was preserved as
+  `legacy/main-pre-r9.2-20260905`. The earlier
+  `legacy/main-pre-m2-20260904` backup and sealed `legacy/monolith` were left
+  unchanged.
+- Local `main` was then replaced atomically, with the expected old ref, by the
+  accepted `rewrite/rust-core` tip
+  `51d2e786bbfd31db1e22fd9eed02a3e7f008db88`. This was a direct ref
+  replacement, not a merge or rebase; the implementation lineage remains
+  independent of legacy history.
+- The remote publication branch remains at
+  `856268e93cd29244f59635e5ee84c36a0b5b37d0`, the remote rewrite branch
+  remains at `253156c37a2bd22af8faae0bce03587999ffd136`, and neither was
+  changed by this local promotion. Live protected identities were unchanged
+  from the R9.2 preflight: resolver
+  `7e8ad76e0d200e93918ca2e93c99ff8ecd02071953bf1479819db3ac0dbb6d07`, trust
+  seed
+  `62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c`, and
+  installed launcher
+  `109b556884150a134c39a8892c599f6551dbc1fb18ea557eebbfc690b4fc3a9b`.
+- No live runtime, activation state, resolver, auth/profile/session, Manager,
+  bwrap, or remote publication content was changed by this source-lineage
+  operation. The next implementation work is a separately scoped Manager
+  bundle behind the Core boundary; no Core source slice is currently active.
+
 ## Goal Lifts
 
 No lift is active. A proposed lift must identify a concrete product risk or

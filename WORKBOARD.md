@@ -23,14 +23,14 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
   no push is authorized.
 - Current milestone: R9.2 Termux doctor color override is accepted in source
   and reflected live at
-  `rewrite/rust-core@7eeeb7cf6bc494432ee0955843b5c215b433983b`. The verified
+  `rewrite/rust-core@51d2e786bbfd31db1e22fd9eed02a3e7f008db88`. The verified
   Termux condition where the outer Codex environment supplies `NO_COLOR=1` is
   covered by the explicit `codex doctor --color` path, and redaction no longer
   strips safe upstream SGR. The live launcher and generation are recorded in
   `GOAL.md`; the complete local publication is also published to the fixed
   `humtr/codex` Release/index channel, and a disposable consumer fetched it
-  successfully. Local `main` remains the publication authority; no
-  source-history push was part of R9.2.
+  successfully. Local `main` is now the same accepted tip by direct ref
+  replacement; no source-history push was part of R9.2.
 - The inherited pre-commit hook references absent
   `tools/update-wrapper-version.sh`; do not modify it. If it alone rejects an
   exact, revalidated staged tree, use the established `--no-verify` closure.
@@ -40,8 +40,11 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
   `37f0a775ddc64d1641655a0cc83c0c2e681df704` was not contained by the sealed
   `legacy/monolith` history. It is preserved by the exact local backup branch
   `legacy/main-pre-m2-20260904`.
-- `main` remains publication authority and was locally promoted by direct ref
-  replacement to the previously accepted `rewrite/rust-core` tip; this is not a
+- The prior local `main` at `57034e4cd2d4f259c9046ac11073dc0b7f7dbb47` was
+  preserved before the latest replacement as
+  `legacy/main-pre-r9.2-20260905`. `main` is publication authority and now
+  points directly at
+  `rewrite/rust-core@51d2e786bbfd31db1e22fd9eed02a3e7f008db88`; this is not a
   merge or rebase. Remote refs remain unchanged and no push was performed; the
   authorized local live cutovers are recorded in `GOAL.md`.
 - Worker mode is OFF. The primary Lead owns implementation, validation,
