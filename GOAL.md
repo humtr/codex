@@ -1812,6 +1812,52 @@ Termux qualification. Produce one candidate for independent product review.
   left the accepted Core doctor fix out of the installed entrypoint. R9.1 is
   closed; no independent source implementation slice remains active.
 
+## R9.2 Termux Doctor Color Override (accepted)
+
+- The additional Termux audit found two related causes for the reported plain
+  upstream doctor. The active execution environment supplies `NO_COLOR=1`,
+  which the existing PTY decision correctly honored; and, when the upstream
+  output contained a credential-like field such as `api_key`, the old redactor
+  returned the entirely plain redacted document, discarding otherwise safe
+  upstream SGR. The sealed legacy renderer also honored `NO_COLOR`, so it was
+  not a separate Termux color implementation to copy.
+- The public contract now accepts exact `codex doctor --color` in addition to
+  the existing no-argument and `--json` forms. It is human-only and TTY-only,
+  mutually exclusive with `--json`, and does not mutate the caller environment.
+  On a TTY it removes `NO_COLOR` only from the bounded upstream child and uses
+  the existing Termux `script` PTY; non-TTY output and JSON remain plain.
+- The redactor now records plain-text replacement ranges, reapplies those
+  replacements over the sanitized styled stream while retaining only safe SGR,
+  handles multiple out-of-order sensitive fields, and falls back to the already
+  redacted plain line if its internal mapping is ever inconsistent. No secret
+  is exposed by the color path.
+- Focused R9.2 proof passed `11 passed, 0 failed`, including the parser,
+  `NO_COLOR` child-environment isolation, single and multiple redaction/SGR
+  cases, and the real public main path under the Termux `script` PTY with
+  inherited `NO_COLOR=1`. The final grouped workspace proof passed Core `128
+  passed, 0 failed, 1 ignored` and release-builder `9 passed, 0 failed` in the
+  locked serial run and two consecutive locked parallel runs. Clippy with
+  `-D warnings`, release build, format, and diff checks passed.
+- This authority record binds Core source SHA-256
+  `6ad6bb407e8fc11efffc8a59bbf132f1c0ceb0908b1e72e14acefa8493a506cb`, the
+  parent-relative Core diff SHA-256
+  `fa8e81c8ae8cbbc0bbb98644e1985b94fcb44b88f6339f5f34c32e0fe70ed7e6`, and
+  normative SPEC SHA-256
+  `e80c0df47e8cf93c3b98f24af8996fcbb9168b904aa84b62cb9cddc6aae5bb9f`.
+- Protected live identities remained unchanged: `resolv.conf`
+  `7e8ad76e0d200e93918ca2e93c99ff8ecd02071953bf1479819db3ac0dbb6d07`, trust
+  seed `62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c`,
+  and installed launcher
+  `5c493c581ffb894ecbd2841c1ccdc8fbbf2b74c23d184468e8ebacc356548bac`.
+  No live launcher/runtime, activation state, resolver, auth/profile/session,
+  Manager, publication, remote ref, or bwrap state was changed by R9.2; the
+  new doctor behavior is source-accepted but still requires a separately
+  authorized live Core reflection.
+- Disposition: KEEP one direct upstream-first doctor path, one bounded Termux
+  PTY capture, and one fail-closed redaction invariant. COLLAPSE the prior
+  all-or-nothing decolorization after redaction into range-preserving SGR
+  redaction; retain plain fallback only for an impossible mapping mismatch.
+
 ## Goal Lifts
 
 No lift is active. A proposed lift must identify a concrete product risk or

@@ -58,10 +58,19 @@ adapted generation.
 | `codex update --remote <HTTPS_BASE_URL>` | Core | acquire one immutable signed generation and activate it through the local update path |
 | `codex update --rollback` | Core | explicitly swap to the one retained complete previous generation |
 | `codex doctor [OPTIONS]` | Core | combine upstream and Termux diagnostics |
+| `codex doctor --color` | Core | explicitly request colored human diagnostics on a TTY, including when an outer Termux wrapper supplied `NO_COLOR` |
 | `codex termux [COMMAND]` | Manager boundary | invoke the Manager artifact or report it unavailable |
 
 `codex version` is not introduced. Wrapper/Core/Manager version rows must not
 be appended to upstream `--version` or `-V` output.
+
+The Core-owned doctor surface accepts exactly no arguments, `--json`, or
+`--color`. `--json` and `--color` are mutually exclusive. `--color` is an
+explicit human-output override for interactive diagnostics: when stdout is not
+a TTY, output remains plain; when it is a TTY, Core removes only the inherited
+`NO_COLOR` value from the bounded upstream-doctor child and uses the Termux PTY
+capture path. It never changes the caller's environment or enables color in a
+JSON envelope.
 
 The Core-owned update surface accepts exactly no arguments, `--help`,
 `--local <DIRECTORY>`, `--remote <HTTPS_BASE_URL>`, or `--rollback` after
@@ -862,11 +871,15 @@ envelope rather than concatenated documents:
 
 When human output is connected to a TTY and `NO_COLOR` is absent, Core gives the
 upstream doctor a bounded pseudo-terminal so its own headings, progress
-cleanup, and ANSI SGR markup retain the upstream layout. Core normalizes
-carriage-return/erase controls and preserves only safe SGR sequences before
-composition. Non-TTY output and explicit `NO_COLOR` remain plain. If the
-upstream doctor is unsupported or produces no output, Core emits only a concise
-status diagnostic for that missing upstream portion before the Termux section.
+cleanup, and ANSI SGR markup retain the upstream layout. `--color` is the
+explicit exception for an interactive caller whose outer Termux/AI wrapper
+injected `NO_COLOR`; Core removes that variable only from the upstream child
+and enables the same bounded PTY path. Non-TTY output remains plain, and
+explicit `NO_COLOR` remains plain unless `--color` was requested. Core
+normalizes carriage-return/erase controls and preserves only safe SGR sequences
+before composition. If the upstream doctor is unsupported or produces no
+output, Core emits only a concise status diagnostic for that missing upstream
+portion before the Termux section.
 The Termux doctor section follows the legacy wrapper presentation: a `Codex
 Termux Wrapper Doctor` status header,
 `Runtime`, `Support`, `Wrapper`, `State`, and `Store` groups, colored health

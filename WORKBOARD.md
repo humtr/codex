@@ -21,15 +21,13 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 - Remote `origin/rewrite/rust-core` remains at
   `253156c37a2bd22af8faae0bce03587999ffd136`; the local branch is ahead and
   no push is authorized.
-- Current milestone: R9.1 signed-index publication repair is accepted in the
+- Current milestone: R9.2 Termux doctor color override is accepted in the
   current tree on top of
-  `rewrite/rust-core@4b6b3cdd24895e8628892212aeff6445efa50bfa`. The live
-  qualification proved that the GitHub Release assets upload, but both signed
-  Contents index files were absent; this bundle repaired the exact GitHub
-  base64 tail path and reran bounded publication/update/doctor checks.
-  R4's Core ownership, signed-generation admission, and doctor behavior remain
-  the implementation baseline. Local `main` remains the publication authority;
-  no source-history promotion or remote push is part of R9.1.
+  `rewrite/rust-core@604bdc7b63605025b7ed70a40aaee2a69c276a29`. The verified
+  Termux condition where the outer Codex environment supplies `NO_COLOR=1` is
+  covered by the explicit `codex doctor --color` path, and redaction no longer
+  strips safe upstream SGR. Local `main` remains the publication authority; no
+  source-history promotion or remote push is part of R9.2.
 - The inherited pre-commit hook references absent
   `tools/update-wrapper-version.sh`; do not modify it. If it alone rejects an
   exact, revalidated staged tree, use the established `--no-verify` closure.
@@ -46,13 +44,8 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 - Worker mode is OFF. The primary Lead owns implementation, validation,
   authority updates, commit, and acceptance.
 
-- Resumed bundle: restore the public `codex doctor` human presentation after
-  the interrupted review. The upstream doctor's own output is the first
-  presentation surface; the legacy-shaped Termux section remains appended.
-- R8 is closed at `5a72f77`; the next active bundle is R9 remote publication
-  transport. It must keep large generation files out of the GitHub Contents
-  API, publish immutable release assets first, and update the signed index only
-  after the complete asset release succeeds.
+- R8 is closed at `5a72f77`, R9, R9.1, and R9.2 are closed below. No source
+  implementation slice is active.
 
 ## Product-speed policy
 
@@ -192,8 +185,29 @@ compile/test gates, warnings-denied release build, protected-surface checks,
 authority update, and one implementation commit. Live publication is recorded
 in `GOAL.md` as user-authorized qualification evidence.
 
-No source implementation slice is active after R9.1. Further work requires a
-new explicit scope.
+R9.1 was closed with no independent source implementation slice active at that
+point. The current R9.2 scope is:
+
+## R9.2 Termux doctor color override (closed)
+
+1. Public contract — add the exact `codex doctor --color` mode to the normative
+   command and doctor contracts. It is human-only, TTY-only, mutually exclusive
+   with `--json`, and does not mutate the caller environment. Focused proof:
+   parser and usage regression.
+2. Upstream capture — carry the explicit override through the real public
+   doctor route, remove `NO_COLOR` only in the bounded child when a TTY is
+   available, and retain the existing Termux `script` PTY, SGR sanitization,
+   redaction, and upstream-first layout. Focused proof: a fake upstream that
+   emits SGR only when `NO_COLOR` is absent, reached through production capture.
+3. Bundle acceptance — complete. The nonzero focused suite, locked workspace
+   tests, repeated parallel runs, clippy, release build, format/diff checks,
+   protected live identity checks, and bounded Termux PTY public-path proof all
+   passed. Update, publication, launcher replacement, and runtime cutover were
+   intentionally not performed for this display-only bundle.
+
+R9.2 source closure is accepted with the evidence recorded in `GOAL.md`. No
+source implementation slice is active after R9.2; live reflection remains a
+separate authorized operational step.
 
 Worker mode remains OFF; the primary Lead owns every slice, validation step,
 authority update, and acceptance decision.

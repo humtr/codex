@@ -1101,6 +1101,7 @@ struct QualifiedUpstreamDoctorResult {
 struct DoctorCaptureOptions {
     json: bool,
     use_color: bool,
+    force_color: bool,
 }
 
 #[cfg(unix)]
@@ -1184,7 +1185,31 @@ fn sanitize_doctor_terminal_controls(value: &str, preserve_sgr: bool) -> String 
 }
 
 #[cfg(unix)]
-fn redact_doctor_line(mut line: String) -> String {
+fn replace_doctor_redaction(
+    line: &mut String,
+    boundaries: &mut Vec<usize>,
+    start: usize,
+    end: usize,
+) -> (usize, usize) {
+    const REDACTION: &str = "[redacted]";
+
+    let original_start = boundaries[start];
+    let original_end = boundaries[end];
+    line.replace_range(start..end, REDACTION);
+
+    let mut updated = Vec::with_capacity(boundaries.len() - (end - start) + REDACTION.len());
+    updated.extend_from_slice(&boundaries[..=start]);
+    for _ in 1..REDACTION.len() {
+        updated.push(original_start);
+    }
+    updated.push(original_end);
+    updated.extend_from_slice(&boundaries[end + 1..]);
+    *boundaries = updated;
+    (original_start, original_end)
+}
+
+#[cfg(unix)]
+fn redact_doctor_line_with_ranges(line: &mut String) -> (String, Vec<(usize, usize)>) {
     const SENSITIVE_KEYS: [&str; 11] = [
         "access_token",
         "refresh_token",
@@ -1198,6 +1223,8 @@ fn redact_doctor_line(mut line: String) -> String {
         "private_key",
         "password",
     ];
+    let mut boundaries: Vec<usize> = (0..=line.len()).collect();
+    let mut ranges = Vec::new();
 
     for key in SENSITIVE_KEYS {
         let mut search_from = 0;
@@ -1250,7 +1277,12 @@ fn redact_doctor_line(mut line: String) -> String {
                 search_from = value_start + "[redacted]".len();
                 continue;
             }
-            line.replace_range(value_start..value_end, "[redacted]");
+            ranges.push(replace_doctor_redaction(
+                line,
+                &mut boundaries,
+                value_start,
+                value_end,
+            ));
             search_from = value_start + "[redacted]".len();
             if search_from >= line.len() {
                 break;
@@ -1282,14 +1314,108 @@ fn redact_doctor_line(mut line: String) -> String {
                 search_from = value_start;
                 continue;
             }
-            line.replace_range(value_start..value_end, "[redacted]");
+            ranges.push(replace_doctor_redaction(
+                line,
+                &mut boundaries,
+                value_start,
+                value_end,
+            ));
             search_from = value_start + "[redacted]".len();
             if search_from >= line.len() {
                 break;
             }
         }
     }
-    line
+    (line.to_owned(), ranges)
+}
+
+#[cfg(unix)]
+fn doctor_sgr_end(value: &str, start: usize) -> Option<usize> {
+    let bytes = value.as_bytes();
+    if bytes.get(start) != Some(&0x1b) || bytes.get(start + 1) != Some(&b'[') {
+        return None;
+    }
+    let mut index = start + 2;
+    while index < bytes.len() {
+        if bytes[index] == b'm' {
+            return Some(index + 1);
+        }
+        index += 1;
+    }
+    None
+}
+
+#[cfg(unix)]
+fn doctor_styled_boundaries(styled: &str) -> Vec<usize> {
+    let mut boundaries = vec![0];
+    let mut plain_length = 0;
+    let mut index = 0;
+    while index < styled.len() {
+        if let Some(end) = doctor_sgr_end(styled, index) {
+            index = end;
+            boundaries[plain_length] = index;
+            continue;
+        }
+        let character = styled[index..]
+            .chars()
+            .next()
+            .expect("valid UTF-8 styled doctor output has a character at every byte boundary");
+        let width = character.len_utf8();
+        for offset in 1..=width {
+            boundaries.push(index + offset);
+        }
+        plain_length += width;
+        index += width;
+    }
+    boundaries
+}
+
+#[cfg(unix)]
+fn doctor_styled_redaction_segment(segment: &str) -> String {
+    let mut replacement = String::new();
+    let mut inserted = false;
+    let mut index = 0;
+    while index < segment.len() {
+        if let Some(end) = doctor_sgr_end(segment, index) {
+            replacement.push_str(&segment[index..end]);
+            index = end;
+            continue;
+        }
+        let character = segment[index..]
+            .chars()
+            .next()
+            .expect("valid UTF-8 styled doctor segment has a character at every byte boundary");
+        if !inserted {
+            replacement.push_str("[redacted]");
+            inserted = true;
+        }
+        index += character.len_utf8();
+    }
+    if !inserted {
+        replacement.push_str("[redacted]");
+    }
+    replacement
+}
+
+#[cfg(unix)]
+fn doctor_styled_redactions(styled: &str, ranges: &[(usize, usize)]) -> Option<String> {
+    if ranges.is_empty() {
+        return Some(styled.to_owned());
+    }
+    let boundaries = doctor_styled_boundaries(styled);
+    let mut output = styled.to_owned();
+    let mut ranges = ranges.to_vec();
+    ranges.sort_by_key(|range| std::cmp::Reverse(range.0));
+    for (start, end) in ranges {
+        let styled_start = *boundaries.get(start)?;
+        let styled_end = *boundaries.get(end)?;
+        if styled_start > styled_end || styled_end > output.len() {
+            return None;
+        }
+        let replacement = doctor_styled_redaction_segment(&output[styled_start..styled_end]);
+        output.replace_range(styled_start..styled_end, &replacement);
+    }
+    Some(output)
 }
 
 #[cfg(unix)]
@@ -1298,25 +1424,60 @@ fn redact_doctor_output(bytes: &[u8], preserve_sgr: bool) -> String {
     let styled = sanitize_doctor_terminal_controls(&text, preserve_sgr);
     let plain = sanitize_doctor_terminal_controls(&text, false);
     let mut redacted = String::with_capacity(plain.len());
+    let mut styled_chunks = styled.split_inclusive('\n');
     for chunk in plain.split_inclusive('\n') {
         let (line, newline) = chunk
             .strip_suffix('\n')
             .map_or((chunk, ""), |line| (line, "\n"));
-        redacted.push_str(&redact_doctor_line(line.to_owned()));
+        let styled_chunk = styled_chunks.next().unwrap_or_default();
+        let (styled_line, _) = styled_chunk
+            .strip_suffix('\n')
+            .map_or((styled_chunk, ""), |line| (line, "\n"));
+        let mut plain_line = line.to_owned();
+        let (redacted_line, ranges) = redact_doctor_line_with_ranges(&mut plain_line);
+        if preserve_sgr {
+            if let Some(styled_line) = doctor_styled_redactions(styled_line, &ranges) {
+                redacted.push_str(&styled_line);
+            } else {
+                redacted.push_str(&redacted_line);
+            }
+        } else {
+            redacted.push_str(&redacted_line);
+        }
         redacted.push_str(newline);
     }
-    if preserve_sgr && redacted == plain {
-        styled
-    } else {
-        redacted
-    }
+    redacted
 }
 
 #[cfg(unix)]
-fn doctor_color_enabled() -> bool {
+fn doctor_color_enabled(force_color: bool) -> bool {
     use std::io::IsTerminal as _;
 
-    std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none()
+    doctor_color_policy(
+        std::io::stdout().is_terminal(),
+        std::env::var_os("NO_COLOR").is_some(),
+        force_color,
+    )
+}
+
+#[cfg(unix)]
+fn doctor_color_policy(
+    stdout_is_terminal: bool,
+    no_color_present: bool,
+    force_color: bool,
+) -> bool {
+    stdout_is_terminal && (force_color || !no_color_present)
+}
+
+#[cfg(unix)]
+fn apply_doctor_color_override(
+    cmd: &mut std::process::Command,
+    use_color: bool,
+    force_color: bool,
+) {
+    if use_color && force_color {
+        cmd.env_remove("NO_COLOR");
+    }
 }
 
 #[cfg(unix)]
@@ -1376,6 +1537,7 @@ where
     use std::io::Read as _;
 
     let json = options.json;
+    let force_color = options.force_color;
     let mut use_color = options.use_color;
     let selection = assets.selection();
     let env_plan = plan_termux_env(
@@ -1411,6 +1573,7 @@ where
         .stderr(std::process::Stdio::null())
         .stdin(std::process::Stdio::null());
     apply_child_env_plan_and_fence(&mut cmd, Some(&env_plan));
+    apply_doctor_color_override(&mut cmd, use_color, force_color);
     runtime_fds.configure(&mut cmd);
     let mut child = cmd.spawn().map_err(QualifiedUpstreamDoctorProbeError::Io)?;
     let stdout = child.stdout.take().ok_or_else(|| {
@@ -1464,6 +1627,7 @@ where
         DoctorCaptureOptions {
             json: false,
             use_color: false,
+            force_color: false,
         },
     )?
     .status)
@@ -1884,6 +2048,7 @@ fn render_doctor_json(report: &DoctorReport) -> String {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DoctorOutputMode {
     Human,
+    Color,
     Json,
 }
 
@@ -1903,7 +2068,7 @@ enum LocalDoctorCommandError {
 impl std::fmt::Display for LocalDoctorCommandError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LocalDoctorCommandError::Usage => f.write_str("usage: codex doctor [--json]"),
+            LocalDoctorCommandError::Usage => f.write_str("usage: codex doctor [--json|--color]"),
         }
     }
 }
@@ -1925,6 +2090,9 @@ where
     let mut args = args.into_iter().map(Into::into);
     match (args.next(), args.next()) {
         (None, None) => Ok(DoctorOutputMode::Human),
+        (Some(arg), None) if arg.as_os_str() == OsStr::new("--color") => {
+            Ok(DoctorOutputMode::Color)
+        }
         (Some(arg), None) if arg.as_os_str() == OsStr::new("--json") => Ok(DoctorOutputMode::Json),
         _ => Err(LocalDoctorCommandError::Usage),
     }
@@ -1954,7 +2122,13 @@ where
     S: Into<OsString>,
 {
     let mode = doctor_output_mode(args)?;
-    let color = mode == DoctorOutputMode::Human && doctor_color_enabled();
+    let color = match mode {
+        DoctorOutputMode::Human => doctor_color_enabled(false),
+        DoctorOutputMode::Color => doctor_color_enabled(true),
+        DoctorOutputMode::Json => false,
+    };
+    let json = mode == DoctorOutputMode::Json;
+    let force_color = mode == DoctorOutputMode::Color;
     let upstream = match context.doctor_capability {
         UpstreamDoctorCapability::Supported => match capture_qualified_upstream_doctor(
             context.runtime_assets,
@@ -1964,8 +2138,9 @@ where
             context.resolver_path,
             context.config_dir,
             DoctorCaptureOptions {
-                json: mode == DoctorOutputMode::Json,
+                json,
                 use_color: color,
+                force_color,
             },
         ) {
             Ok(result) => result,
@@ -1989,7 +2164,7 @@ where
         context.manager_doctor_status,
     );
     let output = match mode {
-        DoctorOutputMode::Human => render_doctor_human(&report, color),
+        DoctorOutputMode::Human | DoctorOutputMode::Color => render_doctor_human(&report, color),
         DoctorOutputMode::Json => render_doctor_json(&report),
     };
     Ok(DoctorCommandOutcome {
@@ -8042,6 +8217,10 @@ mod tests {
             PublicDispatchRoute::Doctor(vec!["--json".into()])
         );
         assert_eq!(
+            plan_public_dispatch(["doctor", "--color"]).unwrap(),
+            PublicDispatchRoute::Doctor(vec!["--color".into()])
+        );
+        assert_eq!(
             plan_public_dispatch(["termux", "status"]).unwrap(),
             PublicDispatchRoute::Termux(vec!["status".into()])
         );
@@ -8327,9 +8506,34 @@ mod tests {
             doctor_output_mode([OsString::from("--json")]).unwrap(),
             DoctorOutputMode::Json
         );
+        assert_eq!(
+            doctor_output_mode([OsString::from("--color")]).unwrap(),
+            DoctorOutputMode::Color
+        );
+        assert!(doctor_output_mode([OsString::from("--color"), OsString::from("--json")]).is_err());
         let err = doctor_output_mode([OsString::from("secret-value")]).unwrap_err();
-        assert_eq!(err.to_string(), "usage: codex doctor [--json]");
+        assert_eq!(err.to_string(), "usage: codex doctor [--json|--color]");
         assert!(!err.to_string().contains("secret-value"));
+
+        assert!(doctor_color_policy(true, false, false));
+        assert!(!doctor_color_policy(true, true, false));
+        assert!(doctor_color_policy(true, true, true));
+        assert!(!doctor_color_policy(false, false, true));
+
+        let shell = resolve_test_shell();
+        let mut cleared = std::process::Command::new(&shell);
+        cleared
+            .args(["-c", "test -z \"${NO_COLOR+x}\""])
+            .env("NO_COLOR", "1");
+        apply_doctor_color_override(&mut cleared, true, true);
+        assert!(cleared.status().unwrap().success());
+
+        let mut retained = std::process::Command::new(&shell);
+        retained
+            .args(["-c", "test -n \"${NO_COLOR+x}\""])
+            .env("NO_COLOR", "1");
+        apply_doctor_color_override(&mut retained, true, false);
+        assert!(retained.status().unwrap().success());
 
         let redacted = redact_doctor_output(
             b"status=ok api_key=sk-secret-value\n\x1b[31mBearer bearer-secret\x1b[0m\n",
@@ -8365,6 +8569,16 @@ mod tests {
             true,
         );
         assert_eq!(styled, "\x1b[1mfinal\x1b[22m\n");
+        let styled_redacted =
+            redact_doctor_output(b"\x1b[31mapi_key=sk-secret-value\x1b[39m\n", true);
+        assert_eq!(styled_redacted, "\x1b[31mapi_key=[redacted]\x1b[39m\n");
+        assert!(!styled_redacted.contains("sk-secret-value"));
+        let styled_multiple_redacted =
+            redact_doctor_output(b"\x1b[31mapi_key=first token=second\x1b[39m\n", true);
+        assert_eq!(
+            styled_multiple_redacted,
+            "\x1b[31mapi_key=[redacted] token=[redacted]\x1b[39m\n"
+        );
         assert!(!render_doctor_human(&report, false).contains('\u{1b}'));
         assert!(render_doctor_human(&report, true).contains("\x1b[1m"));
 
@@ -8447,6 +8661,7 @@ mod tests {
             DoctorCaptureOptions {
                 json: false,
                 use_color: true,
+                force_color: true,
             },
         )
         .unwrap();
@@ -8536,7 +8751,7 @@ if [ "$1" = "doctor" ]; then
   fi
   if [ "$2" = "--json" ]; then
     printf '{"status":"ok","api_key":"sk-upstream-secret"}\n'
-  elif [ -t 1 ]; then
+  elif [ -t 1 ] && [ -z "${NO_COLOR+x}" ]; then
     printf '\033[2K\r'
     printf '\033[33mchecking upstream\033[39m'
     printf '\r\033[2K'
@@ -9493,6 +9708,7 @@ exit 73
             "manager" => vec![OsString::from("termux"), OsString::from("status")],
             "doctor" => vec![OsString::from("doctor"), OsString::from("--json")],
             "doctor-human" => vec![OsString::from("doctor")],
+            "doctor-color" => vec![OsString::from("doctor"), OsString::from("--color")],
             "doctor-overflow" => {
                 std::env::set_var("CODEX_TEST_DOCTOR_LARGE", "1");
                 vec![OsString::from("doctor"), OsString::from("--json")]
@@ -9536,7 +9752,17 @@ exit 73
 
     #[cfg(unix)]
     fn b2_public_main_doctor_fixture(label: &str) -> std::path::PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+
         let root = b2_public_main_fixture(label, false);
+        let script_source =
+            std::path::PathBuf::from(std::env::var_os("PREFIX").unwrap()).join("bin/script");
+        let script = root.join("prefix/bin/script");
+        std::fs::create_dir_all(script.parent().unwrap()).unwrap();
+        std::fs::copy(script_source, &script).unwrap();
+        let mut script_mode = std::fs::metadata(&script).unwrap().permissions();
+        script_mode.set_mode(0o755);
+        std::fs::set_permissions(&script, script_mode).unwrap();
         let generation = root.join("home/.local/lib/codex/core/generations/g1");
         std::fs::rename(
             generation.join("compat").join(CODE_MODE_HOST_FILE),
@@ -9568,6 +9794,29 @@ exit 73
             .env("HOME", root.join("home"))
             .env("PREFIX", root.join("prefix"))
             .env("TMPDIR", root.join("tmp"))
+            .output()
+            .unwrap()
+    }
+
+    #[cfg(unix)]
+    fn run_public_main_probe_tty(root: &std::path::Path, scenario: &str) -> std::process::Output {
+        use std::os::unix::ffi::OsStrExt;
+
+        let script =
+            std::path::PathBuf::from(std::env::var_os("PREFIX").unwrap()).join("bin/script");
+        let executable = doctor_shell_quote(std::env::current_exe().unwrap().as_os_str());
+        let executable = std::str::from_utf8(executable.as_bytes()).unwrap();
+        let command = format!("{executable} tests::public_main_probe --exact --nocapture");
+        std::process::Command::new(script)
+            .args(["-qefc"])
+            .arg(command)
+            .arg("/dev/null")
+            .env(MAIN_PROBE_ROLE, "1")
+            .env(MAIN_PROBE_ARGS, scenario)
+            .env("HOME", root.join("home"))
+            .env("PREFIX", root.join("prefix"))
+            .env("TMPDIR", root.join("tmp"))
+            .env("NO_COLOR", "1")
             .output()
             .unwrap()
     }
@@ -9630,7 +9879,7 @@ exit 73
         let result = run_public_main_probe(&root, "doctor-human");
         assert_eq!(result.status.code(), Some(1));
         let stdout = String::from_utf8(result.stdout).unwrap();
-        assert!(stdout.contains("\nupstream doctor ok"));
+        assert!(stdout.contains("upstream doctor ok"));
         assert!(!stdout.contains("[Upstream Codex doctor]"));
         assert!(!stdout.contains("status: healthy\n"));
         assert!(stdout.contains("upstream doctor ok"));
@@ -9646,6 +9895,26 @@ exit 73
         assert!(stdout.contains("[Summary]"));
         assert!(!stdout.contains("sk-upstream-secret"));
         assert!(!stdout.contains("SECRET-UPSTREAM-STDERR"));
+        assert!(result.stderr.is_empty(), "stderr: {:?}", result.stderr);
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_r9_2_public_main_doctor_color_overrides_termux_no_color_on_tty() {
+        let root = b2_public_main_doctor_fixture("r9-2-main-doctor-color");
+        let result = run_public_main_probe_tty(&root, "doctor-color");
+        assert_eq!(result.status.code(), Some(1));
+        let stdout = String::from_utf8(result.stdout).unwrap();
+        assert!(
+            stdout.contains("\x1b[1mupstream doctor ok\x1b[22m"),
+            "stdout={stdout:?} stderr={:?}",
+            result.stderr
+        );
+        assert!(stdout.contains("\x1b[1mCodex Termux Wrapper Doctor"));
+        assert!(!stdout.contains("[Upstream Codex doctor]"));
+        assert!(stdout.contains("[Termux doctor]"));
+        assert!(!stdout.contains("sk-upstream-secret"));
         assert!(result.stderr.is_empty(), "stderr: {:?}", result.stderr);
         remove_temp_root(root);
     }
