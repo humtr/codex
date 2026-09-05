@@ -21,13 +21,14 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 - Remote `origin/rewrite/rust-core` remains at
   `253156c37a2bd22af8faae0bce03587999ffd136`; the local branch is ahead and
   no push is authorized.
-- Current milestone: MGR-0 Manager v1 definition is complete in `SPEC.md`;
+- Current milestone: MGR-1 profile selection and isolated launch is in progress;
+  MGR-0 Manager v1 definition is complete in `SPEC.md`;
   Core R9.2 remains accepted in source, live runtime, remote Release/index,
   and disposable-consumer qualification. The Manager definition keeps
   `codex termux` optional and separate from Core ownership, defines the
   profile/session/notification/repair boundaries, and makes MGR-1 profile
-  selection and isolated launch the next implementation slice. No Manager
-  code, artifact, or live state has been changed.
+  selection and isolated launch is the active implementation slice. No Manager
+  artifact or live state has been changed.
 - The inherited pre-commit hook references absent
   `tools/update-wrapper-version.sh`; do not modify it. If it alone rejects an
   exact, revalidated staged tree, use the established `--no-verify` closure.
@@ -233,26 +234,42 @@ reflection is complete.
    create-new publication, list/current behavior, isolated Core launch, and
    the associated protected-surface proof.
 
-## MGR-1 profile selection and isolated launch (next)
+## MGR-1 profile selection and isolated launch (closed)
 
-1. Exact grammar — implement and test only `profile list`, `profile current`,
+1. Exact grammar — closed in source: `profile list`, `profile current`,
    `profile create <PROFILE_ID>`, and `profile use <PROFILE_ID> [--]
-   [UPSTREAM_ARGS...]`; reject traversal, reserved names, malformed entries,
-   and unsupported options before mutation.
-2. Core handoff — extend the existing qualified Manager execution boundary to
-   provide and validate the versioned Core API/entrypoint handoff, while
-   keeping Core-owned selectors out of the ordinary upstream argv path.
-3. Profile state — publish `state-v1` and `profile.meta` through the declared
-   create-new/atomic path, reject symlinked roots and collisions, and prove
+   [UPSTREAM_ARGS...]` parsing rejects traversal, reserved names, malformed
+   IDs, and unsupported Core selectors before mutation; focused parser tests
+   are nonzero and passing.
+2. Core handoff — closed in source: the qualified Manager execution boundary
+   provides and validates the versioned Core API/entrypoint handoff, while
+   keeping Core-owned selectors out of the ordinary upstream argv path; the
+   Core probe and Manager invalid-handoff regression are nonzero and passing.
+3. Profile state — closed in source: publish `state-v1` and `profile.meta`
+   through the declared create-new/atomic path, reject symlinked roots and
+   collisions, and prove
    that no auth, session, log, Core, or resolver file is read or written by
    Manager.
-4. Isolated launch — invoke the validated Core entrypoint with default
-   `CODEX_HOME` removed or a custom profile home set only in the child; prove
-   raw argv, standard streams, TTY, signal, exit status, and caller-environment
-   preservation at the real process boundary.
-5. Bundle gate — focused tests must execute nonzero cases, a relevant locked
-   compile/test gate must pass, the actual diff must be reviewed, and a
-   disposable profile-root smoke must complete before MGR-2 is planned.
+4. Isolated launch — closed in source: invoke the validated Core entrypoint
+   with default `CODEX_HOME` removed or a custom profile home set only in the child; the
+   integration proof covers raw non-UTF-8 argv, standard streams, PTY, signal,
+   exit status, handoff removal, and caller-environment preservation.
+5. Bundle gate — closed: Manager unit tests passed 9/9, public integration
+   tests passed 4/4, the Core handoff regression passed 1/1, and the optional
+   Manager build/publication regressions passed 2/2. The locked workspace suite
+   passed Core 128/0/1 ignored, Manager 9/9, Manager integration 4/4, and
+   release-builder 11/11. Locked workspace clippy with `-D warnings`, the
+   warnings-denied release build, formatting, diff check, and the release-mode
+   disposable profile-root smoke 4/4 passed. Protected live identities were
+   unchanged and no live Manager artifact or state was changed.
 
 Worker mode remains OFF; the primary Lead owns every slice, validation step,
 authority update, and acceptance decision.
+
+## MGR-2 bounded session listing and resume (next)
+
+MGR-2 remains definition-only. Before implementation, bind its exact session
+reference grammar, bounded metadata projection, profile selection, and
+child-only Core resume launch in `SPEC.md`, then create one vertical proof
+slice. Do not add session indexing, transcript parsing, copying, migration, or
+notification behavior as part of MGR-2 planning.

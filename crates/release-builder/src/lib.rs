@@ -14,6 +14,7 @@ const ARCHIVE_MAX_BYTES: u64 = 256 * 1024 * 1024;
 const ENTRY_MAX_BYTES: u64 = 384 * 1024 * 1024;
 const PAYLOAD_MAX_BYTES: u64 = 512 * 1024 * 1024;
 const CORE_ARTIFACT_MAX_BYTES: u64 = 64 * 1024 * 1024;
+const MANAGER_ARTIFACT_MAX_BYTES: u64 = 64 * 1024 * 1024;
 const PATH_MAX_BYTES: usize = 256;
 const LOGICAL_ENTRY_MAX: usize = 32;
 const PAX_PAYLOAD_MAX_BYTES: u64 = 512;
@@ -77,7 +78,8 @@ const USAGE: &str = concat!(
     "--output <ABSENT_ABSOLUTE_FILE>\n",
     "       codex-release-builder build --version <MAJOR.MINOR.PATCH> ",
     "--archive <ABSOLUTE_FILE> --archive-sha256 <LOWERCASE_SHA256> ",
-    "--generation-id <ID> --core <ABSOLUTE_FILE> --creation-metadata <VALUE> ",
+    "--generation-id <ID> --core <ABSOLUTE_FILE> [--manager <ABSOLUTE_FILE>] ",
+    "--creation-metadata <VALUE> ",
     "--gzip <ABSOLUTE_EXECUTABLE> --openssl <ABSOLUTE_EXECUTABLE> ",
     "--output <ABSENT_ABSOLUTE_DIRECTORY>\n",
     "       codex-release-builder publish --generation <ABSOLUTE_DIRECTORY> ",
@@ -136,6 +138,7 @@ struct BuildRequest {
     archive_sha256: String,
     generation_id: String,
     core: PathBuf,
+    manager: Option<PathBuf>,
     creation_metadata: String,
     gzip: PathBuf,
     openssl: PathBuf,
@@ -167,6 +170,7 @@ struct RequestFields {
     archive_sha256: Option<String>,
     generation_id: Option<String>,
     core: Option<PathBuf>,
+    manager: Option<PathBuf>,
     creation_metadata: Option<String>,
     gzip: Option<PathBuf>,
     openssl: Option<PathBuf>,
@@ -221,6 +225,7 @@ where
             Some("--archive-sha256") => set_once(&mut fields.archive_sha256, text_value(value)?)?,
             Some("--generation-id") => set_once(&mut fields.generation_id, text_value(value)?)?,
             Some("--core") => set_once(&mut fields.core, PathBuf::from(value))?,
+            Some("--manager") => set_once(&mut fields.manager, PathBuf::from(value))?,
             Some("--creation-metadata") => {
                 set_once(&mut fields.creation_metadata, text_value(value)?)?
             }
@@ -236,6 +241,7 @@ where
         archive_sha256: fields.archive_sha256.ok_or(BuilderError::Usage)?,
         generation_id: fields.generation_id.ok_or(BuilderError::Usage)?,
         core: fields.core.ok_or(BuilderError::Usage)?,
+        manager: fields.manager,
         creation_metadata: fields.creation_metadata.ok_or(BuilderError::Usage)?,
         gzip: fields.gzip.ok_or(BuilderError::Usage)?,
         openssl: fields.openssl.ok_or(BuilderError::Usage)?,
@@ -564,6 +570,28 @@ fn validate_request(request: &BuildRequest) -> Result<(), BuilderError> {
             "Core artifact exceeds its byte bound",
         ));
     }
+    if let Some(manager) = request.manager.as_ref() {
+        if !canonical_absolute_path(manager) {
+            return Err(BuilderError::Invalid(
+                "Manager artifact path must be canonical absolute",
+            ));
+        }
+        let manager_metadata = ensure_regular_file(
+            manager,
+            "inspect Manager artifact",
+            "Manager artifact is not an executable regular file",
+        )?;
+        if manager_metadata.permissions().mode() & 0o111 == 0 {
+            return Err(BuilderError::Invalid(
+                "Manager artifact is not an executable regular file",
+            ));
+        }
+        if manager_metadata.len() > MANAGER_ARTIFACT_MAX_BYTES {
+            return Err(BuilderError::Invalid(
+                "Manager artifact exceeds its byte bound",
+            ));
+        }
+    }
     ensure_executable(&request.gzip, "gzip is not an executable regular file")?;
     ensure_executable(
         &request.openssl,
@@ -758,7 +786,7 @@ fn validate_publish_generation_layout(root: &Path) -> Result<(), BuilderError> {
             "publication generation is not a real directory",
         ));
     }
-    let expected = ["generation.meta", "runtime", "codex-code-mode-host"];
+    let required = ["generation.meta", "runtime", "codex-code-mode-host"];
     let mut seen = BTreeSet::new();
     for entry in
         std::fs::read_dir(root).map_err(|source| io_error("read publication generation", source))?
@@ -769,9 +797,9 @@ fn validate_publish_generation_layout(root: &Path) -> Result<(), BuilderError> {
             .file_name()
             .into_string()
             .map_err(|_| BuilderError::Invalid("publication generation path is not UTF-8"))?;
-        if !expected.contains(&name.as_str()) || !seen.insert(name.clone()) {
+        if (!required.contains(&name.as_str()) && name != "manager") || !seen.insert(name.clone()) {
             return Err(BuilderError::Invalid(
-                "publication generation layout is not the supported first target",
+                "publication generation layout is unsupported",
             ));
         }
         let file_metadata = ensure_regular_file(
@@ -781,11 +809,11 @@ fn validate_publish_generation_layout(root: &Path) -> Result<(), BuilderError> {
         )?;
         validate_publish_file_mode(
             &file_metadata,
-            name == "runtime" || name == "codex-code-mode-host",
+            name == "runtime" || name == "codex-code-mode-host" || name == "manager",
             "publication generation file mode is unsafe",
         )?;
     }
-    if seen.len() != expected.len() {
+    if required.iter().any(|name| !seen.contains(*name)) {
         return Err(BuilderError::Invalid(
             "publication generation layout is incomplete",
         ));
@@ -915,6 +943,7 @@ fn validate_publish_generation_descriptor(
     descriptor_path: &Path,
     runtime_path: &Path,
     code_mode_host_path: &Path,
+    manager_path: Option<&Path>,
     openssl: &Path,
 ) -> Result<String, BuilderError> {
     let metadata = ensure_regular_file(
@@ -975,12 +1004,20 @@ fn validate_publish_generation_descriptor(
     let runtime_digest = publish_descriptor_field(&mut lines, "runtime_digest")?;
     let core_artifact_digest = publish_descriptor_field(&mut lines, "core_artifact_digest")?;
     let manager_artifact_digest = publish_descriptor_field(&mut lines, "manager_artifact_digest")?;
-    if !valid_lower_sha256(runtime_digest)
-        || !valid_lower_sha256(core_artifact_digest)
-        || manager_artifact_digest != "-"
-    {
+    if !valid_lower_sha256(runtime_digest) || !valid_lower_sha256(core_artifact_digest) {
         return Err(BuilderError::Invalid(
             "publication generation artifact binding is invalid",
+        ));
+    }
+    if manager_artifact_digest == "-" {
+        if manager_path.is_some() {
+            return Err(BuilderError::Invalid(
+                "publication Manager is present but its descriptor binding is absent",
+            ));
+        }
+    } else if !valid_lower_sha256(manager_artifact_digest) || manager_path.is_none() {
+        return Err(BuilderError::Invalid(
+            "publication generation Manager binding is invalid",
         ));
     }
     if publish_descriptor_field(&mut lines, "core_api_identity")? != CORE_API_IDENTITY
@@ -1003,6 +1040,23 @@ fn validate_publish_generation_descriptor(
             "publication runtime digest does not match its descriptor",
         ));
     }
+    if let (Some(manager_path), Some(expected_digest)) = (
+        manager_path,
+        (!manager_artifact_digest.is_empty()).then_some(manager_artifact_digest),
+    ) {
+        let metadata = ensure_regular_file(
+            manager_path,
+            "inspect publication Manager",
+            "publication Manager is not a regular file",
+        )?;
+        if metadata.permissions().mode() & 0o100 == 0
+            || openssl_sha256(openssl, manager_path)? != expected_digest
+        {
+            return Err(BuilderError::Invalid(
+                "publication Manager does not match its descriptor",
+            ));
+        }
+    }
     validate_publish_patch_report(
         patch_report,
         source_digest,
@@ -1021,12 +1075,16 @@ fn snapshot_publish_generation(
     let source_snapshot_root = staging.join(".generation-source");
     create_private_dir(&source_snapshot_root)?;
     let mut total_size = 0u64;
-    let mut files = Vec::with_capacity(3);
-    for (relative_path, max_bytes, executable) in [
+    let mut files = Vec::with_capacity(4);
+    let mut entries = vec![
         ("generation.meta", GENERATION_DESCRIPTOR_MAX_BYTES, false),
         ("runtime", RELEASE_FILE_MAX_BYTES, true),
         ("codex-code-mode-host", RELEASE_FILE_MAX_BYTES, true),
-    ] {
+    ];
+    if std::fs::symlink_metadata(source_root.join("manager")).is_ok() {
+        entries.push(("manager", RELEASE_FILE_MAX_BYTES, true));
+    }
+    for (relative_path, max_bytes, executable) in entries {
         let destination = source_snapshot_root.join(relative_path);
         let (sha256, mode, size) = snapshot_publish_file(
             &source_root.join(relative_path),
@@ -1049,10 +1107,15 @@ fn snapshot_publish_generation(
         });
     }
     validate_publish_generation_layout(&source_snapshot_root)?;
+    let manager_path = source_snapshot_root.join("manager");
+    let manager_path = std::fs::symlink_metadata(&manager_path)
+        .ok()
+        .map(|_| manager_path);
     let generation_id = validate_publish_generation_descriptor(
         &source_snapshot_root.join("generation.meta"),
         &source_snapshot_root.join("runtime"),
         &source_snapshot_root.join("codex-code-mode-host"),
+        manager_path.as_deref(),
         openssl,
     )?;
     files.sort_by_key(|file| file.relative_path);
@@ -1312,6 +1375,49 @@ fn snapshot_core_artifact(request: &BuildRequest, staging: &Path) -> Result<Stri
     std::fs::remove_file(&snapshot_path)
         .map_err(|source| io_error("remove Core artifact snapshot", source))?;
     Ok(sha256)
+}
+
+fn snapshot_manager_artifact(
+    request: &BuildRequest,
+    staging: &Path,
+) -> Result<Option<String>, BuilderError> {
+    let Some(source_path) = request.manager.as_ref() else {
+        return Ok(None);
+    };
+    let source =
+        File::open(source_path).map_err(|source| io_error("open Manager artifact", source))?;
+    let metadata = source
+        .metadata()
+        .map_err(|source| io_error("inspect opened Manager artifact", source))?;
+    if !metadata.file_type().is_file()
+        || metadata.permissions().mode() & 0o111 == 0
+        || metadata.len() > MANAGER_ARTIFACT_MAX_BYTES
+    {
+        return Err(BuilderError::Invalid(
+            "opened Manager artifact is outside its byte or type bound",
+        ));
+    }
+
+    let snapshot_path = staging.join(".manager-artifact");
+    let mut snapshot = create_private_file(&snapshot_path)?;
+    let mut bounded = source.take(MANAGER_ARTIFACT_MAX_BYTES.saturating_add(1));
+    let copied = io::copy(&mut bounded, &mut snapshot)
+        .map_err(|source| io_error("snapshot Manager artifact", source))?;
+    if copied > MANAGER_ARTIFACT_MAX_BYTES || copied != metadata.len() {
+        return Err(BuilderError::Invalid(
+            "Manager artifact changed or exceeds its byte bound",
+        ));
+    }
+    snapshot
+        .sync_all()
+        .map_err(|source| io_error("sync Manager artifact snapshot", source))?;
+    drop(snapshot);
+    set_mode(&snapshot_path, 0o755, "set Manager artifact snapshot mode")?;
+    File::open(&snapshot_path)
+        .and_then(|file| file.sync_all())
+        .map_err(|source| io_error("sync Manager artifact snapshot mode", source))?;
+    let sha256 = openssl_sha256(&request.openssl, &snapshot_path)?;
+    Ok(Some(sha256))
 }
 
 fn create_staging(output: &Path) -> Result<PathBuf, BuilderError> {
@@ -2201,6 +2307,7 @@ fn write_generation_descriptor(
     staging: &Path,
     adapted: &AdaptedGeneration,
     core_sha256: &str,
+    manager_sha256: Option<&str>,
 ) -> Result<(), BuilderError> {
     let patch_report = format!(
         "{PATCH_POLICY_ID};archive_sha256={};raw_runtime_sha256={};runtime_sha256={};code_mode_host_sha256={};source_counts=2,1,1,1;changed_bytes={}",
@@ -2223,7 +2330,7 @@ fn write_generation_descriptor(
             "patch_report\t{}\n",
             "runtime_digest\t{}\n",
             "core_artifact_digest\t{}\n",
-            "manager_artifact_digest\t-\n",
+            "manager_artifact_digest\t{}\n",
             "core_api_identity\t{}\n",
             "persistent_schema_identity\t{}\n",
             "qualification\tqualified\n",
@@ -2240,6 +2347,7 @@ fn write_generation_descriptor(
         patch_report,
         adapted.runtime_sha256,
         core_sha256,
+        manager_sha256.unwrap_or("-"),
         CORE_API_IDENTITY,
         PERSISTENT_SCHEMA_IDENTITY,
         request.creation_metadata
@@ -2299,9 +2407,19 @@ fn complete_and_publish(
     staging: &Path,
     selected: ArchiveSelection,
     core_sha256: &str,
+    manager_sha256: Option<&str>,
 ) -> Result<(), BuilderError> {
     let adapted = adapt_selected_runtime(request, staging, selected)?;
-    write_generation_descriptor(request, staging, &adapted, core_sha256)?;
+    if manager_sha256.is_some() {
+        let manager_source = staging.join(".manager-artifact");
+        let manager_destination = staging.join("manager");
+        rename_noreplace(&manager_source, &manager_destination)?;
+        set_mode(&manager_destination, 0o755, "set generation Manager mode")?;
+        File::open(&manager_destination)
+            .and_then(|file| file.sync_all())
+            .map_err(|source| io_error("sync generation Manager", source))?;
+    }
+    write_generation_descriptor(request, staging, &adapted, core_sha256, manager_sha256)?;
     sync_directory(staging, "sync complete unsigned generation")?;
     rename_noreplace(staging, &request.output)?;
     sync_directory(
@@ -2328,11 +2446,18 @@ fn build(request: &BuildRequest) -> Result<(), BuilderError> {
     let staging = create_staging(&request.output)?;
     let result = (|| {
         let core_sha256 = snapshot_core_artifact(request, &staging)?;
+        let manager_sha256 = snapshot_manager_artifact(request, &staging)?;
         let archive = snapshot_archive(request, &staging)?;
         let selected = select_archive(request, &archive, &staging)?;
         std::fs::remove_file(&archive)
             .map_err(|source| io_error("remove upstream archive snapshot", source))?;
-        complete_and_publish(request, &staging, selected, &core_sha256)
+        complete_and_publish(
+            request,
+            &staging,
+            selected,
+            &core_sha256,
+            manager_sha256.as_deref(),
+        )
     })();
     match (result, cleanup_staging(&staging)) {
         (_, Err(error)) => Err(error),
@@ -2371,12 +2496,42 @@ pub fn build_generation(
     openssl: &Path,
     output: &Path,
 ) -> Result<(), String> {
+    build_generation_with_manager(
+        version,
+        archive,
+        archive_sha256,
+        generation_id,
+        core,
+        None,
+        creation_metadata,
+        gzip,
+        openssl,
+        output,
+    )
+}
+
+/// Runs the bounded upstream adaptation with an optional qualified Manager
+/// artifact carried into the new generation.
+#[allow(clippy::too_many_arguments)]
+pub fn build_generation_with_manager(
+    version: &str,
+    archive: &Path,
+    archive_sha256: &str,
+    generation_id: &str,
+    core: &Path,
+    manager: Option<&Path>,
+    creation_metadata: &str,
+    gzip: &Path,
+    openssl: &Path,
+    output: &Path,
+) -> Result<(), String> {
     build(&BuildRequest {
         version: version.to_owned(),
         archive: archive.to_owned(),
         archive_sha256: archive_sha256.to_owned(),
         generation_id: generation_id.to_owned(),
         core: core.to_owned(),
+        manager: manager.map(Path::to_owned),
         creation_metadata: creation_metadata.to_owned(),
         gzip: gzip.to_owned(),
         openssl: openssl.to_owned(),
@@ -2788,6 +2943,7 @@ fi
                 archive_sha256,
                 generation_id: "test-generation".to_owned(),
                 core,
+                manager: None,
                 creation_metadata: "test-fixture".to_owned(),
                 gzip,
                 openssl,
@@ -2800,7 +2956,7 @@ fi
     }
 
     fn request_args(request: &BuildRequest) -> Vec<OsString> {
-        vec![
+        let mut args = vec![
             "build".into(),
             "--version".into(),
             request.version.clone().into(),
@@ -2820,7 +2976,14 @@ fi
             request.openssl.as_os_str().to_owned(),
             "--output".into(),
             request.output.as_os_str().to_owned(),
-        ]
+        ];
+        if let Some(manager) = request.manager.as_ref() {
+            args.splice(
+                11..11,
+                [OsString::from("--manager"), manager.as_os_str().to_owned()],
+            );
+        }
+        args
     }
 
     fn fetch_args(request: &FetchRequest) -> Vec<OsString> {
@@ -3026,6 +3189,7 @@ fi
             archive_sha256: expected_digest.clone(),
             generation_id: "official-fetch-generation".to_owned(),
             core: fixture.request.core.clone(),
+            manager: None,
             creation_metadata: "r5-fetch-test".to_owned(),
             gzip: fixture.request.gzip.clone(),
             openssl: request.openssl.clone(),
@@ -3295,6 +3459,79 @@ fi
             descriptor_before_retry
         );
         assert!(no_builder_staging(&fixture.root));
+        fixture.remove();
+    }
+
+    #[test]
+    fn test_mgr1_slice1_build_carries_optional_manager_artifact_and_digest() {
+        let mut fixture = fixture("mgr1-manager-build", happy_entries("0.150.1"), false);
+        let manager = fixture.root.join("manager-source");
+        std::fs::write(&manager, b"manager-binary-placeholder").unwrap();
+        set_mode(&manager, 0o755, "set test Manager mode").unwrap();
+        fixture.request.manager = Some(manager.clone());
+
+        assert_eq!(run_from_args(request_args(&fixture.request)), 0);
+        let output_manager = fixture.request.output.join("manager");
+        assert_eq!(
+            std::fs::read(&output_manager).unwrap(),
+            b"manager-binary-placeholder"
+        );
+        assert_eq!(
+            std::fs::symlink_metadata(&output_manager)
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o755
+        );
+        let manager_digest = openssl_sha256(&fixture.request.openssl, &output_manager).unwrap();
+        let descriptor =
+            std::fs::read_to_string(fixture.request.output.join("generation.meta")).unwrap();
+        assert!(descriptor.contains(&format!("manager_artifact_digest\t{manager_digest}\n")));
+        let mut top_level: Vec<_> = std::fs::read_dir(&fixture.request.output)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        top_level.sort();
+        assert_eq!(
+            top_level,
+            vec![
+                OsString::from("codex-code-mode-host"),
+                OsString::from("generation.meta"),
+                OsString::from("manager"),
+                OsString::from("runtime")
+            ]
+        );
+        assert!(no_builder_staging(&fixture.root));
+        fixture.remove();
+    }
+
+    #[test]
+    fn test_mgr1_slice2_publish_includes_manager_in_signed_inventory() {
+        let mut fixture = fixture("mgr1-manager-publish", happy_entries("0.150.1"), false);
+        let manager = fixture.root.join("manager-source");
+        std::fs::write(&manager, b"manager-binary-placeholder").unwrap();
+        set_mode(&manager, 0o755, "set test Manager mode").unwrap();
+        fixture.request.manager = Some(manager);
+        assert_eq!(run_from_args(request_args(&fixture.request)), 0);
+
+        let private_key = fixture.root.join("release-key.pem");
+        generate_publish_key(&fixture.request.openssl, &private_key);
+        let publication = fixture.root.join("publication");
+        let request = PublishRequest {
+            generation: fixture.request.output.clone(),
+            release_sequence: "1".to_owned(),
+            release_base: "https://example.test/releases/test-generation/".to_owned(),
+            private_key,
+            openssl: fixture.request.openssl.clone(),
+            output: publication.clone(),
+        };
+        assert_eq!(publish(&request).unwrap(), "test-generation");
+        let release = publication.join("releases/test-generation");
+        assert!(release.join("manager").is_file());
+        let manifest = std::fs::read_to_string(release.join("release.manifest")).unwrap();
+        assert!(manifest.contains("file\tmanager\t"));
+        assert!(manifest.contains("file_count\t4\n"));
         fixture.remove();
     }
 

@@ -266,9 +266,15 @@ lowercase SHA-256 for the subsequent build invocation. `fetch` performs no
 channel discovery, mirror selection, source fallback, signing, generation
 activation, or live-state mutation. The builder's `build` operation accepts the
 version, archive and digest, generation identity, Core artifact, creation
-metadata, and an absent output directory. It performs no discovery, signing,
-activation, or live-state mutation and emits only an unsigned generation source
-for the `codex-release-v3` signing and delivery path.
+metadata, and an optional regular executable Manager artifact through
+`--manager <ABSOLUTE_FILE>`, plus an absent output directory. When supplied,
+the Manager is copied into the generation root and bound by
+`manager_artifact_digest`; when omitted, the descriptor uses `-` and no
+Manager file is emitted. It performs no discovery, signing, activation, or
+live-state mutation and emits only an unsigned generation source for the
+`codex-release-v3` signing and delivery path. Core's local fallback carries
+forward the currently authenticated Manager artifact, when one is present,
+so a qualified Manager is not silently lost on an upstream update.
 `codex-release-v2` remains implementation history and is not retained as a
 release compatibility path.
 
@@ -284,9 +290,10 @@ codex-release-builder publish --generation <ABSOLUTE_DIRECTORY> \
   --output <ABSENT_ABSOLUTE_DIRECTORY>
 ```
 
-`publish` accepts only the current R5 first-target generation layout: a real
-directory containing exactly `generation.meta`, `runtime`, and the root-level
-`codex-code-mode-host`, all as regular non-symlink files. The descriptor must
+`publish` accepts the current generation layout: a real directory containing
+exactly `generation.meta`, `runtime`, and the root-level
+`codex-code-mode-host`, with an optional root-level `manager`; all present
+entries are regular non-symlink files. The descriptor must
 be a qualified `codex-local-generation-v2` with the supported Android/AArch64,
 Core API, persistent-schema, and root-companion bindings. The generation
 identity must be a safe URL path component and the supplied canonical HTTPS
@@ -321,7 +328,8 @@ with the supplied generation identity and release base, and its sibling
 `update-index-v1.sig` signs those exact index bytes with the same key. The
 release manifest contains the exact v3 fields, a lexicographically sorted
 inventory, lowercase SHA-256 digest, and four-octal-digit regular-file mode
-for each of the three generation files. The local `releases/<id>` tree is the
+for each present generation file: three required files, plus `manager` when
+the optional Manager artifact was supplied. The local `releases/<id>` tree is the
 directory to map to the URL represented by `release_base`; `publish` performs
 no network upload and does not assume that the URL is hosted by OpenAI.
 
@@ -1080,15 +1088,21 @@ state. Existing legacy profile directories are not imported implicitly.
 
 `profile list` emits `default` followed by valid custom profile IDs, one per
 line, in deterministic bytewise order. It ignores symlinked or malformed
-entries rather than following them. `profile current` reports only the
-selected profile and whether it came from the inherited `CODEX_HOME` or the
-Manager's last-selection record; it never reports auth identity, token state,
-session bodies, or arbitrary environment values. `profile use` requires an
-existing profile, atomically records the selected ID, then `exec`s Core. For
-`default` it removes `CODEX_HOME` from the child environment; for a custom
-profile it sets `CODEX_HOME` to the validated profile home only in that child.
-The original upstream argv after the profile selector is preserved exactly.
-If selection-state publication fails, Core is not launched.
+entries rather than following them. `profile create <PROFILE_ID>` emits
+exactly `created: <PROFILE_ID>` followed by one LF after the create-new
+transaction commits; it emits no path, environment, credential, or
+upstream-state detail. `profile current` emits exactly two LF-terminated
+lines, `current: <TARGET>` followed by `source: <SOURCE>`. `<TARGET>` is
+`default`, a valid custom profile ID, or `external`; `<SOURCE>` is `inherited`
+when the caller supplied `CODEX_HOME`, or `last-selection` otherwise. It
+never reports auth identity, token state, session bodies, paths, or arbitrary
+environment values. `profile use` requires an existing profile, atomically
+records the selected ID, then `exec`s Core and emits no Manager-owned success
+output before Core runs. For `default` it removes `CODEX_HOME` from the child
+environment; for a custom profile it sets `CODEX_HOME` to the validated
+profile home only in that child. The original upstream argv after the profile
+selector is preserved exactly. If selection-state publication fails, Core is
+not launched.
 
 MGR-1 does not implement profile deletion, cross-profile session copying,
 interactive terminal UI, or profile-auth migration. A missing profile is a

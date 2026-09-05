@@ -10,5 +10,9 @@ dependencies = [
 ]
 
 [[package]]
+name = "codex-manager"
+version = "0.1.0"
+
+[[package]]
 name = "codex-release-builder"
 version = "0.1.0"

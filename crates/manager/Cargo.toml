@@ -1,0 +1,14 @@
+[package]
+name = "codex-manager"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "codex_manager"
+path = "src/lib.rs"
+
+[[bin]]
+name = "codex-manager"
+path = "src/main.rs"
+
+[dependencies]

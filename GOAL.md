@@ -1938,6 +1938,49 @@ Termux qualification. Produce one candidate for independent product review.
   auth/profile/session data, or remote publication. No Manager acceptance
   evidence is claimed yet.
 
+## MGR-1 Profile Selection and Isolated Launch (accepted)
+
+- MGR-1 implements the exact `profile list`, `profile current`, `profile
+  create`, and `profile use` grammar behind the existing versioned Core
+  handoff. It owns only its declared Manager root and profile homes; malformed
+  or symlinked Manager state is rejected, profile creation is create-new and
+  durable, and selection replacement is atomic. The default profile is never
+  copied, and no auth, session, log, Core, resolver, or arbitrary upstream
+  state is inspected or migrated.
+- Core now supplies and the Manager validates
+  `CODEX_TERMUX_CORE_API=codex-manager-core-v1` plus the validated stable Core
+  entrypoint. `profile use` publishes selection before launch, sets or removes
+  `CODEX_HOME` only in the child, removes the internal handoff variables from
+  that child, preserves raw upstream argv/streams/TTY/signals/exit status, and
+  emits no Manager success output before the Core exec boundary.
+- The release builder accepts an optional executable Manager artifact, carries
+  it into the generation root, binds `manager_artifact_digest`, and includes it
+  in the signed publication inventory. Core's local official-upstream fallback
+  carries forward the authenticated active Manager artifact so an update does
+  not silently remove the Manager.
+- Focused evidence on the final source passed: Manager unit 9/9, public
+  integration 4/4, Core handoff 1/1, and release-builder Manager build and
+  publication 2/2. The locked grouped workspace passed Core `128 passed,
+  0 failed, 1 ignored`, Manager unit `9 passed`, Manager integration `4
+  passed`, and release-builder `11 passed`; workspace clippy with `-D
+  warnings`, the locked release build, formatting, and `git diff --check`
+  passed. Release-mode disposable profile-root smoke passed 4/4.
+- Protected-surface verification kept the resolver at SHA-256
+  `7e8ad76e0d200e93918ca2e93c99ff8ecd02071953bf1479819db3ac0dbb6d07`, the
+  installed launcher at
+  `109b556884150a134c39a8892c599f6551dbc1fb18ea557eebbfc690b4fc3a9b`, the
+  bootstrap trust seed at
+  `62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c`, and
+  activation state at
+  `813cfaa53f0945656e56e0a26bc0de62cd36cfcb30b1c4cac5b866f7e82599e4`.
+  No installed runtime/launcher, Manager artifact/state, auth/profile/session
+  data, resolver, bwrap state, remote ref, push, or `main` promotion changed.
+- Disposition: KEEP one versioned Core handoff, one Manager-owned profile state
+  root, one child-only isolated launch path, and one optional signed Manager
+  artifact binding; DELETE no Core update/doctor/install authority and no
+  legacy state import or bwrap repair path. MGR-2 session listing/resume is
+  definition-only and is the next separately scoped bundle.
+
 ## Goal Lifts
 
 No lift is active. A proposed lift must identify a concrete product risk or

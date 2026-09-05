@@ -932,6 +932,36 @@ fn qualify_manager_artifact<'selection, 'asset>(
 
 #[cfg(unix)]
 const TERMUX_MANAGER_UNAVAILABLE_MESSAGE: &str = "Codex Termux Manager is unavailable.";
+#[cfg(unix)]
+const MANAGER_CORE_API_ENV: &str = "CODEX_TERMUX_CORE_API";
+#[cfg(unix)]
+const MANAGER_CORE_ENTRYPOINT_ENV: &str = "CODEX_TERMUX_CORE_ENTRYPOINT";
+#[cfg(unix)]
+const MANAGER_CORE_API: &str = "codex-manager-core-v1";
+
+#[cfg(unix)]
+fn validated_core_entrypoint() -> std::io::Result<std::path::PathBuf> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let path = std::env::current_exe()?;
+    if !path.is_absolute() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Core entrypoint is not absolute",
+        ));
+    }
+    let metadata = std::fs::symlink_metadata(&path)?;
+    if metadata.file_type().is_symlink()
+        || !metadata.file_type().is_file()
+        || metadata.permissions().mode() & 0o111 == 0
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Core entrypoint is not a regular executable",
+        ));
+    }
+    Ok(path)
+}
 
 #[cfg(unix)]
 fn execute_termux_manager<I, S>(
@@ -946,8 +976,12 @@ where
         ManagerArtifact::Unavailable => Ok(TERMUX_MANAGER_UNAVAILABLE_MESSAGE),
         ManagerArtifact::Available(selection) => {
             use std::os::unix::process::CommandExt;
+            let core_entrypoint = validated_core_entrypoint()?;
             let mut command = std::process::Command::new(selection.program_path);
-            command.args(args);
+            command
+                .env(MANAGER_CORE_API_ENV, MANAGER_CORE_API)
+                .env(MANAGER_CORE_ENTRYPOINT_ENV, core_entrypoint)
+                .args(args);
             Err(command.exec())
         }
     }
@@ -6205,7 +6239,7 @@ fn activate_local_built_update(
     let before = m2_generation_state::recover_activation_state(&state_paths)
         .map_err(LocalProductError::State)?
         .ok_or(LocalProductError::NoCurrentGeneration)?;
-    let (current_release, _) = verify_installed_local_release(
+    let (current_release, current_loaded) = verify_installed_local_release(
         roots,
         &before.current,
         before.current_key,
@@ -6265,12 +6299,13 @@ fn activate_local_built_update(
             .join("gzip");
         let unsigned_generation = staging_root.join("unsigned-generation");
         let creation_metadata = format!("{LOCAL_UPDATE_METADATA};version={}", metadata.version);
-        codex_release_builder::build_generation(
+        codex_release_builder::build_generation_with_manager(
             &metadata.version,
             &archive,
             &archive_digest,
             &generation_id,
             &core,
+            current_loaded.manager_path.as_deref(),
             &creation_metadata,
             &gzip,
             &roots.openssl,
@@ -8740,6 +8775,11 @@ if [ "$1" = "tty" ]; then
   [ -t 0 ] && [ -t 1 ] && [ -t 2 ] && exit 0
   exit 88
 fi
+if [ "$CODEX_TERMUX_CORE_API" = "codex-manager-core-v1" ] && [ -n "$CODEX_TERMUX_CORE_ENTRYPOINT" ]; then
+  printf 'HANDOFF_OK\n'
+else
+  printf 'HANDOFF_BAD\n'
+fi
 if [ "$1" = "doctor" ]; then
   if [ "${CODEX_TEST_DOCTOR_LARGE:-}" = "1" ]; then
     i=0
@@ -9341,6 +9381,10 @@ exit 73
             .stdout
             .windows(b"ARGS:<status><".len())
             .any(|w| w == b"ARGS:<status><"));
+        assert!(result
+            .stdout
+            .windows(b"HANDOFF_OK\n".len())
+            .any(|w| w == b"HANDOFF_OK\n"));
         assert!(result.stdout.windows(2).any(|w| w == [0xff, b'm']));
         remove_temp_root(root);
     }
