@@ -1922,6 +1922,22 @@ Termux qualification. Produce one candidate for independent product review.
   operation. The next implementation work is a separately scoped Manager
   bundle behind the Core boundary; no Core source slice is currently active.
 
+## Manager v1 Definition Checkpoint (2026-09-05)
+
+- The user initiated post-Core Manager definition. This does not lift or alter
+  the two-milestone Core success threshold. `SPEC.md` now defines Manager v1
+  as an optional artifact behind `codex termux`, with explicit ownership,
+  process handoff, profile state, bounded session projection, notification
+  configuration, and Core-mediated repair boundaries.
+- MGR-1 is the first implementation bundle: profile list/current/create/use,
+  profile-home containment, atomic Manager metadata, child-only `CODEX_HOME`,
+  and raw Core launch fidelity. Session, notification, and repair bundles are
+  deliberately deferred until their own contracts and focused proofs exist.
+- This checkpoint adds no Manager code or artifact and changes no live
+  launcher/runtime, Core generation/trust/activation state, resolver,
+  auth/profile/session data, or remote publication. No Manager acceptance
+  evidence is claimed yet.
+
 ## Goal Lifts
 
 No lift is active. A proposed lift must identify a concrete product risk or

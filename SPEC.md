@@ -64,6 +64,52 @@ adapted generation.
 `codex version` is not introduced. Wrapper/Core/Manager version rows must not
 be appended to upstream `--version` or `-V` output.
 
+### Manager command boundary
+
+`codex termux` is a Manager boundary and is never passed to upstream. Manager
+v1 is defined as four bounded command families:
+
+```text
+codex termux
+codex termux help
+codex termux profile list
+codex termux profile current
+codex termux profile create <PROFILE_ID>
+codex termux profile use <PROFILE_ID> [--] [UPSTREAM_ARGS...]
+codex termux session list [--profile <PROFILE_ID>] [--all]
+codex termux session resume <SESSION_ID> [--profile <PROFILE_ID>] [--] [UPSTREAM_ARGS...]
+codex termux notify show
+codex termux notify set [NOTIFY_OPTIONS...]
+codex termux repair plan
+codex termux repair apply
+```
+
+`codex termux` with no command is equivalent to `codex termux help`. The
+profile family is the first implementation slice. Session, notification, and
+repair commands remain separately reserved post-Core bundles until their
+focused contracts are accepted; before acceptance they report bounded
+unsupported results and do no mutation. An unavailable or not-yet-delivered
+Manager reports a bounded Manager-unavailable result through the Core handoff;
+it never forwards an unknown `termux` command to upstream. Manager does not provide
+`codex termux install`, `codex termux update`, or a second doctor/version
+authority. Installation, update, rollback, and top-level doctor remain Core
+commands.
+
+`PROFILE_ID` is one ASCII path-safe identifier of 1--64 bytes beginning with
+an alphanumeric character and containing only alphanumerics, `.`, `_`, or
+`-`. `default`, `home`, `termux`, `.`, and `..` are reserved aliases or
+rejected names. `SESSION_ID` is treated as an opaque bounded upstream
+reference after syntax validation; it is never used as a filesystem path.
+Arguments after `--` are forwarded byte-for-byte to the Core entrypoint. A
+Manager child launch preserves standard streams, TTY, signals, process exit
+status, and raw argument bytes at the final Core execution boundary.
+
+Manager command failures use the shared public classes: `0` for success, `1`
+for an operational or child failure, `2` for usage/validation/policy failure,
+and `130` for an interactive cancellation or interrupt. A Manager must not
+echo invalid raw arguments, credentials, session content, or arbitrary
+environment values in an error.
+
 The Core-owned doctor surface accepts exactly no arguments, `--json`, or
 `--color`. `--json` and `--color` are mutually exclusive. `--color` is an
 explicit human-output override for interactive diagnostics: when stdout is not
@@ -128,6 +174,22 @@ Manager owns:
 Manager must not directly write Core generations, pointers, manifests, locks,
 runtime state, resolver data, or activation journals. A Manager request that
 would mutate Core state must use a versioned, runtime-validated Core contract.
+The Manager may create and update only its declared state and an explicitly
+created profile-home directory. It must not copy, parse, summarize, or rewrite
+authentication files, cookies, OAuth material, arbitrary upstream state, or
+session transcript content. Profile execution changes `CODEX_HOME` only in the
+child environment and returns through the stable Core entrypoint; it never
+changes the caller's environment or persistent Core state. Manager commands
+that need an update, rollback, doctor, or other Core operation must request the
+corresponding Core-owned command through that entrypoint and must not
+reimplement the operation.
+
+The Manager artifact is optional and independently qualified. Its absence,
+incompatibility, or failure must not make ordinary upstream launch, Core
+doctor, Core update, or Core rollback unavailable. Manager v1 has no network,
+package-manager, OpenSSL, bwrap, resolver, or generation-discovery authority.
+Its first profile slice is read-only except for the explicit `profile create`
+operation and the normal upstream writes made after a profile launch.
 
 TypeScript is the preferred Manager implementation language, but no Manager
 runtime or dependency may become a prerequisite for ordinary upstream launch,
@@ -438,6 +500,59 @@ $PREFIX/bin/codex                                      stable public entrypoint
 ~/.local/share/codex/core/config/                     process-local managed config directory
 ~/.local/share/codex/manager/                         Manager-owned mutable state
 ```
+
+The Manager v1 state root is independent of the Core root:
+
+```text
+~/.local/share/codex/manager/
+  state-v1                                           selection/config metadata only
+  profiles/<PROFILE_ID>/profile.meta                 Manager profile record
+  profiles/<PROFILE_ID>/home/                        selected upstream CODEX_HOME
+  notifications/config-v1                            notification configuration
+```
+
+`state-v1`, `profile.meta`, and `config-v1` are versioned Manager records and
+contain no tokens, cookies, OAuth values, private keys, or session bodies.
+Manager creates profile directories with mode `0700` and record files with
+mode `0600`. It publishes a new profile tree with create-new atomic rename;
+selection/config record replacements use a private same-directory temporary,
+final-mode synchronization, atomic rename, and parent synchronization. A
+profile directory is accepted only when its path components are real
+directories rather than symlinks and its `PROFILE_ID` passes the command
+grammar. The `home/` child becomes an upstream `CODEX_HOME` only for a child
+launch; Manager does not interpret the files written there by upstream Codex.
+The default profile is the existing upstream default home and is never copied
+into this tree.
+
+The MGR-1 Manager records use exact UTF-8 text formats with a final newline.
+`state-v1` contains exactly:
+
+```text
+codex-manager-state-v1
+last_profile\t<PROFILE_ID>
+```
+
+where the profile ID is `default` or an existing custom profile. An absent
+`state-v1` means `default`. Each `profiles/<PROFILE_ID>/profile.meta` contains
+exactly:
+
+```text
+codex-manager-profile-v1
+id\t<PROFILE_ID>
+```
+
+The derived profile-home path is not duplicated inside metadata. Unknown
+records, duplicate records, invalid UTF-8, or a mismatched ID invalidate that
+record and never cause a path to be followed. MGR-1 does not write
+`notifications/config-v1`; that file is reserved for the separately accepted
+MGR-3 configuration contract.
+
+Manager v1 does not persist a session transcript or a second session database.
+The future session index is a bounded read-only projection of upstream session
+metadata: malformed, oversized, symlinked, or unreadable entries are skipped
+or reported as unavailable, and message bodies, auth-derived fields, and
+arbitrary path data are never emitted. Cross-profile session copying,
+symlink-sharing, and auth-state migration are outside v1.
 
 The authoritative state format is `codex-activation-state-v3`. It owns one
 forward `update_key`, one `current` generation with its exact `current_key`, and
@@ -910,6 +1025,124 @@ with `compat/codex-code-mode-host` only as a bounded migration input; it never
 produces that layout, and it never treats an unlisted root-level symlink as the
 companion. The next authenticated generation is the required permanent repair
 for such an old layout.
+
+## Manager v1 definition (post-Core)
+
+This section defines work after the two Core milestones. It does not weaken or
+extend the Core completion threshold, and it does not make Manager a
+prerequisite for ordinary upstream launch, Core doctor, update, rollback, or
+fresh installation. Manager is an optional, separately qualified artifact
+behind the existing `codex termux` boundary.
+
+### MGR-0 — process and ownership boundary
+
+Core selects Manager only from the signed, qualified generation and invokes
+the artifact with a versioned handoff environment:
+
+```text
+CODEX_TERMUX_CORE_API=codex-manager-core-v1
+CODEX_TERMUX_CORE_ENTRYPOINT=<validated stable Core entrypoint>
+```
+
+The Manager validates both values before doing work. Its only route back to
+Core is an `exec` of that validated entrypoint with one of the explicitly
+allowed Core-owned argv shapes: ordinary upstream argv whose first token is
+not the exact Core selector `termux`, `doctor`, or `update`; `doctor` with its
+Core-owned options; `update` with its Core-owned options; or `update
+--rollback`. It cannot address a generation path, activation state,
+trust key, resolver, or journal directly. Core remains the final validator of
+every requested route. MGR-0 has no callback socket, network protocol, or
+second state authority.
+
+Manager receives no credential or session-content payload from Core. It may
+inherit ordinary process environment needed for a child launch, but it must
+not print or persist that environment. A missing, malformed, or incompatible
+handoff fails before any Manager state mutation.
+
+### MGR-1 — profile selection and isolated launch
+
+MGR-1 is the first implementation bundle. It implements only the profile
+commands from the public grammar:
+
+```text
+codex termux profile list
+codex termux profile current
+codex termux profile create <PROFILE_ID>
+codex termux profile use <PROFILE_ID> [--] [UPSTREAM_ARGS...]
+```
+
+`default` is the existing upstream default home and is never copied. A custom
+profile uses the derived path
+`~/.local/share/codex/manager/profiles/<PROFILE_ID>/home`. `profile create`
+creates only that directory and its Manager metadata; it never creates,
+copies, parses, or edits `auth.json`, session files, logs, or other upstream
+state. Existing legacy profile directories are not imported implicitly.
+
+`profile list` emits `default` followed by valid custom profile IDs, one per
+line, in deterministic bytewise order. It ignores symlinked or malformed
+entries rather than following them. `profile current` reports only the
+selected profile and whether it came from the inherited `CODEX_HOME` or the
+Manager's last-selection record; it never reports auth identity, token state,
+session bodies, or arbitrary environment values. `profile use` requires an
+existing profile, atomically records the selected ID, then `exec`s Core. For
+`default` it removes `CODEX_HOME` from the child environment; for a custom
+profile it sets `CODEX_HOME` to the validated profile home only in that child.
+The original upstream argv after the profile selector is preserved exactly.
+If selection-state publication fails, Core is not launched.
+
+MGR-1 does not implement profile deletion, cross-profile session copying,
+interactive terminal UI, or profile-auth migration. A missing profile is a
+non-mutating validation failure; it is never created as a side effect of
+launch.
+
+### MGR-2 — bounded session listing and resume
+
+MGR-2 adds `session list` and `session resume`. Listing is a read-only,
+bounded projection over upstream session metadata in the selected profile
+home, or over all valid profile homes with `--all`. It emits only an opaque
+session reference, profile ID, and bounded timestamp. It never emits message
+text, titles derived from message bodies, working-directory strings, auth
+fields, cookies, or raw session records. Invalid, oversized, symlinked, or
+unreadable entries are skipped or represented as unavailable without aborting
+the whole list.
+
+`session resume` may use only a reference returned by the bounded discovery
+step; the opaque reference is not concatenated into a filesystem path. It
+selects one profile, sets the child-only `CODEX_HOME`, and invokes Core with
+`resume <SESSION_ID>` plus the original trailing upstream argv. It does not
+copy, symlink, rewrite, or migrate a session between profiles. Interactive
+session TUI and cross-profile sharing require a later contract and are not
+part of MGR-2.
+
+### MGR-3 — notification configuration and delivery
+
+MGR-3 adds `notify show` and `notify set` over an allowlisted versioned
+configuration. Configuration is Manager-owned, contains only validated hook,
+channel, length, newline, toast, and group settings, and is published
+atomically under `notifications/config-v1`. It never stores notification
+payloads, upstream output, credentials, or session content. Delivery is
+best-effort and capability-aware; an unavailable Termux notification API must
+not fail the upstream turn. The exact option grammar and hook-to-event mapping
+must be accepted with the focused MGR-3 contract before implementation.
+
+### MGR-4 — repair planning through Core
+
+MGR-4 adds `repair plan` and `repair apply`. `plan` is read-only and may
+compose the existing Core doctor machine report. `apply` may only submit an
+explicit versioned Core request for an already-defined Core operation; it
+must not inspect or mutate Core generations, trust, activation journals,
+resolver files, or installed launchers itself. It must report a bounded plan
+and preserve Core's exit status. No repair fallback, package-manager action,
+bwrap repair, raw upstream installation, or legacy-state import is permitted.
+
+### Manager definition gate
+
+Before MGR-1 implementation, the repository must have focused proof for the
+exact profile grammar, path containment and symlink rejection, create-new
+profile publication, last-selection atomicity, child-only `CODEX_HOME`, raw
+argv/stream/signal/exit preservation, and no credential/session-content
+inspection. Each later MGR bundle requires its own focused proof and must not
+use an unaccepted future command as a hidden implementation dependency.
 
 ## 10. Milestones
 

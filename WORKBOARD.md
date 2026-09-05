@@ -21,16 +21,13 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 - Remote `origin/rewrite/rust-core` remains at
   `253156c37a2bd22af8faae0bce03587999ffd136`; the local branch is ahead and
   no push is authorized.
-- Current milestone: R9.2 Termux doctor color override is accepted in source
-  and reflected live at
-  `rewrite/rust-core@51d2e786bbfd31db1e22fd9eed02a3e7f008db88`. The verified
-  Termux condition where the outer Codex environment supplies `NO_COLOR=1` is
-  covered by the explicit `codex doctor --color` path, and redaction no longer
-  strips safe upstream SGR. The live launcher and generation are recorded in
-  `GOAL.md`; the complete local publication is also published to the fixed
-  `humtr/codex` Release/index channel, and a disposable consumer fetched it
-  successfully. Local `main` is now the same accepted tip by direct ref
-  replacement; no source-history push was part of R9.2.
+- Current milestone: MGR-0 Manager v1 definition is complete in `SPEC.md`;
+  Core R9.2 remains accepted in source, live runtime, remote Release/index,
+  and disposable-consumer qualification. The Manager definition keeps
+  `codex termux` optional and separate from Core ownership, defines the
+  profile/session/notification/repair boundaries, and makes MGR-1 profile
+  selection and isolated launch the next implementation slice. No Manager
+  code, artifact, or live state has been changed.
 - The inherited pre-commit hook references absent
   `tools/update-wrapper-version.sh`; do not modify it. If it alone rejects an
   exact, revalidated staged tree, use the established `--no-verify` closure.
@@ -43,15 +40,15 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 - The prior local `main` at `57034e4cd2d4f259c9046ac11073dc0b7f7dbb47` was
   preserved before the latest replacement as
   `legacy/main-pre-r9.2-20260905`. `main` is publication authority and now
-  points directly at
-  `rewrite/rust-core@51d2e786bbfd31db1e22fd9eed02a3e7f008db88`; this is not a
-  merge or rebase. Remote refs remain unchanged and no push was performed; the
-  authorized local live cutovers are recorded in `GOAL.md`.
+  contains the accepted `rewrite/rust-core` lineage through the current
+  definition checkpoint; this is not a merge or rebase. Remote refs remain
+  unchanged and no push was performed; the authorized local live cutovers are
+  recorded in `GOAL.md`.
 - Worker mode is OFF. The primary Lead owns implementation, validation,
   authority updates, commit, and acceptance.
 
-- R8 is closed at `5a72f77`, R9, R9.1, and R9.2 are closed below. No source
-  implementation slice is active.
+- R8, R9, R9.1, and R9.2 are closed below. MGR-0 is the current definition
+  checkpoint; MGR-1 is the next implementation slice.
 
 ## Product-speed policy
 
@@ -217,6 +214,45 @@ point. The current R9.2 scope is:
 R9.2 source closure is accepted with the evidence recorded in `GOAL.md`. No
 source implementation slice is active after R9.2; its authorized live
 reflection is complete.
+
+## MGR-0 Manager v1 definition (closed)
+
+1. Ownership boundary — `SPEC.md` now makes Manager optional, independently
+   qualified, and unable to write Core generations, trust, activation, resolver,
+   or journal state. Core remains the only owner of update, rollback, doctor,
+   installation, and runtime execution.
+2. Public command boundary — the four Manager families are defined as
+   profile, session, notification, and repair. Unknown `termux` commands do
+   not fall through to upstream, and legacy runtime install/update/remove
+   paths are not reintroduced as Manager authority.
+3. State boundary — the Manager root, profile-home containment, versioned
+   metadata, atomic publication, credential/session-content exclusions, and
+   child-only `CODEX_HOME` behavior are defined. No implementation or live
+   state change is part of MGR-0.
+4. Next-slice mapping — MGR-1 owns profile grammar, profile metadata and
+   create-new publication, list/current behavior, isolated Core launch, and
+   the associated protected-surface proof.
+
+## MGR-1 profile selection and isolated launch (next)
+
+1. Exact grammar — implement and test only `profile list`, `profile current`,
+   `profile create <PROFILE_ID>`, and `profile use <PROFILE_ID> [--]
+   [UPSTREAM_ARGS...]`; reject traversal, reserved names, malformed entries,
+   and unsupported options before mutation.
+2. Core handoff — extend the existing qualified Manager execution boundary to
+   provide and validate the versioned Core API/entrypoint handoff, while
+   keeping Core-owned selectors out of the ordinary upstream argv path.
+3. Profile state — publish `state-v1` and `profile.meta` through the declared
+   create-new/atomic path, reject symlinked roots and collisions, and prove
+   that no auth, session, log, Core, or resolver file is read or written by
+   Manager.
+4. Isolated launch — invoke the validated Core entrypoint with default
+   `CODEX_HOME` removed or a custom profile home set only in the child; prove
+   raw argv, standard streams, TTY, signal, exit status, and caller-environment
+   preservation at the real process boundary.
+5. Bundle gate — focused tests must execute nonzero cases, a relevant locked
+   compile/test gate must pass, the actual diff must be reviewed, and a
+   disposable profile-root smoke must complete before MGR-2 is planned.
 
 Worker mode remains OFF; the primary Lead owns every slice, validation step,
 authority update, and acceptance decision.
