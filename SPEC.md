@@ -107,6 +107,12 @@ Arguments after `--` are forwarded byte-for-byte to the Core entrypoint. A
 Manager child launch preserves standard streams, TTY, signals, process exit
 status, and raw argument bytes at the final Core execution boundary.
 
+The generated upstream hook command may call the bounded internal Manager
+endpoint `codex termux notify emit <EVENT>`. It is not a configuration or
+upstream passthrough form, is not shown by Manager help, and accepts only one
+canonical event name. Core remains the public-launch owner: Manager never
+writes Core's config directory or asks Core to execute an arbitrary command.
+
 Manager command failures use the shared public classes: `0` for success, `1`
 for an operational or child failure, `2` for usage/validation/policy failure,
 and `130` for an interactive cancellation or interrupt. A Manager must not
@@ -555,8 +561,7 @@ id\t<PROFILE_ID>
 The derived profile-home path is not duplicated inside metadata. Unknown
 records, duplicate records, invalid UTF-8, or a mismatched ID invalidate that
 record and never cause a path to be followed. MGR-1 does not write
-`notifications/config-v1`; that file is reserved for the separately accepted
-MGR-3 configuration contract.
+`notifications/config-v1`; MGR-3 owns that record.
 
 Manager v1 does not persist a session transcript or a second session database.
 The future session index is a bounded read-only projection of upstream session
@@ -1176,14 +1181,99 @@ outside MGR-2.
 
 ### MGR-3 — notification configuration and delivery
 
-MGR-3 adds `notify show` and `notify set` over an allowlisted versioned
-configuration. Configuration is Manager-owned, contains only validated hook,
-channel, length, newline, toast, and group settings, and is published
-atomically under `notifications/config-v1`. It never stores notification
-payloads, upstream output, credentials, or session content. Delivery is
-best-effort and capability-aware; an unavailable Termux notification API must
-not fail the upstream turn. The exact option grammar and hook-to-event mapping
-must be accepted with the focused MGR-3 contract before implementation.
+MGR-3 adds exactly these user-facing local forms:
+
+```text
+codex termux notify show
+codex termux notify set [--channel <notification|toast|both>]
+    [--hooks <none|all|EVENT[,EVENT...]>]
+    [--content-chars <0|1..4096>] [--preserve-newlines <0|1>]
+    [--toast-gravity <top|middle|bottom>] [--toast-short <0|1>]
+    [--toast-background <empty|#RRGGBB>] [--toast-color <empty|#RRGGBB>]
+    [--group <GROUP_ID>]
+```
+
+`notify set` accepts options in any order, at most once each, and no trailing
+arguments. An option omitted from `set` retains the stored value; when no
+record exists, omitted values use these defaults: `channel=notification`,
+`hooks=Stop`, `content_chars=0`, `preserve_newlines=1`,
+`toast_gravity=top`, `toast_short=0`, empty toast colors, and
+`group=codex-turns`. `0` means no user-configured character limit, but delivery
+still applies a hard 4,096-byte payload bound. `none` disables all hooks.
+
+The canonical event allowlist and order are:
+`SessionStart`, `PreToolUse`, `PermissionRequest`, `PostToolUse`,
+`PreCompact`, `PostCompact`, `UserPromptSubmit`, `SubagentStart`,
+`SubagentStop`, and `Stop`. Hook lists contain unique canonical names, or
+`all`; malformed names, duplicates, empty list members, and invalid values are
+usage failures. Event lists are stored and displayed in the canonical event
+order above. `GROUP_ID` is a 1--64 byte ASCII identifier beginning with an
+alphanumeric byte and containing only alphanumerics, `.`, `_`, and `-`.
+Colors are empty or exactly `#` followed by six ASCII hexadecimal digits and
+are stored canonically in lowercase.
+
+The Manager record at `notifications/config-v1` is mode `0600` beneath a
+mode-`0700` `notifications` directory and contains exactly these final-newline
+UTF-8 lines, in order:
+
+```text
+codex-manager-notify-v1
+channel\t<CHANNEL>
+hooks\t<none|all|EVENT[,EVENT...]>
+content_chars\t<DECIMAL>
+preserve_newlines\t<0|1>
+toast_gravity\t<GRAVITY>
+toast_short\t<0|1>
+toast_background\t<empty|#rrggbb>
+toast_color\t<empty|#rrggbb>
+group\t<GROUP_ID>
+```
+
+`notify show` emits exactly these nine public `key=value` lines for the
+effective configuration, in this order: `channel`, `hooks`, `content-chars`,
+`preserve-newlines`, `toast-gravity`, `toast-short`, `toast-background`,
+`toast-color`, and `group`. It emits no path, source detail, payload,
+environment, or credential. An absent record yields the defaults without
+creating Manager state. A malformed, symlinked, overlong, incorrectly-modeled,
+or conflicting record is an operation failure and is never replaced
+implicitly. `notify set`
+merges validated values and publishes the complete record with a private
+same-directory create-new temporary, file synchronization, atomic replacement,
+and parent synchronization. A successful `notify set` emits exactly `saved\n`.
+It never writes an upstream profile, Core generation, activation state, or
+notification payload.
+
+For an ordinary upstream launch, Core may read this exact bounded Manager
+record read-only. Core alone renders the enabled hooks into its own managed
+`config.toml`; Manager never writes that Core directory. The generated file is
+owned by Core, carries a fixed `codex-termux-notify-v1` marker, contains only
+the enabled hook blocks, and is atomically replaced before runtime exec. Core
+replaces a missing file or its own marker file only; an unrelated regular file
+is preserved and the optional hooks are skipped. Each enabled event is mapped
+to `codex termux notify emit <EVENT>`. Missing or invalid Manager notification
+state, or a generation without a qualified Manager artifact, disables the
+optional hooks and must not make ordinary upstream launch fail.
+
+The internal `notify emit <EVENT>` endpoint reads at most 64 KiB of hook input,
+which must be a UTF-8 JSON object when delivery is requested. It considers
+only the string field `title` for the notification title and, independently,
+the first string body field in this precedence: `content`,
+`last_assistant_message`, then `message`; no other field is inspected.
+Missing title uses `Codex`; missing body uses the fixed event status strings
+`Notify session start`, `Notify tool start`, `Notify permission request`,
+`Notify tool finish`, `Notify before compact`, `Notify after compact`,
+`Notify prompt submit`, `Notify subagent start`, `Notify subagent stop`, and
+`Notify turn completion`, in the canonical event order above. Malformed or
+oversized input is a successful no-op. The selected text is normalized for
+CRLF/CR, then the configured character limit and final 4,096-byte cap are
+applied, and the result is passed only to the selected Termux providers. It
+never persists, logs, or prints the input, notification content, paths,
+credentials, or session data.
+Provider absence, provider failure, malformed hook input, and disabled hooks
+are successful no-ops so an upstream turn cannot fail because notification
+delivery is unavailable. `notification`, `toast`, and `both` select the
+corresponding capability-aware provider attempts; `both` attempts each
+independently. Manager emits no success text for the endpoint.
 
 ### MGR-4 — repair planning through Core
 

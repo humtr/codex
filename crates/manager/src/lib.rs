@@ -7,8 +7,10 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::os::unix::process::CommandExt;
 use std::path::{Component, Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::thread;
+use std::time::Duration;
 
 const CORE_API_ENV: &str = "CODEX_TERMUX_CORE_API";
 const CORE_ENTRYPOINT_ENV: &str = "CODEX_TERMUX_CORE_ENTRYPOINT";
@@ -19,7 +21,14 @@ const PROFILES_DIR: &str = "profiles";
 const PROFILE_META: &str = "profile.meta";
 const STATE_HEADER: &str = "codex-manager-state-v1";
 const PROFILE_HEADER: &str = "codex-manager-profile-v1";
+const NOTIFY_DIR: &str = "notifications";
+const NOTIFY_CONFIG: &str = "config-v1";
+const NOTIFY_HEADER: &str = "codex-manager-notify-v1";
+const NOTIFY_DEFAULT_GROUP: &str = "codex-turns";
 const RECORD_MAX_BYTES: usize = 4096;
+const NOTIFY_INPUT_MAX_BYTES: usize = 64 * 1024;
+const NOTIFY_PAYLOAD_MAX_BYTES: usize = 4096;
+const NOTIFY_MAX_CHARS: usize = 4096;
 const PRIVATE_DIR_MODE: u32 = 0o700;
 const PRIVATE_FILE_MODE: u32 = 0o600;
 const SESSION_FILE_SUFFIX: &[u8] = b".jsonl";
@@ -35,6 +44,8 @@ const HELP: &str = concat!(
     "codex termux profile use <PROFILE_ID> [--] [UPSTREAM_ARGS...]\n",
     "codex termux session list [--all|--profile <PROFILE_ID>]\n",
     "codex termux session resume <SESSION_ID> [--profile <PROFILE_ID>] [--] [UPSTREAM_ARGS...]\n",
+    "codex termux notify show\n",
+    "codex termux notify set [--channel <notification|toast|both>] [--hooks <none|all|EVENT[,EVENT...]>] [--content-chars <0|1..4096>] [--preserve-newlines <0|1>] [--toast-gravity <top|middle|bottom>] [--toast-short <0|1>] [--toast-background <empty|#RRGGBB>] [--toast-color <empty|#RRGGBB>] [--group <GROUP_ID>]\n",
 );
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -86,6 +97,8 @@ const ERR_SESSION: ManagerError = ManagerError::operation("codex termux: session
 const ERR_COLLISION: ManagerError = ManagerError::operation("codex termux: profile already exists");
 const ERR_CREATE: ManagerError = ManagerError::operation("codex termux: profile creation failed");
 const ERR_LAUNCH: ManagerError = ManagerError::operation("codex termux: Core launch failed");
+const ERR_NOTIFY_CONFIG: ManagerError =
+    ManagerError::operation("codex termux: notification configuration is invalid");
 
 #[derive(Debug, Clone)]
 struct Context {
@@ -129,6 +142,9 @@ enum CommandKind {
     Use,
     SessionList,
     SessionResume,
+    NotifyShow,
+    NotifySet,
+    NotifyEmit,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -138,6 +154,128 @@ struct ParsedCommand {
     upstream_args: Vec<OsString>,
     session_id: Option<String>,
     all: bool,
+    notify_patch: Option<NotifyPatch>,
+    notify_event: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NotifyChannel {
+    Notification,
+    Toast,
+    Both,
+}
+
+impl NotifyChannel {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Notification => "notification",
+            Self::Toast => "toast",
+            Self::Both => "both",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NotifyGravity {
+    Top,
+    Middle,
+    Bottom,
+}
+
+impl NotifyGravity {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Top => "top",
+            Self::Middle => "middle",
+            Self::Bottom => "bottom",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum NotifyHooks {
+    None,
+    All,
+    Events(Vec<String>),
+}
+
+impl NotifyHooks {
+    fn as_str(&self) -> String {
+        match self {
+            Self::None => "none".to_owned(),
+            Self::All => "all".to_owned(),
+            Self::Events(events) => events.join(","),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NotifyConfig {
+    channel: NotifyChannel,
+    hooks: NotifyHooks,
+    content_chars: usize,
+    preserve_newlines: bool,
+    toast_gravity: NotifyGravity,
+    toast_short: bool,
+    toast_background: Option<String>,
+    toast_color: Option<String>,
+    group: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct NotifyPatch {
+    channel: Option<NotifyChannel>,
+    hooks: Option<NotifyHooks>,
+    content_chars: Option<usize>,
+    preserve_newlines: Option<bool>,
+    toast_gravity: Option<NotifyGravity>,
+    toast_short: Option<bool>,
+    toast_background: Option<Option<String>>,
+    toast_color: Option<Option<String>>,
+    group: Option<String>,
+}
+
+const NOTIFY_EVENTS: [&str; 10] = [
+    "SessionStart",
+    "PreToolUse",
+    "PermissionRequest",
+    "PostToolUse",
+    "PreCompact",
+    "PostCompact",
+    "UserPromptSubmit",
+    "SubagentStart",
+    "SubagentStop",
+    "Stop",
+];
+
+impl NotifyConfig {
+    fn defaults() -> Self {
+        Self {
+            channel: NotifyChannel::Notification,
+            hooks: NotifyHooks::Events(vec!["Stop".to_owned()]),
+            content_chars: 0,
+            preserve_newlines: true,
+            toast_gravity: NotifyGravity::Top,
+            toast_short: false,
+            toast_background: None,
+            toast_color: None,
+            group: NOTIFY_DEFAULT_GROUP.to_owned(),
+        }
+    }
+
+    fn merge(self, patch: NotifyPatch) -> Self {
+        Self {
+            channel: patch.channel.unwrap_or(self.channel),
+            hooks: patch.hooks.unwrap_or(self.hooks),
+            content_chars: patch.content_chars.unwrap_or(self.content_chars),
+            preserve_newlines: patch.preserve_newlines.unwrap_or(self.preserve_newlines),
+            toast_gravity: patch.toast_gravity.unwrap_or(self.toast_gravity),
+            toast_short: patch.toast_short.unwrap_or(self.toast_short),
+            toast_background: patch.toast_background.unwrap_or(self.toast_background),
+            toast_color: patch.toast_color.unwrap_or(self.toast_color),
+            group: patch.group.unwrap_or(self.group),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -179,7 +317,7 @@ fn run_inner(args: Vec<OsString>) -> Result<Option<String>, ManagerError> {
         capture_context()?;
         return Ok(Some(HELP.to_owned()));
     }
-    if is_exact(args.first(), "notify") || is_exact(args.first(), "repair") {
+    if is_exact(args.first(), "repair") {
         return Err(ERR_UNSUPPORTED);
     }
 
@@ -212,10 +350,28 @@ fn run_inner(args: Vec<OsString>) -> Result<Option<String>, ManagerError> {
             resume_session(&context, target, session_id, &command.upstream_args)?;
             Ok(None)
         }
+        CommandKind::NotifyShow => Ok(Some(format_notify_config(&read_notify_config(&context)?))),
+        CommandKind::NotifySet => {
+            let patch = command.notify_patch.expect("notify set patch is parsed");
+            let config = read_notify_config(&context)?.merge(patch);
+            publish_notify_config(&context, &config)?;
+            Ok(Some("saved\n".to_owned()))
+        }
+        CommandKind::NotifyEmit => {
+            let event = command
+                .notify_event
+                .as_deref()
+                .expect("notify event is parsed");
+            emit_notification(&context, event);
+            Ok(None)
+        }
     }
 }
 
 fn parse_command(args: &[OsString]) -> Result<ParsedCommand, ManagerError> {
+    if is_exact(args.first(), "notify") {
+        return parse_notify_command(args);
+    }
     if is_exact(args.first(), "session") {
         return parse_session_command(args);
     }
@@ -229,6 +385,8 @@ fn parse_command(args: &[OsString]) -> Result<ParsedCommand, ManagerError> {
             upstream_args: Vec::new(),
             session_id: None,
             all: false,
+            notify_patch: None,
+            notify_event: None,
         }),
         Some(action) if action == OsStr::new("current") && args.len() == 2 => Ok(ParsedCommand {
             kind: CommandKind::Current,
@@ -236,6 +394,8 @@ fn parse_command(args: &[OsString]) -> Result<ParsedCommand, ManagerError> {
             upstream_args: Vec::new(),
             session_id: None,
             all: false,
+            notify_patch: None,
+            notify_event: None,
         }),
         Some(action) if action == OsStr::new("create") && args.len() == 3 => {
             let id = args.get(2).ok_or(ERR_USAGE)?;
@@ -245,6 +405,8 @@ fn parse_command(args: &[OsString]) -> Result<ParsedCommand, ManagerError> {
                 upstream_args: Vec::new(),
                 session_id: None,
                 all: false,
+                notify_patch: None,
+                notify_event: None,
             })
         }
         Some(action) if action == OsStr::new("use") && args.len() >= 3 => {
@@ -269,10 +431,222 @@ fn parse_command(args: &[OsString]) -> Result<ParsedCommand, ManagerError> {
                 upstream_args,
                 session_id: None,
                 all: false,
+                notify_patch: None,
+                notify_event: None,
             })
         }
         _ => Err(ERR_USAGE),
     }
+}
+
+fn parse_notify_command(args: &[OsString]) -> Result<ParsedCommand, ManagerError> {
+    match args.get(1).map(OsString::as_os_str) {
+        Some(action) if action == OsStr::new("show") && args.len() == 2 => Ok(ParsedCommand {
+            kind: CommandKind::NotifyShow,
+            target: None,
+            upstream_args: Vec::new(),
+            session_id: None,
+            all: false,
+            notify_patch: None,
+            notify_event: None,
+        }),
+        Some(action) if action == OsStr::new("set") => Ok(ParsedCommand {
+            kind: CommandKind::NotifySet,
+            target: None,
+            upstream_args: Vec::new(),
+            session_id: None,
+            all: false,
+            notify_patch: Some(parse_notify_set_args(&args[2..])?),
+            notify_event: None,
+        }),
+        Some(action) if action == OsStr::new("emit") && args.len() == 3 => {
+            let event = parse_notify_event(args.get(2).ok_or(ERR_USAGE)?, ERR_USAGE)?;
+            Ok(ParsedCommand {
+                kind: CommandKind::NotifyEmit,
+                target: None,
+                upstream_args: Vec::new(),
+                session_id: None,
+                all: false,
+                notify_patch: None,
+                notify_event: Some(event),
+            })
+        }
+        _ => Err(ERR_USAGE),
+    }
+}
+
+fn parse_notify_set_args(args: &[OsString]) -> Result<NotifyPatch, ManagerError> {
+    let mut patch = NotifyPatch::default();
+    let mut index = 0;
+    while index < args.len() {
+        let option = args[index].to_str().ok_or(ERR_USAGE)?;
+        let value = args.get(index + 1).ok_or(ERR_USAGE)?;
+        match option {
+            "--channel" => {
+                if patch.channel.is_some() {
+                    return Err(ERR_USAGE);
+                }
+                patch.channel = Some(parse_notify_channel(value, ERR_USAGE)?);
+            }
+            "--hooks" => {
+                if patch.hooks.is_some() {
+                    return Err(ERR_USAGE);
+                }
+                patch.hooks = Some(parse_notify_hooks(value, ERR_USAGE)?);
+            }
+            "--content-chars" => {
+                if patch.content_chars.is_some() {
+                    return Err(ERR_USAGE);
+                }
+                patch.content_chars = Some(parse_notify_content_chars(value, ERR_USAGE)?);
+            }
+            "--preserve-newlines" => {
+                if patch.preserve_newlines.is_some() {
+                    return Err(ERR_USAGE);
+                }
+                patch.preserve_newlines = Some(parse_notify_bool(value, ERR_USAGE)?);
+            }
+            "--toast-gravity" => {
+                if patch.toast_gravity.is_some() {
+                    return Err(ERR_USAGE);
+                }
+                patch.toast_gravity = Some(parse_notify_gravity(value, ERR_USAGE)?);
+            }
+            "--toast-short" => {
+                if patch.toast_short.is_some() {
+                    return Err(ERR_USAGE);
+                }
+                patch.toast_short = Some(parse_notify_bool(value, ERR_USAGE)?);
+            }
+            "--toast-background" => {
+                if patch.toast_background.is_some() {
+                    return Err(ERR_USAGE);
+                }
+                patch.toast_background = Some(parse_notify_color(value, ERR_USAGE)?);
+            }
+            "--toast-color" => {
+                if patch.toast_color.is_some() {
+                    return Err(ERR_USAGE);
+                }
+                patch.toast_color = Some(parse_notify_color(value, ERR_USAGE)?);
+            }
+            "--group" => {
+                if patch.group.is_some() {
+                    return Err(ERR_USAGE);
+                }
+                patch.group = Some(parse_notify_group(value, ERR_USAGE)?);
+            }
+            _ => return Err(ERR_USAGE),
+        }
+        index += 2;
+    }
+    Ok(patch)
+}
+
+fn parse_notify_channel(value: &OsStr, error: ManagerError) -> Result<NotifyChannel, ManagerError> {
+    match value.to_str() {
+        Some("notification") => Ok(NotifyChannel::Notification),
+        Some("toast") => Ok(NotifyChannel::Toast),
+        Some("both") => Ok(NotifyChannel::Both),
+        _ => Err(error),
+    }
+}
+
+fn parse_notify_gravity(value: &OsStr, error: ManagerError) -> Result<NotifyGravity, ManagerError> {
+    match value.to_str() {
+        Some("top") => Ok(NotifyGravity::Top),
+        Some("middle") => Ok(NotifyGravity::Middle),
+        Some("bottom") => Ok(NotifyGravity::Bottom),
+        _ => Err(error),
+    }
+}
+
+fn parse_notify_bool(value: &OsStr, error: ManagerError) -> Result<bool, ManagerError> {
+    match value.to_str() {
+        Some("0") => Ok(false),
+        Some("1") => Ok(true),
+        _ => Err(error),
+    }
+}
+
+fn parse_notify_content_chars(value: &OsStr, error: ManagerError) -> Result<usize, ManagerError> {
+    let value = value.to_str().ok_or(error)?;
+    let parsed = value.parse::<usize>().map_err(|_| error)?;
+    if parsed <= NOTIFY_MAX_CHARS {
+        Ok(parsed)
+    } else {
+        Err(error)
+    }
+}
+
+fn parse_notify_color(value: &OsStr, error: ManagerError) -> Result<Option<String>, ManagerError> {
+    let value = value.to_str().ok_or(error)?;
+    if value == "empty" {
+        return Ok(None);
+    }
+    let bytes = value.as_bytes();
+    if bytes.len() != 7 || bytes[0] != b'#' || !bytes[1..].iter().all(u8::is_ascii_hexdigit) {
+        return Err(error);
+    }
+    let normalized = bytes
+        .iter()
+        .map(|byte| char::from(byte.to_ascii_lowercase()))
+        .collect();
+    Ok(Some(normalized))
+}
+
+fn parse_notify_group(value: &OsStr, error: ManagerError) -> Result<String, ManagerError> {
+    let bytes = value.as_bytes();
+    if bytes.is_empty()
+        || bytes.len() > 64
+        || !bytes[0].is_ascii_alphanumeric()
+        || !bytes
+            .iter()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+    {
+        return Err(error);
+    }
+    std::str::from_utf8(bytes)
+        .map(str::to_owned)
+        .map_err(|_| error)
+}
+
+fn parse_notify_event(value: &OsStr, error: ManagerError) -> Result<String, ManagerError> {
+    let event = value.to_str().ok_or(error)?;
+    if NOTIFY_EVENTS.contains(&event) {
+        Ok(event.to_owned())
+    } else {
+        Err(error)
+    }
+}
+
+fn parse_notify_hooks(value: &OsStr, error: ManagerError) -> Result<NotifyHooks, ManagerError> {
+    let value = value.to_str().ok_or(error)?;
+    match value {
+        "none" => return Ok(NotifyHooks::None),
+        "all" => return Ok(NotifyHooks::All),
+        _ => {}
+    }
+    if value.is_empty() {
+        return Err(error);
+    }
+    let mut events = Vec::new();
+    for item in value.split(',') {
+        if item.is_empty() || !NOTIFY_EVENTS.contains(&item) {
+            return Err(error);
+        }
+        if events.iter().any(|event: &String| event == item) {
+            return Err(error);
+        }
+        events.push(item.to_owned());
+    }
+    events.sort_by_key(|event| {
+        NOTIFY_EVENTS
+            .iter()
+            .position(|candidate| candidate == event)
+            .expect("event was validated")
+    });
+    Ok(NotifyHooks::Events(events))
 }
 
 fn parse_session_command(args: &[OsString]) -> Result<ParsedCommand, ManagerError> {
@@ -284,6 +658,8 @@ fn parse_session_command(args: &[OsString]) -> Result<ParsedCommand, ManagerErro
                 upstream_args: Vec::new(),
                 session_id: None,
                 all: true,
+                notify_patch: None,
+                notify_event: None,
             }),
             [_, _, flag, value] if flag == OsStr::new("--profile") => Ok(ParsedCommand {
                 kind: CommandKind::SessionList,
@@ -291,6 +667,8 @@ fn parse_session_command(args: &[OsString]) -> Result<ParsedCommand, ManagerErro
                 upstream_args: Vec::new(),
                 session_id: None,
                 all: false,
+                notify_patch: None,
+                notify_event: None,
             }),
             [_, _] => Ok(ParsedCommand {
                 kind: CommandKind::SessionList,
@@ -298,6 +676,8 @@ fn parse_session_command(args: &[OsString]) -> Result<ParsedCommand, ManagerErro
                 upstream_args: Vec::new(),
                 session_id: None,
                 all: false,
+                notify_patch: None,
+                notify_event: None,
             }),
             _ => Err(ERR_USAGE),
         },
@@ -323,6 +703,8 @@ fn parse_session_command(args: &[OsString]) -> Result<ParsedCommand, ManagerErro
                 upstream_args: args[index..].to_vec(),
                 session_id: Some(session_id),
                 all: false,
+                notify_patch: None,
+                notify_event: None,
             })
         }
         _ => Err(ERR_USAGE),
@@ -556,6 +938,691 @@ fn existing_manager_dirs(context: &Context) -> Result<Option<ManagerDirs>, Manag
         return Err(ERR_PATH);
     }
     Ok(Some(ManagerDirs { root, profiles }))
+}
+
+fn notify_directory_for_create(context: &Context) -> Result<PathBuf, ManagerError> {
+    let base = manager_base(context);
+    ensure_directory_chain(&base)?;
+    let root = base.join("manager");
+    ensure_private_directory(&root)?;
+    let notifications = root.join(NOTIFY_DIR);
+    ensure_private_directory(&notifications)?;
+    Ok(notifications)
+}
+
+fn existing_notify_directory(context: &Context) -> Result<Option<PathBuf>, ManagerError> {
+    let base = manager_base(context);
+    if inspect_path(&base)? == PathPresence::Missing {
+        return Ok(None);
+    }
+    let root = base.join("manager");
+    if inspect_path(&root)? == PathPresence::Missing {
+        return Ok(None);
+    }
+    let root_metadata = fs::symlink_metadata(&root).map_err(|_| ERR_PATH)?;
+    if root_metadata.file_type().is_symlink()
+        || !root_metadata.is_dir()
+        || root_metadata.permissions().mode() & 0o7777 != PRIVATE_DIR_MODE
+    {
+        return Err(ERR_PATH);
+    }
+    let notifications = root.join(NOTIFY_DIR);
+    if inspect_path(&notifications)? == PathPresence::Missing {
+        return Ok(None);
+    }
+    let metadata = fs::symlink_metadata(&notifications).map_err(|_| ERR_PATH)?;
+    if metadata.file_type().is_symlink()
+        || !metadata.is_dir()
+        || metadata.permissions().mode() & 0o7777 != PRIVATE_DIR_MODE
+    {
+        return Err(ERR_PATH);
+    }
+    Ok(Some(notifications))
+}
+
+fn read_notify_config(context: &Context) -> Result<NotifyConfig, ManagerError> {
+    let Some(directory) = existing_notify_directory(context)? else {
+        return Ok(NotifyConfig::defaults());
+    };
+    let path = directory.join(NOTIFY_CONFIG);
+    let metadata = match fs::symlink_metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return Ok(NotifyConfig::defaults());
+        }
+        Err(_) => return Err(ERR_NOTIFY_CONFIG),
+    };
+    if metadata.file_type().is_symlink()
+        || !metadata.is_file()
+        || metadata.permissions().mode() & 0o7777 != PRIVATE_FILE_MODE
+    {
+        return Err(ERR_NOTIFY_CONFIG);
+    }
+    let bytes = read_bounded(&path).map_err(|_| ERR_NOTIFY_CONFIG)?;
+    parse_notify_record(&bytes)
+}
+
+fn parse_notify_record(bytes: &[u8]) -> Result<NotifyConfig, ManagerError> {
+    let text = std::str::from_utf8(bytes).map_err(|_| ERR_NOTIFY_CONFIG)?;
+    let mut lines = text.split('\n');
+    if lines.next() != Some(NOTIFY_HEADER) {
+        return Err(ERR_NOTIFY_CONFIG);
+    }
+    let channel = parse_notify_channel_record(lines.next(), "channel")?;
+    let hooks = parse_notify_hooks_record(lines.next(), "hooks")?;
+    let content_chars = parse_notify_content_record(lines.next(), "content_chars")?;
+    let preserve_newlines = parse_notify_bool_record(lines.next(), "preserve_newlines")?;
+    let toast_gravity = parse_notify_gravity_record(lines.next(), "toast_gravity")?;
+    let toast_short = parse_notify_bool_record(lines.next(), "toast_short")?;
+    let toast_background = parse_notify_color_record(lines.next(), "toast_background")?;
+    let toast_color = parse_notify_color_record(lines.next(), "toast_color")?;
+    let group = parse_notify_group_record(lines.next(), "group")?;
+    if lines.next() != Some("") || lines.next().is_some() {
+        return Err(ERR_NOTIFY_CONFIG);
+    }
+    Ok(NotifyConfig {
+        channel,
+        hooks,
+        content_chars,
+        preserve_newlines,
+        toast_gravity,
+        toast_short,
+        toast_background,
+        toast_color,
+        group,
+    })
+}
+
+fn record_value<'a>(line: Option<&'a str>, key: &str) -> Result<&'a str, ManagerError> {
+    let prefix = format!("{key}\t");
+    line.and_then(|line| line.strip_prefix(&prefix))
+        .ok_or(ERR_NOTIFY_CONFIG)
+}
+
+fn parse_notify_channel_record(
+    line: Option<&str>,
+    key: &str,
+) -> Result<NotifyChannel, ManagerError> {
+    let value = record_value(line, key)?;
+    parse_notify_channel(OsStr::new(value), ERR_NOTIFY_CONFIG)
+}
+
+fn parse_notify_hooks_record(line: Option<&str>, key: &str) -> Result<NotifyHooks, ManagerError> {
+    let value = record_value(line, key)?;
+    parse_notify_hooks(OsStr::new(value), ERR_NOTIFY_CONFIG)
+}
+
+fn parse_notify_content_record(line: Option<&str>, key: &str) -> Result<usize, ManagerError> {
+    let value = record_value(line, key)?;
+    parse_notify_content_chars(OsStr::new(value), ERR_NOTIFY_CONFIG)
+}
+
+fn parse_notify_bool_record(line: Option<&str>, key: &str) -> Result<bool, ManagerError> {
+    let value = record_value(line, key)?;
+    parse_notify_bool(OsStr::new(value), ERR_NOTIFY_CONFIG)
+}
+
+fn parse_notify_gravity_record(
+    line: Option<&str>,
+    key: &str,
+) -> Result<NotifyGravity, ManagerError> {
+    let value = record_value(line, key)?;
+    parse_notify_gravity(OsStr::new(value), ERR_NOTIFY_CONFIG)
+}
+
+fn parse_notify_color_record(
+    line: Option<&str>,
+    key: &str,
+) -> Result<Option<String>, ManagerError> {
+    let value = record_value(line, key)?;
+    parse_notify_color(OsStr::new(value), ERR_NOTIFY_CONFIG)
+}
+
+fn parse_notify_group_record(line: Option<&str>, key: &str) -> Result<String, ManagerError> {
+    let value = record_value(line, key)?;
+    parse_notify_group(OsStr::new(value), ERR_NOTIFY_CONFIG)
+}
+
+fn notify_record_bytes(config: &NotifyConfig) -> Vec<u8> {
+    format!(
+        "{NOTIFY_HEADER}\nchannel\t{}\nhooks\t{}\ncontent_chars\t{}\npreserve_newlines\t{}\ntoast_gravity\t{}\ntoast_short\t{}\ntoast_background\t{}\ntoast_color\t{}\ngroup\t{}\n",
+        config.channel.as_str(),
+        config.hooks.as_str(),
+        config.content_chars,
+        if config.preserve_newlines { 1 } else { 0 },
+        config.toast_gravity.as_str(),
+        if config.toast_short { 1 } else { 0 },
+        config.toast_background.as_deref().unwrap_or("empty"),
+        config.toast_color.as_deref().unwrap_or("empty"),
+        config.group,
+    )
+    .into_bytes()
+}
+
+fn format_notify_config(config: &NotifyConfig) -> String {
+    format!(
+        "channel={}\nhooks={}\ncontent-chars={}\npreserve-newlines={}\ntoast-gravity={}\ntoast-short={}\ntoast-background={}\ntoast-color={}\ngroup={}\n",
+        config.channel.as_str(),
+        config.hooks.as_str(),
+        config.content_chars,
+        if config.preserve_newlines { 1 } else { 0 },
+        config.toast_gravity.as_str(),
+        if config.toast_short { 1 } else { 0 },
+        config.toast_background.as_deref().unwrap_or("empty"),
+        config.toast_color.as_deref().unwrap_or("empty"),
+        config.group,
+    )
+}
+
+fn publish_notify_config(context: &Context, config: &NotifyConfig) -> Result<(), ManagerError> {
+    let directory = notify_directory_for_create(context)?;
+    let destination = directory.join(NOTIFY_CONFIG);
+    if let Ok(metadata) = fs::symlink_metadata(&destination) {
+        if metadata.file_type().is_symlink()
+            || !metadata.is_file()
+            || metadata.permissions().mode() & 0o7777 != PRIVATE_FILE_MODE
+        {
+            return Err(ERR_NOTIFY_CONFIG);
+        }
+    }
+    let temporary = directory.join(format!(
+        ".config-{}-{}",
+        std::process::id(),
+        TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
+    ));
+    let result = (|| {
+        write_new_record(&temporary, &notify_record_bytes(config))
+            .map_err(|_| ERR_NOTIFY_CONFIG)?;
+        fs::rename(&temporary, &destination).map_err(|_| ERR_NOTIFY_CONFIG)?;
+        sync_directory(&directory).map_err(|_| ERR_NOTIFY_CONFIG)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
+}
+
+#[derive(Debug, Default)]
+struct HookText {
+    title: Option<String>,
+    body: Option<String>,
+}
+
+fn emit_notification(context: &Context, event: &str) {
+    let Ok(config) = read_notify_config(context) else {
+        return;
+    };
+    if !notify_event_enabled(&config.hooks, event) {
+        return;
+    }
+    let Some(input) = read_hook_input() else {
+        return;
+    };
+    let Some(text) = parse_hook_json(&input) else {
+        return;
+    };
+    let title = normalize_notification_text(
+        text.title.as_deref().unwrap_or("Codex"),
+        config.preserve_newlines,
+        0,
+    );
+    let body = normalize_notification_text(
+        text.body
+            .as_deref()
+            .unwrap_or_else(|| notify_event_status(event)),
+        config.preserve_newlines,
+        config.content_chars,
+    );
+    match config.channel {
+        NotifyChannel::Notification => {
+            invoke_termux_notification(&config, &title, &body);
+        }
+        NotifyChannel::Toast => {
+            invoke_termux_toast(&config, &body);
+        }
+        NotifyChannel::Both => {
+            invoke_termux_notification(&config, &title, &body);
+            invoke_termux_toast(&config, &body);
+        }
+    }
+}
+
+fn notify_event_enabled(hooks: &NotifyHooks, event: &str) -> bool {
+    match hooks {
+        NotifyHooks::None => false,
+        NotifyHooks::All => true,
+        NotifyHooks::Events(events) => events.iter().any(|candidate| candidate == event),
+    }
+}
+
+fn read_hook_input() -> Option<Vec<u8>> {
+    let stdin = io::stdin();
+    let mut input = Vec::new();
+    stdin
+        .lock()
+        .take((NOTIFY_INPUT_MAX_BYTES + 1) as u64)
+        .read_to_end(&mut input)
+        .ok()?;
+    (input.len() <= NOTIFY_INPUT_MAX_BYTES).then_some(input)
+}
+
+fn notify_event_status(event: &str) -> &'static str {
+    match event {
+        "SessionStart" => "Notify session start",
+        "PreToolUse" => "Notify tool start",
+        "PermissionRequest" => "Notify permission request",
+        "PostToolUse" => "Notify tool finish",
+        "PreCompact" => "Notify before compact",
+        "PostCompact" => "Notify after compact",
+        "UserPromptSubmit" => "Notify prompt submit",
+        "SubagentStart" => "Notify subagent start",
+        "SubagentStop" => "Notify subagent stop",
+        "Stop" => "Notify turn completion",
+        _ => "Notify Codex event",
+    }
+}
+
+fn normalize_notification_text(
+    text: &str,
+    preserve_newlines: bool,
+    content_chars: usize,
+) -> String {
+    let mut normalized = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(character) = chars.next() {
+        if character == '\r' {
+            if chars.peek() == Some(&'\n') {
+                chars.next();
+            }
+            normalized.push('\n');
+        } else {
+            normalized.push(character);
+        }
+    }
+    if !preserve_newlines {
+        normalized = normalized
+            .chars()
+            .map(|character| if character == '\n' { ' ' } else { character })
+            .collect();
+    }
+    if content_chars != 0 {
+        normalized = normalized.chars().take(content_chars).collect();
+    }
+    truncate_utf8(&normalized, NOTIFY_PAYLOAD_MAX_BYTES)
+}
+
+fn truncate_utf8(value: &str, max_bytes: usize) -> String {
+    if value.len() <= max_bytes {
+        return value.to_owned();
+    }
+    let mut end = max_bytes;
+    while !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    value[..end].to_owned()
+}
+
+fn invoke_termux_notification(config: &NotifyConfig, title: &str, body: &str) {
+    let mut command = Command::new("termux-notification");
+    command
+        .arg("--group")
+        .arg(&config.group)
+        .arg("--priority")
+        .arg("max")
+        .arg("--sound")
+        .arg("--vibrate")
+        .arg("300,150,300")
+        .arg("--title")
+        .arg(title)
+        .arg("--content")
+        .arg(body);
+    run_bounded_provider(command);
+}
+
+fn invoke_termux_toast(config: &NotifyConfig, body: &str) {
+    let mut command = Command::new("termux-toast");
+    command.arg("-g").arg(config.toast_gravity.as_str());
+    if config.toast_short {
+        command.arg("-s");
+    }
+    if let Some(background) = config.toast_background.as_deref() {
+        command.arg("-b").arg(background);
+    }
+    if let Some(color) = config.toast_color.as_deref() {
+        command.arg("-c").arg(color);
+    }
+    command.arg(body);
+    run_bounded_provider(command);
+}
+
+fn run_bounded_provider(mut command: Command) {
+    let Ok(mut child) = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    else {
+        return;
+    };
+    for _ in 0..200 {
+        match child.try_wait() {
+            Ok(Some(_)) => return,
+            Ok(None) => thread::sleep(Duration::from_millis(10)),
+            Err(_) => return,
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+struct JsonCursor<'a> {
+    bytes: &'a [u8],
+    index: usize,
+}
+
+impl<'a> JsonCursor<'a> {
+    fn new(bytes: &'a [u8]) -> Self {
+        Self { bytes, index: 0 }
+    }
+
+    fn skip_whitespace(&mut self) {
+        while self
+            .bytes
+            .get(self.index)
+            .is_some_and(|byte| matches!(byte, b' ' | b'\t' | b'\r' | b'\n'))
+        {
+            self.index += 1;
+        }
+    }
+
+    fn consume(&mut self, expected: u8) -> bool {
+        if self.bytes.get(self.index) == Some(&expected) {
+            self.index += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn parse_string(&mut self) -> Option<String> {
+        if !self.consume(b'"') {
+            return None;
+        }
+        let mut output = Vec::new();
+        loop {
+            let byte = *self.bytes.get(self.index)?;
+            self.index += 1;
+            match byte {
+                b'"' => return String::from_utf8(output).ok(),
+                b'\\' => {
+                    let escaped = *self.bytes.get(self.index)?;
+                    self.index += 1;
+                    match escaped {
+                        b'"' | b'\\' | b'/' => output.push(escaped),
+                        b'b' => output.push(8),
+                        b'f' => output.push(12),
+                        b'n' => output.push(b'\n'),
+                        b'r' => output.push(b'\r'),
+                        b't' => output.push(b'\t'),
+                        b'u' => self.parse_unicode_escape(&mut output)?,
+                        _ => return None,
+                    }
+                }
+                0..=0x1f => return None,
+                _ => output.push(byte),
+            }
+        }
+    }
+
+    fn parse_unicode_escape(&mut self, output: &mut Vec<u8>) -> Option<()> {
+        let first = self.parse_hex_quad()?;
+        let codepoint = if (0xd800..=0xdbff).contains(&first) {
+            if self.bytes.get(self.index..self.index + 2) != Some(b"\\u") {
+                return None;
+            }
+            self.index += 2;
+            let second = self.parse_hex_quad()?;
+            if !(0xdc00..=0xdfff).contains(&second) {
+                return None;
+            }
+            0x1_0000 + ((first - 0xd800) << 10) + (second - 0xdc00)
+        } else if (0xdc00..=0xdfff).contains(&first) {
+            return None;
+        } else {
+            first
+        };
+        let character = char::from_u32(codepoint)?;
+        let mut encoded = [0; 4];
+        output.extend_from_slice(character.encode_utf8(&mut encoded).as_bytes());
+        Some(())
+    }
+
+    fn parse_hex_quad(&mut self) -> Option<u32> {
+        let mut value = 0;
+        for _ in 0..4 {
+            value = (value << 4) | u32::from(hex_value(*self.bytes.get(self.index)?)?);
+            self.index += 1;
+        }
+        Some(value)
+    }
+
+    fn skip_value(&mut self, depth: usize) -> Option<()> {
+        if depth > 32 {
+            return None;
+        }
+        self.skip_whitespace();
+        match self.bytes.get(self.index)? {
+            b'"' => {
+                self.parse_string()?;
+                Some(())
+            }
+            b'{' => self.skip_object(depth + 1),
+            b'[' => self.skip_array(depth + 1),
+            b't' if self.consume_literal(b"true") => Some(()),
+            b'f' if self.consume_literal(b"false") => Some(()),
+            b'n' if self.consume_literal(b"null") => Some(()),
+            b'-' | b'0'..=b'9' => {
+                self.skip_number()?;
+                Some(())
+            }
+            _ => None,
+        }
+    }
+
+    fn skip_object(&mut self, depth: usize) -> Option<()> {
+        self.consume(b'{');
+        self.skip_whitespace();
+        if self.consume(b'}') {
+            return Some(());
+        }
+        loop {
+            self.skip_whitespace();
+            self.parse_string()?;
+            self.skip_whitespace();
+            if !self.consume(b':') {
+                return None;
+            }
+            self.skip_value(depth)?;
+            self.skip_whitespace();
+            if self.consume(b'}') {
+                return Some(());
+            }
+            if !self.consume(b',') {
+                return None;
+            }
+        }
+    }
+
+    fn skip_array(&mut self, depth: usize) -> Option<()> {
+        self.consume(b'[');
+        self.skip_whitespace();
+        if self.consume(b']') {
+            return Some(());
+        }
+        loop {
+            self.skip_value(depth)?;
+            self.skip_whitespace();
+            if self.consume(b']') {
+                return Some(());
+            }
+            if !self.consume(b',') {
+                return None;
+            }
+        }
+    }
+
+    fn consume_literal(&mut self, literal: &[u8]) -> bool {
+        if self.bytes.get(self.index..self.index + literal.len()) == Some(literal) {
+            self.index += literal.len();
+            true
+        } else {
+            false
+        }
+    }
+
+    fn skip_number(&mut self) -> Option<()> {
+        if self.consume(b'-') && self.bytes.get(self.index).is_none() {
+            return None;
+        }
+        match self.bytes.get(self.index)? {
+            b'0' => self.index += 1,
+            b'1'..=b'9' => {
+                self.index += 1;
+                while self.bytes.get(self.index).is_some_and(u8::is_ascii_digit) {
+                    self.index += 1;
+                }
+            }
+            _ => return None,
+        }
+        if self.consume(b'.') {
+            let start = self.index;
+            while self.bytes.get(self.index).is_some_and(u8::is_ascii_digit) {
+                self.index += 1;
+            }
+            if start == self.index {
+                return None;
+            }
+        }
+        if self
+            .bytes
+            .get(self.index)
+            .is_some_and(|byte| matches!(byte, b'e' | b'E'))
+        {
+            self.index += 1;
+            if self
+                .bytes
+                .get(self.index)
+                .is_some_and(|byte| matches!(byte, b'+' | b'-'))
+            {
+                self.index += 1;
+            }
+            let start = self.index;
+            while self.bytes.get(self.index).is_some_and(u8::is_ascii_digit) {
+                self.index += 1;
+            }
+            if start == self.index {
+                return None;
+            }
+        }
+        Some(())
+    }
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn parse_hook_json(input: &[u8]) -> Option<HookText> {
+    let mut cursor = JsonCursor::new(input);
+    cursor.skip_whitespace();
+    if !cursor.consume(b'{') {
+        return None;
+    }
+    let mut text = HookText::default();
+    let mut content = None;
+    let mut last_assistant_message = None;
+    let mut message = None;
+    let mut seen_title = false;
+    let mut seen_content = false;
+    let mut seen_last_assistant_message = false;
+    let mut seen_message = false;
+    cursor.skip_whitespace();
+    if !cursor.consume(b'}') {
+        loop {
+            cursor.skip_whitespace();
+            let key = cursor.parse_string()?;
+            cursor.skip_whitespace();
+            if !cursor.consume(b':') {
+                return None;
+            }
+            cursor.skip_whitespace();
+            match key.as_str() {
+                "title" => {
+                    if seen_title {
+                        return None;
+                    }
+                    seen_title = true;
+                    if cursor.bytes.get(cursor.index) == Some(&b'"') {
+                        text.title = Some(cursor.parse_string()?);
+                    } else {
+                        cursor.skip_value(0)?;
+                    }
+                }
+                "content" => {
+                    if seen_content {
+                        return None;
+                    }
+                    seen_content = true;
+                    if cursor.bytes.get(cursor.index) == Some(&b'"') {
+                        content = Some(cursor.parse_string()?);
+                    } else {
+                        cursor.skip_value(0)?;
+                    }
+                }
+                "last_assistant_message" => {
+                    if seen_last_assistant_message {
+                        return None;
+                    }
+                    seen_last_assistant_message = true;
+                    if cursor.bytes.get(cursor.index) == Some(&b'"') {
+                        last_assistant_message = Some(cursor.parse_string()?);
+                    } else {
+                        cursor.skip_value(0)?;
+                    }
+                }
+                "message" => {
+                    if seen_message {
+                        return None;
+                    }
+                    seen_message = true;
+                    if cursor.bytes.get(cursor.index) == Some(&b'"') {
+                        message = Some(cursor.parse_string()?);
+                    } else {
+                        cursor.skip_value(0)?;
+                    }
+                }
+                _ => cursor.skip_value(0)?,
+            }
+            cursor.skip_whitespace();
+            if cursor.consume(b'}') {
+                break;
+            }
+            if !cursor.consume(b',') {
+                return None;
+            }
+        }
+    }
+    cursor.skip_whitespace();
+    if cursor.index != input.len() {
+        return None;
+    }
+    text.body = content.or(last_assistant_message).or(message);
+    Some(text)
 }
 
 fn profile_path(dirs: &ManagerDirs, id: &str) -> PathBuf {
@@ -1559,5 +2626,164 @@ mod tests {
 
         assert_eq!(format_profile_list(&context).unwrap_err(), ERR_PATH);
         assert_eq!(create_profile(&context, "work").unwrap_err(), ERR_PATH);
+    }
+
+    #[test]
+    fn notification_parser_canonicalizes_values_and_keeps_exact_record_shape() {
+        let parsed = parse_command(&[
+            OsString::from("notify"),
+            OsString::from("set"),
+            OsString::from("--group"),
+            OsString::from("ops.v1"),
+            OsString::from("--hooks"),
+            OsString::from("Stop,SessionStart"),
+            OsString::from("--channel"),
+            OsString::from("both"),
+            OsString::from("--content-chars"),
+            OsString::from("42"),
+            OsString::from("--preserve-newlines"),
+            OsString::from("0"),
+            OsString::from("--toast-gravity"),
+            OsString::from("bottom"),
+            OsString::from("--toast-short"),
+            OsString::from("1"),
+            OsString::from("--toast-background"),
+            OsString::from("#A0b1C2"),
+            OsString::from("--toast-color"),
+            OsString::from("empty"),
+        ])
+        .unwrap();
+        assert_eq!(parsed.kind, CommandKind::NotifySet);
+        let patch = parsed.notify_patch.unwrap();
+        assert_eq!(patch.channel, Some(NotifyChannel::Both));
+        assert_eq!(
+            patch.hooks,
+            Some(NotifyHooks::Events(vec![
+                "SessionStart".to_owned(),
+                "Stop".to_owned()
+            ]))
+        );
+        assert_eq!(patch.content_chars, Some(42));
+        assert_eq!(patch.preserve_newlines, Some(false));
+        assert_eq!(patch.toast_gravity, Some(NotifyGravity::Bottom));
+        assert_eq!(patch.toast_short, Some(true));
+        assert_eq!(patch.toast_background, Some(Some("#a0b1c2".to_owned())));
+        assert_eq!(patch.toast_color, Some(None));
+        assert_eq!(patch.group, Some("ops.v1".to_owned()));
+
+        let config = NotifyConfig::defaults().merge(patch);
+        let record = notify_record_bytes(&config);
+        assert_eq!(
+            record,
+            b"codex-manager-notify-v1\nchannel\tboth\nhooks\tSessionStart,Stop\ncontent_chars\t42\npreserve_newlines\t0\ntoast_gravity\tbottom\ntoast_short\t1\ntoast_background\t#a0b1c2\ntoast_color\tempty\ngroup\tops.v1\n"
+        );
+        assert_eq!(parse_notify_record(&record).unwrap(), config);
+        assert_eq!(
+            format_notify_config(&config),
+            "channel=both\nhooks=SessionStart,Stop\ncontent-chars=42\npreserve-newlines=0\ntoast-gravity=bottom\ntoast-short=1\ntoast-background=#a0b1c2\ntoast-color=empty\ngroup=ops.v1\n"
+        );
+    }
+
+    #[test]
+    fn notification_parser_rejects_duplicates_bounds_and_trailing_arguments() {
+        for args in [
+            vec!["notify", "set", "--hooks", "Stop,Stop"],
+            vec!["notify", "set", "--hooks", "Stop,"],
+            vec!["notify", "set", "--hooks", "Unknown"],
+            vec!["notify", "set", "--content-chars", "4097"],
+            vec!["notify", "set", "--preserve-newlines", "2"],
+            vec!["notify", "set", "--toast-background", "#12345"],
+            vec!["notify", "set", "--group", "-unsafe"],
+            vec!["notify", "set", "--group", "safe", "trailing"],
+            vec!["notify", "set", "--group", "safe", "--group", "again"],
+        ] {
+            let owned = args.into_iter().map(OsString::from).collect::<Vec<_>>();
+            assert_eq!(parse_command(&owned), Err(ERR_USAGE));
+        }
+    }
+
+    #[test]
+    fn notification_defaults_are_read_only_until_explicit_publication() {
+        let root = TestRoot::new();
+        let context = root.context();
+        assert_eq!(
+            read_notify_config(&context).unwrap(),
+            NotifyConfig::defaults()
+        );
+        assert!(!manager_base(&context).exists());
+
+        let config = NotifyConfig::defaults().merge(NotifyPatch {
+            hooks: Some(NotifyHooks::None),
+            ..NotifyPatch::default()
+        });
+        publish_notify_config(&context, &config).unwrap();
+        let path = root
+            .0
+            .join(".local/share/codex/manager/notifications/config-v1");
+        assert_eq!(fs::read(&path).unwrap(), notify_record_bytes(&config));
+        assert_eq!(
+            fs::symlink_metadata(path.parent().unwrap())
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o7777,
+            PRIVATE_DIR_MODE
+        );
+        assert_eq!(
+            fs::symlink_metadata(&path).unwrap().permissions().mode() & 0o7777,
+            PRIVATE_FILE_MODE
+        );
+        assert_eq!(read_notify_config(&context).unwrap(), config);
+    }
+
+    #[test]
+    fn notification_record_rejects_wrong_shape_and_symlink_without_replacement() {
+        let root = TestRoot::new();
+        let context = root.context();
+        let directory = notify_directory_for_create(&context).unwrap();
+        let path = directory.join(NOTIFY_CONFIG);
+        fs::write(&path, b"not-a-record\n").unwrap();
+        set_mode(&path, PRIVATE_FILE_MODE).unwrap();
+        assert_eq!(read_notify_config(&context), Err(ERR_NOTIFY_CONFIG));
+        assert_eq!(fs::read(&path).unwrap(), b"not-a-record\n");
+
+        fs::remove_file(&path).unwrap();
+        let outside = root.0.join("notification-outside");
+        fs::write(&outside, b"outside-sentinel").unwrap();
+        std::os::unix::fs::symlink(&outside, &path).unwrap();
+        assert_eq!(read_notify_config(&context), Err(ERR_NOTIFY_CONFIG));
+        assert_eq!(
+            publish_notify_config(&context, &NotifyConfig::defaults()),
+            Err(ERR_NOTIFY_CONFIG)
+        );
+        assert_eq!(fs::read(&outside).unwrap(), b"outside-sentinel");
+        assert!(fs::symlink_metadata(&path)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+    }
+
+    #[test]
+    fn notification_input_accepts_only_bounded_top_level_text_fields() {
+        let input = br#"{"message":"fallback","last_assistant_message":"last","content":"line\none","title":"Title","secret":"do-not-forward","nested":{"content":"wrong"}}"#;
+        let text = parse_hook_json(input).unwrap();
+        assert_eq!(text.title.as_deref(), Some("Title"));
+        assert_eq!(text.body.as_deref(), Some("line\none"));
+        assert!(parse_hook_json(br#"{"content":"ok"} trailing"#).is_none());
+        assert!(parse_hook_json(br#"{"content": [1,]}"#).is_none());
+        assert!(parse_hook_json(br#"{"content":"\ud800"}"#).is_none());
+        assert_eq!(normalize_notification_text("a\r\nb\rc", false, 0), "a b c");
+        assert_eq!(normalize_notification_text("ééé", true, 2), "éé");
+        assert_eq!(truncate_utf8("ééé", 5), "éé");
+    }
+
+    #[test]
+    fn notification_input_and_payload_limits_are_strict() {
+        assert!(parse_hook_json(&vec![b' '; NOTIFY_INPUT_MAX_BYTES + 1]).is_none());
+        let long = "é".repeat(NOTIFY_PAYLOAD_MAX_BYTES);
+        let normalized = normalize_notification_text(&long, true, 0);
+        assert!(normalized.len() <= NOTIFY_PAYLOAD_MAX_BYTES);
+        assert!(normalized.is_char_boundary(normalized.len()));
+        assert_eq!(notify_event_status("Stop"), "Notify turn completion");
     }
 }

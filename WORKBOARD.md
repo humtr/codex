@@ -272,23 +272,21 @@ MGR-2 source closure is accepted with the evidence recorded in `GOAL.md`.
 No MGR-2 implementation slice remains active, and no Manager artifact or live
 state was changed.
 
-## MGR-3 notification configuration and delivery (next)
+## MGR-3 notification configuration and delivery (accepted)
 
-MGR-3 remains definition-first. Before product mutation, bind the exact
-`notify show`/`notify set` grammar, the allowlisted versioned configuration,
-atomic publication path, hook-to-event mapping, best-effort capability-aware
-delivery, payload/content exclusions, and child/process boundary in `SPEC.md`.
-Then implement one vertical slice at a time:
+MGR-3 is closed with implementation, focused regressions, grouped debug and
+release acceptance, protected-surface verification, and authority evidence in
+`GOAL.md`. No notification slice remains active. `target/` remains untracked
+Cargo output and is outside the publication surface.
 
-1. Contract and validation — exact options, defaults, bounded values, and
-   malformed-state behavior with focused parser/config regressions.
-2. Atomic configuration — private `notifications/config-v1` publication,
-   collision/permission/symlink fault cases, and no payload persistence.
-3. Delivery boundary — capability-aware best-effort notification invocation
-   that cannot fail an upstream turn, with raw process/stream/exit behavior
-   proved at the real Manager boundary.
-4. Bundle gate — grouped locked tests, clippy, release build/smoke, protected
-   surfaces, authority update, and commit before any later Manager bundle.
+## MGR-4 repair planning through Core (next)
+
+MGR-4 remains definition-first. Bind the exact repair plan/apply grammar,
+versioned Core request, bounded plan output, authorization boundary, and
+non-mutation guarantees in `SPEC.md` before product code. Keep repair authority
+in Core; Manager may only validate and submit the explicit request. Then prove
+plan read-only behavior and apply admission at the actual public Manager/Core
+boundary.
 
 Worker mode remains OFF; the primary Lead owns every slice, validation step,
 authority update, and acceptance decision.

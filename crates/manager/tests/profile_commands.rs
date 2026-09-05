@@ -1,10 +1,10 @@
 use std::ffi::OsString;
 use std::fs;
-use std::io::ErrorKind;
+use std::io::{ErrorKind, Write};
 use std::os::unix::ffi::OsStringExt;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 const CORE_API_ENV: &str = "CODEX_TERMUX_CORE_API";
@@ -62,6 +62,25 @@ fn run_manager(
         command.env("CODEX_HOME", value);
     }
     command.output().unwrap()
+}
+
+fn run_manager_with_input(
+    home: &Path,
+    core: &Path,
+    args: &[&str],
+    provider_dir: &Path,
+    provider_log: &Path,
+    input: &[u8],
+) -> Output {
+    let mut command = base_manager_command(home, core);
+    command
+        .args(args)
+        .env("PATH", provider_dir)
+        .env("PROVIDER_LOG", provider_log)
+        .stdin(Stdio::piped());
+    let mut child = command.spawn().unwrap();
+    child.stdin.take().unwrap().write_all(input).unwrap();
+    child.wait_with_output().unwrap()
 }
 
 fn write_core_probe(root: &Path) -> PathBuf {
@@ -546,6 +565,148 @@ fn final_exec_preserves_pty_and_signal_delivery() {
 
 fn shell_quote(path: &Path) -> String {
     format!("'{}'", path.to_string_lossy().replace('\'', "'\"'\"'"))
+}
+
+fn write_notification_provider(root: &Path, name: &str) -> PathBuf {
+    let shell = std::env::var_os("SHELL")
+        .map(PathBuf::from)
+        .filter(|path| path.is_file())
+        .or_else(|| {
+            std::env::var_os("PATH").and_then(|path| {
+                std::env::split_paths(&path)
+                    .map(|directory| directory.join("sh"))
+                    .find(|path| path.is_file())
+            })
+        })
+        .expect("test shell must be available");
+    let path = root.join(name);
+    let body = format!(
+        "#!{}\nprintf 'provider=%s\\n' \"$0\" >> \"$PROVIDER_LOG\"\nfor argument in \"$@\"; do printf 'arg=%s\\n' \"$argument\" >> \"$PROVIDER_LOG\"; done\nprintf 'provider stderr must be hidden\\n' >&2\nexit 23\n",
+        shell.display()
+    );
+    fs::write(&path, body).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    path
+}
+
+#[test]
+fn notification_configuration_and_emit_are_best_effort_at_manager_boundary() {
+    let root = TestRoot::new();
+    let core = write_core_probe(&root.0);
+    let provider_dir = root.0.join("providers");
+    fs::create_dir(&provider_dir).unwrap();
+    fs::set_permissions(&provider_dir, fs::Permissions::from_mode(0o700)).unwrap();
+    write_notification_provider(&provider_dir, "termux-notification");
+    write_notification_provider(&provider_dir, "termux-toast");
+    let provider_log = root.0.join("provider.log");
+
+    let invalid = run_manager(
+        &root.0,
+        &core,
+        &["notify", "set", "--hooks", "Stop,Stop"],
+        None,
+    );
+    assert_eq!(invalid.status.code(), Some(2));
+    assert!(invalid.stdout.is_empty());
+    assert!(!invalid.stderr.is_empty());
+    assert!(!root.0.join(".local/share/codex/manager").exists());
+
+    let set = run_manager(
+        &root.0,
+        &core,
+        &[
+            "notify",
+            "set",
+            "--channel",
+            "both",
+            "--hooks",
+            "Stop",
+            "--content-chars",
+            "8",
+            "--preserve-newlines",
+            "0",
+            "--toast-gravity",
+            "bottom",
+            "--toast-short",
+            "1",
+            "--toast-background",
+            "#A0b1C2",
+            "--toast-color",
+            "#D3e4F5",
+            "--group",
+            "ops.v1",
+        ],
+        None,
+    );
+    assert_eq!(set.status.code(), Some(0));
+    assert_eq!(set.stdout, b"saved\n");
+    assert!(set.stderr.is_empty());
+
+    let shown = run_manager(&root.0, &core, &["notify", "show"], None);
+    assert_eq!(shown.status.code(), Some(0));
+    assert_eq!(
+        shown.stdout,
+        b"channel=both\nhooks=Stop\ncontent-chars=8\npreserve-newlines=0\ntoast-gravity=bottom\ntoast-short=1\ntoast-background=#a0b1c2\ntoast-color=#d3e4f5\ngroup=ops.v1\n"
+    );
+    assert!(shown.stderr.is_empty());
+
+    let emitted = run_manager_with_input(
+        &root.0,
+        &core,
+        &["notify", "emit", "Stop"],
+        &provider_dir,
+        &provider_log,
+        br#"{"title":"Turn title","content":"line one\r\nsecret body","message":"fallback","secret":"must-not-forward"}"#,
+    );
+    assert_eq!(emitted.status.code(), Some(0));
+    assert!(emitted.stdout.is_empty());
+    assert!(emitted.stderr.is_empty());
+    let calls = fs::read_to_string(&provider_log).unwrap();
+    assert!(calls.contains("arg=--title\narg=Turn title\n"));
+    assert!(calls.contains("arg=--content\narg=line one\n"));
+    assert!(calls.contains("arg=--group\narg=ops.v1\n"));
+    assert!(calls.contains("arg=-g\narg=bottom\n"));
+    assert!(calls.contains("arg=-s\n"));
+    assert!(calls.contains("arg=-b\narg=#a0b1c2\n"));
+    assert!(calls.contains("arg=-c\narg=#d3e4f5\n"));
+    assert!(!calls.contains("must-not-forward"));
+    assert!(!calls.contains("secret body"));
+
+    let before_malformed = calls.len();
+    let malformed = run_manager_with_input(
+        &root.0,
+        &core,
+        &["notify", "emit", "Stop"],
+        &provider_dir,
+        &provider_log,
+        b"not-json",
+    );
+    assert_eq!(malformed.status.code(), Some(0));
+    assert!(malformed.stdout.is_empty());
+    assert!(malformed.stderr.is_empty());
+    assert_eq!(
+        fs::read_to_string(&provider_log).unwrap().len(),
+        before_malformed
+    );
+
+    let disabled = run_manager(&root.0, &core, &["notify", "set", "--hooks", "none"], None);
+    assert_eq!(disabled.status.code(), Some(0));
+    assert_eq!(disabled.stdout, b"saved\n");
+    let disabled_emit = run_manager_with_input(
+        &root.0,
+        &core,
+        &["notify", "emit", "Stop"],
+        &provider_dir,
+        &provider_log,
+        br#"{"title":"disabled","content":"disabled body"}"#,
+    );
+    assert_eq!(disabled_emit.status.code(), Some(0));
+    assert!(disabled_emit.stdout.is_empty());
+    assert!(disabled_emit.stderr.is_empty());
+    assert_eq!(
+        fs::read_to_string(&provider_log).unwrap().len(),
+        before_malformed
+    );
 }
 
 unsafe extern "C" {

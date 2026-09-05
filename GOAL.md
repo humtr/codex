@@ -2027,6 +2027,58 @@ Termux qualification. Produce one candidate for independent product review.
   no transcript, sharing, migration, or persistent index machinery. MGR-3
   notification configuration remains the next separately scoped bundle.
 
+## MGR-3 Notification Configuration and Delivery (accepted)
+
+- MGR-3 now implements the exact notify show and notify set forms behind
+  the versioned Manager notification record. It validates the canonical hook
+  allowlist and all bounded channel, content, newline, toast, color, and group
+  values; reads defaults without creating state; rejects malformed, symlinked,
+  overlong, conflicting, or incorrectly-modeled records; and publishes the
+  complete mode-0600 record through a private atomic replacement.
+- Core is the only owner of the generated runtime configuration. On an
+  ordinary upstream launch with a qualified Manager artifact it reads the
+  bounded record read-only and atomically projects enabled events into the
+  Core-owned marker config.toml; missing/invalid state, unavailable Manager,
+  and unrelated Core config files fail closed without breaking launch. The
+  projection maps each event to the bounded internal
+  codex termux notify emit <EVENT> endpoint.
+- The internal endpoint reads at most 64 KiB, parses only the specified
+  top-level title/body fields, normalizes and bounds text, and invokes
+  termux-notification and/or termux-toast best-effort with suppressed child
+  streams and a bounded wait. Provider absence/failure, malformed input, and
+  disabled hooks return success without output or payload persistence.
+- Focused evidence passed Manager contract/codec and JSON-bound tests 6/6,
+  Manager public configuration/delivery integration 1/1, and Core real-launch
+  projection 1/1. The final debug grouped workspace passed Core 129 passed,
+  0 failed, 1 ignored, Manager unit 19 passed, Manager integration 9
+  passed, and release-builder 11 passed; the release grouped workspace
+  passed the same counts. Workspace clippy with -D warnings, the warnings
+  denied release build, formatting, git diff --check, and protected-surface
+  verification all passed.
+- Final MGR-3 source identities are Core
+  58098ba00a5ad13127052ef28c2b2ec65ef5417f0fbf60dc76b671a451fe0cb4,
+  Manager
+  ba43657495eb6f46327e3295da6be33fece9167d1a49566afdb8c5627697f4af,
+  and normative SPEC
+  3b4bb642088a8799c6b4351c824fb416e01d822a2ace4aff47b8bd05b6621a83.
+- Protected verification kept the resolver at SHA-256
+  7e8ad76e0d200e93918ca2e93c99ff8ecd02071953bf1479819db3ac0dbb6d07, the
+  installed launcher at
+  109b556884150a134c39a8892c599f6551dbc1fb18ea557eebbfc690b4fc3a9b, the
+  bootstrap trust seed at
+  62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c, and
+  activation state at
+  813cfaa53f0945656e56e0a26bc0de62cd36cfcb30b1c4cac5b866f7e82599e4.
+  No installed runtime or launcher, live Manager/profile/session/auth state,
+  resolver, bwrap state, remote ref, push, or main promotion changed.
+- Disposition: KEEP one Manager-owned versioned config codec, one Core-owned
+  projection, one internal bounded emit boundary, and independent
+  capability-aware providers. COLLAPSE the legacy config-env/payload/log
+  ladder into the single record and direct provider path; DELETE payload,
+  session/cwd/transcript metadata, fallback logging, and Core-directory writes
+  from Manager. MGR-4 repair planning remains the next separately scoped
+  bundle.
+
 ## Goal Lifts
 
 No lift is active. A proposed lift must identify a concrete product risk or
