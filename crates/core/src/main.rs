@@ -1658,12 +1658,10 @@ fn doctor_detail(output: &mut String, name: &str, value: &str, color: bool) {
 
 fn render_doctor_human(report: &DoctorReport, color: bool) -> String {
     let mut output = String::new();
-    output.push_str("[Upstream Codex doctor]\n");
-    output.push_str("status: ");
-    output.push_str(report.upstream.status.as_str());
-    output.push('\n');
     if report.upstream.output.is_empty() {
-        output.push_str("output: (none)\n");
+        output.push_str("Upstream doctor output unavailable: ");
+        output.push_str(report.upstream.status.as_str());
+        output.push('\n');
     } else {
         output.push_str(&report.upstream.output);
         if !report.upstream.output.ends_with('\n') {
@@ -1956,6 +1954,7 @@ where
     S: Into<OsString>,
 {
     let mode = doctor_output_mode(args)?;
+    let color = mode == DoctorOutputMode::Human && doctor_color_enabled();
     let upstream = match context.doctor_capability {
         UpstreamDoctorCapability::Supported => match capture_qualified_upstream_doctor(
             context.runtime_assets,
@@ -1966,7 +1965,7 @@ where
             context.config_dir,
             DoctorCaptureOptions {
                 json: mode == DoctorOutputMode::Json,
-                use_color: mode == DoctorOutputMode::Human && doctor_color_enabled(),
+                use_color: color,
             },
         ) {
             Ok(result) => result,
@@ -1990,7 +1989,7 @@ where
         context.manager_doctor_status,
     );
     let output = match mode {
-        DoctorOutputMode::Human => render_doctor_human(&report, doctor_color_enabled()),
+        DoctorOutputMode::Human => render_doctor_human(&report, color),
         DoctorOutputMode::Json => render_doctor_json(&report),
     };
     Ok(DoctorCommandOutcome {
@@ -8228,6 +8227,9 @@ mod tests {
         );
         assert_eq!(report.summary, DoctorSummaryStatus::Degraded);
         assert_eq!(doctor_exit_class(&report), DoctorExitClass::HealthFailure);
+        let unavailable_human = render_doctor_human(&report, false);
+        assert!(unavailable_human.starts_with("Upstream doctor output unavailable: unsupported\n"));
+        assert!(unavailable_human.contains("\n[Termux doctor]\n"));
         let json = render_doctor_json(&report);
         assert!(json.contains("\"schema_version\":2"));
         assert!(json.contains("\"upstream\":{\"status\":\"unsupported\",\"output\":\"\"}"));
@@ -8283,6 +8285,24 @@ mod tests {
         assert_eq!(styled, "\x1b[1mfinal\x1b[22m\n");
         assert!(!render_doctor_human(&report, false).contains('\u{1b}'));
         assert!(render_doctor_human(&report, true).contains("\x1b[1m"));
+
+        let pass_through_report = compose_doctor_report(
+            QualifiedUpstreamDoctorResult {
+                status: UpstreamDoctorStatus::Healthy,
+                output: "\x1b[1mCodex Doctor v9.9.9\x1b[22m\n\nupstream checks\n".to_owned(),
+            },
+            TermuxCoreDoctorReport {
+                status: CoreDoctorStatus::Healthy,
+                generation_id: "test-generation".to_owned(),
+                generation_layout: GenerationLayout::RootCodeModeHost,
+            },
+            ManagerDoctorStatus::Healthy,
+        );
+        let pass_through = render_doctor_human(&pass_through_report, true);
+        assert!(pass_through.starts_with("\x1b[1mCodex Doctor v9.9.9\x1b[22m"));
+        assert!(!pass_through.contains("[Upstream Codex doctor]"));
+        assert!(!pass_through.contains("status: healthy\n"));
+        assert!(pass_through.contains("\n[Termux doctor]\n"));
     }
 
     #[cfg(unix)]
@@ -9528,9 +9548,15 @@ exit 73
         let result = run_public_main_probe(&root, "doctor-human");
         assert_eq!(result.status.code(), Some(1));
         let stdout = String::from_utf8(result.stdout).unwrap();
-        assert!(stdout.contains("[Upstream Codex doctor]"));
+        assert!(stdout.contains("\nupstream doctor ok"));
+        assert!(!stdout.contains("[Upstream Codex doctor]"));
+        assert!(!stdout.contains("status: healthy\n"));
         assert!(stdout.contains("upstream doctor ok"));
         assert!(stdout.contains("[Termux doctor]"));
+        for section in ["Runtime", "Support", "Wrapper", "State", "Store"] {
+            assert!(stdout.contains(&format!("\n{section}\n")));
+        }
+        assert!(stdout.contains("Codex Termux Wrapper Doctor · generation g1"));
         assert!(stdout.contains("generation_id: g1"));
         assert!(stdout.contains("layout: root-code-mode-host-v2"));
         assert!(stdout.contains("code_mode_host: healthy"));

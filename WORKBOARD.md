@@ -43,6 +43,10 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 - Worker mode is OFF. The primary Lead owns implementation, validation,
   authority updates, commit, and acceptance.
 
+- Resumed bundle: restore the public `codex doctor` human presentation after
+  the interrupted review. The upstream doctor's own output is the first
+  presentation surface; the legacy-shaped Termux section remains appended.
+
 ## Product-speed policy
 
 - The accepted B11 path is qualification-first. Its concrete legacy gap was the
@@ -115,6 +119,22 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 R7 is closed. No new implementation slice is active. A bounded live cutover or
 authenticated external publication, if later desired, requires its own explicit
 operational authorization; neither is part of this source commit.
+
+## Resumed doctor slice map
+
+1. Human upstream presentation — accepted in the current working tree. The
+   normative wording now removes synthetic upstream headings/status
+   duplication, and the renderer preserves safe upstream SGR through
+   composition. Focused regression: `test_doctor_report_and_usage_keep_bounded_public_contract`.
+2. Legacy-shaped Termux presentation — accepted in the current working tree.
+   The public route keeps the observable legacy header and Runtime/Support/
+   Wrapper/State/Store groups without importing legacy source or models.
+   Focused regression: `test_r3_public_main_human_doctor_composes_upstream_and_termux_reports`.
+3. Bundle acceptance — accepted pending the authority commit. Focused doctor
+   suite: 10 passed; workspace: Core 124 passed/1 ignored and release-builder
+   9 passed; locked clippy, release build, format, diff, and protected-surface
+   checks passed. Remote publication transport remains a separate follow-up
+   bundle because it changes the external release transport.
 
 Worker mode remains OFF; the primary Lead owns every slice, validation step,
 authority update, and acceptance decision.

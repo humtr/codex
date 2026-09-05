@@ -827,12 +827,11 @@ an alternate trust source and never authorizes a raw upstream package.
 
 `codex doctor` is read-only. It runs the raw upstream doctor when supported and
 adds a Termux Core/Manager diagnosis without recursively invoking the public
-launcher. Human output includes the bounded upstream doctor output itself, not
-only its exit-status projection.
-
-Human output contains clearly separated `Upstream Codex doctor`, `Termux
-doctor`, Manager, and summary sections. `--json` emits one redacted envelope
-rather than concatenated documents:
+launcher. Human output begins with the bounded, sanitized upstream doctor
+output itself, preserving the upstream doctor's own header, layout, and safe
+ANSI SGR sequences; Core does not prepend an `[Upstream Codex doctor]` wrapper
+heading or a duplicate synthetic status line. `--json` emits one redacted
+envelope rather than concatenated documents:
 
 ```json
 {
@@ -855,9 +854,11 @@ When human output is connected to a TTY and `NO_COLOR` is absent, Core gives the
 upstream doctor a bounded pseudo-terminal so its own headings, progress
 cleanup, and ANSI SGR markup retain the upstream layout. Core normalizes
 carriage-return/erase controls and preserves only safe SGR sequences before
-composition. Non-TTY output and explicit `NO_COLOR` remain plain. The Termux
-doctor section follows the upstream doctor presentation: a `Codex Termux
-Wrapper Doctor` status header,
+composition. Non-TTY output and explicit `NO_COLOR` remain plain. If the
+upstream doctor is unsupported or produces no output, Core emits only a concise
+status diagnostic for that missing upstream portion before the Termux section.
+The Termux doctor section follows the legacy wrapper presentation: a `Codex
+Termux Wrapper Doctor` status header,
 `Runtime`, `Support`, `Wrapper`, `State`, and `Store` groups, colored health
 rows when enabled, and a bounded summary. It reports the selected generation,
 root-level code-mode companion or migration state, and the explicit reason that
