@@ -1869,6 +1869,15 @@ Termux qualification. Produce one candidate for independent product review.
   publication exactly, and the remote signature verifies with the pinned trust
   public key. The signed index now points to the new generation and its Release
   base; the remote publication branch tip is `856268e93cd29244f59635e5ee84c36a0b5b37d0`.
+- A separate disposable consumer qualification first rejected an intentionally
+  auth-free fixture at the required candidate doctor probe; its live state was
+  untouched. A retry used the existing `CODEX_HOME` only as a read-only child
+  input without copying credentials, and the automatic bare `codex update`
+  path then fetched the remote signed channel and activated
+  `local-1788578457-0-1` from sequence 4. The disposable consumer's
+  `codex doctor --color` under `script` preserved SGR and both doctor sections,
+  and its expected Manager health failure was the only nonzero result. The
+  live auth digest was unchanged and the disposable root was fully removed.
 - Protected live identities remained unchanged: `resolv.conf`
   `7e8ad76e0d200e93918ca2e93c99ff8ecd02071953bf1479819db3ac0dbb6d07`, trust
   seed `62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c`,
