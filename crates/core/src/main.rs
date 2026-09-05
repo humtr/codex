@@ -3046,6 +3046,8 @@ const GITHUB_HOST: &str = "github.com";
 #[cfg(unix)]
 const GITHUB_RESPONSE_MAX_BYTES: usize = 16 * 1024;
 #[cfg(unix)]
+const GITHUB_PUBLICATION_TIMEOUT_SECONDS: u64 = 300;
+#[cfg(unix)]
 const BOOTSTRAP_PUBLIC_KEY_MAX_BYTES: u64 = 16 * 1024;
 #[cfg(unix)]
 const CORE_ARTIFACT_MAX_BYTES: u64 = 64 * 1024 * 1024;
@@ -4064,7 +4066,16 @@ fn fetch_remote_file(
     })?;
     let status = std::process::Command::new(&roots.curl)
         .arg("--disable")
-        .args(["--fail", "--silent", "--show-error", "--proto", "=https"])
+        .args([
+            "--fail",
+            "--silent",
+            "--show-error",
+            "--proto",
+            "=https",
+            "--proto-redir",
+            "=https",
+            "--location",
+        ])
         .arg("--cacert")
         .arg(&roots.cert_file)
         .arg("--capath")
@@ -6091,9 +6102,8 @@ fn activate_local_built_update(
             &unsigned_generation,
         )
         .map_err(|_| LocalProductError::LocalUpdate("local upstream adaptation failed"))?;
-        let release_base = format!(
-            "https://raw.githubusercontent.com/{GITHUB_REPOSITORY}/{GITHUB_BRANCH}/releases/{generation_id}/"
-        );
+        let release_base =
+            format!("https://github.com/{GITHUB_REPOSITORY}/releases/download/{generation_id}/");
         let publication = publication_root.join(&generation_id);
         codex_release_builder::publish_generation(
             &unsigned_generation,
@@ -6322,12 +6332,101 @@ fn github_put_file(
         }
         input.write_all(b"}").map_err(|_| ())?;
         drop(input);
-        if child.wait().map_err(|_| ())?.success() {
-            Ok(())
-        } else {
-            Err(())
-        }
+        wait_for_github_child(&mut child)
     })();
+    if result.is_err() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    result
+}
+
+#[cfg(unix)]
+fn wait_for_github_child(child: &mut std::process::Child) -> Result<(), ()> {
+    use std::time::Duration;
+
+    wait_for_github_child_with_timeout(
+        child,
+        Duration::from_secs(GITHUB_PUBLICATION_TIMEOUT_SECONDS),
+    )
+}
+
+#[cfg(unix)]
+fn wait_for_github_child_with_timeout(
+    child: &mut std::process::Child,
+    timeout: std::time::Duration,
+) -> Result<(), ()> {
+    use std::time::Instant;
+
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait().map_err(|_| ())? {
+            Some(status) => return status.success().then_some(()).ok_or(()),
+            None if Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(());
+            }
+            None => std::thread::sleep(std::time::Duration::from_millis(100)),
+        }
+    }
+}
+
+#[cfg(unix)]
+fn github_release_asset_files(release: &std::path::Path) -> Result<Vec<std::path::PathBuf>, ()> {
+    let mut total = 0u64;
+    let mut files = Vec::with_capacity(5);
+    for name in [
+        "generation.meta",
+        "runtime",
+        CODE_MODE_HOST_FILE,
+        "release.manifest",
+        "release.sig",
+    ] {
+        let path = release.join(name);
+        let metadata = std::fs::symlink_metadata(&path).map_err(|_| ())?;
+        if !metadata.file_type().is_file() || metadata.len() > REMOTE_RELEASE_FILE_MAX_BYTES {
+            return Err(());
+        }
+        total = total.checked_add(metadata.len()).ok_or(())?;
+        if total > REMOTE_RELEASE_TOTAL_MAX_BYTES {
+            return Err(());
+        }
+        files.push(path);
+    }
+    Ok(files)
+}
+
+#[cfg(unix)]
+fn github_create_release(
+    gh: &std::path::Path,
+    home: &std::path::Path,
+    generation_id: &str,
+    release: &std::path::Path,
+) -> Result<(), ()> {
+    let files = github_release_asset_files(release)?;
+    let title = format!("Codex Termux generation {generation_id}");
+    let mut command = github_command(gh, home);
+    command
+        .args([
+            "release",
+            "create",
+            generation_id,
+            "--repo",
+            GITHUB_REPOSITORY,
+            "--target",
+            GITHUB_BRANCH,
+            "--title",
+            &title,
+            "--notes",
+            "Signed Termux-adapted Codex generation.",
+            "--latest=false",
+        ])
+        .args(files)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    let mut child = command.spawn().map_err(|_| ())?;
+    let result = wait_for_github_child(&mut child);
     if result.is_err() {
         let _ = child.kill();
         let _ = child.wait();
@@ -6351,27 +6450,10 @@ fn publish_local_update_to_github(
         return GithubPublicationOutcome::Skipped;
     }
     let release = publication.join("releases").join(generation_id);
-    let message = format!("codex update: publish {generation_id}");
-    for (name, file) in [
-        ("generation.meta", release.join("generation.meta")),
-        ("runtime", release.join("runtime")),
-        (CODE_MODE_HOST_FILE, release.join(CODE_MODE_HOST_FILE)),
-        ("release.manifest", release.join("release.manifest")),
-        ("release.sig", release.join("release.sig")),
-    ] {
-        if github_put_file(
-            &gh,
-            &home,
-            &format!("releases/{generation_id}/{name}"),
-            &file,
-            &message,
-            None,
-        )
-        .is_err()
-        {
-            return GithubPublicationOutcome::Failed;
-        }
+    if github_create_release(&gh, &home, generation_id, &release).is_err() {
+        return GithubPublicationOutcome::Failed;
     }
+    let message = format!("codex update: publish {generation_id}");
     let index = publication.join("update-index-v1");
     let index_signature = publication.join("update-index-v1.sig");
     let index_sha = match github_content_sha(&gh, &home, "update-index-v1") {
@@ -10101,9 +10183,9 @@ exit 73
     #[cfg(unix)]
     const UPDATE_PROBE_CHANNEL: &str = "CODEX_R4_UPDATE_CHANNEL";
     #[cfg(unix)]
-    const GITHUB_UPLOAD_PROBE_ROLE: &str = "CODEX_R7_GITHUB_UPLOAD_PROBE";
+    const GITHUB_UPLOAD_PROBE_ROLE: &str = "CODEX_R9_GITHUB_UPLOAD_PROBE";
     #[cfg(unix)]
-    const GITHUB_UPLOAD_PUBLICATION: &str = "CODEX_R7_GITHUB_UPLOAD_PUBLICATION";
+    const GITHUB_UPLOAD_PUBLICATION: &str = "CODEX_R9_GITHUB_UPLOAD_PUBLICATION";
 
     #[cfg(unix)]
     fn b4_termux_openssl() -> std::path::PathBuf {
@@ -12454,6 +12536,11 @@ esac
             .join(LOCAL_PUBLICATION_ROOT_RELATIVE)
             .join(&state.current);
         assert!(publication.join("update-index-v1").is_file());
+        let index = std::fs::read_to_string(publication.join("update-index-v1")).unwrap();
+        assert!(index.contains(&format!(
+            "release_base\thttps://github.com/{GITHUB_REPOSITORY}/releases/download/{}/",
+            state.current
+        )));
         assert!(publication
             .join("releases")
             .join(&state.current)
@@ -12471,7 +12558,7 @@ esac
 
     #[cfg(unix)]
     #[test]
-    fn test_r7_authenticated_github_publication_is_ordered_and_activation_independent() {
+    fn test_r9_authenticated_github_release_publication_is_ordered_and_activation_independent() {
         let root = temp_root("r7-github-publication");
         let home = root.join("home");
         let prefix = root.join("prefix");
@@ -12516,18 +12603,27 @@ esac
             output.stderr
         );
         let log = std::fs::read_to_string(&log).unwrap();
+        assert!(log.contains("RELEASE_CREATE\n"));
+        assert!(log.contains("\nlocal-g1\n"));
+        assert!(log.contains("--target\n"));
+        assert!(log.contains("\nmain\n"));
+        for asset in [
+            "generation.meta",
+            "runtime",
+            CODE_MODE_HOST_FILE,
+            "release.manifest",
+            "release.sig",
+        ] {
+            assert!(log.contains(asset), "asset {asset} was not passed to gh");
+        }
         let puts: Vec<_> = log
             .lines()
             .filter(|line| line.starts_with("PUT "))
             .collect();
-        assert_eq!(puts.len(), 7);
-        assert!(puts[0].ends_with("releases/local-g1/generation.meta"));
-        assert!(puts[1].ends_with("releases/local-g1/runtime"));
-        assert!(puts[2].ends_with(&format!("releases/local-g1/{CODE_MODE_HOST_FILE}")));
-        assert!(puts[3].ends_with("releases/local-g1/release.manifest"));
-        assert!(puts[4].ends_with("releases/local-g1/release.sig"));
-        assert!(puts[5].ends_with("update-index-v1.sig"));
-        assert!(puts[6].ends_with("update-index-v1"));
+        assert!(log.find("RELEASE_CREATE").unwrap() < log.find("PUT ").unwrap());
+        assert_eq!(puts.len(), 2);
+        assert!(puts[0].ends_with("update-index-v1.sig"));
+        assert!(puts[1].ends_with("update-index-v1"));
         assert!(!std::fs::read_to_string(&body)
             .unwrap()
             .contains("private-key"));
@@ -12536,6 +12632,47 @@ esac
             b"state-before-upload"
         );
         remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_r9_github_release_asset_inventory_rejects_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let root = temp_root("r9-github-release-assets");
+        let release = root.join("release");
+        std::fs::create_dir(&release).unwrap();
+        for name in [
+            "generation.meta",
+            CODE_MODE_HOST_FILE,
+            "release.manifest",
+            "release.sig",
+        ] {
+            std::fs::write(release.join(name), b"fixture").unwrap();
+        }
+        let outside = root.join("outside-runtime");
+        std::fs::write(&outside, b"runtime").unwrap();
+        symlink(&outside, release.join("runtime")).unwrap();
+        assert!(github_release_asset_files(&release).is_err());
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_r9_github_publication_wait_is_bounded() {
+        let shell = resolve_test_shell();
+        let mut child = std::process::Command::new(shell)
+            .args(["-c", "while :; do :; done"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        assert!(wait_for_github_child_with_timeout(
+            &mut child,
+            std::time::Duration::from_millis(20)
+        )
+        .is_err());
+        assert!(child.try_wait().unwrap().is_some());
     }
 
     #[cfg(unix)]
@@ -15574,6 +15711,10 @@ exec "$cat_path" "$release_root/$relative"
                 "printf 'CALL\\n' >> {}\n",
                 "for argument in \"$@\"; do printf '%s\\n' \"$argument\" >> {}; done\n",
                 "if [ \"$1\" = \"auth\" ]; then exit 0; fi\n",
+                "if [ \"$1\" = \"release\" ] && [ \"$2\" = \"create\" ]; then\n",
+                "  printf 'RELEASE_CREATE\\n' >> {}\n",
+                "  exit 0\n",
+                "fi\n",
                 "method=\n",
                 "endpoint=\n",
                 "expect_method=\n",
@@ -15594,6 +15735,7 @@ exec "$cat_path" "$release_root/$relative"
             ),
             shell,
             cat,
+            log,
             log,
             log,
             log,
@@ -16082,7 +16224,12 @@ exit 0
             "{base}compat/space%20name/%C3%A9%3F%25%23/asset\n"
         )));
         assert!(!curl_log.contains(&format!("{base}compat/server-only\n")));
-        assert!(!curl_log.lines().any(|line| line == "--location"));
+        assert!(curl_log.lines().any(|line| line == "--location"));
+        assert!(curl_log
+            .lines()
+            .collect::<Vec<_>>()
+            .windows(2)
+            .any(|window| window == ["--proto-redir", "=https"]));
         assert_eq!(
             std::fs::read(installed.join("compat/space name/é?%#/asset")).unwrap(),
             b"encoded-compat-data"
@@ -16760,6 +16907,9 @@ exit 0
                 "--show-error",
                 "--proto",
                 "=https",
+                "--proto-redir",
+                "=https",
+                "--location",
                 "--cacert",
                 roots.cert_file.to_str().unwrap(),
                 "--capath",
@@ -16774,7 +16924,10 @@ exit 0
                 url,
             ]
         );
-        assert!(!arguments.iter().any(|argument| argument == "--location"));
+        assert!(arguments.iter().any(|argument| argument == "--location"));
+        assert!(arguments
+            .windows(2)
+            .any(|window| window == ["--proto-redir", "=https"]));
 
         remove_temp_root(root);
     }

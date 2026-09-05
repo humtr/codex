@@ -1695,6 +1695,67 @@ Termux qualification. Produce one candidate for independent product review.
   `target/` remains untracked. Live runtime cutover and remote push remain
   separate operational actions and were not performed by this source bundle.
 
+## R8 Doctor Human Presentation (accepted)
+
+- The interrupted doctor review was resumed at source tip `5a72f77` on
+  `rewrite/rust-core`. Human `codex doctor` output now begins with the bounded,
+  sanitized upstream doctor body itself: Core no longer prepends the synthetic
+  `[Upstream Codex doctor]` heading or duplicates its status line. Unsupported
+  or empty upstream output still gets a concise explicit status diagnostic.
+- The existing bounded PTY path continues to preserve safe upstream ANSI SGR
+  sequences for a TTY without `NO_COLOR`; non-TTY and `NO_COLOR` output remain
+  plain. The public route now computes the color decision once and uses it for
+  both capture and composition.
+- The Termux portion retains the legacy-observed `Codex Termux Wrapper Doctor`
+  header and Runtime/Support/Wrapper/State/Store groups, followed by Manager
+  and Summary. Focused doctor proof passed `10 passed, 0 failed`; the locked
+  workspace passed Core `124 passed, 0 failed, 1 ignored` and release-builder
+  `9 passed, 0 failed`. Format, diff check, workspace clippy with `-D warnings`,
+  and release build passed.
+- Protected live identities remained unchanged: launcher
+  `344d1815cda3a31db074c314c910f0f764656f996772959e984b86ff966abced`, resolver
+  `7e8ad76e0d200e93918ca2e93c99ff8ecd02071953bf1479819db3ac0dbb6d07`, trust
+  pin `62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c`,
+  and activation state
+  `37cabe244a6e1e788e08f68098fde2307c16e3044d9ee54216877be48848b8e1`.
+  No live runtime, resolver, auth/profile/session, Manager, bwrap, remote
+  ref, or publication state was changed by this source bundle.
+- Disposition: KEEP one composed doctor path with upstream-first presentation
+  and the legacy-shaped Termux diagnostic groups; DELETE the synthetic
+  upstream wrapper heading/status projection. Remote publication transport is
+  the next separately scoped bundle.
+
+## R9 Remote Publication Transport (accepted)
+
+- R9 closes the actual large-artifact publication failure. The old uploader
+  sent the runtime through the GitHub Contents API as base64 JSON, which is not
+  a viable path for the approximately 222 MiB runtime. The Core now validates
+  the five complete release files and sends them as one GitHub Release asset
+  set, tagged by the generation identity. Only the small signed index pair is
+  written to `humtr/codex`/`main` through Contents, after asset-release success.
+- The local fallback now signs a `release_base` matching
+  `https://github.com/humtr/codex/releases/download/<generation_id>/`. Remote
+  curl follows only HTTPS redirects, with the existing certificate, environment,
+  connect/transfer, and response-size controls. GitHub child processes have a
+  bounded 300-second wait; timeout or asset preflight failure cannot advance
+  the signed index and cannot undo local activation.
+- Focused R9 proof passed `3 passed, 0 failed`, plus the updated local fallback
+  and remote transport regressions. Final locked workspace proof passed Core
+  `126 passed, 0 failed, 1 ignored` and release-builder `9 passed, 0 failed`;
+  clippy with `-D warnings`, release build, format, and diff check passed.
+- Protected live identities remained unchanged: launcher
+  `344d1815cda3a31db074c314c910f0f764656f996772959e984b86ff966abced`, resolver
+  `7e8ad76e0d200e93918ca2e93c99ff8ecd02071953bf1479819db3ac0dbb6d07`, trust
+  pin `62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c`,
+  and activation state
+  `37cabe244a6e1e788e08f68098fde2307c16e3044d9ee54216877be48848b8e1`.
+  No remote ref, publication artifact, live runtime, auth/profile/session,
+  Manager, resolver, or bwrap state was changed by this source bundle.
+- Disposition: KEEP one signed index authority plus one Release asset transport;
+  KEEP HTTPS-only redirect handling for the release download path; DELETE the
+  large-generation Contents upload path. Actual external publication and live
+  replacement remain operational qualification actions.
+
 ## Goal Lifts
 
 No lift is active. A proposed lift must identify a concrete product risk or

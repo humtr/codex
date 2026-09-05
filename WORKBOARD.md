@@ -46,6 +46,10 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 - Resumed bundle: restore the public `codex doctor` human presentation after
   the interrupted review. The upstream doctor's own output is the first
   presentation surface; the legacy-shaped Termux section remains appended.
+- R8 is closed at `5a72f77`; the next active bundle is R9 remote publication
+  transport. It must keep large generation files out of the GitHub Contents
+  API, publish immutable release assets first, and update the signed index only
+  after the complete asset release succeeds.
 
 ## Product-speed policy
 
@@ -120,7 +124,7 @@ R7 is closed. No new implementation slice is active. A bounded live cutover or
 authenticated external publication, if later desired, requires its own explicit
 operational authorization; neither is part of this source commit.
 
-## Resumed doctor slice map
+## R8 doctor slice map (closed)
 
 1. Human upstream presentation — accepted in the current working tree. The
    normative wording now removes synthetic upstream headings/status
@@ -135,6 +139,30 @@ operational authorization; neither is part of this source commit.
    9 passed; locked clippy, release build, format, diff, and protected-surface
    checks passed. Remote publication transport remains a separate follow-up
    bundle because it changes the external release transport.
+
+## R9 remote publication slice map (closed)
+
+1. Immutable asset transport — accepted. The large-generation Contents API
+   upload is replaced by an authenticated GitHub Release asset upload using a
+   tag equal to the validated generation identity and a matching
+   `releases/download/<generation_id>/` base. Asset regular-file/aggregate
+   bounds and child-process wait time are enforced. Focused proof:
+   `test_r9_authenticated_github_release_publication_is_ordered_and_activation_independent`,
+   `test_r9_github_release_asset_inventory_rejects_symlink`, and
+   `test_r9_github_publication_wait_is_bounded`.
+2. Signed index handoff — accepted. The small `update-index-v1.sig` then
+   `update-index-v1` Contents updates occur only after Release asset success;
+   the local fallback index and HTTPS-only redirect transport are covered by
+   `test_r7_bare_update_transport_fallback_builds_and_activates_local_release`
+   and the pinned curl-argv regression.
+3. Bundle acceptance — accepted pending the authority commit. Workspace Core
+   126 passed/1 ignored and release-builder 9 passed; locked clippy, release
+   build, format, diff, and protected-surface checks passed. No external
+   publication or live runtime replacement was performed by this source bundle.
+
+No source implementation slice is active after R9. A live update/publication
+qualification is an operational step against the already-authorized device,
+not source-test evidence.
 
 Worker mode remains OFF; the primary Lead owns every slice, validation step,
 authority update, and acceptance decision.

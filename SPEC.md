@@ -289,16 +289,24 @@ mutable user or Manager state. Temporary archive/build material is private,
 bounded, and removed before success is reported. The fallback never invokes,
 installs, selects, or repairs `bwrap`.
 
-After a successful local activation, Core may publish the complete local tree
-to the fixed wrapper publication target `humtr/codex` on branch `main` when
-the local GitHub CLI at `$PREFIX/bin/gh` reports an authenticated account.
-This optional best-effort step is attempted only after activation, uploads the
-new release files before replacing the signed `update-index-v1`, never uploads
-the private key, and reports upload failure without undoing the locally
-activated generation. It changes no OpenAI repository and does not make remote
-publication a prerequisite for local success. The account credential and the
-release `update_key` private key are separate authorities; account
-authentication alone cannot authorize a release for Core.
+After a successful local activation, Core may publish the complete local
+generation to the fixed wrapper publication target `humtr/codex` on branch
+`main` when the local GitHub CLI at `$PREFIX/bin/gh` reports an authenticated
+account. The generation files are published as immutable GitHub Release assets
+under a tag equal to the validated generation identity; the signed index's
+`release_base` is consequently the matching
+`https://github.com/humtr/codex/releases/download/<generation_id>/` asset base.
+The small `update-index-v1.sig` and `update-index-v1` files are then updated on
+branch `main`, in that order, through the Contents API. Generation files must
+never be sent through the Contents API. The optional best-effort step is
+attempted only after activation, validates the complete regular-file asset set,
+uses bounded child-process waits, never uploads the private key, and reports
+upload failure without undoing the locally activated generation. A failed or
+timed-out asset release never advances the signed index. It changes no OpenAI
+repository and does not make remote publication a prerequisite for local
+success. The account credential and the release `update_key` private key are
+separate authorities; account authentication alone cannot authorize a release
+for Core.
 
 All source files are snapshotted into private staging, revalidated as regular
 files, and copied without following symlinks. Final modes are applied before
@@ -765,8 +773,9 @@ transition. The base is at most 4,096 ASCII bytes, begins exactly with
 `https://`, ends in `/`, and contains no credentials, query, fragment,
 whitespace/control byte, or backslash. It names one generation directory: after
 signature admission, its final path component must equal the manifest generation
-identity encoded as canonical UTF-8 URL-path bytes. Core never follows a
-redirect or tries another URL.
+identity encoded as canonical UTF-8 URL-path bytes. Core may follow only HTTPS
+redirects required by the selected release transport and never tries another
+URL or permits a non-HTTPS redirect.
 
 The remote control resources are `<base>release.manifest` and
 `<base>release.sig`, plus `<base>release-authority.sig` exactly when the parsed
@@ -799,7 +808,8 @@ requires curl, `$PREFIX/bin/openssl`, and a valid recovered v3 trust state; Core
 remote update never falls back to the bootstrap key file. The curl child loads no
 user config, inherits no environment/proxy settings, permits HTTPS only, uses
 the Termux certificate file/directory, applies a 15-second connect timeout and a
-300-second transfer timeout, and writes response bytes only to a caller-created
+300-second transfer timeout, follows redirects only with `--location` and
+`--proto-redir =https`, and writes response bytes only to a caller-created
 regular file. The manifest limit remains 128 KiB and each signature file is
 limited to 1 KiB; each generation-file response is limited to 512 MiB and the
 sum of all response bytes is limited to 1 GiB. Curl and Core both enforce the
