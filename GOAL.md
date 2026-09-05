@@ -1756,6 +1756,62 @@ Termux qualification. Produce one candidate for independent product review.
   large-generation Contents upload path. Actual external publication and live
   replacement remain operational qualification actions.
 
+## R9.1 Signed-Index Publication Repair and Live Reflection (accepted)
+
+- The authorized live qualification reproduced the R9 publication symptom:
+  GitHub Release asset creation completed, but both Contents index files were
+  absent. The root cause was in the one shared base64 serializer: a final
+  one- or two-byte chunk reused bytes from the preceding chunk. A 64-byte
+  `release.sig` therefore produced an invalid signed-index payload, so the
+  first signature PUT failed and the index PUT was never attempted.
+- The production serializer now initializes each 3-byte chunk independently.
+  The focused regression covers both 64-byte and 65-byte inputs, exercising
+  both partial-tail branches. It passed `3 passed, 0 failed` with the existing
+  R9 asset-inventory and bounded-wait regressions. The full locked workspace
+  suite passed Core `127 passed, 0 failed, 1 ignored` and release-builder
+  `9 passed, 0 failed`; locked workspace clippy with `-D warnings`, release
+  build, formatting, and `git diff --check` passed.
+- This R9.1 authority record binds the accepted source tip; Core source
+  SHA-256 is
+  `792fd5c27cfde5fd6c355576e2272b78b3bcccedff66ff011f1a9b46d36a6108`, the
+  parent-relative Core diff SHA-256 is
+  `0b989917cc920ca33fc8f0d2ef6a6d44faefa3e579e913f98aa8e4f349f51f96`, and
+  the normative SPEC SHA-256 remains
+  `8c93350902564ed1d4515e16296aeafe7958bf5d327b2c714efd122395ccf8f8`.
+- The corrected release Core ran the complete bare `codex update` path on
+  Termux. It activated `local-1788570645-23374-1` and reported
+  `published local generation ...`; the official fallback built and signed
+  the adapted generation, uploaded a non-draft/non-prerelease Release with
+  all five assets uploaded, and then published both Contents files. Raw
+  `update-index-v1` and `update-index-v1.sig` bytes match the local signed
+  publication; the index signature verifies with the pinned update key, and
+  its release base names the same Release tag. The local state retains
+  `local-1788569830-7761-1` as the one previous generation.
+- The stable launcher was then atomically replaced with the same Core
+  artifact digest bound by the active signed generation. The prior launcher
+  is recoverable at
+  `/data/data/com.termux/files/usr/tmp/codex-r9-core-cutover.fknjAJ/codex.previous`.
+  Installed `codex --version` reports `codex-cli 0.153.4`; installed human
+  `codex doctor` now begins with the upstream doctor's own `Codex Doctor`
+  output, preserves ANSI SGR on a color-capable TTY, has no synthetic
+  `[Upstream Codex doctor]` heading, and appends the legacy-shaped Termux
+  `Runtime`/`Support`/`Wrapper`/`State`/`Store` diagnosis. Its expected nonzero
+  result is solely the unavailable Manager status (`rc=1`); the upstream
+  WebSocket check was healthy with HTTP 101 in this run.
+- Protected verification kept `resolv.conf` at
+  `7e8ad76e0d200e93918ca2e93c99ff8ecd02071953bf1479819db3ac0dbb6d07`, the
+  trust seed at
+  `62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c`, and
+  the new installed launcher at
+  `5c493c581ffb894ecbd2841c1ccdc8fbbf2b74c23d184468e8ebacc356548bac`.
+  No resolver, auth/profile/session, Manager, package, or bwrap state was
+  changed; no bwrap was invoked or selected.
+- Disposition: KEEP one bounded base64 serializer, one Release-asset
+  transport, one signed index authority, and one atomic live Core launcher
+  boundary. DELETE the stale chunk-state defect and the operational gap that
+  left the accepted Core doctor fix out of the installed entrypoint. R9.1 is
+  closed; no independent source implementation slice remains active.
+
 ## Goal Lifts
 
 No lift is active. A proposed lift must identify a concrete product risk or

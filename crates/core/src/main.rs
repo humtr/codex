@@ -6253,8 +6253,8 @@ fn write_github_base64(output: &mut impl std::io::Write, file: &std::path::Path)
         return Err(());
     }
     let mut input = std::fs::File::open(file).map_err(|_| ())?;
-    let mut bytes = [0u8; 3];
     loop {
+        let mut bytes = [0u8; 3];
         let mut length = 0;
         while length < bytes.len() {
             let read = input.read(&mut bytes[length..]).map_err(|_| ())?;
@@ -12654,6 +12654,39 @@ esac
         std::fs::write(&outside, b"runtime").unwrap();
         symlink(&outside, release.join("runtime")).unwrap();
         assert!(github_release_asset_files(&release).is_err());
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_r9_github_base64_encodes_64_byte_signature_exactly() {
+        let root = temp_root("r9-github-base64");
+        let file = root.join("release.sig");
+        std::fs::write(
+            &file,
+            b"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        )
+        .unwrap();
+
+        let mut encoded = Vec::new();
+        write_github_base64(&mut encoded, &file).unwrap();
+
+        assert_eq!(
+            encoded,
+            b"MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWYwMTIzNDU2Nzg5YWJjZGVmMDEyMzQ1Njc4OWFiY2RlZg=="
+        );
+
+        std::fs::write(
+            &file,
+            b"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdefX",
+        )
+        .unwrap();
+        encoded.clear();
+        write_github_base64(&mut encoded, &file).unwrap();
+        assert_eq!(
+            encoded,
+            b"MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWYwMTIzNDU2Nzg5YWJjZGVmMDEyMzQ1Njc4OWFiY2RlZlg="
+        );
         remove_temp_root(root);
     }
 

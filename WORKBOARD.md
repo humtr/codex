@@ -21,12 +21,15 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 - Remote `origin/rewrite/rust-core` remains at
   `253156c37a2bd22af8faae0bce03587999ffd136`; the local branch is ahead and
   no push is authorized.
-- Current milestone: R7 unified bare update is accepted at
-  `55d8a49` on `rewrite/rust-core`, on top of the accepted R6 signed wrapper
-  publication commit.
+- Current milestone: R9.1 signed-index publication repair is accepted in the
+  current tree on top of
+  `rewrite/rust-core@4b6b3cdd24895e8628892212aeff6445efa50bfa`. The live
+  qualification proved that the GitHub Release assets upload, but both signed
+  Contents index files were absent; this bundle repaired the exact GitHub
+  base64 tail path and reran bounded publication/update/doctor checks.
   R4's Core ownership, signed-generation admission, and doctor behavior remain
   the implementation baseline. Local `main` remains the publication authority;
-  no source-history promotion is needed for R7.
+  no source-history promotion or remote push is part of R9.1.
 - The inherited pre-commit hook references absent
   `tools/update-wrapper-version.sh`; do not modify it. If it alone rejects an
   exact, revalidated staged tree, use the established `--no-verify` closure.
@@ -163,6 +166,34 @@ operational authorization; neither is part of this source commit.
 No source implementation slice is active after R9. A live update/publication
 qualification is an operational step against the already-authorized device,
 not source-test evidence.
+
+## R9.1 signed-index publication repair (closed)
+
+1. Base64 serialization — repaired the production `write_github_base64` path so
+   a final one- or two-byte chunk cannot reuse bytes from the preceding chunk.
+   Focused proof encoded the exact 64-byte `release.sig` shape and asserted
+   the canonical bytes; compile and diff inspection passed as slice gates.
+2. Publication retry — rebuilt the accepted Core, ran one authorized bare
+   `codex update` with the live official fallback path, and verified that the
+   resulting Release assets and both signed Contents files were present in the
+   required order. The already activated generation was preserved on any
+   remote failure; no private key was uploaded and no protected non-Core state
+   was mutated. Because the current stable launcher was an older Core artifact,
+   the newly built launcher was bound to the signed generation's
+   `core_artifact_digest`, and one same-directory atomic launcher replacement
+   was performed so the doctor fix was actually made live.
+3. Product verification — ran the installed/live doctor and remote-index
+   read-only checks, confirmed the index release base resolves to the published
+   Release asset set, verified the live activation state, and inspected the exact
+   source diff before authority closure.
+
+R9.1 source and live closure passed the focused regression, relevant workspace
+compile/test gates, warnings-denied release build, protected-surface checks,
+authority update, and one implementation commit. Live publication is recorded
+in `GOAL.md` as user-authorized qualification evidence.
+
+No source implementation slice is active after R9.1. Further work requires a
+new explicit scope.
 
 Worker mode remains OFF; the primary Lead owns every slice, validation step,
 authority update, and acceptance decision.
