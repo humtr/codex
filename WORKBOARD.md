@@ -21,13 +21,14 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 - Remote `origin/rewrite/rust-core` remains at
   `253156c37a2bd22af8faae0bce03587999ffd136`; the local branch is ahead and
   no push is authorized.
-- Current milestone: R9.2 Termux doctor color override is accepted in the
-  current tree on top of
-  `rewrite/rust-core@604bdc7b63605025b7ed70a40aaee2a69c276a29`. The verified
+- Current milestone: R9.2 Termux doctor color override is accepted in source
+  and reflected live at
+  `rewrite/rust-core@7eeeb7cf6bc494432ee0955843b5c215b433983b`. The verified
   Termux condition where the outer Codex environment supplies `NO_COLOR=1` is
   covered by the explicit `codex doctor --color` path, and redaction no longer
-  strips safe upstream SGR. Local `main` remains the publication authority; no
-  source-history promotion or remote push is part of R9.2.
+  strips safe upstream SGR. The live launcher and generation are recorded in
+  `GOAL.md`; local `main` remains the publication authority and no remote push
+  or GitHub publication was part of R9.2.
 - The inherited pre-commit hook references absent
   `tools/update-wrapper-version.sh`; do not modify it. If it alone rejects an
   exact, revalidated staged tree, use the established `--no-verify` closure.
@@ -202,12 +203,13 @@ point. The current R9.2 scope is:
 3. Bundle acceptance — complete. The nonzero focused suite, locked workspace
    tests, repeated parallel runs, clippy, release build, format/diff checks,
    protected live identity checks, and bounded Termux PTY public-path proof all
-   passed. Update, publication, launcher replacement, and runtime cutover were
-   intentionally not performed for this display-only bundle.
+   passed. A subsequent bounded local signed publication activated generation
+   `local-1788578457-0-1` and atomically reflected the accepted Core launcher;
+   no remote publication or source-history push was performed.
 
 R9.2 source closure is accepted with the evidence recorded in `GOAL.md`. No
-source implementation slice is active after R9.2; live reflection remains a
-separate authorized operational step.
+source implementation slice is active after R9.2; its authorized live
+reflection is complete.
 
 Worker mode remains OFF; the primary Lead owns every slice, validation step,
 authority update, and acceptance decision.

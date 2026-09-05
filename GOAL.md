@@ -1844,15 +1844,32 @@ Termux qualification. Produce one candidate for independent product review.
   `fa8e81c8ae8cbbc0bbb98644e1985b94fcb44b88f6339f5f34c32e0fe70ed7e6`, and
   normative SPEC SHA-256
   `e80c0df47e8cf93c3b98f24af8996fcbb9168b904aa84b62cb9cddc6aae5bb9f`.
+- The subsequent user-authorized bounded live reflection fetched the official
+  0.153.4 archive with SHA-256
+  `fc395cb043a1093ab0db34f44aba3199bfaa9ce640cd9be7fd588f44b0da64a4`, built
+  from the accepted Core artifact, signed local generation
+  `local-1788578457-0-1` as release sequence 5 with the existing trusted
+  update key, and activated it through the old installed Core's
+  `codex update --local` path. The prior active generation
+  `local-1788570645-23374-1` is retained as the one `previous` generation.
+- The stable launcher was then atomically replaced with the same accepted Core
+  artifact, SHA-256
+  `109b556884150a134c39a8892c599f6551dbc1fb18ea557eebbfc690b4fc3a9b`; the
+  prior launcher is recoverable at
+  `/data/data/com.termux/files/usr/tmp/codex-r9-2-core-cutover.3jfG3I/codex.previous`.
+  Live `codex --version` reports `codex-cli 0.153.4`. Under the real Termux
+  `script` PTY with inherited `NO_COLOR=1`, `codex doctor --color` preserved
+  upstream SGR, showed both upstream-first and Termux sections, omitted the
+  synthetic heading, and returned the expected health-failure status from the
+  unavailable Manager; default human and JSON doctor output remained plain.
 - Protected live identities remained unchanged: `resolv.conf`
   `7e8ad76e0d200e93918ca2e93c99ff8ecd02071953bf1479819db3ac0dbb6d07`, trust
   seed `62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c`,
-  and installed launcher
+  and the backup launcher
   `5c493c581ffb894ecbd2841c1ccdc8fbbf2b74c23d184468e8ebacc356548bac`.
-  No live launcher/runtime, activation state, resolver, auth/profile/session,
-  Manager, publication, remote ref, or bwrap state was changed by R9.2; the
-  new doctor behavior is source-accepted but still requires a separately
-  authorized live Core reflection.
+  No auth/profile/session, Manager, remote publication/ref, `main`, or bwrap
+  state was changed; activation state changed only through the authenticated
+  Core update transaction, and no generated artifact was committed.
 - Disposition: KEEP one direct upstream-first doctor path, one bounded Termux
   PTY capture, and one fail-closed redaction invariant. COLLAPSE the prior
   all-or-nothing decolorization after redaction into range-preserving SGR
