@@ -76,7 +76,9 @@ codex termux profile list
 codex termux profile current
 codex termux profile create <PROFILE_ID>
 codex termux profile use <PROFILE_ID> [--] [UPSTREAM_ARGS...]
-codex termux session list [--profile <PROFILE_ID>] [--all]
+codex termux session list
+codex termux session list --all
+codex termux session list --profile <PROFILE_ID>
 codex termux session resume <SESSION_ID> [--profile <PROFILE_ID>] [--] [UPSTREAM_ARGS...]
 codex termux notify show
 codex termux notify set [NOTIFY_OPTIONS...]
@@ -88,12 +90,13 @@ codex termux repair apply
 profile family is the first implementation slice. Session, notification, and
 repair commands remain separately reserved post-Core bundles until their
 focused contracts are accepted; before acceptance they report bounded
-unsupported results and do no mutation. An unavailable or not-yet-delivered
-Manager reports a bounded Manager-unavailable result through the Core handoff;
-it never forwards an unknown `termux` command to upstream. Manager does not provide
-`codex termux install`, `codex termux update`, or a second doctor/version
-authority. Installation, update, rollback, and top-level doctor remain Core
-commands.
+unsupported results and do no mutation. The accepted MGR-2 session commands
+follow the bounded discovery and resume contract below. An unavailable or
+not-yet-delivered Manager reports a bounded Manager-unavailable result through
+the Core handoff; it never forwards an unknown `termux` command to upstream.
+Manager does not provide `codex termux install`, `codex termux update`, or a
+second doctor/version authority. Installation, update, rollback, and top-level
+doctor remain Core commands.
 
 `PROFILE_ID` is one ASCII path-safe identifier of 1--64 bytes beginning with
 an alphanumeric character and containing only alphanumerics, `.`, `_`, or
@@ -1111,22 +1114,65 @@ launch.
 
 ### MGR-2 — bounded session listing and resume
 
-MGR-2 adds `session list` and `session resume`. Listing is a read-only,
-bounded projection over upstream session metadata in the selected profile
-home, or over all valid profile homes with `--all`. It emits only an opaque
-session reference, profile ID, and bounded timestamp. It never emits message
-text, titles derived from message bodies, working-directory strings, auth
-fields, cookies, or raw session records. Invalid, oversized, symlinked, or
-unreadable entries are skipped or represented as unavailable without aborting
-the whole list.
+MGR-2 adds exactly these local, non-interactive forms:
 
-`session resume` may use only a reference returned by the bounded discovery
-step; the opaque reference is not concatenated into a filesystem path. It
-selects one profile, sets the child-only `CODEX_HOME`, and invokes Core with
-`resume <SESSION_ID>` plus the original trailing upstream argv. It does not
-copy, symlink, rewrite, or migrate a session between profiles. Interactive
-session TUI and cross-profile sharing require a later contract and are not
-part of MGR-2.
+```text
+codex termux session list
+codex termux session list --all
+codex termux session list --profile <PROFILE_ID>
+codex termux session resume <SESSION_ID> [--profile <PROFILE_ID>] [--] [UPSTREAM_ARGS...]
+```
+
+`--all` and `--profile` are mutually exclusive for `session list`; no other
+session-list option is accepted. For both commands, an omitted `--profile`
+uses the persisted MGR-1 last-selection target, and does not reinterpret an
+inherited arbitrary `CODEX_HOME` as a Manager profile. `default` and `home`
+select the existing `$HOME/.codex` home; a custom selector must name a
+complete MGR-1 profile. `--all` visits `default` followed by every complete
+custom profile in bytewise profile-ID order. An invalid persisted selection or
+an incomplete explicit profile is a non-mutating Manager operation failure.
+
+The discovery root for a profile is `<PROFILE_HOME>/sessions`. A missing root
+produces an empty successful list. The root and every traversed directory must
+be a real non-symlink directory. Discovery traverses at most eight directory
+levels and 4,096 directory entries in one command. It considers only regular,
+non-symlink files whose final name ends in `.jsonl`; the `SESSION_ID` is the
+UTF-8 filename with only that final suffix removed. A session reference is
+1--256 ASCII bytes, begins with an alphanumeric byte, permits only
+alphanumerics, `.`, `_`, `-`, and `:`, and rejects `.` and `..`. The reference
+is opaque: Manager never parses its timestamp or concatenates it into a path.
+Entries with invalid references, special types, symlink components, unreadable
+files, a size over 64 MiB, or a negative/unavailable mtime are skipped. Manager
+opens a candidate only to establish readability and never reads session-file
+bytes, parses JSONL, or derives a title, worktree, branch, auth field, or
+message field. If the bounded directory-entry limit is exceeded, the command
+returns an unavailable operation result rather than emitting a partial list.
+
+`session list` emits no header and exactly one LF-terminated TSV row per
+accepted candidate:
+
+```text
+<PROFILE_ID>\t<SESSION_ID>\t<UPDATED_UNIX_SECONDS>\n
+```
+
+`UPDATED_UNIX_SECONDS` is the nonnegative decimal filesystem mtime in UTC
+seconds. Rows sort by newest timestamp first, then profile ID, session
+reference, and an internal bytewise path tie-breaker. An empty discovery emits
+no stdout and returns success. The output contains no paths, session contents,
+working-directory values, or credentials.
+
+`session resume` validates the reference grammar, resolves one selected
+profile, performs a fresh bounded discovery of that profile, and requires
+exactly one row with the supplied reference. A missing or ambiguous reference
+fails without selection or Core launch. The selected profile is then recorded
+through the existing MGR-1 atomic selection transaction. Manager invokes the
+validated Core entrypoint with exactly `resume`, the discovered opaque
+`SESSION_ID`, and the original trailing upstream argv; it sets or removes
+`CODEX_HOME` only in that child as MGR-1 does, emits no Manager success output,
+and preserves Core's streams, TTY, signals, raw arguments, and exit status.
+No session is copied, symlinked, rewritten, migrated, or indexed persistently.
+Interactive session UI, cross-profile sharing, and transcript inspection are
+outside MGR-2.
 
 ### MGR-3 — notification configuration and delivery
 

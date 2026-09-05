@@ -22,12 +22,19 @@ const PROFILE_HEADER: &str = "codex-manager-profile-v1";
 const RECORD_MAX_BYTES: usize = 4096;
 const PRIVATE_DIR_MODE: u32 = 0o700;
 const PRIVATE_FILE_MODE: u32 = 0o600;
+const SESSION_FILE_SUFFIX: &[u8] = b".jsonl";
+const SESSION_REF_MAX_BYTES: usize = 256;
+const SESSION_FILE_MAX_BYTES: u64 = 64 * 1024 * 1024;
+const SESSION_DISCOVERY_MAX_DEPTH: usize = 8;
+const SESSION_DISCOVERY_MAX_ENTRIES: usize = 4096;
 
 const HELP: &str = concat!(
     "codex termux profile list\n",
     "codex termux profile current\n",
     "codex termux profile create <PROFILE_ID>\n",
     "codex termux profile use <PROFILE_ID> [--] [UPSTREAM_ARGS...]\n",
+    "codex termux session list [--all|--profile <PROFILE_ID>]\n",
+    "codex termux session resume <SESSION_ID> [--profile <PROFILE_ID>] [--] [UPSTREAM_ARGS...]\n",
 );
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -75,6 +82,7 @@ const ERR_HOME: ManagerError = ManagerError::operation("codex termux: HOME is in
 const ERR_PATH: ManagerError = ManagerError::operation("codex termux: Manager path is unsafe");
 const ERR_STATE: ManagerError = ManagerError::operation("codex termux: selection state is invalid");
 const ERR_PROFILE: ManagerError = ManagerError::operation("codex termux: profile is unavailable");
+const ERR_SESSION: ManagerError = ManagerError::operation("codex termux: session is unavailable");
 const ERR_COLLISION: ManagerError = ManagerError::operation("codex termux: profile already exists");
 const ERR_CREATE: ManagerError = ManagerError::operation("codex termux: profile creation failed");
 const ERR_LAUNCH: ManagerError = ManagerError::operation("codex termux: Core launch failed");
@@ -119,6 +127,8 @@ enum CommandKind {
     Current,
     Create,
     Use,
+    SessionList,
+    SessionResume,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -126,6 +136,16 @@ struct ParsedCommand {
     kind: CommandKind,
     target: Option<ProfileTarget>,
     upstream_args: Vec<OsString>,
+    session_id: Option<String>,
+    all: bool,
+}
+
+#[derive(Debug, Clone)]
+struct SessionEntry {
+    profile: String,
+    session_id: String,
+    updated_unix_seconds: u64,
+    sort_key: Vec<u8>,
 }
 
 /// Run the Manager boundary with arguments following the `termux` selector.
@@ -159,10 +179,7 @@ fn run_inner(args: Vec<OsString>) -> Result<Option<String>, ManagerError> {
         capture_context()?;
         return Ok(Some(HELP.to_owned()));
     }
-    if is_exact(args.first(), "session")
-        || is_exact(args.first(), "notify")
-        || is_exact(args.first(), "repair")
-    {
+    if is_exact(args.first(), "notify") || is_exact(args.first(), "repair") {
         return Err(ERR_UNSUPPORTED);
     }
 
@@ -184,10 +201,24 @@ fn run_inner(args: Vec<OsString>) -> Result<Option<String>, ManagerError> {
             use_profile(&context, target, &command.upstream_args)?;
             Ok(None)
         }
+        CommandKind::SessionList => Ok(Some(format_session_list(
+            &context,
+            command.target.as_ref(),
+            command.all,
+        )?)),
+        CommandKind::SessionResume => {
+            let target = command.target.as_ref();
+            let session_id = command.session_id.as_ref().expect("session ref is parsed");
+            resume_session(&context, target, session_id, &command.upstream_args)?;
+            Ok(None)
+        }
     }
 }
 
 fn parse_command(args: &[OsString]) -> Result<ParsedCommand, ManagerError> {
+    if is_exact(args.first(), "session") {
+        return parse_session_command(args);
+    }
     if !is_exact(args.first(), "profile") {
         return Err(ERR_USAGE);
     }
@@ -196,11 +227,15 @@ fn parse_command(args: &[OsString]) -> Result<ParsedCommand, ManagerError> {
             kind: CommandKind::List,
             target: None,
             upstream_args: Vec::new(),
+            session_id: None,
+            all: false,
         }),
         Some(action) if action == OsStr::new("current") && args.len() == 2 => Ok(ParsedCommand {
             kind: CommandKind::Current,
             target: None,
             upstream_args: Vec::new(),
+            session_id: None,
+            all: false,
         }),
         Some(action) if action == OsStr::new("create") && args.len() == 3 => {
             let id = args.get(2).ok_or(ERR_USAGE)?;
@@ -208,6 +243,8 @@ fn parse_command(args: &[OsString]) -> Result<ParsedCommand, ManagerError> {
                 kind: CommandKind::Create,
                 target: Some(ProfileTarget::Custom(parse_create_id(id)?)),
                 upstream_args: Vec::new(),
+                session_id: None,
+                all: false,
             })
         }
         Some(action) if action == OsStr::new("use") && args.len() >= 3 => {
@@ -230,6 +267,62 @@ fn parse_command(args: &[OsString]) -> Result<ParsedCommand, ManagerError> {
                 kind: CommandKind::Use,
                 target: Some(target),
                 upstream_args,
+                session_id: None,
+                all: false,
+            })
+        }
+        _ => Err(ERR_USAGE),
+    }
+}
+
+fn parse_session_command(args: &[OsString]) -> Result<ParsedCommand, ManagerError> {
+    match args.get(1).map(OsString::as_os_str) {
+        Some(action) if action == OsStr::new("list") => match args {
+            [_, _, flag] if flag == OsStr::new("--all") => Ok(ParsedCommand {
+                kind: CommandKind::SessionList,
+                target: None,
+                upstream_args: Vec::new(),
+                session_id: None,
+                all: true,
+            }),
+            [_, _, flag, value] if flag == OsStr::new("--profile") => Ok(ParsedCommand {
+                kind: CommandKind::SessionList,
+                target: Some(parse_target(value)?),
+                upstream_args: Vec::new(),
+                session_id: None,
+                all: false,
+            }),
+            [_, _] => Ok(ParsedCommand {
+                kind: CommandKind::SessionList,
+                target: None,
+                upstream_args: Vec::new(),
+                session_id: None,
+                all: false,
+            }),
+            _ => Err(ERR_USAGE),
+        },
+        Some(action) if action == OsStr::new("resume") && args.len() >= 3 => {
+            let session_id = parse_session_ref(args.get(2).ok_or(ERR_USAGE)?)?;
+            let mut index = 3;
+            let target = if args
+                .get(index)
+                .is_some_and(|arg| arg == OsStr::new("--profile"))
+            {
+                let target = parse_target(args.get(index + 1).ok_or(ERR_USAGE)?)?;
+                index += 2;
+                Some(target)
+            } else {
+                None
+            };
+            if args.get(index).is_some_and(|arg| arg == OsStr::new("--")) {
+                index += 1;
+            }
+            Ok(ParsedCommand {
+                kind: CommandKind::SessionResume,
+                target,
+                upstream_args: args[index..].to_vec(),
+                session_id: Some(session_id),
+                all: false,
             })
         }
         _ => Err(ERR_USAGE),
@@ -255,6 +348,26 @@ fn parse_target(value: &OsString) -> Result<ProfileTarget, ManagerError> {
         _ if is_reserved_custom_id(&id) => Err(ERR_USAGE),
         _ => Ok(ProfileTarget::Custom(id)),
     }
+}
+
+fn parse_session_ref(value: &OsString) -> Result<String, ManagerError> {
+    parse_session_ref_bytes(value.as_os_str().as_bytes())
+}
+
+fn parse_session_ref_bytes(bytes: &[u8]) -> Result<String, ManagerError> {
+    if bytes.is_empty() || bytes.len() > SESSION_REF_MAX_BYTES || bytes == b"." || bytes == b".." {
+        return Err(ERR_USAGE);
+    }
+    if !bytes[0].is_ascii_alphanumeric()
+        || !bytes
+            .iter()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-' | b':'))
+    {
+        return Err(ERR_USAGE);
+    }
+    std::str::from_utf8(bytes)
+        .map(str::to_owned)
+        .map_err(|_| ERR_USAGE)
 }
 
 fn parse_id(value: &OsStr) -> Option<String> {
@@ -551,6 +664,229 @@ fn format_current(context: &Context) -> Result<String, ManagerError> {
         "current: {}\nsource: last-selection\n",
         selection.display()
     ))
+}
+
+fn format_session_list(
+    context: &Context,
+    target: Option<&ProfileTarget>,
+    all: bool,
+) -> Result<String, ManagerError> {
+    let mut entries = Vec::new();
+    let mut directory_entry_count = 0;
+    for (profile, home) in session_targets(context, target, all)? {
+        let Some(home) = home else {
+            continue;
+        };
+        discover_sessions_in_home(&home, &profile, &mut entries, &mut directory_entry_count)?;
+    }
+    entries.sort_by(|left, right| {
+        right
+            .updated_unix_seconds
+            .cmp(&left.updated_unix_seconds)
+            .then_with(|| left.profile.as_bytes().cmp(right.profile.as_bytes()))
+            .then_with(|| left.session_id.as_bytes().cmp(right.session_id.as_bytes()))
+            .then_with(|| left.sort_key.cmp(&right.sort_key))
+    });
+
+    let mut output = String::new();
+    for entry in entries {
+        output.push_str(&entry.profile);
+        output.push('\t');
+        output.push_str(&entry.session_id);
+        output.push('\t');
+        output.push_str(&entry.updated_unix_seconds.to_string());
+        output.push('\n');
+    }
+    Ok(output)
+}
+
+fn session_targets(
+    context: &Context,
+    target: Option<&ProfileTarget>,
+    all: bool,
+) -> Result<Vec<(String, Option<PathBuf>)>, ManagerError> {
+    if all {
+        let mut targets = vec![(
+            "default".to_owned(),
+            existing_real_directory(&context.home.join(".codex")),
+        )];
+        let Some(dirs) = existing_manager_dirs(context)? else {
+            return Ok(targets);
+        };
+        for id in list_custom_profiles(context)? {
+            if profile_complete(&dirs, &id) {
+                targets.push((id.clone(), Some(profile_home_path(&dirs, &id))));
+            }
+        }
+        return Ok(targets);
+    }
+
+    let selected = target
+        .cloned()
+        .map(Ok)
+        .unwrap_or_else(|| read_selection(context))?;
+    let profile = selected.display().to_owned();
+    let home = match &selected {
+        ProfileTarget::Default => existing_real_directory(&context.home.join(".codex")),
+        ProfileTarget::Custom(id) => {
+            let dirs = existing_manager_dirs(context)?.ok_or(ERR_PROFILE)?;
+            if !profile_complete(&dirs, id) {
+                return Err(ERR_PROFILE);
+            }
+            Some(profile_home_path(&dirs, id))
+        }
+    };
+    Ok(vec![(profile, home)])
+}
+
+fn existing_real_directory(path: &Path) -> Option<PathBuf> {
+    let metadata = fs::symlink_metadata(path).ok()?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return None;
+    }
+    Some(path.to_owned())
+}
+
+fn discover_sessions_in_home(
+    home: &Path,
+    profile: &str,
+    entries: &mut Vec<SessionEntry>,
+    directory_entry_count: &mut usize,
+) -> Result<(), ManagerError> {
+    let sessions = home.join("sessions");
+    if existing_real_directory(&sessions).is_none() {
+        return Ok(());
+    }
+    collect_session_directory(&sessions, &[], 0, profile, entries, directory_entry_count)
+}
+
+fn collect_session_directory(
+    directory: &Path,
+    relative_prefix: &[u8],
+    depth: usize,
+    profile: &str,
+    entries: &mut Vec<SessionEntry>,
+    directory_entry_count: &mut usize,
+) -> Result<(), ManagerError> {
+    let metadata = match fs::symlink_metadata(directory) {
+        Ok(metadata) => metadata,
+        Err(_) => return Ok(()),
+    };
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Ok(());
+    }
+
+    let directory_entries = match fs::read_dir(directory) {
+        Ok(directory_entries) => directory_entries,
+        Err(_) => return Ok(()),
+    };
+    for directory_entry in directory_entries {
+        let directory_entry = match directory_entry {
+            Ok(directory_entry) => directory_entry,
+            Err(_) => continue,
+        };
+        *directory_entry_count = directory_entry_count.saturating_add(1);
+        if *directory_entry_count > SESSION_DISCOVERY_MAX_ENTRIES {
+            return Err(ERR_SESSION);
+        }
+
+        let name = directory_entry.file_name();
+        let path = directory_entry.path();
+        let child_metadata = match fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(_) => continue,
+        };
+        if child_metadata.file_type().is_symlink() {
+            continue;
+        }
+
+        let mut sort_key = Vec::with_capacity(relative_prefix.len() + name.as_bytes().len() + 1);
+        sort_key.extend_from_slice(relative_prefix);
+        if !sort_key.is_empty() {
+            sort_key.push(b'/');
+        }
+        sort_key.extend_from_slice(name.as_bytes());
+
+        if child_metadata.is_dir() {
+            if depth < SESSION_DISCOVERY_MAX_DEPTH {
+                collect_session_directory(
+                    &path,
+                    &sort_key,
+                    depth + 1,
+                    profile,
+                    entries,
+                    directory_entry_count,
+                )?;
+            }
+            continue;
+        }
+        if !child_metadata.is_file()
+            || !name.as_bytes().ends_with(SESSION_FILE_SUFFIX)
+            || child_metadata.len() > SESSION_FILE_MAX_BYTES
+        {
+            continue;
+        }
+
+        let Some(session_bytes) = name.as_bytes().strip_suffix(SESSION_FILE_SUFFIX) else {
+            continue;
+        };
+        let Ok(session_id) = parse_session_ref_bytes(session_bytes) else {
+            continue;
+        };
+        let Ok(updated) = child_metadata.modified() else {
+            continue;
+        };
+        let Ok(updated) = updated.duration_since(std::time::UNIX_EPOCH) else {
+            continue;
+        };
+        if File::open(&path).is_err() {
+            continue;
+        }
+        entries.push(SessionEntry {
+            profile: profile.to_owned(),
+            session_id,
+            updated_unix_seconds: updated.as_secs(),
+            sort_key,
+        });
+    }
+    Ok(())
+}
+
+fn resume_session(
+    context: &Context,
+    target: Option<&ProfileTarget>,
+    session_id: &str,
+    upstream_args: &[OsString],
+) -> Result<(), ManagerError> {
+    let selected = target
+        .cloned()
+        .map(Ok)
+        .unwrap_or_else(|| read_selection(context))?;
+    let (profile, home) = session_targets(context, Some(&selected), false)?
+        .into_iter()
+        .next()
+        .expect("one selected session target");
+    let mut entries = Vec::new();
+    let mut directory_entry_count = 0;
+    if let Some(home) = home {
+        discover_sessions_in_home(&home, &profile, &mut entries, &mut directory_entry_count)?;
+    }
+    let mut matches = entries
+        .into_iter()
+        .filter(|entry| entry.session_id == session_id);
+    let Some(entry) = matches.next() else {
+        return Err(ERR_SESSION);
+    };
+    if matches.next().is_some() {
+        return Err(ERR_SESSION);
+    }
+
+    publish_selection(context, &selected)?;
+    let mut core_args = Vec::with_capacity(upstream_args.len() + 2);
+    core_args.push(OsString::from("resume"));
+    core_args.push(OsString::from(entry.session_id));
+    core_args.extend_from_slice(upstream_args);
+    launch_core(context, &selected, &core_args)
 }
 
 fn create_profile(context: &Context, id: &str) -> Result<(), ManagerError> {
@@ -885,6 +1221,177 @@ mod tests {
         ];
         let parsed = parse_command(&args).unwrap();
         assert_eq!(parsed.upstream_args, vec![raw]);
+    }
+
+    #[test]
+    fn parses_session_grammar_and_preserves_raw_resume_arguments() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let list = parse_command(&[
+            OsString::from("session"),
+            OsString::from("list"),
+            OsString::from("--profile"),
+            OsString::from("work"),
+        ])
+        .unwrap();
+        assert_eq!(list.kind, CommandKind::SessionList);
+        assert_eq!(list.target, Some(ProfileTarget::Custom("work".to_owned())));
+        assert!(!list.all);
+
+        let all = parse_command(&[
+            OsString::from("session"),
+            OsString::from("list"),
+            OsString::from("--all"),
+        ])
+        .unwrap();
+        assert_eq!(all.kind, CommandKind::SessionList);
+        assert!(all.all);
+
+        let raw = OsString::from_vec(vec![0xff, 0x80, b'x']);
+        let resumed = parse_command(&[
+            OsString::from("session"),
+            OsString::from("resume"),
+            OsString::from("rollout-2026-09-05T00-00-00-abc"),
+            OsString::from("--profile"),
+            OsString::from("work"),
+            OsString::from("--"),
+            OsString::from("--model"),
+            raw.clone(),
+        ])
+        .unwrap();
+        assert_eq!(resumed.kind, CommandKind::SessionResume);
+        assert_eq!(
+            resumed.session_id,
+            Some("rollout-2026-09-05T00-00-00-abc".to_owned())
+        );
+        assert_eq!(
+            resumed.target,
+            Some(ProfileTarget::Custom("work".to_owned()))
+        );
+        assert_eq!(resumed.upstream_args, vec![OsString::from("--model"), raw]);
+    }
+
+    #[test]
+    fn rejects_ambiguous_session_options_and_unsafe_references() {
+        use std::os::unix::ffi::OsStringExt;
+
+        assert_eq!(
+            parse_command(&[
+                OsString::from("session"),
+                OsString::from("list"),
+                OsString::from("--all"),
+                OsString::from("--profile"),
+                OsString::from("work"),
+            ]),
+            Err(ERR_USAGE)
+        );
+        assert_eq!(
+            parse_command(&[
+                OsString::from("session"),
+                OsString::from("resume"),
+                OsString::from("ref"),
+                OsString::from("--profile"),
+            ]),
+            Err(ERR_USAGE)
+        );
+        for value in ["../escape", ".", "..", "-leading", "bad/ref", "bad ref"] {
+            assert_eq!(
+                parse_command(&[
+                    OsString::from("session"),
+                    OsString::from("resume"),
+                    OsString::from(value),
+                ]),
+                Err(ERR_USAGE),
+                "{value}"
+            );
+        }
+        let non_utf8 = OsString::from_vec(vec![0xff, b'x']);
+        assert_eq!(parse_session_ref(&non_utf8), Err(ERR_USAGE));
+        let oversized = OsString::from("a".repeat(SESSION_REF_MAX_BYTES + 1));
+        assert_eq!(parse_session_ref(&oversized), Err(ERR_USAGE));
+    }
+
+    #[test]
+    fn session_listing_is_bounded_metadata_only_and_deterministic() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let root = TestRoot::new();
+        let context = root.context();
+        let session_root = context.home.join(".codex/sessions");
+        let sessions = context.home.join(".codex/sessions/2026/09");
+        ensure_directory_chain(&sessions).unwrap();
+
+        fs::write(sessions.join("zeta.jsonl"), b"session-body-secret-sentinel").unwrap();
+        fs::write(sessions.join("alpha.jsonl"), b"opaque body").unwrap();
+        let nested = sessions.join("nested");
+        ensure_directory_chain(&nested).unwrap();
+        fs::write(nested.join("nested.jsonl"), b"nested opaque body").unwrap();
+
+        let mut deep = session_root;
+        for level in 1..=SESSION_DISCOVERY_MAX_DEPTH {
+            deep = deep.join(format!("level-{level}"));
+            ensure_directory_chain(&deep).unwrap();
+        }
+        fs::write(deep.join("deep.jsonl"), b"deep opaque body").unwrap();
+        let too_deep = deep.join("level-too-deep");
+        ensure_directory_chain(&too_deep).unwrap();
+        fs::write(too_deep.join("too-deep.jsonl"), b"must not be visited").unwrap();
+
+        fs::write(sessions.join("-invalid.jsonl"), b"invalid ref").unwrap();
+        fs::write(sessions.join("not-a-session.txt"), b"wrong suffix").unwrap();
+        fs::write(sessions.join(".jsonl"), b"empty ref").unwrap();
+        let non_utf8 = OsString::from_vec(vec![b'v', 0xff, b'.', b'j', b's', b'o', b'n', b'l']);
+        fs::write(sessions.join(non_utf8), b"non-utf8 ref").unwrap();
+
+        let outside = root.0.join("outside");
+        fs::create_dir(&outside).unwrap();
+        set_mode(&outside, PRIVATE_DIR_MODE).unwrap();
+        let outside_session = outside.join("outside.jsonl");
+        fs::write(&outside_session, b"outside body").unwrap();
+        std::os::unix::fs::symlink(&outside_session, sessions.join("linked.jsonl")).unwrap();
+        std::os::unix::fs::symlink(&outside, sessions.join("linked-directory")).unwrap();
+
+        let oversized = sessions.join("oversized.jsonl");
+        OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&oversized)
+            .unwrap()
+            .set_len(SESSION_FILE_MAX_BYTES + 1)
+            .unwrap();
+
+        let output = format_session_list(&context, None, false).unwrap();
+        let rows: Vec<Vec<&str>> = output
+            .lines()
+            .map(|line| line.split('\t').collect())
+            .collect();
+        assert_eq!(rows.len(), 4);
+        assert!(rows.iter().all(|row| row.len() == 3));
+        assert!(rows.iter().all(|row| row[0] == "default"));
+        assert!(rows.iter().all(|row| row[2].parse::<u64>().is_ok()));
+        let ids: Vec<&str> = rows.iter().map(|row| row[1]).collect();
+        assert!(ids.contains(&"alpha"));
+        assert!(ids.contains(&"zeta"));
+        assert!(ids.contains(&"nested"));
+        assert!(ids.contains(&"deep"));
+        assert!(!ids.contains(&"too-deep"));
+        assert!(!output.contains("session-body-secret-sentinel"));
+        assert!(!output.contains(root.0.to_str().unwrap()));
+        assert!(!manager_base(&context).exists());
+    }
+
+    #[test]
+    fn session_listing_fails_closed_at_the_command_entry_bound() {
+        let root = TestRoot::new();
+        let context = root.context();
+        let sessions = context.home.join(".codex/sessions");
+        ensure_directory_chain(&sessions).unwrap();
+        for index in 0..=SESSION_DISCOVERY_MAX_ENTRIES {
+            fs::write(sessions.join(format!("entry-{index:04}.jsonl")), b"body").unwrap();
+        }
+
+        assert_eq!(format_session_list(&context, None, false), Err(ERR_SESSION));
+        assert!(!manager_base(&context).exists());
     }
 
     #[test]

@@ -1981,6 +1981,52 @@ Termux qualification. Produce one candidate for independent product review.
   legacy state import or bwrap repair path. MGR-2 session listing/resume is
   definition-only and is the next separately scoped bundle.
 
+## MGR-2 Bounded Session Listing and Resume (accepted)
+
+- MGR-2 implements the exact local Manager forms for session listing and
+  resume. Listing uses the persisted MGR-1 selection unless an explicit
+  profile or `--all` is supplied; `--all` visits the default home and complete
+  custom profiles, while arbitrary inherited `CODEX_HOME` is not reinterpreted
+  as Manager state.
+- Discovery is read-only and bounded to eight directory levels and 4,096
+  directory entries per command. It accepts only safe `.jsonl` regular files
+  with valid opaque UTF-8 references, nonnegative mtime, size at most 64 MiB,
+  and a successful readability open. It never reads session bytes, parses
+  JSONL, follows symlinked roots/components, emits paths or content, or creates
+  a persistent index. Results are the exact timestamp-descending TSV
+  projection with bytewise tie-breaks.
+- Resume performs a fresh bounded discovery and requires one matching
+  reference before the existing atomic selection transaction. Missing and
+  ambiguous references leave selection unchanged and never launch Core. A
+  successful path execs the validated Core entrypoint with exactly
+  `resume`, the discovered opaque reference, and raw trailing argv, preserving
+  child-only `CODEX_HOME`, streams, TTY, signals, and exit status.
+- Focused evidence passed the parser, bounded-discovery, list-projection, and
+  resume slices at 2/2 each. The final locked workspace suite passed Core
+  `128 passed, 0 failed, 1 ignored`, Manager unit `13 passed`, Manager public
+  integration `8 passed`, and release-builder `11 passed`. Workspace clippy
+  with `-D warnings`, the warnings-denied release build, formatting, diff
+  checks, and release-mode Manager smoke `8 passed` all passed.
+- This authority record binds Manager source SHA-256
+  `f166838d1adfaabf2f59221e64e3aaedbc25bc0aaeecb33172821a16be5135c0` and
+  normative SPEC SHA-256
+  `06511290f7ad97056bf3f153dc11b7b584f4825d0ca6222cf9d0564c44819d38`.
+- Protected verification kept the resolver at SHA-256
+  `7e8ad76e0d200e93918ca2e93c99ff8ecd02071953bf1479819db3ac0dbb6d07`, the
+  installed launcher at
+  `109b556884150a134c39a8892c599f6551dbc1fb18ea557eebbfc690b4fc3a9b`, the
+  bootstrap trust seed at
+  `62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c`, and
+  activation state at
+  `813cfaa53f0945656e56e0a26bc0de62cd36cfcb30b1c4cac5b866f7e82599e4`.
+  No installed runtime or launcher, live Manager/profile/session/auth state,
+  resolver, bwrap state, remote ref, push, or main promotion changed.
+- Disposition: KEEP one bounded metadata-only discovery path, one exact TSV
+  projection, one fresh unique resume binding, and the existing MGR-1 atomic
+  selection/Core exec boundary. DELETE no upstream session authority and add
+  no transcript, sharing, migration, or persistent index machinery. MGR-3
+  notification configuration remains the next separately scoped bundle.
+
 ## Goal Lifts
 
 No lift is active. A proposed lift must identify a concrete product risk or

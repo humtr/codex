@@ -21,13 +21,15 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 - Remote `origin/rewrite/rust-core` remains at
   `253156c37a2bd22af8faae0bce03587999ffd136`; the local branch is ahead and
   no push is authorized.
-- Current milestone: MGR-1 profile selection and isolated launch is in progress;
-  MGR-0 Manager v1 definition is complete in `SPEC.md`;
+- Current milestone: MGR-3 notification configuration and delivery is the next
+  separately scoped bundle; MGR-0 Manager v1 definition, MGR-1 profile
+  selection/isolated launch, and MGR-2 bounded session listing/resume are
+  complete in `SPEC.md`;
   Core R9.2 remains accepted in source, live runtime, remote Release/index,
   and disposable-consumer qualification. The Manager definition keeps
   `codex termux` optional and separate from Core ownership, defines the
-  profile/session/notification/repair boundaries, and makes MGR-1 profile
-  selection and isolated launch is the active implementation slice. No Manager
+  profile/session/notification/repair boundaries, and makes MGR-3 notification
+  configuration the next implementation slice. No Manager
   artifact or live state has been changed.
 - The inherited pre-commit hook references absent
   `tools/update-wrapper-version.sh`; do not modify it. If it alone rejects an
@@ -48,8 +50,8 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 - Worker mode is OFF. The primary Lead owns implementation, validation,
   authority updates, commit, and acceptance.
 
-- R8, R9, R9.1, and R9.2 are closed below. MGR-0 is the current definition
-  checkpoint; MGR-1 is the next implementation slice.
+- R8, R9, R9.1, R9.2, MGR-0, MGR-1, and MGR-2 are closed above or in
+  `GOAL.md`. MGR-3 is the next implementation slice.
 
 ## Product-speed policy
 
@@ -266,10 +268,27 @@ reflection is complete.
 Worker mode remains OFF; the primary Lead owns every slice, validation step,
 authority update, and acceptance decision.
 
-## MGR-2 bounded session listing and resume (next)
+MGR-2 source closure is accepted with the evidence recorded in `GOAL.md`.
+No MGR-2 implementation slice remains active, and no Manager artifact or live
+state was changed.
 
-MGR-2 remains definition-only. Before implementation, bind its exact session
-reference grammar, bounded metadata projection, profile selection, and
-child-only Core resume launch in `SPEC.md`, then create one vertical proof
-slice. Do not add session indexing, transcript parsing, copying, migration, or
-notification behavior as part of MGR-2 planning.
+## MGR-3 notification configuration and delivery (next)
+
+MGR-3 remains definition-first. Before product mutation, bind the exact
+`notify show`/`notify set` grammar, the allowlisted versioned configuration,
+atomic publication path, hook-to-event mapping, best-effort capability-aware
+delivery, payload/content exclusions, and child/process boundary in `SPEC.md`.
+Then implement one vertical slice at a time:
+
+1. Contract and validation — exact options, defaults, bounded values, and
+   malformed-state behavior with focused parser/config regressions.
+2. Atomic configuration — private `notifications/config-v1` publication,
+   collision/permission/symlink fault cases, and no payload persistence.
+3. Delivery boundary — capability-aware best-effort notification invocation
+   that cannot fail an upstream turn, with raw process/stream/exit behavior
+   proved at the real Manager boundary.
+4. Bundle gate — grouped locked tests, clippy, release build/smoke, protected
+   surfaces, authority update, and commit before any later Manager bundle.
+
+Worker mode remains OFF; the primary Lead owns every slice, validation step,
+authority update, and acceptance decision.
