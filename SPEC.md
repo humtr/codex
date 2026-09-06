@@ -20,8 +20,9 @@ system:
 The current two-milestone program completes Core. Manager product contracts
 are post-Core and remain optional for ordinary launch. MGR-1 through MGR-5 are
 accepted source slices; MGR-5 qualifies the separately built Manager artifact
-before it enters a signed generation. MGR-6 is the current definition-bound
-distribution and disposable-qualification slice for that optional artifact.
+before it enters a signed generation. MGR-6 is an accepted distribution and
+disposable-qualification slice for that optional artifact. MGR-7 is the
+current definition-bound remote-readback and operational-qualification slice.
 
 This is a clean rewrite. Legacy source is historical evidence, not an
 implementation dependency or migration base.
@@ -1431,6 +1432,50 @@ existing active/previous state remains unchanged. Remote publication and any
 live runtime replacement remain separate operational actions requiring an
 explicit target and authorization; MGR-6 source acceptance alone authorizes
 neither a push nor a live cutover.
+
+### MGR-7 — Remote publication readback and bounded operational qualification
+
+MGR-7 adds no public command, persistent state, trust source, or release
+format. It is an operational qualification of one already accepted,
+probe-qualified signed generation; it must not rebuild Manager, rewrite the
+generation, or infer a target from the live active generation. The candidate
+generation ID, local publication directory, GitHub repository/branch, and
+whether a device qualification is requested are explicit inputs recorded
+before external I/O.
+
+Remote publication, when explicitly authorized for that exact candidate,
+uses the existing fixed `humtr/codex`/`main` boundary and ordering: upload the
+complete immutable Release asset set, including `manager` when the signed
+inventory lists it; publish `update-index-v1.sig`; then publish
+`update-index-v1`. A missing or mismatched Manager asset, failed or timed-out
+upload, private-key exposure, or index update out of order fails the operation
+without advancing the index and without undoing a successful local
+activation. No OpenAI repository, live runtime, auth, profile, session, or
+Manager state is an alternate publication target.
+
+Readback uses a separate private disposable consumer and bounded HTTPS
+transport. It fetches the signed index and signature, verifies the index with
+the recovered update authority, acquires the exact signed control files and
+every inventory asset, and runs the existing local signed admission. For a
+Manager-bearing generation it must observe a regular `manager` asset whose
+digest and mode equal the signed inventory; it must also run the actual
+release-built Manager probe/handoff path. It never trusts a GitHub API listing,
+mutable tag metadata, or an unsigned asset as evidence.
+
+The disposable device qualification uses separate private fresh-install and
+legacy-upgrade roots. Each root snapshots protected host identities before
+and after, installs or selects only the read-back signed generation, runs
+`codex doctor` and `codex termux` read-only/isolated checks, and verifies raw
+argv, streams, TTY, signal, exit status, child-only `CODEX_HOME`, ANSI doctor
+presentation, and absence of bwrap invocation. Any readback, admission,
+Manager handoff, doctor, or protected-surface failure rejects the candidate
+and leaves the live installation untouched.
+
+MGR-7 source acceptance authorizes no remote push or live runtime replacement.
+Those actions require a separate explicit operational authorization naming the
+exact candidate generation, target, and rollback boundary. A failed optional
+remote publication never changes a locally accepted generation; credentials,
+tokens, and unredacted session content are never recorded as evidence.
 
 ### Manager definition gate
 

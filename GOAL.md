@@ -2222,6 +2222,28 @@ Termux qualification. Produce one candidate for independent product review.
   existing Manager/Core integration paths; DELETE no new updater, trust source,
   or live-state path. No MGR-7 bundle is selected yet.
 
+## MGR-7 Remote Publication Readback and Operational Qualification (defined)
+
+- MGR-7 is an operational qualification of one already accepted signed
+  generation. It adds no public command, persistent state, trust source, or
+  release format and does not rebuild or mutate the candidate. The exact
+  generation ID, local publication directory, fixed repository/branch target,
+  and whether device qualification is requested must be recorded before
+  external I/O.
+- An explicitly authorized publication must upload the complete immutable
+  Release asset set, including `manager` when signed, then publish
+  `update-index-v1.sig`, then `update-index-v1`. Failures do not advance the
+  index, leak keys, alter local activation, or touch an OpenAI repository.
+- A separate disposable readback consumer must verify the signed index, exact
+  control files, every inventory asset, Manager digest/mode, and the actual
+  release-built Manager probe/handoff path over bounded HTTPS. Fresh-install
+  and legacy-upgrade consumers must then prove doctor/Manager behavior and
+  protected-surface identity preservation.
+- MGR-7 source definition does not authorize remote push or live runtime
+  replacement. Those remain a separate explicit operational authorization
+  naming the exact candidate, target, and rollback boundary. No MGR-7
+  implementation or external qualification evidence exists yet.
+
 ## Goal Lifts
 
 No lift is active. A proposed lift must identify a concrete product risk or

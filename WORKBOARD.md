@@ -21,9 +21,9 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 - Remote `origin/rewrite/rust-core` remains at
   `253156c37a2bd22af8faae0bce03587999ffd136`; the local branch is ahead and
   no push is authorized.
-- Current milestone: MGR-6 Manager artifact distribution and disposable
-  qualification is accepted with no active implementation slice. MGR-0 through
-  MGR-6 are complete in `SPEC.md`;
+- Current milestone: MGR-7 remote publication readback and operational
+  qualification is definition-bound; no production slice is active yet.
+  MGR-0 through MGR-6 are complete in `SPEC.md`;
   Core R9.2 remains accepted in source, live runtime, remote Release/index,
   and disposable-consumer qualification. The Manager definition keeps
   `codex termux` optional and separate from Core ownership, and defines the
@@ -49,7 +49,8 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
   authority updates, commit, and acceptance.
 
 - R8, R9, R9.1, R9.2, MGR-0, MGR-1, MGR-2, MGR-3, MGR-4, MGR-5, and MGR-6
-  are closed above or in `GOAL.md`. No implementation slice is active.
+  are closed above or in `GOAL.md`. MGR-7 is the definition-bound current
+  bundle.
 
 ## Product-speed policy
 
@@ -301,13 +302,32 @@ and release acceptance, protected-surface verification, authority evidence in
 Manager state was changed; `target/` remains untracked Cargo output outside
 the publication surface.
 
-## MGR-7 next — definition checkpoint
+## MGR-7 Remote Publication Readback and Operational Qualification
 
-No MGR-7 implementation bundle is selected. Before further Manager or release
-mutation, define the exact contract, ownership boundary, persistent-state
-effect, focused vertical proof, and live-state authorization in `SPEC.md`,
-`GOAL.md`, and this file. Keep Core/Manager ownership and protected live
-surfaces unchanged.
+MGR-7 is definition-bound in `SPEC.md` before product or external-state
+mutation. It adds no public command, persistent state, trust source, or
+release format; the current workboard is definition-only and no production
+slice is active.
+
+1. Candidate binding — record one accepted generation ID, local publication
+   directory, fixed repository/branch target, and whether device qualification
+   is requested. Do not infer any of these from live active state.
+2. Authorized publication — when separately authorized, exercise the existing
+   Release-assets → `update-index-v1.sig` → `update-index-v1` ordering and
+   prove Manager asset completeness, timeout/failure isolation, no key upload,
+   and no OpenAI-repository target.
+3. Signed readback — in a private disposable consumer, fetch the signed index,
+   control files, and every inventory asset over bounded HTTPS; verify the
+   Manager digest/mode and run the actual release-built Manager probe/handoff.
+4. Device qualification — use separate private fresh-install and legacy-
+   upgrade roots; run doctor and isolated Manager checks and verify argv,
+   streams, TTY, signal, exit, child-only `CODEX_HOME`, ANSI output, bwrap
+   non-use, and protected identity preservation.
+5. Bundle gate — focused nonzero regressions, grouped debug/release tests,
+   clippy, warnings-denied release build, formatting/diff checks, protected
+   surfaces, authority update, and commit. MGR-7 source work does not itself
+   authorize remote push or live runtime replacement; those require a separate
+   exact-target operational authorization.
 
 Worker mode remains OFF; the primary Lead owns every future definition,
 implementation, validation, authority update, commit, and acceptance decision.
