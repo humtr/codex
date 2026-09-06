@@ -2181,6 +2181,47 @@ Termux qualification. Produce one candidate for independent product review.
   and existing signed inventory; DELETE no second Manager updater, probe
   state, trust source, or Core launch path. No MGR-6 bundle is selected yet.
 
+## MGR-6 Manager Artifact Distribution and Disposable Qualification (accepted)
+
+- MGR-6 adds no public command, Manager record, Core trust source, or on-device
+  build path. The release boundary remains one off-device, locked-toolchain
+  Manager artifact from the exact accepted rewrite revision through the
+  existing bounded release-builder input. PATH/live-state/unpinned discovery
+  remains excluded.
+- Core's publication asset inventory now parses the signed manifest before
+  upload: a signed `manager` entry requires a regular bounded Manager asset;
+  a missing, symlinked, special, or extra unlisted Manager fails closed. A
+  Manager-less Core-only manifest remains valid. The signed asset ordering and
+  index advancement boundary remain unchanged.
+- Release-mode disposable consumer proof passed the actual built Manager
+  artifact for the exact artifact probe, fresh profile lifecycle/isolation,
+  and inherited legacy-home non-interpretation. Release-mode Core handoff
+  proof passed raw argv/streams/exit preservation and probe-marker removal.
+  Existing signed generation digest-binding and Core-only fallback regressions
+  remain green.
+- Focused asset completeness/publication regressions passed 3/3. The final
+  debug and release workspaces passed Core 134 passed, 0 failed, 1 ignored,
+  Manager unit 20, Manager integration 11, and release-builder 12. Locked
+  clippy, warnings-denied release build, formatting, diff checks, and
+  protected-surface verification passed.
+- Final MGR-6 source identities are Core
+  `efd9e25e5fe4a1f4b310ab971b2b87a919ece2761e493692fb5de1992c0098a4`,
+  Manager
+  `9134bd459f36966c62aa7f8b183e0b4f6af3c44d1fa7226cbfad8a4c05d57476`,
+  release-builder
+  `cb89492ff81d7ea2481e80c5833b30bed866c8736a01ef254f01ba34f7ce37f2`, and
+  normative SPEC
+  `ec8f68d59de49a11cb6b20a738170e3810610764d19421f81a4689ea12b9afed`.
+- Protected surfaces remain unchanged: resolver, installed launcher, trust
+  seed, activation state, live runtime/Manager/profile/session/auth state,
+  bwrap state, remote refs, and `main`. No remote push or live replacement was
+  performed. Remote publication readback and live cutover remain separate
+  operational gates requiring an explicit target and authorization.
+- Disposition: KEEP one signed-manifest-to-asset completeness check and the
+  existing release-before-index boundary; COLLAPSE disposable proof into the
+  existing Manager/Core integration paths; DELETE no new updater, trust source,
+  or live-state path. No MGR-7 bundle is selected yet.
+
 ## Goal Lifts
 
 No lift is active. A proposed lift must identify a concrete product risk or

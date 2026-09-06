@@ -21,9 +21,9 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 - Remote `origin/rewrite/rust-core` remains at
   `253156c37a2bd22af8faae0bce03587999ffd136`; the local branch is ahead and
   no push is authorized.
-- Current milestone: MGR-5 Manager artifact build and qualification is
-  accepted with no active implementation slice. MGR-0 through MGR-5 are
-  complete in `SPEC.md`;
+- Current milestone: MGR-6 Manager artifact distribution and disposable
+  qualification is accepted with no active implementation slice. MGR-0 through
+  MGR-6 are complete in `SPEC.md`;
   Core R9.2 remains accepted in source, live runtime, remote Release/index,
   and disposable-consumer qualification. The Manager definition keeps
   `codex termux` optional and separate from Core ownership, and defines the
@@ -48,8 +48,8 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 - Worker mode is OFF. The primary Lead owns implementation, validation,
   authority updates, commit, and acceptance.
 
-- R8, R9, R9.1, R9.2, MGR-0, MGR-1, MGR-2, MGR-3, MGR-4, and MGR-5 are closed
-  above or in `GOAL.md`. No implementation slice is active.
+- R8, R9, R9.1, R9.2, MGR-0, MGR-1, MGR-2, MGR-3, MGR-4, MGR-5, and MGR-6
+  are closed above or in `GOAL.md`. No implementation slice is active.
 
 ## Product-speed policy
 
@@ -292,9 +292,18 @@ release acceptance, protected-surface verification, authority evidence in
 was changed; `target/` remains untracked Cargo output outside the publication
 surface.
 
-## MGR-6 next — definition checkpoint
+## MGR-6 Manager artifact distribution and disposable qualification (accepted)
 
-No MGR-6 implementation bundle is selected. Before further Manager or release
+MGR-6 is closed with the signed-manifest-to-asset completeness fix, focused
+regressions, release-mode fresh/legacy Manager consumer proof, grouped debug
+and release acceptance, protected-surface verification, authority evidence in
+`GOAL.md`, and the implementation commit. No live runtime, remote ref, or
+Manager state was changed; `target/` remains untracked Cargo output outside
+the publication surface.
+
+## MGR-7 next — definition checkpoint
+
+No MGR-7 implementation bundle is selected. Before further Manager or release
 mutation, define the exact contract, ownership boundary, persistent-state
 effect, focused vertical proof, and live-state authorization in `SPEC.md`,
 `GOAL.md`, and this file. Keep Core/Manager ownership and protected live

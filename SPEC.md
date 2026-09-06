@@ -20,7 +20,8 @@ system:
 The current two-milestone program completes Core. Manager product contracts
 are post-Core and remain optional for ordinary launch. MGR-1 through MGR-5 are
 accepted source slices; MGR-5 qualifies the separately built Manager artifact
-before it enters a signed generation.
+before it enters a signed generation. MGR-6 is the current definition-bound
+distribution and disposable-qualification slice for that optional artifact.
 
 This is a clean rewrite. Legacy source is historical evidence, not an
 implementation dependency or migration base.
@@ -1382,6 +1383,54 @@ regular-file, mode, and digest binding; it executes the Manager only after
 that admission and preserves the existing Core handoff, streams, TTY,
 signals, raw arguments, and exit status. A generation without a Manager
 artifact remains valid and reports Manager unavailable.
+
+### MGR-6 — Manager artifact distribution and disposable qualification
+
+MGR-6 adds no public command, Manager record, Core trust source, or on-device
+build path. It defines how the MGR-5-qualified optional Manager artifact is
+supplied to release production, carried by a signed generation, and proven in
+disposable environments before any live cutover. Manager remains optional for
+ordinary upstream launch, Core doctor, update, rollback, and fresh install.
+
+The release producer builds `codex-manager` off-device from the exact accepted
+rewrite revision with the locked release toolchain and supplies that one
+regular executable through the existing bounded release-builder input. The
+producer must not discover a Manager from `PATH`, a live installation, a
+Manager state root, or an unpinned build output. The signed generation's
+`manager_artifact_digest` and inventory are the on-device content authority;
+source revision and toolchain provenance are release evidence and never a
+second device trust source. The device update path never invokes Cargo, Rust,
+or a Manager build.
+
+A Manager-bearing generation must contain the probe-qualified Manager file at
+the signed `manager` path with its signed digest and owner-executable mode.
+The immutable remote Release asset set must contain that file before the
+signed index is advanced. Missing, extra, mismatched, non-regular, or
+symlinked Manager content fails the existing signed-generation admission and
+must not advance the index. A generation without `manager` remains a valid
+Core-only generation and reports Manager unavailable. The automatic local
+fallback may produce only such a Core-only generation unless an explicit
+already-qualified Manager artifact is supplied through the bounded release
+producer; it never builds or discovers one on-device.
+
+MGR-6 disposable qualification uses private temporary roots and separate
+fresh-install and legacy-upgrade consumers. It installs or selects a
+release-built Manager-bearing generation through the existing Core admission,
+then proves `codex termux help`, one read-only profile query, and one isolated
+Manager-to-Core launch with the existing raw-argv, stream, TTY, signal, exit,
+and child-only `CODEX_HOME` contracts. The qualification must observe the
+Manager probe marker absent at the public handoff, a successful signed
+Manager digest binding, and no Manager-unavailable result for a Manager-bearing
+generation. It snapshots and compares the resolver, auth, installed
+launcher/runtime, profile/session, and package identities before and after;
+it must not modify any protected live surface or invoke or repair `bwrap`.
+
+If artifact input, probe, signed inventory, Release asset, remote readback,
+or disposable launch qualification fails, the candidate is rejected and the
+existing active/previous state remains unchanged. Remote publication and any
+live runtime replacement remain separate operational actions requiring an
+explicit target and authorization; MGR-6 source acceptance alone authorizes
+neither a push nor a live cutover.
 
 ### Manager definition gate
 

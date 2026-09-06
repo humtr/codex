@@ -6970,6 +6970,11 @@ fn wait_for_github_child_with_timeout(
 
 #[cfg(unix)]
 fn github_release_asset_files(release: &std::path::Path) -> Result<Vec<std::path::PathBuf>, ()> {
+    let (_, manifest) = read_local_release_manifest(release).map_err(|_| ())?;
+    let manager_required = manifest
+        .files
+        .iter()
+        .any(|file| file.relative_path == "manager");
     let mut total = 0u64;
     let mut files = Vec::with_capacity(6);
     for name in [
@@ -6993,6 +6998,9 @@ fn github_release_asset_files(release: &std::path::Path) -> Result<Vec<std::path
     let manager = release.join("manager");
     match std::fs::symlink_metadata(&manager) {
         Ok(metadata) => {
+            if !manager_required {
+                return Err(());
+            }
             if !metadata.file_type().is_file() || metadata.len() > REMOTE_RELEASE_FILE_MAX_BYTES {
                 return Err(());
             }
@@ -7002,7 +7010,10 @@ fn github_release_asset_files(release: &std::path::Path) -> Result<Vec<std::path
             }
             files.push(manager);
         }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound && !manager_required => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound && manager_required => {
+            return Err(())
+        }
         Err(_) => return Err(()),
     }
     Ok(files)
@@ -13751,6 +13762,28 @@ esac
     }
 
     #[cfg(unix)]
+    fn write_github_release_manifest(release: &std::path::Path, manager: bool) {
+        let mut files = vec![
+            ("generation.meta", "0644"),
+            ("runtime", "0755"),
+            (CODE_MODE_HOST_FILE, "0755"),
+        ];
+        if manager {
+            files.push(("manager", "0755"));
+        }
+        files.sort_unstable_by_key(|(path, _)| *path);
+        let digest = "0000000000000000000000000000000000000000000000000000000000000000";
+        let mut manifest = format!(
+            "{LOCAL_RELEASE_FORMAT}\ngeneration_id\tlocal-g1\nrelease_sequence\t1\nchannel\tstable\nexpected_platform\tandroid\nexpected_architecture\taarch64\ncore_api_identity\t{CORE_API_IDENTITY}\npersistent_schema_identity\t{PERSISTENT_SCHEMA_IDENTITY}\nrelease_public_key\t{digest}\nfile_count\t{}\n",
+            files.len()
+        );
+        for (path, mode) in files {
+            manifest.push_str(&format!("file\t{path}\t{digest}\t{mode}\n"));
+        }
+        std::fs::write(release.join("release.manifest"), manifest).unwrap();
+    }
+
+    #[cfg(unix)]
     #[test]
     fn test_r9_authenticated_github_release_publication_is_ordered_and_activation_independent() {
         let root = temp_root("r7-github-publication");
@@ -13763,11 +13796,11 @@ esac
             "generation.meta",
             "runtime",
             CODE_MODE_HOST_FILE,
-            "release.manifest",
             "release.sig",
         ] {
             std::fs::write(release.join(name), format!("fixture-{name}")).unwrap();
         }
+        write_github_release_manifest(&release, false);
         std::fs::write(publication.join("update-index-v1"), b"index").unwrap();
         std::fs::write(publication.join("update-index-v1.sig"), b"signature").unwrap();
         std::fs::create_dir_all(prefix.join("bin")).unwrap();
@@ -13836,14 +13869,10 @@ esac
         let root = temp_root("r9-github-release-assets");
         let release = root.join("release");
         std::fs::create_dir(&release).unwrap();
-        for name in [
-            "generation.meta",
-            CODE_MODE_HOST_FILE,
-            "release.manifest",
-            "release.sig",
-        ] {
+        for name in ["generation.meta", CODE_MODE_HOST_FILE, "release.sig"] {
             std::fs::write(release.join(name), b"fixture").unwrap();
         }
+        write_github_release_manifest(&release, false);
         let outside = root.join("outside-runtime");
         std::fs::write(&outside, b"runtime").unwrap();
         symlink(&outside, release.join("runtime")).unwrap();
@@ -13863,12 +13892,12 @@ esac
             "generation.meta",
             "runtime",
             CODE_MODE_HOST_FILE,
-            "release.manifest",
             "release.sig",
             "manager",
         ] {
             std::fs::write(release.join(name), format!("fixture-{name}")).unwrap();
         }
+        write_github_release_manifest(&release, true);
         let files = github_release_asset_files(&release).unwrap();
         let names: Vec<_> = files
             .iter()
@@ -13886,9 +13915,16 @@ esac
             ]
         );
 
-        let outside = root.join("outside-manager");
-        std::fs::write(&outside, b"manager").unwrap();
         std::fs::remove_file(release.join("manager")).unwrap();
+        assert!(github_release_asset_files(&release).is_err());
+        std::fs::write(release.join("manager"), b"manager").unwrap();
+        write_github_release_manifest(&release, false);
+        assert!(github_release_asset_files(&release).is_err());
+        write_github_release_manifest(&release, true);
+
+        let outside = root.join("outside-manager");
+        std::fs::remove_file(release.join("manager")).unwrap();
+        std::fs::write(&outside, b"manager").unwrap();
         symlink(&outside, release.join("manager")).unwrap();
         assert!(github_release_asset_files(&release).is_err());
         remove_temp_root(root);
