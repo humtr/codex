@@ -40,6 +40,33 @@ fn manager_binary() -> &'static Path {
     Path::new(env!("CARGO_BIN_EXE_codex-manager"))
 }
 
+#[test]
+fn manager_artifact_probe_is_exact_and_state_free() {
+    let denied = Command::new(manager_binary())
+        .env_clear()
+        .arg("--artifact-probe")
+        .output()
+        .unwrap();
+    assert_eq!(denied.status.code(), Some(2));
+    assert!(!denied
+        .stdout
+        .windows(b"codex-manager-artifact-v1".len())
+        .any(|window| window == b"codex-manager-artifact-v1"));
+
+    let output = Command::new(manager_binary())
+        .env_clear()
+        .env("CODEX_MANAGER_ARTIFACT_PROBE", "1")
+        .arg("--artifact-probe")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(
+        output.stdout,
+        b"codex-manager-artifact-v1\ncore_api=codex-manager-core-v1\n"
+    );
+    assert!(output.stderr.is_empty());
+}
+
 fn base_manager_command(home: &Path, core: &Path) -> Command {
     let mut command = Command::new(manager_binary());
     command

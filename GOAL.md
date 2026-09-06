@@ -2128,7 +2128,58 @@ Termux qualification. Produce one candidate for independent product review.
   support/metadata/rollback/rebuild action ladder into Core's one explicit
   update admission; DELETE Manager-side generation inspection, direct repair
   writes, fallback repair, bwrap repair, package-manager action, and legacy
-  state import. No MGR-5 bundle is selected yet.
+  state import. MGR-5 is accepted below.
+
+## MGR-5 Manager Artifact Build and Qualification (accepted)
+
+- MGR-5 adds no public `codex termux` command or Manager persistent state. The
+  separately built Manager executable now has the exact private build-time
+  probe `--artifact-probe` with marker
+  `CODEX_MANAGER_ARTIFACT_PROBE=1`; it requires no user state and emits only
+  the fixed `codex-manager-artifact-v1` / `core_api=codex-manager-core-v1`
+  record. Core strips the marker at its Manager exec boundary, so the probe is
+  not exposed through ordinary `codex termux` launch.
+- Release-builder snapshots the Manager into private staging, runs the probe
+  with empty environment, null stdin, private cwd, 512-byte stdout/stderr
+  bounds, and a five-second wait bound, then carries only the qualified
+  snapshot at mode `0755`. Mismatch, stderr, nonzero, oversize, timeout,
+  non-executable, and symlink inputs fail closed before generation
+  publication. The snapshot digest is bound in `manager_artifact_digest` and
+  the signed inventory includes `manager`.
+- Core's optional GitHub Release asset set now includes `manager` when the
+  signed generation contains it, with the same regular-file, per-file, and
+  aggregate bounds. The existing release-before-index ordering and Core
+  handoff remain unchanged; generations without Manager remain valid and
+  report Manager unavailable.
+- Focused evidence passed the real built Manager probe integration 1/1, the
+  release-builder bounded probe matrix 1/1, and the Core optional remote asset
+  inventory/symlink regression 1/1. The final debug workspace passed Core
+  134 passed, 0 failed, 1 ignored, Manager unit 20 passed, Manager integration
+  11 passed, and release-builder 12 passed. The release workspace passed the
+  same counts. Locked clippy with `-D warnings`, the warnings-denied release
+  build, formatting, diff checks, and protected-surface verification passed.
+- Final MGR-5 source identities are Core
+  `1bed71c8a3b30604ffe738d7fb19fa22c0d041c92d1d08bd7d7aaccc76018a68`,
+  Manager
+  `9134bd459f36966c62aa7f8b183e0b4f6af3c44d1fa7226cbfad8a4c05d57476`,
+  release-builder
+  `cb89492ff81d7ea2481e80c5833b30bed866c8736a01ef254f01ba34f7ce37f2`, and
+  normative SPEC
+  `97b051203f005c35ec13e9063a035bfcd1d4674b93e1f597f88765402b49234c`.
+- Protected verification kept the resolver at SHA-256
+  `7e8ad76e0d200e93918ca2e93c99ff8ecd02071953bf1479819db3ac0dbb6d07`, the
+  installed launcher at
+  `109b556884150a134c39a8892c599f6551dbc1fb18ea557eebbfc690b4fc3a9b`, the
+  bootstrap trust seed at
+  `62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c`, and
+  activation state at
+  `813cfaa53f0945656e56e0a26bc0de62cd36cfcb30b1c4cac5b866f7e82599e4`.
+  No live runtime/launcher, Manager/profile/session/auth state, resolver,
+  bwrap state, remote ref, push, or main promotion changed.
+- Disposition: KEEP one release-builder probe and one optional signed Manager
+  asset path; COLLAPSE digest-only Manager admission into the snapshot probe
+  and existing signed inventory; DELETE no second Manager updater, probe
+  state, trust source, or Core launch path. No MGR-6 bundle is selected yet.
 
 ## Goal Lifts
 

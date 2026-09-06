@@ -18,6 +18,9 @@ const CORE_API: &str = "codex-manager-core-v1";
 const CORE_REQUEST_ENV: &str = "CODEX_TERMUX_CORE_REQUEST";
 const CORE_OPERATION_ENV: &str = "CODEX_TERMUX_CORE_OPERATION";
 const CORE_REPAIR_REQUEST: &str = "codex-manager-repair-v1";
+const ARTIFACT_PROBE_ARGUMENT: &str = "--artifact-probe";
+const ARTIFACT_PROBE_ENV: &str = "CODEX_MANAGER_ARTIFACT_PROBE";
+const ARTIFACT_PROBE_OUTPUT: &str = "codex-manager-artifact-v1\ncore_api=codex-manager-core-v1\n";
 const CODEX_HOME_ENV: &str = "CODEX_HOME";
 const STATE_FILE: &str = "state-v1";
 const PROFILES_DIR: &str = "profiles";
@@ -301,6 +304,13 @@ where
     S: Into<OsString>,
 {
     let args: Vec<OsString> = args.into_iter().map(Into::into).collect();
+    if args.len() == 1
+        && is_exact(args.first(), ARTIFACT_PROBE_ARGUMENT)
+        && std::env::var_os(ARTIFACT_PROBE_ENV).as_deref() == Some(OsStr::new("1"))
+    {
+        print!("{ARTIFACT_PROBE_OUTPUT}");
+        return 0;
+    }
     match run_inner(args) {
         Ok(output) => {
             if let Some(output) = output {

@@ -15,6 +15,12 @@ const ENTRY_MAX_BYTES: u64 = 384 * 1024 * 1024;
 const PAYLOAD_MAX_BYTES: u64 = 512 * 1024 * 1024;
 const CORE_ARTIFACT_MAX_BYTES: u64 = 64 * 1024 * 1024;
 const MANAGER_ARTIFACT_MAX_BYTES: u64 = 64 * 1024 * 1024;
+const MANAGER_ARTIFACT_PROBE_OUTPUT_MAX_BYTES: usize = 512;
+const MANAGER_ARTIFACT_PROBE_TIMEOUT_SECONDS: u64 = 5;
+const MANAGER_ARTIFACT_PROBE_ARGUMENT: &str = "--artifact-probe";
+const MANAGER_ARTIFACT_PROBE_ENV: &str = "CODEX_MANAGER_ARTIFACT_PROBE";
+const MANAGER_ARTIFACT_PROBE_OUTPUT: &[u8] =
+    b"codex-manager-artifact-v1\ncore_api=codex-manager-core-v1\n";
 const PATH_MAX_BYTES: usize = 256;
 const LOGICAL_ENTRY_MAX: usize = 32;
 const PAX_PAYLOAD_MAX_BYTES: u64 = 512;
@@ -617,6 +623,90 @@ fn validate_request(request: &BuildRequest) -> Result<(), BuilderError> {
         .map_err(|source| io_error("resolve output parent", source))?;
     if canonical != parent {
         return Err(BuilderError::Invalid("output parent contains a symlink"));
+    }
+    Ok(())
+}
+
+fn spawn_bounded_probe_reader<R>(reader: R) -> std::thread::JoinHandle<io::Result<Vec<u8>>>
+where
+    R: Read + Send + 'static,
+{
+    std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        reader
+            .take((MANAGER_ARTIFACT_PROBE_OUTPUT_MAX_BYTES + 1) as u64)
+            .read_to_end(&mut bytes)?;
+        Ok(bytes)
+    })
+}
+
+fn qualify_manager_artifact(path: &Path, staging: &Path) -> Result<(), BuilderError> {
+    let mut child = Command::new(path)
+        .arg(MANAGER_ARTIFACT_PROBE_ARGUMENT)
+        .env_clear()
+        .env(MANAGER_ARTIFACT_PROBE_ENV, "1")
+        .current_dir(staging)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|source| io_error("start Manager artifact probe", source))?;
+    let stdout = child.stdout.take().ok_or(BuilderError::Tool(
+        "Manager artifact probe stdout is unavailable",
+    ))?;
+    let stderr = child.stderr.take().ok_or(BuilderError::Tool(
+        "Manager artifact probe stderr is unavailable",
+    ))?;
+    let stdout_reader = spawn_bounded_probe_reader(stdout);
+    let stderr_reader = spawn_bounded_probe_reader(stderr);
+    let deadline = std::time::Instant::now()
+        + std::time::Duration::from_secs(MANAGER_ARTIFACT_PROBE_TIMEOUT_SECONDS);
+    let mut timed_out = false;
+    let status = loop {
+        match child
+            .try_wait()
+            .map_err(|source| io_error("poll Manager artifact probe", source))?
+        {
+            Some(status) => break Some(status),
+            None if std::time::Instant::now() >= deadline => {
+                timed_out = true;
+                let _ = child.kill();
+                let _ = child.wait();
+                break None;
+            }
+            None => std::thread::sleep(std::time::Duration::from_millis(25)),
+        }
+    };
+    let stdout = stdout_reader
+        .join()
+        .map_err(|_| BuilderError::Tool("Manager artifact probe stdout reader failed"))?
+        .map_err(|source| io_error("read Manager artifact probe stdout", source))?;
+    let stderr = stderr_reader
+        .join()
+        .map_err(|_| BuilderError::Tool("Manager artifact probe stderr reader failed"))?
+        .map_err(|source| io_error("read Manager artifact probe stderr", source))?;
+    if timed_out {
+        return Err(BuilderError::Invalid("Manager artifact probe timed out"));
+    }
+    if stdout.len() > MANAGER_ARTIFACT_PROBE_OUTPUT_MAX_BYTES
+        || stderr.len() > MANAGER_ARTIFACT_PROBE_OUTPUT_MAX_BYTES
+    {
+        return Err(BuilderError::Invalid(
+            "Manager artifact probe output exceeds its byte bound",
+        ));
+    }
+    if !stderr.is_empty() {
+        return Err(BuilderError::Invalid(
+            "Manager artifact probe wrote to stderr",
+        ));
+    }
+    if !status.is_some_and(|status| status.success()) {
+        return Err(BuilderError::Invalid("Manager artifact probe failed"));
+    }
+    if stdout != MANAGER_ARTIFACT_PROBE_OUTPUT {
+        return Err(BuilderError::Invalid(
+            "Manager artifact probe output is incompatible",
+        ));
     }
     Ok(())
 }
@@ -2447,6 +2537,9 @@ fn build(request: &BuildRequest) -> Result<(), BuilderError> {
     let result = (|| {
         let core_sha256 = snapshot_core_artifact(request, &staging)?;
         let manager_sha256 = snapshot_manager_artifact(request, &staging)?;
+        if manager_sha256.is_some() {
+            qualify_manager_artifact(&staging.join(".manager-artifact"), &staging)?;
+        }
         let archive = snapshot_archive(request, &staging)?;
         let selected = select_archive(request, &archive, &staging)?;
         std::fs::remove_file(&archive)
@@ -2912,6 +3005,21 @@ fi
             .unwrap();
         child.stdin.take().unwrap().write_all(tar).unwrap();
         assert!(child.wait().unwrap().success());
+    }
+
+    fn write_manager_probe(path: &Path, body: &str) {
+        let shell = find_tool("sh");
+        let script = format!("#!{}\n{}", shell.display(), body);
+        std::fs::write(path, script).unwrap();
+        set_mode(path, 0o755, "set test Manager probe mode").unwrap();
+    }
+
+    fn write_valid_manager_probe(path: &Path) {
+        write_manager_probe(
+            path,
+            "if [ \"$#\" -ne 1 ] || [ \"$1\" != \"--artifact-probe\" ]; then exit 9; fi\n\
+             printf '%s\\n' 'codex-manager-artifact-v1' 'core_api=codex-manager-core-v1'\n",
+        );
     }
 
     fn fixture(label: &str, entries: Vec<TestEntry>, corrupt_header: bool) -> Fixture {
@@ -3466,15 +3574,14 @@ fi
     fn test_mgr1_slice1_build_carries_optional_manager_artifact_and_digest() {
         let mut fixture = fixture("mgr1-manager-build", happy_entries("0.150.1"), false);
         let manager = fixture.root.join("manager-source");
-        std::fs::write(&manager, b"manager-binary-placeholder").unwrap();
-        set_mode(&manager, 0o755, "set test Manager mode").unwrap();
+        write_valid_manager_probe(&manager);
         fixture.request.manager = Some(manager.clone());
 
         assert_eq!(run_from_args(request_args(&fixture.request)), 0);
         let output_manager = fixture.request.output.join("manager");
         assert_eq!(
             std::fs::read(&output_manager).unwrap(),
-            b"manager-binary-placeholder"
+            std::fs::read(&manager).unwrap()
         );
         assert_eq!(
             std::fs::symlink_metadata(&output_manager)
@@ -3510,8 +3617,7 @@ fi
     fn test_mgr1_slice2_publish_includes_manager_in_signed_inventory() {
         let mut fixture = fixture("mgr1-manager-publish", happy_entries("0.150.1"), false);
         let manager = fixture.root.join("manager-source");
-        std::fs::write(&manager, b"manager-binary-placeholder").unwrap();
-        set_mode(&manager, 0o755, "set test Manager mode").unwrap();
+        write_valid_manager_probe(&manager);
         fixture.request.manager = Some(manager);
         assert_eq!(run_from_args(request_args(&fixture.request)), 0);
 
@@ -3532,6 +3638,52 @@ fi
         let manifest = std::fs::read_to_string(release.join("release.manifest")).unwrap();
         assert!(manifest.contains("file\tmanager\t"));
         assert!(manifest.contains("file_count\t4\n"));
+        fixture.remove();
+    }
+
+    #[test]
+    fn test_mgr5_manager_artifact_probe_is_bounded_and_fail_closed() {
+        let cases = [
+            (
+                "probe-output",
+                "printf '%s\\n' 'wrong-manager-artifact'\n",
+            ),
+            (
+                "probe-stderr",
+                "printf 'probe-noise\\n' >&2\nprintf '%s\\n' 'codex-manager-artifact-v1' 'core_api=codex-manager-core-v1'\n",
+            ),
+            (
+                "probe-status",
+                "printf '%s\\n' 'codex-manager-artifact-v1' 'core_api=codex-manager-core-v1'\nexit 7\n",
+            ),
+            (
+                "probe-oversized",
+                "i=0\nwhile [ \"$i\" -lt 513 ]; do printf x; i=$((i + 1)); done\n",
+            ),
+        ];
+        for (label, body) in cases {
+            let mut fixture = fixture(label, happy_entries("0.150.1"), false);
+            let manager = fixture.root.join("manager-source");
+            write_manager_probe(&manager, body);
+            fixture.request.manager = Some(manager);
+            let error = build(&fixture.request).unwrap_err();
+            assert!(
+                error.to_string().contains("Manager artifact probe"),
+                "unexpected {label} error: {error}"
+            );
+            assert!(!fixture.request.output.exists());
+            assert!(no_builder_staging(&fixture.root));
+            fixture.remove();
+        }
+
+        let mut fixture = fixture("probe-timeout", happy_entries("0.150.1"), false);
+        let manager = fixture.root.join("manager-source");
+        write_manager_probe(&manager, "while :; do :; done\n");
+        fixture.request.manager = Some(manager);
+        let error = build(&fixture.request).unwrap_err();
+        assert!(error.to_string().contains("probe timed out"));
+        assert!(!fixture.request.output.exists());
+        assert!(no_builder_staging(&fixture.root));
         fixture.remove();
     }
 

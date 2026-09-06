@@ -939,6 +939,8 @@ const MANAGER_CORE_ENTRYPOINT_ENV: &str = "CODEX_TERMUX_CORE_ENTRYPOINT";
 #[cfg(unix)]
 const MANAGER_CORE_API: &str = "codex-manager-core-v1";
 #[cfg(unix)]
+const MANAGER_ARTIFACT_PROBE_ENV: &str = "CODEX_MANAGER_ARTIFACT_PROBE";
+#[cfg(unix)]
 const CORE_REPAIR_REQUEST_ENV: &str = "CODEX_TERMUX_CORE_REQUEST";
 #[cfg(unix)]
 const CORE_REPAIR_OPERATION_ENV: &str = "CODEX_TERMUX_CORE_OPERATION";
@@ -987,6 +989,7 @@ where
             command
                 .env(MANAGER_CORE_API_ENV, MANAGER_CORE_API)
                 .env(MANAGER_CORE_ENTRYPOINT_ENV, core_entrypoint)
+                .env_remove(MANAGER_ARTIFACT_PROBE_ENV)
                 .args(args);
             Err(command.exec())
         }
@@ -6968,7 +6971,7 @@ fn wait_for_github_child_with_timeout(
 #[cfg(unix)]
 fn github_release_asset_files(release: &std::path::Path) -> Result<Vec<std::path::PathBuf>, ()> {
     let mut total = 0u64;
-    let mut files = Vec::with_capacity(5);
+    let mut files = Vec::with_capacity(6);
     for name in [
         "generation.meta",
         "runtime",
@@ -6986,6 +6989,21 @@ fn github_release_asset_files(release: &std::path::Path) -> Result<Vec<std::path
             return Err(());
         }
         files.push(path);
+    }
+    let manager = release.join("manager");
+    match std::fs::symlink_metadata(&manager) {
+        Ok(metadata) => {
+            if !metadata.file_type().is_file() || metadata.len() > REMOTE_RELEASE_FILE_MAX_BYTES {
+                return Err(());
+            }
+            total = total.checked_add(metadata.len()).ok_or(())?;
+            if total > REMOTE_RELEASE_TOTAL_MAX_BYTES {
+                return Err(());
+            }
+            files.push(manager);
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => return Err(()),
     }
     Ok(files)
 }
@@ -9255,6 +9273,11 @@ if [ "$CODEX_TERMUX_CORE_API" = "codex-manager-core-v1" ] && [ -n "$CODEX_TERMUX
 else
   printf 'HANDOFF_BAD\n'
 fi
+if [ -z "${CODEX_MANAGER_ARTIFACT_PROBE+x}" ]; then
+  printf 'ARTIFACT_PROBE_CLEARED\n'
+else
+  printf 'ARTIFACT_PROBE_PRESENT\n'
+fi
 if [ "$1" = "doctor" ]; then
   if [ "${CODEX_TEST_DOCTOR_LARGE:-}" = "1" ]; then
     i=0
@@ -9604,6 +9627,9 @@ exit 73
             .stderr(std::process::Stdio::null());
         if scenario.starts_with("notify-projection") {
             command.env("HOME", root);
+        }
+        if scenario == "manager" {
+            command.env(MANAGER_ARTIFACT_PROBE_ENV, "1");
         }
         let status = command.status().unwrap();
         ProbeResult {
@@ -10236,6 +10262,10 @@ exit 73
             .stdout
             .windows(b"HANDOFF_OK\n".len())
             .any(|w| w == b"HANDOFF_OK\n"));
+        assert!(result
+            .stdout
+            .windows(b"ARTIFACT_PROBE_CLEARED\n".len())
+            .any(|w| w == b"ARTIFACT_PROBE_CLEARED\n"));
         assert!(result.stdout.windows(2).any(|w| w == [0xff, b'm']));
         remove_temp_root(root);
     }
@@ -13817,6 +13847,49 @@ esac
         let outside = root.join("outside-runtime");
         std::fs::write(&outside, b"runtime").unwrap();
         symlink(&outside, release.join("runtime")).unwrap();
+        assert!(github_release_asset_files(&release).is_err());
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_mgr5_github_release_asset_inventory_includes_optional_manager() {
+        use std::os::unix::fs::symlink;
+
+        let root = temp_root("mgr5-github-manager-asset");
+        let release = root.join("release");
+        std::fs::create_dir(&release).unwrap();
+        for name in [
+            "generation.meta",
+            "runtime",
+            CODE_MODE_HOST_FILE,
+            "release.manifest",
+            "release.sig",
+            "manager",
+        ] {
+            std::fs::write(release.join(name), format!("fixture-{name}")).unwrap();
+        }
+        let files = github_release_asset_files(&release).unwrap();
+        let names: Vec<_> = files
+            .iter()
+            .map(|path| path.file_name().unwrap().to_owned())
+            .collect();
+        assert_eq!(
+            names,
+            vec![
+                OsString::from("generation.meta"),
+                OsString::from("runtime"),
+                OsString::from(CODE_MODE_HOST_FILE),
+                OsString::from("release.manifest"),
+                OsString::from("release.sig"),
+                OsString::from("manager"),
+            ]
+        );
+
+        let outside = root.join("outside-manager");
+        std::fs::write(&outside, b"manager").unwrap();
+        std::fs::remove_file(release.join("manager")).unwrap();
+        symlink(&outside, release.join("manager")).unwrap();
         assert!(github_release_asset_files(&release).is_err());
         remove_temp_root(root);
     }

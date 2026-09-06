@@ -17,8 +17,10 @@ system:
 2. **Manager** — a separately implemented convenience layer reached through
    `codex termux` for profiles, sessions, notifications, and related Termux UX.
 
-The current two-milestone program completes Core. It defines but does not yet
-implement Manager product features.
+The current two-milestone program completes Core. Manager product contracts
+are post-Core and remain optional for ordinary launch. MGR-1 through MGR-5 are
+accepted source slices; MGR-5 qualifies the separately built Manager artifact
+before it enters a signed generation.
 
 This is a clean rewrite. Legacy source is historical evidence, not an
 implementation dependency or migration base.
@@ -178,6 +180,11 @@ Manager owns:
 - Manager-local state and UI;
 - repair planning and requests to Core.
 
+The Manager executable is built separately from Core and is an optional signed
+generation asset. Core does not compile it, discover it from `PATH`, or probe
+it during ordinary launch. Release-builder owns the bounded artifact probe;
+Core consumes only the signed generation and its digest-bound Manager path.
+
 Manager must not directly write Core generations, pointers, manifests, locks,
 runtime state, resolver data, or activation journals. A Manager request that
 would mutate Core state must use a versioned, runtime-validated Core contract.
@@ -328,6 +335,7 @@ The complete publication output is:
 <output>/releases/<generation_id>/generation.meta
 <output>/releases/<generation_id>/runtime
 <output>/releases/<generation_id>/codex-code-mode-host
+<output>/releases/<generation_id>/manager                  optional
 ```
 
 The index contains exactly the four records and final newline defined below,
@@ -1327,6 +1335,53 @@ creates a second updater, package-manager action, raw upstream installation,
 legacy-state import, bwrap repair, or direct Manager write to Core state.
 Rollback remains an explicit Core `update --rollback` operation and is not
 silently selected by Manager repair.
+
+### MGR-5 — Manager artifact build and qualification
+
+MGR-5 adds no user-facing `codex termux` command and no Manager persistent
+record. A release qualification supplies one separately built executable
+Manager artifact; the release builder must snapshot and qualify that exact
+private copy before publishing it into a generation. The normal on-device
+update path does not compile Rust, Cargo, or Manager.
+
+The artifact has one reserved build-time probe form, invoked only by the
+release builder and never forwarded through Core's `codex termux` boundary:
+
+```text
+codex-manager --artifact-probe
+```
+
+The release builder supplies the exact private marker
+`CODEX_MANAGER_ARTIFACT_PROBE=1` only in that child. The probe accepts exactly
+that one argument and marker pair, requires no `HOME`, `PREFIX`, Core handoff,
+profile state, auth state, or network, and emits exactly these
+UTF-8 bytes on stdout with one final LF, no stderr, and status `0`:
+
+```text
+codex-manager-artifact-v1
+core_api=codex-manager-core-v1
+```
+
+Any other probe argument, nonzero status, stderr output, or byte mismatch is a
+qualification failure. Release-builder executes the probe with an empty
+environment, null stdin, a private staging directory as its working
+directory, a 512-byte captured-output bound, and a five-second wall-clock
+bound. It kills and rejects a probe that exceeds either bound. Probe output is
+not persisted or included in the generation.
+
+After a successful probe, release-builder revalidates the source as a regular
+owner-executable file within the existing 64 MiB bound, snapshots it through
+the existing private bounded path, sets and verifies mode `0755`, binds the
+snapshot digest in `manager_artifact_digest`, and includes `manager` in the
+signed release inventory. A snapshot/read failure or probe mismatch publishes
+no generation and leaves an existing destination unchanged.
+
+Core does not repeat the probe during ordinary launch or update. Its existing
+qualified-generation path remains responsible for the signed descriptor,
+regular-file, mode, and digest binding; it executes the Manager only after
+that admission and preserves the existing Core handoff, streams, TTY,
+signals, raw arguments, and exit status. A generation without a Manager
+artifact remains valid and reports Manager unavailable.
 
 ### Manager definition gate
 
