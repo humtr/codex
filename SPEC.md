@@ -24,7 +24,7 @@ before it enters a signed generation. MGR-6 is an accepted distribution and
 disposable-qualification slice for that optional artifact. MGR-7 is the
 accepted remote-readback and operational-qualification slice for one explicit
 Manager-bearing signed generation; it adds no source command or state. R10 is
-the active coordinated Core + generation update slice opened by the bounded
+the accepted coordinated Core + generation update slice opened by the bounded
 live qualification finding that followed MGR-7.
 
 This is a clean rewrite. Legacy source is historical evidence, not an
