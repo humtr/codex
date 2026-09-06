@@ -23,7 +23,9 @@ accepted source slices; MGR-5 qualifies the separately built Manager artifact
 before it enters a signed generation. MGR-6 is an accepted distribution and
 disposable-qualification slice for that optional artifact. MGR-7 is the
 accepted remote-readback and operational-qualification slice for one explicit
-Manager-bearing signed generation; it adds no source command or state.
+Manager-bearing signed generation; it adds no source command or state. R10 is
+the active coordinated Core + generation update slice opened by the bounded
+live qualification finding that followed MGR-7.
 
 This is a clean rewrite. Legacy source is historical evidence, not an
 implementation dependency or migration base.
@@ -48,20 +50,20 @@ The launcher classifies only an exact first argument of `update`, `doctor`, or
 Core-owned safety boundary: the installed wrapper must never execute the
 upstream distribution updater, because that updater can install an unadapted
 runtime on Termux. The wrapper release pipeline obtains the official upstream
-package, applies the accepted Termux patch, qualifies it, and publishes a
-signed generation; the installed Core obtains and activates only that signed
-adapted generation.
+package, applies the accepted Termux patch, qualifies it, binds the matching
+Core artifact, and publishes a signed Core-plus-generation bundle; the
+installed Core obtains and activates only that signed adapted bundle.
 
 | Command | Owner | Required behavior |
 | --- | --- | --- |
 | `codex [UPSTREAM_ARGS...]` | Core | execute upstream with original arguments |
 | `codex --version`, `codex -V` | upstream | print exactly the upstream version output |
-| `codex update` | Core | resolve the signed stable wrapper release channel; when the wrapper release is unavailable, build and sign one qualified local generation from the official upstream archive, then activate it through the authenticated Core path |
+| `codex update` | Core | resolve the signed stable wrapper release channel; when the wrapper release is unavailable, build and sign one qualified Core-plus-generation bundle from the official upstream archive, then activate its Core and generation through the authenticated coordinated path |
 | `codex update --help` | Core | print the wrapper-owned update usage without invoking upstream or changing state |
 | `codex update [INVALID_ARGS...]` | Core | reject unsupported updater options without invoking upstream or changing state |
-| `codex update --local <DIRECTORY>` | Core | verify, stage, probe, and activate one compatible local generation |
-| `codex update --remote <HTTPS_BASE_URL>` | Core | acquire one immutable signed generation and activate it through the local update path |
-| `codex update --rollback` | Core | explicitly swap to the one retained complete previous generation |
+| `codex update --local <DIRECTORY>` | Core | verify, stage, probe, and activate one compatible signed Core-plus-generation bundle |
+| `codex update --remote <HTTPS_BASE_URL>` | Core | acquire one immutable signed Core-plus-generation bundle and activate it through the local coordinated path |
+| `codex update --rollback` | Core | explicitly swap to the one retained complete previous generation and its retained Core entrypoint pair |
 | `codex doctor [OPTIONS]` | Core | combine upstream and Termux diagnostics |
 | `codex doctor --color` | Core | explicitly request colored human diagnostics on a TTY, including when an outer Termux wrapper supplied `NO_COLOR` |
 | `codex termux [COMMAND]` | Manager boundary | invoke the Manager artifact or report it unavailable |
@@ -288,8 +290,8 @@ metadata, and an optional regular executable Manager artifact through
 the Manager is copied into the generation root and bound by
 `manager_artifact_digest`; when omitted, the descriptor uses `-` and no
 Manager file is emitted. It performs no discovery, signing, activation, or
-live-state mutation and emits only an unsigned generation source for the
-`codex-release-v3` signing and delivery path. Core's local fallback carries
+live-state mutation and emits an unsigned Core-bearing generation source for
+the `codex-release-v4` signing and delivery path. Core's local fallback carries
 forward the currently authenticated Manager artifact, when one is present,
 so a qualified Manager is not silently lost on an upstream update.
 `codex-release-v2` remains implementation history and is not retained as a
@@ -308,9 +310,10 @@ codex-release-builder publish --generation <ABSOLUTE_DIRECTORY> \
 ```
 
 `publish` accepts the current generation layout: a real directory containing
-exactly `generation.meta`, `runtime`, and the root-level
-`codex-code-mode-host`, with an optional root-level `manager`; all present
-entries are regular non-symlink files. The descriptor must
+`generation.meta`, the executable Core artifact `core`, `runtime`, and the
+root-level `codex-code-mode-host`, with an optional root-level `manager`; all
+present entries are regular non-symlink files. A v3 source without `core` is
+accepted only for legacy Manager-less publication compatibility. The descriptor must
 be a qualified `codex-local-generation-v2` with the supported Android/AArch64,
 Core API, persistent-schema, and root-companion bindings. The generation
 identity must be a safe URL path component and the supplied canonical HTTPS
@@ -336,6 +339,7 @@ The complete publication output is:
 <output>/releases/<generation_id>/release.manifest
 <output>/releases/<generation_id>/release.sig
 <output>/releases/<generation_id>/generation.meta
+<output>/releases/<generation_id>/core
 <output>/releases/<generation_id>/runtime
 <output>/releases/<generation_id>/codex-code-mode-host
 <output>/releases/<generation_id>/manager                  optional
@@ -344,12 +348,19 @@ The complete publication output is:
 The index contains exactly the four records and final newline defined below,
 with the supplied generation identity and release base, and its sibling
 `update-index-v1.sig` signs those exact index bytes with the same key. The
-release manifest contains the exact v3 fields, a lexicographically sorted
-inventory, lowercase SHA-256 digest, and four-octal-digit regular-file mode
-for each present generation file: three required files, plus `manager` when
-the optional Manager artifact was supplied. The local `releases/<id>` tree is the
-directory to map to the URL represented by `release_base`; `publish` performs
-no network upload and does not assume that the URL is hosted by OpenAI.
+publication manifest containing `core` uses `codex-release-v4`; v4 keeps the
+v3 control fields and inventory grammar but requires the executable `core`
+asset. A v3 publication without `core` remains readable for already installed
+legacy generations, but it is not a valid new Manager-bearing update. The
+release manifest contains a lexicographically sorted inventory, lowercase
+SHA-256 digest, and four-octal-digit regular-file mode for each present
+generation file: `generation.meta`, `core`, `runtime`, and
+`codex-code-mode-host`, plus `manager` when the optional Manager artifact was
+supplied. The `core` digest must equal the generation descriptor's
+`core_artifact_digest`; a Manager entry requires `core`. The local
+`releases/<id>` tree is the directory to map to the URL represented by
+`release_base`; `publish` performs no network upload and does not assume that
+the URL is hosted by OpenAI.
 
 The no-argument local fallback resolves the upstream version before building.
 When `CODEX_TERMUX_UPDATE_VERSION` is set, it must be one explicit stable
@@ -513,6 +524,7 @@ $PREFIX/bin/codex                                      stable public entrypoint
   release.manifest                                    signed release/integrity inventory + release key
   release.sig                                         candidate-key Ed25519 signature over exact manifest
   release-authority.sig                               rotation-only current-key signature over exact manifest
+  core                                                authenticated Core launcher for v4 bundles
   runtime                                             patched upstream executable
   codex-code-mode-host                                first-target companion beside runtime
   manager                                              optional Manager executable
@@ -523,6 +535,9 @@ $PREFIX/bin/codex                                      stable public entrypoint
 ~/.local/share/codex/core/activation-state            authoritative generation + bounded trust state
 ~/.local/share/codex/core/activation-journal[.tmp]    crash-recovery transaction state
 ~/.local/share/codex/core/activation-state.tmp        atomic state publication temporary
+~/.local/share/codex/core/core-entrypoint-rollback    one retained prior Core launcher
+~/.local/share/codex/core/core-entrypoint-rollback.meta
+                                                      rollback binding for that launcher
 ~/.local/share/codex/core/config/                     process-local managed config directory
 ~/.local/share/codex/manager/                         Manager-owned mutable state
 ```
@@ -616,6 +631,26 @@ one transaction. After process kill, power loss, short write, full storage,
 permission failure, or a stale journal, recovery must resolve to exactly one
 complete old or new trust-and-generation state and must never synthesize a mixed
 state.
+
+A v4 coordinated update also retains one regular executable
+`core-entrypoint-rollback` and its exact `codex-core-entrypoint-rollback-v1`
+binding for the launcher active before the forward transition. This cache is
+not a trust source: its digest and associated generation are verified before
+rollback, and it is atomically replaced only while the activation lock is
+held. Existing v3 generations may lack this cache; a v4 forward transition
+must create it before changing the stable entrypoint.
+
+Coordinated activation stages and verifies the complete signed generation and
+its `core` asset first, snapshots the current stable launcher into the bounded
+rollback cache, atomically replaces `$PREFIX/bin/codex` with the candidate
+Core, synchronizes its parent, and only then commits the existing generation
+pointer transaction. If the pointer commit fails, the old launcher is restored
+before the failure is reported. A process kill between launcher replacement and
+pointer commit leaves the new Core running against the old complete generation,
+which is backward-compatible within the accepted Core API/schema boundary; the
+next update may retry without accepting a mixed generation. Rollback swaps the
+retained launcher cache and generation pointer as one locked operation and
+preserves the exact one-pair boundary.
 
 Core optimizes for the shortest correct release path rather than speculative
 defense layers. Complete-or-absent generations, one atomic state transaction,
@@ -940,7 +975,7 @@ Inventory URLs are derived only by preserving `/` separators and percent-
 encoding every UTF-8 path byte outside the RFC 3986 unreserved set. Every
 resulting resource URL is also at most 4,096 ASCII bytes. After signed control
 admission, Core reconstructs the exact inventory, verifies the assembled bundle
-again through the same local v3 admission, and feeds the existing staging,
+again through the same local v3/v4 admission, and feeds the existing staging,
 probe, activation, and recovery path. This file-addressed release transport is
 not an archive and does not weaken the archive-safety requirements for later
 upstream-artifact work.

@@ -21,9 +21,14 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 - Remote `origin/rewrite/rust-core` remains at
   `253156c37a2bd22af8faae0bce03587999ffd136`; the local branch is ahead and
   no push is authorized.
-- Current milestone: MGR-7 remote publication readback and operational
-  qualification is accepted for generation `local-1788680568-mgr7-1`; no
-  source production slice is active.
+- Current milestone: R10 coordinated Core + generation update is accepted in
+  source after the authorized live qualification of
+  `local-1788680568-mgr7-1` activated the generation but failed Manager
+  handoff. The exact candidate was rolled back to
+  `local-1788570645-23374-1`; protected resolver, launcher, and trust-key
+  identities were preserved. R10 closes the exposed gap: a new signed bundle
+  carries the matching Core launcher, and update/rollback treats it with the
+  generation as one recoverable pair. No live state was changed during R10.
   MGR-0 through MGR-6 are complete in `SPEC.md`;
   Core R9.2 remains accepted in source, live runtime, remote Release/index,
   and disposable-consumer qualification. MGR-7 published and read back the
@@ -341,8 +346,49 @@ archive digest and the release-built Core/Manager artifacts.
    no live runtime replacement, source-history push, or local source behavior
    changed. Detailed evidence is recorded in `GOAL.md`.
 
-MGR-7 is closed. No next implementation slice is selected; any future remote
-publication or live cutover must bind a new exact candidate and authorization.
+MGR-7 is closed. Its live qualification finding is the R10 entry condition;
+the published MGR-7 candidate is immutable and will not be rewritten.
+
+## R10 Coordinated Core + generation update (accepted)
+
+R10 closes the live compatibility gap found after MGR-7. It changes the
+signed release contract so a new Core launcher is delivered with a generation,
+and makes update/rollback treat that launcher and the generation as one
+recoverable pair. Existing v3 generations without a Core asset remain readable
+for compatibility; a new Manager-bearing candidate must carry the matching
+Core asset.
+
+Ordered proof slices, all closed:
+
+1. Contract and inventory — update `SPEC.md` first; define the v4 signed
+   release inventory, Core asset binding, launcher replacement boundary, and
+   one-retained-pair rollback/recovery semantics. Focused proof maps old v3
+   admission, new v4 Core/Manager admission, and rejection of a Manager
+   candidate without a matching Core asset.
+2. Release production — release-builder copies and signs the executable Core
+   artifact into the generation/publication and preserves its digest/mode.
+   Focused proof exercises build, publish, manifest inventory, and remote asset
+   completeness with a nonzero invocation.
+3. Core admission — Core parses v3/v4, stages/verifies the Core asset, checks
+   the candidate Core against the signed descriptor, and runs the candidate
+   generation path without touching live state. Focused proof covers digest,
+   mode, path, API, and Manager coupling failures.
+4. Coordinated activation — Core durably snapshots the current launcher,
+   atomically installs the candidate launcher, activates the signed generation,
+   and recovers from interruption or injected failure. Rollback swaps the
+   retained launcher/generation pair; focused proof verifies exact pair
+   restoration and protected-surface isolation.
+5. Bundle acceptance — the grouped workspace suite, locked clippy,
+   warnings-denied release build, format/diff checks, protected-surface checks,
+   existing fresh/legacy disposable paths, and bounded live-like upgrade
+   fixtures all passed. No live device cutover was performed in the source
+   bundle.
+
+R10 focused regressions passed: v4/v3 trust-policy admission, rejection of a
+new v3 Manager-bearing update without Core, coordinated activation with
+state-boundary failure restoration, and remote v4 update/rollback with exact
+launcher restoration. The final evidence and source commit are recorded in
+`GOAL.md`; no next source implementation slice is selected.
 
 Worker mode remains OFF; the primary Lead owns every future definition,
 implementation, validation, authority update, commit, and acceptance decision.

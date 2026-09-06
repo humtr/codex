@@ -3386,6 +3386,16 @@ mod m2_generation_state {
         io: &mut I,
     ) -> Result<(), ActivationTransactionError> {
         let _lock = acquire_activation_lock(paths)?;
+        activate_pointer_state_locked(paths, before, after, io, &_lock)
+    }
+
+    pub(super) fn activate_pointer_state_locked<I: ActivationIo>(
+        paths: &CoreStatePaths,
+        before: Option<&GenerationPointerState>,
+        after: &GenerationPointerState,
+        io: &mut I,
+        _lock: &ActivationLockGuard,
+    ) -> Result<(), ActivationTransactionError> {
         if let Some(before) = before {
             validate_pointer_state(before)?;
         }
@@ -3519,6 +3529,8 @@ const PERSISTENT_SCHEMA_IDENTITY: &str = "schema-v1";
 #[cfg(unix)]
 const LOCAL_RELEASE_FORMAT: &str = "codex-release-v3";
 #[cfg(unix)]
+const LOCAL_RELEASE_FORMAT_V4: &str = "codex-release-v4";
+#[cfg(unix)]
 const LOCAL_RELEASE_CHANNEL: &str = "stable";
 #[cfg(unix)]
 const LOCAL_RELEASE_MAX_BYTES: usize = 128 * 1024;
@@ -3567,6 +3579,14 @@ const GITHUB_PUBLICATION_TIMEOUT_SECONDS: u64 = 300;
 const BOOTSTRAP_PUBLIC_KEY_MAX_BYTES: u64 = 16 * 1024;
 #[cfg(unix)]
 const CORE_ARTIFACT_MAX_BYTES: u64 = 64 * 1024 * 1024;
+#[cfg(unix)]
+const CORE_ROLLBACK_FORMAT: &str = "codex-core-entrypoint-rollback-v1";
+#[cfg(unix)]
+const CORE_ROLLBACK_FILE: &str = "core-entrypoint-rollback";
+#[cfg(unix)]
+const CORE_ROLLBACK_META_FILE: &str = "core-entrypoint-rollback.meta";
+#[cfg(unix)]
+const CORE_ROLLBACK_META_MAX_BYTES: usize = 4096;
 #[cfg(unix)]
 const REMOTE_RELEASE_URL_MAX_BYTES: usize = 4096;
 #[cfg(unix)]
@@ -3639,6 +3659,7 @@ enum LocalProductError {
     Release(&'static str),
     Bootstrap(&'static str),
     LegacyHandoff(&'static str),
+    CoreEntrypoint(&'static str),
     OpenSslUnavailable,
     CurlUnavailable,
     TrustedReleaseKeyUnavailable,
@@ -3689,6 +3710,7 @@ impl std::fmt::Display for LocalProductError {
             LocalProductError::Release(message) => f.write_str(message),
             LocalProductError::Bootstrap(message) => f.write_str(message),
             LocalProductError::LegacyHandoff(message) => f.write_str(message),
+            LocalProductError::CoreEntrypoint(message) => f.write_str(message),
             LocalProductError::OpenSslUnavailable => f.write_str("Termux OpenSSL is unavailable"),
             LocalProductError::CurlUnavailable => f.write_str("Termux curl is unavailable"),
             LocalProductError::TrustedReleaseKeyUnavailable => {
@@ -4686,8 +4708,16 @@ impl ReleasePublicKey {
 }
 
 #[cfg(unix)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LocalReleaseFormat {
+    LegacyV3,
+    CoordinatedV4,
+}
+
+#[cfg(unix)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct LocalReleaseManifest {
+    format: LocalReleaseFormat,
     generation_id: String,
     release_sequence: u64,
     channel: String,
@@ -4740,8 +4770,10 @@ fn parse_release_file_mode(value: &str, relative_path: &str) -> Result<u32, Loca
             "release file is not owner-readable",
         ));
     }
-    if (matches!(relative_path, "runtime" | "manager" | CODE_MODE_HOST_FILE)
-        || relative_path.starts_with("helpers/"))
+    if (matches!(
+        relative_path,
+        "core" | "runtime" | "manager" | CODE_MODE_HOST_FILE
+    ) || relative_path.starts_with("helpers/"))
         && mode & 0o100 == 0
     {
         return Err(LocalProductError::ReleasePolicy(
@@ -4768,7 +4800,7 @@ fn valid_release_relative_path(value: &str) -> bool {
     }
     if matches!(
         value,
-        "generation.meta" | "runtime" | "manager" | CODE_MODE_HOST_FILE
+        "core" | "generation.meta" | "runtime" | "manager" | CODE_MODE_HOST_FILE
     ) {
         return true;
     }
@@ -4798,11 +4830,15 @@ fn parse_local_release_manifest(bytes: &[u8]) -> Result<LocalReleaseManifest, Lo
     let text = std::str::from_utf8(bytes)
         .map_err(|_| LocalProductError::Release("release manifest is not UTF-8"))?;
     let mut lines = text.lines();
-    if lines.next() != Some(LOCAL_RELEASE_FORMAT) {
-        return Err(LocalProductError::Release(
-            "release manifest format is unsupported",
-        ));
-    }
+    let format = match lines.next() {
+        Some(LOCAL_RELEASE_FORMAT) => LocalReleaseFormat::LegacyV3,
+        Some(LOCAL_RELEASE_FORMAT_V4) => LocalReleaseFormat::CoordinatedV4,
+        _ => {
+            return Err(LocalProductError::Release(
+                "release manifest format is unsupported",
+            ))
+        }
+    };
     let generation_id = descriptor_field(lines.next(), "generation_id")?;
     m2_generation_state::validate_generation_identity(generation_id, "release generation_id")
         .map_err(LocalProductError::StateFormat)?;
@@ -4888,6 +4924,7 @@ fn parse_local_release_manifest(bytes: &[u8]) -> Result<LocalReleaseManifest, Lo
         ));
     }
     Ok(LocalReleaseManifest {
+        format,
         generation_id: generation_id.to_owned(),
         release_sequence,
         channel: channel.to_owned(),
@@ -4926,6 +4963,23 @@ fn validate_local_release_policy(manifest: &LocalReleaseManifest) -> Result<(), 
         return Err(LocalProductError::ReleasePolicy(
             "release persistent schema identity is incompatible",
         ));
+    }
+    let has_core = manifest
+        .files
+        .iter()
+        .any(|file| file.relative_path == "core");
+    match manifest.format {
+        LocalReleaseFormat::LegacyV3 if has_core => {
+            return Err(LocalProductError::ReleasePolicy(
+                "legacy v3 release must not contain a Core entrypoint",
+            ));
+        }
+        LocalReleaseFormat::CoordinatedV4 if !has_core => {
+            return Err(LocalProductError::ReleasePolicy(
+                "coordinated v4 release must contain a Core entrypoint",
+            ));
+        }
+        _ => {}
     }
     Ok(())
 }
@@ -5186,6 +5240,7 @@ struct LoadedLocalGeneration {
     manifest: GenerationManifest,
     doctor_capability: UpstreamDoctorCapability,
     generation_layout: GenerationLayout,
+    core_path: Option<std::path::PathBuf>,
     runtime_path: std::path::PathBuf,
     code_mode_host_path: std::path::PathBuf,
     compatibility_dir: std::path::PathBuf,
@@ -5362,6 +5417,29 @@ fn load_local_generation(
         "inspect activated generation runtime",
         "activated generation runtime must be a regular file",
     )?;
+    let core_path = match std::fs::symlink_metadata(generation_dir.join("core")) {
+        Ok(metadata) => {
+            if !metadata.file_type().is_file() {
+                return Err(LocalProductError::UnsafeSource(
+                    "activated generation Core must be a regular file",
+                ));
+            }
+            let path = generation_dir.join("core");
+            ensure_regular_file(
+                &path,
+                "inspect activated generation Core",
+                "activated generation Core must be a regular file",
+            )?;
+            Some(path)
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => None,
+        Err(source) => {
+            return Err(LocalProductError::Io {
+                operation: "inspect activated generation Core",
+                source,
+            })
+        }
+    };
     let (code_mode_host_path, compatibility_dir) = match generation_layout {
         GenerationLayout::RootCodeModeHost => {
             let code_mode_host_path = generation_dir.join(CODE_MODE_HOST_FILE);
@@ -5452,6 +5530,7 @@ fn load_local_generation(
         manifest,
         doctor_capability,
         generation_layout,
+        core_path,
         runtime_path,
         code_mode_host_path,
         compatibility_dir,
@@ -5686,6 +5765,14 @@ fn exact_release_file_paths(
         "release code-mode host must be a regular file",
     )?;
     let mut files = vec!["generation.meta".to_owned(), "runtime".to_owned()];
+    if let Some(core_path) = loaded.core_path.as_ref() {
+        ensure_regular_file(
+            core_path,
+            "inspect release Core",
+            "release Core must be a regular file",
+        )?;
+        files.push("core".to_owned());
+    }
     match loaded.generation_layout {
         GenerationLayout::RootCodeModeHost => files.push(CODE_MODE_HOST_FILE.to_owned()),
         GenerationLayout::LegacyCompat => {}
@@ -5734,6 +5821,40 @@ fn verify_release_inventory(
         return Err(LocalProductError::Release(
             "release generation id does not match generation descriptor",
         ));
+    }
+    let signed_core = manifest
+        .files
+        .iter()
+        .find(|file| file.relative_path == "core");
+    match (manifest.format, signed_core, loaded.core_path.as_ref()) {
+        (LocalReleaseFormat::CoordinatedV4, None, _) => {
+            return Err(LocalProductError::Release(
+                "coordinated release is missing its signed Core entry",
+            ));
+        }
+        (LocalReleaseFormat::LegacyV3, Some(_), _) => {
+            return Err(LocalProductError::Release(
+                "legacy release contains a signed Core entry",
+            ));
+        }
+        (_, Some(_), None) => {
+            return Err(LocalProductError::Release(
+                "signed Core entry is missing from generation content",
+            ));
+        }
+        (_, None, Some(_)) => {
+            return Err(LocalProductError::Release(
+                "generation Core is absent from the signed inventory",
+            ));
+        }
+        _ => {}
+    }
+    if let Some(core) = signed_core {
+        if core.sha256 != loaded.manifest.core_artifact_digest {
+            return Err(LocalProductError::Release(
+                "signed Core entry does not match its generation descriptor",
+            ));
+        }
     }
     let actual = exact_release_file_paths(generation_dir, &loaded)?;
     if actual.len() != manifest.files.len()
@@ -6100,6 +6221,9 @@ fn stage_local_generation_with_io<I: GenerationPublishIo>(
             &candidate.join("runtime"),
             "runtime must be a regular file",
         )?;
+        if let Some(core) = source.core_path.as_ref() {
+            copy_local_regular_file(core, &candidate.join("core"), "Core must be a regular file")?;
+        }
         match source.generation_layout {
             GenerationLayout::RootCodeModeHost => copy_local_regular_file(
                 &source.code_mode_host_path,
@@ -6435,6 +6559,11 @@ fn prepare_signed_local_release(
     )?;
     let (source_release, source_loaded) =
         verify_local_release_bundle_with_key(source_dir, &roots.openssl, before.update_key)?;
+    if source_loaded.manager_path.is_some() && source_loaded.core_path.is_none() {
+        return Err(LocalProductError::ReleasePolicy(
+            "new Manager-bearing releases require a coordinated Core artifact",
+        ));
+    }
     let (current_release, _) = verify_installed_local_release(
         roots,
         &before.current,
@@ -6513,8 +6642,55 @@ fn activate_prepared_local_release(
         prepared.release_key,
     )
     .map_err(LocalProductError::StateFormat)?;
-    m2_generation_state::activate_pointer_state(&state_paths, Some(&prepared.before), &after)
+    let lock = m2_generation_state::acquire_activation_lock(&state_paths)
         .map_err(LocalProductError::State)?;
+    let authoritative =
+        m2_generation_state::read_pointer_state(&state_paths).map_err(LocalProductError::State)?;
+    if authoritative.as_ref() != Some(&prepared.before) {
+        return Err(LocalProductError::State(
+            m2_generation_state::ActivationTransactionError::StaleAuthoritativeState,
+        ));
+    }
+    let (_, active_loaded) = verify_installed_local_release(
+        roots,
+        &prepared.before.current,
+        prepared.before.current_key,
+        "active generation descriptor id does not match current",
+    )?;
+    verify_active_core_entrypoint_pair(roots, &active_loaded)?;
+
+    let rollback = if let Some(core_path) = prepared.staged_loaded.core_path.as_ref() {
+        let record = snapshot_core_entrypoint_to_rollback(roots, &prepared.before.current)?;
+        if let Err(error) = install_core_entrypoint(
+            roots,
+            core_path,
+            &prepared.staged_loaded.manifest.core_artifact_digest,
+        ) {
+            let _ = install_core_entrypoint(roots, &core_rollback_path(roots), &record.digest);
+            return Err(error);
+        }
+        Some(record)
+    } else {
+        None
+    };
+    let mut io = m2_generation_state::FsActivationIo;
+    let state_result = m2_generation_state::activate_pointer_state_locked(
+        &state_paths,
+        Some(&prepared.before),
+        &after,
+        &mut io,
+        &lock,
+    );
+    if let Err(error) = state_result {
+        let authoritative = m2_generation_state::read_pointer_state(&state_paths)
+            .map_err(LocalProductError::State)?;
+        if authoritative.as_ref() != Some(&after) {
+            if let Some(record) = rollback.as_ref() {
+                install_core_entrypoint(roots, &core_rollback_path(roots), &record.digest)?;
+            }
+        }
+        return Err(LocalProductError::State(error));
+    }
     Ok(prepared.generation_id)
 }
 
@@ -6975,8 +7151,12 @@ fn github_release_asset_files(release: &std::path::Path) -> Result<Vec<std::path
         .files
         .iter()
         .any(|file| file.relative_path == "manager");
+    let core_required = manifest
+        .files
+        .iter()
+        .any(|file| file.relative_path == "core");
     let mut total = 0u64;
-    let mut files = Vec::with_capacity(6);
+    let mut files = Vec::with_capacity(7);
     for name in [
         "generation.meta",
         "runtime",
@@ -6994,6 +7174,24 @@ fn github_release_asset_files(release: &std::path::Path) -> Result<Vec<std::path
             return Err(());
         }
         files.push(path);
+    }
+    if core_required {
+        let path = release.join("core");
+        let metadata = std::fs::symlink_metadata(&path).map_err(|_| ())?;
+        if !metadata.file_type().is_file() || metadata.len() > REMOTE_RELEASE_FILE_MAX_BYTES {
+            return Err(());
+        }
+        total = total.checked_add(metadata.len()).ok_or(())?;
+        if total > REMOTE_RELEASE_TOTAL_MAX_BYTES {
+            return Err(());
+        }
+        files.push(path);
+    } else {
+        match std::fs::symlink_metadata(release.join("core")) {
+            Ok(_) => return Err(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return Err(()),
+        }
     }
     let manager = release.join("manager");
     match std::fs::symlink_metadata(&manager) {
@@ -8129,6 +8327,358 @@ fn sync_directory(parent: &std::path::Path) -> Result<(), LocalProductError> {
 }
 
 #[cfg(unix)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CoreRollbackRecord {
+    generation_id: String,
+    digest: String,
+}
+
+#[cfg(unix)]
+static CORE_ROLLBACK_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+#[cfg(unix)]
+fn core_rollback_path(roots: &LocalCoreRoots) -> std::path::PathBuf {
+    roots.state_root.join(CORE_ROLLBACK_FILE)
+}
+
+#[cfg(unix)]
+fn core_rollback_meta_path(roots: &LocalCoreRoots) -> std::path::PathBuf {
+    roots.state_root.join(CORE_ROLLBACK_META_FILE)
+}
+
+#[cfg(unix)]
+fn inspect_core_entrypoint_source(
+    path: &std::path::Path,
+    operation: &'static str,
+) -> Result<std::fs::Metadata, LocalProductError> {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let metadata = std::fs::symlink_metadata(path)
+        .map_err(|source| LocalProductError::Io { operation, source })?;
+    if !metadata.file_type().is_file() {
+        return Err(LocalProductError::CoreEntrypoint(
+            "Core entrypoint source must be a regular non-symlink file",
+        ));
+    }
+    if metadata.len() > CORE_ARTIFACT_MAX_BYTES {
+        return Err(LocalProductError::CoreEntrypoint(
+            "Core entrypoint source exceeds its byte bound",
+        ));
+    }
+    if metadata.permissions().mode() & 0o111 == 0 {
+        return Err(LocalProductError::CoreEntrypoint(
+            "Core entrypoint source is not executable",
+        ));
+    }
+    Ok(metadata)
+}
+
+#[cfg(unix)]
+fn copy_core_entrypoint_to_state_temp(
+    roots: &LocalCoreRoots,
+    source: &std::path::Path,
+    label: &'static str,
+) -> Result<std::path::PathBuf, LocalProductError> {
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+    inspect_core_entrypoint_source(source, "inspect Core entrypoint snapshot source")?;
+    ensure_real_directory(
+        &roots.state_root,
+        "inspect Core state root for entrypoint snapshot",
+        "Core state root must be a real directory",
+    )?;
+    let sequence = CORE_ROLLBACK_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let temporary = roots
+        .state_root
+        .join(format!(".{label}-{}-{sequence}", std::process::id()));
+    let result = (|| {
+        let mut input = std::fs::File::open(source).map_err(|source| LocalProductError::Io {
+            operation: "open Core entrypoint snapshot source",
+            source,
+        })?;
+        let mut output = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&temporary)
+            .map_err(|source| LocalProductError::Io {
+                operation: "create Core entrypoint snapshot temporary",
+                source,
+            })?;
+        copy_bounded_file_contents(
+            &mut input,
+            &mut output,
+            CORE_ARTIFACT_MAX_BYTES,
+            "copy Core entrypoint snapshot",
+            "Core entrypoint snapshot exceeds its byte bound",
+        )?;
+        output.sync_all().map_err(|source| LocalProductError::Io {
+            operation: "sync Core entrypoint snapshot temporary",
+            source,
+        })?;
+        let mut permissions = output
+            .metadata()
+            .map_err(|source| LocalProductError::Io {
+                operation: "inspect Core entrypoint snapshot temporary",
+                source,
+            })?
+            .permissions();
+        permissions.set_mode(0o755);
+        output
+            .set_permissions(permissions)
+            .map_err(|source| LocalProductError::Io {
+                operation: "set Core entrypoint snapshot temporary mode",
+                source,
+            })?;
+        output.sync_all().map_err(|source| LocalProductError::Io {
+            operation: "resync Core entrypoint snapshot temporary",
+            source,
+        })?;
+        drop(output);
+        let metadata =
+            std::fs::symlink_metadata(&temporary).map_err(|source| LocalProductError::Io {
+                operation: "inspect prepared Core entrypoint snapshot",
+                source,
+            })?;
+        if !metadata.file_type().is_file() || metadata.permissions().mode() & 0o7777 != 0o755 {
+            return Err(LocalProductError::CoreEntrypoint(
+                "Core entrypoint snapshot temporary is not an executable 0755 file",
+            ));
+        }
+        Ok(temporary.clone())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result
+}
+
+#[cfg(unix)]
+fn snapshot_core_entrypoint_to_rollback(
+    roots: &LocalCoreRoots,
+    generation_id: &str,
+) -> Result<CoreRollbackRecord, LocalProductError> {
+    use std::io::Write as _;
+    use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
+
+    m2_generation_state::validate_generation_identity(generation_id, "rollback generation")
+        .map_err(LocalProductError::StateFormat)?;
+    let source = stable_core_entrypoint_path(roots)?;
+    let metadata = inspect_core_entrypoint_source(&source, "inspect current Core entrypoint")?;
+    if metadata.permissions().mode() & 0o7777 != 0o755 {
+        return Err(LocalProductError::CoreEntrypoint(
+            "current Core entrypoint must have mode 0755",
+        ));
+    }
+    let digest = openssl_sha256(&roots.openssl, &source)?;
+    let temporary = copy_core_entrypoint_to_state_temp(roots, &source, "core-rollback")?;
+    let destination = core_rollback_path(roots);
+    let metadata_temporary = roots.state_root.join(format!(
+        ".{CORE_ROLLBACK_META_FILE}.{}-{}",
+        std::process::id(),
+        CORE_ROLLBACK_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    let result = (|| {
+        std::fs::rename(&temporary, &destination).map_err(|source| LocalProductError::Io {
+            operation: "publish Core entrypoint rollback snapshot",
+            source,
+        })?;
+        let bytes = format!(
+            "format={CORE_ROLLBACK_FORMAT}\ngeneration_id={generation_id}\nsha256={digest}\n"
+        );
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&metadata_temporary)
+            .map_err(|source| LocalProductError::Io {
+                operation: "create Core entrypoint rollback metadata temporary",
+                source,
+            })?;
+        file.write_all(bytes.as_bytes())
+            .map_err(|source| LocalProductError::Io {
+                operation: "write Core entrypoint rollback metadata",
+                source,
+            })?;
+        file.sync_all().map_err(|source| LocalProductError::Io {
+            operation: "sync Core entrypoint rollback metadata",
+            source,
+        })?;
+        drop(file);
+        let mut permissions = std::fs::symlink_metadata(&metadata_temporary)
+            .map_err(|source| LocalProductError::Io {
+                operation: "inspect Core entrypoint rollback metadata temporary",
+                source,
+            })?
+            .permissions();
+        permissions.set_mode(0o644);
+        std::fs::set_permissions(&metadata_temporary, permissions).map_err(|source| {
+            LocalProductError::Io {
+                operation: "set Core entrypoint rollback metadata mode",
+                source,
+            }
+        })?;
+        std::fs::File::open(&metadata_temporary)
+            .and_then(|file| file.sync_all())
+            .map_err(|source| LocalProductError::Io {
+                operation: "resync Core entrypoint rollback metadata",
+                source,
+            })?;
+        std::fs::rename(&metadata_temporary, core_rollback_meta_path(roots)).map_err(|source| {
+            LocalProductError::Io {
+                operation: "publish Core entrypoint rollback metadata",
+                source,
+            }
+        })?;
+        sync_directory(&roots.state_root)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+        let _ = std::fs::remove_file(&metadata_temporary);
+    }
+    result.map(|_| CoreRollbackRecord {
+        generation_id: generation_id.to_owned(),
+        digest,
+    })
+}
+
+#[cfg(unix)]
+fn read_core_entrypoint_rollback(
+    roots: &LocalCoreRoots,
+) -> Result<CoreRollbackRecord, LocalProductError> {
+    let bytes = read_bounded_regular_file(
+        &core_rollback_meta_path(roots),
+        CORE_ROLLBACK_META_MAX_BYTES,
+        "read Core entrypoint rollback metadata",
+        LocalProductError::CoreEntrypoint("Core entrypoint rollback metadata is too large"),
+        LocalProductError::CoreEntrypoint(
+            "Core entrypoint rollback metadata must be a regular file",
+        ),
+    )?;
+    let text = std::str::from_utf8(&bytes).map_err(|_| {
+        LocalProductError::CoreEntrypoint("Core entrypoint rollback metadata is not UTF-8")
+    })?;
+    let mut lines = text.lines();
+    if lines.next() != Some(&format!("format={CORE_ROLLBACK_FORMAT}")) {
+        return Err(LocalProductError::CoreEntrypoint(
+            "Core entrypoint rollback metadata format is invalid",
+        ));
+    }
+    let generation_id = lines
+        .next()
+        .and_then(|line| line.strip_prefix("generation_id="))
+        .filter(|value| !value.is_empty())
+        .ok_or(LocalProductError::CoreEntrypoint(
+            "Core entrypoint rollback generation is invalid",
+        ))?;
+    m2_generation_state::validate_generation_identity(generation_id, "rollback generation")
+        .map_err(LocalProductError::StateFormat)?;
+    let digest = lines
+        .next()
+        .and_then(|line| line.strip_prefix("sha256="))
+        .filter(|value| is_canonical_sha256(value))
+        .ok_or(LocalProductError::CoreEntrypoint(
+            "Core entrypoint rollback digest is invalid",
+        ))?;
+    if lines.next().is_some() || !text.ends_with('\n') {
+        return Err(LocalProductError::CoreEntrypoint(
+            "Core entrypoint rollback metadata is malformed",
+        ));
+    }
+    let rollback_path = core_rollback_path(roots);
+    let metadata = inspect_core_entrypoint_source(
+        &rollback_path,
+        "inspect Core entrypoint rollback snapshot",
+    )?;
+    use std::os::unix::fs::PermissionsExt as _;
+    if metadata.permissions().mode() & 0o7777 != 0o755
+        || openssl_sha256(&roots.openssl, &rollback_path)? != digest
+    {
+        return Err(LocalProductError::CoreEntrypoint(
+            "Core entrypoint rollback snapshot does not match its metadata",
+        ));
+    }
+    Ok(CoreRollbackRecord {
+        generation_id: generation_id.to_owned(),
+        digest: digest.to_owned(),
+    })
+}
+
+#[cfg(unix)]
+fn install_core_entrypoint(
+    roots: &LocalCoreRoots,
+    source: &std::path::Path,
+    expected_digest: &str,
+) -> Result<(), LocalProductError> {
+    inspect_core_entrypoint_source(source, "inspect Core entrypoint replacement source")?;
+    if openssl_sha256(&roots.openssl, source)? != expected_digest {
+        return Err(LocalProductError::CoreEntrypoint(
+            "Core entrypoint replacement source digest does not match its binding",
+        ));
+    }
+    let destination = stable_core_entrypoint_path(roots)?;
+    let parent = destination
+        .parent()
+        .ok_or(LocalProductError::CoreEntrypoint(
+            "Core entrypoint has no parent directory",
+        ))?;
+    ensure_real_directory(
+        parent,
+        "inspect Core entrypoint parent",
+        "Core entrypoint parent must be a real directory",
+    )?;
+    match std::fs::symlink_metadata(&destination) {
+        Ok(metadata) if metadata.file_type().is_file() => {}
+        Ok(_) => {
+            return Err(LocalProductError::CoreEntrypoint(
+                "stable Core entrypoint must be a regular non-symlink file",
+            ))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(source) => {
+            return Err(LocalProductError::Io {
+                operation: "inspect stable Core entrypoint",
+                source,
+            })
+        }
+    }
+    let temporary = create_handoff_entrypoint_temp(roots, source, expected_digest)?;
+    let result = (|| {
+        std::fs::rename(&temporary, &destination).map_err(|source| LocalProductError::Io {
+            operation: "atomically replace coordinated Core entrypoint",
+            source,
+        })?;
+        sync_directory(parent)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result
+}
+
+#[cfg(unix)]
+fn verify_active_core_entrypoint_pair(
+    roots: &LocalCoreRoots,
+    loaded: &LoadedLocalGeneration,
+) -> Result<(), LocalProductError> {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    if loaded.core_path.is_none() {
+        return Ok(());
+    }
+    let destination = stable_core_entrypoint_path(roots)?;
+    let metadata = inspect_core_entrypoint_source(&destination, "inspect active Core entrypoint")?;
+    if metadata.permissions().mode() & 0o7777 != 0o755
+        || openssl_sha256(&roots.openssl, &destination)? != loaded.manifest.core_artifact_digest
+    {
+        return Err(LocalProductError::CoreEntrypoint(
+            "active generation Core does not match the stable Core entrypoint",
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
 fn verify_fresh_core_entrypoint(
     roots: &LocalCoreRoots,
     destination: &std::path::Path,
@@ -8448,14 +8998,91 @@ fn rollback_signed_local_release(roots: &LocalCoreRoots) -> Result<String, Local
         .ok_or(LocalProductError::NoCurrentGeneration)?;
     let after = m2_generation_state::plan_rollback_pointer_state(&before)
         .map_err(LocalProductError::StateFormat)?;
-    verify_installed_local_release(
+    let (_, current_loaded) = verify_installed_local_release(
+        roots,
+        &before.current,
+        before.current_key,
+        "rollback current generation descriptor id does not match current",
+    )?;
+    let (_, target_loaded) = verify_installed_local_release(
         roots,
         &after.current,
         after.current_key,
         "rollback generation descriptor id does not match previous",
     )?;
-    m2_generation_state::activate_pointer_state(&state_paths, Some(&before), &after)
+    let lock = m2_generation_state::acquire_activation_lock(&state_paths)
         .map_err(LocalProductError::State)?;
+    let authoritative =
+        m2_generation_state::read_pointer_state(&state_paths).map_err(LocalProductError::State)?;
+    if authoritative.as_ref() != Some(&before) {
+        return Err(LocalProductError::State(
+            m2_generation_state::ActivationTransactionError::StaleAuthoritativeState,
+        ));
+    }
+    verify_active_core_entrypoint_pair(roots, &current_loaded)?;
+
+    let mut rollback_source = None;
+    let core_transition = match (
+        current_loaded.core_path.as_ref(),
+        target_loaded.core_path.as_ref(),
+    ) {
+        (_, Some(target_core)) => {
+            let record = snapshot_core_entrypoint_to_rollback(roots, &before.current)?;
+            if let Err(error) = install_core_entrypoint(
+                roots,
+                target_core,
+                &target_loaded.manifest.core_artifact_digest,
+            ) {
+                let _ = install_core_entrypoint(roots, &core_rollback_path(roots), &record.digest);
+                return Err(error);
+            }
+            Some(record)
+        }
+        (Some(_), None) => {
+            let retained = read_core_entrypoint_rollback(roots)?;
+            if retained.generation_id != after.current {
+                return Err(LocalProductError::CoreEntrypoint(
+                    "retained Core rollback entrypoint is not bound to the target generation",
+                ));
+            }
+            let source = copy_core_entrypoint_to_state_temp(
+                roots,
+                &core_rollback_path(roots),
+                "core-rollback-source",
+            )?;
+            let record = snapshot_core_entrypoint_to_rollback(roots, &before.current)?;
+            if let Err(error) = install_core_entrypoint(roots, &source, &retained.digest) {
+                let _ = install_core_entrypoint(roots, &core_rollback_path(roots), &record.digest);
+                let _ = std::fs::remove_file(&source);
+                return Err(error);
+            }
+            rollback_source = Some(source);
+            Some(record)
+        }
+        (None, None) => None,
+    };
+
+    let mut io = m2_generation_state::FsActivationIo;
+    let state_result = m2_generation_state::activate_pointer_state_locked(
+        &state_paths,
+        Some(&before),
+        &after,
+        &mut io,
+        &lock,
+    );
+    if let Some(source) = rollback_source {
+        let _ = std::fs::remove_file(source);
+    }
+    if let Err(error) = state_result {
+        let authoritative = m2_generation_state::read_pointer_state(&state_paths)
+            .map_err(LocalProductError::State)?;
+        if authoritative.as_ref() != Some(&after) {
+            if let Some(record) = core_transition.as_ref() {
+                install_core_entrypoint(roots, &core_rollback_path(roots), &record.digest)?;
+            }
+        }
+        return Err(LocalProductError::State(error));
+    }
     Ok(after.current)
 }
 
@@ -11612,6 +12239,11 @@ esac
 
         let loaded = load_local_generation(generation_dir).unwrap();
         let release_public_key = b4_public_key_from_private(openssl, private_key).to_hex();
+        let release_format = if files.iter().any(|file| file.relative_path == "core") {
+            LOCAL_RELEASE_FORMAT_V4
+        } else {
+            LOCAL_RELEASE_FORMAT
+        };
         let mut manifest = format!(
             concat!(
                 "{}\n",
@@ -11625,7 +12257,7 @@ esac
                 "release_public_key\t{}\n",
                 "file_count\t{}\n",
             ),
-            LOCAL_RELEASE_FORMAT,
+            release_format,
             loaded.generation_id,
             release_sequence,
             LOCAL_RELEASE_CHANNEL,
@@ -13541,7 +14173,7 @@ esac
                 .iter()
                 .map(|file| file.relative_path.as_str())
                 .collect::<Vec<_>>(),
-            vec!["codex-code-mode-host", "generation.meta", "runtime"]
+            vec!["codex-code-mode-host", "core", "generation.meta", "runtime"]
         );
         assert_eq!(loaded.generation_id, "b6-signed-admission");
         assert_eq!(
@@ -13644,6 +14276,8 @@ esac
     #[cfg(unix)]
     #[test]
     fn test_r7_bare_update_transport_fallback_builds_and_activates_local_release() {
+        use std::os::unix::fs::PermissionsExt;
+
         let root = temp_root("r7-local-fallback");
         let openssl = b4_termux_openssl();
         let (home, prefix, tmp) = b4_prepare_public_environment(&root, &openssl, true);
@@ -13669,6 +14303,11 @@ esac
             &prefix,
             &home.join(".local/lib/codex/core/release-public-key.pem"),
         );
+        let stable_entrypoint = prefix.join("bin/codex");
+        std::fs::copy(std::env::current_exe().unwrap(), &stable_entrypoint).unwrap();
+        let mut stable_mode = std::fs::metadata(&stable_entrypoint).unwrap().permissions();
+        stable_mode.set_mode(0o755);
+        std::fs::set_permissions(&stable_entrypoint, stable_mode).unwrap();
         std::fs::remove_file(home.join(".local/lib/codex/core/release-public-key.pem")).unwrap();
 
         let runtime_source = b8_compile_static_probe_runtime(&root);
@@ -14506,6 +15145,22 @@ esac
         let mut permissions = std::fs::metadata(path).unwrap().permissions();
         permissions.set_mode(0o755);
         std::fs::set_permissions(path, permissions).unwrap();
+    }
+
+    #[cfg(unix)]
+    fn b2_attach_core(
+        generation_dir: &std::path::Path,
+        openssl: &std::path::Path,
+        core: &std::path::Path,
+    ) {
+        std::fs::copy(core, generation_dir.join("core")).unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = std::fs::metadata(generation_dir.join("core"))
+            .unwrap()
+            .permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(generation_dir.join("core"), permissions).unwrap();
+        b8_bind_core_digest(generation_dir, openssl, core);
     }
 
     #[cfg(unix)]
@@ -15426,6 +16081,31 @@ esac
         let valid = parse_local_release_manifest(b4_minimal_release_manifest().as_bytes()).unwrap();
         validate_local_release_policy(&valid).unwrap();
 
+        let mut coordinated = valid.clone();
+        coordinated.format = LocalReleaseFormat::CoordinatedV4;
+        coordinated.files.push(ReleaseFileEntry {
+            relative_path: "core".to_owned(),
+            sha256: "0".repeat(64),
+            mode: 0o755,
+        });
+        validate_local_release_policy(&coordinated).unwrap();
+        let mut legacy_with_core = valid.clone();
+        legacy_with_core.files.push(ReleaseFileEntry {
+            relative_path: "core".to_owned(),
+            sha256: "0".repeat(64),
+            mode: 0o755,
+        });
+        assert!(matches!(
+            validate_local_release_policy(&legacy_with_core),
+            Err(LocalProductError::ReleasePolicy(_))
+        ));
+        let mut coordinated_without_core = valid.clone();
+        coordinated_without_core.format = LocalReleaseFormat::CoordinatedV4;
+        assert!(matches!(
+            validate_local_release_policy(&coordinated_without_core),
+            Err(LocalProductError::ReleasePolicy(_))
+        ));
+
         let invalid = [
             {
                 let mut manifest = valid.clone();
@@ -16211,7 +16891,6 @@ esac
                 previous_key: None,
             })
         );
-
         let next = b2_write_generation(&source_roots, "public-next", false, "supported");
         b4_write_signed_release(&next, 2, &live_openssl, &private_key);
         b4_assert_public_update_activated(&next, &home, &prefix, &tmp, "public-next");
@@ -16826,7 +17505,7 @@ case "$url" in
   *) exit 99 ;;
 esac
 case "$relative" in
-  release.manifest|release.sig|release-authority.sig|generation.meta|runtime|manager|helpers/*|compat/*) ;;
+  release.manifest|release.sig|release-authority.sig|generation.meta|core|runtime|manager|helpers/*|compat/*) ;;
   *) exit 100 ;;
 esac
 if [ -n "$fault_relative" ] && [ "$relative" = "$fault_relative" ]; then
@@ -16907,7 +17586,7 @@ case "$url" in
   *) exit 99 ;;
 esac
 case "$relative" in
-  release.manifest|release.sig|release-authority.sig|generation.meta|runtime|manager|helpers/*|codex-code-mode-host|compat/*) ;;
+  release.manifest|release.sig|release-authority.sig|generation.meta|core|runtime|manager|helpers/*|codex-code-mode-host|compat/*) ;;
   *) exit 100 ;;
 esac
 exec "$cat_path" "$release_root/$relative"
@@ -17323,6 +18002,8 @@ exit 0
 
     #[cfg(unix)]
     fn b5_remote_fixture(label: &str, generation_id: &str) -> B5RemoteFixture {
+        use std::os::unix::fs::PermissionsExt;
+
         let root = temp_root(label);
         let openssl = b4_termux_openssl();
         let (home, prefix, tmp) = b4_prepare_public_environment(&root, &openssl, true);
@@ -17343,7 +18024,16 @@ exit 0
         );
         std::fs::remove_file(home.join(".local/lib/codex/core/release-public-key.pem")).unwrap();
         let release = b2_write_generation(&source_roots, generation_id, false, "unsupported");
+        let core = root.join("core-entrypoint");
+        b8_write_core_probe_wrapper(&core);
+        b2_attach_core(&release, &openssl, &core);
         b4_write_signed_release(&release, 2, &openssl, &private_key);
+
+        let stable_entrypoint = prefix.join("bin/codex");
+        std::fs::copy(std::env::current_exe().unwrap(), &stable_entrypoint).unwrap();
+        let mut stable_mode = std::fs::metadata(&stable_entrypoint).unwrap().permissions();
+        stable_mode.set_mode(0o755);
+        std::fs::set_permissions(&stable_entrypoint, stable_mode).unwrap();
 
         let base = format!("https://releases.example.invalid/codex/{generation_id}/");
         let curl_log = root.join("curl-log");
@@ -17435,6 +18125,16 @@ exit 0
         );
         std::fs::remove_file(home.join(".local/lib/codex/core/release-public-key.pem")).unwrap();
         let release = b2_write_generation(&source_roots, "remote-initial", true, "supported");
+        let core = root.join("core-entrypoint");
+        b8_write_core_probe_wrapper(&core);
+        b2_attach_core(&release, &openssl, &core);
+        let stable_entrypoint = prefix.join("bin/codex");
+        std::fs::copy(std::env::current_exe().unwrap(), &stable_entrypoint).unwrap();
+        let mut stable_mode = std::fs::metadata(&stable_entrypoint).unwrap().permissions();
+        stable_mode.set_mode(0o755);
+        std::fs::set_permissions(&stable_entrypoint, stable_mode).unwrap();
+        let stable_before = std::fs::read(&stable_entrypoint).unwrap();
+        let stable_before_digest = openssl_sha256(&openssl, &stable_entrypoint).unwrap();
         let descriptor_path = release.join("generation.meta");
         let descriptor = std::fs::read_to_string(&descriptor_path).unwrap().replace(
             "helper_count\t0\n",
@@ -17505,6 +18205,14 @@ exit 0
         let (manifest, loaded) =
             verify_local_release_bundle(&installed, &openssl, &public_key).unwrap();
         assert_eq!(loaded.generation_id, "remote-initial");
+        assert_eq!(
+            std::fs::read(&stable_entrypoint).unwrap(),
+            std::fs::read(&core).unwrap()
+        );
+        let rollback_record =
+            read_core_entrypoint_rollback(&b7_public_roots(&home, &prefix)).unwrap();
+        assert_eq!(rollback_record.generation_id, "remote-bootstrap");
+        assert_eq!(rollback_record.digest, stable_before_digest);
         for file in &manifest.files {
             assert_eq!(
                 std::fs::symlink_metadata(installed.join(&file.relative_path))
@@ -17543,7 +18251,80 @@ exit 0
         assert!(!installed.join("compat/server-only").exists());
         assert!(!installed.join("compat/space%20name").exists());
 
+        let rollback = b4_run_public_rollback(&home, &prefix, &tmp);
+        assert_eq!(
+            rollback.status.code(),
+            Some(0),
+            "stdout={:?} stderr={:?}",
+            rollback.stdout,
+            rollback.stderr
+        );
+        assert_eq!(
+            read_pointer_state(&state_paths).unwrap().unwrap().current,
+            "remote-bootstrap"
+        );
+        assert_eq!(std::fs::read(&stable_entrypoint).unwrap(), stable_before);
+
         remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_r10_coordinated_activation_restores_entrypoint_on_state_boundary_failure() {
+        let fixture = b5_remote_fixture("r10-coordinated-state-failure", "r10-candidate");
+        let roots = b7_public_roots(&fixture.home, &fixture.prefix);
+        let state_paths = CoreStatePaths::new(&roots.state_root).unwrap();
+        let before_entrypoint = std::fs::read(fixture.prefix.join("bin/codex")).unwrap();
+        let prepared = prepare_signed_local_release(&fixture.release, &roots).unwrap();
+        std::fs::write(&state_paths.activation_state_temp, b"orphan").unwrap();
+
+        let error = activate_prepared_local_release(
+            prepared,
+            &roots,
+            &b8_process_env(&fixture.prefix, &fixture.tmp),
+        )
+        .expect_err("orphan state temporary must reject coordinated activation");
+        assert!(matches!(
+            error,
+            LocalProductError::State(
+                m2_generation_state::ActivationTransactionError::OrphanTemporaryState
+            )
+        ));
+        assert_eq!(
+            std::fs::read(fixture.prefix.join("bin/codex")).unwrap(),
+            before_entrypoint
+        );
+        assert_eq!(
+            read_pointer_state(&state_paths).unwrap().unwrap().current,
+            "fixture-current"
+        );
+        std::fs::remove_file(&state_paths.activation_state_temp).unwrap();
+        remove_temp_root(fixture.root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_r10_new_manager_update_requires_coordinated_core_asset() {
+        let fixture = b5_remote_fixture("r10-manager-without-core", "r10-unused");
+        let source_roots = b4_source_roots(
+            &fixture.root.join("legacy-manager-source"),
+            &fixture.openssl,
+        );
+        std::fs::create_dir_all(&source_roots.generation_root).unwrap();
+        let legacy_manager =
+            b2_write_generation(&source_roots, "r10-legacy-manager", true, "supported");
+        b4_write_signed_release(&legacy_manager, 2, &fixture.openssl, &fixture.private_key);
+        let roots = b7_public_roots(&fixture.home, &fixture.prefix);
+        let error = prepare_signed_local_release(&legacy_manager, &roots)
+            .expect_err("new Manager-bearing v3 bundle must be rejected");
+        assert!(matches!(
+            error,
+            LocalProductError::ReleasePolicy(
+                "new Manager-bearing releases require a coordinated Core artifact"
+            )
+        ));
+        assert!(!roots.generation_root.join("r10-legacy-manager").exists());
+        remove_temp_root(fixture.root);
     }
 
     #[cfg(unix)]

@@ -2280,6 +2280,47 @@ Termux qualification. Produce one candidate for independent product review.
   publication or live cutover must bind a new exact candidate and explicit
   authorization.
 
+## R10 Coordinated Core + generation update (accepted)
+
+- R10 was opened by the bounded live finding after MGR-7: generation
+  `local-1788680568-mgr7-1` activated, but its Manager handoff failed because
+  the installed Core launcher was not the matching Core. The candidate was
+  rolled back to `local-1788570645-23374-1`; protected resolver, launcher, and
+  trust-key identities were preserved. R10 closes that root cause in source;
+  it did not perform another live cutover.
+- The normative contract now defines signed release format v4. A v4
+  generation carries an executable root-level `core` asset whose digest and
+  mode are signed in the same inventory as the generation. Existing v3
+  generations without Core remain readable, while a new Manager-bearing
+  candidate without a coordinated Core asset is rejected before staging.
+- `release-builder` now snapshots, validates, signs, and publishes the Core
+  artifact with the generation. Core admission verifies the v4 inventory,
+  digest, mode, path, and Manager coupling; remote asset inventory includes
+  the same Core artifact and rejects missing, extra, or unsafe files.
+- Coordinated activation snapshots the currently installed Core launcher,
+  installs the candidate launcher, and commits the signed generation under
+  the activation lock. State-boundary failure restores the exact old launcher
+  and pointer state. Rollback restores the retained launcher/generation pair,
+  with bounded metadata binding the retained launcher digest to its generation.
+- Focused R10 proof passed the v4/v3 trust-policy matrix, the
+  `test_r10_new_manager_update_requires_coordinated_core_asset` rejection,
+  `test_r10_coordinated_activation_restores_entrypoint_on_state_boundary_failure`
+  recovery regression, and the v4 remote update/rollback integration with
+  exact launcher restoration. The release-builder suite passed 12 tests.
+- Final grouped acceptance on the same source revision passed Core `136
+  passed, 0 failed, 1 ignored`, Manager unit `20 passed`, Manager integration
+  `11 passed`, and release-builder `12 passed`; locked clippy with `-D
+  warnings`, the warnings-denied release build, formatting, and diff checks
+  also passed. Existing fresh/legacy disposable qualification evidence remains
+  accepted from MGR-7; no live runtime, Manager/profile/session/auth state,
+  resolver, remote ref, or source publication was changed by R10.
+- Disposition: KEEP one signed v4 Core inventory and one coordinated
+  activation/rollback path; COLLAPSE launcher replacement into the existing
+  signed generation transaction; DELETE no second updater, trust source, or
+  live-state path. The pre-bundle source base was
+  `8f398aae78c03927eb6f3115fa593f76ad62b2bd`; this R10 checkpoint is closed
+  after the source commit is created.
+
 ## Goal Lifts
 
 No lift is active. A proposed lift must identify a concrete product risk or

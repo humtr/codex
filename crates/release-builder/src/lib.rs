@@ -28,6 +28,8 @@ const GENERATION_ID_MAX_BYTES: usize = 512;
 const TEXT_VALUE_MAX_BYTES: usize = 512;
 const TAR_BLOCK_BYTES: usize = 512;
 const GENERATION_FORMAT: &str = "codex-local-generation-v2";
+const RELEASE_FORMAT_V3: &str = "codex-release-v3";
+const RELEASE_FORMAT_V4: &str = "codex-release-v4";
 const CORE_API_IDENTITY: &str = "core-api-v1";
 const PERSISTENT_SCHEMA_IDENTITY: &str = "schema-v1";
 const PACKAGE_IDENTITY: &str = "openai/codex:codex-package-aarch64-unknown-linux-musl.tar.gz";
@@ -887,7 +889,9 @@ fn validate_publish_generation_layout(root: &Path) -> Result<(), BuilderError> {
             .file_name()
             .into_string()
             .map_err(|_| BuilderError::Invalid("publication generation path is not UTF-8"))?;
-        if (!required.contains(&name.as_str()) && name != "manager") || !seen.insert(name.clone()) {
+        if (!required.contains(&name.as_str()) && !matches!(name.as_str(), "core" | "manager"))
+            || !seen.insert(name.clone())
+        {
             return Err(BuilderError::Invalid(
                 "publication generation layout is unsupported",
             ));
@@ -899,7 +903,10 @@ fn validate_publish_generation_layout(root: &Path) -> Result<(), BuilderError> {
         )?;
         validate_publish_file_mode(
             &file_metadata,
-            name == "runtime" || name == "codex-code-mode-host" || name == "manager",
+            matches!(
+                name.as_str(),
+                "core" | "runtime" | "codex-code-mode-host" | "manager"
+            ),
             "publication generation file mode is unsafe",
         )?;
     }
@@ -1033,6 +1040,7 @@ fn validate_publish_generation_descriptor(
     descriptor_path: &Path,
     runtime_path: &Path,
     code_mode_host_path: &Path,
+    core_path: Option<&Path>,
     manager_path: Option<&Path>,
     openssl: &Path,
 ) -> Result<String, BuilderError> {
@@ -1105,9 +1113,17 @@ fn validate_publish_generation_descriptor(
                 "publication Manager is present but its descriptor binding is absent",
             ));
         }
-    } else if !valid_lower_sha256(manager_artifact_digest) || manager_path.is_none() {
+    } else if !valid_lower_sha256(manager_artifact_digest)
+        || manager_path.is_none()
+        || core_path.is_none()
+    {
         return Err(BuilderError::Invalid(
-            "publication generation Manager binding is invalid",
+            "publication generation Manager binding requires Core",
+        ));
+    }
+    if manager_path.is_some() && core_path.is_none() {
+        return Err(BuilderError::Invalid(
+            "publication Manager requires a Core artifact",
         ));
     }
     if publish_descriptor_field(&mut lines, "core_api_identity")? != CORE_API_IDENTITY
@@ -1129,6 +1145,20 @@ fn validate_publish_generation_descriptor(
         return Err(BuilderError::Invalid(
             "publication runtime digest does not match its descriptor",
         ));
+    }
+    if let Some(core_path) = core_path {
+        let core_metadata = ensure_regular_file(
+            core_path,
+            "inspect publication Core artifact",
+            "publication Core artifact is not a regular file",
+        )?;
+        if core_metadata.permissions().mode() & 0o100 == 0
+            || openssl_sha256(openssl, core_path)? != core_artifact_digest
+        {
+            return Err(BuilderError::Invalid(
+                "publication Core artifact does not match its descriptor",
+            ));
+        }
     }
     if let (Some(manager_path), Some(expected_digest)) = (
         manager_path,
@@ -1165,12 +1195,15 @@ fn snapshot_publish_generation(
     let source_snapshot_root = staging.join(".generation-source");
     create_private_dir(&source_snapshot_root)?;
     let mut total_size = 0u64;
-    let mut files = Vec::with_capacity(4);
+    let mut files = Vec::with_capacity(5);
     let mut entries = vec![
         ("generation.meta", GENERATION_DESCRIPTOR_MAX_BYTES, false),
         ("runtime", RELEASE_FILE_MAX_BYTES, true),
         ("codex-code-mode-host", RELEASE_FILE_MAX_BYTES, true),
     ];
+    if std::fs::symlink_metadata(source_root.join("core")).is_ok() {
+        entries.push(("core", CORE_ARTIFACT_MAX_BYTES, true));
+    }
     if std::fs::symlink_metadata(source_root.join("manager")).is_ok() {
         entries.push(("manager", RELEASE_FILE_MAX_BYTES, true));
     }
@@ -1201,10 +1234,15 @@ fn snapshot_publish_generation(
     let manager_path = std::fs::symlink_metadata(&manager_path)
         .ok()
         .map(|_| manager_path);
+    let core_path = source_snapshot_root.join("core");
+    let core_path = std::fs::symlink_metadata(&core_path)
+        .ok()
+        .map(|_| core_path);
     let generation_id = validate_publish_generation_descriptor(
         &source_snapshot_root.join("generation.meta"),
         &source_snapshot_root.join("runtime"),
         &source_snapshot_root.join("codex-code-mode-host"),
+        core_path.as_deref(),
         manager_path.as_deref(),
         openssl,
     )?;
@@ -1314,9 +1352,14 @@ fn release_manifest_bytes(
 ) -> Result<Vec<u8>, BuilderError> {
     use std::fmt::Write as _;
 
+    let format = if files.iter().any(|file| file.relative_path == "core") {
+        RELEASE_FORMAT_V4
+    } else {
+        RELEASE_FORMAT_V3
+    };
     let mut manifest = format!(
         concat!(
-            "codex-release-v3\n",
+            "{}\n",
             "generation_id\t{}\n",
             "release_sequence\t{}\n",
             "channel\t{}\n",
@@ -1327,6 +1370,7 @@ fn release_manifest_bytes(
             "release_public_key\t{}\n",
             "file_count\t{}\n",
         ),
+        format,
         generation_id,
         release_sequence,
         RELEASE_CHANNEL,
@@ -1462,8 +1506,6 @@ fn snapshot_core_artifact(request: &BuildRequest, staging: &Path) -> Result<Stri
 
     validate_android_aarch64_core_elf(&snapshot_path)?;
     let sha256 = openssl_sha256(&request.openssl, &snapshot_path)?;
-    std::fs::remove_file(&snapshot_path)
-        .map_err(|source| io_error("remove Core artifact snapshot", source))?;
     Ok(sha256)
 }
 
@@ -2500,6 +2542,11 @@ fn complete_and_publish(
     manager_sha256: Option<&str>,
 ) -> Result<(), BuilderError> {
     let adapted = adapt_selected_runtime(request, staging, selected)?;
+    rename_noreplace(&staging.join(".core-artifact"), &staging.join("core"))?;
+    set_mode(&staging.join("core"), 0o755, "set generation Core mode")?;
+    File::open(staging.join("core"))
+        .and_then(|file| file.sync_all())
+        .map_err(|source| io_error("sync generation Core", source))?;
     if manager_sha256.is_some() {
         let manager_source = staging.join(".manager-artifact");
         let manager_destination = staging.join("manager");
@@ -3554,6 +3601,7 @@ fi
             top_level,
             vec![
                 OsString::from("codex-code-mode-host"),
+                OsString::from("core"),
                 OsString::from("generation.meta"),
                 OsString::from("runtime")
             ]
@@ -3604,6 +3652,7 @@ fi
             top_level,
             vec![
                 OsString::from("codex-code-mode-host"),
+                OsString::from("core"),
                 OsString::from("generation.meta"),
                 OsString::from("manager"),
                 OsString::from("runtime")
@@ -3637,7 +3686,7 @@ fi
         assert!(release.join("manager").is_file());
         let manifest = std::fs::read_to_string(release.join("release.manifest")).unwrap();
         assert!(manifest.contains("file\tmanager\t"));
-        assert!(manifest.contains("file_count\t4\n"));
+        assert!(manifest.contains("file_count\t5\n"));
         fixture.remove();
     }
 
@@ -3698,7 +3747,18 @@ fi
         create_private_dir(&staging).unwrap();
         let selected_sha256 = snapshot_core_artifact(&fixture.request, &staging).unwrap();
         assert_eq!(selected_sha256, expected_sha256);
-        assert!(std::fs::read_dir(&staging).unwrap().next().is_none());
+        assert_eq!(
+            std::fs::read(staging.join(".core-artifact")).unwrap(),
+            expected_core
+        );
+        assert_eq!(
+            std::fs::symlink_metadata(staging.join(".core-artifact"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
         std::fs::write(&fixture.request.core, b"mutated after selection").unwrap();
         assert_eq!(selected_sha256, expected_sha256);
         assert_ne!(
@@ -3707,6 +3767,7 @@ fi
         );
         std::fs::write(&fixture.request.core, expected_core).unwrap();
         set_mode(&fixture.request.core, 0o700, "restore test Core mode").unwrap();
+        std::fs::remove_file(staging.join(".core-artifact")).unwrap();
         std::fs::remove_dir(&staging).unwrap();
 
         assert_eq!(run_from_args(request_args(&fixture.request)), 0);
@@ -3867,7 +3928,7 @@ fi
             openssl_sha256(&fixture.request.openssl, &release.join("generation.meta")).unwrap();
         let expected_manifest = format!(
             concat!(
-                "codex-release-v3\n",
+                "codex-release-v4\n",
                 "generation_id\ttest-generation\n",
                 "release_sequence\t7\n",
                 "channel\tstable\n",
@@ -3876,13 +3937,15 @@ fi
                 "core_api_identity\tcore-api-v1\n",
                 "persistent_schema_identity\tschema-v1\n",
                 "release_public_key\t{}\n",
-                "file_count\t3\n",
+                "file_count\t4\n",
                 "file\tcodex-code-mode-host\t{}\t0755\n",
+                "file\tcore\t{}\t0755\n",
                 "file\tgeneration.meta\t{}\t0644\n",
                 "file\truntime\t{}\t0755\n"
             ),
             public_key_hex(&openssl_public_key(&fixture.request.openssl, &private_key).unwrap()),
             host_digest,
+            openssl_sha256(&fixture.request.openssl, &release.join("core")).unwrap(),
             descriptor_digest,
             runtime_digest,
         );
