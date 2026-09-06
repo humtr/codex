@@ -2076,8 +2076,59 @@ Termux qualification. Produce one candidate for independent product review.
   capability-aware providers. COLLAPSE the legacy config-env/payload/log
   ladder into the single record and direct provider path; DELETE payload,
   session/cwd/transcript metadata, fallback logging, and Core-directory writes
-  from Manager. MGR-4 repair planning remains the next separately scoped
-  bundle.
+  from Manager. MGR-4 is accepted below.
+
+## MGR-4 Repair Planning Through Core (accepted)
+
+- MGR-4 implements exactly `codex termux repair plan` and `codex termux repair
+  apply`. Both forms reject options and trailing arguments. Manager validates
+  the existing handoff, sets only the fixed versioned repair request values,
+  removes profile `CODEX_HOME`, and execs the validated Core entrypoint without
+  printing a Manager success line. Normal Manager launches remove the internal
+  request variables before the upstream/Core boundary.
+- Core accepts only the exact request/operation and matching argv pairs. The
+  read-only plan qualifies the selected generation and emits the bounded
+  `codex-core-repair-v1` record: root code-mode-host layout is
+  `none/healthy`, legacy compat layout is `update/legacy-generation`, and
+  unavailable state is `unavailable/core-state-unavailable` with status 1.
+  It does not invoke upstream, access the network, expose paths or generation
+  identities, or mutate Core state.
+- Apply recomputes the plan in Core. The healthy path emits exactly
+  `codex repair: no repair needed`; the legacy path removes the internal
+  request variables and invokes the existing no-argument signed Core update;
+  unavailable state fails closed with the fixed plan-unavailable error. No
+  second updater, rollback heuristic, package-manager action, raw upstream
+  installation, legacy import, bwrap repair, or Manager Core-state write was
+  added.
+- Focused evidence passed Core request parser/route admission, read-only plan,
+  and public apply/plan boundary tests 3/3; Manager exact grammar and public
+  handoff boundary tests passed 2/2. The final debug workspace passed Core
+  133 passed, 0 failed, 1 ignored, Manager unit 20 passed, Manager integration
+  10 passed, and release-builder 11 passed. The release workspace passed the
+  same counts. Locked clippy with `-D warnings`, the warnings-denied release
+  build, formatting, diff checks, and protected-surface verification passed.
+- Final MGR-4 source identities are Core
+  `55d6d2816e02a9199b1a763c3541af00ee210a05c21596ae0292b11fdc3135ed`,
+  Manager
+  `3e7e59f39abcc1560a50ed990682c7899ffb734d49c36327c1e8669f075c14c6`, and
+  normative SPEC
+  `3edf4fe591f58689cb17cabe7e6841dd788a7496105d407ec5fbaa0877406428`.
+- Protected verification kept the resolver at SHA-256
+  `7e8ad76e0d200e93918ca2e93c99ff8ecd02071953bf1479819db3ac0dbb6d07`, the
+  installed launcher at
+  `109b556884150a134c39a8892c599f6551dbc1fb18ea557eebbfc690b4fc3a9b`, the
+  bootstrap trust seed at
+  `62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c`, and
+  activation state at
+  `813cfaa53f0945656e56e0a26bc0de62cd36cfcb30b1c4cac5b866f7e82599e4`.
+  No live runtime/launcher, Manager/profile/session/auth state, resolver,
+  bwrap state, remote ref, push, or main promotion changed.
+- Disposition: KEEP one fixed Manager-to-Core repair request, one Core-owned
+  bounded plan, and the existing signed update operation. COLLAPSE the legacy
+  support/metadata/rollback/rebuild action ladder into Core's one explicit
+  update admission; DELETE Manager-side generation inspection, direct repair
+  writes, fallback repair, bwrap repair, package-manager action, and legacy
+  state import. No MGR-5 bundle is selected yet.
 
 ## Goal Lifts
 

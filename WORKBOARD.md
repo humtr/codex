@@ -21,16 +21,15 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 - Remote `origin/rewrite/rust-core` remains at
   `253156c37a2bd22af8faae0bce03587999ffd136`; the local branch is ahead and
   no push is authorized.
-- Current milestone: MGR-3 notification configuration and delivery is the next
-  separately scoped bundle; MGR-0 Manager v1 definition, MGR-1 profile
-  selection/isolated launch, and MGR-2 bounded session listing/resume are
-  complete in `SPEC.md`;
+- Current milestone: MGR-4 repair planning through Core is accepted; no
+  implementation bundle is active. MGR-0 Manager v1 definition, MGR-1
+  profile selection/isolated launch, MGR-2 bounded session listing/resume,
+  and MGR-3 notification configuration/delivery are complete in `SPEC.md`;
   Core R9.2 remains accepted in source, live runtime, remote Release/index,
   and disposable-consumer qualification. The Manager definition keeps
-  `codex termux` optional and separate from Core ownership, defines the
-  profile/session/notification/repair boundaries, and makes MGR-3 notification
-  configuration the next implementation slice. No Manager
-  artifact or live state has been changed.
+  `codex termux` optional and separate from Core ownership, and defines the
+  profile/session/notification/repair boundaries. No Manager artifact or live
+  state has been changed.
 - The inherited pre-commit hook references absent
   `tools/update-wrapper-version.sh`; do not modify it. If it alone rejects an
   exact, revalidated staged tree, use the established `--no-verify` closure.
@@ -50,8 +49,8 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 - Worker mode is OFF. The primary Lead owns implementation, validation,
   authority updates, commit, and acceptance.
 
-- R8, R9, R9.1, R9.2, MGR-0, MGR-1, and MGR-2 are closed above or in
-  `GOAL.md`. MGR-3 is the next implementation slice.
+- R8, R9, R9.1, R9.2, MGR-0, MGR-1, MGR-2, MGR-3, and MGR-4 are closed above
+  or in `GOAL.md`. No implementation slice is active.
 
 ## Product-speed policy
 
@@ -279,14 +278,20 @@ release acceptance, protected-surface verification, and authority evidence in
 `GOAL.md`. No notification slice remains active. `target/` remains untracked
 Cargo output and is outside the publication surface.
 
-## MGR-4 repair planning through Core (next)
+## MGR-4 repair planning through Core (accepted)
 
-MGR-4 remains definition-first. Bind the exact repair plan/apply grammar,
-versioned Core request, bounded plan output, authorization boundary, and
-non-mutation guarantees in `SPEC.md` before product code. Keep repair authority
-in Core; Manager may only validate and submit the explicit request. Then prove
-plan read-only behavior and apply admission at the actual public Manager/Core
-boundary.
+MGR-4 is closed with implementation, focused regressions, grouped debug and
+release acceptance, protected-surface verification, and authority evidence in
+`GOAL.md`. No repair slice remains active. `target/` remains untracked Cargo
+output and is outside the publication surface.
+
+## MGR-5 next — definition checkpoint
+
+No MGR-5 implementation bundle is selected. Before any further Manager
+product mutation, define the next exact public command, ownership boundary,
+request contract, persistent-state effect, and focused vertical proof in
+`SPEC.md` and this file. Keep Core/Manager ownership and live-state
+protections unchanged.
 
 Worker mode remains OFF; the primary Lead owns every slice, validation step,
 authority update, and acceptance decision.

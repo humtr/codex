@@ -87,13 +87,11 @@ codex termux repair apply
 ```
 
 `codex termux` with no command is equivalent to `codex termux help`. The
-profile family is the first implementation slice. Session, notification, and
-repair commands remain separately reserved post-Core bundles until their
-focused contracts are accepted; before acceptance they report bounded
-unsupported results and do no mutation. The accepted MGR-2 session commands
-follow the bounded discovery and resume contract below. An unavailable or
-not-yet-delivered Manager reports a bounded Manager-unavailable result through
-the Core handoff; it never forwards an unknown `termux` command to upstream.
+profile family was the first implementation slice. The accepted MGR-2 session,
+MGR-3 notification, and MGR-4 repair commands follow their bounded contracts
+below. An unavailable or not-yet-delivered Manager reports a bounded
+Manager-unavailable result through the Core handoff; it never forwards an
+unknown `termux` command to upstream.
 Manager does not provide `codex termux install`, `codex termux update`, or a
 second doctor/version authority. Installation, update, rollback, and top-level
 doctor remain Core commands.
@@ -1060,6 +1058,14 @@ CODEX_TERMUX_CORE_API=codex-manager-core-v1
 CODEX_TERMUX_CORE_ENTRYPOINT=<validated stable Core entrypoint>
 ```
 
+MGR-4 repair requests use the additional exact internal handoff values
+`CODEX_TERMUX_CORE_REQUEST=codex-manager-repair-v1` and
+`CODEX_TERMUX_CORE_OPERATION=plan|apply`. The Manager supplies `plan` with
+the Core argv shape `doctor --json` and `apply` with the Core argv shape
+`update` and no arguments. Core consumes these values before public dispatch;
+they are never forwarded to an upstream runtime or provider process. A
+missing, malformed, or mismatched request/argv pair fails closed.
+
 The Manager validates both values before doing work. Its only route back to
 Core is an `exec` of that validated entrypoint with one of the explicitly
 allowed Core-owned argv shapes: ordinary upstream argv whose first token is
@@ -1277,13 +1283,50 @@ independently. Manager emits no success text for the endpoint.
 
 ### MGR-4 — repair planning through Core
 
-MGR-4 adds `repair plan` and `repair apply`. `plan` is read-only and may
-compose the existing Core doctor machine report. `apply` may only submit an
-explicit versioned Core request for an already-defined Core operation; it
-must not inspect or mutate Core generations, trust, activation journals,
-resolver files, or installed launchers itself. It must report a bounded plan
-and preserve Core's exit status. No repair fallback, package-manager action,
-bwrap repair, raw upstream installation, or legacy-state import is permitted.
+MGR-4 adds exactly these no-option, non-interactive forms:
+
+```text
+codex termux repair plan
+codex termux repair apply
+```
+
+Any option or trailing argument is a usage failure. The Manager validates the
+normal MGR-0 handoff, then `exec`s the validated Core entrypoint without
+printing a Manager success line. `repair plan` submits `doctor --json` with
+the versioned repair request and `repair apply` submits `update` with no
+arguments. The Manager does not submit an action, generation ID, path,
+package, URL, rollback selector, or arbitrary Core argument.
+
+Core owns the repair decision. The plan request is read-only: it loads and
+qualifies the selected generation through the existing read-only Core path,
+does not invoke upstream, does not access the network, and does not mutate
+state. It emits exactly these final-newline lines:
+
+```text
+codex-core-repair-v1
+action=<none|update|unavailable>
+reason=<healthy|legacy-generation|core-state-unavailable>
+```
+
+The root-level generation layout produces `action=none` and
+`reason=healthy`. The bounded legacy `compat/` layout produces
+`action=update` and `reason=legacy-generation`, because the next authenticated
+generation is the permanent migration. A failure to load or qualify the
+current Core state produces `action=unavailable` and
+`reason=core-state-unavailable`, with operation status `1`; a plan with
+`none` or `update` returns status `0`. The plan contains no path, generation
+ID, digest, credential, environment, or upstream output.
+
+For `repair apply`, Core recomputes the plan and ignores any Manager-supplied
+action. `none` emits exactly `codex repair: no repair needed` followed by one
+LF and returns `0`; `update` invokes the existing no-argument Core update
+operation, including its signed stable-channel and transport-fallback rules,
+and preserves that operation's output and status; `unavailable` emits the
+fixed error `codex repair: plan unavailable` and returns `1`. Apply never
+creates a second updater, package-manager action, raw upstream installation,
+legacy-state import, bwrap repair, or direct Manager write to Core state.
+Rollback remains an explicit Core `update --rollback` operation and is not
+silently selected by Manager repair.
 
 ### Manager definition gate
 

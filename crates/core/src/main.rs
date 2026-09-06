@@ -938,6 +938,12 @@ const MANAGER_CORE_API_ENV: &str = "CODEX_TERMUX_CORE_API";
 const MANAGER_CORE_ENTRYPOINT_ENV: &str = "CODEX_TERMUX_CORE_ENTRYPOINT";
 #[cfg(unix)]
 const MANAGER_CORE_API: &str = "codex-manager-core-v1";
+#[cfg(unix)]
+const CORE_REPAIR_REQUEST_ENV: &str = "CODEX_TERMUX_CORE_REQUEST";
+#[cfg(unix)]
+const CORE_REPAIR_OPERATION_ENV: &str = "CODEX_TERMUX_CORE_OPERATION";
+#[cfg(unix)]
+const CORE_REPAIR_REQUEST: &str = "codex-manager-repair-v1";
 
 #[cfg(unix)]
 fn validated_core_entrypoint() -> std::io::Result<std::path::PathBuf> {
@@ -6181,6 +6187,85 @@ fn load_activated_generation(
 }
 
 #[cfg(unix)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CoreRepairAction {
+    None,
+    Update,
+    Unavailable,
+}
+
+#[cfg(unix)]
+impl CoreRepairAction {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Update => "update",
+            Self::Unavailable => "unavailable",
+        }
+    }
+}
+
+#[cfg(unix)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CoreRepairReason {
+    Healthy,
+    LegacyGeneration,
+    CoreStateUnavailable,
+}
+
+#[cfg(unix)]
+impl CoreRepairReason {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Healthy => "healthy",
+            Self::LegacyGeneration => "legacy-generation",
+            Self::CoreStateUnavailable => "core-state-unavailable",
+        }
+    }
+}
+
+#[cfg(unix)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CoreRepairPlan {
+    action: CoreRepairAction,
+    reason: CoreRepairReason,
+}
+
+#[cfg(unix)]
+fn core_repair_plan(roots: &LocalCoreRoots) -> CoreRepairPlan {
+    let result = (|| {
+        let loaded = load_activated_generation(roots).map_err(|_| ())?;
+        let layout = loaded.generation_layout;
+        with_qualified_loaded_runtime(&loaded, |_, _| Ok::<_, LocalProductError>(()))
+            .map_err(|_| ())?;
+        Ok::<_, ()>(layout)
+    })();
+    match result {
+        Ok(GenerationLayout::RootCodeModeHost) => CoreRepairPlan {
+            action: CoreRepairAction::None,
+            reason: CoreRepairReason::Healthy,
+        },
+        Ok(GenerationLayout::LegacyCompat) => CoreRepairPlan {
+            action: CoreRepairAction::Update,
+            reason: CoreRepairReason::LegacyGeneration,
+        },
+        Err(()) => CoreRepairPlan {
+            action: CoreRepairAction::Unavailable,
+            reason: CoreRepairReason::CoreStateUnavailable,
+        },
+    }
+}
+
+#[cfg(unix)]
+fn render_core_repair_plan(plan: CoreRepairPlan) -> String {
+    format!(
+        "codex-core-repair-v1\naction={}\nreason={}\n",
+        plan.action.as_str(),
+        plan.reason.as_str()
+    )
+}
+
+#[cfg(unix)]
 fn with_qualified_loaded_runtime<'loaded, T, F>(
     loaded: &'loaded LoadedLocalGeneration,
     operation: F,
@@ -8442,6 +8527,90 @@ fn run_core_update(args: Vec<OsString>) -> i32 {
 }
 
 #[cfg(unix)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CoreRepairOperation {
+    Plan,
+    Apply,
+}
+
+#[cfg(unix)]
+fn parse_core_repair_operation(
+    request: Option<&OsStr>,
+    operation: Option<&OsStr>,
+) -> Result<Option<CoreRepairOperation>, ()> {
+    match (request, operation) {
+        (None, None) => Ok(None),
+        (Some(request), Some(operation)) if request == OsStr::new(CORE_REPAIR_REQUEST) => {
+            match operation {
+                value if value == OsStr::new("plan") => Ok(Some(CoreRepairOperation::Plan)),
+                value if value == OsStr::new("apply") => Ok(Some(CoreRepairOperation::Apply)),
+                _ => Err(()),
+            }
+        }
+        _ => Err(()),
+    }
+}
+
+#[cfg(unix)]
+fn core_repair_operation() -> Result<Option<CoreRepairOperation>, ()> {
+    parse_core_repair_operation(
+        std::env::var_os(CORE_REPAIR_REQUEST_ENV).as_deref(),
+        std::env::var_os(CORE_REPAIR_OPERATION_ENV).as_deref(),
+    )
+}
+
+#[cfg(unix)]
+fn core_repair_route_matches(operation: CoreRepairOperation, route: &PublicDispatchRoute) -> bool {
+    match (operation, route) {
+        (CoreRepairOperation::Plan, PublicDispatchRoute::Doctor(args)) => {
+            args.len() == 1 && args[0] == OsStr::new("--json")
+        }
+        (CoreRepairOperation::Apply, PublicDispatchRoute::Update(args)) => args.is_empty(),
+        _ => false,
+    }
+}
+
+#[cfg(unix)]
+fn run_core_repair_request(operation: CoreRepairOperation, route: &PublicDispatchRoute) -> i32 {
+    if !core_repair_route_matches(operation, route) {
+        eprintln!("codex: invalid Manager repair request");
+        return 2;
+    }
+    let plan = match LocalCoreRoots::from_environment() {
+        Ok(roots) => core_repair_plan(&roots),
+        Err(_) => CoreRepairPlan {
+            action: CoreRepairAction::Unavailable,
+            reason: CoreRepairReason::CoreStateUnavailable,
+        },
+    };
+    match operation {
+        CoreRepairOperation::Plan => {
+            print!("{}", render_core_repair_plan(plan));
+            if plan.action == CoreRepairAction::Unavailable {
+                1
+            } else {
+                0
+            }
+        }
+        CoreRepairOperation::Apply => match plan.action {
+            CoreRepairAction::None => {
+                println!("codex repair: no repair needed");
+                0
+            }
+            CoreRepairAction::Update => {
+                std::env::remove_var(CORE_REPAIR_REQUEST_ENV);
+                std::env::remove_var(CORE_REPAIR_OPERATION_ENV);
+                run_core_update(Vec::new())
+            }
+            CoreRepairAction::Unavailable => {
+                eprintln!("codex repair: plan unavailable");
+                1
+            }
+        },
+    }
+}
+
+#[cfg(unix)]
 fn run_public_main<I, S>(args: I) -> i32
 where
     I: IntoIterator<Item = S>,
@@ -8454,6 +8623,14 @@ where
             return 2;
         }
     };
+    match core_repair_operation() {
+        Ok(Some(operation)) => return run_core_repair_request(operation, &route),
+        Ok(None) => {}
+        Err(()) => {
+            eprintln!("codex: invalid Manager repair request");
+            return 2;
+        }
+    }
     if let PublicDispatchRoute::Update(args) = route {
         return run_core_update(args);
     }
@@ -9237,6 +9414,162 @@ exit 73
     }
 
     #[cfg(unix)]
+    const REPAIR_PROBE_ROLE: &str = "CODEX_MGR4_REPAIR_PROBE_ROLE";
+    #[cfg(unix)]
+    const REPAIR_PROBE_SCENARIO: &str = "CODEX_MGR4_REPAIR_PROBE_SCENARIO";
+    #[cfg(unix)]
+    const REPAIR_PROBE_ROOT: &str = "CODEX_MGR4_REPAIR_PROBE_ROOT";
+    #[cfg(unix)]
+    const REPAIR_PROBE_STDOUT: &str = "CODEX_MGR4_REPAIR_PROBE_STDOUT";
+    #[cfg(unix)]
+    const REPAIR_PROBE_STDERR: &str = "CODEX_MGR4_REPAIR_PROBE_STDERR";
+
+    #[cfg(unix)]
+    #[test]
+    fn repair_request_probe() {
+        use std::io::Write as _;
+        use std::os::fd::AsRawFd;
+
+        if std::env::var(REPAIR_PROBE_ROLE).as_deref() != Ok("1") {
+            return;
+        }
+        if let Some(path) = std::env::var_os(REPAIR_PROBE_STDOUT) {
+            let file = std::fs::File::create(path).unwrap();
+            assert!(unsafe { dup2(file.as_raw_fd(), 1) } >= 0);
+        }
+        if let Some(path) = std::env::var_os(REPAIR_PROBE_STDERR) {
+            let file = std::fs::File::create(path).unwrap();
+            assert!(unsafe { dup2(file.as_raw_fd(), 2) } >= 0);
+        }
+        let root = std::path::PathBuf::from(std::env::var_os(REPAIR_PROBE_ROOT).unwrap());
+        let home = root.join("home");
+        let prefix = root.join("prefix");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(prefix.join("bin")).unwrap();
+        std::fs::create_dir_all(prefix.join("etc/tls/certs")).unwrap();
+        std::fs::write(prefix.join("etc/resolv.conf"), b"nameserver 127.0.0.1\n").unwrap();
+        std::fs::write(prefix.join("etc/tls/cert.pem"), b"test-cert").unwrap();
+        let roots = {
+            std::env::set_var("HOME", &home);
+            std::env::set_var("PREFIX", &prefix);
+            LocalCoreRoots::from_environment().unwrap()
+        };
+        std::fs::create_dir_all(&roots.generation_root).unwrap();
+        std::fs::create_dir_all(&roots.state_root).unwrap();
+        std::fs::write(&roots.openssl, b"test-openssl").unwrap();
+        std::fs::write(&roots.curl, b"test-curl").unwrap();
+
+        let scenario = std::env::var(REPAIR_PROBE_SCENARIO).unwrap();
+        let apply = scenario.ends_with("-apply");
+        match scenario.as_str() {
+            "healthy-plan" | "healthy-apply" => {
+                b2_write_root_generation(&roots, "root-v2", false, "unsupported");
+                b2_activate(&roots, "root-v2");
+            }
+            "legacy-plan" | "legacy-apply" => {
+                b2_write_generation(&roots, "legacy-v1", false, "unsupported");
+                b2_activate(&roots, "legacy-v1");
+                if apply {
+                    std::env::set_var(UPDATE_INDEX_URL_ENV, "http://invalid");
+                }
+            }
+            "unavailable-plan" | "unavailable-apply" => {}
+            other => panic!("unknown repair probe scenario {other}"),
+        }
+        std::env::set_var(CORE_REPAIR_REQUEST_ENV, CORE_REPAIR_REQUEST);
+        std::env::set_var(
+            CORE_REPAIR_OPERATION_ENV,
+            if apply { "apply" } else { "plan" },
+        );
+        let args = if apply {
+            vec![OsString::from("update")]
+        } else {
+            vec![OsString::from("doctor"), OsString::from("--json")]
+        };
+        let status = run_public_main(args);
+        std::io::stdout().flush().unwrap();
+        std::io::stderr().flush().unwrap();
+        std::process::exit(status);
+    }
+
+    #[cfg(unix)]
+    fn run_repair_probe(scenario: &str) -> (std::process::ExitStatus, Vec<u8>, Vec<u8>) {
+        let root = temp_root("mgr4-request");
+        let stdout = root.join("repair-stdout");
+        let stderr = root.join("repair-stderr");
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .arg("tests::repair_request_probe")
+            .arg("--exact")
+            .arg("--nocapture")
+            .env(REPAIR_PROBE_ROLE, "1")
+            .env(REPAIR_PROBE_SCENARIO, scenario)
+            .env(REPAIR_PROBE_ROOT, &root)
+            .env(REPAIR_PROBE_STDOUT, &stdout)
+            .env(REPAIR_PROBE_STDERR, &stderr)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .unwrap();
+        let result = (
+            status,
+            std::fs::read(&stdout).unwrap_or_default(),
+            std::fs::read(&stderr).unwrap_or_default(),
+        );
+        remove_temp_root(root);
+        result
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_mgr4_public_repair_request_boundary_is_bounded() {
+        let (status, stdout, stderr) = run_repair_probe("healthy-plan");
+        assert_eq!(
+            status.code(),
+            Some(0),
+            "repair probe failed: stdout={stdout:?} stderr={stderr:?}"
+        );
+        assert_eq!(
+            stdout,
+            b"codex-core-repair-v1\naction=none\nreason=healthy\n"
+        );
+        assert!(stderr.is_empty());
+
+        let (status, stdout, stderr) = run_repair_probe("legacy-plan");
+        assert_eq!(status.code(), Some(0));
+        assert_eq!(
+            stdout,
+            b"codex-core-repair-v1\naction=update\nreason=legacy-generation\n"
+        );
+        assert!(stderr.is_empty());
+
+        let (status, stdout, stderr) = run_repair_probe("healthy-apply");
+        assert_eq!(status.code(), Some(0));
+        assert_eq!(stdout, b"codex repair: no repair needed\n");
+        assert!(stderr.is_empty());
+
+        let (status, stdout, stderr) = run_repair_probe("unavailable-plan");
+        assert_eq!(status.code(), Some(1));
+        assert_eq!(
+            stdout,
+            b"codex-core-repair-v1\naction=unavailable\nreason=core-state-unavailable\n"
+        );
+        assert!(stderr.is_empty());
+
+        let (status, stdout, stderr) = run_repair_probe("unavailable-apply");
+        assert_eq!(status.code(), Some(1));
+        assert!(stdout.is_empty());
+        assert_eq!(stderr, b"codex repair: plan unavailable\n");
+
+        let (status, stdout, stderr) = run_repair_probe("legacy-apply");
+        assert_eq!(status.code(), Some(1));
+        assert!(stdout.is_empty());
+        assert!(stderr.starts_with(b"codex update: "));
+        assert!(stderr
+            .windows(b"update index URL must use HTTPS".len())
+            .any(|window| { window == b"update index URL must use HTTPS" }));
+    }
+
+    #[cfg(unix)]
     struct ProbeResult {
         status: std::process::ExitStatus,
         stdout: Vec<u8>,
@@ -9425,6 +9758,129 @@ exit 73
             "user_setting = true\n"
         );
         remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_mgr4_repair_plan_is_bounded_and_read_only() {
+        let (root, roots) = b2_test_roots("mgr4-root-plan");
+        let generation = b2_write_root_generation(&roots, "root-v2", false, "unsupported");
+        b2_activate(&roots, "root-v2");
+        let state_path = CoreStatePaths::new(&roots.state_root)
+            .unwrap()
+            .activation_state;
+        let before_resolver = protected_snapshot(&roots.resolver_path).unwrap();
+        let before_state = protected_snapshot(&state_path).unwrap();
+        let before_descriptor = protected_snapshot(&generation.join("generation.meta")).unwrap();
+
+        let healthy = core_repair_plan(&roots);
+        assert_eq!(
+            healthy,
+            CoreRepairPlan {
+                action: CoreRepairAction::None,
+                reason: CoreRepairReason::Healthy,
+            }
+        );
+        assert_eq!(
+            render_core_repair_plan(healthy),
+            "codex-core-repair-v1\naction=none\nreason=healthy\n"
+        );
+        assert_eq!(
+            protected_snapshot(&roots.resolver_path).unwrap(),
+            before_resolver
+        );
+        assert_eq!(protected_snapshot(&state_path).unwrap(), before_state);
+        assert_eq!(
+            protected_snapshot(&generation.join("generation.meta")).unwrap(),
+            before_descriptor
+        );
+        remove_temp_root(root);
+
+        let (root, roots) = b2_test_roots("mgr4-legacy-plan");
+        b2_write_generation(&roots, "legacy-v1", false, "unsupported");
+        b2_activate(&roots, "legacy-v1");
+        let legacy = core_repair_plan(&roots);
+        assert_eq!(
+            legacy,
+            CoreRepairPlan {
+                action: CoreRepairAction::Update,
+                reason: CoreRepairReason::LegacyGeneration,
+            }
+        );
+        assert_eq!(
+            render_core_repair_plan(legacy),
+            "codex-core-repair-v1\naction=update\nreason=legacy-generation\n"
+        );
+        remove_temp_root(root);
+
+        let (root, roots) = b2_test_roots("mgr4-unavailable-plan");
+        let unavailable = core_repair_plan(&roots);
+        assert_eq!(
+            unavailable,
+            CoreRepairPlan {
+                action: CoreRepairAction::Unavailable,
+                reason: CoreRepairReason::CoreStateUnavailable,
+            }
+        );
+        assert_eq!(
+            render_core_repair_plan(unavailable),
+            "codex-core-repair-v1\naction=unavailable\nreason=core-state-unavailable\n"
+        );
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_mgr4_request_parser_and_route_admission_are_exact() {
+        assert_eq!(parse_core_repair_operation(None, None), Ok(None));
+        assert_eq!(
+            parse_core_repair_operation(
+                Some(OsStr::new(CORE_REPAIR_REQUEST)),
+                Some(OsStr::new("plan"))
+            ),
+            Ok(Some(CoreRepairOperation::Plan))
+        );
+        assert_eq!(
+            parse_core_repair_operation(
+                Some(OsStr::new(CORE_REPAIR_REQUEST)),
+                Some(OsStr::new("apply"))
+            ),
+            Ok(Some(CoreRepairOperation::Apply))
+        );
+        for pair in [
+            (Some(OsStr::new(CORE_REPAIR_REQUEST)), None),
+            (None, Some(OsStr::new("plan"))),
+            (Some(OsStr::new("wrong")), Some(OsStr::new("plan"))),
+            (
+                Some(OsStr::new(CORE_REPAIR_REQUEST)),
+                Some(OsStr::new("rollback")),
+            ),
+        ] {
+            assert_eq!(parse_core_repair_operation(pair.0, pair.1), Err(()));
+        }
+
+        let plan_route = PublicDispatchRoute::Doctor(vec![OsString::from("--json")]);
+        let apply_route = PublicDispatchRoute::Update(Vec::new());
+        assert!(core_repair_route_matches(
+            CoreRepairOperation::Plan,
+            &plan_route
+        ));
+        assert!(core_repair_route_matches(
+            CoreRepairOperation::Apply,
+            &apply_route
+        ));
+        assert!(!core_repair_route_matches(
+            CoreRepairOperation::Plan,
+            &apply_route
+        ));
+        assert!(!core_repair_route_matches(
+            CoreRepairOperation::Apply,
+            &plan_route
+        ));
+        assert!(!core_repair_route_matches(
+            CoreRepairOperation::Plan,
+            &PublicDispatchRoute::Doctor(vec![])
+        ));
     }
 
     #[cfg(unix)]
