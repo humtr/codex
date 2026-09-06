@@ -2220,29 +2220,65 @@ Termux qualification. Produce one candidate for independent product review.
 - Disposition: KEEP one signed-manifest-to-asset completeness check and the
   existing release-before-index boundary; COLLAPSE disposable proof into the
   existing Manager/Core integration paths; DELETE no new updater, trust source,
-  or live-state path. No MGR-7 bundle is selected yet.
+  or live-state path. MGR-7 is the accepted operational follow-up recorded
+  below.
 
-## MGR-7 Remote Publication Readback and Operational Qualification (defined)
+## MGR-7 Remote Publication Readback and Operational Qualification (accepted)
 
-- MGR-7 is an operational qualification of one already accepted signed
-  generation. It adds no public command, persistent state, trust source, or
-  release format and does not rebuild or mutate the candidate. The exact
-  generation ID, local publication directory, fixed repository/branch target,
-  and whether device qualification is requested must be recorded before
-  external I/O.
-- An explicitly authorized publication must upload the complete immutable
-  Release asset set, including `manager` when signed, then publish
-  `update-index-v1.sig`, then `update-index-v1`. Failures do not advance the
-  index, leak keys, alter local activation, or touch an OpenAI repository.
-- A separate disposable readback consumer must verify the signed index, exact
-  control files, every inventory asset, Manager digest/mode, and the actual
-  release-built Manager probe/handoff path over bounded HTTPS. Fresh-install
-  and legacy-upgrade consumers must then prove doctor/Manager behavior and
-  protected-surface identity preservation.
-- MGR-7 source definition does not authorize remote push or live runtime
-  replacement. Those remain a separate explicit operational authorization
-  naming the exact candidate, target, and rollback boundary. No MGR-7
-  implementation or external qualification evidence exists yet.
+- MGR-7 added no source command, persistent state, trust source, or release
+  format. Before external I/O, the accepted release-built inputs were bound to
+  generation `local-1788680568-mgr7-1`, local publication
+  `/data/data/com.termux/files/usr/tmp/codex-mgr7-candidate.eM827z/publication`,
+  repository `humtr/codex`/branch `main`, and bounded fresh/legacy device
+  qualification. The candidate used upstream Codex 0.153.4 archive SHA-256
+  `fc395cb043a1093ab0db34f44aba3199bfaa9ce640cd9be7fd588f44b0da64a4`,
+  release-built Core SHA-256
+  `48f3df4ebc7d4f833fb2b091e0f70ed3afcd20e2170cfe14cf5001b0fee0a11`, and
+  Manager SHA-256
+  `a706292d653fb33cc652fb1d9ef03ca8cb1e9e6f402a6098b00d4bedeaf189fc`.
+- The existing production GitHub publication path completed one nonzero
+  `tests::github_upload_probe` invocation. Release sequence 6 published the
+  complete six-asset Release, including `manager`, followed by
+  `update-index-v1.sig` and then `update-index-v1`. The remote release is
+  non-draft/non-prerelease; readback lists `runtime`,
+  `codex-code-mode-host`, `manager`, `generation.meta`, `release.manifest`,
+  and `release.sig`. No private key was uploaded, no OpenAI repository was
+  touched, and no source-history ref was pushed.
+- The private bounded HTTPS readback root
+  `/data/data/com.termux/files/usr/tmp/codex-mgr7-readback.JYQU08` verified
+  both signed control documents with the pinned Ed25519 key, the exact
+  generation and release base, all four signed inventory asset digests and
+  modes, and the release-built Manager artifact. The Manager probe output was
+  exact; its handoff removed the internal API variables and caller
+  `CODEX_HOME`, preserved streams/exit, and delivered SIGTERM with exit 143.
+- Separate disposable roots passed the public install paths:
+  fresh `/data/data/com.termux/files/usr/tmp/codex-mgr7-fresh.khgE7y` and
+  legacy `/data/data/com.termux/files/usr/tmp/codex-mgr7-legacy.rJn8MV`.
+  Both activated the signed Manager-bearing generation, reported upstream
+  version 0.153.4, reached Manager profile isolation, emitted doctor JSON
+  containing Manager status, and rejected explicit Linux sandbox mode with
+  status 2 without invoking bwrap. The fresh root additionally passed
+  `doctor --color` through the Termux PTY with SGR and upstream-first plus
+  Termux sections; Manager child stdout/stderr/exit and profile `CODEX_HOME`
+  isolation passed.
+- An intentionally auth-free disposable fixture was rejected at the required
+  candidate doctor probe, as designed. The accepted qualification used the
+  existing `CODEX_HOME` only as a read-only child input, without copying or
+  printing credentials. The auth digest was unchanged before and after, as
+  were the protected resolver, installed launcher, trust seed, and activation
+  state identities. No live runtime replacement or live activation occurred.
+- Final grouped source acceptance on this same revision passed Core
+  `134 passed, 0 failed, 1 ignored`, Manager unit `20 passed`, Manager
+  integration `11 passed`, and release-builder `12 passed` in both debug and
+  release profiles. Locked clippy with `-D warnings`, the warnings-denied
+  release build, formatting, and diff checks passed. The protected hashes
+  remained equal to the recorded resolver, launcher, trust-seed, and
+  activation-state identities.
+- Source revision `75ba67f443da6cfb4af73f09f82f8ad3a0f36ece` remains the accepted
+  MGR-7 definition/release-builder implementation base; MGR-7 closed as an
+  operational evidence bundle and requires no production-code change. Future
+  publication or live cutover must bind a new exact candidate and explicit
+  authorization.
 
 ## Goal Lifts
 

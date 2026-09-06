@@ -22,13 +22,16 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
   `253156c37a2bd22af8faae0bce03587999ffd136`; the local branch is ahead and
   no push is authorized.
 - Current milestone: MGR-7 remote publication readback and operational
-  qualification is definition-bound; no production slice is active yet.
+  qualification is accepted for generation `local-1788680568-mgr7-1`; no
+  source production slice is active.
   MGR-0 through MGR-6 are complete in `SPEC.md`;
   Core R9.2 remains accepted in source, live runtime, remote Release/index,
-  and disposable-consumer qualification. The Manager definition keeps
+  and disposable-consumer qualification. MGR-7 published and read back the
+  six-asset Manager-bearing Release/index without a live cutover. The Manager
+  definition keeps
   `codex termux` optional and separate from Core ownership, and defines the
-  profile/session/notification/repair boundaries. No Manager artifact or live
-  state has been changed.
+  profile/session/notification/repair boundaries. No live Manager state or
+  live runtime state has been changed.
 - The inherited pre-commit hook references absent
   `tools/update-wrapper-version.sh`; do not modify it. If it alone rejects an
   exact, revalidated staged tree, use the established `--no-verify` closure.
@@ -304,30 +307,42 @@ the publication surface.
 
 ## MGR-7 Remote Publication Readback and Operational Qualification
 
-MGR-7 is definition-bound in `SPEC.md` before product or external-state
-mutation. It adds no public command, persistent state, trust source, or
-release format; the current workboard is definition-only and no production
-slice is active.
+MGR-7 is accepted with no source implementation change. The exact candidate
+was bound before external I/O as generation `local-1788680568-mgr7-1`, local
+publication `/data/data/com.termux/files/usr/tmp/codex-mgr7-candidate.eM827z/publication`,
+repository `humtr/codex`, branch `main`, and bounded fresh/legacy device
+qualification requested. The candidate used the accepted 0.153.4 upstream
+archive digest and the release-built Core/Manager artifacts.
 
-1. Candidate binding — record one accepted generation ID, local publication
-   directory, fixed repository/branch target, and whether device qualification
-   is requested. Do not infer any of these from live active state.
-2. Authorized publication — when separately authorized, exercise the existing
-   Release-assets → `update-index-v1.sig` → `update-index-v1` ordering and
-   prove Manager asset completeness, timeout/failure isolation, no key upload,
-   and no OpenAI-repository target.
-3. Signed readback — in a private disposable consumer, fetch the signed index,
-   control files, and every inventory asset over bounded HTTPS; verify the
-   Manager digest/mode and run the actual release-built Manager probe/handoff.
-4. Device qualification — use separate private fresh-install and legacy-
-   upgrade roots; run doctor and isolated Manager checks and verify argv,
-   streams, TTY, signal, exit, child-only `CODEX_HOME`, ANSI output, bwrap
-   non-use, and protected identity preservation.
-5. Bundle gate — focused nonzero regressions, grouped debug/release tests,
-   clippy, warnings-denied release build, formatting/diff checks, protected
-   surfaces, authority update, and commit. MGR-7 source work does not itself
-   authorize remote push or live runtime replacement; those require a separate
-   exact-target operational authorization.
+1. Publication — the production GitHub publication path completed one
+   nonzero `tests::github_upload_probe` invocation in the existing order:
+   Release assets, `update-index-v1.sig`, then `update-index-v1`. The remote
+   release is non-draft/non-prerelease and contains the six expected assets,
+   including `manager`; no key was uploaded and no OpenAI repository or source
+   ref was targeted.
+2. Signed readback — private bounded HTTPS readback
+   `/data/data/com.termux/files/usr/tmp/codex-mgr7-readback.JYQU08` verified
+   the index and manifest signatures with the pinned key, exact release base
+   and generation ID, all four manifest inventory digests/modes, and the
+   release control files. The downloaded release-built Manager passed its
+   probe, handoff, `CODEX_HOME` isolation, stream/exit, and signal checks.
+3. Device qualification — independent fresh root
+   `/data/data/com.termux/files/usr/tmp/codex-mgr7-fresh.khgE7y` and legacy
+   root `/data/data/com.termux/files/usr/tmp/codex-mgr7-legacy.rJn8MV` both
+   passed `install.sh`/`upgrade-legacy`, upstream version, Manager profile
+   launch, doctor JSON, ANSI `doctor --color` under a PTY, and the explicit
+   unsupported-sandbox rejection without bwrap. The auth file was used only
+   as the existing read-only child `CODEX_HOME` input; its digest was equal
+   before and after, and no credential was copied or emitted.
+4. Bundle gate — the initial auth-free disposable fixture correctly rejected
+   at the candidate doctor probe; the accepted retry used the bounded
+   read-only `CODEX_HOME` method above. Protected resolver, installed
+   launcher, trust seed, and activation-state identities remained unchanged;
+   no live runtime replacement, source-history push, or local source behavior
+   changed. Detailed evidence is recorded in `GOAL.md`.
+
+MGR-7 is closed. No next implementation slice is selected; any future remote
+publication or live cutover must bind a new exact candidate and authorization.
 
 Worker mode remains OFF; the primary Lead owns every future definition,
 implementation, validation, authority update, commit, and acceptance decision.

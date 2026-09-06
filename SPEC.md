@@ -22,7 +22,8 @@ are post-Core and remain optional for ordinary launch. MGR-1 through MGR-5 are
 accepted source slices; MGR-5 qualifies the separately built Manager artifact
 before it enters a signed generation. MGR-6 is an accepted distribution and
 disposable-qualification slice for that optional artifact. MGR-7 is the
-current definition-bound remote-readback and operational-qualification slice.
+accepted remote-readback and operational-qualification slice for one explicit
+Manager-bearing signed generation; it adds no source command or state.
 
 This is a clean rewrite. Legacy source is historical evidence, not an
 implementation dependency or migration base.
