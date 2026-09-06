@@ -54,6 +54,11 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
   changed `origin/rewrite/rust-core`; the separately authorized MGR-7
   publication updated only the `humtr/codex` publication contents on `main`,
   as recorded in `GOAL.md`.
+- R10 promotion preserved the immediately prior local publication tip
+  `14ae0c1f7f18888512a3fce8cd4908e15cdf46bf` as
+  `legacy/main-pre-r10-20260906`, then advanced local `main` and
+  `rewrite/rust-core` to the accepted R10 checkpoint. No remote ref or
+  publication was changed.
 - Worker mode is OFF. The primary Lead owns implementation, validation,
   authority updates, commit, and acceptance.
 

@@ -2319,7 +2319,10 @@ Termux qualification. Produce one candidate for independent product review.
   signed generation transaction; DELETE no second updater, trust source, or
   live-state path. The pre-bundle source base was
   `8f398aae78c03927eb6f3115fa593f76ad62b2bd`; this R10 checkpoint is closed
-  after the source commit is created.
+  after the source commit `19875a0507ea5a478cd9043807560399e4292016` was
+  created. The accepted rewrite was then promoted to local publication
+  authority `main` only after preserving its prior tip as
+  `legacy/main-pre-r10-20260906`; no remote ref or publication was changed.
 
 ## Goal Lifts
 
