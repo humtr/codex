@@ -45,15 +45,15 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
   preserved before the latest replacement as
   `legacy/main-pre-r9.2-20260905`. `main` is publication authority and now
   contains the accepted `rewrite/rust-core` lineage through the current
-  definition checkpoint; this is not a merge or rebase. Remote refs remain
-  unchanged and no push was performed; the authorized local live cutovers are
-  recorded in `GOAL.md`.
+  definition checkpoint; this is not a merge or rebase. No source-history push
+  changed `origin/rewrite/rust-core`; the separately authorized MGR-7
+  publication updated only the `humtr/codex` publication contents on `main`,
+  as recorded in `GOAL.md`.
 - Worker mode is OFF. The primary Lead owns implementation, validation,
   authority updates, commit, and acceptance.
 
-- R8, R9, R9.1, R9.2, MGR-0, MGR-1, MGR-2, MGR-3, MGR-4, MGR-5, and MGR-6
-  are closed above or in `GOAL.md`. MGR-7 is the definition-bound current
-  bundle.
+- R8, R9, R9.1, R9.2, MGR-0, MGR-1, MGR-2, MGR-3, MGR-4, MGR-5, MGR-6,
+  and MGR-7 are closed above or in `GOAL.md`.
 
 ## Product-speed policy
 
