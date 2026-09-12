@@ -2463,6 +2463,14 @@ Termux qualification. Produce one candidate for independent product review.
   upstream uses desktop browser opening for primary login, TUI onboarding and
   history URL actions, and MCP OAuth. The current Termux product has no
   explicit shared opener policy for those surfaces.
+- A subsequent real MCP add attempt reached OAuth discovery but failed during
+  Dynamic Client Registration with `invalid_client_metadata` because the
+  authorization-server account configuration did not allow the submitted
+  redirect URI. This occurs before browser opening and is not classified as a
+  Core defect without evidence that the submitted callback itself violates the
+  selected upstream registration mode or advertised server metadata. The
+  provider/account allowlist is an external TC-2 acceptance prerequisite; the
+  repository must not patch around or mutate it.
 - The upstream app-server daemon expects an independent
   `$CODEX_HOME/packages/standalone/current/codex` and contains an hourly
   standalone installer/update loop. That path is incompatible with the
@@ -2516,7 +2524,14 @@ supported upstream version:
    intact.
 3. All enumerated upstream browser-open intents share one bounded Termux URL
    opener policy with safe manual fallback; fixing only primary login is not
-   sufficient.
+   sufficient. MCP OAuth is proven end to end only after its authorization
+   server is externally configured to allow the exact legitimate callback for
+   the selected upstream registration mode. The proof covers DCR/CIMD strategy
+   selection as applicable, authorization URL production, Termux browser open,
+   loopback callback validation, token exchange, and disposable credential
+   persistence. Provider-policy rejection alone is not repaired in Core; a
+   client patch is admitted only if the exact allowed callback is still wrong
+   because Codex contradicts advertised metadata or the applicable protocol.
 4. Material upstream Linux-versus-Android compile-time behavior is reviewed for
    each supported release. Confirmed desktop-only assumptions such as image
    clipboard paste are adapted or explicitly unavailable without destabilizing

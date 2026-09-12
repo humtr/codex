@@ -1555,6 +1555,41 @@ not make authentication state or the runtime unusable.
 The same policy covers primary login, TUI onboarding/history URL actions, and
 MCP OAuth browser intents. A fix limited to one login call site is incomplete.
 
+### MCP OAuth registration and provider-policy boundary
+
+MCP OAuth client registration and browser opening are separate compatibility
+boundaries. An authorization-server response such as
+`invalid_client_metadata` with `redirect_uri is not allowed by the account
+configuration` is provider/account policy evidence, not by itself a Core
+compatibility defect, when Codex submitted a syntactically valid callback that
+matches the selected MCP registration mode and the server simply has not
+allowed that callback. Core must not rewrite, relax, or bypass an
+authorization server's redirect allowlist merely to turn that response into a
+successful registration, and source qualification must not mutate external
+OAuth account configuration.
+
+For the selected upstream release, qualification must revalidate the actual
+MCP registration path. Codex may use advertised CIMD when its prerequisites are
+met or Dynamic Client Registration otherwise. Native loopback DCR can register
+an HTTP callback on `127.0.0.1`/`localhost` with the active listener port and,
+when issuer-bound responses are unavailable, a server-specific callback path.
+The authorization server used for end-to-end qualification must therefore be
+configured outside Core to accept the exact callback form that the selected
+upstream release legitimately requires. A provider-policy rejection before
+that prerequisite is met is recorded as an external configuration blocker,
+not patched in Core.
+
+TC-2 acceptance begins only after that provider prerequisite is satisfied. It
+then proves the full MCP OAuth path: registration strategy selection,
+authorization URL production, the shared Termux browser opener, loopback
+callback receipt and validation, token exchange, and credential persistence in
+a disposable `CODEX_HOME`. If the server is proven to allow the exact callback
+and registration still fails because Codex generated a callback inconsistent
+with the server's advertised metadata or the applicable OAuth/MCP contract,
+that becomes a client compatibility defect and may be patched only after the
+normative contract is updated with the observed mismatch. Credential values,
+client secrets, authorization codes, and tokens never become test evidence.
+
 ### App-server daemon and remote-control authority
 
 No Termux command may create, select, execute, update, or trust an unmanaged

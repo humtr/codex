@@ -97,6 +97,22 @@ behavior belongs in `SPEC.md`.
 - **TC-2 — shared URL + Android capability policy:** one Termux URL opener
   policy across login/TUI/MCP surfaces, plus explicit Linux-target-on-Android
   clipboard/image-paste behavior and release-time Android-guard review.
+  Before implementation, revalidate the selected upstream release's MCP OAuth
+  callback, DCR/CIMD selection, and issuer-binding behavior. Treat a provider
+  response such as `invalid_client_metadata: redirect_uri is not allowed by
+  the account configuration` as an external authorization-server/account
+  prerequisite when the submitted callback is otherwise legitimate; do not
+  patch Core to evade that allowlist and do not mutate provider configuration
+  from source work. End-to-end TC-2 qualification must use an authorization
+  server or disposable fixture already configured to accept the exact callback
+  form required by the selected upstream release, then prove registration,
+  authorization URL production, Termux browser opening, loopback callback,
+  token exchange, and credential persistence in a disposable `CODEX_HOME`.
+  If the exact callback is allowed and the flow still fails because Codex
+  generates a URI inconsistent with advertised metadata/protocol, promote that
+  concrete mismatch to the TC-2 client patch with focused regression coverage.
+  No credential, authorization code, token, client secret, or account
+  identifier may be recorded as evidence.
 - **TC-3 — host tools + credential fallback:** remove the silent fresh-system
   `rg` assumption by the bounded SPEC-permitted resolution, then reproduce the
   MCP `Auto` keyring/file logout boundary in disposable roots and correct it
@@ -108,10 +124,15 @@ only after TC-1 acceptance updates `GOAL.md` and replaces this routing.
 ## Resume rule
 
 A fresh implementation session resumes by reading `SPEC.md`, then `GOAL.md`,
-then this file and checking the current branch/HEAD. It revalidates the
-selected upstream target before code changes and implements only TC-1. If
-repository truth has moved past this preparation commit, reconcile the
-contracts before mutation rather than assuming this workboard is still current.
+then this file and checking the current branch/HEAD. A single user direction to
+proceed is sufficient: revalidate the selected upstream target, implement only
+the currently active bundle, run its acceptance gates, record accepted evidence
+in `GOAL.md`, replace this routing with the next preplanned bundle, and continue
+without a routine user pause while all work remains source/disposable and within
+these authority boundaries. TC-2 must honor the MCP OAuth provider-policy
+boundary above rather than treating provider allowlist configuration as a Core
+patch. If repository truth has moved past this preparation lineage, reconcile
+the contracts before mutation rather than assuming this workboard is current.
 
 Remote `main` promotion, source push, release/index publication, and live
 mutation remain separate explicitly authorized operations. Historical accepted
