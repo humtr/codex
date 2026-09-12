@@ -2417,6 +2417,40 @@ Termux qualification. Produce one candidate for independent product review.
   product-code mutation. Remote `main` promotion, release/index publication,
   and further live mutation remain separate explicitly authorized operations.
 
+## Post-goal Maintenance MNT-1 — Retire stale wrapper-version hook (accepted)
+
+- On 2026-09-12 the user authorized a bounded audit and retirement of the old
+  wrapper-version automation after the Rust Core goal closure. The maintenance
+  base was `rewrite/rust-core@b6bf28588dae123da811a64224a7ffd9900c9edc`.
+- The audit found no tracked product, release, bootstrap, Manager, or test
+  consumer of `update-wrapper-version`, `WRAPPER_VERSION`, or
+  `wrapper_version`. `tools/update-wrapper-version.sh` and
+  `config/wrapper-version.env` are both absent and untracked in the accepted
+  rewrite.
+- The only executable residue was the repository-local untracked
+  `.git/hooks/pre-commit` from the predecessor environment, SHA-256
+  `e719cfa64f5a1d37d41e02dda33e6df58a2f819f89d16aca70497d7fcd51a638`,
+  mode `0755`. It did nothing except invoke the absent updater script and stage
+  the absent wrapper-version env file; no `core.hooksPath` override was
+  configured.
+- This residue was not a product version authority. `SPEC.md` requires
+  `codex --version` / `-V` to print exactly upstream version output, while the
+  signed v4 release manifest, generation identity, release sequence,
+  `generation.meta`, and signed Core artifact digest provide the release and
+  activation identity used by the Rust Core.
+- MNT-1 removed only that exact untracked local hook. No replacement hook,
+  updater script, wrapper-version env file, version authority, or product-code
+  path was introduced. Historical records of earlier hook failures remain in
+  this ledger as history rather than current routing instructions.
+- Post-removal proof passed: the hook/script/env paths are absent; the tracked
+  consumer search outside authority history returns zero; `git diff --check`
+  passes; and `cargo check --workspace --locked` succeeds. The only tracked
+  maintenance changes are `GOAL.md` and `WORKBOARD.md`.
+- MNT-1 closes through an ordinary Git commit with no `--no-verify` exception.
+  No product behavior, live state, local `main`, remote ref, or release
+  publication is changed. No Goal Lift is active and no new source slice is
+  selected.
+
 ## Goal Lifts
 
 No lift is active. A proposed lift must identify a concrete product risk or
