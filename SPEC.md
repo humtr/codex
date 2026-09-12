@@ -1522,6 +1522,114 @@ argv/stream/signal/exit preservation, and no credential/session-content
 inspection. Each later MGR bundle requires its own focused proof and must not
 use an unaccepted future command as a hidden implementation dependency.
 
+## 9A. Post-Core Termux compatibility extension
+
+The upstream runtime remains the official `aarch64-unknown-linux-musl` Codex
+artifact adapted by this product. Running that Linux-target executable inside
+Termux does **not** activate upstream compile-time `target_os = "android"`
+branches. Compatibility decisions therefore belong to an explicit Core-owned
+Termux boundary rather than to accidental Linux desktop behavior.
+
+This extension does not reopen or weaken the accepted Core completion
+invariants. The resolver, signed-generation trust model, wrapper-owned update,
+coordinated Core/generation activation and rollback, profile/session/auth
+boundaries, sandbox policy, and no-on-device-compiler rule remain unchanged.
+It also does not authorize a new raw-runtime byte patch: patch policy
+`termux-fd-remap-v1` remains exact. Any additional binary rewrite requires a
+separate normative amendment that names its exact bounded substitutions and
+qualification evidence.
+
+### Browser and external URL intents
+
+An upstream request to open an HTTP or HTTPS URL on Termux must use one
+Core-qualified Termux opener capability rather than Linux desktop discovery.
+The preferred local capability is the absolute Termux URL opener under
+`$PREFIX/bin`; the adapter passes exactly one already-formed URL argument and
+must not evaluate a shell command string. Opener selection is child-local: it
+must not write user shell configuration, desktop configuration, profile state,
+or upstream config files. If the capability is unavailable or fails, the
+operation must fail soft at the browser-open boundary and preserve the
+upstream flow that exposes or otherwise allows manual use of the URL; it must
+not make authentication state or the runtime unusable.
+
+The same policy covers primary login, TUI onboarding/history URL actions, and
+MCP OAuth browser intents. A fix limited to one login call site is incomplete.
+
+### App-server daemon and remote-control authority
+
+No Termux command may create, select, execute, update, or trust an unmanaged
+Codex installation under `$CODEX_HOME/packages/standalone`, and no Termux
+app-server path may fetch or execute the upstream standalone installer or any
+other upstream self-updater. Bare `codex update` and all runtime replacement
+remain Core-owned signed-generation operations.
+
+A daemon-backed app-server command, including `remote-control start`, may run
+only if it is bound to the currently qualified signed generation and cannot
+enter the upstream standalone installation/update loop. If that binding is
+not available, the command must fail closed with a stable Termux-specific
+unsupported result before creating standalone state or performing network I/O.
+The foreground `remote-control` form that owns a private temporary socket is a
+separate path and remains usable when otherwise qualified.
+
+An app-server Unix control socket for a supported Termux path must use a
+private, profile-distinct short runtime namespace. Its encoded pathname must
+be at most 107 bytes so it fits the Termux/Linux `sockaddr_un.sun_path[108]`
+bound including the terminating NUL. The short runtime identity may derive
+from the logical `CODEX_HOME`, but it must not relocate, alias as authority, or
+merge profile auth/config/session state. Different logical profiles must not
+collide, and symlinks or pre-existing untrusted entries must not become socket
+or profile authority. Default and Manager-created profiles use the same rule.
+
+### Linux-target Android capability mismatches
+
+The Linux-target runtime must not treat X11, Wayland, a desktop Secret Service,
+or another Linux desktop facility as present merely because the compile target
+is Linux. Each observed desktop-only capability is either adapted through a
+bounded Termux/terminal mechanism or reported unavailable without corrupting
+TUI state.
+
+Image clipboard paste must not enter the Linux `arboard`/WSL path on a normal
+Termux session unless a separately qualified backend exists. In the absence of
+such a backend it returns a clear unavailable result. Text copy may use a
+terminal-mediated fallback such as the already supported OSC 52 path; native
+clipboard failure alone must not make the TUI unusable. Compatibility code
+must not bypass Android permission or application boundaries.
+
+The release qualification for every newly supported upstream version must
+inspect material `target_os = "android"` versus `target_os = "linux"`
+behavior in the upstream source used by the artifact. A new Android-specific
+upstream guard that affects a Termux-visible feature is a compatibility review
+input even though the shipped binary is Linux-target.
+
+### Host-tool and credential fallback discipline
+
+Because the accepted package adaptation excludes upstream `codex-path/rg`, a
+fresh Termux installation must not silently assume that system `rg` exists for
+ordinary product correctness. A feature that still requires it must either
+have a qualified signed helper/fallback or degrade explicitly with bounded
+doctor/user-facing evidence. The bootstrap and repair paths must not install a
+package manager dependency automatically. Bundled zsh remains excluded unless
+a later accepted feature makes it an explicit requirement.
+
+MCP OAuth `Auto` credential storage must apply one coherent authority across
+load, save, refresh, and delete. If keyring storage is unavailable and file
+storage is the resolved fallback, logout/delete must be able to remove the
+resolved file credential without requiring a functioning desktop keyring.
+Credential contents never become compatibility evidence.
+
+### Compatibility acceptance gate
+
+A compatibility slice is accepted only with focused tests for its exact
+boundary plus the existing protected-state and workspace regressions. Tests
+use disposable roots and may not mutate the live resolver, launcher/runtime,
+auth, profiles, sessions, Manager state, or network configuration. For any
+app-server slice, acceptance additionally proves no standalone Codex tree or
+upstream installer request is created, custom-profile socket paths stay within
+the pathname bound, profile identities do not collide, and foreground
+remote-control behavior outside the daemon path is preserved. For browser and
+clipboard slices, acceptance covers every enumerated upstream surface rather
+than one observed call site.
+
 ## 10. Milestones
 
 ### Milestone 1 — local Core

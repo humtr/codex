@@ -2451,11 +2451,94 @@ Termux qualification. Produce one candidate for independent product review.
   publication is changed. No Goal Lift is active and no new source slice is
   selected.
 
+## Post-Core Termux Compatibility Audit (2026-09-12)
+
+- The read-only audit was bound to `rewrite/rust-core` commit
+  `275b8725c4ee0924ef00a10c3e2f3995421ec8f2` and to the currently qualified
+  upstream `0.153.4` source behavior. It changed no source, live runtime,
+  resolver, auth, profile/session state, network configuration, or remote ref.
+  A later upstream target must revalidate target-sensitive findings before
+  relying on this evidence.
+- Browser opening is a shared compatibility surface, not one login call site:
+  upstream uses desktop browser opening for primary login, TUI onboarding and
+  history URL actions, and MCP OAuth. The current Termux product has no
+  explicit shared opener policy for those surfaces.
+- The upstream app-server daemon expects an independent
+  `$CODEX_HOME/packages/standalone/current/codex` and contains an hourly
+  standalone installer/update loop. That path is incompatible with the
+  accepted wrapper-owned signed update authority. The live qualified wrapper
+  installation did not contain that standalone tree during the audit.
+- Manager custom profile paths make the upstream app-server control socket at
+  least 118 bytes and up to 181 bytes for the accepted profile-id bound, while
+  Termux exposes `sockaddr_un.sun_path[108]`. The default profile socket is 82
+  bytes and is not affected. Long custom-profile IDE IPC primary paths can
+  also exceed the bound, but upstream has a temporary-directory fallback, so
+  that path remains a regression target rather than a confirmed failure.
+- The shipped runtime is compiled for `aarch64-unknown-linux-musl`; therefore
+  upstream `target_os = "android"` guards are inactive at run time. The audit
+  confirmed this matters for clipboard behavior: image paste enters the Linux
+  desktop/WSL path and Android-only copy UI guards do not apply.
+- The accepted package adaptation intentionally excludes bundled `rg`. The
+  audited device has Termux `ripgrep`, but bootstrap and product documentation
+  neither provision nor declare it, while upstream thread/content search can
+  require `rg`. This is a fresh-environment dependency risk, not evidence that
+  the audited live device is broken.
+- MCP OAuth `Auto` load/save paths fall back from keyring to file storage, while
+  delete/logout returns on keyring failure before deleting the file fallback.
+  This is a latent Termux compatibility risk that requires a disposable
+  credential-store proof before implementation is claimed necessary.
+- No new defect was found in shell selection/PATH, the current Termux
+  `$SHELL -lc` behavior, external editor launch, code-mode-host, accepted
+  sandbox substitution, signals/TTY, TLS/WebSocket connectivity, startup CA
+  layering, default-profile socket length, foreground remote-control temporary
+  sockets, or the default-disabled zsh-fork path.
+
 ## Goal Lifts
 
-No lift is active. A proposed lift must identify a concrete product risk or
-user-visible capability that cannot be handled within the current two
-milestones. It must update this file before expanding `WORKBOARD.md`.
+### TERMUX-COMPAT — Linux-target upstream compatibility on Termux (active)
+
+This lift addresses concrete post-Core product risks discovered above without
+reopening the accepted Rust Core completion claim. The original two-milestone
+Core goal and its R10 live qualification remain accepted evidence; this lift
+adds a new compatibility success threshold on top of them.
+
+The lift succeeds when all of the following are proven on the then-selected
+supported upstream version:
+
+1. No app-server, remote-control, login, MCP, TUI, or other compatibility path
+   can create or trust an unmanaged standalone Codex installation, execute an
+   upstream self-updater, bypass the signed-generation authority, or widen the
+   accepted runtime byte-patch policy without a prior SPEC amendment.
+2. Daemon-backed app-server behavior is either bound to the currently
+   qualified signed generation or fails closed before network/state mutation;
+   every supported app-server Unix socket uses a private profile-distinct path
+   within the Termux pathname limit. Foreground remote-control behavior remains
+   intact.
+3. All enumerated upstream browser-open intents share one bounded Termux URL
+   opener policy with safe manual fallback; fixing only primary login is not
+   sufficient.
+4. Material upstream Linux-versus-Android compile-time behavior is reviewed for
+   each supported release. Confirmed desktop-only assumptions such as image
+   clipboard paste are adapted or explicitly unavailable without destabilizing
+   the TUI; existing terminal-mediated text-copy fallback remains usable.
+5. A fresh product environment has no silent ordinary-correctness dependency
+   on an undeclared system `rg`. The accepted resolution is either a qualified
+   signed helper/fallback or explicit bounded degradation/diagnosis, never an
+   automatic package-manager install.
+6. MCP OAuth fallback authority is proven in disposable roots. If keyring
+   unavailability can strand a file-backed credential on logout, delete
+   semantics are corrected so the resolved fallback authority can be removed;
+   credential contents are never recorded as evidence.
+7. Focused compatibility tests and the existing workspace/protected-state
+   regressions pass with no live resolver, launcher/runtime, auth, profile,
+   session, Manager, network configuration, remote ref, or publication
+   mutation.
+
+The implementation is intentionally sliced. `WORKBOARD.md` selects exactly
+one current bundle; later browser/clipboard and host-tool/credential work does
+not become an implicit dependency of the first app-server bundle. Remote
+source push, `main` promotion, release/index publication, and live cutover
+remain separate explicitly authorized operations.
 
 ## Blocked / Resume Conditions
 
