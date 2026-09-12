@@ -2372,6 +2372,51 @@ Termux qualification. Produce one candidate for independent product review.
   native rollback. No new source implementation slice is selected by this
   operational acceptance.
 
+## Final Core Goal Closure (accepted)
+
+- On 2026-09-12, the primary Lead completed a final completion-gate audit bound
+  to `rewrite/rust-core@2340bd345ff8f867c16ed78a28f1e5ca1fbb2f49`.
+  The actual remote `origin/rewrite/rust-core` matched that exact checkpoint;
+  actual remote `main` remained separately at
+  `004702fd8081df2a2b07efd1ed394b510bf4953b` and was not part of the audit.
+- SPEC Milestone 1 is satisfied by the accepted real Core entrypoint, exact
+  upstream passthrough/version behavior, environment/FD/process contracts,
+  resolver non-mutation, sandbox policy, read-only doctor, updater interfaces,
+  and focused/unit/integration/fault/real-Termux proof. The later M2-B2 wiring
+  closed the former proof-only `main()` gap, so Milestone 1 is accepted on the
+  real production entrypoint rather than test injection alone.
+- SPEC Milestone 2 is satisfied by accepted prebuilt Core delivery; fresh and
+  legacy bootstrap; signed immutable manifests and bounded key rotation;
+  official upstream acquisition/adaptation; atomic activation, recovery, and
+  rollback; offline install/recovery; launch/update overlap and injected-fault
+  coverage; isolated fresh-Termux and upgrade-from-legacy qualification; and
+  the completed independent product review at
+  `5a7a5292f38876087a5c9b5a41b1dd7e8dbf082b`.
+- The `Current Success Threshold` above is satisfied. Accepted disposable
+  fresh/legacy Termux qualification used prebuilt release artifacts to install
+  and reach the real upstream runtime, report version and doctor results, then
+  perform signed update and explicit rollback. M2-B9/B10 provide the accepted
+  overlap, injected transaction recovery, fresh offline bootstrap, and
+  recovery-with-rollback proof using the actual release Core. The bootstrap
+  path has no compiler or package-manager path, so the product does not require
+  an on-device Rust toolchain. The later R10 v4 proof and authorized live
+  qualification additionally verify coordinated Core/generation activation,
+  state-boundary recovery, exact retained-pair rollback, and a healthy installed
+  runtime.
+- Across the load-bearing source, disposable-device, and live acceptance
+  evidence, protected resolver, trust, auth/profile/session, Manager, package,
+  and unrelated user-state boundaries remained unchanged except for explicitly
+  authorized Core-generation/launcher transactions inside their declared
+  ownership boundary. No missing Core completion gate remains.
+- Manager product features remain outside the original two-milestone Core
+  completion claim even though the separately accepted Manager work and R10
+  coordination are retained as additional product evidence.
+- Therefore the Rust Core rewrite goal is complete. No Goal Lift is active and
+  no next source implementation slice is selected. Future product work must
+  establish a new goal/lift and a new bounded `WORKBOARD.md` bundle before
+  product-code mutation. Remote `main` promotion, release/index publication,
+  and further live mutation remain separate explicitly authorized operations.
+
 ## Goal Lifts
 
 No lift is active. A proposed lift must identify a concrete product risk or
