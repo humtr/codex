@@ -2324,6 +2324,54 @@ Termux qualification. Produce one candidate for independent product review.
   authority `main` only after preserving its prior tip as
   `legacy/main-pre-r10-20260906`; no remote ref or publication was changed.
 
+## R10 Live Qualification and Cutover (accepted)
+
+- On 2026-09-12, after the accepted R10 source revision
+  `0621105fd1be8461b370466fbfa981938241074d` was requalified, one explicitly
+  authorized bounded live cutover produced and activated signed v4 generation
+  `local-1789181261-r10-live-1` at release sequence `7`. The candidate was
+  built from the exact accepted upstream Codex `0.153.4` archive SHA-256
+  `fc395cb043a1093ab0db34f44aba3199bfaa9ce640cd9be7fd588f44b0da64a4`,
+  with Core SHA-256
+  `00ecd5a3536809ef23de055d9c511dc8f503f4658fdb7ff28037ac9e81cd3325`
+  and Manager SHA-256
+  `a706292d653fb33cc652fb1d9ef03ca8cb1e9e6f402a6098b00d4bedeaf189fc`.
+  The signed manifest was `codex-release-v4` and contained the coordinated
+  `core`, `manager`, `runtime`, `codex-code-mode-host`, and `generation.meta`
+  inventory.
+- Immediately before mutation, the installed launcher, activation state,
+  resolver, trust seed, auth file, session tree, and candidate artifact digests
+  were rebound to their exact expected identities. The accepted R10 Core then
+  executed the repository-native `update --local` path; no ad hoc launcher
+  replacement was used. Activation completed with
+  `local-1789181261-r10-live-1` current and
+  `local-1788570645-23374-1` retained as the previous generation.
+- The installed launcher SHA-256 became the exact candidate Core digest
+  `00ecd5a3536809ef23de055d9c511dc8f503f4658fdb7ff28037ac9e81cd3325`.
+  The rollback entrypoint cache retained the exact prior launcher SHA-256
+  `109b556884150a134c39a8892c599f6551dbc1fb18ea557eebbfc690b4fc3a9b`
+  and bound it to generation `local-1788570645-23374-1` in rollback metadata.
+  The retained old generation remained present.
+- Post-cutover `codex doctor --json` returned success with Core, runtime,
+  Manager, and overall summary all `healthy`, reporting the new generation.
+  `codex --version` remained `codex-cli 0.153.4`, and the real installed
+  `codex termux profile list` handoff returned only `default`. Manager
+  persistent state remained absent.
+- Protected identities remained unchanged across the operation: resolver
+  SHA-256 `7e8ad76e0d200e93918ca2e93c99ff8ecd02071953bf1479819db3ac0dbb6d07`,
+  trust-seed SHA-256
+  `62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c`,
+  auth SHA-256
+  `5ac22bf47177ad1366352502427a9bb11f57b861675f756644ca4fed8f78ad32`,
+  and the bounded session-tree identity. No source file, source commit, remote
+  ref, or remote publication was changed by the live operation. Temporary
+  candidate staging was removed after the installed generation was verified.
+- This closes the exact live failure exposed by MGR-7: the active Manager-bearing
+  generation and installed Core launcher now form one signed coordinated pair,
+  and the retained old launcher/generation pair is available for repository-
+  native rollback. No new source implementation slice is selected by this
+  operational acceptance.
+
 ## Goal Lifts
 
 No lift is active. A proposed lift must identify a concrete product risk or

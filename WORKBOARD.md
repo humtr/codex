@@ -18,25 +18,25 @@ historical disposition belong in `GOAL.md`; normative behavior belongs in
 - The independent product review is complete at
   `rewrite/rust-core@5a7a5292f38876087a5c9b5a41b1dd7e8dbf082b`; the review-only
   clippy cleanup is included there and did not expand product behavior.
-- Remote `origin/rewrite/rust-core` remains at
-  `253156c37a2bd22af8faae0bce03587999ffd136`; the local branch is ahead and
-  no push is authorized.
+- Remote `origin/rewrite/rust-core` is now at
+  `0621105fd1be8461b370466fbfa981938241074d`, matching the accepted R10
+  source checkpoint. This remote state predates the current authority-closure
+  slice; no remote push is part of this slice. Actual remote `main` remains at
+  `004702fd8081df2a2b07efd1ed394b510bf4953b`.
 - Current milestone: R10 coordinated Core + generation update is accepted in
-  source after the authorized live qualification of
-  `local-1788680568-mgr7-1` activated the generation but failed Manager
-  handoff. The exact candidate was rolled back to
-  `local-1788570645-23374-1`; protected resolver, launcher, and trust-key
-  identities were preserved. R10 closes the exposed gap: a new signed bundle
-  carries the matching Core launcher, and update/rollback treats it with the
-  generation as one recoverable pair. No live state was changed during R10.
-  MGR-0 through MGR-6 are complete in `SPEC.md`;
-  Core R9.2 remains accepted in source, live runtime, remote Release/index,
-  and disposable-consumer qualification. MGR-7 published and read back the
-  six-asset Manager-bearing Release/index without a live cutover. The Manager
-  definition keeps
-  `codex termux` optional and separate from Core ownership, and defines the
-  profile/session/notification/repair boundaries. No live Manager state or
-  live runtime state has been changed.
+  source and now live-qualified. The MGR-7 candidate
+  `local-1788680568-mgr7-1` had exposed a Core/Manager mismatch and was rolled
+  back to `local-1788570645-23374-1`; R10 fixed that root cause in source.
+  The subsequent explicitly authorized live qualification activated signed v4
+  generation `local-1789181261-r10-live-1` at release sequence 7 with the
+  matching Core launcher. The previous generation is
+  `local-1788570645-23374-1`, and its exact prior launcher is retained in the
+  rollback cache with generation-bound metadata. Installed doctor reports Core,
+  runtime, Manager, and summary all healthy; the installed Manager handoff
+  returns `default` for the read-only profile list. Resolver, trust, auth, and
+  session identities were preserved, and Manager persistent state remained
+  absent. MGR-0 through MGR-7 remain closed. No remote publication or source-
+  history push was performed by this live cutover.
 - The inherited pre-commit hook references absent
   `tools/update-wrapper-version.sh`; do not modify it. If it alone rejects an
   exact, revalidated staged tree, use the established `--no-verify` closure.
@@ -392,8 +392,12 @@ Ordered proof slices, all closed:
 R10 focused regressions passed: v4/v3 trust-policy admission, rejection of a
 new v3 Manager-bearing update without Core, coordinated activation with
 state-boundary failure restoration, and remote v4 update/rollback with exact
-launcher restoration. The final evidence and source commit are recorded in
-`GOAL.md`; no next source implementation slice is selected.
+launcher restoration. The final source evidence and source commit are recorded
+in `GOAL.md`. A subsequent authorized live qualification activated
+`local-1789181261-r10-live-1`, verified the coordinated launcher/generation
+pair, healthy doctor and Manager handoff, exact rollback launcher retention,
+and protected-surface invariants; its operational evidence is recorded in
+`GOAL.md`. No next source implementation slice is selected.
 
 Worker mode remains OFF; the primary Lead owns every future definition,
 implementation, validation, authority update, commit, and acceptance decision.
