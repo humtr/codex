@@ -2680,12 +2680,15 @@ remain separate explicitly authorized operations.
   matched zero tests, so they are not counted as focused evidence. Corrected
   focused gate `job_t42_57752a5acb` then ran the fully-qualified names and
   passed Core TC-2 `1/1` and release-builder TC-2 `1/1`.
-- TC-2 is accepted. No installed Codex runtime/helper, live resolver, persistent
-  process environment, live `CODEX_HOME` auth/config/session/profile,
-  provider/account configuration, release/index publication, remote ref, live
-  cutover, or `main` promotion was changed. The explicit real-Termux
-  installed-runtime smoke remains intentionally ignored because it was outside
-  the user's authorization for this run. No remote push has been performed.
+- TC-2 is accepted at local source commit
+  `ad5ccd654a783c4d5f67a5253eea5705a4c86577`. No installed Codex
+  runtime/helper, live resolver, persistent process environment, live
+  `CODEX_HOME` auth/config/session/profile, provider/account configuration,
+  release/index publication, remote ref, live cutover, or `main` promotion was
+  changed. The explicit real-Termux installed-runtime smoke remains
+  intentionally ignored because it was outside the user's authorization for
+  this run. No remote push has been performed. `WORKBOARD.md` advances only
+  the preplanned TC-3 host-tool and disposable credential-fallback bundle.
 
 ## Blocked / Resume Conditions
 

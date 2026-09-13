@@ -8,8 +8,8 @@ behavior belongs in `SPEC.md`.
 
 - Repository: `humtr/codex`.
 - Active branch: `rewrite/rust-core`.
-- TERMUX-COMPAT implementation base: TC-1 accepted source commit
-  `6abb70bf33144468d9420d7880f25f5afc0b5684`.
+- TERMUX-COMPAT implementation base: TC-2 accepted source commit
+  `ad5ccd654a783c4d5f67a5253eea5705a4c86577`.
 - Selected upstream target for current compatibility work: `rust-v0.154.0`,
   upstream commit `6b9826e3aa83b1a5947db50f4332cb9c65f1b340`. Revalidate again if the
   supported upstream target moves.
@@ -17,120 +17,99 @@ behavior belongs in `SPEC.md`.
   reopened by this work.
 - Active Goal Lift: **TERMUX-COMPAT — Linux-target upstream compatibility on
   Termux**.
-- TC-1 is accepted and recorded in `GOAL.md`.
-- Active implementation bundle: **TC-2 — shared Termux URL opener and
-  Linux-target/Android capability policy**.
-- TC-3 is not active: it covers the system-`rg` dependency and disposable MCP
-  credential fallback proof/correction.
+- TC-1 and TC-2 are accepted and recorded in `GOAL.md`.
+- Active implementation bundle: **TC-3 — host tools + disposable MCP credential
+  fallback**.
 - `legacy/monolith` remains sealed at
   `bf30a7dc94d4dad7f58836c69028160856e63c58`.
 - Worker mode remains OFF.
 
-## TC-2 — shared Termux URL opener and Linux-target/Android capability policy
+## TC-3 — host tools + disposable MCP credential fallback
 
 ### Entry conditions
 
 1. Re-read `SPEC.md` Section 9A and the active TERMUX-COMPAT Goal Lift in
    `GOAL.md` before product-code mutation.
-2. Revalidate the exact selected upstream release's browser-open call sites,
-   MCP OAuth discovery/registration strategy, callback construction and
-   issuer/metadata binding, plus material `target_os = "linux"` versus Android
-   compile-time guards that affect clipboard/image-paste behavior.
-3. Preserve the existing signed-generation/update authority and raw-runtime
-   patch policy. TC-2 does not authorize a new binary byte substitution; amend
-   `SPEC.md` first if one becomes necessary.
-4. Treat authorization-server/account callback allowlisting as external policy.
-   A response such as `invalid_client_metadata: redirect_uri is not allowed by
-   the account configuration` is not a Core defect when Codex submitted the
-   exact legitimate callback for the applicable advertised protocol/metadata.
+2. Revalidate the exact selected upstream release's ordinary-correctness uses of
+   external `rg`, including the behavior when no `rg` is available, and the MCP
+   OAuth credential-store `Auto` load/save/delete/logout paths relevant to
+   keyring-to-file fallback.
+3. Preserve TC-1 daemon fencing, TC-2 browser/clipboard policy, the signed
+   generation/update authority, Manager profile isolation, resolver
+   non-mutation, and the existing raw-runtime patch allowlist. Amend `SPEC.md`
+   first if a new authority or byte patch would otherwise be required.
+4. Use disposable roots and non-sensitive fixture credentials for credential
+   reproduction. Never read, copy, mutate, or record live credential contents.
 
 ### Scope
 
-- Implement one bounded Termux URL-opening policy used by every enumerated
-  upstream browser-open intent, including primary login, TUI onboarding/history
-  URL actions, and MCP OAuth. The policy must invoke only a qualified absolute
-  opener under `$PREFIX/bin`, pass exactly one already-formed HTTP/HTTPS URL
-  argument, avoid shell evaluation, and preserve the URL for safe manual use
-  when opening is unavailable or fails.
-- Do not mutate logical `CODEX_HOME` auth/config/session state merely to select
-  or execute the opener. The opener boundary is capability projection, not a
-  new configuration authority.
-- Make Linux-target-on-Android clipboard/image-paste behavior explicit. Normal
-  Termux execution must not enter unqualified Linux desktop/WSL image clipboard
-  paths. Either adapt the confirmed surface through a bounded Termux capability
-  or make image paste explicitly unavailable while keeping the TUI stable.
-  Preserve the existing terminal-mediated text-copy fallback.
-- Review the selected release for other material Android-gated behavior that is
-  inactive in the shipped `aarch64-unknown-linux-musl` runtime and disposition
-  each relevant finding without expanding into unrelated feature work.
-- MCP OAuth end-to-end qualification must use an authorization server or
-  disposable fixture already configured to allow the exact legitimate callback
-  required by the selected release. Prove DCR/CIMD strategy selection as
-  applicable, authorization URL production, Termux browser opening, loopback
-  callback validation, token exchange, and disposable credential persistence.
-- If that exact callback is allowed and the flow still fails because Codex
-  constructs a URI inconsistent with advertised metadata or the applicable
-  protocol, promote only that concrete mismatch to a focused TC-2 client
-  compatibility correction. Do not change the redirect URI merely to evade a
-  provider allowlist.
-- Never record credentials, authorization codes, tokens, client secrets, or
-  account identifiers in acceptance evidence.
+- Remove the silent fresh-system dependency on an undeclared system `rg` for
+  ordinary correctness. The accepted resolution is bounded by the Goal Lift:
+  use a qualified signed helper/fallback, or provide explicit bounded
+  degradation/diagnosis where the operation cannot be supported. Do not invoke
+  a package manager automatically and do not silently broaden PATH authority.
+- Enumerate the selected release's material `rg` call sites before choosing the
+  resolution. Keep unrelated upstream tools and optional convenience behavior
+  out of this bundle unless they are direct prerequisites for the same
+  correctness boundary.
+- Reproduce the MCP OAuth `Auto` credential-store authority entirely in
+  disposable roots: keyring unavailable/failing, file fallback save/load, then
+  delete/logout. If file-backed credentials can be stranded because delete
+  returns on keyring failure, correct only that demonstrated asymmetry so
+  logout removes the resolved fallback authority.
+- Credential values, authorization codes, tokens, client secrets, and account
+  identifiers must never enter test output, diffs, acceptance evidence, or
+  logs. Tests should prove presence/removal through bounded shape or sentinel
+  assertions rather than exposing secret material.
 
-### Required TC-2 proof
+### Required TC-3 proof
 
-- All enumerated browser-open surfaces traverse one shared bounded Termux opener
-  policy; no shell-string/eval path or desktop-only opener bypass remains.
-- Opener absence/failure is deterministic and leaves a usable manual URL without
-  mutating live auth/profile/session/provider state.
-- Unsafe schemes, malformed URLs, unqualified opener paths, and argument
-  injection fail closed at the owning boundary.
-- Linux-target Termux image-paste behavior is either qualified through the
-  accepted capability or explicitly unavailable without destabilizing the TUI;
-  terminal text-copy fallback remains usable.
-- Release-sensitive Linux-versus-Android guards relevant to this bundle are
-  reviewed and captured by focused tests or an explicit no-change disposition.
-- With the provider/fixture already allowing the legitimate callback, MCP OAuth
-  proves registration/metadata strategy, authorization URL, Termux opener,
-  loopback callback, token exchange, and disposable credential persistence end
-  to end. Provider-policy rejection by itself is not repaired in Core.
-- Existing TC-1 daemon fence, signed update/rollback authority, Manager profile
-  isolation, resolver non-mutation, auth/session boundaries, and sandbox
-  behavior remain green.
-- Finish with focused TC-2 tests plus repository-wide locked check/test,
-  warnings-denied clippy, formatting, and `git diff --check`. Record accepted
-  evidence in `GOAL.md` before closing TC-2 and selecting TC-3.
+- In a fresh/disposable environment with no usable system `rg`, every in-scope
+  operation has deterministic behavior: qualified signed fallback/helper use or
+  explicit bounded degradation/diagnosis. No automatic package-manager install,
+  unqualified PATH search widening, or hidden ordinary-correctness dependency
+  remains.
+- If a signed helper/fallback is introduced, its identity, digest, staging path,
+  and qualification remain inside the existing signed generation/update
+  authority and fail closed on substitution or missing qualification.
+- Disposable MCP OAuth proof demonstrates the actual `Auto` authority path used
+  when keyring storage is unavailable. Save/load succeeds through the accepted
+  fallback, logout/delete removes that same fallback, and a second load proves
+  the credential is gone. If the suspected asymmetry is not reproducible on the
+  selected release, record the no-change disposition instead of patching it.
+- No live `CODEX_HOME`, OS/account credential store, provider/account setting,
+  resolver, installed runtime/helper, or process environment is modified.
+- TC-1 and TC-2 focused regressions remain green. Finish with focused TC-3 tests
+  plus repository-wide locked check/test, warnings-denied clippy, formatting,
+  and `git diff --check`; record accepted evidence in `GOAL.md` before closing
+  the bundle.
 
-### Explicitly out of scope for TC-2
+### Explicitly out of scope for TC-3
 
-- Bundling, installing, or otherwise resolving the system `rg` dependency.
-- MCP credential-store delete/logout fallback correction; that remains TC-3
-  unless TC-2 qualification exposes a direct prerequisite that must first be
-  recorded and routed rather than silently expanded.
+- Automatic Termux package-manager installation or mutation of live `$PREFIX`.
+- Reworking TC-1 daemon authority or TC-2 opener/clipboard behavior absent a
+  demonstrated regression that must first be routed through authority.
+- Live OAuth/provider/account qualification, real credential migration, or
+  mutation of the user's keyring/file credential state.
 - Upstream version upgrade beyond revalidation, live cutover, release/index
-  publication, source push, remote `main` promotion, live provider/account
-  configuration changes, or live auth/network mutation.
+  publication, source push, remote `main` promotion, or unrelated feature work.
 
 ## Planned follow-up routing
 
-- **TC-3 — host tools + credential fallback:** remove the silent fresh-system
-  `rg` assumption by the bounded SPEC-permitted resolution, then reproduce the
-  MCP `Auto` keyring/file logout boundary in disposable roots and correct it
-  only if the latent asymmetry is real. Credential contents must never become
-  evidence, and no automatic package-manager install is permitted.
-
-Only TC-2 is authorized as the next source slice. TC-3 becomes active only
-after TC-2 acceptance updates `GOAL.md` and replaces this routing.
+TC-3 is the final preplanned bundle in the current TERMUX-COMPAT lift. After its
+acceptance gate, update `GOAL.md` with the accepted evidence and determine from
+the Goal Lift thresholds whether the lift closes or whether a new bounded bundle
+must be planned. No additional implementation bundle is implicitly authorized by
+this file.
 
 ## Resume rule
 
 A fresh implementation session resumes by reading `SPEC.md`, then `GOAL.md`,
 then this file and checking the current branch/HEAD and selected upstream target.
-A single user direction to proceed is sufficient: implement only the currently
-active bundle, run its acceptance gates, record accepted evidence in `GOAL.md`,
-replace this routing with the next preplanned bundle, and continue without a
-routine user pause while all work remains source/disposable and within these
-authority boundaries. TC-2 must honor the MCP OAuth provider-policy boundary
-above rather than treating provider allowlist configuration as a Core patch.
+A single user direction to proceed is sufficient to implement only TC-3 while
+all work remains source/disposable and within these authority boundaries. Do not
+expand this routing into live package installation, live credential mutation,
+provider changes, release publication, source push, or runtime cutover.
 
 Remote `main` promotion, source push, release/index publication, and live
 mutation remain separate explicitly authorized operations. Historical accepted
