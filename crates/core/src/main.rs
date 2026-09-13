@@ -5,7 +5,141 @@ enum PublicDispatchRoute {
     Update(Vec<OsString>),
     Doctor(Vec<OsString>),
     Termux(Vec<OsString>),
+    UnsupportedDaemon,
     Upstream(Vec<OsString>),
+}
+
+const TERMUX_DAEMON_UNSUPPORTED: &str = "upstream app-server daemon lifecycle is unsupported on Termux because it is bound to standalone installer/update authority; use foreground 'codex remote-control' when remote control is needed";
+
+fn upstream_global_option_takes_separate_value(value: &str) -> bool {
+    matches!(value, "-c" | "--config" | "--enable" | "--disable")
+}
+
+fn root_option_takes_separate_value(value: &str) -> bool {
+    upstream_global_option_takes_separate_value(value)
+        || matches!(
+            value,
+            "-m" | "--model"
+                | "--local-provider"
+                | "-p"
+                | "--profile"
+                | "-s"
+                | "--sandbox"
+                | "-C"
+                | "--cd"
+                | "--add-dir"
+                | "-a"
+                | "--ask-for-approval"
+                | "--remote"
+                | "--remote-auth-token-env"
+        )
+}
+
+fn upstream_root_command_index(args: &[OsString]) -> Option<usize> {
+    let mut index = 0;
+    while index < args.len() {
+        let value = args[index].to_str()?;
+        if value == "--" {
+            return None;
+        }
+        if !value.starts_with('-') || value == "-" {
+            return Some(index);
+        }
+        if matches!(value, "-i" | "--image") {
+            index += 1;
+            while index < args.len() {
+                let Some(candidate) = args[index].to_str() else {
+                    index += 1;
+                    continue;
+                };
+                if candidate.starts_with('-')
+                    || matches!(candidate, "app-server" | "remote-control")
+                {
+                    break;
+                }
+                index += 1;
+            }
+        } else if root_option_takes_separate_value(value) {
+            index = index.saturating_add(2);
+        } else {
+            index += 1;
+        }
+    }
+    None
+}
+
+fn app_server_option_takes_separate_value(value: &str) -> bool {
+    matches!(
+        value,
+        "--code-mode-host"
+            | "--listen"
+            | "--ws-auth"
+            | "--ws-token-file"
+            | "--ws-token-sha256"
+            | "--ws-shared-secret-file"
+            | "--ws-issuer"
+            | "--ws-audience"
+            | "--ws-max-clock-skew-seconds"
+    )
+}
+
+fn app_server_daemon_subcommand_present(args: &[OsString]) -> bool {
+    let mut index = 0;
+    while index < args.len() {
+        let Some(value) = args[index].to_str() else {
+            return false;
+        };
+        if value == "--" {
+            return false;
+        }
+        if !value.starts_with('-') || value == "-" {
+            return value == "daemon";
+        }
+        if upstream_global_option_takes_separate_value(value)
+            || app_server_option_takes_separate_value(value)
+        {
+            index = index.saturating_add(2);
+        } else {
+            index += 1;
+        }
+    }
+    false
+}
+
+fn remote_control_daemon_subcommand_present(args: &[OsString]) -> bool {
+    let mut index = 0;
+    while index < args.len() {
+        let Some(value) = args[index].to_str() else {
+            return false;
+        };
+        if value == "--" {
+            return false;
+        }
+        if !value.starts_with('-') || value == "-" {
+            return matches!(value, "start" | "stop" | "pair");
+        }
+        if upstream_global_option_takes_separate_value(value) {
+            index = index.saturating_add(2);
+        } else {
+            index += 1;
+        }
+    }
+    false
+}
+
+fn daemon_backed_upstream_route(args: &[OsString]) -> bool {
+    let Some(command_index) = upstream_root_command_index(args) else {
+        return false;
+    };
+    let Some(command) = args[command_index].to_str() else {
+        return false;
+    };
+    let tail = &args[command_index + 1..];
+    match command {
+        "app-server" => app_server_daemon_subcommand_present(tail),
+        "remote-control" => remote_control_daemon_subcommand_present(tail),
+        _ => false,
+    }
 }
 
 /// Selects the exact public Core route and fully plans upstream argv.
@@ -15,6 +149,9 @@ where
     S: Into<OsString>,
 {
     let original: Vec<OsString> = args.into_iter().map(Into::into).collect();
+    if daemon_backed_upstream_route(&original) {
+        return Ok(PublicDispatchRoute::UnsupportedDaemon);
+    }
     match original.first().map(OsString::as_os_str) {
         Some(value) if value == OsStr::new("update") => Ok(PublicDispatchRoute::Update(
             original.into_iter().skip(1).collect(),
@@ -2542,6 +2679,7 @@ enum PublicDispatchCompletion {
 #[cfg(unix)]
 #[derive(Debug)]
 enum PublicDispatchExecutionError {
+    UnsupportedDaemon,
     Upstream(RuntimeLaunchError),
     Doctor(LocalDoctorCommandError),
     Manager(std::io::Error),
@@ -2551,6 +2689,9 @@ enum PublicDispatchExecutionError {
 impl std::fmt::Display for PublicDispatchExecutionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            PublicDispatchExecutionError::UnsupportedDaemon => {
+                f.write_str(TERMUX_DAEMON_UNSUPPORTED)
+            }
             PublicDispatchExecutionError::Upstream(err) => err.fmt(f),
             PublicDispatchExecutionError::Doctor(err) => err.fmt(f),
             PublicDispatchExecutionError::Manager(err) => err.fmt(f),
@@ -2562,6 +2703,7 @@ impl std::fmt::Display for PublicDispatchExecutionError {
 impl std::error::Error for PublicDispatchExecutionError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
+            PublicDispatchExecutionError::UnsupportedDaemon => None,
             PublicDispatchExecutionError::Upstream(err) => Some(err),
             PublicDispatchExecutionError::Doctor(err) => Some(err),
             PublicDispatchExecutionError::Manager(err) => Some(err),
@@ -2587,6 +2729,9 @@ fn execute_public_dispatch<
     >,
 ) -> Result<PublicDispatchCompletion, PublicDispatchExecutionError> {
     match route {
+        PublicDispatchRoute::UnsupportedDaemon => {
+            Err(PublicDispatchExecutionError::UnsupportedDaemon)
+        }
         PublicDispatchRoute::Update(args) => Ok(PublicDispatchCompletion::Update(args)),
         PublicDispatchRoute::Doctor(args) => run_local_doctor_command(args, context)
             .map(PublicDispatchCompletion::Doctor)
@@ -9279,6 +9424,10 @@ where
             return 2;
         }
     };
+    if route == PublicDispatchRoute::UnsupportedDaemon {
+        eprintln!("codex: {TERMUX_DAEMON_UNSUPPORTED}");
+        return 2;
+    }
     match core_repair_operation() {
         Ok(Some(operation)) => return run_core_repair_request(operation, &route),
         Ok(None) => {}
@@ -9398,6 +9547,77 @@ mod tests {
             vec![OsString::from("Doctor")],
             vec![OsString::from("doctorx")],
             vec![OsString::from("exec"), OsString::from("termux")],
+        ] {
+            match plan_public_dispatch(original.clone()).unwrap() {
+                PublicDispatchRoute::Upstream(planned) => {
+                    assert_eq!(planned[0], "-c");
+                    assert_eq!(planned[1], "sandbox_mode=\"danger-full-access\"");
+                    assert_eq!(&planned[2..], original.as_slice());
+                }
+                other => panic!("unexpected route: {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_tc1_daemon_authority_fence_is_fail_closed_before_upstream_planning() {
+        for argv in [
+            vec!["remote-control", "start"],
+            vec!["remote-control", "--json", "stop"],
+            vec!["remote-control", "pair", "--json"],
+            vec!["app-server", "daemon", "start"],
+            vec!["app-server", "daemon", "bootstrap", "--remote-control"],
+            vec!["app-server", "--strict-config", "daemon", "pid-update-loop"],
+            vec!["app-server", "--ws-issuer", "issuer", "daemon", "start"],
+            vec!["app-server", "-c", "foo=bar", "daemon", "start"],
+            vec!["app-server", "--enable", "foo", "daemon", "start"],
+            vec!["-c", "model=\"gpt-5.6\"", "remote-control", "start"],
+            vec!["remote-control", "-c", "foo=bar", "start"],
+            vec!["--image", "a.png", "b.png", "remote-control", "start"],
+            vec!["-C", "/tmp/work", "app-server", "daemon", "restart"],
+        ] {
+            assert_eq!(
+                plan_public_dispatch(argv.clone()).unwrap(),
+                PublicDispatchRoute::UnsupportedDaemon,
+                "{argv:?}"
+            );
+        }
+        assert_eq!(run_public_main(["remote-control", "start"]), 2);
+    }
+
+    #[test]
+    fn test_tc1_foreground_remote_control_and_non_daemon_app_server_stay_upstream() {
+        for original in [
+            vec![OsString::from("remote-control")],
+            vec![OsString::from("remote-control"), OsString::from("--json")],
+            vec![OsString::from("remote-control"), OsString::from("--help")],
+            vec![OsString::from("help"), OsString::from("remote-control")],
+            vec![OsString::from("app-server")],
+            vec![
+                OsString::from("app-server"),
+                OsString::from("--listen"),
+                OsString::from("stdio://"),
+            ],
+            vec![
+                OsString::from("app-server"),
+                OsString::from("--ws-issuer"),
+                OsString::from("daemon"),
+            ],
+            vec![
+                OsString::from("app-server"),
+                OsString::from("--enable"),
+                OsString::from("daemon"),
+            ],
+            vec![
+                OsString::from("remote-control"),
+                OsString::from("--enable"),
+                OsString::from("start"),
+            ],
+            vec![
+                OsString::from("--"),
+                OsString::from("remote-control"),
+                OsString::from("start"),
+            ],
         ] {
             match plan_public_dispatch(original.clone()).unwrap() {
                 PublicDispatchRoute::Upstream(planned) => {
