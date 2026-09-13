@@ -47,6 +47,78 @@ const RELEASE_PRIVATE_KEY_MAX_BYTES: u64 = 16 * 1024;
 const RELEASE_FILE_MAX_BYTES: u64 = 512 * 1024 * 1024;
 const RELEASE_TOTAL_FILE_MAX_BYTES: u64 = 1024 * 1024 * 1024;
 const GENERATION_DESCRIPTOR_MAX_BYTES: u64 = 64 * 1024;
+const BROWSER_HELPER_MAX_BYTES: u64 = 4096;
+// webbrowser 1.2.2 treats a command whose basename is `curl` as a text browser,
+// so it waits for the helper exit status before trying the next BROWSER entry.
+// Keep the signed helper basename `curl` unless that dependency contract is requalified.
+const TERMUX_BROWSER_OPEN_HELPER_IDENTITY: &str = "termux-browser-open-v1";
+const TERMUX_BROWSER_MANUAL_HELPER_IDENTITY: &str = "termux-browser-manual-v1";
+const TERMUX_BROWSER_OPEN_HELPER: &[u8] = br##"#!/system/bin/sh
+if [ "$#" -ne 1 ]; then
+    exit 64
+fi
+url=$1
+case "$url" in
+    http://*|https://*) ;;
+    *) exit 64 ;;
+esac
+case "$url" in
+    *[[:space:]]*|*[[:cntrl:]]*|*\\*) exit 64 ;;
+esac
+authority=${url#*://}
+case "$authority" in
+    ""|/*|\?*|\#*) exit 64 ;;
+esac
+hostport=${authority%%/*}
+hostport=${hostport%%\?*}
+hostport=${hostport%%\#*}
+host=${hostport##*@}
+case "$host" in
+    ""|:*) exit 64 ;;
+esac
+case "${PREFIX-}" in
+    /*) ;;
+    *) exit 64 ;;
+esac
+opener=${CODEX_TERMUX_URL_OPENER-}
+if [ "$opener" != "$PREFIX/bin/termux-open-url" ]; then
+    exit 64
+fi
+if [ ! -f "$opener" ] || [ -L "$opener" ] || [ ! -x "$opener" ]; then
+    exit 127
+fi
+exec "$opener" "$url"
+"##;
+const TERMUX_BROWSER_MANUAL_HELPER: &[u8] = br##"#!/system/bin/sh
+if [ "$#" -eq 1 ]; then
+    url=$1
+    valid=1
+    case "$url" in
+        http://*|https://*) ;;
+        *) valid=0 ;;
+    esac
+    case "$url" in
+        *[[:space:]]*|*[[:cntrl:]]*|*\\*) valid=0 ;;
+    esac
+    authority=${url#*://}
+    case "$authority" in
+        ""|/*|\?*|\#*) valid=0 ;;
+    esac
+    hostport=${authority%%/*}
+    hostport=${hostport%%\?*}
+    hostport=${hostport%%\#*}
+    host=${hostport##*@}
+    case "$host" in
+        ""|:*) valid=0 ;;
+    esac
+    if [ "$valid" -eq 1 ]; then
+        printf 'Browser launch unavailable; open this URL manually:\n%s\n' "$url" >&2
+        exit 0
+    fi
+fi
+printf '%s\n' 'Browser launch blocked: only a single well-formed HTTP/HTTPS URL is permitted.' >&2
+exit 0
+"##;
 const ANDROID_AARCH64_INTERPRETER: &[u8] = b"/system/bin/linker64\0";
 
 const PATCHES: [(&[u8], &[u8], usize); 4] = [
@@ -870,6 +942,69 @@ fn validate_publish_file_mode(
     Ok(mode)
 }
 
+fn validate_publish_browser_layout(root: &Path) -> Result<(), BuilderError> {
+    let browser = root.join("browser");
+    let browser_metadata = std::fs::symlink_metadata(&browser)
+        .map_err(|source| io_error("inspect publication browser helper root", source))?;
+    if !browser_metadata.file_type().is_dir() {
+        return Err(BuilderError::Invalid(
+            "publication browser helper root is not a real directory",
+        ));
+    }
+    let mut seen = BTreeSet::new();
+    for entry in std::fs::read_dir(&browser)
+        .map_err(|source| io_error("read publication browser helper root", source))?
+    {
+        let entry =
+            entry.map_err(|source| io_error("read publication browser helper entry", source))?;
+        let name = entry
+            .file_name()
+            .into_string()
+            .map_err(|_| BuilderError::Invalid("publication browser helper path is not UTF-8"))?;
+        if !matches!(name.as_str(), "open" | "manual") || !seen.insert(name.clone()) {
+            return Err(BuilderError::Invalid(
+                "publication browser helper layout is unsupported",
+            ));
+        }
+        let metadata = std::fs::symlink_metadata(entry.path())
+            .map_err(|source| io_error("inspect publication browser helper directory", source))?;
+        if !metadata.file_type().is_dir() {
+            return Err(BuilderError::Invalid(
+                "publication browser helper directory is not a real directory",
+            ));
+        }
+        let mut leaf_entries = std::fs::read_dir(entry.path())
+            .map_err(|source| io_error("read publication browser helper directory", source))?;
+        let helper = leaf_entries
+            .next()
+            .ok_or(BuilderError::Invalid(
+                "publication browser helper is missing",
+            ))?
+            .map_err(|source| io_error("read publication browser helper", source))?;
+        if helper.file_name() != OsStr::new("curl") || leaf_entries.next().is_some() {
+            return Err(BuilderError::Invalid(
+                "publication browser helper directory is not exact",
+            ));
+        }
+        let helper_metadata = ensure_regular_file(
+            &helper.path(),
+            "inspect publication browser helper",
+            "publication browser helper is not a regular file",
+        )?;
+        validate_publish_file_mode(
+            &helper_metadata,
+            true,
+            "publication browser helper mode is unsafe",
+        )?;
+    }
+    if seen.len() != 2 {
+        return Err(BuilderError::Invalid(
+            "publication browser helper layout is incomplete",
+        ));
+    }
+    Ok(())
+}
+
 fn validate_publish_generation_layout(root: &Path) -> Result<(), BuilderError> {
     let metadata = std::fs::symlink_metadata(root)
         .map_err(|source| io_error("inspect publication generation", source))?;
@@ -878,7 +1013,12 @@ fn validate_publish_generation_layout(root: &Path) -> Result<(), BuilderError> {
             "publication generation is not a real directory",
         ));
     }
-    let required = ["generation.meta", "runtime", "codex-code-mode-host"];
+    let required = [
+        "generation.meta",
+        "runtime",
+        "codex-code-mode-host",
+        "browser",
+    ];
     let mut seen = BTreeSet::new();
     for entry in
         std::fs::read_dir(root).map_err(|source| io_error("read publication generation", source))?
@@ -895,6 +1035,16 @@ fn validate_publish_generation_layout(root: &Path) -> Result<(), BuilderError> {
             return Err(BuilderError::Invalid(
                 "publication generation layout is unsupported",
             ));
+        }
+        if name == "browser" {
+            let metadata = std::fs::symlink_metadata(entry.path())
+                .map_err(|source| io_error("inspect publication browser helper root", source))?;
+            if !metadata.file_type().is_dir() {
+                return Err(BuilderError::Invalid(
+                    "publication browser helper root is not a real directory",
+                ));
+            }
+            continue;
         }
         let file_metadata = ensure_regular_file(
             &entry.path(),
@@ -915,7 +1065,7 @@ fn validate_publish_generation_layout(root: &Path) -> Result<(), BuilderError> {
             "publication generation layout is incomplete",
         ));
     }
-    Ok(())
+    validate_publish_browser_layout(root)
 }
 
 fn snapshot_publish_file(
@@ -1036,14 +1186,40 @@ fn validate_publish_patch_report(
     Ok(())
 }
 
+fn publish_descriptor_helper<'a>(
+    lines: &mut std::str::Lines<'a>,
+    expected_identity: &'static str,
+) -> Result<&'a str, BuilderError> {
+    let line = lines.next().ok_or(BuilderError::Invalid(
+        "generation descriptor helper is missing",
+    ))?;
+    let mut fields = line.split('\t');
+    if fields.next() != Some("helper") || fields.next() != Some(expected_identity) {
+        return Err(BuilderError::Invalid(
+            "generation descriptor helper identity is invalid",
+        ));
+    }
+    let digest = fields.next().ok_or(BuilderError::Invalid(
+        "generation descriptor helper digest is missing",
+    ))?;
+    if fields.next().is_some() || !valid_lower_sha256(digest) {
+        return Err(BuilderError::Invalid(
+            "generation descriptor helper digest is invalid",
+        ));
+    }
+    Ok(digest)
+}
+
 fn validate_publish_generation_descriptor(
     descriptor_path: &Path,
     runtime_path: &Path,
     code_mode_host_path: &Path,
+    browser_helper_paths: (&Path, &Path),
     core_path: Option<&Path>,
     manager_path: Option<&Path>,
     openssl: &Path,
 ) -> Result<String, BuilderError> {
+    let (browser_open_helper_path, browser_manual_helper_path) = browser_helper_paths;
     let metadata = ensure_regular_file(
         descriptor_path,
         "inspect publication generation descriptor",
@@ -1132,9 +1308,17 @@ fn validate_publish_generation_descriptor(
         || publish_descriptor_field(&mut lines, "qualification")? != "qualified"
         || publish_descriptor_field(&mut lines, "creation_metadata").is_err()
         || publish_descriptor_field(&mut lines, "upstream_doctor")? != "supported"
-        || publish_descriptor_field(&mut lines, "helper_count")? != "0"
-        || lines.next().is_some()
+        || publish_descriptor_field(&mut lines, "helper_count")? != "2"
     {
+        return Err(BuilderError::Invalid(
+            "publication generation qualification binding is invalid",
+        ));
+    }
+    let browser_open_helper_digest =
+        publish_descriptor_helper(&mut lines, TERMUX_BROWSER_OPEN_HELPER_IDENTITY)?;
+    let browser_manual_helper_digest =
+        publish_descriptor_helper(&mut lines, TERMUX_BROWSER_MANUAL_HELPER_IDENTITY)?;
+    if lines.next().is_some() {
         return Err(BuilderError::Invalid(
             "publication generation qualification binding is invalid",
         ));
@@ -1145,6 +1329,23 @@ fn validate_publish_generation_descriptor(
         return Err(BuilderError::Invalid(
             "publication runtime digest does not match its descriptor",
         ));
+    }
+    for (path, expected_digest) in [
+        (browser_open_helper_path, browser_open_helper_digest),
+        (browser_manual_helper_path, browser_manual_helper_digest),
+    ] {
+        let metadata = ensure_regular_file(
+            path,
+            "inspect publication browser helper",
+            "publication browser helper is not a regular file",
+        )?;
+        if metadata.permissions().mode() & 0o100 == 0
+            || openssl_sha256(openssl, path)? != expected_digest
+        {
+            return Err(BuilderError::Invalid(
+                "publication browser helper does not match its descriptor",
+            ));
+        }
     }
     if let Some(core_path) = core_path {
         let core_metadata = ensure_regular_file(
@@ -1194,12 +1395,18 @@ fn snapshot_publish_generation(
     validate_publish_generation_layout(source_root)?;
     let source_snapshot_root = staging.join(".generation-source");
     create_private_dir(&source_snapshot_root)?;
+    let browser_snapshot_root = source_snapshot_root.join("browser");
+    create_private_dir(&browser_snapshot_root)?;
+    create_private_dir(&browser_snapshot_root.join("open"))?;
+    create_private_dir(&browser_snapshot_root.join("manual"))?;
     let mut total_size = 0u64;
-    let mut files = Vec::with_capacity(5);
+    let mut files = Vec::with_capacity(7);
     let mut entries = vec![
         ("generation.meta", GENERATION_DESCRIPTOR_MAX_BYTES, false),
         ("runtime", RELEASE_FILE_MAX_BYTES, true),
         ("codex-code-mode-host", RELEASE_FILE_MAX_BYTES, true),
+        ("browser/open/curl", BROWSER_HELPER_MAX_BYTES, true),
+        ("browser/manual/curl", BROWSER_HELPER_MAX_BYTES, true),
     ];
     if std::fs::symlink_metadata(source_root.join("core")).is_ok() {
         entries.push(("core", CORE_ARTIFACT_MAX_BYTES, true));
@@ -1242,6 +1449,10 @@ fn snapshot_publish_generation(
         &source_snapshot_root.join("generation.meta"),
         &source_snapshot_root.join("runtime"),
         &source_snapshot_root.join("codex-code-mode-host"),
+        (
+            &source_snapshot_root.join("browser/open/curl"),
+            &source_snapshot_root.join("browser/manual/curl"),
+        ),
         core_path.as_deref(),
         manager_path.as_deref(),
         openssl,
@@ -1418,11 +1629,30 @@ fn publish(request: &PublishRequest) -> Result<String, BuilderError> {
         let release_dir = releases.join(&generation.generation_id);
         create_private_dir(&releases)?;
         create_private_dir(&release_dir)?;
+        let release_browser = release_dir.join("browser");
+        let release_browser_open = release_browser.join("open");
+        let release_browser_manual = release_browser.join("manual");
+        create_private_dir(&release_browser)?;
+        create_private_dir(&release_browser_open)?;
+        create_private_dir(&release_browser_manual)?;
         for file in &generation.files {
             rename_noreplace(&file.snapshot_path, &release_dir.join(file.relative_path))?;
         }
-        std::fs::remove_dir(staging.join(".generation-source"))
+        std::fs::remove_dir_all(staging.join(".generation-source"))
             .map_err(|source| io_error("remove publication source staging", source))?;
+
+        for directory in [
+            &release_browser_open,
+            &release_browser_manual,
+            &release_browser,
+        ] {
+            set_mode(
+                directory,
+                0o755,
+                "set release browser helper directory mode",
+            )?;
+            sync_directory(directory, "sync release browser helper directory")?;
+        }
 
         let manifest = release_manifest_bytes(
             &generation.generation_id,
@@ -2330,6 +2560,8 @@ struct AdaptedGeneration {
     raw_runtime_sha256: String,
     runtime_sha256: String,
     code_mode_host_sha256: String,
+    browser_open_helper_sha256: String,
+    browser_manual_helper_sha256: String,
     changed_bytes: usize,
 }
 
@@ -2345,6 +2577,49 @@ fn sync_directory(path: &Path, operation: &'static str) -> Result<(), BuilderErr
     File::open(path)
         .and_then(|directory| directory.sync_all())
         .map_err(|source| io_error(operation, source))
+}
+
+fn write_browser_helper(
+    path: &Path,
+    contents: &[u8],
+    openssl: &Path,
+) -> Result<String, BuilderError> {
+    if contents.len() as u64 > BROWSER_HELPER_MAX_BYTES {
+        return Err(BuilderError::Invalid(
+            "browser helper exceeds its byte bound",
+        ));
+    }
+    let mut file = create_private_file(path)?;
+    file.write_all(contents)
+        .map_err(|source| io_error("write browser helper", source))?;
+    file.sync_all()
+        .map_err(|source| io_error("sync browser helper", source))?;
+    drop(file);
+    set_mode(path, 0o755, "set browser helper mode")?;
+    File::open(path)
+        .and_then(|file| file.sync_all())
+        .map_err(|source| io_error("sync browser helper after final mode", source))?;
+    openssl_sha256(openssl, path)
+}
+
+fn create_browser_helpers(
+    staging: &Path,
+    openssl: &Path,
+) -> Result<(String, String), BuilderError> {
+    let browser = staging.join("browser");
+    let open = browser.join("open");
+    let manual = browser.join("manual");
+    create_private_dir(&browser)?;
+    create_private_dir(&open)?;
+    create_private_dir(&manual)?;
+    let open_sha256 =
+        write_browser_helper(&open.join("curl"), TERMUX_BROWSER_OPEN_HELPER, openssl)?;
+    let manual_sha256 =
+        write_browser_helper(&manual.join("curl"), TERMUX_BROWSER_MANUAL_HELPER, openssl)?;
+    sync_directory(&open, "sync browser open helper directory")?;
+    sync_directory(&manual, "sync browser manual helper directory")?;
+    sync_directory(&browser, "sync browser helper root")?;
+    Ok((open_sha256, manual_sha256))
 }
 
 fn adapt_selected_runtime(
@@ -2423,6 +2698,8 @@ fn adapt_selected_runtime(
 
     let runtime_sha256 = openssl_sha256(&request.openssl, &runtime_path)?;
     let code_mode_host_sha256 = openssl_sha256(&request.openssl, &selected.code_mode_host)?;
+    let (browser_open_helper_sha256, browser_manual_helper_sha256) =
+        create_browser_helpers(staging, &request.openssl)?;
     std::fs::remove_file(&selected.raw_runtime)
         .map_err(|source| io_error("remove selected raw runtime", source))?;
 
@@ -2430,6 +2707,8 @@ fn adapt_selected_runtime(
         raw_runtime_sha256,
         runtime_sha256,
         code_mode_host_sha256,
+        browser_open_helper_sha256,
+        browser_manual_helper_sha256,
         changed_bytes,
     })
 }
@@ -2468,7 +2747,9 @@ fn write_generation_descriptor(
             "qualification\tqualified\n",
             "creation_metadata\t{}\n",
             "upstream_doctor\tsupported\n",
-            "helper_count\t0\n"
+            "helper_count\t2\n",
+            "helper\t{}\t{}\n",
+            "helper\t{}\t{}\n"
         ),
         GENERATION_FORMAT,
         request.generation_id,
@@ -2482,7 +2763,11 @@ fn write_generation_descriptor(
         manager_sha256.unwrap_or("-"),
         CORE_API_IDENTITY,
         PERSISTENT_SCHEMA_IDENTITY,
-        request.creation_metadata
+        request.creation_metadata,
+        TERMUX_BROWSER_OPEN_HELPER_IDENTITY,
+        adapted.browser_open_helper_sha256,
+        TERMUX_BROWSER_MANUAL_HELPER_IDENTITY,
+        adapted.browser_manual_helper_sha256
     );
     let path = staging.join("generation.meta");
     let mut file = create_private_file(&path)?;
@@ -3558,6 +3843,30 @@ fi
 
         let runtime_sha256 = openssl_sha256(&fixture.request.openssl, &runtime_path).unwrap();
         let host_sha256 = openssl_sha256(&fixture.request.openssl, &host_path).unwrap();
+        let browser_open_path = fixture.request.output.join("browser/open/curl");
+        let browser_manual_path = fixture.request.output.join("browser/manual/curl");
+        let browser_open_sha256 =
+            openssl_sha256(&fixture.request.openssl, &browser_open_path).unwrap();
+        let browser_manual_sha256 =
+            openssl_sha256(&fixture.request.openssl, &browser_manual_path).unwrap();
+        assert_eq!(
+            std::fs::read(&browser_open_path).unwrap(),
+            TERMUX_BROWSER_OPEN_HELPER
+        );
+        assert_eq!(
+            std::fs::read(&browser_manual_path).unwrap(),
+            TERMUX_BROWSER_MANUAL_HELPER
+        );
+        for helper in [&browser_open_path, &browser_manual_path] {
+            assert_eq!(
+                std::fs::symlink_metadata(helper)
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o755
+            );
+        }
         let expected_descriptor = format!(
             concat!(
                 "codex-local-generation-v2\n",
@@ -3577,7 +3886,9 @@ fi
                 "qualification\tqualified\n",
                 "creation_metadata\ttest-fixture\n",
                 "upstream_doctor\tsupported\n",
-                "helper_count\t0\n"
+                "helper_count\t2\n",
+                "helper\ttermux-browser-open-v1\t{}\n",
+                "helper\ttermux-browser-manual-v1\t{}\n"
             ),
             fixture.request.archive_sha256,
             fixture.request.archive_sha256,
@@ -3585,7 +3896,9 @@ fi
             runtime_sha256,
             host_sha256,
             runtime_sha256,
-            core_sha256
+            core_sha256,
+            browser_open_sha256,
+            browser_manual_sha256
         );
         assert_eq!(
             std::fs::read_to_string(&descriptor_path).unwrap(),
@@ -3600,6 +3913,7 @@ fi
         assert_eq!(
             top_level,
             vec![
+                OsString::from("browser"),
                 OsString::from("codex-code-mode-host"),
                 OsString::from("core"),
                 OsString::from("generation.meta"),
@@ -3651,6 +3965,7 @@ fi
         assert_eq!(
             top_level,
             vec![
+                OsString::from("browser"),
                 OsString::from("codex-code-mode-host"),
                 OsString::from("core"),
                 OsString::from("generation.meta"),
@@ -3686,7 +4001,7 @@ fi
         assert!(release.join("manager").is_file());
         let manifest = std::fs::read_to_string(release.join("release.manifest")).unwrap();
         assert!(manifest.contains("file\tmanager\t"));
-        assert!(manifest.contains("file_count\t5\n"));
+        assert!(manifest.contains("file_count\t7\n"));
         fixture.remove();
     }
 
@@ -3838,6 +4153,142 @@ fi
     }
 
     #[test]
+    fn test_tc2_browser_helpers_are_exact_single_arg_and_fail_closed() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let fixture = fixture("tc2-browser-helper", happy_entries("0.150.1"), false);
+        assert_eq!(run_from_args(request_args(&fixture.request)), 0);
+        let open_helper = fixture.request.output.join("browser/open/curl");
+        let manual_helper = fixture.request.output.join("browser/manual/curl");
+        assert_eq!(
+            std::fs::read(&open_helper).unwrap(),
+            TERMUX_BROWSER_OPEN_HELPER
+        );
+        assert_eq!(
+            std::fs::read(&manual_helper).unwrap(),
+            TERMUX_BROWSER_MANUAL_HELPER
+        );
+
+        let prefix = fixture.root.join("prefix");
+        let bin = prefix.join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let opener = bin.join("termux-open-url");
+        let log = fixture.root.join("opener-log");
+        let shell = find_tool("sh");
+        std::fs::write(
+            &opener,
+            format!(
+                "#!{}\nprintf '%s\\n' \"$#\" \"$1\" > \"$CODEX_TC2_LOG\"\n",
+                shell.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&opener, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let valid = "https://example.test/oauth/callback?x=$(id)&semi=one;two#fragment";
+        let output = Command::new(&shell)
+            .arg(&open_helper)
+            .arg(valid)
+            .env_clear()
+            .env("PREFIX", &prefix)
+            .env("CODEX_TERMUX_URL_OPENER", &opener)
+            .env("CODEX_TC2_LOG", &log)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "stderr={:?}", output.stderr);
+        assert_eq!(
+            std::fs::read_to_string(&log).unwrap(),
+            format!("1\n{valid}\n")
+        );
+
+        let manual = Command::new(&shell)
+            .arg(&manual_helper)
+            .arg(valid)
+            .env_clear()
+            .output()
+            .unwrap();
+        assert!(manual.status.success());
+        assert!(String::from_utf8_lossy(&manual.stderr).contains(valid));
+
+        for invalid in [
+            "file:///etc/passwd",
+            "https:///missing-host",
+            "https://?missing-host",
+            "https://:443/missing-host",
+            "https://example.test/has space",
+            "https://example.test/line\nbreak",
+            "https://example.test/back\\slash",
+        ] {
+            let _ = std::fs::remove_file(&log);
+            let blocked = Command::new(&shell)
+                .arg(&open_helper)
+                .arg(invalid)
+                .env_clear()
+                .env("PREFIX", &prefix)
+                .env("CODEX_TERMUX_URL_OPENER", &opener)
+                .env("CODEX_TC2_LOG", &log)
+                .output()
+                .unwrap();
+            assert_eq!(blocked.status.code(), Some(64), "invalid={invalid:?}");
+            assert!(!log.exists(), "invalid URL reached opener: {invalid:?}");
+            let fallback = Command::new(&shell)
+                .arg(&manual_helper)
+                .arg(invalid)
+                .env_clear()
+                .output()
+                .unwrap();
+            assert!(fallback.status.success());
+            let stderr = String::from_utf8_lossy(&fallback.stderr);
+            assert!(stderr.contains("Browser launch blocked"));
+            assert!(!stderr.contains(invalid));
+        }
+
+        for args in [vec![], vec!["https://example.test", "https://other.test"]] {
+            let status = Command::new(&shell)
+                .arg(&open_helper)
+                .args(args)
+                .env_clear()
+                .env("PREFIX", &prefix)
+                .env("CODEX_TERMUX_URL_OPENER", &opener)
+                .env("CODEX_TC2_LOG", &log)
+                .status()
+                .unwrap();
+            assert_eq!(status.code(), Some(64));
+        }
+
+        let unqualified = Command::new(&shell)
+            .arg(&open_helper)
+            .arg(valid)
+            .env_clear()
+            .env("PREFIX", &prefix)
+            .env("CODEX_TERMUX_URL_OPENER", prefix.join("bin/not-the-opener"))
+            .output()
+            .unwrap();
+        assert_eq!(unqualified.status.code(), Some(64));
+
+        std::fs::remove_file(&opener).unwrap();
+        let unavailable = Command::new(&shell)
+            .arg(&open_helper)
+            .arg(valid)
+            .env_clear()
+            .env("PREFIX", &prefix)
+            .env("CODEX_TERMUX_URL_OPENER", &opener)
+            .output()
+            .unwrap();
+        assert_eq!(unavailable.status.code(), Some(127));
+        let fallback = Command::new(&shell)
+            .arg(&manual_helper)
+            .arg(valid)
+            .env_clear()
+            .output()
+            .unwrap();
+        assert!(fallback.status.success());
+        assert!(String::from_utf8_lossy(&fallback.stderr).contains(valid));
+
+        fixture.remove();
+    }
+
+    #[test]
     fn test_m2_b6_slice2_patch_and_publication_fail_closed_matrix() {
         for case in ["missing-source", "extra-source", "prepatched-source"] {
             let mut entries = happy_entries("0.150.1");
@@ -3926,6 +4377,13 @@ fi
         .unwrap();
         let descriptor_digest =
             openssl_sha256(&fixture.request.openssl, &release.join("generation.meta")).unwrap();
+        let browser_manual_digest = openssl_sha256(
+            &fixture.request.openssl,
+            &release.join("browser/manual/curl"),
+        )
+        .unwrap();
+        let browser_open_digest =
+            openssl_sha256(&fixture.request.openssl, &release.join("browser/open/curl")).unwrap();
         let expected_manifest = format!(
             concat!(
                 "codex-release-v4\n",
@@ -3937,13 +4395,17 @@ fi
                 "core_api_identity\tcore-api-v1\n",
                 "persistent_schema_identity\tschema-v1\n",
                 "release_public_key\t{}\n",
-                "file_count\t4\n",
+                "file_count\t6\n",
+                "file\tbrowser/manual/curl\t{}\t0755\n",
+                "file\tbrowser/open/curl\t{}\t0755\n",
                 "file\tcodex-code-mode-host\t{}\t0755\n",
                 "file\tcore\t{}\t0755\n",
                 "file\tgeneration.meta\t{}\t0644\n",
                 "file\truntime\t{}\t0755\n"
             ),
             public_key_hex(&openssl_public_key(&fixture.request.openssl, &private_key).unwrap()),
+            browser_manual_digest,
+            browser_open_digest,
             host_digest,
             openssl_sha256(&fixture.request.openssl, &release.join("core")).unwrap(),
             descriptor_digest,

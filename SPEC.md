@@ -1623,12 +1623,26 @@ is Linux. Each observed desktop-only capability is either adapted through a
 bounded Termux/terminal mechanism or reported unavailable without corrupting
 TUI state.
 
-Image clipboard paste must not enter the Linux `arboard`/WSL path on a normal
-Termux session unless a separately qualified backend exists. In the absence of
-such a backend it returns a clear unavailable result. Text copy may use a
-terminal-mediated fallback such as the already supported OSC 52 path; native
-clipboard failure alone must not make the TUI unusable. Compatibility code
-must not bypass Android permission or application boundaries.
+Image clipboard paste must not reach a usable Linux desktop or WSL clipboard
+transport on a normal Termux session unless a separately qualified backend
+exists. For an upstream artifact compiled as Linux, Core may satisfy this
+without a new runtime byte patch only when release-specific source review proves
+the image path is bounded to desktop `arboard` plus the enumerated WSL fallback:
+the child-local capability projection must make X11 and Wayland transport
+unreachable before runtime launch and remove inherited WSL selector variables.
+Qualification must also reject a positive WSL kernel signature when the exact
+upstream kernel probe is readable. If that source is unreadable under the same
+credentials the child will inherit, qualification may instead rely on that same
+probe remaining unavailable together with removal of every remaining upstream
+WSL selector. The upstream Linux function may then execute only far enough to
+fail before a desktop connection; no PowerShell/WSL subprocess fallback may
+become reachable. In the
+absence of a separately qualified clipboard backend the user-visible outcome is
+a clear unavailable result. Text copy may use a terminal-mediated fallback such
+as the already supported OSC 52 path; native clipboard failure alone must not
+make the TUI unusable. Compatibility code must not bypass Android permission or
+application boundaries. This capability fence does not widen the raw-runtime
+byte-patch allowlist.
 
 The release qualification for every newly supported upstream version must
 inspect material `target_os = "android"` versus `target_os = "linux"`

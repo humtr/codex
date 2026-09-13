@@ -2596,6 +2596,97 @@ remain separate explicitly authorized operations.
   changed. Worker mode remained OFF. TC-1 is closed; `WORKBOARD.md` advances
   only the preplanned TC-2 routing.
 
+
+### TC-2 — shared Termux browser opener and Linux-target clipboard boundary (accepted)
+
+- TC-2 source recovery was rebound to accepted integration base
+  `74c5ffe0f2cbbec2b52a342758a1a913bf2cd2d8`; the remote
+  `origin/rewrite/rust-core` was reverified at the same SHA. The latest tracked
+  TC-2 diff was recovered from the orphaned resume worktree into fresh managed
+  worktrees without copying or deleting any untracked build output. The
+  selected upstream target remains `rust-v0.154.0` at
+  `6b9826e3aa83b1a5947db50f4332cb9c65f1b340`.
+- Production review confirms one signed browser-helper policy for the enumerated
+  upstream browser-open intents. The opener helper is bound to the exact
+  qualified `$PREFIX/bin/termux-open-url`, accepts exactly one complete
+  HTTP/HTTPS URL, uses no shell evaluation, and fails closed for malformed or
+  unsafe schemes, extra arguments, and argument-injection forms. The manual
+  helper is a bounded fallback with the same URL validation. Their identities
+  are `termux-browser-open-v1` and `termux-browser-manual-v1`; signed generation
+  inventory/staging uses `browser/open/curl` and `browser/manual/curl`, while
+  generic helpers retain the existing `helpers/<index>` semantics. Browser
+  helper digests remain bound by the signed generation/update authority, and
+  URL opening introduces no logical `CODEX_HOME` auth/config/session mutation.
+- The prior 22 Core regressions were fixture-contract failures rather than a new
+  production compatibility defect. Candidate/release/update/doctor fixtures now
+  add the two mandatory browser helpers where the signed generation contract
+  requires them, while the baseline fixture and generic-helper indexing keep
+  their legacy semantics. This restores the complete Core suite without
+  weakening the new mandatory helper inventory.
+- Clipboard review was rebound to the selected upstream source. On Linux,
+  upstream image paste first attempts the desktop `arboard` transport and then
+  only the enumerated WSL PowerShell fallback; WSL detection checks
+  `/proc/version` and, if that cannot be read, only `WSL_DISTRO_NAME` and
+  `WSL_INTEROP`. The accepted host was read-only verified as aarch64 Android
+  Termux (`TERMUX_VERSION=0.119.0-beta.3`, Termux `$PREFIX`, Android root/data
+  indicators, no WSL kernel marker); Android denies this process access to
+  `/proc/version`, and both WSL selector variables were absent. The child-local
+  projection makes X11/Wayland unusable and removes both WSL selectors, so the
+  selected upstream image path cannot reach a usable desktop or WSL transport.
+  Without a separately qualified backend image clipboard is therefore
+  unavailable; terminal-mediated text-copy fallback remains outside this
+  image-transport fence. This is a source/capability clarification only and
+  does not widen the raw-runtime byte-patch allowlist.
+- Final repository gate job `job_sy8_8d146d5293` used only the disposable
+  managed worktree and its private `target/tc2-analysis` directory. Results:
+  `cargo fmt --all` PASS; `cargo fmt --all -- --check` PASS; focused Core TC-2
+  `1 passed / 0 failed`; focused release-builder TC-2 `1 passed / 0 failed`;
+  release-builder full `13 passed / 0 failed`; Core full
+  `139 passed / 0 failed / 1 explicit real-Termux smoke ignored`;
+  `cargo check --workspace --locked` PASS; locked workspace tests PASS with
+  Core `139/0/1`, Manager unit `20/20`, Manager integration `11/11`, and
+  release-builder `13/13` (doc/zero-test targets also green);
+  `cargo clippy --workspace --all-targets --locked -- -D warnings` PASS; and
+  `git diff --check` PASS. No TC-1 regression was observed.
+- Disposable MCP OAuth E2E job `job_t3r_6232d788b0` passed against the selected
+  adapted `codex-cli 0.154.0` runtime. The fixture deliberately did not
+  advertise CIMD, so upstream `Auto` selected Dynamic Client Registration. DCR
+  observed exactly one registration and accepted only the exact selected-release
+  loopback callback derived from the MCP server URL; the emitted authorization
+  URL carried that same callback and S256 PKCE. The exact signed
+  `termux-browser-open-v1` helper was then exercised with that emitted URL and
+  delegated to the installed qualified `$PREFIX/bin/termux-open-url` with exit
+  status 0. Because the non-interactive Android browser handoff did not itself
+  fetch the localhost fixture, a disposable browser driver followed the same
+  emitted URL; that drove the real Codex loopback listener, one exact token
+  exchange, PKCE verifier validation, `mcp login` exit 0, and persistence of one
+  disposable file-backed credential. No credential, authorization code, token,
+  client secret, account identifier, or full authorization URL is recorded as
+  evidence. The sensitive live `~/.codex` fingerprint was unchanged before and
+  after the proof.
+- The earlier attempt whose Android browser process did not fetch the localhost
+  fixture is non-PASS diagnostic evidence only; it does not weaken the bounded
+  opener proof. Acceptance relies on the signed-helper handoff plus the
+  deterministic disposable driver for callback/token completion, rather than on
+  an unrelated live MCP endpoint or provider configuration.
+- Fresh acceptance gate `job_t3x_5865b62f9b` completed with exit status 0 on
+  the unchanged TC-2 source diff: formatting check PASS; release-builder full
+  `13 passed / 0 failed`; Core full `139 passed / 0 failed / 1 explicit
+  real-Termux installed-runtime smoke ignored`; workspace locked check PASS;
+  workspace locked tests PASS with Core `139/0/1`, Manager unit `20/20`,
+  Manager integration `11/11`, and release-builder `13/13`; warnings-denied
+  workspace/all-targets clippy PASS; and `git diff --check` PASS. The focused
+  commands embedded in that gate used incomplete `--exact` names and therefore
+  matched zero tests, so they are not counted as focused evidence. Corrected
+  focused gate `job_t42_57752a5acb` then ran the fully-qualified names and
+  passed Core TC-2 `1/1` and release-builder TC-2 `1/1`.
+- TC-2 is accepted. No installed Codex runtime/helper, live resolver, persistent
+  process environment, live `CODEX_HOME` auth/config/session/profile,
+  provider/account configuration, release/index publication, remote ref, live
+  cutover, or `main` promotion was changed. The explicit real-Termux
+  installed-runtime smoke remains intentionally ignored because it was outside
+  the user's authorization for this run. No remote push has been performed.
+
 ## Blocked / Resume Conditions
 
 - Stop before any live install, activation, or replacement of the working

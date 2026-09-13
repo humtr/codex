@@ -409,6 +409,9 @@ fn apply_child_env_plan_and_fence(
         for (k, v) in &plan.assignments {
             cmd.env(k, v);
         }
+        for name in &plan.removals {
+            cmd.env_remove(name);
+        }
     }
     cmd.env_remove("CODEX_MANAGED_BY_NPM")
         .env_remove("CODEX_MANAGED_BY_BUN")
@@ -448,6 +451,7 @@ where
 #[cfg(unix)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct TermuxProcessEnvSnapshot {
+    wsl_kernel: Option<bool>,
     prefix: Option<OsString>,
     tmpdir: Option<OsString>,
     inherited_path: Option<OsString>,
@@ -461,6 +465,8 @@ enum TermuxProcessEnvError {
     MissingRequired(&'static str),
     EmptyRequired(&'static str),
     InvalidPathComponent(&'static str),
+    UnsupportedHost(&'static str),
+    MissingQualifiedHelper(&'static str),
 }
 
 #[cfg(unix)]
@@ -479,6 +485,15 @@ impl std::fmt::Display for TermuxProcessEnvError {
             TermuxProcessEnvError::InvalidPathComponent(name) => {
                 write!(f, "PATH component '{name}' is empty or contains ':' or NUL")
             }
+            TermuxProcessEnvError::UnsupportedHost(host) => {
+                write!(f, "unsupported Termux host classification '{host}'")
+            }
+            TermuxProcessEnvError::MissingQualifiedHelper(identity) => {
+                write!(
+                    f,
+                    "qualified generation is missing required helper '{identity}'"
+                )
+            }
         }
     }
 }
@@ -487,8 +502,19 @@ impl std::fmt::Display for TermuxProcessEnvError {
 impl std::error::Error for TermuxProcessEnvError {}
 
 #[cfg(unix)]
+fn detect_wsl_kernel_signature() -> Option<bool> {
+    std::fs::read_to_string("/proc/version")
+        .ok()
+        .map(|version| {
+            let version = version.to_lowercase();
+            version.contains("microsoft") || version.contains("wsl")
+        })
+}
+
+#[cfg(unix)]
 fn capture_termux_process_env() -> TermuxProcessEnvSnapshot {
     TermuxProcessEnvSnapshot {
+        wsl_kernel: detect_wsl_kernel_signature(),
         prefix: std::env::var_os("PREFIX"),
         tmpdir: std::env::var_os("TMPDIR"),
         inherited_path: std::env::var_os("PATH"),
@@ -501,6 +527,7 @@ fn capture_termux_process_env() -> TermuxProcessEnvSnapshot {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct TermuxBaseEnvPlan {
     assignments: Vec<(OsString, OsString)>,
+    removals: Vec<OsString>,
 }
 
 #[cfg(unix)]
@@ -522,15 +549,52 @@ fn valid_path_component(component: &OsStr) -> bool {
     !bytes.is_empty() && !bytes.contains(&b':') && !bytes.contains(&b'\0')
 }
 
+// webbrowser 1.2.2 treats a command whose basename is `curl` as a text browser,
+// so it waits for the helper exit status before trying the next BROWSER entry.
+// Keep the signed helper basename `curl` unless that dependency contract is requalified.
+#[cfg(unix)]
+const TERMUX_BROWSER_OPEN_HELPER_IDENTITY: &str = "termux-browser-open-v1";
+#[cfg(unix)]
+const TERMUX_BROWSER_MANUAL_HELPER_IDENTITY: &str = "termux-browser-manual-v1";
+
+#[cfg(unix)]
+fn generation_helper_relative_path(index: usize, identity: &str) -> std::path::PathBuf {
+    match identity {
+        TERMUX_BROWSER_OPEN_HELPER_IDENTITY => std::path::PathBuf::from("browser/open/curl"),
+        TERMUX_BROWSER_MANUAL_HELPER_IDENTITY => std::path::PathBuf::from("browser/manual/curl"),
+        _ => std::path::PathBuf::from("helpers").join(index.to_string()),
+    }
+}
+
+#[cfg(unix)]
+fn valid_browser_helper_path(path: &OsStr) -> bool {
+    use std::os::unix::ffi::OsStrExt;
+    let bytes = path.as_bytes();
+    !bytes.is_empty()
+        && std::path::Path::new(path).is_absolute()
+        && !bytes.contains(&b':')
+        && !bytes.contains(&b'\0')
+        && !bytes.iter().any(u8::is_ascii_whitespace)
+}
+
 #[cfg(unix)]
 fn plan_termux_env(
     snapshot: &TermuxProcessEnvSnapshot,
     compat_dir: &OsStr,
+    browser_open_helper: &OsStr,
+    browser_manual_helper: &OsStr,
     cert_file: &OsStr,
     cert_dir: Option<&OsStr>,
 ) -> Result<TermuxBaseEnvPlan, TermuxProcessEnvError> {
     use std::os::unix::ffi::{OsStrExt, OsStringExt};
 
+    // Upstream 0.154 checks /proc/version first, then only WSL_DISTRO_NAME/WSL_INTEROP.
+    // Reject a positive kernel signature. If /proc/version is unreadable here, it is also
+    // unreadable to the immediately exec'd child under the same credentials; removing both
+    // environment selectors below therefore keeps the upstream WSL fallback unreachable.
+    if snapshot.wsl_kernel == Some(true) {
+        return Err(TermuxProcessEnvError::UnsupportedHost("WSL"));
+    }
     let prefix = required_process_env(&snapshot.prefix, "PREFIX")?;
     let temp_dir = required_process_env(&snapshot.tmpdir, "TMPDIR")?;
     let prefix_bin = std::path::PathBuf::from(prefix).join("bin");
@@ -539,6 +603,16 @@ fn plan_termux_env(
     }
     if !valid_path_component(prefix_bin.as_os_str()) {
         return Err(TermuxProcessEnvError::InvalidPathComponent("prefix_bin"));
+    }
+    if !valid_browser_helper_path(browser_open_helper) {
+        return Err(TermuxProcessEnvError::InvalidPathComponent(
+            "browser_open_helper",
+        ));
+    }
+    if !valid_browser_helper_path(browser_manual_helper) {
+        return Err(TermuxProcessEnvError::InvalidPathComponent(
+            "browser_manual_helper",
+        ));
     }
 
     let inherited_path = snapshot.inherited_path.as_deref().unwrap_or_default();
@@ -556,7 +630,7 @@ fn plan_termux_env(
         path.extend_from_slice(inherited_path.as_bytes());
     }
 
-    let mut assignments = Vec::with_capacity(7);
+    let mut assignments = Vec::with_capacity(11);
     for name in ["TMPDIR", "TMP", "TEMP", "SQLITE_TMPDIR"] {
         assignments.push((OsString::from(name), temp_dir.to_os_string()));
     }
@@ -579,7 +653,34 @@ fn plan_termux_env(
     }
     assignments.push((OsString::from("PATH"), OsString::from_vec(path)));
 
-    Ok(TermuxBaseEnvPlan { assignments })
+    let opener = prefix_bin.join("termux-open-url");
+    let mut browser = Vec::with_capacity(
+        browser_open_helper.as_bytes().len() + browser_manual_helper.as_bytes().len() + 9,
+    );
+    browser.extend_from_slice(browser_open_helper.as_bytes());
+    browser.extend_from_slice(b" %s:");
+    browser.extend_from_slice(browser_manual_helper.as_bytes());
+    browser.extend_from_slice(b" %s");
+    assignments.push((OsString::from("BROWSER"), OsString::from_vec(browser)));
+    assignments.push((
+        OsString::from("CODEX_TERMUX_URL_OPENER"),
+        opener.into_os_string(),
+    ));
+    assignments.push((OsString::from("DISPLAY"), OsString::new()));
+    assignments.push((
+        OsString::from("WAYLAND_DISPLAY"),
+        OsString::from("/__codex_termux_unavailable__"),
+    ));
+
+    let removals = ["WAYLAND_SOCKET", "WSL_DISTRO_NAME", "WSL_INTEROP"]
+        .into_iter()
+        .map(OsString::from)
+        .collect();
+
+    Ok(TermuxBaseEnvPlan {
+        assignments,
+        removals,
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -907,6 +1008,24 @@ impl<'selection, 'asset> QualifiedRuntimeAssets<'selection, 'asset> {
 }
 
 #[cfg(unix)]
+fn termux_browser_helper_paths<'asset>(
+    selection: &RuntimeAssetSelection<'asset>,
+) -> Result<(&'asset OsStr, &'asset OsStr), TermuxProcessEnvError> {
+    let find = |identity: &'static str| {
+        selection
+            .helpers
+            .iter()
+            .find(|helper| helper.identity == identity)
+            .map(|helper| helper.asset_path)
+            .ok_or(TermuxProcessEnvError::MissingQualifiedHelper(identity))
+    };
+    Ok((
+        find(TERMUX_BROWSER_OPEN_HELPER_IDENTITY)?,
+        find(TERMUX_BROWSER_MANUAL_HELPER_IDENTITY)?,
+    ))
+}
+
+#[cfg(unix)]
 fn validate_absolute_runtime_asset_path(
     path: &OsStr,
     name: &'static str,
@@ -1188,9 +1307,16 @@ where
     C: AsRef<std::path::Path>,
 {
     let selection = assets.selection();
+    let (browser_open_helper, browser_manual_helper) = match termux_browser_helper_paths(selection)
+    {
+        Ok(paths) => paths,
+        Err(err) => return RuntimeLaunchError::Environment(err),
+    };
     let env_plan = match plan_termux_env(
         process_env,
         selection.compatibility_dir,
+        browser_open_helper,
+        browser_manual_helper,
         cert_file,
         cert_dir,
     ) {
@@ -1540,9 +1666,13 @@ where
     C: AsRef<std::path::Path>,
 {
     let selection = assets.selection();
+    let (browser_open_helper, browser_manual_helper) = termux_browser_helper_paths(selection)
+        .map_err(QualifiedUpstreamDoctorProbeError::Environment)?;
     let env_plan = plan_termux_env(
         process_env,
         selection.compatibility_dir,
+        browser_open_helper,
+        browser_manual_helper,
         cert_file,
         cert_dir,
     )
@@ -2012,9 +2142,13 @@ where
     let force_color = options.force_color;
     let mut use_color = options.use_color;
     let selection = assets.selection();
+    let (browser_open_helper, browser_manual_helper) = termux_browser_helper_paths(selection)
+        .map_err(QualifiedUpstreamDoctorProbeError::Environment)?;
     let env_plan = plan_termux_env(
         process_env,
         selection.compatibility_dir,
+        browser_open_helper,
+        browser_manual_helper,
         cert_file,
         cert_dir,
     )
@@ -4917,7 +5051,12 @@ fn parse_release_file_mode(value: &str, relative_path: &str) -> Result<u32, Loca
     }
     if (matches!(
         relative_path,
-        "core" | "runtime" | "manager" | CODE_MODE_HOST_FILE
+        "core"
+            | "runtime"
+            | "manager"
+            | CODE_MODE_HOST_FILE
+            | "browser/open/curl"
+            | "browser/manual/curl"
     ) || relative_path.starts_with("helpers/"))
         && mode & 0o100 == 0
     {
@@ -4947,6 +5086,9 @@ fn valid_release_relative_path(value: &str) -> bool {
         value,
         "core" | "generation.meta" | "runtime" | "manager" | CODE_MODE_HOST_FILE
     ) {
+        return true;
+    }
+    if matches!(value, "browser/open/curl" | "browser/manual/curl") {
         return true;
     }
     if let Some(index) = value.strip_prefix("helpers/") {
@@ -5647,27 +5789,50 @@ fn load_local_generation(
             "activated generation Manager must be a regular file",
         )?;
     }
-    let helper_paths: Vec<_> = (0..manifest.helper_digests.len())
-        .map(|index| generation_dir.join("helpers").join(index.to_string()))
+    let helper_paths: Vec<_> = manifest
+        .helper_digests
+        .iter()
+        .enumerate()
+        .map(|(index, helper)| {
+            generation_dir.join(generation_helper_relative_path(index, &helper.identity))
+        })
         .collect();
     if helper_paths.iter().any(|path| !path.is_file()) {
         return Err(LocalProductError::Descriptor(
             "activated generation helper is missing",
         ));
     }
-    if !helper_paths.is_empty() {
-        ensure_real_directory(
-            &generation_dir.join("helpers"),
-            "inspect activated generation helper directory",
-            "activated generation helper directory must be a real directory",
-        )?;
-        for helper_path in &helper_paths {
-            ensure_regular_file(
-                helper_path,
-                "inspect activated generation helper",
-                "activated generation helper must be a regular file",
-            )?;
+    for (index, helper_path) in helper_paths.iter().enumerate() {
+        let identity = manifest.helper_digests[index].identity.as_str();
+        match identity {
+            TERMUX_BROWSER_OPEN_HELPER_IDENTITY | TERMUX_BROWSER_MANUAL_HELPER_IDENTITY => {
+                ensure_real_directory(
+                    &generation_dir.join("browser"),
+                    "inspect activated generation browser helper root",
+                    "activated generation browser helper root must be a real directory",
+                )?;
+                let leaf = if identity == TERMUX_BROWSER_OPEN_HELPER_IDENTITY {
+                    "open"
+                } else {
+                    "manual"
+                };
+                ensure_real_directory(
+                    &generation_dir.join("browser").join(leaf),
+                    "inspect activated generation browser helper directory",
+                    "activated generation browser helper directory must be a real directory",
+                )?;
+            }
+            _ => ensure_real_directory(
+                &generation_dir.join("helpers"),
+                "inspect activated generation helper directory",
+                "activated generation helper directory must be a real directory",
+            )?,
         }
+        ensure_regular_file(
+            helper_path,
+            "inspect activated generation helper",
+            "activated generation helper must be a regular file",
+        )?;
     }
 
     Ok(LoadedLocalGeneration {
@@ -5936,7 +6101,14 @@ fn exact_release_file_paths(
             "inspect release helper",
             "release helper must be a regular file",
         )?;
-        files.push(format!("helpers/{index}"));
+        files.push(
+            generation_helper_relative_path(index, &loaded.manifest.helper_digests[index].identity)
+                .to_str()
+                .ok_or(LocalProductError::Release(
+                    "release helper path is not supported UTF-8",
+                ))?
+                .to_owned(),
+        );
     }
     if files.len() > LOCAL_RELEASE_MAX_FILES {
         return Err(LocalProductError::Release(
@@ -6386,20 +6558,20 @@ fn stage_local_generation_with_io<I: GenerationPublishIo>(
                 "Manager must be a regular file",
             )?;
         }
-        if !source.helper_paths.is_empty() {
-            std::fs::create_dir(candidate.join("helpers")).map_err(|source| {
-                LocalProductError::Io {
-                    operation: "create staged helper directory",
-                    source,
-                }
+        for (index, helper) in source.helper_paths.iter().enumerate() {
+            let relative = generation_helper_relative_path(
+                index,
+                &source.manifest.helper_digests[index].identity,
+            );
+            let destination = candidate.join(relative);
+            let parent = destination.parent().ok_or(LocalProductError::Descriptor(
+                "staged helper path has no parent",
+            ))?;
+            std::fs::create_dir_all(parent).map_err(|source| LocalProductError::Io {
+                operation: "create staged helper directory",
+                source,
             })?;
-            for (index, helper) in source.helper_paths.iter().enumerate() {
-                copy_local_regular_file(
-                    helper,
-                    &candidate.join("helpers").join(index.to_string()),
-                    "helper must be a regular file",
-                )?;
-            }
+            copy_local_regular_file(helper, &destination, "helper must be a regular file")?;
         }
         let copied = load_local_generation(&candidate)?;
         if copied.generation_id != source.generation_id {
@@ -9512,6 +9684,40 @@ mod tests {
         }
     }
 
+    fn tc2_manifest(manager: bool) -> GenerationManifest {
+        let mut manifest = valid_manifest(manager, false);
+        manifest.helper_digests = vec![
+            GenerationHelperDigest {
+                identity: TERMUX_BROWSER_OPEN_HELPER_IDENTITY.to_string(),
+                digest: "browser-open-digest".to_string(),
+            },
+            GenerationHelperDigest {
+                identity: TERMUX_BROWSER_MANUAL_HELPER_IDENTITY.to_string(),
+                digest: "browser-manual-digest".to_string(),
+            },
+        ];
+        manifest
+    }
+
+    #[cfg(unix)]
+    fn tc2_helper_bindings<'a>(
+        browser_open: &'a OsStr,
+        browser_manual: &'a OsStr,
+    ) -> [HelperAssetBinding<'a>; 2] {
+        [
+            HelperAssetBinding {
+                identity: TERMUX_BROWSER_OPEN_HELPER_IDENTITY,
+                asset_path: browser_open,
+                observed_digest: "browser-open-digest",
+            },
+            HelperAssetBinding {
+                identity: TERMUX_BROWSER_MANUAL_HELPER_IDENTITY,
+                asset_path: browser_manual,
+                observed_digest: "browser-manual-digest",
+            },
+        ]
+    }
+
     fn requirements() -> GenerationManifestRequirements<'static> {
         GenerationManifestRequirements {
             platform: "android",
@@ -9687,6 +9893,7 @@ mod tests {
         use std::os::unix::ffi::{OsStrExt, OsStringExt};
         let inherited = OsString::from_vec(vec![b'/', b'i', b'n', b'h', 0xff]);
         let snapshot = TermuxProcessEnvSnapshot {
+            wsl_kernel: Some(false),
             prefix: Some(OsString::from("/test/prefix")),
             tmpdir: Some(OsString::from("/test/tmp")),
             inherited_path: Some(inherited.clone()),
@@ -9696,11 +9903,13 @@ mod tests {
         let plan = plan_termux_env(
             &snapshot,
             OsStr::new("/test/compat"),
+            OsStr::new("/test/browser/open/curl"),
+            OsStr::new("/test/browser/manual/curl"),
             OsStr::new("/fallback/cert.pem"),
             None,
         )
         .unwrap();
-        assert_eq!(plan.assignments.len(), 7);
+        assert_eq!(plan.assignments.len(), 11);
         for name in ["TMPDIR", "TMP", "TEMP", "SQLITE_TMPDIR"] {
             assert!(plan
                 .assignments
@@ -9725,12 +9934,172 @@ mod tests {
         let mut expected = b"/test/compat:/test/prefix/bin:".to_vec();
         expected.extend_from_slice(inherited.as_bytes());
         assert_eq!(path, expected.as_slice());
+        assert!(plan.assignments.iter().any(|(k, v)| {
+            k == "BROWSER" && v == "/test/browser/open/curl %s:/test/browser/manual/curl %s"
+        }));
+        assert!(plan.assignments.iter().any(|(k, v)| {
+            k == "CODEX_TERMUX_URL_OPENER" && v == "/test/prefix/bin/termux-open-url"
+        }));
+        assert!(plan
+            .assignments
+            .iter()
+            .any(|(k, v)| k == "DISPLAY" && v.is_empty()));
+        assert!(plan
+            .assignments
+            .iter()
+            .any(|(k, v)| { k == "WAYLAND_DISPLAY" && v == "/__codex_termux_unavailable__" }));
+        assert_eq!(
+            plan.removals,
+            vec![
+                OsString::from("WAYLAND_SOCKET"),
+                OsString::from("WSL_DISTRO_NAME"),
+                OsString::from("WSL_INTEROP")
+            ]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_tc2_browser_policy_and_linux_android_capability_fence_are_exact() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let snapshot = TermuxProcessEnvSnapshot {
+            wsl_kernel: Some(false),
+            prefix: Some(OsString::from("/data/data/com.termux/files/usr")),
+            tmpdir: Some(OsString::from("/data/data/com.termux/files/usr/tmp")),
+            inherited_path: Some(OsString::from("/usr/bin")),
+            inherited_ssl_cert_file: None,
+            inherited_ssl_cert_dir: None,
+        };
+        let open = OsStr::new("/generation/browser/open/curl");
+        let manual = OsStr::new("/generation/browser/manual/curl");
+        let plan = plan_termux_env(
+            &snapshot,
+            OsStr::new("/generation"),
+            open,
+            manual,
+            OsStr::new("/cert.pem"),
+            None,
+        )
+        .unwrap();
+        assert!(plan.assignments.iter().any(|(name, value)| {
+            name == "BROWSER"
+                && value == "/generation/browser/open/curl %s:/generation/browser/manual/curl %s"
+        }));
+        assert!(plan.assignments.iter().any(|(name, value)| {
+            name == "CODEX_TERMUX_URL_OPENER"
+                && value == "/data/data/com.termux/files/usr/bin/termux-open-url"
+        }));
+        assert!(plan
+            .assignments
+            .iter()
+            .any(|(name, value)| name == "DISPLAY" && value.is_empty()));
+        assert!(plan.assignments.iter().any(|(name, value)| {
+            name == "WAYLAND_DISPLAY" && value == "/__codex_termux_unavailable__"
+        }));
+        assert_eq!(
+            plan.removals,
+            vec![
+                OsString::from("WAYLAND_SOCKET"),
+                OsString::from("WSL_DISTRO_NAME"),
+                OsString::from("WSL_INTEROP"),
+            ]
+        );
+
+        let mut wsl_snapshot = snapshot.clone();
+        wsl_snapshot.wsl_kernel = Some(true);
+        assert_eq!(
+            plan_termux_env(
+                &wsl_snapshot,
+                OsStr::new("/generation"),
+                open,
+                manual,
+                OsStr::new("/cert.pem"),
+                None,
+            ),
+            Err(TermuxProcessEnvError::UnsupportedHost("WSL"))
+        );
+        let mut unreadable_kernel_snapshot = snapshot.clone();
+        unreadable_kernel_snapshot.wsl_kernel = None;
+        assert_eq!(
+            plan_termux_env(
+                &unreadable_kernel_snapshot,
+                OsStr::new("/generation"),
+                open,
+                manual,
+                OsStr::new("/cert.pem"),
+                None,
+            )
+            .unwrap(),
+            plan
+        );
+
+        for invalid in [
+            OsString::from("relative/browser/curl"),
+            OsString::from("/browser:bad/curl"),
+            OsString::from("/browser bad/curl"),
+            OsString::from_vec(b"/browser/bad\0curl".to_vec()),
+        ] {
+            assert_eq!(
+                plan_termux_env(
+                    &snapshot,
+                    OsStr::new("/generation"),
+                    invalid.as_os_str(),
+                    manual,
+                    OsStr::new("/cert.pem"),
+                    None,
+                ),
+                Err(TermuxProcessEnvError::InvalidPathComponent(
+                    "browser_open_helper"
+                ))
+            );
+        }
+
+        assert_eq!(
+            generation_helper_relative_path(0, TERMUX_BROWSER_OPEN_HELPER_IDENTITY),
+            std::path::PathBuf::from("browser/open/curl")
+        );
+        assert_eq!(
+            generation_helper_relative_path(1, TERMUX_BROWSER_MANUAL_HELPER_IDENTITY),
+            std::path::PathBuf::from("browser/manual/curl")
+        );
+        assert!(valid_release_relative_path("browser/open/curl"));
+        assert!(valid_release_relative_path("browser/manual/curl"));
+        for invalid in [
+            "browser/open",
+            "browser/manual",
+            "browser/open/curl/extra",
+            "browser/../open/curl",
+        ] {
+            assert!(!valid_release_relative_path(invalid), "{invalid}");
+        }
+
+        let manifest = tc2_manifest(false);
+        let generation = qualify_generation_manifest(&manifest, &requirements()).unwrap();
+        let only_open = [HelperAssetBinding {
+            identity: TERMUX_BROWSER_OPEN_HELPER_IDENTITY,
+            asset_path: open,
+            observed_digest: "browser-open-digest",
+        }];
+        let selection = RuntimeAssetSelection {
+            runtime: RuntimeAssetBinding {
+                program_path: OsStr::new("/generation/runtime"),
+                observed_digest: "runtime-digest",
+            },
+            compatibility_dir: OsStr::new("/generation"),
+            helpers: &only_open,
+        };
+        assert_eq!(
+            qualify_runtime_assets(generation, &selection).unwrap_err(),
+            RuntimeAssetError::MissingHelperIdentity(1)
+        );
     }
 
     #[cfg(unix)]
     #[test]
     fn test_termux_environment_errors_and_capture_are_direct() {
         let mut snapshot = TermuxProcessEnvSnapshot {
+            wsl_kernel: Some(false),
             prefix: None,
             tmpdir: Some("/tmp".into()),
             inherited_path: None,
@@ -9738,16 +10107,31 @@ mod tests {
             inherited_ssl_cert_dir: None,
         };
         assert_eq!(
-            plan_termux_env(&snapshot, OsStr::new("/compat"), OsStr::new("/cert"), None),
+            plan_termux_env(
+                &snapshot,
+                OsStr::new("/compat"),
+                OsStr::new("/browser/open/curl"),
+                OsStr::new("/browser/manual/curl"),
+                OsStr::new("/cert"),
+                None,
+            ),
             Err(TermuxProcessEnvError::MissingRequired("PREFIX"))
         );
         snapshot.prefix = Some("/prefix".into());
         snapshot.tmpdir = Some(OsString::new());
         assert_eq!(
-            plan_termux_env(&snapshot, OsStr::new("/compat"), OsStr::new("/cert"), None),
+            plan_termux_env(
+                &snapshot,
+                OsStr::new("/compat"),
+                OsStr::new("/browser/open/curl"),
+                OsStr::new("/browser/manual/curl"),
+                OsStr::new("/cert"),
+                None,
+            ),
             Err(TermuxProcessEnvError::EmptyRequired("TMPDIR"))
         );
         let captured = capture_termux_process_env();
+        assert_eq!(captured.wsl_kernel, detect_wsl_kernel_signature());
         assert_eq!(captured.prefix, std::env::var_os("PREFIX"));
         assert_eq!(captured.tmpdir, std::env::var_os("TMPDIR"));
         assert_eq!(captured.inherited_path, std::env::var_os("PATH"));
@@ -10016,21 +10400,25 @@ mod tests {
         runtime_mode.set_mode(0o755);
         std::fs::set_permissions(&clean_runtime, runtime_mode).unwrap();
 
-        let manifest = valid_manifest(false, false);
+        let manifest = tc2_manifest(false);
         let generation = qualify_generation_manifest(&manifest, &requirements()).unwrap();
         let compat = root.join("compat");
         let cert_file = root.join("cert.pem");
         let cert_dir = root.join("certs");
+        let browser_open = root.join("browser/open/curl");
+        let browser_manual = root.join("browser/manual/curl");
+        let helpers = tc2_helper_bindings(browser_open.as_os_str(), browser_manual.as_os_str());
         let selection = RuntimeAssetSelection {
             runtime: RuntimeAssetBinding {
                 program_path: clean_runtime.as_os_str(),
                 observed_digest: "runtime-digest",
             },
             compatibility_dir: compat.as_os_str(),
-            helpers: &[],
+            helpers: &helpers,
         };
         let assets = qualify_runtime_assets(generation, &selection).unwrap();
         let snapshot = TermuxProcessEnvSnapshot {
+            wsl_kernel: Some(false),
             prefix: Some(prefix.into_os_string()),
             tmpdir: Some(root.join("tmp").into_os_string()),
             inherited_path: None,
@@ -10217,16 +10605,31 @@ exit 73
         let cert_dir = root.join("certs");
         let scenario = std::env::var(PROBE_SCENARIO).unwrap();
         let manager_enabled = scenario == "manager" || scenario == "notify-projection";
-        let manifest = valid_manifest(manager_enabled, false);
+        let manifest = tc2_manifest(manager_enabled);
+        let browser_open = root.join("browser/open/curl");
+        let browser_manual = root.join("browser/manual/curl");
+        let helper_bindings = [
+            HelperAssetBinding {
+                identity: TERMUX_BROWSER_OPEN_HELPER_IDENTITY,
+                asset_path: browser_open.as_os_str(),
+                observed_digest: "browser-open-digest",
+            },
+            HelperAssetBinding {
+                identity: TERMUX_BROWSER_MANUAL_HELPER_IDENTITY,
+                asset_path: browser_manual.as_os_str(),
+                observed_digest: "browser-manual-digest",
+            },
+        ];
         let selection = RuntimeAssetSelection {
             runtime: RuntimeAssetBinding {
                 program_path: runtime.as_os_str(),
                 observed_digest: "runtime-digest",
             },
             compatibility_dir: compat.as_os_str(),
-            helpers: &[],
+            helpers: &helper_bindings,
         };
         let snapshot = TermuxProcessEnvSnapshot {
+            wsl_kernel: Some(false),
             prefix: Some(prefix.into_os_string()),
             tmpdir: Some(tmp.into_os_string()),
             inherited_path: Some(OsString::from("/inherited/a:/inherited/b")),
@@ -10516,6 +10919,11 @@ exit 73
         std::fs::create_dir(root.join("prefix")).unwrap();
         std::fs::create_dir(root.join("tmp")).unwrap();
         std::fs::create_dir(root.join("certs")).unwrap();
+        std::fs::create_dir(root.join("browser")).unwrap();
+        std::fs::create_dir(root.join("browser/open")).unwrap();
+        std::fs::create_dir(root.join("browser/manual")).unwrap();
+        std::fs::write(root.join("browser/open/curl"), b"helper").unwrap();
+        std::fs::write(root.join("browser/manual/curl"), b"helper").unwrap();
         std::fs::write(root.join("cert.pem"), b"test-cert").unwrap();
         (root, runtime, resolver, config)
     }
@@ -10861,18 +11269,23 @@ exit 73
     fn test_policy_and_environment_fail_before_runtime_io() {
         assert!(plan_public_dispatch(["--sandbox=read-only"]).is_err());
 
-        let manifest = valid_manifest(false, false);
+        let manifest = tc2_manifest(false);
         let generation = qualify_generation_manifest(&manifest, &requirements()).unwrap();
+        let helpers = tc2_helper_bindings(
+            OsStr::new("/browser/open/curl"),
+            OsStr::new("/browser/manual/curl"),
+        );
         let selection = RuntimeAssetSelection {
             runtime: RuntimeAssetBinding {
                 program_path: OsStr::new("/missing/runtime"),
                 observed_digest: "runtime-digest",
             },
             compatibility_dir: OsStr::new("/compat"),
-            helpers: &[],
+            helpers: &helpers,
         };
         let assets = qualify_runtime_assets(generation, &selection).unwrap();
         let snapshot = TermuxProcessEnvSnapshot {
+            wsl_kernel: Some(false),
             prefix: None,
             tmpdir: Some("/tmp".into()),
             inherited_path: None,
@@ -10904,19 +11317,23 @@ exit 73
     #[test]
     fn test_doctor_is_bounded_read_only_and_preserves_upstream_report() {
         let (root, runtime, resolver, config) = prepare_exec_fixture("doctor");
-        let manifest = valid_manifest(false, false);
+        let manifest = tc2_manifest(false);
         let generation = qualify_generation_manifest(&manifest, &requirements()).unwrap();
         let compat = root.join("compat");
+        let browser_open = root.join("browser/open/curl");
+        let browser_manual = root.join("browser/manual/curl");
+        let helpers = tc2_helper_bindings(browser_open.as_os_str(), browser_manual.as_os_str());
         let selection = RuntimeAssetSelection {
             runtime: RuntimeAssetBinding {
                 program_path: runtime.as_os_str(),
                 observed_digest: "runtime-digest",
             },
             compatibility_dir: compat.as_os_str(),
-            helpers: &[],
+            helpers: &helpers,
         };
         let assets = qualify_runtime_assets(generation, &selection).unwrap();
         let snapshot = TermuxProcessEnvSnapshot {
+            wsl_kernel: Some(false),
             prefix: Some(root.join("prefix").into_os_string()),
             tmpdir: Some(root.join("tmp").into_os_string()),
             inherited_path: None,
@@ -10969,6 +11386,7 @@ exit 73
         };
         let assets = qualify_runtime_assets(generation, &selection).unwrap();
         let snapshot = TermuxProcessEnvSnapshot {
+            wsl_kernel: Some(false),
             prefix: None,
             tmpdir: None,
             inherited_path: None,
@@ -11284,21 +11702,85 @@ exit 73
     #[cfg(unix)]
     fn b2_add_helper(generation_dir: &std::path::Path) {
         let descriptor_path = generation_dir.join("generation.meta");
-        let descriptor = std::fs::read_to_string(&descriptor_path).unwrap();
-        let descriptor = descriptor.replacen(
-            "helper_count\t0\n",
-            "helper_count\t1\nhelper\thelper-a\thelper-digest\n",
-            1,
-        );
-        assert_ne!(
-            descriptor,
-            std::fs::read_to_string(&descriptor_path).unwrap()
-        );
+        let original = std::fs::read_to_string(&descriptor_path).unwrap();
+        let (descriptor, index) =
+            if original.contains("helper\ttermux-browser-manual-v1\tbrowser-manual-digest\n") {
+                (
+                    original
+                        .replacen("helper_count\t2\n", "helper_count\t3\n", 1)
+                        .replace(
+                            "helper\ttermux-browser-manual-v1\tbrowser-manual-digest\n",
+                            concat!(
+                                "helper\ttermux-browser-manual-v1\tbrowser-manual-digest\n",
+                                "helper\thelper-a\thelper-digest\n",
+                            ),
+                        ),
+                    2,
+                )
+            } else {
+                (
+                    original.replacen(
+                        "helper_count\t0\n",
+                        "helper_count\t1\nhelper\thelper-a\thelper-digest\n",
+                        1,
+                    ),
+                    0,
+                )
+            };
+        assert_ne!(descriptor, original);
         std::fs::create_dir(generation_dir.join("helpers")).unwrap();
-        std::fs::write(generation_dir.join("helpers/0"), b"helper-content").unwrap();
+        std::fs::write(
+            generation_dir.join("helpers").join(index.to_string()),
+            b"helper-content",
+        )
+        .unwrap();
         std::fs::write(descriptor_path, descriptor).unwrap();
     }
 
+    #[cfg(unix)]
+    #[cfg(unix)]
+    fn b2_add_tc2_browser_helpers(generation_dir: &std::path::Path) {
+        use std::os::unix::fs::PermissionsExt;
+
+        let descriptor_path = generation_dir.join("generation.meta");
+        let original = std::fs::read_to_string(&descriptor_path).unwrap();
+        let descriptor = if original
+            .contains("helper\ttermux-browser-open-v1\tbrowser-open-digest\n")
+            && original.contains("helper\ttermux-browser-manual-v1\tbrowser-manual-digest\n")
+        {
+            original.clone()
+        } else {
+            let updated = original.replacen(
+                "helper_count\t0\n",
+                concat!(
+                    "helper_count\t2\n",
+                    "helper\ttermux-browser-open-v1\tbrowser-open-digest\n",
+                    "helper\ttermux-browser-manual-v1\tbrowser-manual-digest\n",
+                ),
+                1,
+            );
+            assert_ne!(updated, original, "TC-2 fixture requires helper_count=0");
+            updated
+        };
+        let open_dir = generation_dir.join("browser/open");
+        let manual_dir = generation_dir.join("browser/manual");
+        std::fs::create_dir_all(&open_dir).unwrap();
+        std::fs::create_dir_all(&manual_dir).unwrap();
+        for (path, contents) in [
+            (open_dir.join("curl"), b"browser-open".as_slice()),
+            (manual_dir.join("curl"), b"browser-manual".as_slice()),
+        ] {
+            if !path.exists() {
+                std::fs::write(&path, contents).unwrap();
+            }
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        if descriptor != original {
+            std::fs::write(descriptor_path, descriptor).unwrap();
+        }
+    }
+
+    #[cfg(unix)]
     #[cfg(unix)]
     fn b2_activate(roots: &LocalCoreRoots, generation_id: &str) -> GenerationPointerState {
         let paths = CoreStatePaths::new(&roots.state_root).unwrap();
@@ -11437,6 +11919,7 @@ exit 73
         b2_write_generation(&roots, "g1", false, "unsupported");
         b2_activate(&roots, "g1");
         let process_env = TermuxProcessEnvSnapshot {
+            wsl_kernel: Some(false),
             prefix: Some(root.join("prefix").into_os_string()),
             tmpdir: Some(root.join("tmp").into_os_string()),
             inherited_path: None,
@@ -11527,7 +12010,8 @@ exit 73
         std::fs::create_dir_all(prefix.join("etc/tls/certs")).unwrap();
         std::fs::write(&roots.resolver_path, b"nameserver 127.0.0.1\n").unwrap();
         std::fs::write(&roots.cert_file, b"test-cert").unwrap();
-        b2_write_generation(&roots, "g1", manager, "unsupported");
+        let generation = b2_write_generation(&roots, "g1", manager, "unsupported");
+        b2_add_tc2_browser_helpers(&generation);
         b2_activate(&roots, "g1");
         std::fs::create_dir(root.join("tmp")).unwrap();
         root
@@ -11805,7 +12289,7 @@ exit 73
             false,
             true,
             |generation_dir| {
-                let path = generation_dir.join("helpers/0");
+                let path = generation_dir.join("helpers/2");
                 let outside = generation_dir.parent().unwrap().join("outside-helper");
                 std::fs::rename(&path, &outside).unwrap();
                 symlink(outside, path).unwrap();
@@ -12395,6 +12879,10 @@ esac
         openssl: &std::path::Path,
         private_key: &std::path::Path,
     ) {
+        let descriptor = std::fs::read_to_string(generation_dir.join("generation.meta")).unwrap();
+        if descriptor.contains("helper_count\t0\n") {
+            b2_add_tc2_browser_helpers(generation_dir);
+        }
         let files = b4_exact_release_inventory(generation_dir, openssl);
         b4_write_signed_release_inventory(
             generation_dir,
@@ -14393,7 +14881,14 @@ esac
                 .iter()
                 .map(|file| file.relative_path.as_str())
                 .collect::<Vec<_>>(),
-            vec!["codex-code-mode-host", "core", "generation.meta", "runtime"]
+            vec![
+                "browser/manual/curl",
+                "browser/open/curl",
+                "codex-code-mode-host",
+                "core",
+                "generation.meta",
+                "runtime",
+            ]
         );
         assert_eq!(loaded.generation_id, "b6-signed-admission");
         assert_eq!(
@@ -14414,7 +14909,18 @@ esac
             openssl_sha256(&openssl, &published_generation.join("runtime")).unwrap()
         );
         assert_eq!(loaded.manifest.core_artifact_digest, core_sha256);
-        assert!(loaded.manifest.helper_digests.is_empty());
+        assert_eq!(
+            loaded
+                .manifest
+                .helper_digests
+                .iter()
+                .map(|helper| helper.identity.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                TERMUX_BROWSER_OPEN_HELPER_IDENTITY,
+                TERMUX_BROWSER_MANUAL_HELPER_IDENTITY,
+            ]
+        );
         assert_eq!(loaded.manifest.manager_artifact_digest, None);
         assert_eq!(
             loaded.doctor_capability,
@@ -15318,6 +15824,7 @@ esac
     #[cfg(unix)]
     fn b8_process_env(prefix: &std::path::Path, tmp: &std::path::Path) -> TermuxProcessEnvSnapshot {
         TermuxProcessEnvSnapshot {
+            wsl_kernel: Some(false),
             prefix: Some(prefix.as_os_str().to_owned()),
             tmpdir: Some(tmp.as_os_str().to_owned()),
             inherited_path: None,
@@ -17329,6 +17836,7 @@ esac
         std::fs::remove_file(home.join(".local/lib/codex/core/release-public-key.pem")).unwrap();
 
         let g1 = b2_write_generation(&source_roots, "rotation-g1", false, "unsupported");
+        b2_add_tc2_browser_helpers(&g1);
         let g1_files = b4_exact_release_inventory(&g1, &openssl);
         b4_write_signed_release_inventory_with_authority(
             &g1,
@@ -17441,6 +17949,7 @@ esac
         std::fs::remove_file(home.join(".local/lib/codex/core/release-public-key.pem")).unwrap();
 
         let g1 = b2_write_generation(&source_roots, "remote-rotation-g1", false, "unsupported");
+        b2_add_tc2_browser_helpers(&g1);
         let files = b4_exact_release_inventory(&g1, &openssl);
         b4_write_signed_release_inventory_with_authority(
             &g1,
@@ -17725,7 +18234,7 @@ case "$url" in
   *) exit 99 ;;
 esac
 case "$relative" in
-  release.manifest|release.sig|release-authority.sig|generation.meta|core|runtime|manager|helpers/*|compat/*) ;;
+  release.manifest|release.sig|release-authority.sig|generation.meta|core|runtime|manager|helpers/*|browser/open/curl|browser/manual/curl|compat/*) ;;
   *) exit 100 ;;
 esac
 if [ -n "$fault_relative" ] && [ "$relative" = "$fault_relative" ]; then
@@ -17806,7 +18315,7 @@ case "$url" in
   *) exit 99 ;;
 esac
 case "$relative" in
-  release.manifest|release.sig|release-authority.sig|generation.meta|core|runtime|manager|helpers/*|codex-code-mode-host|compat/*) ;;
+  release.manifest|release.sig|release-authority.sig|generation.meta|core|runtime|manager|helpers/*|browser/open/curl|browser/manual/curl|codex-code-mode-host|compat/*) ;;
   *) exit 100 ;;
 esac
 exec "$cat_path" "$release_root/$relative"
@@ -18355,19 +18864,13 @@ exit 0
         std::fs::set_permissions(&stable_entrypoint, stable_mode).unwrap();
         let stable_before = std::fs::read(&stable_entrypoint).unwrap();
         let stable_before_digest = openssl_sha256(&openssl, &stable_entrypoint).unwrap();
-        let descriptor_path = release.join("generation.meta");
-        let descriptor = std::fs::read_to_string(&descriptor_path).unwrap().replace(
-            "helper_count\t0\n",
-            "helper_count\t1\nhelper\thelper-a\thelper-digest\n",
-        );
-        std::fs::write(&descriptor_path, descriptor).unwrap();
-        std::fs::create_dir(release.join("helpers")).unwrap();
-        std::fs::write(release.join("helpers/0"), b"helper").unwrap();
-        let mut helper_mode = std::fs::metadata(release.join("helpers/0"))
+        b2_add_tc2_browser_helpers(&release);
+        b2_add_helper(&release);
+        let mut helper_mode = std::fs::metadata(release.join("helpers/2"))
             .unwrap()
             .permissions();
         helper_mode.set_mode(0o710);
-        std::fs::set_permissions(release.join("helpers/0"), helper_mode).unwrap();
+        std::fs::set_permissions(release.join("helpers/2"), helper_mode).unwrap();
         std::fs::create_dir(release.join("compat/nested")).unwrap();
         std::fs::write(release.join("compat/nested/data"), b"compat-data").unwrap();
         let mut data_mode = std::fs::metadata(release.join("compat/nested/data"))
