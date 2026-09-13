@@ -2555,6 +2555,47 @@ not become an implicit dependency of the first app-server bundle. Remote
 source push, `main` promotion, release/index publication, and live cutover
 remain separate explicitly authorized operations.
 
+### TC-1 — app-server authority fence and short socket boundary (accepted)
+
+- TC-1 is accepted at local source commit
+  `6abb70bf33144468d9420d7880f25f5afc0b5684`. Before acceptance, the
+  target-sensitive upstream audit was rebound from the historical `0.153.4`
+  evidence to upstream tag `rust-v0.154.0`, commit
+  `6b9826e3aa83b1a5947db50f4332cb9c65f1b340`. That release still resolves
+  daemon execution through `$CODEX_HOME/packages/standalone/current`, and its
+  Unix updater still fetches `https://chatgpt.com/codex/install.sh` and repeats
+  on an hourly interval. The wrapper therefore cannot safely treat upstream
+  daemon management as signed-generation authority.
+- The Core public-dispatch boundary now classifies every selected upstream
+  daemon-backed form before generation, repair, runtime, network, or app-server
+  state is loaded. `app-server daemon ...` and `remote-control start`, `stop`,
+  and `pair` fail closed with one stable Termux-specific unsupported result and
+  exit status 2. The classifier covers the selected 0.154 root/global option
+  grammar, including global `-c`/`--config`, `--enable`, `--disable`, and the
+  multi-value root `-i`/`--image`, while preserving `--` termination and
+  option-value disambiguation.
+- No daemon-backed path remains supported by TC-1, so TC-1 introduces no daemon
+  socket namespace and cannot create a long custom-profile daemon socket,
+  unmanaged standalone tree, installer request, or updater loop. The upstream
+  0.154 foreground `remote-control` path remains outside the fence and retains
+  its private short `/tmp/codex-rc-*/rc.sock` transport. Foreground app-server
+  and help/JSON routing remain passthrough behavior.
+- TC-1 adds no raw runtime byte substitution and does not widen
+  `termux-fd-remap-v1`; no SPEC amendment was required. It adds no second
+  updater, shadow installation, profile/socket state, or Manager-owned state.
+- Final acceptance job `job_six_2edc9f2ce4` passed both focused TC-1 tests,
+  `cargo check --workspace --locked`, the complete locked workspace test suite,
+  `cargo clippy --workspace --all-targets --locked -- -D warnings`,
+  `cargo fmt --all -- --check`, and `git diff --check`. The locked workspace
+  suite reported Core `138 passed / 0 failed / 1 explicit live smoke ignored`,
+  Manager unit `20/20`, Manager integration `11/11`, and release-builder
+  `12/12`, with doc tests green.
+- Source acceptance used only the Task-owned disposable worktree. No live
+  resolver, launcher/runtime, auth, profile, session, Manager, network/provider
+  configuration, release/index publication, remote ref, or live cutover was
+  changed. Worker mode remained OFF. TC-1 is closed; `WORKBOARD.md` advances
+  only the preplanned TC-2 routing.
+
 ## Blocked / Resume Conditions
 
 - Stop before any live install, activation, or replacement of the working
