@@ -1,0 +1,130 @@
+name: Publish Termux update Pages
+
+on:
+  workflow_dispatch:
+    inputs:
+      generation_id:
+        description: Signed generation ID and staging Release tag
+        required: true
+        type: string
+      release_sequence:
+        description: Expected signed release sequence
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: termux-update-pages
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reconstruct and verify signed generation
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GENERATION_ID: ${{ inputs.generation_id }}
+          RELEASE_SEQUENCE: ${{ inputs.release_sequence }}
+        run: |
+          set -euo pipefail
+          [[ "$GENERATION_ID" =~ ^local-[a-z0-9][a-z0-9._-]{0,126}$ ]]
+          [[ "$RELEASE_SEQUENCE" =~ ^[0-9]+$ ]]
+          rm -rf stage site
+          mkdir -p stage "site/$GENERATION_ID/helpers"
+          gh release download "$GENERATION_ID" --repo "$GITHUB_REPOSITORY" --dir stage
+
+          cat > expected-assets <<'EOF'
+          codex-code-mode-host
+          core
+          generation.meta
+          helper-0
+          helper-1
+          manager
+          release.manifest
+          release.sig
+          runtime
+          update-public-key.pem
+          EOF
+          find stage -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort > actual-assets
+          LC_ALL=C sort -o expected-assets expected-assets
+          diff -u expected-assets actual-assets
+
+          test "$(sha256sum stage/update-public-key.pem | awk '{print $1}')" = \
+            '62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c'
+          openssl pkeyutl -verify -pubin -inkey stage/update-public-key.pem -rawin \
+            -in stage/release.manifest -sigfile stage/release.sig
+
+          test "$(sed -n '1p' stage/release.manifest)" = 'codex-release-v4'
+          test "$(awk -F '\t' '$1=="generation_id"{print $2}' stage/release.manifest)" = "$GENERATION_ID"
+          test "$(awk -F '\t' '$1=="release_sequence"{print $2}' stage/release.manifest)" = "$RELEASE_SEQUENCE"
+          test "$(awk -F '\t' '$1=="channel"{print $2}' stage/release.manifest)" = 'stable'
+          test "$(awk -F '\t' '$1=="release_public_key"{print $2}' stage/release.manifest)" = \
+            '82d2e4a5038a439601e6efc02d3b631b7da689fbacaa0435ec1600daa3a29bf2'
+          test "$(awk -F '\t' '$1=="file_count"{print $2}' stage/release.manifest)" = '7'
+
+          test "$(awk -F '\t' '$1=="generation_id"{print $2}' stage/generation.meta)" = "$GENERATION_ID"
+          test "$(awk -F '\t' '$1=="upstream_package_version"{print $2}' stage/generation.meta)" = '0.154.0'
+          test "$(awk -F '\t' '$1=="creation_metadata"{print $2}' stage/generation.meta)" = \
+            'r10-browser-helper-bridge-v1'
+          test "$(awk -F '\t' '$1=="helper_count"{print $2}' stage/generation.meta)" = '2'
+          test "$(awk -F '\t' '$1=="helper" && $2=="termux-browser-open-v1"{print $3}' stage/generation.meta)" = \
+            '2c49fe962f2e2588573ef75177dce32c6c8b1ee3c37fd106bd18c36b20f7bba9'
+          test "$(awk -F '\t' '$1=="helper" && $2=="termux-browser-manual-v1"{print $3}' stage/generation.meta)" = \
+            '90f6e634ef0039c78b8fbefc52aed0bdc4dd4a421c5991886c5387dcd3c46685'
+
+          awk -F '\t' '$1=="file"{print $2}' stage/release.manifest > signed-paths
+          cat > expected-paths <<'EOF'
+          codex-code-mode-host
+          core
+          generation.meta
+          helpers/0
+          helpers/1
+          manager
+          runtime
+          EOF
+          diff -u expected-paths signed-paths
+
+          cp stage/codex-code-mode-host "site/$GENERATION_ID/codex-code-mode-host"
+          cp stage/core "site/$GENERATION_ID/core"
+          cp stage/generation.meta "site/$GENERATION_ID/generation.meta"
+          cp stage/helper-0 "site/$GENERATION_ID/helpers/0"
+          cp stage/helper-1 "site/$GENERATION_ID/helpers/1"
+          cp stage/manager "site/$GENERATION_ID/manager"
+          cp stage/runtime "site/$GENERATION_ID/runtime"
+          cp stage/release.manifest "site/$GENERATION_ID/release.manifest"
+          cp stage/release.sig "site/$GENERATION_ID/release.sig"
+
+          while IFS=$'\t' read -r kind rel digest mode; do
+            [[ "$kind" == file ]] || continue
+            test "$(sha256sum "site/$GENERATION_ID/$rel" | awk '{print $1}')" = "$digest"
+          done < stage/release.manifest
+
+          total=$(du -sb "site/$GENERATION_ID" | awk '{print $1}')
+          test "$total" -lt 1073741824
+          printf 'verified_generation=%s\nverified_sequence=%s\nsite_bytes=%s\n' \
+            "$GENERATION_ID" "$RELEASE_SEQUENCE" "$total"
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: prepare
+    steps:
+      - name: Deploy Pages artifact
+        id: deployment
+        uses: actions/deploy-pages@v4
