@@ -2756,15 +2756,17 @@ remain separate explicitly authorized operations.
   passed with Core `140/0/1`, Manager unit `20/20`, Manager integration `11/11`,
   and release-builder `14/14`; warnings-denied workspace/all-targets clippy,
   formatting, and `git diff --check` all passed.
-- TC-3 is accepted and completes the preplanned TERMUX-COMPAT bundles. The seven
-  Goal Lift success thresholds are satisfied by TC-1, TC-2, and TC-3 accepted
-  evidence. The separately ignored real installed-runtime smoke is not one of
-  those seven success conditions and was not silently promoted into this run.
-  No live installed runtime/helper, `$PREFIX`, package-manager state, resolver,
-  persistent process environment, live `CODEX_HOME` auth/config/session/profile,
-  OS/account credential store, provider/account configuration, release/index,
-  or `main` state was mutated. The TC-3 result remains local; a second source
-  push requires separate explicit user authorization.
+- TC-3 is accepted at local source commit
+  `370caceb63bd7fddb7b6075da49d0404755a8e43` and completes the preplanned
+  TERMUX-COMPAT bundles. The seven Goal Lift success thresholds are satisfied by
+  TC-1, TC-2, and TC-3 accepted evidence. The separately ignored real
+  installed-runtime smoke is not one of those seven success conditions and was
+  not silently promoted into this run. No live installed runtime/helper,
+  `$PREFIX`, package-manager state, resolver, persistent process environment,
+  live `CODEX_HOME` auth/config/session/profile, OS/account credential store,
+  provider/account configuration, release/index, or `main` state was mutated.
+  The accepted TC-3 source commit remains local; a second source push requires
+  separate explicit user authorization.
 
 ## Blocked / Resume Conditions
 
