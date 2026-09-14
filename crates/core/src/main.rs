@@ -6916,10 +6916,39 @@ struct PreparedLocalActivation {
 }
 
 #[cfg(unix)]
+#[derive(Debug)]
+enum PreparedSignedLocalRelease {
+    AlreadyCurrent(String),
+    Activation(Box<PreparedLocalActivation>),
+}
+
+#[cfg(unix)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum SignedUpdateOutcome {
+    Activated(String),
+    AlreadyCurrent(String),
+}
+
+#[cfg(unix)]
+impl SignedUpdateOutcome {
+    fn generation_id(&self) -> &str {
+        match self {
+            Self::Activated(generation_id) | Self::AlreadyCurrent(generation_id) => generation_id,
+        }
+    }
+
+    fn into_generation_id(self) -> String {
+        match self {
+            Self::Activated(generation_id) | Self::AlreadyCurrent(generation_id) => generation_id,
+        }
+    }
+}
+
+#[cfg(unix)]
 fn prepare_signed_local_release(
     source_dir: &std::path::Path,
     roots: &LocalCoreRoots,
-) -> Result<PreparedLocalActivation, LocalProductError> {
+) -> Result<PreparedSignedLocalRelease, LocalProductError> {
     let state_paths = m2_generation_state::CoreStatePaths::new(&roots.state_root)
         .map_err(LocalProductError::StateFormat)?;
     let before = m2_generation_state::recover_activation_state(&state_paths)
@@ -6943,7 +6972,13 @@ fn prepare_signed_local_release(
         before.current_key,
         "active generation descriptor id does not match current",
     )?;
-    if source_release.release_sequence <= current_release.release_sequence {
+    if source_release.release_sequence < current_release.release_sequence {
+        return Err(LocalProductError::ReleaseSequenceRollback);
+    }
+    if source_release.release_sequence == current_release.release_sequence {
+        if source_loaded.generation_id == before.current && source_release == current_release {
+            return Ok(PreparedSignedLocalRelease::AlreadyCurrent(before.current));
+        }
         return Err(LocalProductError::ReleaseSequenceRollback);
     }
 
@@ -6985,12 +7020,14 @@ fn prepare_signed_local_release(
         }
     };
 
-    Ok(PreparedLocalActivation {
-        before,
-        generation_id,
-        release_key: source_release.release_public_key,
-        staged_loaded,
-    })
+    Ok(PreparedSignedLocalRelease::Activation(Box::new(
+        PreparedLocalActivation {
+            before,
+            generation_id,
+            release_key: source_release.release_public_key,
+            staged_loaded,
+        },
+    )))
 }
 
 #[cfg(unix)]
@@ -7068,13 +7105,30 @@ fn activate_prepared_local_release(
 }
 
 #[cfg(unix)]
+fn activate_signed_local_release_outcome(
+    source_dir: &std::path::Path,
+    roots: &LocalCoreRoots,
+    process_env: &TermuxProcessEnvSnapshot,
+) -> Result<SignedUpdateOutcome, LocalProductError> {
+    match prepare_signed_local_release(source_dir, roots)? {
+        PreparedSignedLocalRelease::AlreadyCurrent(generation_id) => {
+            Ok(SignedUpdateOutcome::AlreadyCurrent(generation_id))
+        }
+        PreparedSignedLocalRelease::Activation(prepared) => {
+            activate_prepared_local_release(*prepared, roots, process_env)
+                .map(SignedUpdateOutcome::Activated)
+        }
+    }
+}
+
+#[cfg(unix)]
 fn activate_signed_local_release(
     source_dir: &std::path::Path,
     roots: &LocalCoreRoots,
     process_env: &TermuxProcessEnvSnapshot,
 ) -> Result<String, LocalProductError> {
-    let prepared = prepare_signed_local_release(source_dir, roots)?;
-    activate_prepared_local_release(prepared, roots, process_env)
+    activate_signed_local_release_outcome(source_dir, roots, process_env)
+        .map(SignedUpdateOutcome::into_generation_id)
 }
 
 #[cfg(unix)]
@@ -7905,7 +7959,7 @@ fn acquire_remote_release_source(
 fn activate_signed_update_channel(
     roots: &LocalCoreRoots,
     process_env: &TermuxProcessEnvSnapshot,
-) -> Result<String, LocalProductError> {
+) -> Result<SignedUpdateOutcome, LocalProductError> {
     let state_paths = m2_generation_state::CoreStatePaths::new(&roots.state_root)
         .map_err(LocalProductError::StateFormat)?;
     let before = m2_generation_state::recover_activation_state(&state_paths)
@@ -7976,38 +8030,41 @@ fn activate_signed_update_channel(
         (Ok(index), Ok(())) => index,
     };
 
-    let activated =
-        activate_signed_remote_release(OsStr::new(&index.release_base.value), roots, process_env)?;
-    if activated != index.generation_id {
+    let outcome = activate_signed_remote_release_outcome(
+        OsStr::new(&index.release_base.value),
+        roots,
+        process_env,
+    )?;
+    if outcome.generation_id() != index.generation_id {
         return Err(LocalProductError::UpdateIndex(
             "activated generation does not match update index identity",
         ));
     }
-    Ok(activated)
+    Ok(outcome)
 }
 
 #[cfg(unix)]
 fn activate_unified_update(
     roots: &LocalCoreRoots,
     process_env: &TermuxProcessEnvSnapshot,
-) -> Result<(String, bool, GithubPublicationOutcome), LocalProductError> {
+) -> Result<(SignedUpdateOutcome, bool, GithubPublicationOutcome), LocalProductError> {
     match activate_signed_update_channel(roots, process_env) {
-        Ok(generation_id) => Ok((generation_id, false, GithubPublicationOutcome::Skipped)),
+        Ok(outcome) => Ok((outcome, false, GithubPublicationOutcome::Skipped)),
         Err(LocalProductError::RemoteTransportFailed) => {
             let (generation_id, publication) = activate_local_built_update(roots, process_env)?;
             let upload = publish_local_update_to_github(roots, &publication, &generation_id);
-            Ok((generation_id, true, upload))
+            Ok((SignedUpdateOutcome::Activated(generation_id), true, upload))
         }
         Err(error) => Err(error),
     }
 }
 
 #[cfg(unix)]
-fn activate_signed_remote_release(
+fn activate_signed_remote_release_outcome(
     base: &OsStr,
     roots: &LocalCoreRoots,
     process_env: &TermuxProcessEnvSnapshot,
-) -> Result<String, LocalProductError> {
+) -> Result<SignedUpdateOutcome, LocalProductError> {
     let base = RemoteReleaseBase::parse(base)?;
     let state_paths = m2_generation_state::CoreStatePaths::new(&roots.state_root)
         .map_err(LocalProductError::StateFormat)?;
@@ -8041,7 +8098,15 @@ fn activate_signed_remote_release(
         (Err(err), Ok(())) => return Err(err),
         (Ok(prepared), Ok(())) => prepared,
     };
-    activate_prepared_local_release(prepared, roots, process_env)
+    match prepared {
+        PreparedSignedLocalRelease::AlreadyCurrent(generation_id) => {
+            Ok(SignedUpdateOutcome::AlreadyCurrent(generation_id))
+        }
+        PreparedSignedLocalRelease::Activation(prepared) => {
+            activate_prepared_local_release(*prepared, roots, process_env)
+                .map(SignedUpdateOutcome::Activated)
+        }
+    }
 }
 
 #[cfg(unix)]
@@ -9483,7 +9548,8 @@ fn run_core_update(args: Vec<OsString>) -> i32 {
         };
         let process_env = capture_termux_process_env();
         return match activate_unified_update(&roots, &process_env) {
-            Ok((generation_id, locally_built, upload)) => {
+            Ok((outcome, locally_built, upload)) => {
+                let generation_id = outcome.generation_id();
                 if locally_built {
                     println!("activated local-built generation {generation_id}");
                     match upload {
@@ -9498,7 +9564,14 @@ fn run_core_update(args: Vec<OsString>) -> i32 {
                         GithubPublicationOutcome::Skipped => {}
                     }
                 } else {
-                    println!("activated channel generation {generation_id}");
+                    match &outcome {
+                        SignedUpdateOutcome::Activated(_) => {
+                            println!("activated channel generation {generation_id}");
+                        }
+                        SignedUpdateOutcome::AlreadyCurrent(_) => {
+                            println!("codex is already up to date (generation {generation_id})");
+                        }
+                    }
                 }
                 0
             }
@@ -9526,26 +9599,36 @@ fn run_core_update(args: Vec<OsString>) -> i32 {
             return 1;
         }
     };
-    let result = if local || remote {
-        let process_env = capture_termux_process_env();
-        if local {
-            let source = std::path::PathBuf::from(&args[1]);
-            activate_signed_local_release(&source, &roots, &process_env)
-        } else {
-            activate_signed_remote_release(&args[1], &roots, &process_env)
-        }
+    if rollback {
+        return match rollback_signed_local_release(&roots) {
+            Ok(generation_id) => {
+                println!("rolled back to local generation {generation_id}");
+                0
+            }
+            Err(err) => {
+                eprintln!("codex update: {err}");
+                1
+            }
+        };
+    }
+    let process_env = capture_termux_process_env();
+    let result = if local {
+        let source = std::path::PathBuf::from(&args[1]);
+        activate_signed_local_release_outcome(&source, &roots, &process_env)
     } else {
-        rollback_signed_local_release(&roots)
+        activate_signed_remote_release_outcome(&args[1], &roots, &process_env)
     };
     match result {
-        Ok(generation_id) => {
-            if rollback {
-                println!("rolled back to local generation {generation_id}");
-            } else if remote {
+        Ok(SignedUpdateOutcome::Activated(generation_id)) => {
+            if remote {
                 println!("activated remote generation {generation_id}");
             } else {
                 println!("activated local generation {generation_id}");
             }
+            0
+        }
+        Ok(SignedUpdateOutcome::AlreadyCurrent(generation_id)) => {
+            println!("codex is already up to date (generation {generation_id})");
             0
         }
         Err(err) => {
@@ -18773,6 +18856,45 @@ exec "$cat_path" "$release_root/$relative"
             assert!(calls.contains(&format!("{}.sig", fixture.index_url)));
             assert!(calls.contains("release.manifest"));
             assert!(!calls.contains("codex update"));
+
+            let state_before = std::fs::read(&state_paths.activation_state).unwrap();
+            let current_again = b5_run_public_channel_update(
+                &fixture.index_url,
+                &fixture.home,
+                &fixture.prefix,
+                &fixture.tmp,
+            );
+            assert_eq!(
+                current_again.status.code(),
+                Some(0),
+                "stdout={:?} stderr={:?}",
+                current_again.stdout,
+                current_again.stderr
+            );
+            assert!(current_again
+                .stdout
+                .windows(
+                    b"codex is already up to date (generation channel-next)
+"
+                    .len()
+                )
+                .any(|window| {
+                    window
+                        == b"codex is already up to date (generation channel-next)
+"
+                }));
+            assert!(
+                current_again.stderr.is_empty(),
+                "stderr={:?}",
+                current_again.stderr
+            );
+            assert_eq!(
+                std::fs::read(&state_paths.activation_state).unwrap(),
+                state_before
+            );
+            assert_eq!(read_pointer_state(&state_paths).unwrap().unwrap(), state);
+            b5_assert_no_acquisition(&generation_root);
+            m2_b1_assert_no_transaction_files(&state_paths);
             remove_temp_root(fixture.root);
         }
 
@@ -19121,7 +19243,12 @@ exit 0
         let roots = b7_public_roots(&fixture.home, &fixture.prefix);
         let state_paths = CoreStatePaths::new(&roots.state_root).unwrap();
         let before_entrypoint = std::fs::read(fixture.prefix.join("bin/codex")).unwrap();
-        let prepared = prepare_signed_local_release(&fixture.release, &roots).unwrap();
+        let prepared = match prepare_signed_local_release(&fixture.release, &roots).unwrap() {
+            PreparedSignedLocalRelease::Activation(prepared) => *prepared,
+            PreparedSignedLocalRelease::AlreadyCurrent(_) => {
+                panic!("forward candidate unexpectedly classified as already current")
+            }
+        };
         std::fs::write(&state_paths.activation_state_temp, b"orphan").unwrap();
 
         let error = activate_prepared_local_release(
@@ -19607,6 +19734,41 @@ exit 0
             previous: Some("local-first".to_string()),
             previous_key: Some(release_public_key_from_pem(&openssl, &public_key).unwrap()),
         };
+        assert_eq!(
+            read_pointer_state(&state_paths).unwrap(),
+            Some(expected_forward.clone())
+        );
+
+        let state_before_current = std::fs::read(&state_paths.activation_state).unwrap();
+        let current_again = b5_run_public_remote_update(second_base, &home, &prefix, &tmp);
+        assert_eq!(
+            current_again.status.code(),
+            Some(0),
+            "stdout={:?} stderr={:?}",
+            current_again.stdout,
+            current_again.stderr
+        );
+        assert!(current_again
+            .stdout
+            .windows(
+                b"codex is already up to date (generation remote-second)
+"
+                .len()
+            )
+            .any(|window| {
+                window
+                    == b"codex is already up to date (generation remote-second)
+"
+            }));
+        assert!(
+            current_again.stderr.is_empty(),
+            "stderr={:?}",
+            current_again.stderr
+        );
+        assert_eq!(
+            std::fs::read(&state_paths.activation_state).unwrap(),
+            state_before_current
+        );
         assert_eq!(
             read_pointer_state(&state_paths).unwrap(),
             Some(expected_forward.clone())

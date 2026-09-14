@@ -2886,6 +2886,35 @@ remain separate explicitly authorized operations.
   used during live cutover. TC-LIVE-BRIDGE and the TERMUX-COMPAT live migration
   are therefore closed.
 
+### UPDATE-CHANNEL-LATEST — stable channel and already-current update repair (active)
+
+- The post-cutover update smoke found two bounded follow-up defects while the
+  accepted live `codex-cli 0.154.0` runtime remained healthy and unchanged.
+  First, `humtr/codex` `main/update-index-v1` still points to legacy generation
+  `local-1788680568-mgr7-1` (0.153.4, release sequence 6), whose v3 release
+  carries Manager without a coordinated Core and is therefore rejected by the
+  current update contract. Second, resubmitting the exact authenticated current
+  sequence-9 canonical release fails closed as non-newer rather than reporting
+  an already-current success.
+- The selected repair keeps the existing signing key, v3/v4 release authority,
+  atomic activation state, and one-generation rollback model. Lower release
+  sequences and equal-sequence candidates with a different authenticated
+  generation identity or signed manifest remain rejected. Only an exact
+  authenticated match to the installed current generation may return success
+  without staging, probing, launcher replacement, or state mutation.
+- Stable publication is a two-step compatibility route, not a new updater: the
+  already accepted signed sequence-8 R10 browser-helper bridge is published and
+  indexed first so a retained R10 0.153.4 updater can advance safely; after that
+  path is proved, the already accepted signed sequence-9 canonical generation is
+  published and becomes the final stable index target. Both immutable release
+  trees must be revalidated against the installed public key before upload.
+- Acceptance requires focused exact-current/no-op and equal-different/lower
+  anti-rollback regressions, the full locked workspace/check/test/clippy/fmt/
+  diff gate, an isolated real-R10 bare-update proof across bridge then canonical,
+  a repaired-Core already-current bare-update proof against the final public
+  channel, and final confirmation that the real live launcher, resolver, and
+  protected auth/config/profile/session identities remain unchanged.
+
 ## Blocked / Resume Conditions
 
 - Stop before any live install, activation, or replacement of the working

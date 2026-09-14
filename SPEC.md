@@ -869,8 +869,12 @@ directly into the active generation and never runs an upstream self-updater.
    transport-level automatic-channel absence enters the local build path,
    which resolves and digest-binds one exact official upstream version before
    building);
-2. enforce architecture, API, channel, and the existing monotonic
-   release-sequence anti-rollback policy;
+2. enforce architecture, API, channel, and the release-sequence anti-rollback
+   policy: a lower sequence is rejected; an equal sequence is a no-op success
+   only when the authenticated candidate generation identity and signed release
+   manifest exactly equal the installed current release, while an equal
+   sequence with any different authenticated identity or manifest is rejected;
+   only a greater sequence may enter candidate staging, probing, and activation;
 3. download into a private staging location or accept an explicit local
    artifact;
 4. verify the required current-authority and candidate-key signatures, exact
@@ -936,8 +940,13 @@ Before forward admission, Core recovers the v3 state. Installed-generation
 verification requires the signed manifest `release_public_key` to equal the
 selected state verifier key before `release.sig` is verified with that key. Core
 applies that rule to the installed current generation with `current_key` and uses
-that signed current release for the existing release-sequence anti-rollback
-comparison. After staging and probing the candidate, successful activation sets
+that signed current release for the release-sequence anti-rollback comparison.
+An authenticated candidate below that sequence is rejected. An equal-sequence
+candidate is returned as an already-current no-op only when its generation
+identity and signed release manifest exactly equal the installed current
+release; any other equal-sequence candidate is rejected before staging or
+candidate execution. After staging and probing a greater-sequence candidate,
+successful activation sets
 `update_key` and `current_key` to the candidate release key, sets `current` to the
 candidate generation, and moves the former `(current, current_key)` pair to
 `(previous, previous_key)` in the same atomic transaction.

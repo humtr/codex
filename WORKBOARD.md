@@ -22,8 +22,11 @@ behavior belongs in `SPEC.md`.
   `local-20260914-r10-browser-bridge-1`.
 - Final live launcher SHA-256 is
   `0055ec0ecc762e4a4c878be62fd26f93118785218f004b26fe12b178cd3380eb`.
-- Active implementation bundle: **none**.
-- Authorized operational next step: **none**.
+- Active implementation bundle: **UPDATE-CHANNEL-LATEST** — stable channel
+  publication plus exact-current update no-op repair.
+- Authorized operational next step: after source gates, publish the already
+  accepted signed sequence-8 bridge, prove retained R10 bare update, then
+  advance the signed stable index to the accepted sequence-9 canonical release.
 - `legacy/monolith` remains sealed at
   `bf30a7dc94d4dad7f58836c69028160856e63c58`.
 - Worker mode remains OFF.
@@ -50,6 +53,29 @@ sequence 9. Final doctor is healthy, resolver and protected auth/config/profile/
 session identities are unchanged, canonical nested browser helpers are active,
 and the bridge is retained as the one rollback generation. No live rollback was
 performed solely for evidence.
+
+## Active UPDATE-CHANNEL-LATEST bundle
+
+Scope is deliberately bounded to the two defects exposed by the post-cutover
+update smoke. Core may treat an authenticated candidate as already current only
+when its release sequence equals the installed current sequence and both its
+generation identity and signed release manifest exactly match current. Lower
+sequences and equal-but-different releases remain fail-closed. No-op success must
+not stage, probe, rewrite the launcher, or mutate activation state.
+
+The stable channel repair reuses only the accepted signed TC-LIVE-BRIDGE
+artifacts: publish immutable sequence 8 bridge assets and point the signed index
+to them, prove a retained R10 0.153.4 bare `codex update`, then publish immutable
+sequence 9 canonical assets and advance the signed index to canonical. The final
+public stable target must be `local-20260914-tc3-canonical-1`. No live runtime
+replacement, rollback, package-manager action, PATH/resolver change, signing-key
+rotation, or credential/provider mutation belongs to this bundle.
+
+Done means focused anti-rollback/no-op regressions and the full repository gate
+are green, source is accepted on `rewrite/rust-core`, both staged public-channel
+transitions are independently smoke-proved in disposable HOME/PREFIX roots, the
+final stable index targets canonical sequence 9, and the real live 0.154.0 state
+remains healthy and byte-identical at protected boundaries.
 
 ## Resume rule
 
