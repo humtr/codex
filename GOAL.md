@@ -2886,53 +2886,79 @@ remain separate explicitly authorized operations.
   used during live cutover. TC-LIVE-BRIDGE and the TERMUX-COMPAT live migration
   are therefore closed.
 
-### UPDATE-CHANNEL-LATEST — stable channel and already-current update repair (active)
+### UPDATE-CHANNEL-LATEST — stable channel and already-current update repair (accepted)
 
-- The post-cutover update smoke found two bounded follow-up defects while the
-  accepted live `codex-cli 0.154.0` runtime remained healthy and unchanged.
-  First, `humtr/codex` `main/update-index-v1` still points to legacy generation
-  `local-1788680568-mgr7-1` (0.153.4, release sequence 6), whose v3 release
-  carries Manager without a coordinated Core and is therefore rejected by the
-  current update contract. Second, resubmitting the exact authenticated current
-  sequence-9 canonical release fails closed as non-newer rather than reporting
-  an already-current success.
-- The selected repair keeps the existing signing key, v3/v4 release authority,
-  atomic activation state, and one-generation rollback model. Lower release
-  sequences and equal-sequence candidates with a different authenticated
-  generation identity or signed manifest remain rejected. Only an exact
-  authenticated match to the installed current generation may return success
-  without staging, probing, launcher replacement, or state mutation.
-- The final public target is one new signed sequence-10 generation using the
-  existing exact R10 browser-helper bridge layout and the repaired current Core.
-  This is deliberately not the sequence-9 canonical layout: a retained R10
-  parser accepts `helpers/0` and `helpers/1` but cannot admit the later
-  `browser/open/curl` and `browser/manual/curl` inventory. Sequence 10 therefore
-  lets a retained 0.153.4/sequence-7 client update directly to the latest 0.154.0
-  Core while also deploying the exact-current no-op repair.
-- Publication-host qualification rejected three narrower GitHub-only mappings
-  without changing the stable index: GitHub Release asset names sanitize `/`, a
-  raw Git-tag tree is rejected because the adapted runtime is 216.94 MiB and Git
-  rejects blobs over 100 MiB, and a base Release URL for `helpers/0` returns 404
-  while a companion tag conflicts with the required base tag namespace. All
-  disposable probe releases/tags were removed; `main/update-index-v1` remained
-  on legacy sequence 6 throughout those probes.
-- The selected transport keeps Release assets for large staging bytes and uses a
-  fixed GitHub Pages Actions deployment to reconstruct the exact signed bridge
-  tree at `https://humtr.github.io/codex/<generation_id>/`. The repository is
-  public, Pages was unused at selection time, the authenticated account has admin
-  permission, Actions is enabled with GitHub-owned actions allowed, and a single
-  generation remains below Pages' 1 GiB published-site bound. The workflow binds
-  the trusted public key, verifies the release signature, exact bridge metadata,
-  helper identities, inventory and per-file digests before deployment; local
-  qualification must then byte-verify the complete HTTPS tree before signing and
-  advancing the stable index.
-- Acceptance requires focused exact-current/no-op and equal-different/lower
-  anti-rollback regressions, the full locked workspace/check/test/clippy/fmt/
-  diff gate, an isolated real-R10 bare-update proof directly to sequence 10, a
-  repaired-Core second bare-update proof returning already-current success
-  against that same public channel, and final confirmation that the real live
-  launcher, resolver, and protected auth/config/profile/session identities remain
-  unchanged. No live runtime replacement belongs to this bundle.
+- The bounded follow-up is accepted and closed. Exact-current update handling was
+  repaired in source commit
+  `bd57d8c2222c51f0de07ca1ac77f8766edd6fe38`: an authenticated candidate is a
+  success/no-op only when its release sequence equals current and both generation
+  identity and signed manifest exactly match installed current. Lower sequences
+  and equal-but-different releases remain fail-closed. The nested GitHub Release
+  publisher fence was added in
+  `a18acf3e77d7c9b3ada8ba64ab052cc91e774c84`. Final Pages publication authority
+  and workflow source are accepted in
+  `057f078a091441c1f624c7b229649bd1463ef774`, which is also the source revision
+  pushed to `origin/rewrite/rust-core` before publication.
+- Final repository validation on that source passed release-builder **15/15**,
+  Core **142 passed / 0 failed / 1 ignored**, Manager **20/20** plus integration
+  **11/11**, locked workspace check/test, clippy `-D warnings`, formatting, and
+  `git diff --check`. Focused gates separately proved bare-channel exact-current
+  no-op, equal-current versus rollback, non-monotonic rejection, nested Release
+  publisher fail-closed behavior, marker-bound R10 bridge layout, and bridge
+  builder publication.
+- The final public signed generation is
+  `local-20260914-update-channel-bridge-1`, release sequence **10**, upstream
+  `0.154.0`, exact `creation_metadata = "r10-browser-helper-bridge-v1"`, and
+  R10-readable signed helper inventory `helpers/0`, `helpers/1`. It intentionally
+  uses the compatibility layout rather than the local sequence-9 canonical
+  `browser/*` layout so a retained sequence-7 R10 parser can consume the final
+  public target directly. The signed tree is 292,960,783 bytes. Key artifact
+  SHA-256 values are Core
+  `4ecfd7b6a9515e1670e972e87c068df8772f9b0dd101d46c4d29c99941c69f03`,
+  runtime `123c96efbd8b16e1ccd5c34a6212b0d8f1c895e92917829cb6371ddfd39aa8c0`,
+  Manager `a706292d653fb33cc652fb1d9ef03ca8cb1e9e6f402a6098b00d4bedeaf189fc`,
+  code-mode host `f31e1c5ffbbca7884aff2f0f8795d3da197f4aafb114033a399dfc17a5119031`,
+  and release manifest
+  `130ff79d192af84d00d24855d495b0c13df424a896ece6875980ff914fb4cd78`.
+- Publication uses GitHub Release `local-20260914-update-channel-bridge-1` as
+  staging (release database ID **388405334**) and the fixed repository workflow
+  `.github/workflows/publish-termux-update-pages.yml` to reconstruct the exact
+  signed tree on GitHub Pages. The workflow was mirrored byte-exactly to `main`
+  in `d0398bb64abdd39f6bf68f6d1972fb05560037f1`; workflow-dispatch run
+  **34848065440** completed successfully from that head. Complete Pages HTTPS
+  readback reverified the release signature, every signed digest, and every file
+  byte-for-byte, including the 227,482,840-byte runtime. The stable signed
+  `release_base` is
+  `https://humtr.github.io/codex/local-20260914-update-channel-bridge-1/`.
+- The signed stable index was advanced only after complete Pages readback, in the
+  contract order signature then content. The signature commit is `349e61237f0bf3c1a487a198296bb4eedfc17b03`
+  and final `main` head is `40692fd63b4b5408f4600b338e854225d8b653c5`. Public `update-index-v1` SHA-256 is
+  `a77160aca09207806e17ba558dc8440f18928501e3c3f317f798b45e1c4999fa`; its
+  signature SHA-256 is
+  `0e69977a7fb687463fa9a9e503750adaadbdc494fd5740a9fe6a66c8719d4268`.
+  Public readback verifies cryptographically and targets sequence 10.
+- The decisive public smoke used an isolated retained R10 sequence-7 generation
+  and the actual no-argument public channel. Starting from `codex-cli 0.153.4`,
+  the first `codex update` exited 0, printed
+  `activated channel generation local-20260914-update-channel-bridge-1`, and
+  produced `codex-cli 0.154.0` with doctor exit 0. A second no-argument
+  `codex update` exited 0, printed
+  `codex is already up to date (generation local-20260914-update-channel-bridge-1)`,
+  left launcher, activation state, and generation tree unchanged, and again left
+  doctor at exit 0. No user auth/config/profile/session data or signing private
+  key was copied into the disposable proof.
+- The real live installation was not advanced to sequence 10 for this proof. It
+  remains healthy `codex-cli 0.154.0`, current
+  `local-20260914-tc3-canonical-1`, previous
+  `local-20260914-r10-browser-bridge-1`, exact launcher SHA-256
+  `0055ec0ecc762e4a4c878be62fd26f93118785218f004b26fe12b178cd3380eb`,
+  resolver SHA-256
+  `7e8ad76e0d200e93918ca2e93c99ff8ecd02071953bf1479819db3ac0dbb6d07`,
+  and doctor exit 0. The public smoke proved the live launcher, activation state,
+  resolver, and protected `.codex`/`.config/codex` metadata fingerprint were
+  unchanged across the smoke. No live runtime replacement, rollback, package
+  installation, signing-key rotation, provider/account mutation, or credential
+  content inspection occurred. UPDATE-CHANNEL-LATEST is therefore closed.
 
 ## Blocked / Resume Conditions
 

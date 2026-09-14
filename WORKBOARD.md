@@ -22,12 +22,13 @@ behavior belongs in `SPEC.md`.
   `local-20260914-r10-browser-bridge-1`.
 - Final live launcher SHA-256 is
   `0055ec0ecc762e4a4c878be62fd26f93118785218f004b26fe12b178cd3380eb`.
-- Active implementation bundle: **UPDATE-CHANNEL-LATEST** — stable channel
-  publication plus exact-current update no-op repair.
-- Authorized operational next step: after source gates, build and sign the new
-  sequence-10 R10-readable bridge-layout generation, publish it through the
-  verified Pages transport, prove retained R10 bare update plus exact-current
-  no-op, then advance the signed stable index to that sequence-10 generation.
+- UPDATE-CHANNEL-LATEST is accepted and closed. Final source acceptance before
+  the closure ledger is `057f078a091441c1f624c7b229649bd1463ef774`.
+- Public stable is signed sequence 10 generation
+  `local-20260914-update-channel-bridge-1` at the verified GitHub Pages release
+  base; retained R10 no-argument update and exact-current no-op are accepted.
+- Active implementation bundle: **none**. New product or publication work requires
+  a fresh bounded routing decision.
 - `legacy/monolith` remains sealed at
   `bf30a7dc94d4dad7f58836c69028160856e63c58`.
 - Worker mode remains OFF.
@@ -55,7 +56,7 @@ session identities are unchanged, canonical nested browser helpers are active,
 and the bridge is retained as the one rollback generation. No live rollback was
 performed solely for evidence.
 
-## Active UPDATE-CHANNEL-LATEST bundle
+## Accepted UPDATE-CHANNEL-LATEST disposition
 
 Scope is deliberately bounded to the two defects exposed by the post-cutover
 update smoke. Core may treat an authenticated candidate as already current only
@@ -82,16 +83,21 @@ bytes never use the Contents API. Failed deployment/readback cannot advance the
 signed index. Raw Git-tag publication, slash-bearing Release assets, and
 companion-release routing are rejected qualification paths, not fallbacks.
 
-Done means focused anti-rollback/no-op regressions and the full repository gate
-are green, source is accepted on `rewrite/rust-core`, sequence 10 is built and
-signed from the accepted 0.154.0 source, Pages HTTPS readback byte-matches its
-complete signed tree, a disposable retained R10 performs bare `codex update`
-directly from sequence 7 to sequence 10, a second bare update on sequence 10
-returns exit 0 with the already-current message and no state mutation, the final
-stable index targets sequence 10, and the real live 0.154.0 state remains healthy
-and byte-identical at protected boundaries. No live runtime replacement,
-rollback, package-manager action, PATH/resolver change, signing-key rotation, or
-credential/provider mutation belongs to this bundle.
+Acceptance is complete. Focused anti-rollback/no-op regressions and the full
+repository gate are green; the final gate is release-builder 15/15, Core
+142/0/1, Manager 20/20 plus 11/11, locked workspace check/test, clippy
+`-D warnings`, formatting, and `git diff --check`. Sequence 10 was built and
+signed from the accepted 0.154.0 source, then staged as GitHub Release ID
+388405334. Pages workflow run 34848065440 succeeded, and complete HTTPS readback
+byte-matched the 292,960,783-byte signed tree. The final signed stable index at
+`main` head `40692fd63b4b5408f4600b338e854225d8b653c5` targets sequence 10. A disposable retained R10
+performed no-argument `codex update` directly from 0.153.4/sequence 7 to
+0.154.0/sequence 10; a second no-argument update returned exit 0 with the exact
+already-current message and no launcher/state/generation-tree mutation. The real
+live sequence-9 canonical runtime remained healthy and unchanged at the measured
+launcher, activation-state, resolver, and protected metadata boundaries. No live
+runtime replacement, rollback, package-manager action, PATH/resolver change,
+signing-key rotation, or credential/provider mutation occurred in this bundle.
 
 ## Resume rule
 
