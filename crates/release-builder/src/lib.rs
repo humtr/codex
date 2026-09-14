@@ -4289,6 +4289,27 @@ fi
     }
 
     #[test]
+    fn test_tc3_upstream_rg_is_explicitly_not_published_as_termux_helper() {
+        let fixture = fixture(
+            "tc3-upstream-rg-disposition",
+            happy_entries("0.150.1"),
+            false,
+        );
+        assert_eq!(run_from_args(request_args(&fixture.request)), 0);
+        assert!(!fixture.request.output.join("rg").exists());
+        let descriptor =
+            std::fs::read_to_string(fixture.request.output.join("generation.meta")).unwrap();
+        assert!(!descriptor.contains("termux-rg"));
+        assert_eq!(
+            descriptor
+                .lines()
+                .find_map(|line| line.strip_prefix("helper_count\t")),
+            Some("2")
+        );
+        fixture.remove();
+    }
+
+    #[test]
     fn test_m2_b6_slice2_patch_and_publication_fail_closed_matrix() {
         for case in ["missing-source", "extra-source", "prepatched-source"] {
             let mut entries = happy_entries("0.150.1");

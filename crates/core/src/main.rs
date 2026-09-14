@@ -1548,6 +1548,7 @@ fn core_notify_status_message(event: &str) -> &'static str {
 #[cfg(unix)]
 fn render_core_notification_config(events: &[&str]) -> Vec<u8> {
     let mut output = String::from(CORE_NOTIFY_MARKER);
+    output.push_str("mcp_oauth_credentials_store = \"file\"\n\n");
     for event in events {
         output.push_str(&format!(
             "[[hooks.{event}]]\n\n[[hooks.{event}.hooks]]\ntype = \"command\"\ncommand = \"codex termux notify emit {event}\"\ntimeout = 10\nstatusMessage = \"{}\"\n\n",
@@ -10097,6 +10098,22 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn test_tc3_mcp_file_store_policy_is_exact() {
+        let empty = render_core_notification_config(&[]);
+        assert_eq!(
+            empty,
+            b"# codex-termux-notify-v1\nmcp_oauth_credentials_store = \"file\"\n\n".to_vec()
+        );
+        let with_hook =
+            String::from_utf8(render_core_notification_config(&["SessionStart"])).unwrap();
+        assert!(with_hook
+            .starts_with("# codex-termux-notify-v1\nmcp_oauth_credentials_store = \"file\"\n\n"));
+        assert!(with_hook.contains("[[hooks.SessionStart]]"));
+        assert!(!with_hook.contains("keyring"));
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn test_termux_environment_errors_and_capture_are_direct() {
         let mut snapshot = TermuxProcessEnvSnapshot {
             wsl_kernel: Some(false),
@@ -10990,6 +11007,8 @@ exit 73
         assert_eq!(projected.stderr, b"version-stderr\n");
         let expected = concat!(
             "# codex-termux-notify-v1\n",
+            "mcp_oauth_credentials_store = \"file\"\n",
+            "\n",
             "[[hooks.SessionStart]]\n",
             "\n",
             "[[hooks.SessionStart.hooks]]\n",
@@ -11027,7 +11046,7 @@ exit 73
         assert_eq!(unavailable.status.code(), Some(0));
         assert_eq!(
             std::fs::read_to_string(config.join("config.toml")).unwrap(),
-            "# codex-termux-notify-v1\n"
+            "# codex-termux-notify-v1\nmcp_oauth_credentials_store = \"file\"\n\n"
         );
 
         std::fs::write(
@@ -11039,7 +11058,7 @@ exit 73
         assert_eq!(cleared.status.code(), Some(0));
         assert_eq!(
             std::fs::read_to_string(config.join("config.toml")).unwrap(),
-            "# codex-termux-notify-v1\n"
+            "# codex-termux-notify-v1\nmcp_oauth_credentials_store = \"file\"\n\n"
         );
         std::fs::write(config.join("config.toml"), b"user_setting = true\n").unwrap();
         std::fs::write(&record_path, record).unwrap();

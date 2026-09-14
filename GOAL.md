@@ -2503,7 +2503,7 @@ Termux qualification. Produce one candidate for independent product review.
 
 ## Goal Lifts
 
-### TERMUX-COMPAT — Linux-target upstream compatibility on Termux (active)
+### TERMUX-COMPAT — Linux-target upstream compatibility on Termux (accepted)
 
 This lift addresses concrete post-Core product risks discovered above without
 reopening the accepted Rust Core completion claim. The original two-milestone
@@ -2687,8 +2687,84 @@ remain separate explicitly authorized operations.
   release/index publication, remote ref, live cutover, or `main` promotion was
   changed. The explicit real-Termux installed-runtime smoke remains
   intentionally ignored because it was outside the user's authorization for
-  this run. No remote push has been performed. `WORKBOARD.md` advances only
-  the preplanned TC-3 host-tool and disposable credential-fallback bundle.
+  this run. At TC-2 acceptance time no remote push had been performed. Before
+  TC-3 implementation, the user explicitly authorized one fast-forward push;
+  `origin/rewrite/rust-core` advanced from
+  `74c5ffe0f2cbbec2b52a342758a1a913bf2cd2d8` to the accepted TC-2 plus TC-3
+  routing commit `4b1af151d6f5ce17bd9dc351e0587b5e83319ee4`. No TC-3 implementation
+  result has been pushed.
+
+### TC-3 — host-tool disposition and disposable MCP credential fallback (accepted)
+
+- TC-3 was implemented from pushed base
+  `4b1af151d6f5ce17bd9dc351e0587b5e83319ee4` against selected upstream
+  `rust-v0.154.0` / `6b9826e3aa83b1a5947db50f4332cb9c65f1b340`. The selected-release source
+  review enumerated the material `rg` boundaries before choosing any product
+  change. Upstream thread/content search falls back to its internal Rust scan
+  when spawning `rg` returns `NotFound`; the runtime doctor diagnoses a missing
+  search command and supplies explicit ripgrep remediation. The Linux bwrap
+  `rg` use remains outside normal Termux execution under the accepted TC-1
+  sandbox fence.
+- The official selected 0.154.0 archive was inspected rather than assuming its
+  bundled `codex-path/rg` was Termux-compatible. Disposable job
+  `job_ta7_4810a9e1a8` proved that file is an AArch64 GNU/Linux dynamically
+  linked ELF using `/lib/ld-linux-aarch64.so.1`; direct Termux execution exits
+  127. An initial signed-helper design was therefore discarded before
+  acceptance. TC-3 does not publish that incompatible binary, add an `rg`
+  helper, widen PATH authority, invoke a package manager, or add a runtime byte
+  patch. Focused release-builder proof keeps helper count at two and asserts no
+  `termux-rg` helper is published.
+- The accepted `rg` resolution is explicit bounded degradation/diagnosis, as
+  permitted by the Goal Lift. Product-level disposable proof
+  `job_tab_3500953747` ran the selected adapted runtime with a PATH containing no
+  `rg`: the runtime remained invocable; `doctor` exited 1 with its bounded
+  warning status, diagnosed the ripgrep/search-command absence, and exposed
+  installation remediation. No live package state or PATH was changed.
+- The MCP credential risk did reproduce. Pre-fix disposable job
+  `job_t70_18122586f9` used non-sensitive fixture credentials only: explicit
+  `File` mode logout exited 0 and removed the file entry, while the selected
+  upstream `Auto` mode encountered a keyring/secret-backend deletion error,
+  exited 1, and left the file-backed fallback credential present. No credential
+  value, token, client secret, authorization code, or account identifier was
+  emitted as evidence.
+- The correction is deliberately narrower than patching upstream OAuth code.
+  The Core-owned Termux system configuration now projects
+  `mcp_oauth_credentials_store = "file"` alongside the existing wrapper-owned
+  configuration. This does not mutate logical user `CODEX_HOME` configuration;
+  it selects one coherent Termux credential authority so save/load/delete use
+  the same file backend instead of entering an unavailable desktop keyring path.
+  Focused Core proof `test_tc3_mcp_file_store_policy_is_exact` binds the exact
+  policy and verifies no keyring selection is projected.
+- Post-fix disposable E2E job `job_taa_f819d35021` identified the exact fixture
+  store key through upstream File-mode behavior, then removed the user-side
+  store selector and ran the current Core with only the MCP server definition in
+  disposable user config. The Core system policy drove logout successfully:
+  the fixture store changed from one entry to zero, logout exited 0, no
+  keyring/secret-backend error appeared, and a second logout also exited 0.
+  Stronger load-delete-load proof `job_tak_b589b713eb` used the selected
+  upstream `mcp list --json` auth-status path, which calls the MCP credential
+  store: before deletion the disposable file credential loaded as OAuth-auth
+  state, after Core-routed logout a second list resolved to unknown/no stored
+  auth state, the file store contained zero entries, and no keyring/secret
+  backend error occurred. Fixture secret values were never printed or recorded.
+- Final source gate `job_tac_e9118c5d0c` passed with exit status 0. Exact
+  focused regressions passed for TC-1 `1/1`, TC-2 Core `1/1`, TC-2
+  release-builder `1/1`, TC-3 Core `1/1`, and TC-3 release-builder `1/1`.
+  Release-builder full reported `14 passed / 0 failed`; Core full reported
+  `140 passed / 0 failed / 1 explicit real-Termux installed-runtime smoke
+  ignored`; `cargo check --workspace --locked` passed; locked workspace tests
+  passed with Core `140/0/1`, Manager unit `20/20`, Manager integration `11/11`,
+  and release-builder `14/14`; warnings-denied workspace/all-targets clippy,
+  formatting, and `git diff --check` all passed.
+- TC-3 is accepted and completes the preplanned TERMUX-COMPAT bundles. The seven
+  Goal Lift success thresholds are satisfied by TC-1, TC-2, and TC-3 accepted
+  evidence. The separately ignored real installed-runtime smoke is not one of
+  those seven success conditions and was not silently promoted into this run.
+  No live installed runtime/helper, `$PREFIX`, package-manager state, resolver,
+  persistent process environment, live `CODEX_HOME` auth/config/session/profile,
+  OS/account credential store, provider/account configuration, release/index,
+  or `main` state was mutated. The TC-3 result remains local; a second source
+  push requires separate explicit user authorization.
 
 ## Blocked / Resume Conditions
 
