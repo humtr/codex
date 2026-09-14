@@ -2902,27 +2902,37 @@ remain separate explicitly authorized operations.
   generation identity or signed manifest remain rejected. Only an exact
   authenticated match to the installed current generation may return success
   without staging, probing, launcher replacement, or state mutation.
-- Stable publication is a two-step compatibility route, not a new updater: the
-  already accepted signed sequence-8 R10 browser-helper bridge is published and
-  indexed first so a retained R10 0.153.4 updater can advance safely; after that
-  path is proved, the already accepted signed sequence-9 canonical generation is
-  published and becomes the final stable index target. Both immutable release
-  trees must be revalidated against the installed public key before upload.
-- Publication-host preflight found that GitHub Release asset names cannot preserve
-  the signed nested helper paths (`helpers/0`, `helpers/1`,
-  `browser/open/curl`, `browser/manual/curl`): a disposable draft API probe
-  requested `helpers/0` and GitHub returned `helpers.0`. The probe release/tag
-  was removed and the stable channel was not mutated. Therefore the accepted
-  nested release trees use immutable non-force Git tags named by generation ID,
-  with the exact signed release tree at tag root and a signed
-  `raw.githubusercontent.com` release base. The automated Release-asset path is
-  additionally fenced to reject nested signed inventory before remote mutation.
+- The final public target is one new signed sequence-10 generation using the
+  existing exact R10 browser-helper bridge layout and the repaired current Core.
+  This is deliberately not the sequence-9 canonical layout: a retained R10
+  parser accepts `helpers/0` and `helpers/1` but cannot admit the later
+  `browser/open/curl` and `browser/manual/curl` inventory. Sequence 10 therefore
+  lets a retained 0.153.4/sequence-7 client update directly to the latest 0.154.0
+  Core while also deploying the exact-current no-op repair.
+- Publication-host qualification rejected three narrower GitHub-only mappings
+  without changing the stable index: GitHub Release asset names sanitize `/`, a
+  raw Git-tag tree is rejected because the adapted runtime is 216.94 MiB and Git
+  rejects blobs over 100 MiB, and a base Release URL for `helpers/0` returns 404
+  while a companion tag conflicts with the required base tag namespace. All
+  disposable probe releases/tags were removed; `main/update-index-v1` remained
+  on legacy sequence 6 throughout those probes.
+- The selected transport keeps Release assets for large staging bytes and uses a
+  fixed GitHub Pages Actions deployment to reconstruct the exact signed bridge
+  tree at `https://humtr.github.io/codex/<generation_id>/`. The repository is
+  public, Pages was unused at selection time, the authenticated account has admin
+  permission, Actions is enabled with GitHub-owned actions allowed, and a single
+  generation remains below Pages' 1 GiB published-site bound. The workflow binds
+  the trusted public key, verifies the release signature, exact bridge metadata,
+  helper identities, inventory and per-file digests before deployment; local
+  qualification must then byte-verify the complete HTTPS tree before signing and
+  advancing the stable index.
 - Acceptance requires focused exact-current/no-op and equal-different/lower
   anti-rollback regressions, the full locked workspace/check/test/clippy/fmt/
-  diff gate, an isolated real-R10 bare-update proof across bridge then canonical,
-  a repaired-Core already-current bare-update proof against the final public
-  channel, and final confirmation that the real live launcher, resolver, and
-  protected auth/config/profile/session identities remain unchanged.
+  diff gate, an isolated real-R10 bare-update proof directly to sequence 10, a
+  repaired-Core second bare-update proof returning already-current success
+  against that same public channel, and final confirmation that the real live
+  launcher, resolver, and protected auth/config/profile/session identities remain
+  unchanged. No live runtime replacement belongs to this bundle.
 
 ## Blocked / Resume Conditions
 

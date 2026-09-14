@@ -405,30 +405,49 @@ immutable GitHub Release assets under a tag equal to the validated generation
 identity; the signed index's `release_base` is then the matching
 `https://github.com/humtr/codex/releases/download/<generation_id>/` asset base.
 GitHub Release asset names are not authority to rename signed relative paths: if
-any authenticated release file contains a `/` path component, the Release-asset
-publisher must fail closed before creating a release or advancing the index.
-For such a nested-path release, an explicitly authorized publication may instead
-push the exact complete release tree as the root tree of a new, non-moving Git
-tag whose name equals the generation identity. That ref must be created without
-force and must fail if the tag already exists; its signed `release_base` is
-`https://raw.githubusercontent.com/humtr/codex/<generation_id>/`. The release
-manifest and signature are unchanged by this transport choice, and the remote
-raw tree must byte-match the complete signed local release before the index may
-advance. Generation files may reach the repository only through the immutable
-tag object/ref push or the flat GitHub Release-asset path; they must never be
-sent through the Contents API.
+any authenticated release file contains a `/` path component, the automated
+Release-asset publisher must fail closed before creating a release or advancing
+the index.
+
+An explicitly authorized nested-path publication uses the repository's fixed
+GitHub Pages workflow instead of changing signed release paths or Core fetch
+semantics. A GitHub Release tagged by the generation identity is staging only:
+top-level signed files keep their basename, while the exact two R10 bridge
+helpers are uploaded under unambiguous staging names. The workflow accepts only
+a stable `codex-release-v4` whose trusted public-key identity is the pinned
+wrapper key, verifies `release.sig`, requires exact
+`creation_metadata = "r10-browser-helper-bridge-v1"`, exact helper identities
+and `helpers/0`, `helpers/1` signed inventory, verifies every signed file digest,
+and reconstructs the exact signed release tree under
+`<generation_id>/` in one GitHub Pages deployment. Staging names are never release
+authority and never appear in the signed manifest. The resulting signed
+`release_base` is exactly
+`https://humtr.github.io/codex/<generation_id>/`. The deployed generation must
+remain below the GitHub Pages one-gibibyte site bound, and complete HTTPS
+readback of the manifest, signature, and every signed file must byte-match the
+local signed publication before the stable index may advance. The fixed workflow
+file itself may be mirrored to `main` through the Contents API; generation bytes
+must not be sent through the Contents API.
+
+Until the stable compatibility floor is newer than R10, the public stable target
+must itself use the exact R10 browser-helper bridge layout even when its Core is
+newer. This permits a retained sequence-7 R10 client to consume the final stable
+generation directly. A newer canonical local generation may continue to use
+`browser/open/curl` and `browser/manual/curl`; canonical nested paths are not an
+R10-readable public stable target.
 
 The small `update-index-v1.sig` and `update-index-v1` files are updated on branch
-`main`, in that order, through the Contents API only after the selected immutable
-release transport is complete and verified. The optional best-effort automated
+`main`, in that order, through the Contents API only after the selected release
+transport is complete and verified. The optional best-effort automated flat
 Release-asset step is attempted only after activation, validates the complete
 regular-file asset set, uses bounded child-process waits, never uploads the
 private key, and reports upload failure without undoing the locally activated
-generation. A failed, timed-out, incomplete, or path-renaming publication never
-advances the signed index. It changes no OpenAI repository and does not make
-remote publication a prerequisite for local success. The account credential and
-the release `update_key` private key are separate authorities; account
-authentication alone cannot authorize a release for Core.
+generation. A failed, timed-out, incomplete, path-renaming, Pages-deployment, or
+readback publication never advances the signed index. It changes no OpenAI
+repository and does not make remote publication a prerequisite for local
+success. The account credential and the release `update_key` private key are
+separate authorities; account authentication alone cannot authorize a release
+for Core.
 
 All source files are snapshotted into private staging, revalidated as regular
 files, and copied without following symlinks. Final modes are applied before

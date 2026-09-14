@@ -24,9 +24,10 @@ behavior belongs in `SPEC.md`.
   `0055ec0ecc762e4a4c878be62fd26f93118785218f004b26fe12b178cd3380eb`.
 - Active implementation bundle: **UPDATE-CHANNEL-LATEST** — stable channel
   publication plus exact-current update no-op repair.
-- Authorized operational next step: after source gates, publish the already
-  accepted signed sequence-8 bridge, prove retained R10 bare update, then
-  advance the signed stable index to the accepted sequence-9 canonical release.
+- Authorized operational next step: after source gates, build and sign the new
+  sequence-10 R10-readable bridge-layout generation, publish it through the
+  verified Pages transport, prove retained R10 bare update plus exact-current
+  no-op, then advance the signed stable index to that sequence-10 generation.
 - `legacy/monolith` remains sealed at
   `bf30a7dc94d4dad7f58836c69028160856e63c58`.
 - Worker mode remains OFF.
@@ -63,24 +64,34 @@ generation identity and signed release manifest exactly match current. Lower
 sequences and equal-but-different releases remain fail-closed. No-op success must
 not stage, probe, rewrite the launcher, or mutate activation state.
 
-The stable channel repair reuses only the accepted signed TC-LIVE-BRIDGE
-artifacts. Because GitHub Release assets demonstrably rename `/` in nested asset
-names, both accepted helper-bearing releases are published as exact root trees
-of new immutable non-force Git tags named by generation ID, with signed
-`raw.githubusercontent.com` release bases. Publish sequence 8 bridge and point
-the signed index to it, prove a retained R10 0.153.4 bare `codex update`, then
-publish sequence 9 canonical and advance the signed index to canonical. The
-normal automated GitHub Release-asset publisher must reject nested signed
-inventory before remote mutation. The final public stable target must be
-`local-20260914-tc3-canonical-1`. No live runtime replacement, rollback,
-package-manager action, PATH/resolver change, signing-key rotation, or
-credential/provider mutation belongs to this bundle.
+The stable channel repair publishes one new signed sequence-10 generation,
+`local-20260914-update-channel-bridge-1`, with current repaired Core and exact
+`creation_metadata = "r10-browser-helper-bridge-v1"`. Its signed helper inventory
+remains `helpers/0` and `helpers/1` so the retained R10 sequence-7 parser can
+consume the final public target directly. The selected upstream/runtime and TC1/
+TC2/TC3 behavior remain 0.154.0-equivalent; this is a transport compatibility
+layout, not a second updater or a rollback of canonical local policy.
+
+GitHub Release assets remain staging for the large top-level files. A fixed
+GitHub Pages workflow reconstructs the exact signed tree under
+`https://humtr.github.io/codex/<generation_id>/` after binding the pinned public
+key and verifying signature, bridge metadata, exact inventory, helper identities,
+and every signed digest. The automated Core Release publisher remains fail-closed
+for nested signed inventory. The workflow may be mirrored to `main`, but release
+bytes never use the Contents API. Failed deployment/readback cannot advance the
+signed index. Raw Git-tag publication, slash-bearing Release assets, and
+companion-release routing are rejected qualification paths, not fallbacks.
 
 Done means focused anti-rollback/no-op regressions and the full repository gate
-are green, source is accepted on `rewrite/rust-core`, both staged public-channel
-transitions are independently smoke-proved in disposable HOME/PREFIX roots, the
-final stable index targets canonical sequence 9, and the real live 0.154.0 state
-remains healthy and byte-identical at protected boundaries.
+are green, source is accepted on `rewrite/rust-core`, sequence 10 is built and
+signed from the accepted 0.154.0 source, Pages HTTPS readback byte-matches its
+complete signed tree, a disposable retained R10 performs bare `codex update`
+directly from sequence 7 to sequence 10, a second bare update on sequence 10
+returns exit 0 with the already-current message and no state mutation, the final
+stable index targets sequence 10, and the real live 0.154.0 state remains healthy
+and byte-identical at protected boundaries. No live runtime replacement,
+rollback, package-manager action, PATH/resolver change, signing-key rotation, or
+credential/provider mutation belongs to this bundle.
 
 ## Resume rule
 
