@@ -2908,6 +2908,15 @@ remain separate explicitly authorized operations.
   path is proved, the already accepted signed sequence-9 canonical generation is
   published and becomes the final stable index target. Both immutable release
   trees must be revalidated against the installed public key before upload.
+- Publication-host preflight found that GitHub Release asset names cannot preserve
+  the signed nested helper paths (`helpers/0`, `helpers/1`,
+  `browser/open/curl`, `browser/manual/curl`): a disposable draft API probe
+  requested `helpers/0` and GitHub returned `helpers.0`. The probe release/tag
+  was removed and the stable channel was not mutated. Therefore the accepted
+  nested release trees use immutable non-force Git tags named by generation ID,
+  with the exact signed release tree at tag root and a signed
+  `raw.githubusercontent.com` release base. The automated Release-asset path is
+  additionally fenced to reject nested signed inventory before remote mutation.
 - Acceptance requires focused exact-current/no-op and equal-different/lower
   anti-rollback regressions, the full locked workspace/check/test/clippy/fmt/
   diff gate, an isolated real-R10 bare-update proof across bridge then canonical,

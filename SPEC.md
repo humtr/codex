@@ -400,21 +400,35 @@ installs, selects, or repairs `bwrap`.
 After a successful local activation, Core may publish the complete local
 generation to the fixed wrapper publication target `humtr/codex` on branch
 `main` when the local GitHub CLI at `$PREFIX/bin/gh` reports an authenticated
-account. The generation files are published as immutable GitHub Release assets
-under a tag equal to the validated generation identity; the signed index's
-`release_base` is consequently the matching
+account. A release whose complete signed file inventory is flat may use
+immutable GitHub Release assets under a tag equal to the validated generation
+identity; the signed index's `release_base` is then the matching
 `https://github.com/humtr/codex/releases/download/<generation_id>/` asset base.
-The small `update-index-v1.sig` and `update-index-v1` files are then updated on
-branch `main`, in that order, through the Contents API. Generation files must
-never be sent through the Contents API. The optional best-effort step is
-attempted only after activation, validates the complete regular-file asset set,
-uses bounded child-process waits, never uploads the private key, and reports
-upload failure without undoing the locally activated generation. A failed or
-timed-out asset release never advances the signed index. It changes no OpenAI
-repository and does not make remote publication a prerequisite for local
-success. The account credential and the release `update_key` private key are
-separate authorities; account authentication alone cannot authorize a release
-for Core.
+GitHub Release asset names are not authority to rename signed relative paths: if
+any authenticated release file contains a `/` path component, the Release-asset
+publisher must fail closed before creating a release or advancing the index.
+For such a nested-path release, an explicitly authorized publication may instead
+push the exact complete release tree as the root tree of a new, non-moving Git
+tag whose name equals the generation identity. That ref must be created without
+force and must fail if the tag already exists; its signed `release_base` is
+`https://raw.githubusercontent.com/humtr/codex/<generation_id>/`. The release
+manifest and signature are unchanged by this transport choice, and the remote
+raw tree must byte-match the complete signed local release before the index may
+advance. Generation files may reach the repository only through the immutable
+tag object/ref push or the flat GitHub Release-asset path; they must never be
+sent through the Contents API.
+
+The small `update-index-v1.sig` and `update-index-v1` files are updated on branch
+`main`, in that order, through the Contents API only after the selected immutable
+release transport is complete and verified. The optional best-effort automated
+Release-asset step is attempted only after activation, validates the complete
+regular-file asset set, uses bounded child-process waits, never uploads the
+private key, and reports upload failure without undoing the locally activated
+generation. A failed, timed-out, incomplete, or path-renaming publication never
+advances the signed index. It changes no OpenAI repository and does not make
+remote publication a prerequisite for local success. The account credential and
+the release `update_key` private key are separate authorities; account
+authentication alone cannot authorize a release for Core.
 
 All source files are snapshotted into private staging, revalidated as regular
 files, and copied without following symlinks. Final modes are applied before

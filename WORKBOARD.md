@@ -64,12 +64,17 @@ sequences and equal-but-different releases remain fail-closed. No-op success mus
 not stage, probe, rewrite the launcher, or mutate activation state.
 
 The stable channel repair reuses only the accepted signed TC-LIVE-BRIDGE
-artifacts: publish immutable sequence 8 bridge assets and point the signed index
-to them, prove a retained R10 0.153.4 bare `codex update`, then publish immutable
-sequence 9 canonical assets and advance the signed index to canonical. The final
-public stable target must be `local-20260914-tc3-canonical-1`. No live runtime
-replacement, rollback, package-manager action, PATH/resolver change, signing-key
-rotation, or credential/provider mutation belongs to this bundle.
+artifacts. Because GitHub Release assets demonstrably rename `/` in nested asset
+names, both accepted helper-bearing releases are published as exact root trees
+of new immutable non-force Git tags named by generation ID, with signed
+`raw.githubusercontent.com` release bases. Publish sequence 8 bridge and point
+the signed index to it, prove a retained R10 0.153.4 bare `codex update`, then
+publish sequence 9 canonical and advance the signed index to canonical. The
+normal automated GitHub Release-asset publisher must reject nested signed
+inventory before remote mutation. The final public stable target must be
+`local-20260914-tc3-canonical-1`. No live runtime replacement, rollback,
+package-manager action, PATH/resolver change, signing-key rotation, or
+credential/provider mutation belongs to this bundle.
 
 Done means focused anti-rollback/no-op regressions and the full repository gate
 are green, source is accepted on `rewrite/rust-core`, both staged public-channel

@@ -7574,6 +7574,13 @@ fn wait_for_github_child_with_timeout(
 #[cfg(unix)]
 fn github_release_asset_files(release: &std::path::Path) -> Result<Vec<std::path::PathBuf>, ()> {
     let (_, manifest) = read_local_release_manifest(release).map_err(|_| ())?;
+    if manifest
+        .files
+        .iter()
+        .any(|file| file.relative_path.contains('/'))
+    {
+        return Err(());
+    }
     let manager_required = manifest
         .files
         .iter()
@@ -15429,6 +15436,34 @@ esac
             std::fs::read(&state_sentinel).unwrap(),
             b"state-before-upload"
         );
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_update_channel_latest_github_release_assets_reject_nested_signed_paths() {
+        let root = temp_root("update-channel-nested-release-assets");
+        let release = root.join("release");
+        std::fs::create_dir_all(release.join("helpers")).unwrap();
+        for name in [
+            "generation.meta",
+            "runtime",
+            CODE_MODE_HOST_FILE,
+            "release.sig",
+        ] {
+            std::fs::write(release.join(name), b"fixture").unwrap();
+        }
+        std::fs::write(release.join("helpers/0"), b"helper").unwrap();
+        let digest = "0000000000000000000000000000000000000000000000000000000000000000";
+        std::fs::write(
+            release.join("release.manifest"),
+            format!(
+                "{LOCAL_RELEASE_FORMAT}\ngeneration_id\tlocal-g1\nrelease_sequence\t1\nchannel\tstable\nexpected_platform\tandroid\nexpected_architecture\taarch64\ncore_api_identity\t{CORE_API_IDENTITY}\npersistent_schema_identity\t{PERSISTENT_SCHEMA_IDENTITY}\nrelease_public_key\t{digest}\nfile_count\t4\nfile\t{}\t{digest}\t0755\nfile\tgeneration.meta\t{digest}\t0644\nfile\thelpers/0\t{digest}\t0755\nfile\truntime\t{digest}\t0755\n",
+                CODE_MODE_HOST_FILE,
+            ),
+        )
+        .unwrap();
+        assert!(github_release_asset_files(&release).is_err());
         remove_temp_root(root);
     }
 
