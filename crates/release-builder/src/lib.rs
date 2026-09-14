@@ -53,6 +53,7 @@ const BROWSER_HELPER_MAX_BYTES: u64 = 4096;
 // Keep the signed helper basename `curl` unless that dependency contract is requalified.
 const TERMUX_BROWSER_OPEN_HELPER_IDENTITY: &str = "termux-browser-open-v1";
 const TERMUX_BROWSER_MANUAL_HELPER_IDENTITY: &str = "termux-browser-manual-v1";
+const R10_BROWSER_HELPER_BRIDGE_METADATA: &str = "r10-browser-helper-bridge-v1";
 const TERMUX_BROWSER_OPEN_HELPER: &[u8] = br##"#!/system/bin/sh
 if [ "$#" -ne 1 ]; then
     exit 64
@@ -928,6 +929,7 @@ struct PublishFile {
 struct PublishGeneration {
     generation_id: String,
     files: Vec<PublishFile>,
+    r10_bridge: bool,
 }
 
 fn validate_publish_file_mode(
@@ -1005,7 +1007,45 @@ fn validate_publish_browser_layout(root: &Path) -> Result<(), BuilderError> {
     Ok(())
 }
 
-fn validate_publish_generation_layout(root: &Path) -> Result<(), BuilderError> {
+fn validate_publish_r10_bridge_layout(root: &Path) -> Result<(), BuilderError> {
+    let helpers = root.join("helpers");
+    let metadata = std::fs::symlink_metadata(&helpers)
+        .map_err(|source| io_error("inspect R10 bridge helper root", source))?;
+    if !metadata.file_type().is_dir() {
+        return Err(BuilderError::Invalid(
+            "R10 bridge helper root is not a real directory",
+        ));
+    }
+    let mut seen = BTreeSet::new();
+    for entry in std::fs::read_dir(&helpers)
+        .map_err(|source| io_error("read R10 bridge helper directory", source))?
+    {
+        let entry = entry.map_err(|source| io_error("read R10 bridge helper entry", source))?;
+        let name = entry
+            .file_name()
+            .into_string()
+            .map_err(|_| BuilderError::Invalid("R10 bridge helper path is not UTF-8"))?;
+        if !matches!(name.as_str(), "0" | "1") || !seen.insert(name) {
+            return Err(BuilderError::Invalid(
+                "R10 bridge helper layout is not exact",
+            ));
+        }
+        let helper_metadata = ensure_regular_file(
+            &entry.path(),
+            "inspect R10 bridge helper",
+            "R10 bridge helper is not a regular file",
+        )?;
+        validate_publish_file_mode(&helper_metadata, true, "R10 bridge helper mode is unsafe")?;
+    }
+    if seen.len() != 2 {
+        return Err(BuilderError::Invalid(
+            "R10 bridge helper layout is incomplete",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_publish_generation_layout(root: &Path, r10_bridge: bool) -> Result<(), BuilderError> {
     let metadata = std::fs::symlink_metadata(root)
         .map_err(|source| io_error("inspect publication generation", source))?;
     if !metadata.file_type().is_dir() {
@@ -1013,11 +1053,12 @@ fn validate_publish_generation_layout(root: &Path) -> Result<(), BuilderError> {
             "publication generation is not a real directory",
         ));
     }
+    let helper_root = if r10_bridge { "helpers" } else { "browser" };
     let required = [
         "generation.meta",
         "runtime",
         "codex-code-mode-host",
-        "browser",
+        helper_root,
     ];
     let mut seen = BTreeSet::new();
     for entry in
@@ -1036,12 +1077,12 @@ fn validate_publish_generation_layout(root: &Path) -> Result<(), BuilderError> {
                 "publication generation layout is unsupported",
             ));
         }
-        if name == "browser" {
+        if name == helper_root {
             let metadata = std::fs::symlink_metadata(entry.path())
-                .map_err(|source| io_error("inspect publication browser helper root", source))?;
+                .map_err(|source| io_error("inspect publication helper root", source))?;
             if !metadata.file_type().is_dir() {
                 return Err(BuilderError::Invalid(
-                    "publication browser helper root is not a real directory",
+                    "publication helper root is not a real directory",
                 ));
             }
             continue;
@@ -1065,7 +1106,11 @@ fn validate_publish_generation_layout(root: &Path) -> Result<(), BuilderError> {
             "publication generation layout is incomplete",
         ));
     }
-    validate_publish_browser_layout(root)
+    if r10_bridge {
+        validate_publish_r10_bridge_layout(root)
+    } else {
+        validate_publish_browser_layout(root)
+    }
 }
 
 fn snapshot_publish_file(
@@ -1215,11 +1260,12 @@ fn validate_publish_generation_descriptor(
     runtime_path: &Path,
     code_mode_host_path: &Path,
     browser_helper_paths: (&Path, &Path),
-    core_path: Option<&Path>,
-    manager_path: Option<&Path>,
+    core_manager_paths: (Option<&Path>, Option<&Path>),
+    r10_bridge: bool,
     openssl: &Path,
 ) -> Result<String, BuilderError> {
     let (browser_open_helper_path, browser_manual_helper_path) = browser_helper_paths;
+    let (core_path, manager_path) = core_manager_paths;
     let metadata = ensure_regular_file(
         descriptor_path,
         "inspect publication generation descriptor",
@@ -1306,12 +1352,18 @@ fn validate_publish_generation_descriptor(
         || publish_descriptor_field(&mut lines, "persistent_schema_identity")?
             != PERSISTENT_SCHEMA_IDENTITY
         || publish_descriptor_field(&mut lines, "qualification")? != "qualified"
-        || publish_descriptor_field(&mut lines, "creation_metadata").is_err()
+    {
+        return Err(BuilderError::Invalid(
+            "publication generation qualification binding is invalid",
+        ));
+    }
+    let creation_metadata = publish_descriptor_field(&mut lines, "creation_metadata")?;
+    if (creation_metadata == R10_BROWSER_HELPER_BRIDGE_METADATA) != r10_bridge
         || publish_descriptor_field(&mut lines, "upstream_doctor")? != "supported"
         || publish_descriptor_field(&mut lines, "helper_count")? != "2"
     {
         return Err(BuilderError::Invalid(
-            "publication generation qualification binding is invalid",
+            "publication generation browser helper layout binding is invalid",
         ));
     }
     let browser_open_helper_digest =
@@ -1392,21 +1444,28 @@ fn snapshot_publish_generation(
     staging: &Path,
     openssl: &Path,
 ) -> Result<PublishGeneration, BuilderError> {
-    validate_publish_generation_layout(source_root)?;
+    let r10_bridge = std::fs::symlink_metadata(source_root.join("helpers")).is_ok();
+    validate_publish_generation_layout(source_root, r10_bridge)?;
     let source_snapshot_root = staging.join(".generation-source");
     create_private_dir(&source_snapshot_root)?;
-    let browser_snapshot_root = source_snapshot_root.join("browser");
-    create_private_dir(&browser_snapshot_root)?;
-    create_private_dir(&browser_snapshot_root.join("open"))?;
-    create_private_dir(&browser_snapshot_root.join("manual"))?;
+    if r10_bridge {
+        create_private_dir(&source_snapshot_root.join("helpers"))?;
+    } else {
+        let browser_snapshot_root = source_snapshot_root.join("browser");
+        create_private_dir(&browser_snapshot_root)?;
+        create_private_dir(&browser_snapshot_root.join("open"))?;
+        create_private_dir(&browser_snapshot_root.join("manual"))?;
+    }
+    let (browser_open_relative, browser_manual_relative) =
+        browser_helper_relative_paths(r10_bridge);
     let mut total_size = 0u64;
     let mut files = Vec::with_capacity(7);
     let mut entries = vec![
         ("generation.meta", GENERATION_DESCRIPTOR_MAX_BYTES, false),
         ("runtime", RELEASE_FILE_MAX_BYTES, true),
         ("codex-code-mode-host", RELEASE_FILE_MAX_BYTES, true),
-        ("browser/open/curl", BROWSER_HELPER_MAX_BYTES, true),
-        ("browser/manual/curl", BROWSER_HELPER_MAX_BYTES, true),
+        (browser_open_relative, BROWSER_HELPER_MAX_BYTES, true),
+        (browser_manual_relative, BROWSER_HELPER_MAX_BYTES, true),
     ];
     if std::fs::symlink_metadata(source_root.join("core")).is_ok() {
         entries.push(("core", CORE_ARTIFACT_MAX_BYTES, true));
@@ -1436,7 +1495,7 @@ fn snapshot_publish_generation(
             mode,
         });
     }
-    validate_publish_generation_layout(&source_snapshot_root)?;
+    validate_publish_generation_layout(&source_snapshot_root, r10_bridge)?;
     let manager_path = source_snapshot_root.join("manager");
     let manager_path = std::fs::symlink_metadata(&manager_path)
         .ok()
@@ -1450,17 +1509,18 @@ fn snapshot_publish_generation(
         &source_snapshot_root.join("runtime"),
         &source_snapshot_root.join("codex-code-mode-host"),
         (
-            &source_snapshot_root.join("browser/open/curl"),
-            &source_snapshot_root.join("browser/manual/curl"),
+            &source_snapshot_root.join(browser_open_relative),
+            &source_snapshot_root.join(browser_manual_relative),
         ),
-        core_path.as_deref(),
-        manager_path.as_deref(),
+        (core_path.as_deref(), manager_path.as_deref()),
+        r10_bridge,
         openssl,
     )?;
     files.sort_by_key(|file| file.relative_path);
     Ok(PublishGeneration {
         generation_id,
         files,
+        r10_bridge,
     })
 }
 
@@ -1629,29 +1689,32 @@ fn publish(request: &PublishRequest) -> Result<String, BuilderError> {
         let release_dir = releases.join(&generation.generation_id);
         create_private_dir(&releases)?;
         create_private_dir(&release_dir)?;
-        let release_browser = release_dir.join("browser");
-        let release_browser_open = release_browser.join("open");
-        let release_browser_manual = release_browser.join("manual");
-        create_private_dir(&release_browser)?;
-        create_private_dir(&release_browser_open)?;
-        create_private_dir(&release_browser_manual)?;
+        let helper_directories = if generation.r10_bridge {
+            let release_helpers = release_dir.join("helpers");
+            create_private_dir(&release_helpers)?;
+            vec![release_helpers]
+        } else {
+            let release_browser = release_dir.join("browser");
+            let release_browser_open = release_browser.join("open");
+            let release_browser_manual = release_browser.join("manual");
+            create_private_dir(&release_browser)?;
+            create_private_dir(&release_browser_open)?;
+            create_private_dir(&release_browser_manual)?;
+            vec![
+                release_browser_open,
+                release_browser_manual,
+                release_browser,
+            ]
+        };
         for file in &generation.files {
             rename_noreplace(&file.snapshot_path, &release_dir.join(file.relative_path))?;
         }
         std::fs::remove_dir_all(staging.join(".generation-source"))
             .map_err(|source| io_error("remove publication source staging", source))?;
 
-        for directory in [
-            &release_browser_open,
-            &release_browser_manual,
-            &release_browser,
-        ] {
-            set_mode(
-                directory,
-                0o755,
-                "set release browser helper directory mode",
-            )?;
-            sync_directory(directory, "sync release browser helper directory")?;
+        for directory in &helper_directories {
+            set_mode(directory, 0o755, "set release helper directory mode")?;
+            sync_directory(directory, "sync release helper directory")?;
         }
 
         let manifest = release_manifest_bytes(
@@ -2602,23 +2665,51 @@ fn write_browser_helper(
     openssl_sha256(openssl, path)
 }
 
+fn browser_helper_relative_paths(r10_bridge: bool) -> (&'static str, &'static str) {
+    if r10_bridge {
+        ("helpers/0", "helpers/1")
+    } else {
+        ("browser/open/curl", "browser/manual/curl")
+    }
+}
+
 fn create_browser_helpers(
     staging: &Path,
     openssl: &Path,
+    r10_bridge: bool,
 ) -> Result<(String, String), BuilderError> {
-    let browser = staging.join("browser");
-    let open = browser.join("open");
-    let manual = browser.join("manual");
-    create_private_dir(&browser)?;
-    create_private_dir(&open)?;
-    create_private_dir(&manual)?;
-    let open_sha256 =
-        write_browser_helper(&open.join("curl"), TERMUX_BROWSER_OPEN_HELPER, openssl)?;
-    let manual_sha256 =
-        write_browser_helper(&manual.join("curl"), TERMUX_BROWSER_MANUAL_HELPER, openssl)?;
-    sync_directory(&open, "sync browser open helper directory")?;
-    sync_directory(&manual, "sync browser manual helper directory")?;
-    sync_directory(&browser, "sync browser helper root")?;
+    let (open_relative, manual_relative) = browser_helper_relative_paths(r10_bridge);
+    if r10_bridge {
+        create_private_dir(&staging.join("helpers"))?;
+    } else {
+        let browser = staging.join("browser");
+        create_private_dir(&browser)?;
+        create_private_dir(&browser.join("open"))?;
+        create_private_dir(&browser.join("manual"))?;
+    }
+    let open_sha256 = write_browser_helper(
+        &staging.join(open_relative),
+        TERMUX_BROWSER_OPEN_HELPER,
+        openssl,
+    )?;
+    let manual_sha256 = write_browser_helper(
+        &staging.join(manual_relative),
+        TERMUX_BROWSER_MANUAL_HELPER,
+        openssl,
+    )?;
+    if r10_bridge {
+        sync_directory(&staging.join("helpers"), "sync R10 bridge helper directory")?;
+    } else {
+        sync_directory(
+            &staging.join("browser/open"),
+            "sync browser open helper directory",
+        )?;
+        sync_directory(
+            &staging.join("browser/manual"),
+            "sync browser manual helper directory",
+        )?;
+        sync_directory(&staging.join("browser"), "sync browser helper root")?;
+    }
     Ok((open_sha256, manual_sha256))
 }
 
@@ -2698,8 +2789,11 @@ fn adapt_selected_runtime(
 
     let runtime_sha256 = openssl_sha256(&request.openssl, &runtime_path)?;
     let code_mode_host_sha256 = openssl_sha256(&request.openssl, &selected.code_mode_host)?;
-    let (browser_open_helper_sha256, browser_manual_helper_sha256) =
-        create_browser_helpers(staging, &request.openssl)?;
+    let (browser_open_helper_sha256, browser_manual_helper_sha256) = create_browser_helpers(
+        staging,
+        &request.openssl,
+        request.creation_metadata == R10_BROWSER_HELPER_BRIDGE_METADATA,
+    )?;
     std::fs::remove_file(&selected.raw_runtime)
         .map_err(|source| io_error("remove selected raw runtime", source))?;
 
@@ -4150,6 +4244,90 @@ fi
             assert!(no_builder_staging(&fixture.root));
             fixture.remove();
         }
+    }
+
+    #[test]
+    fn test_tc_live_bridge_build_and_publish_are_marker_bound_and_r10_readable() {
+        {
+            let mut fixture = fixture("tc-live-bridge", happy_entries("0.150.1"), false);
+            fixture.request.creation_metadata = R10_BROWSER_HELPER_BRIDGE_METADATA.to_owned();
+            assert_eq!(run_from_args(request_args(&fixture.request)), 0);
+            let open_helper = fixture.request.output.join("helpers/0");
+            let manual_helper = fixture.request.output.join("helpers/1");
+            assert_eq!(
+                std::fs::read(&open_helper).unwrap(),
+                TERMUX_BROWSER_OPEN_HELPER
+            );
+            assert_eq!(
+                std::fs::read(&manual_helper).unwrap(),
+                TERMUX_BROWSER_MANUAL_HELPER
+            );
+            assert!(!fixture.request.output.join("browser").exists());
+            let descriptor =
+                std::fs::read_to_string(fixture.request.output.join("generation.meta")).unwrap();
+            assert!(descriptor.contains(&format!(
+                "creation_metadata\t{R10_BROWSER_HELPER_BRIDGE_METADATA}\n"
+            )));
+            assert!(
+                descriptor.contains(&format!("helper\t{TERMUX_BROWSER_OPEN_HELPER_IDENTITY}\t"))
+            );
+            assert!(descriptor.contains(&format!(
+                "helper\t{TERMUX_BROWSER_MANUAL_HELPER_IDENTITY}\t"
+            )));
+
+            let private_key = fixture.root.join("bridge-release-key.pem");
+            generate_publish_key(&fixture.request.openssl, &private_key);
+            let request = PublishRequest {
+                generation: fixture.request.output.clone(),
+                release_sequence: "8".to_owned(),
+                release_base: "https://example.test/releases/test-generation/".to_owned(),
+                private_key: private_key.clone(),
+                openssl: fixture.request.openssl.clone(),
+                output: fixture.root.join("bridge-publication"),
+            };
+            assert_eq!(publish(&request).unwrap(), "test-generation");
+            let release = request.output.join("releases/test-generation");
+            let manifest = std::fs::read_to_string(release.join("release.manifest")).unwrap();
+            assert!(manifest.contains("file\thelpers/0\t"));
+            assert!(manifest.contains("file\thelpers/1\t"));
+            assert!(!manifest.contains("file\tbrowser/"));
+            assert_eq!(
+                std::fs::read(release.join("helpers/0")).unwrap(),
+                TERMUX_BROWSER_OPEN_HELPER
+            );
+            assert_eq!(
+                std::fs::read(release.join("helpers/1")).unwrap(),
+                TERMUX_BROWSER_MANUAL_HELPER
+            );
+            fixture.remove();
+        }
+
+        let mut mismatch = fixture("tc-live-bridge-mismatch", happy_entries("0.150.1"), false);
+        mismatch.request.creation_metadata = R10_BROWSER_HELPER_BRIDGE_METADATA.to_owned();
+        assert_eq!(run_from_args(request_args(&mismatch.request)), 0);
+        let descriptor_path = mismatch.request.output.join("generation.meta");
+        let descriptor = std::fs::read_to_string(&descriptor_path).unwrap().replace(
+            &format!("creation_metadata\t{R10_BROWSER_HELPER_BRIDGE_METADATA}\n"),
+            "creation_metadata\ttest-fixture\n",
+        );
+        std::fs::write(&descriptor_path, descriptor).unwrap();
+        let mismatch_key = mismatch.root.join("mismatch-release-key.pem");
+        generate_publish_key(&mismatch.request.openssl, &mismatch_key);
+        let mismatch_request = PublishRequest {
+            generation: mismatch.request.output.clone(),
+            release_sequence: "8".to_owned(),
+            release_base: "https://example.test/releases/test-generation/".to_owned(),
+            private_key: mismatch_key,
+            openssl: mismatch.request.openssl.clone(),
+            output: mismatch.root.join("mismatch-publication"),
+        };
+        let error = publish(&mismatch_request).unwrap_err();
+        assert!(
+            error.to_string().contains("browser helper layout binding"),
+            "unexpected mismatch error: {error}"
+        );
+        assert!(!mismatch_request.output.exists());
+        mismatch.remove();
     }
 
     #[test]

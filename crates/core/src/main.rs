@@ -556,6 +556,8 @@ fn valid_path_component(component: &OsStr) -> bool {
 const TERMUX_BROWSER_OPEN_HELPER_IDENTITY: &str = "termux-browser-open-v1";
 #[cfg(unix)]
 const TERMUX_BROWSER_MANUAL_HELPER_IDENTITY: &str = "termux-browser-manual-v1";
+#[cfg(unix)]
+const R10_BROWSER_HELPER_BRIDGE_METADATA: &str = "r10-browser-helper-bridge-v1";
 
 #[cfg(unix)]
 fn generation_helper_relative_path(index: usize, identity: &str) -> std::path::PathBuf {
@@ -564,6 +566,40 @@ fn generation_helper_relative_path(index: usize, identity: &str) -> std::path::P
         TERMUX_BROWSER_MANUAL_HELPER_IDENTITY => std::path::PathBuf::from("browser/manual/curl"),
         _ => std::path::PathBuf::from("helpers").join(index.to_string()),
     }
+}
+
+#[cfg(unix)]
+fn generation_helper_relative_path_for_layout(
+    index: usize,
+    identity: &str,
+    r10_browser_helper_bridge: bool,
+) -> std::path::PathBuf {
+    if r10_browser_helper_bridge
+        && matches!(
+            identity,
+            TERMUX_BROWSER_OPEN_HELPER_IDENTITY | TERMUX_BROWSER_MANUAL_HELPER_IDENTITY
+        )
+    {
+        std::path::PathBuf::from("helpers").join(index.to_string())
+    } else {
+        generation_helper_relative_path(index, identity)
+    }
+}
+
+#[cfg(unix)]
+fn r10_browser_helper_bridge(manifest: &GenerationManifest) -> Result<bool, LocalProductError> {
+    if manifest.creation_metadata != R10_BROWSER_HELPER_BRIDGE_METADATA {
+        return Ok(false);
+    }
+    if manifest.helper_digests.len() != 2
+        || manifest.helper_digests[0].identity != TERMUX_BROWSER_OPEN_HELPER_IDENTITY
+        || manifest.helper_digests[1].identity != TERMUX_BROWSER_MANUAL_HELPER_IDENTITY
+    {
+        return Err(LocalProductError::Descriptor(
+            "R10 browser helper bridge contract is invalid",
+        ));
+    }
+    Ok(true)
 }
 
 #[cfg(unix)]
@@ -5790,12 +5826,17 @@ fn load_local_generation(
             "activated generation Manager must be a regular file",
         )?;
     }
+    let r10_browser_helper_bridge = r10_browser_helper_bridge(&manifest)?;
     let helper_paths: Vec<_> = manifest
         .helper_digests
         .iter()
         .enumerate()
         .map(|(index, helper)| {
-            generation_dir.join(generation_helper_relative_path(index, &helper.identity))
+            generation_dir.join(generation_helper_relative_path_for_layout(
+                index,
+                &helper.identity,
+                r10_browser_helper_bridge,
+            ))
         })
         .collect();
     if helper_paths.iter().any(|path| !path.is_file()) {
@@ -5806,6 +5847,15 @@ fn load_local_generation(
     for (index, helper_path) in helper_paths.iter().enumerate() {
         let identity = manifest.helper_digests[index].identity.as_str();
         match identity {
+            TERMUX_BROWSER_OPEN_HELPER_IDENTITY | TERMUX_BROWSER_MANUAL_HELPER_IDENTITY
+                if r10_browser_helper_bridge =>
+            {
+                ensure_real_directory(
+                    &generation_dir.join("helpers"),
+                    "inspect R10 bridge browser helper directory",
+                    "R10 bridge browser helper directory must be a real directory",
+                )?;
+            }
             TERMUX_BROWSER_OPEN_HELPER_IDENTITY | TERMUX_BROWSER_MANUAL_HELPER_IDENTITY => {
                 ensure_real_directory(
                     &generation_dir.join("browser"),
@@ -6103,12 +6153,16 @@ fn exact_release_file_paths(
             "release helper must be a regular file",
         )?;
         files.push(
-            generation_helper_relative_path(index, &loaded.manifest.helper_digests[index].identity)
-                .to_str()
-                .ok_or(LocalProductError::Release(
-                    "release helper path is not supported UTF-8",
-                ))?
-                .to_owned(),
+            generation_helper_relative_path_for_layout(
+                index,
+                &loaded.manifest.helper_digests[index].identity,
+                loaded.manifest.creation_metadata == R10_BROWSER_HELPER_BRIDGE_METADATA,
+            )
+            .to_str()
+            .ok_or(LocalProductError::Release(
+                "release helper path is not supported UTF-8",
+            ))?
+            .to_owned(),
         );
     }
     if files.len() > LOCAL_RELEASE_MAX_FILES {
@@ -6560,9 +6614,10 @@ fn stage_local_generation_with_io<I: GenerationPublishIo>(
             )?;
         }
         for (index, helper) in source.helper_paths.iter().enumerate() {
-            let relative = generation_helper_relative_path(
+            let relative = generation_helper_relative_path_for_layout(
                 index,
                 &source.manifest.helper_digests[index].identity,
+                source.manifest.creation_metadata == R10_BROWSER_HELPER_BRIDGE_METADATA,
             );
             let destination = candidate.join(relative);
             let parent = destination.parent().ok_or(LocalProductError::Descriptor(
@@ -9726,6 +9781,55 @@ mod tests {
             core_api_identity: "core-api-v1",
             persistent_schema_identity: "schema-v1",
         }
+    }
+
+    #[test]
+    fn test_tc_live_bridge_layout_is_exact_and_marker_bound() {
+        let canonical = tc2_manifest(false);
+        assert!(!r10_browser_helper_bridge(&canonical).unwrap());
+        assert_eq!(
+            generation_helper_relative_path_for_layout(
+                0,
+                TERMUX_BROWSER_OPEN_HELPER_IDENTITY,
+                false,
+            ),
+            std::path::PathBuf::from("browser/open/curl")
+        );
+        assert_eq!(
+            generation_helper_relative_path_for_layout(
+                1,
+                TERMUX_BROWSER_MANUAL_HELPER_IDENTITY,
+                false,
+            ),
+            std::path::PathBuf::from("browser/manual/curl")
+        );
+
+        let mut bridge = canonical.clone();
+        bridge.creation_metadata = R10_BROWSER_HELPER_BRIDGE_METADATA.to_string();
+        assert!(r10_browser_helper_bridge(&bridge).unwrap());
+        assert_eq!(
+            generation_helper_relative_path_for_layout(
+                0,
+                TERMUX_BROWSER_OPEN_HELPER_IDENTITY,
+                true,
+            ),
+            std::path::PathBuf::from("helpers/0")
+        );
+        assert_eq!(
+            generation_helper_relative_path_for_layout(
+                1,
+                TERMUX_BROWSER_MANUAL_HELPER_IDENTITY,
+                true,
+            ),
+            std::path::PathBuf::from("helpers/1")
+        );
+
+        let mut swapped = bridge.clone();
+        swapped.helper_digests.swap(0, 1);
+        assert!(r10_browser_helper_bridge(&swapped).is_err());
+        let mut incomplete = bridge;
+        incomplete.helper_digests.pop();
+        assert!(r10_browser_helper_bridge(&incomplete).is_err());
     }
 
     #[test]

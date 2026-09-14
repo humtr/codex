@@ -884,6 +884,31 @@ directly into the active generation and never runs an upstream self-updater.
    rollback state;
 8. report failure without damaging the active trust-and-generation state.
 
+One migration-only coordinated v4 bridge is permitted for an already-installed
+R10 Core whose signed release parser predates the TC-2 browser-helper paths. The
+bridge is not a new trust or release format: it uses the recovered v3
+`update_key`, the normal monotonic release sequence, the normal v4 Core binding,
+and the exact signed digest/mode inventory. Its generation descriptor must bind
+`creation_metadata` exactly `r10-browser-helper-bridge-v1`, `helper_count`
+exactly `2`, and the two existing helper identities in order:
+`termux-browser-open-v1` then `termux-browser-manual-v1`. Only for that exact
+marker and helper contract are those identities stored and loaded from the
+R10-readable signed paths `helpers/0` and `helpers/1`. The release inventory
+must sign those exact two paths, digests, and modes. Missing or extra helpers,
+identity/order mismatch, a marker/layout mismatch, or any attempt to use the
+indexed layout without the exact marker fails closed.
+
+The bridge carries the same qualified browser helper bytes and policy as the
+canonical TC-2 layout; it does not temporarily remove browser protection. A
+new Core may retain read support for this exact bridge layout so the bridge can
+run and can be the one retained rollback generation. Normal generation builds
+and publications must continue to use only `browser/open/curl` and
+`browser/manual/curl` for these identities and must never select the bridge
+layout implicitly. The bridge adds no alternate signing key, bootstrap path,
+package-manager action, PATH widening, raw-runtime patch, or second activation
+mechanism. Its sole purpose is one signed R10-compatible forward step before a
+second ordinary signed update publishes the canonical browser-helper layout.
+
 The signed release format is `codex-release-v3`; v1 and v2 are not retained as
 release compatibility paths. In addition to generation identity, monotonic
 release sequence, supported channel, platform, architecture, Core API,

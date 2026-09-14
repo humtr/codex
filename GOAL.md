@@ -2768,6 +2768,91 @@ remain separate explicitly authorized operations.
   The accepted TC-3 source commit remains local; a second source push requires
   separate explicit user authorization.
 
+### TC-LIVE-BRIDGE — R10 signed browser-helper layout migration (source accepted; live cutover pending)
+
+- The authorized live cutover from the accepted closure at
+  `3e6899262d1fa4ce3952c89341aa6b89a58364ed` exposed one bounded update
+  compatibility defect rather than a runtime or trust failure. The installed
+  healthy R10 Core (`codex-cli 0.153.4`, launcher SHA-256
+  `00ecd5a3536809ef23de055d9c511dc8f503f4658fdb7ff28037ac9e81cd3325`)
+  rejected the signed sequence-8 TC-3 candidate before mutation with
+  `release file inventory path is invalid` because its parser predates the
+  canonical TC-2 paths `browser/open/curl` and `browser/manual/curl`.
+- The repair scope is one signed two-step migration inside the existing v3/v4
+  update authority. An explicitly marked bridge generation uses the already
+  accepted browser helper identities and bytes but places them at the
+  R10-readable signed paths `helpers/0` and `helpers/1`. The new Core may read
+  that exact indexed layout only for `creation_metadata =
+  "r10-browser-helper-bridge-v1"`; normal generations remain canonical at
+  `browser/open/curl` and `browser/manual/curl` and receive no implicit legacy
+  fallback.
+- Acceptance must prove fail-closed marker/layout mismatches, exact helper
+  identity/digest/mode signing, R10-compatible bridge inventory, bridge runtime
+  launch with the same browser policy, a disposable bridge-to-canonical forward
+  update, and rollback compatibility while the bridge is retained as the one
+  previous generation. TC-1/TC-2/TC-3 focused regressions and the full locked
+  workspace/fmt/clippy/diff gates must remain green.
+- The bridge does not add a release format, signing key, bootstrap authority,
+  package-manager action, PATH widening, raw-runtime patch, direct launcher
+  replacement, or credential/provider mutation. The selected upstream remains
+  `rust-v0.154.0` / `6b9826e3aa83b1a5947db50f4332cb9c65f1b340`.
+- Source acceptance is complete. Core accepts the indexed helper layout only
+  when the generation descriptor carries exact marker
+  `r10-browser-helper-bridge-v1` and exactly the two accepted browser helper
+  identities in open/manual order; otherwise the indexed bridge contract fails
+  closed. Normal generation paths remain `browser/open/curl` and
+  `browser/manual/curl`. Release-builder emits and signs `helpers/0` and
+  `helpers/1` only for that exact bridge marker and keeps ordinary publication
+  canonical.
+- Focused regression job `job_tlb_1a92062b15` passed exact 1/1 tests for the
+  two TC-1 daemon-boundary cases, TC-2 browser/clipboard capability fence,
+  TC-3 MCP file-store policy, the Core bridge marker/layout contract, the
+  release-builder TC-2 and TC-3 contracts, and the bridge build/publish
+  contract. Earlier bridge-only job `job_tjy_fa9d010b4b` also passed Core,
+  canonical TC-2 builder, and bridge builder exact tests 1/1 each.
+- Final disposable migration job `job_tlz_daa4096317` cloned only Core-owned
+  non-credential activation/rollback state, its two referenced signed
+  generations, the public trust pin, and the installed R10 launcher into a
+  separate HOME/PREFIX. With a non-sensitive fixture API key, the real installed
+  R10 updater admitted the final signed bridge sequence 8, the final bridge Core
+  then admitted canonical sequence 9, and explicit rollback returned to the
+  retained bridge. The initial runtime was `codex-cli 0.153.4`; every state
+  after the first transition reported `codex-cli 0.154.0`, and doctor exited 0
+  at R10, bridge, canonical, and rollback states. The real live launcher,
+  resolver, and protected auth/config/profile/session fingerprint remained
+  unchanged throughout this proof. Earlier job `job_tl3_0cb97457b0` proved the
+  same state-machine path on the pre-clippy artifact and is diagnostic rather
+  than the final artifact-bound evidence.
+- Final gate `job_tlj_5ff0e9a49c` passed on the final source after the last
+  clippy repair: `cargo fmt --all -- --check`, locked workspace check/test,
+  Core `141 passed, 0 failed, 1 ignored` (the explicit real-Termux installed
+  runtime smoke), release-builder `15/15`, Manager unit `20/20`, Manager
+  integration `11/11`, `cargo clippy --workspace --all-targets --locked -- -D
+  warnings`, and `git diff --check`. The earlier full run that stopped only on
+  the now-repaired clippy argument-count warning is not counted as final
+  acceptance evidence.
+- Final warnings-denied release artifacts are Core SHA-256
+  `0055ec0ecc762e4a4c878be62fd26f93118785218f004b26fe12b178cd3380eb`,
+  Manager SHA-256
+  `a706292d653fb33cc652fb1d9ef03ca8cb1e9e6f402a6098b00d4bedeaf189fc`,
+  and release-builder SHA-256
+  `73f9f1f1b92056a226f74735bc42ef0f534820099f8df714d7bc88f48e653627`.
+  Final candidate regeneration job `job_tly_21be55d83a` verified the existing
+  private signing authority derives the installed public key, copied no private
+  PEM into publication output, and produced signed sequence-8 bridge manifest
+  SHA-256 `ece00c94ee4224c0f745e0798f2b98b28f3305a138878543b44d5f97c12d1fc6`
+  with `helpers/0` and `helpers/1`, plus sequence-9 canonical manifest SHA-256
+  `27a54f9e6f6fce1d116b8a7ff347845747035a581caf2d8506c157d9e0357f64`
+  with `browser/open/curl` and `browser/manual/curl`. Both carry selected
+  adapted 0.154.0 runtime SHA-256
+  `123c96efbd8b16e1ccd5c34a6212b0d8f1c895e92917829cb6371ddfd39aa8c0`.
+- The user has authorized an exact fast-forward push from remote
+  `rewrite/rust-core` at `3e6899262d1fa4ce3952c89341aa6b89a58364ed`
+  and a repository-native live cutover: signed bridge first, then an ordinary
+  canonical signed generation. Live resolver and auth/config/profile/session
+  identities must be rebound before and after each transition. Any failure
+  leaves the last verified generation active and stops further cutover work.
+
 ## Blocked / Resume Conditions
 
 - Stop before any live install, activation, or replacement of the working
