@@ -2768,7 +2768,7 @@ remain separate explicitly authorized operations.
   The accepted TC-3 source commit remains local; a second source push requires
   separate explicit user authorization.
 
-### TC-LIVE-BRIDGE — R10 signed browser-helper layout migration (source accepted; live cutover pending)
+### TC-LIVE-BRIDGE — R10 signed browser-helper layout migration (accepted; live cutover complete)
 
 - The authorized live cutover from the accepted closure at
   `3e6899262d1fa4ce3952c89341aa6b89a58364ed` exposed one bounded update
@@ -2846,12 +2846,45 @@ remain separate explicitly authorized operations.
   with `browser/open/curl` and `browser/manual/curl`. Both carry selected
   adapted 0.154.0 runtime SHA-256
   `123c96efbd8b16e1ccd5c34a6212b0d8f1c895e92917829cb6371ddfd39aa8c0`.
-- The user has authorized an exact fast-forward push from remote
-  `rewrite/rust-core` at `3e6899262d1fa4ce3952c89341aa6b89a58364ed`
-  and a repository-native live cutover: signed bridge first, then an ordinary
-  canonical signed generation. Live resolver and auth/config/profile/session
-  identities must be rebound before and after each transition. Any failure
-  leaves the last verified generation active and stops further cutover work.
+- Accepted bridge source commit
+  `1b51902775c89c79522ef868921e4b95229a35fb` (`termux: bridge R10 browser
+  helper update layout`) was pushed by exact fast-forward in job
+  `job_tm6_aa125d60bb`; `origin/rewrite/rust-core` then resolved to that exact
+  commit. No force push, alternate publication ref, or unrelated remote
+  mutation occurred.
+- Final live preflight job `job_tm9_51bbafd0b1` rebound the healthy R10
+  baseline (`codex-cli 0.153.4`, launcher SHA-256
+  `00ecd5a3536809ef23de055d9c511dc8f503f4658fdb7ff28037ac9e81cd3325`,
+  current `local-1789181261-r10-live-1`, previous
+  `local-1788570645-23374-1`), signing authority, both final signed manifests,
+  resolver SHA-256
+  `7e8ad76e0d200e93918ca2e93c99ff8ecd02071953bf1479819db3ac0dbb6d07`,
+  and protected auth/config/profile/session fingerprint
+  `aedf59af2b1781ef3bd2235969f71cb02f371c2bd22a8b77a1777d5bc6387078`.
+  Doctor exited 0 before mutation.
+- Live bridge job `job_tma_c58554e728` used only the installed R10
+  `$PREFIX/bin/codex update --local` path on signed sequence 8 and exited 0.
+  The launcher became exact accepted Core SHA-256
+  `0055ec0ecc762e4a4c878be62fd26f93118785218f004b26fe12b178cd3380eb`,
+  reported `codex-cli 0.154.0`, and doctor exited 0. Activation state became
+  current `local-20260914-r10-browser-bridge-1`, previous
+  `local-1789181261-r10-live-1`; the installed bridge contained executable
+  `helpers/0` and `helpers/1` and no `browser` tree. Resolver and protected
+  fingerprint were unchanged.
+- Live canonical job `job_tmb_b190024075` then used the newly installed Core on
+  signed sequence 9 and exited 0. Final live state is `codex-cli 0.154.0`, exact
+  launcher SHA-256
+  `0055ec0ecc762e4a4c878be62fd26f93118785218f004b26fe12b178cd3380eb`,
+  doctor exit 0, current `local-20260914-tc3-canonical-1`, and previous
+  `local-20260914-r10-browser-bridge-1`. The active generation contains
+  executable `browser/open/curl` and `browser/manual/curl` and no legacy
+  `helpers` tree. Resolver and protected fingerprint again remained exact.
+- No live rollback was performed merely for proof; the final artifact-bound
+  disposable rollback proof remains `job_tlz_daa4096317`. No direct launcher
+  overwrite, bootstrap reauthorization, package-manager action, raw-runtime
+  patch, credential/provider mutation, or credential-content inspection was
+  used during live cutover. TC-LIVE-BRIDGE and the TERMUX-COMPAT live migration
+  are therefore closed.
 
 ## Blocked / Resume Conditions
 

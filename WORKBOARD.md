@@ -10,15 +10,20 @@ behavior belongs in `SPEC.md`.
 - Active branch: `rewrite/rust-core`.
 - Original Rust Core goal status: **complete**.
 - TERMUX-COMPAT TC-1, TC-2, and TC-3 are accepted and recorded in `GOAL.md`.
-- TC-LIVE-BRIDGE source repair is accepted on top of pushed base
-  `3e6899262d1fa4ce3952c89341aa6b89a58364ed`; final commit SHA is assigned only
-  after the accepted five-file diff is committed.
+- TC-LIVE-BRIDGE source repair commit is
+  `1b51902775c89c79522ef868921e4b95229a35fb` and has been pushed to
+  `origin/rewrite/rust-core`.
 - Selected upstream remains `rust-v0.154.0`, upstream commit
   `6b9826e3aa83b1a5947db50f4332cb9c65f1b340`.
+- TC-LIVE-BRIDGE repository-native two-step live cutover is accepted and
+  complete.
+- Final live runtime is `codex-cli 0.154.0` with current generation
+  `local-20260914-tc3-canonical-1` and retained previous generation
+  `local-20260914-r10-browser-bridge-1`.
+- Final live launcher SHA-256 is
+  `0055ec0ecc762e4a4c878be62fd26f93118785218f004b26fe12b178cd3380eb`.
 - Active implementation bundle: **none**.
-- Authorized operational next step: exact fast-forward push of the accepted
-  bridge source, then repository-native two-step live cutover: signed R10-readable
-  bridge sequence first, canonical signed generation second.
+- Authorized operational next step: **none**.
 - `legacy/monolith` remains sealed at
   `bf30a7dc94d4dad7f58836c69028160856e63c58`.
 - Worker mode remains OFF.
@@ -33,33 +38,22 @@ browser helper identities in exact order may use signed `helpers/0` and
 key, bootstrap authority, package install, PATH authority, raw-runtime patch, or
 direct launcher replacement was added.
 
-Acceptance evidence is recorded in `GOAL.md`. The decisive disposable proof used
-the real installed R10 updater in an isolated HOME/PREFIX and completed R10 ->
-bridge -> canonical -> rollback with doctor success at each state while leaving
-actual live launcher, resolver, and protected auth/config/profile/session
-identities unchanged. The final repository gate passed Core 141/0/1,
+Source acceptance and the decisive disposable migration/rollback proof are
+recorded in `GOAL.md`. The final repository gate passed Core 141/0/1,
 release-builder 15/15, Manager 20/20 plus 11/11, locked workspace check/test,
 clippy `-D warnings`, formatting, and `git diff --check`.
 
-## Live cutover boundary
-
-Before live mutation, rebuild release artifacts from the final accepted source,
-regenerate and sign both candidate releases with the existing update authority,
-and rebind the remote base, live launcher, activation state, resolver, protected
-state fingerprint, selected upstream/runtime digest, and candidate manifests.
-
-Step 1 uses the existing R10 `$PREFIX/bin/codex update --local` on the signed
-bridge release. Require exit 0, 0.154.0, healthy doctor, current=bridge,
-previous=R10, exact indexed helpers, and unchanged protected identities before
-continuing. Step 2 uses the newly installed Core on the canonical signed release.
-Require exit 0, healthy 0.154.0, current=canonical, previous=bridge, exact nested
-browser helpers, and unchanged protected identities. Any failure stops with the
-last verified generation active. Do not perform a live rollback merely to prove
-it; disposable rollback proof is already accepted.
+Live preflight rebound the exact R10 baseline and final signed candidates. The
+installed R10 updater then admitted signed bridge sequence 8; only after bridge
+health and protected-state checks passed did the new Core admit canonical
+sequence 9. Final doctor is healthy, resolver and protected auth/config/profile/
+session identities are unchanged, canonical nested browser helpers are active,
+and the bridge is retained as the one rollback generation. No live rollback was
+performed solely for evidence.
 
 ## Resume rule
 
-A fresh session resumes by reading `SPEC.md`, then `GOAL.md`, then this file;
-verifying exact branch/HEAD, remote tip, selected upstream, and live baseline;
-and continuing only the authorized operational cutover until its evidence is
-recorded. Historical accepted evidence stays in `GOAL.md`.
+A fresh session resumes by reading `SPEC.md`, then `GOAL.md`, then this file and
+verifying branch/HEAD plus the final live state before selecting any new work.
+No further TERMUX-COMPAT implementation or live-migration bundle is implicitly
+selected. Historical accepted evidence stays in `GOAL.md`.
