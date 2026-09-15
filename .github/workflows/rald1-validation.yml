@@ -1,0 +1,58 @@
+name: RALD-1 disposable validation
+
+on:
+  push:
+    branches:
+      - automation/rald1-validation-20260915
+
+permissions:
+  contents: write
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Inspect updater boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          needles = {
+              'crates/core/src/main.rs': [
+                  'fn run_core_update',
+                  'fn run_signed_public_update',
+                  'maybe_publish_newer_official_generation',
+                  'fn activate_local_built_update',
+                  'fn publish_local_update_to_github',
+                  'activation-state-v3',
+                  'struct ActivationState',
+                  'current_public_release_sequence',
+                  'highest_accepted_public_release_sequence',
+                  'rollback_hold',
+              ],
+              'crates/core/src/automatic_update.rs': [
+                  'maintainer_publication_enabled',
+                  'maybe_publish_newer_official_generation',
+                  'CODEX_TERMUX_UPDATE_PRIVATE_KEY',
+                  'gh',
+                  'OpenAiStable',
+                  'source_sha256',
+              ],
+          }
+          for name, terms in needles.items():
+              lines = Path(name).read_text().splitlines()
+              print(f'===== {name} ({len(lines)} lines) =====')
+              for term in terms:
+                  hits = [i for i, line in enumerate(lines) if term in line]
+                  print(f'--- {term!r}: {[i + 1 for i in hits]}')
+                  for i in hits[:6]:
+                      lo = max(0, i - 18)
+                      hi = min(len(lines), i + 36)
+                      print(f'@@ {lo + 1}-{hi} @@')
+                      for n in range(lo, hi):
+                          print(f'{n + 1:6}: {lines[n]}')
+          PY
