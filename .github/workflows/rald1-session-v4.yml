@@ -1,0 +1,169 @@
+name: RALD-1 isolated implementation v4
+
+on:
+  push:
+    branches: [rald1-impl-session-20260915]
+    paths:
+      - .rald1/v4-trigger
+
+permissions:
+  contents: write
+
+jobs:
+  implement-verify-push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: rewrite/rust-core
+          fetch-depth: 0
+      - name: Verify frozen parent, prepare disposable Termux prefix, and apply draft
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=771d39f9337a7c15337fedc6b47b43d017d8140c
+          test "$(git rev-parse HEAD)" = "$expected"
+          git fetch origin rewrite/rust-core rald1-impl-session-20260915
+          test "$(git rev-parse origin/rewrite/rust-core)" = "$expected"
+          test -z "$(git status --porcelain)"
+
+          export PREFIX="$RUNNER_TEMP/termux-prefix"
+          mkdir -p "$PREFIX/bin" "$PREFIX/etc/tls/certs"
+          for tool in openssl curl gzip tar; do
+            install -m 0755 "$(command -v "$tool")" "$PREFIX/bin/$tool"
+          done
+          cp /etc/ssl/certs/ca-certificates.crt "$PREFIX/etc/tls/cert.pem"
+          echo "PREFIX=$PREFIX" >> "$GITHUB_ENV"
+
+          git show origin/rald1-impl-session-20260915:.rald1/local_derived.rs > crates/core/src/local_derived.rs
+          git show origin/rald1-impl-session-20260915:.rald1/apply.py > "$RUNNER_TEMP/rald1_apply.py"
+          python3 "$RUNNER_TEMP/rald1_apply.py"
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("crates/core/src/local_derived.rs")
+          s = p.read_text()
+          old = '        let source = include_str!("local_derived.rs");\n        for forbidden in ['
+          new = '        let source = include_str!("local_derived.rs")\n            .split("\\n#[cfg(test)]")\n            .next()\n            .unwrap();\n        for forbidden in ['
+          if s.count(old) != 1:
+              raise SystemExit("local-derived source assertion marker mismatch")
+          s = s.replace(old, new, 1)
+          old = '''        let marker = "Err(LocalProductError::RemoteTransportFailed)";
+                  let start = source.find(marker).unwrap();
+                  let tail = &source[start..source.len().min(start + 1000)];
+          '''
+          new = '''        let unified = source
+                      .find("fn activate_unified_update_with_hold_policy(")
+                      .unwrap();
+                  let marker = "Err(LocalProductError::RemoteTransportFailed)";
+                  let relative = source[unified..].find(marker).unwrap();
+                  let start = unified + relative;
+                  let tail = &source[start..source.len().min(start + 1000)];
+          '''
+          if s.count(old) != 1:
+              raise SystemExit("fallback source assertion marker mismatch")
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+          PY
+          cargo fmt --all
+          git diff --check
+          cargo check -p codex --locked
+      - name: Focused RALD-1 and ARH regression gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p codex --locked rald1 -- --nocapture
+          cargo test -p codex --locked rollback_hold -- --nocapture
+          cargo test -p codex --locked force -- --nocapture
+          cargo test -p codex --locked rollback_guard -- --nocapture
+      - name: Full acceptance gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p codex-release-builder --locked
+          cargo test -p codex --locked
+          cargo test -p codex-manager --locked
+          cargo check --workspace --locked
+          cargo test --workspace --locked
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+          cargo fmt --all -- --check
+          git diff --check
+      - name: Record proven RALD-1 evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat >> GOAL.md <<'DOC'
+
+          ## 2026-09-15 — RALD-1 local-derived Core contract accepted evidence
+
+          RALD-1 is implemented on `rewrite/rust-core`: `codex update --build-local` is an exact
+          local-derived selector; the transport-unavailable plain-update fallback uses the same
+          path; local-derived construction is bound to official OpenAI stable metadata/archive
+          digest, uses a private ephemeral Ed25519 signer deleted before activation, preserves the
+          official `activation-state-v3.update_key`, carries signed public-baseline provenance,
+          consumes no new public sequence, admits later official signed stable against that
+          baseline, and suppresses public rollback hold/legacy hold guard only when the current
+          generation is authenticated local-derived. Existing official rollback/hold/guard and
+          exact-held-sequence `--force` semantics remain covered by the regression suite.
+
+          Accepted evidence in the isolated implementation runner: focused RALD-1 tests,
+          rollback-hold, force, and rollback-guard regressions; release-builder full tests; Core
+          full tests; Manager tests; workspace check/test/clippy with warnings denied; rustfmt
+          check; and `git diff --check` all passed from a clean checkout of the frozen RALD-0
+          parent with a disposable test-only Termux prefix.
+          DOC
+          cat >> WORKBOARD.md <<'DOC'
+
+          ## RALD status — 2026-09-15
+
+          - RALD-1 — local-derived Core contract: **done / gated**.
+          - Accepted scope: `--build-local`, ephemeral local integrity authority, signed
+            public-baseline provenance, official `update_key` preservation, sequence-neutral local
+            activation, official supersession/restoration admission, local-derived rollback without
+            a public hold, and transport fallback reuse without GitHub publication.
+          - Existing official rollback/hold/guard/`--force` regressions and full workspace gates
+            passed in the isolated implementation runner.
+          - Next active phase: **RALD-2 — detach official production from Core `codex update`**.
+            Remove/detach the now-unreachable ambient device producer/publisher wiring and expose
+            explicit non-installed producer tooling without changing signed consumer semantics.
+          DOC
+          cat >> RELEASE_AUTOMATION_PLAN.md <<'DOC'
+
+          ## Phase status — 2026-09-15
+
+          - RALD-0: complete.
+          - RALD-1: complete; local-derived Core contract implemented and gated without changing
+            the frozen decisions above.
+          - Next: RALD-2 — detach official production from Core `codex update`.
+          DOC
+          cargo fmt --all -- --check
+          git diff --check
+      - name: Commit and non-forced fast-forward push
+        shell: bash
+        env:
+          TARGET_BRANCH: rewrite/rust-core
+        run: |
+          set -euo pipefail
+          expected=771d39f9337a7c15337fedc6b47b43d017d8140c
+          test "$(git rev-parse HEAD)" = "$expected"
+          git fetch origin "$TARGET_BRANCH"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$expected"
+          test -n "$(git status --porcelain)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add SPEC.md GOAL.md WORKBOARD.md RELEASE_AUTOMATION_PLAN.md crates/core/src/main.rs crates/core/src/local_derived.rs
+          git diff --cached --check
+          git commit -m "core: implement RALD-1 local-derived updates"
+          commit=$(git rev-parse HEAD)
+          test "$(git rev-parse HEAD^)" = "$expected"
+          git push origin "HEAD:$TARGET_BRANCH"
+          git fetch origin "$TARGET_BRANCH"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$commit"
+          test -z "$(git status --porcelain)"
+          echo "RALD1_COMMIT=$commit" >> "$GITHUB_ENV"
+      - name: Remove temporary implementation branch
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git push origin --delete rald1-impl-session-20260915
