@@ -7,7 +7,7 @@ start_marker = '''    #[cfg(unix)]
     fn test_r7_bare_update_transport_fallback_builds_and_activates_local_release() {
 '''
 end_marker = '''    #[cfg(unix)]
-    fn write_github_release_manifest(
+    fn write_github_release_manifest(release: &std::path::Path, manager: bool) {
 '''
 start = s.find(start_marker)
 if start < 0:
