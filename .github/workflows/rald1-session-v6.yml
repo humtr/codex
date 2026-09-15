@@ -39,6 +39,16 @@ jobs:
           git show origin/rald1-impl-session-20260915:.rald1/refine.py > "$RUNNER_TEMP/rald1_refine.py"
           python3 "$RUNNER_TEMP/rald1_apply.py"
           python3 "$RUNNER_TEMP/rald1_refine.py"
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("crates/core/src/local_derived.rs")
+          s = p.read_text()
+          old = "            (Ok(()), Ok(public_key)) => public_key,"
+          new = "            (Ok(_), Ok(public_key)) => public_key,"
+          if s.count(old) != 1:
+              raise SystemExit("local-derived publish match marker missing")
+          p.write_text(s.replace(old, new, 1))
+          PY
           cargo fmt --all
           git diff --check
           tracked="$(git diff --name-only | sort)"
