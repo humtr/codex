@@ -41,9 +41,10 @@ jobs:
           python3 "$RUNNER_TEMP/rald1_refine.py"
           cargo fmt --all
           git diff --check
-          actual="$(git diff --name-only | sort)"
-          expected_files="$(printf '%s\n' SPEC.md crates/core/src/local_derived.rs crates/core/src/main.rs crates/release-builder/src/lib.rs | sort)"
-          test "$actual" = "$expected_files"
+          tracked="$(git diff --name-only | sort)"
+          expected_tracked="$(printf '%s\n' SPEC.md crates/core/src/main.rs crates/release-builder/src/lib.rs | sort)"
+          test "$tracked" = "$expected_tracked"
+          test "$(git status --porcelain -- crates/core/src/local_derived.rs)" = "?? crates/core/src/local_derived.rs"
           cargo check -p codex --locked
       - name: Focused RALD-1 and ARH regressions
         shell: bash
