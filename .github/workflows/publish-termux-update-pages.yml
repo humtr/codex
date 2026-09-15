@@ -1,4 +1,5 @@
 name: Publish Termux update Pages
+run-name: Publish Termux update Pages ${{ inputs.generation_id }}
 
 on:
   workflow_dispatch:
@@ -40,6 +41,8 @@ jobs:
           gh release download "$GENERATION_ID" --repo "$GITHUB_REPOSITORY" --dir stage
 
           cat > expected-assets <<'EOF'
+          candidate-update-index-v1
+          candidate-update-index-v1.sig
           codex-code-mode-host
           core
           generation.meta
@@ -59,6 +62,13 @@ jobs:
             '62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c'
           openssl pkeyutl -verify -pubin -inkey stage/update-public-key.pem -rawin \
             -in stage/release.manifest -sigfile stage/release.sig
+          openssl pkeyutl -verify -pubin -inkey stage/update-public-key.pem -rawin \
+            -in stage/candidate-update-index-v1 -sigfile stage/candidate-update-index-v1.sig
+          test "$(sed -n '1p' stage/candidate-update-index-v1)" = 'codex-update-index-v1'
+          test "$(awk -F '\t' '$1=="channel"{print $2}' stage/candidate-update-index-v1)" = 'stable'
+          test "$(awk -F '\t' '$1=="generation_id"{print $2}' stage/candidate-update-index-v1)" = "$GENERATION_ID"
+          test "$(awk -F '\t' '$1=="release_base"{print $2}' stage/candidate-update-index-v1)" = \
+            "https://humtr.github.io/codex/$GENERATION_ID/"
 
           test "$(sed -n '1p' stage/release.manifest)" = 'codex-release-v4'
           test "$(awk -F '\t' '$1=="generation_id"{print $2}' stage/release.manifest)" = "$GENERATION_ID"
@@ -69,7 +79,8 @@ jobs:
           test "$(awk -F '\t' '$1=="file_count"{print $2}' stage/release.manifest)" = '7'
 
           test "$(awk -F '\t' '$1=="generation_id"{print $2}' stage/generation.meta)" = "$GENERATION_ID"
-          test "$(awk -F '\t' '$1=="upstream_package_version"{print $2}' stage/generation.meta)" = '0.154.0'
+          UPSTREAM_VERSION="$(awk -F '\t' '$1=="upstream_package_version"{print $2}' stage/generation.meta)"
+          [[ "$UPSTREAM_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
           test "$(awk -F '\t' '$1=="creation_metadata"{print $2}' stage/generation.meta)" = \
             'r10-browser-helper-bridge-v1'
           test "$(awk -F '\t' '$1=="helper_count"{print $2}' stage/generation.meta)" = '2'
@@ -90,6 +101,48 @@ jobs:
           EOF
           diff -u expected-paths signed-paths
 
+          # Preserve the currently authoritative stable generation while the
+          # candidate is deployed for pre-promotion readback. Pages deployment
+          # is whole-site replacement, so omitting current stable here would
+          # break the still-authoritative signed index before promotion.
+          curl --fail --silent --show-error --location \
+            --connect-timeout 15 --max-time 60 \
+            -o current-index https://raw.githubusercontent.com/humtr/codex/main/update-index-v1
+          curl --fail --silent --show-error --location \
+            --connect-timeout 15 --max-time 60 \
+            -o current-index.sig https://raw.githubusercontent.com/humtr/codex/main/update-index-v1.sig
+          openssl pkeyutl -verify -pubin -inkey stage/update-public-key.pem -rawin \
+            -in current-index -sigfile current-index.sig
+          test "$(sed -n '1p' current-index)" = 'codex-update-index-v1'
+          test "$(awk -F '\t' '$1=="channel"{print $2}' current-index)" = 'stable'
+          CURRENT_ID="$(awk -F '\t' '$1=="generation_id"{print $2}' current-index)"
+          CURRENT_BASE="$(awk -F '\t' '$1=="release_base"{print $2}' current-index)"
+          [[ "$CURRENT_ID" =~ ^local-[a-z0-9][a-z0-9._-]{0,126}$ ]]
+          test "$CURRENT_ID" != "$GENERATION_ID"
+          test "$CURRENT_BASE" = "https://humtr.github.io/codex/$CURRENT_ID/"
+          mkdir -p "site/$CURRENT_ID/helpers"
+          curl --fail --silent --show-error --location --connect-timeout 15 --max-time 120 \
+            -o "site/$CURRENT_ID/release.manifest" "${CURRENT_BASE}release.manifest"
+          curl --fail --silent --show-error --location --connect-timeout 15 --max-time 120 \
+            -o "site/$CURRENT_ID/release.sig" "${CURRENT_BASE}release.sig"
+          openssl pkeyutl -verify -pubin -inkey stage/update-public-key.pem -rawin \
+            -in "site/$CURRENT_ID/release.manifest" -sigfile "site/$CURRENT_ID/release.sig"
+          test "$(sed -n '1p' "site/$CURRENT_ID/release.manifest")" = 'codex-release-v4'
+          test "$(awk -F '\t' '$1=="generation_id"{print $2}' "site/$CURRENT_ID/release.manifest")" = "$CURRENT_ID"
+          test "$(awk -F '\t' '$1=="channel"{print $2}' "site/$CURRENT_ID/release.manifest")" = 'stable'
+          test "$(awk -F '\t' '$1=="release_public_key"{print $2}' "site/$CURRENT_ID/release.manifest")" = \
+            '82d2e4a5038a439601e6efc02d3b631b7da689fbacaa0435ec1600daa3a29bf2'
+          awk -F '\t' '$1=="file"{print $2}' "site/$CURRENT_ID/release.manifest" > current-signed-paths
+          diff -u expected-paths current-signed-paths
+          while IFS=$'\t' read -r kind rel digest mode; do
+            [[ "$kind" == file ]] || continue
+            mkdir -p "$(dirname "site/$CURRENT_ID/$rel")"
+            curl --fail --silent --show-error --location \
+              --connect-timeout 15 --max-time 600 \
+              -o "site/$CURRENT_ID/$rel" "${CURRENT_BASE}${rel}"
+            test "$(sha256sum "site/$CURRENT_ID/$rel" | awk '{print $1}')" = "$digest"
+          done < "site/$CURRENT_ID/release.manifest"
+
           cp stage/codex-code-mode-host "site/$GENERATION_ID/codex-code-mode-host"
           cp stage/core "site/$GENERATION_ID/core"
           cp stage/generation.meta "site/$GENERATION_ID/generation.meta"
@@ -99,16 +152,21 @@ jobs:
           cp stage/runtime "site/$GENERATION_ID/runtime"
           cp stage/release.manifest "site/$GENERATION_ID/release.manifest"
           cp stage/release.sig "site/$GENERATION_ID/release.sig"
+          cp stage/candidate-update-index-v1 "site/$GENERATION_ID/update-index-v1"
+          cp stage/candidate-update-index-v1.sig "site/$GENERATION_ID/update-index-v1.sig"
 
           while IFS=$'\t' read -r kind rel digest mode; do
             [[ "$kind" == file ]] || continue
             test "$(sha256sum "site/$GENERATION_ID/$rel" | awk '{print $1}')" = "$digest"
           done < stage/release.manifest
 
-          total=$(du -sb "site/$GENERATION_ID" | awk '{print $1}')
+          candidate_bytes=$(du -sb "site/$GENERATION_ID" | awk '{print $1}')
+          current_bytes=$(du -sb "site/$CURRENT_ID" | awk '{print $1}')
+          total=$(du -sb site | awk '{print $1}')
           test "$total" -lt 1073741824
-          printf 'verified_generation=%s\nverified_sequence=%s\nsite_bytes=%s\n' \
-            "$GENERATION_ID" "$RELEASE_SEQUENCE" "$total"
+          printf 'verified_generation=%s\nverified_sequence=%s\ncurrent_generation=%s\ncandidate_bytes=%s\ncurrent_bytes=%s\nsite_bytes=%s\n' \
+            "$GENERATION_ID" "$RELEASE_SEQUENCE" "$CURRENT_ID" \
+            "$candidate_bytes" "$current_bytes" "$total"
 
       - name: Configure Pages
         uses: actions/configure-pages@v5

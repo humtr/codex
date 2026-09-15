@@ -2960,6 +2960,65 @@ remain separate explicitly authorized operations.
   installation, signing-key rotation, provider/account mutation, or credential
   content inspection occurred. UPDATE-CHANNEL-LATEST is therefore closed.
 
+### AUTO-UPSTREAM-ROLLBACK — automatic upstream intake, rollback hold, and force retry (accepted)
+
+- User authorization selects this bounded follow-up after UPDATE-CHANNEL-LATEST.
+  Normal operation stays `codex update`; there is no manual stable-promotion
+  approval. Real-use regressions recover through Core-owned `codex update --rollback`.
+- Rollback reuses the existing complete-generation/Core-entrypoint atomic
+  transition. Only after success may Core atomically record a separate v1 hold
+  containing the authenticated generation and release sequence rolled back from.
+  Activation-state v3 stays unchanged for retained-R10 compatibility. After normal
+  trust/anti-rollback checks, ordinary update may advance only beyond the held
+  signed sequence; a committed greater sequence clears the obsolete hold/guard.
+  `codex update --force` requires the authenticated hold and retries exactly that
+  held sequence for the invocation, bypassing only the hold comparison and
+  retaining the normal hold after success.
+  `codex update --rollback` remains the sole public rollback selector; no new
+  top-level rollback command is added.
+- Upstream automation is update-triggered only on the maintainer Termux device:
+  the default signed channel must be unmodified, the secure local signing key must
+  derive the active update authority, and the local GitHub CLI must be
+  authenticated. Ordinary consumer devices never build/sign/publish. Repository
+  inspection found zero self-hosted Actions runners, so the private signing key
+  is not exported to GitHub-hosted Ubuntu. If public stable is already current or
+  only held, the maintainer Core resolves exact official OpenAI stable metadata
+  and locally adapts/signs only a genuinely newer upstream using the existing
+  prebuilt builder.
+- Automated publication extends the accepted Release-staging + Pages transport.
+  GitHub Actions may only reconstruct/deploy already signed bytes and must preserve
+  the currently signed stable generation alongside the candidate because Pages is
+  a whole-site replacement. Stable promotion requires successful deployment,
+  complete candidate HTTPS readback, and disposable public no-argument update
+  smoke, then replaces `update-index-v1` and its signature together in one Git
+  tree/commit and advances `main` non-forced from the exact verified parent. A
+  failed pre-commit gate preserves old stable; an indeterminate final ref result is
+  not guessed. Once promotion is known committed, local activation may be deferred
+  and is recovered by re-running `codex update` against the newly signed stable.
+- Acceptance requires focused routing/hold/malformed-state/force/anti-rollback
+  tests, automatic upstream comparison/build controls, publication fail-closed
+  tests, full workspace/check/test/clippy/fmt/diff gates, and disposable update →
+  rollback → held-update refusal → force/greater-sequence behavior without live
+  mutation.
+- Disposable process-level migration smoke exposed one additional legacy boundary:
+  sequence 11 correctly wrote the hold, but complete rollback to public sequence
+  10 also restored the old sequence-10 Core, which did not understand the new hold
+  and immediately reinstalled sequence 11. Acceptance therefore additionally
+  requires a signed rollback-Core guard for only non-hold-aware rollback targets.
+  The guard must retain only the held generation's authenticated Core control
+  plane, bind it to the exact target/held pointer pair and signed digest, preserve
+  the previous generation's runtime/Manager/helper payload, close the rollback
+  commit-to-hold crash window, and disappear once normal hold-aware Core pairing is
+  restored. The failed bypass smoke is rejection evidence, not acceptance.
+- Final acceptance on 2026-09-15 passed the disposable rollback/hold/force and
+  legacy-guard process flows, the maintainer publisher authority/fail-closed
+  controls, and the complete repository gate: release-builder 15/15; Core 156
+  passed, 0 failed, 1 explicitly ignored real-Termux smoke; Manager integration
+  11/11; locked workspace check/test; clippy with `-D warnings`; formatting; and
+  `git diff --check`. The acceptance run did not mutate the installed live Codex,
+  public stable publication, signing authority, resolver, auth, config, profile,
+  or session state.
+
 ## Blocked / Resume Conditions
 
 - Stop before any live install, activation, or replacement of the working

@@ -27,8 +27,12 @@ behavior belongs in `SPEC.md`.
 - Public stable is signed sequence 10 generation
   `local-20260914-update-channel-bridge-1` at the verified GitHub Pages release
   base; retained R10 no-argument update and exact-current no-op are accepted.
-- Active implementation bundle: **none**. New product or publication work requires
-  a fresh bounded routing decision.
+- Active implementation bundle: **AUTO-UPSTREAM-ROLLBACK**.
+- Authorized order: ARH-1 `update --rollback` + atomic hold/guard + hold enforcement +
+  `update --force`; then ARH-2 update-triggered official upstream discovery/build
+  and fail-closed Release/Pages publication without exporting the private key.
+- Public stable remains fixed during development and may advance only after all
+  focused/full gates, complete readback, and disposable public-update smoke pass.
 - `legacy/monolith` remains sealed at
   `bf30a7dc94d4dad7f58836c69028160856e63c58`.
 - Worker mode remains OFF.
@@ -98,6 +102,49 @@ live sequence-9 canonical runtime remained healthy and unchanged at the measured
 launcher, activation-state, resolver, and protected metadata boundaries. No live
 runtime replacement, rollback, package-manager action, PATH/resolver change,
 signing-key rotation, or credential/provider mutation occurred in this bundle.
+
+## Accepted AUTO-UPSTREAM-ROLLBACK bundle
+
+ARH-1: `codex update --rollback` remains the sole Core-owned public rollback
+selector; no top-level `codex rollback` command is added. Rollback success writes
+a separate exact-format hold for the rolled-back-from
+generation/sequence without changing activation-state v3. After trust and
+anti-rollback validation, plain update refuses candidates that do not exceed the
+held sequence. A committed greater sequence removes the obsolete hold/guard;
+`codex update --force` requires that valid hold, retries exactly its held sequence
+for one invocation, retains the normal hold after success, and bypasses no other
+admission/probe/activation check.
+The disposable first-migration smoke proved that restoring a legacy pre-ARH Core
+would bypass that hold on the next process. ARH-1 therefore also owns the bounded
+rollback-Core guard repair: if and only if the rollback target lacks exact
+`codex-update-hold-v1` capability, keep the held generation's signed Core launcher
+as the control plane while rolling back the previous signed payload/pointer. Bind
+that exception to exact target/held identities, held sequence, verifier authority,
+and held signed Core digest; use the guard as crash-window hold intent, and remove
+it after force/greater activation or a normal hold-aware Core rollback.
+
+ARH-2: with no self-hosted Actions runner and no private-key export, `codex update`
+is the maintainer-side automation controller only when the default signed channel,
+secure matching local signing key, and authenticated local GitHub CLI are all
+present. Ordinary clients only consume stable. Exact-current or hold-only public
+outcomes may then trigger official OpenAI stable discovery and local adaptation/
+signing only for a genuinely newer version. GitHub Release stages already signed
+bytes; Actions reconstructs/deploys current stable plus candidate in one Pages
+site. Full candidate readback and disposable public update must pass before one
+non-forced Git commit atomically replaces the signed index and signature. Any
+pre-commit failure leaves stable untouched; an indeterminate final ref result is
+not guessed. A known committed promotion survives a later local activation failure,
+which is reported as deferred and recovered by the next `codex update`.
+
+Acceptance evidence is complete: focused ARH routing/hold/force/publisher tests
+and the disposable legacy-guard process flow pass; release-builder is 15/15; Core
+is 156 passed, 0 failed, 1 explicitly ignored real-Termux smoke; Manager
+integration is 11/11; locked workspace check/test, clippy `-D warnings`, formatting,
+and `git diff --check` all pass. Controlled fixtures prove the newer-version and
+publication paths without artificially advancing public stable, and the acceptance
+run did not mutate the installed live Codex or protected user/provider state. The
+source closure for this accepted ledger state is the corresponding clean
+fast-forward commit on `rewrite/rust-core`.
 
 ## Resume rule
 

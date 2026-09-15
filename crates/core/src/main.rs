@@ -1,5 +1,11 @@
 use std::ffi::{OsStr, OsString};
 
+#[cfg(unix)]
+mod automatic_update;
+
+#[cfg(unix)]
+mod rollback_guard;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum PublicDispatchRoute {
     Update(Vec<OsString>),
@@ -3990,6 +3996,12 @@ enum LocalProductError {
     ReleaseDigestMismatch,
     ReleaseModeMismatch,
     ReleaseSequenceRollback,
+    UpdateHold(&'static str),
+    UpdateHeld {
+        generation_id: Box<str>,
+        release_sequence: u64,
+    },
+    RollbackHoldAfterCommit(Box<LocalProductError>),
     CandidateProbe(&'static str),
     Manifest(GenerationManifestError),
     Runtime(RuntimeAssetError),
@@ -4057,6 +4069,17 @@ impl std::fmt::Display for LocalProductError {
             LocalProductError::ReleaseSequenceRollback => {
                 f.write_str("release sequence is not newer than the active release")
             }
+            LocalProductError::UpdateHold(message) => f.write_str(message),
+            LocalProductError::UpdateHeld {
+                generation_id,
+                release_sequence,
+            } => write!(
+                f,
+                "release sequence {release_sequence} is locally held after rollback (generation {generation_id}); use 'codex update --force' to retry"
+            ),
+            LocalProductError::RollbackHoldAfterCommit(source) => {
+                write!(f, "rollback completed but update hold could not be recorded: {source}")
+            }
             LocalProductError::CandidateProbe(message) => f.write_str(message),
             LocalProductError::Manifest(err) => err.fmt(f),
             LocalProductError::Runtime(err) => err.fmt(f),
@@ -4077,6 +4100,7 @@ impl std::error::Error for LocalProductError {
             LocalProductError::Runtime(err) => Some(err),
             LocalProductError::Manager(err) => Some(err),
             LocalProductError::Dispatch(err) => Some(err),
+            LocalProductError::RollbackHoldAfterCommit(source) => Some(source.as_ref()),
             _ => None,
         }
     }
@@ -4424,6 +4448,104 @@ fn valid_update_version(value: &str) -> bool {
         }
     }
     count == 3
+}
+
+#[cfg(unix)]
+fn parsed_update_version(value: &str) -> Result<[u64; 3], LocalProductError> {
+    if !valid_update_version(value) {
+        return Err(LocalProductError::LocalUpdate(
+            "upstream version is not canonical MAJOR.MINOR.PATCH",
+        ));
+    }
+    let mut parsed = [0u64; 3];
+    for (index, component) in value.split('.').enumerate() {
+        parsed[index] = component
+            .parse::<u64>()
+            .map_err(|_| LocalProductError::LocalUpdate("upstream version component is invalid"))?;
+    }
+    Ok(parsed)
+}
+
+#[cfg(unix)]
+fn update_version_is_newer(candidate: &str, baseline: &str) -> Result<bool, LocalProductError> {
+    Ok(parsed_update_version(candidate)? > parsed_update_version(baseline)?)
+}
+
+#[cfg(unix)]
+fn next_local_release_sequence(
+    current_sequence: u64,
+    held_sequence: Option<u64>,
+) -> Result<u64, LocalProductError> {
+    current_sequence
+        .max(held_sequence.unwrap_or(0))
+        .checked_add(1)
+        .ok_or(LocalProductError::LocalUpdate(
+            "local update release sequence is exhausted",
+        ))
+}
+
+#[cfg(unix)]
+fn installed_update_baseline_version(roots: &LocalCoreRoots) -> Result<String, LocalProductError> {
+    let state_paths = m2_generation_state::CoreStatePaths::new(&roots.state_root)
+        .map_err(LocalProductError::StateFormat)?;
+    let state = m2_generation_state::recover_activation_state(&state_paths)
+        .map_err(LocalProductError::State)?
+        .ok_or(LocalProductError::NoCurrentGeneration)?;
+    let (_, current) = verify_installed_local_release(
+        roots,
+        &state.current,
+        state.current_key,
+        "active generation descriptor id does not match current",
+    )?;
+    let mut baseline = current.manifest.upstream_package_version.clone();
+    if let Some(hold) = rollback_guard::effective_update_hold(roots)? {
+        if hold.generation_id == state.current {
+            let (held_release, held) = verify_installed_local_release(
+                roots,
+                &state.current,
+                state.current_key,
+                "held current generation descriptor id does not match current",
+            )?;
+            if held_release.release_sequence != hold.release_sequence {
+                return Err(LocalProductError::UpdateHold(
+                    "update hold release sequence does not match current generation",
+                ));
+            }
+            if update_version_is_newer(&held.manifest.upstream_package_version, &baseline)? {
+                baseline = held.manifest.upstream_package_version;
+            }
+        } else {
+            let previous = state
+                .previous
+                .as_deref()
+                .ok_or(LocalProductError::UpdateHold(
+                    "update hold requires a retained previous generation",
+                ))?;
+            if previous != hold.generation_id {
+                return Err(LocalProductError::UpdateHold(
+                    "update hold generation does not match current or retained previous generation",
+                ));
+            }
+            let previous_key = state.previous_key.ok_or(LocalProductError::UpdateHold(
+                "update hold requires retained previous generation authority",
+            ))?;
+            let (held_release, held) = verify_installed_local_release(
+                roots,
+                previous,
+                previous_key,
+                "held generation descriptor id does not match retained previous",
+            )?;
+            if held_release.release_sequence != hold.release_sequence {
+                return Err(LocalProductError::UpdateHold(
+                    "update hold release sequence does not match retained previous generation",
+                ));
+            }
+            if update_version_is_newer(&held.manifest.upstream_package_version, &baseline)? {
+                baseline = held.manifest.upstream_package_version;
+            }
+        }
+    }
+    Ok(baseline)
 }
 
 #[cfg(unix)]
@@ -6911,8 +7033,10 @@ fn probe_release_candidate(
 struct PreparedLocalActivation {
     before: m2_generation_state::GenerationPointerState,
     generation_id: String,
+    release_sequence: u64,
     release_key: ReleasePublicKey,
     staged_loaded: LoadedLocalGeneration,
+    validated_hold: Option<UpdateHoldRecord>,
 }
 
 #[cfg(unix)]
@@ -6927,27 +7051,33 @@ enum PreparedSignedLocalRelease {
 enum SignedUpdateOutcome {
     Activated(String),
     AlreadyCurrent(String),
+    Promoted(String),
 }
 
 #[cfg(unix)]
 impl SignedUpdateOutcome {
     fn generation_id(&self) -> &str {
         match self {
-            Self::Activated(generation_id) | Self::AlreadyCurrent(generation_id) => generation_id,
+            Self::Activated(generation_id)
+            | Self::AlreadyCurrent(generation_id)
+            | Self::Promoted(generation_id) => generation_id,
         }
     }
 
     fn into_generation_id(self) -> String {
         match self {
-            Self::Activated(generation_id) | Self::AlreadyCurrent(generation_id) => generation_id,
+            Self::Activated(generation_id)
+            | Self::AlreadyCurrent(generation_id)
+            | Self::Promoted(generation_id) => generation_id,
         }
     }
 }
 
 #[cfg(unix)]
-fn prepare_signed_local_release(
+fn prepare_signed_local_release_with_hold_policy(
     source_dir: &std::path::Path,
     roots: &LocalCoreRoots,
+    hold_policy: UpdateHoldPolicy,
 ) -> Result<PreparedSignedLocalRelease, LocalProductError> {
     let state_paths = m2_generation_state::CoreStatePaths::new(&roots.state_root)
         .map_err(LocalProductError::StateFormat)?;
@@ -6975,11 +7105,48 @@ fn prepare_signed_local_release(
     if source_release.release_sequence < current_release.release_sequence {
         return Err(LocalProductError::ReleaseSequenceRollback);
     }
+    let validated_hold = rollback_guard::effective_update_hold(roots)?;
     if source_release.release_sequence == current_release.release_sequence {
         if source_loaded.generation_id == before.current && source_release == current_release {
+            if hold_policy == UpdateHoldPolicy::ForceHeld {
+                let hold = validated_hold
+                    .as_ref()
+                    .ok_or(LocalProductError::UpdateHold(
+                        "forced update requires an active rollback hold",
+                    ))?;
+                if source_release.release_sequence != hold.release_sequence {
+                    return Err(LocalProductError::UpdateHold(
+                        "forced update candidate does not match the held release sequence",
+                    ));
+                }
+            }
             return Ok(PreparedSignedLocalRelease::AlreadyCurrent(before.current));
         }
         return Err(LocalProductError::ReleaseSequenceRollback);
+    }
+    match hold_policy {
+        UpdateHoldPolicy::Enforce => {
+            if let Some(hold) = validated_hold.as_ref() {
+                if source_release.release_sequence <= hold.release_sequence {
+                    return Err(LocalProductError::UpdateHeld {
+                        generation_id: hold.generation_id.clone().into_boxed_str(),
+                        release_sequence: hold.release_sequence,
+                    });
+                }
+            }
+        }
+        UpdateHoldPolicy::ForceHeld => {
+            let hold = validated_hold
+                .as_ref()
+                .ok_or(LocalProductError::UpdateHold(
+                    "forced update requires an active rollback hold",
+                ))?;
+            if source_release.release_sequence != hold.release_sequence {
+                return Err(LocalProductError::UpdateHold(
+                    "forced update candidate does not match the held release sequence",
+                ));
+            }
+        }
     }
 
     let destination = roots.generation_root.join(&source_loaded.generation_id);
@@ -7024,10 +7191,20 @@ fn prepare_signed_local_release(
         PreparedLocalActivation {
             before,
             generation_id,
+            release_sequence: source_release.release_sequence,
             release_key: source_release.release_public_key,
             staged_loaded,
+            validated_hold,
         },
     )))
+}
+
+#[cfg(all(unix, test))]
+fn prepare_signed_local_release(
+    source_dir: &std::path::Path,
+    roots: &LocalCoreRoots,
+) -> Result<PreparedSignedLocalRelease, LocalProductError> {
+    prepare_signed_local_release_with_hold_policy(source_dir, roots, UpdateHoldPolicy::Enforce)
 }
 
 #[cfg(unix)]
@@ -7067,19 +7244,28 @@ fn activate_prepared_local_release(
         prepared.before.current_key,
         "active generation descriptor id does not match current",
     )?;
-    verify_active_core_entrypoint_pair(roots, &active_loaded)?;
+    let active_core_binding =
+        active_core_entrypoint_binding_with_state(roots, &active_loaded, &prepared.before)?;
 
     let rollback = if let Some(core_path) = prepared.staged_loaded.core_path.as_ref() {
-        let record = snapshot_core_entrypoint_to_rollback(roots, &prepared.before.current)?;
-        if let Err(error) = install_core_entrypoint(
-            roots,
-            core_path,
-            &prepared.staged_loaded.manifest.core_artifact_digest,
-        ) {
-            let _ = install_core_entrypoint(roots, &core_rollback_path(roots), &record.digest);
-            return Err(error);
+        let candidate_digest = &prepared.staged_loaded.manifest.core_artifact_digest;
+        if active_core_binding
+            .as_ref()
+            .is_some_and(|binding| binding.digest == *candidate_digest)
+        {
+            None
+        } else {
+            let snapshot_generation = active_core_binding
+                .as_ref()
+                .map(|binding| binding.generation_id.as_str())
+                .unwrap_or(prepared.before.current.as_str());
+            let record = snapshot_core_entrypoint_to_rollback(roots, snapshot_generation)?;
+            if let Err(error) = install_core_entrypoint(roots, core_path, candidate_digest) {
+                let _ = install_core_entrypoint(roots, &core_rollback_path(roots), &record.digest);
+                return Err(error);
+            }
+            Some(record)
         }
-        Some(record)
     } else {
         None
     };
@@ -7101,16 +7287,23 @@ fn activate_prepared_local_release(
         }
         return Err(LocalProductError::State(error));
     }
+    finalize_validated_update_hold_locked(
+        roots,
+        prepared.validated_hold.as_ref(),
+        prepared.release_sequence,
+    )?;
+    drop(lock);
     Ok(prepared.generation_id)
 }
 
 #[cfg(unix)]
-fn activate_signed_local_release_outcome(
+fn activate_signed_local_release_outcome_with_hold_policy(
     source_dir: &std::path::Path,
     roots: &LocalCoreRoots,
     process_env: &TermuxProcessEnvSnapshot,
+    hold_policy: UpdateHoldPolicy,
 ) -> Result<SignedUpdateOutcome, LocalProductError> {
-    match prepare_signed_local_release(source_dir, roots)? {
+    match prepare_signed_local_release_with_hold_policy(source_dir, roots, hold_policy)? {
         PreparedSignedLocalRelease::AlreadyCurrent(generation_id) => {
             Ok(SignedUpdateOutcome::AlreadyCurrent(generation_id))
         }
@@ -7119,6 +7312,20 @@ fn activate_signed_local_release_outcome(
                 .map(SignedUpdateOutcome::Activated)
         }
     }
+}
+
+#[cfg(unix)]
+fn activate_signed_local_release_outcome(
+    source_dir: &std::path::Path,
+    roots: &LocalCoreRoots,
+    process_env: &TermuxProcessEnvSnapshot,
+) -> Result<SignedUpdateOutcome, LocalProductError> {
+    activate_signed_local_release_outcome_with_hold_policy(
+        source_dir,
+        roots,
+        process_env,
+        UpdateHoldPolicy::Enforce,
+    )
 }
 
 #[cfg(unix)]
@@ -7219,9 +7426,17 @@ fn local_update_generation_id() -> String {
 }
 
 #[cfg(unix)]
-fn activate_local_built_update(
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LocalBuildLayout {
+    Canonical,
+    R10PublicBridge,
+}
+
+#[cfg(unix)]
+fn build_local_update_publication(
     roots: &LocalCoreRoots,
-    process_env: &TermuxProcessEnvSnapshot,
+    metadata: &OfficialReleaseMetadata,
+    layout: LocalBuildLayout,
 ) -> Result<(String, std::path::PathBuf), LocalProductError> {
     let state_paths = m2_generation_state::CoreStatePaths::new(&roots.state_root)
         .map_err(LocalProductError::StateFormat)?;
@@ -7234,13 +7449,10 @@ fn activate_local_built_update(
         before.current_key,
         "active generation descriptor id does not match current",
     )?;
+    let held_sequence =
+        rollback_guard::effective_update_hold(roots)?.map(|hold| hold.release_sequence);
     let release_sequence =
-        current_release
-            .release_sequence
-            .checked_add(1)
-            .ok_or(LocalProductError::LocalUpdate(
-                "local update release sequence is exhausted",
-            ))?;
+        next_local_release_sequence(current_release.release_sequence, held_sequence)?;
     let home = required_absolute_env_path("HOME")?;
     let private_key = configured_update_private_key(&home)?;
     let signing_key = release_public_key_from_private_pem(&roots.openssl, &private_key)?;
@@ -7252,7 +7464,6 @@ fn activate_local_built_update(
     let staging_root = create_local_update_staging_root(&roots.state_root)?;
     let result = (|| {
         let publication_root = ensure_local_publication_root(&home)?;
-        let metadata = resolve_official_release_metadata(roots, &staging_root)?;
         let generation_id = local_update_generation_id();
         let archive = staging_root.join(UPSTREAM_PACKAGE_ASSET);
         let archive_digest = codex_release_builder::fetch_archive(
@@ -7287,7 +7498,12 @@ fn activate_local_built_update(
             ))?
             .join("gzip");
         let unsigned_generation = staging_root.join("unsigned-generation");
-        let creation_metadata = format!("{LOCAL_UPDATE_METADATA};version={}", metadata.version);
+        let creation_metadata = match layout {
+            LocalBuildLayout::Canonical => {
+                format!("{LOCAL_UPDATE_METADATA};version={}", metadata.version)
+            }
+            LocalBuildLayout::R10PublicBridge => R10_BROWSER_HELPER_BRIDGE_METADATA.to_owned(),
+        };
         codex_release_builder::build_generation_with_manager(
             &metadata.version,
             &archive,
@@ -7301,8 +7517,14 @@ fn activate_local_built_update(
             &unsigned_generation,
         )
         .map_err(|_| LocalProductError::LocalUpdate("local upstream adaptation failed"))?;
-        let release_base =
-            format!("https://github.com/{GITHUB_REPOSITORY}/releases/download/{generation_id}/");
+        let release_base = match layout {
+            LocalBuildLayout::Canonical => {
+                format!("https://github.com/{GITHUB_REPOSITORY}/releases/download/{generation_id}/")
+            }
+            LocalBuildLayout::R10PublicBridge => {
+                format!("https://humtr.github.io/codex/{generation_id}/")
+            }
+        };
         let publication = publication_root.join(&generation_id);
         codex_release_builder::publish_generation(
             &unsigned_generation,
@@ -7313,20 +7535,61 @@ fn activate_local_built_update(
             &publication,
         )
         .map_err(|_| LocalProductError::LocalUpdate("local signed publication failed"))?;
-        let published_generation = publication.join("releases").join(&generation_id);
-        let cleanup =
-            std::fs::remove_dir_all(&staging_root).map_err(|source| LocalProductError::Io {
-                operation: "remove private local update staging",
-                source,
-            });
-        cleanup?;
-        let activated = activate_signed_local_release(&published_generation, roots, process_env)?;
-        Ok((activated, publication))
+        std::fs::remove_dir_all(&staging_root).map_err(|source| LocalProductError::Io {
+            operation: "remove private local update staging",
+            source,
+        })?;
+        Ok((generation_id, publication))
     })();
     if result.is_err() {
         let _ = std::fs::remove_dir_all(&staging_root);
     }
     result
+}
+
+#[cfg(unix)]
+fn activate_local_built_update(
+    roots: &LocalCoreRoots,
+    process_env: &TermuxProcessEnvSnapshot,
+) -> Result<(String, std::path::PathBuf), LocalProductError> {
+    let staging_root = create_local_update_staging_root(&roots.state_root)?;
+    let metadata = resolve_official_release_metadata(roots, &staging_root);
+    let cleanup = std::fs::remove_dir_all(&staging_root).map_err(|source| LocalProductError::Io {
+        operation: "remove upstream metadata staging",
+        source,
+    });
+    let metadata = match (metadata, cleanup) {
+        (_, Err(error)) => return Err(error),
+        (Err(error), Ok(())) => return Err(error),
+        (Ok(metadata), Ok(())) => metadata,
+    };
+    let (generation_id, publication) =
+        build_local_update_publication(roots, &metadata, LocalBuildLayout::Canonical)?;
+    let published_generation = publication.join("releases").join(&generation_id);
+    let activated = activate_signed_local_release(&published_generation, roots, process_env)?;
+    Ok((activated, publication))
+}
+
+#[cfg(unix)]
+fn build_newer_official_publication(
+    roots: &LocalCoreRoots,
+) -> Result<Option<(String, std::path::PathBuf)>, LocalProductError> {
+    let staging_root = create_local_update_staging_root(&roots.state_root)?;
+    let metadata = resolve_official_release_metadata(roots, &staging_root);
+    let cleanup = std::fs::remove_dir_all(&staging_root).map_err(|source| LocalProductError::Io {
+        operation: "remove upstream metadata staging",
+        source,
+    });
+    let metadata = match (metadata, cleanup) {
+        (_, Err(error)) => return Err(error),
+        (Err(error), Ok(())) => return Err(error),
+        (Ok(metadata), Ok(())) => metadata,
+    };
+    let baseline = installed_update_baseline_version(roots)?;
+    if !update_version_is_newer(&metadata.version, &baseline)? {
+        return Ok(None);
+    }
+    build_local_update_publication(roots, &metadata, LocalBuildLayout::R10PublicBridge).map(Some)
 }
 
 #[cfg(unix)]
@@ -7694,6 +7957,11 @@ fn publish_local_update_to_github(
     publication: &std::path::Path,
     generation_id: &str,
 ) -> GithubPublicationOutcome {
+    match automatic_update::maintainer_publication_enabled(roots) {
+        Ok(true) => {}
+        Ok(false) => return GithubPublicationOutcome::Skipped,
+        Err(_) => return GithubPublicationOutcome::Failed,
+    }
     let Some(gh) = github_cli_path(roots) else {
         return GithubPublicationOutcome::Skipped;
     };
@@ -7963,9 +8231,10 @@ fn acquire_remote_release_source(
 }
 
 #[cfg(unix)]
-fn activate_signed_update_channel(
+fn activate_signed_update_channel_with_hold_policy(
     roots: &LocalCoreRoots,
     process_env: &TermuxProcessEnvSnapshot,
+    hold_policy: UpdateHoldPolicy,
 ) -> Result<SignedUpdateOutcome, LocalProductError> {
     let state_paths = m2_generation_state::CoreStatePaths::new(&roots.state_root)
         .map_err(LocalProductError::StateFormat)?;
@@ -8037,10 +8306,11 @@ fn activate_signed_update_channel(
         (Ok(index), Ok(())) => index,
     };
 
-    let outcome = activate_signed_remote_release_outcome(
+    let outcome = activate_signed_remote_release_outcome_with_hold_policy(
         OsStr::new(&index.release_base.value),
         roots,
         process_env,
+        hold_policy,
     )?;
     if outcome.generation_id() != index.generation_id {
         return Err(LocalProductError::UpdateIndex(
@@ -8051,13 +8321,59 @@ fn activate_signed_update_channel(
 }
 
 #[cfg(unix)]
-fn activate_unified_update(
+fn activate_unified_update_with_hold_policy(
     roots: &LocalCoreRoots,
     process_env: &TermuxProcessEnvSnapshot,
+    hold_policy: UpdateHoldPolicy,
 ) -> Result<(SignedUpdateOutcome, bool, GithubPublicationOutcome), LocalProductError> {
-    match activate_signed_update_channel(roots, process_env) {
-        Ok(outcome) => Ok((outcome, false, GithubPublicationOutcome::Skipped)),
-        Err(LocalProductError::RemoteTransportFailed) => {
+    match activate_signed_update_channel_with_hold_policy(roots, process_env, hold_policy) {
+        Ok(channel_outcome) => {
+            if hold_policy == UpdateHoldPolicy::Enforce {
+                let expected_stable = channel_outcome.generation_id().to_owned();
+                match automatic_update::maybe_publish_newer_official_generation(
+                    roots,
+                    process_env,
+                    &expected_stable,
+                ) {
+                    Ok(Some((outcome, publication))) => {
+                        return Ok((outcome, true, publication));
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        eprintln!(
+                            "codex update: automatic upstream publication did not complete; this process keeps using the authenticated signed-channel result and will re-resolve public stable on the next update: {error}"
+                        );
+                        return Ok((channel_outcome, false, GithubPublicationOutcome::Failed));
+                    }
+                }
+            }
+            Ok((channel_outcome, false, GithubPublicationOutcome::Skipped))
+        }
+        Err(held @ LocalProductError::UpdateHeld { .. })
+            if hold_policy == UpdateHoldPolicy::Enforce =>
+        {
+            let expected_stable = match &held {
+                LocalProductError::UpdateHeld { generation_id, .. } => generation_id.to_string(),
+                _ => unreachable!("matched UpdateHeld above"),
+            };
+            match automatic_update::maybe_publish_newer_official_generation(
+                roots,
+                process_env,
+                &expected_stable,
+            ) {
+                Ok(Some((outcome, publication))) => Ok((outcome, true, publication)),
+                Ok(None) => Err(held),
+                Err(error) => {
+                    eprintln!(
+                        "codex update: automatic upstream publication did not complete while the held signed-channel result remains suppressed; rerun update to re-resolve public stable: {error}"
+                    );
+                    Err(held)
+                }
+            }
+        }
+        Err(LocalProductError::RemoteTransportFailed)
+            if hold_policy == UpdateHoldPolicy::Enforce =>
+        {
             let (generation_id, publication) = activate_local_built_update(roots, process_env)?;
             let upload = publish_local_update_to_github(roots, &publication, &generation_id);
             Ok((SignedUpdateOutcome::Activated(generation_id), true, upload))
@@ -8067,10 +8383,11 @@ fn activate_unified_update(
 }
 
 #[cfg(unix)]
-fn activate_signed_remote_release_outcome(
+fn activate_signed_remote_release_outcome_with_hold_policy(
     base: &OsStr,
     roots: &LocalCoreRoots,
     process_env: &TermuxProcessEnvSnapshot,
+    hold_policy: UpdateHoldPolicy,
 ) -> Result<SignedUpdateOutcome, LocalProductError> {
     let base = RemoteReleaseBase::parse(base)?;
     let state_paths = m2_generation_state::CoreStatePaths::new(&roots.state_root)
@@ -8093,7 +8410,7 @@ fn activate_signed_remote_release_outcome(
 
     let prepared = (|| {
         acquire_remote_release_source(roots, &base, &acquisition_root, before.update_key)?;
-        prepare_signed_local_release(&acquisition_root, roots)
+        prepare_signed_local_release_with_hold_policy(&acquisition_root, roots, hold_policy)
     })();
     let cleanup =
         std::fs::remove_dir_all(&acquisition_root).map_err(|source| LocalProductError::Io {
@@ -8114,6 +8431,20 @@ fn activate_signed_remote_release_outcome(
                 .map(SignedUpdateOutcome::Activated)
         }
     }
+}
+
+#[cfg(unix)]
+fn activate_signed_remote_release_outcome(
+    base: &OsStr,
+    roots: &LocalCoreRoots,
+    process_env: &TermuxProcessEnvSnapshot,
+) -> Result<SignedUpdateOutcome, LocalProductError> {
+    activate_signed_remote_release_outcome_with_hold_policy(
+        base,
+        roots,
+        process_env,
+        UpdateHoldPolicy::Enforce,
+    )
 }
 
 #[cfg(unix)]
@@ -8772,6 +9103,264 @@ fn sync_directory(parent: &std::path::Path) -> Result<(), LocalProductError> {
 }
 
 #[cfg(unix)]
+const UPDATE_HOLD_FORMAT: &str = "codex-update-hold-v1";
+#[cfg(unix)]
+const UPDATE_HOLD_FILE: &str = "update-hold";
+#[cfg(unix)]
+const UPDATE_HOLD_MAX_BYTES: usize = 4096;
+#[cfg(unix)]
+static UPDATE_HOLD_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+#[cfg(unix)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct UpdateHoldRecord {
+    generation_id: String,
+    release_sequence: u64,
+}
+
+#[cfg(unix)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UpdateHoldPolicy {
+    Enforce,
+    ForceHeld,
+}
+
+#[cfg(unix)]
+fn update_hold_path(roots: &LocalCoreRoots) -> std::path::PathBuf {
+    roots.state_root.join(UPDATE_HOLD_FILE)
+}
+
+#[cfg(unix)]
+fn render_update_hold(record: &UpdateHoldRecord) -> String {
+    format!(
+        "{UPDATE_HOLD_FORMAT}\ngeneration_id\t{}\nrelease_sequence\t{}\n",
+        record.generation_id, record.release_sequence
+    )
+}
+
+#[cfg(unix)]
+fn parse_update_hold(bytes: &[u8]) -> Result<UpdateHoldRecord, LocalProductError> {
+    if bytes.len() > UPDATE_HOLD_MAX_BYTES {
+        return Err(LocalProductError::UpdateHold(
+            "update hold exceeds its byte bound",
+        ));
+    }
+    let text = std::str::from_utf8(bytes)
+        .map_err(|_| LocalProductError::UpdateHold("update hold is not UTF-8"))?;
+    if text.contains('\r') || !text.ends_with('\n') {
+        return Err(LocalProductError::UpdateHold(
+            "update hold format is invalid",
+        ));
+    }
+    let lines: Vec<&str> = text
+        .strip_suffix('\n')
+        .unwrap_or(text)
+        .split('\n')
+        .collect();
+    if lines.len() != 3 || lines[0] != UPDATE_HOLD_FORMAT {
+        return Err(LocalProductError::UpdateHold(
+            "update hold format is invalid",
+        ));
+    }
+    let generation_id =
+        lines[1]
+            .strip_prefix("generation_id\t")
+            .ok_or(LocalProductError::UpdateHold(
+                "update hold generation record is invalid",
+            ))?;
+    m2_generation_state::validate_generation_identity(generation_id, "update hold generation_id")
+        .map_err(LocalProductError::StateFormat)?;
+    let sequence_text =
+        lines[2]
+            .strip_prefix("release_sequence\t")
+            .ok_or(LocalProductError::UpdateHold(
+                "update hold sequence record is invalid",
+            ))?;
+    let release_sequence = sequence_text
+        .parse::<u64>()
+        .map_err(|_| LocalProductError::UpdateHold("update hold release sequence is invalid"))?;
+    if release_sequence == 0 || release_sequence.to_string() != sequence_text {
+        return Err(LocalProductError::UpdateHold(
+            "update hold release sequence is invalid",
+        ));
+    }
+    Ok(UpdateHoldRecord {
+        generation_id: generation_id.to_owned(),
+        release_sequence,
+    })
+}
+
+#[cfg(unix)]
+fn read_update_hold(roots: &LocalCoreRoots) -> Result<Option<UpdateHoldRecord>, LocalProductError> {
+    let path = update_hold_path(roots);
+    match std::fs::symlink_metadata(&path) {
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(source) => {
+            return Err(LocalProductError::Io {
+                operation: "inspect update hold",
+                source,
+            })
+        }
+        Ok(metadata) if !metadata.file_type().is_file() => {
+            return Err(LocalProductError::UpdateHold(
+                "update hold must be a regular file",
+            ))
+        }
+        Ok(_) => {}
+    }
+    let bytes = read_bounded_regular_file(
+        &path,
+        UPDATE_HOLD_MAX_BYTES,
+        "read update hold",
+        LocalProductError::UpdateHold("update hold exceeds its byte bound"),
+        LocalProductError::UpdateHold("update hold must be a regular file"),
+    )?;
+    parse_update_hold(&bytes).map(Some)
+}
+
+#[cfg(unix)]
+fn write_update_hold_locked(
+    roots: &LocalCoreRoots,
+    record: &UpdateHoldRecord,
+) -> Result<(), LocalProductError> {
+    use std::io::Write as _;
+    use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
+
+    ensure_real_directory(
+        &roots.state_root,
+        "inspect Core state root for update hold",
+        "Core state root for update hold is not a real directory",
+    )?;
+    let destination = update_hold_path(roots);
+    match std::fs::symlink_metadata(&destination) {
+        Ok(metadata) if metadata.file_type().is_file() => {}
+        Ok(_) => {
+            return Err(LocalProductError::UpdateHold(
+                "update hold destination has an unsafe file type",
+            ))
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(source) => {
+            return Err(LocalProductError::Io {
+                operation: "inspect update hold destination",
+                source,
+            })
+        }
+    }
+    let sequence = UPDATE_HOLD_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let temporary = roots.state_root.join(format!(
+        ".update-hold.{}.{}.tmp",
+        std::process::id(),
+        sequence
+    ));
+    let result = (|| {
+        let mut output = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&temporary)
+            .map_err(|source| LocalProductError::Io {
+                operation: "create update hold temporary",
+                source,
+            })?;
+        output
+            .write_all(render_update_hold(record).as_bytes())
+            .map_err(|source| LocalProductError::Io {
+                operation: "write update hold temporary",
+                source,
+            })?;
+        output.sync_all().map_err(|source| LocalProductError::Io {
+            operation: "sync update hold temporary",
+            source,
+        })?;
+        let metadata =
+            std::fs::symlink_metadata(&temporary).map_err(|source| LocalProductError::Io {
+                operation: "inspect update hold temporary",
+                source,
+            })?;
+        if !metadata.file_type().is_file() {
+            return Err(LocalProductError::UpdateHold(
+                "update hold temporary is not a regular file",
+            ));
+        }
+        if metadata.permissions().mode() & 0o7777 != 0o600 {
+            let mut permissions = metadata.permissions();
+            permissions.set_mode(0o600);
+            std::fs::set_permissions(&temporary, permissions).map_err(|source| {
+                LocalProductError::Io {
+                    operation: "set update hold temporary mode",
+                    source,
+                }
+            })?;
+        }
+        drop(output);
+        match std::fs::symlink_metadata(&destination) {
+            Ok(metadata) if metadata.file_type().is_file() => {}
+            Ok(_) => {
+                return Err(LocalProductError::UpdateHold(
+                    "update hold destination has an unsafe file type",
+                ))
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(source) => {
+                return Err(LocalProductError::Io {
+                    operation: "reinspect update hold destination",
+                    source,
+                })
+            }
+        }
+        std::fs::rename(&temporary, &destination).map_err(|source| LocalProductError::Io {
+            operation: "replace update hold",
+            source,
+        })?;
+        sync_directory(&roots.state_root)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result
+}
+
+#[cfg(unix)]
+fn finalize_validated_update_hold_locked(
+    roots: &LocalCoreRoots,
+    validated_hold: Option<&UpdateHoldRecord>,
+    activated_sequence: u64,
+) -> Result<(), LocalProductError> {
+    let Some(hold) = validated_hold else {
+        return Ok(());
+    };
+    let observed = read_update_hold(roots)?;
+    if observed.as_ref().is_some_and(|observed| observed != hold) {
+        return Err(LocalProductError::UpdateHold(
+            "update hold changed during activation",
+        ));
+    }
+    if activated_sequence > hold.release_sequence {
+        if observed.is_some() {
+            std::fs::remove_file(update_hold_path(roots)).map_err(|source| {
+                LocalProductError::Io {
+                    operation: "remove superseded update hold",
+                    source,
+                }
+            })?;
+        }
+        rollback_guard::remove_guard_if_present(roots)?;
+        return sync_directory(&roots.state_root);
+    }
+    if activated_sequence == hold.release_sequence {
+        if observed.is_none() {
+            write_update_hold_locked(roots, hold)?;
+        }
+        rollback_guard::remove_guard_if_present(roots)?;
+        return sync_directory(&roots.state_root);
+    }
+    Err(LocalProductError::UpdateHold(
+        "activation did not supersede the validated rollback hold",
+    ))
+}
+
+#[cfg(unix)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct CoreRollbackRecord {
     generation_id: String,
@@ -9102,25 +9691,58 @@ fn install_core_entrypoint(
 }
 
 #[cfg(unix)]
-fn verify_active_core_entrypoint_pair(
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ActiveCoreEntrypointBinding {
+    generation_id: String,
+    digest: String,
+}
+
+fn active_core_entrypoint_binding_with_state(
     roots: &LocalCoreRoots,
     loaded: &LoadedLocalGeneration,
-) -> Result<(), LocalProductError> {
+    authoritative_state: &m2_generation_state::GenerationPointerState,
+) -> Result<Option<ActiveCoreEntrypointBinding>, LocalProductError> {
     use std::os::unix::fs::PermissionsExt as _;
 
     if loaded.core_path.is_none() {
-        return Ok(());
+        return Ok(None);
     }
     let destination = stable_core_entrypoint_path(roots)?;
     let metadata = inspect_core_entrypoint_source(&destination, "inspect active Core entrypoint")?;
-    if metadata.permissions().mode() & 0o7777 != 0o755
-        || openssl_sha256(&roots.openssl, &destination)? != loaded.manifest.core_artifact_digest
-    {
+    if metadata.permissions().mode() & 0o7777 != 0o755 {
         return Err(LocalProductError::CoreEntrypoint(
-            "active generation Core does not match the stable Core entrypoint",
+            "active Core entrypoint mode is invalid",
         ));
     }
-    Ok(())
+    let observed_digest = openssl_sha256(&roots.openssl, &destination)?;
+    if observed_digest == loaded.manifest.core_artifact_digest {
+        return Ok(Some(ActiveCoreEntrypointBinding {
+            generation_id: loaded.generation_id.clone(),
+            digest: observed_digest,
+        }));
+    }
+    if let Some((generation_id, digest)) = rollback_guard::guarded_core_binding_with_state(
+        roots,
+        authoritative_state,
+        loaded,
+        &observed_digest,
+    )? {
+        return Ok(Some(ActiveCoreEntrypointBinding {
+            generation_id,
+            digest,
+        }));
+    }
+    Err(LocalProductError::CoreEntrypoint(
+        "active generation Core does not match the stable Core entrypoint",
+    ))
+}
+
+fn verify_active_core_entrypoint_pair_with_state(
+    roots: &LocalCoreRoots,
+    loaded: &LoadedLocalGeneration,
+    state: &m2_generation_state::GenerationPointerState,
+) -> Result<(), LocalProductError> {
+    active_core_entrypoint_binding_with_state(roots, loaded, state).map(|_| ())
 }
 
 #[cfg(unix)]
@@ -9443,13 +10065,13 @@ fn rollback_signed_local_release(roots: &LocalCoreRoots) -> Result<String, Local
         .ok_or(LocalProductError::NoCurrentGeneration)?;
     let after = m2_generation_state::plan_rollback_pointer_state(&before)
         .map_err(LocalProductError::StateFormat)?;
-    let (_, current_loaded) = verify_installed_local_release(
+    let (current_release, current_loaded) = verify_installed_local_release(
         roots,
         &before.current,
         before.current_key,
         "rollback current generation descriptor id does not match current",
     )?;
-    let (_, target_loaded) = verify_installed_local_release(
+    let (target_release, target_loaded) = verify_installed_local_release(
         roots,
         &after.current,
         after.current_key,
@@ -9464,14 +10086,42 @@ fn rollback_signed_local_release(roots: &LocalCoreRoots) -> Result<String, Local
             m2_generation_state::ActivationTransactionError::StaleAuthoritativeState,
         ));
     }
-    verify_active_core_entrypoint_pair(roots, &current_loaded)?;
+    verify_active_core_entrypoint_pair_with_state(roots, &current_loaded, &before)?;
 
+    let hold = UpdateHoldRecord {
+        generation_id: before.current.clone(),
+        release_sequence: current_release.release_sequence,
+    };
+    let guard = if current_loaded.core_path.is_some() {
+        Some(rollback_guard::guard_record_for_rollback(
+            &before,
+            &after,
+            &current_release,
+            &current_loaded,
+            &target_release,
+            &target_loaded,
+        )?)
+    } else {
+        None
+    };
+    let target_hold_aware = if guard.is_some() {
+        rollback_guard::target_core_supports_hold(target_loaded.core_path.as_deref())?
+    } else {
+        false
+    };
+    if let Some(guard) = guard.as_ref() {
+        rollback_guard::write_guard_locked(roots, guard)?;
+    }
     let mut rollback_source = None;
-    let core_transition = match (
-        current_loaded.core_path.as_ref(),
-        target_loaded.core_path.as_ref(),
-    ) {
-        (_, Some(target_core)) => {
+    let core_transition = if guard.is_some() {
+        if target_hold_aware {
+            let target_core =
+                target_loaded
+                    .core_path
+                    .as_ref()
+                    .ok_or(LocalProductError::CoreEntrypoint(
+                        "hold-aware rollback target has no Core artifact",
+                    ))?;
             let record = snapshot_core_entrypoint_to_rollback(roots, &before.current)?;
             if let Err(error) = install_core_entrypoint(
                 roots,
@@ -9479,32 +10129,55 @@ fn rollback_signed_local_release(roots: &LocalCoreRoots) -> Result<String, Local
                 &target_loaded.manifest.core_artifact_digest,
             ) {
                 let _ = install_core_entrypoint(roots, &core_rollback_path(roots), &record.digest);
+                let _ = rollback_guard::remove_guard_if_present(roots);
                 return Err(error);
             }
             Some(record)
+        } else {
+            None
         }
-        (Some(_), None) => {
-            let retained = read_core_entrypoint_rollback(roots)?;
-            if retained.generation_id != after.current {
-                return Err(LocalProductError::CoreEntrypoint(
-                    "retained Core rollback entrypoint is not bound to the target generation",
-                ));
+    } else {
+        match (
+            current_loaded.core_path.as_ref(),
+            target_loaded.core_path.as_ref(),
+        ) {
+            (_, Some(target_core)) => {
+                let record = snapshot_core_entrypoint_to_rollback(roots, &before.current)?;
+                if let Err(error) = install_core_entrypoint(
+                    roots,
+                    target_core,
+                    &target_loaded.manifest.core_artifact_digest,
+                ) {
+                    let _ =
+                        install_core_entrypoint(roots, &core_rollback_path(roots), &record.digest);
+                    return Err(error);
+                }
+                Some(record)
             }
-            let source = copy_core_entrypoint_to_state_temp(
-                roots,
-                &core_rollback_path(roots),
-                "core-rollback-source",
-            )?;
-            let record = snapshot_core_entrypoint_to_rollback(roots, &before.current)?;
-            if let Err(error) = install_core_entrypoint(roots, &source, &retained.digest) {
-                let _ = install_core_entrypoint(roots, &core_rollback_path(roots), &record.digest);
-                let _ = std::fs::remove_file(&source);
-                return Err(error);
+            (Some(_), None) => {
+                let retained = read_core_entrypoint_rollback(roots)?;
+                if retained.generation_id != after.current {
+                    return Err(LocalProductError::CoreEntrypoint(
+                        "retained Core rollback entrypoint is not bound to the target generation",
+                    ));
+                }
+                let source = copy_core_entrypoint_to_state_temp(
+                    roots,
+                    &core_rollback_path(roots),
+                    "core-rollback-source",
+                )?;
+                let record = snapshot_core_entrypoint_to_rollback(roots, &before.current)?;
+                if let Err(error) = install_core_entrypoint(roots, &source, &retained.digest) {
+                    let _ =
+                        install_core_entrypoint(roots, &core_rollback_path(roots), &record.digest);
+                    let _ = std::fs::remove_file(&source);
+                    return Err(error);
+                }
+                rollback_source = Some(source);
+                Some(record)
             }
-            rollback_source = Some(source);
-            Some(record)
+            (None, None) => None,
         }
-        (None, None) => None,
     };
 
     let mut io = m2_generation_state::FsActivationIo;
@@ -9525,27 +10198,37 @@ fn rollback_signed_local_release(roots: &LocalCoreRoots) -> Result<String, Local
             if let Some(record) = core_transition.as_ref() {
                 install_core_entrypoint(roots, &core_rollback_path(roots), &record.digest)?;
             }
+            if guard.is_some() {
+                let _ = rollback_guard::remove_guard_if_present(roots);
+            }
         }
         return Err(LocalProductError::State(error));
+    }
+    if let Err(error) = write_update_hold_locked(roots, &hold) {
+        return Err(LocalProductError::RollbackHoldAfterCommit(Box::new(error)));
+    }
+    if guard.is_some() && target_hold_aware {
+        rollback_guard::remove_guard_if_present(roots)?;
     }
     Ok(after.current)
 }
 
 #[cfg(unix)]
 const UPDATE_USAGE: &str =
-    "usage: codex update [--help] | --local <DIRECTORY> | --remote <HTTPS_BASE_URL> | --rollback";
-
+    "usage: codex update [--help] | --force | --local <DIRECTORY> | --remote <HTTPS_BASE_URL> | --rollback";
 #[cfg(unix)]
 fn print_update_usage() {
     println!("{UPDATE_USAGE}");
     println!(
         "automatic update retrieves a signed, Termux-patched release from the wrapper channel"
     );
+    println!("{}", rollback_guard::UPDATE_HOLD_CAPABILITY_LINE);
 }
 
 #[cfg(unix)]
 fn run_core_update(args: Vec<OsString>) -> i32 {
-    if args.is_empty() {
+    let force = args.len() == 1 && args[0] == OsStr::new("--force");
+    if args.is_empty() || force {
         let roots = match LocalCoreRoots::from_environment() {
             Ok(roots) => roots,
             Err(err) => {
@@ -9554,21 +10237,36 @@ fn run_core_update(args: Vec<OsString>) -> i32 {
             }
         };
         let process_env = capture_termux_process_env();
-        return match activate_unified_update(&roots, &process_env) {
+        let hold_policy = if force {
+            UpdateHoldPolicy::ForceHeld
+        } else {
+            UpdateHoldPolicy::Enforce
+        };
+        return match activate_unified_update_with_hold_policy(&roots, &process_env, hold_policy) {
             Ok((outcome, locally_built, upload)) => {
                 let generation_id = outcome.generation_id();
                 if locally_built {
-                    println!("activated local-built generation {generation_id}");
-                    match upload {
-                        GithubPublicationOutcome::Published => {
-                            println!("published local generation {generation_id}");
-                        }
-                        GithubPublicationOutcome::Failed => {
-                            eprintln!(
-                                "codex update: local generation activated; GitHub publication failed"
+                    match &outcome {
+                        SignedUpdateOutcome::Promoted(_) => {
+                            println!(
+                                "promoted stable generation {generation_id}; local activation deferred; rerun 'codex update'"
                             );
                         }
-                        GithubPublicationOutcome::Skipped => {}
+                        SignedUpdateOutcome::Activated(_)
+                        | SignedUpdateOutcome::AlreadyCurrent(_) => {
+                            println!("activated local-built generation {generation_id}");
+                            match upload {
+                                GithubPublicationOutcome::Published => {
+                                    println!("published local generation {generation_id}");
+                                }
+                                GithubPublicationOutcome::Failed => {
+                                    eprintln!(
+                                        "codex update: local generation activated; GitHub publication failed"
+                                    );
+                                }
+                                GithubPublicationOutcome::Skipped => {}
+                            }
+                        }
                     }
                 } else {
                     match &outcome {
@@ -9578,6 +10276,16 @@ fn run_core_update(args: Vec<OsString>) -> i32 {
                         SignedUpdateOutcome::AlreadyCurrent(_) => {
                             println!("codex is already up to date (generation {generation_id})");
                         }
+                        SignedUpdateOutcome::Promoted(_) => {
+                            println!(
+                                "promoted stable generation {generation_id}; local activation deferred; rerun 'codex update'"
+                            );
+                        }
+                    }
+                    if upload == GithubPublicationOutcome::Failed {
+                        eprintln!(
+                            "codex update: the authenticated signed-channel result remains in use for this process; automatic upstream publication did not complete"
+                        );
                     }
                 }
                 0
@@ -9607,16 +10315,7 @@ fn run_core_update(args: Vec<OsString>) -> i32 {
         }
     };
     if rollback {
-        return match rollback_signed_local_release(&roots) {
-            Ok(generation_id) => {
-                println!("rolled back to local generation {generation_id}");
-                0
-            }
-            Err(err) => {
-                eprintln!("codex update: {err}");
-                1
-            }
-        };
+        return run_core_rollback();
     }
     let process_env = capture_termux_process_env();
     let result = if local {
@@ -9638,8 +10337,35 @@ fn run_core_update(args: Vec<OsString>) -> i32 {
             println!("codex is already up to date (generation {generation_id})");
             0
         }
+        Ok(SignedUpdateOutcome::Promoted(generation_id)) => {
+            eprintln!(
+                "codex update: internal error: explicit local/remote update cannot return promoted-only generation {generation_id}"
+            );
+            1
+        }
         Err(err) => {
             eprintln!("codex update: {err}");
+            1
+        }
+    }
+}
+
+#[cfg(unix)]
+fn run_core_rollback() -> i32 {
+    let roots = match LocalCoreRoots::from_environment() {
+        Ok(roots) => roots,
+        Err(err) => {
+            eprintln!("codex update --rollback: {err}");
+            return 1;
+        }
+    };
+    match rollback_signed_local_release(&roots) {
+        Ok(generation_id) => {
+            println!("rolled back to local generation {generation_id}");
+            0
+        }
+        Err(err) => {
+            eprintln!("codex update --rollback: {err}");
             1
         }
     }
@@ -9754,9 +10480,10 @@ where
             return 2;
         }
     }
-    if let PublicDispatchRoute::Update(args) = route {
-        return run_core_update(args);
-    }
+    let route = match route {
+        PublicDispatchRoute::Update(args) => return run_core_update(args),
+        route => route,
+    };
     let roots = match LocalCoreRoots::from_environment() {
         Ok(roots) => roots,
         Err(err) => {
@@ -9947,6 +10674,8 @@ mod tests {
             vec![OsString::from("--"), OsString::from("doctor")],
             vec![OsString::from("Doctor")],
             vec![OsString::from("doctorx")],
+            vec![OsString::from("rollback")],
+            vec![OsString::from("rollback"), OsString::from("extra")],
             vec![OsString::from("exec"), OsString::from("termux")],
         ] {
             match plan_public_dispatch(original.clone()).unwrap() {
@@ -12923,6 +13652,21 @@ exit 73
         remove_temp_root(root);
     }
 
+    #[test]
+    fn test_arh1_top_level_rollback_is_not_core_owned() {
+        for original in [
+            vec![OsString::from("rollback")],
+            vec![OsString::from("rollback"), OsString::from("extra")],
+        ] {
+            match plan_public_dispatch(original.clone()).unwrap() {
+                PublicDispatchRoute::Upstream(planned) => {
+                    assert_eq!(&planned[2..], original.as_slice());
+                }
+                other => panic!("unexpected route: {other:?}"),
+            }
+        }
+    }
+
     #[cfg(unix)]
     const UPDATE_PROBE_ROLE: &str = "CODEX_R2_UPDATE_PROBE";
     #[cfg(unix)]
@@ -12931,6 +13675,8 @@ exit 73
     const UPDATE_PROBE_REMOTE: &str = "CODEX_R2_UPDATE_REMOTE";
     #[cfg(unix)]
     const UPDATE_PROBE_CHANNEL: &str = "CODEX_R4_UPDATE_CHANNEL";
+    #[cfg(unix)]
+    const UPDATE_PROBE_FORCE: &str = "CODEX_ARH1_UPDATE_FORCE";
     #[cfg(unix)]
     const GITHUB_UPLOAD_PROBE_ROLE: &str = "CODEX_R9_GITHUB_UPLOAD_PROBE";
     #[cfg(unix)]
@@ -15276,9 +16022,10 @@ esac
             &archive_url,
             &archive,
         );
+        let gh_log = root.join("r7-gh-log");
         b7_write_fake_github_cli(
             &prefix.join("bin/gh"),
-            &root.join("r7-gh-log"),
+            &gh_log,
             &root.join("r7-gh-body"),
             77,
         );
@@ -15294,8 +16041,11 @@ esac
         );
         let stdout = String::from_utf8(output.stdout).unwrap();
         assert!(stdout.contains("activated local-built generation local-"));
-        assert!(String::from_utf8_lossy(&output.stderr)
-            .contains("local generation activated; GitHub publication failed"));
+        assert!(output.stderr.is_empty(), "stderr={:?}", output.stderr);
+        assert!(
+            !gh_log.exists(),
+            "custom-channel fallback must not enter publisher"
+        );
         let calls = std::fs::read_to_string(&curl_log).unwrap();
         assert!(calls.contains(index_url));
         assert!(calls.contains(&metadata_url));
@@ -15365,8 +16115,24 @@ esac
     #[test]
     fn test_r9_authenticated_github_release_publication_is_ordered_and_activation_independent() {
         let root = temp_root("r7-github-publication");
-        let home = root.join("home");
-        let prefix = root.join("prefix");
+        let live_openssl = b4_termux_openssl();
+        let (home, prefix, tmp) = b4_prepare_public_environment(&root, &live_openssl, true);
+        let private_key = root.join("keys/private.pem");
+        let public_key = root.join("keys/public.pem");
+        b4_generate_release_keypair(&live_openssl, &private_key, &public_key);
+        let update_key = b4_public_key_from_private(&live_openssl, &private_key);
+        std::fs::create_dir_all(home.join(".local/share/codex")).unwrap();
+        let state_paths = CoreStatePaths::new(&home.join(".local/share/codex/core")).unwrap();
+        prepare_core_state_paths(&state_paths).unwrap();
+        let state = GenerationPointerState {
+            current: "publisher-fixture-current".to_owned(),
+            previous: None,
+            update_key,
+            current_key: update_key,
+            previous_key: None,
+        };
+        m2_b1_write_state(&state_paths, &state);
+        let state_before_upload = std::fs::read(&state_paths.activation_state).unwrap();
         let publication = home.join(LOCAL_PUBLICATION_ROOT_RELATIVE).join("local-g1");
         let release = publication.join("releases/local-g1");
         std::fs::create_dir_all(&release).unwrap();
@@ -15381,23 +16147,22 @@ esac
         write_github_release_manifest(&release, false);
         std::fs::write(publication.join("update-index-v1"), b"index").unwrap();
         std::fs::write(publication.join("update-index-v1.sig"), b"signature").unwrap();
-        std::fs::create_dir_all(prefix.join("bin")).unwrap();
         let log = root.join("gh-log");
         let body = root.join("gh-body");
         b7_write_fake_github_cli(&prefix.join("bin/gh"), &log, &body, 0);
 
-        let state_sentinel = home.join(".local/share/codex/core/activation-state");
-        std::fs::create_dir_all(state_sentinel.parent().unwrap()).unwrap();
-        std::fs::write(&state_sentinel, b"state-before-upload").unwrap();
         let output = std::process::Command::new(std::env::current_exe().unwrap())
             .arg("tests::github_upload_probe")
             .arg("--exact")
             .arg("--nocapture")
             .env(GITHUB_UPLOAD_PROBE_ROLE, "1")
             .env(GITHUB_UPLOAD_PUBLICATION, &publication)
+            .env(UPDATE_PRIVATE_KEY_ENV, &private_key)
+            .env_remove(UPDATE_INDEX_URL_ENV)
+            .env_remove(UPDATE_VERSION_ENV)
             .env("HOME", &home)
             .env("PREFIX", &prefix)
-            .env("TMPDIR", root.join("tmp"))
+            .env("TMPDIR", &tmp)
             .output()
             .unwrap();
         assert_eq!(
@@ -15433,8 +16198,8 @@ esac
             .unwrap()
             .contains("private-key"));
         assert_eq!(
-            std::fs::read(&state_sentinel).unwrap(),
-            b"state-before-upload"
+            std::fs::read(&state_paths.activation_state).unwrap(),
+            state_before_upload
         );
         remove_temp_root(root);
     }
@@ -15825,6 +16590,40 @@ esac
     }
 
     #[cfg(unix)]
+    fn arh1_run_public_rollback_with_capability(
+        home: &std::path::Path,
+        prefix: &std::path::Path,
+        tmp: &std::path::Path,
+        hold_capability: &str,
+    ) -> std::process::Output {
+        std::process::Command::new(std::env::current_exe().unwrap())
+            .arg("tests::public_update_probe")
+            .arg("--exact")
+            .arg("--nocapture")
+            .env(UPDATE_PROBE_ROLE, "1")
+            .env_remove(UPDATE_PROBE_SOURCE)
+            .env_remove(UPDATE_PROBE_REMOTE)
+            .env(rollback_guard::TEST_HOLD_CAPABILITY_ENV, hold_capability)
+            .env_remove("CODEX_TEST_REQUIRE_NO_ACQUISITION")
+            .env("HOME", home)
+            .env("PREFIX", prefix)
+            .env("TMPDIR", tmp)
+            .env_remove("SSL_CERT_FILE")
+            .env_remove("SSL_CERT_DIR")
+            .output()
+            .unwrap()
+    }
+
+    #[cfg(unix)]
+    fn arh1_run_public_rollback(
+        home: &std::path::Path,
+        prefix: &std::path::Path,
+        tmp: &std::path::Path,
+    ) -> std::process::Output {
+        arh1_run_public_rollback_with_capability(home, prefix, tmp, "1")
+    }
+
+    #[cfg(unix)]
     fn b5_run_public_remote_update(
         base: &str,
         home: &std::path::Path,
@@ -15855,12 +16654,40 @@ esac
         prefix: &std::path::Path,
         tmp: &std::path::Path,
     ) -> std::process::Output {
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command
+            .arg("tests::public_update_probe")
+            .arg("--exact")
+            .arg("--nocapture")
+            .env(UPDATE_PROBE_ROLE, "1")
+            .env(UPDATE_PROBE_CHANNEL, "1")
+            .env_remove(UPDATE_PROBE_FORCE)
+            .env_remove(UPDATE_PROBE_SOURCE)
+            .env_remove(UPDATE_PROBE_REMOTE)
+            .env("CODEX_TERMUX_UPDATE_INDEX_URL", index_url)
+            .env("CODEX_TEST_REQUIRE_NO_ACQUISITION", "1")
+            .env("HOME", home)
+            .env("PREFIX", prefix)
+            .env("TMPDIR", tmp)
+            .env_remove("SSL_CERT_FILE")
+            .env_remove("SSL_CERT_DIR");
+        command.output().unwrap()
+    }
+
+    #[cfg(unix)]
+    fn arh1_run_public_channel_force_update(
+        index_url: &str,
+        home: &std::path::Path,
+        prefix: &std::path::Path,
+        tmp: &std::path::Path,
+    ) -> std::process::Output {
         std::process::Command::new(std::env::current_exe().unwrap())
             .arg("tests::public_update_probe")
             .arg("--exact")
             .arg("--nocapture")
             .env(UPDATE_PROBE_ROLE, "1")
             .env(UPDATE_PROBE_CHANNEL, "1")
+            .env(UPDATE_PROBE_FORCE, "1")
             .env_remove(UPDATE_PROBE_SOURCE)
             .env_remove(UPDATE_PROBE_REMOTE)
             .env("CODEX_TERMUX_UPDATE_INDEX_URL", index_url)
@@ -16911,7 +17738,11 @@ esac
         let code = if std::env::var(UPDATE_PROBE_CHANNEL).as_deref() == Ok("1") {
             assert!(std::env::var_os(UPDATE_PROBE_SOURCE).is_none());
             assert!(std::env::var_os(UPDATE_PROBE_REMOTE).is_none());
-            run_public_main([OsString::from("update")])
+            if std::env::var(UPDATE_PROBE_FORCE).as_deref() == Ok("1") {
+                run_public_main([OsString::from("update"), OsString::from("--force")])
+            } else {
+                run_public_main([OsString::from("update")])
+            }
         } else {
             match (
                 std::env::var_os(UPDATE_PROBE_SOURCE),
@@ -18238,6 +19069,76 @@ esac
 
     #[cfg(unix)]
     #[test]
+    fn test_arh2_official_version_order_and_release_sequence_floor_are_exact() {
+        assert!(!update_version_is_newer("0.154.0", "0.154.0").unwrap());
+        assert!(update_version_is_newer("0.155.0", "0.154.9").unwrap());
+        assert!(update_version_is_newer("1.0.0", "0.999.999").unwrap());
+        for invalid in [
+            "",
+            "0.154",
+            "0.154.0.1",
+            "00.154.0",
+            "0.0154.0",
+            "0.154.00",
+            "v0.155.0",
+            "0.155.0-rc.1",
+        ] {
+            assert!(parsed_update_version(invalid).is_err(), "invalid={invalid}");
+        }
+        assert_eq!(next_local_release_sequence(10, None).unwrap(), 11);
+        assert_eq!(next_local_release_sequence(10, Some(9)).unwrap(), 11);
+        assert_eq!(next_local_release_sequence(10, Some(11)).unwrap(), 12);
+        assert!(next_local_release_sequence(u64::MAX, None).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_arh1_update_hold_format_is_exact_and_unsafe_files_fail_closed() {
+        let record = UpdateHoldRecord {
+            generation_id: "held-generation".to_string(),
+            release_sequence: 42,
+        };
+        let rendered = render_update_hold(&record);
+        assert_eq!(
+            rendered,
+            "codex-update-hold-v1\ngeneration_id\theld-generation\nrelease_sequence\t42\n"
+        );
+        assert_eq!(parse_update_hold(rendered.as_bytes()).unwrap(), record);
+        for malformed in [
+            b"codex-update-hold-v1\ngeneration_id\theld-generation\nrelease_sequence\t042\n"
+                .as_slice(),
+            b"codex-update-hold-v1\ngeneration_id\theld-generation\nrelease_sequence\t0\n"
+                .as_slice(),
+            b"codex-update-hold-v1\ngeneration_id\t../escape\nrelease_sequence\t42\n".as_slice(),
+            b"codex-update-hold-v1\ngeneration_id\theld-generation\nrelease_sequence\t42"
+                .as_slice(),
+        ] {
+            assert!(
+                parse_update_hold(malformed).is_err(),
+                "malformed={malformed:?}"
+            );
+        }
+
+        use std::os::unix::fs::symlink;
+        let root = temp_root("arh1-hold-symlink");
+        let openssl = b4_termux_openssl();
+        let (home, prefix, _) = b4_prepare_public_environment(&root, &openssl, true);
+        let roots = b7_public_roots(&home, &prefix);
+        std::fs::create_dir_all(&roots.state_root).unwrap();
+        let target = root.join("hold-target");
+        std::fs::write(&target, rendered).unwrap();
+        symlink(&target, update_hold_path(&roots)).unwrap();
+        assert!(matches!(
+            read_update_hold(&roots),
+            Err(LocalProductError::UpdateHold(
+                "update hold must be a regular file"
+            ))
+        ));
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn test_m2_b4_recovery_public_rollback_swaps_exact_signed_previous() {
         let root = temp_root("b4-public-rollback");
         let openssl = b4_termux_openssl();
@@ -18279,6 +19180,29 @@ esac
             assert_eq!(loaded.generation_id, generation_id);
         }
         m2_b1_assert_no_transaction_files(&state_paths);
+        let roots = b7_public_roots(&home, &prefix);
+        assert_eq!(
+            read_update_hold(&roots).unwrap(),
+            Some(UpdateHoldRecord {
+                generation_id: "rollback-next".to_string(),
+                release_sequence: 2,
+            })
+        );
+        assert!(matches!(
+            prepare_signed_local_release_with_hold_policy(&next, &roots, UpdateHoldPolicy::Enforce),
+            Err(LocalProductError::UpdateHeld {
+                release_sequence: 2,
+                ..
+            })
+        ));
+        assert!(matches!(
+            prepare_signed_local_release_with_hold_policy(
+                &next,
+                &roots,
+                UpdateHoldPolicy::ForceHeld,
+            ),
+            Ok(PreparedSignedLocalRelease::Activation(_))
+        ));
 
         remove_temp_root(root);
     }
@@ -18320,6 +19244,7 @@ esac
             std::fs::read(&state_paths.activation_state).unwrap(),
             initial_state
         );
+        assert!(!home.join(".local/share/codex/core/update-hold").exists());
 
         let next = b2_write_generation(&source_roots, "failure-next", false, "unsupported");
         b4_write_signed_release(&next, 2, &openssl, &private_key);
@@ -18785,6 +19710,39 @@ exec "$cat_path" "$release_root/$relative"
     }
 
     #[cfg(unix)]
+    fn b5_point_channel_at(
+        fixture: &B5ChannelFixture,
+        generation_id: &str,
+        release: &std::path::Path,
+    ) -> String {
+        let base = format!("https://releases.example.invalid/codex/{generation_id}/");
+        std::fs::write(
+            &fixture.index_path,
+            format!(
+                "codex-update-index-v1\nchannel\tstable\ngeneration_id\t{generation_id}\nrelease_base\t{base}\n"
+            ),
+        )
+        .unwrap();
+        b4_sign_update_index(
+            &fixture.index_path,
+            &fixture.signature_path,
+            &fixture.openssl,
+            &fixture.private_key,
+        );
+        std::fs::write(&fixture.curl_log, b"").unwrap();
+        b5_write_channel_curl(
+            &fixture.prefix.join("bin/curl"),
+            &fixture.curl_log,
+            &fixture.index_url,
+            &fixture.index_path,
+            &fixture.signature_path,
+            &base,
+            release,
+        );
+        base
+    }
+
+    #[cfg(unix)]
     fn b5_assert_channel_rejected(fixture: &B5ChannelFixture, expected: &[u8]) {
         let output = b5_run_public_channel_update(
             &fixture.index_url,
@@ -18835,6 +19793,553 @@ exec "$cat_path" "$release_root/$relative"
         assert!(calls.contains(&fixture.index_url));
         assert!(calls.contains(&format!("{}.sig", fixture.index_url)));
         assert!(!calls.contains("release.manifest"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_arh1_public_update_rollback_hold_and_force_flow_is_exact() {
+        let fixture = b5_channel_fixture("arh1-public-flow", "arh1-next");
+        let first = b5_run_public_channel_update(
+            &fixture.index_url,
+            &fixture.home,
+            &fixture.prefix,
+            &fixture.tmp,
+        );
+        assert_eq!(first.status.code(), Some(0), "stderr={:?}", first.stderr);
+
+        let rollback = arh1_run_public_rollback(&fixture.home, &fixture.prefix, &fixture.tmp);
+        assert_eq!(
+            rollback.status.code(),
+            Some(0),
+            "stdout={:?} stderr={:?}",
+            rollback.stdout,
+            rollback.stderr
+        );
+        assert!(rollback
+            .stdout
+            .windows(b"rolled back to local generation channel-current\n".len())
+            .any(|window| window == b"rolled back to local generation channel-current\n"));
+        let roots = b7_public_roots(&fixture.home, &fixture.prefix);
+        assert_eq!(
+            read_update_hold(&roots).unwrap(),
+            Some(UpdateHoldRecord {
+                generation_id: "arh1-next".to_string(),
+                release_sequence: 2,
+            })
+        );
+        let state_paths = CoreStatePaths::new(&roots.state_root).unwrap();
+        let rolled_back = read_pointer_state(&state_paths).unwrap().unwrap();
+        assert_eq!(rolled_back.current, "channel-current");
+        assert_eq!(rolled_back.previous.as_deref(), Some("arh1-next"));
+
+        let held = b5_run_public_channel_update(
+            &fixture.index_url,
+            &fixture.home,
+            &fixture.prefix,
+            &fixture.tmp,
+        );
+        assert_eq!(held.status.code(), Some(1), "stderr={:?}", held.stderr);
+        assert!(held
+            .stderr
+            .windows(b"release sequence 2 is locally held after rollback".len())
+            .any(|window| window == b"release sequence 2 is locally held after rollback"));
+        assert_eq!(
+            read_pointer_state(&state_paths).unwrap().unwrap(),
+            rolled_back
+        );
+
+        let forced = arh1_run_public_channel_force_update(
+            &fixture.index_url,
+            &fixture.home,
+            &fixture.prefix,
+            &fixture.tmp,
+        );
+        assert_eq!(
+            forced.status.code(),
+            Some(0),
+            "stdout={:?} stderr={:?}",
+            forced.stdout,
+            forced.stderr
+        );
+        let after_force = read_pointer_state(&state_paths).unwrap().unwrap();
+        assert_eq!(after_force.current, "arh1-next");
+        assert_eq!(after_force.previous.as_deref(), Some("channel-current"));
+        assert_eq!(
+            read_update_hold(&roots).unwrap(),
+            Some(UpdateHoldRecord {
+                generation_id: "arh1-next".to_string(),
+                release_sequence: 2,
+            })
+        );
+        b5_assert_no_acquisition(&roots.generation_root);
+        m2_b1_assert_no_transaction_files(&state_paths);
+        remove_temp_root(fixture.root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_arh1_greater_sequence_plain_update_supersedes_and_clears_hold() {
+        let fixture = b5_channel_fixture("arh1-greater-sequence", "arh1-held");
+        let first = b5_run_public_channel_update(
+            &fixture.index_url,
+            &fixture.home,
+            &fixture.prefix,
+            &fixture.tmp,
+        );
+        assert_eq!(first.status.code(), Some(0), "stderr={:?}", first.stderr);
+
+        let rollback = arh1_run_public_rollback(&fixture.home, &fixture.prefix, &fixture.tmp);
+        assert_eq!(
+            rollback.status.code(),
+            Some(0),
+            "stderr={:?}",
+            rollback.stderr
+        );
+        let roots = b7_public_roots(&fixture.home, &fixture.prefix);
+        assert_eq!(
+            read_update_hold(&roots).unwrap(),
+            Some(UpdateHoldRecord {
+                generation_id: "arh1-held".to_string(),
+                release_sequence: 2,
+            })
+        );
+
+        let source_roots = b4_source_roots(&fixture.root.join("release-server"), &fixture.openssl);
+        let newer = b2_write_root_generation(&source_roots, "arh1-newer", false, "supported");
+        b4_write_signed_release(&newer, 3, &fixture.openssl, &fixture.private_key);
+        let newer_base = "https://releases.example.invalid/codex/arh1-newer/";
+        std::fs::write(
+            &fixture.index_path,
+            format!(
+                "codex-update-index-v1\nchannel\tstable\ngeneration_id\tarh1-newer\nrelease_base\t{newer_base}\n"
+            ),
+        )
+        .unwrap();
+        b4_sign_update_index(
+            &fixture.index_path,
+            &fixture.signature_path,
+            &fixture.openssl,
+            &fixture.private_key,
+        );
+        std::fs::write(&fixture.curl_log, b"").unwrap();
+        b5_write_channel_curl(
+            &fixture.prefix.join("bin/curl"),
+            &fixture.curl_log,
+            &fixture.index_url,
+            &fixture.index_path,
+            &fixture.signature_path,
+            newer_base,
+            &newer,
+        );
+
+        let greater = b5_run_public_channel_update(
+            &fixture.index_url,
+            &fixture.home,
+            &fixture.prefix,
+            &fixture.tmp,
+        );
+        assert_eq!(
+            greater.status.code(),
+            Some(0),
+            "stdout={:?} stderr={:?}",
+            greater.stdout,
+            greater.stderr
+        );
+        let state_paths = CoreStatePaths::new(&roots.state_root).unwrap();
+        let after = read_pointer_state(&state_paths).unwrap().unwrap();
+        assert_eq!(after.current, "arh1-newer");
+        assert_eq!(after.previous.as_deref(), Some("channel-current"));
+        assert_eq!(read_update_hold(&roots).unwrap(), None);
+
+        let current_again = b5_run_public_channel_update(
+            &fixture.index_url,
+            &fixture.home,
+            &fixture.prefix,
+            &fixture.tmp,
+        );
+        assert_eq!(
+            current_again.status.code(),
+            Some(0),
+            "stdout={:?} stderr={:?}",
+            current_again.stdout,
+            current_again.stderr
+        );
+        assert!(current_again
+            .stdout
+            .windows(b"codex is already up to date (generation arh1-newer)\n".len())
+            .any(|window| window == b"codex is already up to date (generation arh1-newer)\n"));
+        assert_eq!(read_update_hold(&roots).unwrap(), None);
+        b5_assert_no_acquisition(&roots.generation_root);
+        m2_b1_assert_no_transaction_files(&state_paths);
+        remove_temp_root(fixture.root);
+    }
+
+    #[cfg(unix)]
+    fn arh1_write_hold_aware_core_fixture(path: &std::path::Path) {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let shell = resolve_test_shell();
+        let script = format!(
+            r#"#!{}
+case "${{1:-}}" in
+  --version) printf '%s\n' 'codex hold-aware fixture'; exit 0 ;;
+  doctor) exit 0 ;;
+  update)
+    if [ "${{2:-}}" = "--help" ]; then
+      printf '%s\n' '{}'
+      exit 0
+    fi
+    ;;
+esac
+exit 2
+"#,
+            shell.display(),
+            rollback_guard::UPDATE_HOLD_CAPABILITY_LINE,
+        );
+        std::fs::write(path, script).unwrap();
+        let mut permissions = std::fs::metadata(path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(path, permissions).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_arh1_legacy_core_guard_force_and_greater_sequence_process_flow() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let fixture = b5_channel_fixture("arh1-legacy-core-guard", "arh1-legacy-held");
+        let resolver_before = std::fs::read(fixture.prefix.join("etc/resolv.conf")).unwrap();
+        let source_roots = b4_source_roots(&fixture.root.join("release-server"), &fixture.openssl);
+        let current_source = source_roots.generation_root.join("channel-current");
+        let legacy_core = fixture.root.join("legacy-core");
+        b8_write_core_probe_wrapper(&legacy_core);
+        b2_attach_core(&current_source, &fixture.openssl, &legacy_core);
+        b4_write_signed_release(&current_source, 1, &fixture.openssl, &fixture.private_key);
+        let installed_current = fixture
+            .home
+            .join(".local/lib/codex/core/generations/channel-current");
+        for relative in ["core", "generation.meta", "release.manifest", "release.sig"] {
+            std::fs::copy(
+                current_source.join(relative),
+                installed_current.join(relative),
+            )
+            .unwrap();
+        }
+        std::fs::copy(&legacy_core, fixture.prefix.join("bin/codex")).unwrap();
+        let mut stable_permissions = std::fs::metadata(fixture.prefix.join("bin/codex"))
+            .unwrap()
+            .permissions();
+        stable_permissions.set_mode(0o755);
+        std::fs::set_permissions(fixture.prefix.join("bin/codex"), stable_permissions).unwrap();
+
+        let held_release = source_roots.generation_root.join("arh1-legacy-held");
+        let held_core = fixture.root.join("hold-aware-core");
+        arh1_write_hold_aware_core_fixture(&held_core);
+        b2_attach_core(&held_release, &fixture.openssl, &held_core);
+        b4_write_signed_release(&held_release, 2, &fixture.openssl, &fixture.private_key);
+        b5_point_channel_at(&fixture, "arh1-legacy-held", &held_release);
+        let legacy_core_digest = openssl_sha256(&fixture.openssl, &legacy_core).unwrap();
+        let held_core_digest = openssl_sha256(&fixture.openssl, &held_core).unwrap();
+        assert_ne!(legacy_core_digest, held_core_digest);
+
+        let first = b5_run_public_channel_update(
+            &fixture.index_url,
+            &fixture.home,
+            &fixture.prefix,
+            &fixture.tmp,
+        );
+        assert_eq!(first.status.code(), Some(0), "stderr={:?}", first.stderr);
+        assert_eq!(
+            openssl_sha256(&fixture.openssl, &fixture.prefix.join("bin/codex")).unwrap(),
+            held_core_digest
+        );
+
+        let rollback = arh1_run_public_rollback_with_capability(
+            &fixture.home,
+            &fixture.prefix,
+            &fixture.tmp,
+            "0",
+        );
+        assert_eq!(
+            rollback.status.code(),
+            Some(0),
+            "stdout={:?} stderr={:?}",
+            rollback.stdout,
+            rollback.stderr
+        );
+        let roots = b7_public_roots(&fixture.home, &fixture.prefix);
+        let state_paths = CoreStatePaths::new(&roots.state_root).unwrap();
+        let rolled_back = read_pointer_state(&state_paths).unwrap().unwrap();
+        assert_eq!(rolled_back.current, "channel-current");
+        assert_eq!(rolled_back.previous.as_deref(), Some("arh1-legacy-held"));
+        let expected_hold = UpdateHoldRecord {
+            generation_id: "arh1-legacy-held".to_owned(),
+            release_sequence: 2,
+        };
+        assert_eq!(
+            read_update_hold(&roots).unwrap(),
+            Some(expected_hold.clone())
+        );
+        let guard = rollback_guard::read_guard(&roots).unwrap().unwrap();
+        assert_eq!(guard.target_generation_id, "channel-current");
+        assert_eq!(guard.held_generation_id, "arh1-legacy-held");
+        assert_eq!(guard.held_release_sequence, 2);
+        assert_eq!(guard.held_core_sha256, held_core_digest);
+        assert_eq!(
+            openssl_sha256(&fixture.openssl, &fixture.prefix.join("bin/codex")).unwrap(),
+            guard.held_core_sha256
+        );
+
+        let held = b5_run_public_channel_update(
+            &fixture.index_url,
+            &fixture.home,
+            &fixture.prefix,
+            &fixture.tmp,
+        );
+        assert_eq!(held.status.code(), Some(1), "stderr={:?}", held.stderr);
+        assert!(held
+            .stderr
+            .windows(b"locally held after rollback".len())
+            .any(|window| { window == b"locally held after rollback" }));
+        assert_eq!(
+            read_pointer_state(&state_paths).unwrap().unwrap(),
+            rolled_back
+        );
+
+        let mut mismatched_guard = guard.clone();
+        mismatched_guard.held_release_sequence = 3;
+        rollback_guard::write_guard_locked(&roots, &mismatched_guard).unwrap();
+        let mismatch = b5_run_public_channel_update(
+            &fixture.index_url,
+            &fixture.home,
+            &fixture.prefix,
+            &fixture.tmp,
+        );
+        assert_eq!(
+            mismatch.status.code(),
+            Some(1),
+            "stderr={:?}",
+            mismatch.stderr
+        );
+        assert!(mismatch
+            .stderr
+            .windows(b"rollback Core guard".len())
+            .any(|window| { window == b"rollback Core guard" }));
+        assert_eq!(
+            read_pointer_state(&state_paths).unwrap().unwrap(),
+            rolled_back
+        );
+        rollback_guard::write_guard_locked(&roots, &guard).unwrap();
+
+        let bad_signature_release = b2_write_root_generation(
+            &source_roots,
+            "arh1-force-bad-signature",
+            false,
+            "supported",
+        );
+        b4_write_signed_release(
+            &bad_signature_release,
+            2,
+            &fixture.openssl,
+            &fixture.private_key,
+        );
+        std::fs::write(
+            bad_signature_release.join("release.sig"),
+            b"invalid-signature",
+        )
+        .unwrap();
+        b5_point_channel_at(&fixture, "arh1-force-bad-signature", &bad_signature_release);
+        let bad_signature = arh1_run_public_channel_force_update(
+            &fixture.index_url,
+            &fixture.home,
+            &fixture.prefix,
+            &fixture.tmp,
+        );
+        assert_eq!(bad_signature.status.code(), Some(1));
+        assert_eq!(
+            read_pointer_state(&state_paths).unwrap().unwrap(),
+            rolled_back
+        );
+        assert_eq!(
+            read_update_hold(&roots).unwrap(),
+            Some(expected_hold.clone())
+        );
+
+        let bad_digest_release =
+            b2_write_root_generation(&source_roots, "arh1-force-bad-digest", false, "supported");
+        b4_write_signed_release(
+            &bad_digest_release,
+            2,
+            &fixture.openssl,
+            &fixture.private_key,
+        );
+        b4_write_probe_runtime(&bad_digest_release, 0, 1);
+        b5_point_channel_at(&fixture, "arh1-force-bad-digest", &bad_digest_release);
+        let bad_digest = arh1_run_public_channel_force_update(
+            &fixture.index_url,
+            &fixture.home,
+            &fixture.prefix,
+            &fixture.tmp,
+        );
+        assert_eq!(bad_digest.status.code(), Some(1));
+        assert_eq!(
+            read_pointer_state(&state_paths).unwrap().unwrap(),
+            rolled_back
+        );
+
+        let bad_probe_release =
+            b2_write_root_generation(&source_roots, "arh1-force-bad-probe", false, "supported");
+        b4_write_probe_runtime(&bad_probe_release, 0, 1);
+        b4_write_signed_release(
+            &bad_probe_release,
+            2,
+            &fixture.openssl,
+            &fixture.private_key,
+        );
+        b5_point_channel_at(&fixture, "arh1-force-bad-probe", &bad_probe_release);
+        let bad_probe = arh1_run_public_channel_force_update(
+            &fixture.index_url,
+            &fixture.home,
+            &fixture.prefix,
+            &fixture.tmp,
+        );
+        assert_eq!(bad_probe.status.code(), Some(1));
+        assert_eq!(
+            read_pointer_state(&state_paths).unwrap().unwrap(),
+            rolled_back
+        );
+        assert_eq!(
+            read_update_hold(&roots).unwrap(),
+            Some(expected_hold.clone())
+        );
+
+        let force_greater_release =
+            b2_write_root_generation(&source_roots, "arh1-force-greater", false, "supported");
+        b4_write_signed_release(
+            &force_greater_release,
+            3,
+            &fixture.openssl,
+            &fixture.private_key,
+        );
+        b5_point_channel_at(&fixture, "arh1-force-greater", &force_greater_release);
+        let force_greater = arh1_run_public_channel_force_update(
+            &fixture.index_url,
+            &fixture.home,
+            &fixture.prefix,
+            &fixture.tmp,
+        );
+        assert_eq!(force_greater.status.code(), Some(1));
+        assert_eq!(
+            read_pointer_state(&state_paths).unwrap().unwrap(),
+            rolled_back
+        );
+        assert_eq!(
+            read_update_hold(&roots).unwrap(),
+            Some(expected_hold.clone())
+        );
+
+        b5_point_channel_at(&fixture, "arh1-legacy-held", &held_release);
+        let forced = arh1_run_public_channel_force_update(
+            &fixture.index_url,
+            &fixture.home,
+            &fixture.prefix,
+            &fixture.tmp,
+        );
+        assert_eq!(
+            forced.status.code(),
+            Some(0),
+            "stdout={:?} stderr={:?}",
+            forced.stdout,
+            forced.stderr
+        );
+        let after_force = read_pointer_state(&state_paths).unwrap().unwrap();
+        assert_eq!(after_force.current, "arh1-legacy-held");
+        assert_eq!(after_force.previous.as_deref(), Some("channel-current"));
+        assert_eq!(
+            read_update_hold(&roots).unwrap(),
+            Some(expected_hold.clone())
+        );
+        assert_eq!(rollback_guard::read_guard(&roots).unwrap(), None);
+
+        let current_source = source_roots.generation_root.join("channel-current");
+        b5_point_channel_at(&fixture, "channel-current", &current_source);
+        let anti_rollback = arh1_run_public_channel_force_update(
+            &fixture.index_url,
+            &fixture.home,
+            &fixture.prefix,
+            &fixture.tmp,
+        );
+        assert_eq!(anti_rollback.status.code(), Some(1));
+        assert_eq!(
+            read_pointer_state(&state_paths).unwrap().unwrap(),
+            after_force
+        );
+        assert_eq!(read_update_hold(&roots).unwrap(), Some(expected_hold));
+
+        let newer = b2_write_root_generation(&source_roots, "arh1-guard-newer", false, "supported");
+        b2_attach_core(&newer, &fixture.openssl, &held_core);
+        b4_write_signed_release(&newer, 3, &fixture.openssl, &fixture.private_key);
+        b5_point_channel_at(&fixture, "arh1-guard-newer", &newer);
+        let greater = b5_run_public_channel_update(
+            &fixture.index_url,
+            &fixture.home,
+            &fixture.prefix,
+            &fixture.tmp,
+        );
+        assert_eq!(
+            greater.status.code(),
+            Some(0),
+            "stdout={:?} stderr={:?}",
+            greater.stdout,
+            greater.stderr
+        );
+        let final_state = read_pointer_state(&state_paths).unwrap().unwrap();
+        assert_eq!(final_state.current, "arh1-guard-newer");
+        assert_eq!(read_update_hold(&roots).unwrap(), None);
+        assert_eq!(rollback_guard::read_guard(&roots).unwrap(), None);
+
+        let current_again = b5_run_public_channel_update(
+            &fixture.index_url,
+            &fixture.home,
+            &fixture.prefix,
+            &fixture.tmp,
+        );
+        assert_eq!(current_again.status.code(), Some(0));
+        let force_without_hold = arh1_run_public_channel_force_update(
+            &fixture.index_url,
+            &fixture.home,
+            &fixture.prefix,
+            &fixture.tmp,
+        );
+        assert_eq!(force_without_hold.status.code(), Some(1));
+        assert!(force_without_hold
+            .stderr
+            .windows(b"forced update requires an active rollback hold".len())
+            .any(|window| window == b"forced update requires an active rollback hold"));
+        assert_eq!(
+            read_pointer_state(&state_paths).unwrap().unwrap(),
+            final_state
+        );
+        let installed_core = fixture.prefix.join("bin/codex");
+        for args in [vec!["--version"], vec!["doctor"]] {
+            let status = std::process::Command::new(&installed_core)
+                .args(args)
+                .env("HOME", &fixture.home)
+                .env("PREFIX", &fixture.prefix)
+                .env("TMPDIR", &fixture.tmp)
+                .env_remove("SSL_CERT_FILE")
+                .env_remove("SSL_CERT_DIR")
+                .status()
+                .unwrap();
+            assert!(status.success());
+        }
+        assert_eq!(
+            std::fs::read(fixture.prefix.join("etc/resolv.conf")).unwrap(),
+            resolver_before
+        );
+        b5_assert_no_acquisition(&roots.generation_root);
+        m2_b1_assert_no_transaction_files(&state_paths);
+        remove_temp_root(fixture.root);
     }
 
     #[cfg(unix)]
@@ -19142,7 +20647,6 @@ exit 0
         let mut stable_mode = std::fs::metadata(&stable_entrypoint).unwrap().permissions();
         stable_mode.set_mode(0o755);
         std::fs::set_permissions(&stable_entrypoint, stable_mode).unwrap();
-        let stable_before = std::fs::read(&stable_entrypoint).unwrap();
         let stable_before_digest = openssl_sha256(&openssl, &stable_entrypoint).unwrap();
         b2_add_tc2_browser_helpers(&release);
         b2_add_helper(&release);
@@ -19266,7 +20770,13 @@ exit 0
             read_pointer_state(&state_paths).unwrap().unwrap().current,
             "remote-bootstrap"
         );
-        assert_eq!(std::fs::read(&stable_entrypoint).unwrap(), stable_before);
+        assert_eq!(
+            std::fs::read(&stable_entrypoint).unwrap(),
+            std::fs::read(&core).unwrap()
+        );
+        assert!(rollback_guard::read_guard(&b7_public_roots(&home, &prefix))
+            .unwrap()
+            .is_some());
 
         remove_temp_root(root);
     }

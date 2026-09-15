@@ -60,10 +60,11 @@ installed Core obtains and activates only that signed adapted bundle.
 | `codex --version`, `codex -V` | upstream | print exactly the upstream version output |
 | `codex update` | Core | resolve the signed stable wrapper release channel; when the wrapper release is unavailable, build and sign one qualified Core-plus-generation bundle from the official upstream archive, then activate its Core and generation through the authenticated coordinated path |
 | `codex update --help` | Core | print the wrapper-owned update usage without invoking upstream or changing state |
+| `codex update --force` | Core | retry exactly the authenticated held release sequence for this invocation while bypassing only the local rollback-hold comparison; a valid matching hold is required and signature, digest, release-sequence, candidate-probe, and activation checks remain unchanged |
 | `codex update [INVALID_ARGS...]` | Core | reject unsupported updater options without invoking upstream or changing state |
 | `codex update --local <DIRECTORY>` | Core | verify, stage, probe, and activate one compatible signed Core-plus-generation bundle |
 | `codex update --remote <HTTPS_BASE_URL>` | Core | acquire one immutable signed Core-plus-generation bundle and activate it through the local coordinated path |
-| `codex update --rollback` | Core | explicitly swap to the one retained complete previous generation and its retained Core entrypoint pair |
+| `codex update --rollback` | Core | atomically activate the retained previous complete signed generation, then record the authenticated generation and release sequence rolled back from as the local update hold |
 | `codex doctor [OPTIONS]` | Core | combine upstream and Termux diagnostics |
 | `codex doctor --color` | Core | explicitly request colored human diagnostics on a TTY, including when an outer Termux wrapper supplied `NO_COLOR` |
 | `codex termux [COMMAND]` | Manager boundary | invoke the Manager artifact or report it unavailable |
@@ -132,22 +133,70 @@ a TTY, output remains plain; when it is a TTY, Core removes only the inherited
 capture path. It never changes the caller's environment or enables color in a
 JSON envelope.
 
-The Core-owned update surface accepts exactly no arguments, `--help`,
+The Core-owned update surface accepts exactly no arguments, `--help`, `--force`,
 `--local <DIRECTORY>`, `--remote <HTTPS_BASE_URL>`, or `--rollback` after
-`update`. A malformed invocation beginning with one of those Core selectors is
-a Core usage error. The no-argument form is the primary product path: it first
-tries the signed stable wrapper channel and, only when that channel or its
-already-published release is unavailable at the transport boundary, runs the
-local release-production fallback defined in Section 8. A verified index with
-an invalid signature, malformed fields, an incompatible release, a digest or
-mode mismatch, a candidate-probe failure, or an activation failure is never
-converted into a local-build fallback. The explicit local, remote, and rollback
-forms remain secondary diagnostic/recovery paths; local and rollback remain
-offline, and the explicit remote form remains an immutable signed-generation
-source. No top-level `codex update` argument is passed to upstream, and Core
-never invokes a package manager or an upstream self-updater. Rollback is an
-explicit Core operation, not an ordinary-launch fallback and not a search
-through generation history.
+`update`. No top-level `codex rollback` command is introduced. A malformed
+invocation beginning with one of those Core selectors is a Core usage error. The no-argument
+form is the primary product path: it first tries the signed stable wrapper channel
+and may then run the local release-production path defined in Section 8 when the
+channel is unavailable at the transport boundary, is already current, or its
+otherwise valid candidate is suppressed only by the local rollback hold. A
+verified index with an invalid signature, malformed fields, an incompatible
+release, a digest or mode mismatch, a candidate-probe failure, or an activation
+failure is never converted into a local-build fallback. The explicit local,
+remote, and rollback forms remain secondary diagnostic/recovery paths; local and
+rollback remain offline, and the explicit remote form remains an immutable
+signed-generation source. No top-level `codex update` argument is passed to
+upstream, and Core never invokes a package manager or an upstream self-updater.
+
+Rollback is an explicit Core operation, not an ordinary-launch fallback and not
+a search through generation history. After a rollback activation commits, Core
+atomically records a separate bounded exact-format `update-hold` file containing
+only the authenticated generation identity and signed release sequence that were
+current before rollback. Activation-state v3 is not extended. The hold file must
+be a regular file, must reject malformed/oversized/symlink state, and must use
+temporary-create, file sync, atomic rename, and parent-directory sync semantics.
+A failed rollback must not create or change the hold.
+
+The first rollback from a hold-aware Core to an older Core that does not advertise
+exact `codex-update-hold-v1` capability must not lose hold enforcement. Core may
+therefore retain the rolled-back-from signed Core launcher as a bounded rollback
+control-plane guard while the runtime, Manager, helpers, and authoritative current
+pointer roll back to the retained previous signed generation. The guard is a
+separate exact-format Core-owned state record; it must bind the rollback target
+generation, the held generation, the held signed release sequence, and the held
+generation's signed Core digest. The stable launcher is accepted under this
+exception only when the authoritative pointer pair matches the guard, the held
+previous generation verifies under its retained verifier key, and the launcher
+digest exactly equals that held signed Core digest. No unsigned or arbitrary Core
+path is authorized. A target Core that advertises `codex-update-hold-v1` uses the
+normal full Core rollback instead and does not retain the guard.
+
+Core writes the guard intent durably before the pointer swap but treats it as an
+effective hold only after the authoritative pointer becomes the exact guarded
+rollback pair. This closes the commit-to-hold crash window without treating a
+failed rollback as held. After the committed rollback, Core writes the normal
+`update-hold`; a hold-aware target then removes the temporary guard, while a
+legacy target retains it until a force retry or greater-sequence activation
+restores a normal Core/generation pairing. Malformed, mismatched, stale, or
+unverifiable guard state fails closed whenever it is needed to justify a launcher
+mismatch.
+
+Ordinary update applies signature, digest, and release-sequence validation before
+the hold. After rollback, an otherwise eligible candidate that does not exceed the
+held signed release sequence must not stage, probe, or activate; the hold therefore
+prevents both the exact bad sequence and any intermediate sequence from displacing
+the retained evidence. A differently named same-sequence repack cannot bypass it.
+A greater release sequence is eligible normally. After a greater-sequence
+activation commits, Core removes the now-obsolete hold and guard while still
+inside the activation writer boundary; a failed activation must not clear them.
+`codex update --force` requires a valid authenticated hold and may retry exactly
+that held sequence for that invocation. It bypasses only the hold comparison; a
+same-held-sequence force retry retains the normal hold while removing any now-stale
+rollback-Core guard after the normal Core/generation pairing is restored. Force
+never enters the transport-unavailable local-build fallback and cannot target an
+unheld or greater sequence. Neither path weakens signature, digest, anti-rollback,
+candidate-probe, or atomic-activation rules.
 
 Internal release IDs, component digests, API versions, and schema versions are
 still mandatory for update, diagnosis, and rollback. They may appear only on a
@@ -363,6 +412,38 @@ supplied. The `core` digest must equal the generation descriptor's
 the URL is hosted by OpenAI.
 
 The no-argument local fallback resolves the upstream version before building.
+A channel result of exact-current, or a channel candidate suppressed only by the
+rollback hold, still triggers official upstream discovery. Core compares the
+exact official stable version with installed/held versions and builds only when
+the official stable is genuinely newer than every applicable version. The same
+prebuilt release-builder, signing authority, candidate probes, and signed
+activation path are mandatory; Core does not install a Rust toolchain or compile
+Core/Manager on-device.
+
+Automatic upstream intake is update-triggered only on a maintainer Termux device
+using the unmodified default signed channel, a secure device-local release private
+key whose derived public key exactly matches the active update authority, and an
+authenticated local GitHub CLI. Ordinary consumer devices that lack those
+maintainer authorities only consume the signed stable channel and never build,
+sign, stage, deploy, or promote a release. The repository has no trusted
+self-hosted GitHub Actions runner, and GitHub-hosted workflows must never receive
+or perform release/index signing.
+
+After local build/sign/qualification, publication uses GitHub Release only as
+immutable staging, dispatches the fixed Pages reconstruction and verification
+workflow, waits for a successful deployment, reads back and verifies the complete
+signed candidate HTTPS tree, and performs a disposable public no-argument update
+smoke. Only then may Core create one Git tree and one commit that replace both
+`update-index-v1` and `update-index-v1.sig` together, with the previously verified
+`main` head as the sole parent, and advance `main` through a non-forced Git-ref
+compare-and-swap. Any failure before that ref commit leaves the old stable pointer
+authoritative. If the final ref-update result cannot be disambiguated, Core must
+not claim either old or new stable authority; it reports an indeterminate
+promotion and the next update re-resolves the signed public channel. Once the ref
+commit is known to have landed, a later local activation failure cannot roll back
+that public commit: Core reports the promoted generation with local activation
+deferred so the next update consumes the newly signed stable channel.
+
 When `CODEX_TERMUX_UPDATE_VERSION` is set, it must be one explicit stable
 `MAJOR.MINOR.PATCH` value and Core fetches that exact version's official
 `release.json`. Otherwise Core fetches the bounded official
@@ -387,8 +468,8 @@ for local signing, is never copied into a generation, publication, repository,
 or upload, and is never printed.
 
 The local fallback allocates a fresh generation identity and release sequence
-greater than the active signed release, writes the complete signed publication
-under
+greater than both the active signed release and any authenticated rollback-held
+release sequence, writes the complete signed publication under
 `~/.local/lib/codex/core/publications/<generation_id>/`, and activates its
 `releases/<generation_id>/` child through the same local admission, candidate
 probe, atomic state transaction, and one-generation rollback path as every
@@ -397,10 +478,14 @@ mutable user or Manager state. Temporary archive/build material is private,
 bounded, and removed before success is reported. The fallback never invokes,
 installs, selects, or repairs `bwrap`.
 
-After a successful local activation, Core may publish the complete local
-generation to the fixed wrapper publication target `humtr/codex` on branch
-`main` when the local GitHub CLI at `$PREFIX/bin/gh` reports an authenticated
-account. A release whose complete signed file inventory is flat may use
+After a successful local activation, Core may enter publication only while the
+same maintainer authority gate above remains satisfied: the signed channel is the
+unmodified default, the secure local signing key still derives the active update
+authority, and the local GitHub CLI at `$PREFIX/bin/gh` reports an authenticated
+account. GitHub authentication alone never authorizes publication. When that
+gate is satisfied, Core may publish the complete local generation to the fixed
+wrapper publication target `humtr/codex` on branch `main`. A release whose
+complete signed file inventory is flat may use
 immutable GitHub Release assets under a tag equal to the validated generation
 identity; the signed index's `release_base` is then the matching
 `https://github.com/humtr/codex/releases/download/<generation_id>/` asset base.
@@ -419,15 +504,19 @@ wrapper key, verifies `release.sig`, requires exact
 `creation_metadata = "r10-browser-helper-bridge-v1"`, exact helper identities
 and `helpers/0`, `helpers/1` signed inventory, verifies every signed file digest,
 and reconstructs the exact signed release tree under
-`<generation_id>/` in one GitHub Pages deployment. Staging names are never release
-authority and never appear in the signed manifest. The resulting signed
-`release_base` is exactly
-`https://humtr.github.io/codex/<generation_id>/`. The deployed generation must
-remain below the GitHub Pages one-gibibyte site bound, and complete HTTPS
-readback of the manifest, signature, and every signed file must byte-match the
-local signed publication before the stable index may advance. The fixed workflow
-file itself may be mirrored to `main` through the Contents API; generation bytes
-must not be sent through the Contents API.
+`<generation_id>/`. Because a Pages deployment replaces the whole site, the
+workflow must first verify the currently signed stable index and current stable
+release, then reconstruct both that current generation and the candidate in the
+same Pages artifact. Staging names are never release authority and never appear
+in a signed manifest. The candidate signed `release_base` is exactly
+`https://humtr.github.io/codex/<generation_id>/`. The combined current-plus-
+candidate site must remain below the GitHub Pages one-gibibyte site bound. Every
+preserved-current signed payload is digest-verified during reconstruction, and
+complete candidate HTTPS readback of the manifest, signature, signed index, index
+signature, and every signed file must byte-match the local signed publication
+before stable promotion. The fixed workflow file itself may be mirrored to
+`main` through the Contents API; generation bytes must not be sent through the
+Contents API.
 
 Until the stable compatibility floor is newer than R10, the public stable target
 must itself use the exact R10 browser-helper bridge layout even when its Core is
@@ -436,18 +525,21 @@ generation directly. A newer canonical local generation may continue to use
 `browser/open/curl` and `browser/manual/curl`; canonical nested paths are not an
 R10-readable public stable target.
 
-The small `update-index-v1.sig` and `update-index-v1` files are updated on branch
-`main`, in that order, through the Contents API only after the selected release
-transport is complete and verified. The optional best-effort automated flat
-Release-asset step is attempted only after activation, validates the complete
-regular-file asset set, uses bounded child-process waits, never uploads the
-private key, and reports upload failure without undoing the locally activated
-generation. A failed, timed-out, incomplete, path-renaming, Pages-deployment, or
-readback publication never advances the signed index. It changes no OpenAI
-repository and does not make remote publication a prerequisite for local
-success. The account credential and the release `update_key` private key are
-separate authorities; account authentication alone cannot authorize a release
-for Core.
+For the ARH-2 automatic path, the small `update-index-v1` and
+`update-index-v1.sig` files are promoted together in one Git tree and one commit
+on branch `main` only after the selected release transport, complete readback,
+and disposable public-update smoke are verified. The branch update is non-forced
+and is based on the exact previously verified head, so a concurrent publisher
+cannot be overwritten. Historical explicit publication procedures may retain
+their previously accepted ordering, but automatic promotion must not expose a
+new index with an old signature or vice versa. A failed, timed-out, incomplete,
+path-renaming, Pages-deployment, readback, or pre-commit promotion never advances
+the automatic stable pointer. An indeterminate final ref result is reported as
+indeterminate rather than assuming either state. The optional best-effort flat
+Release-asset publisher remains separate, uses bounded child waits, never uploads
+the private key, and does not weaken this automatic promotion boundary. The
+account credential and the release `update_key` private key are separate
+authorities; account authentication alone cannot authorize a release for Core.
 
 All source files are snapshotted into private staging, revalidated as regular
 files, and copied without following symlinks. Final modes are applied before
