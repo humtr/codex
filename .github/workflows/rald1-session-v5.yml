@@ -1,0 +1,88 @@
+name: RALD-1 diagnostic gates v5
+
+on:
+  push:
+    branches: [rald1-impl-session-20260915]
+    paths:
+      - .rald1/v5-trigger
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: rewrite/rust-core
+          fetch-depth: 0
+      - name: Apply isolated RALD-1 draft
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=771d39f9337a7c15337fedc6b47b43d017d8140c
+          test "$(git rev-parse HEAD)" = "$expected"
+          git fetch origin rewrite/rust-core rald1-impl-session-20260915
+          test "$(git rev-parse origin/rewrite/rust-core)" = "$expected"
+          test -z "$(git status --porcelain)"
+          export PREFIX="$RUNNER_TEMP/termux-prefix"
+          mkdir -p "$PREFIX/bin" "$PREFIX/etc/tls/certs"
+          for tool in openssl curl gzip tar cat; do
+            install -m 0755 "$(command -v "$tool")" "$PREFIX/bin/$tool"
+          done
+          cp /etc/ssl/certs/ca-certificates.crt "$PREFIX/etc/tls/cert.pem"
+          echo "PREFIX=$PREFIX" >> "$GITHUB_ENV"
+          git show origin/rald1-impl-session-20260915:.rald1/local_derived.rs > crates/core/src/local_derived.rs
+          git show origin/rald1-impl-session-20260915:.rald1/apply.py > "$RUNNER_TEMP/rald1_apply.py"
+          python3 "$RUNNER_TEMP/rald1_apply.py"
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("crates/core/src/local_derived.rs")
+          s = p.read_text()
+          s = s.replace(
+              '        let source = include_str!("local_derived.rs");\n        for forbidden in [',
+              '        let source = include_str!("local_derived.rs")\n            .split("\\n#[cfg(test)]")\n            .next()\n            .unwrap();\n        for forbidden in [',
+              1,
+          )
+          old = '''        let marker = "Err(LocalProductError::RemoteTransportFailed)";
+                  let start = source.find(marker).unwrap();
+                  let tail = &source[start..source.len().min(start + 1000)];
+          '''
+          new = '''        let unified = source
+                      .find("fn activate_unified_update_with_hold_policy(")
+                      .unwrap();
+                  let marker = "Err(LocalProductError::RemoteTransportFailed)";
+                  let relative = source[unified..].find(marker).unwrap();
+                  let start = unified + relative;
+                  let tail = &source[start..source.len().min(start + 1000)];
+          '''
+          if old not in s:
+              raise SystemExit("fallback test marker missing")
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+          PY
+          cargo fmt --all
+          git diff --check
+          cargo check -p codex --locked
+      - name: Focused RALD and ARH
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p codex --locked rald1 -- --nocapture
+          cargo test -p codex --locked rollback_hold -- --nocapture
+          cargo test -p codex --locked force -- --nocapture
+          cargo test -p codex --locked rollback_guard -- --nocapture
+      - name: Full gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p codex-release-builder --locked
+          cargo test -p codex --locked
+          cargo test -p codex-manager --locked
+          cargo check --workspace --locked
+          cargo test --workspace --locked
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+          cargo fmt --all -- --check
+          git diff --check
