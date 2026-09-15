@@ -54,9 +54,11 @@ jobs:
           git show origin/rald1-impl-session-20260915:.rald1/apply.py > "$RUNNER_TEMP/rald1_apply.py"
           git show origin/rald1-impl-session-20260915:.rald1/refine.py > "$RUNNER_TEMP/rald1_refine.py"
           git show origin/rald1-impl-session-20260915:.rald1/refine2.py > "$RUNNER_TEMP/rald1_refine2.py"
+          git show origin/rald1-impl-session-20260915:.rald1/refine3.py > "$RUNNER_TEMP/rald1_refine3.py"
           python3 "$RUNNER_TEMP/rald1_apply.py"
           python3 "$RUNNER_TEMP/rald1_refine.py"
           python3 "$RUNNER_TEMP/rald1_refine2.py"
+          python3 "$RUNNER_TEMP/rald1_refine3.py"
           cargo fmt --all
           git diff --check
 
