@@ -131,4 +131,30 @@ m = replace_once(
     "    if !local_release_platform_matches(&manifest.expected_platform) {",
     "route release platform through production-exact/test-only matcher",
 )
+
+generation_platform_helper = r'''#[cfg(not(test))]
+fn generation_manifest_platform_matches(value: &str, requirement: &str) -> bool {
+    value == requirement
+}
+
+#[cfg(test)]
+fn generation_manifest_platform_matches(value: &str, requirement: &str) -> bool {
+    value == requirement
+        || (requirement == std::env::consts::OS
+            && value == "android"
+            && std::env::var_os("CODEX_TEST_TERMUX_ANDROID_RELEASE_PLATFORM").as_deref()
+                == Some(OsStr::new("1")))
+}
+
+'''
+marker = "fn qualify_generation_manifest<'a>("
+if m.count(marker) != 1:
+    raise SystemExit("generation manifest qualifier marker missing")
+m = m.replace(marker, generation_platform_helper + marker, 1)
+m = replace_once(
+    m,
+    "    if manifest.expected_platform != requirements.platform {",
+    "    if !generation_manifest_platform_matches(&manifest.expected_platform, requirements.platform) {",
+    "route generation platform through production-exact/test-only matcher",
+)
 main.write_text(m)
