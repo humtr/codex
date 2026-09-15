@@ -414,65 +414,35 @@ supplied. The `core` digest must equal the generation descriptor's
 `release_base`; `publish` performs no network upload and does not assume that
 the URL is hosted by OpenAI.
 
-The maintainer-only automatic official producer resolves the upstream version
-before building. A channel result of exact-current, or a channel candidate
-suppressed only by the rollback hold, may still trigger that producer while
-RALD-2 has not yet detached it from Core. Core compares the exact official stable
-version with installed/held versions and builds only when the official stable is
-genuinely newer than every applicable version. That producer continues to use
-the prebuilt release-builder, official signing authority, candidate probes, and
-signed activation path; Core does not install a Rust toolchain or compile
-Core/Manager on-device. This producer path is distinct from the local-derived
-transport fallback and `--build-local` path below.
+Official release production is not a Core runtime behavior. `codex update`,
+`--force`, `--rollback`, `--local`, and `--remote` never build or sign an
+official release, never read an official release private key, never invoke `gh`,
+and never stage, deploy, or promote public stable. The presence of
+`CODEX_TERMUX_UPDATE_PRIVATE_KEY`, the former device-local maintainer key path, or
+an authenticated `$PREFIX/bin/gh` account is inert to Core update semantics.
+Signed-channel exact-current and rollback-held results therefore remain consumer
+outcomes; they do not trigger ambient upstream discovery or release production.
 
-Automatic official upstream production is update-triggered only on a maintainer
-Termux device using the unmodified default signed channel, a secure device-local
-release private key whose derived public key exactly matches the active update
-authority, and an authenticated local GitHub CLI. Consumer devices that lack
-those maintainer authorities may still use the local-derived path defined below,
-but they never sign, stage, deploy, or promote an official release or index. The
-repository has no trusted self-hosted GitHub Actions runner, and GitHub-hosted
-workflows must never receive or perform release/index signing while this
-maintainer producer remains in Core pending RALD-2.
+Official source production remains an explicit, non-installed tooling boundary.
+The repository's `codex-release-builder` `fetch`, `build`, and `publish` commands
+may be orchestrated by an authorized producer: `fetch` selects and verifies the
+exact official upstream metadata/archive, `build` performs the required Termux
+adaptation and qualification, and `publish` constructs the signed immutable
+release/index publication tree using an explicitly supplied signing authority.
+Those commands do not make `codex update` a producer and do not themselves grant
+network publication authority. GitHub-hosted scheduling, secret-backed signing,
+and Release/Pages promotion are separate later RALD phases.
 
-After the maintainer-only automatic official producer builds, signs, and
-qualifies an official candidate, its publication uses GitHub Release only as
-immutable staging, dispatches the fixed Pages reconstruction and verification
-workflow, waits for a successful deployment, reads back and verifies the complete
-signed candidate HTTPS tree, and performs a disposable public no-argument update
-smoke. Only then may that producer create one Git tree and one commit that replace both
-`update-index-v1` and `update-index-v1.sig` together, with the previously verified
-`main` head as the sole parent, and advance `main` through a non-forced Git-ref
-compare-and-swap. Any failure before that ref commit leaves the old stable pointer
-authoritative. If the final ref-update result cannot be disambiguated, Core must
-not claim either old or new stable authority; it reports an indeterminate
-promotion and the next update re-resolves the signed public channel. Once the ref
-commit is known to have landed, a later local activation failure cannot roll back
-that public commit: Core reports the promoted generation with local activation
-deferred so the next update consumes the newly signed stable channel.
-
-When `CODEX_TERMUX_UPDATE_VERSION` is set, it must be one explicit stable
-`MAJOR.MINOR.PATCH` value and Core fetches that exact version's official
-`release.json`. Otherwise Core fetches the bounded official
-`https://releases.openai.com/codex/channels/latest` metadata, extracts the
-`rust-v<version>` tag and the digest for the exact
-`codex-package-aarch64-unknown-linux-musl.tar.gz` asset, and then uses only
-that resolved stable version. The metadata is a version/digest selector, not
-an activation authority: the builder still downloads the exact versioned
-archive, and Core compares the resulting archive digest to the metadata
-digest before adaptation. Missing, malformed, non-stable, mismatched, or
-unavailable metadata fails closed; no mirror, package manager, mutable raw
-runtime, or upstream self-updater is accepted.
-
-The automatic official producer uses the running authenticated Core executable
-as the `--core` input, the Termux `curl`, `gzip`, and `openssl` tools, and the
-private signing key at `CODEX_TERMUX_UPDATE_PRIVATE_KEY` when set, otherwise at
-`$HOME/.config/codex/termux/update-private-key.pem`. The key path must be an
-absolute regular file of at most 16 KiB, mode `0600` or stricter, and its
-derived public key must equal the recovered v3 `update_key`; a missing or
-mismatched key fails closed before official production. The private key is read
-only for official signing, is never copied into a generation, publication,
-repository, or upload, and is never printed.
+For any authorized official producer, an explicit version selector must be one
+stable `MAJOR.MINOR.PATCH` value; otherwise the bounded official
+`https://releases.openai.com/codex/channels/latest` metadata selects the
+`rust-v<version>` tag and digest for the exact
+`codex-package-aarch64-unknown-linux-musl.tar.gz` asset. The metadata is a
+version/digest selector, not an activation authority. The producer must download
+the exact versioned archive and compare its digest to the metadata-bound digest
+before adaptation. Missing, malformed, non-stable, mismatched, or unavailable
+metadata fails closed; no mirror, package manager, mutable raw runtime, or
+upstream self-updater is accepted.
 
 By contrast, `codex update --build-local` and a transport-unavailable bare-update
 fallback never read that key path, `CODEX_TERMUX_UPDATE_PRIVATE_KEY`, or any
@@ -497,14 +467,12 @@ the public generation that the hold protects. Temporary archive/build material
 is private, bounded, and removed before success is reported. Local-derived work
 never invokes, installs, selects, or repairs `bwrap`.
 
-The maintainer-only automatic official producer may enter publication only while
-the same maintainer authority gate above remains satisfied: the signed channel is
-the unmodified default, the secure official signing key still derives the active
-update authority, and the local GitHub CLI at `$PREFIX/bin/gh` reports an
-authenticated account. GitHub authentication alone never authorizes publication.
-When that gate is satisfied, the producer may publish its complete official
-candidate generation to the fixed wrapper publication target `humtr/codex` on
-branch `main`. A release whose
+Core runtime has no official publication path and never invokes
+`$PREFIX/bin/gh`. Any later authorized official producer must keep signing and
+publication authority outside Core; GitHub authentication alone never authorizes
+publication. When such a producer is authorized to publish, its complete official
+candidate targets the fixed wrapper repository `humtr/codex` and the selected
+stable publication ref. A release whose
 complete signed file inventory is flat may use
 immutable GitHub Release assets under a tag equal to the validated generation
 identity; the signed index's `release_base` is then the matching
@@ -545,10 +513,11 @@ generation directly. A newer canonical local generation may continue to use
 `browser/open/curl` and `browser/manual/curl`; canonical nested paths are not an
 R10-readable public stable target.
 
-For the ARH-2 automatic path, the small `update-index-v1` and
-`update-index-v1.sig` files are promoted together in one Git tree and one commit
-on branch `main` only after the selected release transport, complete readback,
-and disposable public-update smoke are verified. The branch update is non-forced
+For any later authorized official stable promotion, the small
+`update-index-v1` and `update-index-v1.sig` files are promoted together in one
+Git tree and one commit on the selected stable publication branch only after the
+selected release transport, complete readback, and disposable public-update smoke
+are verified. Core runtime does not perform this promotion. The branch update is non-forced
 and is based on the exact previously verified head, so a concurrent publisher
 cannot be overwritten. Historical explicit publication procedures may retain
 their previously accepted ordering, but automatic promotion must not expose a

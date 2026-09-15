@@ -1,9 +1,6 @@
 use std::ffi::{OsStr, OsString};
 
 #[cfg(unix)]
-mod automatic_update;
-
-#[cfg(unix)]
 mod rollback_guard;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3890,7 +3887,7 @@ const DEFAULT_UPDATE_INDEX_URL: &str =
 const UPDATE_INDEX_URL_ENV: &str = "CODEX_TERMUX_UPDATE_INDEX_URL";
 #[cfg(unix)]
 const UPDATE_VERSION_ENV: &str = "CODEX_TERMUX_UPDATE_VERSION";
-#[cfg(unix)]
+#[cfg(test)]
 const UPDATE_PRIVATE_KEY_ENV: &str = "CODEX_TERMUX_UPDATE_PRIVATE_KEY";
 #[cfg(unix)]
 const DEFAULT_UPSTREAM_LATEST_URL: &str = "https://releases.openai.com/codex/channels/latest";
@@ -3902,20 +3899,12 @@ const UPSTREAM_PACKAGE_ASSET: &str = "codex-package-aarch64-unknown-linux-musl.t
 const UPSTREAM_RELEASE_METADATA_MAX_BYTES: usize = 128 * 1024;
 #[cfg(unix)]
 const UPDATE_PRIVATE_KEY_MAX_BYTES: u64 = 16 * 1024;
-#[cfg(unix)]
+#[cfg(test)]
 const LOCAL_PUBLICATION_ROOT_RELATIVE: &str = ".local/lib/codex/core/publications";
 #[cfg(unix)]
 const LOCAL_DERIVED_METADATA_FORMAT: &str = "codex-local-derived-v1";
 #[cfg(unix)]
 const LOCAL_DERIVED_PRIVATE_KEY_FILE: &str = "local-derived-private.pem";
-#[cfg(unix)]
-const GITHUB_REPOSITORY: &str = "humtr/codex";
-#[cfg(unix)]
-const GITHUB_BRANCH: &str = "main";
-#[cfg(unix)]
-const GITHUB_HOST: &str = "github.com";
-#[cfg(unix)]
-const GITHUB_RESPONSE_MAX_BYTES: usize = 16 * 1024;
 #[cfg(unix)]
 const BOOTSTRAP_PUBLIC_KEY_MAX_BYTES: u64 = 16 * 1024;
 #[cfg(unix)]
@@ -4470,40 +4459,6 @@ fn valid_update_version(value: &str) -> bool {
 }
 
 #[cfg(unix)]
-fn parsed_update_version(value: &str) -> Result<[u64; 3], LocalProductError> {
-    if !valid_update_version(value) {
-        return Err(LocalProductError::LocalUpdate(
-            "upstream version is not canonical MAJOR.MINOR.PATCH",
-        ));
-    }
-    let mut parsed = [0u64; 3];
-    for (index, component) in value.split('.').enumerate() {
-        parsed[index] = component
-            .parse::<u64>()
-            .map_err(|_| LocalProductError::LocalUpdate("upstream version component is invalid"))?;
-    }
-    Ok(parsed)
-}
-
-#[cfg(unix)]
-fn update_version_is_newer(candidate: &str, baseline: &str) -> Result<bool, LocalProductError> {
-    Ok(parsed_update_version(candidate)? > parsed_update_version(baseline)?)
-}
-
-#[cfg(unix)]
-fn next_local_release_sequence(
-    current_sequence: u64,
-    held_sequence: Option<u64>,
-) -> Result<u64, LocalProductError> {
-    current_sequence
-        .max(held_sequence.unwrap_or(0))
-        .checked_add(1)
-        .ok_or(LocalProductError::LocalUpdate(
-            "local update release sequence is exhausted",
-        ))
-}
-
-#[cfg(unix)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PublicReleaseBaseline {
     generation_component: String,
@@ -4661,70 +4616,6 @@ fn generate_ephemeral_local_derived_key(
     }
     let key = release_public_key_from_private_pem(openssl, &private_key)?;
     Ok((private_key, key))
-}
-
-#[cfg(unix)]
-fn installed_update_baseline_version(roots: &LocalCoreRoots) -> Result<String, LocalProductError> {
-    let state_paths = m2_generation_state::CoreStatePaths::new(&roots.state_root)
-        .map_err(LocalProductError::StateFormat)?;
-    let state = m2_generation_state::recover_activation_state(&state_paths)
-        .map_err(LocalProductError::State)?
-        .ok_or(LocalProductError::NoCurrentGeneration)?;
-    let (_, current) = verify_installed_local_release(
-        roots,
-        &state.current,
-        state.current_key,
-        "active generation descriptor id does not match current",
-    )?;
-    let mut baseline = current.manifest.upstream_package_version.clone();
-    if let Some(hold) = rollback_guard::effective_update_hold(roots)? {
-        if hold.generation_id == state.current {
-            let (held_release, held) = verify_installed_local_release(
-                roots,
-                &state.current,
-                state.current_key,
-                "held current generation descriptor id does not match current",
-            )?;
-            if held_release.release_sequence != hold.release_sequence {
-                return Err(LocalProductError::UpdateHold(
-                    "update hold release sequence does not match current generation",
-                ));
-            }
-            if update_version_is_newer(&held.manifest.upstream_package_version, &baseline)? {
-                baseline = held.manifest.upstream_package_version;
-            }
-        } else {
-            let previous = state
-                .previous
-                .as_deref()
-                .ok_or(LocalProductError::UpdateHold(
-                    "update hold requires a retained previous generation",
-                ))?;
-            if previous != hold.generation_id {
-                return Err(LocalProductError::UpdateHold(
-                    "update hold generation does not match current or retained previous generation",
-                ));
-            }
-            let previous_key = state.previous_key.ok_or(LocalProductError::UpdateHold(
-                "update hold requires retained previous generation authority",
-            ))?;
-            let (held_release, held) = verify_installed_local_release(
-                roots,
-                previous,
-                previous_key,
-                "held generation descriptor id does not match retained previous",
-            )?;
-            if held_release.release_sequence != hold.release_sequence {
-                return Err(LocalProductError::UpdateHold(
-                    "update hold release sequence does not match retained previous generation",
-                ));
-            }
-            if update_version_is_newer(&held.manifest.upstream_package_version, &baseline)? {
-                baseline = held.manifest.upstream_package_version;
-            }
-        }
-    }
-    Ok(baseline)
 }
 
 #[cfg(unix)]
@@ -5654,42 +5545,6 @@ fn release_public_key_from_pem(
     let mut raw = [0u8; 32];
     raw.copy_from_slice(&output.stdout[PREFIX.len()..]);
     Ok(ReleasePublicKey(raw))
-}
-
-#[cfg(unix)]
-fn configured_update_private_key(
-    home: &std::path::Path,
-) -> Result<std::path::PathBuf, LocalProductError> {
-    use std::os::unix::fs::PermissionsExt;
-
-    let path = std::env::var_os(UPDATE_PRIVATE_KEY_ENV)
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| home.join(".config/codex/termux/update-private-key.pem"));
-    if path.as_os_str().is_empty() || !path.is_absolute() {
-        return Err(LocalProductError::LocalUpdate(
-            "local update signing key path must be an absolute path",
-        ));
-    }
-    let metadata = std::fs::symlink_metadata(&path)
-        .map_err(|_| LocalProductError::LocalUpdate("local update signing key is unavailable"))?;
-    if !metadata.file_type().is_file()
-        || metadata.len() == 0
-        || metadata.len() > UPDATE_PRIVATE_KEY_MAX_BYTES
-        || metadata.permissions().mode() & 0o077 != 0
-        || metadata.permissions().mode() & 0o400 == 0
-    {
-        return Err(LocalProductError::LocalUpdate(
-            "local update signing key is unavailable or insecure",
-        ));
-    }
-    let canonical = std::fs::canonicalize(&path)
-        .map_err(|_| LocalProductError::LocalUpdate("local update signing key is unavailable"))?;
-    if canonical != path {
-        return Err(LocalProductError::LocalUpdate(
-            "local update signing key must not be a symlink",
-        ));
-    }
-    Ok(path)
 }
 
 #[cfg(unix)]
@@ -7231,16 +7086,13 @@ enum PreparedSignedLocalRelease {
 enum SignedUpdateOutcome {
     Activated(String),
     AlreadyCurrent(String),
-    Promoted(String),
 }
 
 #[cfg(unix)]
 impl SignedUpdateOutcome {
     fn generation_id(&self) -> &str {
         match self {
-            Self::Activated(generation_id)
-            | Self::AlreadyCurrent(generation_id)
-            | Self::Promoted(generation_id) => generation_id,
+            Self::Activated(generation_id) | Self::AlreadyCurrent(generation_id) => generation_id,
         }
     }
 }
@@ -7639,149 +7491,12 @@ fn create_local_update_staging_root(
 }
 
 #[cfg(unix)]
-fn ensure_local_publication_root(
-    home: &std::path::Path,
-) -> Result<std::path::PathBuf, LocalProductError> {
-    use std::os::unix::fs::PermissionsExt;
-
-    let root = home.join(LOCAL_PUBLICATION_ROOT_RELATIVE);
-    ensure_real_directory_tree(
-        &root,
-        "prepare local publication store",
-        "local publication store contains a symlink or special file",
-    )?;
-    let mut permissions = std::fs::symlink_metadata(&root)
-        .map_err(|source| LocalProductError::Io {
-            operation: "inspect local publication store",
-            source,
-        })?
-        .permissions();
-    permissions.set_mode(0o700);
-    std::fs::set_permissions(&root, permissions).map_err(|source| LocalProductError::Io {
-        operation: "set local publication store permissions",
-        source,
-    })?;
-    let canonical = std::fs::canonicalize(&root).map_err(|source| LocalProductError::Io {
-        operation: "resolve local publication store",
-        source,
-    })?;
-    if canonical != root {
-        return Err(LocalProductError::UnsafeSource(
-            "local publication store contains a symlink",
-        ));
-    }
-    Ok(root)
-}
-
-#[cfg(unix)]
 fn local_update_generation_id() -> String {
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |duration| duration.as_secs());
     let sequence = LOCAL_STAGING_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     format!("local-{timestamp}-{}-{sequence}", std::process::id())
-}
-
-#[cfg(unix)]
-fn build_local_update_publication(
-    roots: &LocalCoreRoots,
-    metadata: &OfficialReleaseMetadata,
-) -> Result<(String, std::path::PathBuf), LocalProductError> {
-    let state_paths = m2_generation_state::CoreStatePaths::new(&roots.state_root)
-        .map_err(LocalProductError::StateFormat)?;
-    let before = m2_generation_state::recover_activation_state(&state_paths)
-        .map_err(LocalProductError::State)?
-        .ok_or(LocalProductError::NoCurrentGeneration)?;
-    let (current_release, current_loaded) = verify_installed_local_release(
-        roots,
-        &before.current,
-        before.current_key,
-        "active generation descriptor id does not match current",
-    )?;
-    let held_sequence =
-        rollback_guard::effective_update_hold(roots)?.map(|hold| hold.release_sequence);
-    let release_sequence =
-        next_local_release_sequence(current_release.release_sequence, held_sequence)?;
-    let home = required_absolute_env_path("HOME")?;
-    let private_key = configured_update_private_key(&home)?;
-    let signing_key = release_public_key_from_private_pem(&roots.openssl, &private_key)?;
-    if signing_key != before.update_key {
-        return Err(LocalProductError::LocalUpdate(
-            "local update signing key does not match the active update authority",
-        ));
-    }
-    let staging_root = create_local_update_staging_root(&roots.state_root)?;
-    let result = (|| {
-        let publication_root = ensure_local_publication_root(&home)?;
-        let generation_id = local_update_generation_id();
-        let archive = staging_root.join(UPSTREAM_PACKAGE_ASSET);
-        let archive_digest = codex_release_builder::fetch_archive(
-            &metadata.version,
-            &roots.curl,
-            &roots.openssl,
-            &archive,
-        )
-        .map_err(|_| {
-            LocalProductError::LocalUpdate("official upstream archive acquisition failed")
-        })?;
-        if archive_digest != metadata.package_sha256 {
-            return Err(LocalProductError::LocalUpdate(
-                "official upstream archive digest does not match release metadata",
-            ));
-        }
-        let core = std::fs::canonicalize(std::env::current_exe().map_err(|source| {
-            LocalProductError::Io {
-                operation: "resolve running Core artifact",
-                source,
-            }
-        })?)
-        .map_err(|source| LocalProductError::Io {
-            operation: "resolve running Core artifact",
-            source,
-        })?;
-        let gzip = roots
-            .curl
-            .parent()
-            .ok_or(LocalProductError::LocalUpdate(
-                "Termux tool directory is unavailable",
-            ))?
-            .join("gzip");
-        let unsigned_generation = staging_root.join("unsigned-generation");
-        let creation_metadata = R10_BROWSER_HELPER_BRIDGE_METADATA.to_owned();
-        codex_release_builder::build_generation_with_manager(
-            &metadata.version,
-            &archive,
-            &archive_digest,
-            &generation_id,
-            &core,
-            current_loaded.manager_path.as_deref(),
-            &creation_metadata,
-            &gzip,
-            &roots.openssl,
-            &unsigned_generation,
-        )
-        .map_err(|_| LocalProductError::LocalUpdate("local upstream adaptation failed"))?;
-        let release_base = format!("https://humtr.github.io/codex/{generation_id}/");
-        let publication = publication_root.join(&generation_id);
-        codex_release_builder::publish_generation(
-            &unsigned_generation,
-            &release_sequence.to_string(),
-            &release_base,
-            &private_key,
-            &roots.openssl,
-            &publication,
-        )
-        .map_err(|_| LocalProductError::LocalUpdate("local signed publication failed"))?;
-        std::fs::remove_dir_all(&staging_root).map_err(|source| LocalProductError::Io {
-            operation: "remove private local update staging",
-            source,
-        })?;
-        Ok((generation_id, publication))
-    })();
-    if result.is_err() {
-        let _ = std::fs::remove_dir_all(&staging_root);
-    }
-    result
 }
 
 #[cfg(unix)]
@@ -7894,161 +7609,6 @@ fn activate_local_built_update(
         (_, Err(error)) => Err(error),
         (Err(error), Ok(())) => Err(error),
         (Ok(generation_id), Ok(())) => Ok(generation_id),
-    }
-}
-
-#[cfg(unix)]
-fn build_newer_official_publication(
-    roots: &LocalCoreRoots,
-) -> Result<Option<(String, std::path::PathBuf)>, LocalProductError> {
-    let staging_root = create_local_update_staging_root(&roots.state_root)?;
-    let metadata = resolve_official_release_metadata(roots, &staging_root);
-    let cleanup = std::fs::remove_dir_all(&staging_root).map_err(|source| LocalProductError::Io {
-        operation: "remove upstream metadata staging",
-        source,
-    });
-    let metadata = match (metadata, cleanup) {
-        (_, Err(error)) => return Err(error),
-        (Err(error), Ok(())) => return Err(error),
-        (Ok(metadata), Ok(())) => metadata,
-    };
-    let baseline = installed_update_baseline_version(roots)?;
-    if !update_version_is_newer(&metadata.version, &baseline)? {
-        return Ok(None);
-    }
-    build_local_update_publication(roots, &metadata).map(Some)
-}
-
-#[cfg(unix)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum GithubPublicationOutcome {
-    Skipped,
-    Published,
-    Failed,
-}
-
-#[cfg(unix)]
-fn github_cli_path(roots: &LocalCoreRoots) -> Option<std::path::PathBuf> {
-    use std::os::unix::fs::PermissionsExt;
-
-    let path = roots.curl.parent()?.join("gh");
-    let metadata = std::fs::symlink_metadata(&path).ok()?;
-    if !metadata.file_type().is_file() || metadata.permissions().mode() & 0o111 == 0 {
-        return None;
-    }
-    Some(path)
-}
-
-#[cfg(unix)]
-fn github_command(gh: &std::path::Path, home: &std::path::Path) -> std::process::Command {
-    let mut command = std::process::Command::new(gh);
-    command
-        .env_clear()
-        .env("HOME", home)
-        .env("GH_CONFIG_DIR", home.join(".config/gh"));
-    for name in [
-        "GH_TOKEN",
-        "GITHUB_TOKEN",
-        "GH_ENTERPRISE_TOKEN",
-        "GITHUB_ENTERPRISE_TOKEN",
-    ] {
-        if let Some(value) = std::env::var_os(name) {
-            command.env(name, value);
-        }
-    }
-    command
-}
-
-#[cfg(unix)]
-fn github_authenticated(gh: &std::path::Path, home: &std::path::Path) -> bool {
-    github_command(gh, home)
-        .args(["auth", "status", "--hostname", GITHUB_HOST])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success())
-}
-
-#[cfg(unix)]
-fn valid_github_content_sha(value: &str) -> bool {
-    value.len() == 40
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f' | b'A'..=b'F'))
-}
-
-#[cfg(unix)]
-fn github_base64_value(byte: u8) -> u8 {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    ALPHABET[byte as usize]
-}
-
-#[cfg(unix)]
-fn write_github_base64(output: &mut impl std::io::Write, file: &std::path::Path) -> Result<(), ()> {
-    use std::io::Read as _;
-
-    let metadata = std::fs::symlink_metadata(file).map_err(|_| ())?;
-    if !metadata.file_type().is_file() || metadata.len() > REMOTE_RELEASE_FILE_MAX_BYTES {
-        return Err(());
-    }
-    let mut input = std::fs::File::open(file).map_err(|_| ())?;
-    loop {
-        let mut bytes = [0u8; 3];
-        let mut length = 0;
-        while length < bytes.len() {
-            let read = input.read(&mut bytes[length..]).map_err(|_| ())?;
-            if read == 0 {
-                break;
-            }
-            length += read;
-        }
-        if length == 0 {
-            return Ok(());
-        }
-        let first = bytes[0] >> 2;
-        let second = ((bytes[0] & 0x03) << 4) | (bytes[1] >> 4);
-        output
-            .write_all(&[github_base64_value(first), github_base64_value(second)])
-            .map_err(|_| ())?;
-        if length == 1 {
-            output.write_all(b"==").map_err(|_| ())?;
-        } else {
-            let third = ((bytes[1] & 0x0f) << 2) | (bytes[2] >> 6);
-            output
-                .write_all(&[github_base64_value(third)])
-                .map_err(|_| ())?;
-            if length == 2 {
-                output.write_all(b"=").map_err(|_| ())?;
-            } else {
-                output
-                    .write_all(&[github_base64_value(bytes[2] & 0x3f)])
-                    .map_err(|_| ())?;
-            }
-        }
-        if length < bytes.len() {
-            return Ok(());
-        }
-    }
-}
-
-#[cfg(unix)]
-fn wait_for_github_child_with_timeout(
-    child: &mut std::process::Child,
-    timeout: std::time::Duration,
-) -> Result<(), ()> {
-    use std::time::Instant;
-
-    let deadline = Instant::now() + timeout;
-    loop {
-        match child.try_wait().map_err(|_| ())? {
-            Some(status) => return status.success().then_some(()).ok_or(()),
-            None if Instant::now() >= deadline => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(());
-            }
-            None => std::thread::sleep(std::time::Duration::from_millis(100)),
-        }
     }
 }
 
@@ -8364,61 +7924,14 @@ fn activate_unified_update_with_hold_policy(
     roots: &LocalCoreRoots,
     process_env: &TermuxProcessEnvSnapshot,
     hold_policy: UpdateHoldPolicy,
-) -> Result<(SignedUpdateOutcome, bool, GithubPublicationOutcome), LocalProductError> {
+) -> Result<(SignedUpdateOutcome, bool), LocalProductError> {
     match activate_signed_update_channel_with_hold_policy(roots, process_env, hold_policy) {
-        Ok(channel_outcome) => {
-            if hold_policy == UpdateHoldPolicy::Enforce {
-                let expected_stable = channel_outcome.generation_id().to_owned();
-                match automatic_update::maybe_publish_newer_official_generation(
-                    roots,
-                    process_env,
-                    &expected_stable,
-                ) {
-                    Ok(Some((outcome, publication))) => {
-                        return Ok((outcome, true, publication));
-                    }
-                    Ok(None) => {}
-                    Err(error) => {
-                        eprintln!(
-                            "codex update: automatic upstream publication did not complete; this process keeps using the authenticated signed-channel result and will re-resolve public stable on the next update: {error}"
-                        );
-                        return Ok((channel_outcome, false, GithubPublicationOutcome::Failed));
-                    }
-                }
-            }
-            Ok((channel_outcome, false, GithubPublicationOutcome::Skipped))
-        }
-        Err(held @ LocalProductError::UpdateHeld { .. })
-            if hold_policy == UpdateHoldPolicy::Enforce =>
-        {
-            let expected_stable = match &held {
-                LocalProductError::UpdateHeld { generation_id, .. } => generation_id.to_string(),
-                _ => unreachable!("matched UpdateHeld above"),
-            };
-            match automatic_update::maybe_publish_newer_official_generation(
-                roots,
-                process_env,
-                &expected_stable,
-            ) {
-                Ok(Some((outcome, publication))) => Ok((outcome, true, publication)),
-                Ok(None) => Err(held),
-                Err(error) => {
-                    eprintln!(
-                        "codex update: automatic upstream publication did not complete while the held signed-channel result remains suppressed; rerun update to re-resolve public stable: {error}"
-                    );
-                    Err(held)
-                }
-            }
-        }
+        Ok(channel_outcome) => Ok((channel_outcome, false)),
         Err(LocalProductError::RemoteTransportFailed)
             if hold_policy == UpdateHoldPolicy::Enforce =>
         {
             let generation_id = activate_local_built_update(roots, process_env)?;
-            Ok((
-                SignedUpdateOutcome::Activated(generation_id),
-                true,
-                GithubPublicationOutcome::Skipped,
-            ))
+            Ok((SignedUpdateOutcome::Activated(generation_id), true))
         }
         Err(error) => Err(error),
     }
@@ -10293,31 +9806,10 @@ fn run_core_update(args: Vec<OsString>) -> i32 {
             UpdateHoldPolicy::Enforce
         };
         return match activate_unified_update_with_hold_policy(&roots, &process_env, hold_policy) {
-            Ok((outcome, locally_built, upload)) => {
+            Ok((outcome, local_derived)) => {
                 let generation_id = outcome.generation_id();
-                if locally_built {
-                    match &outcome {
-                        SignedUpdateOutcome::Promoted(_) => {
-                            println!(
-                                "promoted stable generation {generation_id}; local activation deferred; rerun 'codex update'"
-                            );
-                        }
-                        SignedUpdateOutcome::Activated(_)
-                        | SignedUpdateOutcome::AlreadyCurrent(_) => {
-                            println!("activated local-built generation {generation_id}");
-                            match upload {
-                                GithubPublicationOutcome::Published => {
-                                    println!("published local generation {generation_id}");
-                                }
-                                GithubPublicationOutcome::Failed => {
-                                    eprintln!(
-                                        "codex update: local generation activated; GitHub publication failed"
-                                    );
-                                }
-                                GithubPublicationOutcome::Skipped => {}
-                            }
-                        }
-                    }
+                if local_derived {
+                    println!("activated local-derived generation {generation_id}");
                 } else {
                     match &outcome {
                         SignedUpdateOutcome::Activated(_) => {
@@ -10326,16 +9818,6 @@ fn run_core_update(args: Vec<OsString>) -> i32 {
                         SignedUpdateOutcome::AlreadyCurrent(_) => {
                             println!("codex is already up to date (generation {generation_id})");
                         }
-                        SignedUpdateOutcome::Promoted(_) => {
-                            println!(
-                                "promoted stable generation {generation_id}; local activation deferred; rerun 'codex update'"
-                            );
-                        }
-                    }
-                    if upload == GithubPublicationOutcome::Failed {
-                        eprintln!(
-                            "codex update: the authenticated signed-channel result remains in use for this process; automatic upstream publication did not complete"
-                        );
                     }
                 }
                 0
@@ -10399,12 +9881,6 @@ fn run_core_update(args: Vec<OsString>) -> i32 {
         Ok(SignedUpdateOutcome::AlreadyCurrent(generation_id)) => {
             println!("codex is already up to date (generation {generation_id})");
             0
-        }
-        Ok(SignedUpdateOutcome::Promoted(generation_id)) => {
-            eprintln!(
-                "codex update: internal error: explicit local/remote update cannot return promoted-only generation {generation_id}"
-            );
-            1
         }
         Err(err) => {
             eprintln!("codex update: {err}");
@@ -16021,6 +15497,129 @@ esac
 
     #[cfg(unix)]
     #[test]
+    fn test_rald2_core_update_never_enters_official_producer_with_maintainer_credentials() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let fixture = b5_channel_fixture("rald2-consumer-only", "rald2-channel-next");
+        b5_write_channel_curl(
+            &fixture.prefix.join("bin/curl"),
+            &fixture.curl_log,
+            DEFAULT_UPDATE_INDEX_URL,
+            &fixture.index_path,
+            &fixture.signature_path,
+            &fixture.base,
+            &fixture
+                .root
+                .join("release-server/source-generations/rald2-channel-next"),
+        );
+        std::fs::write(&fixture.curl_log, b"").unwrap();
+
+        let maintainer_key = fixture
+            .home
+            .join(".config/codex/termux/update-private-key.pem");
+        std::fs::create_dir_all(maintainer_key.parent().unwrap()).unwrap();
+        std::fs::copy(&fixture.private_key, &maintainer_key).unwrap();
+        let mut key_permissions = std::fs::metadata(&maintainer_key).unwrap().permissions();
+        key_permissions.set_mode(0o600);
+        std::fs::set_permissions(&maintainer_key, key_permissions).unwrap();
+
+        let gh_log = fixture.root.join("rald2-gh-log");
+        b7_write_fake_github_cli(
+            &fixture.prefix.join("bin/gh"),
+            &gh_log,
+            &fixture.root.join("rald2-gh-body"),
+            0,
+        );
+
+        let ordinary = rald2_run_public_default_channel_update(
+            false,
+            &fixture.home,
+            &fixture.prefix,
+            &fixture.tmp,
+        );
+        assert_eq!(
+            ordinary.status.code(),
+            Some(0),
+            "stdout={:?} stderr={:?}",
+            ordinary.stdout,
+            ordinary.stderr
+        );
+        assert!(ordinary
+            .stdout
+            .windows(
+                b"activated channel generation rald2-channel-next
+"
+                .len()
+            )
+            .any(|window| window
+                == b"activated channel generation rald2-channel-next
+"));
+        assert!(!gh_log.exists(), "ordinary update must not invoke gh");
+        let ordinary_calls = std::fs::read_to_string(&fixture.curl_log).unwrap();
+        assert!(!ordinary_calls.contains(DEFAULT_UPSTREAM_LATEST_URL));
+
+        let rollback = arh1_run_public_rollback(&fixture.home, &fixture.prefix, &fixture.tmp);
+        assert_eq!(
+            rollback.status.code(),
+            Some(0),
+            "stdout={:?} stderr={:?}",
+            rollback.stdout,
+            rollback.stderr
+        );
+        assert!(!gh_log.exists(), "rollback must not invoke gh");
+
+        std::fs::write(&fixture.curl_log, b"").unwrap();
+        let held = rald2_run_public_default_channel_update(
+            false,
+            &fixture.home,
+            &fixture.prefix,
+            &fixture.tmp,
+        );
+        assert_eq!(held.status.code(), Some(1), "stderr={:?}", held.stderr);
+        assert!(held
+            .stderr
+            .windows(b"release sequence 2 is locally held after rollback".len())
+            .any(|window| window == b"release sequence 2 is locally held after rollback"));
+        assert!(!gh_log.exists(), "held update must not invoke gh");
+        let held_calls = std::fs::read_to_string(&fixture.curl_log).unwrap();
+        assert!(!held_calls.contains(DEFAULT_UPSTREAM_LATEST_URL));
+
+        std::fs::write(&fixture.curl_log, b"").unwrap();
+        let forced = rald2_run_public_default_channel_update(
+            true,
+            &fixture.home,
+            &fixture.prefix,
+            &fixture.tmp,
+        );
+        assert_eq!(
+            forced.status.code(),
+            Some(0),
+            "stdout={:?} stderr={:?}",
+            forced.stdout,
+            forced.stderr
+        );
+        assert!(!gh_log.exists(), "forced held update must not invoke gh");
+        let forced_calls = std::fs::read_to_string(&fixture.curl_log).unwrap();
+        assert!(!forced_calls.contains(DEFAULT_UPSTREAM_LATEST_URL));
+
+        let roots = b7_public_roots(&fixture.home, &fixture.prefix);
+        let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+        let state = read_pointer_state(&paths).unwrap().unwrap();
+        assert_eq!(state.current, "rald2-channel-next");
+        assert_eq!(state.previous.as_deref(), Some("channel-current"));
+        assert_eq!(
+            read_update_hold(&roots).unwrap(),
+            Some(UpdateHoldRecord {
+                generation_id: "rald2-channel-next".to_owned(),
+                release_sequence: 2,
+            })
+        );
+        assert!(!fixture.home.join(LOCAL_PUBLICATION_ROOT_RELATIVE).exists());
+        remove_temp_root(fixture.root);
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn test_rald1_local_derived_fallback_and_explicit_build_preserve_public_authority() {
         use std::os::unix::fs::PermissionsExt;
 
@@ -16096,15 +15695,8 @@ esac
             77,
         );
 
-        let missing_maintainer_key = root.join("missing-maintainer-private.pem");
-        let output = b7_run_public_local_fallback(
-            index_url,
-            None,
-            &missing_maintainer_key,
-            &home,
-            &prefix,
-            &tmp,
-        );
+        let output =
+            b7_run_public_local_fallback(index_url, None, &private_key, &home, &prefix, &tmp);
         assert_eq!(
             output.status.code(),
             Some(0),
@@ -16113,7 +15705,7 @@ esac
             output.stderr
         );
         let stdout = String::from_utf8(output.stdout).unwrap();
-        assert!(stdout.contains("activated local-built generation local-"));
+        assert!(stdout.contains("activated local-derived generation local-"));
         assert!(output.stderr.is_empty(), "stderr={:?}", output.stderr);
         assert!(
             !gh_log.exists(),
@@ -16345,24 +15937,6 @@ esac
         assert_ne!(public_key, ReleasePublicKey([0; 32]));
         std::fs::remove_file(private_key).unwrap();
         remove_temp_root(root);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn test_r9_github_publication_wait_is_bounded() {
-        let shell = resolve_test_shell();
-        let mut child = std::process::Command::new(shell)
-            .args(["-c", "while :; do :; done"])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .unwrap();
-        assert!(wait_for_github_child_with_timeout(
-            &mut child,
-            std::time::Duration::from_millis(20)
-        )
-        .is_err());
-        assert!(child.try_wait().unwrap().is_some());
     }
 
     #[cfg(unix)]
@@ -16684,6 +16258,39 @@ esac
             .env("TMPDIR", tmp)
             .env_remove("SSL_CERT_FILE")
             .env_remove("SSL_CERT_DIR");
+        command.output().unwrap()
+    }
+
+    #[cfg(unix)]
+    fn rald2_run_public_default_channel_update(
+        force: bool,
+        home: &std::path::Path,
+        prefix: &std::path::Path,
+        tmp: &std::path::Path,
+    ) -> std::process::Output {
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command
+            .arg("tests::public_update_probe")
+            .arg("--exact")
+            .arg("--nocapture")
+            .env(UPDATE_PROBE_ROLE, "1")
+            .env(UPDATE_PROBE_CHANNEL, "1")
+            .env_remove(UPDATE_PROBE_SOURCE)
+            .env_remove(UPDATE_PROBE_REMOTE)
+            .env_remove(UPDATE_INDEX_URL_ENV)
+            .env_remove(UPDATE_VERSION_ENV)
+            .env_remove(UPDATE_PRIVATE_KEY_ENV)
+            .env("CODEX_TEST_REQUIRE_NO_ACQUISITION", "1")
+            .env("HOME", home)
+            .env("PREFIX", prefix)
+            .env("TMPDIR", tmp)
+            .env_remove("SSL_CERT_FILE")
+            .env_remove("SSL_CERT_DIR");
+        if force {
+            command.env(UPDATE_PROBE_FORCE, "1");
+        } else {
+            command.env_remove(UPDATE_PROBE_FORCE);
+        }
         command.output().unwrap()
     }
 
@@ -19093,30 +18700,6 @@ esac
             files.len() + 3
         );
         remove_temp_root(root);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn test_arh2_official_version_order_and_release_sequence_floor_are_exact() {
-        assert!(!update_version_is_newer("0.154.0", "0.154.0").unwrap());
-        assert!(update_version_is_newer("0.155.0", "0.154.9").unwrap());
-        assert!(update_version_is_newer("1.0.0", "0.999.999").unwrap());
-        for invalid in [
-            "",
-            "0.154",
-            "0.154.0.1",
-            "00.154.0",
-            "0.0154.0",
-            "0.154.00",
-            "v0.155.0",
-            "0.155.0-rc.1",
-        ] {
-            assert!(parsed_update_version(invalid).is_err(), "invalid={invalid}");
-        }
-        assert_eq!(next_local_release_sequence(10, None).unwrap(), 11);
-        assert_eq!(next_local_release_sequence(10, Some(9)).unwrap(), 11);
-        assert_eq!(next_local_release_sequence(10, Some(11)).unwrap(), 12);
-        assert!(next_local_release_sequence(u64::MAX, None).is_err());
     }
 
     #[cfg(unix)]

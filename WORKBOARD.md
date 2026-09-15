@@ -30,21 +30,46 @@ behavior belongs in `SPEC.md`.
 - AUTO-UPSTREAM-ROLLBACK is accepted and source-closed at
   `21bb1cd78d4a6e6ef8e124b7f07230206c5aa5ea`.
 - Active implementation bundle: **RELEASE-AUTOMATION-LOCAL-DERIVED (RALD)**.
-- RALD-1 local-derived Core contract is accepted on 2026-09-15; the next
-  incomplete phase is **RALD-2 — detach official production from Core
-  `codex update`**.
+- RALD-1 local-derived Core contract and RALD-2 Core/official-producer separation
+  are accepted; the next incomplete phase is **RALD-3 — GitHub-hosted scheduled
+  producer**.
 - The drift-control execution contract is `RELEASE_AUTOMATION_PLAN.md`.
-- Remaining authorized order: RALD-2 detach official release production from
-  `codex update`; RALD-3 GitHub-hosted scheduled producer; RALD-4 Actions-secret
-  signing; RALD-5 Release/Pages LKG-preserving publication and runtime-proven
-  promotion; RALD-6 fresh-install/update delivery E2E; RALD-7 full acceptance
-  and scheduler activation.
+- Remaining authorized order: RALD-3 GitHub-hosted scheduled producer; RALD-4
+  Actions-secret signing; RALD-5 Release/Pages LKG-preserving publication and
+  runtime-proven promotion; RALD-6 fresh-install/update delivery E2E; RALD-7 full
+  acceptance and scheduler activation.
 - Public stable remains fixed during source development and may advance only after
   the selected plan's focused/full gates, public readback, disposable public-update
   runtime smoke, and exact non-forced promotion checks pass.
 - `legacy/monolith` remains sealed at
   `bf30a7dc94d4dad7f58836c69028160856e63c58`.
 - Worker mode remains OFF.
+
+## Accepted RALD-2 disposition
+
+Core `codex update` is consumer/local-derived only. The device-side
+`automatic_update` producer/publisher and its official private-key, GitHub CLI,
+GitHub Release/Pages, readback, and stable-promotion wiring are removed. A
+matching former maintainer key and authenticated fake `gh` are inert to ordinary
+signed-channel update, rollback, held retry, and exact forced retry; those routes
+do not perform ambient upstream producer discovery and do not create a local
+publication. Transport-level signed-channel unavailability retains only the
+accepted RALD-1 local-derived fallback.
+
+The explicit `codex-release-builder fetch/build/publish` boundary remains intact
+and its signed publication still enters existing Core admission. This is source
+producer tooling, not installed runtime authority; GitHub-hosted scheduling,
+secret-backed official signing, Release/Pages publication, and stable promotion
+remain RALD-3 through RALD-5.
+
+Acceptance gate is green: focused consumer/RALD-1/ARH/channel E2E 4/4; explicit
+builder-to-admission 1/1; format and `git diff --check`; locked workspace check;
+workspace clippy `-D warnings`; removed-producer symbol audit; full locked
+workspace tests with Core 145 passed / one explicit live-Termux smoke ignored,
+Manager 20/20 plus 11/11 integration, and release-builder 15/15. Tests ran only
+in the isolated worktree/disposable roots. The live installation, public stable,
+GitHub Release/Pages stable state, and Actions secrets remain unchanged. RALD-3
+is next.
 
 ## Accepted RALD-1 disposition
 
@@ -72,8 +97,9 @@ regressions 4/4; locked workspace check; workspace clippy `-D warnings`; format
 and `git diff --check`; full locked workspace tests with Core 153 passed / one
 explicit live-Termux smoke ignored, Manager 20/20 plus 11/11 integration, and
 release-builder 15/15. Tests ran only in the isolated worktree/disposable roots.
-The live installation and public stable remain unchanged. RALD-2 is next; the
-remaining official producer in Core is intentionally not re-designed in RALD-1.
+The live installation and public stable remain unchanged. At RALD-1 acceptance the
+remaining official producer was intentionally deferred; accepted RALD-2 now
+removes it from Core runtime.
 
 ## Accepted TC-LIVE-BRIDGE disposition
 

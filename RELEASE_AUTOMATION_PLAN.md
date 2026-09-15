@@ -1,6 +1,6 @@
 # Release Automation and Local-Derived Update Plan
 
-Status: selected implementation plan; **RALD-1 accepted on 2026-09-15; RALD-2 is the next incomplete phase; RALD-3..RALD-7 remain pending**.
+Status: selected implementation plan; **RALD-1 accepted on 2026-09-15; RALD-2 accepted on 2026-09-16; RALD-3 is the next incomplete phase; RALD-4..RALD-7 remain pending**.
 
 Baseline: `rewrite/rust-core` at
 `21bb1cd78d4a6e6ef8e124b7f07230206c5aa5ea` (`termux: guard rollback holds and automate stable intake`).
@@ -360,8 +360,8 @@ Focused RALD-1 E2E passed 4/4; accepted ARH/signed-channel regressions passed
 and the full locked workspace suite all passed. The full suite result was Core
 153 passed / one explicit live smoke ignored, Manager 20/20 plus 11/11
 integration, and release-builder 15/15. Public stable and the live installation
-were not mutated. The still-live official producer is intentionally left for
-RALD-2.
+were not mutated. The then-live official producer was intentionally left for
+RALD-2 and is now detached by the accepted RALD-2 phase.
 
 Primary files expected to change:
 
@@ -391,6 +391,20 @@ Required tests:
 Gate: focused process E2E plus all existing rollback/hold/force regressions.
 
 ### Phase RALD-2 — detach official production from Core `codex update`
+
+Status: **accepted 2026-09-16**. Core no longer contains the device-side
+`automatic_update` official producer/publisher or ambient official-key/GitHub
+wiring. `codex update` remains signed-channel consumption plus the accepted
+RALD-1 local-derived transport fallback; maintainer credentials and authenticated
+`gh` do not change that behavior. The explicit release-builder
+`fetch/build/publish` producer boundary remains intact for later orchestration.
+Focused consumer/RALD-1/ARH/channel E2E passed 4/4; explicit builder-to-admission
+passed 1/1; formatting, `git diff --check`, locked workspace check, workspace
+clippy `-D warnings`, and producer-symbol absence audit passed; full locked
+workspace tests passed with Core 145 passed / one explicit live smoke ignored,
+Manager 20/20 plus 11/11 integration, and release-builder 15/15. Public stable,
+the live installation, GitHub Release/Pages stable state, and Actions secrets
+were not mutated. RALD-3 is next.
 
 Primary files expected to change:
 

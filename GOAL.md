@@ -193,6 +193,28 @@ Termux qualification. Produce one candidate for independent product review.
 
 ### Current Direct-Lead Evidence
 
+- RELEASE-AUTOMATION-LOCAL-DERIVED phase RALD-2 is accepted on 2026-09-16.
+  Core `codex update` is now a consumer/local-derived boundary only. The
+  device-side `automatic_update` official producer/publisher and its ambient
+  maintainer-key/GitHub helpers are removed; ordinary, held, forced, rollback,
+  local/remote, exact-current, and transport-fallback behavior cannot gain
+  official signing or publication authority merely because maintainer
+  credentials or an authenticated `gh` happen to exist. Explicit
+  `codex-release-builder fetch/build/publish` tooling remains available as the
+  non-installed producer boundary selected for the later GitHub-hosted phases.
+- RALD-2 validation: consumer-only/default-channel plus retained RALD-1, ARH,
+  and signed-channel focused process E2E passed 4/4 in `job_uh8_9f46cd866f`;
+  explicit release-builder publication entering signed admission passed 1/1 in
+  `job_uhc_20bd2e50ed`; formatting, `git diff --check`, locked workspace check,
+  workspace clippy with `-D warnings`, and removed-producer symbol audit passed
+  in `job_uhd_4af39b46e6`; the full locked workspace suite passed in
+  `job_uhe_6b1b48a547` with Core 145 passed / one explicit live-Termux smoke
+  ignored, Manager 20/20 plus 11/11 integration, and release-builder 15/15. All
+  execution used the isolated TMCP worktree and disposable fixtures; the live
+  Codex installation, protected resolver/auth/config/profile/session state,
+  public stable index, GitHub Release/Pages stable publication, and Actions
+  secrets were not mutated. RALD-3 is the next selected phase.
+
 - RELEASE-AUTOMATION-LOCAL-DERIVED phase RALD-1 is accepted on 2026-09-15.
   Core now owns exact `codex update --build-local` and the permitted automatic-
   channel transport fallback through one official-source local-derived path. The
@@ -204,7 +226,8 @@ Termux qualification. Produce one candidate for independent product review.
   exception. Rollback from local-derived creates no public hold/guard; later
   official signed activation and rollback/hold/force retain the accepted ARH
   behavior. The now-unreachable legacy transport-fallback GitHub uploader was
-  removed; the still-live official producer remains intentionally for RALD-2.
+  removed; the remaining official producer was intentionally left for RALD-2 and
+  is now detached from Core by the accepted RALD-2 change.
 - RALD-1 validation: focused process E2E 4/4 in `job_ufm_7599d915e3`; existing
   ARH rollback/hold/force plus signed-channel regressions 4/4 in
   `job_ufo_ebf8afabd3`; formatting, `git diff --check`, locked workspace check,
@@ -214,7 +237,8 @@ Termux qualification. Produce one candidate for independent product review.
   release-builder 15/15. All execution used the isolated TMCP worktree and
   disposable fixtures; the installed live Codex, protected resolver/auth/config/
   profile/session state, public stable index, GitHub Release/Pages publication,
-  and Actions secrets were not mutated. RALD-2 is the next selected phase.
+  and Actions secrets were not mutated. RALD-2 was subsequently accepted;
+  RALD-3 is now the next selected phase.
 
 - The user explicitly withdrew trust from the prior implementation-worker path
   and required a fresh Lead review from the beginning. Worker mode remains
