@@ -1,0 +1,124 @@
+name: RALD-1 ARM64 full gates v7
+
+on:
+  push:
+    branches: [rald1-impl-session-20260915]
+    paths:
+      - .rald1/v7-trigger
+
+permissions:
+  contents: read
+
+env:
+  RUSTFLAGS: -C link-arg=-Wl,--dynamic-linker=/system/bin/linker64
+
+jobs:
+  baseline-core:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: rewrite/rust-core
+          fetch-depth: 0
+      - name: Reproduce disposable Termux execution contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=771d39f9337a7c15337fedc6b47b43d017d8140c
+          test "$(git rev-parse HEAD)" = "$expected"
+          git fetch origin rewrite/rust-core
+          test "$(git rev-parse origin/rewrite/rust-core)" = "$expected"
+          loader="$(readelf -l "$(command -v sh)" | sed -n 's/.*Requesting program interpreter: \(.*\)]/\1/p')"
+          test -n "$loader"
+          test -f "$loader"
+          sudo mkdir -p /system/bin /data/data/com.termux/files/usr/bin
+          sudo ln -sfn "$loader" /system/bin/linker64
+          sudo install -m 0755 "$(command -v sh)" /data/data/com.termux/files/usr/bin/sh
+          export PREFIX="$RUNNER_TEMP/termux-prefix"
+          mkdir -p "$PREFIX/bin" "$PREFIX/etc/tls/certs"
+          for tool in openssl curl gzip tar cat chmod script clang sh; do
+            install -m 0755 "$(command -v "$tool")" "$PREFIX/bin/$tool"
+          done
+          cp /etc/ssl/certs/ca-certificates.crt "$PREFIX/etc/tls/cert.pem"
+          echo "PREFIX=$PREFIX" >> "$GITHUB_ENV"
+          uname -m | grep -qx aarch64
+          test -x /system/bin/linker64
+          test -x /data/data/com.termux/files/usr/bin/sh
+      - name: Prove base Core full suite under the same contract
+        shell: bash
+        run: cargo test -p codex --locked
+
+  verify:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: rewrite/rust-core
+          fetch-depth: 0
+      - name: Apply isolated RALD-1 candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=771d39f9337a7c15337fedc6b47b43d017d8140c
+          test "$(git rev-parse HEAD)" = "$expected"
+          git fetch origin rewrite/rust-core rald1-impl-session-20260915
+          test "$(git rev-parse origin/rewrite/rust-core)" = "$expected"
+          test -z "$(git status --porcelain)"
+          loader="$(readelf -l "$(command -v sh)" | sed -n 's/.*Requesting program interpreter: \(.*\)]/\1/p')"
+          test -n "$loader"
+          test -f "$loader"
+          sudo mkdir -p /system/bin /data/data/com.termux/files/usr/bin
+          sudo ln -sfn "$loader" /system/bin/linker64
+          sudo install -m 0755 "$(command -v sh)" /data/data/com.termux/files/usr/bin/sh
+          export PREFIX="$RUNNER_TEMP/termux-prefix"
+          mkdir -p "$PREFIX/bin" "$PREFIX/etc/tls/certs"
+          for tool in openssl curl gzip tar cat chmod script clang sh; do
+            install -m 0755 "$(command -v "$tool")" "$PREFIX/bin/$tool"
+          done
+          cp /etc/ssl/certs/ca-certificates.crt "$PREFIX/etc/tls/cert.pem"
+          echo "PREFIX=$PREFIX" >> "$GITHUB_ENV"
+          uname -m | grep -qx aarch64
+          git show origin/rald1-impl-session-20260915:.rald1/local_derived.rs > crates/core/src/local_derived.rs
+          git show origin/rald1-impl-session-20260915:.rald1/apply.py > "$RUNNER_TEMP/rald1_apply.py"
+          git show origin/rald1-impl-session-20260915:.rald1/refine.py > "$RUNNER_TEMP/rald1_refine.py"
+          git show origin/rald1-impl-session-20260915:.rald1/refine2.py > "$RUNNER_TEMP/rald1_refine2.py"
+          python3 "$RUNNER_TEMP/rald1_apply.py"
+          python3 "$RUNNER_TEMP/rald1_refine.py"
+          python3 "$RUNNER_TEMP/rald1_refine2.py"
+          cargo fmt --all
+          git diff --check
+          tracked="$(git diff --name-only | sort)"
+          expected_tracked="$(printf '%s\n' SPEC.md crates/core/src/main.rs crates/release-builder/src/lib.rs | sort)"
+          test "$tracked" = "$expected_tracked"
+          test "$(git status --porcelain -- crates/core/src/local_derived.rs)" = "?? crates/core/src/local_derived.rs"
+          cargo check -p codex --locked
+      - name: Focused RALD-1 and ARH regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p codex --locked rald1 -- --nocapture
+          cargo test -p codex --locked test_arh1_ -- --nocapture
+      - name: Release builder full tests
+        shell: bash
+        run: cargo test -p codex-release-builder --locked
+      - name: Core full tests
+        shell: bash
+        run: cargo test -p codex --locked
+      - name: Manager integration tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p codex-manager --test profile_commands --locked
+          cargo test -p codex-manager --locked
+      - name: Workspace gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo check --workspace --locked
+          cargo test --workspace --locked
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+          cargo fmt --all -- --check
+          git diff --check
+          test -z "$(git diff --name-only --diff-filter=U)"
