@@ -27,12 +27,19 @@ behavior belongs in `SPEC.md`.
 - Public stable is signed sequence 10 generation
   `local-20260914-update-channel-bridge-1` at the verified GitHub Pages release
   base; retained R10 no-argument update and exact-current no-op are accepted.
-- Active implementation bundle: **AUTO-UPSTREAM-ROLLBACK**.
-- Authorized order: ARH-1 `update --rollback` + atomic hold/guard + hold enforcement +
-  `update --force`; then ARH-2 update-triggered official upstream discovery/build
-  and fail-closed Release/Pages publication without exporting the private key.
-- Public stable remains fixed during development and may advance only after all
-  focused/full gates, complete readback, and disposable public-update smoke pass.
+- AUTO-UPSTREAM-ROLLBACK is accepted and source-closed at
+  `21bb1cd78d4a6e6ef8e124b7f07230206c5aa5ea`.
+- Active implementation bundle: **RELEASE-AUTOMATION-LOCAL-DERIVED (RALD)**,
+  selected for planning and implementation but not yet accepted.
+- The drift-control execution contract is `RELEASE_AUTOMATION_PLAN.md`.
+- Authorized order: RALD-1 local-derived Core contract; RALD-2 detach official
+  release production from `codex update`; RALD-3 GitHub-hosted scheduled producer;
+  RALD-4 Actions-secret signing; RALD-5 Release/Pages LKG-preserving publication
+  and runtime-proven promotion; RALD-6 fresh-install/update delivery E2E; RALD-7
+  full acceptance and scheduler activation.
+- Public stable remains fixed during source development and may advance only after
+  the selected plan's focused/full gates, public readback, disposable public-update
+  runtime smoke, and exact non-forced promotion checks pass.
 - `legacy/monolith` remains sealed at
   `bf30a7dc94d4dad7f58836c69028160856e63c58`.
 - Worker mode remains OFF.
@@ -145,6 +152,32 @@ publication paths without artificially advancing public stable, and the acceptan
 run did not mutate the installed live Codex or protected user/provider state. The
 source closure for this accepted ledger state is the corresponding clean
 fast-forward commit on `rewrite/rust-core`.
+
+## Selected RELEASE-AUTOMATION-LOCAL-DERIVED plan
+
+This follow-up separates official release production from device-side release
+consumption. `codex update`, `codex update --rollback`, rollback hold/guard, and
+bounded `codex update --force` retain their accepted consumer/recovery semantics.
+A new explicit `codex update --build-local` is always local-derived regardless of
+whether an official private key happens to exist on the device; it preserves the
+official `update_key` and can never publish official stable.
+
+Official release production moves to a GitHub-hosted scheduled producer. The
+selected signing input is repository Actions secret `CODEX_RELEASE_SIGNING_KEY`,
+which must derive the exact accepted public update authority before signing. The
+secret value must never enter repository content, logs, artifacts, or device
+state. GitHub-hosted publication must preserve the currently authoritative
+successful public stable generation while a candidate is staged, and upload or
+Pages success alone is never enough for promotion: full public readback plus a
+disposable real `codex update`/launch/doctor/no-op smoke must pass before the
+signed stable index can advance atomically.
+
+`RELEASE_AUTOMATION_PLAN.md` freezes the comparison evidence, trust split,
+last-known-good rule, implementation phases, failure matrix, acceptance gates,
+and resume protocol. It is the selected plan for this bundle but does not override
+`SPEC.md`; RALD-1 must update the normative contract before behavior changes.
+This documentation-selection step does not mutate `main`, the public stable
+index, GitHub Releases/Pages, Actions secrets, or the installed live runtime.
 
 ## Resume rule
 
