@@ -1,7 +1,7 @@
 name: RALD-1 disposable validation
 
 on:
-  push:
+  pull_request:
     branches:
       - automation/rald1-validation-20260915
 
@@ -14,6 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: 771d39f9337a7c15337fedc6b47b43d017d8140c
           fetch-depth: 0
       - name: Inspect updater boundaries
         shell: bash
