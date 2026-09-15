@@ -1,6 +1,6 @@
 # Release Automation and Local-Derived Update Plan
 
-Status: selected implementation plan; **not yet implemented or accepted**.
+Status: selected implementation plan; **RALD-1 accepted on 2026-09-15; RALD-2 is the next incomplete phase; RALD-3..RALD-7 remain pending**.
 
 Baseline: `rewrite/rust-core` at
 `21bb1cd78d4a6e6ef8e124b7f07230206c5aa5ea` (`termux: guard rollback holds and automate stable intake`).
@@ -350,6 +350,18 @@ Gate: documentation-only diff, `git diff --check`, clean commit and fast-forward
 push to `rewrite/rust-core`.
 
 ### Phase RALD-1 — local-derived Core contract
+
+Status: **accepted 2026-09-15**. The required selector, ephemeral local authority,
+public-baseline binding, `update_key` preservation, internal-only special
+admission, local-derived rollback semantics, transport fallback wiring, and
+anti-publish boundary are implemented without changing the frozen RALD design.
+Focused RALD-1 E2E passed 4/4; accepted ARH/signed-channel regressions passed
+4/4; locked workspace check, clippy `-D warnings`, formatting, `git diff --check`,
+and the full locked workspace suite all passed. The full suite result was Core
+153 passed / one explicit live smoke ignored, Manager 20/20 plus 11/11
+integration, and release-builder 15/15. Public stable and the live installation
+were not mutated. The still-live official producer is intentionally left for
+RALD-2.
 
 Primary files expected to change:
 

@@ -29,20 +29,51 @@ behavior belongs in `SPEC.md`.
   base; retained R10 no-argument update and exact-current no-op are accepted.
 - AUTO-UPSTREAM-ROLLBACK is accepted and source-closed at
   `21bb1cd78d4a6e6ef8e124b7f07230206c5aa5ea`.
-- Active implementation bundle: **RELEASE-AUTOMATION-LOCAL-DERIVED (RALD)**,
-  selected for planning and implementation but not yet accepted.
+- Active implementation bundle: **RELEASE-AUTOMATION-LOCAL-DERIVED (RALD)**.
+- RALD-1 local-derived Core contract is accepted on 2026-09-15; the next
+  incomplete phase is **RALD-2 — detach official production from Core
+  `codex update`**.
 - The drift-control execution contract is `RELEASE_AUTOMATION_PLAN.md`.
-- Authorized order: RALD-1 local-derived Core contract; RALD-2 detach official
-  release production from `codex update`; RALD-3 GitHub-hosted scheduled producer;
-  RALD-4 Actions-secret signing; RALD-5 Release/Pages LKG-preserving publication
-  and runtime-proven promotion; RALD-6 fresh-install/update delivery E2E; RALD-7
-  full acceptance and scheduler activation.
+- Remaining authorized order: RALD-2 detach official release production from
+  `codex update`; RALD-3 GitHub-hosted scheduled producer; RALD-4 Actions-secret
+  signing; RALD-5 Release/Pages LKG-preserving publication and runtime-proven
+  promotion; RALD-6 fresh-install/update delivery E2E; RALD-7 full acceptance
+  and scheduler activation.
 - Public stable remains fixed during source development and may advance only after
   the selected plan's focused/full gates, public readback, disposable public-update
   runtime smoke, and exact non-forced promotion checks pass.
 - `legacy/monolith` remains sealed at
   `bf30a7dc94d4dad7f58836c69028160856e63c58`.
 - Worker mode remains OFF.
+
+## Accepted RALD-1 disposition
+
+Core now exposes exact `codex update --build-local`, and only automatic signed-
+channel transport unavailability may enter that same local-derived construction.
+The build uses exact official upstream metadata/archive qualification and normal
+Termux adaptation/probes, creates a fresh private 0600 Ed25519 key in disposable
+staging, signs the immutable local candidate, deletes private key material before
+successful activation, and persists only the public verifier in the current
+verifier slot. `activation-state-v3.update_key` remains the official authority;
+the local release carries the authenticated public baseline sequence rather than
+allocating a public sequence.
+
+Special local-derived admission is internal to that construction path. Ordinary
+`--local`/`--remote` signed admission cannot use a self-signed local-derived
+marker. Local-derived activation is blocked while an authenticated rollback hold
+is active. Rollback from local-derived to retained official state creates no
+public hold or rollback-Core guard, while rollback from official state and exact
+held `--force` behavior remain unchanged. A later authenticated greater public
+sequence supersedes local-derived current through the normal official authority.
+No local-derived path invokes `gh` or official publication.
+
+Acceptance gate is green: RALD-1 process E2E 4/4; existing ARH/signed-channel
+regressions 4/4; locked workspace check; workspace clippy `-D warnings`; format
+and `git diff --check`; full locked workspace tests with Core 153 passed / one
+explicit live-Termux smoke ignored, Manager 20/20 plus 11/11 integration, and
+release-builder 15/15. Tests ran only in the isolated worktree/disposable roots.
+The live installation and public stable remain unchanged. RALD-2 is next; the
+remaining official producer in Core is intentionally not re-designed in RALD-1.
 
 ## Accepted TC-LIVE-BRIDGE disposition
 

@@ -160,15 +160,18 @@ one current workboard, direct focused tests, and deferred independent review.
   the current vertical slice/proof map, and production behavior must not advance
   past a red or unmapped slice. Historical tests never authorize a compatibility
   branch after the public product path has replaced their behavior.
-- Make the no-argument `codex update` a complete remote-to-local path. Explicit
-  `--local`, `--remote`, and `--rollback` selectors remain secondary operations.
-  A local build may use only the prebuilt release-builder routines, the official
-  versioned upstream archive, and the recovered update authority; it must retain
-  the existing signed admission, atomic activation, and rollback boundaries.
-- Permit best-effort publication of a successfully activated local build to
-  `humtr/codex`/`main` through an authenticated local GitHub CLI, after release
-  files and before the signed index, without making remote publication or
-  account credentials a trust source. Private signing keys remain excluded from
+- Make the no-argument `codex update` a complete remote-to-local consumer path.
+  Explicit `--local`, `--remote`, `--rollback`, and `--build-local` selectors
+  remain Core-owned secondary operations. A transport-unavailable automatic
+  channel may enter the same official-source local-derived construction used by
+  `--build-local`; it must use a fresh ephemeral device-local signer, preserve
+  the official `update_key`, retain signed admission/probe/atomic activation and
+  one-generation rollback boundaries, and never obtain official publication
+  authority from device credentials.
+- Separate official publication from runtime consumption. A local-derived build
+  never invokes `gh`, creates an official publication, or advances `main`/stable;
+  official release production is the later GitHub-hosted producer work selected
+  by `RELEASE_AUTOMATION_PLAN.md`. Private signing keys remain excluded from
   repository and device artifacts.
 
 ## Execution Plan
@@ -189,6 +192,29 @@ Termux qualification. Produce one candidate for independent product review.
 ## Acceptance Ledger
 
 ### Current Direct-Lead Evidence
+
+- RELEASE-AUTOMATION-LOCAL-DERIVED phase RALD-1 is accepted on 2026-09-15.
+  Core now owns exact `codex update --build-local` and the permitted automatic-
+  channel transport fallback through one official-source local-derived path. The
+  path binds exact upstream/archive plus authenticated public-baseline provenance,
+  uses a fresh owner-only ephemeral Ed25519 signer, persists only its public
+  verifier as `current_key`, leaves the official `update_key` byte-identical,
+  does not consume a public release sequence, and never invokes `gh` or official
+  publication. Ordinary `--local`/`--remote` admission cannot claim this
+  exception. Rollback from local-derived creates no public hold/guard; later
+  official signed activation and rollback/hold/force retain the accepted ARH
+  behavior. The now-unreachable legacy transport-fallback GitHub uploader was
+  removed; the still-live official producer remains intentionally for RALD-2.
+- RALD-1 validation: focused process E2E 4/4 in `job_ufm_7599d915e3`; existing
+  ARH rollback/hold/force plus signed-channel regressions 4/4 in
+  `job_ufo_ebf8afabd3`; formatting, `git diff --check`, locked workspace check,
+  and workspace clippy `-D warnings` in `job_ufp_60b306a1ba`; full locked
+  workspace suite in `job_ufq_6205c60317` with Core 153 passed / one explicit
+  live-Termux smoke ignored, Manager 20/20 plus 11/11 integration, and
+  release-builder 15/15. All execution used the isolated TMCP worktree and
+  disposable fixtures; the installed live Codex, protected resolver/auth/config/
+  profile/session state, public stable index, GitHub Release/Pages publication,
+  and Actions secrets were not mutated. RALD-2 is the next selected phase.
 
 - The user explicitly withdrew trust from the prior implementation-worker path
   and required a fresh Lead review from the beginning. Worker mode remains

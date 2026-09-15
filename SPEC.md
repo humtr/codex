@@ -58,13 +58,14 @@ installed Core obtains and activates only that signed adapted bundle.
 | --- | --- | --- |
 | `codex [UPSTREAM_ARGS...]` | Core | execute upstream with original arguments |
 | `codex --version`, `codex -V` | upstream | print exactly the upstream version output |
-| `codex update` | Core | resolve the signed stable wrapper release channel; when the wrapper release is unavailable, build and sign one qualified Core-plus-generation bundle from the official upstream archive, then activate its Core and generation through the authenticated coordinated path |
+| `codex update` | Core | resolve the signed stable wrapper release channel; only transport-level channel unavailability may fall back to an official-source local-derived build signed by a fresh ephemeral device-local key, activated while preserving the official `update_key`, and never published |
 | `codex update --help` | Core | print the wrapper-owned update usage without invoking upstream or changing state |
-| `codex update --force` | Core | retry exactly the authenticated held release sequence for this invocation while bypassing only the local rollback-hold comparison; a valid matching hold is required and signature, digest, release-sequence, candidate-probe, and activation checks remain unchanged |
-| `codex update [INVALID_ARGS...]` | Core | reject unsupported updater options without invoking upstream or changing state |
-| `codex update --local <DIRECTORY>` | Core | verify, stage, probe, and activate one compatible signed Core-plus-generation bundle |
+| `codex update --force` | Core | retry exactly the authenticated held public release sequence for this invocation while bypassing only the local rollback-hold comparison; a valid matching hold is required and signature, digest, release-sequence, candidate-probe, and activation checks remain unchanged |
+| `codex update --build-local` | Core | resolve the exact official upstream stable metadata/archive, build and probe one local-derived generation, bind it to the authenticated public baseline with a fresh ephemeral device-local Ed25519 signer, activate it without changing `update_key`, and never invoke official signing or publication |
+| `codex update [INVALID_ARGS...]` | Core | reject unsupported updater options or combined selectors without invoking upstream or changing state |
+| `codex update --local <DIRECTORY>` | Core | verify, stage, probe, and activate one compatible signed official/operator bundle through ordinary public-authority admission; it is not a local-derived import surface |
 | `codex update --remote <HTTPS_BASE_URL>` | Core | acquire one immutable signed Core-plus-generation bundle and activate it through the local coordinated path |
-| `codex update --rollback` | Core | atomically activate the retained previous complete signed generation, then record the authenticated generation and release sequence rolled back from as the local update hold |
+| `codex update --rollback` | Core | atomically activate the retained previous complete signed generation; record a public update hold only when rolling back from an authenticated public generation, while rollback from a local-derived current creates no public hold or rollback guard |
 | `codex doctor [OPTIONS]` | Core | combine upstream and Termux diagnostics |
 | `codex doctor --color` | Core | explicitly request colored human diagnostics on a TTY, including when an outer Termux wrapper supplied `NO_COLOR` |
 | `codex termux [COMMAND]` | Manager boundary | invoke the Manager artifact or report it unavailable |
@@ -374,11 +375,13 @@ The operation derives one raw Ed25519 public key from the supplied private PEM
 using the explicit OpenSSL executable. It emits the non-rotating v3 form only:
 the derived key is written as `release_public_key`, `release.sig` signs the
 exact `release.manifest` with that key, and no `release-authority.sig` is
-created. Therefore an operator must supply the current Core `update_key`
-private key for the resulting automatic or explicit update to be admissible;
-this operation does not implement key rotation. The private key is read only
-for derivation/signing, is never copied into the output, and is never written
-to the repository or device state.
+created. Therefore an operator producing an ordinary public/non-rotating signed release
+with this command must supply the current Core `update_key` private key; this
+operation does not implement key rotation. Core's local-derived path is a
+different in-process authority boundary: it generates a fresh ephemeral key and
+never reads an official release private key. The `publish` command's supplied
+private key is read only for derivation/signing, is never copied into the output,
+and is never written to repository or device state.
 
 The complete publication output is:
 
@@ -411,29 +414,33 @@ supplied. The `core` digest must equal the generation descriptor's
 `release_base`; `publish` performs no network upload and does not assume that
 the URL is hosted by OpenAI.
 
-The no-argument local fallback resolves the upstream version before building.
-A channel result of exact-current, or a channel candidate suppressed only by the
-rollback hold, still triggers official upstream discovery. Core compares the
-exact official stable version with installed/held versions and builds only when
-the official stable is genuinely newer than every applicable version. The same
-prebuilt release-builder, signing authority, candidate probes, and signed
-activation path are mandatory; Core does not install a Rust toolchain or compile
-Core/Manager on-device.
+The maintainer-only automatic official producer resolves the upstream version
+before building. A channel result of exact-current, or a channel candidate
+suppressed only by the rollback hold, may still trigger that producer while
+RALD-2 has not yet detached it from Core. Core compares the exact official stable
+version with installed/held versions and builds only when the official stable is
+genuinely newer than every applicable version. That producer continues to use
+the prebuilt release-builder, official signing authority, candidate probes, and
+signed activation path; Core does not install a Rust toolchain or compile
+Core/Manager on-device. This producer path is distinct from the local-derived
+transport fallback and `--build-local` path below.
 
-Automatic upstream intake is update-triggered only on a maintainer Termux device
-using the unmodified default signed channel, a secure device-local release private
-key whose derived public key exactly matches the active update authority, and an
-authenticated local GitHub CLI. Ordinary consumer devices that lack those
-maintainer authorities only consume the signed stable channel and never build,
-sign, stage, deploy, or promote a release. The repository has no trusted
-self-hosted GitHub Actions runner, and GitHub-hosted workflows must never receive
-or perform release/index signing.
+Automatic official upstream production is update-triggered only on a maintainer
+Termux device using the unmodified default signed channel, a secure device-local
+release private key whose derived public key exactly matches the active update
+authority, and an authenticated local GitHub CLI. Consumer devices that lack
+those maintainer authorities may still use the local-derived path defined below,
+but they never sign, stage, deploy, or promote an official release or index. The
+repository has no trusted self-hosted GitHub Actions runner, and GitHub-hosted
+workflows must never receive or perform release/index signing while this
+maintainer producer remains in Core pending RALD-2.
 
-After local build/sign/qualification, publication uses GitHub Release only as
+After the maintainer-only automatic official producer builds, signs, and
+qualifies an official candidate, its publication uses GitHub Release only as
 immutable staging, dispatches the fixed Pages reconstruction and verification
 workflow, waits for a successful deployment, reads back and verifies the complete
 signed candidate HTTPS tree, and performs a disposable public no-argument update
-smoke. Only then may Core create one Git tree and one commit that replace both
+smoke. Only then may that producer create one Git tree and one commit that replace both
 `update-index-v1` and `update-index-v1.sig` together, with the previously verified
 `main` head as the sole parent, and advance `main` through a non-forced Git-ref
 compare-and-swap. Any failure before that ref commit leaves the old stable pointer
@@ -457,34 +464,47 @@ digest before adaptation. Missing, malformed, non-stable, mismatched, or
 unavailable metadata fails closed; no mirror, package manager, mutable raw
 runtime, or upstream self-updater is accepted.
 
-The fallback uses the running authenticated Core executable as the `--core`
-input, the Termux `curl`, `gzip`, and `openssl` tools, and the private signing key at
-`CODEX_TERMUX_UPDATE_PRIVATE_KEY` when set, otherwise at
+The automatic official producer uses the running authenticated Core executable
+as the `--core` input, the Termux `curl`, `gzip`, and `openssl` tools, and the
+private signing key at `CODEX_TERMUX_UPDATE_PRIVATE_KEY` when set, otherwise at
 `$HOME/.config/codex/termux/update-private-key.pem`. The key path must be an
 absolute regular file of at most 16 KiB, mode `0600` or stricter, and its
 derived public key must equal the recovered v3 `update_key`; a missing or
-mismatched key fails closed before activation. The private key is read only
-for local signing, is never copied into a generation, publication, repository,
-or upload, and is never printed.
+mismatched key fails closed before official production. The private key is read
+only for official signing, is never copied into a generation, publication,
+repository, or upload, and is never printed.
 
-The local fallback allocates a fresh generation identity and release sequence
-greater than both the active signed release and any authenticated rollback-held
-release sequence, writes the complete signed publication under
-`~/.local/lib/codex/core/publications/<generation_id>/`, and activates its
-`releases/<generation_id>/` child through the same local admission, candidate
-probe, atomic state transaction, and one-generation rollback path as every
-other update. The publication store is wrapper-owned release content, not
-mutable user or Manager state. Temporary archive/build material is private,
-bounded, and removed before success is reported. The fallback never invokes,
-installs, selects, or repairs `bwrap`.
+By contrast, `codex update --build-local` and a transport-unavailable bare-update
+fallback never read that key path, `CODEX_TERMUX_UPDATE_PRIVATE_KEY`, or any
+repository release secret. They generate one fresh Ed25519 key in private
+owner-only temporary storage, derive its public verifier, sign only the local
+immutable candidate, delete the private key before activation can succeed, and
+remove the complete private staging tree on success or ordinary failure. They
+never invoke `gh`, create a publication store, dispatch a workflow, or advance a
+public stable pointer. The local-derived generation uses the authenticated public
+baseline release sequence rather than allocating a new public sequence. Its
+signed generation provenance is exactly the semicolon-delimited record
+`codex-local-derived-v1;upstream_version=<VERSION>;archive_sha256=<SHA256>;public_generation=<ENCODED_ID>;public_sequence=<POSITIVE_DECIMAL>`; the signed
+generation descriptor independently binds the exact upstream version, source
+digest, Termux patch report, Core digest, and compatibility identities.
 
-After a successful local activation, Core may enter publication only while the
-same maintainer authority gate above remains satisfied: the signed channel is the
-unmodified default, the secure local signing key still derives the active update
-authority, and the local GitHub CLI at `$PREFIX/bin/gh` reports an authenticated
-account. GitHub authentication alone never authorizes publication. When that
-gate is satisfied, Core may publish the complete local generation to the fixed
-wrapper publication target `humtr/codex` on branch `main`. A release whose
+The local-derived special admission is reachable only from this in-process
+official-source construction path. `codex update --local` and `--remote` retain
+ordinary public-authority admission and cannot turn an arbitrary self-signed
+directory into local-derived state. An active authenticated rollback hold blocks
+local-derived construction so the single bounded `previous` slot cannot evict
+the public generation that the hold protects. Temporary archive/build material
+is private, bounded, and removed before success is reported. Local-derived work
+never invokes, installs, selects, or repairs `bwrap`.
+
+The maintainer-only automatic official producer may enter publication only while
+the same maintainer authority gate above remains satisfied: the signed channel is
+the unmodified default, the secure official signing key still derives the active
+update authority, and the local GitHub CLI at `$PREFIX/bin/gh` reports an
+authenticated account. GitHub authentication alone never authorizes publication.
+When that gate is satisfied, the producer may publish its complete official
+candidate generation to the fixed wrapper publication target `humtr/codex` on
+branch `main`. A release whose
 complete signed file inventory is flat may use
 immutable GitHub Release assets under a tag equal to the validated generation
 identity; the signed index's `release_base` is then the matching
@@ -742,11 +762,15 @@ generation root to content outside that generation.
 For durability, complete means that every regular file has its final bytes and final mode written and synchronized, every generation directory is synchronized after its children in bottom-up order, the complete candidate directory is atomically renamed into the generation root, and the generation root is synchronized after that rename. A failure before the candidate rename leaves no activatable generation. A failure after the rename but before generation-root synchronization may retain that exact complete candidate without changing authoritative state; a retry may reuse it only after signed installed-generation verification and repeating the required tree and root synchronization. A differing, incomplete, or unverifiable existing directory is a conflict and is never activated.
 
 A generation is complete or absent. Candidate construction occurs outside the
-active path. Forward activation publishes one complete new state: the candidate
-becomes `(current, current_key)`, the old current pair becomes
-`(previous, previous_key)`, and `update_key` becomes the candidate release key.
-For a non-rotating release the old and new update keys are equal. For a key
-rotation they differ.
+active path. Ordinary public forward activation publishes one complete new
+state: the candidate becomes `(current, current_key)`, the old current pair
+becomes `(previous, previous_key)`, and `update_key` becomes the candidate
+release key. For a non-rotating public release the old and new update keys are
+equal; for a key rotation they differ. Local-derived activation is the sole
+exception: its ephemeral public verifier becomes `current_key`, the former
+current pair becomes the retained previous pair, and the existing official
+`update_key` is copied byte-for-byte into the new state rather than being
+rotated or replaced.
 
 The authoritative journal format is `codex-activation-journal-v3`. Its before
 and after records contain the entire bounded trust-and-generation state, not only
@@ -944,10 +968,11 @@ is not an update dispatcher and must not bypass the authenticated local
 admission, staging, probe, activation, or rollback path. The local, explicit
 remote, and automatic channel forms use the same forward activation
 transaction, and rollback remains the explicit swap of the one retained
-complete previous generation. A bare `codex update` is never the upstream
-command: it resolves a wrapper-owned signed channel or builds one through the
-local fallback below, and therefore cannot install an unpatched upstream
-runtime.
+complete previous generation. A bare `codex update` is never the upstream command: it resolves a
+wrapper-owned signed channel and, only when automatic-channel transport is
+unavailable, may enter the same official-source local-derived construction used
+by `--build-local`. It therefore cannot install an unpatched upstream runtime or
+turn transport failure into official publication.
 
 The automatic stable channel is represented by a bounded signed index. Its
 default control URL is
@@ -971,20 +996,41 @@ the signed identity. After index signature verification, Core invokes the
 existing signed remote-generation acquisition path. Index transport failure,
 signature failure, malformed discovery, or release qualification failure is a
 hard failure for that attempt; there is no fallback to upstream, a package
-manager, an alternate mirror, or a raw package. A transport-level absence or
- unavailability while resolving the automatic channel may enter the local
- release-production fallback below; an index or release that was received but
- failed signature, format, policy, digest, mode, compatibility, probe, or
- activation validation may not.
+manager, an alternate mirror, or a raw package. A transport-level absence or unavailability while resolving the automatic
+channel may enter the local-derived construction path below; an index or release
+that was received but failed signature, format, policy, digest, mode,
+compatibility, probe, or activation validation may not.
 
 The signed index is a pointer to an already-adapted wrapper generation, not an
 upstream source authority. The only upstream source authority is the official
 versioned OpenAI archive acquired by the release-production `fetch` operation
-and consumed by `build` before qualification and signing. In the primary
-no-argument path, when the wrapper publication is transport-unavailable, Core
-may perform that same fetch/build/publish sequence locally and then feed the
-result to signed local admission. It never downloads a raw upstream archive
-directly into the active generation and never runs an upstream self-updater.
+and consumed by `build` before qualification and signing. In the primary no-argument path, when the wrapper publication is
+transport-unavailable, Core may perform the exact official fetch/build/adapt
+steps locally, sign the immutable candidate with a fresh ephemeral device-local
+key, bind it to the authenticated public baseline, and feed it only to the
+dedicated local-derived admission path. That path performs no official
+publish/signing action. Core never downloads a raw upstream archive directly
+into the active generation and never runs an upstream self-updater.
+
+`codex update --build-local` is an explicit selector owned by Core. It is valid
+only by itself. It resolves the same exact official stable metadata and versioned
+archive used by the qualified release builder, verifies the metadata-bound
+archive digest, builds/adapts in private staging, signs with a fresh ephemeral
+Ed25519 key, runs the normal candidate probes, and atomically activates the
+result. The presence or absence of an official release private key has no effect
+on this route. The same route is used by the allowed automatic-channel transport
+fallback.
+
+A local-derived candidate records the authenticated public baseline generation
+and sequence in its signed provenance and uses that same sequence in its signed
+release manifest. This is not a new public sequence and grants no public signing
+authority. Public anti-rollback after local-derived activation therefore compares
+against the recorded baseline: a later authenticated public release must advance
+that public sequence to supersede local-derived current. The dedicated
+local-derived admission may install a different local generation at the baseline
+sequence only because it is reached directly from the in-process qualified
+official-source build; ordinary `--local`, `--remote`, and signed-channel
+admission keep the equal-sequence/different-release rejection rule.
 
 `codex update` must:
 
@@ -1051,15 +1097,20 @@ owner-readable and runtime/Manager/helper files must be owner-executable.
 
 `release.sig` is always an Ed25519 signature by the manifest's
 `release_public_key` over the exact manifest bytes. For an ordinary non-rotating
-update, `release_public_key` must equal the recovered authoritative `update_key`;
-`release.sig` is then the only release signature and no
-`release-authority.sig` is accepted. For a rotation, `release_public_key` differs
-from `update_key`; `release-authority.sig` is then mandatory and must verify over
-the same exact manifest bytes with the current `update_key` before Core treats
-the candidate key as trusted, after which `release.sig` must verify with the
-candidate key. A rotation is rejected if either proof is missing or invalid.
-Core never accepts an adjacent key file, alternate-key search, network key
-lookup, CA/PKI chain, key server, or unbounded keyring as authority.
+public update, `release_public_key` must equal the recovered authoritative
+`update_key`; `release.sig` is then the only release signature and no
+`release-authority.sig` is accepted. For a public key rotation,
+`release_public_key` differs from `update_key`; `release-authority.sig` is then
+mandatory and must verify over the same exact manifest bytes with the current
+`update_key` before Core treats the candidate key as trusted, after which
+`release.sig` must verify with the candidate key. A rotation is rejected if
+either proof is missing or invalid. The dedicated local-derived path is not a
+rotation: its manifest key is the fresh ephemeral local verifier, its signed
+provenance must match the independently authenticated public baseline, and
+activation stores that verifier only as `current_key` while preserving
+`update_key`. No generic local/remote candidate receives this exception. Core
+never accepts an adjacent key file, alternate-key search, network key lookup,
+CA/PKI chain, key server, or unbounded keyring as authority.
 
 Before forward admission, Core recovers the v3 state. Installed-generation
 verification requires the signed manifest `release_public_key` to equal the
@@ -1070,21 +1121,30 @@ An authenticated candidate below that sequence is rejected. An equal-sequence
 candidate is returned as an already-current no-op only when its generation
 identity and signed release manifest exactly equal the installed current
 release; any other equal-sequence candidate is rejected before staging or
-candidate execution. After staging and probing a greater-sequence candidate,
-successful activation sets
-`update_key` and `current_key` to the candidate release key, sets `current` to the
-candidate generation, and moves the former `(current, current_key)` pair to
-`(previous, previous_key)` in the same atomic transaction.
+candidate execution. After staging and probing a greater-sequence public candidate, successful
+public activation sets `update_key` and `current_key` to the candidate release
+key, sets `current` to the candidate generation, and moves the former
+`(current, current_key)` pair to `(previous, previous_key)` in the same atomic
+transaction. When current is local-derived, its signed release sequence is the
+integrity-bound public baseline sequence, so this comparison is still a public
+anti-rollback comparison rather than a local sequence allocation. Dedicated
+local-derived activation instead preserves `update_key` and stores only its
+ephemeral verifier in `current_key` as defined above.
 
 `codex update --rollback` must recover any pending activation transaction,
 require the one retained `(previous, previous_key)` pair, verify exactly that
 previous generation with `previous_key`, and atomically swap the current and
 previous generation/verifier pairs. It deliberately does not apply forward
 release-sequence anti-rollback policy and deliberately leaves `update_key`
-unchanged. Missing, malformed, mismatched, or unverifiable rollback state fails
-without changing authoritative state; rollback never scans generations,
-searches keys, restores a rotated-away key to forward authority, or constructs a
-fallback ladder.
+unchanged. When the generation rolled back from is authenticated local-derived,
+rollback creates neither a public `update-hold` nor a rollback Core guard. When
+the generation rolled back from is an ordinary authenticated public generation,
+the accepted hold/guard rules are unchanged even if the retained previous
+generation is local-derived. `--force` continues to require and target only that
+authenticated public hold. Missing, malformed, mismatched, or unverifiable
+rollback state fails without changing authoritative state; rollback never scans
+generations, searches keys, restores a rotated-away key to forward authority, or
+constructs a fallback ladder.
 
 Initial bootstrap, whether fresh or an explicit legacy handoff, owns the only
 permitted use of `~/.local/lib/codex/core/release-public-key.pem`. Before any v3
