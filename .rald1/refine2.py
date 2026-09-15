@@ -20,9 +20,11 @@ local.write_text(s)
 
 builder = Path("crates/release-builder/src/lib.rs")
 b = builder.read_text()
-old = '''fn publish_descriptor_field<'a>(
+function_start = b.index("fn publish_descriptor_field<'a>(")
+next_function = b.index("\nfn validate_publish_patch_report(", function_start)
+helper = r'''
+fn publish_creation_metadata_field<'a>(
     lines: &mut std::str::Lines<'a>,
-    expected: &'static str,
 ) -> Result<&'a str, BuilderError> {
     let line = lines
         .next()
@@ -32,28 +34,7 @@ old = '''fn publish_descriptor_field<'a>(
             "generation descriptor field is malformed",
         ));
     };
-    if name != expected || !valid_line_value(value, TEXT_VALUE_MAX_BYTES) {
-        return Err(BuilderError::Invalid(
-            "generation descriptor field is invalid",
-        ));
-    }
-    Ok(value)
-}
-'''
-new = '''fn publish_descriptor_field_with_bound<'a>(
-    lines: &mut std::str::Lines<'a>,
-    expected: &'static str,
-    max_bytes: usize,
-) -> Result<&'a str, BuilderError> {
-    let line = lines
-        .next()
-        .ok_or(BuilderError::Invalid("generation descriptor is incomplete"))?;
-    let Some((name, value)) = line.split_once('\t') else {
-        return Err(BuilderError::Invalid(
-            "generation descriptor field is malformed",
-        ));
-    };
-    if name != expected || !valid_line_value(value, max_bytes) {
+    if name != "creation_metadata" || !valid_line_value(value, CREATION_METADATA_MAX_BYTES) {
         return Err(BuilderError::Invalid(
             "generation descriptor field is invalid",
         ));
@@ -61,18 +42,12 @@ new = '''fn publish_descriptor_field_with_bound<'a>(
     Ok(value)
 }
 
-fn publish_descriptor_field<'a>(
-    lines: &mut std::str::Lines<'a>,
-    expected: &'static str,
-) -> Result<&'a str, BuilderError> {
-    publish_descriptor_field_with_bound(lines, expected, TEXT_VALUE_MAX_BYTES)
-}
 '''
-b = replace_once(b, old, new, "add bounded publish descriptor field parser")
+b = b[:next_function] + "\n" + helper + b[next_function + 1 :]
 b = replace_once(
     b,
     '    let creation_metadata = publish_descriptor_field(&mut lines, "creation_metadata")?;',
-    '    let creation_metadata = publish_descriptor_field_with_bound(\n        &mut lines,\n        "creation_metadata",\n        CREATION_METADATA_MAX_BYTES,\n    )?;',
+    '    let creation_metadata = publish_creation_metadata_field(&mut lines)?;',
     "use creation-metadata publish bound",
 )
 
@@ -80,25 +55,25 @@ test = r'''
 
     #[test]
     fn test_rald1_creation_metadata_bound_roundtrips_build_and_publish() {
-        let mut fixture = fixture("rald1-creation-metadata", happy_entries("0.150.1"), false);
-        fixture.request.creation_metadata = "m".repeat(1024);
-        assert_eq!(run_from_args(request_args(&fixture.request)), 0);
-        let descriptor = std::fs::read_to_string(fixture.request.output.join("generation.meta"))
-            .unwrap();
+        let mut roundtrip = fixture("rald1-creation-metadata", happy_entries("0.150.1"), false);
+        roundtrip.request.creation_metadata = "m".repeat(1024);
+        assert_eq!(run_from_args(request_args(&roundtrip.request)), 0);
+        let descriptor =
+            std::fs::read_to_string(roundtrip.request.output.join("generation.meta")).unwrap();
         assert!(descriptor.contains(&format!(
             "creation_metadata\t{}\n",
-            fixture.request.creation_metadata
+            roundtrip.request.creation_metadata
         )));
 
-        let private_key = fixture.root.join("release-private.pem");
-        generate_publish_key(&fixture.request.openssl, &private_key);
+        let private_key = roundtrip.root.join("release-private.pem");
+        generate_publish_key(&roundtrip.request.openssl, &private_key);
         let publish_request = PublishRequest {
-            generation: fixture.request.output.clone(),
+            generation: roundtrip.request.output.clone(),
             release_sequence: "7".to_owned(),
             release_base: "https://example.test/releases/test-generation/".to_owned(),
             private_key,
-            openssl: fixture.request.openssl.clone(),
-            output: fixture.root.join("publication"),
+            openssl: roundtrip.request.openssl.clone(),
+            output: roundtrip.root.join("publication"),
         };
         assert_eq!(run_from_args(publish_args(&publish_request)), 0);
         let published_descriptor = std::fs::read_to_string(
@@ -109,15 +84,19 @@ test = r'''
         .unwrap();
         assert!(published_descriptor.contains(&format!(
             "creation_metadata\t{}\n",
-            fixture.request.creation_metadata
+            roundtrip.request.creation_metadata
         )));
 
-        let mut too_large = fixture("rald1-creation-metadata-too-large", happy_entries("0.150.1"), false);
+        let mut too_large = fixture(
+            "rald1-creation-metadata-too-large",
+            happy_entries("0.150.1"),
+            false,
+        );
         too_large.request.creation_metadata = "m".repeat(CREATION_METADATA_MAX_BYTES + 1);
         assert!(build(&too_large.request).is_err());
         assert!(!too_large.request.output.exists());
         too_large.remove();
-        fixture.remove();
+        roundtrip.remove();
     }
 '''
 last = b.rfind("\n}")
@@ -125,3 +104,31 @@ if last < 0:
     raise SystemExit("release-builder tests module closing brace missing")
 b = b[:last] + test + b[last:]
 builder.write_text(b)
+
+main = Path("crates/core/src/main.rs")
+m = main.read_text()
+platform_helper = r'''#[cfg(all(unix, not(test)))]
+fn local_release_platform_matches(value: &str) -> bool {
+    value == std::env::consts::OS
+}
+
+#[cfg(all(unix, test))]
+fn local_release_platform_matches(value: &str) -> bool {
+    value == std::env::consts::OS
+        || (value == "android"
+            && std::env::var_os("CODEX_TEST_TERMUX_ANDROID_RELEASE_PLATFORM").as_deref()
+                == Some(OsStr::new("1")))
+}
+
+'''
+marker = "#[cfg(unix)]\nfn validate_local_release_policy(manifest: &LocalReleaseManifest)"
+if m.count(marker) != 1:
+    raise SystemExit("local release policy marker missing")
+m = m.replace(marker, platform_helper + marker, 1)
+m = replace_once(
+    m,
+    "    if manifest.expected_platform != std::env::consts::OS {",
+    "    if !local_release_platform_matches(&manifest.expected_platform) {",
+    "route release platform through production-exact/test-only matcher",
+)
+main.write_text(m)
