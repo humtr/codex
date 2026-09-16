@@ -1,6 +1,6 @@
 # Release Automation and Local-Derived Update Plan
 
-Status: selected implementation plan; **RALD-1 accepted on 2026-09-15; RALD-2 accepted on 2026-09-16; RALD-3 repository source completed on 2026-09-16 with default-branch install/manual hosted dry-run still pending; RALD-4..RALD-7 remain pending**.
+Status: selected implementation plan; **RALD-1 accepted on 2026-09-15; RALD-2 accepted on 2026-09-16; RALD-3 accepted on 2026-09-16 after default-branch install and GitHub-hosted manual dry-run; RALD-4..RALD-7 remain pending**.
 
 Baseline: `rewrite/rust-core` at
 `21bb1cd78d4a6e6ef8e124b7f07230206c5aa5ea` (`termux: guard rollback holds and automate stable intake`).
@@ -422,9 +422,8 @@ no GitHub mutation path from Core.
 
 ### Phase RALD-3 — GitHub-hosted scheduled producer
 
-Status: **repository source complete 2026-09-16; activation gate pending**. The
-producer source is pinned to exact commit
-`28e65b32c8719cf913e62080d4674b54dbcc1a01`. Release-builder now supports the
+Status: **accepted 2026-09-16**. The producer source is pinned to exact commit
+`28e65b32c8719cf913e62080d4674b54dbcc1a01`. Release-builder supports the
 explicit pre-sign `--defer-manager-probe` hosted cross-build boundary, with
 Android/AArch64 ELF proof, a bounded deferred marker, and an unconditional
 `publish` rejection before signing while that marker exists. The repository-owned
@@ -435,20 +434,24 @@ strict inventory/digest checks, short-lived unsigned artifact transfer, and an
 ARM64 Android executable smoke that must discharge the Manager probe. No RALD-4
 signing-secret access or RALD-5 release/publication/promotion authority is present.
 
-Repository evidence is green: dependency-free preflight tests 5/5; workflow
-contract tests 5/5; deferred Manager focused regressions 3/3; YAML parse, format,
-`git diff --check`, locked workspace check, and clippy `-D warnings`; final full
-locked workspace tests in `job_ulk_1460dff8e1` with Core 145 passed / one
-explicit live smoke ignored, Manager 20/20 plus 11/11 integration, and
-release-builder 17/17. Read-only live/public preflight in
-`job_ule_0ff7583131` authenticated current stable generation
-`local-20260914-update-channel-bridge-1`; wrapper stable and official upstream
-stable are both `0.154.0`, so the dry-run decision is `candidate=false`. The
-workflow has not been installed on `main` and no GitHub-hosted manual dispatch has
-run, because the selected activation order requires the implementation push first
-and this source task does not authorize scheduler/default-branch activation. Thus
-RALD-3 remains open only for default-branch workflow installation plus the hosted
-manual dry-run; RALD-4 remains blocked.
+Repository evidence remains green: dependency-free preflight tests 5/5;
+workflow contract tests 5/5; deferred Manager focused regressions 3/3; YAML
+parse, format, `git diff --check`, locked workspace check, clippy `-D warnings`,
+and final full locked workspace tests in `job_ulk_1460dff8e1` with Core 145
+passed / one explicit live smoke ignored, Manager 20/20 plus 11/11 integration,
+and release-builder 17/17. The fixed workflow/source pin was installed on
+default branch `main` in
+`b17cc05ec8ec18bdbfd960e413dc4c47ffeb9f90` without changing
+`update-index-v1`. GitHub-hosted manual `workflow_dispatch` run `35090080089`
+then completed successfully on `ubuntu-24.04` with `contents: read`, fetched
+exact source `28e65b32c8719cf913e62080d4674b54dbcc1a01`, authenticated the
+current public stable and its release manifest, and resolved wrapper/upstream
+stable as `0.154.0` / `0.154.0`. The resulting `candidate=false` decision
+correctly skipped cross-build, candidate adaptation/upload, and Android smoke;
+the run produced no artifacts. Public stable/index signature, GitHub Release ID
+`388405334`, and Pages publication state remained unchanged; no Actions signing
+secret or live installation state was accessed or mutated. RALD-4 has not
+started.
 
 Add a repository-owned workflow, provisionally
 `.github/workflows/auto-release-termux.yml`, with:
@@ -468,8 +471,9 @@ Avoid mutable third-party release-authority dependencies. A reusable external
 workflow, if ever used for non-authority smoke, must be pinned to an immutable
 commit; repository-owned smoke is preferred.
 
-Gate: scheduled workflow logic is reproducible with `workflow_dispatch` dry run
-and produces no public mutation.
+Gate: **passed** by GitHub-hosted `workflow_dispatch` run `35090080089`; the
+installed fixed source pin was reproduced and the run produced no public
+mutation.
 
 ### Phase RALD-4 — Actions-secret signing
 
