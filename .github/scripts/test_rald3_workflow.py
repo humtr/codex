@@ -4,7 +4,7 @@ import re
 import unittest
 
 WORKFLOW = Path(__file__).resolve().parents[1] / "workflows" / "auto-release-termux.yml"
-SOURCE_SHA = "28e65b32c8719cf913e62080d4674b54dbcc1a01"
+SOURCE_SHA = "dfcdbead5fdcde454bedebf1a269816977f4f544"
 UPLOAD_SHA = "ea165f8d65b6e75b540449e92b4886f43607fa02"
 DOWNLOAD_SHA = "d3f86a106a0bac45b974a628896c90dbdf5c8093"
 
@@ -33,13 +33,17 @@ class WorkflowContractTests(unittest.TestCase):
             [
                 f"actions/upload-artifact@{UPLOAD_SHA}",
                 f"actions/download-artifact@{DOWNLOAD_SHA}",
+                f"actions/upload-artifact@{UPLOAD_SHA}",
+                f"actions/download-artifact@{DOWNLOAD_SHA}",
+                f"actions/upload-artifact@{UPLOAD_SHA}",
             ],
         )
         for action in uses:
             self.assertRegex(action, r"@[0-9a-f]{40}\Z")
 
     def test_pre_sign_boundary_has_no_release_authority(self) -> None:
-        lower = self.text.lower()
+        pre_sign, sign = self.text.split("\n  sign:\n", 1)
+        lower = pre_sign.lower()
         for forbidden in [
             "secrets.",
             "--private-key",
@@ -51,9 +55,12 @@ class WorkflowContractTests(unittest.TestCase):
             "self-hosted",
         ]:
             self.assertNotIn(forbidden, lower)
-        self.assertIn("--defer-manager-probe", self.text)
-        self.assertIn("retention-days: 1", self.text)
-        self.assertIn(".manager-probe-deferred", self.text)
+        for forbidden in ["gh release", "git push", "deploy-pages", "upload-pages", "self-hosted"]:
+            self.assertNotIn(forbidden, sign.lower())
+        self.assertIn("--defer-manager-probe", pre_sign)
+        self.assertIn("retention-days: 1", pre_sign)
+        self.assertIn(".manager-probe-deferred", pre_sign)
+        self.assertIn("qualified-candidate", pre_sign)
 
     def test_hosted_build_and_android_smoke_are_explicit(self) -> None:
         text = self.text
