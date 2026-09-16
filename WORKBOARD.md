@@ -71,11 +71,13 @@ behavior belongs in `SPEC.md`.
   created the AVD, but then remained inside unbounded `adb wait-for-device` until
   the 45-minute job timeout cancelled it. Manager/Core/runtime smoke, qualified
   upload, and signing were skipped, so the production signing secret was not
-  injected. The follow-up repair removes that unbounded wait: emulator liveness,
-  `adb get-state`, and `sys.boot_completed` are polled for at most 120 five-second
-  iterations, emulator exit fails immediately with its log, and an EXIT trap
-  cleans up emulator/adb processes. The next action is another authorized hosted
-  positive retry of that exact bounded repair.
+  injected. GitHub's ARM64 macOS hosted runner does not provide nested
+  virtualization, so the follow-up repair explicitly disables emulator VM
+  acceleration and selects software graphics. It also removes the unbounded wait:
+  emulator liveness, `adb get-state`, and `sys.boot_completed` are polled for at
+  most 180 five-second iterations, emulator exit fails immediately with its log,
+  and an EXIT trap cleans up emulator/adb processes. The next action is another
+  authorized hosted positive retry of that exact bounded no-HVF repair.
 - RALD-5 Release/Pages LKG-preserving publication and runtime-proven promotion,
   RALD-6 fresh-install/update delivery E2E, and RALD-7 full acceptance remain
   later phases.
@@ -176,12 +178,14 @@ binding `sdkmanager`, `avdmanager`, `adb`, and `emulator` to executable paths
 under `$ANDROID_SDK_ROOT`. Run `35155202983` proved those bindings and reached AVD
 creation, then exposed one further smoke-orchestration defect: unbounded
 `adb wait-for-device` survived until the 45-minute job timeout. The repaired
-workflow instead bounds boot discovery to 120 five-second polls, checks emulator
-process liveness on every poll, requires both `adb get-state=device` and
-`sys.boot_completed=1`, emits the emulator log on failure, and cleans up through
-an EXIT trap. RALD-4 remains pending until an authorized hosted positive retry
-passes Android smoke, secret-backed signing, and independent verification. RALD-5
-remains not started.
+workflow explicitly uses no VM acceleration plus software graphics, bounds boot
+discovery to 180 five-second polls, checks emulator process liveness on every
+poll, requires both `adb get-state=device` and `sys.boot_completed=1`, emits the
+emulator log on failure, and cleans up through an EXIT trap. This addresses the
+ARM64 macOS hosted runner's lack of nested virtualization without weakening the
+Android/AArch64 executable smoke. RALD-4 remains pending until an authorized
+hosted positive retry passes Android smoke, secret-backed signing, and independent
+verification. RALD-5 remains not started.
 
 ## Accepted RALD-3 disposition
 
