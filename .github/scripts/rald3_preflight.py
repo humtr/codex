@@ -219,16 +219,30 @@ def parse_descriptor(path: Path) -> dict[str, str]:
     return result
 
 
-def verify_candidate(root: Path, expected_version: str) -> dict[str, str]:
+def verify_candidate_payload(
+    root: Path, expected_version: str, *, deferred_manager_probe: bool
+) -> dict[str, str]:
     stable_version(expected_version)
     if not root.is_dir() or root.is_symlink():
         fail("candidate root is not a real directory")
     marker = root / DEFERRED_MARKER
-    marker_data = bounded_read(marker, len(DEFERRED_MARKER_BYTES), "deferred Manager probe marker")
-    if marker_data != DEFERRED_MARKER_BYTES:
-        fail("deferred Manager probe marker is invalid")
-    if stat.S_IMODE(marker.lstat().st_mode) != 0o644:
-        fail("deferred Manager probe marker mode is invalid")
+    if deferred_manager_probe:
+        marker_data = bounded_read(
+            marker, len(DEFERRED_MARKER_BYTES), "deferred Manager probe marker"
+        )
+        if marker_data != DEFERRED_MARKER_BYTES:
+            fail("deferred Manager probe marker is invalid")
+        if stat.S_IMODE(marker.lstat().st_mode) != 0o644:
+            fail("deferred Manager probe marker mode is invalid")
+    else:
+        try:
+            marker.lstat()
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            fail(f"inspect deferred Manager probe marker: {exc}")
+        else:
+            fail("qualified candidate still has deferred Manager probe marker")
     descriptor = parse_descriptor(root / "generation.meta")
     if descriptor["upstream_package_version"] != expected_version:
         fail("candidate upstream version does not match")
@@ -241,12 +255,30 @@ def verify_candidate(root: Path, expected_version: str) -> dict[str, str]:
     }
     for name, expected_digest in expected_files.items():
         path = root / name
-        st = path.lstat()
+        try:
+            st = path.lstat()
+        except OSError as exc:
+            fail(f"candidate {name} is unavailable: {exc}")
         if not stat.S_ISREG(st.st_mode) or stat.S_IMODE(st.st_mode) != 0o755:
             fail(f"candidate {name} is not a mode-0755 regular file")
         if sha256_file(path) != expected_digest:
             fail(f"candidate {name} digest does not match descriptor")
     return descriptor
+
+
+def verify_candidate(root: Path, expected_version: str) -> dict[str, str]:
+    return verify_candidate_payload(root, expected_version, deferred_manager_probe=True)
+
+
+def verify_qualified_candidate(root: Path, expected_version: str) -> dict[str, str]:
+    return verify_candidate_payload(root, expected_version, deferred_manager_probe=False)
+
+
+def next_release_sequence(value: str) -> int:
+    current = positive_decimal(value, "release sequence")
+    if current == (1 << 64) - 1:
+        fail("release sequence cannot advance")
+    return current + 1
 
 
 def parse_release_manifest(path: Path, wanted_path: str) -> tuple[str, int, str, str]:
@@ -316,6 +348,11 @@ def main(argv: list[str] | None = None) -> int:
     p = subs.add_parser("candidate")
     p.add_argument("root", type=Path)
     p.add_argument("expected_version")
+    p = subs.add_parser("qualified-candidate")
+    p.add_argument("root", type=Path)
+    p.add_argument("expected_version")
+    p = subs.add_parser("next-sequence")
+    p.add_argument("current")
     args = parser.parse_args(argv)
     try:
         if args.command == "upstream":
@@ -339,6 +376,11 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "candidate":
             d = verify_candidate(args.root, args.expected_version)
             print_kv(generation_id=d["generation_id"], version=d["upstream_package_version"])
+        elif args.command == "qualified-candidate":
+            d = verify_qualified_candidate(args.root, args.expected_version)
+            print_kv(generation_id=d["generation_id"], version=d["upstream_package_version"])
+        elif args.command == "next-sequence":
+            print_kv(release_sequence=next_release_sequence(args.current))
         return 0
     except (PreflightError, OSError) as exc:
         print(f"rald3 preflight: {exc}", file=sys.stderr)

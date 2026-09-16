@@ -87,10 +87,25 @@ class PreflightTests(unittest.TestCase):
             ])
             (root / "generation.meta").write_text(descriptor)
             self.assertEqual(M.verify_candidate(root, "0.155.0")["generation_id"], "gen-1")
+            with self.assertRaises(M.PreflightError):
+                M.verify_qualified_candidate(root, "0.155.0")
+            marker.unlink()
+            self.assertEqual(
+                M.verify_qualified_candidate(root, "0.155.0")["generation_id"], "gen-1"
+            )
+            with self.assertRaises(M.PreflightError):
+                M.verify_candidate(root, "0.155.0")
             (root / "manager").write_bytes(b"tampered")
             (root / "manager").chmod(0o755)
             with self.assertRaises(M.PreflightError):
                 M.verify_candidate(root, "0.155.0")
+
+    def test_next_release_sequence_is_bounded(self) -> None:
+        self.assertEqual(M.next_release_sequence("10"), 11)
+        with self.assertRaises(M.PreflightError):
+            M.next_release_sequence(str((1 << 64) - 1))
+        with self.assertRaises(M.PreflightError):
+            M.next_release_sequence("0")
 
     def test_manifest_entry_is_exact(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
