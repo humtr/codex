@@ -30,15 +30,17 @@ behavior belongs in `SPEC.md`.
 - AUTO-UPSTREAM-ROLLBACK is accepted and source-closed at
   `21bb1cd78d4a6e6ef8e124b7f07230206c5aa5ea`.
 - Active implementation bundle: **RELEASE-AUTOMATION-LOCAL-DERIVED (RALD)**.
-- RALD-1 local-derived Core contract and RALD-2 Core/official-producer separation
-  are accepted. RALD-3 repository source is complete on 2026-09-16, pinned to
-  source commit `28e65b32c8719cf913e62080d4674b54dbcc1a01`; the next required
-  gate is **RALD-3 default-branch workflow install + GitHub-hosted manual dry-run**.
+- RALD-1 local-derived Core contract, RALD-2 Core/official-producer separation,
+  and RALD-3 GitHub-hosted unsigned producer preflight are accepted. RALD-3 is
+  pinned to producer source commit `28e65b32c8719cf913e62080d4674b54dbcc1a01`;
+  the workflow was installed on default branch `main` by
+  `b17cc05ec8ec18bdbfd960e413dc4c47ffeb9f90`, and hosted manual run
+  `35090080089` completed successfully with `candidate=false`.
 - The drift-control execution contract is `RELEASE_AUTOMATION_PLAN.md`.
-- Remaining authorized order: finish the RALD-3 hosted activation gate without
-  public mutation; then RALD-4 Actions-secret signing; RALD-5 Release/Pages
-  LKG-preserving publication and runtime-proven promotion; RALD-6 fresh-install/
-  update delivery E2E; RALD-7 full acceptance and scheduler activation.
+- The next planned phase is RALD-4 Actions-secret signing, followed by RALD-5
+  Release/Pages LKG-preserving publication and runtime-proven promotion, RALD-6
+  fresh-install/update delivery E2E, and RALD-7 full acceptance. **RALD-4 has
+  not started and is outside the completed RALD-3 activation scope.**
 - Public stable remains fixed during source development and may advance only after
   the selected plan's focused/full gates, public readback, disposable public-update
   runtime smoke, and exact non-forced promotion checks pass.
@@ -46,12 +48,11 @@ behavior belongs in `SPEC.md`.
   `bf30a7dc94d4dad7f58836c69028160856e63c58`.
 - Worker mode remains OFF.
 
-## RALD-3 source-complete disposition
+## Accepted RALD-3 disposition
 
-Repository source for the GitHub-hosted producer preflight is complete, but the
-phase is not yet activation-accepted. Commit
+RALD-3 is accepted on 2026-09-16. Commit
 `28e65b32c8719cf913e62080d4674b54dbcc1a01` is the workflow's immutable
-producer-source pin. Release-builder now has one explicit hosted cross-build
+producer-source pin. Release-builder has one explicit hosted cross-build
 exception, `--defer-manager-probe`: it requires a Manager artifact, first proves
 that private snapshot is an Android/AArch64 PIE ELF, emits the unsigned
 `.manager-probe-deferred` marker, and makes `publish` fail before signing until
@@ -69,14 +70,20 @@ are 3/3; full locked workspace tests are Core 145 passed / one explicit live
 smoke ignored, Manager 20/20 plus 11/11 integration, and release-builder 17/17.
 The final repository gate is `job_ulk_1460dff8e1`.
 
-A read-only current-public preflight (`job_ule_0ff7583131`) authenticated
-`local-20260914-update-channel-bridge-1`, found wrapper stable `0.154.0` and
-official upstream stable `0.154.0`, and correctly selected `candidate=false`. No
-workflow was installed on `main`, no hosted dispatch or scheduler activation was
-performed, and public stable, GitHub Release/Pages state, Actions secrets, and the
-live installation were not mutated. The next gate is default-branch installation
-of this fixed workflow/source pin and one GitHub-hosted manual dry-run. RALD-4
-remains blocked until that evidence is green.
+Default-branch activation installed that exact workflow blob on `main` in
+`b17cc05ec8ec18bdbfd960e413dc4c47ffeb9f90` without changing the signed stable
+index. GitHub-hosted `workflow_dispatch` run `35090080089` then completed with
+conclusion `success` on `ubuntu-24.04`, checked out exact source
+`28e65b32c8719cf913e62080d4674b54dbcc1a01`, passed the 5/5 preflight helper
+tests, authenticated the current signed stable generation
+`local-20260914-update-channel-bridge-1`, and resolved wrapper/upstream stable as
+`0.154.0` / `0.154.0`. The resulting `candidate=false` decision correctly
+skipped cross-build, unsigned candidate adaptation/upload, and Android smoke;
+run artifacts are empty. Public stable and its signature remained byte-identical,
+GitHub Release ID `388405334` remained the current release, no Pages publication
+run was triggered, no Actions secret was created/changed/read for signing, and
+the live installation was not accessed or mutated. RALD-3 is therefore closed;
+RALD-4 remains not started.
 
 ## Accepted RALD-2 disposition
 
