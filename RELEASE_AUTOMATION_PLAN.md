@@ -480,6 +480,25 @@ mutation.
 Integrate `CODEX_RELEASE_SIGNING_KEY` only after the unsigned candidate passes
 pre-sign qualification.
 
+RALD-4 acceptance may use one explicitly requested `workflow_dispatch`
+**acceptance-only** positive proof instead of waiting indefinitely for the next
+upstream stable. This is a test-stimulus exception, not a production candidate
+selection rule. It is permitted only on `refs/heads/rewrite/rust-core`, with the
+comparison baseline fixed to `0.153.4`, and only while both the independently
+authenticated current public stable and the real official OpenAI stable resolve
+to exact `0.154.0`. The official metadata/archive digest, Android/AArch64 build,
+pre-sign qualification, runtime smoke, current public release-sequence binding,
+accepted public-key match, production-authority signing, independent signature
+verification, and private-key cleanup remain identical to the ordinary path.
+The acceptance-only signed index must use a non-routable `.invalid` release base;
+its signed output must be verified inside the signing job and deleted rather than
+uploaded as an artifact. It must not create or mutate a GitHub Release, Pages,
+`main`, the public stable index/signature, or live runtime state. Scheduled runs
+and ordinary manual runs continue to compare the actual authenticated public
+stable directly with the official upstream stable. This acceptance-only switch is
+not an RALD-5 publication input and must not be carried into a public promotion
+path as a version-comparison bypass.
+
 Gate cases:
 
 - secret absent -> fail closed;

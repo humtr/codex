@@ -46,6 +46,31 @@ class Rald4WorkflowContractTests(unittest.TestCase):
         self.assertIn("find \"$RUNNER_TEMP\" -maxdepth 1 -name '.rald4-signing-*'", self.sign)
         self.assertNotIn("actions/cache", self.text.lower())
 
+    def test_acceptance_gate_is_manual_ref_bound_and_non_publishable(self) -> None:
+        text = self.text
+        self.assertIn("rald4_positive_gate:", text)
+        self.assertIn("type: boolean", text)
+        self.assertIn("default: false", text)
+        self.assertIn("RALD4_ACCEPTANCE_BASELINE_VERSION: '0.153.4'", text)
+        self.assertIn("RALD4_ACCEPTANCE_TARGET_VERSION: '0.154.0'", text)
+        self.assertIn(
+            "RALD4_POSITIVE_GATE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald4_positive_gate }}",
+            self.pre_sign,
+        )
+        self.assertIn("test \"$GITHUB_EVENT_NAME\" = workflow_dispatch", self.pre_sign)
+        self.assertIn("test \"$GITHUB_REF\" = refs/heads/rewrite/rust-core", self.pre_sign)
+        self.assertIn(
+            "test '${{ steps.stable.outputs.current_version }}' = \"$RALD4_ACCEPTANCE_TARGET_VERSION\"",
+            self.pre_sign,
+        )
+        self.assertIn("test \"$upstream_version\" = \"$RALD4_ACCEPTANCE_TARGET_VERSION\"", self.pre_sign)
+        self.assertIn("comparison_version='${{ steps.stable.outputs.current_version }}'", self.pre_sign)
+        self.assertIn('comparison_version="$RALD4_ACCEPTANCE_BASELINE_VERSION"', self.pre_sign)
+        self.assertIn("release_base='https://rald4-acceptance.invalid/", self.sign)
+        self.assertIn("Remove acceptance-only signed output", self.sign)
+        self.assertIn("if: needs.producer.outputs.acceptance_gate == 'true'", self.sign)
+        self.assertIn("if: needs.producer.outputs.acceptance_gate != 'true'", self.sign)
+
     def test_only_signed_output_crosses_signing_job_boundary(self) -> None:
         self.assertIn(f"actions/download-artifact@{DOWNLOAD_SHA}", self.sign)
         self.assertIn(f"actions/upload-artifact@{UPLOAD_SHA}", self.sign)

@@ -2,6 +2,12 @@ name: Termux Hosted Release Preflight
 
 on:
   workflow_dispatch:
+    inputs:
+      rald4_positive_gate:
+        description: 'Run the bounded RALD-4 acceptance-only signing gate'
+        required: false
+        type: boolean
+        default: false
   schedule:
     - cron: '0 */6 * * *'
 
@@ -19,6 +25,8 @@ env:
   ANDROID_NDK_VERSION: '27.3.13750724'
   PUBLIC_INDEX_URL: 'https://raw.githubusercontent.com/humtr/codex/main/update-index-v1'
   UPSTREAM_LATEST_URL: 'https://releases.openai.com/codex/channels/latest'
+  RALD4_ACCEPTANCE_BASELINE_VERSION: '0.153.4'
+  RALD4_ACCEPTANCE_TARGET_VERSION: '0.154.0'
   WRAPPER_PUBLIC_KEY_SHA256: '62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c'
 
 jobs:
@@ -33,6 +41,7 @@ jobs:
       signed_artifact_name: ${{ steps.decision.outputs.signed_artifact_name }}
       generation_id: ${{ steps.decision.outputs.generation_id }}
       upstream_version: ${{ steps.decision.outputs.upstream_version }}
+      acceptance_gate: ${{ steps.decision.outputs.acceptance_gate }}
       release_sequence: ${{ steps.stable.outputs.release_sequence }}
     steps:
       - name: Fetch exact accepted source
@@ -128,6 +137,8 @@ jobs:
       - name: Resolve official upstream stable
         id: decision
         shell: bash
+        env:
+          RALD4_POSITIVE_GATE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald4_positive_gate }}
         run: |
           set -euo pipefail
           state="$RUNNER_TEMP/rald3-upstream"
@@ -140,12 +151,30 @@ jobs:
             "$state/latest.json" > "$state/upstream"
           upstream_version="$(sed -n 's/^version=//p' "$state/upstream")"
           archive_sha256="$(sed -n 's/^archive_sha256=//p' "$state/upstream")"
+
+          comparison_version='${{ steps.stable.outputs.current_version }}'
+          acceptance_suffix=''
+          if test "$RALD4_POSITIVE_GATE" = true; then
+            test "$GITHUB_EVENT_NAME" = workflow_dispatch
+            test "$GITHUB_REF" = refs/heads/rewrite/rust-core
+            test '${{ steps.stable.outputs.current_version }}' = "$RALD4_ACCEPTANCE_TARGET_VERSION"
+            test "$upstream_version" = "$RALD4_ACCEPTANCE_TARGET_VERSION"
+            comparison_version="$RALD4_ACCEPTANCE_BASELINE_VERSION"
+            acceptance_suffix='-acceptance'
+            printf 'RALD-4 acceptance-only comparison baseline %s; authenticated public stable remains %s\n' \
+              "$comparison_version" '${{ steps.stable.outputs.current_version }}'
+          fi
+
           python3 source/.github/scripts/rald3_preflight.py compare \
-            '${{ steps.stable.outputs.current_version }}' "$upstream_version" > "$state/decision"
+            "$comparison_version" "$upstream_version" > "$state/decision"
           candidate="$(sed -n 's/^candidate=//p' "$state/decision")"
           test "$candidate" = true -o "$candidate" = false
-          suffix="${upstream_version//./-}-${CODEX_SOURCE_SHA:0:12}"
+          if test "$RALD4_POSITIVE_GATE" = true; then
+            test "$candidate" = true
+          fi
+          suffix="${upstream_version//./-}-${CODEX_SOURCE_SHA:0:12}${acceptance_suffix}"
           printf 'candidate=%s\n' "$candidate" >> "$GITHUB_OUTPUT"
+          printf 'acceptance_gate=%s\n' "$RALD4_POSITIVE_GATE" >> "$GITHUB_OUTPUT"
           printf 'artifact_name=rald3-candidate-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
           printf 'qualified_artifact_name=rald4-qualified-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
           printf 'signed_artifact_name=rald4-signed-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
@@ -435,11 +464,15 @@ jobs:
           CODEX_RELEASE_SIGNING_KEY: ${{ secrets.CODEX_RELEASE_SIGNING_KEY }}
         run: |
           set -euo pipefail
+          release_base='https://humtr.github.io/codex/${{ needs.producer.outputs.generation_id }}/'
+          if test '${{ needs.producer.outputs.acceptance_gate }}' = true; then
+            release_base='https://rald4-acceptance.invalid/${{ needs.producer.outputs.generation_id }}/'
+          fi
           python3 source/.github/scripts/rald4_signing.py \
             --candidate "$RUNNER_TEMP/rald4-sign/candidate" \
             --accepted-public-key "$RUNNER_TEMP/rald4-sign/update-public-key.pem" \
             --release-sequence '${{ needs.producer.outputs.release_sequence }}' \
-            --release-base 'https://humtr.github.io/codex/${{ needs.producer.outputs.generation_id }}/' \
+            --release-base "$release_base" \
             --builder "$GITHUB_WORKSPACE/source/target/release/codex-release-builder" \
             --openssl /usr/bin/openssl \
             --runner-temp "$RUNNER_TEMP" \
@@ -471,13 +504,30 @@ jobs:
             '${{ needs.producer.outputs.release_sequence }}'
           test "$(sed -n 's/^generation_id\t//p' "$manifest")" = "$generation"
           test "$(sed -n 's/^generation_id\t//p' "$index")" = "$generation"
+          actual_release_base="$(sed -n 's/^release_base\t//p' "$index")"
+          if test '${{ needs.producer.outputs.acceptance_gate }}' = true; then
+            test "$actual_release_base" = "https://rald4-acceptance.invalid/$generation/"
+          else
+            test "$actual_release_base" = "https://humtr.github.io/codex/$generation/"
+          fi
           test -z "$(find "$RUNNER_TEMP" -maxdepth 1 -name '.rald4-signing-*' -print -quit)"
 
           tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
             -cf "$work/signed-candidate.tar" -C "$work" signed-output
           test "$(stat -c '%s' "$work/signed-candidate.tar")" -lt 1073741824
 
+      - name: Remove acceptance-only signed output
+        if: needs.producer.outputs.acceptance_gate == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$RUNNER_TEMP/rald4-sign/signed-output" \
+            "$RUNNER_TEMP/rald4-sign/signed-candidate.tar"
+          test ! -e "$RUNNER_TEMP/rald4-sign/signed-output"
+          test ! -e "$RUNNER_TEMP/rald4-sign/signed-candidate.tar"
+
       - name: Upload signed candidate only
+        if: needs.producer.outputs.acceptance_gate != 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ${{ needs.producer.outputs.signed_artifact_name }}

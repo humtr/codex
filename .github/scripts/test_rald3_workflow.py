@@ -80,6 +80,10 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("manifest-entry", text)
         self.assertIn("rald3_preflight.py compare", text)
         self.assertIn("UPSTREAM_LATEST_URL", text)
+        self.assertIn("comparison_version='${{ steps.stable.outputs.current_version }}'", text)
+        self.assertIn("default: false", text)
+        self.assertIn("test \"$GITHUB_EVENT_NAME\" = workflow_dispatch", text)
+        self.assertIn("test \"$GITHUB_REF\" = refs/heads/rewrite/rust-core", text)
 
 
 if __name__ == "__main__":

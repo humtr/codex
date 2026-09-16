@@ -92,13 +92,29 @@ workspace tests are Core 145 passed / one explicit real-Termux smoke ignored,
 Manager 20/20 plus 11/11 integration, and release-builder 17/17. Tests use only
 disposable fixture keys/roots; the live installation is not accessed.
 
-The exact remaining blocker is one production-authority positive GitHub-hosted
-signing execution for a fully qualified newer candidate with the repository
-secret already provisioned under separate authorization. That gate must prove the
-secret derives the accepted update public authority, candidate signing succeeds,
-independent verification succeeds, and no private material leaks. The secret value
-itself must not be requested or exposed. RALD-5 publication authority is absent
-from this source state and RALD-5 has not started.
+The remaining RALD-4 acceptance action is one user-authorized
+production-authority positive GitHub-hosted signing execution. To avoid making
+acceptance depend on the calendar date of the next upstream release, the selected
+plan now permits one bounded `workflow_dispatch` acceptance-only stimulus on
+`rewrite/rust-core`: it may compare fixed disposable baseline `0.153.4` against
+real official stable `0.154.0` only while the independently authenticated public
+stable is also exact `0.154.0`. This does not lower or rewrite public stable. The
+real official archive/digest, Android/AArch64 build and smoke, sequence derived
+from authenticated public state, accepted authority match, signing, independent
+verification, and key cleanup remain required. The acceptance signed index uses
+a non-routable `.invalid` release base and its signed output is deleted in-job
+rather than uploaded. Scheduled and ordinary manual runs retain the real-public-
+stable comparison. The gate must still prove the secret derives the accepted
+update public authority, candidate signing succeeds, independent verification
+succeeds, and no private material leaks. The secret value itself must not be
+requested or exposed. RALD-5 publication authority is absent, public Release/
+Pages/index state remains protected, and RALD-5 has not started. The bounded
+acceptance-stimulus amendment is repository-green: RALD-3 preflight 6/6,
+RALD-4 signing fixture 6/6, RALD-3 workflow contract 5/5, amended RALD-4
+workflow contract 6/6, YAML parse and `git diff --check`, formatting,
+release-builder 17/17, locked workspace check, workspace clippy `-D warnings`,
+and full locked workspace tests with Core 145 passed / one explicit real-Termux
+smoke ignored, Manager 20/20 plus 11/11 integration, and release-builder 17/17.
 
 ## Accepted RALD-3 disposition
 
