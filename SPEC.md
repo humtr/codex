@@ -433,6 +433,20 @@ Those commands do not make `codex update` a producer and do not themselves grant
 network publication authority. GitHub-hosted scheduling, secret-backed signing,
 and Release/Pages promotion are separate later RALD phases.
 
+The repository-owned hosted producer preflight is
+`.github/workflows/auto-release-termux.yml`. Its source contract is a fixed
+accepted commit SHA, never a moving branch head. When installed on the default
+branch it may run every six hours and by manual dispatch, with one serialized
+producer concurrency group and read-only repository permissions. RALD-3 is a
+pre-sign dry-run boundary only: it may read and authenticate the current public
+stable channel, read official OpenAI stable metadata, cross-build Core and
+Manager for Android/AArch64, adapt one unsigned candidate, transfer that
+candidate only as a short-lived Actions artifact, and run a Termux-compatible
+Android/AArch64 executable smoke. It must not read an Actions signing secret,
+sign a release, create or alter a GitHub Release, dispatch Pages, write `main`,
+or advance the stable index. Secret-backed signing and all public mutation remain
+RALD-4 and RALD-5 respectively.
+
 For any authorized official producer, an explicit version selector must be one
 stable `MAJOR.MINOR.PATCH` value; otherwise the bounded official
 `https://releases.openai.com/codex/channels/latest` metadata selects the
@@ -1570,6 +1584,24 @@ Manager artifact; the release builder must snapshot and qualify that exact
 private copy before publishing it into a generation. The normal on-device
 update path does not compile Rust, Cargo, or Manager.
 
+The normal/native release-builder path executes the bounded Manager artifact
+probe before generation publication exactly as defined below. A GitHub-hosted
+cross-build has one explicit pre-sign exception: `build --defer-manager-probe`
+is accepted only when `--manager` is present. That mode does not execute the
+cross-target binary on the build host. Instead it first proves that the private
+Manager snapshot is an ELF64 little-endian Android/AArch64 PIE using exactly one
+`/system/bin/linker64` interpreter, then emits the unsigned generation with the
+exact regular mode-0644 marker `.manager-probe-deferred` containing
+`codex-manager-probe-deferred-v1` plus one LF. The default CLI path and the
+library API used by Core never select this exception.
+
+A generation carrying `.manager-probe-deferred` is not publishable:
+`codex-release-builder publish` must fail closed before release signing. The
+hosted producer must execute the exact MGR-5 probe in its Termux-compatible
+Android/AArch64 smoke environment and may remove the marker only after the probe
+returns the exact accepted result. No deferred candidate may enter official
+signing or signed release inventory.
+
 The artifact has one reserved build-time probe form, invoked only by the
 release builder and never forwarded through Core's `codex termux` boundary:
 
@@ -1639,8 +1671,11 @@ already-qualified Manager artifact is supplied through the bounded release
 producer; it never builds or discovers one on-device.
 
 MGR-6 disposable qualification uses private temporary roots and separate
-fresh-install and legacy-upgrade consumers. It installs or selects a
-release-built Manager-bearing generation through the existing Core admission,
+fresh-install and legacy-upgrade consumers. For a hosted cross-build carrying the
+RALD-3 deferred marker, the Termux-compatible Android/AArch64 smoke must first
+execute the exact MGR-5 artifact probe successfully and remove the marker before
+any later signing step. It then installs or selects a release-built
+Manager-bearing generation through the existing Core admission,
 then proves `codex termux help`, one read-only profile query, and one isolated
 Manager-to-Core launch with the existing raw-argv, stream, TTY, signal, exit,
 and child-only `CODEX_HOME` contracts. The qualification must observe the

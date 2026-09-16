@@ -21,6 +21,8 @@ const MANAGER_ARTIFACT_PROBE_ARGUMENT: &str = "--artifact-probe";
 const MANAGER_ARTIFACT_PROBE_ENV: &str = "CODEX_MANAGER_ARTIFACT_PROBE";
 const MANAGER_ARTIFACT_PROBE_OUTPUT: &[u8] =
     b"codex-manager-artifact-v1\ncore_api=codex-manager-core-v1\n";
+const MANAGER_ARTIFACT_DEFERRED_MARKER: &str = ".manager-probe-deferred";
+const MANAGER_ARTIFACT_DEFERRED_MARKER_BYTES: &[u8] = b"codex-manager-probe-deferred-v1\n";
 const PATH_MAX_BYTES: usize = 256;
 const LOGICAL_ENTRY_MAX: usize = 32;
 const PAX_PAYLOAD_MAX_BYTES: u64 = 512;
@@ -160,7 +162,7 @@ const USAGE: &str = concat!(
     "       codex-release-builder build --version <MAJOR.MINOR.PATCH> ",
     "--archive <ABSOLUTE_FILE> --archive-sha256 <LOWERCASE_SHA256> ",
     "--generation-id <ID> --core <ABSOLUTE_FILE> [--manager <ABSOLUTE_FILE>] ",
-    "--creation-metadata <VALUE> ",
+    "[--defer-manager-probe] --creation-metadata <VALUE> ",
     "--gzip <ABSOLUTE_EXECUTABLE> --openssl <ABSOLUTE_EXECUTABLE> ",
     "--output <ABSENT_ABSOLUTE_DIRECTORY>\n",
     "       codex-release-builder publish --generation <ABSOLUTE_DIRECTORY> ",
@@ -220,6 +222,7 @@ struct BuildRequest {
     generation_id: String,
     core: PathBuf,
     manager: Option<PathBuf>,
+    defer_manager_probe: bool,
     creation_metadata: String,
     gzip: PathBuf,
     openssl: PathBuf,
@@ -252,6 +255,7 @@ struct RequestFields {
     generation_id: Option<String>,
     core: Option<PathBuf>,
     manager: Option<PathBuf>,
+    defer_manager_probe: bool,
     creation_metadata: Option<String>,
     gzip: Option<PathBuf>,
     openssl: Option<PathBuf>,
@@ -299,6 +303,13 @@ where
     }
     let mut fields = RequestFields::default();
     while let Some(flag) = args.next() {
+        if flag == OsStr::new("--defer-manager-probe") {
+            if fields.defer_manager_probe {
+                return Err(BuilderError::Usage);
+            }
+            fields.defer_manager_probe = true;
+            continue;
+        }
         let value = args.next().ok_or(BuilderError::Usage)?;
         match flag.to_str() {
             Some("--version") => set_once(&mut fields.version, text_value(value)?)?,
@@ -323,6 +334,7 @@ where
         generation_id: fields.generation_id.ok_or(BuilderError::Usage)?,
         core: fields.core.ok_or(BuilderError::Usage)?,
         manager: fields.manager,
+        defer_manager_probe: fields.defer_manager_probe,
         creation_metadata: fields.creation_metadata.ok_or(BuilderError::Usage)?,
         gzip: fields.gzip.ok_or(BuilderError::Usage)?,
         openssl: fields.openssl.ok_or(BuilderError::Usage)?,
@@ -601,6 +613,11 @@ fn ensure_executable(path: &Path, name: &'static str) -> Result<(), BuilderError
 }
 
 fn validate_request(request: &BuildRequest) -> Result<(), BuilderError> {
+    if request.defer_manager_probe && request.manager.is_none() {
+        return Err(BuilderError::Invalid(
+            "deferred Manager artifact probe requires a Manager artifact",
+        ));
+    }
     if !valid_stable_version(&request.version) {
         return Err(BuilderError::Invalid("release version is invalid"));
     }
@@ -786,6 +803,20 @@ fn qualify_manager_artifact(path: &Path, staging: &Path) -> Result<(), BuilderEr
     Ok(())
 }
 
+fn write_deferred_manager_probe_marker(staging: &Path) -> Result<(), BuilderError> {
+    let path = staging.join(MANAGER_ARTIFACT_DEFERRED_MARKER);
+    let mut file = create_private_file(&path)?;
+    file.write_all(MANAGER_ARTIFACT_DEFERRED_MARKER_BYTES)
+        .map_err(|source| io_error("write deferred Manager probe marker", source))?;
+    file.sync_all()
+        .map_err(|source| io_error("sync deferred Manager probe marker", source))?;
+    drop(file);
+    set_mode(&path, 0o644, "set deferred Manager probe marker mode")?;
+    File::open(&path)
+        .and_then(|file| file.sync_all())
+        .map_err(|source| io_error("sync deferred Manager probe marker mode", source))
+}
+
 fn validate_fetch_request(request: &FetchRequest) -> Result<(), BuilderError> {
     if !valid_stable_version(&request.version) {
         return Err(BuilderError::Invalid("release version is invalid"));
@@ -856,6 +887,15 @@ fn validate_publish_request(request: &PublishRequest) -> Result<(), BuilderError
         return Err(BuilderError::Invalid(
             "publication generation contains a symlinked path",
         ));
+    }
+    match std::fs::symlink_metadata(request.generation.join(MANAGER_ARTIFACT_DEFERRED_MARKER)) {
+        Ok(_) => {
+            return Err(BuilderError::Invalid(
+                "Manager artifact probe is still deferred",
+            ));
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(source) => return Err(io_error("inspect deferred Manager probe marker", source)),
     }
     let private_key = ensure_regular_file(
         &request.private_key,
@@ -2462,6 +2502,83 @@ fn validate_android_aarch64_core_elf(path: &Path) -> Result<(), BuilderError> {
     Ok(())
 }
 
+fn validate_android_aarch64_manager_elf(path: &Path) -> Result<(), BuilderError> {
+    let mut file = File::open(path).map_err(|source| io_error("open Manager ELF", source))?;
+    let file_len = file
+        .metadata()
+        .map_err(|source| io_error("inspect Manager ELF", source))?
+        .len();
+    let mut header = [0u8; 64];
+    file.read_exact(&mut header)
+        .map_err(|source| io_error("read Manager ELF header", source))?;
+    if &header[..4] != b"\x7fELF"
+        || header[4] != 2
+        || header[5] != 1
+        || header[6] != 1
+        || little_u16(&header[16..18]) != 3
+        || little_u16(&header[18..20]) != 183
+        || little_u32(&header[20..24]) != 1
+        || little_u16(&header[52..54]) != 64
+        || little_u16(&header[54..56]) != 56
+    {
+        return Err(BuilderError::Invalid(
+            "Manager artifact is not a supported Android AArch64 PIE ELF",
+        ));
+    }
+    let program_offset = little_u64(&header[32..40]);
+    let program_count = u64::from(little_u16(&header[56..58]));
+    if program_count == 0 {
+        return Err(BuilderError::Invalid("Manager ELF has no program headers"));
+    }
+    program_count
+        .checked_mul(56)
+        .and_then(|length| program_offset.checked_add(length))
+        .filter(|end| *end <= file_len)
+        .ok_or(BuilderError::Invalid(
+            "Manager ELF program headers are malformed",
+        ))?;
+
+    let mut interpreter = None;
+    let mut program_header = [0u8; 56];
+    for index in 0..program_count {
+        file.seek(SeekFrom::Start(program_offset + index * 56))
+            .map_err(|source| io_error("seek Manager ELF program header", source))?;
+        file.read_exact(&mut program_header)
+            .map_err(|source| io_error("read Manager ELF program header", source))?;
+        if little_u32(&program_header[..4]) != 3 {
+            continue;
+        }
+        if interpreter.is_some() {
+            return Err(BuilderError::Invalid(
+                "Manager ELF has multiple PT_INTERP program headers",
+            ));
+        }
+        let offset = little_u64(&program_header[8..16]);
+        let size = little_u64(&program_header[32..40]);
+        let end = offset
+            .checked_add(size)
+            .filter(|end| *end <= file_len)
+            .ok_or(BuilderError::Invalid(
+                "Manager ELF interpreter is malformed",
+            ))?;
+        let size = usize::try_from(size)
+            .map_err(|_| BuilderError::Invalid("Manager ELF interpreter is malformed"))?;
+        let mut value = vec![0u8; size];
+        file.seek(SeekFrom::Start(offset))
+            .map_err(|source| io_error("seek Manager ELF interpreter", source))?;
+        file.read_exact(&mut value)
+            .map_err(|source| io_error("read Manager ELF interpreter", source))?;
+        let _ = end;
+        interpreter = Some(value);
+    }
+    if interpreter.as_deref() != Some(ANDROID_AARCH64_INTERPRETER) {
+        return Err(BuilderError::Invalid(
+            "Manager artifact does not use the Android AArch64 dynamic linker",
+        ));
+    }
+    Ok(())
+}
+
 fn parse_archive<R: Read>(
     reader: &mut R,
     staging: &Path,
@@ -2964,7 +3081,13 @@ fn build(request: &BuildRequest) -> Result<(), BuilderError> {
         let core_sha256 = snapshot_core_artifact(request, &staging)?;
         let manager_sha256 = snapshot_manager_artifact(request, &staging)?;
         if manager_sha256.is_some() {
-            qualify_manager_artifact(&staging.join(".manager-artifact"), &staging)?;
+            let manager_snapshot = staging.join(".manager-artifact");
+            if request.defer_manager_probe {
+                validate_android_aarch64_manager_elf(&manager_snapshot)?;
+                write_deferred_manager_probe_marker(&staging)?;
+            } else {
+                qualify_manager_artifact(&manager_snapshot, &staging)?;
+            }
         }
         let archive = snapshot_archive(request, &staging)?;
         let selected = select_archive(request, &archive, &staging)?;
@@ -3051,6 +3174,7 @@ pub fn build_generation_with_manager(
         generation_id: generation_id.to_owned(),
         core: core.to_owned(),
         manager: manager.map(Path::to_owned),
+        defer_manager_probe: false,
         creation_metadata: creation_metadata.to_owned(),
         gzip: gzip.to_owned(),
         openssl: openssl.to_owned(),
@@ -3478,6 +3602,7 @@ fi
                 generation_id: "test-generation".to_owned(),
                 core,
                 manager: None,
+                defer_manager_probe: false,
                 creation_metadata: "test-fixture".to_owned(),
                 gzip,
                 openssl,
@@ -3516,6 +3641,9 @@ fi
                 11..11,
                 [OsString::from("--manager"), manager.as_os_str().to_owned()],
             );
+        }
+        if request.defer_manager_probe {
+            args.push(OsString::from("--defer-manager-probe"));
         }
         args
     }
@@ -3636,6 +3764,15 @@ fi
             }
             assert!(matches!(parse_request(args), Err(BuilderError::Usage)));
         }
+        let mut duplicate_defer = request_args(&grammar_fixture.request);
+        duplicate_defer.extend([
+            OsString::from("--defer-manager-probe"),
+            OsString::from("--defer-manager-probe"),
+        ]);
+        assert!(matches!(
+            parse_request(duplicate_defer),
+            Err(BuilderError::Usage)
+        ));
         grammar_fixture.remove();
 
         for case in [
@@ -3724,6 +3861,7 @@ fi
             generation_id: "official-fetch-generation".to_owned(),
             core: fixture.request.core.clone(),
             manager: None,
+            defer_manager_probe: false,
             creation_metadata: "r5-fetch-test".to_owned(),
             gzip: fixture.request.gzip.clone(),
             openssl: request.openssl.clone(),
@@ -4097,6 +4235,86 @@ fi
         assert!(manifest.contains("file\tmanager\t"));
         assert!(manifest.contains("file_count\t7\n"));
         fixture.remove();
+    }
+
+    #[test]
+    fn test_rald3_deferred_manager_probe_is_unsigned_and_publish_blocking() {
+        let mut fixture = fixture("rald3-deferred-manager", happy_entries("0.150.1"), false);
+        let manager = fixture.root.join("manager-source");
+        std::fs::write(&manager, fake_core_elf(ANDROID_AARCH64_INTERPRETER)).unwrap();
+        set_mode(&manager, 0o755, "set deferred test Manager mode").unwrap();
+        fixture.request.manager = Some(manager.clone());
+        fixture.request.defer_manager_probe = true;
+
+        assert_eq!(run_from_args(request_args(&fixture.request)), 0);
+        let marker = fixture
+            .request
+            .output
+            .join(MANAGER_ARTIFACT_DEFERRED_MARKER);
+        assert_eq!(
+            std::fs::read(&marker).unwrap(),
+            MANAGER_ARTIFACT_DEFERRED_MARKER_BYTES
+        );
+        assert_eq!(
+            std::fs::symlink_metadata(&marker)
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o644
+        );
+        assert_eq!(
+            std::fs::read(fixture.request.output.join("manager")).unwrap(),
+            std::fs::read(&manager).unwrap()
+        );
+
+        let private_key = fixture.root.join("release-key.pem");
+        generate_publish_key(&fixture.request.openssl, &private_key);
+        let publication = fixture.root.join("publication");
+        let request = PublishRequest {
+            generation: fixture.request.output.clone(),
+            release_sequence: "1".to_owned(),
+            release_base: "https://example.test/releases/test-generation/".to_owned(),
+            private_key,
+            openssl: fixture.request.openssl.clone(),
+            output: publication.clone(),
+        };
+        let error = publish(&request).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "Manager artifact probe is still deferred"
+        );
+        assert!(!publication.exists());
+        fixture.remove();
+    }
+
+    #[test]
+    fn test_rald3_deferred_manager_probe_requires_manager_and_android_elf() {
+        let mut missing = fixture("rald3-deferred-missing", happy_entries("0.150.1"), false);
+        missing.request.defer_manager_probe = true;
+        let error = build(&missing.request).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "deferred Manager artifact probe requires a Manager artifact"
+        );
+        assert!(!missing.request.output.exists());
+        missing.remove();
+
+        let mut invalid = fixture("rald3-deferred-invalid", happy_entries("0.150.1"), false);
+        let manager = invalid.root.join("manager-source");
+        write_valid_manager_probe(&manager);
+        invalid.request.manager = Some(manager);
+        invalid.request.defer_manager_probe = true;
+        let error = build(&invalid.request).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("Manager artifact is not a supported Android AArch64 PIE ELF"),
+            "unexpected error: {error}"
+        );
+        assert!(!invalid.request.output.exists());
+        assert!(no_builder_staging(&invalid.root));
+        invalid.remove();
     }
 
     #[test]
