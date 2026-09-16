@@ -64,8 +64,8 @@ class WorkflowContractTests(unittest.TestCase):
 
     def test_hosted_build_and_android_smoke_are_explicit(self) -> None:
         text = self.text
-        self.assertIn("runs-on: ubuntu-24.04", text)
-        self.assertIn("runs-on: macos-15", text)
+        self.assertEqual(text.count("runs-on: ubuntu-24.04"), 3)
+        self.assertNotIn("runs-on: macos-15", text)
         self.assertIn("aarch64-linux-android", text)
         self.assertIn("system-images;android-35;google_apis;arm64-v8a", text)
         for tool in [

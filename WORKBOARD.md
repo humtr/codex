@@ -71,13 +71,18 @@ behavior belongs in `SPEC.md`.
   created the AVD, but then remained inside unbounded `adb wait-for-device` until
   the 45-minute job timeout cancelled it. Manager/Core/runtime smoke, qualified
   upload, and signing were skipped, so the production signing secret was not
-  injected. GitHub's ARM64 macOS hosted runner does not provide nested
-  virtualization, so the follow-up repair explicitly disables emulator VM
-  acceleration and selects software graphics. It also removes the unbounded wait:
-  emulator liveness, `adb get-state`, and `sys.boot_completed` are polled for at
-  most 180 five-second iterations, emulator exit fails immediately with its log,
-  and an EXIT trap cleans up emulator/adb processes. The next action is another
-  authorized hosted positive retry of that exact bounded no-HVF repair.
+  injected. Commit `0de76cc04787f3eb6c28d42deeec3533b092b00f` bounded emulator
+  liveness and ADB/boot discovery. Commit
+  `d2becd586e6a20360110f38a28d595b6c850a7e7` additionally tried explicit no-HVF
+  software graphics. Hosted run `35161605865` proved the bounded failure path but
+  also showed that Android Emulator 37.1.11 on `macos-15-arm64` still exits
+  immediately with `HVF error: HV_UNSUPPORTED` for the ARM64 guest even with
+  `-accel off`; exact Manager/Core/runtime smoke and signing were therefore
+  skipped and the production secret was not injected. The next narrow repair
+  moves only the smoke job to standard `ubuntu-24.04` x64, retaining the real
+  ARM64 Android system image and software CPU emulation. The public Linux ARM64
+  hosted runner is not substituted because it currently exposes no `/dev/kvm`
+  and omits Android SDK support.
 - RALD-5 Release/Pages LKG-preserving publication and runtime-proven promotion,
   RALD-6 fresh-install/update delivery E2E, and RALD-7 full acceptance remain
   later phases.
@@ -177,15 +182,22 @@ therefore skipped. The follow-up workflow repair removes that PATH dependency by
 binding `sdkmanager`, `avdmanager`, `adb`, and `emulator` to executable paths
 under `$ANDROID_SDK_ROOT`. Run `35155202983` proved those bindings and reached AVD
 creation, then exposed one further smoke-orchestration defect: unbounded
-`adb wait-for-device` survived until the 45-minute job timeout. The repaired
-workflow explicitly uses no VM acceleration plus software graphics, bounds boot
-discovery to 180 five-second polls, checks emulator process liveness on every
-poll, requires both `adb get-state=device` and `sys.boot_completed=1`, emits the
-emulator log on failure, and cleans up through an EXIT trap. This addresses the
-ARM64 macOS hosted runner's lack of nested virtualization without weakening the
-Android/AArch64 executable smoke. RALD-4 remains pending until an authorized
-hosted positive retry passes Android smoke, secret-backed signing, and independent
-verification. RALD-5 remains not started.
+`adb wait-for-device` survived until the 45-minute job timeout. Commit
+`0de76cc04787f3eb6c28d42deeec3533b092b00f` replaced that wait with bounded
+emulator-process/ADB/boot polling and cleanup; commit
+`d2becd586e6a20360110f38a28d595b6c850a7e7` added explicit no-HVF/software
+rendering. Run `35161605865` then failed quickly and diagnostically rather than
+hanging: Android Emulator 37.1.11 on the `macos-15-arm64` hosted image still
+attempted HVF for the ARM64 AVD and exited with `HVF error: HV_UNSUPPORTED`.
+Producer qualification remained green, but exact Manager/Core/runtime execution,
+qualified upload, and signing were skipped, so the production signing secret was
+not injected. Current hosted-runner evidence also rules out `ubuntu-24.04-arm`
+as a direct replacement because the standard ARM runner has no `/dev/kvm` and
+omits Android SDK support. The next repair therefore moves only the smoke job to
+standard `ubuntu-24.04` x64 while retaining the exact ARM64 Android system image,
+software emulation, bounded boot diagnostics, and all executable-smoke checks.
+RALD-4 remains pending until an authorized positive retry passes Android smoke,
+secret-backed signing, and independent verification. RALD-5 remains not started.
 
 ## Accepted RALD-3 disposition
 

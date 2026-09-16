@@ -281,7 +281,7 @@ jobs:
     name: Android/AArch64 executable smoke
     needs: producer
     if: needs.producer.outputs.candidate == 'true'
-    runs-on: macos-15
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - name: Fetch exact accepted source
