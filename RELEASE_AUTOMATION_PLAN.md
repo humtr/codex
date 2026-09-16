@@ -490,6 +490,17 @@ to exact `0.154.0`. The official metadata/archive digest, Android/AArch64 build,
 pre-sign qualification, runtime smoke, current public release-sequence binding,
 accepted public-key match, production-authority signing, independent signature
 verification, and private-key cleanup remain identical to the ordinary path.
+For this hosted acceptance proof, the Android/AArch64 runtime smoke may execute
+the exact built ARM64 candidate binaries inside an API-35 Google APIs x86_64
+Android emulator on `ubuntu-24.04` only when KVM is present, the guest explicitly
+advertises `arm64-v8a` as a supported 64-bit secondary ABI, and the unchanged
+Manager, Core, and runtime executables all pass their existing smoke commands
+through Android's ARM translation layer. The candidate itself is never rebuilt or
+repacked as x86_64, and missing KVM, missing ARM64 translation, or any translated
+execution failure fails before signing. This is a hosted execution-substrate
+exception forced by the absence of usable nested virtualization on the available
+hosted ARM64 paths; it does not weaken the Android/AArch64 candidate contract or
+become a publication rule.
 The acceptance-only signed index must use a non-routable `.invalid` release base;
 its signed output must be verified inside the signing job and deleted rather than
 uploaded as an artifact. It must not create or mutate a GitHub Release, Pages,

@@ -64,33 +64,25 @@ behavior belongs in `SPEC.md`.
   production signing secret was not injected. The workflow repair now binds
   Android SDK tools under `$ANDROID_SDK_ROOT` with executable checks.
 - The standing user authorization now permits bounded RALD-4 acceptance-only
-  retries until this blocker is resolved. Hosted run `35155202983` at workflow
-  head `2b51bf6d1c41dfb58eb5cdf58d8077f4174ee873` again completed the producer,
-  candidate adaptation/qualification, and unsigned upload. The macOS ARM64 smoke
-  job proved the SDK-root tool bindings, installed the ARM64 Android image, and
-  created the AVD, but then remained inside unbounded `adb wait-for-device` until
-  the 45-minute job timeout cancelled it. Manager/Core/runtime smoke, qualified
-  upload, and signing were skipped, so the production signing secret was not
-  injected. Commit `0de76cc04787f3eb6c28d42deeec3533b092b00f` bounded emulator
-  liveness and ADB/boot discovery. Commit
-  `d2becd586e6a20360110f38a28d595b6c850a7e7` additionally tried explicit no-HVF
-  software graphics. Hosted run `35161605865` proved the bounded failure path but
-  also showed that Android Emulator 37.1.11 on `macos-15-arm64` still exits
-  immediately with `HVF error: HV_UNSUPPORTED` for the ARM64 guest even with
-  `-accel off`; exact Manager/Core/runtime smoke and signing were therefore
-  skipped and the production secret was not injected. The next narrow repair
-  moves only the smoke job to standard `ubuntu-24.04` x64, retaining the real
-  ARM64 Android system image and software CPU emulation. The public Linux ARM64
-  hosted runner is not substituted because it currently exposes no `/dev/kvm`
-  and omits Android SDK support. Hosted run `35162096906` at workflow head
-  `bc8c8fd0224a2d38530b011093765f28afeeb364` proved the Linux x64 job reaches
-  candidate revalidation, but failed before any SDK installation because that
-  runner image does not preinstall the Android Emulator package and the workflow
-  checked `$ANDROID_SDK_ROOT/emulator/emulator` too early. Manager/Core/runtime
-  smoke, qualified upload, and signing were skipped, so the production secret
-  was not injected. The follow-up repair installs the official `emulator` package
-  together with the fixed ARM64 Android image via the already-bound `sdkmanager`,
-  then requires the emulator executable before AVD creation.
+  retries until this blocker is resolved. Hosted run `35155202983` exposed the
+  unbounded ADB wait; `0de76cc04787f3eb6c28d42deeec3533b092b00f` bounded boot
+  discovery and added emulator liveness/logging. Run `35161605865` at
+  `d2becd586e6a20360110f38a28d595b6c850a7e7` then proved the macOS ARM64 hosted
+  path is structurally unavailable: emulator 37.1.11 exits with
+  `HVF error: HV_UNSUPPORTED` even with `-accel off`. Run `35162096906` at
+  `bc8c8fd0224a2d38530b011093765f28afeeb364` moved smoke to Linux x64 and reached
+  candidate revalidation, but failed before emulator installation because the
+  hosted image does not preinstall `$ANDROID_SDK_ROOT/emulator/emulator`. Each run
+  failed before exact Manager/Core/runtime smoke and signing, so the production
+  secret was not injected. Commit `aca5ad8f9a13532e2977aa0a3a3e33a7d032507b`
+  fixes that bootstrap order by installing the official emulator package with
+  `sdkmanager`. The selected next repair keeps that installation fix and moves the
+  execution substrate to `ubuntu-24.04` KVM with an API-35 Google APIs x86_64 AVD.
+  The candidate remains the exact ARM64 build; smoke fails closed unless the guest
+  advertises `arm64-v8a` as a 64-bit secondary ABI and the unchanged Manager,
+  Core, and runtime executables actually execute through Android's ARM translation
+  layer. The drift-control plan records this hosted-only substrate exception; no
+  publication or production candidate rule changes.
 - RALD-5 Release/Pages LKG-preserving publication and runtime-proven promotion,
   RALD-6 fresh-install/update delivery E2E, and RALD-7 full acceptance remain
   later phases.
@@ -188,33 +180,22 @@ reverified that exact candidate, but failed before emulator creation with
 `sdkmanager: command not found`; Manager/Core/runtime execution and signing were
 therefore skipped. The follow-up workflow repair removes that PATH dependency by
 binding `sdkmanager`, `avdmanager`, `adb`, and `emulator` to executable paths
-under `$ANDROID_SDK_ROOT`. Run `35155202983` proved those bindings and reached AVD
-creation, then exposed one further smoke-orchestration defect: unbounded
-`adb wait-for-device` survived until the 45-minute job timeout. Commit
-`0de76cc04787f3eb6c28d42deeec3533b092b00f` replaced that wait with bounded
-emulator-process/ADB/boot polling and cleanup; commit
-`d2becd586e6a20360110f38a28d595b6c850a7e7` added explicit no-HVF/software
-rendering. Run `35161605865` then failed quickly and diagnostically rather than
-hanging: Android Emulator 37.1.11 on the `macos-15-arm64` hosted image still
-attempted HVF for the ARM64 AVD and exited with `HVF error: HV_UNSUPPORTED`.
-Producer qualification remained green, but exact Manager/Core/runtime execution,
-qualified upload, and signing were skipped, so the production signing secret was
-not injected. Current hosted-runner evidence also rules out `ubuntu-24.04-arm`
-as a direct replacement because the standard ARM runner has no `/dev/kvm` and
-omits Android SDK support. The next repair therefore moves only the smoke job to
-standard `ubuntu-24.04` x64 while retaining the exact ARM64 Android system image,
-software emulation, bounded boot diagnostics, and all executable-smoke checks.
-Run `35162096906` then proved the x64 runner and candidate download/revalidation
-path but exited at the initial tool check: the Ubuntu 24.04 image ships the SDK
-command-line/platform tools but not the Android Emulator package. This was a
-bootstrap-order defect, not a candidate or signing failure; the signing job was
-skipped and the production secret was not injected. The next repair installs
-`emulator` and the fixed `system-images;android-35;google_apis;arm64-v8a` package
-with the preinstalled `sdkmanager` before asserting the emulator executable, then
-retains the same AVD, software-emulation, liveness, ABI, and executable-smoke
-gates. RALD-4 remains pending until an authorized positive retry passes Android
-smoke, secret-backed signing, and independent verification. RALD-5 remains not
-started.
+under `$ANDROID_SDK_ROOT`. Run `35155202983` exposed the unbounded ADB wait and
+`0de76cc04787f3eb6c28d42deeec3533b092b00f` made boot discovery bounded and
+log-producing. Run `35161605865` then made the macOS ARM64 platform blocker
+explicit: emulator 37.1.11 still attempts HVF with `-accel off` and exits with
+`HVF error: HV_UNSUPPORTED`. Run `35162096906` moved smoke to Ubuntu x64 and
+proved candidate download/revalidation there, but exited because the Android
+Emulator package was not preinstalled; `aca5ad8f9a13532e2977aa0a3a3e33a7d032507b`
+repairs that bootstrap order by installing `emulator` with `sdkmanager`. All three
+runs stopped before signing and did not inject the production secret. The selected
+hosted-only substrate now uses `ubuntu-24.04` KVM with an API-35 Google APIs
+x86_64 AVD while keeping the candidate byte-identical and ARM64. It requires the
+guest to advertise `arm64-v8a` in its 64-bit ABI list and then executes the exact
+Manager, Core, and runtime binaries through Android's ARM translation layer;
+missing KVM, missing translation, or any execution failure blocks signing. RALD-4
+remains pending until this smoke, secret-backed signing, and independent
+verification pass. RALD-5 remains not started.
 
 ## Accepted RALD-3 disposition
 
