@@ -75,8 +75,10 @@ class WorkflowContractTests(unittest.TestCase):
             "$ANDROID_SDK_ROOT/emulator/emulator",
         ]:
             self.assertIn(tool, text)
-        self.assertIn('for tool in "$sdkmanager" "$avdmanager" "$adb" "$emulator"; do', text)
+        self.assertIn('for tool in "$sdkmanager" "$avdmanager" "$adb"; do', text)
         self.assertIn('test -x "$tool"', text)
+        self.assertIn('"$sdkmanager" "emulator" "$image"', text)
+        self.assertIn('test -x "$emulator"', text)
         self.assertIn("-accel off -gpu swiftshader", text)
         self.assertNotIn("yes | sdkmanager --licenses", text)
         self.assertNotIn('echo no | avdmanager create avd', text)

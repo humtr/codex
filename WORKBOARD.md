@@ -82,7 +82,15 @@ behavior belongs in `SPEC.md`.
   moves only the smoke job to standard `ubuntu-24.04` x64, retaining the real
   ARM64 Android system image and software CPU emulation. The public Linux ARM64
   hosted runner is not substituted because it currently exposes no `/dev/kvm`
-  and omits Android SDK support.
+  and omits Android SDK support. Hosted run `35162096906` at workflow head
+  `bc8c8fd0224a2d38530b011093765f28afeeb364` proved the Linux x64 job reaches
+  candidate revalidation, but failed before any SDK installation because that
+  runner image does not preinstall the Android Emulator package and the workflow
+  checked `$ANDROID_SDK_ROOT/emulator/emulator` too early. Manager/Core/runtime
+  smoke, qualified upload, and signing were skipped, so the production secret
+  was not injected. The follow-up repair installs the official `emulator` package
+  together with the fixed ARM64 Android image via the already-bound `sdkmanager`,
+  then requires the emulator executable before AVD creation.
 - RALD-5 Release/Pages LKG-preserving publication and runtime-proven promotion,
   RALD-6 fresh-install/update delivery E2E, and RALD-7 full acceptance remain
   later phases.
@@ -196,8 +204,17 @@ as a direct replacement because the standard ARM runner has no `/dev/kvm` and
 omits Android SDK support. The next repair therefore moves only the smoke job to
 standard `ubuntu-24.04` x64 while retaining the exact ARM64 Android system image,
 software emulation, bounded boot diagnostics, and all executable-smoke checks.
-RALD-4 remains pending until an authorized positive retry passes Android smoke,
-secret-backed signing, and independent verification. RALD-5 remains not started.
+Run `35162096906` then proved the x64 runner and candidate download/revalidation
+path but exited at the initial tool check: the Ubuntu 24.04 image ships the SDK
+command-line/platform tools but not the Android Emulator package. This was a
+bootstrap-order defect, not a candidate or signing failure; the signing job was
+skipped and the production secret was not injected. The next repair installs
+`emulator` and the fixed `system-images;android-35;google_apis;arm64-v8a` package
+with the preinstalled `sdkmanager` before asserting the emulator executable, then
+retains the same AVD, software-emulation, liveness, ABI, and executable-smoke
+gates. RALD-4 remains pending until an authorized positive retry passes Android
+smoke, secret-backed signing, and independent verification. RALD-5 remains not
+started.
 
 ## Accepted RALD-3 disposition
 

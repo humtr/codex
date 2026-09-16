@@ -321,11 +321,12 @@ jobs:
           avdmanager="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/avdmanager"
           adb="$ANDROID_SDK_ROOT/platform-tools/adb"
           emulator="$ANDROID_SDK_ROOT/emulator/emulator"
-          for tool in "$sdkmanager" "$avdmanager" "$adb" "$emulator"; do
+          for tool in "$sdkmanager" "$avdmanager" "$adb"; do
             test -x "$tool"
           done
           yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
-          "$sdkmanager" "$image"
+          "$sdkmanager" "emulator" "$image"
+          test -x "$emulator"
           echo no | "$avdmanager" create avd --force --name rald3 --package "$image"
           "$emulator" \
             -avd rald3 -no-window -no-audio -no-boot-anim -no-snapshot -wipe-data \
