@@ -53,10 +53,18 @@ behavior belongs in `SPEC.md`.
   closed during Android/AArch64 cross-link before candidate packaging, smoke, or
   secret-backed signing because API-24 bionic does not export `renameat2`.
   Signing was skipped and the production secret was not exposed. The source
-  repair is `1cdcb44d035ec5b1ce6339f2aa7b0e95831a6f0a`; another hosted positive
-  execution requires a fresh explicit authorization and has not been run.
-- The next acceptance action for RALD-4 is that separately re-authorized hosted
-  positive retry. RALD-5 Release/Pages LKG-preserving
+  repair is `1cdcb44d035ec5b1ce6339f2aa7b0e95831a6f0a`.
+- The separately re-authorized retry was hosted run `35148549722` at workflow
+  head `c29cca7a3c5abb9fe269d2adf67f97645962a5ae`. Producer authentication,
+  official `0.154.0` resolution, repaired Android/API-24 cross-build, candidate
+  adaptation/qualification, and unsigned upload all succeeded. The smoke job
+  reverified the candidate, then failed closed before emulator boot because the
+  `macos-15-arm64` runner did not expose `sdkmanager` on `PATH`. Exact Manager,
+  Core, and runtime execution, qualified upload, and signing were skipped; the
+  production signing secret was not injected. The workflow repair now binds
+  Android SDK tools under `$ANDROID_SDK_ROOT` with executable checks.
+- The next acceptance action for RALD-4 is a newly authorized hosted positive
+  retry after that SDK tool-path repair. RALD-5 Release/Pages LKG-preserving
   publication and runtime-proven promotion, RALD-6 fresh-install/update delivery
   E2E, and RALD-7 full acceptance remain later phases.
 - Public stable remains fixed during source development and may advance only after
@@ -145,10 +153,18 @@ pass for formatting, locked workspace check, release-builder 17/17, Manager
 20/20 plus 11/11 integration, Core 145 passed / one explicit real-Termux smoke
 ignored, and `git diff --check`. A real Android/AArch64 Termux link of Core,
 Manager, and release-builder also has no undefined `renameat2` symbol. The hosted
-workflow now pins this repair commit. RALD-4 remains pending until a newly
-authorized hosted positive retry reaches and passes the secret-backed signing
-and independent verification gates; the failed run is not rerun implicitly.
-RALD-5 remains not started.
+workflow now pins this repair commit. The separately re-authorized retry,
+`35148549722`, then proved the repaired cross-build in GitHub hosting: the entire
+producer job succeeded through real official archive adaptation, qualification,
+and unsigned candidate upload. Its macOS ARM64 smoke job also downloaded and
+reverified that exact candidate, but failed before emulator creation with
+`sdkmanager: command not found`; Manager/Core/runtime execution and signing were
+therefore skipped. The follow-up workflow repair removes that PATH dependency by
+binding `sdkmanager`, `avdmanager`, `adb`, and `emulator` to executable paths
+under `$ANDROID_SDK_ROOT`. RALD-4 remains pending until a newly authorized hosted
+positive retry reaches and passes Android smoke, secret-backed signing, and
+independent verification. Neither failed run is rerun implicitly. RALD-5 remains
+not started.
 
 ## Accepted RALD-3 disposition
 

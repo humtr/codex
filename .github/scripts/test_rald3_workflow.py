@@ -68,6 +68,17 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("runs-on: macos-15", text)
         self.assertIn("aarch64-linux-android", text)
         self.assertIn("system-images;android-35;google_apis;arm64-v8a", text)
+        for tool in [
+            "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager",
+            "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/avdmanager",
+            "$ANDROID_SDK_ROOT/platform-tools/adb",
+            "$ANDROID_SDK_ROOT/emulator/emulator",
+        ]:
+            self.assertIn(tool, text)
+        self.assertIn('for tool in "$sdkmanager" "$avdmanager" "$adb" "$emulator"; do', text)
+        self.assertIn('test -x "$tool"', text)
+        self.assertNotIn("yes | sdkmanager --licenses", text)
+        self.assertNotIn('echo no | avdmanager create avd', text)
         self.assertIn("CODEX_MANAGER_ARTIFACT_PROBE=1", text)
         self.assertIn("--artifact-probe", text)
         self.assertIn("$remote/core update --help", text)
