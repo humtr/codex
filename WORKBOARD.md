@@ -37,16 +37,68 @@ behavior belongs in `SPEC.md`.
   `b17cc05ec8ec18bdbfd960e413dc4c47ffeb9f90`, and hosted manual run
   `35090080089` completed successfully with `candidate=false`.
 - The drift-control execution contract is `RELEASE_AUTOMATION_PLAN.md`.
-- The next planned phase is RALD-4 Actions-secret signing, followed by RALD-5
-  Release/Pages LKG-preserving publication and runtime-proven promotion, RALD-6
-  fresh-install/update delivery E2E, and RALD-7 full acceptance. **RALD-4 has
-  not started and is outside the completed RALD-3 activation scope.**
+- RALD-4 Actions-secret signing is **source-complete / secret-backed hosted gate
+  pending**. The signing helper source is pinned at
+  `dfcdbead5fdcde454bedebf1a269816977f4f544`; workflow wiring is at
+  `c178715f551362ac649e6c1ebc3422ca5cad1677`. Repository-side negative/positive
+  signing, workflow-contract, locked workspace, clippy, and full workspace gates
+  are green. No repository signing secret or production private-key value was
+  created, changed, read, copied, or logged. RALD-5 has not started.
+- The next acceptance action for RALD-4 is the separately authorized
+  secret-backed hosted positive gate. RALD-5 Release/Pages LKG-preserving
+  publication and runtime-proven promotion, RALD-6 fresh-install/update delivery
+  E2E, and RALD-7 full acceptance remain later phases.
 - Public stable remains fixed during source development and may advance only after
   the selected plan's focused/full gates, public readback, disposable public-update
   runtime smoke, and exact non-forced promotion checks pass.
 - `legacy/monolith` remains sealed at
   `bf30a7dc94d4dad7f58836c69028160856e63c58`.
 - Worker mode remains OFF.
+
+## RALD-4 source-complete disposition
+
+RALD-4 source implementation is complete on 2026-09-16, but final acceptance is
+intentionally withheld until the production-authority secret-backed hosted gate is
+explicitly authorized and passes. Commit
+`dfcdbead5fdcde454bedebf1a269816977f4f544` adds the fail-closed signing helper,
+qualified-candidate boundary, sequence derivation, and disposable fixture tests.
+Commit `c178715f551362ac649e6c1ebc3422ca5cad1677` wires that source into the hosted
+workflow while retaining top-level `contents: read` permission and the RALD-3
+unsigned producer/pre-sign semantics.
+
+The signing job is reachable only for `candidate=true` after the Android/AArch64
+smoke job succeeds and the deferred Manager marker is removed. The qualified
+unsigned candidate is revalidated before secret exposure.
+`CODEX_RELEASE_SIGNING_KEY` appears only in the exact signing step environment,
+not global workflow state; the helper writes it only to an owner-only temporary
+directory/key file under runner temporary storage, invokes the existing release
+builder without inheriting the secret environment, and removes the key directory
+on success or failure. Before signing it derives the Ed25519 raw public key and
+requires byte-for-byte equality with the pinned accepted update authority. The
+resulting manifest and update-index signatures are then independently verified
+with that accepted public key before only the signed output archive can cross the
+signing-job artifact boundary. No cache or publication/write authority is added.
+
+Repository-side gate evidence is green: RALD-3 preflight 6/6, RALD-4 signing
+fixture 6/6, RALD-3 workflow contract 5/5, and RALD-4 workflow contract 5/5.
+Fixture negatives cover absent secret, malformed PEM, non-Ed25519 private key,
+and non-matching Ed25519 derived authority; each fails before the publisher is
+called. The matching disposable Ed25519 key signs successfully, both generated
+signatures independently verify, fixture private-key bytes do not appear in logs
+or signed outputs, and temporary key material is removed. PyYAML parsing,
+formatting, and `git diff --check` pass. The actual release-builder suite is 17/17;
+locked workspace check and workspace clippy `-D warnings` pass; full locked
+workspace tests are Core 145 passed / one explicit real-Termux smoke ignored,
+Manager 20/20 plus 11/11 integration, and release-builder 17/17. Tests use only
+disposable fixture keys/roots; the live installation is not accessed.
+
+The exact remaining blocker is one production-authority positive GitHub-hosted
+signing execution for a fully qualified newer candidate with the repository
+secret already provisioned under separate authorization. That gate must prove the
+secret derives the accepted update public authority, candidate signing succeeds,
+independent verification succeeds, and no private material leaks. The secret value
+itself must not be requested or exposed. RALD-5 publication authority is absent
+from this source state and RALD-5 has not started.
 
 ## Accepted RALD-3 disposition
 
