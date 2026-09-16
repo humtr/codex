@@ -31,19 +31,52 @@ behavior belongs in `SPEC.md`.
   `21bb1cd78d4a6e6ef8e124b7f07230206c5aa5ea`.
 - Active implementation bundle: **RELEASE-AUTOMATION-LOCAL-DERIVED (RALD)**.
 - RALD-1 local-derived Core contract and RALD-2 Core/official-producer separation
-  are accepted; the next incomplete phase is **RALD-3 — GitHub-hosted scheduled
-  producer**.
+  are accepted. RALD-3 repository source is complete on 2026-09-16, pinned to
+  source commit `28e65b32c8719cf913e62080d4674b54dbcc1a01`; the next required
+  gate is **RALD-3 default-branch workflow install + GitHub-hosted manual dry-run**.
 - The drift-control execution contract is `RELEASE_AUTOMATION_PLAN.md`.
-- Remaining authorized order: RALD-3 GitHub-hosted scheduled producer; RALD-4
-  Actions-secret signing; RALD-5 Release/Pages LKG-preserving publication and
-  runtime-proven promotion; RALD-6 fresh-install/update delivery E2E; RALD-7 full
-  acceptance and scheduler activation.
+- Remaining authorized order: finish the RALD-3 hosted activation gate without
+  public mutation; then RALD-4 Actions-secret signing; RALD-5 Release/Pages
+  LKG-preserving publication and runtime-proven promotion; RALD-6 fresh-install/
+  update delivery E2E; RALD-7 full acceptance and scheduler activation.
 - Public stable remains fixed during source development and may advance only after
   the selected plan's focused/full gates, public readback, disposable public-update
   runtime smoke, and exact non-forced promotion checks pass.
 - `legacy/monolith` remains sealed at
   `bf30a7dc94d4dad7f58836c69028160856e63c58`.
 - Worker mode remains OFF.
+
+## RALD-3 source-complete disposition
+
+Repository source for the GitHub-hosted producer preflight is complete, but the
+phase is not yet activation-accepted. Commit
+`28e65b32c8719cf913e62080d4674b54dbcc1a01` is the workflow's immutable
+producer-source pin. Release-builder now has one explicit hosted cross-build
+exception, `--defer-manager-probe`: it requires a Manager artifact, first proves
+that private snapshot is an Android/AArch64 PIE ELF, emits the unsigned
+`.manager-probe-deferred` marker, and makes `publish` fail before signing until
+the probe is discharged. Native/default qualification remains unchanged.
+
+The repository-owned `auto-release-termux.yml` source defines six-hour and manual
+triggers, read-only permissions, concurrency serialization, authenticated current
+stable readback, official OpenAI stable comparison, pinned-source Android/AArch64
+Core/Manager cross-build, unsigned candidate inventory/digest checks, one-day
+unsigned artifact transfer, and ARM64 Android Manager/Core/runtime smoke. The
+workflow source contains no signing-secret access, release signing, GitHub
+Release/Pages publication, stable-index write, or git push. Repository preflight
+and workflow-contract tests are 5/5 each; deferred Manager focused regressions
+are 3/3; full locked workspace tests are Core 145 passed / one explicit live
+smoke ignored, Manager 20/20 plus 11/11 integration, and release-builder 17/17.
+The final repository gate is `job_ulk_1460dff8e1`.
+
+A read-only current-public preflight (`job_ule_0ff7583131`) authenticated
+`local-20260914-update-channel-bridge-1`, found wrapper stable `0.154.0` and
+official upstream stable `0.154.0`, and correctly selected `candidate=false`. No
+workflow was installed on `main`, no hosted dispatch or scheduler activation was
+performed, and public stable, GitHub Release/Pages state, Actions secrets, and the
+live installation were not mutated. The next gate is default-branch installation
+of this fixed workflow/source pin and one GitHub-hosted manual dry-run. RALD-4
+remains blocked until that evidence is green.
 
 ## Accepted RALD-2 disposition
 

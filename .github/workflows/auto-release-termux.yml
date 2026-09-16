@@ -1,0 +1,334 @@
+name: Termux Hosted Release Preflight
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 */6 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: termux-hosted-release-producer
+  cancel-in-progress: false
+
+env:
+  CODEX_SOURCE_SHA: '28e65b32c8719cf913e62080d4674b54dbcc1a01'
+  RUST_VERSION: '1.98.0'
+  ANDROID_API: '24'
+  ANDROID_NDK_VERSION: '27.3.13750724'
+  PUBLIC_INDEX_URL: 'https://raw.githubusercontent.com/humtr/codex/main/update-index-v1'
+  UPSTREAM_LATEST_URL: 'https://releases.openai.com/codex/channels/latest'
+  WRAPPER_PUBLIC_KEY_SHA256: '62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c'
+
+jobs:
+  producer:
+    name: Build unsigned Android/AArch64 candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      candidate: ${{ steps.decision.outputs.candidate }}
+      artifact_name: ${{ steps.decision.outputs.artifact_name }}
+      upstream_version: ${{ steps.decision.outputs.upstream_version }}
+    steps:
+      - name: Fetch exact accepted source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf source
+          git init source
+          git -C source remote add origin https://github.com/humtr/codex.git
+          git -C source fetch --no-tags --depth=1 origin "$CODEX_SOURCE_SHA"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$CODEX_SOURCE_SHA"
+          test -z "$(git -C source status --porcelain)"
+
+      - name: Verify source preflight helpers
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 source/.github/scripts/test_rald3_preflight.py
+          python3 -m py_compile \
+            source/.github/scripts/rald3_preflight.py \
+            source/.github/scripts/test_rald3_preflight.py
+
+      - name: Authenticate current public stable
+        id: stable
+        shell: bash
+        run: |
+          set -euo pipefail
+          state="$RUNNER_TEMP/rald3-stable"
+          rm -rf "$state"
+          mkdir -p "$state"
+
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --connect-timeout 15 --max-time 60 --max-filesize 16384 \
+            --output "$state/update-index-v1" "$PUBLIC_INDEX_URL"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --connect-timeout 15 --max-time 60 --max-filesize 1024 \
+            --output "$state/update-index-v1.sig" "${PUBLIC_INDEX_URL}.sig"
+          test "$(wc -c < "$state/update-index-v1.sig")" -eq 64
+
+          python3 source/.github/scripts/rald3_preflight.py \
+            index "$state/update-index-v1" > "$state/index.untrusted"
+          current_id="$(sed -n 's/^generation_id=//p' "$state/index.untrusted")"
+          current_base="$(sed -n 's/^release_base=//p' "$state/index.untrusted")"
+          test -n "$current_id"
+          test "$current_base" = "https://humtr.github.io/codex/${current_id}/"
+
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --connect-timeout 15 --max-time 60 --max-filesize 16384 \
+            --output "$state/update-public-key.pem" \
+            "https://github.com/humtr/codex/releases/download/${current_id}/update-public-key.pem"
+          test "$(sha256sum "$state/update-public-key.pem" | awk '{print $1}')" = \
+            "$WRAPPER_PUBLIC_KEY_SHA256"
+          openssl pkeyutl -verify -pubin -inkey "$state/update-public-key.pem" -rawin \
+            -in "$state/update-index-v1" -sigfile "$state/update-index-v1.sig"
+          python3 source/.github/scripts/rald3_preflight.py \
+            index "$state/update-index-v1" > "$state/index.authenticated"
+          cmp "$state/index.untrusted" "$state/index.authenticated"
+
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --connect-timeout 15 --max-time 60 --max-filesize 131072 \
+            --output "$state/release.manifest" "${current_base}release.manifest"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --connect-timeout 15 --max-time 60 --max-filesize 1024 \
+            --output "$state/release.sig" "${current_base}release.sig"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --connect-timeout 15 --max-time 60 --max-filesize 65536 \
+            --output "$state/generation.meta" "${current_base}generation.meta"
+          test "$(wc -c < "$state/release.sig")" -eq 64
+          openssl pkeyutl -verify -pubin -inkey "$state/update-public-key.pem" -rawin \
+            -in "$state/release.manifest" -sigfile "$state/release.sig"
+
+          python3 source/.github/scripts/rald3_preflight.py manifest-entry \
+            "$state/release.manifest" generation.meta > "$state/manifest-entry"
+          test "$(sed -n 's/^generation_id=//p' "$state/manifest-entry")" = "$current_id"
+          test "$(sed -n 's/^mode=//p' "$state/manifest-entry")" = '0644'
+          test "$(sha256sum "$state/generation.meta" | awk '{print $1}')" = \
+            "$(sed -n 's/^sha256=//p' "$state/manifest-entry")"
+          python3 source/.github/scripts/rald3_preflight.py descriptor \
+            "$state/generation.meta" > "$state/descriptor"
+          test "$(sed -n 's/^generation_id=//p' "$state/descriptor")" = "$current_id"
+          current_version="$(sed -n 's/^version=//p' "$state/descriptor")"
+          test -n "$current_version"
+          printf 'current_version=%s\n' "$current_version" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve official upstream stable
+        id: decision
+        shell: bash
+        run: |
+          set -euo pipefail
+          state="$RUNNER_TEMP/rald3-upstream"
+          rm -rf "$state"
+          mkdir -p "$state"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --connect-timeout 15 --max-time 60 --max-filesize 131072 \
+            --output "$state/latest.json" "$UPSTREAM_LATEST_URL"
+          python3 source/.github/scripts/rald3_preflight.py upstream \
+            "$state/latest.json" > "$state/upstream"
+          upstream_version="$(sed -n 's/^version=//p' "$state/upstream")"
+          archive_sha256="$(sed -n 's/^archive_sha256=//p' "$state/upstream")"
+          python3 source/.github/scripts/rald3_preflight.py compare \
+            '${{ steps.stable.outputs.current_version }}' "$upstream_version" > "$state/decision"
+          candidate="$(sed -n 's/^candidate=//p' "$state/decision")"
+          test "$candidate" = true -o "$candidate" = false
+          suffix="${upstream_version//./-}-${CODEX_SOURCE_SHA:0:12}"
+          printf 'candidate=%s\n' "$candidate" >> "$GITHUB_OUTPUT"
+          printf 'artifact_name=rald3-candidate-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
+          printf 'generation_id=local-hosted-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
+          printf 'upstream_version=%s\n' "$upstream_version" >> "$GITHUB_OUTPUT"
+          printf 'archive_sha256=%s\n' "$archive_sha256" >> "$GITHUB_OUTPUT"
+
+      - name: Cross-build Core and Manager
+        if: steps.decision.outputs.candidate == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install "$RUST_VERSION" --profile minimal --target aarch64-linux-android
+          ndk="$ANDROID_SDK_ROOT/ndk/$ANDROID_NDK_VERSION"
+          toolchain="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          linker="$toolchain/aarch64-linux-android${ANDROID_API}-clang"
+          test -x "$linker"
+          test -x "$toolchain/llvm-ar"
+          cd source
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$linker"
+          export CC_aarch64_linux_android="$linker"
+          export AR_aarch64_linux_android="$toolchain/llvm-ar"
+          cargo "+$RUST_VERSION" build --release --locked --target aarch64-linux-android \
+            -p codex -p codex-manager
+          cargo "+$RUST_VERSION" build --release --locked -p codex-release-builder
+
+      - name: Fetch, adapt, and qualify unsigned candidate
+        if: steps.decision.outputs.candidate == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/rald3-candidate"
+          rm -rf "$work"
+          mkdir -p "$work"
+          builder="$GITHUB_WORKSPACE/source/target/release/codex-release-builder"
+          core="$GITHUB_WORKSPACE/source/target/aarch64-linux-android/release/codex"
+          manager="$GITHUB_WORKSPACE/source/target/aarch64-linux-android/release/codex-manager"
+          upstream_version='${{ steps.decision.outputs.upstream_version }}'
+          archive_sha256='${{ steps.decision.outputs.archive_sha256 }}'
+          generation_id='${{ steps.decision.outputs.generation_id }}'
+          fetch_output="$($builder fetch \
+            --version "$upstream_version" \
+            --curl /usr/bin/curl \
+            --openssl /usr/bin/openssl \
+            --output "$work/upstream.tar.gz")"
+          fetched_sha256="$(printf '%s\n' "$fetch_output" | awk -F '\t' '$1=="archive_sha256"{print $2}')"
+          test "$fetched_sha256" = "$archive_sha256"
+
+          "$builder" build \
+            --version "$upstream_version" \
+            --archive "$work/upstream.tar.gz" \
+            --archive-sha256 "$archive_sha256" \
+            --generation-id "$generation_id" \
+            --core "$core" \
+            --manager "$manager" \
+            --defer-manager-probe \
+            --creation-metadata r10-browser-helper-bridge-v1 \
+            --gzip /usr/bin/gzip \
+            --openssl /usr/bin/openssl \
+            --output "$work/candidate"
+
+          python3 source/.github/scripts/rald3_preflight.py candidate \
+            "$work/candidate" "$upstream_version"
+          find "$work/candidate" -type f -printf '%P\n' | LC_ALL=C sort > "$work/actual-files"
+          cat > "$work/expected-files" <<'EOF'
+          .manager-probe-deferred
+          codex-code-mode-host
+          core
+          generation.meta
+          helpers/0
+          helpers/1
+          manager
+          runtime
+          EOF
+          diff -u "$work/expected-files" "$work/actual-files"
+          for executable in codex-code-mode-host core helpers/0 helpers/1 manager runtime; do
+            test -f "$work/candidate/$executable"
+            test ! -L "$work/candidate/$executable"
+            test "$(stat -c '%a' "$work/candidate/$executable")" = '755'
+          done
+          tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
+            -cf "$work/candidate.tar" -C "$work" candidate
+          test "$(stat -c '%s' "$work/candidate.tar")" -lt 1073741824
+
+      - name: Upload unsigned candidate only
+        if: steps.decision.outputs.candidate == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.decision.outputs.artifact_name }}
+          path: ${{ runner.temp }}/rald3-candidate/candidate.tar
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+      - name: Record exact-current dry-run
+        if: steps.decision.outputs.candidate == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'authenticated wrapper stable already matches official upstream %s\n' \
+            '${{ steps.decision.outputs.upstream_version }}'
+
+  smoke:
+    name: Android/AArch64 executable smoke
+    needs: producer
+    if: needs.producer.outputs.candidate == 'true'
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - name: Fetch exact accepted source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf source
+          git init source
+          git -C source remote add origin https://github.com/humtr/codex.git
+          git -C source fetch --no-tags --depth=1 origin "$CODEX_SOURCE_SHA"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$CODEX_SOURCE_SHA"
+
+      - name: Download unsigned candidate
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.producer.outputs.artifact_name }}
+          path: ${{ runner.temp }}/rald3-download
+
+      - name: Reverify candidate before execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/rald3-smoke"
+          rm -rf "$work"
+          mkdir -p "$work"
+          tar -xf "$RUNNER_TEMP/rald3-download/candidate.tar" -C "$work"
+          python3 source/.github/scripts/rald3_preflight.py candidate \
+            "$work/candidate" '${{ needs.producer.outputs.upstream_version }}'
+
+      - name: Boot ARM64 Android runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          image='system-images;android-35;google_apis;arm64-v8a'
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager "$image"
+          echo no | avdmanager create avd --force --name rald3 --package "$image"
+          "$ANDROID_SDK_ROOT/emulator/emulator" \
+            -avd rald3 -no-window -no-audio -no-boot-anim -no-snapshot -wipe-data \
+            > "$RUNNER_TEMP/rald3-emulator.log" 2>&1 &
+          adb wait-for-device
+          booted=0
+          for _ in $(seq 1 120); do
+            if test "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1; then
+              booted=1
+              break
+            fi
+            sleep 5
+          done
+          if test "$booted" != 1; then
+            cat "$RUNNER_TEMP/rald3-emulator.log"
+            exit 1
+          fi
+          test "$(adb shell getprop ro.product.cpu.abi | tr -d '\r')" = arm64-v8a
+
+      - name: Run exact Manager, Core, and runtime smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate="$RUNNER_TEMP/rald3-smoke/candidate"
+          remote=/data/local/tmp/rald3
+          adb shell "rm -rf $remote && mkdir -p $remote"
+          adb push "$candidate/manager" "$remote/manager" >/dev/null
+          adb push "$candidate/core" "$remote/core" >/dev/null
+          adb push "$candidate/runtime" "$remote/runtime" >/dev/null
+          adb shell "chmod 0755 $remote/manager $remote/core $remote/runtime"
+
+          adb shell "CODEX_MANAGER_ARTIFACT_PROBE=1 $remote/manager --artifact-probe > $remote/manager.out 2> $remote/manager.err"
+          adb exec-out cat "$remote/manager.out" > "$RUNNER_TEMP/manager.out"
+          adb exec-out cat "$remote/manager.err" > "$RUNNER_TEMP/manager.err"
+          printf 'codex-manager-artifact-v1\ncore_api=codex-manager-core-v1\n' > "$RUNNER_TEMP/manager.expected"
+          cmp "$RUNNER_TEMP/manager.expected" "$RUNNER_TEMP/manager.out"
+          test ! -s "$RUNNER_TEMP/manager.err"
+
+          adb shell "$remote/core update --help > $remote/core.out 2> $remote/core.err"
+          adb exec-out cat "$remote/core.out" > "$RUNNER_TEMP/core.out"
+          adb exec-out cat "$remote/core.err" > "$RUNNER_TEMP/core.err"
+          grep -Fqx 'usage: codex update [--help] | --force | --build-local | --local <DIRECTORY> | --remote <HTTPS_BASE_URL> | --rollback' \
+            "$RUNNER_TEMP/core.out"
+          test ! -s "$RUNNER_TEMP/core.err"
+
+          adb shell "$remote/runtime --version > $remote/runtime.out 2> $remote/runtime.err"
+          adb exec-out cat "$remote/runtime.out" > "$RUNNER_TEMP/runtime.out"
+          adb exec-out cat "$remote/runtime.err" > "$RUNNER_TEMP/runtime.err"
+          test -s "$RUNNER_TEMP/runtime.out"
+          test "$(wc -c < "$RUNNER_TEMP/runtime.out")" -le 512
+          test ! -s "$RUNNER_TEMP/runtime.err"
+
+          rm "$candidate/.manager-probe-deferred"
+          test ! -e "$candidate/.manager-probe-deferred"
+          printf 'unsigned candidate passed Android/AArch64 pre-sign smoke\n'

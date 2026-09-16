@@ -1,6 +1,6 @@
 # Release Automation and Local-Derived Update Plan
 
-Status: selected implementation plan; **RALD-1 accepted on 2026-09-15; RALD-2 accepted on 2026-09-16; RALD-3 is the next incomplete phase; RALD-4..RALD-7 remain pending**.
+Status: selected implementation plan; **RALD-1 accepted on 2026-09-15; RALD-2 accepted on 2026-09-16; RALD-3 repository source completed on 2026-09-16 with default-branch install/manual hosted dry-run still pending; RALD-4..RALD-7 remain pending**.
 
 Baseline: `rewrite/rust-core` at
 `21bb1cd78d4a6e6ef8e124b7f07230206c5aa5ea` (`termux: guard rollback holds and automate stable intake`).
@@ -421,6 +421,34 @@ Gate: ordinary, held, force, rollback, and transport-fallback update tests show
 no GitHub mutation path from Core.
 
 ### Phase RALD-3 — GitHub-hosted scheduled producer
+
+Status: **repository source complete 2026-09-16; activation gate pending**. The
+producer source is pinned to exact commit
+`28e65b32c8719cf913e62080d4674b54dbcc1a01`. Release-builder now supports the
+explicit pre-sign `--defer-manager-probe` hosted cross-build boundary, with
+Android/AArch64 ELF proof, a bounded deferred marker, and an unconditional
+`publish` rejection before signing while that marker exists. The repository-owned
+workflow defines the selected six-hour/manual schedule, read-only permissions,
+serialized concurrency, authenticated public-stable comparison, exact official
+upstream discovery, Android/AArch64 Core/Manager build and unsigned adaptation,
+strict inventory/digest checks, short-lived unsigned artifact transfer, and an
+ARM64 Android executable smoke that must discharge the Manager probe. No RALD-4
+signing-secret access or RALD-5 release/publication/promotion authority is present.
+
+Repository evidence is green: dependency-free preflight tests 5/5; workflow
+contract tests 5/5; deferred Manager focused regressions 3/3; YAML parse, format,
+`git diff --check`, locked workspace check, and clippy `-D warnings`; final full
+locked workspace tests in `job_ulk_1460dff8e1` with Core 145 passed / one
+explicit live smoke ignored, Manager 20/20 plus 11/11 integration, and
+release-builder 17/17. Read-only live/public preflight in
+`job_ule_0ff7583131` authenticated current stable generation
+`local-20260914-update-channel-bridge-1`; wrapper stable and official upstream
+stable are both `0.154.0`, so the dry-run decision is `candidate=false`. The
+workflow has not been installed on `main` and no GitHub-hosted manual dispatch has
+run, because the selected activation order requires the implementation push first
+and this source task does not authorize scheduler/default-branch activation. Thus
+RALD-3 remains open only for default-branch workflow installation plus the hosted
+manual dry-run; RALD-4 remains blocked.
 
 Add a repository-owned workflow, provisionally
 `.github/workflows/auto-release-termux.yml`, with:

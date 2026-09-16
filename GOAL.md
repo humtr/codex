@@ -193,6 +193,38 @@ Termux qualification. Produce one candidate for independent product review.
 
 ### Current Direct-Lead Evidence
 
+- RELEASE-AUTOMATION-LOCAL-DERIVED phase RALD-3 repository source is complete on
+  2026-09-16, with hosted activation evidence still pending. Exact producer source
+  pin `28e65b32c8719cf913e62080d4674b54dbcc1a01` adds the pre-sign cross-build
+  boundary: release-builder may defer only the Manager executable probe after
+  proving an Android/AArch64 PIE ELF and writes one mode-0644
+  `.manager-probe-deferred` marker; any marked generation is rejected by
+  `publish` before private-key/signing work. The repository-owned
+  `.github/workflows/auto-release-termux.yml` is pinned to that source SHA, has
+  six-hour/manual triggers, read-only repository permission and serialized
+  concurrency, authenticates current public stable, compares exact official
+  OpenAI stable metadata, cross-builds Android/AArch64 Core/Manager, adapts and
+  inventories only an unsigned candidate, and defines an ARM64 Android hosted
+  smoke for the exact Manager artifact probe, Core update-help, and runtime
+  version before the deferred marker may be cleared. It contains no Actions
+  signing-secret reference, release signing, GitHub Release/Pages mutation, git
+  push, or stable-index promotion.
+- RALD-3 repository validation: strict preflight parser tests 5/5 and workflow
+  contract tests 5/5 passed; deferred Manager focused regressions 3/3 passed;
+  workflow YAML parsed successfully; formatting, `git diff --check`, locked
+  workspace check, and workspace clippy `-D warnings` passed; final full locked
+  workspace suite in `job_ulk_1460dff8e1` passed with Core 145 passed / one
+  explicit live-Termux smoke ignored, Manager 20/20 plus 11/11 integration, and
+  release-builder 17/17. Read-only public preflight in `job_ule_0ff7583131`
+  authenticated current generation `local-20260914-update-channel-bridge-1` and
+  resolved wrapper/upstream versions `0.154.0` / `0.154.0`, therefore
+  `candidate=false`. The workflow has not been installed on `main` and no
+  GitHub-hosted `workflow_dispatch` has run under this source-only authority;
+  scheduler activation, Actions secrets, GitHub Release/Pages state, public
+  stable, and the live Codex installation remain unchanged. RALD-3 therefore
+  remains gated on the selected activation order's default-branch workflow
+  install plus hosted manual dry-run; RALD-4 has not started.
+
 - RELEASE-AUTOMATION-LOCAL-DERIVED phase RALD-2 is accepted on 2026-09-16.
   Core `codex update` is now a consumer/local-derived boundary only. The
   device-side `automatic_update` official producer/publisher and its ambient
