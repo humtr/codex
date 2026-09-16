@@ -2244,6 +2244,7 @@ fn rename_noreplace(source: &Path, destination: &Path) -> io::Result<()> {
 
     const AT_FDCWD: i32 = -100;
     const RENAME_NOREPLACE: u32 = 1;
+    #[cfg(not(all(target_os = "android", target_arch = "aarch64")))]
     unsafe extern "C" {
         fn renameat2(
             olddirfd: i32,
@@ -2258,7 +2259,26 @@ fn rename_noreplace(source: &Path, destination: &Path) -> io::Result<()> {
     let destination = CString::new(destination.as_os_str().as_bytes()).map_err(|_| {
         io::Error::new(io::ErrorKind::InvalidInput, "destination path contains NUL")
     })?;
-    // SAFETY: both C strings are NUL-terminated and live through the syscall.
+    // Android API 24 does not export the renameat2 libc symbol, although the arm64
+    // kernel ABI provides the syscall. Keep the no-replace atomic boundary through
+    // bionic's syscall wrapper without increasing the supported Android API level.
+    #[cfg(all(target_os = "android", target_arch = "aarch64"))]
+    let result = unsafe {
+        unsafe extern "C" {
+            fn syscall(number: std::ffi::c_long, ...) -> std::ffi::c_long;
+        }
+        const SYS_RENAMEAT2_AARCH64: std::ffi::c_long = 276;
+        syscall(
+            SYS_RENAMEAT2_AARCH64,
+            AT_FDCWD as std::ffi::c_long,
+            source.as_ptr() as std::ffi::c_long,
+            AT_FDCWD as std::ffi::c_long,
+            destination.as_ptr() as std::ffi::c_long,
+            RENAME_NOREPLACE as std::ffi::c_long,
+        ) as i32
+    };
+    #[cfg(not(all(target_os = "android", target_arch = "aarch64")))]
+    // SAFETY: both C strings are NUL-terminated and live through the call.
     let result = unsafe {
         renameat2(
             AT_FDCWD,
