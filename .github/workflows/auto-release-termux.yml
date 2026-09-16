@@ -330,17 +330,27 @@ jobs:
           "$emulator" \
             -avd rald3 -no-window -no-audio -no-boot-anim -no-snapshot -wipe-data \
             > "$RUNNER_TEMP/rald3-emulator.log" 2>&1 &
-          "$adb" wait-for-device
+          emulator_pid=$!
+          cleanup_emulator() {
+            kill "$emulator_pid" 2>/dev/null || true
+            "$adb" kill-server >/dev/null 2>&1 || true
+          }
+          trap cleanup_emulator EXIT
           booted=0
           for _ in $(seq 1 120); do
-            if test "$("$adb" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1; then
+            if ! kill -0 "$emulator_pid" 2>/dev/null; then
+              cat "$RUNNER_TEMP/rald3-emulator.log" >&2
+              exit 1
+            fi
+            if test "$("$adb" get-state 2>/dev/null || true)" = device && \
+               test "$("$adb" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1; then
               booted=1
               break
             fi
             sleep 5
           done
           if test "$booted" != 1; then
-            cat "$RUNNER_TEMP/rald3-emulator.log"
+            cat "$RUNNER_TEMP/rald3-emulator.log" >&2
             exit 1
           fi
           test "$("$adb" shell getprop ro.product.cpu.abi | tr -d '\r')" = arm64-v8a

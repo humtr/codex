@@ -63,10 +63,22 @@ behavior belongs in `SPEC.md`.
   Core, and runtime execution, qualified upload, and signing were skipped; the
   production signing secret was not injected. The workflow repair now binds
   Android SDK tools under `$ANDROID_SDK_ROOT` with executable checks.
-- The next acceptance action for RALD-4 is a newly authorized hosted positive
-  retry after that SDK tool-path repair. RALD-5 Release/Pages LKG-preserving
-  publication and runtime-proven promotion, RALD-6 fresh-install/update delivery
-  E2E, and RALD-7 full acceptance remain later phases.
+- The standing user authorization now permits bounded RALD-4 acceptance-only
+  retries until this blocker is resolved. Hosted run `35155202983` at workflow
+  head `2b51bf6d1c41dfb58eb5cdf58d8077f4174ee873` again completed the producer,
+  candidate adaptation/qualification, and unsigned upload. The macOS ARM64 smoke
+  job proved the SDK-root tool bindings, installed the ARM64 Android image, and
+  created the AVD, but then remained inside unbounded `adb wait-for-device` until
+  the 45-minute job timeout cancelled it. Manager/Core/runtime smoke, qualified
+  upload, and signing were skipped, so the production signing secret was not
+  injected. The follow-up repair removes that unbounded wait: emulator liveness,
+  `adb get-state`, and `sys.boot_completed` are polled for at most 120 five-second
+  iterations, emulator exit fails immediately with its log, and an EXIT trap
+  cleans up emulator/adb processes. The next action is another authorized hosted
+  positive retry of that exact bounded repair.
+- RALD-5 Release/Pages LKG-preserving publication and runtime-proven promotion,
+  RALD-6 fresh-install/update delivery E2E, and RALD-7 full acceptance remain
+  later phases.
 - Public stable remains fixed during source development and may advance only after
   the selected plan's focused/full gates, public readback, disposable public-update
   runtime smoke, and exact non-forced promotion checks pass.
@@ -161,10 +173,15 @@ reverified that exact candidate, but failed before emulator creation with
 `sdkmanager: command not found`; Manager/Core/runtime execution and signing were
 therefore skipped. The follow-up workflow repair removes that PATH dependency by
 binding `sdkmanager`, `avdmanager`, `adb`, and `emulator` to executable paths
-under `$ANDROID_SDK_ROOT`. RALD-4 remains pending until a newly authorized hosted
-positive retry reaches and passes Android smoke, secret-backed signing, and
-independent verification. Neither failed run is rerun implicitly. RALD-5 remains
-not started.
+under `$ANDROID_SDK_ROOT`. Run `35155202983` proved those bindings and reached AVD
+creation, then exposed one further smoke-orchestration defect: unbounded
+`adb wait-for-device` survived until the 45-minute job timeout. The repaired
+workflow instead bounds boot discovery to 120 five-second polls, checks emulator
+process liveness on every poll, requires both `adb get-state=device` and
+`sys.boot_completed=1`, emits the emulator log on failure, and cleans up through
+an EXIT trap. RALD-4 remains pending until an authorized hosted positive retry
+passes Android smoke, secret-backed signing, and independent verification. RALD-5
+remains not started.
 
 ## Accepted RALD-3 disposition
 
