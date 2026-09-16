@@ -71,18 +71,19 @@ behavior belongs in `SPEC.md`.
   path is structurally unavailable: emulator 37.1.11 exits with
   `HVF error: HV_UNSUPPORTED` even with `-accel off`. Run `35162096906` at
   `bc8c8fd0224a2d38530b011093765f28afeeb364` moved smoke to Linux x64 and reached
-  candidate revalidation, but failed before emulator installation because the
-  hosted image does not preinstall `$ANDROID_SDK_ROOT/emulator/emulator`. Each run
-  failed before exact Manager/Core/runtime smoke and signing, so the production
-  secret was not injected. Commit `aca5ad8f9a13532e2977aa0a3a3e33a7d032507b`
-  fixes that bootstrap order by installing the official emulator package with
-  `sdkmanager`. The selected next repair keeps that installation fix and moves the
-  execution substrate to `ubuntu-24.04` KVM with an API-35 Google APIs x86_64 AVD.
-  The candidate remains the exact ARM64 build; smoke fails closed unless the guest
-  advertises `arm64-v8a` as a 64-bit secondary ABI and the unchanged Manager,
-  Core, and runtime executables actually execute through Android's ARM translation
-  layer. The drift-control plan records this hosted-only substrate exception; no
-  publication or production candidate rule changes.
+  candidate revalidation, but failed before emulator installation. Commit
+  `aca5ad8f9a13532e2977aa0a3a3e33a7d032507b` fixed that bootstrap order; hosted
+  run `35162436291` then installed the emulator and system image successfully but
+  failed closed before emulator launch because `avdmanager` entered the custom
+  hardware-profile prompt, never created `rald3.ini`, and the subsequent emulator
+  reported `Unknown AVD name [rald3]`. All runs stopped before exact
+  Manager/Core/runtime smoke and signing, so the production signing secret was not
+  injected. The selected repair keeps the KVM-backed API-35 Google APIs x86_64
+  substrate and exact ARM64 candidate, but makes AVD creation deterministic:
+  `ANDROID_AVD_HOME` is runner-temp-owned, `pixel_6` and `google_apis/x86_64` are
+  explicit, and `emulator -list-avds` must prove `rald3` exists before launch.
+  The guest must still advertise `arm64-v8a` and the unchanged Manager/Core/runtime
+  binaries must execute through Android's ARM translation layer before signing.
 - RALD-5 Release/Pages LKG-preserving publication and runtime-proven promotion,
   RALD-6 fresh-install/update delivery E2E, and RALD-7 full acceptance remain
   later phases.
@@ -185,16 +186,19 @@ under `$ANDROID_SDK_ROOT`. Run `35155202983` exposed the unbounded ADB wait and
 log-producing. Run `35161605865` then made the macOS ARM64 platform blocker
 explicit: emulator 37.1.11 still attempts HVF with `-accel off` and exits with
 `HVF error: HV_UNSUPPORTED`. Run `35162096906` moved smoke to Ubuntu x64 and
-proved candidate download/revalidation there, but exited because the Android
-Emulator package was not preinstalled; `aca5ad8f9a13532e2977aa0a3a3e33a7d032507b`
-repairs that bootstrap order by installing `emulator` with `sdkmanager`. All three
-runs stopped before signing and did not inject the production secret. The selected
-hosted-only substrate now uses `ubuntu-24.04` KVM with an API-35 Google APIs
-x86_64 AVD while keeping the candidate byte-identical and ARM64. It requires the
-guest to advertise `arm64-v8a` in its 64-bit ABI list and then executes the exact
-Manager, Core, and runtime binaries through Android's ARM translation layer;
-missing KVM, missing translation, or any execution failure blocks signing. RALD-4
-remains pending until this smoke, secret-backed signing, and independent
+proved candidate download/revalidation there, while
+`aca5ad8f9a13532e2977aa0a3a3e33a7d032507b` repaired emulator installation.
+Run `35162436291` proved that installation but exposed a separate AVD creation
+contract defect: `avdmanager` prompted for a custom hardware profile and returned
+without a usable `rald3.ini`, so the emulator failed with `Unknown AVD name
+[rald3]`. The signing job was skipped and the production secret was not injected.
+The current repair keeps the hosted-only `ubuntu-24.04` KVM + API-35 Google APIs
+x86_64 substrate and byte-identical ARM64 candidate, but binds `ANDROID_AVD_HOME`
+to private runner temp storage, selects `pixel_6` plus `google_apis/x86_64`
+explicitly, and requires `emulator -list-avds` to contain `rald3` before launch.
+The guest must still advertise `arm64-v8a`, and exact Manager, Core, and runtime
+execution through Android's ARM translation layer remains the pre-sign gate.
+RALD-4 remains pending until that smoke, secret-backed signing, and independent
 verification pass. RALD-5 remains not started.
 
 ## Accepted RALD-3 disposition
