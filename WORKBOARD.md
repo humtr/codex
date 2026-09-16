@@ -40,12 +40,23 @@ behavior belongs in `SPEC.md`.
 - RALD-4 Actions-secret signing is **source-complete / secret-backed hosted gate
   pending**. The signing helper source is pinned at
   `dfcdbead5fdcde454bedebf1a269816977f4f544`; workflow wiring is at
-  `c178715f551362ac649e6c1ebc3422ca5cad1677`. Repository-side negative/positive
+  `c178715f551362ac649e6c1ebc3422ca5cad1677`. After the first bounded
+  `candidate=true` hosted attempt exposed an Android API-24 linker defect, the
+  repaired hosted producer source is pinned at
+  `1cdcb44d035ec5b1ce6339f2aa7b0e95831a6f0a`. Repository-side negative/positive
   signing, workflow-contract, locked workspace, clippy, and full workspace gates
   are green. No repository signing secret or production private-key value was
   created, changed, read, copied, or logged. RALD-5 has not started.
-- The next acceptance action for RALD-4 is the separately authorized
-  secret-backed hosted positive gate. RALD-5 Release/Pages LKG-preserving
+- The first separately authorized RALD-4 positive attempt was hosted run
+  `35125040646`. It proved authenticated public stable `0.154.0`, the bounded
+  `0.153.4 -> 0.154.0` acceptance comparison, and `candidate=true`, then failed
+  closed during Android/AArch64 cross-link before candidate packaging, smoke, or
+  secret-backed signing because API-24 bionic does not export `renameat2`.
+  Signing was skipped and the production secret was not exposed. The source
+  repair is `1cdcb44d035ec5b1ce6339f2aa7b0e95831a6f0a`; another hosted positive
+  execution requires a fresh explicit authorization and has not been run.
+- The next acceptance action for RALD-4 is that separately re-authorized hosted
+  positive retry. RALD-5 Release/Pages LKG-preserving
   publication and runtime-proven promotion, RALD-6 fresh-install/update delivery
   E2E, and RALD-7 full acceptance remain later phases.
 - Public stable remains fixed during source development and may advance only after
@@ -115,6 +126,29 @@ workflow contract 6/6, YAML parse and `git diff --check`, formatting,
 release-builder 17/17, locked workspace check, workspace clippy `-D warnings`,
 and full locked workspace tests with Core 145 passed / one explicit real-Termux
 smoke ignored, Manager 20/20 plus 11/11 integration, and release-builder 17/17.
+
+The first authorized acceptance-only hosted execution is run `35125040646` at
+workflow head `99235e0541fcd6e0cd541c2157093fce13c90ac2`. Public-stable authentication
+and official-stable resolution succeeded, and the log records the exact bounded
+comparison baseline `0.153.4` while authenticated public stable remained
+`0.154.0`; the producer therefore entered the real `candidate=true` cross-build.
+The build then failed closed under NDK API 24 because Core and Manager linked a
+direct `renameat2` libc symbol that API-24 bionic does not export. Candidate
+adaptation/upload, Android smoke, and signing were skipped, so the production
+signing secret was not injected and no signed acceptance output existed.
+
+Commit `1cdcb44d035ec5b1ce6339f2aa7b0e95831a6f0a` repairs only that platform link
+boundary: Android/AArch64 keeps exact `RENAME_NOREPLACE` semantics by invoking
+the arm64 Linux `renameat2` syscall through bionic's stable `syscall` wrapper;
+non-Android paths retain the existing direct libc call. Post-repair local gates
+pass for formatting, locked workspace check, release-builder 17/17, Manager
+20/20 plus 11/11 integration, Core 145 passed / one explicit real-Termux smoke
+ignored, and `git diff --check`. A real Android/AArch64 Termux link of Core,
+Manager, and release-builder also has no undefined `renameat2` symbol. The hosted
+workflow now pins this repair commit. RALD-4 remains pending until a newly
+authorized hosted positive retry reaches and passes the secret-backed signing
+and independent verification gates; the failed run is not rerun implicitly.
+RALD-5 remains not started.
 
 ## Accepted RALD-3 disposition
 

@@ -4,7 +4,7 @@ import re
 import unittest
 
 WORKFLOW = Path(__file__).resolve().parents[1] / "workflows" / "auto-release-termux.yml"
-SOURCE_SHA = "dfcdbead5fdcde454bedebf1a269816977f4f544"
+SOURCE_SHA = "1cdcb44d035ec5b1ce6339f2aa7b0e95831a6f0a"
 UPLOAD_SHA = "ea165f8d65b6e75b540449e92b4886f43607fa02"
 DOWNLOAD_SHA = "d3f86a106a0bac45b974a628896c90dbdf5c8093"
 
