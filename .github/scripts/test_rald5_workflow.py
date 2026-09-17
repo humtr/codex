@@ -81,6 +81,8 @@ class Rald5WorkflowContractTests(unittest.TestCase):
         self.assertIn("contents: write", self.promote)
         self.assertNotIn("secrets.", self.stage + self.verify + self.promote)
         self.assertNotIn("CODEX_RELEASE_SIGNING_KEY", self.stage + self.verify + self.promote)
+        self.assertNotIn("secrets.", self.pages)
+        self.assertNotIn("CODEX_RELEASE_SIGNING_KEY", self.pages)
         self.assertNotIn("git push", (self.stage + self.verify + self.promote).lower())
 
     def test_release_staging_is_exact_prerelease_and_rechecks_lkg_parent(self) -> None:
