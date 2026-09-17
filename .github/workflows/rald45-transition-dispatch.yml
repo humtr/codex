@@ -26,6 +26,7 @@ jobs:
             --jq '.content' | tr -d '\n' | base64 --decode > "$RUNNER_TEMP/auto-release-termux.yml"
           grep -Fq "CODEX_SOURCE_SHA: '37fbbd8033b8cc2d508689ab1d6637b4c4f5d516'" "$RUNNER_TEMP/auto-release-termux.yml"
           grep -Fq 'rald45_transition_stage:' "$RUNNER_TEMP/auto-release-termux.yml"
+          grep -Fq 'mkdir -p "$generation_root" "$state_root/config"' "$RUNNER_TEMP/auto-release-termux.yml"
           grep -Fq "needs.producer.outputs.transition_stage != 'true'" "$RUNNER_TEMP/auto-release-termux.yml"
           gh workflow run auto-release-termux.yml \
             --repo "$GITHUB_REPOSITORY" \
