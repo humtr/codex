@@ -391,17 +391,21 @@ jobs:
 
           verify_failed=0
           printf 'codex-manager-artifact-v1\ncore_api=codex-manager-core-v1\n' > "$RUNNER_TEMP/manager.expected"
+          cat > "$RUNNER_TEMP/linker.stderr.expected" <<'EOF'
+          linker: Warning: failed to find generated linker configuration from "/linkerconfig/ld.config.txt"
+          WARNING: linker: Warning: failed to find generated linker configuration from "/linkerconfig/ld.config.txt"
+          EOF
           if ! cmp "$RUNNER_TEMP/manager.expected" "$RUNNER_TEMP/manager.out"; then
             verify_failed=1
           fi
-          if test -s "$RUNNER_TEMP/manager.err"; then
+          if ! cmp "$RUNNER_TEMP/linker.stderr.expected" "$RUNNER_TEMP/manager.err"; then
             verify_failed=1
           fi
           if ! grep -Fqx 'usage: codex update [--help] | --force | --build-local | --local <DIRECTORY> | --remote <HTTPS_BASE_URL> | --rollback' \
             "$RUNNER_TEMP/core.out"; then
             verify_failed=1
           fi
-          if test -s "$RUNNER_TEMP/core.err"; then
+          if ! cmp "$RUNNER_TEMP/linker.stderr.expected" "$RUNNER_TEMP/core.err"; then
             verify_failed=1
           fi
           if test ! -s "$RUNNER_TEMP/runtime.out" || \
