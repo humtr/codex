@@ -1,0 +1,44 @@
+name: RALD-4.5 transition dispatch
+
+on:
+  push:
+    branches:
+      - rewrite/rust-core
+    paths:
+      - .github/workflows/rald45-transition-dispatch.yml
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch bounded transition stage/proof
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/contents/.github/workflows/auto-release-termux.yml?ref=rewrite/rust-core" \
+            --jq '.content' | tr -d '\n' | base64 --decode > "$RUNNER_TEMP/auto-release-termux.yml"
+          grep -Fq "CODEX_SOURCE_SHA: '37fbbd8033b8cc2d508689ab1d6637b4c4f5d516'" "$RUNNER_TEMP/auto-release-termux.yml"
+          grep -Fq 'rald45_transition_stage:' "$RUNNER_TEMP/auto-release-termux.yml"
+          grep -Fq "needs.producer.outputs.transition_stage != 'true'" "$RUNNER_TEMP/auto-release-termux.yml"
+          gh workflow run auto-release-termux.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref rewrite/rust-core \
+            -f rald4_positive_gate=false \
+            -f rald5_publication_authorized=true \
+            -f rald5_same_version_acceptance=true \
+            -f rald45_transition_stage=true \
+            -f rald5_negative_gate=false
+          gh run list \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow auto-release-termux.yml \
+            --branch rewrite/rust-core \
+            --event workflow_dispatch \
+            --limit 3 \
+            --json databaseId,headSha,status,createdAt,url
