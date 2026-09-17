@@ -84,6 +84,18 @@ behavior belongs in `SPEC.md`.
   explicit, and `emulator -list-avds` must prove `rald3` exists before launch.
   The guest must still advertise `arm64-v8a` and the unchanged Manager/Core/runtime
   binaries must execute through Android's ARM translation layer before signing.
+- Hosted run `35163080182` at workflow head
+  `16c7ee27030b4bd5c46ac4da5ef2b7891f7b7a02` proved deterministic AVD creation,
+  KVM-backed x86_64 boot, and `arm64-v8a` in the guest 64-bit ABI list. The next
+  exact-smoke step failed at its first `adb shell` with `device offline` because
+  the boot step's `EXIT` trap also ran on success, killing the adb server and
+  emulator wrapper at the step boundary. Signing was skipped and the production
+  signing secret was not injected. The selected lifecycle repair keeps failure
+  cleanup armed during boot, records the emulator PID and disarms that trap only
+  after successful ABI qualification, rechecks `adb get-state=device` with a
+  bounded poll before exact Manager/Core/runtime execution, and moves emulator/
+  adb cleanup to an `always()` post-smoke step. The same repair changes the
+  qualified-tar size check from macOS `stat -f` to GNU `stat -c` for Ubuntu.
 - RALD-5 Release/Pages LKG-preserving publication and runtime-proven promotion,
   RALD-6 fresh-install/update delivery E2E, and RALD-7 full acceptance remain
   later phases.
@@ -198,8 +210,18 @@ to private runner temp storage, selects `pixel_6` plus `google_apis/x86_64`
 explicitly, and requires `emulator -list-avds` to contain `rald3` before launch.
 The guest must still advertise `arm64-v8a`, and exact Manager, Core, and runtime
 execution through Android's ARM translation layer remains the pre-sign gate.
-RALD-4 remains pending until that smoke, secret-backed signing, and independent
-verification pass. RALD-5 remains not started.
+Run `35163080182` then passed that entire boot/ABI gate and reached the exact
+Manager/Core/runtime step, but its first adb command saw `device offline`: the
+boot step had left `trap cleanup_emulator EXIT` armed, so successful step exit
+killed the adb server and emulator wrapper before the next step. The selected
+repair preserves that trap for boot failures only, writes the qualified emulator
+PID before `trap - EXIT`, performs a bounded device-state recheck at the smoke
+boundary, and adds an `always()` cleanup step after qualification/upload. Because
+this smoke job now runs on Ubuntu, its qualified-archive bound also uses GNU
+`stat -c` instead of the stale macOS `stat -f`. The signing job was skipped and
+the production secret was not injected. RALD-4 remains pending until exact ARM64
+execution, secret-backed signing, and independent verification pass. RALD-5
+remains not started.
 
 ## Accepted RALD-3 disposition
 

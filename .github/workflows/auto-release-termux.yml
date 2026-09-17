@@ -370,6 +370,8 @@ jobs:
             *,arm64-v8a,*) ;;
             *) printf 'ARM64 native bridge unavailable: %s\n' "$abi64" >&2; exit 1 ;;
           esac
+          printf '%s\n' "$emulator_pid" > "$RUNNER_TEMP/rald3-emulator.pid"
+          trap - EXIT
 
       - name: Run exact Manager, Core, and runtime smoke
         shell: bash
@@ -379,6 +381,18 @@ jobs:
           remote=/data/local/tmp/rald3
           adb="$ANDROID_SDK_ROOT/platform-tools/adb"
           test -x "$adb"
+          device_ready=0
+          for _ in $(seq 1 30); do
+            if test "$("$adb" get-state 2>/dev/null || true)" = device; then
+              device_ready=1
+              break
+            fi
+            sleep 1
+          done
+          if test "$device_ready" != 1; then
+            cat "$RUNNER_TEMP/rald3-emulator.log" >&2
+            exit 1
+          fi
           "$adb" shell "rm -rf $remote && mkdir -p $remote"
           "$adb" push "$candidate/manager" "$remote/manager" >/dev/null
           "$adb" push "$candidate/core" "$remote/core" >/dev/null
@@ -420,7 +434,7 @@ jobs:
             "$candidate" '${{ needs.producer.outputs.upstream_version }}'
           tar -cf "$RUNNER_TEMP/rald4-qualified.tar" \
             -C "$RUNNER_TEMP/rald3-smoke" candidate
-          test "$(stat -f '%z' "$RUNNER_TEMP/rald4-qualified.tar")" -lt 1073741824
+          test "$(stat -c '%s' "$RUNNER_TEMP/rald4-qualified.tar")" -lt 1073741824
 
       - name: Upload qualified unsigned candidate
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -430,6 +444,23 @@ jobs:
           if-no-files-found: error
           retention-days: 1
           compression-level: 0
+
+      - name: Stop Android emulator
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          adb="$ANDROID_SDK_ROOT/platform-tools/adb"
+          pid_file="$RUNNER_TEMP/rald3-emulator.pid"
+          if test -f "$pid_file"; then
+            emulator_pid="$(cat "$pid_file")"
+            case "$emulator_pid" in
+              ''|*[!0-9]*) printf 'invalid emulator pid\n' >&2 ;;
+              *) kill "$emulator_pid" 2>/dev/null || true ;;
+            esac
+            rm -f "$pid_file"
+          fi
+          "$adb" kill-server >/dev/null 2>&1 || true
 
   sign:
     name: Sign qualified candidate
