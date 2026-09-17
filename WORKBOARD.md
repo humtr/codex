@@ -37,8 +37,8 @@ behavior belongs in `SPEC.md`.
   `b17cc05ec8ec18bdbfd960e413dc4c47ffeb9f90`, and hosted manual run
   `35090080089` completed successfully with `candidate=false`.
 - The drift-control execution contract is `RELEASE_AUTOMATION_PLAN.md`.
-- RALD-4 Actions-secret signing is **source-complete / secret-backed hosted gate
-  pending**. The signing helper source is pinned at
+- RALD-4 Actions-secret signing is **source-complete / hosted runtime-substrate
+  blocked before signing**. The signing helper source is pinned at
   `dfcdbead5fdcde454bedebf1a269816977f4f544`; workflow wiring is at
   `c178715f551362ac649e6c1ebc3422ca5cad1677`. After the first bounded
   `candidate=true` hosted attempt exposed an Android API-24 linker defect, the
@@ -104,9 +104,37 @@ behavior belongs in `SPEC.md`.
   expected output assertion, so qualification/upload and signing were skipped and
   the production signing secret was not injected. Because the old fail-fast shell
   did not identify which executable produced SIGSEGV or preserve its crash
-  evidence, the next bounded retry keeps the same commands and fail-closed
-  acceptance gate but records Manager/Core/runtime return codes, their stderr,
-  native-bridge properties, and Android's crash buffer before failing.
+  evidence, commit `7ab3a2a0a5dde84893e0e2e1510b56da6b600665` kept the same
+  commands and fail-closed acceptance gate while adding bounded diagnostic
+  capture.
+- Hosted diagnostic run `35169112943` at workflow head
+  `7ab3a2a0a5dde84893e0e2e1510b56da6b600665` isolated the blocker exactly.
+  Producer, candidate revalidation, KVM-backed API-35 x86_64 boot, secondary
+  `arm64-v8a` qualification, and cross-step emulator lifecycle all succeeded.
+  Manager returned 0, Core returned 0, and only the unchanged upstream runtime
+  returned 139. The guest reported `libndk_translation.so`, native-bridge exec
+  enabled, and ndk-translation version `0.2.3`; Android's crash buffer recorded
+  SIGSEGV/SEGV_MAPERR inside
+  `ndk_translation_program_runner_binfmt_misc_arm64` while executing
+  `runtime --version`. Qualification/upload and signing were skipped, and the
+  production signing secret was not injected.
+- A separate read-only forensic check downloaded that run's exact unsigned
+  candidate and authenticated the current public `0.154.0` release manifest with
+  the accepted update public key. Candidate runtime SHA-256
+  `123c96efbd8b16e1ccd5c34a6212b0d8f1c895e92917829cb6371ddfd39aa8c0`
+  is byte-for-byte identical to the signed public runtime digest. The builder
+  selects the official static AArch64 ET_EXEC and the accepted adaptation only
+  performs the fixed-length 54-byte path-string policy; this is therefore not a
+  newly introduced candidate-runtime byte regression.
+- The selected `RELEASE_AUTOMATION_PLAN.md` freezes this hosted acceptance proof
+  to the API-35 Google APIs x86_64 emulator only when all unchanged Manager,
+  Core, and runtime executables pass through Android ARM translation. That frozen
+  substrate demonstrably cannot execute the already accepted runtime, while the
+  other two executables pass. Further identical retries would be blind. The exact
+  remaining blocker is therefore an explicit user decision plus corresponding
+  plan/authority-document change selecting a different runtime-smoke substrate or
+  acceptance method; changing that frozen decision is outside the currently
+  authorized RALD-4 repair scope. RALD-4 is not accepted.
 - RALD-5 Release/Pages LKG-preserving publication and runtime-proven promotion,
   RALD-6 fresh-install/update delivery E2E, and RALD-7 full acceptance remain
   later phases.
@@ -120,8 +148,9 @@ behavior belongs in `SPEC.md`.
 ## RALD-4 source-complete disposition
 
 RALD-4 source implementation is complete on 2026-09-16, but final acceptance is
-intentionally withheld until the production-authority secret-backed hosted gate is
-explicitly authorized and passes. Commit
+currently blocked before the signing boundary by the frozen hosted runtime-smoke
+substrate. The production-authority signing path remains source-complete and has
+not been reached by a positive hosted acceptance run. Commit
 `dfcdbead5fdcde454bedebf1a269816977f4f544` adds the fail-closed signing helper,
 qualified-candidate boundary, sequence derivation, and disposable fixture tests.
 Commit `c178715f551362ac649e6c1ebc3422ca5cad1677` wires that source into the hosted
