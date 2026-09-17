@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
-      EXPECTED_HEAD: 484704cf7c157bb06652a268a8e6c87173141e9b
+      EXPECTED_HEAD: 67c0f81c67f6b8e23426e494ec6df674195c57b8
     steps:
       - name: Apply and verify bounded RALD-4.5 transition workflow
         shell: bash
@@ -52,6 +52,7 @@ jobs:
           ruby -e 'require "psych"; Psych.parse_file(ARGV.fetch(0))' \
             .github/workflows/auto-release-termux.yml
           git diff --check
+          rm -rf .github/scripts/__pycache__
 
           changed="$(git status --porcelain | awk '{print $2}' | LC_ALL=C sort)"
           expected="$(printf '%s\n' \
