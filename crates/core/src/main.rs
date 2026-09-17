@@ -7042,22 +7042,6 @@ fn probe_release_candidate(
                 "candidate version probe was unhealthy",
             ));
         }
-        if loaded.doctor_capability == UpstreamDoctorCapability::Supported
-            && probe_qualified_upstream_doctor(
-                assets,
-                process_env,
-                roots.cert_file.as_os_str(),
-                Some(roots.cert_dir.as_os_str()),
-                &roots.resolver_path,
-                &roots.config_dir,
-            )
-            .map_err(|_| LocalProductError::CandidateProbe("candidate doctor probe failed"))?
-                != UpstreamDoctorStatus::Healthy
-        {
-            return Err(LocalProductError::CandidateProbe(
-                "candidate doctor probe was unhealthy",
-            ));
-        }
         Ok(())
     })
 }
@@ -18472,7 +18456,8 @@ esac
 
     #[cfg(unix)]
     #[test]
-    fn test_m2_b4_activation_version_and_doctor_probe_failures_preserve_old_current() {
+    fn test_m2_b4_activation_version_probe_failure_preserves_old_current_and_doctor_health_does_not_gate(
+    ) {
         let root = temp_root("b4-activation-probe-failures");
         let openssl = b4_termux_openssl();
         let (home, prefix, tmp) = b4_prepare_public_environment(&root, &openssl, true);
@@ -18509,16 +18494,12 @@ esac
             b2_write_generation(&source_roots, "doctor-failure", false, "supported");
         b4_write_probe_runtime(&doctor_failure, 0, 9);
         b4_write_signed_release(&doctor_failure, 3, &openssl, &private_key);
-        b4_assert_public_update_rejected(
-            &doctor_failure,
-            &home,
-            &prefix,
-            &tmp,
-            b"candidate doctor probe was unhealthy",
-        );
+        b4_assert_public_update_activated(&doctor_failure, &home, &prefix, &tmp, "doctor-failure");
+        let state_after_doctor = read_pointer_state(&state_paths).unwrap().unwrap();
+        assert_eq!(state_after_doctor.current, "doctor-failure");
         assert_eq!(
-            std::fs::read(&state_paths.activation_state).unwrap(),
-            state_before
+            state_after_doctor.previous.as_deref(),
+            Some("probe-current")
         );
         let generation_root = home.join(".local/lib/codex/core/generations");
         for generation_id in ["version-failure", "doctor-failure"] {
