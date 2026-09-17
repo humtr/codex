@@ -10,8 +10,8 @@ permissions:
 
 jobs:
   inspect:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
     steps:
       - name: Inspect authenticated public stable descriptor
         shell: bash
@@ -34,8 +34,45 @@ jobs:
             --connect-timeout 15 --max-time 60 --max-filesize 131072 \
             --output "$root/release.manifest" "${release_base}release.manifest"
           printf 'PUBLIC_STABLE_GENERATION=%s\n' "$generation"
-          printf '%s\n' '--- generation.meta ---'
-          cat "$root/generation.meta"
-          printf '%s\n' '--- release.manifest ---'
-          cat "$root/release.manifest"
-          grep -E '^upstream_doctor\t(supported|unsupported)$' "$root/generation.meta"
+          awk -F '\t' '$1=="upstream_package_version" || $1=="upstream_doctor" {print "PUBLIC_STABLE_" toupper($1) "=" $2}' "$root/generation.meta"
+          awk -F '\t' '$1=="release_sequence" {print "PUBLIC_STABLE_RELEASE_SEQUENCE=" $2}' "$root/release.manifest"
+          test "$(awk -F '\t' '$1=="upstream_doctor"{print $2}' "$root/generation.meta")" = supported
+
+      - name: Qualify official 0.130.0 as truthful doctor-unsupported transition runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/rald45-transition-runtime"
+          rm -rf "$root"
+          mkdir -p "$root/extract" "$root/home" "$root/codex-home"
+          archive="$root/codex-package-aarch64-unknown-linux-musl.tar.gz"
+          url="https://releases.openai.com/codex/releases/0.130.0/codex-package-aarch64-unknown-linux-musl.tar.gz"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --connect-timeout 15 --max-time 300 --max-filesize 300000000 \
+            --output "$archive" "$url"
+          digest="$(sha256sum "$archive" | awk '{print $1}')"
+          test "${#digest}" -eq 64
+          printf 'TRANSITION_VERSION=0.130.0\nTRANSITION_ARCHIVE_SHA256=%s\n' "$digest"
+          member="$(tar -tzf "$archive" | awk '/\/bin\/codex$/ {print; exit}')"
+          test -n "$member"
+          tar -xzf "$archive" -C "$root/extract" "$member"
+          runtime="$root/extract/$member"
+          test -x "$runtime"
+          test "$(uname -m)" = aarch64
+          test "$($runtime --version)" = 'codex-cli 0.130.0'
+          HOME="$root/home" CODEX_HOME="$root/codex-home" "$runtime" --help > "$root/help.out"
+          if grep -Eq '(^|[[:space:]])doctor([[:space:]]|$)' "$root/help.out"; then
+            printf '%s\n' '0.130.0 unexpectedly advertises doctor' >&2
+            exit 1
+          fi
+          set +e
+          HOME="$root/home" CODEX_HOME="$root/codex-home" timeout 15 "$runtime" doctor --json \
+            > "$root/doctor.out" 2> "$root/doctor.err"
+          rc=$?
+          set -e
+          test "$rc" -ne 0
+          test "$rc" -ne 124
+          cat "$root/doctor.out" "$root/doctor.err" > "$root/doctor.combined"
+          test "$(wc -c < "$root/doctor.combined")" -le 8192
+          grep -Eqi 'unrecognized subcommand.*doctor|unexpected argument.*--json|stdin is not a terminal' "$root/doctor.combined"
+          printf 'TRANSITION_DOCTOR_UNSUPPORTED_RC=%s\n' "$rc"
