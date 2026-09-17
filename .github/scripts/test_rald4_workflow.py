@@ -14,7 +14,9 @@ class Rald4WorkflowContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.text = WORKFLOW.read_text()
-        cls.pre_sign, cls.sign = cls.text.split("\n  sign:\n", 1)
+        cls.pre_publication = cls.text.split("\n  stage_release:\n", 1)[0]
+        cls.pre_sign, sign_and_publication = cls.text.split("\n  sign:\n", 1)
+        cls.sign = sign_and_publication.split("\n  stage_release:\n", 1)[0]
 
     def test_secret_is_exactly_one_step_local_reference(self) -> None:
         self.assertNotIn("secrets.", self.pre_sign)
@@ -85,7 +87,7 @@ class Rald4WorkflowContractTests(unittest.TestCase):
         self.assertNotIn(".rald4-signing-", self.sign.split("Upload signed candidate only", 1)[1])
 
     def test_rald4_has_no_publication_authority(self) -> None:
-        lower = self.text.lower()
+        lower = self.pre_publication.lower()
         for forbidden in [
             "gh release",
             "git push",
@@ -96,7 +98,7 @@ class Rald4WorkflowContractTests(unittest.TestCase):
             "id-token: write",
         ]:
             self.assertNotIn(forbidden, lower)
-        self.assertEqual(self.text.count("permissions:\n  contents: read\n"), 1)
+        self.assertEqual(self.pre_publication.count("permissions:\n  contents: read\n"), 1)
 
 
 if __name__ == "__main__":

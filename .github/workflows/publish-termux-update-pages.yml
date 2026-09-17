@@ -2,6 +2,24 @@ name: Publish Termux update Pages
 run-name: Publish Termux update Pages ${{ inputs.generation_id }}
 
 on:
+  workflow_call:
+    inputs:
+      generation_id:
+        description: Signed generation ID and staging Release tag
+        required: true
+        type: string
+      release_sequence:
+        description: Expected signed release sequence
+        required: true
+        type: string
+      current_generation:
+        description: Authenticated LKG generation that must remain deployed
+        required: true
+        type: string
+      expected_main_sha:
+        description: Exact pre-promotion main SHA that owns the LKG index
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       generation_id:
@@ -10,6 +28,14 @@ on:
         type: string
       release_sequence:
         description: Expected signed release sequence
+        required: true
+        type: string
+      current_generation:
+        description: Authenticated LKG generation that must remain deployed
+        required: true
+        type: string
+      expected_main_sha:
+        description: Exact pre-promotion main SHA that owns the LKG index
         required: true
         type: string
 
@@ -24,7 +50,7 @@ concurrency:
 
 jobs:
   prepare:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Reconstruct and verify signed generation
         shell: bash
@@ -32,9 +58,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GENERATION_ID: ${{ inputs.generation_id }}
           RELEASE_SEQUENCE: ${{ inputs.release_sequence }}
+          CURRENT_GENERATION: ${{ inputs.current_generation }}
+          EXPECTED_MAIN_SHA: ${{ inputs.expected_main_sha }}
         run: |
           set -euo pipefail
           [[ "$GENERATION_ID" =~ ^local-[a-z0-9][a-z0-9._-]{0,126}$ ]]
+          [[ "$CURRENT_GENERATION" =~ ^local-[a-z0-9][a-z0-9._-]{0,126}$ ]]
+          [[ "$EXPECTED_MAIN_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$RELEASE_SEQUENCE" =~ ^[0-9]+$ ]]
           rm -rf stage site
           mkdir -p stage "site/$GENERATION_ID/helpers"
@@ -105,12 +135,14 @@ jobs:
           # candidate is deployed for pre-promotion readback. Pages deployment
           # is whole-site replacement, so omitting current stable here would
           # break the still-authoritative signed index before promotion.
-          curl --fail --silent --show-error --location \
+          test "$(git ls-remote --exit-code https://github.com/humtr/codex.git refs/heads/main | awk '{print $1}')" = \
+            "$EXPECTED_MAIN_SHA"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
             --connect-timeout 15 --max-time 60 \
-            -o current-index https://raw.githubusercontent.com/humtr/codex/main/update-index-v1
-          curl --fail --silent --show-error --location \
+            -o current-index "https://raw.githubusercontent.com/humtr/codex/$EXPECTED_MAIN_SHA/update-index-v1"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
             --connect-timeout 15 --max-time 60 \
-            -o current-index.sig https://raw.githubusercontent.com/humtr/codex/main/update-index-v1.sig
+            -o current-index.sig "https://raw.githubusercontent.com/humtr/codex/$EXPECTED_MAIN_SHA/update-index-v1.sig"
           openssl pkeyutl -verify -pubin -inkey stage/update-public-key.pem -rawin \
             -in current-index -sigfile current-index.sig
           test "$(sed -n '1p' current-index)" = 'codex-update-index-v1'
@@ -118,6 +150,7 @@ jobs:
           CURRENT_ID="$(awk -F '\t' '$1=="generation_id"{print $2}' current-index)"
           CURRENT_BASE="$(awk -F '\t' '$1=="release_base"{print $2}' current-index)"
           [[ "$CURRENT_ID" =~ ^local-[a-z0-9][a-z0-9._-]{0,126}$ ]]
+          test "$CURRENT_ID" = "$CURRENT_GENERATION"
           test "$CURRENT_ID" != "$GENERATION_ID"
           test "$CURRENT_BASE" = "https://humtr.github.io/codex/$CURRENT_ID/"
           mkdir -p "site/$CURRENT_ID/helpers"
@@ -169,10 +202,10 @@ jobs:
             "$candidate_bytes" "$current_bytes" "$total"
 
       - name: Configure Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b
         with:
           path: site
 
@@ -180,9 +213,9 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: prepare
     steps:
       - name: Deploy Pages artifact
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e

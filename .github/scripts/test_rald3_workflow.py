@@ -13,6 +13,7 @@ class WorkflowContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.text = WORKFLOW.read_text()
+        cls.pre_publication = cls.text.split("\n  stage_release:\n", 1)[0]
 
     def test_schedule_dispatch_permissions_and_concurrency_are_exact(self) -> None:
         text = self.text
@@ -21,10 +22,11 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("permissions:\n  contents: read\n", text)
         self.assertIn("group: termux-hosted-release-producer", text)
         self.assertIn("cancel-in-progress: false", text)
-        self.assertNotRegex(text, r"(?m)^\s+(contents|pages|actions|id-token):\s*write\s*$")
+        global_header = text.split("\njobs:\n", 1)[0]
+        self.assertNotRegex(global_header, r"(?m)^\s+(contents|pages|actions|id-token):\s*write\s*$")
 
     def test_source_and_actions_are_immutable(self) -> None:
-        text = self.text
+        text = self.pre_publication
         self.assertIn(f"CODEX_SOURCE_SHA: '{SOURCE_SHA}'", text)
         self.assertGreaterEqual(text.count('git -C source checkout --detach FETCH_HEAD'), 2)
         uses = re.findall(r"(?m)^\s*uses:\s*([^\s]+)\s*$", text)
@@ -40,9 +42,14 @@ class WorkflowContractTests(unittest.TestCase):
         )
         for action in uses:
             self.assertRegex(action, r"@[0-9a-f]{40}\Z")
+        for action in re.findall(r"(?m)^\s*uses:\s*([^\s]+)\s*$", self.text):
+            if action.startswith("./"):
+                continue
+            self.assertRegex(action, r"@[0-9a-f]{40}\Z")
 
     def test_pre_sign_boundary_has_no_release_authority(self) -> None:
-        pre_sign, sign = self.text.split("\n  sign:\n", 1)
+        pre_sign, sign_and_publication = self.text.split("\n  sign:\n", 1)
+        sign = sign_and_publication.split("\n  stage_release:\n", 1)[0]
         lower = pre_sign.lower()
         for forbidden in [
             "secrets.",
@@ -63,7 +70,7 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("qualified-candidate", pre_sign)
 
     def test_hosted_build_and_android_smoke_are_explicit(self) -> None:
-        text = self.text
+        text = self.pre_publication
         self.assertEqual(text.splitlines().count("    runs-on: ubuntu-24.04"), 2)
         self.assertEqual(text.splitlines().count("    runs-on: ubuntu-24.04-arm"), 1)
         self.assertNotIn("runs-on: macos-15", text)

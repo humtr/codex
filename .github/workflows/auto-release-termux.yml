@@ -8,6 +8,11 @@ on:
         required: false
         type: boolean
         default: false
+      rald5_negative_gate:
+        description: 'For a genuine newer candidate, fail public readback before promotion'
+        required: false
+        type: boolean
+        default: false
   schedule:
     - cron: '0 */6 * * *'
 
@@ -20,6 +25,7 @@ concurrency:
 
 env:
   CODEX_SOURCE_SHA: '1cdcb44d035ec5b1ce6339f2aa7b0e95831a6f0a'
+  RALD5_SOURCE_SHA: '0122308e75019b9003a379d79bb4710a938fb3ca'
   RUST_VERSION: '1.98.0'
   ANDROID_API: '24'
   ANDROID_NDK_VERSION: '27.3.13750724'
@@ -44,6 +50,10 @@ jobs:
       generation_id: ${{ steps.decision.outputs.generation_id }}
       upstream_version: ${{ steps.decision.outputs.upstream_version }}
       acceptance_gate: ${{ steps.decision.outputs.acceptance_gate }}
+      negative_gate: ${{ steps.decision.outputs.negative_gate }}
+      expected_main_sha: ${{ steps.stable.outputs.expected_main_sha }}
+      current_generation: ${{ steps.stable.outputs.current_generation }}
+      current_release_sequence: ${{ steps.stable.outputs.current_release_sequence }}
       release_sequence: ${{ steps.stable.outputs.release_sequence }}
     steps:
       - name: Fetch exact accepted source
@@ -76,12 +86,16 @@ jobs:
           rm -rf "$state"
           mkdir -p "$state"
 
+          expected_main_sha="$(git ls-remote --exit-code https://github.com/humtr/codex.git refs/heads/main | awk '{print $1}')"
+          test "${#expected_main_sha}" -eq 40
+          case "$expected_main_sha" in (*[!0-9a-f]*) exit 1;; esac
+          pinned_index_url="https://raw.githubusercontent.com/humtr/codex/${expected_main_sha}/update-index-v1"
           curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
             --connect-timeout 15 --max-time 60 --max-filesize 16384 \
-            --output "$state/update-index-v1" "$PUBLIC_INDEX_URL"
+            --output "$state/update-index-v1" "$pinned_index_url"
           curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
             --connect-timeout 15 --max-time 60 --max-filesize 1024 \
-            --output "$state/update-index-v1.sig" "${PUBLIC_INDEX_URL}.sig"
+            --output "$state/update-index-v1.sig" "${pinned_index_url}.sig"
           test "$(wc -c < "$state/update-index-v1.sig")" -eq 64
 
           python3 source/.github/scripts/rald3_preflight.py \
@@ -134,6 +148,9 @@ jobs:
           release_sequence="$(sed -n 's/^release_sequence=//p' "$state/next-sequence")"
           test -n "$release_sequence"
           printf 'current_version=%s\n' "$current_version" >> "$GITHUB_OUTPUT"
+          printf 'expected_main_sha=%s\n' "$expected_main_sha" >> "$GITHUB_OUTPUT"
+          printf 'current_generation=%s\n' "$current_id" >> "$GITHUB_OUTPUT"
+          printf 'current_release_sequence=%s\n' "$current_sequence" >> "$GITHUB_OUTPUT"
           printf 'release_sequence=%s\n' "$release_sequence" >> "$GITHUB_OUTPUT"
 
       - name: Resolve official upstream stable
@@ -141,6 +158,7 @@ jobs:
         shell: bash
         env:
           RALD4_POSITIVE_GATE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald4_positive_gate }}
+          RALD5_NEGATIVE_GATE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald5_negative_gate }}
         run: |
           set -euo pipefail
           state="$RUNNER_TEMP/rald3-upstream"
@@ -173,10 +191,17 @@ jobs:
           test "$candidate" = true -o "$candidate" = false
           if test "$RALD4_POSITIVE_GATE" = true; then
             test "$candidate" = true
+            test "$RALD5_NEGATIVE_GATE" != true
+          fi
+          if test "$RALD5_NEGATIVE_GATE" = true; then
+            test "$GITHUB_EVENT_NAME" = workflow_dispatch
+            test "$RALD4_POSITIVE_GATE" != true
+            test "$candidate" = true
           fi
           suffix="${upstream_version//./-}-${CODEX_SOURCE_SHA:0:12}${acceptance_suffix}"
           printf 'candidate=%s\n' "$candidate" >> "$GITHUB_OUTPUT"
           printf 'acceptance_gate=%s\n' "$RALD4_POSITIVE_GATE" >> "$GITHUB_OUTPUT"
+          printf 'negative_gate=%s\n' "$RALD5_NEGATIVE_GATE" >> "$GITHUB_OUTPUT"
           printf 'artifact_name=rald3-candidate-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
           printf 'qualified_artifact_name=rald4-qualified-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
           printf 'signed_artifact_name=rald4-signed-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
@@ -589,3 +614,462 @@ jobs:
           if-no-files-found: error
           retention-days: 1
           compression-level: 0
+
+  stage_release:
+    name: Stage immutable candidate Release
+    needs: [producer, sign]
+    if: needs.producer.outputs.candidate == 'true' && needs.sign.result == 'success' && needs.producer.outputs.acceptance_gate != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    outputs:
+      release_id: ${{ steps.stage.outputs.release_id }}
+    steps:
+      - name: Fetch exact RALD-5 publication verifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf publication-source
+          git init publication-source
+          git -C publication-source remote add origin https://github.com/humtr/codex.git
+          git -C publication-source fetch --no-tags --depth=1 origin "$RALD5_SOURCE_SHA"
+          git -C publication-source checkout --detach FETCH_HEAD
+          test "$(git -C publication-source rev-parse HEAD)" = "$RALD5_SOURCE_SHA"
+          python3 publication-source/.github/scripts/test_rald5_publication.py
+
+      - name: Download signed candidate
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.producer.outputs.signed_artifact_name }}
+          path: ${{ runner.temp }}/rald5-signed-download
+
+      - name: Verify and stage immutable Release assets
+        id: stage
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/rald5-stage"
+          rm -rf "$work"
+          mkdir -p "$work"
+          tar -xf "$RUNNER_TEMP/rald5-signed-download/signed-candidate.tar" -C "$work"
+          generation='${{ needs.producer.outputs.generation_id }}'
+          sequence='${{ needs.producer.outputs.release_sequence }}'
+          current='${{ needs.producer.outputs.current_generation }}'
+          release_base="https://humtr.github.io/codex/$generation/"
+          authority="$work/update-public-key.pem"
+          assets="$work/release-assets"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --connect-timeout 15 --max-time 60 --max-filesize 16384 \
+            --output "$authority" \
+            "https://github.com/humtr/codex/releases/download/$current/update-public-key.pem"
+          test "$(sha256sum "$authority" | awk '{print $1}')" = "$WRAPPER_PUBLIC_KEY_SHA256"
+          python3 publication-source/.github/scripts/rald5_publication.py prepare-assets \
+            --signed-root "$work/signed-output" \
+            --public-key "$authority" \
+            --output "$assets" \
+            --generation "$generation" \
+            --release-sequence "$sequence" \
+            --release-base "$release_base"
+
+          cat > "$work/expected-assets" <<'EOF'
+          candidate-update-index-v1
+          candidate-update-index-v1.sig
+          codex-code-mode-host
+          core
+          generation.meta
+          helper-0
+          helper-1
+          manager
+          release.manifest
+          release.sig
+          runtime
+          update-public-key.pem
+          EOF
+          LC_ALL=C sort -o "$work/expected-assets" "$work/expected-assets"
+
+          tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$generation" --jq '.object.sha' 2>/dev/null || true)"
+          if test -z "$tag_sha"; then
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f ref="refs/tags/$generation" -f sha="$CODEX_SOURCE_SHA" >/dev/null
+            tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$generation" --jq '.object.sha')"
+          fi
+          test "$tag_sha" = "$CODEX_SOURCE_SHA"
+
+          release_id="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$generation" --jq '.id' 2>/dev/null || true)"
+          if test -z "$release_id"; then
+            release_id="$(gh api --method POST "repos/$GITHUB_REPOSITORY/releases" \
+              -f tag_name="$generation" -f name="$generation" \
+              -F draft=true -F prerelease=true --jq '.id')"
+          fi
+          draft="$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" --jq '.draft')"
+          prerelease="$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" --jq '.prerelease')"
+          test "$prerelease" = true
+
+          verify_assets() {
+            local destination="$1"
+            rm -rf "$destination"
+            mkdir -p "$destination"
+            gh release download "$generation" --repo "$GITHUB_REPOSITORY" --dir "$destination"
+            find "$destination" -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort > "$work/actual-assets"
+            diff -u "$work/expected-assets" "$work/actual-assets"
+            while IFS= read -r name; do
+              cmp "$assets/$name" "$destination/$name"
+            done < "$work/expected-assets"
+          }
+
+          if test "$draft" = true; then
+            test "$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id/assets?per_page=100" --jq 'length')" -eq 0
+            gh release upload "$generation" "$assets"/* --repo "$GITHUB_REPOSITORY"
+            verify_assets "$work/api-readback"
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" \
+              -F draft=false -F prerelease=true >/dev/null
+          else
+            verify_assets "$work/api-readback"
+          fi
+          test "$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" --jq '.draft')" = false
+          test "$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" --jq '.prerelease')" = true
+
+          gh api "repos/$GITHUB_REPOSITORY/releases/$release_id/assets?per_page=100" --paginate \
+            --jq '.[] | [.name,.browser_download_url] | @tsv' | LC_ALL=C sort > "$work/public-assets"
+          cut -f1 "$work/public-assets" > "$work/public-names"
+          diff -u "$work/expected-assets" "$work/public-names"
+          while IFS=$'\t' read -r name url; do
+            readback="$work/public-$name"
+            ok=false
+            for attempt in $(seq 1 12); do
+              if curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+                --connect-timeout 15 --max-time 120 --output "$readback" "$url" && \
+                cmp "$assets/$name" "$readback"; then
+                ok=true
+                break
+              fi
+              sleep 5
+            done
+            test "$ok" = true
+          done < "$work/public-assets"
+          printf 'release_id=%s\n' "$release_id" >> "$GITHUB_OUTPUT"
+
+  pages:
+    name: Deploy candidate Pages while retaining LKG
+    needs: [producer, stage_release]
+    if: needs.producer.outputs.candidate == 'true' && needs.stage_release.result == 'success' && needs.producer.outputs.acceptance_gate != 'true'
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/publish-termux-update-pages.yml
+    with:
+      generation_id: ${{ needs.producer.outputs.generation_id }}
+      release_sequence: ${{ needs.producer.outputs.release_sequence }}
+      current_generation: ${{ needs.producer.outputs.current_generation }}
+      expected_main_sha: ${{ needs.producer.outputs.expected_main_sha }}
+
+  verify_public:
+    name: Public readback and disposable update proof
+    needs: [producer, stage_release, pages]
+    if: needs.producer.outputs.candidate == 'true' && needs.stage_release.result == 'success' && needs.pages.result == 'success' && needs.producer.outputs.acceptance_gate != 'true'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Fetch exact RALD-5 publication verifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = aarch64
+          rm -rf publication-source
+          git init publication-source
+          git -C publication-source remote add origin https://github.com/humtr/codex.git
+          git -C publication-source fetch --no-tags --depth=1 origin "$RALD5_SOURCE_SHA"
+          git -C publication-source checkout --detach FETCH_HEAD
+          test "$(git -C publication-source rev-parse HEAD)" = "$RALD5_SOURCE_SHA"
+          python3 publication-source/.github/scripts/test_rald5_publication.py
+
+      - name: Read back every signed candidate byte from public HTTPS
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote --exit-code https://github.com/humtr/codex.git refs/heads/main | awk '{print $1}')" = \
+            '${{ needs.producer.outputs.expected_main_sha }}'
+          root="$RUNNER_TEMP/rald5-public"
+          rm -rf "$root"
+          mkdir -p "$root"
+          authority="$root/update-public-key.pem"
+          current='${{ needs.producer.outputs.current_generation }}'
+          candidate='${{ needs.producer.outputs.generation_id }}'
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --connect-timeout 15 --max-time 60 --max-filesize 16384 \
+            --output "$authority" \
+            "https://github.com/humtr/codex/releases/download/$current/update-public-key.pem"
+          test "$(sha256sum "$authority" | awk '{print $1}')" = "$WRAPPER_PUBLIC_KEY_SHA256"
+
+          fetch_generation() {
+            local generation="$1"
+            local index_url="$2"
+            local release_base="https://humtr.github.io/codex/$generation/"
+            local destination="$root/$generation"
+            mkdir -p "$destination/helpers"
+            for rel in release.manifest release.sig codex-code-mode-host core generation.meta helpers/0 helpers/1 manager runtime; do
+              mkdir -p "$(dirname "$destination/$rel")"
+              curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+                --connect-timeout 15 --max-time 600 --output "$destination/$rel" "${release_base}${rel}"
+            done
+            curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+              --connect-timeout 15 --max-time 60 --output "$destination/update-index-v1" "$index_url"
+            curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+              --connect-timeout 15 --max-time 60 --output "$destination/update-index-v1.sig" "${index_url}.sig"
+            chmod 0755 "$destination/codex-code-mode-host" "$destination/core" \
+              "$destination/helpers/0" "$destination/helpers/1" "$destination/manager" "$destination/runtime"
+            chmod 0644 "$destination/generation.meta" "$destination/release.manifest" \
+              "$destination/release.sig" "$destination/update-index-v1" "$destination/update-index-v1.sig"
+          }
+
+          current_index="https://raw.githubusercontent.com/humtr/codex/${{ needs.producer.outputs.expected_main_sha }}/update-index-v1"
+          fetch_generation "$current" "$current_index"
+          python3 publication-source/.github/scripts/rald5_publication.py verify-public \
+            --root "$root" --public-key "$authority" \
+            --generation "$current" \
+            --release-sequence '${{ needs.producer.outputs.current_release_sequence }}' \
+            --release-base "https://humtr.github.io/codex/$current/"
+
+          candidate_index="https://humtr.github.io/codex/$candidate/update-index-v1"
+          ready=false
+          for attempt in $(seq 1 20); do
+            if curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+              --connect-timeout 15 --max-time 60 --output "$root/candidate-probe" \
+              "https://humtr.github.io/codex/$candidate/release.manifest" && \
+              test "$(awk -F '\t' '$1=="generation_id"{print $2}' "$root/candidate-probe")" = "$candidate"; then
+              ready=true
+              break
+            fi
+            sleep 5
+          done
+          test "$ready" = true
+          fetch_generation "$candidate" "$candidate_index"
+          if test '${{ needs.producer.outputs.negative_gate }}' = true; then
+            printf 'rald5-negative-gate\n' >> "$root/$candidate/runtime"
+            if python3 publication-source/.github/scripts/rald5_publication.py verify-public \
+              --root "$root" --public-key "$authority" \
+              --generation "$candidate" \
+              --release-sequence '${{ needs.producer.outputs.release_sequence }}' \
+              --release-base "https://humtr.github.io/codex/$candidate/"; then
+              printf 'negative gate unexpectedly verified tampered candidate\n' >&2
+              exit 1
+            fi
+            printf 'RALD-5 negative gate rejected staged candidate before promotion as required\n' >&2
+            exit 1
+          fi
+          python3 publication-source/.github/scripts/rald5_publication.py verify-public \
+            --root "$root" --public-key "$authority" \
+            --generation "$candidate" \
+            --release-sequence '${{ needs.producer.outputs.release_sequence }}' \
+            --release-base "https://humtr.github.io/codex/$candidate/"
+
+      - name: Provision ephemeral Android bionic interpreter path
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = aarch64
+          for tool in curl base64 unzip debugfs file readelf sha256sum; do
+            command -v "$tool" >/dev/null
+          done
+          sudo test ! -e /system
+          root="$RUNNER_TEMP/rald5-bionic"
+          rm -rf "$root"
+          mkdir -p "$root/bin" "$root/lib64/bionic"
+          apex_url="https://android.googlesource.com/platform/prebuilts/runtime/+/${ANDROID_RUNTIME_APEX_COMMIT}/mainline/runtime/apex/com.android.runtime-arm64.apex?format=TEXT"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --connect-timeout 15 --max-time 120 --max-filesize 20971520 \
+            --output "$root/runtime.apex.b64" "$apex_url"
+          base64 --decode "$root/runtime.apex.b64" > "$root/runtime.apex"
+          test "$(wc -c < "$root/runtime.apex")" -eq 13881344
+          test "$(sha256sum "$root/runtime.apex" | awk '{print $1}')" = "$ANDROID_RUNTIME_APEX_SHA256"
+          unzip -p "$root/runtime.apex" apex_payload.img > "$root/apex_payload.img"
+          test "$(wc -c < "$root/apex_payload.img")" -eq 13783040
+          debugfs -R "dump -p /bin/linker64 $root/bin/linker64" "$root/apex_payload.img" >/dev/null 2>&1
+          for library in libc.so libdl.so libm.so; do
+            debugfs -R "dump -p /lib64/bionic/$library $root/lib64/bionic/$library" \
+              "$root/apex_payload.img" >/dev/null 2>&1
+          done
+          chmod 0755 "$root/bin/linker64"
+          sudo mkdir -p /system/bin /system/lib64
+          sudo install -m 0755 "$root/bin/linker64" /system/bin/linker64
+          for library in libc.so libdl.so libm.so; do
+            sudo install -m 0644 "$root/lib64/bionic/$library" "/system/lib64/$library"
+          done
+          file /system/bin/linker64 | grep -F 'ARM aarch64'
+          readelf -h /system/bin/linker64 | grep -Eq 'Machine:[[:space:]]+AArch64'
+          rm -f "$root/runtime.apex.b64" "$root/runtime.apex" "$root/apex_payload.img"
+
+      - name: Bootstrap current public stable and update through staged Pages
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/rald5-public"
+          current='${{ needs.producer.outputs.current_generation }}'
+          candidate='${{ needs.producer.outputs.generation_id }}'
+          version='${{ needs.producer.outputs.upstream_version }}'
+          export HOME="$RUNNER_TEMP/rald5-home"
+          export PREFIX="$RUNNER_TEMP/rald5-prefix"
+          export TMPDIR="$RUNNER_TEMP/rald5-tmp"
+          export PATH="$PREFIX/bin:/usr/bin:/bin"
+          export SSL_CERT_FILE="$PREFIX/etc/tls/cert.pem"
+          export SSL_CERT_DIR="$PREFIX/etc/tls/certs"
+          mkdir -p "$HOME" "$PREFIX/bin" "$PREFIX/etc/tls/certs" "$TMPDIR"
+          cp /usr/bin/curl "$PREFIX/bin/curl"
+          cp /usr/bin/openssl "$PREFIX/bin/openssl"
+          cp /etc/resolv.conf "$PREFIX/etc/resolv.conf"
+          cp /etc/ssl/certs/ca-certificates.crt "$PREFIX/etc/tls/cert.pem"
+          /bin/sh publication-source/bootstrap/codex-bootstrap \
+            "$root/$current/core" "$root/$current" "$root/update-public-key.pem"
+          test -x "$PREFIX/bin/codex"
+
+          export CODEX_TERMUX_UPDATE_INDEX_URL="https://humtr.github.io/codex/$candidate/update-index-v1"
+          "$PREFIX/bin/codex" update > "$RUNNER_TEMP/rald5-first-update.out"
+          printf 'activated channel generation %s\n' "$candidate" > "$RUNNER_TEMP/rald5-first-update.expected"
+          cmp "$RUNNER_TEMP/rald5-first-update.expected" "$RUNNER_TEMP/rald5-first-update.out"
+          "$PREFIX/bin/codex" --version > "$RUNNER_TEMP/rald5-version.out"
+          printf 'codex-cli %s\n' "$version" > "$RUNNER_TEMP/rald5-version.expected"
+          cmp "$RUNNER_TEMP/rald5-version.expected" "$RUNNER_TEMP/rald5-version.out"
+          "$PREFIX/bin/codex" doctor > "$RUNNER_TEMP/rald5-doctor.out"
+          test -s "$RUNNER_TEMP/rald5-doctor.out"
+          test "$(wc -c < "$RUNNER_TEMP/rald5-doctor.out")" -lt 65536
+
+          snapshot() {
+            python3 - "$HOME/.local/share/codex/core" "$HOME/.local/lib/codex/core" "$PREFIX/bin/codex" <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+          import sys
+          for raw in sys.argv[1:]:
+              root = Path(raw)
+              if root.is_symlink():
+                  print(f"L\t{root}\t{os.readlink(root)}")
+                  continue
+              if root.is_file():
+                  print(f"F\t{root}\t{root.stat().st_mode & 0o7777:04o}\t{hashlib.sha256(root.read_bytes()).hexdigest()}")
+                  continue
+              if not root.is_dir():
+                  print(f"M\t{root}")
+                  continue
+              for path in sorted(root.rglob('*')):
+                  rel = path.relative_to(root)
+                  if path.is_symlink():
+                      print(f"L\t{root}\t{rel}\t{os.readlink(path)}")
+                  elif path.is_file():
+                      print(f"F\t{root}\t{rel}\t{path.stat().st_mode & 0o7777:04o}\t{hashlib.sha256(path.read_bytes()).hexdigest()}")
+                  elif path.is_dir():
+                      print(f"D\t{root}\t{rel}")
+          PY
+          }
+          snapshot > "$RUNNER_TEMP/rald5-before-noop"
+          "$PREFIX/bin/codex" update > "$RUNNER_TEMP/rald5-second-update.out"
+          printf 'codex is already up to date (generation %s)\n' "$candidate" > "$RUNNER_TEMP/rald5-second-update.expected"
+          cmp "$RUNNER_TEMP/rald5-second-update.expected" "$RUNNER_TEMP/rald5-second-update.out"
+          snapshot > "$RUNNER_TEMP/rald5-after-noop"
+          diff -u "$RUNNER_TEMP/rald5-before-noop" "$RUNNER_TEMP/rald5-after-noop"
+
+      - name: Remove ephemeral bionic interpreter path
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if sudo test -e /system; then
+            sudo rm -rf /system
+          fi
+          sudo test ! -e /system
+
+  promote:
+    name: CAS-promote signed stable index
+    needs: [producer, verify_public]
+    if: needs.producer.outputs.candidate == 'true' && needs.verify_public.result == 'success' && needs.producer.outputs.acceptance_gate != 'true' && needs.producer.outputs.negative_gate != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Promote only after exact public proof
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          expected='${{ needs.producer.outputs.expected_main_sha }}'
+          generation='${{ needs.producer.outputs.generation_id }}'
+          current='${{ needs.producer.outputs.current_generation }}'
+          work="$RUNNER_TEMP/rald5-promote"
+          rm -rf "$work"
+          mkdir -p "$work"
+          index_url="https://humtr.github.io/codex/$generation/update-index-v1"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --connect-timeout 15 --max-time 60 --output "$work/update-index-v1" "$index_url"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --connect-timeout 15 --max-time 60 --output "$work/update-index-v1.sig" "${index_url}.sig"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --connect-timeout 15 --max-time 60 --output "$work/update-public-key.pem" \
+            "https://github.com/humtr/codex/releases/download/$current/update-public-key.pem"
+          test "$(sha256sum "$work/update-public-key.pem" | awk '{print $1}')" = "$WRAPPER_PUBLIC_KEY_SHA256"
+          openssl pkeyutl -verify -pubin -inkey "$work/update-public-key.pem" -rawin \
+            -in "$work/update-index-v1" -sigfile "$work/update-index-v1.sig"
+          test "$(awk -F '\t' '$1=="generation_id"{print $2}' "$work/update-index-v1")" = "$generation"
+          test "$(awk -F '\t' '$1=="release_base"{print $2}' "$work/update-index-v1")" = \
+            "https://humtr.github.io/codex/$generation/"
+
+          before="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
+          test "$before" = "$expected"
+          base_tree="$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$expected" --jq '.tree.sha')"
+          index_blob="$(base64 -w0 "$work/update-index-v1" | \
+            jq -Rs '{content:.,encoding:"base64"}' | \
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/blobs" --input - --jq '.sha')"
+          sig_blob="$(base64 -w0 "$work/update-index-v1.sig" | \
+            jq -Rs '{content:.,encoding:"base64"}' | \
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/blobs" --input - --jq '.sha')"
+          new_tree="$(jq -n --arg base "$base_tree" --arg index "$index_blob" --arg sig "$sig_blob" \
+            '{base_tree:$base,tree:[{path:"update-index-v1",mode:"100644",type:"blob",sha:$index},{path:"update-index-v1.sig",mode:"100644",type:"blob",sha:$sig}]}' | \
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/trees" --input - --jq '.sha')"
+          new_commit="$(jq -n --arg tree "$new_tree" --arg parent "$expected" --arg generation "$generation" \
+            '{message:("release: promote " + $generation),tree:$tree,parents:[$parent]}' | \
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/commits" --input - --jq '.sha')"
+
+          set +e
+          jq -n --arg sha "$new_commit" '{sha:$sha,force:false}' | \
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/heads/main" --input - \
+            > "$work/ref-update.out" 2> "$work/ref-update.err"
+          update_rc=$?
+          set -e
+          actual="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
+          if test "$actual" = "$new_commit"; then
+            printf 'promotion_result=committed\n'
+          elif test "$actual" = "$expected"; then
+            printf 'promotion CAS did not advance main (rc=%s)\n' "$update_rc" >&2
+            exit 1
+          else
+            gh api "repos/$GITHUB_REPOSITORY/contents/update-index-v1?ref=$actual" --jq '.content' | \
+              tr -d '\n' | base64 -d > "$work/actual-index"
+            gh api "repos/$GITHUB_REPOSITORY/contents/update-index-v1.sig?ref=$actual" --jq '.content' | \
+              tr -d '\n' | base64 -d > "$work/actual-index.sig"
+            cmp "$work/update-index-v1" "$work/actual-index"
+            cmp "$work/update-index-v1.sig" "$work/actual-index.sig"
+            printf 'promotion_result=equivalent-concurrent-commit\n'
+          fi
+
+          served=false
+          for attempt in $(seq 1 20); do
+            if curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+              --connect-timeout 15 --max-time 60 --output "$work/served-index" "$PUBLIC_INDEX_URL" && \
+              curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+              --connect-timeout 15 --max-time 60 --output "$work/served-index.sig" "${PUBLIC_INDEX_URL}.sig" && \
+              cmp "$work/update-index-v1" "$work/served-index" && \
+              cmp "$work/update-index-v1.sig" "$work/served-index.sig"; then
+              served=true
+              break
+            fi
+            sleep 5
+          done
+          test "$served" = true
+          openssl pkeyutl -verify -pubin -inkey "$work/update-public-key.pem" -rawin \
+            -in "$work/served-index" -sigfile "$work/served-index.sig"
