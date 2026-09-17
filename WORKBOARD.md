@@ -37,16 +37,17 @@ behavior belongs in `SPEC.md`.
   `b17cc05ec8ec18bdbfd960e413dc4c47ffeb9f90`, and hosted manual run
   `35090080089` completed successfully with `candidate=false`.
 - The drift-control execution contract is `RELEASE_AUTOMATION_PLAN.md`.
-- RALD-4 Actions-secret signing is **source-complete / native hosted substrate
-  proof pending before signing**. The signing helper source is pinned at
-  `dfcdbead5fdcde454bedebf1a269816977f4f544`; workflow wiring is at
-  `c178715f551362ac649e6c1ebc3422ca5cad1677`. After the first bounded
-  `candidate=true` hosted attempt exposed an Android API-24 linker defect, the
-  repaired hosted producer source is pinned at
-  `1cdcb44d035ec5b1ce6339f2aa7b0e95831a6f0a`. Repository-side negative/positive
-  signing, workflow-contract, locked workspace, clippy, and full workspace gates
-  are green. No repository signing secret or production private-key value was
-  created, changed, read, copied, or logged. RALD-5 has not started.
+- RALD-4 Actions-secret signing is **accepted 2026-09-17**. The signing helper
+  source is pinned at `dfcdbead5fdcde454bedebf1a269816977f4f544`; the repaired
+  hosted producer/signing source is pinned at
+  `1cdcb44d035ec5b1ce6339f2aa7b0e95831a6f0a`, and the successful acceptance
+  workflow head is `d0af224b6738e80feb458e6030b6da517d94a1f5`. Hosted run
+  `35176798621` passed producer qualification, native ARM64 Manager/Core/runtime
+  smoke, production-authority signing, independent signature verification, and
+  cleanup. Repository-side negative/positive signing, workflow-contract, locked
+  workspace, clippy, and full workspace gates remain green. No production
+  private-key value was requested, read, copied, or logged. RALD-5 has not
+  started.
 - The first separately authorized RALD-4 positive attempt was hosted run
   `35125040646`. It proved authenticated public stable `0.154.0`, the bounded
   `0.153.4 -> 0.154.0` acceptance comparison, and `candidate=true`, then failed
@@ -140,7 +141,7 @@ behavior belongs in `SPEC.md`.
   package-manager bootstrap are no longer accepted. Candidate bytes, upstream
   digest binding, deferred Manager gate, accepted signing authority, independent
   signature verification, and no-publication RALD-4 boundary remain unchanged.
-  This replacement still requires one hosted positive proof; RALD-4 is not yet
+  Hosted positive proof is now complete in run `35176798621`; RALD-4 is
   accepted.
 - Hosted run `35172048744` at workflow head
   `3ccbad1dbc5d0eb4f4fb94e8f23e74deb27bbe63` proved the replacement substrate
@@ -155,6 +156,30 @@ behavior belongs in `SPEC.md`.
   assertion and only emits at most 4096 bytes of each nonsecret smoke stdout/stderr
   on assertion failure so the remaining formatting mismatch can be identified;
   acceptance is not weakened.
+- Hosted diagnostic run `35172361087` at workflow head
+  `9ba1deaa379b3952df7c4408ca7a36ddd45285e1` again returned
+  Manager/Core/runtime rc `0/0/0`. Manager stdout exactly matched the artifact
+  probe, Core stdout contained the exact update usage line, runtime stdout was
+  `codex-cli 0.154.0`, and runtime stderr was empty. The only mismatch was the
+  pinned bionic linker emitting the same deterministic two-line warning for both
+  Android PIE executables because the minimal hosted userspace does not recreate
+  `/linkerconfig/ld.config.txt`. The accepted workflow repair requires those two
+  pinned-substrate warning lines byte-for-byte for Manager and Core; any missing,
+  changed, or additional stderr still fails closed.
+- Hosted acceptance run `35176798621` at workflow head
+  `d0af224b6738e80feb458e6030b6da517d94a1f5` completed end to end. Producer
+  authentication/build/adaptation succeeded, `ubuntu-24.04-arm` native smoke
+  revalidated the candidate and pinned AOSP bionic substrate, exact
+  Manager/Core/runtime execution passed, the deferred Manager marker was removed,
+  and the qualified unsigned candidate crossed into the signing job. Before
+  secret exposure the job revalidated the candidate and accepted public
+  authority; the bounded signing step then used the existing repository signing
+  authority to sign release sequence `11`. Independent OpenSSL verification
+  passed for both `release.manifest`/`release.sig` and
+  `update-index-v1`/`update-index-v1.sig`. The acceptance index used only the
+  non-routable `.invalid` release base, temporary signing material and signed
+  output were removed in-job, and signed-artifact upload was skipped. No
+  Release/Pages/main/public-stable/live-runtime mutation occurred.
 - RALD-5 Release/Pages LKG-preserving publication and runtime-proven promotion,
   RALD-6 fresh-install/update delivery E2E, and RALD-7 full acceptance remain
   later phases.
@@ -165,12 +190,12 @@ behavior belongs in `SPEC.md`.
   `bf30a7dc94d4dad7f58836c69028160856e63c58`.
 - Worker mode remains OFF.
 
-## RALD-4 source-complete disposition
+## Accepted RALD-4 disposition
 
-RALD-4 source implementation is complete on 2026-09-16, but final acceptance is
-currently blocked before the signing boundary by the frozen hosted runtime-smoke
-substrate. The production-authority signing path remains source-complete and has
-not been reached by a positive hosted acceptance run. Commit
+RALD-4 is accepted on 2026-09-17 after successful production-authority hosted
+proof in run `35176798621`. The accepted path reached native ARM64 runtime smoke,
+the bounded signing boundary, independent signature verification, and cleanup
+without publication authority. Commit
 `dfcdbead5fdcde454bedebf1a269816977f4f544` adds the fail-closed signing helper,
 qualified-candidate boundary, sequence derivation, and disposable fixture tests.
 Commit `c178715f551362ac649e6c1ebc3422ca5cad1677` wires that source into the hosted
@@ -203,24 +228,19 @@ workspace tests are Core 145 passed / one explicit real-Termux smoke ignored,
 Manager 20/20 plus 11/11 integration, and release-builder 17/17. Tests use only
 disposable fixture keys/roots; the live installation is not accessed.
 
-The remaining RALD-4 acceptance action is one user-authorized
-production-authority positive GitHub-hosted signing execution. To avoid making
-acceptance depend on the calendar date of the next upstream release, the selected
-plan now permits one bounded `workflow_dispatch` acceptance-only stimulus on
-`rewrite/rust-core`: it may compare fixed disposable baseline `0.153.4` against
-real official stable `0.154.0` only while the independently authenticated public
-stable is also exact `0.154.0`. This does not lower or rewrite public stable. The
-real official archive/digest, Android/AArch64 build and smoke, sequence derived
-from authenticated public state, accepted authority match, signing, independent
-verification, and key cleanup remain required. The acceptance signed index uses
-a non-routable `.invalid` release base and its signed output is deleted in-job
-rather than uploaded. Scheduled and ordinary manual runs retain the real-public-
-stable comparison. The gate must still prove the secret derives the accepted
-update public authority, candidate signing succeeds, independent verification
-succeeds, and no private material leaks. The secret value itself must not be
-requested or exposed. RALD-5 publication authority is absent, public Release/
-Pages/index state remains protected, and RALD-5 has not started. The bounded
-acceptance-stimulus amendment is repository-green: RALD-3 preflight 6/6,
+The one bounded `workflow_dispatch` acceptance-only stimulus was consumed by
+successful run `35176798621`. It compared fixed disposable baseline `0.153.4`
+against real official stable `0.154.0` only after independently authenticating
+public stable as exact `0.154.0`; public stable was not lowered or rewritten.
+The run used the real official archive/digest, Android/AArch64 build and native
+smoke, sequence derived from authenticated public state, accepted-authority
+match, production signing, independent verification, and cleanup. Its signed
+index used the non-routable `.invalid` release base and signed output was deleted
+in-job rather than uploaded. Scheduled and ordinary manual runs retain the real-
+public-stable comparison. The secret value was not requested or exposed. RALD-5
+publication authority remains absent, public Release/Pages/index state remains
+protected, and RALD-5 has not started. The bounded acceptance-stimulus amendment
+is repository-green: RALD-3 preflight 6/6,
 RALD-4 signing fixture 6/6, RALD-3 workflow contract 5/5, amended RALD-4
 workflow contract 6/6, YAML parse and `git diff --check`, formatting,
 release-builder 17/17, locked workspace check, workspace clippy `-D warnings`,
@@ -279,9 +299,10 @@ PID before `trap - EXIT`, performs a bounded device-state recheck at the smoke
 boundary, and adds an `always()` cleanup step after qualification/upload. Because
 this smoke job now runs on Ubuntu, its qualified-archive bound also uses GNU
 `stat -c` instead of the stale macOS `stat -f`. The signing job was skipped and
-the production secret was not injected. RALD-4 remains pending until exact ARM64
-execution, secret-backed signing, and independent verification pass. RALD-5
-remains not started.
+the production secret was not injected. That emulator path is superseded by the
+native ARM64 substrate; exact ARM64 execution, secret-backed signing, and
+independent verification are accepted above in run `35176798621`. RALD-5 remains
+not started.
 
 ## Accepted RALD-3 disposition
 
@@ -318,7 +339,7 @@ run artifacts are empty. Public stable and its signature remained byte-identical
 GitHub Release ID `388405334` remained the current release, no Pages publication
 run was triggered, no Actions secret was created/changed/read for signing, and
 the live installation was not accessed or mutated. RALD-3 is therefore closed;
-RALD-4 remains not started.
+RALD-4 was not started by that RALD-3 run and is accepted separately above.
 
 ## Accepted RALD-2 disposition
 

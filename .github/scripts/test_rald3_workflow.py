@@ -105,6 +105,17 @@ class WorkflowContractTests(unittest.TestCase):
             self.assertNotIn(forbidden, text)
         self.assertIn(".manager-probe-deferred", text)
         self.assertIn("verify_failed=0", text)
+        self.assertIn("linker.stderr.expected", text)
+        self.assertIn(
+            'linker: Warning: failed to find generated linker configuration from "/linkerconfig/ld.config.txt"',
+            text,
+        )
+        self.assertIn(
+            'cmp "$RUNNER_TEMP/linker.stderr.expected" "$RUNNER_TEMP/manager.err"', text
+        )
+        self.assertIn(
+            'cmp "$RUNNER_TEMP/linker.stderr.expected" "$RUNNER_TEMP/core.err"', text
+        )
         self.assertIn('head -c 4096 "$RUNNER_TEMP/$name.out"', text)
         self.assertIn('head -c 4096 "$RUNNER_TEMP/$name.err"', text)
         self.assertIn("unsigned candidate passed native Android/AArch64 pre-sign smoke", text)

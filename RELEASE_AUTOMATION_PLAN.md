@@ -1,6 +1,6 @@
 # Release Automation and Local-Derived Update Plan
 
-Status: selected implementation plan; **RALD-1 accepted on 2026-09-15; RALD-2 accepted on 2026-09-16; RALD-3 accepted on 2026-09-16 after default-branch install and GitHub-hosted manual dry-run; RALD-4..RALD-7 remain pending**.
+Status: selected implementation plan; **RALD-1 accepted on 2026-09-15; RALD-2 accepted on 2026-09-16; RALD-3 accepted on 2026-09-16 after default-branch install and GitHub-hosted manual dry-run; RALD-4 accepted on 2026-09-17 after native ARM64 hosted smoke and production-authority signing proof; RALD-5..RALD-7 remain pending**.
 
 Baseline: `rewrite/rust-core` at
 `21bb1cd78d4a6e6ef8e124b7f07230206c5aa5ea` (`termux: guard rollback holds and automate stable intake`).
@@ -506,8 +506,13 @@ pass `--version` directly on the same native ARM64 host. No emulator, KVM,
 foreign-architecture translation, package-manager install, x86_64 rebuild, or
 candidate repack is accepted. Missing ARM64 runner identity, missing extraction
 tooling, APEX byte/hash mismatch, malformed extracted bionic files, or any exact
-candidate execution failure fails before signing. This replaces the earlier
-API-35 x86_64 `ndk_translation` acceptance substrate after hosted evidence proved
+candidate execution failure fails before signing. Because this deliberately
+minimal hosted harness does not recreate Android's generated
+`/linkerconfig/ld.config.txt`, the pinned bionic linker emits two deterministic
+configuration-warning lines before Manager/Core application stderr. Those exact
+pinned-substrate bytes must match byte-for-byte for each dynamic executable; any
+additional, missing, or changed stderr fails. Runtime stderr remains empty. This
+replaces the earlier API-35 x86_64 `ndk_translation` acceptance substrate after hosted evidence proved
 that translation layer SIGSEGVs on the byte-identical already accepted runtime;
 it strengthens rather than relaxes the Android/AArch64 execution proof and does
 not create publication authority.
@@ -534,6 +539,19 @@ Gate cases:
 No secret value is needed by repository developers/tests; secret-dependent
 positive execution occurs only in GitHub Actions after the repository-side
 preflight is accepted.
+
+Gate: **passed 2026-09-17** by acceptance-only `workflow_dispatch` run
+`35176798621` at workflow head `d0af224b6738e80feb458e6030b6da517d94a1f5`.
+The run authenticated public stable `0.154.0`, built and qualified the real
+official `0.154.0` candidate, passed exact native ARM64 Manager/Core/runtime
+smoke on `ubuntu-24.04-arm`, removed the deferred Manager marker, revalidated the
+qualified candidate and accepted public authority before secret exposure, signed
+release sequence `11` with the existing repository authority, and independently
+verified both release-manifest and update-index signatures with the accepted
+public key. The acceptance index used only the `.invalid` release base; temporary
+signing material and the signed acceptance output were removed in-job, and signed
+artifact upload was skipped. No Release/Pages/main/public-stable/live-runtime
+mutation occurred. RALD-5 was not started.
 
 ### Phase RALD-5 — publication, LKG continuity, and promotion
 

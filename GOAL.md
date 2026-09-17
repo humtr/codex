@@ -193,6 +193,25 @@ Termux qualification. Produce one candidate for independent product review.
 
 ### Current Direct-Lead Evidence
 
+- RELEASE-AUTOMATION-LOCAL-DERIVED phase RALD-4 is accepted on 2026-09-17.
+  Acceptance-only GitHub-hosted `workflow_dispatch` run `35176798621` at
+  workflow head `d0af224b6738e80feb458e6030b6da517d94a1f5` completed successfully
+  without publication authority. The producer authenticated public stable
+  `0.154.0`, resolved real official stable `0.154.0`, used only the bounded
+  `0.153.4 -> 0.154.0` acceptance comparison, cross-built Android/API-24 Core
+  and Manager, and adapted/qualified the official runtime. Native ARM64 smoke on
+  `ubuntu-24.04-arm` revalidated the candidate and pinned AOSP bionic substrate,
+  executed exact Manager/Core/runtime successfully, removed the deferred Manager
+  marker, and produced the qualified unsigned candidate. The signing job
+  revalidated that candidate and the accepted public authority before secret
+  exposure, consumed the existing `CODEX_RELEASE_SIGNING_KEY` only in the
+  bounded signing step, signed release sequence `11`, and independently verified
+  both the release-manifest and update-index signatures with the accepted public
+  key. The acceptance index used only the non-routable `.invalid` release base;
+  temporary signing material and signed acceptance output were removed in-job and
+  signed-artifact upload was skipped. The secret value was neither requested nor
+  exposed, and `main`, GitHub Release/Pages, public stable, and live installed
+  state were not mutated. RALD-5 was not started.
 - RELEASE-AUTOMATION-LOCAL-DERIVED phase RALD-3 is accepted on 2026-09-16.
   Exact producer source pin `28e65b32c8719cf913e62080d4674b54dbcc1a01`
   retains the pre-sign hosted cross-build boundary and the repository-owned
@@ -217,7 +236,8 @@ Termux qualification. Produce one candidate for independent product review.
   Public stable and its signature remained byte-identical, GitHub Release ID
   `388405334` remained current, no Pages publication run was triggered, no
   Actions signing secret was created/changed/used, and the live installation
-  was not accessed or mutated. RALD-4 has not started.
+  was not accessed or mutated. RALD-4 was not started by that RALD-3 run and is
+  accepted separately above.
 
 - RELEASE-AUTOMATION-LOCAL-DERIVED phase RALD-2 is accepted on 2026-09-16.
   Core `codex update` is now a consumer/local-derived boundary only. The
