@@ -193,6 +193,31 @@ Termux qualification. Produce one candidate for independent product review.
 
 ### Current Direct-Lead Evidence
 
+- RELEASE-AUTOMATION-LOCAL-DERIVED RALD-5 publication, LKG continuity, and
+  promotion is accepted on 2026-09-18. Bounded orchestration commit
+  `d1b53576f9b173dcf786b21271b556712d694bbf` kept transition staging
+  non-promoting by default and added a separate false-by-default
+  `rald45_transition_promote` authorization. Repaired negative-proof run
+  `35285462288` built, natively smoked, production-signed, staged, and deployed
+  the same-version candidate path, then deliberately tampered its fetched runtime;
+  public verification rejected it, the CAS job was skipped, and
+  `main=b17cc05ec8ec18bdbfd960e413dc4c47ffeb9f90` remained authoritative.
+  Separately authorized positive run `35285792273` then reproduced signed
+  sequence 11 generation
+  `local-hosted-0-154-0-37fbbd8033b8-rald45-transition`, verified immutable
+  Release assets and every staged Pages byte from public HTTPS, updated from the
+  actual sequence-10 public stable Core, verified exact `codex-cli 0.154.0`,
+  observed real credential-free doctor status `upstream=unhealthy` with
+  `termux_core=healthy`, and proved the second no-argument update was an
+  exact-current no-op. Only after those gates did the promotion job verify the
+  signed candidate index again and execute `force:false` compare-and-swap.
+  Promotion result was `committed`: `main` advanced by exactly one parent from
+  `b17cc05ec8ec18bdbfd960e413dc4c47ffeb9f90` to
+  `f221de1225471fb5eda5bbdfcbd0d9db0c2f43b1`, whose stable
+  `update-index-v1` plus signature target that transition generation.
+  Orchestration run `35285446624` completed successfully after checking the
+  expected negative failure and positive promotion. No force push, fake
+  credential/provider success, or RALD-6/7 work was used.
 - RELEASE-AUTOMATION-LOCAL-DERIVED RALD-4.5 activation-safe candidate-probe
   correction is proved on 2026-09-18 without public stable promotion. Product
   source `37fbbd8033b8cc2d508689ab1d6637b4c4f5d516` removes full upstream-doctor

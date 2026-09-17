@@ -55,16 +55,26 @@ behavior belongs in `SPEC.md`.
   update, public HTTPS byte/signature readback, exact launch/version, semantic
   credential-free doctor validation, and second-update no-op. Upstream doctor
   actually ran and was `unhealthy`; Termux Core was `healthy`. Transition mode
-  skipped CAS promotion, so `main` remains `b17cc05ec8ec18bdbfd960e413dc4c47ffeb9f90`
-  and public stable remains signed sequence 10. Separate approval is required
-  before promoting this transition generation.
-- RALD-5 is **active** under the user-authorized same-version publication
-  acceptance bridge. Only manual `workflow_dispatch` on `rewrite/rust-core` with
-  explicit publication authorization may admit exact authenticated/official
-  `0.154.0 == 0.154.0` as a distinct sequence-11 candidate; scheduled and ordinary
-  publication still require genuinely newer upstream. All signature, digest,
-  LKG, public-readback, disposable-runtime, and non-forced CAS gates remain
-  unchanged. RALD-6/7 are not authorized.
+  skipped CAS promotion at that proof point, so `main` remained
+  `b17cc05ec8ec18bdbfd960e413dc4c47ffeb9f90` and public stable remained signed
+  sequence 10 until the separately authorized RALD-5 promotion below.
+- RALD-5 is **accepted 2026-09-18**. Bounded authorization commit
+  `d1b53576f9b173dcf786b21271b556712d694bbf` adds a separate false-by-default
+  transition-promotion input without weakening the transition-stage fence.
+  Repaired negative run `35285462288` reached signed immutable staging and Pages,
+  deliberately failed public verification after local runtime tampering, skipped
+  CAS promotion, and left `main` at
+  `b17cc05ec8ec18bdbfd960e413dc4c47ffeb9f90`. Positive run `35285792273`
+  then passed exact source/upstream qualification, native ARM64 smoke,
+  production-authority signing, immutable Release/Pages staging, every-byte HTTPS
+  readback, actual old-stable-Core update, exact version, semantic credential-free
+  doctor validation, and second-update no-op for signed sequence 11 generation
+  `local-hosted-0-154-0-37fbbd8033b8-rald45-transition`. The final CAS used
+  `force:false` and committed exactly one child
+  `f221de1225471fb5eda5bbdfcbd0d9db0c2f43b1` of the old `main`; public stable
+  now targets that sequence-11 transition generation. Orchestration run
+  `35285446624` completed successfully. RALD-6/7 remain not started and are not
+  authorized by this acceptance.
 - First bridge negative-proof run `35192131899` at workflow head
   `16335d9fb7a5b170363d26a4ecde5add47f45bbc` proved the manual equality gate,
   exact official archive binding, Android/AArch64 build and native smoke,
@@ -80,8 +90,8 @@ behavior belongs in `SPEC.md`.
   must match that same parent. Signed manifest/index bytes remain candidate
   authority. Workflow-contract repair commit
   `449f1ed89433ea86c9678a4d247d048d73f9138e` fixes this invariant in the RALD-5
-  contract tests. A new negative proof is pending before any positive promotion
-  attempt.
+  contract tests. The required repaired negative proof is satisfied by run
+  `35285462288` before the accepted positive promotion run `35285792273`.
 - The first separately authorized RALD-4 positive attempt was hosted run
   `35125040646`. It proved authenticated public stable `0.154.0`, the bounded
   `0.153.4 -> 0.154.0` acceptance comparison, and `candidate=true`, then failed
@@ -215,9 +225,9 @@ behavior belongs in `SPEC.md`.
   output were removed in-job, and signed-artifact upload was skipped. No
   Release/Pages/main/public-stable/live-runtime mutation occurred.
 - RALD-5 Release/Pages LKG-preserving publication and runtime-proven promotion is
-  the current phase. RALD-6 fresh-install/update delivery E2E and RALD-7 full
-  acceptance remain later phases and must not start under the current
-  authorization.
+  accepted. RALD-6 fresh-install/update delivery E2E and RALD-7 full acceptance
+  remain later phases and are not started or authorized by the RALD-5 promotion
+  approval.
 - Public stable remains fixed during source development and may advance only after
   the selected plan's focused/full gates, public readback, disposable public-update
   runtime smoke, and exact non-forced promotion checks pass.

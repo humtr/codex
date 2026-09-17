@@ -582,8 +582,9 @@ public HTTPS readback, updated from the actual old public stable Core, verified
 exact candidate launch/version and second-update no-op, and observed real
 `upstream=unhealthy` with `termux_core=healthy` in credential-free doctor JSON.
 The transition fence skipped the CAS promotion job; `main` and public stable
-remained unchanged. Promotion of this transition generation requires separate
-explicit authorization. RALD-6/7 are not started by this proof.
+remained unchanged at that proof point. The separately required promotion
+authorization was subsequently granted and consumed only by the accepted RALD-5
+path below. RALD-6/7 are not started by either proof.
 
 ### Phase RALD-5 — publication, LKG continuity, and promotion
 
@@ -629,8 +630,26 @@ Required behavior:
 - keep old stable authoritative on every pre-promotion failure;
 - classify final compare-and-swap outcome by re-reading the ref when needed.
 
-Gate: a deliberately broken candidate reaches staging at most; it cannot advance
-stable and current LKG remains publicly usable.
+Gate: **accepted 2026-09-18**. Bounded workflow commit
+`d1b53576f9b173dcf786b21271b556712d694bbf` preserves the transition-stage
+no-promotion default and requires a separate false-by-default
+`rald45_transition_promote` authorization before a transition generation can
+reach the existing CAS job. Repaired negative run `35285462288` built, natively
+smoked, production-signed, staged, and Pages-deployed a same-version candidate,
+then deliberately tampered the fetched runtime; public verification rejected the
+candidate, promotion was skipped, and the old stable remained authoritative.
+Separately authorized positive run `35285792273` reproduced signed sequence 11
+generation `local-hosted-0-154-0-37fbbd8033b8-rald45-transition`, passed
+immutable Release and public HTTPS byte readback, disposable update from the
+actual sequence-10 stable Core, exact launch/version, credential-free semantic
+doctor validation with real `upstream=unhealthy` and
+`termux_core=healthy`, and second-update no-op. The promotion job then
+reverified the signed public index and performed only `force:false` exact-parent
+CAS. Result `committed` advanced `main` from
+`b17cc05ec8ec18bdbfd960e413dc4c47ffeb9f90` to its single child
+`f221de1225471fb5eda5bbdfcbd0d9db0c2f43b1`, making the transition generation
+the public signed stable. Orchestration run `35285446624` passed all bounded
+checks. RALD-6/7 are not started by this acceptance.
 
 ### Phase RALD-6 — fresh-install and update delivery E2E
 
