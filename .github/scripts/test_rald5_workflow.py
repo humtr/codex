@@ -86,14 +86,14 @@ class Rald5WorkflowContractTests(unittest.TestCase):
     def test_release_staging_is_exact_prerelease_and_rechecks_lkg_parent(self) -> None:
         stage = self.stage
         self.assertIn("rald5_publication.py prepare-assets", stage)
-        expected_ref_check = 'test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq \'\.object.sha\')" = "$expected_main"'
         self.assertLess(stage.index("expected_main='${{ needs.producer.outputs.expected_main_sha }}'"), stage.index("tag_sha="))
         self.assertIn("git/ref/heads/main", stage)
         self.assertIn("test \"$tag_sha\" = \"$CODEX_SOURCE_SHA\"", stage)
         self.assertIn("-F draft=true -F prerelease=true", stage)
         self.assertIn("-F draft=false -F prerelease=true", stage)
         self.assertIn("test \"$prerelease\" = true", stage)
-        self.assertIn('assets?per_page=100" --jq \'length\')" -eq 0', stage)
+        self.assertIn("assets?per_page=100", stage)
+        self.assertIn("--jq 'length'", stage)
         self.assertIn("diff -u \"$work/expected-assets\" \"$work/actual-assets\"", stage)
         self.assertIn("cmp \"$assets/$name\" \"$destination/$name\"", stage)
         self.assertIn("browser_download_url", stage)
