@@ -737,19 +737,18 @@ jobs:
           LC_ALL=C sort -o "$work/expected-assets" "$work/expected-assets"
 
           tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$generation" --jq '.object.sha' 2>/dev/null || true)"
-          if test -z "$tag_sha"; then
-            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
-              -f ref="refs/tags/$generation" -f sha="$CODEX_SOURCE_SHA" >/dev/null
-            tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$generation" --jq '.object.sha')"
+          if test -n "$tag_sha"; then
+            test "$tag_sha" = "$expected_main"
           fi
-          test "$tag_sha" = "$CODEX_SOURCE_SHA"
 
           release_id="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$generation" --jq '.id' 2>/dev/null || true)"
           if test -z "$release_id"; then
             release_id="$(gh api --method POST "repos/$GITHUB_REPOSITORY/releases" \
-              -f tag_name="$generation" -f name="$generation" \
+              -f tag_name="$generation" -f target_commitish="$expected_main" -f name="$generation" \
               -F draft=true -F prerelease=true --jq '.id')"
           fi
+          tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$generation" --jq '.object.sha')"
+          test "$tag_sha" = "$expected_main"
           draft="$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" --jq '.draft')"
           prerelease="$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" --jq '.prerelease')"
           test "$prerelease" = true
