@@ -20,24 +20,6 @@ on:
         description: Exact pre-promotion main SHA that owns the LKG index
         required: true
         type: string
-  workflow_dispatch:
-    inputs:
-      generation_id:
-        description: Signed generation ID and staging Release tag
-        required: true
-        type: string
-      release_sequence:
-        description: Expected signed release sequence
-        required: true
-        type: string
-      current_generation:
-        description: Authenticated LKG generation that must remain deployed
-        required: true
-        type: string
-      expected_main_sha:
-        description: Exact pre-promotion main SHA that owns the LKG index
-        required: true
-        type: string
 
 permissions:
   contents: read
