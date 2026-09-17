@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
-      EXPECTED_HEAD: 01dc74059d30bbb9a28b101716a716cc2bfa8173
+      EXPECTED_HEAD: 484704cf7c157bb06652a268a8e6c87173141e9b
     steps:
       - name: Apply and verify bounded RALD-4.5 transition workflow
         shell: bash
@@ -35,6 +35,16 @@ jobs:
           test -z "$(git status --porcelain)"
 
           python3 .github/scripts/rald45_patch.py
+          python3 <<'PY'
+          from pathlib import Path
+          path = Path('.github/scripts/test_rald5_workflow.py')
+          text = path.read_text()
+          old = '        self.assertIn("test "$doctor_capability" = unsupported", candidate_build)\n'
+          new = '        self.assertIn(\'test "$doctor_capability" = unsupported\', candidate_build)\n'
+          if text.count(old) != 1:
+              raise SystemExit('workflow contract quoting anchor mismatch')
+          path.write_text(text.replace(old, new, 1))
+          PY
           python3 -m py_compile \
             .github/scripts/rald45_patch.py \
             .github/scripts/test_rald5_workflow.py
