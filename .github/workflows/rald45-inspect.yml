@@ -38,26 +38,25 @@ jobs:
           awk -F '\t' '$1=="release_sequence" {print "PUBLIC_STABLE_RELEASE_SEQUENCE=" $2}' "$root/release.manifest"
           test "$(awk -F '\t' '$1=="upstream_doctor"{print $2}' "$root/generation.meta")" = supported
 
-      - name: Qualify official 0.130.0 as truthful doctor-unsupported transition runtime
+      - name: Qualify official 0.130.0 bundle as truthful doctor-unsupported transition runtime
         shell: bash
         run: |
           set -euo pipefail
           root="$RUNNER_TEMP/rald45-transition-runtime"
           rm -rf "$root"
           mkdir -p "$root/extract" "$root/home" "$root/codex-home"
-          archive="$root/codex-package-aarch64-unknown-linux-musl.tar.gz"
-          url="https://releases.openai.com/codex/releases/0.130.0/codex-package-aarch64-unknown-linux-musl.tar.gz"
+          archive="$root/codex-aarch64-unknown-linux-musl-bundle.tar.zst"
+          url="https://github.com/openai/codex/releases/download/rust-v0.130.0/codex-aarch64-unknown-linux-musl-bundle.tar.zst"
           curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
-            --connect-timeout 15 --max-time 300 --max-filesize 300000000 \
+            --connect-timeout 15 --max-time 300 --max-filesize 100000000 \
             --output "$archive" "$url"
           digest="$(sha256sum "$archive" | awk '{print $1}')"
-          test "${#digest}" -eq 64
+          test "$digest" = c72a0a2570b544ef5192933eb0c054d85fe07e393197f0c1edf5a121c9a5456e
           printf 'TRANSITION_VERSION=0.130.0\nTRANSITION_ARCHIVE_SHA256=%s\n' "$digest"
-          member="$(tar -tzf "$archive" | awk '/\/bin\/codex$/ {print; exit}')"
-          test -n "$member"
-          tar -xzf "$archive" -C "$root/extract" "$member"
-          runtime="$root/extract/$member"
-          test -x "$runtime"
+          tar --zstd -tf "$archive" | tee "$root/archive.list"
+          tar --zstd -xf "$archive" -C "$root/extract"
+          runtime="$(find "$root/extract" -type f -name codex -perm -0100 -print -quit)"
+          test -n "$runtime"
           test "$(uname -m)" = aarch64
           test "$($runtime --version)" = 'codex-cli 0.130.0'
           HOME="$root/home" CODEX_HOME="$root/codex-home" "$runtime" --help > "$root/help.out"
@@ -74,5 +73,6 @@ jobs:
           test "$rc" -ne 124
           cat "$root/doctor.out" "$root/doctor.err" > "$root/doctor.combined"
           test "$(wc -c < "$root/doctor.combined")" -le 8192
+          cat "$root/doctor.combined"
           grep -Eqi 'unrecognized subcommand.*doctor|unexpected argument.*--json|stdin is not a terminal' "$root/doctor.combined"
           printf 'TRANSITION_DOCTOR_UNSUPPORTED_RC=%s\n' "$rc"
