@@ -1,4 +1,4 @@
 codex-update-index-v1
 channel	stable
-generation_id	local-20260914-update-channel-bridge-1
-release_base	https://humtr.github.io/codex/local-20260914-update-channel-bridge-1/
+generation_id	local-hosted-0-154-0-37fbbd8033b8-rald45-transition
+release_base	https://humtr.github.io/codex/local-hosted-0-154-0-37fbbd8033b8-rald45-transition/
