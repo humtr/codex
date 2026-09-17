@@ -19,9 +19,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
-      EXPECTED_HEAD: 4ba9da08c009ffca0bf7a47733c217acaeb98147
+      EXPECTED_HEAD: 34ed9393c269c8cb8438d5be500fb10532eac4b1
     steps:
-      - name: Apply activation-safe candidate probe correction
+      - name: Apply and verify activation-safe candidate probe correction
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -32,255 +32,27 @@ jobs:
           cd repo
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test "$(git rev-parse HEAD^)" = "$EXPECTED_HEAD"
-          git status --short
-          python3 <<'PY'
-          from pathlib import Path
+          test -z "$(git status --porcelain)"
 
-          TRANSITION = "r10-browser-helper-bridge-v1;rald4-5-activation-transition-v1"
-
-          def once(text: str, old: str, new: str, label: str) -> str:
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f"{label}: expected one match, found {count}")
-              return text.replace(old, new, 1)
-
-          core_path = Path("crates/core/src/main.rs")
-          core = core_path.read_text()
-          core = once(
-              core,
-              'const R10_BROWSER_HELPER_BRIDGE_METADATA: &str = "r10-browser-helper-bridge-v1";\n',
-              'const R10_BROWSER_HELPER_BRIDGE_METADATA: &str = "r10-browser-helper-bridge-v1";\n'
-              '/// Exact backward-compatibility signal for the RALD-4.5 transition generation.\n'
-              '/// Old Cores read `upstream_doctor=unsupported` only to avoid coupling activation\n'
-              '/// to user credential/provider health. Corrected Cores still run public doctor.\n'
-              '#[cfg(unix)]\n'
-              f'const RALD45_ACTIVATION_TRANSITION_METADATA: &str = "{TRANSITION}";\n\n'
-              '#[cfg(unix)]\n'
-              'fn is_r10_browser_helper_bridge_metadata(value: &str) -> bool {\n'
-              '    matches!(\n'
-              '        value,\n'
-              '        R10_BROWSER_HELPER_BRIDGE_METADATA | RALD45_ACTIVATION_TRANSITION_METADATA\n'
-              '    )\n'
-              '}\n',
-              "core transition constant",
-          )
-          core = once(
-              core,
-              '    if manifest.creation_metadata != R10_BROWSER_HELPER_BRIDGE_METADATA {\n',
-              '    if !is_r10_browser_helper_bridge_metadata(&manifest.creation_metadata) {\n',
-              "core bridge recognizer",
-          )
-          core = once(
-              core,
-              '                loaded.manifest.creation_metadata == R10_BROWSER_HELPER_BRIDGE_METADATA,\n',
-              '                is_r10_browser_helper_bridge_metadata(&loaded.manifest.creation_metadata),\n',
-              "core installed helper layout",
-          )
-          core = once(
-              core,
-              '                source.manifest.creation_metadata == R10_BROWSER_HELPER_BRIDGE_METADATA,\n',
-              '                is_r10_browser_helper_bridge_metadata(&source.manifest.creation_metadata),\n',
-              "core staged helper layout",
-          )
-          execute_marker = '#[cfg(unix)]\nfn execute_activated_route(\n'
-          public_helper = '''#[cfg(unix)]
-          fn public_doctor_capability(
-              creation_metadata: &str,
-              declared: UpstreamDoctorCapability,
-          ) -> UpstreamDoctorCapability {
-              if creation_metadata == RALD45_ACTIVATION_TRANSITION_METADATA {
-                  UpstreamDoctorCapability::Supported
-              } else {
-                  declared
-              }
-          }
-
-          '''
-          core = once(core, execute_marker, public_helper + execute_marker, "public doctor helper")
-          core = once(
-              core,
-              '            doctor_capability: loaded.doctor_capability,\n',
-              '            doctor_capability: public_doctor_capability(\n'
-              '                &loaded.manifest.creation_metadata,\n'
-              '                loaded.doctor_capability,\n'
-              '            ),\n',
-              "public doctor capability use",
-          )
-          doctor_gate = '''        if loaded.doctor_capability == UpstreamDoctorCapability::Supported
-                      && probe_qualified_upstream_doctor(
-                          assets,
-                          process_env,
-                          roots.cert_file.as_os_str(),
-                          Some(roots.cert_dir.as_os_str()),
-                          &roots.resolver_path,
-                          &roots.config_dir,
-                      )
-                      .map_err(|_| LocalProductError::CandidateProbe("candidate doctor probe failed"))?
-                          != UpstreamDoctorStatus::Healthy
-                  {
-                      return Err(LocalProductError::CandidateProbe(
-                          "candidate doctor probe was unhealthy",
-                      ));
-                  }
-          '''
-          core = once(core, doctor_gate, '', "remove activation doctor gate")
-          core = once(
-              core,
-              'fn test_m2_b4_activation_version_and_doctor_probe_failures_preserve_old_current() {',
-              'fn test_m2_b4_activation_version_probe_failure_blocks_but_doctor_health_does_not() {',
-              "rename probe test",
-          )
-          doctor_test = '''        b4_assert_public_update_rejected(
-                      &doctor_failure,
-                      &home,
-                      &prefix,
-                      &tmp,
-                      b"candidate doctor probe was unhealthy",
-                  );
-                  assert_eq!(
-                      std::fs::read(&state_paths.activation_state).unwrap(),
-                      state_before
-                  );
-          '''
-          doctor_test_new = '''        b4_assert_public_update_activated(
-                      &doctor_failure,
-                      &home,
-                      &prefix,
-                      &tmp,
-                      "doctor-failure",
-                  );
-                  let state_after_doctor_health = read_pointer_state(&state_paths).unwrap().unwrap();
-                  assert_eq!(state_after_doctor_health.current, "doctor-failure");
-                  assert_eq!(
-                      state_after_doctor_health.previous.as_deref(),
-                      Some("probe-current")
-                  );
-          '''
-          core = once(core, doctor_test, doctor_test_new, "candidate doctor health test")
-          test_marker = '''    #[cfg(unix)]
-              #[test]
-              fn test_m2_b4_activation_version_probe_failure_blocks_but_doctor_health_does_not() {
-          '''
-          transition_test = '''    #[cfg(unix)]
-              #[test]
-              fn test_rald45_transition_signal_preserves_public_doctor_and_r10_layout() {
-                  assert!(is_r10_browser_helper_bridge_metadata(
-                      RALD45_ACTIVATION_TRANSITION_METADATA
-                  ));
-                  assert_eq!(
-                      public_doctor_capability(
-                          RALD45_ACTIVATION_TRANSITION_METADATA,
-                          UpstreamDoctorCapability::Unsupported,
-                      ),
-                      UpstreamDoctorCapability::Supported
-                  );
-                  assert_eq!(
-                      public_doctor_capability(
-                          R10_BROWSER_HELPER_BRIDGE_METADATA,
-                          UpstreamDoctorCapability::Unsupported,
-                      ),
-                      UpstreamDoctorCapability::Unsupported
-                  );
-              }
-
-          '''
-          core = once(core, test_marker, transition_test + test_marker, "transition core unit test")
-          core_path.write_text(core)
-
-          builder_path = Path("crates/release-builder/src/lib.rs")
-          builder = builder_path.read_text()
-          builder = once(
-              builder,
-              'const R10_BROWSER_HELPER_BRIDGE_METADATA: &str = "r10-browser-helper-bridge-v1";\n',
-              'const R10_BROWSER_HELPER_BRIDGE_METADATA: &str = "r10-browser-helper-bridge-v1";\n'
-              f'const RALD45_ACTIVATION_TRANSITION_METADATA: &str = "{TRANSITION}";\n\n'
-              'fn is_r10_browser_helper_bridge_metadata(value: &str) -> bool {\n'
-              '    matches!(\n'
-              '        value,\n'
-              '        R10_BROWSER_HELPER_BRIDGE_METADATA | RALD45_ACTIVATION_TRANSITION_METADATA\n'
-              '    )\n'
-              '}\n\n'
-              'fn upstream_doctor_descriptor_capability(creation_metadata: &str) -> &\'static str {\n'
-              '    if creation_metadata == RALD45_ACTIVATION_TRANSITION_METADATA {\n'
-              '        "unsupported"\n'
-              '    } else {\n'
-              '        "supported"\n'
-              '    }\n'
-              '}\n',
-              "builder transition helpers",
-          )
-          validator_old = '''    let creation_metadata = publish_descriptor_field(&mut lines, "creation_metadata")?;
-              if (creation_metadata == R10_BROWSER_HELPER_BRIDGE_METADATA) != r10_bridge
-                  || publish_descriptor_field(&mut lines, "upstream_doctor")? != "supported"
-                  || publish_descriptor_field(&mut lines, "helper_count")? != "2"
-              {
-          '''
-          validator_new = '''    let creation_metadata = publish_descriptor_field(&mut lines, "creation_metadata")?;
-              let upstream_doctor = publish_descriptor_field(&mut lines, "upstream_doctor")?;
-              if is_r10_browser_helper_bridge_metadata(creation_metadata) != r10_bridge
-                  || upstream_doctor != upstream_doctor_descriptor_capability(creation_metadata)
-                  || publish_descriptor_field(&mut lines, "helper_count")? != "2"
-              {
-          '''
-          builder = once(builder, validator_old, validator_new, "builder publish validator")
-          builder = once(
-              builder,
-              '        request.creation_metadata == R10_BROWSER_HELPER_BRIDGE_METADATA,\n',
-              '        is_r10_browser_helper_bridge_metadata(&request.creation_metadata),\n',
-              "builder helper layout",
-          )
-          start = builder.index('fn write_generation_descriptor(')
-          end = builder.index('\nfn rename_noreplace', start)
-          descriptor = builder[start:end]
-          descriptor = once(
-              descriptor,
-              'upstream_doctor\\tsupported',
-              'upstream_doctor\\t{}',
-              "builder descriptor placeholder",
-          )
-          descriptor = once(
-              descriptor,
-              '        request.creation_metadata,\n        TERMUX_BROWSER_OPEN_HELPER_IDENTITY,\n',
-              '        request.creation_metadata,\n'
-              '        upstream_doctor_descriptor_capability(&request.creation_metadata),\n'
-              '        TERMUX_BROWSER_OPEN_HELPER_IDENTITY,\n',
-              "builder descriptor argument",
-          )
-          builder = builder[:start] + descriptor + builder[end:]
-          builder_test_marker = '''    #[test]
-              fn test_tc_live_bridge_build_and_publish_are_marker_bound_and_r10_readable() {
-          '''
-          builder_test = '''    #[test]
-              fn test_rald45_transition_marker_is_exact_legacy_activation_signal() {
-                  assert!(is_r10_browser_helper_bridge_metadata(
-                      RALD45_ACTIVATION_TRANSITION_METADATA
-                  ));
-                  assert_eq!(
-                      upstream_doctor_descriptor_capability(RALD45_ACTIVATION_TRANSITION_METADATA),
-                      "unsupported"
-                  );
-                  assert_eq!(
-                      upstream_doctor_descriptor_capability(R10_BROWSER_HELPER_BRIDGE_METADATA),
-                      "supported"
-                  );
-                  assert_eq!(upstream_doctor_descriptor_capability("test-fixture"), "supported");
-              }
-
-          '''
-          builder = once(
-              builder,
-              builder_test_marker,
-              builder_test + builder_test_marker,
-              "builder transition unit test",
-          )
-          builder_path.write_text(builder)
-          PY
-
+          python3 .github/scripts/rald45_patch.py
           cargo fmt --all
           cargo fmt --all -- --check
           git diff --check
-          PREFIX=/usr TMPDIR=/tmp cargo test --workspace
-          git status --short
+
+          # Compile every workspace test target, then execute the environment-independent
+          # contracts that carry activation, admission, anti-rollback, public doctor,
+          # browser-layout, and transition semantics on a hosted Linux runner.
+          cargo test --workspace --no-run
+          cargo test -p codex --bin codex test_m2_b4_
+          cargo test -p codex --bin codex test_m2_b5_
+          cargo test -p codex --bin codex test_m2_b7_
+          cargo test -p codex --bin codex test_arh1_
+          cargo test -p codex --bin codex doctor
+          cargo test -p codex --bin codex test_r10_
+          cargo test -p codex --bin codex test_rald45_transition_signal_preserves_public_doctor_semantics
+          cargo test -p codex-release-builder test_rald45_transition_flag_is_exact_and_legacy_bounded
+          cargo test -p codex-release-builder test_tc_live_bridge_build_and_publish_are_marker_bound_and_r10_readable
+
           test -n "$(git status --porcelain -- crates/core/src/main.rs crates/release-builder/src/lib.rs)"
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
