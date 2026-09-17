@@ -37,8 +37,8 @@ behavior belongs in `SPEC.md`.
   `b17cc05ec8ec18bdbfd960e413dc4c47ffeb9f90`, and hosted manual run
   `35090080089` completed successfully with `candidate=false`.
 - The drift-control execution contract is `RELEASE_AUTOMATION_PLAN.md`.
-- RALD-4 Actions-secret signing is **source-complete / hosted runtime-substrate
-  blocked before signing**. The signing helper source is pinned at
+- RALD-4 Actions-secret signing is **source-complete / native hosted substrate
+  proof pending before signing**. The signing helper source is pinned at
   `dfcdbead5fdcde454bedebf1a269816977f4f544`; workflow wiring is at
   `c178715f551362ac649e6c1ebc3422ca5cad1677`. After the first bounded
   `candidate=true` hosted attempt exposed an Android API-24 linker defect, the
@@ -126,15 +126,22 @@ behavior belongs in `SPEC.md`.
   selects the official static AArch64 ET_EXEC and the accepted adaptation only
   performs the fixed-length 54-byte path-string policy; this is therefore not a
   newly introduced candidate-runtime byte regression.
-- The selected `RELEASE_AUTOMATION_PLAN.md` freezes this hosted acceptance proof
-  to the API-35 Google APIs x86_64 emulator only when all unchanged Manager,
-  Core, and runtime executables pass through Android ARM translation. That frozen
-  substrate demonstrably cannot execute the already accepted runtime, while the
-  other two executables pass. Further identical retries would be blind. The exact
-  remaining blocker is therefore an explicit user decision plus corresponding
-  plan/authority-document change selecting a different runtime-smoke substrate or
-  acceptance method; changing that frozen decision is outside the currently
-  authorized RALD-4 repair scope. RALD-4 is not accepted.
+- The user explicitly selected replacement of the unusable x86_64 translation
+  substrate because release automation is not acceptable unless GitHub Actions
+  can execute build -> real runtime smoke -> sign -> independent verify end to
+  end. `RELEASE_AUTOMATION_PLAN.md` now selects one common native hosted pre-sign
+  path: GitHub-hosted `ubuntu-24.04-arm`, exact host `aarch64`, and a pinned AOSP
+  Android 15 ARM64 runtime APEX at commit
+  `8aeb37cca394ce39c1311744c60960cbd466aa77` with SHA-256
+  `83bf0dce249728dae48149b80d28b48115c54adad95a352120d58a6ac669d1fc`.
+  Manager/Core retain their Android PIE bytes and execute through the extracted
+  official bionic `linker64`/libraries; the exact static ARM64 runtime executes
+  natively on the same runner. Emulator/KVM/foreign-architecture translation and
+  package-manager bootstrap are no longer accepted. Candidate bytes, upstream
+  digest binding, deferred Manager gate, accepted signing authority, independent
+  signature verification, and no-publication RALD-4 boundary remain unchanged.
+  This replacement still requires one hosted positive proof; RALD-4 is not yet
+  accepted.
 - RALD-5 Release/Pages LKG-preserving publication and runtime-proven promotion,
   RALD-6 fresh-install/update delivery E2E, and RALD-7 full acceptance remain
   later phases.

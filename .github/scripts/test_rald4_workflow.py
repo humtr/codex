@@ -39,6 +39,11 @@ class Rald4WorkflowContractTests(unittest.TestCase):
 
     def test_signing_source_and_tools_are_pinned_and_fail_closed(self) -> None:
         self.assertIn(f"CODEX_SOURCE_SHA: '{SOURCE_SHA}'", self.text)
+        self.assertIn("runs-on: ubuntu-24.04-arm", self.pre_sign)
+        self.assertIn("ANDROID_RUNTIME_APEX_COMMIT: '8aeb37cca394ce39c1311744c60960cbd466aa77'", self.pre_sign)
+        self.assertIn("ANDROID_RUNTIME_APEX_SHA256: '83bf0dce249728dae48149b80d28b48115c54adad95a352120d58a6ac669d1fc'", self.pre_sign)
+        self.assertNotIn("ndk_translation", self.pre_sign)
+        self.assertNotIn("/dev/kvm", self.pre_sign)
         self.assertIn("rald4_signing.py", self.sign)
         self.assertIn("test_rald4_signing.py", self.sign)
         self.assertIn("$WRAPPER_PUBLIC_KEY_SHA256", self.sign)

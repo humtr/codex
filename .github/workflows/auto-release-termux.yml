@@ -28,6 +28,8 @@ env:
   RALD4_ACCEPTANCE_BASELINE_VERSION: '0.153.4'
   RALD4_ACCEPTANCE_TARGET_VERSION: '0.154.0'
   WRAPPER_PUBLIC_KEY_SHA256: '62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c'
+  ANDROID_RUNTIME_APEX_COMMIT: '8aeb37cca394ce39c1311744c60960cbd466aa77'
+  ANDROID_RUNTIME_APEX_SHA256: '83bf0dce249728dae48149b80d28b48115c54adad95a352120d58a6ac669d1fc'
 
 jobs:
   producer:
@@ -281,13 +283,14 @@ jobs:
     name: Android/AArch64 executable smoke
     needs: producer
     if: needs.producer.outputs.candidate == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
     steps:
       - name: Fetch exact accepted source
         shell: bash
         run: |
           set -euo pipefail
+          test "$(uname -m)" = aarch64
           rm -rf source
           git init source
           git -C source remote add origin https://github.com/humtr/codex.git
@@ -312,118 +315,77 @@ jobs:
           python3 source/.github/scripts/rald3_preflight.py candidate \
             "$work/candidate" '${{ needs.producer.outputs.upstream_version }}'
 
-      - name: Boot x86_64 Android runner with ARM64 translation
+      - name: Provision pinned Android ARM64 bionic userspace
         shell: bash
         run: |
           set -euo pipefail
-          image='system-images;android-35;google_apis;x86_64'
-          sdkmanager="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
-          avdmanager="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/avdmanager"
-          adb="$ANDROID_SDK_ROOT/platform-tools/adb"
-          emulator="$ANDROID_SDK_ROOT/emulator/emulator"
-          for tool in "$sdkmanager" "$avdmanager" "$adb"; do
-            test -x "$tool"
+          for tool in curl base64 unzip debugfs file readelf sha256sum; do
+            command -v "$tool" >/dev/null
           done
-          test -c /dev/kvm
-          sudo chmod 0666 /dev/kvm
-          test -r /dev/kvm
-          test -w /dev/kvm
-          yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
-          "$sdkmanager" "emulator" "$image"
-          test -x "$emulator"
-          export ANDROID_AVD_HOME="$RUNNER_TEMP/rald3-avd"
-          rm -rf "$ANDROID_AVD_HOME"
-          mkdir -p "$ANDROID_AVD_HOME"
-          printf 'no\n' | "$avdmanager" create avd --force --name rald3 \
-            --package "$image" --abi 'google_apis/x86_64' --device pixel_6
-          "$emulator" -list-avds | grep -Fx 'rald3'
-          "$emulator" \
-            -avd rald3 -no-window -no-audio -no-boot-anim -no-snapshot -wipe-data \
-            -no-metrics -accel on -gpu swiftshader \
-            > "$RUNNER_TEMP/rald3-emulator.log" 2>&1 &
-          emulator_pid=$!
-          cleanup_emulator() {
-            kill "$emulator_pid" 2>/dev/null || true
-            "$adb" kill-server >/dev/null 2>&1 || true
-          }
-          trap cleanup_emulator EXIT
-          booted=0
-          for _ in $(seq 1 120); do
-            if ! kill -0 "$emulator_pid" 2>/dev/null; then
-              cat "$RUNNER_TEMP/rald3-emulator.log" >&2
-              exit 1
-            fi
-            if test "$("$adb" get-state 2>/dev/null || true)" = device && \
-               test "$("$adb" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1; then
-              booted=1
-              break
-            fi
-            sleep 5
+          test "$(uname -m)" = aarch64
+          root="$RUNNER_TEMP/rald4-bionic"
+          rm -rf "$root"
+          mkdir -p "$root/bin" "$root/lib64/bionic"
+          apex_url="https://android.googlesource.com/platform/prebuilts/runtime/+/${ANDROID_RUNTIME_APEX_COMMIT}/mainline/runtime/apex/com.android.runtime-arm64.apex?format=TEXT"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --connect-timeout 15 --max-time 120 --max-filesize 20971520 \
+            --output "$root/runtime.apex.b64" "$apex_url"
+          base64 --decode "$root/runtime.apex.b64" > "$root/runtime.apex"
+          rm "$root/runtime.apex.b64"
+          test "$(wc -c < "$root/runtime.apex")" -eq 13881344
+          test "$(sha256sum "$root/runtime.apex" | awk '{print $1}')" = \
+            "$ANDROID_RUNTIME_APEX_SHA256"
+          unzip -p "$root/runtime.apex" apex_payload.img > "$root/apex_payload.img"
+          test "$(wc -c < "$root/apex_payload.img")" -eq 13783040
+          debugfs -R "dump -p /bin/linker64 $root/bin/linker64" "$root/apex_payload.img" >/dev/null 2>&1
+          for library in libc.so libdl.so libm.so; do
+            debugfs -R "dump -p /lib64/bionic/$library $root/lib64/bionic/$library" \
+              "$root/apex_payload.img" >/dev/null 2>&1
           done
-          if test "$booted" != 1; then
-            cat "$RUNNER_TEMP/rald3-emulator.log" >&2
-            exit 1
-          fi
-          test "$("$adb" shell getprop ro.product.cpu.abi | tr -d '\r')" = x86_64
-          abi64="$("$adb" shell getprop ro.product.cpu.abilist64 | tr -d '\r')"
-          case ",$abi64," in
-            *,arm64-v8a,*) ;;
-            *) printf 'ARM64 native bridge unavailable: %s\n' "$abi64" >&2; exit 1 ;;
-          esac
-          printf '%s\n' "$emulator_pid" > "$RUNNER_TEMP/rald3-emulator.pid"
-          trap - EXIT
+          for path in \
+            "$root/bin/linker64" \
+            "$root/lib64/bionic/libc.so" \
+            "$root/lib64/bionic/libdl.so" \
+            "$root/lib64/bionic/libm.so"; do
+            test -f "$path"
+            test ! -L "$path"
+          done
+          chmod 0755 "$root/bin/linker64"
+          file "$root/bin/linker64" | grep -F 'ARM aarch64'
+          readelf -h "$root/bin/linker64" | grep -Eq 'Machine:[[:space:]]+AArch64'
+          rm "$root/runtime.apex" "$root/apex_payload.img"
 
-      - name: Run exact Manager, Core, and runtime smoke
+      - name: Run exact Manager, Core, and runtime smoke natively
         shell: bash
         run: |
           set -euo pipefail
           candidate="$RUNNER_TEMP/rald3-smoke/candidate"
-          remote=/data/local/tmp/rald3
-          adb="$ANDROID_SDK_ROOT/platform-tools/adb"
-          test -x "$adb"
-          device_ready=0
-          for _ in $(seq 1 30); do
-            if test "$("$adb" get-state 2>/dev/null || true)" = device; then
-              device_ready=1
-              break
-            fi
-            sleep 1
-          done
-          if test "$device_ready" != 1; then
-            cat "$RUNNER_TEMP/rald3-emulator.log" >&2
-            exit 1
-          fi
-          "$adb" shell "rm -rf $remote && mkdir -p $remote"
-          "$adb" push "$candidate/manager" "$remote/manager" >/dev/null
-          "$adb" push "$candidate/core" "$remote/core" >/dev/null
-          "$adb" push "$candidate/runtime" "$remote/runtime" >/dev/null
-          "$adb" shell "chmod 0755 $remote/manager $remote/core $remote/runtime"
+          linker="$RUNNER_TEMP/rald4-bionic/bin/linker64"
+          libdir="$RUNNER_TEMP/rald4-bionic/lib64/bionic"
+          test -x "$linker"
+          test "$(uname -m)" = aarch64
 
           set +e
-          "$adb" shell "CODEX_MANAGER_ARTIFACT_PROBE=1 $remote/manager --artifact-probe > $remote/manager.out 2> $remote/manager.err"
+          env -i CODEX_MANAGER_ARTIFACT_PROBE=1 LD_LIBRARY_PATH="$libdir" \
+            "$linker" "$candidate/manager" --artifact-probe \
+            > "$RUNNER_TEMP/manager.out" 2> "$RUNNER_TEMP/manager.err"
           manager_rc=$?
-          "$adb" shell "$remote/core update --help > $remote/core.out 2> $remote/core.err"
+          env -i LD_LIBRARY_PATH="$libdir" \
+            "$linker" "$candidate/core" update --help \
+            > "$RUNNER_TEMP/core.out" 2> "$RUNNER_TEMP/core.err"
           core_rc=$?
-          "$adb" shell "$remote/runtime --version > $remote/runtime.out 2> $remote/runtime.err"
+          env -i "$candidate/runtime" --version \
+            > "$RUNNER_TEMP/runtime.out" 2> "$RUNNER_TEMP/runtime.err"
           runtime_rc=$?
           set -e
 
-          for name in manager core runtime; do
-            "$adb" exec-out cat "$remote/$name.out" > "$RUNNER_TEMP/$name.out" 2>/dev/null || true
-            "$adb" exec-out cat "$remote/$name.err" > "$RUNNER_TEMP/$name.err" 2>/dev/null || true
-          done
           printf 'manager_rc=%s core_rc=%s runtime_rc=%s\n' \
             "$manager_rc" "$core_rc" "$runtime_rc" >&2
           if test "$manager_rc" -ne 0 || test "$core_rc" -ne 0 || test "$runtime_rc" -ne 0; then
-            printf 'native_bridge=%s native_bridge_exec=%s ndk_translation=%s\n' \
-              "$("$adb" shell getprop ro.dalvik.vm.native.bridge | tr -d '\r')" \
-              "$("$adb" shell getprop ro.enable.native.bridge.exec | tr -d '\r')" \
-              "$("$adb" shell getprop ro.ndk_translation.version | tr -d '\r')" >&2
             for name in manager core runtime; do
               printf '%s stderr:\n' "$name" >&2
               cat "$RUNNER_TEMP/$name.err" >&2
             done
-            "$adb" shell 'logcat -b crash -d -t 200' >&2 2>/dev/null || true
             exit 1
           fi
 
@@ -439,8 +401,7 @@ jobs:
 
           rm "$candidate/.manager-probe-deferred"
           test ! -e "$candidate/.manager-probe-deferred"
-          printf 'unsigned candidate passed Android/AArch64 pre-sign smoke\n'
-
+          printf 'unsigned candidate passed native Android/AArch64 pre-sign smoke\n'
 
       - name: Package qualified unsigned candidate
         shell: bash
@@ -461,23 +422,6 @@ jobs:
           if-no-files-found: error
           retention-days: 1
           compression-level: 0
-
-      - name: Stop Android emulator
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          adb="$ANDROID_SDK_ROOT/platform-tools/adb"
-          pid_file="$RUNNER_TEMP/rald3-emulator.pid"
-          if test -f "$pid_file"; then
-            emulator_pid="$(cat "$pid_file")"
-            case "$emulator_pid" in
-              ''|*[!0-9]*) printf 'invalid emulator pid\n' >&2 ;;
-              *) kill "$emulator_pid" 2>/dev/null || true ;;
-            esac
-            rm -f "$pid_file"
-          fi
-          "$adb" kill-server >/dev/null 2>&1 || true
 
   sign:
     name: Sign qualified candidate

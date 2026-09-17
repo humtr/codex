@@ -490,17 +490,27 @@ to exact `0.154.0`. The official metadata/archive digest, Android/AArch64 build,
 pre-sign qualification, runtime smoke, current public release-sequence binding,
 accepted public-key match, production-authority signing, independent signature
 verification, and private-key cleanup remain identical to the ordinary path.
-For this hosted acceptance proof, the Android/AArch64 runtime smoke may execute
-the exact built ARM64 candidate binaries inside an API-35 Google APIs x86_64
-Android emulator on `ubuntu-24.04` only when KVM is present, the guest explicitly
-advertises `arm64-v8a` as a supported 64-bit secondary ABI, and the unchanged
-Manager, Core, and runtime executables all pass their existing smoke commands
-through Android's ARM translation layer. The candidate itself is never rebuilt or
-repacked as x86_64, and missing KVM, missing ARM64 translation, or any translated
-execution failure fails before signing. This is a hosted execution-substrate
-exception forced by the absence of usable nested virtualization on the available
-hosted ARM64 paths; it does not weaken the Android/AArch64 candidate contract or
-become a publication rule.
+The hosted pre-sign runtime smoke, including this acceptance proof and the
+ordinary future producer path, executes the exact built ARM64 candidate natively
+on GitHub-hosted `ubuntu-24.04-arm`. It must first prove `uname -m` is `aarch64`.
+Manager and Core retain their Android/AArch64 PIE form and are executed through
+an exact pinned Android bionic userspace: the workflow fetches
+`com.android.runtime-arm64.apex` from AOSP `platform/prebuilts/runtime` commit
+`8aeb37cca394ce39c1311744c60960cbd466aa77`, requires SHA-256
+`83bf0dce249728dae48149b80d28b48115c54adad95a352120d58a6ac669d1fc`,
+and extracts only its ARM64 `linker64` plus bionic `libc`, `libdl`, and `libm`
+from the APEX payload with runner-provided read-only filesystem tooling. Manager
+and Core must pass their existing exact smoke commands through that pinned
+Android linker/userspace; the unchanged official static AArch64 runtime must
+pass `--version` directly on the same native ARM64 host. No emulator, KVM,
+foreign-architecture translation, package-manager install, x86_64 rebuild, or
+candidate repack is accepted. Missing ARM64 runner identity, missing extraction
+tooling, APEX byte/hash mismatch, malformed extracted bionic files, or any exact
+candidate execution failure fails before signing. This replaces the earlier
+API-35 x86_64 `ndk_translation` acceptance substrate after hosted evidence proved
+that translation layer SIGSEGVs on the byte-identical already accepted runtime;
+it strengthens rather than relaxes the Android/AArch64 execution proof and does
+not create publication authority.
 The acceptance-only signed index must use a non-routable `.invalid` release base;
 its signed output must be verified inside the signing job and deleted rather than
 uploaded as an artifact. It must not create or mutate a GitHub Release, Pages,

@@ -64,62 +64,47 @@ class WorkflowContractTests(unittest.TestCase):
 
     def test_hosted_build_and_android_smoke_are_explicit(self) -> None:
         text = self.text
-        self.assertEqual(text.count("runs-on: ubuntu-24.04"), 3)
+        self.assertEqual(text.splitlines().count("    runs-on: ubuntu-24.04"), 2)
+        self.assertEqual(text.splitlines().count("    runs-on: ubuntu-24.04-arm"), 1)
         self.assertNotIn("runs-on: macos-15", text)
         self.assertIn("aarch64-linux-android", text)
-        self.assertIn("system-images;android-35;google_apis;x86_64", text)
-        for tool in [
-            "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager",
-            "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/avdmanager",
-            "$ANDROID_SDK_ROOT/platform-tools/adb",
-            "$ANDROID_SDK_ROOT/emulator/emulator",
-        ]:
-            self.assertIn(tool, text)
-        self.assertIn('for tool in "$sdkmanager" "$avdmanager" "$adb"; do', text)
-        self.assertIn('test -x "$tool"', text)
-        self.assertIn("test -c /dev/kvm", text)
-        self.assertIn("sudo chmod 0666 /dev/kvm", text)
-        self.assertIn('"$sdkmanager" "emulator" "$image"', text)
-        self.assertIn('test -x "$emulator"', text)
-        self.assertIn('export ANDROID_AVD_HOME="$RUNNER_TEMP/rald3-avd"', text)
-        self.assertIn("printf 'no\\n' | \"$avdmanager\" create avd --force --name rald3", text)
-        self.assertIn("--package \"$image\" --abi 'google_apis/x86_64' --device pixel_6", text)
-        self.assertIn('"$emulator" -list-avds | grep -Fx \'rald3\'', text)
-        self.assertIn("-no-metrics -accel on -gpu swiftshader", text)
-        self.assertNotIn("-accel off", text)
-        self.assertNotIn("yes | sdkmanager --licenses", text)
-        self.assertNotIn('echo no | avdmanager create avd', text)
-        self.assertNotIn('"$adb" wait-for-device', text)
-        self.assertIn('emulator_pid=$!', text)
-        self.assertIn('trap cleanup_emulator EXIT', text)
-        self.assertIn('if ! kill -0 "$emulator_pid" 2>/dev/null; then', text)
-        self.assertIn('"$adb" get-state 2>/dev/null || true', text)
-        self.assertIn('for _ in $(seq 1 120); do', text)
-        self.assertIn('ro.product.cpu.abi | tr -d', text)
-        self.assertIn('= x86_64', text)
-        self.assertIn('ro.product.cpu.abilist64', text)
-        self.assertIn('*,arm64-v8a,*)', text)
-        self.assertIn("printf '%s\\n' \"$emulator_pid\" > \"$RUNNER_TEMP/rald3-emulator.pid\"", text)
-        self.assertIn('trap - EXIT', text)
-        self.assertLess(text.index('trap - EXIT'), text.index('- name: Run exact Manager, Core, and runtime smoke'))
-        self.assertIn('device_ready=0', text)
-        self.assertIn('for _ in $(seq 1 30); do', text)
-        self.assertIn("stat -c '%s' \"$RUNNER_TEMP/rald4-qualified.tar\"", text)
-        self.assertNotIn("stat -f '%z' \"$RUNNER_TEMP/rald4-qualified.tar\"", text)
-        self.assertIn('- name: Stop Android emulator', text)
-        self.assertIn('pid_file="$RUNNER_TEMP/rald3-emulator.pid"', text)
-        self.assertGreater(text.index('- name: Stop Android emulator'), text.index('- name: Upload qualified unsigned candidate'))
-        self.assertIn("CODEX_MANAGER_ARTIFACT_PROBE=1", text)
-        self.assertIn("--artifact-probe", text)
-        self.assertIn("$remote/core update --help", text)
-        self.assertIn("$remote/runtime --version", text)
+        self.assertIn("ANDROID_RUNTIME_APEX_COMMIT: '8aeb37cca394ce39c1311744c60960cbd466aa77'", text)
+        self.assertIn("ANDROID_RUNTIME_APEX_SHA256: '83bf0dce249728dae48149b80d28b48115c54adad95a352120d58a6ac669d1fc'", text)
+        self.assertIn('test "$(uname -m)" = aarch64', text)
+        self.assertIn("https://android.googlesource.com/platform/prebuilts/runtime/+/${ANDROID_RUNTIME_APEX_COMMIT}/mainline/runtime/apex/com.android.runtime-arm64.apex?format=TEXT", text)
+        self.assertIn('--max-filesize 20971520', text)
+        self.assertIn('base64 --decode "$root/runtime.apex.b64"', text)
+        self.assertIn('test "$(wc -c < "$root/runtime.apex")" -eq 13881344', text)
+        self.assertIn('"$ANDROID_RUNTIME_APEX_SHA256"', text)
+        self.assertIn('unzip -p "$root/runtime.apex" apex_payload.img', text)
+        self.assertIn('test "$(wc -c < "$root/apex_payload.img")" -eq 13783040', text)
+        self.assertIn('debugfs -R "dump -p /bin/linker64 $root/bin/linker64"', text)
+        for library in ["libc.so", "libdl.so", "libm.so"]:
+            self.assertIn(f'/lib64/bionic/{library}', text)
+        self.assertIn("file \"$root/bin/linker64\" | grep -F 'ARM aarch64'", text)
+        self.assertIn("readelf -h \"$root/bin/linker64\" | grep -Eq 'Machine:[[:space:]]+AArch64'", text)
+        self.assertIn('env -i CODEX_MANAGER_ARTIFACT_PROBE=1 LD_LIBRARY_PATH="$libdir"', text)
+        self.assertIn('"$linker" "$candidate/manager" --artifact-probe', text)
+        self.assertIn('"$linker" "$candidate/core" update --help', text)
+        self.assertIn('env -i "$candidate/runtime" --version', text)
         self.assertIn("manager_rc=$?", text)
         self.assertIn("core_rc=$?", text)
         self.assertIn("runtime_rc=$?", text)
-        self.assertIn("ro.dalvik.vm.native.bridge", text)
-        self.assertIn("ro.enable.native.bridge.exec", text)
-        self.assertIn("ro.ndk_translation.version", text)
-        self.assertIn("logcat -b crash -d -t 200", text)
+        self.assertIn("stat -c '%s' \"$RUNNER_TEMP/rald4-qualified.tar\"", text)
+        self.assertNotIn("stat -f '%z' \"$RUNNER_TEMP/rald4-qualified.tar\"", text)
+        for forbidden in [
+            "system-images;android-35;google_apis;x86_64",
+            "sdkmanager",
+            "avdmanager",
+            "/dev/kvm",
+            "ANDROID_AVD_HOME",
+            "ro.dalvik.vm.native.bridge",
+            "ro.ndk_translation.version",
+            "Stop Android emulator",
+        ]:
+            self.assertNotIn(forbidden, text)
+        self.assertIn(".manager-probe-deferred", text)
+        self.assertIn("unsigned candidate passed native Android/AArch64 pre-sign smoke", text)
 
     def test_public_stable_is_authenticated_before_comparison(self) -> None:
         text = self.text
