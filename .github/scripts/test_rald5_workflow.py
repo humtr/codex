@@ -52,7 +52,7 @@ class Rald5WorkflowContractTests(unittest.TestCase):
     def test_public_mutation_requires_explicit_dispatch_authorization(self) -> None:
         self.assertIn("rald5_publication_authorized:", self.header)
         auth_block = self.header.split("rald5_publication_authorized:", 1)[1].split(
-            "rald5_negative_gate:", 1
+            "rald5_same_version_acceptance:", 1
         )[0]
         self.assertIn("type: boolean", auth_block)
         self.assertIn("default: false", auth_block)
@@ -67,6 +67,42 @@ class Rald5WorkflowContractTests(unittest.TestCase):
             self.assertIn("needs.producer.outputs.publication_authorized == 'true'", job)
         self.assertIn("workflow_call:", self.pages)
         self.assertNotIn("workflow_dispatch:", self.pages)
+
+    def test_same_version_acceptance_is_exact_manual_and_publication_gated(self) -> None:
+        self.assertIn("rald5_same_version_acceptance:", self.header)
+        bridge_input = self.header.split("rald5_same_version_acceptance:", 1)[1].split(
+            "rald5_negative_gate:", 1
+        )[0]
+        self.assertIn("type: boolean", bridge_input)
+        self.assertIn("default: false", bridge_input)
+        self.assertIn("RALD5_SAME_VERSION_ACCEPTANCE_VERSION: '0.154.0'", self.header)
+        self.assertIn(
+            "RALD5_SAME_VERSION_ACCEPTANCE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald5_same_version_acceptance }}",
+            self.decision,
+        )
+        bridge = self.decision.split('if test "$RALD5_SAME_VERSION_ACCEPTANCE" = true; then', 1)[1].split(
+            'if test "$RALD5_NEGATIVE_GATE" = true; then', 1
+        )[0]
+        self.assertIn('test "$GITHUB_EVENT_NAME" = workflow_dispatch', bridge)
+        self.assertIn('test "$GITHUB_REF" = refs/heads/rewrite/rust-core', bridge)
+        self.assertIn('test "$RALD4_POSITIVE_GATE" != true', bridge)
+        self.assertIn('test "$RALD5_PUBLICATION_AUTHORIZED" = true', bridge)
+        self.assertIn("steps.stable.outputs.current_version", bridge)
+        self.assertGreaterEqual(bridge.count("RALD5_SAME_VERSION_ACCEPTANCE_VERSION"), 2)
+        self.assertIn('test "$candidate" = false', bridge)
+        self.assertIn("candidate=true", bridge)
+        self.assertIn("-rald5-same-version-acceptance", bridge)
+        self.assertIn("same_version_acceptance=%s", self.decision)
+        self.assertLess(
+            self.decision.index("rald3_preflight.py compare"),
+            self.decision.index('if test "$RALD5_SAME_VERSION_ACCEPTANCE" = true; then'),
+        )
+        rald4 = self.decision.split('if test "$RALD4_POSITIVE_GATE" = true; then', 2)[2].split(
+            'if test "$RALD5_PUBLICATION_AUTHORIZED" = true; then', 1
+        )[0]
+        self.assertIn('test "$RALD5_SAME_VERSION_ACCEPTANCE" != true', rald4)
+        for job in [self.stage, self.pages_job, self.verify, self.promote]:
+            self.assertNotIn("same_version_acceptance == 'true'", job)
 
     def test_write_authority_is_job_local_and_after_signing(self) -> None:
         self.assertIn("permissions:\n  contents: read\n", self.header)
