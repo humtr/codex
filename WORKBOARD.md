@@ -46,8 +46,31 @@ behavior belongs in `SPEC.md`.
   smoke, production-authority signing, independent signature verification, and
   cleanup. Repository-side negative/positive signing, workflow-contract, locked
   workspace, clippy, and full workspace gates remain green. No production
-  private-key value was requested, read, copied, or logged. RALD-5 has not
-  started.
+  private-key value was requested, read, copied, or logged.
+- RALD-5 is **active** under the user-authorized same-version publication
+  acceptance bridge. Only manual `workflow_dispatch` on `rewrite/rust-core` with
+  explicit publication authorization may admit exact authenticated/official
+  `0.154.0 == 0.154.0` as a distinct sequence-11 candidate; scheduled and ordinary
+  publication still require genuinely newer upstream. All signature, digest,
+  LKG, public-readback, disposable-runtime, and non-forced CAS gates remain
+  unchanged. RALD-6/7 are not authorized.
+- First bridge negative-proof run `35192131899` at workflow head
+  `16335d9fb7a5b170363d26a4ecde5add47f45bbc` proved the manual equality gate,
+  exact official archive binding, Android/AArch64 build and native smoke,
+  production-authority signing, and independent signature verification. It then
+  failed closed in Release staging after exact 12-asset preparation but before a
+  candidate tag or Release existed. Pages, public-readback, and CAS jobs were
+  skipped; `main` remained `b17cc05ec8ec18bdbfd960e413dc4c47ffeb9f90` and the
+  signed stable blobs were unchanged. This is not the intended RALD-5 negative
+  gate and is not acceptance evidence.
+- Staging repair commit `4f289759db48c77c0df9a012e2b5a8d91a391b17`
+  removes direct candidate-tag ref creation and makes Release creation bind its
+  locator tag to the exact verified pre-promotion `main` parent; an existing tag
+  must match that same parent. Signed manifest/index bytes remain candidate
+  authority. Workflow-contract repair commit
+  `449f1ed89433ea86c9678a4d247d048d73f9138e` fixes this invariant in the RALD-5
+  contract tests. A new negative proof is pending before any positive promotion
+  attempt.
 - The first separately authorized RALD-4 positive attempt was hosted run
   `35125040646`. It proved authenticated public stable `0.154.0`, the bounded
   `0.153.4 -> 0.154.0` acceptance comparison, and `candidate=true`, then failed
@@ -180,9 +203,10 @@ behavior belongs in `SPEC.md`.
   non-routable `.invalid` release base, temporary signing material and signed
   output were removed in-job, and signed-artifact upload was skipped. No
   Release/Pages/main/public-stable/live-runtime mutation occurred.
-- RALD-5 Release/Pages LKG-preserving publication and runtime-proven promotion,
-  RALD-6 fresh-install/update delivery E2E, and RALD-7 full acceptance remain
-  later phases.
+- RALD-5 Release/Pages LKG-preserving publication and runtime-proven promotion is
+  the current phase. RALD-6 fresh-install/update delivery E2E and RALD-7 full
+  acceptance remain later phases and must not start under the current
+  authorization.
 - Public stable remains fixed during source development and may advance only after
   the selected plan's focused/full gates, public readback, disposable public-update
   runtime smoke, and exact non-forced promotion checks pass.
