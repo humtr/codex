@@ -148,6 +148,7 @@ class Rald5WorkflowContractTests(unittest.TestCase):
         self.assertIn("activation-state", verify)
         self.assertIn("codex-activation-state-v3", verify)
         self.assertIn('cmp "$PREFIX/bin/codex" "$current_dir/core"', verify)
+        self.assertIn('mkdir -p "$generation_root" "$state_root/config"', verify)
         self.assertIn("transition fixture did not preserve the old public stable Core", verify)
         self.assertIn('"$PREFIX/bin/codex" update', verify)
         self.assertIn('cmp "$PREFIX/bin/codex" "$root/$candidate/core"', verify)

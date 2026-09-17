@@ -1045,7 +1045,7 @@ jobs:
             generation_root="$HOME/.local/lib/codex/core/generations"
             current_dir="$generation_root/$current"
             state_root="$HOME/.local/share/codex/core"
-            mkdir -p "$generation_root" "$state_root"
+            mkdir -p "$generation_root" "$state_root/config"
             python3 - "$root/$current" "$current_dir" <<'PY'
           import hashlib
           import os
