@@ -104,6 +104,9 @@ class WorkflowContractTests(unittest.TestCase):
         ]:
             self.assertNotIn(forbidden, text)
         self.assertIn(".manager-probe-deferred", text)
+        self.assertIn("verify_failed=0", text)
+        self.assertIn('head -c 4096 "$RUNNER_TEMP/$name.out"', text)
+        self.assertIn('head -c 4096 "$RUNNER_TEMP/$name.err"', text)
         self.assertIn("unsigned candidate passed native Android/AArch64 pre-sign smoke", text)
 
     def test_public_stable_is_authenticated_before_comparison(self) -> None:

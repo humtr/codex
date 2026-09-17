@@ -389,15 +389,38 @@ jobs:
             exit 1
           fi
 
+          verify_failed=0
           printf 'codex-manager-artifact-v1\ncore_api=codex-manager-core-v1\n' > "$RUNNER_TEMP/manager.expected"
-          cmp "$RUNNER_TEMP/manager.expected" "$RUNNER_TEMP/manager.out"
-          test ! -s "$RUNNER_TEMP/manager.err"
-          grep -Fqx 'usage: codex update [--help] | --force | --build-local | --local <DIRECTORY> | --remote <HTTPS_BASE_URL> | --rollback' \
-            "$RUNNER_TEMP/core.out"
-          test ! -s "$RUNNER_TEMP/core.err"
-          test -s "$RUNNER_TEMP/runtime.out"
-          test "$(wc -c < "$RUNNER_TEMP/runtime.out")" -le 512
-          test ! -s "$RUNNER_TEMP/runtime.err"
+          if ! cmp "$RUNNER_TEMP/manager.expected" "$RUNNER_TEMP/manager.out"; then
+            verify_failed=1
+          fi
+          if test -s "$RUNNER_TEMP/manager.err"; then
+            verify_failed=1
+          fi
+          if ! grep -Fqx 'usage: codex update [--help] | --force | --build-local | --local <DIRECTORY> | --remote <HTTPS_BASE_URL> | --rollback' \
+            "$RUNNER_TEMP/core.out"; then
+            verify_failed=1
+          fi
+          if test -s "$RUNNER_TEMP/core.err"; then
+            verify_failed=1
+          fi
+          if test ! -s "$RUNNER_TEMP/runtime.out" || \
+             test "$(wc -c < "$RUNNER_TEMP/runtime.out")" -gt 512; then
+            verify_failed=1
+          fi
+          if test -s "$RUNNER_TEMP/runtime.err"; then
+            verify_failed=1
+          fi
+          if test "$verify_failed" != 0; then
+            for name in manager core runtime; do
+              printf '%s stdout (first 4096 bytes):\n' "$name" >&2
+              head -c 4096 "$RUNNER_TEMP/$name.out" >&2 || true
+              printf '\n%s stderr (first 4096 bytes):\n' "$name" >&2
+              head -c 4096 "$RUNNER_TEMP/$name.err" >&2 || true
+              printf '\n' >&2
+            done
+            exit 1
+          fi
 
           rm "$candidate/.manager-probe-deferred"
           test ! -e "$candidate/.manager-probe-deferred"

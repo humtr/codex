@@ -142,6 +142,19 @@ behavior belongs in `SPEC.md`.
   signature verification, and no-publication RALD-4 boundary remain unchanged.
   This replacement still requires one hosted positive proof; RALD-4 is not yet
   accepted.
+- Hosted run `35172048744` at workflow head
+  `3ccbad1dbc5d0eb4f4fb94e8f23e74deb27bbe63` proved the replacement substrate
+  itself. Producer and candidate revalidation succeeded; GitHub assigned the
+  smoke job to `ubuntu-24.04-arm`, `uname -m` was `aarch64`, and the exact pinned
+  AOSP runtime APEX passed its byte/hash checks and yielded the expected ARM64
+  bionic linker/libraries. Exact candidate execution then returned
+  Manager/Core/runtime rc `0/0/0`, eliminating the prior translation/runtime
+  blocker. The step failed only in a subsequent exact stdout/stderr assertion,
+  before deferred-marker removal, qualified upload, or signing, so the production
+  signing secret was not injected. The next bounded retry preserves every output
+  assertion and only emits at most 4096 bytes of each nonsecret smoke stdout/stderr
+  on assertion failure so the remaining formatting mismatch can be identified;
+  acceptance is not weakened.
 - RALD-5 Release/Pages LKG-preserving publication and runtime-proven promotion,
   RALD-6 fresh-install/update delivery E2E, and RALD-7 full acceptance remain
   later phases.
