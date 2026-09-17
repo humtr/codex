@@ -13,8 +13,13 @@ on:
         required: false
         type: boolean
         default: false
+      rald5_same_version_acceptance:
+        description: 'Bounded RALD-5 acceptance: republish exact official 0.154.0 through the full public path'
+        required: false
+        type: boolean
+        default: false
       rald5_negative_gate:
-        description: 'For an authorized genuine newer candidate, fail public readback before promotion'
+        description: 'For an authorized publication candidate, fail public readback before promotion'
         required: false
         type: boolean
         default: false
@@ -38,6 +43,7 @@ env:
   UPSTREAM_LATEST_URL: 'https://releases.openai.com/codex/channels/latest'
   RALD4_ACCEPTANCE_BASELINE_VERSION: '0.153.4'
   RALD4_ACCEPTANCE_TARGET_VERSION: '0.154.0'
+  RALD5_SAME_VERSION_ACCEPTANCE_VERSION: '0.154.0'
   WRAPPER_PUBLIC_KEY_SHA256: '62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c'
   ANDROID_RUNTIME_APEX_COMMIT: '8aeb37cca394ce39c1311744c60960cbd466aa77'
   ANDROID_RUNTIME_APEX_SHA256: '83bf0dce249728dae48149b80d28b48115c54adad95a352120d58a6ac669d1fc'
@@ -56,6 +62,7 @@ jobs:
       upstream_version: ${{ steps.decision.outputs.upstream_version }}
       acceptance_gate: ${{ steps.decision.outputs.acceptance_gate }}
       publication_authorized: ${{ steps.decision.outputs.publication_authorized }}
+      same_version_acceptance: ${{ steps.decision.outputs.same_version_acceptance }}
       negative_gate: ${{ steps.decision.outputs.negative_gate }}
       expected_main_sha: ${{ steps.stable.outputs.expected_main_sha }}
       current_generation: ${{ steps.stable.outputs.current_generation }}
@@ -165,6 +172,7 @@ jobs:
         env:
           RALD4_POSITIVE_GATE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald4_positive_gate }}
           RALD5_PUBLICATION_AUTHORIZED: ${{ github.event_name == 'workflow_dispatch' && inputs.rald5_publication_authorized }}
+          RALD5_SAME_VERSION_ACCEPTANCE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald5_same_version_acceptance }}
           RALD5_NEGATIVE_GATE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald5_negative_gate }}
         run: |
           set -euo pipefail
@@ -197,13 +205,29 @@ jobs:
           candidate="$(sed -n 's/^candidate=//p' "$state/decision")"
           test "$candidate" = true -o "$candidate" = false
           test "$RALD5_PUBLICATION_AUTHORIZED" = true -o "$RALD5_PUBLICATION_AUTHORIZED" = false
+          test "$RALD5_SAME_VERSION_ACCEPTANCE" = true -o "$RALD5_SAME_VERSION_ACCEPTANCE" = false
           if test "$RALD4_POSITIVE_GATE" = true; then
             test "$candidate" = true
             test "$RALD5_PUBLICATION_AUTHORIZED" != true
+            test "$RALD5_SAME_VERSION_ACCEPTANCE" != true
             test "$RALD5_NEGATIVE_GATE" != true
           fi
           if test "$RALD5_PUBLICATION_AUTHORIZED" = true; then
             test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          fi
+          if test "$RALD5_SAME_VERSION_ACCEPTANCE" = true; then
+            test "$GITHUB_EVENT_NAME" = workflow_dispatch
+            test "$GITHUB_REF" = refs/heads/rewrite/rust-core
+            test "$RALD4_POSITIVE_GATE" != true
+            test "$RALD5_PUBLICATION_AUTHORIZED" = true
+            test '${{ steps.stable.outputs.current_version }}' = "$RALD5_SAME_VERSION_ACCEPTANCE_VERSION"
+            test "$upstream_version" = "$RALD5_SAME_VERSION_ACCEPTANCE_VERSION"
+            test '${{ steps.stable.outputs.current_version }}' = "$upstream_version"
+            test "$candidate" = false
+            candidate=true
+            acceptance_suffix='-rald5-same-version-acceptance'
+            printf 'RALD-5 same-version acceptance bridge selected for exact authenticated/official stable %s\n' \
+              "$upstream_version"
           fi
           if test "$RALD5_NEGATIVE_GATE" = true; then
             test "$GITHUB_EVENT_NAME" = workflow_dispatch
@@ -215,6 +239,7 @@ jobs:
           printf 'candidate=%s\n' "$candidate" >> "$GITHUB_OUTPUT"
           printf 'acceptance_gate=%s\n' "$RALD4_POSITIVE_GATE" >> "$GITHUB_OUTPUT"
           printf 'publication_authorized=%s\n' "$RALD5_PUBLICATION_AUTHORIZED" >> "$GITHUB_OUTPUT"
+          printf 'same_version_acceptance=%s\n' "$RALD5_SAME_VERSION_ACCEPTANCE" >> "$GITHUB_OUTPUT"
           printf 'negative_gate=%s\n' "$RALD5_NEGATIVE_GATE" >> "$GITHUB_OUTPUT"
           printf 'artifact_name=rald3-candidate-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
           printf 'qualified_artifact_name=rald4-qualified-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
