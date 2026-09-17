@@ -1,0 +1,41 @@
+name: RALD-4.5 transition inspection
+
+on:
+  push:
+    branches:
+      - rald45/activation-safe-probe
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Inspect authenticated public stable descriptor
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/rald45-inspect"
+          mkdir -p "$root"
+          index_url="https://raw.githubusercontent.com/humtr/codex/main/update-index-v1"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --connect-timeout 15 --max-time 60 --max-filesize 16384 \
+            --output "$root/update-index-v1" "$index_url"
+          generation="$(awk -F '\t' '$1=="generation_id"{print $2}' "$root/update-index-v1")"
+          release_base="$(awk -F '\t' '$1=="release_base"{print $2}' "$root/update-index-v1")"
+          test -n "$generation"
+          test "$release_base" = "https://humtr.github.io/codex/$generation/"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --connect-timeout 15 --max-time 60 --max-filesize 65536 \
+            --output "$root/generation.meta" "${release_base}generation.meta"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --connect-timeout 15 --max-time 60 --max-filesize 131072 \
+            --output "$root/release.manifest" "${release_base}release.manifest"
+          printf 'PUBLIC_STABLE_GENERATION=%s\n' "$generation"
+          printf '%s\n' '--- generation.meta ---'
+          cat "$root/generation.meta"
+          printf '%s\n' '--- release.manifest ---'
+          cat "$root/release.manifest"
+          grep -E '^upstream_doctor\t(supported|unsupported)$' "$root/generation.meta"
