@@ -2250,35 +2250,6 @@ where
     })
 }
 
-#[cfg(unix)]
-fn probe_qualified_upstream_doctor<'selection, 'asset, R, C>(
-    assets: QualifiedRuntimeAssets<'selection, 'asset>,
-    process_env: &TermuxProcessEnvSnapshot,
-    cert_file: &OsStr,
-    cert_dir: Option<&OsStr>,
-    resolver_path: R,
-    config_dir: C,
-) -> Result<UpstreamDoctorStatus, QualifiedUpstreamDoctorProbeError>
-where
-    R: AsRef<std::path::Path>,
-    C: AsRef<std::path::Path>,
-{
-    Ok(capture_qualified_upstream_doctor(
-        assets,
-        process_env,
-        cert_file,
-        cert_dir,
-        resolver_path,
-        config_dir,
-        DoctorCaptureOptions {
-            json: false,
-            use_color: false,
-            force_color: false,
-        },
-    )?
-    .status)
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum UpstreamDoctorCapability {
     Supported,
@@ -6965,6 +6936,24 @@ where
 }
 
 #[cfg(unix)]
+fn public_doctor_capability(
+    creation_metadata: &str,
+    declared: UpstreamDoctorCapability,
+) -> UpstreamDoctorCapability {
+    if creation_metadata == R10_BROWSER_HELPER_BRIDGE_METADATA
+        && declared == UpstreamDoctorCapability::Unsupported
+    {
+        // RALD-4.5 transition generations preserve the exact R10 layout marker so
+        // the public stable Core can stage them, while `unsupported` tells only
+        // that legacy activation gate not to couple activation to user/provider
+        // health. The corrected public doctor must still execute upstream doctor.
+        UpstreamDoctorCapability::Supported
+    } else {
+        declared
+    }
+}
+
+#[cfg(unix)]
 fn execute_activated_route(
     route: PublicDispatchRoute,
     roots: &LocalCoreRoots,
@@ -7001,7 +6990,10 @@ fn execute_activated_route(
             cert_dir: Some(roots.cert_dir.as_os_str()),
             resolver_path: &roots.resolver_path,
             config_dir: &roots.config_dir,
-            doctor_capability: loaded.doctor_capability,
+            doctor_capability: public_doctor_capability(
+                &loaded.manifest.creation_metadata,
+                loaded.doctor_capability,
+            ),
             core_doctor_status,
             generation_id: &loaded.generation_id,
             generation_layout: loaded.generation_layout,
@@ -7040,22 +7032,6 @@ fn probe_release_candidate(
         {
             return Err(LocalProductError::CandidateProbe(
                 "candidate version probe was unhealthy",
-            ));
-        }
-        if loaded.doctor_capability == UpstreamDoctorCapability::Supported
-            && probe_qualified_upstream_doctor(
-                assets,
-                process_env,
-                roots.cert_file.as_os_str(),
-                Some(roots.cert_dir.as_os_str()),
-                &roots.resolver_path,
-                &roots.config_dir,
-            )
-            .map_err(|_| LocalProductError::CandidateProbe("candidate doctor probe failed"))?
-                != UpstreamDoctorStatus::Healthy
-        {
-            return Err(LocalProductError::CandidateProbe(
-                "candidate doctor probe was unhealthy",
             ));
         }
         Ok(())
@@ -18472,7 +18448,30 @@ esac
 
     #[cfg(unix)]
     #[test]
-    fn test_m2_b4_activation_version_and_doctor_probe_failures_preserve_old_current() {
+    fn test_rald45_transition_signal_preserves_public_doctor_semantics() {
+        assert_eq!(
+            public_doctor_capability(
+                R10_BROWSER_HELPER_BRIDGE_METADATA,
+                UpstreamDoctorCapability::Unsupported,
+            ),
+            UpstreamDoctorCapability::Supported
+        );
+        assert_eq!(
+            public_doctor_capability("test-fixture", UpstreamDoctorCapability::Unsupported),
+            UpstreamDoctorCapability::Unsupported
+        );
+        assert_eq!(
+            public_doctor_capability(
+                R10_BROWSER_HELPER_BRIDGE_METADATA,
+                UpstreamDoctorCapability::Supported,
+            ),
+            UpstreamDoctorCapability::Supported
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_m2_b4_activation_version_probe_failure_blocks_but_doctor_health_does_not() {
         let root = temp_root("b4-activation-probe-failures");
         let openssl = b4_termux_openssl();
         let (home, prefix, tmp) = b4_prepare_public_environment(&root, &openssl, true);
@@ -18509,16 +18508,12 @@ esac
             b2_write_generation(&source_roots, "doctor-failure", false, "supported");
         b4_write_probe_runtime(&doctor_failure, 0, 9);
         b4_write_signed_release(&doctor_failure, 3, &openssl, &private_key);
-        b4_assert_public_update_rejected(
-            &doctor_failure,
-            &home,
-            &prefix,
-            &tmp,
-            b"candidate doctor probe was unhealthy",
-        );
+        b4_assert_public_update_activated(&doctor_failure, &home, &prefix, &tmp, "doctor-failure");
+        let state_after_doctor_health = read_pointer_state(&state_paths).unwrap().unwrap();
+        assert_eq!(state_after_doctor_health.current, "doctor-failure");
         assert_eq!(
-            std::fs::read(&state_paths.activation_state).unwrap(),
-            state_before
+            state_after_doctor_health.previous.as_deref(),
+            Some("probe-current")
         );
         let generation_root = home.join(".local/lib/codex/core/generations");
         for generation_id in ["version-failure", "doctor-failure"] {
@@ -19820,7 +19815,7 @@ exit 2
 
         let bad_probe_release =
             b2_write_root_generation(&source_roots, "arh1-force-bad-probe", false, "supported");
-        b4_write_probe_runtime(&bad_probe_release, 0, 1);
+        b4_write_probe_runtime(&bad_probe_release, 1, 0);
         b4_write_signed_release(
             &bad_probe_release,
             2,

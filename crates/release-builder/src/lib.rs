@@ -162,7 +162,8 @@ const USAGE: &str = concat!(
     "       codex-release-builder build --version <MAJOR.MINOR.PATCH> ",
     "--archive <ABSOLUTE_FILE> --archive-sha256 <LOWERCASE_SHA256> ",
     "--generation-id <ID> --core <ABSOLUTE_FILE> [--manager <ABSOLUTE_FILE>] ",
-    "[--defer-manager-probe] --creation-metadata <VALUE> ",
+    "[--defer-manager-probe] [--legacy-activation-doctor-unsupported] ",
+    "--creation-metadata <VALUE> ",
     "--gzip <ABSOLUTE_EXECUTABLE> --openssl <ABSOLUTE_EXECUTABLE> ",
     "--output <ABSENT_ABSOLUTE_DIRECTORY>\n",
     "       codex-release-builder publish --generation <ABSOLUTE_DIRECTORY> ",
@@ -223,6 +224,7 @@ struct BuildRequest {
     core: PathBuf,
     manager: Option<PathBuf>,
     defer_manager_probe: bool,
+    legacy_activation_doctor_unsupported: bool,
     creation_metadata: String,
     gzip: PathBuf,
     openssl: PathBuf,
@@ -256,6 +258,7 @@ struct RequestFields {
     core: Option<PathBuf>,
     manager: Option<PathBuf>,
     defer_manager_probe: bool,
+    legacy_activation_doctor_unsupported: bool,
     creation_metadata: Option<String>,
     gzip: Option<PathBuf>,
     openssl: Option<PathBuf>,
@@ -310,6 +313,13 @@ where
             fields.defer_manager_probe = true;
             continue;
         }
+        if flag == OsStr::new("--legacy-activation-doctor-unsupported") {
+            if fields.legacy_activation_doctor_unsupported {
+                return Err(BuilderError::Usage);
+            }
+            fields.legacy_activation_doctor_unsupported = true;
+            continue;
+        }
         let value = args.next().ok_or(BuilderError::Usage)?;
         match flag.to_str() {
             Some("--version") => set_once(&mut fields.version, text_value(value)?)?,
@@ -335,6 +345,7 @@ where
         core: fields.core.ok_or(BuilderError::Usage)?,
         manager: fields.manager,
         defer_manager_probe: fields.defer_manager_probe,
+        legacy_activation_doctor_unsupported: fields.legacy_activation_doctor_unsupported,
         creation_metadata: fields.creation_metadata.ok_or(BuilderError::Usage)?,
         gzip: fields.gzip.ok_or(BuilderError::Usage)?,
         openssl: fields.openssl.ok_or(BuilderError::Usage)?,
@@ -629,6 +640,13 @@ fn validate_request(request: &BuildRequest) -> Result<(), BuilderError> {
     }
     if !valid_line_value(&request.creation_metadata, TEXT_VALUE_MAX_BYTES) {
         return Err(BuilderError::Invalid("creation metadata is invalid"));
+    }
+    if request.legacy_activation_doctor_unsupported
+        && request.creation_metadata != R10_BROWSER_HELPER_BRIDGE_METADATA
+    {
+        return Err(BuilderError::Invalid(
+            "legacy activation doctor transition requires the exact R10 helper layout",
+        ));
     }
     for path in [
         &request.archive,
@@ -1398,8 +1416,11 @@ fn validate_publish_generation_descriptor(
         ));
     }
     let creation_metadata = publish_descriptor_field(&mut lines, "creation_metadata")?;
+    let upstream_doctor = publish_descriptor_field(&mut lines, "upstream_doctor")?;
+    let transition_doctor =
+        creation_metadata == R10_BROWSER_HELPER_BRIDGE_METADATA && upstream_doctor == "unsupported";
     if (creation_metadata == R10_BROWSER_HELPER_BRIDGE_METADATA) != r10_bridge
-        || publish_descriptor_field(&mut lines, "upstream_doctor")? != "supported"
+        || (upstream_doctor != "supported" && !transition_doctor)
         || publish_descriptor_field(&mut lines, "helper_count")? != "2"
     {
         return Err(BuilderError::Invalid(
@@ -2939,6 +2960,11 @@ fn write_generation_descriptor(
         adapted.code_mode_host_sha256,
         adapted.changed_bytes
     );
+    let upstream_doctor = if request.legacy_activation_doctor_unsupported {
+        "unsupported"
+    } else {
+        "supported"
+    };
     let descriptor = format!(
         concat!(
             "{}\n",
@@ -2957,7 +2983,7 @@ fn write_generation_descriptor(
             "persistent_schema_identity\t{}\n",
             "qualification\tqualified\n",
             "creation_metadata\t{}\n",
-            "upstream_doctor\tsupported\n",
+            "upstream_doctor\t{}\n",
             "helper_count\t2\n",
             "helper\t{}\t{}\n",
             "helper\t{}\t{}\n"
@@ -2975,6 +3001,7 @@ fn write_generation_descriptor(
         CORE_API_IDENTITY,
         PERSISTENT_SCHEMA_IDENTITY,
         request.creation_metadata,
+        upstream_doctor,
         TERMUX_BROWSER_OPEN_HELPER_IDENTITY,
         adapted.browser_open_helper_sha256,
         TERMUX_BROWSER_MANUAL_HELPER_IDENTITY,
@@ -3195,6 +3222,7 @@ pub fn build_generation_with_manager(
         core: core.to_owned(),
         manager: manager.map(Path::to_owned),
         defer_manager_probe: false,
+        legacy_activation_doctor_unsupported: false,
         creation_metadata: creation_metadata.to_owned(),
         gzip: gzip.to_owned(),
         openssl: openssl.to_owned(),
@@ -3623,6 +3651,7 @@ fi
                 core,
                 manager: None,
                 defer_manager_probe: false,
+                legacy_activation_doctor_unsupported: false,
                 creation_metadata: "test-fixture".to_owned(),
                 gzip,
                 openssl,
@@ -3664,6 +3693,9 @@ fi
         }
         if request.defer_manager_probe {
             args.push(OsString::from("--defer-manager-probe"));
+        }
+        if request.legacy_activation_doctor_unsupported {
+            args.push(OsString::from("--legacy-activation-doctor-unsupported"));
         }
         args
     }
@@ -3882,6 +3914,7 @@ fi
             core: fixture.request.core.clone(),
             manager: None,
             defer_manager_probe: false,
+            legacy_activation_doctor_unsupported: false,
             creation_metadata: "r5-fetch-test".to_owned(),
             gzip: fixture.request.gzip.clone(),
             openssl: request.openssl.clone(),
@@ -4482,6 +4515,24 @@ fi
             assert!(no_builder_staging(&fixture.root));
             fixture.remove();
         }
+    }
+
+    #[test]
+    fn test_rald45_transition_flag_is_exact_and_legacy_bounded() {
+        let mut fixture = fixture("rald45-transition-flag", happy_entries("0.150.1"), false);
+        fixture.request.creation_metadata = R10_BROWSER_HELPER_BRIDGE_METADATA.to_owned();
+        fixture.request.legacy_activation_doctor_unsupported = true;
+        let parsed = parse_request(request_args(&fixture.request)).unwrap();
+        assert!(parsed.legacy_activation_doctor_unsupported);
+        assert_eq!(parsed.creation_metadata, R10_BROWSER_HELPER_BRIDGE_METADATA);
+
+        fixture.request.creation_metadata = "test-fixture".to_owned();
+        assert!(matches!(
+            validate_request(&fixture.request),
+            Err(BuilderError::Invalid(
+                "legacy activation doctor transition requires the exact R10 helper layout"
+            ))
+        ));
     }
 
     #[test]
