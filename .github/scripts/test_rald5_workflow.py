@@ -6,6 +6,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 AUTO = ROOT / "workflows" / "auto-release-termux.yml"
 PAGES = ROOT / "workflows" / "publish-termux-update-pages.yml"
+CODEX_SOURCE_SHA = "37fbbd8033b8cc2d508689ab1d6637b4c4f5d516"
 RALD5_SOURCE_SHA = "fa1b887b7e726202e309a2eb731aad303a6c7e03"
 CONFIGURE_PAGES_SHA = "983d7736d9b0ae728b81ab479565c72886d7745b"
 UPLOAD_PAGES_SHA = "7b1f4a764d45c48632c6b24a0339c27f5614fb0b"
@@ -27,6 +28,7 @@ class Rald5WorkflowContractTests(unittest.TestCase):
         )[0]
 
     def test_publication_source_and_actions_are_immutable(self) -> None:
+        self.assertIn(f"CODEX_SOURCE_SHA: '{CODEX_SOURCE_SHA}'", self.auto)
         self.assertIn(f"RALD5_SOURCE_SHA: '{RALD5_SOURCE_SHA}'", self.auto)
         self.assertGreaterEqual(self.auto.count('fetch --no-tags --depth=1 origin "$RALD5_SOURCE_SHA"'), 3)
         self.assertGreaterEqual(
@@ -103,6 +105,60 @@ class Rald5WorkflowContractTests(unittest.TestCase):
         self.assertIn('test "$RALD5_SAME_VERSION_ACCEPTANCE" != true', rald4)
         for job in [self.stage, self.pages_job, self.verify, self.promote]:
             self.assertNotIn("same_version_acceptance == 'true'", job)
+
+    def test_rald45_transition_stage_is_bounded_and_cannot_promote(self) -> None:
+        self.assertIn("rald45_transition_stage:", self.header)
+        transition_input = self.header.split("rald45_transition_stage:", 1)[1].split(
+            "rald5_negative_gate:", 1
+        )[0]
+        self.assertIn("type: boolean", transition_input)
+        self.assertIn("default: false", transition_input)
+        self.assertIn(
+            "RALD45_TRANSITION_STAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald45_transition_stage }}",
+            self.decision,
+        )
+        transition = self.decision.split('if test "$RALD45_TRANSITION_STAGE" = true; then', 1)[1].split(
+            'if test "$RALD5_NEGATIVE_GATE" = true; then', 1
+        )[0]
+        for required in [
+            'test "$GITHUB_EVENT_NAME" = workflow_dispatch',
+            'test "$GITHUB_REF" = refs/heads/rewrite/rust-core',
+            'test "$RALD4_POSITIVE_GATE" != true',
+            'test "$RALD5_PUBLICATION_AUTHORIZED" = true',
+            'test "$RALD5_SAME_VERSION_ACCEPTANCE" = true',
+            'test "$RALD5_NEGATIVE_GATE" != true',
+            "RALD5_SAME_VERSION_ACCEPTANCE_VERSION",
+            "-rald45-transition",
+        ]:
+            self.assertIn(required, transition)
+        self.assertIn("transition_stage=%s", self.decision)
+        self.assertIn("transition_stage: ${{ steps.decision.outputs.transition_stage }}", self.auto)
+        candidate_build = self.auto.split("- name: Fetch, adapt, and qualify unsigned candidate", 1)[1].split(
+            "- name: Upload unsigned candidate only", 1
+        )[0]
+        self.assertIn("--legacy-activation-doctor-unsupported", candidate_build)
+        self.assertIn("--creation-metadata r10-browser-helper-bridge-v1", candidate_build)
+        self.assertIn('test "$doctor_capability" = unsupported', candidate_build)
+        self.assertIn("needs.producer.outputs.transition_stage != 'true'", self.promote)
+        self.assertNotIn("OPENAI_API_KEY", self.verify)
+        self.assertNotIn("CODEX_API_KEY", self.verify)
+
+    def test_transition_proof_uses_old_stable_update_and_semantic_doctor_report(self) -> None:
+        verify = self.verify
+        self.assertIn("activation-state", verify)
+        self.assertIn("codex-activation-state-v3", verify)
+        self.assertIn('cmp "$PREFIX/bin/codex" "$current_dir/core"', verify)
+        self.assertIn("transition fixture did not preserve the old public stable Core", verify)
+        self.assertIn('"$PREFIX/bin/codex" update', verify)
+        self.assertIn('cmp "$PREFIX/bin/codex" "$root/$candidate/core"', verify)
+        self.assertIn('doctor --json', verify)
+        self.assertIn("doctor_rc=$?", verify)
+        self.assertIn('test "$doctor_rc" -eq 0 -o "$doctor_rc" -eq 1', verify)
+        self.assertIn('core.get("status") != "healthy"', verify)
+        self.assertIn('upstream_status not in {"healthy", "unhealthy"}', verify)
+        self.assertIn("actual upstream doctor did not run", verify)
+        self.assertIn("doctor exit status is inconsistent with diagnostic report", verify)
+        self.assertIn("publication-source/bootstrap/codex-bootstrap", verify)
 
     def test_write_authority_is_job_local_and_after_signing(self) -> None:
         self.assertIn("permissions:\n  contents: read\n", self.header)
