@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
-      EXPECTED_HEAD: 34ed9393c269c8cb8438d5be500fb10532eac4b1
+      EXPECTED_HEAD: 468f316f0026ef51fbda27edda48820a8ef8f14f
     steps:
       - name: Apply and verify activation-safe candidate probe correction
         shell: bash
@@ -39,9 +39,6 @@ jobs:
           cargo fmt --all -- --check
           git diff --check
 
-          # Compile every workspace test target, then execute the environment-independent
-          # contracts that carry activation, admission, anti-rollback, public doctor,
-          # browser-layout, and transition semantics on a hosted Linux runner.
           cargo test --workspace --no-run
           cargo test -p codex --bin codex test_m2_b4_
           cargo test -p codex --bin codex test_m2_b5_
