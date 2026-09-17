@@ -13,108 +13,36 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - name: Checkout exact branch head
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          git init repo
-          git -C repo remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          git -C repo fetch --no-tags --depth=1 origin "${GITHUB_SHA}"
-          git -C repo checkout --detach FETCH_HEAD
-          test "$(git -C repo rev-parse HEAD)" = "$GITHUB_SHA"
-          git -C repo switch -c rald45/activation-safe-probe
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Apply activation-safe candidate probe correction
+      - name: Apply exact correction
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
+          python3 .github/scripts/rald45_apply_core.py
+          git diff --check
+          git diff -- crates/core/src/main.rs
 
-          path = Path('repo/crates/core/src/main.rs')
-          text = path.read_text()
-          old_gate = '''        if loaded.doctor_capability == UpstreamDoctorCapability::Supported
-              && probe_qualified_upstream_doctor(
-                  assets,
-                  process_env,
-                  roots.cert_file.as_os_str(),
-                  Some(roots.cert_dir.as_os_str()),
-                  &roots.resolver_path,
-                  &roots.config_dir,
-              )
-              .map_err(|_| LocalProductError::CandidateProbe("candidate doctor probe failed"))?
-                  != UpstreamDoctorStatus::Healthy
-          {
-              return Err(LocalProductError::CandidateProbe(
-                  "candidate doctor probe was unhealthy",
-              ));
-          }
-'''
-          if text.count(old_gate) != 1:
-              raise SystemExit('expected one activation-time doctor gate')
-          text = text.replace(old_gate, '', 1)
-
-          old_name = 'fn test_m2_b4_activation_version_and_doctor_probe_failures_preserve_old_current() {'
-          new_name = 'fn test_m2_b4_activation_version_probe_failure_preserves_old_current_and_doctor_health_does_not_gate() {'
-          if text.count(old_name) != 1:
-              raise SystemExit('expected activation probe test name')
-          text = text.replace(old_name, new_name, 1)
-
-          old_assertion = '''        b4_assert_public_update_rejected(
-              &doctor_failure,
-              &home,
-              &prefix,
-              &tmp,
-              b"candidate doctor probe was unhealthy",
-          );
-          assert_eq!(
-              std::fs::read(&state_paths.activation_state).unwrap(),
-              state_before
-          );
-'''
-          new_assertion = '''        b4_assert_public_update_activated(
-              &doctor_failure,
-              &home,
-              &prefix,
-              &tmp,
-              "doctor-failure",
-          );
-          let state_after_doctor = read_pointer_state(&state_paths).unwrap().unwrap();
-          assert_eq!(state_after_doctor.current, "doctor-failure");
-          assert_eq!(state_after_doctor.previous.as_deref(), Some("probe-current"));
-'''
-          if text.count(old_assertion) != 1:
-              raise SystemExit('expected doctor rejection assertion block')
-          text = text.replace(old_assertion, new_assertion, 1)
-          path.write_text(text)
-          PY
-          git -C repo diff --check
-          git -C repo diff -- crates/core/src/main.rs
-
-      - name: Verify focused Core contracts
+      - name: Verify focused contracts
         shell: bash
         env:
           PREFIX: /usr
           TMPDIR: /tmp
         run: |
           set -euo pipefail
-          cd repo
           cargo fmt --all -- --check
           cargo test -p codex test_m2_b4_activation_version_probe_failure_preserves_old_current_and_doctor_health_does_not_gate -- --nocapture
           cargo test -p codex test_doctor_is_bounded_read_only_and_preserves_upstream_report -- --nocapture
 
       - name: Commit verified correction
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          cd repo
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add crates/core/src/main.rs
           git diff --cached --check
           git commit -m 'fix: separate activation integrity from upstream doctor health'
-          git push origin HEAD:refs/heads/rald45/activation-safe-probe
+          git push origin HEAD:rald45/activation-safe-probe
