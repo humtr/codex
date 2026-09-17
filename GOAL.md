@@ -193,6 +193,36 @@ Termux qualification. Produce one candidate for independent product review.
 
 ### Current Direct-Lead Evidence
 
+- RELEASE-AUTOMATION-LOCAL-DERIVED RALD-4.5 activation-safe candidate-probe
+  correction is proved on 2026-09-18 without public stable promotion. Product
+  source `37fbbd8033b8cc2d508689ab1d6637b4c4f5d516` removes full upstream-doctor
+  exit-zero health from the activation gate while retaining the exact qualified
+  upstream version probe and all signed admission/anti-rollback/atomic
+  activation safety. The exact R10 bridge transition descriptor uses signed
+  `upstream_doctor=unsupported` only so the existing public stable Core can omit
+  its historical activation doctor gate; the corrected Core remaps that exact
+  marked transition to the normal public upstream-doctor execution path.
+  Hosted transition proof run `35284270406` at workflow head
+  `f74045156bff00cae22f3c8d67823096ab1fe13f` completed successfully. It
+  authenticated current public stable sequence 10
+  `local-20260914-update-channel-bridge-1`, built/smoked/signed and publicly
+  staged sequence-11 transition candidate
+  `local-hosted-0-154-0-37fbbd8033b8-rald45-transition`, verified every signed
+  byte from public HTTPS, then used the actual old public stable Core to perform
+  the candidate update. Post-activation state bound current to the candidate and
+  previous to sequence 10, the installed launcher byte-matched the candidate
+  Core, version was exact `codex-cli 0.154.0`, and the second update was the
+  expected exact-current no-op. Credential-free `doctor --json` actually ran
+  upstream and reported `upstream=unhealthy` while `termux_core=healthy`; its
+  nonzero health result remained diagnostic rather than being forged into
+  success. The CAS promotion job was skipped by the transition fence, `main`
+  remained `b17cc05ec8ec18bdbfd960e413dc4c47ffeb9f90`, and the signed stable
+  index still targets sequence 10. The prior run `35264696877` failed before
+  this proof because its manually reconstructed old-stable fixture omitted the
+  Core-owned state `config/` directory that normal bootstrap creates; commit
+  `96048a4a28b732d8e60e753b1cbc9d313d546a7f` repaired only that disposable
+  fixture and its contract test. No fake user credential, provider mutation,
+  force push, RALD-6/7 work, or stable promotion was used.
 - RELEASE-AUTOMATION-LOCAL-DERIVED phase RALD-4 is accepted on 2026-09-17.
   Acceptance-only GitHub-hosted `workflow_dispatch` run `35176798621` at
   workflow head `d0af224b6738e80feb458e6030b6da517d94a1f5` completed successfully

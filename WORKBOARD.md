@@ -47,6 +47,17 @@ behavior belongs in `SPEC.md`.
   cleanup. Repository-side negative/positive signing, workflow-contract, locked
   workspace, clippy, and full workspace gates remain green. No production
   private-key value was requested, read, copied, or logged.
+- RALD-4.5 activation-safe candidate-probe correction is **proved 2026-09-18**.
+  Product source `37fbbd8033b8cc2d508689ab1d6637b4c4f5d516` preserves the exact candidate
+  version/integrity probe but removes full upstream-doctor health from activation.
+  Backward-compatible transition proof run `35284270406` at workflow head
+  `f74045156bff00cae22f3c8d67823096ab1fe13f` passed current-stable-to-candidate
+  update, public HTTPS byte/signature readback, exact launch/version, semantic
+  credential-free doctor validation, and second-update no-op. Upstream doctor
+  actually ran and was `unhealthy`; Termux Core was `healthy`. Transition mode
+  skipped CAS promotion, so `main` remains `b17cc05ec8ec18bdbfd960e413dc4c47ffeb9f90`
+  and public stable remains signed sequence 10. Separate approval is required
+  before promoting this transition generation.
 - RALD-5 is **active** under the user-authorized same-version publication
   acceptance bridge. Only manual `workflow_dispatch` on `rewrite/rust-core` with
   explicit publication authorization may admit exact authenticated/official

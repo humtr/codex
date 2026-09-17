@@ -553,6 +553,38 @@ signing material and the signed acceptance output were removed in-job, and signe
 artifact upload was skipped. No Release/Pages/main/public-stable/live-runtime
 mutation occurred. RALD-5 was not started.
 
+### Phase RALD-4.5 — activation-safe candidate probe and stable-Core transition
+
+Activation-time candidate integrity must remain independent from user/provider
+health. The candidate gate keeps signed descriptor/manifest/index admission,
+exact signature/digest/mode checks, qualified Termux execution, the exact
+upstream version probe, release-sequence anti-rollback, atomic Core+generation
+activation, LKG, rollback, and CAS safety. It does not require full upstream
+`codex doctor` exit zero. Public `codex doctor` still runs the real upstream
+and Termux diagnostics and preserves health-failure semantics.
+
+For backward compatibility with current public stable sequence 10, the transition
+candidate may use signed `upstream_doctor=unsupported` only with the exact R10
+bridge creation marker. That signal is consumed solely by the old stable Core's
+activation gate; the corrected Core restores real upstream-doctor execution on
+the public doctor route. The credential-free disposable proof accepts doctor
+exit 0 or the documented health-failure exit only when its bounded JSON report is
+valid, the exact activated Termux Core/runtime/code-mode health is healthy, the
+upstream section proves the diagnostic actually ran, and the exit code agrees
+with the composed report. Missing credentials/provider reachability are not
+candidate-integrity failures.
+
+Gate: **proved 2026-09-18** by hosted run `35284270406` at workflow head
+`f74045156bff00cae22f3c8d67823096ab1fe13f`, using product source
+`37fbbd8033b8cc2d508689ab1d6637b4c4f5d516`. The run authenticated public
+stable sequence 10, staged the signed sequence-11 transition candidate, completed
+public HTTPS readback, updated from the actual old public stable Core, verified
+exact candidate launch/version and second-update no-op, and observed real
+`upstream=unhealthy` with `termux_core=healthy` in credential-free doctor JSON.
+The transition fence skipped the CAS promotion job; `main` and public stable
+remained unchanged. Promotion of this transition generation requires separate
+explicit authorization. RALD-6/7 are not started by this proof.
+
 ### Phase RALD-5 — publication, LKG continuity, and promotion
 
 Extend the existing Release/Pages path rather than introducing another release

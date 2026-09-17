@@ -1219,6 +1219,29 @@ signature, verifies the exact index bytes with the recovered `update_key`, and
 then delegates to the explicit signed remote-generation path. The index is not
 an alternate trust source and never authorizes a raw upstream package.
 
+Candidate activation integrity is narrower than public diagnostic health. After
+signed descriptor/manifest/index admission, exact signature/digest/mode checks,
+qualified Termux environment construction, release-sequence/anti-rollback
+checks, and staging, Core must execute the exact candidate upstream
+`--version` probe in that qualified Termux environment. A failed version probe,
+qualification failure, admission failure, or transaction failure rejects the
+candidate before the new launcher/pointer pair is committed. Activation must
+not require the full upstream `codex doctor` command to exit zero: credential,
+provider, and external-network health belong to the diagnostic surface, not to
+release-runtime integrity.
+
+For the bounded backward-compatible transition from the public sequence-10 R10
+bridge Core, and only for exact `creation_metadata =
+"r10-browser-helper-bridge-v1"`, the signed descriptor may declare
+`upstream_doctor = unsupported` as a legacy activation-capability signal. The
+legacy Core may use that signal only to omit its historical activation-time
+upstream-doctor health gate. The corrected Core must map that exact marked
+transition back to supported public-doctor behavior and actually execute the
+upstream doctor. The release builder must reject this compatibility signal for
+any other creation metadata. It is never a fabricated healthy result and never
+weakens signature, inventory, mode, version-probe, anti-rollback, atomic
+activation, LKG, rollback, or CAS requirements.
+
 ## 9. Doctor contract
 
 `codex doctor` is read-only. It runs the raw upstream doctor when supported and
@@ -1274,6 +1297,16 @@ output is capped at 64 KiB, has terminal control sequences and credential-like
 values redacted before composition, and is emitted as a JSON string in the
 envelope. Usage errors remain distinct from health failures and API
 incompatibility.
+
+A credential-free disposable release proof therefore does not require doctor
+exit zero. It may accept only the documented success or health-failure exit
+class when the bounded JSON envelope is valid, Termux Core/runtime/code-mode
+health is `healthy` for the exact activated generation, and the upstream
+section proves that the real upstream diagnostic ran by reporting
+`healthy` or `unhealthy` rather than `unsupported`. The exit code must agree
+with the composed summary. Missing user credentials or external provider
+reachability may make the upstream diagnostic unhealthy, but must not be
+reclassified as candidate runtime-integrity failure.
 
 Doctor must not expose tokens, OAuth data, cookies, auth-derived private data,
 notification content, or unredacted session content. A filesystem snapshot
