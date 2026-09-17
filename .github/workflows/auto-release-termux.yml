@@ -736,22 +736,24 @@ jobs:
           EOF
           LC_ALL=C sort -o "$work/expected-assets" "$work/expected-assets"
 
-          tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$generation" --jq '.object.sha' 2>/dev/null || true)"
-          if test -n "$tag_sha"; then
-            test "$tag_sha" = "$expected_main"
-          fi
-
-          release_id="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$generation" --jq '.id' 2>/dev/null || true)"
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --paginate \
+            --jq ".[] | select(.tag_name == \"$generation\") | .id" \
+            > "$work/release-ids"
+          test "$(wc -l < "$work/release-ids")" -le 1
+          release_id="$(cat "$work/release-ids")"
           if test -z "$release_id"; then
+            test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')" = "$expected_main"
             release_id="$(gh api --method POST "repos/$GITHUB_REPOSITORY/releases" \
-              -f tag_name="$generation" -f target_commitish="$expected_main" -f name="$generation" \
+              -f tag_name="$generation" -f target_commitish=main -f name="$generation" \
               -F draft=true -F prerelease=true --jq '.id')"
           fi
-          tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$generation" --jq '.object.sha')"
-          test "$tag_sha" = "$expected_main"
           draft="$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" --jq '.draft')"
           prerelease="$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" --jq '.prerelease')"
+          target_commitish="$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" --jq '.target_commitish')"
           test "$prerelease" = true
+          if test "$draft" = true; then
+            test "$target_commitish" = main -o "$target_commitish" = "$expected_main"
+          fi
 
           verify_assets() {
             local destination="$1"
@@ -776,6 +778,8 @@ jobs:
           fi
           test "$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" --jq '.draft')" = false
           test "$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" --jq '.prerelease')" = true
+          tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$generation" --jq '.object.sha')"
+          test "$tag_sha" = "$expected_main"
 
           gh api "repos/$GITHUB_REPOSITORY/releases/$release_id/assets?per_page=100" --paginate \
             --jq '.[] | [.name,.browser_download_url] | @tsv' | LC_ALL=C sort > "$work/public-assets"
