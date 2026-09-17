@@ -8,8 +8,13 @@ on:
         required: false
         type: boolean
         default: false
+      rald5_publication_authorized:
+        description: 'Explicitly authorize RALD-5 public Release/Pages/promotion mutation for this run'
+        required: false
+        type: boolean
+        default: false
       rald5_negative_gate:
-        description: 'For a genuine newer candidate, fail public readback before promotion'
+        description: 'For an authorized genuine newer candidate, fail public readback before promotion'
         required: false
         type: boolean
         default: false
@@ -25,7 +30,7 @@ concurrency:
 
 env:
   CODEX_SOURCE_SHA: '1cdcb44d035ec5b1ce6339f2aa7b0e95831a6f0a'
-  RALD5_SOURCE_SHA: '0122308e75019b9003a379d79bb4710a938fb3ca'
+  RALD5_SOURCE_SHA: 'fa1b887b7e726202e309a2eb731aad303a6c7e03'
   RUST_VERSION: '1.98.0'
   ANDROID_API: '24'
   ANDROID_NDK_VERSION: '27.3.13750724'
@@ -50,6 +55,7 @@ jobs:
       generation_id: ${{ steps.decision.outputs.generation_id }}
       upstream_version: ${{ steps.decision.outputs.upstream_version }}
       acceptance_gate: ${{ steps.decision.outputs.acceptance_gate }}
+      publication_authorized: ${{ steps.decision.outputs.publication_authorized }}
       negative_gate: ${{ steps.decision.outputs.negative_gate }}
       expected_main_sha: ${{ steps.stable.outputs.expected_main_sha }}
       current_generation: ${{ steps.stable.outputs.current_generation }}
@@ -158,6 +164,7 @@ jobs:
         shell: bash
         env:
           RALD4_POSITIVE_GATE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald4_positive_gate }}
+          RALD5_PUBLICATION_AUTHORIZED: ${{ github.event_name == 'workflow_dispatch' && inputs.rald5_publication_authorized }}
           RALD5_NEGATIVE_GATE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald5_negative_gate }}
         run: |
           set -euo pipefail
@@ -189,18 +196,25 @@ jobs:
             "$comparison_version" "$upstream_version" > "$state/decision"
           candidate="$(sed -n 's/^candidate=//p' "$state/decision")"
           test "$candidate" = true -o "$candidate" = false
+          test "$RALD5_PUBLICATION_AUTHORIZED" = true -o "$RALD5_PUBLICATION_AUTHORIZED" = false
           if test "$RALD4_POSITIVE_GATE" = true; then
             test "$candidate" = true
+            test "$RALD5_PUBLICATION_AUTHORIZED" != true
             test "$RALD5_NEGATIVE_GATE" != true
+          fi
+          if test "$RALD5_PUBLICATION_AUTHORIZED" = true; then
+            test "$GITHUB_EVENT_NAME" = workflow_dispatch
           fi
           if test "$RALD5_NEGATIVE_GATE" = true; then
             test "$GITHUB_EVENT_NAME" = workflow_dispatch
             test "$RALD4_POSITIVE_GATE" != true
+            test "$RALD5_PUBLICATION_AUTHORIZED" = true
             test "$candidate" = true
           fi
           suffix="${upstream_version//./-}-${CODEX_SOURCE_SHA:0:12}${acceptance_suffix}"
           printf 'candidate=%s\n' "$candidate" >> "$GITHUB_OUTPUT"
           printf 'acceptance_gate=%s\n' "$RALD4_POSITIVE_GATE" >> "$GITHUB_OUTPUT"
+          printf 'publication_authorized=%s\n' "$RALD5_PUBLICATION_AUTHORIZED" >> "$GITHUB_OUTPUT"
           printf 'negative_gate=%s\n' "$RALD5_NEGATIVE_GATE" >> "$GITHUB_OUTPUT"
           printf 'artifact_name=rald3-candidate-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
           printf 'qualified_artifact_name=rald4-qualified-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
@@ -618,7 +632,7 @@ jobs:
   stage_release:
     name: Stage immutable candidate Release
     needs: [producer, sign]
-    if: needs.producer.outputs.candidate == 'true' && needs.sign.result == 'success' && needs.producer.outputs.acceptance_gate != 'true'
+    if: needs.producer.outputs.candidate == 'true' && needs.sign.result == 'success' && needs.producer.outputs.acceptance_gate != 'true' && needs.producer.outputs.publication_authorized == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -637,6 +651,11 @@ jobs:
           git -C publication-source checkout --detach FETCH_HEAD
           test "$(git -C publication-source rev-parse HEAD)" = "$RALD5_SOURCE_SHA"
           python3 publication-source/.github/scripts/test_rald5_publication.py
+          python3 publication-source/.github/scripts/test_rald5_publication_contract.py
+          python3 publication-source/.github/scripts/test_rald5_promotion.py
+          python3 -m py_compile \
+            publication-source/.github/scripts/rald5_publication.py \
+            publication-source/.github/scripts/rald5_promotion.py
 
       - name: Download signed candidate
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
@@ -651,6 +670,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          expected_main='${{ needs.producer.outputs.expected_main_sha }}'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')" = "$expected_main"
           work="$RUNNER_TEMP/rald5-stage"
           rm -rf "$work"
           mkdir -p "$work"
@@ -755,7 +776,7 @@ jobs:
   pages:
     name: Deploy candidate Pages while retaining LKG
     needs: [producer, stage_release]
-    if: needs.producer.outputs.candidate == 'true' && needs.stage_release.result == 'success' && needs.producer.outputs.acceptance_gate != 'true'
+    if: needs.producer.outputs.candidate == 'true' && needs.stage_release.result == 'success' && needs.producer.outputs.acceptance_gate != 'true' && needs.producer.outputs.publication_authorized == 'true'
     permissions:
       contents: read
       pages: write
@@ -770,7 +791,7 @@ jobs:
   verify_public:
     name: Public readback and disposable update proof
     needs: [producer, stage_release, pages]
-    if: needs.producer.outputs.candidate == 'true' && needs.stage_release.result == 'success' && needs.pages.result == 'success' && needs.producer.outputs.acceptance_gate != 'true'
+    if: needs.producer.outputs.candidate == 'true' && needs.stage_release.result == 'success' && needs.pages.result == 'success' && needs.producer.outputs.acceptance_gate != 'true' && needs.producer.outputs.publication_authorized == 'true'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 30
     permissions:
@@ -788,6 +809,8 @@ jobs:
           git -C publication-source checkout --detach FETCH_HEAD
           test "$(git -C publication-source rev-parse HEAD)" = "$RALD5_SOURCE_SHA"
           python3 publication-source/.github/scripts/test_rald5_publication.py
+          python3 publication-source/.github/scripts/test_rald5_publication_contract.py
+          python3 publication-source/.github/scripts/test_rald5_promotion.py
 
       - name: Read back every signed candidate byte from public HTTPS
         shell: bash
@@ -850,6 +873,34 @@ jobs:
           done
           test "$ready" = true
           fetch_generation "$candidate" "$candidate_index"
+
+          release_readback="$root/release-readback"
+          mkdir -p "$release_readback"
+          release_url="https://github.com/humtr/codex/releases/download/$candidate"
+          compare_release_asset() {
+            local asset="$1"
+            local relative="$2"
+            curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+              --connect-timeout 15 --max-time 600 \
+              --output "$release_readback/$asset" "$release_url/$asset"
+            cmp "$release_readback/$asset" "$root/$candidate/$relative"
+          }
+          compare_release_asset release.manifest release.manifest
+          compare_release_asset release.sig release.sig
+          compare_release_asset codex-code-mode-host codex-code-mode-host
+          compare_release_asset core core
+          compare_release_asset generation.meta generation.meta
+          compare_release_asset helper-0 helpers/0
+          compare_release_asset helper-1 helpers/1
+          compare_release_asset manager manager
+          compare_release_asset runtime runtime
+          compare_release_asset candidate-update-index-v1 update-index-v1
+          compare_release_asset candidate-update-index-v1.sig update-index-v1.sig
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --connect-timeout 15 --max-time 60 --max-filesize 16384 \
+            --output "$release_readback/update-public-key.pem" "$release_url/update-public-key.pem"
+          cmp "$release_readback/update-public-key.pem" "$authority"
+
           if test '${{ needs.producer.outputs.negative_gate }}' = true; then
             printf 'rald5-negative-gate\n' >> "$root/$candidate/runtime"
             if python3 publication-source/.github/scripts/rald5_publication.py verify-public \
@@ -986,7 +1037,7 @@ jobs:
   promote:
     name: CAS-promote signed stable index
     needs: [producer, verify_public]
-    if: needs.producer.outputs.candidate == 'true' && needs.verify_public.result == 'success' && needs.producer.outputs.acceptance_gate != 'true' && needs.producer.outputs.negative_gate != 'true'
+    if: needs.producer.outputs.candidate == 'true' && needs.verify_public.result == 'success' && needs.producer.outputs.acceptance_gate != 'true' && needs.producer.outputs.publication_authorized == 'true' && needs.producer.outputs.negative_gate != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -998,6 +1049,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          rm -rf publication-source
+          git init publication-source
+          git -C publication-source remote add origin https://github.com/humtr/codex.git
+          git -C publication-source fetch --no-tags --depth=1 origin "$RALD5_SOURCE_SHA"
+          git -C publication-source checkout --detach FETCH_HEAD
+          test "$(git -C publication-source rev-parse HEAD)" = "$RALD5_SOURCE_SHA"
+          python3 publication-source/.github/scripts/test_rald5_promotion.py
+
           expected='${{ needs.producer.outputs.expected_main_sha }}'
           generation='${{ needs.producer.outputs.generation_id }}'
           current='${{ needs.producer.outputs.current_generation }}'
@@ -1041,21 +1100,22 @@ jobs:
             > "$work/ref-update.out" 2> "$work/ref-update.err"
           update_rc=$?
           set -e
-          actual="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
-          if test "$actual" = "$new_commit"; then
-            printf 'promotion_result=committed\n'
-          elif test "$actual" = "$expected"; then
-            printf 'promotion CAS did not advance main (rc=%s)\n' "$update_rc" >&2
-            exit 1
-          else
-            gh api "repos/$GITHUB_REPOSITORY/contents/update-index-v1?ref=$actual" --jq '.content' | \
-              tr -d '\n' | base64 -d > "$work/actual-index"
-            gh api "repos/$GITHUB_REPOSITORY/contents/update-index-v1.sig?ref=$actual" --jq '.content' | \
-              tr -d '\n' | base64 -d > "$work/actual-index.sig"
-            cmp "$work/update-index-v1" "$work/actual-index"
-            cmp "$work/update-index-v1.sig" "$work/actual-index.sig"
-            printf 'promotion_result=equivalent-concurrent-commit\n'
-          fi
+
+          actual=''
+          for attempt in 1 2 3; do
+            if observed="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha' 2>/dev/null)" && \
+              test "${#observed}" -eq 40; then
+              actual="$observed"
+              break
+            fi
+            sleep 2
+          done
+          test -n "$actual"
+          python3 publication-source/.github/scripts/rald5_promotion.py \
+            --expected "$expected" \
+            --new-commit "$new_commit" \
+            --actual "$actual" \
+            --update-rc "$update_rc"
 
           served=false
           for attempt in $(seq 1 20); do
