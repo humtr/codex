@@ -17,11 +17,11 @@ concurrency:
 jobs:
   patch-and-test:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 30
     env:
-      EXPECTED_HEAD: 0505cd63d6eac2245449b9f3ca10a030a8e714c4
+      EXPECTED_HEAD: 01dc74059d30bbb9a28b101716a716cc2bfa8173
     steps:
-      - name: Apply and verify activation-safe candidate probe correction
+      - name: Apply and verify bounded RALD-4.5 transition workflow
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -35,36 +35,24 @@ jobs:
           test -z "$(git status --porcelain)"
 
           python3 .github/scripts/rald45_patch.py
-          python3 <<'PY'
-          from pathlib import Path
-          path = Path('crates/release-builder/src/lib.rs')
-          text = path.read_text()
-          old = '        let mut fixture = Fixture::new("rald45-transition-flag");\n'
-          new = '        let mut fixture = fixture("rald45-transition-flag", happy_entries("0.150.1"), false);\n'
-          if text.count(old) != 1:
-              raise SystemExit('transition test fixture anchor mismatch')
-          path.write_text(text.replace(old, new, 1))
-          PY
-          cargo fmt --all
-          cargo fmt --all -- --check
+          python3 -m py_compile \
+            .github/scripts/rald45_patch.py \
+            .github/scripts/test_rald5_workflow.py
+          python3 .github/scripts/test_rald5_workflow.py
+          ruby -e 'require "psych"; Psych.parse_file(ARGV.fetch(0))' \
+            .github/workflows/auto-release-termux.yml
           git diff --check
 
-          cargo test --workspace --no-run
-          PREFIX=/usr TMPDIR=/tmp cargo test -p codex --bin codex test_m2_b4_
-          PREFIX=/usr TMPDIR=/tmp cargo test -p codex --bin codex test_m2_b5_
-          PREFIX=/usr TMPDIR=/tmp cargo test -p codex --bin codex test_m2_b7_
-          PREFIX=/usr TMPDIR=/tmp cargo test -p codex --bin codex test_arh1_
-          PREFIX=/usr TMPDIR=/tmp cargo test -p codex --bin codex doctor
-          PREFIX=/usr TMPDIR=/tmp cargo test -p codex --bin codex test_r10_
-          PREFIX=/usr TMPDIR=/tmp cargo test -p codex --bin codex test_rald45_transition_signal_preserves_public_doctor_semantics
-          cargo test -p codex-release-builder test_rald45_transition_flag_is_exact_and_legacy_bounded
-          cargo test -p codex-release-builder test_tc_live_bridge_build_and_publish_are_marker_bound_and_r10_readable
+          changed="$(git status --porcelain | awk '{print $2}' | LC_ALL=C sort)"
+          expected="$(printf '%s\n' \
+            .github/scripts/test_rald5_workflow.py \
+            .github/workflows/auto-release-termux.yml | LC_ALL=C sort)"
+          test "$changed" = "$expected"
 
-          test -n "$(git status --porcelain -- crates/core/src/main.rs crates/release-builder/src/lib.rs)"
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add crates/core/src/main.rs crates/release-builder/src/lib.rs
-          git commit -m 'fix: decouple activation probe from doctor health'
+          git add .github/workflows/auto-release-termux.yml .github/scripts/test_rald5_workflow.py
+          git commit -m 'ci: add bounded RALD-4.5 transition proof'
           test "$(git rev-parse HEAD^)" = "$GITHUB_SHA"
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git push origin HEAD:rewrite/rust-core
