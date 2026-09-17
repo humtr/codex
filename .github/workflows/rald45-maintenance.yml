@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
-      EXPECTED_HEAD: 468f316f0026ef51fbda27edda48820a8ef8f14f
+      EXPECTED_HEAD: 2d2456f756f50fdcc55d698f49f48925ca48b30f
     steps:
       - name: Apply and verify activation-safe candidate probe correction
         shell: bash
@@ -35,6 +35,16 @@ jobs:
           test -z "$(git status --porcelain)"
 
           python3 .github/scripts/rald45_patch.py
+          python3 <<'PY'
+          from pathlib import Path
+          path = Path('crates/release-builder/src/lib.rs')
+          text = path.read_text()
+          old = '        let mut fixture = Fixture::new("rald45-transition-flag");\n'
+          new = '        let mut fixture = fixture("rald45-transition-flag", happy_entries("0.150.1"), false);\n'
+          if text.count(old) != 1:
+              raise SystemExit('transition test fixture anchor mismatch')
+          path.write_text(text.replace(old, new, 1))
+          PY
           cargo fmt --all
           cargo fmt --all -- --check
           git diff --check
