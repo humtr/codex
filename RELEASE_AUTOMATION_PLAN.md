@@ -558,6 +558,30 @@ mutation occurred. RALD-5 was not started.
 Extend the existing Release/Pages path rather than introducing another release
 transport.
 
+For RALD-5 acceptance only, the user explicitly authorizes one bounded
+same-version publication bridge so acceptance does not depend on waiting for a
+future upstream release. The bridge is reachable only through manual
+`workflow_dispatch` on `refs/heads/rewrite/rust-core`, requires explicit RALD-5
+publication authorization, and requires both the independently authenticated
+public stable and the exact official OpenAI stable to be `0.154.0`. The ordinary
+version comparison must first classify that equality as `candidate=false`; only
+then may the separate bridge input admit the same exact official metadata/archive
+as a distinct candidate generation using the next authenticated public release
+sequence. The exact archive digest binding, Android/AArch64 construction and
+smoke, production-authority signing, immutable Release assets, LKG-preserving
+Pages deployment, HTTPS readback, disposable update/runtime/no-op proof, and
+non-forced exact-parent CAS remain unchanged. Scheduled runs and ordinary manual
+runs continue to require a genuinely newer official upstream version. The RALD-4
+acceptance-only comparison switch remains non-publishable and cannot substitute
+for this bridge.
+
+A candidate GitHub Release tag is a locator, not candidate byte authority. When
+staging creates that locator, it must bind the exact verified pre-promotion
+`main` parent; an existing locator must match that same parent or staging fails.
+The signed release manifest/index, accepted Ed25519 authority, exact inventory,
+digests, and public byte readback remain the candidate authority. Tag creation or
+Release upload alone never authorizes promotion.
+
 Required behavior:
 
 - stage candidate as immutable GitHub Release assets;
