@@ -22,6 +22,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 .github/scripts/rald45_apply_core.py
+          cargo fmt --all
           git diff --check
           git diff -- crates/core/src/main.rs
 
