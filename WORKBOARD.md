@@ -96,6 +96,17 @@ behavior belongs in `SPEC.md`.
   bounded poll before exact Manager/Core/runtime execution, and moves emulator/
   adb cleanup to an `always()` post-smoke step. The same repair changes the
   qualified-tar size check from macOS `stat -f` to GNU `stat -c` for Ubuntu.
+- Hosted run `35168633626` at workflow head
+  `7c491db6900d860afcb12e9a01eec2c227c3e521` proved that lifecycle repair:
+  producer and boot/ABI qualification succeeded, the emulator remained online
+  across the step boundary, and all three unchanged ARM64 candidate binaries were
+  pushed into the guest. The exact runtime step then exited 139 before its first
+  expected output assertion, so qualification/upload and signing were skipped and
+  the production signing secret was not injected. Because the old fail-fast shell
+  did not identify which executable produced SIGSEGV or preserve its crash
+  evidence, the next bounded retry keeps the same commands and fail-closed
+  acceptance gate but records Manager/Core/runtime return codes, their stderr,
+  native-bridge properties, and Android's crash buffer before failing.
 - RALD-5 Release/Pages LKG-preserving publication and runtime-proven promotion,
   RALD-6 fresh-install/update delivery E2E, and RALD-7 full acceptance remain
   later phases.

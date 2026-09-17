@@ -113,6 +113,13 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("--artifact-probe", text)
         self.assertIn("$remote/core update --help", text)
         self.assertIn("$remote/runtime --version", text)
+        self.assertIn("manager_rc=$?", text)
+        self.assertIn("core_rc=$?", text)
+        self.assertIn("runtime_rc=$?", text)
+        self.assertIn("ro.dalvik.vm.native.bridge", text)
+        self.assertIn("ro.enable.native.bridge.exec", text)
+        self.assertIn("ro.ndk_translation.version", text)
+        self.assertIn("logcat -b crash -d -t 200", text)
 
     def test_public_stable_is_authenticated_before_comparison(self) -> None:
         text = self.text

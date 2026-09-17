@@ -399,23 +399,40 @@ jobs:
           "$adb" push "$candidate/runtime" "$remote/runtime" >/dev/null
           "$adb" shell "chmod 0755 $remote/manager $remote/core $remote/runtime"
 
+          set +e
           "$adb" shell "CODEX_MANAGER_ARTIFACT_PROBE=1 $remote/manager --artifact-probe > $remote/manager.out 2> $remote/manager.err"
-          "$adb" exec-out cat "$remote/manager.out" > "$RUNNER_TEMP/manager.out"
-          "$adb" exec-out cat "$remote/manager.err" > "$RUNNER_TEMP/manager.err"
+          manager_rc=$?
+          "$adb" shell "$remote/core update --help > $remote/core.out 2> $remote/core.err"
+          core_rc=$?
+          "$adb" shell "$remote/runtime --version > $remote/runtime.out 2> $remote/runtime.err"
+          runtime_rc=$?
+          set -e
+
+          for name in manager core runtime; do
+            "$adb" exec-out cat "$remote/$name.out" > "$RUNNER_TEMP/$name.out" 2>/dev/null || true
+            "$adb" exec-out cat "$remote/$name.err" > "$RUNNER_TEMP/$name.err" 2>/dev/null || true
+          done
+          printf 'manager_rc=%s core_rc=%s runtime_rc=%s\n' \
+            "$manager_rc" "$core_rc" "$runtime_rc" >&2
+          if test "$manager_rc" -ne 0 || test "$core_rc" -ne 0 || test "$runtime_rc" -ne 0; then
+            printf 'native_bridge=%s native_bridge_exec=%s ndk_translation=%s\n' \
+              "$("$adb" shell getprop ro.dalvik.vm.native.bridge | tr -d '\r')" \
+              "$("$adb" shell getprop ro.enable.native.bridge.exec | tr -d '\r')" \
+              "$("$adb" shell getprop ro.ndk_translation.version | tr -d '\r')" >&2
+            for name in manager core runtime; do
+              printf '%s stderr:\n' "$name" >&2
+              cat "$RUNNER_TEMP/$name.err" >&2
+            done
+            "$adb" shell 'logcat -b crash -d -t 200' >&2 2>/dev/null || true
+            exit 1
+          fi
+
           printf 'codex-manager-artifact-v1\ncore_api=codex-manager-core-v1\n' > "$RUNNER_TEMP/manager.expected"
           cmp "$RUNNER_TEMP/manager.expected" "$RUNNER_TEMP/manager.out"
           test ! -s "$RUNNER_TEMP/manager.err"
-
-          "$adb" shell "$remote/core update --help > $remote/core.out 2> $remote/core.err"
-          "$adb" exec-out cat "$remote/core.out" > "$RUNNER_TEMP/core.out"
-          "$adb" exec-out cat "$remote/core.err" > "$RUNNER_TEMP/core.err"
           grep -Fqx 'usage: codex update [--help] | --force | --build-local | --local <DIRECTORY> | --remote <HTTPS_BASE_URL> | --rollback' \
             "$RUNNER_TEMP/core.out"
           test ! -s "$RUNNER_TEMP/core.err"
-
-          "$adb" shell "$remote/runtime --version > $remote/runtime.out 2> $remote/runtime.err"
-          "$adb" exec-out cat "$remote/runtime.out" > "$RUNNER_TEMP/runtime.out"
-          "$adb" exec-out cat "$remote/runtime.err" > "$RUNNER_TEMP/runtime.err"
           test -s "$RUNNER_TEMP/runtime.out"
           test "$(wc -c < "$RUNNER_TEMP/runtime.out")" -le 512
           test ! -s "$RUNNER_TEMP/runtime.err"
