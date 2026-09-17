@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
-      EXPECTED_HEAD: 2d2456f756f50fdcc55d698f49f48925ca48b30f
+      EXPECTED_HEAD: 0505cd63d6eac2245449b9f3ca10a030a8e714c4
     steps:
       - name: Apply and verify activation-safe candidate probe correction
         shell: bash
@@ -50,13 +50,13 @@ jobs:
           git diff --check
 
           cargo test --workspace --no-run
-          cargo test -p codex --bin codex test_m2_b4_
-          cargo test -p codex --bin codex test_m2_b5_
-          cargo test -p codex --bin codex test_m2_b7_
-          cargo test -p codex --bin codex test_arh1_
-          cargo test -p codex --bin codex doctor
-          cargo test -p codex --bin codex test_r10_
-          cargo test -p codex --bin codex test_rald45_transition_signal_preserves_public_doctor_semantics
+          PREFIX=/usr TMPDIR=/tmp cargo test -p codex --bin codex test_m2_b4_
+          PREFIX=/usr TMPDIR=/tmp cargo test -p codex --bin codex test_m2_b5_
+          PREFIX=/usr TMPDIR=/tmp cargo test -p codex --bin codex test_m2_b7_
+          PREFIX=/usr TMPDIR=/tmp cargo test -p codex --bin codex test_arh1_
+          PREFIX=/usr TMPDIR=/tmp cargo test -p codex --bin codex doctor
+          PREFIX=/usr TMPDIR=/tmp cargo test -p codex --bin codex test_r10_
+          PREFIX=/usr TMPDIR=/tmp cargo test -p codex --bin codex test_rald45_transition_signal_preserves_public_doctor_semantics
           cargo test -p codex-release-builder test_rald45_transition_flag_is_exact_and_legacy_bounded
           cargo test -p codex-release-builder test_tc_live_bridge_build_and_publish_are_marker_bound_and_r10_readable
 
