@@ -1,0 +1,122 @@
+name: RALD-5 transition promotion dispatch
+
+on:
+  push:
+    branches:
+      - rewrite/rust-core
+    paths:
+      - .github/workflows/rald5-transition-promotion-dispatch.yml
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: rald5-transition-promotion-dispatch
+  cancel-in-progress: false
+
+jobs:
+  prove-and-promote:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      EXPECTED_PARENT: 'c94205bccc058b5f72612a4c968c204fa0eb6932'
+      EXPECTED_MAIN: 'b17cc05ec8ec18bdbfd960e413dc4c47ffeb9f90'
+      EXPECTED_STABLE_GENERATION: 'local-20260914-update-channel-bridge-1'
+      EXPECTED_TRANSITION_GENERATION: 'local-hosted-0-154-0-37fbbd8033b8-rald45-transition'
+    steps:
+      - name: Validate bounded authorization and workflow contract
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/rewrite/rust-core
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/rewrite/rust-core" --jq '.object.sha')" = "$GITHUB_SHA"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$GITHUB_SHA" --jq '.parents[0].sha')" = "$EXPECTED_PARENT"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')" = "$EXPECTED_MAIN"
+
+          gh api "repos/$GITHUB_REPOSITORY/contents/update-index-v1?ref=$EXPECTED_MAIN"             --jq '.content' | tr -d '\n' | base64 --decode > "$RUNNER_TEMP/current-index"
+          test "$(awk -F '\t' '$1=="generation_id"{print $2}' "$RUNNER_TEMP/current-index")" = "$EXPECTED_STABLE_GENERATION"
+
+          gh api "repos/$GITHUB_REPOSITORY/contents/.github/workflows/auto-release-termux.yml?ref=$GITHUB_SHA"             --jq '.content' | tr -d '\n' | base64 --decode > "$RUNNER_TEMP/auto-release-termux.yml"
+          grep -Fq "CODEX_SOURCE_SHA: '37fbbd8033b8cc2d508689ab1d6637b4c4f5d516'" "$RUNNER_TEMP/auto-release-termux.yml"
+          grep -Fq 'rald45_transition_promote:' "$RUNNER_TEMP/auto-release-termux.yml"
+          grep -Fq "needs.producer.outputs.transition_promote == 'true'" "$RUNNER_TEMP/auto-release-termux.yml"
+          grep -Fq 'force:false' "$RUNNER_TEMP/auto-release-termux.yml"
+
+      - name: Run repaired negative proof, then authorized transition promotion
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          latest_run_id() {
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/auto-release-termux.yml/runs?branch=rewrite/rust-core&event=workflow_dispatch&per_page=50"               --jq '.workflow_runs[0].id // 0'
+          }
+
+          wait_new_run() {
+            local before="$1"
+            local found=''
+            for attempt in $(seq 1 40); do
+              found="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/auto-release-termux.yml/runs?branch=rewrite/rust-core&event=workflow_dispatch&per_page=50"                 --jq ".workflow_runs[] | select(.head_sha == \"$GITHUB_SHA\" and .id > $before) | .id" | head -n 1)"
+              if test -n "$found"; then
+                printf '%s\n' "$found"
+                return 0
+              fi
+              sleep 3
+            done
+            return 1
+          }
+
+          wait_completed() {
+            local run_id="$1"
+            local status=''
+            for attempt in $(seq 1 480); do
+              status="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" --jq '.status')"
+              if test "$status" = completed; then
+                gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" --jq '.conclusion'
+                return 0
+              fi
+              sleep 15
+            done
+            return 1
+          }
+
+          before_negative="$(latest_run_id)"
+          gh workflow run auto-release-termux.yml             --repo "$GITHUB_REPOSITORY"             --ref rewrite/rust-core             -f rald4_positive_gate=false             -f rald5_publication_authorized=true             -f rald5_same_version_acceptance=true             -f rald45_transition_stage=false             -f rald45_transition_promote=false             -f rald5_negative_gate=true
+          negative_run="$(wait_new_run "$before_negative")"
+          test -n "$negative_run"
+          printf 'negative_run=%s\n' "$negative_run"
+          negative_conclusion="$(wait_completed "$negative_run")"
+          test "$negative_conclusion" = failure
+
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$negative_run/jobs?per_page=100" > "$RUNNER_TEMP/negative-jobs.json"
+          test "$(jq -r '.jobs[] | select(.name=="Public readback and disposable update proof") | .conclusion' "$RUNNER_TEMP/negative-jobs.json")" = failure
+          test "$(jq -r '.jobs[] | select(.name=="CAS-promote signed stable index") | .conclusion' "$RUNNER_TEMP/negative-jobs.json")" = skipped
+          gh run view "$negative_run" --repo "$GITHUB_REPOSITORY" --log-failed > "$RUNNER_TEMP/negative-failed.log"
+          grep -Fq 'RALD-5 negative gate rejected staged candidate before promotion as required' "$RUNNER_TEMP/negative-failed.log"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')" = "$EXPECTED_MAIN"
+
+          before_positive="$(latest_run_id)"
+          gh workflow run auto-release-termux.yml             --repo "$GITHUB_REPOSITORY"             --ref rewrite/rust-core             -f rald4_positive_gate=false             -f rald5_publication_authorized=true             -f rald5_same_version_acceptance=true             -f rald45_transition_stage=true             -f rald45_transition_promote=true             -f rald5_negative_gate=false
+          positive_run="$(wait_new_run "$before_positive")"
+          test -n "$positive_run"
+          printf 'positive_run=%s\n' "$positive_run"
+          positive_conclusion="$(wait_completed "$positive_run")"
+          test "$positive_conclusion" = success
+
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$positive_run/jobs?per_page=100" > "$RUNNER_TEMP/positive-jobs.json"
+          test "$(jq -r '.jobs[] | select(.name=="Public readback and disposable update proof") | .conclusion' "$RUNNER_TEMP/positive-jobs.json")" = success
+          test "$(jq -r '.jobs[] | select(.name=="CAS-promote signed stable index") | .conclusion' "$RUNNER_TEMP/positive-jobs.json")" = success
+
+          promoted="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
+          test "$promoted" != "$EXPECTED_MAIN"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$promoted" --jq '.parents[0].sha')" = "$EXPECTED_MAIN"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$promoted" --jq '.message')" = "release: promote $EXPECTED_TRANSITION_GENERATION"
+
+          gh api "repos/$GITHUB_REPOSITORY/contents/update-index-v1?ref=$promoted"             --jq '.content' | tr -d '\n' | base64 --decode > "$RUNNER_TEMP/promoted-index"
+          test "$(awk -F '\t' '$1=="generation_id"{print $2}' "$RUNNER_TEMP/promoted-index")" = "$EXPECTED_TRANSITION_GENERATION"
+          test "$(awk -F '\t' '$1=="release_base"{print $2}' "$RUNNER_TEMP/promoted-index")" =             "https://humtr.github.io/codex/$EXPECTED_TRANSITION_GENERATION/"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/contents/update-index-v1.sig?ref=$promoted" --jq '.size')" -eq 64

@@ -23,6 +23,11 @@ on:
         required: false
         type: boolean
         default: false
+      rald45_transition_promote:
+        description: 'Separately authorize stable promotion of the proved RALD-4.5 transition generation'
+        required: false
+        type: boolean
+        default: false
       rald5_negative_gate:
         description: 'For an authorized publication candidate, fail public readback before promotion'
         required: false
@@ -69,6 +74,7 @@ jobs:
       publication_authorized: ${{ steps.decision.outputs.publication_authorized }}
       same_version_acceptance: ${{ steps.decision.outputs.same_version_acceptance }}
       transition_stage: ${{ steps.decision.outputs.transition_stage }}
+      transition_promote: ${{ steps.decision.outputs.transition_promote }}
       negative_gate: ${{ steps.decision.outputs.negative_gate }}
       expected_main_sha: ${{ steps.stable.outputs.expected_main_sha }}
       current_generation: ${{ steps.stable.outputs.current_generation }}
@@ -180,6 +186,7 @@ jobs:
           RALD5_PUBLICATION_AUTHORIZED: ${{ github.event_name == 'workflow_dispatch' && inputs.rald5_publication_authorized }}
           RALD5_SAME_VERSION_ACCEPTANCE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald5_same_version_acceptance }}
           RALD45_TRANSITION_STAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald45_transition_stage }}
+          RALD45_TRANSITION_PROMOTE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald45_transition_promote }}
           RALD5_NEGATIVE_GATE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald5_negative_gate }}
         run: |
           set -euo pipefail
@@ -214,11 +221,13 @@ jobs:
           test "$RALD5_PUBLICATION_AUTHORIZED" = true -o "$RALD5_PUBLICATION_AUTHORIZED" = false
           test "$RALD5_SAME_VERSION_ACCEPTANCE" = true -o "$RALD5_SAME_VERSION_ACCEPTANCE" = false
           test "$RALD45_TRANSITION_STAGE" = true -o "$RALD45_TRANSITION_STAGE" = false
+          test "$RALD45_TRANSITION_PROMOTE" = true -o "$RALD45_TRANSITION_PROMOTE" = false
           if test "$RALD4_POSITIVE_GATE" = true; then
             test "$candidate" = true
             test "$RALD5_PUBLICATION_AUTHORIZED" != true
             test "$RALD5_SAME_VERSION_ACCEPTANCE" != true
             test "$RALD45_TRANSITION_STAGE" != true
+            test "$RALD45_TRANSITION_PROMOTE" != true
             test "$RALD5_NEGATIVE_GATE" != true
           fi
           if test "$RALD5_PUBLICATION_AUTHORIZED" = true; then
@@ -253,6 +262,16 @@ jobs:
             printf 'RALD-4.5 transition stage selected from authenticated public stable %s to corrected Core source %s\n' \
               "$upstream_version" "$CODEX_SOURCE_SHA"
           fi
+          if test "$RALD45_TRANSITION_PROMOTE" = true; then
+            test "$GITHUB_EVENT_NAME" = workflow_dispatch
+            test "$GITHUB_REF" = refs/heads/rewrite/rust-core
+            test "$RALD4_POSITIVE_GATE" != true
+            test "$RALD5_PUBLICATION_AUTHORIZED" = true
+            test "$RALD5_SAME_VERSION_ACCEPTANCE" = true
+            test "$RALD45_TRANSITION_STAGE" = true
+            test "$RALD5_NEGATIVE_GATE" != true
+            printf 'RALD-4.5 transition stable promotion separately authorized for %s\n' "$upstream_version"
+          fi
           if test "$RALD5_NEGATIVE_GATE" = true; then
             test "$GITHUB_EVENT_NAME" = workflow_dispatch
             test "$RALD4_POSITIVE_GATE" != true
@@ -266,6 +285,7 @@ jobs:
           printf 'publication_authorized=%s\n' "$RALD5_PUBLICATION_AUTHORIZED" >> "$GITHUB_OUTPUT"
           printf 'same_version_acceptance=%s\n' "$RALD5_SAME_VERSION_ACCEPTANCE" >> "$GITHUB_OUTPUT"
           printf 'transition_stage=%s\n' "$RALD45_TRANSITION_STAGE" >> "$GITHUB_OUTPUT"
+          printf 'transition_promote=%s\n' "$RALD45_TRANSITION_PROMOTE" >> "$GITHUB_OUTPUT"
           printf 'negative_gate=%s\n' "$RALD5_NEGATIVE_GATE" >> "$GITHUB_OUTPUT"
           printf 'artifact_name=rald3-candidate-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
           printf 'qualified_artifact_name=rald4-qualified-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
@@ -1263,7 +1283,7 @@ jobs:
   promote:
     name: CAS-promote signed stable index
     needs: [producer, verify_public]
-    if: needs.producer.outputs.candidate == 'true' && needs.verify_public.result == 'success' && needs.producer.outputs.acceptance_gate != 'true' && needs.producer.outputs.publication_authorized == 'true' && needs.producer.outputs.negative_gate != 'true' && needs.producer.outputs.transition_stage != 'true'
+    if: needs.producer.outputs.candidate == 'true' && needs.verify_public.result == 'success' && needs.producer.outputs.acceptance_gate != 'true' && needs.producer.outputs.publication_authorized == 'true' && needs.producer.outputs.negative_gate != 'true' && (needs.producer.outputs.transition_stage != 'true' || needs.producer.outputs.transition_promote == 'true')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:

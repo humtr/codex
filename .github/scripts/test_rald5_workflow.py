@@ -106,19 +106,28 @@ class Rald5WorkflowContractTests(unittest.TestCase):
         for job in [self.stage, self.pages_job, self.verify, self.promote]:
             self.assertNotIn("same_version_acceptance == 'true'", job)
 
-    def test_rald45_transition_stage_is_bounded_and_cannot_promote(self) -> None:
+    def test_rald45_transition_stage_is_bounded_and_requires_separate_promotion_authorization(self) -> None:
         self.assertIn("rald45_transition_stage:", self.header)
         transition_input = self.header.split("rald45_transition_stage:", 1)[1].split(
-            "rald5_negative_gate:", 1
+            "rald45_transition_promote:", 1
         )[0]
         self.assertIn("type: boolean", transition_input)
         self.assertIn("default: false", transition_input)
+        promotion_input = self.header.split("rald45_transition_promote:", 1)[1].split(
+            "rald5_negative_gate:", 1
+        )[0]
+        self.assertIn("type: boolean", promotion_input)
+        self.assertIn("default: false", promotion_input)
         self.assertIn(
             "RALD45_TRANSITION_STAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald45_transition_stage }}",
             self.decision,
         )
+        self.assertIn(
+            "RALD45_TRANSITION_PROMOTE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald45_transition_promote }}",
+            self.decision,
+        )
         transition = self.decision.split('if test "$RALD45_TRANSITION_STAGE" = true; then', 1)[1].split(
-            'if test "$RALD5_NEGATIVE_GATE" = true; then', 1
+            'if test "$RALD45_TRANSITION_PROMOTE" = true; then', 1
         )[0]
         for required in [
             'test "$GITHUB_EVENT_NAME" = workflow_dispatch',
@@ -131,8 +140,23 @@ class Rald5WorkflowContractTests(unittest.TestCase):
             "-rald45-transition",
         ]:
             self.assertIn(required, transition)
+        promotion = self.decision.split('if test "$RALD45_TRANSITION_PROMOTE" = true; then', 1)[1].split(
+            'if test "$RALD5_NEGATIVE_GATE" = true; then', 1
+        )[0]
+        for required in [
+            'test "$GITHUB_EVENT_NAME" = workflow_dispatch',
+            'test "$GITHUB_REF" = refs/heads/rewrite/rust-core',
+            'test "$RALD4_POSITIVE_GATE" != true',
+            'test "$RALD5_PUBLICATION_AUTHORIZED" = true',
+            'test "$RALD5_SAME_VERSION_ACCEPTANCE" = true',
+            'test "$RALD45_TRANSITION_STAGE" = true',
+            'test "$RALD5_NEGATIVE_GATE" != true',
+        ]:
+            self.assertIn(required, promotion)
         self.assertIn("transition_stage=%s", self.decision)
+        self.assertIn("transition_promote=%s", self.decision)
         self.assertIn("transition_stage: ${{ steps.decision.outputs.transition_stage }}", self.auto)
+        self.assertIn("transition_promote: ${{ steps.decision.outputs.transition_promote }}", self.auto)
         candidate_build = self.auto.split("- name: Fetch, adapt, and qualify unsigned candidate", 1)[1].split(
             "- name: Upload unsigned candidate only", 1
         )[0]
@@ -140,6 +164,7 @@ class Rald5WorkflowContractTests(unittest.TestCase):
         self.assertIn("--creation-metadata r10-browser-helper-bridge-v1", candidate_build)
         self.assertIn('test "$doctor_capability" = unsupported', candidate_build)
         self.assertIn("needs.producer.outputs.transition_stage != 'true'", self.promote)
+        self.assertIn("needs.producer.outputs.transition_promote == 'true'", self.promote)
         self.assertNotIn("OPENAI_API_KEY", self.verify)
         self.assertNotIn("CODEX_API_KEY", self.verify)
 
