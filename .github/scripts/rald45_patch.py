@@ -257,8 +257,8 @@ descriptor_fn = builder[start:end]
 descriptor_fn = once(descriptor_fn, write_marker, write_new, "descriptor transition value")
 descriptor_fn = once(
     descriptor_fn,
-    '            "upstream_doctor\\tsupported\\\n",\n',
-    '            "upstream_doctor\\t{}\\\n",\n',
+    'upstream_doctor\\tsupported',
+    'upstream_doctor\\t{}',
     "descriptor doctor placeholder",
 )
 descriptor_fn = once(
@@ -269,7 +269,6 @@ descriptor_fn = once(
 )
 builder = builder[:start] + descriptor_fn + builder[end:]
 
-# Every internal direct BuildRequest constructor that is not the parser uses normal public-doctor metadata.
 pattern = re.compile(r'(?P<i>[ \t]+)defer_manager_probe: false,\n(?P=i)creation_metadata:')
 builder, constructor_count = pattern.subn(
     lambda m: f'{m.group("i")}defer_manager_probe: false,\n{m.group("i")}legacy_activation_doctor_unsupported: false,\n{m.group("i")}creation_metadata:',
@@ -278,7 +277,6 @@ builder, constructor_count = pattern.subn(
 if constructor_count != 3:
     raise SystemExit(f"direct BuildRequest constructors: expected 3, found {constructor_count}")
 
-# Test argument reconstruction must preserve the explicit transition flag.
 args_anchor = '''        if request.defer_manager_probe {
             args.push(OsString::from("--defer-manager-probe"));
         }
