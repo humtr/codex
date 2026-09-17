@@ -10,7 +10,6 @@ permissions:
 
 jobs:
   apply:
-    if: ${{ github.event.head_commit.message == 'chore: apply and verify RALD-4.5 core correction' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
