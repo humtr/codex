@@ -237,21 +237,25 @@ behavior belongs in `SPEC.md`.
   `35289795309` passed shell syntax, four installer contract tests, and
   `git diff --check`. Public stable/main and the live installation were
   unchanged.
-- RALD-6 slice B — **active**: on a disposable native ARM64 hosted
-  environment, fetch the online frontend over public HTTPS, start from empty
-  HOME/PREFIX state, and prove fresh installation lands exactly on current public
-  signed sequence 11, exact `codex-cli 0.154.0`, followed by a default
-  no-argument exact-current update with no state change.
-- RALD-6 slice C — **pending slice B**: on that same disposable installed client,
-  stage a non-public production-authority sequence-12 fixture derived from the
-  exact sequence-11 generation, serve it only over runner-local authenticated
-  HTTPS, atomically switch the fixture stable locator from sequence 11 to 12, and
-  prove ordinary no-argument `codex update` activates sequence 12 with sequence
-  11 retained as previous and then becomes an exact-current no-op. The production
-  signing secret may exist only in the already accepted bounded Actions signing
-  step; the signed fixture must not be uploaded, released, Pages-deployed, or
-  promoted on `main`.
-- Public stable remains fixed during RALD-6 source/proof work and may advance only after and may advance only after
+- RALD-6 slice B — **accepted** by hosted run `35290065429` at source
+  `307868e78989e598f747f3c8b8408d25b97634c6`. On native
+  `ubuntu-24.04-arm`, the proof fetched immutable public
+  `9972a3288c0531ba744e9bd1356273d9a080aa79/install-online.sh`, byte-matched it
+  to accepted source, started from empty disposable Termux-shaped HOME/PREFIX,
+  and fresh-installed exact public signed sequence 11 generation
+  `local-hosted-0-154-0-37fbbd8033b8-rald45-transition`. Installed launcher
+  matched the signed Core, version was exact `codex-cli 0.154.0`, and a default
+  public no-argument update was an exact-current no-op with a byte-for-byte state
+  snapshot match.
+- RALD-6 slice C — **active, stop-on-red fixture-tooling repair**. The same run
+  stopped before signing because the ARM hosted image does not expose `rustup`
+  while preparing the fixture release-builder. The sequence-12 signing step and
+  all subsequent fixture delivery steps were skipped, so
+  `CODEX_RELEASE_SIGNING_KEY` was not exposed and no signed fixture/public
+  mutation occurred. Repair only the proof-time release-builder availability;
+  do not weaken the production-authority signing helper, upload signed fixture
+  bytes, alter the fresh-install result, or broaden into RALD-7.
+- Public stable remains fixed during RALD-6 source/proof work and may advance only after
   the selected plan's focused/full gates, public readback, disposable public-update
   runtime smoke, and exact non-forced promotion checks pass.
 - `legacy/monolith` remains sealed at
