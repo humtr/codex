@@ -141,8 +141,11 @@ const PATCHES: [(&[u8], &[u8], usize); 4] = [
     ),
 ];
 
-const REQUIRED_ARCHIVE_FILES: [&str; 3] =
-    ["bin/codex", "bin/codex-code-mode-host", "codex-package.json"];
+const REQUIRED_ARCHIVE_FILES: [&str; 3] = [
+    "bin/codex",
+    "bin/codex-code-mode-host",
+    "codex-package.json",
+];
 
 const USAGE: &str = concat!(
     "usage: codex-release-builder fetch --version <MAJOR.MINOR.PATCH> ",
@@ -2389,10 +2392,7 @@ impl<'a> JsonCursor<'a> {
     fn parse_hex_quad(&mut self) -> Result<u16, BuilderError> {
         let mut value = 0u16;
         for _ in 0..4 {
-            let byte = *self
-                .bytes
-                .get(self.offset)
-                .ok_or_else(package_json_error)?;
+            let byte = *self.bytes.get(self.offset).ok_or_else(package_json_error)?;
             self.offset += 1;
             let digit = match byte {
                 b'0'..=b'9' => u16::from(byte - b'0'),
@@ -2413,20 +2413,14 @@ impl<'a> JsonCursor<'a> {
         self.offset += 1;
         let mut output = Vec::new();
         loop {
-            let byte = *self
-                .bytes
-                .get(self.offset)
-                .ok_or_else(package_json_error)?;
+            let byte = *self.bytes.get(self.offset).ok_or_else(package_json_error)?;
             self.offset += 1;
             match byte {
                 b'"' => {
                     return String::from_utf8(output).map_err(|_| package_json_error());
                 }
                 b'\\' => {
-                    let escaped = *self
-                        .bytes
-                        .get(self.offset)
-                        .ok_or_else(package_json_error)?;
+                    let escaped = *self.bytes.get(self.offset).ok_or_else(package_json_error)?;
                     self.offset += 1;
                     match escaped {
                         b'"' | b'\\' | b'/' => output.push(escaped),
@@ -2460,7 +2454,8 @@ impl<'a> JsonCursor<'a> {
                             let character =
                                 char::from_u32(scalar).ok_or_else(package_json_error)?;
                             let mut encoded = [0u8; 4];
-                            output.extend_from_slice(character.encode_utf8(&mut encoded).as_bytes());
+                            output
+                                .extend_from_slice(character.encode_utf8(&mut encoded).as_bytes());
                         }
                         _ => return Err(package_json_error()),
                     }
@@ -4388,7 +4383,8 @@ fi
   "target": "aarch64-unknown-linux-musl",
   "version": "0.155.0"
 }
-"#.to_vec();
+"#
+        .to_vec();
         entries.push(TestEntry::directory("codex-resources/voice/"));
         entries.push(TestEntry::directory("codex-resources/voice/bin/"));
         entries.push(TestEntry::file(
@@ -4408,7 +4404,9 @@ fi
         fixture.request.version = "0.155.0".to_owned();
         assert_eq!(run_from_args(request_args(&fixture.request)), 0);
         assert_eq!(
-            std::fs::read(fixture.request.output.join("runtime")).unwrap().len(),
+            std::fs::read(fixture.request.output.join("runtime"))
+                .unwrap()
+                .len(),
             fixture.raw_runtime.len()
         );
         assert_eq!(
@@ -4416,7 +4414,11 @@ fi
             fixture.code_mode_host
         );
         assert!(!fixture.request.output.join("codex-resources").exists());
-        assert!(!fixture.request.output.join("future-unselected-resource").exists());
+        assert!(!fixture
+            .request
+            .output
+            .join("future-unselected-resource")
+            .exists());
         fixture.remove();
     }
 
@@ -4446,7 +4448,9 @@ fi
                 "layout-version" => {
                     entries[3].data = expected_package_json("0.150.1");
                     let text = String::from_utf8(entries[3].data.clone()).unwrap();
-                    entries[3].data = text.replacen("\"layoutVersion\": 1", "\"layoutVersion\": 2", 1).into_bytes();
+                    entries[3].data = text
+                        .replacen("\"layoutVersion\": 1", "\"layoutVersion\": 2", 1)
+                        .into_bytes();
                 }
                 "duplicate-metadata" => {
                     entries[3].data = br#"{
@@ -4459,7 +4463,8 @@ fi
   "resourcesDir": "codex-resources",
   "pathDir": "codex-path"
 }
-"#.to_vec();
+"#
+                    .to_vec();
                 }
                 "interp" => entries[2].data = fake_elf(true),
                 "oversized" => entries[5].declared_size = Some(ENTRY_MAX_BYTES + 1),

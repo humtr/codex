@@ -343,7 +343,12 @@ behavior belongs in `SPEC.md`.
   failure fixture failed once in the parallel full suite. The semantic fixture
   request is corrected without changing production code; the complete gate is
   rerun to determine whether the unrelated Core failure is reproducible before
-  changing that accepted test. The failed candidate run reached no signing
+  changing that accepted test. Rerun `35308788886` confirmed this: package
+  full tests, including semantic layout evolution, were fully green and the Core
+  transport failure did not recur; workspace tests and clippy were green. The
+  sole remaining gate was `cargo fmt --check`, which requested formatting-only
+  line wrapping in the new release-builder code. Apply only rustfmt-equivalent
+  formatting and rerun all gates. The failed candidate run reached no signing
   secret, Release, Pages, CAS, or stable mutation.
 - Public stable remains signed sequence 11 generation
   `local-hosted-0-154-0-37fbbd8033b8-rald45-transition`; no RALD-7 candidate
