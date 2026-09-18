@@ -24,9 +24,10 @@ behavior belongs in `SPEC.md`.
   `0055ec0ecc762e4a4c878be62fd26f93118785218f004b26fe12b178cd3380eb`.
 - UPDATE-CHANNEL-LATEST is accepted and closed. Final source acceptance before
   the closure ledger is `057f078a091441c1f624c7b229649bd1463ef774`.
-- Public stable is signed sequence 10 generation
-  `local-20260914-update-channel-bridge-1` at the verified GitHub Pages release
-  base; retained R10 no-argument update and exact-current no-op are accepted.
+- Public stable is signed sequence 11 generation
+  `local-hosted-0-154-0-37fbbd8033b8-rald45-transition` at the verified GitHub
+  Pages release base after accepted RALD-5 promotion commit
+  `f221de1225471fb5eda5bbdfcbd0d9db0c2f43b1`.
 - AUTO-UPSTREAM-ROLLBACK is accepted and source-closed at
   `21bb1cd78d4a6e6ef8e124b7f07230206c5aa5ea`.
 - Active implementation bundle: **RELEASE-AUTOMATION-LOCAL-DERIVED (RALD)**.
@@ -73,8 +74,8 @@ behavior belongs in `SPEC.md`.
   `force:false` and committed exactly one child
   `f221de1225471fb5eda5bbdfcbd0d9db0c2f43b1` of the old `main`; public stable
   now targets that sequence-11 transition generation. Orchestration run
-  `35285446624` completed successfully. RALD-6/7 remain not started and are not
-  authorized by this acceptance.
+  `35285446624` completed successfully. RALD-6 was separately authorized on
+  2026-09-18 and is active below; RALD-7 remains not started and unauthorized.
 - First bridge negative-proof run `35192131899` at workflow head
   `16335d9fb7a5b170363d26a4ecde5add47f45bbc` proved the manual equality gate,
   exact official archive binding, Android/AArch64 build and native smoke,
@@ -225,10 +226,31 @@ behavior belongs in `SPEC.md`.
   output were removed in-job, and signed-artifact upload was skipped. No
   Release/Pages/main/public-stable/live-runtime mutation occurred.
 - RALD-5 Release/Pages LKG-preserving publication and runtime-proven promotion is
-  accepted. RALD-6 fresh-install/update delivery E2E and RALD-7 full acceptance
-  remain later phases and are not started or authorized by the RALD-5 promotion
-  approval.
-- Public stable remains fixed during source development and may advance only after
+  accepted. RALD-6 fresh-install/update delivery E2E is **active and explicitly
+  authorized 2026-09-18**. RALD-7 full acceptance is not started or authorized.
+- RALD-6 slice A — **active**: add the minimal no-argument
+  `install-online.sh` network-acquisition frontend defined by `SPEC.md`.
+  It must pin the accepted bootstrap key bytes, verify the signed stable
+  index/manifest before using network-selected locations/inventory, and delegate
+  all persistent installation to the unchanged local `install.sh` and
+  `bootstrap/codex-bootstrap`. Focused proof is shell syntax plus repository
+  contract tests; protected surfaces are the local installer/bootstrap, public
+  stable, live installation, and RALD-7.
+- RALD-6 slice B — **pending slice A**: on a disposable native ARM64 hosted
+  environment, fetch the online frontend over public HTTPS, start from empty
+  HOME/PREFIX state, and prove fresh installation lands exactly on current public
+  signed sequence 11, exact `codex-cli 0.154.0`, followed by a default
+  no-argument exact-current update with no state change.
+- RALD-6 slice C — **pending slice B**: on that same disposable installed client,
+  stage a non-public production-authority sequence-12 fixture derived from the
+  exact sequence-11 generation, serve it only over runner-local authenticated
+  HTTPS, atomically switch the fixture stable locator from sequence 11 to 12, and
+  prove ordinary no-argument `codex update` activates sequence 12 with sequence
+  11 retained as previous and then becomes an exact-current no-op. The production
+  signing secret may exist only in the already accepted bounded Actions signing
+  step; the signed fixture must not be uploaded, released, Pages-deployed, or
+  promoted on `main`.
+- Public stable remains fixed during RALD-6 source/proof work and may advance only after and may advance only after
   the selected plan's focused/full gates, public readback, disposable public-update
   runtime smoke, and exact non-forced promotion checks pass.
 - `legacy/monolith` remains sealed at

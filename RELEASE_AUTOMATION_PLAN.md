@@ -653,21 +653,57 @@ checks. RALD-6/7 are not started by this acceptance.
 
 ### Phase RALD-6 — fresh-install and update delivery E2E
 
-Before calling the architecture complete, prove the actual user acquisition
-surface, not only an already-installed updater:
+Status: **active under explicit user authorization 2026-09-18**. Public stable
+is fixed at signed sequence 11 generation
+`local-hosted-0-154-0-37fbbd8033b8-rald45-transition` while this phase runs.
+RALD-6 may add and prove acquisition/delivery only; it may not mutate the live
+installation, public stable pointer, Release/Pages authority, or begin RALD-7.
 
-- identify the intended public one-line/bash installation entrypoint;
-- if the repository still lacks a network delivery frontend, add the minimal
-  bootstrap downloader needed to retrieve the authenticated Core, signed stable
-  generation, and bootstrap public key without creating a second trust/update
-  implementation;
-- disposable fresh install must land on the current official signed stable;
-- subsequent `codex update` must be an exact-current no-op;
-- after a scheduled newer stable is staged/promoted in fixtures, the same
-  installed client must update through the normal consumer path.
+The selected public acquisition surface is one no-argument
+`install-online.sh` fetched from the immutable accepted RALD-6 source commit.
+It is a transport frontend to the already audited local
+`install.sh -> bootstrap/codex-bootstrap -> Core` path, not another installer
+or updater. It requires the existing Termux shell/curl/OpenSSL and never invokes
+a package manager or compiler. The frontend fetches the bootstrap public key
+from the fixed project release locator, requires the exact accepted public-key
+SHA-256, verifies the canonical public stable index and its signature before
+using its generation/release base, verifies the candidate release manifest
+before using its inventory, downloads only the bounded signed inventory into a
+private temporary root, fetches the local installer/bootstrap from one immutable
+accepted repository commit, and delegates the actual fresh installation to that
+unchanged local boundary. Persistent trust, entrypoint, generation, activation,
+and recovery writes remain exclusively bootstrap/Core-owned.
 
-This phase must not weaken the existing audited local `install.sh`/bootstrap
-boundary. Network acquisition is only a delivery frontend to that boundary.
+The load-bearing hosted proof runs on native `ubuntu-24.04-arm` with the same
+pinned AOSP Android bionic interpreter substrate already accepted by RALD-5.
+It starts from disposable Termux-shaped HOME/PREFIX/TMPDIR roots, invokes the
+online frontend through public HTTPS, and must land on exact signed public
+sequence 11 and exact `codex-cli 0.154.0`. A subsequent ordinary no-argument
+update against the default public index must be an exact-current no-op with a
+byte-for-byte state snapshot match.
+
+The same installed client must then prove forward delivery without mutating any
+public publication surface. In the same hosted run, the exact public
+sequence-11 generation may be copied to a new fixture generation identity,
+with only that descriptor identity changed, and signed as release sequence 12
+by the existing production authority through the already accepted bounded
+Actions signing helper. The secret is exposed only to that exact signing step;
+private material is deleted there, and the signed fixture is never uploaded as
+an Actions artifact, GitHub Release, Pages content, or `main` commit. A
+runner-local HTTPS server with a disposable locally trusted transport
+certificate first serves the authentic public sequence-11 index, while the
+sequence-12 generation is staged but unreachable from the stable locator. The
+fixture promotion atomically switches only the runner-local stable locator to
+the signed sequence-12 index. The same client must then use ordinary
+no-argument `codex update` to activate sequence 12, retain sequence 11 as
+`previous`, preserve exact runtime version behavior, and make the next update
+an exact-current no-op.
+
+Acceptance requires the focused installer contract test plus that complete
+hosted fresh-install -> public no-op -> fixture promotion -> normal update ->
+second no-op proof. No test-only credential/provider success, alternate device
+trust key, hidden public URL override, live installation mutation, or RALD-7
+work is permitted.
 
 ### Phase RALD-7 — full acceptance and activation
 

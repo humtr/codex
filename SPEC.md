@@ -817,10 +817,11 @@ runtime generation.
 
 ## 8. Installation and update
 
-The release bundle ships one human-facing `install.sh` delivery frontend. It
-accepts exactly the two bootstrap forms below and forwards their original
-arguments, without compiling, downloading, signing, discovering releases, or
-implementing a second installation protocol:
+The release bundle keeps one audited local `install.sh` delivery frontend and
+adds one separate network-acquisition frontend, `install-online.sh`.
+`install.sh` remains local-only and accepts exactly the two bootstrap forms
+below, forwarding their original arguments without compiling, downloading,
+signing, discovering releases, or implementing a second installation protocol:
 
 ```text
 install.sh <CORE_ARTIFACT> <SIGNED_RELEASE_DIR> <BOOTSTRAP_PUBLIC_KEY>
@@ -834,6 +835,46 @@ mutation. The frontend owns no trust, generation, entrypoint, or recovery
 state; all validation and writes remain behind the audited bootstrap boundary.
 The fresh form keeps the existing no-clobber rule, while the
 `upgrade-legacy` form is the sole explicit legacy entrypoint handoff.
+
+`install-online.sh` accepts no arguments. It is only a bootstrap transport
+frontend for a fresh target; it is not an update command, alternate trust
+authority, package-manager installer, release producer, or legacy handoff. It
+requires the existing Termux shell, `$PREFIX/bin/curl`, and
+`$PREFIX/bin/openssl`; it never installs or discovers replacements for them.
+Its production locators are fixed project HTTPS URLs, not caller-selected
+mirrors.
+
+Before trusting any network-selected generation, the online frontend retrieves
+the bootstrap public key from the fixed project release locator and requires
+the exact repository-pinned SHA-256 of those key bytes. It then retrieves the
+canonical stable `update-index-v1` and sibling signature and verifies that
+signature with the pinned bootstrap key before parsing the generation identity
+or `release_base`. HTTPS transport alone is never release authority. The
+verified index must have the exact stable four-record grammar already consumed
+by Core, and the release base must be canonical HTTPS ending in the signed
+generation identity.
+
+The online frontend retrieves that generation's `release.manifest` and
+`release.sig`, verifies the manifest with the same bootstrap key before using
+its inventory, and accepts only the existing bounded v4 bootstrap inventory:
+`generation.meta`, `core`, `runtime`, `codex-code-mode-host`, optional
+`manager`, and exactly one supported two-helper layout. It downloads only
+those signed relative paths into a private `$TMPDIR` workspace with the Core
+remote-acquisition per-file and total byte ceilings and applies only the
+signed regular-file modes needed by the existing bootstrap admission. It does
+not make downloaded file digests authoritative; the audited bootstrap/Core
+admission re-verifies the signed manifest, descriptor, digests, modes, Core
+binding, candidate probes, and activation transaction.
+
+The network frontend obtains the audited local `install.sh` and
+`bootstrap/codex-bootstrap` only from one immutable accepted repository commit
+chosen by the RALD-6 source, recreates their sibling layout in the private
+workspace, and invokes local `install.sh <CORE_ARTIFACT>
+<SIGNED_RELEASE_DIR> <BOOTSTRAP_PUBLIC_KEY>`. It never writes
+`$PREFIX/bin/codex`, the bootstrap trust pin, a generation, activation state,
+or recovery state directly. All persistent writes remain owned by the existing
+bootstrap/Core boundary. Failure removes only the private acquisition
+workspace.
 
 Fresh installation uses a small audited bootstrap because Core cannot install
 itself before it exists. The bootstrap may only detect the environment,
