@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  EXPECTED_PARENT: '536d06a6088ccf3c850a6031c895a0ae6c2fe709'
+  EXPECTED_PARENT: 'b483d91e6179c746a2903c01aa3300ff245b5057'
   RUST_VERSION: '1.98.0'
   ANDROID_API: '24'
   ANDROID_NDK_VERSION: '27.3.13750724'
@@ -27,10 +27,10 @@ env:
   ANDROID_RUNTIME_APEX_SHA256: '83bf0dce249728dae48149b80d28b48115c54adad95a352120d58a6ac669d1fc'
   TERMUX_TEST_PREFIX: '/data/data/com.termux/files/usr'
   TERMUX_TEST_TMPDIR: '/data/data/com.termux/files/usr/tmp'
-  EXPECTED_MAIN: '9aa8be4c63fe8d60dea130b979c0c12d1a5164bc'
+  EXPECTED_MAIN: '5bef52d07a07bd8612b4538dfb29a2396937a3fb'
   ACCEPTED_SOURCE: '566034e1aff42bde2f3221ebc2da2b16def77d44'
-  PUBLIC_GENERATION: 'local-hosted-0-155-0-566034e1aff4'
-  PUBLIC_SEQUENCE: '12'
+  PUBLIC_GENERATION: 'local-hosted-0-155-0-566034e1aff4-legacy-lag-remediation'
+  PUBLIC_SEQUENCE: '13'
   PUBLIC_KEY_SHA256: '62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c'
 
 jobs:

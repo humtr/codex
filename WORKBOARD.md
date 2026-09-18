@@ -404,8 +404,8 @@ behavior belongs in `SPEC.md`.
   scheduled runs may publish only ordinary strictly-newer official stable
   through the accepted automatic gates; manual publication continues to require
   explicit authorization.
-- LEGACY-LAG direct-jump qualification is **proof-accepted 2026-09-18; public
-  remediation remains separately gated**. Exact historical R10 source
+- LEGACY-LAG direct-jump qualification is **proof-accepted; public remediation
+  completed in production run `35364873732`**. Exact historical R10 source
   `0621105fd1be8461b370466fbfa981938241074d` plus exact official 0.153.4 was
   reconstructed as a production-authority-signed private sequence-7 client.
   Run `35343356792` proved current public sequence 12 is not directly activatable
@@ -426,15 +426,19 @@ behavior belongs in `SPEC.md`.
   and signed public sequence-12 audit. The one-shot proof workflow was removed.
   No fake credentials, public mutation, force push, or live installation access
   was used.
-  **Current production is intentionally unchanged pending separate publication
-  authorization:** `main=9aa8be4c63fe8d60dea130b979c0c12d1a5164bc`, public stable
-  sequence 12 `local-hosted-0-155-0-566034e1aff4`, and the main producer still
-  has the pre-correction workflow. Restoring immediate long-idle sequence-7
-  direct update requires two separately authorized production actions: install
-  the accepted producer workflow on `main` without changing the stable index,
-  then publish/promote a same-version sequence-13 compatibility bridge through
-  the normal build/sign/Release/Pages/readback/disposable-runtime/non-forced-CAS
-  gates.
+  **Production remediation is complete:** the first authorized action mirrored
+  only the accepted producer workflow onto exact old main, creating
+  `0455ba6a86ec2a7392416f3ecba68925c9a8adfd` without changing either stable
+  index blob. Production run `35364873732` then passed build/native smoke,
+  production signing, immutable Release staging, LKG-preserving Pages, complete
+  public HTTPS readback, and the exact historical sequence-7 direct-update
+  proof. The disposable R10 client activated sequence 13, retained sequence 7 as
+  previous, reached `codex-cli 0.155.0`, ran real doctor diagnostics with
+  `upstream=unhealthy` and `termux_core=healthy`, and proved second-update
+  no-op. The unchanged non-forced exact-parent CAS reported
+  `promotion_result=committed` and advanced main to
+  `5bef52d07a07bd8612b4538dfb29a2396937a3fb`. Public stable is sequence 13
+  `local-hosted-0-155-0-566034e1aff4-legacy-lag-remediation`.
   Bounded remediation control-plane source
   `536d06a6088ccf3c850a6031c895a0ae6c2fe709` is **source-accepted
   2026-09-18** by full acceptance run `35355371929`. The new
@@ -444,10 +448,11 @@ behavior belongs in `SPEC.md`.
   sequence-12 component identity, an exact historical R10/API-30 sequence-7
   signed fixture through the existing signing boundary, direct public candidate
   update, previous retention, corrected-Core doctor semantics, and second-update
-  no-op. It does not itself authorize or perform production remediation.
-  Production remains `main=9aa8be4c63fe8d60dea130b979c0c12d1a5164bc` with public
-  sequence 12 until the two separately authorized production actions above are
-  explicitly approved.
+  no-op. That source acceptance did not itself authorize or perform production
+  remediation. Separate user authorization was subsequently exercised through
+  the two production actions above; the bounded gate is now inert because the
+  authenticated public baseline is sequence 13 rather than its exact required
+  sequence-12 baseline.
 - `legacy/monolith` remains sealed at
   `bf30a7dc94d4dad7f58836c69028160856e63c58`.
 - Worker mode remains OFF.

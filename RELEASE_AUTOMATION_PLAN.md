@@ -776,8 +776,7 @@ Activation order after source acceptance:
 
 ### Post-RALD-7 legacy-lag compatibility correction
 
-Status: **proof/source accepted; production remediation pending separate
-authorization**. A retained sequence-7 R10 client was reconstructed from exact
+Status: **proof/source accepted; production remediation complete**. A retained sequence-7 R10 client was reconstructed from exact
 historical source and official 0.153.4. Direct public update to current signed
 sequence 12 failed closed in run `35343356792` solely at the historical
 credential-dependent candidate doctor gate. Private sequence-13 repair proof
@@ -803,19 +802,30 @@ private sequence-7 proof fixture only through the existing production signing
 helper, and requires the direct public sequence-7 update/previous-retention/
 doctor/no-op proof before the unchanged non-forced CAS.
 
-This proof does **not** itself authorize public correction. Until separate
-authorization is granted, `main`, public sequence 12, Release/Pages state, and
-live installations remain unchanged. Production remediation must be ordered:
-(1) mirror only the accepted corrected producer workflow to exact current
-`main` without changing the stable index; (2) stage one same-version 0.155.0
-sequence-13 bridge whose component bytes remain the accepted sequence-12 bytes
-except for the signed generation identity/doctor bridge descriptor; (3) run the
-normal production signing, immutable Release, LKG-preserving Pages, complete
-public readback, direct historical-client update proof, corrected-Core
-doctor/no-op proof, and non-forced exact-parent CAS; (4) only after all gates
-succeed may sequence 13 become stable. No version-comparison bypass may become a
-scheduled path; this one corrective same-version promotion requires explicit
-manual authorization.
+The source proof did **not** itself authorize public correction. Separate user
+authorization subsequently executed the required ordering. First, only the
+accepted corrected producer workflow was mirrored to exact
+`main=9aa8be4c63fe8d60dea130b979c0c12d1a5164bc`; non-forced child
+`0455ba6a86ec2a7392416f3ecba68925c9a8adfd` changed no stable index bytes.
+Then manual production run `35364873732` selected the exact bounded
+`legacy_lag_jump_remediation` path. It proved the sequence-13 component
+digests/modes equal sequence 12, with only the signed generation identity and
+R10 doctor bridge descriptor delta; production-signed and independently
+verified both candidate and historical sequence-7 fixture; staged the immutable
+candidate Release/tag on exact parent `0455ba6a...`; deployed candidate Pages
+while retaining LKG; read back every signed byte; and directly updated the
+historical sequence-7 R10 client to sequence 13. The corrected Core retained
+sequence 7 as previous, reported 0.155.0, executed real doctor semantics
+(`upstream=unhealthy`, `termux_core=healthy`), and proved second-update
+no-op. Only after those gates did `force:false` exact-parent CAS report
+`promotion_result=committed`, creating
+`main=5bef52d07a07bd8612b4538dfb29a2396937a3fb` with only
+`update-index-v1` and `update-index-v1.sig` changed from its parent. Public
+stable is signed sequence 13
+`local-hosted-0-155-0-566034e1aff4-legacy-lag-remediation`. The corrective
+same-version gate remains forbidden to schedules and is now fail-closed/inert
+because its exact sequence-12 baseline no longer matches. No fake credentials,
+force push, or live installation mutation was used.
 
 ## 8. Failure and recovery matrix
 

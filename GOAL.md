@@ -222,13 +222,25 @@ Termux qualification. Produce one candidate for independent product review.
   producer preserve the signal for all future stable candidates and full
   repository acceptance `35344310885` passed. No fake credentials, public
   Release/Pages/index mutation, force push, or live installation access was used.
-  Production remediation is deliberately **not yet activated**: `main` remains
-  `9aa8be4c63fe8d60dea130b979c0c12d1a5164bc`, public stable remains sequence
-  12, and the `main` producer still has its prior workflow blob. Immediate
-  public 0.153.4/sequence-7 -> 0.155.0 direct jump therefore remains unavailable
-  until separately authorized remediation installs the accepted producer change
-  and promotes a same-version sequence-13 compatibility bridge through the full
-  public gates.
+  Production remediation is **complete**. The separately authorized first
+  action installed only the accepted producer workflow on exact
+  `main=9aa8be4c63fe8d60dea130b979c0c12d1a5164bc`, producing non-forced child
+  `0455ba6a86ec2a7392416f3ecba68925c9a8adfd` while the signed stable index and
+  signature blobs remained byte-identical. Separately authorized production run
+  `35364873732` then built and production-signed the exact 0.155.0
+  sequence-13 bridge
+  `local-hosted-0-155-0-566034e1aff4-legacy-lag-remediation`, staged its
+  prerelease/tag at exact pre-promotion main `0455ba6a...`, deployed Pages
+  while retaining the sequence-12 LKG, read back every signed byte over public
+  HTTPS, and proved the historical production-authority-signed sequence-7 R10
+  client directly activates sequence 13. The activated Core retained sequence 7
+  as `previous`, reported exact `codex-cli 0.155.0`, executed the real public
+  doctor path with `upstream=unhealthy` and `termux_core=healthy`, and
+  completed a byte-identical second-update no-op. Only then did the existing
+  `force:false` exact-parent CAS report `promotion_result=committed` and move
+  `main` to `5bef52d07a07bd8612b4538dfb29a2396937a3fb`. Public stable is now
+  signed sequence 13. No fake credentials, force push, or live installation
+  access was used.
   Bounded remediation control-plane source
   `536d06a6088ccf3c850a6031c895a0ae6c2fe709` is accepted by full source
   acceptance run `35355371929`. It adds a false-by-default, manual-only
