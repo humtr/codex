@@ -653,11 +653,11 @@ checks. RALD-6/7 are not started by this acceptance.
 
 ### Phase RALD-6 — fresh-install and update delivery E2E
 
-Status: **active under explicit user authorization 2026-09-18**. Public stable
-is fixed at signed sequence 11 generation
-`local-hosted-0-154-0-37fbbd8033b8-rald45-transition` while this phase runs.
-RALD-6 may add and prove acquisition/delivery only; it may not mutate the live
-installation, public stable pointer, Release/Pages authority, or begin RALD-7.
+Status: **accepted 2026-09-18**. Public stable remained fixed at signed sequence
+11 generation `local-hosted-0-154-0-37fbbd8033b8-rald45-transition` throughout
+the phase. RALD-6 added and proved acquisition/delivery only; it did not mutate
+the live installation, public stable pointer, Release/Pages authority, or begin
+RALD-7.
 
 The selected public acquisition surface is one no-argument
 `install-online.sh` fetched from the immutable accepted RALD-6 source commit.
@@ -704,6 +704,28 @@ hosted fresh-install -> public no-op -> fixture promotion -> normal update ->
 second no-op proof. No test-only credential/provider success, alternate device
 trust key, hidden public URL override, live installation mutation, or RALD-7
 work is permitted.
+
+Gate: **passed**. Focused hosted run `35289795309` accepted the online
+installer contract. Final native ARM64 run `35290588365` at workflow head
+`8d3862342d773ac8a2dfb44c975f55771424ffb7` fetched immutable accepted installer
+source `9972a3288c0531ba744e9bd1356273d9a080aa79` over public HTTPS and
+fresh-installed exact signed public sequence 11 into empty disposable
+Termux-shaped roots through the unchanged bootstrap/Core boundary. Exact
+`codex-cli 0.154.0` and the default public exact-current no-op both passed,
+including state snapshot equality. The same installed client then saw authentic
+sequence 11 through runner-local HTTPS, while an exact-copy sequence-12 fixture
+was signed only inside the accepted bounded production-authority step and staged
+locally. Atomic fixture-locator replacement exposed the signed sequence-12 index;
+ordinary no-argument `codex update` activated
+`local-rald6-seq12-9972a3288c05`, retained sequence 11 as `previous`, and the
+next update was an exact-current no-op with another state snapshot equality.
+The run uploaded no artifacts and performed no GitHub Release, Pages, or
+`main` write. Final public stable remained sequence 11 at
+`f221de1225471fb5eda5bbdfcbd0d9db0c2f43b1`. Earlier fixture-preparation runs
+`35290065429` and `35290289525` failed before secret exposure because the
+proof narrowed HOME/PATH before runner Rust tooling; the accepted repair only
+moved release-builder preparation before that disposable environment switch.
+RALD-7 remains separately gated and unstarted.
 
 ### Phase RALD-7 — full acceptance and activation
 

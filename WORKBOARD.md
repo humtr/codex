@@ -226,43 +226,36 @@ behavior belongs in `SPEC.md`.
   output were removed in-job, and signed-artifact upload was skipped. No
   Release/Pages/main/public-stable/live-runtime mutation occurred.
 - RALD-5 Release/Pages LKG-preserving publication and runtime-proven promotion is
-  accepted. RALD-6 fresh-install/update delivery E2E is **active and explicitly
-  authorized 2026-09-18**. RALD-7 full acceptance is not started or authorized.
-- RALD-6 slice A — **accepted** at source
-  `9972a3288c0531ba744e9bd1356273d9a080aa79`. The minimal no-argument
-  `install-online.sh` pins the accepted bootstrap key bytes, verifies the
-  signed stable index and release manifest before using network-selected
-  locations/inventory, and delegates all persistent installation to the unchanged
-  local `install.sh` and `bootstrap/codex-bootstrap`. Hosted focused run
-  `35289795309` passed shell syntax, four installer contract tests, and
-  `git diff --check`. Public stable/main and the live installation were
-  unchanged.
-- RALD-6 slice B — **accepted** by hosted run `35290065429` at source
-  `307868e78989e598f747f3c8b8408d25b97634c6`. On native
-  `ubuntu-24.04-arm`, the proof fetched immutable public
-  `9972a3288c0531ba744e9bd1356273d9a080aa79/install-online.sh`, byte-matched it
-  to accepted source, started from empty disposable Termux-shaped HOME/PREFIX,
-  and fresh-installed exact public signed sequence 11 generation
-  `local-hosted-0-154-0-37fbbd8033b8-rald45-transition`. Installed launcher
-  matched the signed Core, version was exact `codex-cli 0.154.0`, and a default
-  public no-argument update was an exact-current no-op with a byte-for-byte state
-  snapshot match.
-- RALD-6 slice C — **active, stop-on-red fixture-tooling repair**. Hosted run
-  `35290065429` stopped before signing at fixture-builder preparation, while
-  rerun `35290289525` reproduced slice-B fresh install/no-op and exposed the
-  common root cause: that proof step changed `HOME` and narrowed `PATH` to the
-  disposable Termux environment *before* invoking runner Rust tooling, hiding
-  both `rustup` in the first attempt and `cargo` in the second. Both runs
-  skipped the sequence-12 signing and delivery steps, so
-  `CODEX_RELEASE_SIGNING_KEY` was not exposed and no signed fixture/public
-  mutation occurred. Repair only the proof-step ordering so the native runner
-  release-builder is built before switching to disposable Termux HOME/PATH; do
-  not add a toolchain/package install, weaken the production-authority signing
-  helper, upload signed fixture bytes, alter the accepted fresh-install result,
-  or broaden into RALD-7.
-- Public stable remains fixed during RALD-6 source/proof work and may advance only after
-  the selected plan's focused/full gates, public readback, disposable public-update
-  runtime smoke, and exact non-forced promotion checks pass.
+  accepted.
+- RALD-6 fresh-install/update delivery E2E is **accepted 2026-09-18**. Product
+  source `9972a3288c0531ba744e9bd1356273d9a080aa79` adds only the bounded
+  `install-online.sh` acquisition frontend and leaves the audited local
+  installer/bootstrap unchanged. Focused run `35289795309` accepted slice A.
+  Load-bearing native ARM64 run `35290588365` at workflow head
+  `8d3862342d773ac8a2dfb44c975f55771424ffb7` accepted slices B/C end to end:
+  immutable public installer readback, empty-root fresh install to signed public
+  sequence 11, exact `codex-cli 0.154.0`, default public update no-op with state
+  snapshot equality, bounded production-authority signing of runner-local
+  sequence-12 fixture `local-rald6-seq12-9972a3288c05`, atomic local fixture
+  locator promotion, ordinary same-client no-argument update to sequence 12 with
+  public sequence 11 retained as previous, exact version, and second no-op with
+  state snapshot equality. Run artifacts were empty; the fixture was not
+  uploaded/released/deployed/promoted. `main` and public stable remained
+  `f221de1225471fb5eda5bbdfcbd0d9db0c2f43b1` / sequence 11, and the live
+  installation was untouched.
+- RALD-6 failed proof runs `35290065429` and `35290289525` are diagnostic
+  history only. Both completed the accepted fresh-install/public-no-op half and
+  stopped before sequence-12 signing because the fixture step switched to the
+  disposable Termux HOME/PATH before invoking runner Rust tooling, hiding
+  `rustup` and then `cargo`. Signing/delivery were skipped and the production
+  secret was not exposed. Commit
+  `8d3862342d773ac8a2dfb44c975f55771424ffb7` fixes only that proof-step
+  ordering; it adds no toolchain/package install or product trust path.
+- RALD-7 full acceptance/activation is **not started and not authorized**.
+  Starting it requires separate explicit user authorization.
+- Public stable remains signed sequence 11 generation
+  `local-hosted-0-154-0-37fbbd8033b8-rald45-transition`; RALD-6 created no
+  public stable advancement.
 - `legacy/monolith` remains sealed at
   `bf30a7dc94d4dad7f58836c69028160856e63c58`.
 - Worker mode remains OFF.

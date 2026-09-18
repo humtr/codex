@@ -193,6 +193,39 @@ Termux qualification. Produce one candidate for independent product review.
 
 ### Current Direct-Lead Evidence
 
+- RELEASE-AUTOMATION-LOCAL-DERIVED RALD-6 fresh-install/update delivery E2E is
+  accepted on 2026-09-18. Product source
+  `9972a3288c0531ba744e9bd1356273d9a080aa79` adds the bounded no-argument
+  `install-online.sh` transport frontend while leaving local `install.sh` and
+  `bootstrap/codex-bootstrap` unchanged. Focused hosted run `35289795309`
+  passed shell syntax, four installer contract tests, and diff checks. Load-bearing
+  native ARM64 run `35290588365` at workflow head
+  `8d3862342d773ac8a2dfb44c975f55771424ffb7` fetched that immutable installer
+  over public HTTPS, byte-matched it to accepted source, and started from empty
+  disposable Termux-shaped HOME/PREFIX state. It verified the pinned bootstrap
+  authority plus signed public index/manifest through the existing bootstrap
+  boundary, fresh-installed exact public signed sequence 11 generation
+  `local-hosted-0-154-0-37fbbd8033b8-rald45-transition`, matched the installed
+  launcher to signed Core, observed exact `codex-cli 0.154.0`, and proved a
+  default public `codex update` was an exact-current no-op with a byte-for-byte
+  state snapshot match. The same installed client then consumed a runner-local
+  HTTPS fixture: the exact installed sequence-11 generation was copied to
+  generation `local-rald6-seq12-9972a3288c05`, signed as release sequence 12
+  only by the accepted bounded production-authority signing helper, staged
+  locally while the fixture stable locator still served authentic sequence 11,
+  and admitted only after that local locator was atomically switched to the
+  signed sequence-12 index. Ordinary no-argument `codex update` activated
+  sequence 12, retained public sequence 11 as `previous`, preserved exact
+  runtime version behavior, and the next update was an exact-current no-op with
+  another state snapshot match. The signed fixture was never uploaded: run
+  artifacts were empty, no Release/Pages/`main` mutation occurred, and final
+  public stable remained sequence 11 at
+  `main=f221de1225471fb5eda5bbdfcbd0d9db0c2f43b1`. Earlier runs
+  `35290065429` and `35290289525` had already proved the public fresh-install
+  half but stopped before secret exposure because fixture preparation narrowed
+  HOME/PATH before runner Rust tooling; the final repair only reordered that
+  proof step. The live installation was never accessed or mutated, no alternate
+  trust implementation was introduced, and RALD-7 was not started.
 - RELEASE-AUTOMATION-LOCAL-DERIVED RALD-5 publication, LKG continuity, and
   promotion is accepted on 2026-09-18. Bounded orchestration commit
   `d1b53576f9b173dcf786b21271b556712d694bbf` kept transition staging
