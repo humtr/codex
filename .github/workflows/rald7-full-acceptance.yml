@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  EXPECTED_PARENT: '77ee86f071999f2bd6f84da068a8d5ecb4b4fd54'
+  EXPECTED_PARENT: '8e01b593b18d87acb80a6ce9a183e28eb891088f'
   TERMUX_TEST_PREFIX: '/data/data/com.termux/files/usr'
   TERMUX_TEST_TMPDIR: '/data/data/com.termux/files/usr/tmp'
   EXPECTED_MAIN: 'f221de1225471fb5eda5bbdfcbd0d9db0c2f43b1'
@@ -59,7 +59,7 @@ jobs:
 
   packages:
     name: Package full tests
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 45
     steps:
       - name: Fetch exact acceptance source
@@ -76,22 +76,24 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          test "$(uname -m)" = aarch64
           sudo mkdir -p "$TERMUX_TEST_PREFIX/bin" "$TERMUX_TEST_TMPDIR"
-          for tool in sh openssl curl script gzip clang cat chmod; do
+          for tool in sh openssl curl script gzip cat chmod; do
             source_path="$(command -v "$tool")"
             test -f "$source_path" -o -L "$source_path"
-            sudo ln -s "$source_path" "$TERMUX_TEST_PREFIX/bin/$tool"
+            sudo install -m 0755 "$source_path" "$TERMUX_TEST_PREFIX/bin/$tool"
           done
+          clang_path="$(command -v clang)"
+          test -f "$clang_path" -o -L "$clang_path"
+          sudo ln -s "$clang_path" "$TERMUX_TEST_PREFIX/bin/clang"
           sudo chown -R "$(id -u):$(id -g)" /data/data/com.termux
           printf 'PREFIX=%s\n' "$TERMUX_TEST_PREFIX" >> "$GITHUB_ENV"
           printf 'TMPDIR=%s\n' "$TERMUX_TEST_TMPDIR" >> "$GITHUB_ENV"
-          test -x "$TERMUX_TEST_PREFIX/bin/sh"
-          test -x "$TERMUX_TEST_PREFIX/bin/openssl"
-          test -x "$TERMUX_TEST_PREFIX/bin/script"
-          test -x "$TERMUX_TEST_PREFIX/bin/clang"
-          test -x "$TERMUX_TEST_PREFIX/bin/gzip"
-          test -x "$TERMUX_TEST_PREFIX/bin/cat"
-          test -x "$TERMUX_TEST_PREFIX/bin/chmod"
+          for tool in sh openssl curl script gzip clang cat chmod; do
+            test -x "$TERMUX_TEST_PREFIX/bin/$tool"
+          done
+          test ! -L "$TERMUX_TEST_PREFIX/bin/gzip"
+          test ! -L "$TERMUX_TEST_PREFIX/bin/openssl"
 
       - name: Release-builder full tests
         shell: bash
@@ -116,7 +118,7 @@ jobs:
 
   workspace:
     name: Locked workspace check, test, clippy, and fmt
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 45
     steps:
       - name: Fetch exact acceptance source
@@ -133,22 +135,24 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          test "$(uname -m)" = aarch64
           sudo mkdir -p "$TERMUX_TEST_PREFIX/bin" "$TERMUX_TEST_TMPDIR"
-          for tool in sh openssl curl script gzip clang cat chmod; do
+          for tool in sh openssl curl script gzip cat chmod; do
             source_path="$(command -v "$tool")"
             test -f "$source_path" -o -L "$source_path"
-            sudo ln -s "$source_path" "$TERMUX_TEST_PREFIX/bin/$tool"
+            sudo install -m 0755 "$source_path" "$TERMUX_TEST_PREFIX/bin/$tool"
           done
+          clang_path="$(command -v clang)"
+          test -f "$clang_path" -o -L "$clang_path"
+          sudo ln -s "$clang_path" "$TERMUX_TEST_PREFIX/bin/clang"
           sudo chown -R "$(id -u):$(id -g)" /data/data/com.termux
           printf 'PREFIX=%s\n' "$TERMUX_TEST_PREFIX" >> "$GITHUB_ENV"
           printf 'TMPDIR=%s\n' "$TERMUX_TEST_TMPDIR" >> "$GITHUB_ENV"
-          test -x "$TERMUX_TEST_PREFIX/bin/sh"
-          test -x "$TERMUX_TEST_PREFIX/bin/openssl"
-          test -x "$TERMUX_TEST_PREFIX/bin/script"
-          test -x "$TERMUX_TEST_PREFIX/bin/clang"
-          test -x "$TERMUX_TEST_PREFIX/bin/gzip"
-          test -x "$TERMUX_TEST_PREFIX/bin/cat"
-          test -x "$TERMUX_TEST_PREFIX/bin/chmod"
+          for tool in sh openssl curl script gzip clang cat chmod; do
+            test -x "$TERMUX_TEST_PREFIX/bin/$tool"
+          done
+          test ! -L "$TERMUX_TEST_PREFIX/bin/gzip"
+          test ! -L "$TERMUX_TEST_PREFIX/bin/openssl"
 
       - name: Cargo check
         shell: bash

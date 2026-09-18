@@ -268,7 +268,15 @@ behavior belongs in `SPEC.md`.
   tests (`PREFIX/bin/openssl`, `script`, `clang`, `gzip`, `cat`,
   `chmod`, plus the fixed Termux shell path). This is a test-runner fixture
   defect, not a product failure. `main` and public stable remained unchanged;
-  repair only the hosted test substrate and rerun all source gates.
+  repair only the hosted test substrate and rerun all source gates. Second run
+  `35296431449` proved that repair reduced Core failures to 2 while the
+  workflow/credential gate remained green: one builder proof rejected the
+  symlinked test `gzip` because release tooling correctly requires a real
+  executable file, and one local-derived proof demonstrated that its static
+  AArch64 probe must compile and execute on an AArch64 host rather than x86_64.
+  Therefore the package/workspace full-test jobs move to native
+  `ubuntu-24.04-arm` and install regular copies of strict tool fixtures; this
+  remains test substrate only. `main` and public stable are still unchanged.
 - Public stable remains signed sequence 11 generation
   `local-hosted-0-154-0-37fbbd8033b8-rald45-transition`; RALD-6 created no
   public stable advancement.
