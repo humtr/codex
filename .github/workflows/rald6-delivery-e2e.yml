@@ -5,8 +5,7 @@ on:
     branches:
       - rewrite/rust-core
     paths:
-      - install-online.sh
-      - .github/scripts/test_rald6_installer.py
+      - .github/scripts/test_rald6_workflow.py
       - .github/workflows/rald6-delivery-e2e.yml
 
 permissions:
@@ -16,13 +15,31 @@ concurrency:
   group: rald6-delivery-e2e
   cancel-in-progress: false
 
+env:
+  RALD6_SOURCE_SHA: '9972a3288c0531ba744e9bd1356273d9a080aa79'
+  EXPECTED_TRIGGER_PARENT: 'bffceede042b04c439ec3c66979ef6b439790ff0'
+  EXPECTED_MAIN_SHA: 'f221de1225471fb5eda5bbdfcbd0d9db0c2f43b1'
+  PUBLIC_GENERATION: 'local-hosted-0-154-0-37fbbd8033b8-rald45-transition'
+  PUBLIC_VERSION: '0.154.0'
+  PUBLIC_SEQUENCE: '11'
+  FIXTURE_GENERATION: 'local-rald6-seq12-9972a3288c05'
+  FIXTURE_SEQUENCE: '12'
+  FIXTURE_PORT: '18443'
+  WRAPPER_PUBLIC_KEY_SHA256: '62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c'
+  RUST_VERSION: '1.98.0'
+  ANDROID_RUNTIME_APEX_COMMIT: '8aeb37cca394ce39c1311744c60960cbd466aa77'
+  ANDROID_RUNTIME_APEX_SHA256: '83bf0dce249728dae48149b80d28b48115c54adad95a352120d58a6ac669d1fc'
+  TERMUX_PREFIX: '/data/data/com.termux/files/usr'
+  TERMUX_HOME: '/data/data/com.termux/files/home'
+  TERMUX_TMPDIR: '/data/data/com.termux/files/usr/tmp'
+
 jobs:
   contract:
-    name: Online installer contract
+    name: RALD-6 workflow contract
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Fetch exact source
+      - name: Fetch exact trigger source
         shell: bash
         run: |
           set -euo pipefail
@@ -31,13 +48,405 @@ jobs:
           git -C source fetch --no-tags --depth=2 origin "$GITHUB_SHA"
           git -C source checkout --detach FETCH_HEAD
           test "$(git -C source rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C source rev-parse HEAD^)" = "$EXPECTED_TRIGGER_PARENT"
 
-      - name: Run focused RALD-6 installer contract
+      - name: Run focused RALD-6 workflow contract
         shell: bash
         run: |
           set -euo pipefail
           cd source
           /bin/sh -n install-online.sh
-          python3 -m py_compile .github/scripts/test_rald6_installer.py
+          python3 -m py_compile             .github/scripts/test_rald6_installer.py             .github/scripts/test_rald6_workflow.py
           python3 .github/scripts/test_rald6_installer.py
+          python3 .github/scripts/test_rald6_workflow.py
+          ruby -e 'require "psych"; Psych.parse_file(ARGV.fetch(0))'             .github/workflows/rald6-delivery-e2e.yml
           git diff --check HEAD^ HEAD
+
+  delivery:
+    name: Public fresh install and same-client update delivery
+    needs: contract
+    if: needs.contract.result == 'success'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    steps:
+      - name: Bind exact authorized source and protected public state
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = push
+          test "$GITHUB_REF" = refs/heads/rewrite/rust-core
+          test "$(uname -m)" = aarch64
+
+          git init trigger
+          git -C trigger remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git -C trigger fetch --no-tags --depth=2 origin "$GITHUB_SHA"
+          git -C trigger checkout --detach FETCH_HEAD
+          test "$(git -C trigger rev-parse HEAD^)" = "$EXPECTED_TRIGGER_PARENT"
+
+          git init source
+          git -C source remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git -C source fetch --no-tags --depth=1 origin "$RALD6_SOURCE_SHA"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$RALD6_SOURCE_SHA"
+
+          main_sha="$(git ls-remote --exit-code "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/main | awk '{print $1}')"
+          test "$main_sha" = "$EXPECTED_MAIN_SHA"
+          python3 source/.github/scripts/test_rald6_installer.py
+
+      - name: Provision pinned Android ARM64 bionic interpreter
+        shell: bash
+        run: |
+          set -euo pipefail
+          for tool in curl base64 unzip debugfs file readelf sha256sum; do
+            command -v "$tool" >/dev/null
+          done
+          sudo test ! -e /system
+          root="$RUNNER_TEMP/rald6-bionic"
+          rm -rf "$root"
+          mkdir -p "$root/bin" "$root/lib64/bionic"
+          apex_url="https://android.googlesource.com/platform/prebuilts/runtime/+/$ANDROID_RUNTIME_APEX_COMMIT/mainline/runtime/apex/com.android.runtime-arm64.apex?format=TEXT"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2             --connect-timeout 15 --max-time 120 --max-filesize 20971520             --output "$root/runtime.apex.b64" "$apex_url"
+          base64 --decode "$root/runtime.apex.b64" > "$root/runtime.apex"
+          test "$(wc -c < "$root/runtime.apex")" -eq 13881344
+          test "$(sha256sum "$root/runtime.apex" | awk '{print $1}')" = "$ANDROID_RUNTIME_APEX_SHA256"
+          unzip -p "$root/runtime.apex" apex_payload.img > "$root/apex_payload.img"
+          test "$(wc -c < "$root/apex_payload.img")" -eq 13783040
+          debugfs -R "dump -p /bin/linker64 $root/bin/linker64" "$root/apex_payload.img" >/dev/null 2>&1
+          for library in libc.so libdl.so libm.so; do
+            debugfs -R "dump -p /lib64/bionic/$library $root/lib64/bionic/$library"               "$root/apex_payload.img" >/dev/null 2>&1
+          done
+          chmod 0755 "$root/bin/linker64"
+          file "$root/bin/linker64" | grep -F 'ARM aarch64'
+          readelf -h "$root/bin/linker64" | grep -Eq 'Machine:[[:space:]]+AArch64'
+
+          sudo mkdir -p /system/bin /system/lib64
+          sudo install -m 0755 "$root/bin/linker64" /system/bin/linker64
+          for library in libc.so libdl.so libm.so; do
+            sudo install -m 0644 "$root/lib64/bionic/$library" "/system/lib64/$library"
+          done
+          rm -f "$root/runtime.apex.b64" "$root/runtime.apex" "$root/apex_payload.img"
+
+      - name: Provision disposable Termux-shaped roots
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo test ! -e /data/data/com.termux
+          sudo mkdir -p             "$TERMUX_PREFIX/bin"             "$TERMUX_PREFIX/etc/tls/certs"             "$TERMUX_TMPDIR"             "$TERMUX_HOME"
+          sudo chown -R "$(id -u):$(id -g)" /data/data/com.termux
+
+          ln -s /bin/sh "$TERMUX_PREFIX/bin/sh"
+          cp /usr/bin/curl "$TERMUX_PREFIX/bin/curl"
+          cp /usr/bin/openssl "$TERMUX_PREFIX/bin/openssl"
+          chmod 0755 "$TERMUX_PREFIX/bin/curl" "$TERMUX_PREFIX/bin/openssl"
+          cp /etc/resolv.conf "$TERMUX_PREFIX/etc/resolv.conf"
+          cp /etc/ssl/certs/ca-certificates.crt "$TERMUX_PREFIX/etc/tls/cert.pem"
+
+      - name: Fetch public installer and prove fresh sequence-11 installation
+        shell: bash
+        run: |
+          set -euo pipefail
+          export HOME="$TERMUX_HOME"
+          export PREFIX="$TERMUX_PREFIX"
+          export TMPDIR="$TERMUX_TMPDIR"
+          export PATH="$PREFIX/bin:/usr/bin:/bin"
+          unset CODEX_TERMUX_UPDATE_INDEX_URL || :
+
+          installer_url="https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$RALD6_SOURCE_SHA/install-online.sh"
+          installer="$RUNNER_TEMP/rald6-install-online.sh"
+          "$PREFIX/bin/curl" -q --fail --silent --show-error --location             --proto '=https' --proto-redir '=https' --tlsv1.2             --connect-timeout 15 --max-time 60 --max-filesize 131072             --output "$installer" "$installer_url"
+          cmp source/install-online.sh "$installer"
+
+          test ! -e "$PREFIX/bin/codex"
+          test ! -e "$HOME/.local/share/codex/core/activation-state"
+          "$PREFIX/bin/sh" "$installer"             > "$RUNNER_TEMP/rald6-install.out"             2> "$RUNNER_TEMP/rald6-install.err"
+          grep -Fqx "codex-bootstrap: initial installation complete" "$RUNNER_TEMP/rald6-install.out"
+          grep -Fqx "codex online install: installed signed stable generation $PUBLIC_GENERATION"             "$RUNNER_TEMP/rald6-install.out"
+
+          state="$HOME/.local/share/codex/core/activation-state"
+          test -f "$state"
+          test "$(sed -n 's/^current=//p' "$state")" = "$PUBLIC_GENERATION"
+          test "$(sed -n 's/^previous_present=//p' "$state")" = 0
+          current="$HOME/.local/lib/codex/core/generations/$PUBLIC_GENERATION"
+          test -d "$current"
+          test "$(awk -F '\t' '$1=="release_sequence"{print $2}' "$current/release.manifest")" = "$PUBLIC_SEQUENCE"
+          test "$(sha256sum "$HOME/.local/lib/codex/core/release-public-key.pem" | awk '{print $1}')" =             "$WRAPPER_PUBLIC_KEY_SHA256"
+          cmp "$PREFIX/bin/codex" "$current/core"
+
+          "$PREFIX/bin/codex" --version             > "$RUNNER_TEMP/rald6-version.out"             2> "$RUNNER_TEMP/rald6-version.err"
+          printf 'codex-cli %s\n' "$PUBLIC_VERSION" > "$RUNNER_TEMP/rald6-version.expected"
+          cmp "$RUNNER_TEMP/rald6-version.expected" "$RUNNER_TEMP/rald6-version.out"
+
+      - name: Prove default public update is exact-current no-op
+        shell: bash
+        run: |
+          set -euo pipefail
+          export HOME="$TERMUX_HOME"
+          export PREFIX="$TERMUX_PREFIX"
+          export TMPDIR="$TERMUX_TMPDIR"
+          export PATH="$PREFIX/bin:/usr/bin:/bin"
+          unset CODEX_TERMUX_UPDATE_INDEX_URL || :
+
+          snapshot() {
+            python3 - "$HOME/.local/share/codex/core" "$HOME/.local/lib/codex/core" "$PREFIX/bin/codex" <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+          import sys
+
+          for raw in sys.argv[1:]:
+              root = Path(raw)
+              if root.is_symlink():
+                  print(f"L\t{root}\t{os.readlink(root)}")
+                  continue
+              if root.is_file():
+                  print(f"F\t{root}\t{root.stat().st_mode & 0o7777:04o}\t{hashlib.sha256(root.read_bytes()).hexdigest()}")
+                  continue
+              if not root.is_dir():
+                  print(f"M\t{root}")
+                  continue
+              for path in sorted(root.rglob("*")):
+                  rel = path.relative_to(root)
+                  if path.is_symlink():
+                      print(f"L\t{root}\t{rel}\t{os.readlink(path)}")
+                  elif path.is_file():
+                      print(f"F\t{root}\t{rel}\t{path.stat().st_mode & 0o7777:04o}\t{hashlib.sha256(path.read_bytes()).hexdigest()}")
+                  elif path.is_dir():
+                      print(f"D\t{root}\t{rel}")
+          PY
+          }
+
+          snapshot > "$RUNNER_TEMP/rald6-public-before"
+          "$PREFIX/bin/codex" update             > "$RUNNER_TEMP/rald6-public-update.out"             2> "$RUNNER_TEMP/rald6-public-update.err"
+          printf 'codex is already up to date (generation %s)\n' "$PUBLIC_GENERATION"             > "$RUNNER_TEMP/rald6-public-update.expected"
+          cmp "$RUNNER_TEMP/rald6-public-update.expected" "$RUNNER_TEMP/rald6-public-update.out"
+          snapshot > "$RUNNER_TEMP/rald6-public-after"
+          diff -u "$RUNNER_TEMP/rald6-public-before" "$RUNNER_TEMP/rald6-public-after"
+
+      - name: Prepare sequence-12 fixture from exact installed stable
+        shell: bash
+        run: |
+          set -euo pipefail
+          export HOME="$TERMUX_HOME"
+          export PREFIX="$TERMUX_PREFIX"
+          export TMPDIR="$TERMUX_TMPDIR"
+          export PATH="$PREFIX/bin:/usr/bin:/bin"
+
+          test "$(git ls-remote --exit-code "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/main | awk '{print $1}')" =             "$EXPECTED_MAIN_SHA"
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          cargo "+$RUST_VERSION" build --release --locked             --manifest-path source/Cargo.toml             -p codex-release-builder
+          python3 source/.github/scripts/test_rald4_signing.py
+
+          fixture="$RUNNER_TEMP/rald6-fixture"
+          candidate="$fixture/candidate"
+          rm -rf "$fixture"
+          mkdir -p "$candidate/helpers"
+          current="$HOME/.local/lib/codex/core/generations/$PUBLIC_GENERATION"
+          for rel in generation.meta core runtime codex-code-mode-host manager helpers/0 helpers/1; do
+            test -f "$current/$rel"
+            test ! -L "$current/$rel"
+            mkdir -p "$(dirname "$candidate/$rel")"
+            cp -p "$current/$rel" "$candidate/$rel"
+          done
+
+          python3 - "$candidate/generation.meta" "$PUBLIC_GENERATION" "$FIXTURE_GENERATION" <<'PY'
+          from pathlib import Path
+          import sys
+
+          path = Path(sys.argv[1])
+          old = f"generation_id\t{sys.argv[2]}\n"
+          new = f"generation_id\t{sys.argv[3]}\n"
+          text = path.read_text()
+          if text.count(old) != 1:
+              raise SystemExit("fixture generation identity anchor mismatch")
+          path.write_text(text.replace(old, new, 1))
+          PY
+          chmod 0644 "$candidate/generation.meta"
+
+          find "$candidate" -type f -printf '%P\n' | LC_ALL=C sort > "$fixture/files"
+          cat > "$fixture/expected-files" <<'EOF'
+          codex-code-mode-host
+          core
+          generation.meta
+          helpers/0
+          helpers/1
+          manager
+          runtime
+          EOF
+          diff -u "$fixture/expected-files" "$fixture/files"
+          test "$(sha256sum "$HOME/.local/lib/codex/core/release-public-key.pem" | awk '{print $1}')" =             "$WRAPPER_PUBLIC_KEY_SHA256"
+
+      - name: Sign sequence-12 fixture with bounded production authority
+        shell: bash
+        env:
+          CODEX_RELEASE_SIGNING_KEY: ${{ secrets.CODEX_RELEASE_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          export HOME="$TERMUX_HOME"
+          fixture="$RUNNER_TEMP/rald6-fixture"
+          release_base="https://127.0.0.1:$FIXTURE_PORT/active/$FIXTURE_GENERATION/"
+          python3 source/.github/scripts/rald4_signing.py             --candidate "$fixture/candidate"             --accepted-public-key "$HOME/.local/lib/codex/core/release-public-key.pem"             --release-sequence "$FIXTURE_SEQUENCE"             --release-base "$release_base"             --builder "$GITHUB_WORKSPACE/source/target/release/codex-release-builder"             --openssl /usr/bin/openssl             --runner-temp "$RUNNER_TEMP"             --output "$fixture/signed"             > "$RUNNER_TEMP/rald6-sign.out"
+          grep -Fqx "signed_generation=$FIXTURE_GENERATION" "$RUNNER_TEMP/rald6-sign.out"
+          test -z "$(find "$RUNNER_TEMP" -maxdepth 1 -name '.rald4-signing-*' -print -quit)"
+          test -f "$fixture/signed/update-index-v1"
+          test -f "$fixture/signed/update-index-v1.sig"
+          test -d "$fixture/signed/releases/$FIXTURE_GENERATION"
+
+      - name: Stage, fixture-promote, and update the same installed client
+        shell: bash
+        run: |
+          set -euo pipefail
+          export HOME="$TERMUX_HOME"
+          export PREFIX="$TERMUX_PREFIX"
+          export TMPDIR="$TERMUX_TMPDIR"
+          export PATH="$PREFIX/bin:/usr/bin:/bin"
+          unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY all_proxy NO_PROXY no_proxy || :
+
+          fixture="$RUNNER_TEMP/rald6-fixture"
+          web="$RUNNER_TEMP/rald6-web"
+          tls="$RUNNER_TEMP/rald6-tls"
+          rm -rf "$web" "$tls"
+          mkdir -p "$web/stable-v11" "$web/stable-v12" "$tls"
+
+          /usr/bin/curl --fail --silent --show-error --location --proto '=https' --tlsv1.2             --connect-timeout 15 --max-time 60             --output "$web/stable-v11/update-index-v1"             "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$EXPECTED_MAIN_SHA/update-index-v1"
+          /usr/bin/curl --fail --silent --show-error --location --proto '=https' --tlsv1.2             --connect-timeout 15 --max-time 60             --output "$web/stable-v11/update-index-v1.sig"             "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$EXPECTED_MAIN_SHA/update-index-v1.sig"
+          /usr/bin/openssl pkeyutl -verify -rawin -pubin             -inkey "$HOME/.local/lib/codex/core/release-public-key.pem"             -in "$web/stable-v11/update-index-v1"             -sigfile "$web/stable-v11/update-index-v1.sig" >/dev/null
+
+          cp "$fixture/signed/update-index-v1" "$web/stable-v12/update-index-v1"
+          cp "$fixture/signed/update-index-v1.sig" "$web/stable-v12/update-index-v1.sig"
+          cp -a "$fixture/signed/releases/$FIXTURE_GENERATION" "$web/stable-v12/$FIXTURE_GENERATION"
+          ln -s stable-v11 "$web/active"
+
+          /usr/bin/openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days 1             -subj '/CN=rald6-fixture-ca'             -keyout "$tls/ca.key" -out "$tls/ca.pem" >/dev/null 2>&1
+          /usr/bin/openssl req -newkey rsa:2048 -sha256 -nodes             -subj '/CN=127.0.0.1'             -keyout "$tls/server.key" -out "$tls/server.csr" >/dev/null 2>&1
+          cat > "$tls/server.ext" <<'EOF'
+          subjectAltName=IP:127.0.0.1
+          extendedKeyUsage=serverAuth
+          EOF
+          /usr/bin/openssl x509 -req -sha256 -days 1             -in "$tls/server.csr"             -CA "$tls/ca.pem" -CAkey "$tls/ca.key" -set_serial 1             -extfile "$tls/server.ext" -out "$tls/server.pem" >/dev/null 2>&1
+          printf '\n' >> "$PREFIX/etc/tls/cert.pem"
+          cat "$tls/ca.pem" >> "$PREFIX/etc/tls/cert.pem"
+
+          cat > "$RUNNER_TEMP/rald6-https-server.py" <<'PY'
+          import http.server
+          import os
+          from pathlib import Path
+          import ssl
+          import sys
+
+          root = Path(sys.argv[1])
+          cert = sys.argv[2]
+          key = sys.argv[3]
+          port = int(sys.argv[4])
+          os.chdir(root)
+          server = http.server.ThreadingHTTPServer(("127.0.0.1", port), http.server.SimpleHTTPRequestHandler)
+          context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+          context.load_cert_chain(certfile=cert, keyfile=key)
+          server.socket = context.wrap_socket(server.socket, server_side=True)
+          server.serve_forever()
+          PY
+          python3 "$RUNNER_TEMP/rald6-https-server.py"             "$web" "$tls/server.pem" "$tls/server.key" "$FIXTURE_PORT"             > "$RUNNER_TEMP/rald6-https.log" 2>&1 &
+          server_pid=$!
+          cleanup_server() {
+            kill "$server_pid" 2>/dev/null || :
+            wait "$server_pid" 2>/dev/null || :
+          }
+          trap cleanup_server EXIT HUP INT TERM
+
+          index_url="https://127.0.0.1:$FIXTURE_PORT/active/update-index-v1"
+          ready=false
+          for attempt in $(seq 1 30); do
+            if "$PREFIX/bin/curl" -q --fail --silent --show-error               --cacert "$PREFIX/etc/tls/cert.pem"               --capath "$PREFIX/etc/tls/certs"               --output "$RUNNER_TEMP/rald6-local-index" "$index_url"; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = true
+          cmp "$web/stable-v11/update-index-v1" "$RUNNER_TEMP/rald6-local-index"
+
+          export CODEX_TERMUX_UPDATE_INDEX_URL="$index_url"
+          "$PREFIX/bin/codex" update             > "$RUNNER_TEMP/rald6-fixture-before-promotion.out"             2> "$RUNNER_TEMP/rald6-fixture-before-promotion.err"
+          printf 'codex is already up to date (generation %s)\n' "$PUBLIC_GENERATION"             > "$RUNNER_TEMP/rald6-fixture-before-promotion.expected"
+          cmp "$RUNNER_TEMP/rald6-fixture-before-promotion.expected"             "$RUNNER_TEMP/rald6-fixture-before-promotion.out"
+
+          ln -s stable-v12 "$web/active.next"
+          mv -Tf "$web/active.next" "$web/active"
+          test "$(readlink "$web/active")" = stable-v12
+
+          "$PREFIX/bin/curl" -q --fail --silent --show-error             --cacert "$PREFIX/etc/tls/cert.pem"             --capath "$PREFIX/etc/tls/certs"             --output "$RUNNER_TEMP/rald6-promoted-index" "$index_url"
+          "$PREFIX/bin/curl" -q --fail --silent --show-error             --cacert "$PREFIX/etc/tls/cert.pem"             --capath "$PREFIX/etc/tls/certs"             --output "$RUNNER_TEMP/rald6-promoted-index.sig" "$index_url.sig"
+          cmp "$fixture/signed/update-index-v1" "$RUNNER_TEMP/rald6-promoted-index"
+          cmp "$fixture/signed/update-index-v1.sig" "$RUNNER_TEMP/rald6-promoted-index.sig"
+          /usr/bin/openssl pkeyutl -verify -rawin -pubin             -inkey "$HOME/.local/lib/codex/core/release-public-key.pem"             -in "$RUNNER_TEMP/rald6-promoted-index"             -sigfile "$RUNNER_TEMP/rald6-promoted-index.sig" >/dev/null
+
+          "$PREFIX/bin/codex" update             > "$RUNNER_TEMP/rald6-fixture-update.out"             2> "$RUNNER_TEMP/rald6-fixture-update.err"
+          printf 'activated channel generation %s\n' "$FIXTURE_GENERATION"             > "$RUNNER_TEMP/rald6-fixture-update.expected"
+          cmp "$RUNNER_TEMP/rald6-fixture-update.expected" "$RUNNER_TEMP/rald6-fixture-update.out"
+
+          state="$HOME/.local/share/codex/core/activation-state"
+          test "$(sed -n 's/^current=//p' "$state")" = "$FIXTURE_GENERATION"
+          test "$(sed -n 's/^previous_present=//p' "$state")" = 1
+          test "$(sed -n 's/^previous=//p' "$state")" = "$PUBLIC_GENERATION"
+          current="$HOME/.local/lib/codex/core/generations/$FIXTURE_GENERATION"
+          previous="$HOME/.local/lib/codex/core/generations/$PUBLIC_GENERATION"
+          test "$(awk -F '\t' '$1=="release_sequence"{print $2}' "$current/release.manifest")" = "$FIXTURE_SEQUENCE"
+          test "$(awk -F '\t' '$1=="release_sequence"{print $2}' "$previous/release.manifest")" = "$PUBLIC_SEQUENCE"
+          cmp "$PREFIX/bin/codex" "$current/core"
+
+          "$PREFIX/bin/codex" --version             > "$RUNNER_TEMP/rald6-fixture-version.out"             2> "$RUNNER_TEMP/rald6-fixture-version.err"
+          printf 'codex-cli %s\n' "$PUBLIC_VERSION" > "$RUNNER_TEMP/rald6-fixture-version.expected"
+          cmp "$RUNNER_TEMP/rald6-fixture-version.expected" "$RUNNER_TEMP/rald6-fixture-version.out"
+
+          snapshot() {
+            python3 - "$HOME/.local/share/codex/core" "$HOME/.local/lib/codex/core" "$PREFIX/bin/codex" <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+          import sys
+
+          for raw in sys.argv[1:]:
+              root = Path(raw)
+              if root.is_symlink():
+                  print(f"L\t{root}\t{os.readlink(root)}")
+                  continue
+              if root.is_file():
+                  print(f"F\t{root}\t{root.stat().st_mode & 0o7777:04o}\t{hashlib.sha256(root.read_bytes()).hexdigest()}")
+                  continue
+              if not root.is_dir():
+                  print(f"M\t{root}")
+                  continue
+              for path in sorted(root.rglob("*")):
+                  rel = path.relative_to(root)
+                  if path.is_symlink():
+                      print(f"L\t{root}\t{rel}\t{os.readlink(path)}")
+                  elif path.is_file():
+                      print(f"F\t{root}\t{rel}\t{path.stat().st_mode & 0o7777:04o}\t{hashlib.sha256(path.read_bytes()).hexdigest()}")
+                  elif path.is_dir():
+                      print(f"D\t{root}\t{rel}")
+          PY
+          }
+
+          snapshot > "$RUNNER_TEMP/rald6-fixture-before-noop"
+          "$PREFIX/bin/codex" update             > "$RUNNER_TEMP/rald6-fixture-noop.out"             2> "$RUNNER_TEMP/rald6-fixture-noop.err"
+          printf 'codex is already up to date (generation %s)\n' "$FIXTURE_GENERATION"             > "$RUNNER_TEMP/rald6-fixture-noop.expected"
+          cmp "$RUNNER_TEMP/rald6-fixture-noop.expected" "$RUNNER_TEMP/rald6-fixture-noop.out"
+          snapshot > "$RUNNER_TEMP/rald6-fixture-after-noop"
+          diff -u "$RUNNER_TEMP/rald6-fixture-before-noop" "$RUNNER_TEMP/rald6-fixture-after-noop"
+
+          test "$(git ls-remote --exit-code "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/main | awk '{print $1}')" =             "$EXPECTED_MAIN_SHA"
+          /usr/bin/curl --fail --silent --show-error --location --proto '=https' --tlsv1.2             --connect-timeout 15 --max-time 60             --output "$RUNNER_TEMP/rald6-final-public-index"             "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$EXPECTED_MAIN_SHA/update-index-v1"
+          test "$(awk -F '\t' '$1=="generation_id"{print $2}' "$RUNNER_TEMP/rald6-final-public-index")" =             "$PUBLIC_GENERATION"
+
+      - name: Remove disposable Android and Termux roots
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if sudo test -e /system; then
+            sudo rm -rf /system
+          fi
+          if sudo test -e /data/data/com.termux; then
+            sudo rm -rf /data/data/com.termux
+          fi
+          sudo test ! -e /system
+          sudo test ! -e /data/data/com.termux
