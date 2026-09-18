@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  EXPECTED_PARENT: 'd9a82b3bdbe23c0e0d443c982fe6dbb4ae06c874'
+  EXPECTED_PARENT: '5a65ea7cea7b612db52df0300e6d001fe2d72a67'
   EXPECTED_MAIN: '9aa8be4c63fe8d60dea130b979c0c12d1a5164bc'
   LEGACY_SOURCE: '0621105fd1be8461b370466fbfa981938241074d'
   LEGACY_VERSION: '0.153.4'
@@ -240,12 +240,108 @@ jobs:
           cp /etc/ssl/certs/ca-certificates.crt "$PREFIX/etc/tls/cert.pem"
           mkdir -p "$HOME/.local/share/codex/core/config"
 
-          /bin/sh legacy/bootstrap/codex-bootstrap             "$release/core" "$release" "$work/update-public-key.pem"
+          # Reconstruct an already-installed sequence-7 client. The historical
+          # fresh bootstrap itself required credential-healthy upstream doctor;
+          # that is not part of the long-idle update question.
+          openssl pkeyutl -verify -rawin -pubin -inkey "$work/update-public-key.pem" \
+            -in "$release/release.manifest" -sigfile "$release/release.sig" >/dev/null
+          generation_root="$HOME/.local/lib/codex/core/generations"
+          legacy_dir="$generation_root/$LEGACY_GENERATION"
+          state_root="$HOME/.local/share/codex/core"
+          mkdir -p "$generation_root" "$state_root/config"
+          python3 - "$release" "$legacy_dir" <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path, PurePosixPath
+          import shutil
+          import stat
+          import sys
+
+          source = Path(sys.argv[1])
+          destination = Path(sys.argv[2])
+          if destination.exists():
+              raise SystemExit("legacy destination already exists")
+          manifest = source / "release.manifest"
+          data = manifest.read_bytes()
+          if len(data) > 128 * 1024 or not data.endswith(b"\n"):
+              raise SystemExit("legacy manifest is not bounded canonical text")
+          lines = data.decode("utf-8").splitlines()
+          if not lines or lines[0] != "codex-release-v4":
+              raise SystemExit("legacy manifest is not v4")
+          headers = {}
+          for line in lines[1:10]:
+              parts = line.split("\t")
+              if len(parts) != 2 or parts[0] in headers:
+                  raise SystemExit("legacy manifest header is invalid")
+              headers[parts[0]] = parts[1]
+          if headers.get("generation_id") != destination.name:
+              raise SystemExit("legacy generation id mismatch")
+          if headers.get("release_sequence") != "7":
+              raise SystemExit("legacy release sequence mismatch")
+          count = int(headers.get("file_count", "0"))
+          records = lines[10:]
+          if count != len(records) or count <= 0:
+              raise SystemExit("legacy inventory count mismatch")
+          destination.mkdir(mode=0o755)
+          seen = set()
+          for line in records:
+              parts = line.split("\t")
+              if len(parts) != 4 or parts[0] != "file":
+                  raise SystemExit("legacy manifest file record is invalid")
+              rel, digest, mode = parts[1:]
+              pure = PurePosixPath(rel)
+              if pure.is_absolute() or ".." in pure.parts or rel in seen:
+                  raise SystemExit("legacy manifest path is unsafe")
+              if mode not in {"0644", "0755"}:
+                  raise SystemExit("legacy manifest mode is invalid")
+              seen.add(rel)
+              src = source / rel
+              st = src.lstat()
+              if not stat.S_ISREG(st.st_mode) or src.is_symlink():
+                  raise SystemExit("legacy source is not a regular file: " + rel)
+              if hashlib.sha256(src.read_bytes()).hexdigest() != digest:
+                  raise SystemExit("legacy source digest mismatch: " + rel)
+              if f"{stat.S_IMODE(st.st_mode):04o}" != mode:
+                  raise SystemExit("legacy source mode mismatch: " + rel)
+              target = destination / rel
+              target.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copyfile(src, target)
+              os.chmod(target, int(mode, 8))
+          for name in ("release.manifest", "release.sig"):
+              src = source / name
+              st = src.lstat()
+              if not stat.S_ISREG(st.st_mode) or src.is_symlink():
+                  raise SystemExit("legacy authority file is unsafe: " + name)
+              shutil.copyfile(src, destination / name)
+              os.chmod(destination / name, 0o644)
+          PY
+
+          openssl pkey -pubin -in "$work/update-public-key.pem" -pubout -outform DER > "$RUNNER_TEMP/legacy-public.der"
+          test "$(wc -c < "$RUNNER_TEMP/legacy-public.der")" -eq 44
+          manifest_key="$(awk -F '\t' '$1=="release_public_key"{print $2}' "$legacy_dir/release.manifest")"
+          authority_key="$(tail -c 32 "$RUNNER_TEMP/legacy-public.der" | od -An -vtx1 | tr -d ' \n')"
+          test "$manifest_key" = "$authority_key"
+          install -m 0644 "$work/update-public-key.pem" "$HOME/.local/lib/codex/core/release-public-key.pem"
+          state="$state_root/activation-state"
+          cat > "$state" <<EOF
+          format=codex-activation-state-v3
+          update_key=$manifest_key
+          current=$LEGACY_GENERATION
+          current_key=$manifest_key
+          previous_present=0
+          previous=
+          previous_key=
+          EOF
+          chmod 0644 "$state"
+          install -m 0755 "$legacy_dir/core" "$PREFIX/bin/codex"
+          test ! -e "$state_root/activation-journal"
+          test ! -e "$state_root/activation-journal.tmp"
+          test ! -e "$state_root/activation-state.tmp"
+          cmp "$PREFIX/bin/codex" "$legacy_dir/core"
           test -x "$PREFIX/bin/codex"
           "$PREFIX/bin/codex" --version > "$RUNNER_TEMP/legacy-before-version"
           printf 'codex-cli %s\n' "$LEGACY_VERSION" > "$RUNNER_TEMP/legacy-before-version.expected"
           cmp "$RUNNER_TEMP/legacy-before-version.expected" "$RUNNER_TEMP/legacy-before-version"
-          state="$HOME/.local/share/codex/core/activation-state"
           test "$(sed -n 's/^current=//p' "$state")" = "$LEGACY_GENERATION"
           test "$(sed -n 's/^previous_present=//p' "$state")" = 0
           test -z "$(printenv CODEX_TERMUX_UPDATE_INDEX_URL 2>/dev/null || true)"
@@ -275,6 +371,12 @@ jobs:
           }
 
           snapshot > "$RUNNER_TEMP/legacy-before-jump"
+          cp "$state" "$RUNNER_TEMP/legacy-state-before"
+          sha256sum "$PREFIX/bin/codex" > "$RUNNER_TEMP/legacy-launcher-before"
+          find "$legacy_dir" -type f -printf '%P\n' | LC_ALL=C sort > "$RUNNER_TEMP/legacy-files-before"
+          while IFS= read -r rel; do
+            sha256sum "$legacy_dir/$rel"
+          done < "$RUNNER_TEMP/legacy-files-before" > "$RUNNER_TEMP/legacy-digests-before"
           set +e
           "$PREFIX/bin/codex" update > "$RUNNER_TEMP/jump.out" 2> "$RUNNER_TEMP/jump.err"
           jump_rc=$?
@@ -285,9 +387,19 @@ jobs:
             cat "$RUNNER_TEMP/jump.err"
             printf '%s\n' '--- jump stdout ---'
             cat "$RUNNER_TEMP/jump.out"
-            snapshot > "$RUNNER_TEMP/legacy-after-failed-jump"
-            diff -u "$RUNNER_TEMP/legacy-before-jump" "$RUNNER_TEMP/legacy-after-failed-jump"
+            cmp "$RUNNER_TEMP/legacy-state-before" "$state"
+            sha256sum "$PREFIX/bin/codex" > "$RUNNER_TEMP/legacy-launcher-after"
+            cmp "$RUNNER_TEMP/legacy-launcher-before" "$RUNNER_TEMP/legacy-launcher-after"
+            find "$legacy_dir" -type f -printf '%P\n' | LC_ALL=C sort > "$RUNNER_TEMP/legacy-files-after"
+            diff -u "$RUNNER_TEMP/legacy-files-before" "$RUNNER_TEMP/legacy-files-after"
+            while IFS= read -r rel; do
+              sha256sum "$legacy_dir/$rel"
+            done < "$RUNNER_TEMP/legacy-files-after" > "$RUNNER_TEMP/legacy-digests-after"
+            cmp "$RUNNER_TEMP/legacy-digests-before" "$RUNNER_TEMP/legacy-digests-after"
             test "$(sed -n 's/^current=//p' "$state")" = "$LEGACY_GENERATION"
+            test ! -e "$state_root/activation-journal"
+            test ! -e "$state_root/activation-journal.tmp"
+            test ! -e "$state_root/activation-state.tmp"
             exit "$jump_rc"
           fi
 
