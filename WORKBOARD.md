@@ -313,9 +313,27 @@ behavior belongs in `SPEC.md`.
   intentionally unused in production cfg. Rename it to `_manifest` without any
   behavioral change and rerun every gate. `main` and public stable are still
   unchanged.
+- RALD-7 source acceptance run `35297704150` is green, and activation commit
+  `17ccd88f02b00d040e2aea7bd417e98bb53ff630` installed the accepted producer
+  and Pages reusable workflow on `main` without changing the signed stable
+  index. During activated dry-run, official upstream advanced to `0.155.0`.
+  Producer run `35298325500` authenticated public sequence 11, resolved exact
+  official 0.155.0 metadata/digest, cross-built Core/Manager, then failed closed
+  before artifact upload/signing/publication because the release-builder still
+  required the historical exhaustive 0.154 archive resource list. Probe run
+  `35298499738` proved the official 0.155.0 package remains
+  `layoutVersion=1` with the same requested version/target/variant/entrypoint
+  contract and the same selected `bin/codex` plus
+  `bin/codex-code-mode-host`, while adding a bounded voice-resource subtree.
+  The exact-resource whitelist is therefore replaced normatively by semantic
+  layoutVersion-1 validation plus strict tar safety/size/type bounds. This is
+  intended to tolerate non-selected resource evolution across future upstream
+  versions without weakening selected-binary or patch qualification. The failed
+  candidate run reached no signing secret, Release, Pages, CAS, or stable
+  mutation.
 - Public stable remains signed sequence 11 generation
-  `local-hosted-0-154-0-37fbbd8033b8-rald45-transition`; RALD-6 created no
-  public stable advancement.
+  `local-hosted-0-154-0-37fbbd8033b8-rald45-transition`; no RALD-7 candidate
+  has advanced it yet.
 - `legacy/monolith` remains sealed at
   `bf30a7dc94d4dad7f58836c69028160856e63c58`.
 - Worker mode remains OFF.

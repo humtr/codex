@@ -565,29 +565,34 @@ regular file is at most 384 MiB, and total regular-file payload is at most
 unknown entry types, malformed headers, and nonzero trailing content are
 rejected. Archive ownership and modes are not output authority.
 
-The archive contains exactly these directories and regular files:
+The official archive is admitted by its **layout-version semantic contract**,
+not by a version-specific exhaustive resource inventory. Every tar entry must
+still use one canonical relative UTF-8 path, be a regular file or directory
+(except the already bounded PAX mtime header), be unique, and remain inside the
+entry-count, per-file, and total-payload ceilings. Symlinks, hardlinks, special
+files, path traversal, non-canonical paths, malformed headers, duplicate paths,
+and unsupported PAX metadata fail closed. Unselected archive files are streamed
+and discarded; they are never materialized in the candidate generation.
 
-```text
-bin/
-bin/codex
-bin/codex-code-mode-host
-codex-package.json
-codex-path/
-codex-path/rg
-codex-resources/
-codex-resources/bwrap
-codex-resources/zsh/
-codex-resources/zsh/bin/
-codex-resources/zsh/bin/zsh
-```
-
-`codex-package.json` must bind layout version `1`, the requested version, target
+`codex-package.json` is parsed semantically as one bounded JSON object. It must
+bind layout version `1`, the requested version, target
 `aarch64-unknown-linux-musl`, variant `codex`, entrypoint `bin/codex`, resources
-directory `codex-resources`, and path directory `codex-path`. `bin/codex` and
-`bin/codex-code-mode-host` must be little-endian 64-bit AArch64 ELF files with
-no `PT_INTERP`. They are the only selected binaries. The Linux `rg` and `zsh`
-artifacts are excluded, and `bwrap` is excluded by the Section 5 sandbox
-contract.
+directory `codex-resources`, and path directory `codex-path`. Object member
+ordering and insignificant JSON whitespace are not authority. Unknown extension
+members may be ignored only when they are valid bounded JSON values and do not
+duplicate a member name; changing any required semantic field or the layout
+version fails closed.
+
+The archive must contain exactly one regular `bin/codex`, exactly one regular
+`bin/codex-code-mode-host`, and exactly one regular `codex-package.json`.
+Those two binaries are the only selected upstream executables and must be
+little-endian 64-bit static AArch64 ELF files with no `PT_INTERP`. Other bounded
+regular files/directories, including additions or removals below the declared
+resource/path directories and future non-selected package resources, do not
+change the Termux generation and therefore do not by themselves require a
+wrapper release-builder change. Linux-side helpers such as `rg`, `zsh`,
+`bwrap`, voice resources, or later package resources remain excluded unless a
+separate normative contract explicitly selects them.
 
 Patch policy `termux-fd-remap-v1` changes only `bin/codex` through these
 equal-length substitutions:
