@@ -7994,11 +7994,9 @@ fn fetch_verified_remote_release_file(
         })?
         .permissions();
     permissions.set_mode(file.mode);
-    std::fs::set_permissions(&destination, permissions).map_err(|source| {
-        LocalProductError::Io {
-            operation: "apply signed remote release file mode",
-            source,
-        }
+    std::fs::set_permissions(&destination, permissions).map_err(|source| LocalProductError::Io {
+        operation: "apply signed remote release file mode",
+        source,
     })
 }
 
@@ -20398,9 +20396,7 @@ exit 2
             output.stderr
         );
         let terminal = String::from_utf8(output.stdout).unwrap();
-        let checking = terminal
-            .find("\r\x1b[2K⠋ Checking for updates...")
-            .unwrap();
+        let checking = terminal.find("\r\x1b[2K⠋ Checking for updates...").unwrap();
         let header = terminal
             .find("Updating the Termux release for Codex 9.9.9...")
             .unwrap();
