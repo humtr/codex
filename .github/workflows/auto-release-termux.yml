@@ -9,7 +9,7 @@ on:
         type: boolean
         default: false
       rald5_publication_authorized:
-        description: 'Explicitly authorize RALD-5 public Release/Pages/promotion mutation for this run'
+        description: 'Explicitly authorize public Release/Pages/promotion for this manual run; RALD-7 schedules authorize only ordinary newer stable'
         required: false
         type: boolean
         default: false
@@ -183,7 +183,7 @@ jobs:
         shell: bash
         env:
           RALD4_POSITIVE_GATE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald4_positive_gate }}
-          RALD5_PUBLICATION_AUTHORIZED: ${{ github.event_name == 'workflow_dispatch' && inputs.rald5_publication_authorized }}
+          RALD5_PUBLICATION_AUTHORIZED: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.rald5_publication_authorized) }}
           RALD5_SAME_VERSION_ACCEPTANCE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald5_same_version_acceptance }}
           RALD45_TRANSITION_STAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald45_transition_stage }}
           RALD45_TRANSITION_PROMOTE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald45_transition_promote }}
@@ -231,7 +231,20 @@ jobs:
             test "$RALD5_NEGATIVE_GATE" != true
           fi
           if test "$RALD5_PUBLICATION_AUTHORIZED" = true; then
-            test "$GITHUB_EVENT_NAME" = workflow_dispatch
+            case "$GITHUB_EVENT_NAME" in
+              workflow_dispatch)
+                ;;
+              schedule)
+                test "$RALD4_POSITIVE_GATE" != true
+                test "$RALD5_SAME_VERSION_ACCEPTANCE" != true
+                test "$RALD45_TRANSITION_STAGE" != true
+                test "$RALD45_TRANSITION_PROMOTE" != true
+                test "$RALD5_NEGATIVE_GATE" != true
+                ;;
+              *)
+                exit 1
+                ;;
+            esac
           fi
           if test "$RALD5_SAME_VERSION_ACCEPTANCE" = true; then
             test "$GITHUB_EVENT_NAME" = workflow_dispatch
