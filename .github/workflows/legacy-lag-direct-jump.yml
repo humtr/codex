@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  EXPECTED_PARENT: 'f7b11b147dce773386804bf0aa4cc6d3cd3176a3'
+  EXPECTED_PARENT: 'd9a82b3bdbe23c0e0d443c982fe6dbb4ae06c874'
   EXPECTED_MAIN: '9aa8be4c63fe8d60dea130b979c0c12d1a5164bc'
   LEGACY_SOURCE: '0621105fd1be8461b370466fbfa981938241074d'
   LEGACY_VERSION: '0.153.4'
@@ -28,6 +28,7 @@ env:
   PUBLIC_KEY_SHA256: '62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c'
   RUST_VERSION: '1.98.0'
   ANDROID_API: '24'
+  LEGACY_BUILD_ANDROID_API: '30'
   ANDROID_NDK_VERSION: '27.3.13750724'
   ANDROID_RUNTIME_APEX_COMMIT: '8aeb37cca394ce39c1311744c60960cbd466aa77'
   ANDROID_RUNTIME_APEX_SHA256: '83bf0dce249728dae48149b80d28b48115c54adad95a352120d58a6ac669d1fc'
@@ -63,9 +64,11 @@ jobs:
           rustup toolchain install "$RUST_VERSION" --profile minimal --target aarch64-linux-android
           ndk="$ANDROID_SDK_ROOT/ndk/$ANDROID_NDK_VERSION"
           toolchain="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          linker="$toolchain/aarch64-linux-android$ANDROID_API-clang"
+          linker="$toolchain/aarch64-linux-android$LEGACY_BUILD_ANDROID_API-clang"
           test -x "$linker"
           test -x "$toolchain/llvm-ar"
+          nm -D "$ndk/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/$LEGACY_BUILD_ANDROID_API/libc.so" |
+            grep -Eq '[[:space:]]renameat2(@@|$)'
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$linker"
           export CC_aarch64_linux_android="$linker"
           export AR_aarch64_linux_android="$toolchain/llvm-ar"
