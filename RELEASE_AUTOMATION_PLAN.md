@@ -750,9 +750,14 @@ Activation order after source acceptance:
    `main` without changing `update-index-v1`;
 3. run a manual dry-run/preflight on GitHub-hosted Actions;
 4. run one real candidate cycle only after all preflight evidence is green;
-5. allow stable promotion only through the same automatic gates that future
-   scheduled runs use;
-6. record accepted evidence in `GOAL.md` and close the bundle in `WORKBOARD.md`.
+5. activate the six-hour `schedule` as publication authority only for an
+   ordinary strictly-newer official candidate; scheduled acceptance-only,
+   same-version, transition, and negative-test controls remain false, while
+   manual dispatch continues to require explicit publication authorization;
+6. run one real newer-version candidate cycle through the same
+   build/smoke/sign/Release/Pages/readback/disposable-runtime/non-forced-CAS
+   gates that future scheduled runs use;
+7. record accepted evidence in `GOAL.md` and close the bundle in `WORKBOARD.md`.
 
 ## 8. Failure and recovery matrix
 

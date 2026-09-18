@@ -484,9 +484,28 @@ never invokes, installs, selects, or repairs `bwrap`.
 Core runtime has no official publication path and never invokes
 `$PREFIX/bin/gh`. Any later authorized official producer must keep signing and
 publication authority outside Core; GitHub authentication alone never authorizes
-publication. When such a producer is authorized to publish, its complete official
-candidate targets the fixed wrapper repository `humtr/codex` and the selected
-stable publication ref. A release whose
+publication.
+
+After RALD-7 activation, the installed repository-owned six-hour `schedule`
+event is itself the production publication authorization **only** for the
+ordinary path where the independently authenticated official upstream stable is
+strictly newer than the independently authenticated wrapper public stable. A
+scheduled run must have every acceptance-only control false: RALD-4 positive
+acceptance, RALD-5 same-version acceptance, RALD-4.5 transition stage/promotion,
+and the RALD-5 negative gate. Equality remains an exact-current no-op, and an
+older/malformed/unavailable upstream remains fail-closed. A manual
+`workflow_dispatch` still requires its explicit publication-authorization
+input before any Release/Pages/stable mutation; merely being manually dispatched
+or GitHub-authenticated grants no publication authority. The scheduled and
+explicitly authorized manual ordinary-newer paths converge on the **same**
+candidate qualification, production-key match/signing, immutable Release
+staging, LKG-preserving Pages deployment, complete public HTTPS readback,
+disposable update/runtime/doctor/no-op proof, and non-forced exact-parent CAS.
+No schedule event can enable a same-version or transition acceptance bypass.
+
+When such a producer is authorized to publish, its complete official candidate
+targets the fixed wrapper repository `humtr/codex` and the selected stable
+publication ref. A release whose
 complete signed file inventory is flat may use
 immutable GitHub Release assets under a tag equal to the validated generation
 identity; the signed index's `release_base` is then the matching
