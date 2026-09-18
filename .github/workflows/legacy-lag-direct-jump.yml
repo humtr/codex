@@ -1,0 +1,355 @@
+name: Legacy-lag direct jump proof
+
+on:
+  push:
+    branches:
+      - rewrite/rust-core
+    paths:
+      - .github/workflows/legacy-lag-direct-jump.yml
+      - WORKBOARD.md
+
+permissions:
+  contents: read
+
+concurrency:
+  group: legacy-lag-direct-jump
+  cancel-in-progress: false
+
+env:
+  EXPECTED_PARENT: 'f7b11b147dce773386804bf0aa4cc6d3cd3176a3'
+  EXPECTED_MAIN: '9aa8be4c63fe8d60dea130b979c0c12d1a5164bc'
+  LEGACY_SOURCE: '0621105fd1be8461b370466fbfa981938241074d'
+  LEGACY_VERSION: '0.153.4'
+  LEGACY_ARCHIVE_SHA256: 'fc395cb043a1093ab0db34f44aba3199bfaa9ce640cd9be7fd588f44b0da64a4'
+  LEGACY_GENERATION: 'legacy-lag-seq7-r10-01534'
+  CURRENT_GENERATION: 'local-hosted-0-155-0-566034e1aff4'
+  CURRENT_VERSION: '0.155.0'
+  CURRENT_SEQUENCE: '12'
+  PUBLIC_KEY_SHA256: '62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c'
+  RUST_VERSION: '1.98.0'
+  ANDROID_API: '24'
+  ANDROID_NDK_VERSION: '27.3.13750724'
+  ANDROID_RUNTIME_APEX_COMMIT: '8aeb37cca394ce39c1311744c60960cbd466aa77'
+  ANDROID_RUNTIME_APEX_SHA256: '83bf0dce249728dae48149b80d28b48115c54adad95a352120d58a6ac669d1fc'
+
+jobs:
+  legacy-core:
+    name: Rebuild exact historical R10 Core source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Bind one-shot source and protected public state
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init trigger
+          git -C trigger remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git -C trigger fetch --no-tags --depth=2 origin "$GITHUB_SHA"
+          git -C trigger checkout --detach FETCH_HEAD
+          test "$(git -C trigger rev-parse HEAD^)" = "$EXPECTED_PARENT"
+          test "$(git ls-remote --exit-code "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/main | awk '{print $1}')" = "$EXPECTED_MAIN"
+
+      - name: Cross-build historical Android/AArch64 Core
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init legacy
+          git -C legacy remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git -C legacy fetch --no-tags --depth=1 origin "$LEGACY_SOURCE"
+          git -C legacy checkout --detach FETCH_HEAD
+          test "$(git -C legacy rev-parse HEAD)" = "$LEGACY_SOURCE"
+          test -z "$(git -C legacy status --porcelain)"
+
+          rustup toolchain install "$RUST_VERSION" --profile minimal --target aarch64-linux-android
+          ndk="$ANDROID_SDK_ROOT/ndk/$ANDROID_NDK_VERSION"
+          toolchain="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          linker="$toolchain/aarch64-linux-android$ANDROID_API-clang"
+          test -x "$linker"
+          test -x "$toolchain/llvm-ar"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$linker"
+          export CC_aarch64_linux_android="$linker"
+          export AR_aarch64_linux_android="$toolchain/llvm-ar"
+          cargo "+$RUST_VERSION" build --manifest-path legacy/Cargo.toml             --release --locked --target aarch64-linux-android -p codex
+          core="$GITHUB_WORKSPACE/legacy/target/aarch64-linux-android/release/codex"
+          test -x "$core"
+          file "$core" | grep -F 'ARM aarch64'
+          readelf -h "$core" | grep -Eq 'Machine:[[:space:]]+AArch64'
+          readelf -l "$core" | grep -F '/system/bin/linker64'
+          mkdir -p "$RUNNER_TEMP/legacy-r10"
+          cp "$core" "$RUNNER_TEMP/legacy-r10/core"
+          chmod 0755 "$RUNNER_TEMP/legacy-r10/core"
+          sha256sum "$RUNNER_TEMP/legacy-r10/core"
+          tar -cf "$RUNNER_TEMP/legacy-r10-core.tar" -C "$RUNNER_TEMP/legacy-r10" core
+
+      - name: Upload unsigned historical Core only
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: legacy-r10-core
+          path: ${{ runner.temp }}/legacy-r10-core.tar
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  direct-jump:
+    name: Sequence 7 directly to current public stable
+    needs: legacy-core
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    steps:
+      - name: Bind exact historical source and current public authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = aarch64
+          test "$(git ls-remote --exit-code "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/main | awk '{print $1}')" = "$EXPECTED_MAIN"
+          git init legacy
+          git -C legacy remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git -C legacy fetch --no-tags --depth=1 origin "$LEGACY_SOURCE"
+          git -C legacy checkout --detach FETCH_HEAD
+          test "$(git -C legacy rev-parse HEAD)" = "$LEGACY_SOURCE"
+
+          root="$RUNNER_TEMP/legacy-jump"
+          mkdir -p "$root"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2             --connect-timeout 15 --max-time 60 --max-filesize 16384             --output "$root/update-public-key.pem"             "https://github.com/$GITHUB_REPOSITORY/releases/download/$CURRENT_GENERATION/update-public-key.pem"
+          test "$(sha256sum "$root/update-public-key.pem" | awk '{print $1}')" = "$PUBLIC_KEY_SHA256"
+
+          exact="https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$EXPECTED_MAIN"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2             --connect-timeout 15 --max-time 60 --max-filesize 16384             --output "$root/current-index" "$exact/update-index-v1"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2             --connect-timeout 15 --max-time 60 --max-filesize 1024             --output "$root/current-index.sig" "$exact/update-index-v1.sig"
+          openssl pkeyutl -verify -rawin -pubin -inkey "$root/update-public-key.pem"             -in "$root/current-index" -sigfile "$root/current-index.sig" >/dev/null
+          test "$(awk -F '\t' '$1=="generation_id"{print $2}' "$root/current-index")" = "$CURRENT_GENERATION"
+          release_base="$(awk -F '\t' '$1=="release_base"{print $2}' "$root/current-index")"
+          test "$release_base" = "https://humtr.github.io/codex/$CURRENT_GENERATION/"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2             --connect-timeout 15 --max-time 60 --max-filesize 131072             --output "$root/current-manifest" "$release_base"release.manifest
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2             --connect-timeout 15 --max-time 60 --max-filesize 1024             --output "$root/current-release.sig" "$release_base"release.sig
+          openssl pkeyutl -verify -rawin -pubin -inkey "$root/update-public-key.pem"             -in "$root/current-manifest" -sigfile "$root/current-release.sig" >/dev/null
+          test "$(awk -F '\t' '$1=="release_sequence"{print $2}' "$root/current-manifest")" = "$CURRENT_SEQUENCE"
+          test "$(awk -F '\t' '$1=="generation_id"{print $2}' "$root/current-manifest")" = "$CURRENT_GENERATION"
+
+      - name: Download rebuilt historical Core
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: legacy-r10-core
+          path: ${{ runner.temp }}/legacy-r10-download
+
+      - name: Provision pinned Android bionic userspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          for tool in curl base64 unzip debugfs file readelf sha256sum; do
+            command -v "$tool" >/dev/null
+          done
+          sudo test ! -e /system
+          root="$RUNNER_TEMP/legacy-bionic"
+          mkdir -p "$root/bin" "$root/lib64/bionic"
+          apex_url="https://android.googlesource.com/platform/prebuilts/runtime/+/$ANDROID_RUNTIME_APEX_COMMIT/mainline/runtime/apex/com.android.runtime-arm64.apex?format=TEXT"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2             --connect-timeout 15 --max-time 120 --max-filesize 20971520             --output "$root/runtime.apex.b64" "$apex_url"
+          base64 --decode "$root/runtime.apex.b64" > "$root/runtime.apex"
+          test "$(wc -c < "$root/runtime.apex")" -eq 13881344
+          test "$(sha256sum "$root/runtime.apex" | awk '{print $1}')" = "$ANDROID_RUNTIME_APEX_SHA256"
+          unzip -p "$root/runtime.apex" apex_payload.img > "$root/apex_payload.img"
+          test "$(wc -c < "$root/apex_payload.img")" -eq 13783040
+          debugfs -R "dump -p /bin/linker64 $root/bin/linker64" "$root/apex_payload.img" >/dev/null 2>&1
+          for library in libc.so libdl.so libm.so; do
+            debugfs -R "dump -p /lib64/bionic/$library $root/lib64/bionic/$library"               "$root/apex_payload.img" >/dev/null 2>&1
+          done
+          sudo mkdir -p /system/bin /system/lib64
+          sudo install -m 0755 "$root/bin/linker64" /system/bin/linker64
+          for library in libc.so libdl.so libm.so; do
+            sudo install -m 0644 "$root/lib64/bionic/$library" "/system/lib64/$library"
+          done
+          file /system/bin/linker64 | grep -F 'ARM aarch64'
+          readelf -h /system/bin/linker64 | grep -Eq 'Machine:[[:space:]]+AArch64'
+
+      - name: Reconstruct unsigned sequence-7 R10 fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/legacy-jump"
+          tar -xf "$RUNNER_TEMP/legacy-r10-download/legacy-r10-core.tar" -C "$work"
+          test -x "$work/core"
+          readelf -l "$work/core" | grep -F '/system/bin/linker64'
+
+          cargo "+$RUST_VERSION" build --manifest-path legacy/Cargo.toml             --release --locked -p codex-release-builder
+          builder="$GITHUB_WORKSPACE/legacy/target/release/codex-release-builder"
+          test -x "$builder"
+          archive="$work/codex-package-aarch64-unknown-linux-musl.tar.gz"
+          "$builder" fetch --version "$LEGACY_VERSION" --curl /usr/bin/curl             --openssl /usr/bin/openssl --output "$archive" > "$work/fetch.out"
+          test "$(sha256sum "$archive" | awk '{print $1}')" = "$LEGACY_ARCHIVE_SHA256"
+
+          "$builder" build --version "$LEGACY_VERSION"             --archive "$archive" --archive-sha256 "$LEGACY_ARCHIVE_SHA256"             --generation-id "$LEGACY_GENERATION" --core "$work/core"             --creation-metadata legacy-lag-direct-jump-v1             --gzip /usr/bin/gzip --openssl /usr/bin/openssl             --output "$work/legacy-generation"
+          test "$(sed -n 's/^generation_id\t//p' "$work/legacy-generation/generation.meta")" = "$LEGACY_GENERATION"
+          test "$(sed -n 's/^upstream_package_version\t//p' "$work/legacy-generation/generation.meta")" = "$LEGACY_VERSION"
+          test "$(sed -n 's/^upstream_doctor\t//p' "$work/legacy-generation/generation.meta")" = supported
+          cmp "$work/core" "$work/legacy-generation/core"
+
+      - name: Sign private legacy fixture with existing production authority
+        shell: bash
+        env:
+          CODEX_RELEASE_SIGNING_KEY: ${{ secrets.CODEX_RELEASE_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/legacy-jump"
+          keydir="$RUNNER_TEMP/legacy-jump-key"
+          rm -rf "$keydir"
+          umask 077
+          mkdir "$keydir"
+          trap 'rm -rf "$keydir"' EXIT
+          printf '%s' "$CODEX_RELEASE_SIGNING_KEY" > "$keydir/private.pem"
+          test -s "$keydir/private.pem"
+          openssl pkey -in "$keydir/private.pem" -pubout -out "$keydir/derived-public.pem"
+          openssl pkey -pubin -in "$keydir/derived-public.pem" -pubout -outform DER > "$keydir/derived.der"
+          openssl pkey -pubin -in "$work/update-public-key.pem" -pubout -outform DER > "$keydir/accepted.der"
+          cmp "$keydir/derived.der" "$keydir/accepted.der"
+
+          builder="$GITHUB_WORKSPACE/legacy/target/release/codex-release-builder"
+          "$builder" publish --generation "$work/legacy-generation"             --release-sequence 7             --release-base "https://legacy-jump.invalid/$LEGACY_GENERATION/"             --private-key "$keydir/private.pem" --openssl /usr/bin/openssl             --output "$work/legacy-publication"
+          release="$work/legacy-publication/releases/$LEGACY_GENERATION"
+          test -d "$release"
+          openssl pkeyutl -verify -rawin -pubin -inkey "$work/update-public-key.pem"             -in "$release/release.manifest" -sigfile "$release/release.sig" >/dev/null
+          test "$(awk -F '\t' '$1=="release_sequence"{print $2}' "$release/release.manifest")" = 7
+          test "$(awk -F '\t' '$1=="generation_id"{print $2}' "$release/release.manifest")" = "$LEGACY_GENERATION"
+          unset CODEX_RELEASE_SIGNING_KEY
+          rm -rf "$keydir"
+          trap - EXIT
+          test ! -e "$keydir"
+
+      - name: Bootstrap historical Core and jump directly to public sequence 12
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/legacy-jump"
+          release="$work/legacy-publication/releases/$LEGACY_GENERATION"
+          export HOME=/data/data/com.termux/files/home
+          export PREFIX=/data/data/com.termux/files/usr
+          export TMPDIR=/data/data/com.termux/files/usr/tmp
+          export PATH="$PREFIX/bin:/usr/bin:/bin"
+          export SSL_CERT_FILE="$PREFIX/etc/tls/cert.pem"
+          export SSL_CERT_DIR="$PREFIX/etc/tls/certs"
+          sudo mkdir -p "$HOME" "$PREFIX/bin" "$PREFIX/etc/tls/certs" "$TMPDIR"
+          sudo chown -R "$(id -u):$(id -g)" /data/data/com.termux
+          cp /usr/bin/curl "$PREFIX/bin/curl"
+          cp /usr/bin/openssl "$PREFIX/bin/openssl"
+          cp /usr/bin/script "$PREFIX/bin/script"
+          cp /usr/bin/gzip "$PREFIX/bin/gzip"
+          cp /bin/sh "$PREFIX/bin/sh"
+          cp /etc/resolv.conf "$PREFIX/etc/resolv.conf"
+          cp /etc/ssl/certs/ca-certificates.crt "$PREFIX/etc/tls/cert.pem"
+          mkdir -p "$HOME/.local/share/codex/core/config"
+
+          /bin/sh legacy/bootstrap/codex-bootstrap             "$release/core" "$release" "$work/update-public-key.pem"
+          test -x "$PREFIX/bin/codex"
+          "$PREFIX/bin/codex" --version > "$RUNNER_TEMP/legacy-before-version"
+          printf 'codex-cli %s\n' "$LEGACY_VERSION" > "$RUNNER_TEMP/legacy-before-version.expected"
+          cmp "$RUNNER_TEMP/legacy-before-version.expected" "$RUNNER_TEMP/legacy-before-version"
+          state="$HOME/.local/share/codex/core/activation-state"
+          test "$(sed -n 's/^current=//p' "$state")" = "$LEGACY_GENERATION"
+          test "$(sed -n 's/^previous_present=//p' "$state")" = 0
+          test -z "$(printenv CODEX_TERMUX_UPDATE_INDEX_URL 2>/dev/null || true)"
+
+          snapshot() {
+            python3 - "$HOME/.local/share/codex/core" "$HOME/.local/lib/codex/core" "$PREFIX/bin/codex" <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+          import sys
+          for raw in sys.argv[1:]:
+              root = Path(raw)
+              if root.is_symlink():
+                  print(f"L\t{root}\t{os.readlink(root)}")
+              elif root.is_file():
+                  print(f"F\t{root}\t{root.stat().st_mode & 0o7777:04o}\t{hashlib.sha256(root.read_bytes()).hexdigest()}")
+              elif root.is_dir():
+                  for path in sorted(root.rglob("*")):
+                      rel = path.relative_to(root)
+                      if path.is_symlink():
+                          print(f"L\t{root}\t{rel}\t{os.readlink(path)}")
+                      elif path.is_file():
+                          print(f"F\t{root}\t{rel}\t{path.stat().st_mode & 0o7777:04o}\t{hashlib.sha256(path.read_bytes()).hexdigest()}")
+                      elif path.is_dir():
+                          print(f"D\t{root}\t{rel}")
+          PY
+          }
+
+          snapshot > "$RUNNER_TEMP/legacy-before-jump"
+          set +e
+          "$PREFIX/bin/codex" update > "$RUNNER_TEMP/jump.out" 2> "$RUNNER_TEMP/jump.err"
+          jump_rc=$?
+          set -e
+          if test "$jump_rc" -ne 0; then
+            printf 'legacy_direct_jump_rc=%s\n' "$jump_rc"
+            printf '%s\n' '--- jump stderr ---'
+            cat "$RUNNER_TEMP/jump.err"
+            printf '%s\n' '--- jump stdout ---'
+            cat "$RUNNER_TEMP/jump.out"
+            snapshot > "$RUNNER_TEMP/legacy-after-failed-jump"
+            diff -u "$RUNNER_TEMP/legacy-before-jump" "$RUNNER_TEMP/legacy-after-failed-jump"
+            test "$(sed -n 's/^current=//p' "$state")" = "$LEGACY_GENERATION"
+            exit "$jump_rc"
+          fi
+
+          printf 'activated channel generation %s\n' "$CURRENT_GENERATION" > "$RUNNER_TEMP/jump.expected"
+          cmp "$RUNNER_TEMP/jump.expected" "$RUNNER_TEMP/jump.out"
+          test "$(sed -n 's/^current=//p' "$state")" = "$CURRENT_GENERATION"
+          test "$(sed -n 's/^previous_present=//p' "$state")" = 1
+          test "$(sed -n 's/^previous=//p' "$state")" = "$LEGACY_GENERATION"
+          current_dir="$HOME/.local/lib/codex/core/generations/$CURRENT_GENERATION"
+          legacy_dir="$HOME/.local/lib/codex/core/generations/$LEGACY_GENERATION"
+          test -d "$current_dir"
+          test -d "$legacy_dir"
+          cmp "$PREFIX/bin/codex" "$current_dir/core"
+          test "$(awk -F '\t' '$1=="release_sequence"{print $2}' "$current_dir/release.manifest")" = "$CURRENT_SEQUENCE"
+          test "$(awk -F '\t' '$1=="release_sequence"{print $2}' "$legacy_dir/release.manifest")" = 7
+          "$PREFIX/bin/codex" --version > "$RUNNER_TEMP/current-version"
+          printf 'codex-cli %s\n' "$CURRENT_VERSION" > "$RUNNER_TEMP/current-version.expected"
+          cmp "$RUNNER_TEMP/current-version.expected" "$RUNNER_TEMP/current-version"
+
+          set +e
+          "$PREFIX/bin/codex" doctor --json > "$RUNNER_TEMP/current-doctor"
+          doctor_rc=$?
+          set -e
+          test "$doctor_rc" -eq 0 -o "$doctor_rc" -eq 1
+          python3 - "$RUNNER_TEMP/current-doctor" "$doctor_rc" "$CURRENT_GENERATION" <<'PY'
+          import json
+          from pathlib import Path
+          import sys
+          report = json.loads(Path(sys.argv[1]).read_text())
+          rc = int(sys.argv[2])
+          generation = sys.argv[3]
+          if report.get("schema_version") != 2:
+              raise SystemExit("doctor schema mismatch")
+          upstream = report.get("upstream")
+          core = report.get("termux_core")
+          if not isinstance(upstream, dict) or upstream.get("status") not in {"healthy", "unhealthy"}:
+              raise SystemExit("upstream diagnostic did not actually run")
+          if not isinstance(upstream.get("output"), str) or len(upstream["output"].encode()) >= 32768:
+              raise SystemExit("upstream diagnostic output is invalid")
+          if not isinstance(core, dict) or core.get("status") != "healthy" or core.get("generation_id") != generation:
+              raise SystemExit("Termux Core is not healthy on current generation")
+          if core.get("runtime", {}).get("status") != "healthy":
+              raise SystemExit("runtime health is not healthy")
+          summary = report.get("summary", {}).get("status")
+          expected_rc = 0 if summary == "healthy" else 1
+          if rc != expected_rc:
+              raise SystemExit("doctor exit does not match report")
+          print("doctor_upstream_status=" + upstream["status"])
+          print("doctor_termux_core_status=healthy")
+          PY
+
+          snapshot > "$RUNNER_TEMP/current-before-noop"
+          "$PREFIX/bin/codex" update > "$RUNNER_TEMP/current-noop"
+          printf 'codex is already up to date (generation %s)\n' "$CURRENT_GENERATION" > "$RUNNER_TEMP/current-noop.expected"
+          cmp "$RUNNER_TEMP/current-noop.expected" "$RUNNER_TEMP/current-noop"
+          snapshot > "$RUNNER_TEMP/current-after-noop"
+          diff -u "$RUNNER_TEMP/current-before-noop" "$RUNNER_TEMP/current-after-noop"
+          test "$(git ls-remote --exit-code "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/main | awk '{print $1}')" = "$EXPECTED_MAIN"
+          printf 'legacy direct jump proved: %s/sequence7 -> %s/sequence%s\n'             "$LEGACY_VERSION" "$CURRENT_VERSION" "$CURRENT_SEQUENCE"
+
+      - name: Cleanup disposable Android and Termux roots
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo rm -rf /system /data/data/com.termux
+          sudo test ! -e /system
+          sudo test ! -e /data/data/com.termux

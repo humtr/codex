@@ -404,6 +404,20 @@ behavior belongs in `SPEC.md`.
   scheduled runs may publish only ordinary strictly-newer official stable
   through the accepted automatic gates; manual publication continues to require
   explicit authorization.
+- LEGACY-LAG direct-jump qualification is **active 2026-09-18** under explicit
+  user authorization. Scope is proof-only: reconstruct an isolated sequence-7
+  R10 client from exact historical source
+  `0621105fd1be8461b370466fbfa981938241074d` and exact official 0.153.4
+  archive SHA-256
+  `fc395cb043a1093ab0db34f44aba3199bfaa9ce640cd9be7fd588f44b0da64a4`,
+  bind the fixture to the existing production public authority as release
+  sequence 7 without publishing it, then run one ordinary no-argument
+  `codex update` directly against current signed public sequence 12
+  `local-hosted-0-155-0-566034e1aff4`. No update-index override, fake
+  credential/provider success, public stable mutation, Release/Pages write,
+  force push, or live-installation access is permitted. Failure must leave the
+  sequence-7 fixture authoritative and is compatibility evidence, not permission
+  to bypass a gate.
 - `legacy/monolith` remains sealed at
   `bf30a7dc94d4dad7f58836c69028160856e63c58`.
 - Worker mode remains OFF.
