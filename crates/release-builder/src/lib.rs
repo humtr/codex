@@ -24,8 +24,10 @@ const MANAGER_ARTIFACT_PROBE_OUTPUT: &[u8] =
 const MANAGER_ARTIFACT_DEFERRED_MARKER: &str = ".manager-probe-deferred";
 const MANAGER_ARTIFACT_DEFERRED_MARKER_BYTES: &[u8] = b"codex-manager-probe-deferred-v1\n";
 const PATH_MAX_BYTES: usize = 256;
-const LOGICAL_ENTRY_MAX: usize = 32;
+const LOGICAL_ENTRY_MAX: usize = 256;
 const PAX_PAYLOAD_MAX_BYTES: u64 = 512;
+const PACKAGE_JSON_MAX_BYTES: u64 = 64 * 1024;
+const JSON_DEPTH_MAX: usize = 16;
 const GENERATION_ID_MAX_BYTES: usize = 512;
 const TEXT_VALUE_MAX_BYTES: usize = 512;
 const TAR_BLOCK_BYTES: usize = 512;
@@ -139,21 +141,8 @@ const PATCHES: [(&[u8], &[u8], usize); 4] = [
     ),
 ];
 
-const EXPECTED_DIRECTORIES: [&str; 5] = [
-    "bin/",
-    "codex-path/",
-    "codex-resources/",
-    "codex-resources/zsh/",
-    "codex-resources/zsh/bin/",
-];
-const EXPECTED_FILES: [&str; 6] = [
-    "bin/codex",
-    "bin/codex-code-mode-host",
-    "codex-package.json",
-    "codex-path/rg",
-    "codex-resources/bwrap",
-    "codex-resources/zsh/bin/zsh",
-];
+const REQUIRED_ARCHIVE_FILES: [&str; 3] =
+    ["bin/codex", "bin/codex-code-mode-host", "codex-package.json"];
 
 const USAGE: &str = concat!(
     "usage: codex-release-builder fetch --version <MAJOR.MINOR.PATCH> ",
@@ -2355,16 +2344,371 @@ fn parse_pax_payload(bytes: &[u8]) -> Result<(), BuilderError> {
     Ok(())
 }
 
-fn expected_kind(path: &str) -> Option<EntryKind> {
-    if EXPECTED_DIRECTORIES.contains(&path) {
-        Some(EntryKind::Directory)
-    } else if EXPECTED_FILES.contains(&path) {
-        Some(EntryKind::Regular)
-    } else {
-        None
+fn package_json_error() -> BuilderError {
+    BuilderError::Archive("codex-package.json is incompatible")
+}
+
+struct JsonCursor<'a> {
+    bytes: &'a [u8],
+    offset: usize,
+}
+
+impl<'a> JsonCursor<'a> {
+    fn new(bytes: &'a [u8]) -> Self {
+        Self { bytes, offset: 0 }
+    }
+
+    fn skip_whitespace(&mut self) {
+        while self
+            .bytes
+            .get(self.offset)
+            .is_some_and(|byte| matches!(*byte, b' ' | b'\n' | b'\r' | b'\t'))
+        {
+            self.offset += 1;
+        }
+    }
+
+    fn consume(&mut self, expected: u8) -> bool {
+        self.skip_whitespace();
+        if self.bytes.get(self.offset) == Some(&expected) {
+            self.offset += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn require(&mut self, expected: u8) -> Result<(), BuilderError> {
+        if self.consume(expected) {
+            Ok(())
+        } else {
+            Err(package_json_error())
+        }
+    }
+
+    fn parse_hex_quad(&mut self) -> Result<u16, BuilderError> {
+        let mut value = 0u16;
+        for _ in 0..4 {
+            let byte = *self
+                .bytes
+                .get(self.offset)
+                .ok_or_else(package_json_error)?;
+            self.offset += 1;
+            let digit = match byte {
+                b'0'..=b'9' => u16::from(byte - b'0'),
+                b'a'..=b'f' => u16::from(byte - b'a' + 10),
+                b'A'..=b'F' => u16::from(byte - b'A' + 10),
+                _ => return Err(package_json_error()),
+            };
+            value = value * 16 + digit;
+        }
+        Ok(value)
+    }
+
+    fn parse_string(&mut self) -> Result<String, BuilderError> {
+        self.skip_whitespace();
+        if self.bytes.get(self.offset) != Some(&b'"') {
+            return Err(package_json_error());
+        }
+        self.offset += 1;
+        let mut output = Vec::new();
+        loop {
+            let byte = *self
+                .bytes
+                .get(self.offset)
+                .ok_or_else(package_json_error)?;
+            self.offset += 1;
+            match byte {
+                b'"' => {
+                    return String::from_utf8(output).map_err(|_| package_json_error());
+                }
+                b'\\' => {
+                    let escaped = *self
+                        .bytes
+                        .get(self.offset)
+                        .ok_or_else(package_json_error)?;
+                    self.offset += 1;
+                    match escaped {
+                        b'"' | b'\\' | b'/' => output.push(escaped),
+                        b'b' => output.push(8),
+                        b'f' => output.push(12),
+                        b'n' => output.push(b'\n'),
+                        b'r' => output.push(b'\r'),
+                        b't' => output.push(b'\t'),
+                        b'u' => {
+                            let first = self.parse_hex_quad()?;
+                            let scalar = if (0xD800..=0xDBFF).contains(&first) {
+                                if self.bytes.get(self.offset) != Some(&b'\\')
+                                    || self.bytes.get(self.offset + 1) != Some(&b'u')
+                                {
+                                    return Err(package_json_error());
+                                }
+                                self.offset += 2;
+                                let second = self.parse_hex_quad()?;
+                                if !(0xDC00..=0xDFFF).contains(&second) {
+                                    return Err(package_json_error());
+                                }
+                                0x10000
+                                    + ((u32::from(first) - 0xD800) << 10)
+                                    + (u32::from(second) - 0xDC00)
+                            } else {
+                                if (0xDC00..=0xDFFF).contains(&first) {
+                                    return Err(package_json_error());
+                                }
+                                u32::from(first)
+                            };
+                            let character =
+                                char::from_u32(scalar).ok_or_else(package_json_error)?;
+                            let mut encoded = [0u8; 4];
+                            output.extend_from_slice(character.encode_utf8(&mut encoded).as_bytes());
+                        }
+                        _ => return Err(package_json_error()),
+                    }
+                }
+                0..=0x1f => return Err(package_json_error()),
+                _ => output.push(byte),
+            }
+        }
+    }
+
+    fn parse_unsigned_integer(&mut self) -> Result<u64, BuilderError> {
+        self.skip_whitespace();
+        let start = self.offset;
+        match self.bytes.get(self.offset).copied() {
+            Some(b'0') => {
+                self.offset += 1;
+                if self
+                    .bytes
+                    .get(self.offset)
+                    .is_some_and(|byte| byte.is_ascii_digit())
+                {
+                    return Err(package_json_error());
+                }
+            }
+            Some(b'1'..=b'9') => {
+                self.offset += 1;
+                while self
+                    .bytes
+                    .get(self.offset)
+                    .is_some_and(|byte| byte.is_ascii_digit())
+                {
+                    self.offset += 1;
+                }
+            }
+            _ => return Err(package_json_error()),
+        }
+        if self
+            .bytes
+            .get(self.offset)
+            .is_some_and(|byte| matches!(*byte, b'.' | b'e' | b'E'))
+        {
+            return Err(package_json_error());
+        }
+        std::str::from_utf8(&self.bytes[start..self.offset])
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .ok_or_else(package_json_error)
+    }
+
+    fn skip_number(&mut self) -> Result<(), BuilderError> {
+        self.skip_whitespace();
+        if self.bytes.get(self.offset) == Some(&b'-') {
+            self.offset += 1;
+        }
+        match self.bytes.get(self.offset).copied() {
+            Some(b'0') => {
+                self.offset += 1;
+                if self
+                    .bytes
+                    .get(self.offset)
+                    .is_some_and(|byte| byte.is_ascii_digit())
+                {
+                    return Err(package_json_error());
+                }
+            }
+            Some(b'1'..=b'9') => {
+                self.offset += 1;
+                while self
+                    .bytes
+                    .get(self.offset)
+                    .is_some_and(|byte| byte.is_ascii_digit())
+                {
+                    self.offset += 1;
+                }
+            }
+            _ => return Err(package_json_error()),
+        }
+        if self.bytes.get(self.offset) == Some(&b'.') {
+            self.offset += 1;
+            let fraction = self.offset;
+            while self
+                .bytes
+                .get(self.offset)
+                .is_some_and(|byte| byte.is_ascii_digit())
+            {
+                self.offset += 1;
+            }
+            if self.offset == fraction {
+                return Err(package_json_error());
+            }
+        }
+        if self
+            .bytes
+            .get(self.offset)
+            .is_some_and(|byte| matches!(*byte, b'e' | b'E'))
+        {
+            self.offset += 1;
+            if self
+                .bytes
+                .get(self.offset)
+                .is_some_and(|byte| matches!(*byte, b'+' | b'-'))
+            {
+                self.offset += 1;
+            }
+            let exponent = self.offset;
+            while self
+                .bytes
+                .get(self.offset)
+                .is_some_and(|byte| byte.is_ascii_digit())
+            {
+                self.offset += 1;
+            }
+            if self.offset == exponent {
+                return Err(package_json_error());
+            }
+        }
+        Ok(())
+    }
+
+    fn skip_literal(&mut self, literal: &[u8]) -> Result<(), BuilderError> {
+        self.skip_whitespace();
+        if self
+            .bytes
+            .get(self.offset..self.offset.saturating_add(literal.len()))
+            == Some(literal)
+        {
+            self.offset += literal.len();
+            Ok(())
+        } else {
+            Err(package_json_error())
+        }
+    }
+
+    fn skip_value(&mut self, depth: usize) -> Result<(), BuilderError> {
+        if depth > JSON_DEPTH_MAX {
+            return Err(package_json_error());
+        }
+        self.skip_whitespace();
+        match self.bytes.get(self.offset).copied() {
+            Some(b'"') => {
+                self.parse_string()?;
+                Ok(())
+            }
+            Some(b'{') => self.skip_object(depth + 1),
+            Some(b'[') => self.skip_array(depth + 1),
+            Some(b't') => self.skip_literal(b"true"),
+            Some(b'f') => self.skip_literal(b"false"),
+            Some(b'n') => self.skip_literal(b"null"),
+            Some(b'-' | b'0'..=b'9') => self.skip_number(),
+            _ => Err(package_json_error()),
+        }
+    }
+
+    fn skip_array(&mut self, depth: usize) -> Result<(), BuilderError> {
+        self.require(b'[')?;
+        if self.consume(b']') {
+            return Ok(());
+        }
+        loop {
+            self.skip_value(depth)?;
+            if self.consume(b']') {
+                return Ok(());
+            }
+            self.require(b',')?;
+        }
+    }
+
+    fn skip_object(&mut self, depth: usize) -> Result<(), BuilderError> {
+        self.require(b'{')?;
+        let mut names = BTreeSet::new();
+        if self.consume(b'}') {
+            return Ok(());
+        }
+        loop {
+            let name = self.parse_string()?;
+            if !names.insert(name) {
+                return Err(package_json_error());
+            }
+            self.require(b':')?;
+            self.skip_value(depth)?;
+            if self.consume(b'}') {
+                return Ok(());
+            }
+            self.require(b',')?;
+        }
+    }
+
+    fn finished(&mut self) -> bool {
+        self.skip_whitespace();
+        self.offset == self.bytes.len()
     }
 }
 
+fn validate_package_json(bytes: &[u8], version: &str) -> Result<(), BuilderError> {
+    if bytes.len() as u64 > PACKAGE_JSON_MAX_BYTES {
+        return Err(package_json_error());
+    }
+
+    let mut cursor = JsonCursor::new(bytes);
+    cursor.require(b'{')?;
+    let mut names = BTreeSet::new();
+    let mut layout_version = None;
+    let mut package_version = None;
+    let mut target = None;
+    let mut variant = None;
+    let mut entrypoint = None;
+    let mut resources_dir = None;
+    let mut path_dir = None;
+
+    if !cursor.consume(b'}') {
+        loop {
+            let name = cursor.parse_string()?;
+            if !names.insert(name.clone()) {
+                return Err(package_json_error());
+            }
+            cursor.require(b':')?;
+            match name.as_str() {
+                "layoutVersion" => layout_version = Some(cursor.parse_unsigned_integer()?),
+                "version" => package_version = Some(cursor.parse_string()?),
+                "target" => target = Some(cursor.parse_string()?),
+                "variant" => variant = Some(cursor.parse_string()?),
+                "entrypoint" => entrypoint = Some(cursor.parse_string()?),
+                "resourcesDir" => resources_dir = Some(cursor.parse_string()?),
+                "pathDir" => path_dir = Some(cursor.parse_string()?),
+                _ => cursor.skip_value(1)?,
+            }
+            if cursor.consume(b'}') {
+                break;
+            }
+            cursor.require(b',')?;
+        }
+    }
+
+    if !cursor.finished()
+        || layout_version != Some(1)
+        || package_version.as_deref() != Some(version)
+        || target.as_deref() != Some("aarch64-unknown-linux-musl")
+        || variant.as_deref() != Some("codex")
+        || entrypoint.as_deref() != Some("bin/codex")
+        || resources_dir.as_deref() != Some("codex-resources")
+        || path_dir.as_deref() != Some("codex-path")
+    {
+        return Err(package_json_error());
+    }
+    Ok(())
+}
+
+#[cfg(test)]
 fn expected_package_json(version: &str) -> Vec<u8> {
     format!(
         concat!(
@@ -2652,8 +2996,12 @@ fn parse_archive<R: Read>(
                 "archive entry count exceeds its bound",
             ));
         }
-        if expected_kind(&header.path) != Some(header.kind) {
-            return Err(BuilderError::Archive("archive layout is unsupported"));
+        if REQUIRED_ARCHIVE_FILES.contains(&header.path.as_str())
+            && header.kind != EntryKind::Regular
+        {
+            return Err(BuilderError::Archive(
+                "required archive entry is not a regular file",
+            ));
         }
         if !seen.insert(header.path.clone()) {
             return Err(BuilderError::Archive("archive path is duplicated"));
@@ -2662,6 +3010,9 @@ fn parse_archive<R: Read>(
 
         if header.kind == EntryKind::Directory {
             continue;
+        }
+        if header.path == "codex-package.json" && header.size > PACKAGE_JSON_MAX_BYTES {
+            return Err(package_json_error());
         }
         if header.size > ENTRY_MAX_BYTES {
             return Err(BuilderError::Archive("archive file exceeds its byte bound"));
@@ -2695,17 +3046,18 @@ fn parse_archive<R: Read>(
         }
     }
 
-    let expected: BTreeSet<String> = EXPECTED_DIRECTORIES
+    if REQUIRED_ARCHIVE_FILES
         .iter()
-        .chain(EXPECTED_FILES.iter())
-        .map(|path| (*path).to_owned())
-        .collect();
-    if seen != expected {
+        .any(|path| !seen.contains(*path))
+    {
         return Err(BuilderError::Archive("archive layout is incomplete"));
     }
-    if package_json.as_deref() != Some(expected_package_json(version).as_slice()) {
-        return Err(BuilderError::Archive("codex-package.json is incompatible"));
-    }
+    validate_package_json(
+        package_json
+            .as_deref()
+            .ok_or(BuilderError::Archive("archive layout is incomplete"))?,
+        version,
+    )?;
     validate_static_aarch64_elf(&raw_runtime)?;
     validate_static_aarch64_elf(&code_mode_host)?;
     Ok(ArchiveSelection {
@@ -4024,6 +4376,50 @@ fi
     }
 
     #[test]
+    fn test_rald7_layout_v1_resource_evolution_is_semantic() {
+        let mut entries = happy_entries("0.155.0");
+        entries[3].data = br#"{
+  "pathDir": "codex-path",
+  "variant": "codex",
+  "extension": {"voice": true, "levels": [1, 2, 3]},
+  "entrypoint": "bin/codex",
+  "layoutVersion": 1,
+  "resourcesDir": "codex-resources",
+  "target": "aarch64-unknown-linux-musl",
+  "version": "0.155.0"
+}
+"#.to_vec();
+        entries.push(TestEntry::directory("codex-resources/voice/"));
+        entries.push(TestEntry::directory("codex-resources/voice/bin/"));
+        entries.push(TestEntry::file(
+            "codex-resources/voice/bin/codex-voice-host",
+            b"unselected-voice-host".to_vec(),
+        ));
+        entries.push(TestEntry::file(
+            "codex-resources/voice/manifest.json",
+            br#"{"version":1}"#.to_vec(),
+        ));
+        entries.push(TestEntry::file(
+            "future-unselected-resource",
+            b"ignored-by-termux-generation".to_vec(),
+        ));
+
+        let fixture = fixture("rald7-layout-v1-evolution", entries, false);
+        assert_eq!(run_from_args(request_args(&fixture.request)), 0);
+        assert_eq!(
+            std::fs::read(fixture.request.output.join("runtime")).unwrap().len(),
+            fixture.raw_runtime.len()
+        );
+        assert_eq!(
+            std::fs::read(fixture.request.output.join("codex-code-mode-host")).unwrap(),
+            fixture.code_mode_host
+        );
+        assert!(!fixture.request.output.join("codex-resources").exists());
+        assert!(!fixture.request.output.join("future-unselected-resource").exists());
+        fixture.remove();
+    }
+
+    #[test]
     fn test_m2_b6_slice1_archive_rejection_matrix_is_fail_closed() {
         for case in [
             "digest",
@@ -4031,8 +4427,9 @@ fi
             "traversal",
             "symlink",
             "unknown-pax",
-            "extra-file",
             "metadata",
+            "layout-version",
+            "duplicate-metadata",
             "interp",
             "oversized",
             "checksum",
@@ -4044,8 +4441,25 @@ fi
                 "traversal" => entries[5].path = "../escaped".to_owned(),
                 "symlink" => entries[5].kind = b'2',
                 "unknown-pax" => entries[0].pax_key = Some("path"),
-                "extra-file" => entries.push(TestEntry::file("extra", b"extra".to_vec())),
                 "metadata" => entries[3].data = b"{}\n".to_vec(),
+                "layout-version" => {
+                    entries[3].data = expected_package_json("0.150.1");
+                    let text = String::from_utf8(entries[3].data.clone()).unwrap();
+                    entries[3].data = text.replacen("\"layoutVersion\": 1", "\"layoutVersion\": 2", 1).into_bytes();
+                }
+                "duplicate-metadata" => {
+                    entries[3].data = br#"{
+  "layoutVersion": 1,
+  "layoutVersion": 1,
+  "version": "0.150.1",
+  "target": "aarch64-unknown-linux-musl",
+  "variant": "codex",
+  "entrypoint": "bin/codex",
+  "resourcesDir": "codex-resources",
+  "pathDir": "codex-path"
+}
+"#.to_vec();
+                }
                 "interp" => entries[2].data = fake_elf(true),
                 "oversized" => entries[5].declared_size = Some(ENTRY_MAX_BYTES + 1),
                 "digest" | "checksum" => {}
