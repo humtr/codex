@@ -7113,6 +7113,7 @@ fn render_update_failure(error: &LocalProductError) -> String {
 struct UpdatePresentation {
     transient_enabled: bool,
     transient_visible: bool,
+    update_started: bool,
 }
 
 #[cfg(unix)]
@@ -7125,6 +7126,7 @@ impl UpdatePresentation {
                 std::io::stderr().is_terminal(),
             ),
             transient_visible: false,
+            update_started: false,
         }
     }
 
@@ -7151,6 +7153,9 @@ impl UpdatePresentation {
     }
 
     fn begin_update(&mut self, previous_version: &str, current_version: &str) {
+        if self.update_started {
+            return;
+        }
         self.clear_transient();
         println!(
             "{}",
@@ -7158,6 +7163,7 @@ impl UpdatePresentation {
         );
         use std::io::Write as _;
         let _ = std::io::stdout().flush();
+        self.update_started = true;
     }
 
     fn finish_signed_activation(&mut self, current_version: &str) {
@@ -7959,14 +7965,93 @@ fn fetch_remote_resource(
 }
 
 #[cfg(unix)]
+fn fetch_verified_remote_release_file(
+    roots: &LocalCoreRoots,
+    base: &RemoteReleaseBase,
+    acquisition_root: &std::path::Path,
+    file: &ReleaseFileEntry,
+    acquired_bytes: &mut u64,
+) -> Result<(), LocalProductError> {
+    use std::os::unix::fs::PermissionsExt;
+
+    ensure_remote_resource_parent(acquisition_root, &file.relative_path)?;
+    let destination = acquisition_root.join(&file.relative_path);
+    fetch_remote_resource(
+        roots,
+        base,
+        &file.relative_path,
+        &destination,
+        REMOTE_RELEASE_FILE_MAX_BYTES,
+        acquired_bytes,
+    )?;
+    if openssl_sha256(&roots.openssl, &destination)? != file.sha256 {
+        return Err(LocalProductError::ReleaseDigestMismatch);
+    }
+    let mut permissions = std::fs::symlink_metadata(&destination)
+        .map_err(|source| LocalProductError::Io {
+            operation: "inspect acquired remote release file",
+            source,
+        })?
+        .permissions();
+    permissions.set_mode(file.mode);
+    std::fs::set_permissions(&destination, permissions).map_err(|source| {
+        LocalProductError::Io {
+            operation: "apply signed remote release file mode",
+            source,
+        }
+    })
+}
+
+#[cfg(unix)]
+fn authenticated_remote_generation_version(
+    acquisition_root: &std::path::Path,
+    expected_generation_id: &str,
+) -> Result<String, LocalProductError> {
+    let descriptor = read_bounded_regular_file(
+        &acquisition_root.join("generation.meta"),
+        LOCAL_GENERATION_MAX_BYTES,
+        "read authenticated remote generation descriptor",
+        LocalProductError::Descriptor("generation descriptor is too large"),
+        LocalProductError::UnsafeSource("generation descriptor must be a regular file"),
+    )?;
+    if !descriptor.ends_with(b"\n") {
+        return Err(LocalProductError::Descriptor(
+            "generation descriptor is missing its final newline",
+        ));
+    }
+    let text = std::str::from_utf8(&descriptor)
+        .map_err(|_| LocalProductError::Descriptor("generation descriptor is not UTF-8"))?;
+    let mut lines = text.lines();
+    match lines.next() {
+        Some(LOCAL_GENERATION_FORMAT | LEGACY_GENERATION_FORMAT) => {}
+        _ => {
+            return Err(LocalProductError::Descriptor(
+                "generation descriptor format is unsupported",
+            ));
+        }
+    }
+    let generation_id = descriptor_field(lines.next(), "generation_id")?;
+    m2_generation_state::validate_generation_identity(generation_id, "generation_id")
+        .map_err(LocalProductError::StateFormat)?;
+    if generation_id != expected_generation_id {
+        return Err(LocalProductError::Descriptor(
+            "generation descriptor id does not match signed release",
+        ));
+    }
+    let _ = descriptor_field(lines.next(), "upstream_package_identity")?;
+    Ok(descriptor_field(lines.next(), "upstream_package_version")?.to_owned())
+}
+
+#[cfg(unix)]
 fn acquire_remote_release_source(
     roots: &LocalCoreRoots,
     base: &RemoteReleaseBase,
     acquisition_root: &std::path::Path,
     update_key: ReleasePublicKey,
+    current_release: &LocalReleaseManifest,
+    current_version: &str,
+    mut presentation: Option<&mut UpdatePresentation>,
 ) -> Result<(), LocalProductError> {
-    use std::os::unix::fs::PermissionsExt;
-
     let mut acquired_bytes = 0;
     fetch_remote_resource(
         roots,
@@ -8003,33 +8088,46 @@ fn acquire_remote_release_source(
         ));
     }
 
+    let descriptor = manifest
+        .files
+        .iter()
+        .find(|file| file.relative_path == "generation.meta")
+        .ok_or(LocalProductError::Release(
+            "release inventory is missing generation descriptor",
+        ))?;
+    fetch_verified_remote_release_file(
+        roots,
+        base,
+        acquisition_root,
+        descriptor,
+        &mut acquired_bytes,
+    )?;
+    let candidate_version =
+        authenticated_remote_generation_version(acquisition_root, &manifest.generation_id)?;
+
+    if &manifest != current_release {
+        if let Some(presentation) = presentation.as_deref_mut() {
+            presentation.begin_update(current_version, &candidate_version);
+            presentation.transient("⠙", "Downloading signed Termux release...");
+        }
+    }
+
     for file in &manifest.files {
-        ensure_remote_resource_parent(acquisition_root, &file.relative_path)?;
-        let destination = acquisition_root.join(&file.relative_path);
-        fetch_remote_resource(
+        if file.relative_path == "generation.meta" {
+            continue;
+        }
+        fetch_verified_remote_release_file(
             roots,
             base,
-            &file.relative_path,
-            &destination,
-            REMOTE_RELEASE_FILE_MAX_BYTES,
+            acquisition_root,
+            file,
             &mut acquired_bytes,
         )?;
-        if openssl_sha256(&roots.openssl, &destination)? != file.sha256 {
-            return Err(LocalProductError::ReleaseDigestMismatch);
+    }
+    if let Some(presentation) = presentation {
+        if &manifest != current_release {
+            presentation.transient("⠹", "Verifying release signature and contents...");
         }
-        let mut permissions = std::fs::symlink_metadata(&destination)
-            .map_err(|source| LocalProductError::Io {
-                operation: "inspect acquired remote release file",
-                source,
-            })?
-            .permissions();
-        permissions.set_mode(file.mode);
-        std::fs::set_permissions(&destination, permissions).map_err(|source| {
-            LocalProductError::Io {
-                operation: "apply signed remote release file mode",
-                source,
-            }
-        })?;
     }
     Ok(())
 }
@@ -8174,6 +8272,12 @@ fn activate_signed_remote_release_outcome_with_hold_policy(
     )?;
     ensure_openssl_available(&roots.openssl)?;
     ensure_curl_available(&roots.curl)?;
+    let (current_release, current_loaded) = verify_installed_local_release(
+        roots,
+        &before.current,
+        before.current_key,
+        "active generation descriptor id does not match current",
+    )?;
     let sequence = REMOTE_ACQUISITION_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let acquisition_root = roots
         .generation_root
@@ -8181,13 +8285,15 @@ fn activate_signed_remote_release_outcome_with_hold_policy(
     create_remote_acquisition_root(&acquisition_root)?;
 
     let prepared = (|| {
-        if let Some(presentation) = presentation.as_deref_mut() {
-            presentation.transient("⠙", "Downloading signed Termux release...");
-        }
-        acquire_remote_release_source(roots, &base, &acquisition_root, before.update_key)?;
-        if let Some(presentation) = presentation.as_deref_mut() {
-            presentation.transient("⠹", "Verifying release signature and contents...");
-        }
+        acquire_remote_release_source(
+            roots,
+            &base,
+            &acquisition_root,
+            before.update_key,
+            &current_release,
+            &current_loaded.manifest.upstream_package_version,
+            presentation.as_deref_mut(),
+        )?;
         prepare_signed_local_release_with_hold_policy(&acquisition_root, roots, hold_policy)
     })();
     let cleanup =
@@ -20292,12 +20398,29 @@ exit 2
             output.stderr
         );
         let terminal = String::from_utf8(output.stdout).unwrap();
-        assert!(terminal.contains("\r\x1b[2K⠋ Checking for updates..."));
-        assert!(terminal.contains("\r\x1b[2K⠙ Downloading signed Termux release..."));
-        assert!(terminal.contains("\r\x1b[2K⠹ Verifying release signature and contents..."));
-        assert!(terminal.contains("Updating the Termux release for Codex 9.9.9..."));
-        assert!(terminal.contains("\r\x1b[2K⠹ Checking candidate runtime..."));
-        assert!(terminal.contains("\r\x1b[2K⠸ Activating Codex 9.9.9..."));
+        let checking = terminal
+            .find("\r\x1b[2K⠋ Checking for updates...")
+            .unwrap();
+        let header = terminal
+            .find("Updating the Termux release for Codex 9.9.9...")
+            .unwrap();
+        let downloading = terminal
+            .find("\r\x1b[2K⠙ Downloading signed Termux release...")
+            .unwrap();
+        let verifying = terminal
+            .find("\r\x1b[2K⠹ Verifying release signature and contents...")
+            .unwrap();
+        let probing = terminal
+            .find("\r\x1b[2K⠹ Checking candidate runtime...")
+            .unwrap();
+        let activating = terminal
+            .find("\r\x1b[2K⠸ Activating Codex 9.9.9...")
+            .unwrap();
+        assert!(checking < header);
+        assert!(header < downloading);
+        assert!(downloading < verifying);
+        assert!(verifying < probing);
+        assert!(probing < activating);
         assert!(terminal.contains("Verified and activated the signed Termux release."));
         assert!(terminal.contains("Codex 9.9.9 is now active. ✅"));
         assert!(terminal.matches("\x1b[2K").count() >= 6);

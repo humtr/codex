@@ -40,6 +40,14 @@ behavior belongs in `SPEC.md`.
   tests, both Android focused proofs, Manager tests, clippy `-D warnings`,
   rustfmt, TTY/non-TTY presentation regressions, and unchanged signed public
   sequence-13 audit.
+- UX-1 ordering correction is **active** because final source review found the
+  accepted PTY implementation exposed `Downloading...` and `Verifying...`
+  before the signed candidate version was authenticated, contrary to SPEC's
+  pre-authentication `Checking for updates...`-only rule. The correction must
+  authenticate signed release control plus the digest-bound `generation.meta`
+  first, print the permanent version header, and only then expose download/
+  verification phases. This is source-only and must preserve all existing trust,
+  activation, rollback, public-stable, and publication semantics.
 - UX-1 changes presentation only: version-centric permanent output, one
   TTY-only transient progress line, sentence-final `✅` / `❌`, and no
   ordinary generation-ID success text. Signed admission, anti-rollback,
