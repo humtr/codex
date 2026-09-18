@@ -357,9 +357,22 @@ behavior belongs in `SPEC.md`.
   `.github/workflows/auto-release-termux.yml` from prior activation
   `17ccd88f02b00d040e2aea7bd417e98bb53ff630`, updating the producer source pin
   to `566034e1aff42bde2f3221ebc2da2b16def77d44`; Pages workflow and stable
-  index/signature bytes remained unchanged. Activated dry-run is now required
-  before any real 0.155.0 candidate publication. The failed earlier candidate
-  run reached no signing secret, Release, Pages, CAS, or stable mutation.
+  index/signature bytes remained unchanged. Activated dry-run `35309510567`
+  then passed after dispatching main producer run `35309523194`; that producer
+  independently reproduced official 0.155.0 semantic build/adaptation, native
+  ARM64 executable smoke, and production-authority signing while Release, Pages,
+  public-readback, and CAS jobs remained skipped. Earlier outer dry-run
+  `35309270654` failed only because current `gh api` refused ANSI-bearing job
+  logs without explicit `--allow-escape-sequences`; its nested producer
+  `35309286359` itself passed build/smoke/sign with public jobs skipped.
+  RALD-7 now activates the six-hour schedule as publication authorization only
+  for an ordinary strictly-newer official candidate. Manual dispatch continues
+  to require the explicit publication input, and all historical acceptance-only,
+  same-version, transition, and negative controls remain false on schedule.
+  This authorization change is being re-run through the complete repository
+  acceptance gate before it may be mirrored to `main` or used for the real
+  0.155.0 candidate cycle. The failed earlier candidate run reached no signing
+  secret, Release, Pages, CAS, or stable mutation.
 - Public stable remains signed sequence 11 generation
   `local-hosted-0-154-0-37fbbd8033b8-rald45-transition`; no RALD-7 candidate
   has advanced it yet.

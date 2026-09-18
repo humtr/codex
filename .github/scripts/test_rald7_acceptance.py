@@ -9,7 +9,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 BASE = "9dedc27b73ba1b045b3c1724036323e049e1dcf9"
 ACCEPTED_SOURCE = "566034e1aff42bde2f3221ebc2da2b16def77d44"
-EXPECTED_MAIN = "17ccd88f02b00d040e2aea7bd417e98bb53ff630"
+EXPECTED_MAIN = "6bc53a7b60c918dcbc0fc4b771409d305a28e342"
 
 
 def run(*args: str) -> str:
@@ -37,6 +37,24 @@ class Rald7AcceptanceContract(unittest.TestCase):
             1,
         )
         self.assertIn("cron: '0 */6 * * *'", text)
+        self.assertIn(
+            "RALD5_PUBLICATION_AUTHORIZED: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.rald5_publication_authorized) }}",
+            text,
+        )
+        self.assertIn('case "$GITHUB_EVENT_NAME" in', text)
+        self.assertIn("schedule)", text)
+        for gate in [
+            "RALD4_POSITIVE_GATE",
+            "RALD5_SAME_VERSION_ACCEPTANCE",
+            "RALD45_TRANSITION_STAGE",
+            "RALD45_TRANSITION_PROMOTE",
+            "RALD5_NEGATIVE_GATE",
+        ]:
+            self.assertIn(f'test "$' + gate + '" != true', text)
+        self.assertIn(
+            "github.event_name == 'workflow_dispatch' && inputs.rald5_publication_authorized",
+            text,
+        )
         self.assertIn("uses: ./.github/workflows/publish-termux-update-pages.yml", text)
 
     def test_added_lines_contain_no_credentials_or_private_keys(self) -> None:
