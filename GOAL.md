@@ -193,6 +193,38 @@ Termux qualification. Produce one candidate for independent product review.
 
 ### Current Direct-Lead Evidence
 
+- POST-RALD UX-1 update human output is **source-accepted 2026-09-19**.
+  Product source `c3f87302df7d1e94ca5c497c50979f5aa73adddd` changes only
+  Core human update presentation: authenticated generation metadata supplies the
+  old/new Codex versions; interactive terminals use one transient stderr line
+  for check/download/verify/probe/activate phases and clear it before permanent
+  output; non-TTY execution emits no carriage-return/ANSI progress controls;
+  signed success ends with `Codex <VERSION> is now active. ✅`, exact-current
+  success ends with `Codex <VERSION> is already up to date. ✅`, and
+  operational failures omit the redundant command prefix and end in `❌`.
+  Same-version corrective generations use the distinct
+  `Updating the Termux release for Codex <VERSION>...` header. Existing signed
+  admission, digest/mode checks, anti-rollback, candidate version probe, atomic
+  activation, LKG, rollback hold/guard, local-derived authority, and publication
+  semantics are unchanged.
+  Full remote acceptance run `35403308303` at acceptance head
+  `5945ad61163777bd84d36cfe4d6869d6d61a6561` passed the workflow/credential/
+  diff contract, unchanged signed public sequence-13 audit, exact
+  Android/AArch64 Core cross-build, release-builder **19/19**, Core process E2E
+  **146 passed / 0 failed / 1 ignored** with the two Android-dependent cases
+  separately passing **1/1 + 1/1**, Manager **20/20** plus integration
+  **11/11**, full locked workspace tests, clippy with warnings denied, and
+  rustfmt. The focused PTY regression observes the transient phases and their
+  erase-line controls, while the non-TTY regression proves no cursor-control
+  bytes are emitted.
+  The motivating user-observed live update on 2026-09-19 successfully moved
+  `codex-cli 0.154.0` to public `0.155.0` generation
+  `local-hosted-0-155-0-566034e1aff4-legacy-lag-remediation`; UX-1 acceptance
+  did not itself access or mutate that installation. `main` remained
+  `5bef52d07a07bd8612b4538dfb29a2396937a3fb`, public stable remained signed
+  sequence 13, and no Release/Pages promotion, force push, credential fixture,
+  or live-device mutation occurred.
+
 - POST-RALD7 LEGACY-LAG direct-jump qualification is accepted as a diagnostic
   and source-correction proof on 2026-09-18. Exact historical R10 source
   `0621105fd1be8461b370466fbfa981938241074d` and exact official 0.153.4

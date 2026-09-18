@@ -1,6 +1,6 @@
 # Release Automation and Local-Derived Update Plan
 
-Status: RALD-1 through RALD-7 are accepted and the post-RALD legacy-lag production remediation is complete. The current UX-1 source slice changes only Core human update presentation; it does not reopen or alter any frozen producer/consumer trust, signing, publication, rollback, or promotion decision in this plan.
+Status: RALD-1 through RALD-7 and the post-RALD legacy-lag production remediation are complete. UX-1 update human output is source-accepted on 2026-09-19 at exact product source `c3f87302df7d1e94ca5c497c50979f5aa73adddd` by full remote acceptance run `35403308303`; it changes only Core human presentation and does not reopen or alter any frozen producer/consumer trust, signing, publication, rollback, or promotion decision in this plan.
 
 Baseline: `rewrite/rust-core` at
 `21bb1cd78d4a6e6ef8e124b7f07230206c5aa5ea` (`termux: guard rollback holds and automate stable intake`).
@@ -11,13 +11,12 @@ override `SPEC.md`, does not retroactively alter accepted evidence in `GOAL.md`,
 and must be updated together with `WORKBOARD.md` if the selected implementation
 changes.
 
-The active UX-1 slice is deliberately outside release-production semantics. Its
-only release-plan obligation is regression preservation: non-TTY producer and
-disposable-update proofs must receive stable plain output with no terminal
-control bytes, while future accepted product sources may assert the new
-version-centric success/no-op text. No UX-1 source acceptance authorizes a
-workflow install on `main`, a candidate publication, Pages deployment, stable
-promotion, or live-device mutation.
+UX-1 is deliberately outside release-production semantics. Its release-plan
+obligation is now satisfied: the accepted producer/disposable proof source
+asserts the new version-centric success/no-op output, non-TTY tests prove stable
+plain output with no terminal control bytes, and the full source gate passed.
+This source acceptance still authorizes no workflow install on `main`, candidate
+publication, Pages deployment, stable promotion, or live-device mutation.
 
 ## 1. Objective
 

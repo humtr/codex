@@ -17,11 +17,12 @@ behavior belongs in `SPEC.md`.
   `6b9826e3aa83b1a5947db50f4332cb9c65f1b340`.
 - TC-LIVE-BRIDGE repository-native two-step live cutover is accepted and
   complete.
-- Final live runtime is `codex-cli 0.154.0` with current generation
-  `local-20260914-tc3-canonical-1` and retained previous generation
-  `local-20260914-r10-browser-bridge-1`.
-- Final live launcher SHA-256 is
-  `0055ec0ecc762e4a4c878be62fd26f93118785218f004b26fe12b178cd3380eb`.
+- Latest user-observed live runtime on 2026-09-19 is `codex-cli 0.155.0`
+  after ordinary `codex update` from 0.154.0 activated public sequence-13
+  generation `local-hosted-0-155-0-566034e1aff4-legacy-lag-remediation`.
+  That observation did not remeasure launcher digest, doctor, previous pointer,
+  or protected-state fingerprints; the earlier measured 0.154.0 cutover values
+  remain historical evidence rather than current-state claims.
 - UPDATE-CHANNEL-LATEST is accepted and closed. Final source acceptance before
   the closure ledger is `057f078a091441c1f624c7b229649bd1463ef774`.
 - Public stable is signed sequence 13 generation
@@ -32,23 +33,21 @@ behavior belongs in `SPEC.md`.
   `21bb1cd78d4a6e6ef8e124b7f07230206c5aa5ea`.
 - RALD-1 through RALD-7 and the post-RALD legacy-lag production remediation are
   accepted and closed.
-- Active implementation bundle: **POST-RALD UPDATE HUMAN OUTPUT (UX-1)**.
-- UX-1 is source-only. It replaces generation-centric human update output with
-  authenticated version-centric output, adds one TTY-only transient progress
-  line, removes redundant operational `codex update:` prefixes, and aligns
-  terminal success/failure markers as sentence-final `✅` / `❌`. It must not
-  change signed admission, anti-rollback, candidate probes, activation, fallback,
-  rollback, publication, or public-stable semantics.
-- UX-1 may mutate only `rewrite/rust-core` and test-owned disposable roots.
-  `main`, Release/Pages, signed public stable, Actions secrets, and the live
-  installation remain protected.
-- UX-1 product candidate is `c3f87302df7d1e94ca5c497c50979f5aa73adddd`.
-  Full remote source acceptance must build that exact candidate for
-  Android/AArch64, run Core/package/workspace/clippy/fmt gates including the
-  TTY/non-TTY human-output regressions, and re-audit unchanged public sequence
-  13 before UX-1 can close. The producer source pin may be updated on this
-  implementation branch for proof, but no default-branch workflow install or
-  public release is authorized by UX-1 acceptance.
+- POST-RALD UPDATE HUMAN OUTPUT (UX-1) is **source-accepted and closed
+  2026-09-19**. Exact product source is
+  `c3f87302df7d1e94ca5c497c50979f5aa73adddd`; full remote acceptance run
+  `35403308303` passed Android/AArch64 cross-build, Core/package/workspace
+  tests, both Android focused proofs, Manager tests, clippy `-D warnings`,
+  rustfmt, TTY/non-TTY presentation regressions, and unchanged signed public
+  sequence-13 audit.
+- UX-1 changes presentation only: version-centric permanent output, one
+  TTY-only transient progress line, sentence-final `✅` / `❌`, and no
+  ordinary generation-ID success text. Signed admission, anti-rollback,
+  candidate probes, activation, local-derived authority, rollback, producer,
+  publication, and public-stable semantics remain unchanged.
+- No implementation bundle is currently selected. Any default-branch producer
+  install, public release/public-stable activation of UX-1, or live-device
+  replacement requires a separately selected and authorized operation.
 - RALD-1 local-derived Core contract, RALD-2 Core/official-producer separation,
   and RALD-3 GitHub-hosted unsigned producer preflight are accepted. RALD-3 is
   pinned to producer source commit `28e65b32c8719cf913e62080d4674b54dbcc1a01`;
