@@ -1,0 +1,43 @@
+name: RALD-6 delivery E2E
+
+on:
+  push:
+    branches:
+      - rewrite/rust-core
+    paths:
+      - install-online.sh
+      - .github/scripts/test_rald6_installer.py
+      - .github/workflows/rald6-delivery-e2e.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rald6-delivery-e2e
+  cancel-in-progress: false
+
+jobs:
+  contract:
+    name: Online installer contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Fetch exact source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init source
+          git -C source remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git -C source fetch --no-tags --depth=2 origin "$GITHUB_SHA"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Run focused RALD-6 installer contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          /bin/sh -n install-online.sh
+          python3 -m py_compile .github/scripts/test_rald6_installer.py
+          python3 .github/scripts/test_rald6_installer.py
+          git diff --check HEAD^ HEAD
