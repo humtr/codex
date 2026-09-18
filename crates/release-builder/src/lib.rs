@@ -4404,7 +4404,8 @@ fi
             b"ignored-by-termux-generation".to_vec(),
         ));
 
-        let fixture = fixture("rald7-layout-v1-evolution", entries, false);
+        let mut fixture = fixture("rald7-layout-v1-evolution", entries, false);
+        fixture.request.version = "0.155.0".to_owned();
         assert_eq!(run_from_args(request_args(&fixture.request)), 0);
         assert_eq!(
             std::fs::read(fixture.request.output.join("runtime")).unwrap().len(),

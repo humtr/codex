@@ -336,8 +336,15 @@ behavior belongs in `SPEC.md`.
   official 0.155.0 keeps both selected files as static AArch64 ELF and preserves
   exact patch source counts `2,1,1,1`. Full repository acceptance is being
   rerun against this product source before the activated `main` producer pin
-  may change. The failed candidate run reached no signing secret, Release,
-  Pages, CAS, or stable mutation.
+  may change. First semantic-source acceptance run `35308530111` kept the
+  workflow/credential/public audit green but stopped on two test-side issues:
+  the new semantic-layout fixture accidentally requested `0.150.1` while its
+  package metadata declared `0.155.0`, and one previously green Core transport
+  failure fixture failed once in the parallel full suite. The semantic fixture
+  request is corrected without changing production code; the complete gate is
+  rerun to determine whether the unrelated Core failure is reproducible before
+  changing that accepted test. The failed candidate run reached no signing
+  secret, Release, Pages, CAS, or stable mutation.
 - Public stable remains signed sequence 11 generation
   `local-hosted-0-154-0-37fbbd8033b8-rald45-transition`; no RALD-7 candidate
   has advanced it yet.
