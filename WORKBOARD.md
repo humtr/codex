@@ -251,8 +251,8 @@ behavior belongs in `SPEC.md`.
   secret was not exposed. Commit
   `8d3862342d773ac8a2dfb44c975f55771424ffb7` fixes only that proof-step
   ordering; it adds no toolchain/package install or product trust path.
-- RALD-7 full acceptance/activation is **active and explicitly authorized
-  2026-09-18**. Source acceptance first runs the complete repository gate on
+- RALD-7 full acceptance/activation is **accepted 2026-09-18**. Source
+  acceptance ran the complete repository gate on
   `rewrite/rust-core` with producer source pinned to accepted RALD-6 product
   source `9972a3288c0531ba744e9bd1356273d9a080aa79`. Until that gate is green,
   `main`, the signed public stable index, GitHub Release/Pages authority, and
@@ -369,10 +369,12 @@ behavior belongs in `SPEC.md`.
   for an ordinary strictly-newer official candidate. Manual dispatch continues
   to require the explicit publication input, and all historical acceptance-only,
   same-version, transition, and negative controls remain false on schedule.
-  This authorization change is being re-run through the complete repository
-  acceptance gate before it may be mirrored to `main` or used for the real
-  0.155.0 candidate cycle. The failed earlier candidate run reached no signing
-  secret, Release, Pages, CAS, or stable mutation.
+  Schedule-authorization source gate `35310001193` passed, activation commit
+  `b8b35d0ffc1ce2da87f49fcf66106e520a04a2bf` mirrored only the accepted
+  producer workflow to `main`, and dry-run `35310213404` / nested producer
+  `35310222884` passed the 0.155.0 build/smoke/sign path with public jobs
+  skipped. The failed earlier candidate run reached no signing secret, Release,
+  Pages, CAS, or stable mutation.
 - RALD-7 real ordinary newer-version publication run `35321953530` completed
   successfully from exact activated `main=b8b35d0ffc1ce2da87f49fcf66106e520a04a2bf`
   with accepted product source `566034e1aff42bde2f3221ebc2da2b16def77d44`.
@@ -394,8 +396,14 @@ behavior belongs in `SPEC.md`.
   correctly records `RALD5_PUBLICATION_AUTHORIZED: true`. The producer and all
   seven load-bearing publication jobs are green, so the committed stable result
   is authoritative and is not rolled back. The one-shot dispatcher is removed.
-  RALD-7 closure is pending one final repository/public-state acceptance run
-  against this exact promoted state.
+  Final post-promotion acceptance run `35322553140` passed every gate against
+  exact `main=9aa8be4c63fe8d60dea130b979c0c12d1a5164bc` and public sequence
+  12: Android Core proof, release-builder/Core/Manager suites, locked workspace
+  check/test/clippy/fmt, workflow/action validation, credential/private-key scan,
+  and complete signed public-byte audit. RALD-7 is closed. Future six-hour
+  scheduled runs may publish only ordinary strictly-newer official stable
+  through the accepted automatic gates; manual publication continues to require
+  explicit authorization.
 - `legacy/monolith` remains sealed at
   `bf30a7dc94d4dad7f58836c69028160856e63c58`.
 - Worker mode remains OFF.

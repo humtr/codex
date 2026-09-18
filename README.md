@@ -12,17 +12,18 @@ The rewrite has one public command, `codex`, and two internal layers:
 
 ## Current status
 
-The signed public stable channel is release sequence 11 generation
-`local-hosted-0-154-0-37fbbd8033b8-rald45-transition`, serving upstream
-`codex-cli 0.154.0`. The Rust Core owns signed installation, update, diagnosis,
+The signed public stable channel is release sequence 12 generation
+`local-hosted-0-155-0-566034e1aff4`, serving upstream
+`codex-cli 0.155.0`. The Rust Core owns signed installation, update, diagnosis,
 atomic activation, rollback, and recovery; Manager remains behind
 `codex termux`.
 
-Release-automation phases through RALD-6 are accepted in `GOAL.md`. RALD-6
-proved the public fresh-install surface from an empty disposable Termux-shaped
-environment and proved that the same installed client can follow the normal
-signed `codex update` path to a newer production-authority fixture. RALD-7
-full acceptance/activation has not started.
+Release-automation phases through RALD-7 are accepted in `GOAL.md`. RALD-6
+proved the public fresh-install surface and same-client signed update delivery.
+RALD-7 completed full repository acceptance, activated the bounded six-hour
+official producer, and promoted the first real newer official candidate through
+the complete build/smoke/sign/Release/Pages/readback/runtime/non-forced-CAS
+path.
 
 ## Fresh install
 

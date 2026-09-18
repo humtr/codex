@@ -729,6 +729,21 @@ RALD-7 remains separately gated and unstarted.
 
 ### Phase RALD-7 — full acceptance and activation
 
+Status: **accepted 2026-09-18**. Final accepted product source is
+`566034e1aff42bde2f3221ebc2da2b16def77d44`. Full source acceptance
+`35308972611`, schedule-authorization acceptance `35310001193`, activated
+dry-run `35310213404` / nested producer `35310222884`, real production cycle
+`35321953530`, and post-promotion full acceptance `35322553140` establish
+the complete chain. The real cycle promoted signed sequence 12 generation
+`local-hosted-0-155-0-566034e1aff4` by non-forced exact-parent CAS to
+`main=9aa8be4c63fe8d60dea130b979c0c12d1a5164bc` only after native ARM64
+smoke, production signing, immutable Release staging, LKG-preserving Pages,
+public HTTPS readback, disposable update/version/doctor/no-op proof, and every
+automatic gate succeeded. The six-hour schedule is now authorized only for
+ordinary strictly-newer official stable; manual publication retains explicit
+authorization and acceptance-only controls remain schedule-ineligible. No force
+push or live installation mutation occurred.
+
 Repository gate:
 
 - release-builder full tests;

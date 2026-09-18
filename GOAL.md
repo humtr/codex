@@ -193,6 +193,38 @@ Termux qualification. Produce one candidate for independent product review.
 
 ### Current Direct-Lead Evidence
 
+- RELEASE-AUTOMATION-LOCAL-DERIVED RALD-7 full acceptance/activation is accepted
+  on 2026-09-18. Final product source
+  `566034e1aff42bde2f3221ebc2da2b16def77d44` replaced the historical
+  version-specific upstream resource whitelist with strict layoutVersion-1
+  semantic validation while keeping tar safety bounds, selected static AArch64
+  binaries, and exact Termux patch qualification fail-closed. Probe
+  `35308307480` confirmed official 0.155.0 preserved the selected binaries and
+  patch source counts. Full source acceptance `35308972611` and scheduled
+  publication authorization acceptance `35310001193` passed the complete
+  repository, Android, workflow/action, credential/private-key, clippy/fmt, and
+  signed public-state gates. Activated dry-run `35310213404` with nested
+  producer `35310222884` reproduced official 0.155.0 build, native ARM64 smoke,
+  and production signing with public mutation jobs skipped.
+  Explicitly authorized real candidate run `35321953530` then passed immutable
+  Release staging, LKG-preserving Pages deployment, complete public HTTPS
+  readback, disposable update to exact `codex-cli 0.155.0`, diagnostic proof
+  `upstream=unhealthy` / `termux_core=healthy`, second-update exact-current
+  no-op, and non-forced exact-parent CAS. Promotion advanced `main` exactly one
+  parent from `b8b35d0ffc1ce2da87f49fcf66106e520a04a2bf` to
+  `9aa8be4c63fe8d60dea130b979c0c12d1a5164bc`, changing only
+  `update-index-v1` and `update-index-v1.sig`. Public stable is signed
+  sequence 12 generation `local-hosted-0-155-0-566034e1aff4`, with its
+  immutable Release tag bound to the pre-promotion parent. Post-promotion full
+  acceptance `35322553140` re-passed every gate against sequence 12. Outer
+  dispatcher `35321944376` is diagnostic-red only because its extra verifier
+  searched for a GitHub-output value as a literal log line; the producer itself
+  and all seven publication jobs were green. The one-shot dispatcher was
+  removed. The six-hour schedule is production publication authorization only
+  for ordinary strictly-newer official stable; manual publication still
+  requires explicit authorization, acceptance-only controls remain fenced off,
+  and no force push or live installation mutation was used.
+
 - RELEASE-AUTOMATION-LOCAL-DERIVED RALD-6 fresh-install/update delivery E2E is
   accepted on 2026-09-18. Product source
   `9972a3288c0531ba744e9bd1356273d9a080aa79` adds the bounded no-argument
