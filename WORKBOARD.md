@@ -251,8 +251,16 @@ behavior belongs in `SPEC.md`.
   secret was not exposed. Commit
   `8d3862342d773ac8a2dfb44c975f55771424ffb7` fixes only that proof-step
   ordering; it adds no toolchain/package install or product trust path.
-- RALD-7 full acceptance/activation is **not started and not authorized**.
-  Starting it requires separate explicit user authorization.
+- RALD-7 full acceptance/activation is **active and explicitly authorized
+  2026-09-18**. Source acceptance first runs the complete repository gate on
+  `rewrite/rust-core` with producer source pinned to accepted RALD-6 product
+  source `9972a3288c0531ba744e9bd1356273d9a080aa79`. Until that gate is green,
+  `main`, the signed public stable index, GitHub Release/Pages authority, and
+  any live installation are protected and unchanged. After source acceptance,
+  activation may fast-forward `main` only to install the accepted scheduled
+  producer plus its Pages reusable workflow without changing the stable index,
+  then must pass a hosted manual dry-run before any real candidate cycle.
+  Force push is prohibited.
 - Public stable remains signed sequence 11 generation
   `local-hosted-0-154-0-37fbbd8033b8-rald45-transition`; RALD-6 created no
   public stable advancement.

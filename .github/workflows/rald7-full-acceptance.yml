@@ -1,0 +1,204 @@
+name: RALD-7 full source acceptance
+
+on:
+  push:
+    branches:
+      - rewrite/rust-core
+    paths:
+      - .github/workflows/auto-release-termux.yml
+      - .github/workflows/publish-termux-update-pages.yml
+      - .github/workflows/rald7-full-acceptance.yml
+      - .github/scripts/test_rald7_acceptance.py
+      - WORKBOARD.md
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rald7-full-source-acceptance
+  cancel-in-progress: false
+
+env:
+  EXPECTED_PARENT: '9dedc27b73ba1b045b3c1724036323e049e1dcf9'
+  EXPECTED_MAIN: 'f221de1225471fb5eda5bbdfcbd0d9db0c2f43b1'
+  ACCEPTED_SOURCE: '9972a3288c0531ba744e9bd1356273d9a080aa79'
+  PUBLIC_GENERATION: 'local-hosted-0-154-0-37fbbd8033b8-rald45-transition'
+  PUBLIC_SEQUENCE: '11'
+  PUBLIC_KEY_SHA256: '62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c'
+
+jobs:
+  contract:
+    name: Workflow, credential, and diff gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Fetch exact acceptance source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init source
+          git -C source remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git -C source fetch --no-tags --depth=64 origin "$GITHUB_SHA"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C source rev-parse HEAD^)" = "$EXPECTED_PARENT"
+
+      - name: Validate workflow syntax and action pins
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          for workflow in .github/workflows/*.yml; do
+            ruby -e 'require "psych"; Psych.parse_file(ARGV.fetch(0))' "$workflow"
+          done
+          python3 -m py_compile .github/scripts/test_rald7_acceptance.py
+          python3 .github/scripts/test_rald7_acceptance.py
+          git diff --check "$EXPECTED_PARENT..HEAD"
+
+  packages:
+    name: Package full tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Fetch exact acceptance source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init source
+          git -C source remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git -C source fetch --no-tags --depth=1 origin "$GITHUB_SHA"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Release-builder full tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          cargo test --locked -p codex-release-builder
+
+      - name: Core full tests including process E2E
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          cargo test --locked -p codex
+
+      - name: Manager integration tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          cargo test --locked -p codex-manager
+
+  workspace:
+    name: Locked workspace check, test, clippy, and fmt
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Fetch exact acceptance source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init source
+          git -C source remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git -C source fetch --no-tags --depth=1 origin "$GITHUB_SHA"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Cargo check
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          cargo check --workspace --locked
+
+      - name: Full workspace tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          cargo test --workspace --locked
+
+      - name: Clippy warnings are errors
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Rust formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          cargo fmt --all -- --check
+
+  public-audit:
+    name: Protected state and signed public-stable audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Verify main, stable index, signature, and public release bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          main_sha="$(git ls-remote --exit-code "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/main | awk '{print $1}')"
+          test "$main_sha" = "$EXPECTED_MAIN"
+
+          root="$RUNNER_TEMP/rald7-public"
+          mkdir -p "$root/release"
+          exact="https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$EXPECTED_MAIN"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2             --connect-timeout 15 --max-time 60 --max-filesize 16384             --output "$root/update-index-v1" "$exact/update-index-v1"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2             --connect-timeout 15 --max-time 60 --max-filesize 1024             --output "$root/update-index-v1.sig" "$exact/update-index-v1.sig"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2             --connect-timeout 15 --max-time 60 --max-filesize 16384             --output "$root/update-public-key.pem"             "https://github.com/$GITHUB_REPOSITORY/releases/download/$PUBLIC_GENERATION/update-public-key.pem"
+
+          test "$(sha256sum "$root/update-public-key.pem" | awk '{print $1}')" = "$PUBLIC_KEY_SHA256"
+          test "$(wc -c < "$root/update-index-v1.sig")" -eq 64
+          openssl pkeyutl -verify -rawin -pubin             -inkey "$root/update-public-key.pem"             -in "$root/update-index-v1" -sigfile "$root/update-index-v1.sig" >/dev/null
+          test "$(sed -n '1p' "$root/update-index-v1")" = codex-update-index-v1
+          test "$(awk -F '\t' '$1=="channel"{print $2}' "$root/update-index-v1")" = stable
+          test "$(awk -F '\t' '$1=="generation_id"{print $2}' "$root/update-index-v1")" = "$PUBLIC_GENERATION"
+          release_base="$(awk -F '\t' '$1=="release_base"{print $2}' "$root/update-index-v1")"
+          test "$release_base" = "https://humtr.github.io/codex/$PUBLIC_GENERATION/"
+
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2             --connect-timeout 15 --max-time 60 --max-filesize 131072             --output "$root/release/release.manifest" "${release_base}release.manifest"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2             --connect-timeout 15 --max-time 60 --max-filesize 1024             --output "$root/release/release.sig" "${release_base}release.sig"
+          test "$(wc -c < "$root/release/release.sig")" -eq 64
+          openssl pkeyutl -verify -rawin -pubin             -inkey "$root/update-public-key.pem"             -in "$root/release/release.manifest" -sigfile "$root/release/release.sig" >/dev/null
+          test "$(sed -n '1p' "$root/release/release.manifest")" = codex-release-v4
+          test "$(awk -F '\t' '$1=="generation_id"{print $2}' "$root/release/release.manifest")" = "$PUBLIC_GENERATION"
+          test "$(awk -F '\t' '$1=="release_sequence"{print $2}' "$root/release/release.manifest")" = "$PUBLIC_SEQUENCE"
+
+          total=0
+          tab="$(printf '\t')"
+          while IFS="$tab" read -r kind rel digest mode extra; do
+            test "$kind" = file || continue
+            test -z "$extra"
+            target="$root/release/$rel"
+            mkdir -p "$(dirname "$target")"
+            curl --fail --silent --show-error --location --proto '=https' --tlsv1.2               --connect-timeout 15 --max-time 300 --max-filesize 536870912               --output "$target" "${release_base}$rel"
+            test "$(sha256sum "$target" | awk '{print $1}')" = "$digest"
+            size="$(wc -c < "$target")"
+            total=$((total + size))
+            test "$total" -le 1073741824
+          done < "$root/release/release.manifest"
+
+          test "$(git ls-remote --exit-code "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/main | awk '{print $1}')" = "$EXPECTED_MAIN"
+
+  accepted:
+    name: RALD-7 source acceptance
+    needs: [contract, packages, workspace, public-audit]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require every source gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test '${{ needs.contract.result }}' = success
+          test '${{ needs.packages.result }}' = success
+          test '${{ needs.workspace.result }}' = success
+          test '${{ needs.public-audit.result }}' = success
+          test "$(git ls-remote --exit-code "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/main | awk '{print $1}')" = "$EXPECTED_MAIN"
+          printf 'RALD-7 source acceptance gates are green\n'
