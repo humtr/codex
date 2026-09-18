@@ -11591,7 +11591,7 @@ exit 73
         let (status, stdout, stderr) = run_repair_probe("legacy-apply");
         assert_eq!(status.code(), Some(1));
         assert!(stdout.is_empty());
-        assert_eq!(stderr, b"Update index URL must use HTTPS. \\xE2\\x9D\\x8C\n");
+        assert_eq!(stderr, b"Update index URL must use HTTPS. \xE2\x9D\x8C\n");
     }
 
     #[cfg(unix)]
@@ -15769,8 +15769,8 @@ esac
         );
         assert!(output
             .stdout
-            .windows(b"Codex 9.9.9 is now active. \\xE2\\x9C\\x85\n".len())
-            .any(|window| window == b"Codex 9.9.9 is now active. \\xE2\\x9C\\x85\n"));
+            .windows(b"Codex 9.9.9 is now active. \xE2\x9C\x85\n".len())
+            .any(|window| window == b"Codex 9.9.9 is now active. \xE2\x9C\x85\n"));
         assert!(!fixture.home.join(LOCAL_PUBLICATION_ROOT_RELATIVE).exists());
         let calls = std::fs::read_to_string(&fixture.curl_log).unwrap();
         assert!(calls.contains(&fixture.index_url));
@@ -15831,12 +15831,12 @@ esac
         assert!(ordinary
             .stdout
             .windows(
-                b"Codex 9.9.9 is now active. \\xE2\\x9C\\x85
+                b"Codex 9.9.9 is now active. \xE2\x9C\x85
 "
                 .len()
             )
             .any(|window| window
-                == b"Codex 9.9.9 is now active. \\xE2\\x9C\\x85
+                == b"Codex 9.9.9 is now active. \xE2\x9C\x85
 "));
         assert!(!gh_log.exists(), "ordinary update must not invoke gh");
         let ordinary_calls = std::fs::read_to_string(&fixture.curl_log).unwrap();
@@ -15860,10 +15860,10 @@ esac
             &fixture.tmp,
         );
         assert_eq!(held.status.code(), Some(1), "stderr={:?}", held.stderr);
-        assert!(held
-            .stderr
-            .windows(b"release sequence 2 is locally held after rollback".len())
-            .any(|window| window == b"release sequence 2 is locally held after rollback"));
+        assert_human_update_error_contains(
+            &held.stderr,
+            b"release sequence 2 is locally held after rollback",
+        );
         assert!(!gh_log.exists(), "held update must not invoke gh");
         let held_calls = std::fs::read_to_string(&fixture.curl_log).unwrap();
         assert!(!held_calls.contains(DEFAULT_UPSTREAM_LATEST_URL));
@@ -19701,14 +19701,7 @@ exec "$cat_path" "$release_root/$relative"
             output.stdout,
             output.stderr
         );
-        assert!(
-            output
-                .stderr
-                .windows(expected.len())
-                .any(|window| window == expected),
-            "stderr={:?}",
-            output.stderr
-        );
+        assert_human_update_error_contains(&output.stderr, expected);
         let state_paths =
             CoreStatePaths::new(&fixture.home.join(".local/share/codex/core")).unwrap();
         let state = read_pointer_state(&state_paths).unwrap().unwrap();
@@ -19761,8 +19754,8 @@ exec "$cat_path" "$release_root/$relative"
         );
         assert!(rollback
             .stdout
-            .windows(b"Rolled back the Termux release for Codex 9.9.9. \\xE2\\x9C\\x85\n".len())
-            .any(|window| window == b"Rolled back the Termux release for Codex 9.9.9. \\xE2\\x9C\\x85\n"));
+            .windows(b"Rolled back the Termux release for Codex 9.9.9. \xE2\x9C\x85\n".len())
+            .any(|window| window == b"Rolled back the Termux release for Codex 9.9.9. \xE2\x9C\x85\n"));
         let roots = b7_public_roots(&fixture.home, &fixture.prefix);
         assert_eq!(
             read_update_hold(&roots).unwrap(),
@@ -19783,10 +19776,10 @@ exec "$cat_path" "$release_root/$relative"
             &fixture.tmp,
         );
         assert_eq!(held.status.code(), Some(1), "stderr={:?}", held.stderr);
-        assert!(held
-            .stderr
-            .windows(b"release sequence 2 is locally held after rollback".len())
-            .any(|window| window == b"release sequence 2 is locally held after rollback"));
+        assert_human_update_error_contains(
+            &held.stderr,
+            b"release sequence 2 is locally held after rollback",
+        );
         assert_eq!(
             read_pointer_state(&state_paths).unwrap().unwrap(),
             rolled_back
@@ -19910,8 +19903,8 @@ exec "$cat_path" "$release_root/$relative"
         );
         assert!(current_again
             .stdout
-            .windows(b"Codex 9.9.9 is already up to date. \\xE2\\x9C\\x85\n".len())
-            .any(|window| window == b"Codex 9.9.9 is already up to date. \\xE2\\x9C\\x85\n"));
+            .windows(b"Codex 9.9.9 is already up to date. \xE2\x9C\x85\n".len())
+            .any(|window| window == b"Codex 9.9.9 is already up to date. \xE2\x9C\x85\n"));
         assert_eq!(read_update_hold(&roots).unwrap(), None);
         b5_assert_no_acquisition(&roots.generation_root);
         m2_b1_assert_no_transaction_files(&state_paths);
@@ -20065,10 +20058,7 @@ exit 2
             "stderr={:?}",
             mismatch.stderr
         );
-        assert!(mismatch
-            .stderr
-            .windows(b"rollback Core guard".len())
-            .any(|window| { window == b"rollback Core guard" }));
+        assert_human_update_error_contains(&mismatch.stderr, b"rollback Core guard");
         assert_eq!(
             read_pointer_state(&state_paths).unwrap().unwrap(),
             rolled_back
@@ -20256,10 +20246,10 @@ exit 2
             &fixture.tmp,
         );
         assert_eq!(force_without_hold.status.code(), Some(1));
-        assert!(force_without_hold
-            .stderr
-            .windows(b"forced update requires an active rollback hold".len())
-            .any(|window| window == b"forced update requires an active rollback hold"));
+        assert_human_update_error_contains(
+            &force_without_hold.stderr,
+            b"forced update requires an active rollback hold",
+        );
         assert_eq!(
             read_pointer_state(&state_paths).unwrap().unwrap(),
             final_state
@@ -20337,8 +20327,8 @@ exit 2
             );
             assert!(output
                 .stdout
-                .windows(b"Codex 9.9.9 is now active. \\xE2\\x9C\\x85\n".len())
-                .any(|window| window == b"Codex 9.9.9 is now active. \\xE2\\x9C\\x85\n"));
+                .windows(b"Codex 9.9.9 is now active. \xE2\x9C\x85\n".len())
+                .any(|window| window == b"Codex 9.9.9 is now active. \xE2\x9C\x85\n"));
             assert!(output.stderr.is_empty(), "stderr={:?}", output.stderr);
             assert!(!output.stdout.contains(&b'\r'));
             assert!(!output.stdout.windows(2).any(|window| window == b"\x1b["));
@@ -20391,13 +20381,13 @@ exit 2
             assert!(current_again
                 .stdout
                 .windows(
-                    b"Codex 9.9.9 is already up to date. \\xE2\\x9C\\x85
+                    b"Codex 9.9.9 is already up to date. \xE2\x9C\x85
 "
                     .len()
                 )
                 .any(|window| {
                     window
-                        == b"Codex 9.9.9 is already up to date. \\xE2\\x9C\\x85
+                        == b"Codex 9.9.9 is already up to date. \xE2\x9C\x85
 "
                 }));
             assert!(
@@ -20418,7 +20408,7 @@ exit 2
         {
             let fixture = b5_channel_fixture("r4-channel-bad-signature", "channel-bad");
             std::fs::write(&fixture.signature_path, b"not-a-signature").unwrap();
-            b5_assert_channel_rejected(&fixture, b"Release signature verification failed. \\xE2\\x9D\\x8C");
+            b5_assert_channel_rejected(&fixture, b"Release signature verification failed. \xE2\x9D\x8C");
             remove_temp_root(fixture.root);
         }
 
@@ -20435,7 +20425,7 @@ exit 2
                 &fixture.openssl,
                 &fixture.private_key,
             );
-            b5_assert_channel_rejected(&fixture, b"Update index is missing its final newline. \\xE2\\x9D\\x8C");
+            b5_assert_channel_rejected(&fixture, b"Update index is missing its final newline. \xE2\x9D\x8C");
             remove_temp_root(fixture.root);
         }
     }
@@ -20553,14 +20543,7 @@ exit 0
             output.stdout,
             output.stderr
         );
-        assert!(
-            output
-                .stderr
-                .windows(expected.len())
-                .any(|window| window == expected),
-            "stderr={:?}",
-            output.stderr
-        );
+        assert_human_update_error_contains(&output.stderr, expected);
     }
 
     #[cfg(unix)]
@@ -20663,7 +20646,7 @@ exit 0
             output.stdout,
             output.stderr
         );
-        let expected = b"Codex 9.9.9 is now active. \\xE2\\x9C\\x85\n";
+        let expected = b"Codex 9.9.9 is now active. \xE2\x9C\x85\n";
         assert!(
             output
                 .stdout
@@ -21248,8 +21231,8 @@ exit 0
         );
         assert!(second_output
             .stdout
-            .windows(b"Codex 9.9.9 is now active. \\xE2\\x9C\\x85\n".len())
-            .any(|window| window == b"Codex 9.9.9 is now active. \\xE2\\x9C\\x85\n"));
+            .windows(b"Codex 9.9.9 is now active. \xE2\x9C\x85\n".len())
+            .any(|window| window == b"Codex 9.9.9 is now active. \xE2\x9C\x85\n"));
         let expected_forward = GenerationPointerState {
             update_key: release_public_key_from_pem(&openssl, &public_key).unwrap(),
             current: "remote-second".to_string(),
@@ -21274,13 +21257,13 @@ exit 0
         assert!(current_again
             .stdout
             .windows(
-                b"Codex 9.9.9 is already up to date. \\xE2\\x9C\\x85
+                b"Codex 9.9.9 is already up to date. \xE2\x9C\x85
 "
                 .len()
             )
             .any(|window| {
                 window
-                    == b"Codex 9.9.9 is already up to date. \\xE2\\x9C\\x85
+                    == b"Codex 9.9.9 is already up to date. \xE2\x9C\x85
 "
             }));
         assert!(
@@ -21309,10 +21292,10 @@ exit 0
         );
         let not_newer_output = b5_run_public_remote_update(not_newer_base, &home, &prefix, &tmp);
         assert_eq!(not_newer_output.status.code(), Some(1));
-        assert!(not_newer_output
-            .stderr
-            .windows(b"release sequence is not newer than the active release".len())
-            .any(|window| window == b"release sequence is not newer than the active release"));
+        assert_human_update_error_contains(
+            &not_newer_output.stderr,
+            b"release sequence is not newer than the active release",
+        );
         assert_eq!(
             read_pointer_state(&state_paths).unwrap(),
             Some(expected_forward.clone())
@@ -21331,10 +21314,10 @@ exit 0
         );
         let probe_output = b5_run_public_remote_update(probe_base, &home, &prefix, &tmp);
         assert_eq!(probe_output.status.code(), Some(1));
-        assert!(probe_output
-            .stderr
-            .windows(b"candidate version probe was unhealthy".len())
-            .any(|window| window == b"candidate version probe was unhealthy"));
+        assert_human_update_error_contains(
+            &probe_output.stderr,
+            b"candidate version probe was unhealthy",
+        );
         assert_eq!(
             read_pointer_state(&state_paths).unwrap(),
             Some(expected_forward.clone())
