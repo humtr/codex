@@ -24,13 +24,24 @@ behavior belongs in `SPEC.md`.
   `0055ec0ecc762e4a4c878be62fd26f93118785218f004b26fe12b178cd3380eb`.
 - UPDATE-CHANNEL-LATEST is accepted and closed. Final source acceptance before
   the closure ledger is `057f078a091441c1f624c7b229649bd1463ef774`.
-- Public stable is signed sequence 11 generation
-  `local-hosted-0-154-0-37fbbd8033b8-rald45-transition` at the verified GitHub
-  Pages release base after accepted RALD-5 promotion commit
-  `f221de1225471fb5eda5bbdfcbd0d9db0c2f43b1`.
+- Public stable is signed sequence 13 generation
+  `local-hosted-0-155-0-566034e1aff4-legacy-lag-remediation` after accepted
+  production remediation commit
+  `5bef52d07a07bd8612b4538dfb29a2396937a3fb`.
 - AUTO-UPSTREAM-ROLLBACK is accepted and source-closed at
   `21bb1cd78d4a6e6ef8e124b7f07230206c5aa5ea`.
-- Active implementation bundle: **RELEASE-AUTOMATION-LOCAL-DERIVED (RALD)**.
+- RALD-1 through RALD-7 and the post-RALD legacy-lag production remediation are
+  accepted and closed.
+- Active implementation bundle: **POST-RALD UPDATE HUMAN OUTPUT (UX-1)**.
+- UX-1 is source-only. It replaces generation-centric human update output with
+  authenticated version-centric output, adds one TTY-only transient progress
+  line, removes redundant operational `codex update:` prefixes, and aligns
+  terminal success/failure markers as sentence-final `✅` / `❌`. It must not
+  change signed admission, anti-rollback, candidate probes, activation, fallback,
+  rollback, publication, or public-stable semantics.
+- UX-1 may mutate only `rewrite/rust-core` and test-owned disposable roots.
+  `main`, Release/Pages, signed public stable, Actions secrets, and the live
+  installation remain protected.
 - RALD-1 local-derived Core contract, RALD-2 Core/official-producer separation,
   and RALD-3 GitHub-hosted unsigned producer preflight are accepted. RALD-3 is
   pinned to producer source commit `28e65b32c8719cf913e62080d4674b54dbcc1a01`;

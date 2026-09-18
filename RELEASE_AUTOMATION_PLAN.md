@@ -1,6 +1,6 @@
 # Release Automation and Local-Derived Update Plan
 
-Status: selected implementation plan; **RALD-1 accepted on 2026-09-15; RALD-2 accepted on 2026-09-16; RALD-3 accepted on 2026-09-16 after default-branch install and GitHub-hosted manual dry-run; RALD-4 accepted on 2026-09-17 after native ARM64 hosted smoke and production-authority signing proof; RALD-5..RALD-7 remain pending**.
+Status: RALD-1 through RALD-7 are accepted and the post-RALD legacy-lag production remediation is complete. The current UX-1 source slice changes only Core human update presentation; it does not reopen or alter any frozen producer/consumer trust, signing, publication, rollback, or promotion decision in this plan.
 
 Baseline: `rewrite/rust-core` at
 `21bb1cd78d4a6e6ef8e124b7f07230206c5aa5ea` (`termux: guard rollback holds and automate stable intake`).
@@ -10,6 +10,14 @@ is a drift-control plan owned by the selected `WORKBOARD.md` bundle. It does not
 override `SPEC.md`, does not retroactively alter accepted evidence in `GOAL.md`,
 and must be updated together with `WORKBOARD.md` if the selected implementation
 changes.
+
+The active UX-1 slice is deliberately outside release-production semantics. Its
+only release-plan obligation is regression preservation: non-TTY producer and
+disposable-update proofs must receive stable plain output with no terminal
+control bytes, while future accepted product sources may assert the new
+version-centric success/no-op text. No UX-1 source acceptance authorizes a
+workflow install on `main`, a candidate publication, Pages deployment, stable
+promotion, or live-device mutation.
 
 ## 1. Objective
 

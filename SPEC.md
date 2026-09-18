@@ -150,6 +150,39 @@ rollback remain offline, and the explicit remote form remains an immutable
 signed-generation source. No top-level `codex update` argument is passed to
 upstream, and Core never invokes a package manager or an upstream self-updater.
 
+Human `codex update` output is version-centric rather than generation-centric.
+The ordinary signed-channel path derives both the installed and candidate Codex
+versions only from already authenticated generation metadata; it must not execute
+an untrusted candidate merely to discover presentation data. Before the candidate
+version is authenticated, an interactive update may show only a transient
+`Checking for updates...` status.
+
+When both stdout and stderr are attached to terminals, Core may use exactly one
+transient stderr progress line. It replaces that line in place with bounded
+carriage-return/erase-line terminal control and flushes each phase immediately.
+The transient line is always cleared before a permanent success or failure
+result. The ordinary signed-channel phases are concise user-facing states such as
+`Checking for updates...`, `Downloading signed Termux release...`,
+`Verifying release signature and contents...`, `Checking candidate runtime...`,
+and `Activating Codex <VERSION>...`. If either stream is not a terminal, Core
+emits no transient progress line and no cursor-control bytes.
+
+After both versions are authenticated, a genuinely version-changing signed
+channel activation writes the permanent stdout header
+`Updating Codex <OLD> -> <NEW>...`. A same-upstream-version corrective
+generation instead writes `Updating the Termux release for Codex <VERSION>...`.
+Successful signed activation then writes exactly
+`Verified and activated the signed Termux release.` followed by
+`Codex <NEW> is now active. ✅`. Exact-current success writes
+`Codex <VERSION> is already up to date. ✅` and performs no staging, probe, or
+state mutation. Human operational update failures omit redundant command-name
+prefixes such as `codex update:`; after clearing any transient line they emit
+one concise sentence ending in `❌`. Usage errors retain the canonical usage
+surface and are not decorated as operational failures. Internal generation IDs,
+release sequences, digests, API/schema identities, and similar machinery do not
+become ordinary human success text; they remain available only on the
+Termux-specific diagnostic/status surfaces already authorized below.
+
 Rollback is an explicit Core operation, not an ordinary-launch fallback and not
 a search through generation history. After a rollback activation commits, Core
 atomically records a separate bounded exact-format `update-hold` file containing
