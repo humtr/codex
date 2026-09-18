@@ -1,0 +1,134 @@
+name: RALD-7 activated workflow dry-run
+
+on:
+  push:
+    branches:
+      - rewrite/rust-core
+    paths:
+      - .github/workflows/rald7-activation-dry-run.yml
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: rald7-activation-dry-run
+  cancel-in-progress: false
+
+env:
+  EXPECTED_PARENT: '6c1eafbc91754e69a724fbe541be20e0916bc90b'
+  EXPECTED_MAIN: '17ccd88f02b00d040e2aea7bd417e98bb53ff630'
+  ACCEPTED_SOURCE: '9972a3288c0531ba744e9bd1356273d9a080aa79'
+  EXPECTED_STABLE_GENERATION: 'local-hosted-0-154-0-37fbbd8033b8-rald45-transition'
+  EXPECTED_VERSION: '0.154.0'
+  EXPECTED_AUTO_BLOB: '2bb50402fa79b4a63c197f6e48cad3b2c707c831'
+  EXPECTED_PAGES_BLOB: 'cb4a3afd56f01cf884138eb976aedffcbfdca5ab'
+
+jobs:
+  dry-run:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Bind exact activation state and preflight same-version dry-run
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/rewrite/rust-core
+          test "$(git ls-remote --exit-code "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/rewrite/rust-core | awk '{print $1}')" = "$GITHUB_SHA"
+
+          git init trigger
+          git -C trigger remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git -C trigger fetch --no-tags --depth=2 origin "$GITHUB_SHA"
+          git -C trigger checkout --detach FETCH_HEAD
+          test "$(git -C trigger rev-parse HEAD^)" = "$EXPECTED_PARENT"
+
+          main_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
+          test "$main_sha" = "$EXPECTED_MAIN"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$main_sha" --jq '.parents[0].sha')" =             f221de1225471fb5eda5bbdfcbd0d9db0c2f43b1
+
+          test "$(gh api "repos/$GITHUB_REPOSITORY/contents/.github/workflows/auto-release-termux.yml?ref=$EXPECTED_MAIN" --jq '.sha')" = "$EXPECTED_AUTO_BLOB"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/contents/.github/workflows/publish-termux-update-pages.yml?ref=$EXPECTED_MAIN" --jq '.sha')" = "$EXPECTED_PAGES_BLOB"
+
+          git init product
+          git -C product remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git -C product fetch --no-tags --depth=1 origin "$ACCEPTED_SOURCE"
+          git -C product checkout --detach FETCH_HEAD
+          test "$(git -C product rev-parse HEAD)" = "$ACCEPTED_SOURCE"
+
+          state="$RUNNER_TEMP/rald7-dry-preflight"
+          mkdir -p "$state"
+          gh api "repos/$GITHUB_REPOSITORY/contents/update-index-v1?ref=$EXPECTED_MAIN"             --jq '.content' | tr -d '\n' | base64 --decode > "$state/update-index-v1"
+          generation="$(awk -F '\t' '$1=="generation_id"{print $2}' "$state/update-index-v1")"
+          test "$generation" = "$EXPECTED_STABLE_GENERATION"
+          release_base="$(awk -F '\t' '$1=="release_base"{print $2}' "$state/update-index-v1")"
+          test "$release_base" = "https://humtr.github.io/codex/$EXPECTED_STABLE_GENERATION/"
+
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2             --connect-timeout 15 --max-time 60 --max-filesize 65536             --output "$state/generation.meta" "${release_base}generation.meta"
+          python3 product/.github/scripts/rald3_preflight.py descriptor             "$state/generation.meta" > "$state/descriptor"
+          current_version="$(sed -n 's/^version=//p' "$state/descriptor")"
+          test "$current_version" = "$EXPECTED_VERSION"
+
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2             --connect-timeout 15 --max-time 60 --max-filesize 131072             --output "$state/latest.json" 'https://releases.openai.com/codex/channels/latest'
+          python3 product/.github/scripts/rald3_preflight.py upstream             "$state/latest.json" > "$state/upstream"
+          upstream_version="$(sed -n 's/^version=//p' "$state/upstream")"
+          test "$upstream_version" = "$EXPECTED_VERSION"
+          python3 product/.github/scripts/rald3_preflight.py compare             "$current_version" "$upstream_version" > "$state/decision"
+          test "$(sed -n 's/^candidate=//p' "$state/decision")" = false
+
+      - name: Dispatch activated main workflow with all exceptional gates off
+        id: dispatch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          before="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/auto-release-termux.yml/runs?branch=main&event=workflow_dispatch&per_page=20"             --jq '.workflow_runs[0].id // 0')"
+          gh workflow run auto-release-termux.yml             --repo "$GITHUB_REPOSITORY"             --ref main             -f rald4_positive_gate=false             -f rald5_publication_authorized=false             -f rald5_same_version_acceptance=false             -f rald45_transition_stage=false             -f rald45_transition_promote=false             -f rald5_negative_gate=false
+
+          run_id=''
+          for attempt in $(seq 1 40); do
+            run_id="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/auto-release-termux.yml/runs?branch=main&event=workflow_dispatch&per_page=20"               --jq ".workflow_runs[] | select(.head_sha == \"$EXPECTED_MAIN\" and .id > $before) | .id" | head -n 1)"
+            if test -n "$run_id"; then
+              break
+            fi
+            sleep 3
+          done
+          test -n "$run_id"
+          printf 'run_id=%s\n' "$run_id" >> "$GITHUB_OUTPUT"
+          printf 'RALD-7 dry-run dispatched run %s\n' "$run_id"
+
+      - name: Require exact-current dry-run and protected state
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ steps.dispatch.outputs.run_id }}
+        run: |
+          set -euo pipefail
+          conclusion=''
+          for attempt in $(seq 1 240); do
+            status="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" --jq '.status')"
+            if test "$status" = completed; then
+              conclusion="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" --jq '.conclusion')"
+              break
+            fi
+            sleep 10
+          done
+          test "$conclusion" = success
+
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100" > "$RUNNER_TEMP/jobs.json"
+          test "$(jq -r '.jobs[] | select(.name=="Build unsigned Android/AArch64 candidate") | .conclusion' "$RUNNER_TEMP/jobs.json")" = success
+          for job in             "Android/AArch64 executable smoke"             "Sign qualified candidate"             "Stage immutable candidate Release"             "Deploy candidate Pages while retaining LKG"             "Public readback and disposable update proof"             "CAS-promote signed stable index"; do
+            test "$(jq -r --arg job "$job" '.jobs[] | select(.name==$job) | .conclusion' "$RUNNER_TEMP/jobs.json")" = skipped
+          done
+
+          producer_id="$(jq -r '.jobs[] | select(.name=="Build unsigned Android/AArch64 candidate") | .id' "$RUNNER_TEMP/jobs.json")"
+          gh api "repos/$GITHUB_REPOSITORY/actions/jobs/$producer_id/logs" > "$RUNNER_TEMP/producer.log"
+          grep -Fq "authenticated wrapper stable already matches official upstream $EXPECTED_VERSION"             "$RUNNER_TEMP/producer.log"
+
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts" --jq '.total_count')" -eq 0
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')" = "$EXPECTED_MAIN"
+          gh api "repos/$GITHUB_REPOSITORY/contents/update-index-v1?ref=$EXPECTED_MAIN"             --jq '.content' | tr -d '\n' | base64 --decode > "$RUNNER_TEMP/final-index"
+          test "$(awk -F '\t' '$1=="generation_id"{print $2}' "$RUNNER_TEMP/final-index")" = "$EXPECTED_STABLE_GENERATION"
+          printf 'RALD-7 activated workflow dry-run passed: run=%s\n' "$RUN_ID"
