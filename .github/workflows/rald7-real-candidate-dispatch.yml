@@ -1,0 +1,173 @@
+name: RALD-7 real candidate dispatch
+
+on:
+  push:
+    branches:
+      - rewrite/rust-core
+    paths:
+      - .github/workflows/rald7-real-candidate-dispatch.yml
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: rald7-real-candidate-dispatch
+  cancel-in-progress: false
+
+env:
+  EXPECTED_PARENT: 'aff6565081fa6c6a14260c1a9238cbab5a33b442'
+  EXPECTED_MAIN: 'b8b35d0ffc1ce2da87f49fcf66106e520a04a2bf'
+  ACCEPTED_SOURCE: '566034e1aff42bde2f3221ebc2da2b16def77d44'
+  EXPECTED_AUTO_BLOB: '7be2b2662b5c91c319b56670b04e8a14ae28d32c'
+  EXPECTED_PAGES_BLOB: 'cb4a3afd56f01cf884138eb976aedffcbfdca5ab'
+  EXPECTED_STABLE_GENERATION: 'local-hosted-0-154-0-37fbbd8033b8-rald45-transition'
+  EXPECTED_STABLE_VERSION: '0.154.0'
+  EXPECTED_STABLE_SEQUENCE: '11'
+  PUBLIC_KEY_SHA256: '62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c'
+
+jobs:
+  dispatch:
+    name: Dispatch and verify one real newer candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - name: Bind exact accepted activation state
+        id: preflight
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/rewrite/rust-core
+          git init trigger
+          git -C trigger remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git -C trigger fetch --no-tags --depth=2 origin "$GITHUB_SHA"
+          git -C trigger checkout --detach FETCH_HEAD
+          test "$(git -C trigger rev-parse HEAD^)" = "$EXPECTED_PARENT"
+
+          main_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
+          test "$main_sha" = "$EXPECTED_MAIN"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/contents/.github/workflows/auto-release-termux.yml?ref=$EXPECTED_MAIN" --jq '.sha')" = "$EXPECTED_AUTO_BLOB"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/contents/.github/workflows/publish-termux-update-pages.yml?ref=$EXPECTED_MAIN" --jq '.sha')" = "$EXPECTED_PAGES_BLOB"
+
+          state="$RUNNER_TEMP/rald7-real-preflight"
+          mkdir -p "$state"
+          gh api "repos/$GITHUB_REPOSITORY/contents/update-index-v1?ref=$EXPECTED_MAIN"             --jq '.content' | tr -d '\n' | base64 --decode > "$state/update-index-v1"
+          test "$(awk -F '\t' '$1=="generation_id"{print $2}' "$state/update-index-v1")" = "$EXPECTED_STABLE_GENERATION"
+          release_base="$(awk -F '\t' '$1=="release_base"{print $2}' "$state/update-index-v1")"
+          test "$release_base" = "https://humtr.github.io/codex/$EXPECTED_STABLE_GENERATION/"
+
+          git init source
+          git -C source remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git -C source fetch --no-tags --depth=1 origin "$ACCEPTED_SOURCE"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$ACCEPTED_SOURCE"
+
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2             --connect-timeout 15 --max-time 60 --max-filesize 65536             --output "$state/generation.meta" "${release_base}generation.meta"
+          python3 source/.github/scripts/rald3_preflight.py descriptor             "$state/generation.meta" > "$state/descriptor"
+          current_version="$(sed -n 's/^version=//p' "$state/descriptor")"
+          test "$current_version" = "$EXPECTED_STABLE_VERSION"
+
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2             --connect-timeout 15 --max-time 60 --max-filesize 131072             --output "$state/latest.json" 'https://releases.openai.com/codex/channels/latest'
+          python3 source/.github/scripts/rald3_preflight.py upstream             "$state/latest.json" > "$state/upstream"
+          upstream_version="$(sed -n 's/^version=//p' "$state/upstream")"
+          test -n "$upstream_version"
+          python3 source/.github/scripts/rald3_preflight.py compare             "$current_version" "$upstream_version" > "$state/decision"
+          test "$(sed -n 's/^candidate=//p' "$state/decision")" = true
+
+          suffix="${upstream_version//./-}-${ACCEPTED_SOURCE:0:12}"
+          generation="local-hosted-$suffix"
+          printf 'upstream_version=%s\n' "$upstream_version" >> "$GITHUB_OUTPUT"
+          printf 'generation=%s\n' "$generation" >> "$GITHUB_OUTPUT"
+          printf 'RALD-7 real-cycle preflight: stable=%s upstream=%s generation=%s\n'             "$current_version" "$upstream_version" "$generation"
+
+      - name: Dispatch explicitly authorized ordinary publication
+        id: dispatch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          before="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=main&event=workflow_dispatch&per_page=30"             --jq '[.workflow_runs[] | select(.name=="Termux Hosted Release Preflight")][0].id // 0')"
+          gh workflow run auto-release-termux.yml             --repo "$GITHUB_REPOSITORY"             --ref main             -f rald4_positive_gate=false             -f rald5_publication_authorized=true             -f rald5_same_version_acceptance=false             -f rald45_transition_stage=false             -f rald45_transition_promote=false             -f rald5_negative_gate=false
+
+          run_id=''
+          for attempt in $(seq 1 60); do
+            run_id="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=main&event=workflow_dispatch&per_page=30"               --jq ".workflow_runs[] | select(.name==\"Termux Hosted Release Preflight\" and .head_sha == \"$EXPECTED_MAIN\" and .id > $before) | .id" | head -n 1)"
+            if test -n "$run_id"; then
+              break
+            fi
+            sleep 3
+          done
+          test -n "$run_id"
+          printf 'run_id=%s\n' "$run_id" >> "$GITHUB_OUTPUT"
+          printf 'RALD-7 real candidate dispatched run %s\n' "$run_id"
+
+      - name: Require full publication gates and exact CAS promotion
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ steps.dispatch.outputs.run_id }}
+          EXPECTED_GENERATION: ${{ steps.preflight.outputs.generation }}
+          EXPECTED_UPSTREAM_VERSION: ${{ steps.preflight.outputs.upstream_version }}
+        run: |
+          set -euo pipefail
+          conclusion=''
+          for attempt in $(seq 1 420); do
+            status="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" --jq '.status')"
+            if test "$status" = completed; then
+              conclusion="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" --jq '.conclusion')"
+              break
+            fi
+            sleep 10
+          done
+          test "$conclusion" = success
+
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100" > "$RUNNER_TEMP/jobs.json"
+          for job in             "Build unsigned Android/AArch64 candidate"             "Android/AArch64 executable smoke"             "Sign qualified candidate"             "Stage immutable candidate Release"             "Deploy candidate Pages while retaining LKG"             "Public readback and disposable update proof"             "CAS-promote signed stable index"; do
+            result="$(jq -r --arg job "$job" '.jobs[] | select(.name==$job) | .conclusion' "$RUNNER_TEMP/jobs.json")"
+            test "$result" = success
+          done
+
+          producer_id="$(jq -r '.jobs[] | select(.name=="Build unsigned Android/AArch64 candidate") | .id' "$RUNNER_TEMP/jobs.json")"
+          gh api --allow-escape-sequences "repos/$GITHUB_REPOSITORY/actions/jobs/$producer_id/logs" > "$RUNNER_TEMP/producer.log"
+          grep -Fq 'candidate=true' "$RUNNER_TEMP/producer.log"
+          grep -Fq 'publication_authorized=true' "$RUNNER_TEMP/producer.log"
+          grep -Fq "upstream_version=$EXPECTED_UPSTREAM_VERSION" "$RUNNER_TEMP/producer.log"
+
+          promoted="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
+          test "$promoted" != "$EXPECTED_MAIN"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$promoted" --jq '.parents[0].sha')" = "$EXPECTED_MAIN"
+          gh api "repos/$GITHUB_REPOSITORY/commits/$promoted" > "$RUNNER_TEMP/promotion.json"
+          test "$(jq '.files | length' "$RUNNER_TEMP/promotion.json")" -eq 2
+          jq -r '.files[].filename' "$RUNNER_TEMP/promotion.json" | LC_ALL=C sort > "$RUNNER_TEMP/changed"
+          printf '%s\n' update-index-v1 update-index-v1.sig | LC_ALL=C sort > "$RUNNER_TEMP/expected-changed"
+          diff -u "$RUNNER_TEMP/expected-changed" "$RUNNER_TEMP/changed"
+
+          gh api "repos/$GITHUB_REPOSITORY/contents/update-index-v1?ref=$promoted"             --jq '.content' | tr -d '\n' | base64 --decode > "$RUNNER_TEMP/index"
+          gh api "repos/$GITHUB_REPOSITORY/contents/update-index-v1.sig?ref=$promoted"             --jq '.content' | tr -d '\n' | base64 --decode > "$RUNNER_TEMP/index.sig"
+          test "$(awk -F '\t' '$1=="generation_id"{print $2}' "$RUNNER_TEMP/index")" = "$EXPECTED_GENERATION"
+          release_base="$(awk -F '\t' '$1=="release_base"{print $2}' "$RUNNER_TEMP/index")"
+          test "$release_base" = "https://humtr.github.io/codex/$EXPECTED_GENERATION/"
+
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2             --connect-timeout 15 --max-time 60 --max-filesize 16384             --output "$RUNNER_TEMP/key.pem"             "https://github.com/$GITHUB_REPOSITORY/releases/download/$EXPECTED_GENERATION/update-public-key.pem"
+          test "$(sha256sum "$RUNNER_TEMP/key.pem" | awk '{print $1}')" = "$PUBLIC_KEY_SHA256"
+          test "$(wc -c < "$RUNNER_TEMP/index.sig")" -eq 64
+          openssl pkeyutl -verify -rawin -pubin -inkey "$RUNNER_TEMP/key.pem"             -in "$RUNNER_TEMP/index" -sigfile "$RUNNER_TEMP/index.sig" >/dev/null
+
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2             --connect-timeout 15 --max-time 60 --max-filesize 131072             --output "$RUNNER_TEMP/release.manifest" "${release_base}release.manifest"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2             --connect-timeout 15 --max-time 60 --max-filesize 1024             --output "$RUNNER_TEMP/release.sig" "${release_base}release.sig"
+          openssl pkeyutl -verify -rawin -pubin -inkey "$RUNNER_TEMP/key.pem"             -in "$RUNNER_TEMP/release.manifest" -sigfile "$RUNNER_TEMP/release.sig" >/dev/null
+          test "$(awk -F '\t' '$1=="generation_id"{print $2}' "$RUNNER_TEMP/release.manifest")" = "$EXPECTED_GENERATION"
+          test "$(awk -F '\t' '$1=="release_sequence"{print $2}' "$RUNNER_TEMP/release.manifest")" = 12
+
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2             --connect-timeout 15 --max-time 60 --max-filesize 65536             --output "$RUNNER_TEMP/generation.meta" "${release_base}generation.meta"
+          python3 source/.github/scripts/rald3_preflight.py descriptor             "$RUNNER_TEMP/generation.meta" > "$RUNNER_TEMP/descriptor"
+          test "$(sed -n 's/^version=//p' "$RUNNER_TEMP/descriptor")" = "$EXPECTED_UPSTREAM_VERSION"
+
+          tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$EXPECTED_GENERATION" --jq '.object.sha')"
+          test "$tag_sha" = "$EXPECTED_MAIN"
+          test "$(git ls-remote --exit-code "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/main | awk '{print $1}')" = "$promoted"
+
+          printf 'RALD-7 real candidate accepted: run=%s upstream=%s generation=%s main=%s\n'             "$RUN_ID" "$EXPECTED_UPSTREAM_VERSION" "$EXPECTED_GENERATION" "$promoted"
