@@ -260,7 +260,15 @@ behavior belongs in `SPEC.md`.
   activation may fast-forward `main` only to install the accepted scheduled
   producer plus its Pages reusable workflow without changing the stable index,
   then must pass a hosted manual dry-run before any real candidate cycle.
-  Force push is prohibited.
+  Force push is prohibited. First full-gate run `35296308869` stopped before
+  activation: workflow/action syntax, staged credential/private-key scan,
+  `git diff --check`, and signed public-stable byte audit all passed, while
+  package/workspace tests failed because the generic Ubuntu jobs had not
+  provisioned the deterministic Termux proof substrate required by existing Core
+  tests (`PREFIX/bin/openssl`, `script`, `clang`, `gzip`, `cat`,
+  `chmod`, plus the fixed Termux shell path). This is a test-runner fixture
+  defect, not a product failure. `main` and public stable remained unchanged;
+  repair only the hosted test substrate and rerun all source gates.
 - Public stable remains signed sequence 11 generation
   `local-hosted-0-154-0-37fbbd8033b8-rald45-transition`; RALD-6 created no
   public stable advancement.

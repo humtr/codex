@@ -19,7 +19,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  EXPECTED_PARENT: '9dedc27b73ba1b045b3c1724036323e049e1dcf9'
+  EXPECTED_PARENT: '77ee86f071999f2bd6f84da068a8d5ecb4b4fd54'
+  TERMUX_TEST_PREFIX: '/data/data/com.termux/files/usr'
+  TERMUX_TEST_TMPDIR: '/data/data/com.termux/files/usr/tmp'
   EXPECTED_MAIN: 'f221de1225471fb5eda5bbdfcbd0d9db0c2f43b1'
   ACCEPTED_SOURCE: '9972a3288c0531ba744e9bd1356273d9a080aa79'
   PUBLIC_GENERATION: 'local-hosted-0-154-0-37fbbd8033b8-rald45-transition'
@@ -70,6 +72,27 @@ jobs:
           git -C source checkout --detach FETCH_HEAD
           test "$(git -C source rev-parse HEAD)" = "$GITHUB_SHA"
 
+      - name: Provision deterministic Termux test tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo mkdir -p "$TERMUX_TEST_PREFIX/bin" "$TERMUX_TEST_TMPDIR"
+          for tool in sh openssl curl script gzip clang cat chmod; do
+            source_path="$(command -v "$tool")"
+            test -f "$source_path" -o -L "$source_path"
+            sudo ln -s "$source_path" "$TERMUX_TEST_PREFIX/bin/$tool"
+          done
+          sudo chown -R "$(id -u):$(id -g)" /data/data/com.termux
+          printf 'PREFIX=%s\n' "$TERMUX_TEST_PREFIX" >> "$GITHUB_ENV"
+          printf 'TMPDIR=%s\n' "$TERMUX_TEST_TMPDIR" >> "$GITHUB_ENV"
+          test -x "$TERMUX_TEST_PREFIX/bin/sh"
+          test -x "$TERMUX_TEST_PREFIX/bin/openssl"
+          test -x "$TERMUX_TEST_PREFIX/bin/script"
+          test -x "$TERMUX_TEST_PREFIX/bin/clang"
+          test -x "$TERMUX_TEST_PREFIX/bin/gzip"
+          test -x "$TERMUX_TEST_PREFIX/bin/cat"
+          test -x "$TERMUX_TEST_PREFIX/bin/chmod"
+
       - name: Release-builder full tests
         shell: bash
         run: |
@@ -105,6 +128,27 @@ jobs:
           git -C source fetch --no-tags --depth=1 origin "$GITHUB_SHA"
           git -C source checkout --detach FETCH_HEAD
           test "$(git -C source rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Provision deterministic Termux test tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo mkdir -p "$TERMUX_TEST_PREFIX/bin" "$TERMUX_TEST_TMPDIR"
+          for tool in sh openssl curl script gzip clang cat chmod; do
+            source_path="$(command -v "$tool")"
+            test -f "$source_path" -o -L "$source_path"
+            sudo ln -s "$source_path" "$TERMUX_TEST_PREFIX/bin/$tool"
+          done
+          sudo chown -R "$(id -u):$(id -g)" /data/data/com.termux
+          printf 'PREFIX=%s\n' "$TERMUX_TEST_PREFIX" >> "$GITHUB_ENV"
+          printf 'TMPDIR=%s\n' "$TERMUX_TEST_TMPDIR" >> "$GITHUB_ENV"
+          test -x "$TERMUX_TEST_PREFIX/bin/sh"
+          test -x "$TERMUX_TEST_PREFIX/bin/openssl"
+          test -x "$TERMUX_TEST_PREFIX/bin/script"
+          test -x "$TERMUX_TEST_PREFIX/bin/clang"
+          test -x "$TERMUX_TEST_PREFIX/bin/gzip"
+          test -x "$TERMUX_TEST_PREFIX/bin/cat"
+          test -x "$TERMUX_TEST_PREFIX/bin/chmod"
 
       - name: Cargo check
         shell: bash
