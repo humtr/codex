@@ -405,19 +405,33 @@ behavior belongs in `SPEC.md`.
   through the accepted automatic gates; manual publication continues to require
   explicit authorization.
 - LEGACY-LAG direct-jump qualification is **active 2026-09-18** under explicit
-  user authorization. Scope is proof-only: reconstruct an isolated sequence-7
-  R10 client from exact historical source
-  `0621105fd1be8461b370466fbfa981938241074d` and exact official 0.153.4
-  archive SHA-256
-  `fc395cb043a1093ab0db34f44aba3199bfaa9ce640cd9be7fd588f44b0da64a4`,
-  bind the fixture to the existing production public authority as release
-  sequence 7 without publishing it, then run one ordinary no-argument
-  `codex update` directly against current signed public sequence 12
-  `local-hosted-0-155-0-566034e1aff4`. No update-index override, fake
-  credential/provider success, public stable mutation, Release/Pages write,
-  force push, or live-installation access is permitted. Failure must leave the
-  sequence-7 fixture authoritative and is compatibility evidence, not permission
-  to bypass a gate.
+  user authorization. Exact historical R10 source
+  `0621105fd1be8461b370466fbfa981938241074d` plus the exact official 0.153.4
+  archive was reconstructed as a production-authority-signed private sequence-7
+  client. Historical hosted reconstruction required Android API 30 because
+  bionic exposes `renameat2` from API 30; this changes no historical source or
+  current product. Run `35343356792` then proved the actual defect: ordinary
+  no-argument update against current signed public sequence 12 fetched and
+  admitted the candidate but failed closed at the old R10 activation gate with
+  `candidate doctor probe was unhealthy`; authoritative sequence-7 state,
+  launcher, and current-generation bytes stayed unchanged. This is caused by
+  sequence 12 declaring `upstream_doctor=supported`, not by version, signature,
+  digest, inventory, or runtime incompatibility.
+  Private repair run `35343870274` reused exact public 0.155.0 component bytes,
+  changed only the signed generation identity and the already accepted R10
+  bridge capability to `upstream_doctor=unsupported`, signed it as private
+  sequence 13 with the production authority, and served it over disposable local
+  HTTPS. The same reconstructed sequence-7 historical Core then performed one
+  ordinary update directly to 0.155.0/sequence13, retained sequence 7 as
+  `previous`, reported exact `codex-cli 0.155.0`, ran real public doctor with
+  `upstream=unhealthy` and `termux_core=healthy`, and a second update was an
+  exact-current no-op with byte-identical state. No fake credential/provider
+  success, public stable mutation, Release/Pages write, force push, or live
+  installation access was used.
+  SPEC now requires the exact R10 bridge doctor signal on every public stable
+  candidate while the compatibility floor includes retained R10. The producer
+  source correction is under full repository acceptance before any `main`
+  workflow change or public stable correction.
 - `legacy/monolith` remains sealed at
   `bf30a7dc94d4dad7f58836c69028160856e63c58`.
 - Worker mode remains OFF.

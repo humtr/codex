@@ -340,10 +340,9 @@ jobs:
           upstream_version='${{ steps.decision.outputs.upstream_version }}'
           archive_sha256='${{ steps.decision.outputs.archive_sha256 }}'
           generation_id='${{ steps.decision.outputs.generation_id }}'
-          transition_args=()
-          if test '${{ steps.decision.outputs.transition_stage }}' = true; then
-            transition_args+=(--legacy-activation-doctor-unsupported)
-          fi
+          # The signed R10 activation bridge signal is required on every public
+          # stable candidate until the compatibility floor moves past retained R10.
+          transition_args=(--legacy-activation-doctor-unsupported)
           fetch_output="$($builder fetch \
             --version "$upstream_version" \
             --curl /usr/bin/curl \
@@ -370,11 +369,7 @@ jobs:
             "$work/candidate" "$upstream_version"
           test "$(awk -F '\t' '$1=="creation_metadata"{print $2}' "$work/candidate/generation.meta")" = r10-browser-helper-bridge-v1
           doctor_capability="$(awk -F '\t' '$1=="upstream_doctor"{print $2}' "$work/candidate/generation.meta")"
-          if test '${{ steps.decision.outputs.transition_stage }}' = true; then
-            test "$doctor_capability" = unsupported
-          else
-            test "$doctor_capability" = supported
-          fi
+          test "$doctor_capability" = unsupported
           find "$work/candidate" -type f -printf '%P\n' | LC_ALL=C sort > "$work/actual-files"
           cat > "$work/expected-files" <<'EOF'
           .manager-probe-deferred

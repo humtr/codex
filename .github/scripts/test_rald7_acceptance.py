@@ -56,6 +56,13 @@ class Rald7AcceptanceContract(unittest.TestCase):
             text,
         )
         self.assertIn("uses: ./.github/workflows/publish-termux-update-pages.yml", text)
+        self.assertEqual(
+            text.count("transition_args=(--legacy-activation-doctor-unsupported)"),
+            1,
+        )
+        self.assertNotIn("transition_args=()", text)
+        self.assertIn('test "$doctor_capability" = unsupported', text)
+        self.assertNotIn('test "$doctor_capability" = supported', text)
 
     def test_added_lines_contain_no_credentials_or_private_keys(self) -> None:
         diff = run("git", "diff", "--unified=0", f"{BASE}..HEAD", "--", ".")
