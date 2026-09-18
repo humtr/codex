@@ -17,7 +17,7 @@ concurrency:
 
 env:
   RALD6_SOURCE_SHA: '9972a3288c0531ba744e9bd1356273d9a080aa79'
-  EXPECTED_TRIGGER_PARENT: '6b974145dc5490b22a31fa7dd7d4edff828480b6'
+  EXPECTED_TRIGGER_PARENT: '9626cb09426e7f043eca4d86ce880c92ca490e1c'
   EXPECTED_MAIN_SHA: 'f221de1225471fb5eda5bbdfcbd0d9db0c2f43b1'
   PUBLIC_GENERATION: 'local-hosted-0-154-0-37fbbd8033b8-rald45-transition'
   PUBLIC_VERSION: '0.154.0'
@@ -225,11 +225,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          export HOME="$TERMUX_HOME"
-          export PREFIX="$TERMUX_PREFIX"
-          export TMPDIR="$TERMUX_TMPDIR"
-          export PATH="$PREFIX/bin:/usr/bin:/bin"
-
           test "$(git ls-remote --exit-code "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/main | awk '{print $1}')" =             "$EXPECTED_MAIN_SHA"
           command -v cargo >/dev/null
           command -v rustc >/dev/null
@@ -237,6 +232,11 @@ jobs:
           rustc --version
           cargo build --release --locked             --manifest-path source/Cargo.toml             -p codex-release-builder
           python3 source/.github/scripts/test_rald4_signing.py
+
+          export HOME="$TERMUX_HOME"
+          export PREFIX="$TERMUX_PREFIX"
+          export TMPDIR="$TERMUX_TMPDIR"
+          export PATH="$PREFIX/bin:/usr/bin:/bin"
 
           fixture="$RUNNER_TEMP/rald6-fixture"
           candidate="$fixture/candidate"

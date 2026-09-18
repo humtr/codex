@@ -7,7 +7,7 @@ WORKFLOW = ROOT / ".github" / "workflows" / "rald6-delivery-e2e.yml"
 TEXT = WORKFLOW.read_text()
 
 SOURCE = "9972a3288c0531ba744e9bd1356273d9a080aa79"
-PARENT = "6b974145dc5490b22a31fa7dd7d4edff828480b6"
+PARENT = "9626cb09426e7f043eca4d86ce880c92ca490e1c"
 MAIN = "f221de1225471fb5eda5bbdfcbd0d9db0c2f43b1"
 PUBLIC = "local-hosted-0-154-0-37fbbd8033b8-rald45-transition"
 FIXTURE = "local-rald6-seq12-9972a3288c05"
@@ -26,6 +26,13 @@ class Rald6WorkflowContract(unittest.TestCase):
         self.assertIn("command -v cargo >/dev/null", TEXT)
         self.assertIn("command -v rustc >/dev/null", TEXT)
         self.assertIn("cargo build --release --locked", TEXT)
+        fixture_step = TEXT.split("- name: Prepare sequence-12 fixture from exact installed stable", 1)[1].split(
+            "- name: Sign sequence-12 fixture with bounded production authority", 1
+        )[0]
+        self.assertLess(
+            fixture_step.index("cargo build --release --locked"),
+            fixture_step.index('export HOME="$TERMUX_HOME"'),
+        )
         self.assertNotIn("rustup", TEXT)
         self.assertNotIn("apt-get", TEXT)
         self.assertNotIn("apt install", TEXT)
