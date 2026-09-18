@@ -5425,18 +5425,38 @@ fn parse_local_release_manifest(bytes: &[u8]) -> Result<LocalReleaseManifest, Lo
 }
 
 #[cfg(unix)]
+fn release_platform_matches_this_build(platform: &str, architecture: &str) -> bool {
+    if platform == std::env::consts::OS && architecture == std::env::consts::ARCH {
+        return true;
+    }
+
+    #[cfg(test)]
+    if std::env::var_os("CODEX_B10_RELEASE_CORE").is_some()
+        && platform == "android"
+        && architecture == "aarch64"
+    {
+        return true;
+    }
+
+    false
+}
+
+#[cfg(unix)]
 fn validate_local_release_policy(manifest: &LocalReleaseManifest) -> Result<(), LocalProductError> {
     if manifest.channel != LOCAL_RELEASE_CHANNEL {
         return Err(LocalProductError::ReleasePolicy(
             "release channel is not supported",
         ));
     }
-    if manifest.expected_platform != std::env::consts::OS {
-        return Err(LocalProductError::ReleasePolicy(
-            "release platform does not match this build",
-        ));
-    }
-    if manifest.expected_architecture != std::env::consts::ARCH {
+    if !release_platform_matches_this_build(
+        &manifest.expected_platform,
+        &manifest.expected_architecture,
+    ) {
+        if manifest.expected_platform != std::env::consts::OS {
+            return Err(LocalProductError::ReleasePolicy(
+                "release platform does not match this build",
+            ));
+        }
         return Err(LocalProductError::ReleasePolicy(
             "release architecture does not match this build",
         ));
@@ -13472,8 +13492,8 @@ esac
             loaded.generation_id,
             release_sequence,
             LOCAL_RELEASE_CHANNEL,
-            std::env::consts::OS,
-            std::env::consts::ARCH,
+            loaded.manifest.expected_platform,
+            loaded.manifest.expected_architecture,
             CORE_API_IDENTITY,
             PERSISTENT_SCHEMA_IDENTITY,
             release_public_key,

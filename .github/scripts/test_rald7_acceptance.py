@@ -94,6 +94,14 @@ class Rald7AcceptanceContract(unittest.TestCase):
         production_tail = helper.split("#[cfg(test)]", 1)[1]
         self.assertIn("std::env::current_exe()", production_tail)
 
+        platform = source.split("fn release_platform_matches_this_build", 1)[1].split(
+            "#[cfg(unix)]\nfn validate_local_release_policy", 1
+        )[0]
+        self.assertIn("#[cfg(test)]", platform)
+        self.assertIn('std::env::var_os("CODEX_B10_RELEASE_CORE")', platform)
+        self.assertIn('platform == "android"', platform)
+        self.assertIn('architecture == "aarch64"', platform)
+
     def test_publication_workflows_remain_fail_closed(self) -> None:
         auto = (ROOT / ".github/workflows/auto-release-termux.yml").read_text()
         pages = (ROOT / ".github/workflows/publish-termux-update-pages.yml").read_text()

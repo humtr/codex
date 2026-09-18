@@ -286,8 +286,16 @@ behavior belongs in `SPEC.md`.
   test artifact only to native ARM64 full-test jobs, provision the already pinned
   AOSP bionic substrate, and reuse the existing test-only
   `CODEX_B10_RELEASE_CORE` hook for the two proofs. Production builds still use
-  `current_exe()` unconditionally. `main` and public stable are still
-  unchanged.
+  `current_exe()` unconditionally. Fourth run `35296820584` proved the exact
+  Android Core cross-build and public audit, then exposed the final synthetic
+  control mismatch: test helper `b4_write_signed_release` signed host Linux
+  platform fields even when the generation itself was Android/AArch64, so the
+  real Android Core correctly rejected that test release. The repair remains
+  test-only: synthetic release control now uses the generation's own platform
+  binding, and while the explicit `CODEX_B10_RELEASE_CORE` test hook is present
+  the Linux harness may inspect either native fixtures or the exact
+  Android/AArch64 proof platform. Production release policy remains compile-time
+  exact. `main` and public stable are still unchanged.
 - Public stable remains signed sequence 11 generation
   `local-hosted-0-154-0-37fbbd8033b8-rald45-transition`; RALD-6 created no
   public stable advancement.
