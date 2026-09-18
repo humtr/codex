@@ -42,7 +42,7 @@ behavior belongs in `SPEC.md`.
 - UX-1 may mutate only `rewrite/rust-core` and test-owned disposable roots.
   `main`, Release/Pages, signed public stable, Actions secrets, and the live
   installation remain protected.
-- UX-1 product candidate is `f65dce0a08a0f99f1289471696d3e6d38b04795a`.
+- UX-1 product candidate is `ffffc664c591cdb3730b4db7285d19465c04598a`.
   Full remote source acceptance must build that exact candidate for
   Android/AArch64, run Core/package/workspace/clippy/fmt gates including the
   TTY/non-TTY human-output regressions, and re-audit unchanged public sequence
