@@ -9,7 +9,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 BASE = "9dedc27b73ba1b045b3c1724036323e049e1dcf9"
 ACCEPTED_SOURCE = "566034e1aff42bde2f3221ebc2da2b16def77d44"
-EXPECTED_MAIN = "6bc53a7b60c918dcbc0fc4b771409d305a28e342"
+EXPECTED_MAIN = "9aa8be4c63fe8d60dea130b979c0c12d1a5164bc"
 
 
 def run(*args: str) -> str:

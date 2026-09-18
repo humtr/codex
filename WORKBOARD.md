@@ -373,9 +373,29 @@ behavior belongs in `SPEC.md`.
   acceptance gate before it may be mirrored to `main` or used for the real
   0.155.0 candidate cycle. The failed earlier candidate run reached no signing
   secret, Release, Pages, CAS, or stable mutation.
-- Public stable remains signed sequence 11 generation
-  `local-hosted-0-154-0-37fbbd8033b8-rald45-transition`; no RALD-7 candidate
-  has advanced it yet.
+- RALD-7 real ordinary newer-version publication run `35321953530` completed
+  successfully from exact activated `main=b8b35d0ffc1ce2da87f49fcf66106e520a04a2bf`
+  with accepted product source `566034e1aff42bde2f3221ebc2da2b16def77d44`.
+  It resolved official `0.155.0`, passed semantic archive admission,
+  Android/AArch64 build and native smoke, bounded production-authority signing,
+  immutable Release staging, LKG-preserving Pages deployment, complete public
+  readback, disposable update/runtime/doctor/second-no-op proof, and the
+  non-forced CAS promotion. Public proof observed
+  `doctor_upstream_status=unhealthy` and
+  `doctor_termux_core_status=healthy`, preserving the accepted diagnostic
+  separation. Promotion result was `committed`: `main` advanced by exactly one
+  parent to `9aa8be4c63fe8d60dea130b979c0c12d1a5164bc`, changing only
+  `update-index-v1` and `update-index-v1.sig`. Stable is now signed sequence
+  12 generation `local-hosted-0-155-0-566034e1aff4`, with the immutable Release
+  tag still bound to the pre-promotion parent `b8b35d0ffc1ce2da87f49fcf66106e520a04a2bf`.
+  Outer orchestration run `35321944376` is red only because its post-promotion
+  helper incorrectly expected the literal string `publication_authorized=true`
+  in producer logs; that value is written to `GITHUB_OUTPUT`, while the log
+  correctly records `RALD5_PUBLICATION_AUTHORIZED: true`. The producer and all
+  seven load-bearing publication jobs are green, so the committed stable result
+  is authoritative and is not rolled back. The one-shot dispatcher is removed.
+  RALD-7 closure is pending one final repository/public-state acceptance run
+  against this exact promoted state.
 - `legacy/monolith` remains sealed at
   `bf30a7dc94d4dad7f58836c69028160856e63c58`.
 - Worker mode remains OFF.
