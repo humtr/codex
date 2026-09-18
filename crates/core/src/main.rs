@@ -7152,7 +7152,10 @@ impl UpdatePresentation {
 
     fn begin_update(&mut self, previous_version: &str, current_version: &str) {
         self.clear_transient();
-        println!("{}", render_update_header(previous_version, current_version));
+        println!(
+            "{}",
+            render_update_header(previous_version, current_version)
+        );
         use std::io::Write as _;
         let _ = std::io::stdout().flush();
     }
@@ -7801,12 +7804,7 @@ fn activate_local_built_update(
         }
         let prepared =
             prepare_local_derived_release(&published_generation, roots, local_key, &baseline)?;
-        activate_prepared_local_release(
-            prepared,
-            roots,
-            process_env,
-            presentation.as_deref_mut(),
-        )
+        activate_prepared_local_release(prepared, roots, process_env, presentation.as_deref_mut())
     })();
     let cleanup = std::fs::remove_dir_all(&staging_root).map_err(|source| LocalProductError::Io {
         operation: "remove private local-derived staging",
@@ -16065,7 +16063,9 @@ esac
         );
         let explicit_stdout = String::from_utf8(explicit.stdout).unwrap();
         assert!(explicit_stdout.contains("Updating Codex 9.9.9 -> 0.150.1..."));
-        assert!(explicit_stdout.contains("Verified and activated the locally built Termux release."));
+        assert!(
+            explicit_stdout.contains("Verified and activated the locally built Termux release.")
+        );
         assert!(explicit_stdout.contains("Codex 0.150.1 is now active. ✅"));
         assert!(explicit.stderr.is_empty(), "stderr={:?}", explicit.stderr);
         assert!(!gh_log.exists(), "--build-local must not invoke gh");
@@ -19752,7 +19752,8 @@ exec "$cat_path" "$release_root/$relative"
         assert!(rollback
             .stdout
             .windows(b"Rolled back the Termux release for Codex 9.9.9. \xE2\x9C\x85\n".len())
-            .any(|window| window == b"Rolled back the Termux release for Codex 9.9.9. \xE2\x9C\x85\n"));
+            .any(|window| window
+                == b"Rolled back the Termux release for Codex 9.9.9. \xE2\x9C\x85\n"));
         let roots = b7_public_roots(&fixture.home, &fixture.prefix);
         assert_eq!(
             read_update_hold(&roots).unwrap(),
@@ -20300,7 +20301,11 @@ exit 2
         assert!(terminal.contains("Verified and activated the signed Termux release."));
         assert!(terminal.contains("Codex 9.9.9 is now active. ✅"));
         assert!(terminal.matches("\x1b[2K").count() >= 6);
-        assert!(output.stderr.is_empty(), "script stderr={:?}", output.stderr);
+        assert!(
+            output.stderr.is_empty(),
+            "script stderr={:?}",
+            output.stderr
+        );
         remove_temp_root(fixture.root);
     }
 
@@ -20405,7 +20410,10 @@ exit 2
         {
             let fixture = b5_channel_fixture("r4-channel-bad-signature", "channel-bad");
             std::fs::write(&fixture.signature_path, b"not-a-signature").unwrap();
-            b5_assert_channel_rejected(&fixture, b"Release signature verification failed. \xE2\x9D\x8C");
+            b5_assert_channel_rejected(
+                &fixture,
+                b"Release signature verification failed. \xE2\x9D\x8C",
+            );
             remove_temp_root(fixture.root);
         }
 
@@ -20422,7 +20430,10 @@ exit 2
                 &fixture.openssl,
                 &fixture.private_key,
             );
-            b5_assert_channel_rejected(&fixture, b"Update index is missing its final newline. \xE2\x9D\x8C");
+            b5_assert_channel_rejected(
+                &fixture,
+                b"Update index is missing its final newline. \xE2\x9D\x8C",
+            );
             remove_temp_root(fixture.root);
         }
     }
