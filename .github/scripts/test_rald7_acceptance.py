@@ -8,7 +8,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 BASE = "9dedc27b73ba1b045b3c1724036323e049e1dcf9"
-ACCEPTED_SOURCE = "c051aa44df3f0c6a6b57b3924bf0c10d249845f5"
+ACCEPTED_SOURCE = "2f8e0247500986f30f3062db1fb569d7144fb83b"
 EXPECTED_MAIN = "5bef52d07a07bd8612b4538dfb29a2396937a3fb"
 
 
