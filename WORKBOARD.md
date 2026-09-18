@@ -435,6 +435,19 @@ behavior belongs in `SPEC.md`.
   then publish/promote a same-version sequence-13 compatibility bridge through
   the normal build/sign/Release/Pages/readback/disposable-runtime/non-forced-CAS
   gates.
+  Bounded remediation control-plane source
+  `536d06a6088ccf3c850a6031c895a0ae6c2fe709` is **source-accepted
+  2026-09-18** by full acceptance run `35355371929`. The new
+  `legacy_lag_jump_remediation` input is false by default, manual-only,
+  `main`-ref-only, exact sequence-12/0.155.0 -> sequence-13 bounded, and
+  explicitly rejected by the scheduled path. Before any CAS it requires exact
+  sequence-12 component identity, an exact historical R10/API-30 sequence-7
+  signed fixture through the existing signing boundary, direct public candidate
+  update, previous retention, corrected-Core doctor semantics, and second-update
+  no-op. It does not itself authorize or perform production remediation.
+  Production remains `main=9aa8be4c63fe8d60dea130b979c0c12d1a5164bc` with public
+  sequence 12 until the two separately authorized production actions above are
+  explicitly approved.
 - `legacy/monolith` remains sealed at
   `bf30a7dc94d4dad7f58836c69028160856e63c58`.
 - Worker mode remains OFF.

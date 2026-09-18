@@ -229,6 +229,21 @@ Termux qualification. Produce one candidate for independent product review.
   until separately authorized remediation installs the accepted producer change
   and promotes a same-version sequence-13 compatibility bridge through the full
   public gates.
+  Bounded remediation control-plane source
+  `536d06a6088ccf3c850a6031c895a0ae6c2fe709` is accepted by full source
+  acceptance run `35355371929`. It adds a false-by-default, manual-only
+  `legacy_lag_jump_remediation` gate that is usable only from `main`, binds
+  the exact sequence-12 generation/version and next sequence 13, remains
+  forbidden on scheduled runs, requires exact sequence-12 component
+  digest/mode identity plus the bounded generation-id/doctor-signal descriptor
+  delta, and routes the production proof through an exact historical R10/API-30
+  rebuild, the existing production-key-matching signing helper for a private
+  sequence-7 fixture, public Pages direct-update proof, previous retention,
+  real corrected-Core doctor/no-op validation, and the existing non-forced CAS.
+  The gate self-disables once the public baseline is no longer exact sequence
+  12. This source acceptance did not install the workflow on `main`, create a
+  Release, deploy Pages, promote an index, access a live installation, or grant
+  production publication authorization.
 
 - RELEASE-AUTOMATION-LOCAL-DERIVED RALD-7 full acceptance/activation is accepted
   on 2026-09-18. Final product source

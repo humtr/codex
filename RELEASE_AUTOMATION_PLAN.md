@@ -787,7 +787,21 @@ previous retention, exact version, real doctor execution, and second-update
 no-op. SPEC now requires the signed bridge doctor signal for every public stable
 while R10 remains in the compatibility floor. Source correction
 `3c0d2742bf99aa931b840b454b314e3fac428c9c` implements that producer rule and
-full acceptance `35344310885` is green.
+full acceptance `35344310885` is green. Bounded remediation workflow source
+`536d06a6088ccf3c850a6031c895a0ae6c2fe709` is additionally accepted by full
+source run `35355371929`. Its false-by-default
+`legacy_lag_jump_remediation` input is manual-only and `main`-ref-only; it
+requires the authenticated public baseline to be exact version 0.155.0,
+generation `local-hosted-0-155-0-566034e1aff4`, sequence 12, and next sequence
+13 before overriding the ordinary equality no-op. Scheduled runs explicitly
+reject this gate, and after sequence 13 promotion its sequence/generation
+preconditions make it unusable. The remediation path additionally binds every
+load-bearing component to the signed sequence-12 digest/mode inventory, permits
+only the generation-id plus exact R10 doctor-signal descriptor delta, rebuilds
+the exact historical R10 Core with the historical API-30 requirement, signs a
+private sequence-7 proof fixture only through the existing production signing
+helper, and requires the direct public sequence-7 update/previous-retention/
+doctor/no-op proof before the unchanged non-forced CAS.
 
 This proof does **not** itself authorize public correction. Until separate
 authorization is granted, `main`, public sequence 12, Release/Pages state, and
