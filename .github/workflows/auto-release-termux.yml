@@ -49,7 +49,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  CODEX_SOURCE_SHA: 'b58cba0da59f50ea00cf2e3a3a3008af9be0687c'
+  CODEX_SOURCE_SHA: '07f77b89a177682954d80ae3f797377c4731de64'
   RALD5_SOURCE_SHA: 'fa1b887b7e726202e309a2eb731aad303a6c7e03'
   RUST_VERSION: '1.98.0'
   ANDROID_API: '24'

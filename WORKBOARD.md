@@ -48,7 +48,7 @@ behavior belongs in `SPEC.md`.
   first, print the permanent version header, and only then expose download/
   verification phases. This is source-only and must preserve all existing trust,
   activation, rollback, public-stable, and publication semantics.
-- Ordering-correction candidate is `b58cba0da59f50ea00cf2e3a3a3008af9be0687c`.
+- Ordering-correction candidate is `07f77b89a177682954d80ae3f797377c4731de64`.
   Acceptance must additionally prove PTY ordering
   `Checking -> version header -> Downloading -> Verifying -> candidate probe ->
   Activating`, while the existing non-TTY no-control-byte and all trust/state
