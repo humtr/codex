@@ -7079,12 +7079,140 @@ fn probe_release_candidate(
 }
 
 #[cfg(unix)]
+fn update_progress_enabled(stdout_is_terminal: bool, stderr_is_terminal: bool) -> bool {
+    stdout_is_terminal && stderr_is_terminal
+}
+
+#[cfg(unix)]
+fn render_update_header(previous_version: &str, current_version: &str) -> String {
+    if previous_version == current_version {
+        format!("Updating the Termux release for Codex {current_version}...")
+    } else {
+        format!("Updating Codex {previous_version} -> {current_version}...")
+    }
+}
+
+#[cfg(unix)]
+fn render_update_failure(error: &LocalProductError) -> String {
+    let raw = error.to_string();
+    let raw = raw.trim().trim_end_matches(|ch| matches!(ch, '.' | '!' | '?'));
+    let mut chars = raw.chars();
+    let sentence = match chars.next() {
+        Some(first) => {
+            let mut sentence = first.to_uppercase().collect::<String>();
+            sentence.push_str(chars.as_str());
+            sentence
+        }
+        None => "Update failed".to_owned(),
+    };
+    format!("{sentence}. ❌")
+}
+
+#[cfg(unix)]
+#[derive(Debug)]
+struct UpdatePresentation {
+    transient_enabled: bool,
+    transient_visible: bool,
+}
+
+#[cfg(unix)]
+impl UpdatePresentation {
+    fn new() -> Self {
+        use std::io::IsTerminal as _;
+        Self {
+            transient_enabled: update_progress_enabled(
+                std::io::stdout().is_terminal(),
+                std::io::stderr().is_terminal(),
+            ),
+            transient_visible: false,
+        }
+    }
+
+    fn transient(&mut self, glyph: &str, message: &str) {
+        if !self.transient_enabled {
+            return;
+        }
+        use std::io::Write as _;
+        let mut stderr = std::io::stderr().lock();
+        let _ = write!(stderr, "\r\x1b[2K{glyph} {message}");
+        let _ = stderr.flush();
+        self.transient_visible = true;
+    }
+
+    fn clear_transient(&mut self) {
+        if !self.transient_visible {
+            return;
+        }
+        use std::io::Write as _;
+        let mut stderr = std::io::stderr().lock();
+        let _ = write!(stderr, "\r\x1b[2K");
+        let _ = stderr.flush();
+        self.transient_visible = false;
+    }
+
+    fn begin_update(&mut self, previous_version: &str, current_version: &str) {
+        self.clear_transient();
+        println!("{}", render_update_header(previous_version, current_version));
+        use std::io::Write as _;
+        let _ = std::io::stdout().flush();
+    }
+
+    fn finish_signed_activation(&mut self, current_version: &str) {
+        self.clear_transient();
+        println!("Verified and activated the signed Termux release.");
+        println!("Codex {current_version} is now active. ✅");
+    }
+
+    fn finish_local_activation(&mut self, current_version: &str) {
+        self.clear_transient();
+        println!("Verified and activated the locally built Termux release.");
+        println!("Codex {current_version} is now active. ✅");
+    }
+
+    fn finish_current(&mut self, current_version: &str) {
+        self.clear_transient();
+        println!("Codex {current_version} is already up to date. ✅");
+    }
+
+    fn finish_rollback(&mut self, previous_version: &str, current_version: &str) {
+        self.clear_transient();
+        if previous_version == current_version {
+            println!("Rolled back the Termux release for Codex {current_version}. ✅");
+        } else {
+            println!("Rolled back Codex {previous_version} -> {current_version}. ✅");
+        }
+    }
+
+    fn fail(&mut self, error: &LocalProductError) {
+        self.clear_transient();
+        eprintln!("{}", render_update_failure(error));
+    }
+}
+
+#[cfg(unix)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct UpdateTarget {
+    generation_id: String,
+    version: String,
+}
+
+#[cfg(unix)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ActivatedUpdate {
+    generation_id: String,
+    previous_version: String,
+    current_version: String,
+}
+
+#[cfg(unix)]
 #[derive(Debug)]
 struct PreparedLocalActivation {
     before: m2_generation_state::GenerationPointerState,
     generation_id: String,
     release_sequence: u64,
     release_key: ReleasePublicKey,
+    previous_version: String,
+    candidate_version: String,
     staged_loaded: LoadedLocalGeneration,
     validated_hold: Option<UpdateHoldRecord>,
     preserve_update_key: bool,
@@ -7093,22 +7221,23 @@ struct PreparedLocalActivation {
 #[cfg(unix)]
 #[derive(Debug)]
 enum PreparedSignedLocalRelease {
-    AlreadyCurrent(String),
+    AlreadyCurrent(UpdateTarget),
     Activation(Box<PreparedLocalActivation>),
 }
 
 #[cfg(unix)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum SignedUpdateOutcome {
-    Activated(String),
-    AlreadyCurrent(String),
+    Activated(ActivatedUpdate),
+    AlreadyCurrent(UpdateTarget),
 }
 
 #[cfg(unix)]
 impl SignedUpdateOutcome {
     fn generation_id(&self) -> &str {
         match self {
-            Self::Activated(generation_id) | Self::AlreadyCurrent(generation_id) => generation_id,
+            Self::Activated(outcome) => &outcome.generation_id,
+            Self::AlreadyCurrent(target) => &target.generation_id,
         }
     }
 }
@@ -7136,7 +7265,7 @@ fn prepare_signed_local_release_with_hold_policy(
             "new Manager-bearing releases require a coordinated Core artifact",
         ));
     }
-    let (current_release, _) = verify_installed_local_release(
+    let (current_release, current_loaded) = verify_installed_local_release(
         roots,
         &before.current,
         before.current_key,
@@ -7160,7 +7289,10 @@ fn prepare_signed_local_release_with_hold_policy(
                     ));
                 }
             }
-            return Ok(PreparedSignedLocalRelease::AlreadyCurrent(before.current));
+            return Ok(PreparedSignedLocalRelease::AlreadyCurrent(UpdateTarget {
+                generation_id: before.current,
+                version: current_loaded.manifest.upstream_package_version.clone(),
+            }));
         }
         return Err(LocalProductError::ReleaseSequenceRollback);
     }
@@ -7233,6 +7365,8 @@ fn prepare_signed_local_release_with_hold_policy(
             generation_id,
             release_sequence: source_release.release_sequence,
             release_key: source_release.release_public_key,
+            previous_version: current_loaded.manifest.upstream_package_version.clone(),
+            candidate_version: staged_loaded.manifest.upstream_package_version.clone(),
             staged_loaded,
             validated_hold,
             preserve_update_key: false,
@@ -7252,6 +7386,12 @@ fn prepare_local_derived_release(
     let before = m2_generation_state::recover_activation_state(&state_paths)
         .map_err(LocalProductError::State)?
         .ok_or(LocalProductError::NoCurrentGeneration)?;
+    let (_, current_loaded) = verify_installed_local_release(
+        roots,
+        &before.current,
+        before.current_key,
+        "active generation descriptor id does not match current",
+    )?;
     ensure_real_directory(
         &roots.generation_root,
         "inspect immutable generation root",
@@ -7320,6 +7460,8 @@ fn prepare_local_derived_release(
         generation_id,
         release_sequence: source_release.release_sequence,
         release_key: local_key,
+        previous_version: current_loaded.manifest.upstream_package_version.clone(),
+        candidate_version: staged_loaded.manifest.upstream_package_version.clone(),
         staged_loaded,
         validated_hold: None,
         preserve_update_key: true,
@@ -7339,12 +7481,22 @@ fn activate_prepared_local_release(
     prepared: PreparedLocalActivation,
     roots: &LocalCoreRoots,
     process_env: &TermuxProcessEnvSnapshot,
-) -> Result<String, LocalProductError> {
+    mut presentation: Option<&mut UpdatePresentation>,
+) -> Result<ActivatedUpdate, LocalProductError> {
+    let previous_version = prepared.previous_version.clone();
+    let current_version = prepared.candidate_version.clone();
+    if let Some(presentation) = presentation.as_deref_mut() {
+        presentation.begin_update(&previous_version, &current_version);
+        presentation.transient("⠹", "Checking candidate runtime...");
+    }
     std::fs::create_dir_all(&roots.config_dir).map_err(|source| LocalProductError::Io {
         operation: "create Core config directory",
         source,
     })?;
     probe_release_candidate(&prepared.staged_loaded, roots, process_env)?;
+    if let Some(presentation) = presentation.as_deref_mut() {
+        presentation.transient("⠸", &format!("Activating Codex {current_version}..."));
+    }
 
     let state_paths = m2_generation_state::CoreStatePaths::new(&roots.state_root)
         .map_err(LocalProductError::StateFormat)?;
@@ -7428,7 +7580,11 @@ fn activate_prepared_local_release(
         prepared.release_sequence,
     )?;
     drop(lock);
-    Ok(prepared.generation_id)
+    Ok(ActivatedUpdate {
+        generation_id: prepared.generation_id,
+        previous_version,
+        current_version,
+    })
 }
 
 #[cfg(unix)]
@@ -7437,15 +7593,22 @@ fn activate_signed_local_release_outcome_with_hold_policy(
     roots: &LocalCoreRoots,
     process_env: &TermuxProcessEnvSnapshot,
     hold_policy: UpdateHoldPolicy,
+    mut presentation: Option<&mut UpdatePresentation>,
 ) -> Result<SignedUpdateOutcome, LocalProductError> {
+    if let Some(presentation) = presentation.as_deref_mut() {
+        presentation.transient("⠹", "Verifying release signature and contents...");
+    }
     match prepare_signed_local_release_with_hold_policy(source_dir, roots, hold_policy)? {
-        PreparedSignedLocalRelease::AlreadyCurrent(generation_id) => {
-            Ok(SignedUpdateOutcome::AlreadyCurrent(generation_id))
+        PreparedSignedLocalRelease::AlreadyCurrent(target) => {
+            Ok(SignedUpdateOutcome::AlreadyCurrent(target))
         }
-        PreparedSignedLocalRelease::Activation(prepared) => {
-            activate_prepared_local_release(*prepared, roots, process_env)
-                .map(SignedUpdateOutcome::Activated)
-        }
+        PreparedSignedLocalRelease::Activation(prepared) => activate_prepared_local_release(
+            *prepared,
+            roots,
+            process_env,
+            presentation.as_deref_mut(),
+        )
+        .map(SignedUpdateOutcome::Activated),
     }
 }
 
@@ -7454,12 +7617,14 @@ fn activate_signed_local_release_outcome(
     source_dir: &std::path::Path,
     roots: &LocalCoreRoots,
     process_env: &TermuxProcessEnvSnapshot,
+    presentation: Option<&mut UpdatePresentation>,
 ) -> Result<SignedUpdateOutcome, LocalProductError> {
     activate_signed_local_release_outcome_with_hold_policy(
         source_dir,
         roots,
         process_env,
         UpdateHoldPolicy::Enforce,
+        presentation,
     )
 }
 
@@ -7539,7 +7704,11 @@ fn running_core_artifact_for_local_build() -> Result<std::path::PathBuf, LocalPr
 fn activate_local_built_update(
     roots: &LocalCoreRoots,
     process_env: &TermuxProcessEnvSnapshot,
-) -> Result<String, LocalProductError> {
+    mut presentation: Option<&mut UpdatePresentation>,
+) -> Result<ActivatedUpdate, LocalProductError> {
+    if let Some(presentation) = presentation.as_deref_mut() {
+        presentation.transient("⠋", "Checking official Codex release...");
+    }
     let metadata_staging = create_local_update_staging_root(&roots.state_root)?;
     let metadata = resolve_official_release_metadata(roots, &metadata_staging);
     let cleanup =
@@ -7570,6 +7739,9 @@ fn activate_local_built_update(
             generate_ephemeral_local_derived_key(&roots.openssl, &staging_root)?;
         let generation_id = local_update_generation_id();
         let archive = staging_root.join(UPSTREAM_PACKAGE_ASSET);
+        if let Some(presentation) = presentation.as_deref_mut() {
+            presentation.transient("⠙", "Downloading official Codex source...");
+        }
         let archive_digest = codex_release_builder::fetch_archive(
             &metadata.version,
             &roots.curl,
@@ -7594,6 +7766,9 @@ fn activate_local_built_update(
             .join("gzip");
         let unsigned_generation = staging_root.join("unsigned-generation");
         let creation_metadata = render_local_derived_metadata(&metadata, &baseline);
+        if let Some(presentation) = presentation.as_deref_mut() {
+            presentation.transient("⠹", "Building Termux release...");
+        }
         codex_release_builder::build_generation_with_manager(
             &metadata.version,
             &archive,
@@ -7624,9 +7799,17 @@ fn activate_local_built_update(
         })?;
         sync_directory(&staging_root)?;
         let published_generation = publication.join("releases").join(&generation_id);
+        if let Some(presentation) = presentation.as_deref_mut() {
+            presentation.transient("⠼", "Verifying locally built Termux release...");
+        }
         let prepared =
             prepare_local_derived_release(&published_generation, roots, local_key, &baseline)?;
-        activate_prepared_local_release(prepared, roots, process_env)
+        activate_prepared_local_release(
+            prepared,
+            roots,
+            process_env,
+            presentation.as_deref_mut(),
+        )
     })();
     let cleanup = std::fs::remove_dir_all(&staging_root).map_err(|source| LocalProductError::Io {
         operation: "remove private local-derived staging",
@@ -7635,7 +7818,7 @@ fn activate_local_built_update(
     match (result, cleanup) {
         (_, Err(error)) => Err(error),
         (Err(error), Ok(())) => Err(error),
-        (Ok(generation_id), Ok(())) => Ok(generation_id),
+        (Ok(outcome), Ok(())) => Ok(outcome),
     }
 }
 
@@ -7861,7 +8044,11 @@ fn activate_signed_update_channel_with_hold_policy(
     roots: &LocalCoreRoots,
     process_env: &TermuxProcessEnvSnapshot,
     hold_policy: UpdateHoldPolicy,
+    mut presentation: Option<&mut UpdatePresentation>,
 ) -> Result<SignedUpdateOutcome, LocalProductError> {
+    if let Some(presentation) = presentation.as_deref_mut() {
+        presentation.transient("⠋", "Checking for updates...");
+    }
     let state_paths = m2_generation_state::CoreStatePaths::new(&roots.state_root)
         .map_err(LocalProductError::StateFormat)?;
     let before = m2_generation_state::recover_activation_state(&state_paths)
@@ -7937,6 +8124,7 @@ fn activate_signed_update_channel_with_hold_policy(
         roots,
         process_env,
         hold_policy,
+        presentation.as_deref_mut(),
     )?;
     if outcome.generation_id() != index.generation_id {
         return Err(LocalProductError::UpdateIndex(
@@ -7951,14 +8139,21 @@ fn activate_unified_update_with_hold_policy(
     roots: &LocalCoreRoots,
     process_env: &TermuxProcessEnvSnapshot,
     hold_policy: UpdateHoldPolicy,
+    mut presentation: Option<&mut UpdatePresentation>,
 ) -> Result<(SignedUpdateOutcome, bool), LocalProductError> {
-    match activate_signed_update_channel_with_hold_policy(roots, process_env, hold_policy) {
+    match activate_signed_update_channel_with_hold_policy(
+        roots,
+        process_env,
+        hold_policy,
+        presentation.as_deref_mut(),
+    ) {
         Ok(channel_outcome) => Ok((channel_outcome, false)),
         Err(LocalProductError::RemoteTransportFailed)
             if hold_policy == UpdateHoldPolicy::Enforce =>
         {
-            let generation_id = activate_local_built_update(roots, process_env)?;
-            Ok((SignedUpdateOutcome::Activated(generation_id), true))
+            let outcome =
+                activate_local_built_update(roots, process_env, presentation.as_deref_mut())?;
+            Ok((SignedUpdateOutcome::Activated(outcome), true))
         }
         Err(error) => Err(error),
     }
@@ -7970,6 +8165,7 @@ fn activate_signed_remote_release_outcome_with_hold_policy(
     roots: &LocalCoreRoots,
     process_env: &TermuxProcessEnvSnapshot,
     hold_policy: UpdateHoldPolicy,
+    mut presentation: Option<&mut UpdatePresentation>,
 ) -> Result<SignedUpdateOutcome, LocalProductError> {
     let base = RemoteReleaseBase::parse(base)?;
     let state_paths = m2_generation_state::CoreStatePaths::new(&roots.state_root)
@@ -7991,7 +8187,13 @@ fn activate_signed_remote_release_outcome_with_hold_policy(
     create_remote_acquisition_root(&acquisition_root)?;
 
     let prepared = (|| {
+        if let Some(presentation) = presentation.as_deref_mut() {
+            presentation.transient("⠙", "Downloading signed Termux release...");
+        }
         acquire_remote_release_source(roots, &base, &acquisition_root, before.update_key)?;
+        if let Some(presentation) = presentation.as_deref_mut() {
+            presentation.transient("⠹", "Verifying release signature and contents...");
+        }
         prepare_signed_local_release_with_hold_policy(&acquisition_root, roots, hold_policy)
     })();
     let cleanup =
@@ -8005,13 +8207,16 @@ fn activate_signed_remote_release_outcome_with_hold_policy(
         (Ok(prepared), Ok(())) => prepared,
     };
     match prepared {
-        PreparedSignedLocalRelease::AlreadyCurrent(generation_id) => {
-            Ok(SignedUpdateOutcome::AlreadyCurrent(generation_id))
+        PreparedSignedLocalRelease::AlreadyCurrent(target) => {
+            Ok(SignedUpdateOutcome::AlreadyCurrent(target))
         }
-        PreparedSignedLocalRelease::Activation(prepared) => {
-            activate_prepared_local_release(*prepared, roots, process_env)
-                .map(SignedUpdateOutcome::Activated)
-        }
+        PreparedSignedLocalRelease::Activation(prepared) => activate_prepared_local_release(
+            *prepared,
+            roots,
+            process_env,
+            presentation.as_deref_mut(),
+        )
+        .map(SignedUpdateOutcome::Activated),
     }
 }
 
@@ -8020,12 +8225,14 @@ fn activate_signed_remote_release_outcome(
     base: &OsStr,
     roots: &LocalCoreRoots,
     process_env: &TermuxProcessEnvSnapshot,
+    presentation: Option<&mut UpdatePresentation>,
 ) -> Result<SignedUpdateOutcome, LocalProductError> {
     activate_signed_remote_release_outcome_with_hold_policy(
         base,
         roots,
         process_env,
         UpdateHoldPolicy::Enforce,
+        presentation,
     )
 }
 
@@ -9659,7 +9866,9 @@ fn run_internal_bootstrap_mode() -> Option<i32> {
 }
 
 #[cfg(unix)]
-fn rollback_signed_local_release(roots: &LocalCoreRoots) -> Result<String, LocalProductError> {
+fn rollback_signed_local_release(
+    roots: &LocalCoreRoots,
+) -> Result<ActivatedUpdate, LocalProductError> {
     let state_paths = m2_generation_state::CoreStatePaths::new(&roots.state_root)
         .map_err(LocalProductError::StateFormat)?;
     let before = m2_generation_state::recover_activation_state(&state_paths)
@@ -9820,7 +10029,11 @@ fn rollback_signed_local_release(roots: &LocalCoreRoots) -> Result<String, Local
     if guard.is_some() && target_hold_aware {
         rollback_guard::remove_guard_if_present(roots)?;
     }
-    Ok(after.current)
+    Ok(ActivatedUpdate {
+        generation_id: after.current,
+        previous_version: current_loaded.manifest.upstream_package_version.clone(),
+        current_version: target_loaded.manifest.upstream_package_version.clone(),
+    })
 }
 
 #[cfg(unix)]
@@ -9839,10 +10052,11 @@ fn print_update_usage() {
 fn run_core_update(args: Vec<OsString>) -> i32 {
     let force = args.len() == 1 && args[0] == OsStr::new("--force");
     if args.is_empty() || force {
+        let mut presentation = UpdatePresentation::new();
         let roots = match LocalCoreRoots::from_environment() {
             Ok(roots) => roots,
             Err(err) => {
-                eprintln!("codex update: {err}");
+                presentation.fail(&err);
                 return 1;
             }
         };
@@ -9852,25 +10066,26 @@ fn run_core_update(args: Vec<OsString>) -> i32 {
         } else {
             UpdateHoldPolicy::Enforce
         };
-        return match activate_unified_update_with_hold_policy(&roots, &process_env, hold_policy) {
-            Ok((outcome, local_derived)) => {
-                let generation_id = outcome.generation_id();
+        return match activate_unified_update_with_hold_policy(
+            &roots,
+            &process_env,
+            hold_policy,
+            Some(&mut presentation),
+        ) {
+            Ok((SignedUpdateOutcome::Activated(outcome), local_derived)) => {
                 if local_derived {
-                    println!("activated local-derived generation {generation_id}");
+                    presentation.finish_local_activation(&outcome.current_version);
                 } else {
-                    match &outcome {
-                        SignedUpdateOutcome::Activated(_) => {
-                            println!("activated channel generation {generation_id}");
-                        }
-                        SignedUpdateOutcome::AlreadyCurrent(_) => {
-                            println!("codex is already up to date (generation {generation_id})");
-                        }
-                    }
+                    presentation.finish_signed_activation(&outcome.current_version);
                 }
                 0
             }
+            Ok((SignedUpdateOutcome::AlreadyCurrent(target), _)) => {
+                presentation.finish_current(&target.version);
+                0
+            }
             Err(err) => {
-                eprintln!("codex update: {err}");
+                presentation.fail(&err);
                 1
             }
         };
@@ -9887,50 +10102,74 @@ fn run_core_update(args: Vec<OsString>) -> i32 {
         eprintln!("{UPDATE_USAGE}");
         return 2;
     }
+    let mut presentation = UpdatePresentation::new();
     let roots = match LocalCoreRoots::from_environment() {
         Ok(roots) => roots,
         Err(err) => {
-            eprintln!("codex update: {err}");
+            presentation.fail(&err);
             return 1;
         }
     };
     if rollback {
-        return run_core_rollback();
+        return run_core_rollback_with_presentation(&roots, &mut presentation);
     }
     let process_env = capture_termux_process_env();
     if build_local {
-        return match activate_local_built_update(&roots, &process_env) {
-            Ok(generation_id) => {
-                println!("activated local-derived generation {generation_id}");
+        return match activate_local_built_update(&roots, &process_env, Some(&mut presentation)) {
+            Ok(outcome) => {
+                presentation.finish_local_activation(&outcome.current_version);
                 0
             }
             Err(err) => {
-                eprintln!("codex update --build-local: {err}");
+                presentation.fail(&err);
                 1
             }
         };
     }
     let result = if local {
         let source = std::path::PathBuf::from(&args[1]);
-        activate_signed_local_release_outcome(&source, &roots, &process_env)
+        activate_signed_local_release_outcome(
+            &source,
+            &roots,
+            &process_env,
+            Some(&mut presentation),
+        )
     } else {
-        activate_signed_remote_release_outcome(&args[1], &roots, &process_env)
+        activate_signed_remote_release_outcome(
+            &args[1],
+            &roots,
+            &process_env,
+            Some(&mut presentation),
+        )
     };
     match result {
-        Ok(SignedUpdateOutcome::Activated(generation_id)) => {
-            if remote {
-                println!("activated remote generation {generation_id}");
-            } else {
-                println!("activated local generation {generation_id}");
-            }
+        Ok(SignedUpdateOutcome::Activated(outcome)) => {
+            presentation.finish_signed_activation(&outcome.current_version);
             0
         }
-        Ok(SignedUpdateOutcome::AlreadyCurrent(generation_id)) => {
-            println!("codex is already up to date (generation {generation_id})");
+        Ok(SignedUpdateOutcome::AlreadyCurrent(target)) => {
+            presentation.finish_current(&target.version);
             0
         }
         Err(err) => {
-            eprintln!("codex update: {err}");
+            presentation.fail(&err);
+            1
+        }
+    }
+}
+
+#[cfg(unix)]
+fn run_core_rollback_with_presentation(
+    roots: &LocalCoreRoots,
+    presentation: &mut UpdatePresentation,
+) -> i32 {
+    match rollback_signed_local_release(roots) {
+        Ok(outcome) => {
+            presentation.finish_rollback(&outcome.previous_version, &outcome.current_version);
+            0
+        }
+        Err(err) => {
+            presentation.fail(&err);
             1
         }
     }
@@ -9938,23 +10177,15 @@ fn run_core_update(args: Vec<OsString>) -> i32 {
 
 #[cfg(unix)]
 fn run_core_rollback() -> i32 {
+    let mut presentation = UpdatePresentation::new();
     let roots = match LocalCoreRoots::from_environment() {
         Ok(roots) => roots,
         Err(err) => {
-            eprintln!("codex update --rollback: {err}");
+            presentation.fail(&err);
             return 1;
         }
     };
-    match rollback_signed_local_release(&roots) {
-        Ok(generation_id) => {
-            println!("rolled back to local generation {generation_id}");
-            0
-        }
-        Err(err) => {
-            eprintln!("codex update --rollback: {err}");
-            1
-        }
-    }
+    run_core_rollback_with_presentation(&roots, &mut presentation)
 }
 
 #[cfg(unix)]
@@ -11373,10 +11604,7 @@ exit 73
         let (status, stdout, stderr) = run_repair_probe("legacy-apply");
         assert_eq!(status.code(), Some(1));
         assert!(stdout.is_empty());
-        assert!(stderr.starts_with(b"codex update: "));
-        assert!(stderr
-            .windows(b"update index URL must use HTTPS".len())
-            .any(|window| { window == b"update index URL must use HTTPS" }));
+        assert_eq!(stderr, b"Update index URL must use HTTPS. ❌\n");
     }
 
     #[cfg(unix)]
@@ -12614,6 +12842,27 @@ exit 73
             .env("NO_COLOR", "1")
             .output()
             .unwrap()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_ux1_update_human_output_contract_is_version_centric() {
+        assert_eq!(
+            render_update_header("0.154.0", "0.155.0"),
+            "Updating Codex 0.154.0 -> 0.155.0..."
+        );
+        assert_eq!(
+            render_update_header("0.155.0", "0.155.0"),
+            "Updating the Termux release for Codex 0.155.0..."
+        );
+        assert!(update_progress_enabled(true, true));
+        assert!(!update_progress_enabled(true, false));
+        assert!(!update_progress_enabled(false, true));
+        assert!(!update_progress_enabled(false, false));
+        assert_eq!(
+            render_update_failure(&LocalProductError::SignatureRejected),
+            "Release signature verification failed. ❌"
+        );
     }
 
     #[cfg(unix)]
@@ -15533,8 +15782,8 @@ esac
         );
         assert!(output
             .stdout
-            .windows(b"activated channel generation r7-channel-next\n".len())
-            .any(|window| window == b"activated channel generation r7-channel-next\n"));
+            .windows(b"Codex 9.9.9 is now active. ✅\n".len())
+            .any(|window| window == b"Codex 9.9.9 is now active. ✅\n"));
         assert!(!fixture.home.join(LOCAL_PUBLICATION_ROOT_RELATIVE).exists());
         let calls = std::fs::read_to_string(&fixture.curl_log).unwrap();
         assert!(calls.contains(&fixture.index_url));
@@ -15595,12 +15844,12 @@ esac
         assert!(ordinary
             .stdout
             .windows(
-                b"activated channel generation rald2-channel-next
+                b"Codex 9.9.9 is now active. ✅
 "
                 .len()
             )
             .any(|window| window
-                == b"activated channel generation rald2-channel-next
+                == b"Codex 9.9.9 is now active. ✅
 "));
         assert!(!gh_log.exists(), "ordinary update must not invoke gh");
         let ordinary_calls = std::fs::read_to_string(&fixture.curl_log).unwrap();
@@ -17336,7 +17585,8 @@ esac
             output.stdout,
             output.stderr
         );
-        let expected = format!("activated local generation {generation_id}\n");
+        let _ = generation_id;
+        let expected = "Codex 9.9.9 is now active. ✅\n";
         assert!(
             output
                 .stdout
@@ -17362,7 +17612,8 @@ esac
             output.stdout,
             output.stderr
         );
-        let expected = format!("rolled back to local generation {generation_id}\n");
+        let _ = generation_id;
+        let expected = "Rolled back the Termux release for Codex 9.9.9. ✅\n";
         assert!(
             output
                 .stdout
@@ -17473,11 +17724,12 @@ esac
                                 &pinned,
                             ) {
                                 Ok(state) => {
-                                    println!("activated local generation {}", state.current);
+                                    let _ = state;
+                                    println!("Codex 9.9.9 is now active. ✅");
                                     0
                                 }
                                 Err(error) => {
-                                    eprintln!("codex update: {error}");
+                                    eprintln!("{}", render_update_failure(&error));
                                     1
                                 }
                             }
@@ -18681,7 +18933,7 @@ esac
         let roots = b7_public_roots(&home, &prefix);
         let process_env = capture_termux_process_env();
         assert!(matches!(
-            activate_signed_local_release_outcome(&release, &roots, &process_env),
+            activate_signed_local_release_outcome(&release, &roots, &process_env, None),
             Err(LocalProductError::NoCurrentGeneration)
         ));
         assert!(home
@@ -19495,8 +19747,8 @@ exec "$cat_path" "$release_root/$relative"
         );
         assert!(rollback
             .stdout
-            .windows(b"rolled back to local generation channel-current\n".len())
-            .any(|window| window == b"rolled back to local generation channel-current\n"));
+            .windows(b"Rolled back the Termux release for Codex 9.9.9. ✅\n".len())
+            .any(|window| window == b"Rolled back the Termux release for Codex 9.9.9. ✅\n"));
         let roots = b7_public_roots(&fixture.home, &fixture.prefix);
         assert_eq!(
             read_update_hold(&roots).unwrap(),
@@ -19644,8 +19896,8 @@ exec "$cat_path" "$release_root/$relative"
         );
         assert!(current_again
             .stdout
-            .windows(b"codex is already up to date (generation arh1-newer)\n".len())
-            .any(|window| window == b"codex is already up to date (generation arh1-newer)\n"));
+            .windows(b"Codex 9.9.9 is already up to date. ✅\n".len())
+            .any(|window| window == b"Codex 9.9.9 is already up to date. ✅\n"));
         assert_eq!(read_update_hold(&roots).unwrap(), None);
         b5_assert_no_acquisition(&roots.generation_root);
         m2_b1_assert_no_transaction_files(&state_paths);
@@ -20040,8 +20292,8 @@ exit 2
             );
             assert!(output
                 .stdout
-                .windows(b"activated channel generation channel-next\n".len())
-                .any(|window| window == b"activated channel generation channel-next\n"));
+                .windows(b"Codex 9.9.9 is now active. ✅\n".len())
+                .any(|window| window == b"Codex 9.9.9 is now active. ✅\n"));
             assert!(output.stderr.is_empty(), "stderr={:?}", output.stderr);
 
             let state_paths =
@@ -20092,13 +20344,13 @@ exit 2
             assert!(current_again
                 .stdout
                 .windows(
-                    b"codex is already up to date (generation channel-next)
+                    b"Codex 9.9.9 is already up to date. ✅
 "
                     .len()
                 )
                 .any(|window| {
                     window
-                        == b"codex is already up to date (generation channel-next)
+                        == b"Codex 9.9.9 is already up to date. ✅
 "
                 }));
             assert!(
@@ -20119,7 +20371,7 @@ exit 2
         {
             let fixture = b5_channel_fixture("r4-channel-bad-signature", "channel-bad");
             std::fs::write(&fixture.signature_path, b"not-a-signature").unwrap();
-            b5_assert_channel_rejected(&fixture, b"release signature verification failed");
+            b5_assert_channel_rejected(&fixture, b"Release signature verification failed. ❌");
             remove_temp_root(fixture.root);
         }
 
@@ -20136,7 +20388,7 @@ exit 2
                 &fixture.openssl,
                 &fixture.private_key,
             );
-            b5_assert_channel_rejected(&fixture, b"update index is missing its final newline");
+            b5_assert_channel_rejected(&fixture, b"Update index is missing its final newline. ❌");
             remove_temp_root(fixture.root);
         }
     }
@@ -20364,7 +20616,7 @@ exit 0
             output.stdout,
             output.stderr
         );
-        let expected = b"activated remote generation remote-initial\n";
+        let expected = b"Codex 9.9.9 is now active. ✅\n";
         assert!(
             output
                 .stdout
@@ -20478,6 +20730,7 @@ exit 0
             prepared,
             &roots,
             &b8_process_env(&fixture.prefix, &fixture.tmp),
+            None,
         )
         .expect_err("orphan state temporary must reject coordinated activation");
         assert!(matches!(
@@ -20948,8 +21201,8 @@ exit 0
         );
         assert!(second_output
             .stdout
-            .windows(b"activated remote generation remote-second\n".len())
-            .any(|window| window == b"activated remote generation remote-second\n"));
+            .windows(b"Codex 9.9.9 is now active. ✅\n".len())
+            .any(|window| window == b"Codex 9.9.9 is now active. ✅\n"));
         let expected_forward = GenerationPointerState {
             update_key: release_public_key_from_pem(&openssl, &public_key).unwrap(),
             current: "remote-second".to_string(),
@@ -20974,13 +21227,13 @@ exit 0
         assert!(current_again
             .stdout
             .windows(
-                b"codex is already up to date (generation remote-second)
+                b"Codex 9.9.9 is already up to date. ✅
 "
                 .len()
             )
             .any(|window| {
                 window
-                    == b"codex is already up to date (generation remote-second)
+                    == b"Codex 9.9.9 is already up to date. ✅
 "
             }));
         assert!(
