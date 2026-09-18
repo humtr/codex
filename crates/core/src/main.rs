@@ -7095,7 +7095,7 @@ fn render_update_header(previous_version: &str, current_version: &str) -> String
 #[cfg(unix)]
 fn render_update_failure(error: &LocalProductError) -> String {
     let raw = error.to_string();
-    let raw = raw.trim().trim_end_matches(|ch| matches!(ch, '.' | '!' | '?'));
+    let raw = raw.trim().trim_end_matches(['.', '!', '?']);
     let mut chars = raw.chars();
     let sentence = match chars.next() {
         Some(first) => {
@@ -7494,7 +7494,7 @@ fn activate_prepared_local_release(
         source,
     })?;
     probe_release_candidate(&prepared.staged_loaded, roots, process_env)?;
-    if let Some(presentation) = presentation.as_deref_mut() {
+    if let Some(presentation) = presentation {
         presentation.transient("⠸", &format!("Activating Codex {current_version}..."));
     }
 
@@ -7602,13 +7602,10 @@ fn activate_signed_local_release_outcome_with_hold_policy(
         PreparedSignedLocalRelease::AlreadyCurrent(target) => {
             Ok(SignedUpdateOutcome::AlreadyCurrent(target))
         }
-        PreparedSignedLocalRelease::Activation(prepared) => activate_prepared_local_release(
-            *prepared,
-            roots,
-            process_env,
-            presentation.as_deref_mut(),
-        )
-        .map(SignedUpdateOutcome::Activated),
+        PreparedSignedLocalRelease::Activation(prepared) => {
+            activate_prepared_local_release(*prepared, roots, process_env, presentation)
+                .map(SignedUpdateOutcome::Activated)
+        }
     }
 }
 
@@ -8124,7 +8121,7 @@ fn activate_signed_update_channel_with_hold_policy(
         roots,
         process_env,
         hold_policy,
-        presentation.as_deref_mut(),
+        presentation,
     )?;
     if outcome.generation_id() != index.generation_id {
         return Err(LocalProductError::UpdateIndex(
@@ -8151,8 +8148,7 @@ fn activate_unified_update_with_hold_policy(
         Err(LocalProductError::RemoteTransportFailed)
             if hold_policy == UpdateHoldPolicy::Enforce =>
         {
-            let outcome =
-                activate_local_built_update(roots, process_env, presentation.as_deref_mut())?;
+            let outcome = activate_local_built_update(roots, process_env, presentation)?;
             Ok((SignedUpdateOutcome::Activated(outcome), true))
         }
         Err(error) => Err(error),
@@ -8210,13 +8206,10 @@ fn activate_signed_remote_release_outcome_with_hold_policy(
         PreparedSignedLocalRelease::AlreadyCurrent(target) => {
             Ok(SignedUpdateOutcome::AlreadyCurrent(target))
         }
-        PreparedSignedLocalRelease::Activation(prepared) => activate_prepared_local_release(
-            *prepared,
-            roots,
-            process_env,
-            presentation.as_deref_mut(),
-        )
-        .map(SignedUpdateOutcome::Activated),
+        PreparedSignedLocalRelease::Activation(prepared) => {
+            activate_prepared_local_release(*prepared, roots, process_env, presentation)
+                .map(SignedUpdateOutcome::Activated)
+        }
     }
 }
 
@@ -15989,7 +15982,9 @@ esac
             output.stderr
         );
         let stdout = String::from_utf8(output.stdout).unwrap();
-        assert!(stdout.contains("activated local-derived generation local-"));
+        assert!(stdout.contains("Updating Codex 9.9.9 -> 0.150.1..."));
+        assert!(stdout.contains("Verified and activated the locally built Termux release."));
+        assert!(stdout.contains("Codex 0.150.1 is now active. ✅"));
         assert!(output.stderr.is_empty(), "stderr={:?}", output.stderr);
         assert!(
             !gh_log.exists(),
@@ -16069,7 +16064,9 @@ esac
             explicit.stderr
         );
         let explicit_stdout = String::from_utf8(explicit.stdout).unwrap();
-        assert!(explicit_stdout.contains("activated local-derived generation local-"));
+        assert!(explicit_stdout.contains("Updating Codex 9.9.9 -> 0.150.1..."));
+        assert!(explicit_stdout.contains("Verified and activated the locally built Termux release."));
+        assert!(explicit_stdout.contains("Codex 0.150.1 is now active. ✅"));
         assert!(explicit.stderr.is_empty(), "stderr={:?}", explicit.stderr);
         assert!(!gh_log.exists(), "--build-local must not invoke gh");
         let explicit_state = read_pointer_state(&paths).unwrap().unwrap();
