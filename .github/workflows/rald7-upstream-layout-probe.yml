@@ -1,0 +1,65 @@
+name: RALD-7 upstream archive layout probe
+
+on:
+  push:
+    branches:
+      - rewrite/rust-core
+    paths:
+      - .github/workflows/rald7-upstream-layout-probe.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      EXPECTED_PARENT: '00aae8c2e840e07adb85f7626d47bfb7bab825ef'
+      ACCEPTED_SOURCE: '9972a3288c0531ba744e9bd1356273d9a080aa79'
+    steps:
+      - name: Bind source and inspect authenticated official archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init trigger
+          git -C trigger remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git -C trigger fetch --no-tags --depth=2 origin "$GITHUB_SHA"
+          git -C trigger checkout --detach FETCH_HEAD
+          test "$(git -C trigger rev-parse HEAD^)" = "$EXPECTED_PARENT"
+
+          git init source
+          git -C source remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git -C source fetch --no-tags --depth=1 origin "$ACCEPTED_SOURCE"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$ACCEPTED_SOURCE"
+
+          work="$RUNNER_TEMP/rald7-layout"
+          mkdir -p "$work"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2             --connect-timeout 15 --max-time 60 --max-filesize 131072             --output "$work/latest.json"             'https://releases.openai.com/codex/channels/latest'
+          python3 source/.github/scripts/rald3_preflight.py upstream             "$work/latest.json" > "$work/upstream"
+          version="$(sed -n 's/^version=//p' "$work/upstream")"
+          digest="$(sed -n 's/^archive_sha256=//p' "$work/upstream")"
+          test -n "$version"
+          test -n "$digest"
+          printf 'official_version=%s\n' "$version"
+          printf 'official_archive_sha256=%s\n' "$digest"
+
+          url="https://releases.openai.com/codex/releases/$version/codex-package-aarch64-unknown-linux-musl.tar.gz"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2             --connect-timeout 15 --max-time 300 --max-filesize 536870912             --output "$work/package.tar.gz" "$url"
+          test "$(sha256sum "$work/package.tar.gz" | awk '{print $1}')" = "$digest"
+          test "$(stat -c '%s' "$work/package.tar.gz")" -lt 536870912
+
+          tar -tzf "$work/package.tar.gz" > "$work/paths"
+          test "$(wc -l < "$work/paths")" -le 256
+          printf '%s\n' '--- official archive paths ---'
+          cat "$work/paths"
+          printf '%s\n' '--- package manifests ---'
+          while IFS= read -r path; do
+            case "$path" in
+              */codex-package.json|codex-package.json)
+                printf 'path=%s\n' "$path"
+                tar -xOzf "$work/package.tar.gz" "$path"
+                ;;
+            esac
+          done < "$work/paths"
