@@ -10176,19 +10176,6 @@ fn run_core_rollback_with_presentation(
 }
 
 #[cfg(unix)]
-fn run_core_rollback() -> i32 {
-    let mut presentation = UpdatePresentation::new();
-    let roots = match LocalCoreRoots::from_environment() {
-        Ok(roots) => roots,
-        Err(err) => {
-            presentation.fail(&err);
-            return 1;
-        }
-    };
-    run_core_rollback_with_presentation(&roots, &mut presentation)
-}
-
-#[cfg(unix)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CoreRepairOperation {
     Plan,
@@ -16559,6 +16546,40 @@ esac
     }
 
     #[cfg(unix)]
+    fn b5_run_public_channel_update_tty(
+        index_url: &str,
+        home: &std::path::Path,
+        prefix: &std::path::Path,
+        tmp: &std::path::Path,
+    ) -> std::process::Output {
+        use std::os::unix::ffi::OsStrExt as _;
+
+        let script =
+            std::path::PathBuf::from(std::env::var_os("PREFIX").unwrap()).join("bin/script");
+        let executable = doctor_shell_quote(std::env::current_exe().unwrap().as_os_str());
+        let executable = std::str::from_utf8(executable.as_bytes()).unwrap();
+        let command = format!("{executable} tests::public_update_probe --exact --nocapture");
+        std::process::Command::new(script)
+            .args(["-qefc"])
+            .arg(command)
+            .arg("/dev/null")
+            .env(UPDATE_PROBE_ROLE, "1")
+            .env(UPDATE_PROBE_CHANNEL, "1")
+            .env_remove(UPDATE_PROBE_FORCE)
+            .env_remove(UPDATE_PROBE_SOURCE)
+            .env_remove(UPDATE_PROBE_REMOTE)
+            .env("CODEX_TERMUX_UPDATE_INDEX_URL", index_url)
+            .env("CODEX_TEST_REQUIRE_NO_ACQUISITION", "1")
+            .env("HOME", home)
+            .env("PREFIX", prefix)
+            .env("TMPDIR", tmp)
+            .env_remove("SSL_CERT_FILE")
+            .env_remove("SSL_CERT_DIR")
+            .output()
+            .unwrap()
+    }
+
+    #[cfg(unix)]
     fn rald2_run_public_default_channel_update(
         force: bool,
         home: &std::path::Path,
@@ -17544,6 +17565,20 @@ esac
     }
 
     #[cfg(unix)]
+    fn assert_human_update_error_contains(stderr: &[u8], expected: &[u8]) {
+        let actual = String::from_utf8_lossy(stderr).to_ascii_lowercase();
+        let expected = String::from_utf8_lossy(expected).to_ascii_lowercase();
+        assert!(
+            actual.contains(expected.as_str()),
+            "stderr={stderr:?} expected={expected:?}"
+        );
+        assert!(
+            stderr.ends_with("❌\n".as_bytes()),
+            "operational update failure must end with the failure marker: {stderr:?}"
+        );
+    }
+
+    #[cfg(unix)]
     fn b4_assert_public_update_rejected(
         source_generation: &std::path::Path,
         home: &std::path::Path,
@@ -17559,14 +17594,7 @@ esac
             output.stdout,
             output.stderr
         );
-        assert!(
-            output
-                .stderr
-                .windows(expected.len())
-                .any(|window| window == expected),
-            "stderr={:?}",
-            output.stderr
-        );
+        assert_human_update_error_contains(&output.stderr, expected);
     }
 
     #[cfg(unix)]
@@ -17639,14 +17667,7 @@ esac
             output.stdout,
             output.stderr
         );
-        assert!(
-            output
-                .stderr
-                .windows(expected.len())
-                .any(|window| window == expected),
-            "stderr={:?}",
-            output.stderr
-        );
+        assert_human_update_error_contains(&output.stderr, expected);
     }
 
     #[cfg(unix)]
@@ -18040,14 +18061,7 @@ esac
                 output.stdout,
                 output.stderr
             );
-            assert!(
-                output
-                    .stderr
-                    .windows(expected.len())
-                    .any(|window| window == expected),
-                "stderr={:?}",
-                output.stderr
-            );
+            assert_human_update_error_contains(&output.stderr, expected);
             b4_assert_no_target_generation_or_state(&home);
         };
 
@@ -20274,6 +20288,37 @@ exit 2
 
     #[cfg(unix)]
     #[test]
+    fn test_ux1_channel_update_uses_one_tty_transient_line_and_clears_it() {
+        let fixture = b5_channel_fixture("ux1-channel-tty", "ux1-channel-next");
+        let output = b5_run_public_channel_update_tty(
+            &fixture.index_url,
+            &fixture.home,
+            &fixture.prefix,
+            &fixture.tmp,
+        );
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "stdout={:?} stderr={:?}",
+            output.stdout,
+            output.stderr
+        );
+        let terminal = String::from_utf8(output.stdout).unwrap();
+        assert!(terminal.contains("\r\x1b[2K⠋ Checking for updates..."));
+        assert!(terminal.contains("\r\x1b[2K⠙ Downloading signed Termux release..."));
+        assert!(terminal.contains("\r\x1b[2K⠹ Verifying release signature and contents..."));
+        assert!(terminal.contains("Updating the Termux release for Codex 9.9.9..."));
+        assert!(terminal.contains("\r\x1b[2K⠹ Checking candidate runtime..."));
+        assert!(terminal.contains("\r\x1b[2K⠸ Activating Codex 9.9.9..."));
+        assert!(terminal.contains("Verified and activated the signed Termux release."));
+        assert!(terminal.contains("Codex 9.9.9 is now active. ✅"));
+        assert!(terminal.matches("\x1b[2K").count() >= 6);
+        assert!(output.stderr.is_empty(), "script stderr={:?}", output.stderr);
+        remove_temp_root(fixture.root);
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn test_r4_bare_update_uses_only_signed_wrapper_channel() {
         {
             let fixture = b5_channel_fixture("r4-channel-happy", "channel-next");
@@ -20295,6 +20340,8 @@ exit 2
                 .windows(b"Codex 9.9.9 is now active. ✅\n".len())
                 .any(|window| window == b"Codex 9.9.9 is now active. ✅\n"));
             assert!(output.stderr.is_empty(), "stderr={:?}", output.stderr);
+            assert!(!output.stdout.contains(&b'\r'));
+            assert!(!output.stdout.windows(2).any(|window| window == b"\x1b["));
 
             let state_paths =
                 CoreStatePaths::new(&fixture.home.join(".local/share/codex/core")).unwrap();
