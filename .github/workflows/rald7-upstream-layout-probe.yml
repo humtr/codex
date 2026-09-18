@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
-      EXPECTED_PARENT: '00aae8c2e840e07adb85f7626d47bfb7bab825ef'
+      EXPECTED_PARENT: '78b60745b8b8cead42c654da98d3cc1830d3f683'
       ACCEPTED_SOURCE: '9972a3288c0531ba744e9bd1356273d9a080aa79'
     steps:
       - name: Bind source and inspect authenticated official archive
@@ -63,3 +63,22 @@ jobs:
                 ;;
             esac
           done < "$work/paths"
+
+          mkdir -p "$work/extract"
+          tar -xzf "$work/package.tar.gz" -C "$work/extract"             bin/codex bin/codex-code-mode-host
+          file "$work/extract/bin/codex" "$work/extract/bin/codex-code-mode-host"
+          readelf -h "$work/extract/bin/codex" | grep -E 'Class:|Data:|Type:|Machine:'
+          readelf -l "$work/extract/bin/codex" | grep -F INTERP && exit 1 || :
+          readelf -l "$work/extract/bin/codex-code-mode-host" | grep -F INTERP && exit 1 || :
+          python3 - "$work/extract/bin/codex" <<'PY'
+          from pathlib import Path
+          import sys
+          data = Path(sys.argv[1]).read_bytes()
+          for value in [
+              b"/etc/resolv.conf",
+              b"/etc/codex/config.toml",
+              b"/etc/codex/requirements.toml",
+              b"/etc/codex/managed_config.toml",
+          ]:
+              print(f"patch_source_count={value.decode()}:{data.count(value)}")
+          PY
