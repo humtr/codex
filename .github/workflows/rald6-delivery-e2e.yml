@@ -17,7 +17,7 @@ concurrency:
 
 env:
   RALD6_SOURCE_SHA: '9972a3288c0531ba744e9bd1356273d9a080aa79'
-  EXPECTED_TRIGGER_PARENT: 'bffceede042b04c439ec3c66979ef6b439790ff0'
+  EXPECTED_TRIGGER_PARENT: '6b974145dc5490b22a31fa7dd7d4edff828480b6'
   EXPECTED_MAIN_SHA: 'f221de1225471fb5eda5bbdfcbd0d9db0c2f43b1'
   PUBLIC_GENERATION: 'local-hosted-0-154-0-37fbbd8033b8-rald45-transition'
   PUBLIC_VERSION: '0.154.0'
@@ -26,7 +26,6 @@ env:
   FIXTURE_SEQUENCE: '12'
   FIXTURE_PORT: '18443'
   WRAPPER_PUBLIC_KEY_SHA256: '62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c'
-  RUST_VERSION: '1.98.0'
   ANDROID_RUNTIME_APEX_COMMIT: '8aeb37cca394ce39c1311744c60960cbd466aa77'
   ANDROID_RUNTIME_APEX_SHA256: '83bf0dce249728dae48149b80d28b48115c54adad95a352120d58a6ac669d1fc'
   TERMUX_PREFIX: '/data/data/com.termux/files/usr'
@@ -232,8 +231,11 @@ jobs:
           export PATH="$PREFIX/bin:/usr/bin:/bin"
 
           test "$(git ls-remote --exit-code "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/main | awk '{print $1}')" =             "$EXPECTED_MAIN_SHA"
-          rustup toolchain install "$RUST_VERSION" --profile minimal
-          cargo "+$RUST_VERSION" build --release --locked             --manifest-path source/Cargo.toml             -p codex-release-builder
+          command -v cargo >/dev/null
+          command -v rustc >/dev/null
+          cargo --version
+          rustc --version
+          cargo build --release --locked             --manifest-path source/Cargo.toml             -p codex-release-builder
           python3 source/.github/scripts/test_rald4_signing.py
 
           fixture="$RUNNER_TEMP/rald6-fixture"

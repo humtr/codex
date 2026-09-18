@@ -7,7 +7,7 @@ WORKFLOW = ROOT / ".github" / "workflows" / "rald6-delivery-e2e.yml"
 TEXT = WORKFLOW.read_text()
 
 SOURCE = "9972a3288c0531ba744e9bd1356273d9a080aa79"
-PARENT = "bffceede042b04c439ec3c66979ef6b439790ff0"
+PARENT = "6b974145dc5490b22a31fa7dd7d4edff828480b6"
 MAIN = "f221de1225471fb5eda5bbdfcbd0d9db0c2f43b1"
 PUBLIC = "local-hosted-0-154-0-37fbbd8033b8-rald45-transition"
 FIXTURE = "local-rald6-seq12-9972a3288c05"
@@ -21,6 +21,14 @@ class Rald6WorkflowContract(unittest.TestCase):
         self.assertIn("test \"$GITHUB_REF\" = refs/heads/rewrite/rust-core", TEXT)
         self.assertIn('git -C trigger rev-parse HEAD^', TEXT)
         self.assertIn('git -C source rev-parse HEAD', TEXT)
+
+    def test_arm_fixture_builder_uses_preinstalled_native_rust_only(self) -> None:
+        self.assertIn("command -v cargo >/dev/null", TEXT)
+        self.assertIn("command -v rustc >/dev/null", TEXT)
+        self.assertIn("cargo build --release --locked", TEXT)
+        self.assertNotIn("rustup", TEXT)
+        self.assertNotIn("apt-get", TEXT)
+        self.assertNotIn("apt install", TEXT)
 
     def test_secret_is_bounded_to_one_fixture_signing_step(self) -> None:
         secret_expr = "$" + "{{ secrets.CODEX_RELEASE_SIGNING_KEY }}"
