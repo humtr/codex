@@ -8,7 +8,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 BASE = "9dedc27b73ba1b045b3c1724036323e049e1dcf9"
-ACCEPTED_SOURCE = "566034e1aff42bde2f3221ebc2da2b16def77d44"
+ACCEPTED_SOURCE = "c051aa44df3f0c6a6b57b3924bf0c10d249845f5"
 EXPECTED_MAIN = "5bef52d07a07bd8612b4538dfb29a2396937a3fb"
 
 
@@ -65,6 +65,16 @@ class Rald7AcceptanceContract(unittest.TestCase):
         self.assertIn('test "$doctor_capability" = unsupported', text)
         self.assertNotIn('test "$doctor_capability" = supported', text)
 
+
+    def test_update_human_output_proofs_follow_ux1_contract(self) -> None:
+        text = (ROOT / ".github/workflows/auto-release-termux.yml").read_text()
+        self.assertNotIn("activated channel generation", text)
+        self.assertNotIn("codex is already up to date (generation", text)
+        self.assertIn("Updating Codex %s -> %s...", text)
+        self.assertIn("Updating the Termux release for Codex %s...", text)
+        self.assertIn("Verified and activated the signed Termux release.", text)
+        self.assertIn("Codex %s is now active. ✅", text)
+        self.assertIn("Codex %s is already up to date. ✅", text)
 
     def test_legacy_lag_jump_remediation_is_exact_manual_one_shot(self) -> None:
         text = (ROOT / ".github/workflows/auto-release-termux.yml").read_text()

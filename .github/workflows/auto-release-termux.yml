@@ -49,7 +49,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  CODEX_SOURCE_SHA: '566034e1aff42bde2f3221ebc2da2b16def77d44'
+  CODEX_SOURCE_SHA: 'c051aa44df3f0c6a6b57b3924bf0c10d249845f5'
   RALD5_SOURCE_SHA: 'fa1b887b7e726202e309a2eb731aad303a6c7e03'
   RUST_VERSION: '1.98.0'
   ANDROID_API: '24'
@@ -1520,8 +1520,16 @@ jobs:
           test -x "$PREFIX/bin/codex"
 
           export CODEX_TERMUX_UPDATE_INDEX_URL="https://humtr.github.io/codex/$candidate/update-index-v1"
+          pre_version="$("$PREFIX/bin/codex" --version | sed -n 's/^codex-cli //p')"
+          test -n "$pre_version"
           "$PREFIX/bin/codex" update > "$RUNNER_TEMP/rald5-first-update.out"
-          printf 'activated channel generation %s\n' "$candidate" > "$RUNNER_TEMP/rald5-first-update.expected"
+          if test "$pre_version" = "$version"; then
+            printf 'Updating the Termux release for Codex %s...\n' "$version" > "$RUNNER_TEMP/rald5-first-update.expected"
+          else
+            printf 'Updating Codex %s -> %s...\n' "$pre_version" "$version" > "$RUNNER_TEMP/rald5-first-update.expected"
+          fi
+          printf 'Verified and activated the signed Termux release.\n' >> "$RUNNER_TEMP/rald5-first-update.expected"
+          printf 'Codex %s is now active. ✅\n' "$version" >> "$RUNNER_TEMP/rald5-first-update.expected"
           cmp "$RUNNER_TEMP/rald5-first-update.expected" "$RUNNER_TEMP/rald5-first-update.out"
           if test '${{ needs.producer.outputs.legacy_lag_jump_remediation }}' = true; then
             state="$HOME/.local/share/codex/core/activation-state"
@@ -1624,7 +1632,7 @@ jobs:
           }
           snapshot > "$RUNNER_TEMP/rald5-before-noop"
           "$PREFIX/bin/codex" update > "$RUNNER_TEMP/rald5-second-update.out"
-          printf 'codex is already up to date (generation %s)\n' "$candidate" > "$RUNNER_TEMP/rald5-second-update.expected"
+          printf 'Codex %s is already up to date. ✅\n' "$version" > "$RUNNER_TEMP/rald5-second-update.expected"
           cmp "$RUNNER_TEMP/rald5-second-update.expected" "$RUNNER_TEMP/rald5-second-update.out"
           snapshot > "$RUNNER_TEMP/rald5-after-noop"
           diff -u "$RUNNER_TEMP/rald5-before-noop" "$RUNNER_TEMP/rald5-after-noop"
