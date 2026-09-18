@@ -193,6 +193,43 @@ Termux qualification. Produce one candidate for independent product review.
 
 ### Current Direct-Lead Evidence
 
+- POST-RALD7 LEGACY-LAG direct-jump qualification is accepted as a diagnostic
+  and source-correction proof on 2026-09-18. Exact historical R10 source
+  `0621105fd1be8461b370466fbfa981938241074d` and exact official 0.153.4
+  archive SHA-256
+  `fc395cb043a1093ab0db34f44aba3199bfaa9ce640cd9be7fd588f44b0da64a4`
+  were reconstructed into a production-authority-signed private sequence-7
+  client. Historical hosted reconstruction uses Android API 30 only because the
+  historical source directly references bionic `renameat2`; no historical or
+  current product source was changed. Run `35343356792` proved that the actual
+  current public sequence-12 generation
+  `local-hosted-0-155-0-566034e1aff4` is **not** directly activatable by that
+  retained R10 client in credential-free conditions: signature/digest/version
+  admission reached the activation probe, then the old Core rejected
+  `upstream_doctor=supported` with
+  `candidate doctor probe was unhealthy`. The authoritative sequence-7 state,
+  launcher, and current generation remained unchanged.
+  Repair proof `35343870274` reused the exact public 0.155.0 component bytes and
+  changed only generation identity plus the already accepted exact R10 bridge
+  signal to signed `upstream_doctor=unsupported` under
+  `creation_metadata=r10-browser-helper-bridge-v1`. A private production-key
+  sequence-13 fixture then updated the same sequence-7 Core directly to
+  `codex-cli 0.155.0`, retained sequence 7 as `previous`, executed real public
+  doctor semantics (`upstream=unhealthy`, `termux_core=healthy`), and proved a
+  byte-identical second-update no-op. SPEC now requires this bridge signal on
+  every public stable while retained R10 remains in the compatibility floor.
+  Source correction `3c0d2742bf99aa931b840b454b314e3fac428c9c` makes the
+  producer preserve the signal for all future stable candidates and full
+  repository acceptance `35344310885` passed. No fake credentials, public
+  Release/Pages/index mutation, force push, or live installation access was used.
+  Production remediation is deliberately **not yet activated**: `main` remains
+  `9aa8be4c63fe8d60dea130b979c0c12d1a5164bc`, public stable remains sequence
+  12, and the `main` producer still has its prior workflow blob. Immediate
+  public 0.153.4/sequence-7 -> 0.155.0 direct jump therefore remains unavailable
+  until separately authorized remediation installs the accepted producer change
+  and promotes a same-version sequence-13 compatibility bridge through the full
+  public gates.
+
 - RELEASE-AUTOMATION-LOCAL-DERIVED RALD-7 full acceptance/activation is accepted
   on 2026-09-18. Final product source
   `566034e1aff42bde2f3221ebc2da2b16def77d44` replaced the historical

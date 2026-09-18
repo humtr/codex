@@ -404,34 +404,37 @@ behavior belongs in `SPEC.md`.
   scheduled runs may publish only ordinary strictly-newer official stable
   through the accepted automatic gates; manual publication continues to require
   explicit authorization.
-- LEGACY-LAG direct-jump qualification is **active 2026-09-18** under explicit
-  user authorization. Exact historical R10 source
-  `0621105fd1be8461b370466fbfa981938241074d` plus the exact official 0.153.4
-  archive was reconstructed as a production-authority-signed private sequence-7
-  client. Historical hosted reconstruction required Android API 30 because
-  bionic exposes `renameat2` from API 30; this changes no historical source or
-  current product. Run `35343356792` then proved the actual defect: ordinary
-  no-argument update against current signed public sequence 12 fetched and
-  admitted the candidate but failed closed at the old R10 activation gate with
-  `candidate doctor probe was unhealthy`; authoritative sequence-7 state,
-  launcher, and current-generation bytes stayed unchanged. This is caused by
-  sequence 12 declaring `upstream_doctor=supported`, not by version, signature,
-  digest, inventory, or runtime incompatibility.
-  Private repair run `35343870274` reused exact public 0.155.0 component bytes,
-  changed only the signed generation identity and the already accepted R10
-  bridge capability to `upstream_doctor=unsupported`, signed it as private
-  sequence 13 with the production authority, and served it over disposable local
-  HTTPS. The same reconstructed sequence-7 historical Core then performed one
-  ordinary update directly to 0.155.0/sequence13, retained sequence 7 as
-  `previous`, reported exact `codex-cli 0.155.0`, ran real public doctor with
-  `upstream=unhealthy` and `termux_core=healthy`, and a second update was an
-  exact-current no-op with byte-identical state. No fake credential/provider
-  success, public stable mutation, Release/Pages write, force push, or live
-  installation access was used.
-  SPEC now requires the exact R10 bridge doctor signal on every public stable
-  candidate while the compatibility floor includes retained R10. The producer
-  source correction is under full repository acceptance before any `main`
-  workflow change or public stable correction.
+- LEGACY-LAG direct-jump qualification is **proof-accepted 2026-09-18; public
+  remediation remains separately gated**. Exact historical R10 source
+  `0621105fd1be8461b370466fbfa981938241074d` plus exact official 0.153.4 was
+  reconstructed as a production-authority-signed private sequence-7 client.
+  Run `35343356792` proved current public sequence 12 is not directly activatable
+  by that old Core without credentials: all signed/version admission reached the
+  old activation gate, which rejected `upstream_doctor=supported` as
+  `candidate doctor probe was unhealthy`; authoritative sequence-7 state and
+  launcher remained unchanged. Private repair run `35343870274` changed no
+  0.155.0 component bytes, used only the exact accepted R10 bridge doctor signal,
+  and proved one ordinary update from sequence 7 directly to private sequence 13
+  / `codex-cli 0.155.0`, previous retention, real doctor execution
+  (`upstream=unhealthy`, `termux_core=healthy`), and byte-identical second
+  no-op.
+  SPEC now requires that signal while retained R10 is supported. Producer source
+  correction `3c0d2742bf99aa931b840b454b314e3fac428c9c` preserves it on every
+  future stable candidate; full repository acceptance run `35344310885` passed
+  Android proof, release-builder/Core/Manager suites, locked workspace
+  check/test/clippy/fmt, workflow/action validation, credential/private-key scan,
+  and signed public sequence-12 audit. The one-shot proof workflow was removed.
+  No fake credentials, public mutation, force push, or live installation access
+  was used.
+  **Current production is intentionally unchanged pending separate publication
+  authorization:** `main=9aa8be4c63fe8d60dea130b979c0c12d1a5164bc`, public stable
+  sequence 12 `local-hosted-0-155-0-566034e1aff4`, and the main producer still
+  has the pre-correction workflow. Restoring immediate long-idle sequence-7
+  direct update requires two separately authorized production actions: install
+  the accepted producer workflow on `main` without changing the stable index,
+  then publish/promote a same-version sequence-13 compatibility bridge through
+  the normal build/sign/Release/Pages/readback/disposable-runtime/non-forced-CAS
+  gates.
 - `legacy/monolith` remains sealed at
   `bf30a7dc94d4dad7f58836c69028160856e63c58`.
 - Worker mode remains OFF.

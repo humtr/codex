@@ -774,6 +774,35 @@ Activation order after source acceptance:
    gates that future scheduled runs use;
 7. record accepted evidence in `GOAL.md` and close the bundle in `WORKBOARD.md`.
 
+### Post-RALD-7 legacy-lag compatibility correction
+
+Status: **proof/source accepted; production remediation pending separate
+authorization**. A retained sequence-7 R10 client was reconstructed from exact
+historical source and official 0.153.4. Direct public update to current signed
+sequence 12 failed closed in run `35343356792` solely at the historical
+credential-dependent candidate doctor gate. Private sequence-13 repair proof
+`35343870274` reused exact current 0.155.0 component bytes and the previously
+accepted R10 activation bridge signal, then proved direct ordinary update,
+previous retention, exact version, real doctor execution, and second-update
+no-op. SPEC now requires the signed bridge doctor signal for every public stable
+while R10 remains in the compatibility floor. Source correction
+`3c0d2742bf99aa931b840b454b314e3fac428c9c` implements that producer rule and
+full acceptance `35344310885` is green.
+
+This proof does **not** itself authorize public correction. Until separate
+authorization is granted, `main`, public sequence 12, Release/Pages state, and
+live installations remain unchanged. Production remediation must be ordered:
+(1) mirror only the accepted corrected producer workflow to exact current
+`main` without changing the stable index; (2) stage one same-version 0.155.0
+sequence-13 bridge whose component bytes remain the accepted sequence-12 bytes
+except for the signed generation identity/doctor bridge descriptor; (3) run the
+normal production signing, immutable Release, LKG-preserving Pages, complete
+public readback, direct historical-client update proof, corrected-Core
+doctor/no-op proof, and non-forced exact-parent CAS; (4) only after all gates
+succeed may sequence 13 become stable. No version-comparison bypass may become a
+scheduled path; this one corrective same-version promotion requires explicit
+manual authorization.
+
 ## 8. Failure and recovery matrix
 
 | Failure point | Required result |
