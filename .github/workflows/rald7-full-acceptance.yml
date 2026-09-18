@@ -19,7 +19,12 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  EXPECTED_PARENT: '8e01b593b18d87acb80a6ce9a183e28eb891088f'
+  EXPECTED_PARENT: 'b02e850fce11385c1abe29c13d1d8a920b47fc04'
+  RUST_VERSION: '1.98.0'
+  ANDROID_API: '24'
+  ANDROID_NDK_VERSION: '27.3.13750724'
+  ANDROID_RUNTIME_APEX_COMMIT: '8aeb37cca394ce39c1311744c60960cbd466aa77'
+  ANDROID_RUNTIME_APEX_SHA256: '83bf0dce249728dae48149b80d28b48115c54adad95a352120d58a6ac669d1fc'
   TERMUX_TEST_PREFIX: '/data/data/com.termux/files/usr'
   TERMUX_TEST_TMPDIR: '/data/data/com.termux/files/usr/tmp'
   EXPECTED_MAIN: 'f221de1225471fb5eda5bbdfcbd0d9db0c2f43b1'
@@ -57,8 +62,55 @@ jobs:
           python3 .github/scripts/test_rald7_acceptance.py
           git diff --check "$EXPECTED_PARENT..HEAD"
 
+  android-core:
+    name: Build accepted Android/AArch64 Core proof artifact
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Fetch exact accepted product source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init product
+          git -C product remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git -C product fetch --no-tags --depth=1 origin "$ACCEPTED_SOURCE"
+          git -C product checkout --detach FETCH_HEAD
+          test "$(git -C product rev-parse HEAD)" = "$ACCEPTED_SOURCE"
+
+      - name: Cross-build Android/AArch64 Core
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install "$RUST_VERSION" --profile minimal --target aarch64-linux-android
+          ndk="$ANDROID_SDK_ROOT/ndk/$ANDROID_NDK_VERSION"
+          toolchain="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          linker="$toolchain/aarch64-linux-android$ANDROID_API-clang"
+          test -x "$linker"
+          test -x "$toolchain/llvm-ar"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$linker"
+          export CC_aarch64_linux_android="$linker"
+          export AR_aarch64_linux_android="$toolchain/llvm-ar"
+          cargo "+$RUST_VERSION" build --release --locked             --manifest-path product/Cargo.toml             --target aarch64-linux-android -p codex
+          core="product/target/aarch64-linux-android/release/codex"
+          test -x "$core"
+          file "$core" | grep -F 'ARM aarch64'
+          readelf -l "$core" | grep -F '/system/bin/linker64'
+          mkdir -p "$RUNNER_TEMP/rald7-android-core"
+          cp "$core" "$RUNNER_TEMP/rald7-android-core/codex"
+          chmod 0755 "$RUNNER_TEMP/rald7-android-core/codex"
+
+      - name: Transfer unsigned test-only Core artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rald7-accepted-android-core
+          path: ${{ runner.temp }}/rald7-android-core/codex
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
   packages:
     name: Package full tests
+    needs: android-core
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 45
     steps:
@@ -71,6 +123,48 @@ jobs:
           git -C source fetch --no-tags --depth=1 origin "$GITHUB_SHA"
           git -C source checkout --detach FETCH_HEAD
           test "$(git -C source rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Download accepted Android Core proof artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: rald7-accepted-android-core
+          path: ${{ runner.temp }}/rald7-android-core
+
+      - name: Provision pinned Android bionic execution substrate
+        shell: bash
+        run: |
+          set -euo pipefail
+          core="$RUNNER_TEMP/rald7-android-core/codex"
+          chmod 0755 "$core"
+          test -x "$core"
+          file "$core" | grep -F 'ARM aarch64'
+          readelf -l "$core" | grep -F '/system/bin/linker64'
+          printf 'CODEX_B10_RELEASE_CORE=%s\n' "$core" >> "$GITHUB_ENV"
+
+          for tool in curl base64 unzip debugfs file readelf sha256sum; do
+            command -v "$tool" >/dev/null
+          done
+          sudo test ! -e /system
+          root="$RUNNER_TEMP/rald7-bionic"
+          mkdir -p "$root/bin" "$root/lib64/bionic"
+          apex_url="https://android.googlesource.com/platform/prebuilts/runtime/+/$ANDROID_RUNTIME_APEX_COMMIT/mainline/runtime/apex/com.android.runtime-arm64.apex?format=TEXT"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2             --connect-timeout 15 --max-time 120 --max-filesize 20971520             --output "$root/runtime.apex.b64" "$apex_url"
+          base64 --decode "$root/runtime.apex.b64" > "$root/runtime.apex"
+          test "$(wc -c < "$root/runtime.apex")" -eq 13881344
+          test "$(sha256sum "$root/runtime.apex" | awk '{print $1}')" = "$ANDROID_RUNTIME_APEX_SHA256"
+          unzip -p "$root/runtime.apex" apex_payload.img > "$root/apex_payload.img"
+          test "$(wc -c < "$root/apex_payload.img")" -eq 13783040
+          debugfs -R "dump -p /bin/linker64 $root/bin/linker64" "$root/apex_payload.img" >/dev/null 2>&1
+          for library in libc.so libdl.so libm.so; do
+            debugfs -R "dump -p /lib64/bionic/$library $root/lib64/bionic/$library"               "$root/apex_payload.img" >/dev/null 2>&1
+          done
+          sudo mkdir -p /system/bin /system/lib64
+          sudo install -m 0755 "$root/bin/linker64" /system/bin/linker64
+          for library in libc.so libdl.so libm.so; do
+            sudo install -m 0644 "$root/lib64/bionic/$library" "/system/lib64/$library"
+          done
+          rm -f "$root/runtime.apex.b64" "$root/runtime.apex" "$root/apex_payload.img"
+          "$core" update --help >/dev/null
 
       - name: Provision deterministic Termux test tools
         shell: bash
@@ -118,6 +212,7 @@ jobs:
 
   workspace:
     name: Locked workspace check, test, clippy, and fmt
+    needs: android-core
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 45
     steps:
@@ -130,6 +225,48 @@ jobs:
           git -C source fetch --no-tags --depth=1 origin "$GITHUB_SHA"
           git -C source checkout --detach FETCH_HEAD
           test "$(git -C source rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Download accepted Android Core proof artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: rald7-accepted-android-core
+          path: ${{ runner.temp }}/rald7-android-core
+
+      - name: Provision pinned Android bionic execution substrate
+        shell: bash
+        run: |
+          set -euo pipefail
+          core="$RUNNER_TEMP/rald7-android-core/codex"
+          chmod 0755 "$core"
+          test -x "$core"
+          file "$core" | grep -F 'ARM aarch64'
+          readelf -l "$core" | grep -F '/system/bin/linker64'
+          printf 'CODEX_B10_RELEASE_CORE=%s\n' "$core" >> "$GITHUB_ENV"
+
+          for tool in curl base64 unzip debugfs file readelf sha256sum; do
+            command -v "$tool" >/dev/null
+          done
+          sudo test ! -e /system
+          root="$RUNNER_TEMP/rald7-bionic"
+          mkdir -p "$root/bin" "$root/lib64/bionic"
+          apex_url="https://android.googlesource.com/platform/prebuilts/runtime/+/$ANDROID_RUNTIME_APEX_COMMIT/mainline/runtime/apex/com.android.runtime-arm64.apex?format=TEXT"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2             --connect-timeout 15 --max-time 120 --max-filesize 20971520             --output "$root/runtime.apex.b64" "$apex_url"
+          base64 --decode "$root/runtime.apex.b64" > "$root/runtime.apex"
+          test "$(wc -c < "$root/runtime.apex")" -eq 13881344
+          test "$(sha256sum "$root/runtime.apex" | awk '{print $1}')" = "$ANDROID_RUNTIME_APEX_SHA256"
+          unzip -p "$root/runtime.apex" apex_payload.img > "$root/apex_payload.img"
+          test "$(wc -c < "$root/apex_payload.img")" -eq 13783040
+          debugfs -R "dump -p /bin/linker64 $root/bin/linker64" "$root/apex_payload.img" >/dev/null 2>&1
+          for library in libc.so libdl.so libm.so; do
+            debugfs -R "dump -p /lib64/bionic/$library $root/lib64/bionic/$library"               "$root/apex_payload.img" >/dev/null 2>&1
+          done
+          sudo mkdir -p /system/bin /system/lib64
+          sudo install -m 0755 "$root/bin/linker64" /system/bin/linker64
+          for library in libc.so libdl.so libm.so; do
+            sudo install -m 0644 "$root/lib64/bionic/$library" "/system/lib64/$library"
+          done
+          rm -f "$root/runtime.apex.b64" "$root/runtime.apex" "$root/apex_payload.img"
+          "$core" update --help >/dev/null
 
       - name: Provision deterministic Termux test tools
         shell: bash

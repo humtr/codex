@@ -276,7 +276,18 @@ behavior belongs in `SPEC.md`.
   AArch64 probe must compile and execute on an AArch64 host rather than x86_64.
   Therefore the package/workspace full-test jobs move to native
   `ubuntu-24.04-arm` and install regular copies of strict tool fixtures; this
-  remains test substrate only. `main` and public stable are still unchanged.
+  remains test substrate only. Third run `35296572414` reduced the remaining
+  Core failures to the same 2 and proved both were a different boundary:
+  release-builder and local-derived production correctly reject the Linux test
+  executable because it lacks the Android AArch64 `/system/bin/linker64`
+  contract. The repair must not weaken that check. Instead, cross-build the exact
+  accepted product source `9972a3288c0531ba744e9bd1356273d9a080aa79` into a
+  real Android/AArch64 Core with the accepted NDK path, transfer that unsigned
+  test artifact only to native ARM64 full-test jobs, provision the already pinned
+  AOSP bionic substrate, and reuse the existing test-only
+  `CODEX_B10_RELEASE_CORE` hook for the two proofs. Production builds still use
+  `current_exe()` unconditionally. `main` and public stable are still
+  unchanged.
 - Public stable remains signed sequence 11 generation
   `local-hosted-0-154-0-37fbbd8033b8-rald45-transition`; RALD-6 created no
   public stable advancement.

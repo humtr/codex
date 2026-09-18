@@ -7476,6 +7476,26 @@ fn local_update_generation_id() -> String {
 }
 
 #[cfg(unix)]
+fn running_core_artifact_for_local_build() -> Result<std::path::PathBuf, LocalProductError> {
+    #[cfg(test)]
+    if let Some(input) = std::env::var_os("CODEX_B10_RELEASE_CORE") {
+        return std::fs::canonicalize(input).map_err(|source| LocalProductError::Io {
+            operation: "resolve test release Core artifact",
+            source,
+        });
+    }
+
+    let input = std::env::current_exe().map_err(|source| LocalProductError::Io {
+        operation: "resolve running Core artifact",
+        source,
+    })?;
+    std::fs::canonicalize(input).map_err(|source| LocalProductError::Io {
+        operation: "resolve running Core artifact",
+        source,
+    })
+}
+
+#[cfg(unix)]
 fn activate_local_built_update(
     roots: &LocalCoreRoots,
     process_env: &TermuxProcessEnvSnapshot,
@@ -7524,16 +7544,7 @@ fn activate_local_built_update(
                 "official upstream archive digest does not match release metadata",
             ));
         }
-        let core = std::fs::canonicalize(std::env::current_exe().map_err(|source| {
-            LocalProductError::Io {
-                operation: "resolve running Core artifact",
-                source,
-            }
-        })?)
-        .map_err(|source| LocalProductError::Io {
-            operation: "resolve running Core artifact",
-            source,
-        })?;
+        let core = running_core_artifact_for_local_build()?;
         let gzip = roots
             .curl
             .parent()
@@ -15316,7 +15327,8 @@ esac
         let archive = root.join("codex-package-aarch64-unknown-linux-musl.tar.gz");
         let raw_runtime = b6_write_official_shape_archive(&gzip, &archive);
         let archive_sha256 = openssl_sha256(&openssl, &archive).unwrap();
-        let core = std::fs::canonicalize(std::env::current_exe().unwrap()).unwrap();
+        let core = b10_release_core_from_env()
+            .unwrap_or_else(|| std::fs::canonicalize(std::env::current_exe().unwrap()).unwrap());
         let core_sha256 = openssl_sha256(&openssl, &core).unwrap();
         let generation = root.join("unsigned-generation");
         let args = vec![

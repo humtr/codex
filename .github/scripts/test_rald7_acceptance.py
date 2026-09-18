@@ -84,6 +84,16 @@ class Rald7AcceptanceContract(unittest.TestCase):
             for value in variants:
                 self.assertNotIn(value, data, raw)
 
+    def test_android_core_override_is_test_only(self) -> None:
+        source = (ROOT / "crates/core/src/main.rs").read_text()
+        helper = source.split("fn running_core_artifact_for_local_build()", 1)[1].split(
+            "#[cfg(unix)]\nfn activate_local_built_update", 1
+        )[0]
+        self.assertIn("#[cfg(test)]", helper)
+        self.assertIn('std::env::var_os("CODEX_B10_RELEASE_CORE")', helper)
+        production_tail = helper.split("#[cfg(test)]", 1)[1]
+        self.assertIn("std::env::current_exe()", production_tail)
+
     def test_publication_workflows_remain_fail_closed(self) -> None:
         auto = (ROOT / ".github/workflows/auto-release-termux.yml").read_text()
         pages = (ROOT / ".github/workflows/publish-termux-update-pages.yml").read_text()
