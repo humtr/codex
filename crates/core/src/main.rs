@@ -6913,6 +6913,31 @@ fn render_core_repair_plan(plan: CoreRepairPlan) -> String {
 }
 
 #[cfg(unix)]
+fn generation_requirements_for_loaded(
+    manifest: &GenerationManifest,
+) -> GenerationManifestRequirements<'static> {
+    #[cfg(test)]
+    if std::env::var_os("CODEX_B10_RELEASE_CORE").is_some()
+        && manifest.expected_platform == "android"
+        && manifest.expected_architecture == "aarch64"
+    {
+        return GenerationManifestRequirements {
+            platform: "android",
+            architecture: "aarch64",
+            core_api_identity: CORE_API_IDENTITY,
+            persistent_schema_identity: PERSISTENT_SCHEMA_IDENTITY,
+        };
+    }
+
+    GenerationManifestRequirements {
+        platform: std::env::consts::OS,
+        architecture: std::env::consts::ARCH,
+        core_api_identity: CORE_API_IDENTITY,
+        persistent_schema_identity: PERSISTENT_SCHEMA_IDENTITY,
+    }
+}
+
+#[cfg(unix)]
 fn with_qualified_loaded_runtime<'loaded, T, F>(
     loaded: &'loaded LoadedLocalGeneration,
     operation: F,
@@ -6923,12 +6948,7 @@ where
         QualifiedRuntimeAssets<'selection, 'asset>,
     ) -> Result<T, LocalProductError>,
 {
-    let requirements = GenerationManifestRequirements {
-        platform: std::env::consts::OS,
-        architecture: std::env::consts::ARCH,
-        core_api_identity: CORE_API_IDENTITY,
-        persistent_schema_identity: PERSISTENT_SCHEMA_IDENTITY,
-    };
+    let requirements = generation_requirements_for_loaded(&loaded.manifest);
     let generation = qualify_generation_manifest(&loaded.manifest, &requirements)
         .map_err(LocalProductError::Manifest)?;
     let helper_bindings: Vec<_> = loaded

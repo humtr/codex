@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  EXPECTED_PARENT: '5fb34a9ac7421ed985c8fd3a7fafb62009eb699c'
+  EXPECTED_PARENT: '6164c8c82e2044010aa3587465d07fb2ef590253'
   RUST_VERSION: '1.98.0'
   ANDROID_API: '24'
   ANDROID_NDK_VERSION: '27.3.13750724'
@@ -139,7 +139,7 @@ jobs:
           test -x "$core"
           file "$core" | grep -F 'ARM aarch64'
           readelf -l "$core" | grep -F '/system/bin/linker64'
-          printf 'CODEX_B10_RELEASE_CORE=%s\n' "$core" >> "$GITHUB_ENV"
+          printf 'RALD7_ANDROID_CORE=%s\n' "$core" >> "$GITHUB_ENV"
 
           for tool in curl base64 unzip debugfs file readelf sha256sum; do
             command -v "$tool" >/dev/null
@@ -201,7 +201,15 @@ jobs:
         run: |
           set -euo pipefail
           cd source
-          cargo test --locked -p codex
+          cargo test --locked -p codex --             --skip test_r6_builder_publish_output_enters_existing_signed_release_admission             --skip test_rald1_local_derived_fallback_and_explicit_build_preserve_public_authority
+
+      - name: Android Core admission and local-derived focused proofs
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          CODEX_B10_RELEASE_CORE="$RALD7_ANDROID_CORE"             cargo test --locked -p codex               tests::test_r6_builder_publish_output_enters_existing_signed_release_admission               -- --exact --nocapture
+          CODEX_B10_RELEASE_CORE="$RALD7_ANDROID_CORE"             cargo test --locked -p codex               tests::test_rald1_local_derived_fallback_and_explicit_build_preserve_public_authority               -- --exact --nocapture
 
       - name: Manager integration tests
         shell: bash
@@ -241,7 +249,7 @@ jobs:
           test -x "$core"
           file "$core" | grep -F 'ARM aarch64'
           readelf -l "$core" | grep -F '/system/bin/linker64'
-          printf 'CODEX_B10_RELEASE_CORE=%s\n' "$core" >> "$GITHUB_ENV"
+          printf 'RALD7_ANDROID_CORE=%s\n' "$core" >> "$GITHUB_ENV"
 
           for tool in curl base64 unzip debugfs file readelf sha256sum; do
             command -v "$tool" >/dev/null
@@ -303,7 +311,7 @@ jobs:
         run: |
           set -euo pipefail
           cd source
-          cargo test --workspace --locked
+          cargo test --workspace --locked --             --skip test_r6_builder_publish_output_enters_existing_signed_release_admission             --skip test_rald1_local_derived_fallback_and_explicit_build_preserve_public_authority
 
       - name: Clippy warnings are errors
         shell: bash

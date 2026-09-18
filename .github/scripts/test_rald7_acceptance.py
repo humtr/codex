@@ -102,6 +102,24 @@ class Rald7AcceptanceContract(unittest.TestCase):
         self.assertIn('platform == "android"', platform)
         self.assertIn('architecture == "aarch64"', platform)
 
+        generation = source.split("fn generation_requirements_for_loaded", 1)[1].split(
+            "#[cfg(unix)]\nfn with_qualified_loaded_runtime", 1
+        )[0]
+        self.assertIn("#[cfg(test)]", generation)
+        self.assertIn('std::env::var_os("CODEX_B10_RELEASE_CORE")', generation)
+        self.assertIn('manifest.expected_platform == "android"', generation)
+        self.assertIn('manifest.expected_architecture == "aarch64"', generation)
+
+    def test_android_dependent_tests_are_focused_not_dropped(self) -> None:
+        workflow = (ROOT / ".github/workflows/rald7-full-acceptance.yml").read_text()
+        for name in [
+            "test_r6_builder_publish_output_enters_existing_signed_release_admission",
+            "test_rald1_local_derived_fallback_and_explicit_build_preserve_public_authority",
+        ]:
+            self.assertGreaterEqual(workflow.count(name), 3)
+        self.assertIn('CODEX_B10_RELEASE_CORE="$RALD7_ANDROID_CORE"', workflow)
+        self.assertNotIn("CODEX_B10_RELEASE_CORE=%s", workflow)
+
     def test_publication_workflows_remain_fail_closed(self) -> None:
         auto = (ROOT / ".github/workflows/auto-release-termux.yml").read_text()
         pages = (ROOT / ".github/workflows/publish-termux-update-pages.yml").read_text()

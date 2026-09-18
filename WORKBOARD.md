@@ -295,7 +295,18 @@ behavior belongs in `SPEC.md`.
   binding, and while the explicit `CODEX_B10_RELEASE_CORE` test hook is present
   the Linux harness may inspect either native fixtures or the exact
   Android/AArch64 proof platform. Production release policy remains compile-time
-  exact. `main` and public stable are still unchanged.
+  exact. Fifth run `35297146973` reduced Core to 142 passed / 4 failed / 1
+  ignored. Three failures came from injecting the production Android Core into
+  the entire cfg(test) suite, which enabled optional release-Core process tests
+  that depend on test-only doctor/fault hooks; the fourth local-derived failure
+  mixed a native Linux baseline with an Android candidate inside one test
+  process. The repair does not drop coverage: the two tests that require the
+  Android artifact are excluded only from the generic full-suite invocation and
+  immediately rerun as mandatory exact focused tests with
+  `CODEX_B10_RELEASE_CORE`; all other tests retain the normal cfg(test)
+  environment. A test-only generation-requirements selector accepts exact
+  Android/AArch64 only while that explicit hook is present. `main` and public
+  stable are still unchanged.
 - Public stable remains signed sequence 11 generation
   `local-hosted-0-154-0-37fbbd8033b8-rald45-transition`; RALD-6 created no
   public stable advancement.
