@@ -247,14 +247,19 @@ behavior belongs in `SPEC.md`.
   matched the signed Core, version was exact `codex-cli 0.154.0`, and a default
   public no-argument update was an exact-current no-op with a byte-for-byte state
   snapshot match.
-- RALD-6 slice C — **active, stop-on-red fixture-tooling repair**. The same run
-  stopped before signing because the ARM hosted image does not expose `rustup`
-  while preparing the fixture release-builder. The sequence-12 signing step and
-  all subsequent fixture delivery steps were skipped, so
+- RALD-6 slice C — **active, stop-on-red fixture-tooling repair**. Hosted run
+  `35290065429` stopped before signing at fixture-builder preparation, while
+  rerun `35290289525` reproduced slice-B fresh install/no-op and exposed the
+  common root cause: that proof step changed `HOME` and narrowed `PATH` to the
+  disposable Termux environment *before* invoking runner Rust tooling, hiding
+  both `rustup` in the first attempt and `cargo` in the second. Both runs
+  skipped the sequence-12 signing and delivery steps, so
   `CODEX_RELEASE_SIGNING_KEY` was not exposed and no signed fixture/public
-  mutation occurred. Repair only the proof-time release-builder availability;
-  do not weaken the production-authority signing helper, upload signed fixture
-  bytes, alter the fresh-install result, or broaden into RALD-7.
+  mutation occurred. Repair only the proof-step ordering so the native runner
+  release-builder is built before switching to disposable Termux HOME/PATH; do
+  not add a toolchain/package install, weaken the production-authority signing
+  helper, upload signed fixture bytes, alter the accepted fresh-install result,
+  or broaden into RALD-7.
 - Public stable remains fixed during RALD-6 source/proof work and may advance only after
   the selected plan's focused/full gates, public readback, disposable public-update
   runtime smoke, and exact non-forced promotion checks pass.
