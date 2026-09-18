@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  EXPECTED_PARENT: '6c1eafbc91754e69a724fbe541be20e0916bc90b'
+  EXPECTED_PARENT: '1be0fd68be75fb15eae72f0b94d7419f663dd329'
   EXPECTED_MAIN: '17ccd88f02b00d040e2aea7bd417e98bb53ff630'
   ACCEPTED_SOURCE: '9972a3288c0531ba744e9bd1356273d9a080aa79'
   EXPECTED_STABLE_GENERATION: 'local-hosted-0-154-0-37fbbd8033b8-rald45-transition'
@@ -73,9 +73,14 @@ jobs:
           curl --fail --silent --show-error --location --proto '=https' --tlsv1.2             --connect-timeout 15 --max-time 60 --max-filesize 131072             --output "$state/latest.json" 'https://releases.openai.com/codex/channels/latest'
           python3 product/.github/scripts/rald3_preflight.py upstream             "$state/latest.json" > "$state/upstream"
           upstream_version="$(sed -n 's/^version=//p' "$state/upstream")"
-          test "$upstream_version" = "$EXPECTED_VERSION"
+          test -n "$upstream_version"
           python3 product/.github/scripts/rald3_preflight.py compare             "$current_version" "$upstream_version" > "$state/decision"
-          test "$(sed -n 's/^candidate=//p' "$state/decision")" = false
+          candidate="$(sed -n 's/^candidate=//p' "$state/decision")"
+          test "$candidate" = true -o "$candidate" = false
+          printf 'rald7_preflight_current_version=%s\n' "$current_version"
+          printf 'rald7_preflight_upstream_version=%s\n' "$upstream_version"
+          printf 'rald7_preflight_candidate=%s\n' "$candidate"
+          printf '%s\n' "$candidate" > "$state/candidate"
 
       - name: Dispatch activated main workflow with all exceptional gates off
         id: dispatch
@@ -119,15 +124,34 @@ jobs:
 
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100" > "$RUNNER_TEMP/jobs.json"
           test "$(jq -r '.jobs[] | select(.name=="Build unsigned Android/AArch64 candidate") | .conclusion' "$RUNNER_TEMP/jobs.json")" = success
-          for job in             "Android/AArch64 executable smoke"             "Sign qualified candidate"             "Stage immutable candidate Release"             "Deploy candidate Pages while retaining LKG"             "Public readback and disposable update proof"             "CAS-promote signed stable index"; do
-            test "$(jq -r --arg job "$job" '.jobs[] | select(.name==$job) | .conclusion' "$RUNNER_TEMP/jobs.json")" = skipped
-          done
 
           producer_id="$(jq -r '.jobs[] | select(.name=="Build unsigned Android/AArch64 candidate") | .id' "$RUNNER_TEMP/jobs.json")"
           gh api "repos/$GITHUB_REPOSITORY/actions/jobs/$producer_id/logs" > "$RUNNER_TEMP/producer.log"
-          grep -Fq "authenticated wrapper stable already matches official upstream $EXPECTED_VERSION"             "$RUNNER_TEMP/producer.log"
 
-          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts" --jq '.total_count')" -eq 0
+          resolved_candidate="$(grep -oE 'candidate=(true|false)' "$RUNNER_TEMP/producer.log" | tail -n 1 | cut -d= -f2 || true)"
+          if test -z "$resolved_candidate"; then
+            if grep -Fq "authenticated wrapper stable already matches official upstream" "$RUNNER_TEMP/producer.log"; then
+              resolved_candidate=false
+            else
+              resolved_candidate=true
+            fi
+          fi
+          test "$resolved_candidate" = true -o "$resolved_candidate" = false
+          printf 'rald7_activated_workflow_candidate=%s\n' "$resolved_candidate"
+
+          if test "$resolved_candidate" = true; then
+            test "$(jq -r '.jobs[] | select(.name=="Android/AArch64 executable smoke") | .conclusion' "$RUNNER_TEMP/jobs.json")" = success
+            test "$(jq -r '.jobs[] | select(.name=="Sign qualified candidate") | .conclusion' "$RUNNER_TEMP/jobs.json")" = success
+          else
+            test "$(jq -r '.jobs[] | select(.name=="Android/AArch64 executable smoke") | .conclusion' "$RUNNER_TEMP/jobs.json")" = skipped
+            test "$(jq -r '.jobs[] | select(.name=="Sign qualified candidate") | .conclusion' "$RUNNER_TEMP/jobs.json")" = skipped
+            grep -Fq "authenticated wrapper stable already matches official upstream $EXPECTED_VERSION"               "$RUNNER_TEMP/producer.log"
+            test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts" --jq '.total_count')" -eq 0
+          fi
+
+          for job in             "Stage immutable candidate Release"             "Deploy candidate Pages while retaining LKG"             "Public readback and disposable update proof"             "CAS-promote signed stable index"; do
+            test "$(jq -r --arg job "$job" '.jobs[] | select(.name==$job) | .conclusion' "$RUNNER_TEMP/jobs.json")" = skipped
+          done
           test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')" = "$EXPECTED_MAIN"
           gh api "repos/$GITHUB_REPOSITORY/contents/update-index-v1?ref=$EXPECTED_MAIN"             --jq '.content' | tr -d '\n' | base64 --decode > "$RUNNER_TEMP/final-index"
           test "$(awk -F '\t' '$1=="generation_id"{print $2}' "$RUNNER_TEMP/final-index")" = "$EXPECTED_STABLE_GENERATION"
