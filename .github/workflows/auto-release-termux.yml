@@ -33,6 +33,11 @@ on:
         required: false
         type: boolean
         default: false
+      legacy_lag_jump_remediation:
+        description: 'One-shot production remediation: exact 0.155.0 sequence-13 R10 direct-jump bridge'
+        required: false
+        type: boolean
+        default: false
   schedule:
     - cron: '0 */6 * * *'
 
@@ -54,6 +59,15 @@ env:
   RALD4_ACCEPTANCE_BASELINE_VERSION: '0.153.4'
   RALD4_ACCEPTANCE_TARGET_VERSION: '0.154.0'
   RALD5_SAME_VERSION_ACCEPTANCE_VERSION: '0.154.0'
+  LEGACY_LAG_REMEDIATION_VERSION: '0.155.0'
+  LEGACY_LAG_REMEDIATION_CURRENT_GENERATION: 'local-hosted-0-155-0-566034e1aff4'
+  LEGACY_LAG_REMEDIATION_CURRENT_SEQUENCE: '12'
+  LEGACY_LAG_REMEDIATION_TARGET_SEQUENCE: '13'
+  LEGACY_LAG_SOURCE_SHA: '0621105fd1be8461b370466fbfa981938241074d'
+  LEGACY_LAG_VERSION: '0.153.4'
+  LEGACY_LAG_ARCHIVE_SHA256: 'fc395cb043a1093ab0db34f44aba3199bfaa9ce640cd9be7fd588f44b0da64a4'
+  LEGACY_LAG_GENERATION: 'legacy-lag-seq7-r10-01534'
+  LEGACY_LAG_BUILD_ANDROID_API: '30'
   WRAPPER_PUBLIC_KEY_SHA256: '62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c'
   ANDROID_RUNTIME_APEX_COMMIT: '8aeb37cca394ce39c1311744c60960cbd466aa77'
   ANDROID_RUNTIME_APEX_SHA256: '83bf0dce249728dae48149b80d28b48115c54adad95a352120d58a6ac669d1fc'
@@ -76,6 +90,7 @@ jobs:
       transition_stage: ${{ steps.decision.outputs.transition_stage }}
       transition_promote: ${{ steps.decision.outputs.transition_promote }}
       negative_gate: ${{ steps.decision.outputs.negative_gate }}
+      legacy_lag_jump_remediation: ${{ steps.decision.outputs.legacy_lag_jump_remediation }}
       expected_main_sha: ${{ steps.stable.outputs.expected_main_sha }}
       current_generation: ${{ steps.stable.outputs.current_generation }}
       current_release_sequence: ${{ steps.stable.outputs.current_release_sequence }}
@@ -188,6 +203,7 @@ jobs:
           RALD45_TRANSITION_STAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald45_transition_stage }}
           RALD45_TRANSITION_PROMOTE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald45_transition_promote }}
           RALD5_NEGATIVE_GATE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald5_negative_gate }}
+          LEGACY_LAG_JUMP_REMEDIATION: ${{ github.event_name == 'workflow_dispatch' && inputs.legacy_lag_jump_remediation }}
         run: |
           set -euo pipefail
           state="$RUNNER_TEMP/rald3-upstream"
@@ -222,6 +238,8 @@ jobs:
           test "$RALD5_SAME_VERSION_ACCEPTANCE" = true -o "$RALD5_SAME_VERSION_ACCEPTANCE" = false
           test "$RALD45_TRANSITION_STAGE" = true -o "$RALD45_TRANSITION_STAGE" = false
           test "$RALD45_TRANSITION_PROMOTE" = true -o "$RALD45_TRANSITION_PROMOTE" = false
+          test "$RALD5_NEGATIVE_GATE" = true -o "$RALD5_NEGATIVE_GATE" = false
+          test "$LEGACY_LAG_JUMP_REMEDIATION" = true -o "$LEGACY_LAG_JUMP_REMEDIATION" = false
           if test "$RALD4_POSITIVE_GATE" = true; then
             test "$candidate" = true
             test "$RALD5_PUBLICATION_AUTHORIZED" != true
@@ -229,6 +247,7 @@ jobs:
             test "$RALD45_TRANSITION_STAGE" != true
             test "$RALD45_TRANSITION_PROMOTE" != true
             test "$RALD5_NEGATIVE_GATE" != true
+            test "$LEGACY_LAG_JUMP_REMEDIATION" != true
           fi
           if test "$RALD5_PUBLICATION_AUTHORIZED" = true; then
             case "$GITHUB_EVENT_NAME" in
@@ -240,6 +259,7 @@ jobs:
                 test "$RALD45_TRANSITION_STAGE" != true
                 test "$RALD45_TRANSITION_PROMOTE" != true
                 test "$RALD5_NEGATIVE_GATE" != true
+                test "$LEGACY_LAG_JUMP_REMEDIATION" != true
                 ;;
               *)
                 exit 1
@@ -251,6 +271,7 @@ jobs:
             test "$GITHUB_REF" = refs/heads/rewrite/rust-core
             test "$RALD4_POSITIVE_GATE" != true
             test "$RALD5_PUBLICATION_AUTHORIZED" = true
+            test "$LEGACY_LAG_JUMP_REMEDIATION" != true
             test '${{ steps.stable.outputs.current_version }}' = "$RALD5_SAME_VERSION_ACCEPTANCE_VERSION"
             test "$upstream_version" = "$RALD5_SAME_VERSION_ACCEPTANCE_VERSION"
             test '${{ steps.stable.outputs.current_version }}' = "$upstream_version"
@@ -267,6 +288,7 @@ jobs:
             test "$RALD5_PUBLICATION_AUTHORIZED" = true
             test "$RALD5_SAME_VERSION_ACCEPTANCE" = true
             test "$RALD5_NEGATIVE_GATE" != true
+            test "$LEGACY_LAG_JUMP_REMEDIATION" != true
             test '${{ steps.stable.outputs.current_version }}' = "$RALD5_SAME_VERSION_ACCEPTANCE_VERSION"
             test "$upstream_version" = "$RALD5_SAME_VERSION_ACCEPTANCE_VERSION"
             test '${{ steps.stable.outputs.current_version }}' = "$upstream_version"
@@ -283,6 +305,7 @@ jobs:
             test "$RALD5_SAME_VERSION_ACCEPTANCE" = true
             test "$RALD45_TRANSITION_STAGE" = true
             test "$RALD5_NEGATIVE_GATE" != true
+            test "$LEGACY_LAG_JUMP_REMEDIATION" != true
             printf 'RALD-4.5 transition stable promotion separately authorized for %s\n' "$upstream_version"
           fi
           if test "$RALD5_NEGATIVE_GATE" = true; then
@@ -290,7 +313,29 @@ jobs:
             test "$RALD4_POSITIVE_GATE" != true
             test "$RALD45_TRANSITION_STAGE" != true
             test "$RALD5_PUBLICATION_AUTHORIZED" = true
+            test "$LEGACY_LAG_JUMP_REMEDIATION" != true
             test "$candidate" = true
+          fi
+          if test "$LEGACY_LAG_JUMP_REMEDIATION" = true; then
+            test "$GITHUB_EVENT_NAME" = workflow_dispatch
+            test "$GITHUB_REF" = refs/heads/main
+            test "$RALD4_POSITIVE_GATE" != true
+            test "$RALD5_PUBLICATION_AUTHORIZED" = true
+            test "$RALD5_SAME_VERSION_ACCEPTANCE" != true
+            test "$RALD45_TRANSITION_STAGE" != true
+            test "$RALD45_TRANSITION_PROMOTE" != true
+            test "$RALD5_NEGATIVE_GATE" != true
+            test '${{ steps.stable.outputs.current_version }}' = "$LEGACY_LAG_REMEDIATION_VERSION"
+            test "$upstream_version" = "$LEGACY_LAG_REMEDIATION_VERSION"
+            test '${{ steps.stable.outputs.current_version }}' = "$upstream_version"
+            test '${{ steps.stable.outputs.current_generation }}' = "$LEGACY_LAG_REMEDIATION_CURRENT_GENERATION"
+            test '${{ steps.stable.outputs.current_release_sequence }}' = "$LEGACY_LAG_REMEDIATION_CURRENT_SEQUENCE"
+            test '${{ steps.stable.outputs.release_sequence }}' = "$LEGACY_LAG_REMEDIATION_TARGET_SEQUENCE"
+            test "$candidate" = false
+            candidate=true
+            acceptance_suffix='-legacy-lag-remediation'
+            printf 'legacy-lag direct-jump remediation selected: %s sequence %s -> sequence %s\n' \
+              "$upstream_version" "$LEGACY_LAG_REMEDIATION_CURRENT_SEQUENCE" "$LEGACY_LAG_REMEDIATION_TARGET_SEQUENCE"
           fi
           suffix="${upstream_version//./-}-${CODEX_SOURCE_SHA:0:12}${acceptance_suffix}"
           printf 'candidate=%s\n' "$candidate" >> "$GITHUB_OUTPUT"
@@ -300,6 +345,7 @@ jobs:
           printf 'transition_stage=%s\n' "$RALD45_TRANSITION_STAGE" >> "$GITHUB_OUTPUT"
           printf 'transition_promote=%s\n' "$RALD45_TRANSITION_PROMOTE" >> "$GITHUB_OUTPUT"
           printf 'negative_gate=%s\n' "$RALD5_NEGATIVE_GATE" >> "$GITHUB_OUTPUT"
+          printf 'legacy_lag_jump_remediation=%s\n' "$LEGACY_LAG_JUMP_REMEDIATION" >> "$GITHUB_OUTPUT"
           printf 'artifact_name=rald3-candidate-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
           printf 'qualified_artifact_name=rald4-qualified-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
           printf 'signed_artifact_name=rald4-signed-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
@@ -340,10 +386,9 @@ jobs:
           upstream_version='${{ steps.decision.outputs.upstream_version }}'
           archive_sha256='${{ steps.decision.outputs.archive_sha256 }}'
           generation_id='${{ steps.decision.outputs.generation_id }}'
-          transition_args=()
-          if test '${{ steps.decision.outputs.transition_stage }}' = true; then
-            transition_args+=(--legacy-activation-doctor-unsupported)
-          fi
+          # The signed R10 activation bridge signal is required on every public
+          # stable candidate until the compatibility floor moves past retained R10.
+          transition_args=(--legacy-activation-doctor-unsupported)
           fetch_output="$($builder fetch \
             --version "$upstream_version" \
             --curl /usr/bin/curl \
@@ -370,11 +415,7 @@ jobs:
             "$work/candidate" "$upstream_version"
           test "$(awk -F '\t' '$1=="creation_metadata"{print $2}' "$work/candidate/generation.meta")" = r10-browser-helper-bridge-v1
           doctor_capability="$(awk -F '\t' '$1=="upstream_doctor"{print $2}' "$work/candidate/generation.meta")"
-          if test '${{ steps.decision.outputs.transition_stage }}' = true; then
-            test "$doctor_capability" = unsupported
-          else
-            test "$doctor_capability" = supported
-          fi
+          test "$doctor_capability" = unsupported
           find "$work/candidate" -type f -printf '%P\n' | LC_ALL=C sort > "$work/actual-files"
           cat > "$work/expected-files" <<'EOF'
           .manager-probe-deferred
@@ -395,6 +436,95 @@ jobs:
           tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
             -cf "$work/candidate.tar" -C "$work" candidate
           test "$(stat -c '%s' "$work/candidate.tar")" -lt 1073741824
+
+
+      - name: Require exact sequence-12 component bytes for legacy-lag remediation
+        if: steps.decision.outputs.legacy_lag_jump_remediation == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          stable="$RUNNER_TEMP/rald3-stable"
+          candidate="$RUNNER_TEMP/rald3-candidate/candidate"
+          for rel in codex-code-mode-host core helpers/0 helpers/1 manager runtime; do
+            entry="$RUNNER_TEMP/legacy-lag-entry-${rel//\//-}"
+            python3 source/.github/scripts/rald3_preflight.py manifest-entry \
+              "$stable/release.manifest" "$rel" > "$entry"
+            expected_digest="$(sed -n 's/^sha256=//p' "$entry")"
+            expected_mode="$(sed -n 's/^mode=//p' "$entry")"
+            test "$(sha256sum "$candidate/$rel" | awk '{print $1}')" = "$expected_digest"
+            test "0$(stat -c '%a' "$candidate/$rel")" = "$expected_mode"
+          done
+          python3 - "$stable/generation.meta" "$candidate/generation.meta" \
+            "$LEGACY_LAG_REMEDIATION_CURRENT_GENERATION" \
+            '${{ steps.decision.outputs.generation_id }}' <<'PY'
+          from pathlib import Path
+          import sys
+
+          current_path = Path(sys.argv[1])
+          candidate_path = Path(sys.argv[2])
+          current_id = sys.argv[3]
+          candidate_id = sys.argv[4]
+          current = current_path.read_text()
+          candidate = candidate_path.read_text()
+          old_id = f"generation_id\t{current_id}\n"
+          new_id = f"generation_id\t{candidate_id}\n"
+          marker = "creation_metadata\tr10-browser-helper-bridge-v1\n"
+          old_doctor = "upstream_doctor\tsupported\n"
+          new_doctor = "upstream_doctor\tunsupported\n"
+          if current.count(old_id) != 1 or candidate.count(new_id) != 1:
+              raise SystemExit("generation identity binding is not unique")
+          if current.count(marker) != 1 or candidate.count(marker) != 1:
+              raise SystemExit("R10 bridge marker is not exact")
+          if current.count(old_doctor) != 1 or candidate.count(new_doctor) != 1:
+              raise SystemExit("legacy activation doctor transition is not exact")
+          expected = current.replace(old_id, new_id, 1).replace(old_doctor, new_doctor, 1)
+          if expected != candidate:
+              raise SystemExit("sequence-13 descriptor changes more than generation identity and legacy doctor signal")
+          PY
+
+      - name: Rebuild exact historical R10 Core for legacy-lag remediation
+        if: steps.decision.outputs.legacy_lag_jump_remediation == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf legacy-source
+          git init legacy-source
+          git -C legacy-source remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git -C legacy-source fetch --no-tags --depth=1 origin "$LEGACY_LAG_SOURCE_SHA"
+          git -C legacy-source checkout --detach FETCH_HEAD
+          test "$(git -C legacy-source rev-parse HEAD)" = "$LEGACY_LAG_SOURCE_SHA"
+          test -z "$(git -C legacy-source status --porcelain)"
+          ndk="$ANDROID_SDK_ROOT/ndk/$ANDROID_NDK_VERSION"
+          toolchain="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          linker="$toolchain/aarch64-linux-android${LEGACY_LAG_BUILD_ANDROID_API}-clang"
+          test -x "$linker"
+          test -x "$toolchain/llvm-ar"
+          nm -D "$ndk/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/$LEGACY_LAG_BUILD_ANDROID_API/libc.so" |
+            grep -Eq '[[:space:]]renameat2(@@|$)'
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$linker"
+          export CC_aarch64_linux_android="$linker"
+          export AR_aarch64_linux_android="$toolchain/llvm-ar"
+          cargo "+$RUST_VERSION" build --manifest-path legacy-source/Cargo.toml \
+            --release --locked --target aarch64-linux-android -p codex
+          core="$GITHUB_WORKSPACE/legacy-source/target/aarch64-linux-android/release/codex"
+          test -x "$core"
+          file "$core" | grep -F 'ARM aarch64'
+          readelf -h "$core" | grep -Eq 'Machine:[[:space:]]+AArch64'
+          readelf -l "$core" | grep -F '/system/bin/linker64'
+          mkdir -p "$RUNNER_TEMP/legacy-r10-core"
+          cp "$core" "$RUNNER_TEMP/legacy-r10-core/core"
+          chmod 0755 "$RUNNER_TEMP/legacy-r10-core/core"
+          tar -cf "$RUNNER_TEMP/legacy-r10-core.tar" -C "$RUNNER_TEMP/legacy-r10-core" core
+
+      - name: Upload unsigned historical R10 Core only
+        if: steps.decision.outputs.legacy_lag_jump_remediation == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: legacy-lag-r10-core
+          path: ${{ runner.temp }}/legacy-r10-core.tar
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
 
       - name: Upload unsigned candidate only
         if: steps.decision.outputs.candidate == 'true'
@@ -590,7 +720,7 @@ jobs:
     needs: [producer, smoke]
     if: needs.producer.outputs.candidate == 'true' && needs.smoke.result == 'success'
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Fetch exact accepted signing source
         shell: bash
@@ -647,6 +777,50 @@ jobs:
             source/.github/scripts/rald4_signing.py \
             source/.github/scripts/test_rald4_signing.py
 
+
+      - name: Download historical R10 Core for legacy-lag remediation
+        if: needs.producer.outputs.legacy_lag_jump_remediation == 'true'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: legacy-lag-r10-core
+          path: ${{ runner.temp }}/legacy-lag-r10-download
+
+      - name: Prepare exact historical sequence-7 generation
+        if: needs.producer.outputs.legacy_lag_jump_remediation == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/rald4-sign"
+          tar -xf "$RUNNER_TEMP/legacy-lag-r10-download/legacy-r10-core.tar" -C "$work"
+          mv "$work/core" "$work/legacy-r10-core"
+          test -x "$work/legacy-r10-core"
+          readelf -l "$work/legacy-r10-core" | grep -F '/system/bin/linker64'
+
+          rm -rf legacy-source
+          git init legacy-source
+          git -C legacy-source remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git -C legacy-source fetch --no-tags --depth=1 origin "$LEGACY_LAG_SOURCE_SHA"
+          git -C legacy-source checkout --detach FETCH_HEAD
+          test "$(git -C legacy-source rev-parse HEAD)" = "$LEGACY_LAG_SOURCE_SHA"
+          cargo "+$RUST_VERSION" build --manifest-path legacy-source/Cargo.toml \
+            --release --locked -p codex-release-builder
+          builder="$GITHUB_WORKSPACE/legacy-source/target/release/codex-release-builder"
+          test -x "$builder"
+          archive="$work/codex-package-aarch64-unknown-linux-musl.tar.gz"
+          "$builder" fetch --version "$LEGACY_LAG_VERSION" --curl /usr/bin/curl \
+            --openssl /usr/bin/openssl --output "$archive" > "$work/legacy-fetch.out"
+          test "$(sha256sum "$archive" | awk '{print $1}')" = "$LEGACY_LAG_ARCHIVE_SHA256"
+          "$builder" build --version "$LEGACY_LAG_VERSION" \
+            --archive "$archive" --archive-sha256 "$LEGACY_LAG_ARCHIVE_SHA256" \
+            --generation-id "$LEGACY_LAG_GENERATION" --core "$work/legacy-r10-core" \
+            --creation-metadata legacy-lag-direct-jump-v1 \
+            --gzip /usr/bin/gzip --openssl /usr/bin/openssl \
+            --output "$work/legacy-generation"
+          test "$(sed -n 's/^generation_id\t//p' "$work/legacy-generation/generation.meta")" = "$LEGACY_LAG_GENERATION"
+          test "$(sed -n 's/^upstream_package_version\t//p' "$work/legacy-generation/generation.meta")" = "$LEGACY_LAG_VERSION"
+          test "$(sed -n 's/^upstream_doctor\t//p' "$work/legacy-generation/generation.meta")" = supported
+          cmp "$work/legacy-r10-core" "$work/legacy-generation/core"
+
       - name: Sign qualified candidate with accepted authority only
         shell: bash
         env:
@@ -666,6 +840,18 @@ jobs:
             --openssl /usr/bin/openssl \
             --runner-temp "$RUNNER_TEMP" \
             --output "$RUNNER_TEMP/rald4-sign/signed-output"
+
+          if test '${{ needs.producer.outputs.legacy_lag_jump_remediation }}' = true; then
+            python3 source/.github/scripts/rald4_signing.py \
+              --candidate "$RUNNER_TEMP/rald4-sign/legacy-generation" \
+              --accepted-public-key "$RUNNER_TEMP/rald4-sign/update-public-key.pem" \
+              --release-sequence 7 \
+              --release-base "https://legacy-lag.invalid/$LEGACY_LAG_GENERATION/" \
+              --builder "$GITHUB_WORKSPACE/legacy-source/target/release/codex-release-builder" \
+              --openssl /usr/bin/openssl \
+              --runner-temp "$RUNNER_TEMP" \
+              --output "$RUNNER_TEMP/rald4-sign/legacy-publication"
+          fi
 
       - name: Independently verify signed candidate
         shell: bash
@@ -701,6 +887,19 @@ jobs:
           fi
           test -z "$(find "$RUNNER_TEMP" -maxdepth 1 -name '.rald4-signing-*' -print -quit)"
 
+          if test '${{ needs.producer.outputs.legacy_lag_jump_remediation }}' = true; then
+            legacy_release="$work/legacy-publication/releases/$LEGACY_LAG_GENERATION"
+            test -d "$legacy_release"
+            openssl pkeyutl -verify -rawin -pubin -inkey "$authority" \
+              -in "$legacy_release/release.manifest" -sigfile "$legacy_release/release.sig" >/dev/null
+            test "$(awk -F '\t' '$1=="release_sequence"{print $2}' "$legacy_release/release.manifest")" = 7
+            test "$(awk -F '\t' '$1=="generation_id"{print $2}' "$legacy_release/release.manifest")" = "$LEGACY_LAG_GENERATION"
+            tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
+              -cf "$work/legacy-sequence7-signed.tar" \
+              -C "$work/legacy-publication/releases" "$LEGACY_LAG_GENERATION"
+            test "$(stat -c '%s' "$work/legacy-sequence7-signed.tar")" -lt 1073741824
+          fi
+
           tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
             -cf "$work/signed-candidate.tar" -C "$work" signed-output
           test "$(stat -c '%s' "$work/signed-candidate.tar")" -lt 1073741824
@@ -721,6 +920,17 @@ jobs:
         with:
           name: ${{ needs.producer.outputs.signed_artifact_name }}
           path: ${{ runner.temp }}/rald4-sign/signed-candidate.tar
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+
+      - name: Upload signed historical sequence-7 fixture only
+        if: needs.producer.outputs.legacy_lag_jump_remediation == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: legacy-lag-sequence7-signed
+          path: ${{ runner.temp }}/rald4-sign/legacy-sequence7-signed.tar
           if-no-files-found: error
           retention-days: 1
           compression-level: 0
@@ -892,7 +1102,7 @@ jobs:
     needs: [producer, stage_release, pages]
     if: needs.producer.outputs.candidate == 'true' && needs.stage_release.result == 'success' && needs.pages.result == 'success' && needs.producer.outputs.acceptance_gate != 'true' && needs.producer.outputs.publication_authorized == 'true'
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 30
+    timeout-minutes: 45
     permissions:
       contents: read
     steps:
@@ -1019,6 +1229,14 @@ jobs:
             --release-sequence '${{ needs.producer.outputs.release_sequence }}' \
             --release-base "https://humtr.github.io/codex/$candidate/"
 
+
+      - name: Download production-authority-signed historical sequence-7 fixture
+        if: needs.producer.outputs.legacy_lag_jump_remediation == 'true'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: legacy-lag-sequence7-signed
+          path: ${{ runner.temp }}/legacy-lag-sequence7-download
+
       - name: Provision ephemeral Android bionic interpreter path
         shell: bash
         run: |
@@ -1055,7 +1273,7 @@ jobs:
           readelf -h /system/bin/linker64 | grep -Eq 'Machine:[[:space:]]+AArch64'
           rm -f "$root/runtime.apex.b64" "$root/runtime.apex" "$root/apex_payload.img"
 
-      - name: Bootstrap current public stable and update through staged Pages
+      - name: Bootstrap protected source state and update through staged Pages
         shell: bash
         run: |
           set -euo pipefail
@@ -1063,18 +1281,138 @@ jobs:
           current='${{ needs.producer.outputs.current_generation }}'
           candidate='${{ needs.producer.outputs.generation_id }}'
           version='${{ needs.producer.outputs.upstream_version }}'
-          export HOME="$RUNNER_TEMP/rald5-home"
-          export PREFIX="$RUNNER_TEMP/rald5-prefix"
-          export TMPDIR="$RUNNER_TEMP/rald5-tmp"
+          if test '${{ needs.producer.outputs.legacy_lag_jump_remediation }}' = true; then
+            export HOME=/data/data/com.termux/files/home
+            export PREFIX=/data/data/com.termux/files/usr
+            export TMPDIR=/data/data/com.termux/files/usr/tmp
+            sudo test ! -e /data/data/com.termux
+            sudo mkdir -p "$HOME" "$PREFIX/bin" "$PREFIX/etc/tls/certs" "$TMPDIR"
+            sudo chown -R "$(id -u):$(id -g)" /data/data/com.termux
+          else
+            export HOME="$RUNNER_TEMP/rald5-home"
+            export PREFIX="$RUNNER_TEMP/rald5-prefix"
+            export TMPDIR="$RUNNER_TEMP/rald5-tmp"
+            mkdir -p "$HOME" "$PREFIX/bin" "$PREFIX/etc/tls/certs" "$TMPDIR"
+          fi
           export PATH="$PREFIX/bin:/usr/bin:/bin"
           export SSL_CERT_FILE="$PREFIX/etc/tls/cert.pem"
           export SSL_CERT_DIR="$PREFIX/etc/tls/certs"
-          mkdir -p "$HOME" "$PREFIX/bin" "$PREFIX/etc/tls/certs" "$TMPDIR"
           cp /usr/bin/curl "$PREFIX/bin/curl"
           cp /usr/bin/openssl "$PREFIX/bin/openssl"
+          cp /usr/bin/script "$PREFIX/bin/script"
+          cp /usr/bin/gzip "$PREFIX/bin/gzip"
+          cp /bin/sh "$PREFIX/bin/sh"
           cp /etc/resolv.conf "$PREFIX/etc/resolv.conf"
           cp /etc/ssl/certs/ca-certificates.crt "$PREFIX/etc/tls/cert.pem"
-          if test '${{ needs.producer.outputs.transition_stage }}' = true; then
+          if test '${{ needs.producer.outputs.legacy_lag_jump_remediation }}' = true; then
+            legacy="$LEGACY_LAG_GENERATION"
+            fixture_root="$RUNNER_TEMP/legacy-lag-sequence7-fixture"
+            rm -rf "$fixture_root"
+            mkdir -p "$fixture_root"
+            tar -xf "$RUNNER_TEMP/legacy-lag-sequence7-download/legacy-sequence7-signed.tar" -C "$fixture_root"
+            release="$fixture_root/$legacy"
+            test -d "$release"
+            openssl pkeyutl -verify -rawin -pubin -inkey "$root/update-public-key.pem" \
+              -in "$release/release.manifest" -sigfile "$release/release.sig" >/dev/null
+            test "$(awk -F '\t' '$1=="release_sequence"{print $2}' "$release/release.manifest")" = 7
+            test "$(awk -F '\t' '$1=="generation_id"{print $2}' "$release/release.manifest")" = "$legacy"
+            generation_root="$HOME/.local/lib/codex/core/generations"
+            legacy_dir="$generation_root/$legacy"
+            state_root="$HOME/.local/share/codex/core"
+            mkdir -p "$generation_root" "$state_root/config"
+            python3 - "$release" "$legacy_dir" <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path, PurePosixPath
+          import shutil
+          import stat
+          import sys
+
+          source = Path(sys.argv[1])
+          destination = Path(sys.argv[2])
+          if destination.exists():
+              raise SystemExit("legacy destination already exists")
+          manifest = source / "release.manifest"
+          data = manifest.read_bytes()
+          if len(data) > 128 * 1024 or not data.endswith(b"\n"):
+              raise SystemExit("legacy manifest is not bounded canonical text")
+          lines = data.decode("utf-8").splitlines()
+          if not lines or lines[0] != "codex-release-v4":
+              raise SystemExit("legacy manifest is not v4")
+          headers = {}
+          for line in lines[1:10]:
+              parts = line.split("\t")
+              if len(parts) != 2 or parts[0] in headers:
+                  raise SystemExit("legacy manifest header is invalid")
+              headers[parts[0]] = parts[1]
+          if headers.get("generation_id") != destination.name:
+              raise SystemExit("legacy manifest generation id mismatch")
+          if headers.get("release_sequence") != "7":
+              raise SystemExit("legacy manifest release sequence mismatch")
+          count = int(headers.get("file_count", "0"))
+          records = lines[10:]
+          if count != len(records) or count <= 0:
+              raise SystemExit("legacy manifest inventory size mismatch")
+          destination.mkdir(mode=0o755)
+          seen = set()
+          for line in records:
+              parts = line.split("\t")
+              if len(parts) != 4 or parts[0] != "file":
+                  raise SystemExit("legacy manifest file record is invalid")
+              rel, digest, mode = parts[1:]
+              pure = PurePosixPath(rel)
+              if pure.is_absolute() or ".." in pure.parts or rel in seen:
+                  raise SystemExit("legacy manifest path is unsafe")
+              if mode not in {"0644", "0755"}:
+                  raise SystemExit("legacy manifest mode is invalid")
+              seen.add(rel)
+              src = source / rel
+              st = src.lstat()
+              if not stat.S_ISREG(st.st_mode) or src.is_symlink():
+                  raise SystemExit("legacy source is not a regular file: " + rel)
+              if hashlib.sha256(src.read_bytes()).hexdigest() != digest:
+                  raise SystemExit("legacy source digest mismatch: " + rel)
+              if f"{stat.S_IMODE(st.st_mode):04o}" != mode:
+                  raise SystemExit("legacy source mode mismatch: " + rel)
+              target = destination / rel
+              target.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copyfile(src, target)
+              os.chmod(target, int(mode, 8))
+          for name in ("release.manifest", "release.sig"):
+              src = source / name
+              st = src.lstat()
+              if not stat.S_ISREG(st.st_mode) or src.is_symlink():
+                  raise SystemExit("legacy authority file is unsafe: " + name)
+              shutil.copyfile(src, destination / name)
+              os.chmod(destination / name, 0o644)
+          PY
+            openssl pkey -pubin -in "$root/update-public-key.pem" -pubout -outform DER \
+              > "$RUNNER_TEMP/legacy-lag-public.der"
+            test "$(wc -c < "$RUNNER_TEMP/legacy-lag-public.der")" -eq 44
+            manifest_key="$(awk -F '\t' '$1=="release_public_key"{print $2}' "$legacy_dir/release.manifest")"
+            authority_key="$(tail -c 32 "$RUNNER_TEMP/legacy-lag-public.der" | od -An -vtx1 | tr -d ' \n')"
+            test "$manifest_key" = "$authority_key"
+            install -m 0644 "$root/update-public-key.pem" \
+              "$HOME/.local/lib/codex/core/release-public-key.pem"
+            cat > "$state_root/activation-state" <<EOF
+          format=codex-activation-state-v3
+          update_key=$manifest_key
+          current=$legacy
+          current_key=$manifest_key
+          previous_present=0
+          previous=
+          previous_key=
+          EOF
+            chmod 0644 "$state_root/activation-state"
+            install -m 0755 "$legacy_dir/core" "$PREFIX/bin/codex"
+            cmp "$PREFIX/bin/codex" "$legacy_dir/core"
+            test ! -e "$state_root/activation-journal"
+            test ! -e "$state_root/activation-journal.tmp"
+            test ! -e "$state_root/activation-state.tmp"
+            "$PREFIX/bin/codex" --version > "$RUNNER_TEMP/legacy-lag-pre-update-version.out"
+            printf 'codex-cli %s\n' "$LEGACY_LAG_VERSION" > "$RUNNER_TEMP/legacy-lag-pre-update-version.expected"
+            cmp "$RUNNER_TEMP/legacy-lag-pre-update-version.expected" "$RUNNER_TEMP/legacy-lag-pre-update-version.out"
+          elif test '${{ needs.producer.outputs.transition_stage }}' = true; then
             generation_root="$HOME/.local/lib/codex/core/generations"
             current_dir="$generation_root/$current"
             state_root="$HOME/.local/share/codex/core"
@@ -1185,7 +1523,15 @@ jobs:
           "$PREFIX/bin/codex" update > "$RUNNER_TEMP/rald5-first-update.out"
           printf 'activated channel generation %s\n' "$candidate" > "$RUNNER_TEMP/rald5-first-update.expected"
           cmp "$RUNNER_TEMP/rald5-first-update.expected" "$RUNNER_TEMP/rald5-first-update.out"
-          if test '${{ needs.producer.outputs.transition_stage }}' = true; then
+          if test '${{ needs.producer.outputs.legacy_lag_jump_remediation }}' = true; then
+            state="$HOME/.local/share/codex/core/activation-state"
+            test "$(sed -n 's/^current=//p' "$state")" = "$candidate"
+            test "$(sed -n 's/^previous_present=//p' "$state")" = 1
+            test "$(sed -n 's/^previous=//p' "$state")" = "$LEGACY_LAG_GENERATION"
+            cmp "$PREFIX/bin/codex" "$root/$candidate/core"
+            test "$(awk -F '\t' '$1=="release_sequence"{print $2}' "$HOME/.local/lib/codex/core/generations/$candidate/release.manifest")" = "$LEGACY_LAG_REMEDIATION_TARGET_SEQUENCE"
+            test "$(awk -F '\t' '$1=="release_sequence"{print $2}' "$HOME/.local/lib/codex/core/generations/$LEGACY_LAG_GENERATION/release.manifest")" = 7
+          elif test '${{ needs.producer.outputs.transition_stage }}' = true; then
             test "$(sed -n 's/^current=//p' "$HOME/.local/share/codex/core/activation-state")" = "$candidate"
             test "$(sed -n 's/^previous=//p' "$HOME/.local/share/codex/core/activation-state")" = "$current"
             cmp "$PREFIX/bin/codex" "$root/$candidate/core"
@@ -1291,7 +1637,13 @@ jobs:
           if sudo test -e /system; then
             sudo rm -rf /system
           fi
+          if test '${{ needs.producer.outputs.legacy_lag_jump_remediation }}' = true && sudo test -e /data/data/com.termux; then
+            sudo rm -rf /data/data/com.termux
+          fi
           sudo test ! -e /system
+          if test '${{ needs.producer.outputs.legacy_lag_jump_remediation }}' = true; then
+            sudo test ! -e /data/data/com.termux
+          fi
 
   promote:
     name: CAS-promote signed stable index
