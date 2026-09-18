@@ -193,34 +193,33 @@ Termux qualification. Produce one candidate for independent product review.
 
 ### Current Direct-Lead Evidence
 
-- POST-RALD UX-1 update human output is **source-accepted 2026-09-19**.
-  Product source `c3f87302df7d1e94ca5c497c50979f5aa73adddd` changes only
-  Core human update presentation: authenticated generation metadata supplies the
-  old/new Codex versions; interactive terminals use one transient stderr line
-  for check/download/verify/probe/activate phases and clear it before permanent
-  output; non-TTY execution emits no carriage-return/ANSI progress controls;
-  signed success ends with `Codex <VERSION> is now active. ✅`, exact-current
-  success ends with `Codex <VERSION> is already up to date. ✅`, and
-  operational failures omit the redundant command prefix and end in `❌`.
-  Same-version corrective generations use the distinct
-  `Updating the Termux release for Codex <VERSION>...` header. Existing signed
-  admission, digest/mode checks, anti-rollback, candidate version probe, atomic
-  activation, LKG, rollback hold/guard, local-derived authority, and publication
-  semantics are unchanged.
-  Full remote acceptance run `35403308303` at acceptance head
-  `5945ad61163777bd84d36cfe4d6869d6d61a6561` passed the workflow/credential/
-  diff contract, unchanged signed public sequence-13 audit, exact
-  Android/AArch64 Core cross-build, release-builder **19/19**, Core process E2E
-  **146 passed / 0 failed / 1 ignored** with the two Android-dependent cases
-  separately passing **1/1 + 1/1**, Manager **20/20** plus integration
-  **11/11**, full locked workspace tests, clippy with warnings denied, and
-  rustfmt. The focused PTY regression observes the transient phases and their
-  erase-line controls, while the non-TTY regression proves no cursor-control
-  bytes are emitted.
-  The motivating user-observed live update on 2026-09-19 successfully moved
-  `codex-cli 0.154.0` to public `0.155.0` generation
-  `local-hosted-0-155-0-566034e1aff4-legacy-lag-remediation`; UX-1 acceptance
-  did not itself access or mutate that installation. `main` remained
+- POST-RALD UX-1 update human output is **source-accepted 2026-09-19** at
+  corrected product source `07f77b89a177682954d80ae3f797377c4731de64`.
+  The earlier accepted source `c3f87302df7d1e94ca5c497c50979f5aa73adddd`
+  was superseded after final source review found one presentation-ordering gap:
+  it could expose `Downloading...` / `Verifying...` before the signed
+  candidate version was authenticated. The corrected source first authenticates
+  signed release control and the digest-bound `generation.meta`, then prints
+  the permanent version header, and only then exposes the remaining download /
+  verification phases. The PTY contract is therefore exact
+  `Checking -> version header -> Downloading -> Verifying -> candidate probe ->
+  Activating`. Non-TTY execution emits no carriage-return/ANSI progress
+  controls. Signed success ends with `Codex <VERSION> is now active. ✅`,
+  exact-current success ends with `Codex <VERSION> is already up to date. ✅`,
+  operational failures omit the redundant command prefix and end in `❌`, and
+  same-version corrective generations use
+  `Updating the Termux release for Codex <VERSION>...`.
+  Full remote acceptance run `35406952579` at acceptance head
+  `71ded0446da7d86e244e140a8ba9b8c6e1e1ff57` passed workflow/credential/diff
+  checks, unchanged signed public sequence-13 audit, exact Android/AArch64 Core
+  cross-build, release-builder tests, Core process E2E, both Android-dependent
+  focused proofs, Manager tests, full locked workspace tests, clippy with
+  warnings denied, and rustfmt. Existing signed admission, digest/mode checks,
+  anti-rollback, candidate probe, atomic activation, LKG, rollback hold/guard,
+  local-derived authority, publication, and public-stable semantics are
+  unchanged. The motivating user-observed live update from `codex-cli 0.154.0`
+  to public `0.155.0` remains observation only; UX-1 acceptance did not access
+  or mutate that installation. `main` remained
   `5bef52d07a07bd8612b4538dfb29a2396937a3fb`, public stable remained signed
   sequence 13, and no Release/Pages promotion, force push, credential fixture,
   or live-device mutation occurred.

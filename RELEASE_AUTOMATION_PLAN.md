@@ -1,6 +1,6 @@
 # Release Automation and Local-Derived Update Plan
 
-Status: RALD-1 through RALD-7 and the post-RALD legacy-lag production remediation are complete. UX-1 update human output is source-accepted on 2026-09-19 at exact product source `c3f87302df7d1e94ca5c497c50979f5aa73adddd` by full remote acceptance run `35403308303`; it changes only Core human presentation and does not reopen or alter any frozen producer/consumer trust, signing, publication, rollback, or promotion decision in this plan.
+Status: RALD-1 through RALD-7 and the post-RALD legacy-lag production remediation are complete. UX-1 update human output, including the authenticated progress-ordering correction, is source-accepted on 2026-09-19 at exact product source `07f77b89a177682954d80ae3f797377c4731de64` by full remote acceptance run `35406952579`; it changes only Core human presentation/acquisition ordering needed to authenticate the displayed target version and does not reopen or alter any frozen producer/consumer trust, signing, publication, rollback, or promotion decision in this plan.
 
 Baseline: `rewrite/rust-core` at
 `21bb1cd78d4a6e6ef8e124b7f07230206c5aa5ea` (`termux: guard rollback holds and automate stable intake`).
@@ -12,10 +12,13 @@ and must be updated together with `WORKBOARD.md` if the selected implementation
 changes.
 
 UX-1 is deliberately outside release-production semantics. Its release-plan
-obligation is now satisfied: the accepted producer/disposable proof source
-asserts the new version-centric success/no-op output, non-TTY tests prove stable
-plain output with no terminal control bytes, and the full source gate passed.
-This source acceptance still authorizes no workflow install on `main`, candidate
+obligation is now satisfied: signed release control plus digest-bound
+`generation.meta` authenticate the target version before the permanent update
+header and later download/verification progress become visible; the accepted
+producer/disposable proof source asserts the version-centric success/no-op
+output; PTY tests bind the exact phase order; non-TTY tests prove stable plain
+output with no terminal control bytes; and the full source gate passed. This
+source acceptance still authorizes no workflow install on `main`, candidate
 publication, Pages deployment, stable promotion, or live-device mutation.
 
 ## 1. Objective

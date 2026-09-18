@@ -33,26 +33,16 @@ behavior belongs in `SPEC.md`.
   `21bb1cd78d4a6e6ef8e124b7f07230206c5aa5ea`.
 - RALD-1 through RALD-7 and the post-RALD legacy-lag production remediation are
   accepted and closed.
-- POST-RALD UPDATE HUMAN OUTPUT (UX-1) is **source-accepted and closed
-  2026-09-19**. Exact product source is
-  `c3f87302df7d1e94ca5c497c50979f5aa73adddd`; full remote acceptance run
-  `35403308303` passed Android/AArch64 cross-build, Core/package/workspace
-  tests, both Android focused proofs, Manager tests, clippy `-D warnings`,
-  rustfmt, TTY/non-TTY presentation regressions, and unchanged signed public
-  sequence-13 audit.
-- UX-1 ordering correction is **active** because final source review found the
-  accepted PTY implementation exposed `Downloading...` and `Verifying...`
-  before the signed candidate version was authenticated, contrary to SPEC's
-  pre-authentication `Checking for updates...`-only rule. The correction must
-  authenticate signed release control plus the digest-bound `generation.meta`
-  first, print the permanent version header, and only then expose download/
-  verification phases. This is source-only and must preserve all existing trust,
-  activation, rollback, public-stable, and publication semantics.
-- Ordering-correction candidate is `07f77b89a177682954d80ae3f797377c4731de64`.
-  Acceptance must additionally prove PTY ordering
+- POST-RALD UPDATE HUMAN OUTPUT (UX-1), including the final authenticated
+  progress-ordering correction, is **source-accepted and closed 2026-09-19**.
+  Exact product source is `07f77b89a177682954d80ae3f797377c4731de64`;
+  full remote acceptance run `35406952579` passed Android/AArch64 cross-build,
+  Core/package/workspace tests, both Android focused proofs, Manager tests,
+  clippy `-D warnings`, rustfmt, exact PTY ordering
   `Checking -> version header -> Downloading -> Verifying -> candidate probe ->
-  Activating`, while the existing non-TTY no-control-byte and all trust/state
-  regressions remain green.
+  Activating`, non-TTY no-control-byte regression, and unchanged signed public
+  sequence-13 audit. The earlier `c3f87302...` UX source is superseded only for
+  the pre-authentication progress-ordering gap.
 - UX-1 changes presentation only: version-centric permanent output, one
   TTY-only transient progress line, sentence-final `✅` / `❌`, and no
   ordinary generation-ID success text. Signed admission, anti-rollback,
