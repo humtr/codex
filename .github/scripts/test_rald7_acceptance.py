@@ -49,6 +49,7 @@ class Rald7AcceptanceContract(unittest.TestCase):
             "RALD45_TRANSITION_STAGE",
             "RALD45_TRANSITION_PROMOTE",
             "RALD5_NEGATIVE_GATE",
+            "LEGACY_LAG_JUMP_REMEDIATION",
         ]:
             self.assertIn(f'test "$' + gate + '" != true', text)
         self.assertIn(
@@ -63,6 +64,67 @@ class Rald7AcceptanceContract(unittest.TestCase):
         self.assertNotIn("transition_args=()", text)
         self.assertIn('test "$doctor_capability" = unsupported', text)
         self.assertNotIn('test "$doctor_capability" = supported', text)
+
+
+    def test_legacy_lag_jump_remediation_is_exact_manual_one_shot(self) -> None:
+        text = (ROOT / ".github/workflows/auto-release-termux.yml").read_text()
+        header = text.split("\njobs:\n", 1)[0]
+        self.assertIn("legacy_lag_jump_remediation:", header)
+        block = header.split("legacy_lag_jump_remediation:", 1)[1].split("\n  schedule:", 1)[0]
+        self.assertIn("type: boolean", block)
+        self.assertIn("default: false", block)
+        for exact in [
+            "LEGACY_LAG_REMEDIATION_VERSION: '0.155.0'",
+            "LEGACY_LAG_REMEDIATION_CURRENT_GENERATION: 'local-hosted-0-155-0-566034e1aff4'",
+            "LEGACY_LAG_REMEDIATION_CURRENT_SEQUENCE: '12'",
+            "LEGACY_LAG_REMEDIATION_TARGET_SEQUENCE: '13'",
+            "LEGACY_LAG_SOURCE_SHA: '0621105fd1be8461b370466fbfa981938241074d'",
+            "LEGACY_LAG_VERSION: '0.153.4'",
+            "LEGACY_LAG_ARCHIVE_SHA256: 'fc395cb043a1093ab0db34f44aba3199bfaa9ce640cd9be7fd588f44b0da64a4'",
+        ]:
+            self.assertIn(exact, text)
+        decision = text.split("- name: Resolve official upstream stable", 1)[1].split(
+            "- name: Cross-build Core and Manager", 1
+        )[0]
+        self.assertIn(
+            "LEGACY_LAG_JUMP_REMEDIATION: ${{ github.event_name == 'workflow_dispatch' && inputs.legacy_lag_jump_remediation }}",
+            decision,
+        )
+        remediation = decision.split('if test "$LEGACY_LAG_JUMP_REMEDIATION" = true; then', 1)[1].split(
+            'suffix="${upstream_version//./-}', 1
+        )[0]
+        for required in [
+            'test "$GITHUB_EVENT_NAME" = workflow_dispatch',
+            'test "$GITHUB_REF" = refs/heads/main',
+            'test "$RALD5_PUBLICATION_AUTHORIZED" = true',
+            'test "$RALD5_SAME_VERSION_ACCEPTANCE" != true',
+            'test "$RALD45_TRANSITION_STAGE" != true',
+            'test "$RALD45_TRANSITION_PROMOTE" != true',
+            'test "$RALD5_NEGATIVE_GATE" != true',
+            'test "$candidate" = false',
+            "LEGACY_LAG_REMEDIATION_CURRENT_GENERATION",
+            "LEGACY_LAG_REMEDIATION_CURRENT_SEQUENCE",
+            "LEGACY_LAG_REMEDIATION_TARGET_SEQUENCE",
+            "candidate=true",
+            "-legacy-lag-remediation",
+        ]:
+            self.assertIn(required, remediation)
+        self.assertLess(
+            decision.index("rald3_preflight.py compare"),
+            decision.index('if test "$LEGACY_LAG_JUMP_REMEDIATION" = true; then'),
+        )
+        self.assertIn("Require exact sequence-12 component bytes for legacy-lag remediation", text)
+        self.assertIn("sequence-13 descriptor changes more than generation identity and legacy doctor signal", text)
+        self.assertIn("Rebuild exact historical R10 Core for legacy-lag remediation", text)
+        self.assertIn("LEGACY_LAG_BUILD_ANDROID_API: '30'", text)
+        self.assertIn("legacy-lag-sequence7-signed", text)
+        self.assertIn("release-sequence 7", text)
+        self.assertIn("Bootstrap protected source state and update through staged Pages", text)
+        self.assertIn('test "$(sed -n \'s/^previous=//p\' "$state")" = "$LEGACY_LAG_GENERATION"', text)
+        self.assertIn("doctor --json", text)
+        self.assertIn("rald5-second-update.out", text)
+        self.assertIn("force:false", text)
+        self.assertNotIn("force: true", text)
 
     def test_added_lines_contain_no_credentials_or_private_keys(self) -> None:
         diff = run("git", "diff", "--unified=0", f"{BASE}..HEAD", "--", ".")
