@@ -326,11 +326,18 @@ behavior belongs in `SPEC.md`.
   contract and the same selected `bin/codex` plus
   `bin/codex-code-mode-host`, while adding a bounded voice-resource subtree.
   The exact-resource whitelist is therefore replaced normatively by semantic
-  layoutVersion-1 validation plus strict tar safety/size/type bounds. This is
-  intended to tolerate non-selected resource evolution across future upstream
-  versions without weakening selected-binary or patch qualification. The failed
-  candidate run reached no signing secret, Release, Pages, CAS, or stable
-  mutation.
+  layoutVersion-1 validation plus strict tar safety/size/type bounds. Product
+  source `566034e1aff42bde2f3221ebc2da2b16def77d44` implements that contract:
+  required semantic JSON fields are order/whitespace independent, unknown valid
+  extension values are bounded and ignored, only the two selected binaries are
+  materialized, arbitrary additional regular/directory archive resources remain
+  streamed/discarded, and symlink/special/traversal/duplicate/size/type/ELF
+  checks remain fail-closed. Probe run `35308307480` independently confirmed
+  official 0.155.0 keeps both selected files as static AArch64 ELF and preserves
+  exact patch source counts `2,1,1,1`. Full repository acceptance is being
+  rerun against this product source before the activated `main` producer pin
+  may change. The failed candidate run reached no signing secret, Release,
+  Pages, CAS, or stable mutation.
 - Public stable remains signed sequence 11 generation
   `local-hosted-0-154-0-37fbbd8033b8-rald45-transition`; no RALD-7 candidate
   has advanced it yet.

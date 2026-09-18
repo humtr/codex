@@ -8,8 +8,8 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 BASE = "9dedc27b73ba1b045b3c1724036323e049e1dcf9"
-ACCEPTED_SOURCE = "9972a3288c0531ba744e9bd1356273d9a080aa79"
-EXPECTED_MAIN = "f221de1225471fb5eda5bbdfcbd0d9db0c2f43b1"
+ACCEPTED_SOURCE = "566034e1aff42bde2f3221ebc2da2b16def77d44"
+EXPECTED_MAIN = "17ccd88f02b00d040e2aea7bd417e98bb53ff630"
 
 
 def run(*args: str) -> str:
@@ -30,7 +30,7 @@ class Rald7AcceptanceContract(unittest.TestCase):
                     continue
                 self.assertRegex(value, sha, f"{path}:{number} action is not SHA-pinned")
 
-    def test_scheduled_producer_is_pinned_to_accepted_rald6_source(self) -> None:
+    def test_scheduled_producer_is_pinned_to_current_accepted_source(self) -> None:
         text = (ROOT / ".github/workflows/auto-release-termux.yml").read_text()
         self.assertEqual(
             text.count(f"CODEX_SOURCE_SHA: '{ACCEPTED_SOURCE}'"),
