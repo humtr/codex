@@ -48,6 +48,11 @@ behavior belongs in `SPEC.md`.
   first, print the permanent version header, and only then expose download/
   verification phases. This is source-only and must preserve all existing trust,
   activation, rollback, public-stable, and publication semantics.
+- Ordering-correction candidate is `b58cba0da59f50ea00cf2e3a3a3008af9be0687c`.
+  Acceptance must additionally prove PTY ordering
+  `Checking -> version header -> Downloading -> Verifying -> candidate probe ->
+  Activating`, while the existing non-TTY no-control-byte and all trust/state
+  regressions remain green.
 - UX-1 changes presentation only: version-centric permanent output, one
   TTY-only transient progress line, sentence-final `✅` / `❌`, and no
   ordinary generation-ID success text. Signed admission, anti-rollback,
