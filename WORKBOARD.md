@@ -348,8 +348,18 @@ behavior belongs in `SPEC.md`.
   transport failure did not recur; workspace tests and clippy were green. The
   sole remaining gate was `cargo fmt --check`, which requested formatting-only
   line wrapping in the new release-builder code. Apply only rustfmt-equivalent
-  formatting and rerun all gates. The failed candidate run reached no signing
-  secret, Release, Pages, CAS, or stable mutation.
+  formatting and rerun all gates. Final source-acceptance run
+  `35308972611` then passed every repository gate: release-builder/Core/Manager
+  tests, workspace check/test/clippy/fmt, workflow/action validation,
+  credential/private-key scan, Android proof artifact, and signed public-stable
+  audit. Main activation commit
+  `6bc53a7b60c918dcbc0fc4b771409d305a28e342` fast-forwarded only
+  `.github/workflows/auto-release-termux.yml` from prior activation
+  `17ccd88f02b00d040e2aea7bd417e98bb53ff630`, updating the producer source pin
+  to `566034e1aff42bde2f3221ebc2da2b16def77d44`; Pages workflow and stable
+  index/signature bytes remained unchanged. Activated dry-run is now required
+  before any real 0.155.0 candidate publication. The failed earlier candidate
+  run reached no signing secret, Release, Pages, CAS, or stable mutation.
 - Public stable remains signed sequence 11 generation
   `local-hosted-0-154-0-37fbbd8033b8-rald45-transition`; no RALD-7 candidate
   has advanced it yet.
