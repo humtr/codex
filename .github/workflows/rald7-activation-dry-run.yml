@@ -16,12 +16,12 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  EXPECTED_PARENT: '2766e25e63143794062207022fcd5a2beea279d5'
-  EXPECTED_MAIN: '6bc53a7b60c918dcbc0fc4b771409d305a28e342'
+  EXPECTED_PARENT: '88c83b37ffa1c29f36874888380ce197f3f82dbf'
+  EXPECTED_MAIN: 'b8b35d0ffc1ce2da87f49fcf66106e520a04a2bf'
   ACCEPTED_SOURCE: '566034e1aff42bde2f3221ebc2da2b16def77d44'
   EXPECTED_STABLE_GENERATION: 'local-hosted-0-154-0-37fbbd8033b8-rald45-transition'
   EXPECTED_VERSION: '0.154.0'
-  EXPECTED_AUTO_BLOB: '6be077dcd98522eea1794269fc4adc48bfa3cda8'
+  EXPECTED_AUTO_BLOB: '7be2b2662b5c91c319b56670b04e8a14ae28d32c'
   EXPECTED_PAGES_BLOB: 'cb4a3afd56f01cf884138eb976aedffcbfdca5ab'
 
 jobs:
@@ -46,7 +46,7 @@ jobs:
 
           main_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
           test "$main_sha" = "$EXPECTED_MAIN"
-          test "$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$main_sha" --jq '.parents[0].sha')" =             17ccd88f02b00d040e2aea7bd417e98bb53ff630
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$main_sha" --jq '.parents[0].sha')" =             6bc53a7b60c918dcbc0fc4b771409d305a28e342
 
           test "$(gh api "repos/$GITHUB_REPOSITORY/contents/.github/workflows/auto-release-termux.yml?ref=$EXPECTED_MAIN" --jq '.sha')" = "$EXPECTED_AUTO_BLOB"
           test "$(gh api "repos/$GITHUB_REPOSITORY/contents/.github/workflows/publish-termux-update-pages.yml?ref=$EXPECTED_MAIN" --jq '.sha')" = "$EXPECTED_PAGES_BLOB"
