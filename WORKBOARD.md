@@ -228,15 +228,16 @@ behavior belongs in `SPEC.md`.
 - RALD-5 Release/Pages LKG-preserving publication and runtime-proven promotion is
   accepted. RALD-6 fresh-install/update delivery E2E is **active and explicitly
   authorized 2026-09-18**. RALD-7 full acceptance is not started or authorized.
-- RALD-6 slice A — **active**: add the minimal no-argument
-  `install-online.sh` network-acquisition frontend defined by `SPEC.md`.
-  It must pin the accepted bootstrap key bytes, verify the signed stable
-  index/manifest before using network-selected locations/inventory, and delegate
-  all persistent installation to the unchanged local `install.sh` and
-  `bootstrap/codex-bootstrap`. Focused proof is shell syntax plus repository
-  contract tests; protected surfaces are the local installer/bootstrap, public
-  stable, live installation, and RALD-7.
-- RALD-6 slice B — **pending slice A**: on a disposable native ARM64 hosted
+- RALD-6 slice A — **accepted** at source
+  `9972a3288c0531ba744e9bd1356273d9a080aa79`. The minimal no-argument
+  `install-online.sh` pins the accepted bootstrap key bytes, verifies the
+  signed stable index and release manifest before using network-selected
+  locations/inventory, and delegates all persistent installation to the unchanged
+  local `install.sh` and `bootstrap/codex-bootstrap`. Hosted focused run
+  `35289795309` passed shell syntax, four installer contract tests, and
+  `git diff --check`. Public stable/main and the live installation were
+  unchanged.
+- RALD-6 slice B — **active**: on a disposable native ARM64 hosted
   environment, fetch the online frontend over public HTTPS, start from empty
   HOME/PREFIX state, and prove fresh installation lands exactly on current public
   signed sequence 11, exact `codex-cli 0.154.0`, followed by a default
