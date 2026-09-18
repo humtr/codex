@@ -541,10 +541,22 @@ Contents API.
 
 Until the stable compatibility floor is newer than R10, the public stable target
 must itself use the exact R10 browser-helper bridge layout even when its Core is
-newer. This permits a retained sequence-7 R10 client to consume the final stable
-generation directly. A newer canonical local generation may continue to use
-`browser/open/curl` and `browser/manual/curl`; canonical nested paths are not an
-R10-readable public stable target.
+newer **and** its signed descriptor must carry the bounded legacy activation
+doctor signal `upstream_doctor=unsupported` with exact
+`creation_metadata=r10-browser-helper-bridge-v1`. Both parts are required for a
+retained sequence-7 R10 client to consume the final stable generation directly:
+the historical R10 activation gate otherwise treats user credential/provider
+doctor health as candidate integrity and rejects a credential-free candidate
+before activation. The signal does not weaken public doctor semantics in a
+corrected Core: only that exact bridge marker plus `unsupported` combination is
+remapped on the public doctor route to real upstream diagnostic execution, while
+activation-time candidate integrity remains the signed version/runtime probe.
+The official producer must therefore retain this signal on every public stable
+candidate while the R10 compatibility floor remains supported; dropping it is a
+backward-compatibility failure, not a canonicalization cleanup. A newer canonical
+local generation may continue to use `browser/open/curl` and
+`browser/manual/curl`; canonical nested paths are not an R10-readable public
+stable target.
 
 For any later authorized official stable promotion, the small
 `update-index-v1` and `update-index-v1.sig` files are promoted together in one
