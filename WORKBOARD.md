@@ -305,8 +305,14 @@ behavior belongs in `SPEC.md`.
   immediately rerun as mandatory exact focused tests with
   `CODEX_B10_RELEASE_CORE`; all other tests retain the normal cfg(test)
   environment. A test-only generation-requirements selector accepts exact
-  Android/AArch64 only while that explicit hook is present. `main` and public
-  stable are still unchanged.
+  Android/AArch64 only while that explicit hook is present. Sixth run
+  `35297488569` then passed the complete package gate, including both mandatory
+  Android focused proofs and Manager integration, and passed workspace check and
+  full workspace tests. The sole remaining failure was clippy
+  `-D unused-variables`: the manifest parameter of the test-only selector is
+  intentionally unused in production cfg. Rename it to `_manifest` without any
+  behavioral change and rerun every gate. `main` and public stable are still
+  unchanged.
 - Public stable remains signed sequence 11 generation
   `local-hosted-0-154-0-37fbbd8033b8-rald45-transition`; RALD-6 created no
   public stable advancement.

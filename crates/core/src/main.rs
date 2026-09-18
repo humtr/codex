@@ -6914,12 +6914,12 @@ fn render_core_repair_plan(plan: CoreRepairPlan) -> String {
 
 #[cfg(unix)]
 fn generation_requirements_for_loaded(
-    manifest: &GenerationManifest,
+    _manifest: &GenerationManifest,
 ) -> GenerationManifestRequirements<'static> {
     #[cfg(test)]
     if std::env::var_os("CODEX_B10_RELEASE_CORE").is_some()
-        && manifest.expected_platform == "android"
-        && manifest.expected_architecture == "aarch64"
+        && _manifest.expected_platform == "android"
+        && _manifest.expected_architecture == "aarch64"
     {
         return GenerationManifestRequirements {
             platform: "android",

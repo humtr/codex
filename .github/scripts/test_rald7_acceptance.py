@@ -107,8 +107,8 @@ class Rald7AcceptanceContract(unittest.TestCase):
         )[0]
         self.assertIn("#[cfg(test)]", generation)
         self.assertIn('std::env::var_os("CODEX_B10_RELEASE_CORE")', generation)
-        self.assertIn('manifest.expected_platform == "android"', generation)
-        self.assertIn('manifest.expected_architecture == "aarch64"', generation)
+        self.assertIn('_manifest.expected_platform == "android"', generation)
+        self.assertIn('_manifest.expected_architecture == "aarch64"', generation)
 
     def test_android_dependent_tests_are_focused_not_dropped(self) -> None:
         workflow = (ROOT / ".github/workflows/rald7-full-acceptance.yml").read_text()
