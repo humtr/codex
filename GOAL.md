@@ -193,6 +193,33 @@ Termux qualification. Produce one candidate for independent product review.
 
 ### Current Direct-Lead Evidence
 
+- UX1-PROD-15 production publication is **accepted 2026-09-19**. Manual-only
+  production run `35425409155` used exact accepted product source
+  `07f77b89a177682954d80ae3f797377c4731de64` against the authenticated
+  public baseline `0.155.1` / signed sequence 14 /
+  `local-hosted-0-155-1-566034e1aff4`. The ordinary comparison first
+  classified version equality as `candidate=false`; only the dedicated UX-1
+  deployment gate admitted next sequence 15. The candidate preserved the exact
+  signed sequence-14 digest/mode inventory for `codex-code-mode-host`, both
+  helpers, Manager, and runtime, while the Core changed to the accepted UX-1
+  build. Ordered `generation.meta` comparison admitted exactly the required
+  `generation_id` and `core_artifact_digest` deltas, bound both Core digests,
+  and preserved every other raw record including both ordered helper records.
+  Native Android/AArch64 smoke, production-authority signing and independent
+  verification, immutable Release staging, LKG-preserving Pages deployment,
+  every-byte public HTTPS readback, disposable ordinary update, exact version,
+  semantic doctor, and second-update no-op all passed. The existing exact-parent
+  CAS used `force:false`, reported `promotion_result=committed`, and advanced
+  `main` exactly one child from
+  `79130ffadfd979bdb1fff1c530fa74cbf0579d6e` to
+  `ba36c44f871ef266c4887986535ed87a4d2becc9`, changing only
+  `update-index-v1` and `update-index-v1.sig`. Post-promotion HTTPS readback
+  byte-matched those promoted files and reverified their signature. Public stable
+  is therefore signed sequence 15 generation
+  `local-hosted-0-155-1-07f77b89a177-ux1-human-output`. The separately
+  authorized live Termux consumer update remains the final UX1-PROD-15 step and
+  is not claimed complete by this publication evidence.
+
 - POST-RALD UX-1 update human output is **source-accepted 2026-09-19** at
   corrected product source `07f77b89a177682954d80ae3f797377c4731de64`.
   The earlier accepted source `c3f87302df7d1e94ca5c497c50979f5aa73adddd`
