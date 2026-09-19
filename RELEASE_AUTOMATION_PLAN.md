@@ -1,6 +1,6 @@
 # Release Automation and Local-Derived Update Plan
 
-Status: RALD-1 through RALD-7 and the post-RALD legacy-lag production remediation are complete. UX-1 update human output, including authenticated progress ordering, is source-accepted at exact product source `07f77b89a177682954d80ae3f797377c4731de64`. **UX1-PROD-15 is fully complete and accepted (2026-09-19)**: production run `35425409155` promoted signed sequence 15 generation `local-hosted-0-155-1-07f77b89a177-ux1-human-output` by the existing non-forced exact-parent CAS to `main=ba36c44f871ef266c4887986535ed87a4d2becc9` after all build/signing/Release/Pages/readback/disposable-runtime gates passed, and the authorized live Termux consumer subsequently activated that exact generation through ordinary signed public `codex update`. Live verification ended at exact `codex-cli 0.155.1`, exact-current no-op output `Codex 0.155.1 is already up to date. ✅`, healthy Termux Core/Manager/runtime, clean non-TTY output, and actual PTY transient cleanup proof. **UPDATE-PROGRESS-RESPONSIVENESS-PROD-16 is fully complete and accepted (2026-09-19)**: accepted source `81131655d98f114b5324bd8ee5866cff0a171941` provides an 80 ms animated TTY spinner and a 30-second signed-control transfer ceiling while retaining the 300-second payload ceiling; production run `35434790060` promoted signed sequence 16 generation `local-hosted-0-155-1-81131655d98f-update-progress-responsiveness` by non-forced exact-parent CAS to `main=52c69f21472fb2d082ef87f0e6583c88b7a8e3db`; the live Termux consumer then activated that exact generation through ordinary signed public `codex update`. New-Core PTY proof observed 374 in-place checking redraws across all ten spinner frames, cleanup before permanent output, exact-current `Codex 0.155.1 is already up to date. ✅`, and clean non-TTY output. **UPDATE-EXACT-CURRENT-FASTPATH is source-accepted at `7817b939c81ce15c76d3d0d57157ca5e378a8491` and production-gated**: ordinary exact-current signed-channel updates now stop after authenticated index equality plus verified official local-current state instead of reacquiring the current release payload; public stable/live remain sequence 16 until separately authorized publication and consumption.
+Status: RALD-1 through RALD-7 and the post-RALD legacy-lag production remediation are complete. UX-1 update human output, including authenticated progress ordering, is source-accepted at exact product source `07f77b89a177682954d80ae3f797377c4731de64`. **UX1-PROD-15 is fully complete and accepted (2026-09-19)**: production run `35425409155` promoted signed sequence 15 generation `local-hosted-0-155-1-07f77b89a177-ux1-human-output` by the existing non-forced exact-parent CAS to `main=ba36c44f871ef266c4887986535ed87a4d2becc9` after all build/signing/Release/Pages/readback/disposable-runtime gates passed, and the authorized live Termux consumer subsequently activated that exact generation through ordinary signed public `codex update`. Live verification ended at exact `codex-cli 0.155.1`, exact-current no-op output `Codex 0.155.1 is already up to date. ✅`, healthy Termux Core/Manager/runtime, clean non-TTY output, and actual PTY transient cleanup proof. **UPDATE-PROGRESS-RESPONSIVENESS-PROD-16 is fully complete and accepted (2026-09-19)**: accepted source `81131655d98f114b5324bd8ee5866cff0a171941` provides an 80 ms animated TTY spinner and a 30-second signed-control transfer ceiling while retaining the 300-second payload ceiling; production run `35434790060` promoted signed sequence 16 generation `local-hosted-0-155-1-81131655d98f-update-progress-responsiveness` by non-forced exact-parent CAS to `main=52c69f21472fb2d082ef87f0e6583c88b7a8e3db`; the live Termux consumer then activated that exact generation through ordinary signed public `codex update`. New-Core PTY proof observed 374 in-place checking redraws across all ten spinner frames, cleanup before permanent output, exact-current `Codex 0.155.1 is already up to date. ✅`, and clean non-TTY output. **UPDATE-EXACT-CURRENT-FASTPATH-PROD-17 is fully complete and accepted (2026-09-19)**: accepted source `7817b939c81ce15c76d3d0d57157ca5e378a8491` was published as signed sequence 17 generation `local-hosted-0-155-1-7817b939c81c-exact-current-fastpath` by production run `35437042333`; final public-control `main=56ba28e1baee87721767ba34b505cc2bc1303c44` retains that stable pair with the temporary trigger bridge removed; the live Termux consumer then activated sequence 17 through ordinary signed public `codex update`, and the new Core's second exact-current update completed in 1268 ms with exact no-op output and no state delta.
 
 Baseline: `rewrite/rust-core` at
 `21bb1cd78d4a6e6ef8e124b7f07230206c5aa5ea` (`termux: guard rollback holds and automate stable intake`).
@@ -214,13 +214,25 @@ push bridge was then removed; final
 commit only by restoring the normal non-push workflow, and stable index/signature
 bytes remain the promoted seq17 pair.
 
-The production publication leg is complete. Live consumer activation remains
-authorized but is not yet executed because the tmcp operation endpoint still
-returns HTTP 404. The next permitted live action is only ordinary no-argument
-signed public `codex update`; alternate manual generation/Core installation
-remains forbidden. After activation, record exact 0.155.1, healthy Termux
-components, and timed second exact-current no-op evidence before closing
-PROD-17.
+The production publication and live consumer legs are both complete. After tmcp
+transport recovered, read-only preflight `job_wdn_35abc56ffe` confirmed the
+live client at exact `codex-cli 0.155.1` on healthy signed sequence 16 while
+the device read public stable as sequence 17. Ordinary no-argument signed
+public update `job_wdp_a5ba929cd5` then activated sequence 17 in 62014 ms;
+that duration is the expected one-time old-Core full acquisition cost, not the
+new exact-current path. It printed the accepted same-version correction header
+and signed activation success lines and left exact version at 0.155.1.
+
+New-Core proof `job_wdu_343ee51ae9` bound the active generation exactly to
+`local-hosted-0-155-1-7817b939c81c-exact-current-fastpath`, with healthy
+Core, runtime, code-mode host, Manager, upstream, and summary and doctor exit 0.
+Its timed ordinary exact-current update completed in **1268 ms**, emitted exactly
+`Codex 0.155.1 is already up to date. ✅`, emitted empty stderr with no
+CR/ANSI controls, and left the Core generation/activation/launcher snapshot
+byte-identical. Final version remained exact `codex-cli 0.155.1`. No manual
+generation install, direct launcher/Core overwrite, alternate trust key, fake
+credential/provider fixture, force push, or protected user-state mutation was
+used. UPDATE-EXACT-CURRENT-FASTPATH-PROD-17 is closed.
 
 
 ## 1. Objective
