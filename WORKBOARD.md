@@ -51,9 +51,9 @@ behavior belongs in `SPEC.md`.
   ordinary generation-ID success text. Signed admission, anti-rollback,
   candidate probes, activation, local-derived authority, rollback, producer,
   publication, and public-stable semantics remain unchanged.
-- Active operation: **UPDATE-PROGRESS-RESPONSIVENESS**. UX1-PROD-15 remains
-  accepted and closed; this follow-up is bounded to updater presentation and
-  transport responsiveness only.
+- Active operation: **UPDATE-PROGRESS-RESPONSIVENESS (source accepted; publication gated)**.
+  UX1-PROD-15 remains accepted and closed; this follow-up is bounded to updater
+  presentation and transport responsiveness only.
 - Selected bundle contract:
   - keep the existing signed-channel trust, signature/digest/mode/version,
     anti-rollback, candidate-probe, atomic-activation, LKG, rollback, and CAS
@@ -71,6 +71,25 @@ behavior belongs in `SPEC.md`.
   - add focused regression proof for spinner frame progression/cleanup,
     non-TTY stability, and control-plane versus payload timeout selection before
     any production deployment.
+- Source acceptance is complete at exact implementation source
+  `81131655d98f114b5324bd8ee5866cff0a171941`. Exact-source Termux validation
+  job `job_w9s_d47fda726c` exited 0 from a clean worktree: spinner-cycle,
+  control/payload timeout, and PTY redraw/cleanup focused tests passed; full
+  locked workspace tests passed (Core 149 passed / 0 failed / 1 explicit
+  real-Termux ignore, Manager 20/20, Manager integration 11/11,
+  release-builder 19/19); workspace check, clippy `-D warnings`, rustfmt, and
+  `git diff --check` passed. The PTY regression requires more than one redraw
+  of `Checking for updates...`, so a phase-static glyph no longer passes.
+- Accepted implementation uses an 80 ms TTY spinner tick, a 30-second transfer
+  ceiling for small signed control-plane fetches, the existing 15-second
+  connect timeout, and the existing 300-second transfer ceiling for large
+  signed payloads. Signed admission and activation semantics are unchanged.
+- **No production publication or live consumer update has been performed for
+  this follow-up.** Public stable therefore remains signed sequence 15
+  generation `local-hosted-0-155-1-07f77b89a177-ux1-human-output`, and the
+  live installation remains the previously verified `codex-cli 0.155.1`.
+  A corrective signed publication/live-update leg requires separate explicit
+  production authorization; until then this bundle stops at accepted source.
 - UX1-PROD-15 is accepted and closed on 2026-09-19; its explicitly authorized
   production deployment and live Termux consumer update remain complete.
 - UX1-PROD-15 may first change only producer/workflow/docs on
