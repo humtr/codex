@@ -12550,7 +12550,7 @@ exit 73
         let (status, stdout, stderr) = run_repair_probe("legacy-apply");
         assert_eq!(status.code(), Some(1));
         assert!(stdout.is_empty());
-        assert_eq!(stderr, b"Update index URL must use HTTPS. \xE2\x9D\x8C\n");
+        assert_eq!(stderr, b"Update index URL must use HTTPS.\n");
     }
 
     #[cfg(unix)]
@@ -16839,8 +16839,8 @@ esac
         );
         assert!(output
             .stdout
-            .windows(b"Codex 9.9.9 is now active. \xE2\x9C\x85\n".len())
-            .any(|window| window == b"Codex 9.9.9 is now active. \xE2\x9C\x85\n"));
+            .windows(b"Codex 9.9.9 is now active.\n".len())
+            .any(|window| window == b"Codex 9.9.9 is now active.\n"));
         assert!(!fixture.home.join(LOCAL_PUBLICATION_ROOT_RELATIVE).exists());
         let calls = std::fs::read_to_string(&fixture.curl_log).unwrap();
         assert!(calls.contains(&fixture.index_url));
@@ -16901,12 +16901,12 @@ esac
         assert!(ordinary
             .stdout
             .windows(
-                b"Codex 9.9.9 is now active. \xE2\x9C\x85
+                b"Codex 9.9.9 is now active.
 "
                 .len()
             )
             .any(|window| window
-                == b"Codex 9.9.9 is now active. \xE2\x9C\x85
+                == b"Codex 9.9.9 is now active.
 "));
         assert!(!gh_log.exists(), "ordinary update must not invoke gh");
         let ordinary_calls = std::fs::read_to_string(&fixture.curl_log).unwrap();
@@ -20945,9 +20945,8 @@ exec "$cat_path" "$release_root/$relative"
         );
         assert!(rollback
             .stdout
-            .windows(b"Rolled back the Termux release for Codex 9.9.9. \xE2\x9C\x85\n".len())
-            .any(|window| window
-                == b"Rolled back the Termux release for Codex 9.9.9. \xE2\x9C\x85\n"));
+            .windows(b"Rolled back the Termux release for Codex 9.9.9.\n".len())
+            .any(|window| window == b"Rolled back the Termux release for Codex 9.9.9.\n"));
         let roots = b7_public_roots(&fixture.home, &fixture.prefix);
         assert_eq!(
             read_update_hold(&roots).unwrap(),
@@ -21100,8 +21099,8 @@ exec "$cat_path" "$release_root/$relative"
         );
         assert!(current_again
             .stdout
-            .windows(b"Codex 9.9.9 is already up to date. \xE2\x9C\x85\n".len())
-            .any(|window| window == b"Codex 9.9.9 is already up to date. \xE2\x9C\x85\n"));
+            .windows(b"Codex 9.9.9 is already up to date.\n".len())
+            .any(|window| window == b"Codex 9.9.9 is already up to date.\n"));
         assert_eq!(read_update_hold(&roots).unwrap(), None);
         b5_assert_no_acquisition(&roots.generation_root);
         m2_b1_assert_no_transaction_files(&state_paths);
@@ -21713,8 +21712,8 @@ exit 2
             );
             assert!(output
                 .stdout
-                .windows(b"Codex 9.9.9 is now active. \xE2\x9C\x85\n".len())
-                .any(|window| window == b"Codex 9.9.9 is now active. \xE2\x9C\x85\n"));
+                .windows(b"Codex 9.9.9 is now active.\n".len())
+                .any(|window| window == b"Codex 9.9.9 is now active.\n"));
             assert!(output.stderr.is_empty(), "stderr={:?}", output.stderr);
             assert!(!output.stdout.contains(&b'\r'));
             assert!(!output.stdout.windows(2).any(|window| window == b"\x1b["));
@@ -21768,13 +21767,13 @@ exit 2
             assert!(current_again
                 .stdout
                 .windows(
-                    b"Codex 9.9.9 is already up to date. \xE2\x9C\x85
+                    b"Codex 9.9.9 is already up to date.
 "
                     .len()
                 )
                 .any(|window| {
                     window
-                        == b"Codex 9.9.9 is already up to date. \xE2\x9C\x85
+                        == b"Codex 9.9.9 is already up to date.
 "
                 }));
             assert!(
@@ -21815,10 +21814,7 @@ exit 2
         {
             let fixture = b5_channel_fixture("r4-channel-bad-signature", "channel-bad");
             std::fs::write(&fixture.signature_path, b"not-a-signature").unwrap();
-            b5_assert_channel_rejected(
-                &fixture,
-                b"Release signature verification failed. \xE2\x9D\x8C",
-            );
+            b5_assert_channel_rejected(&fixture, b"Release signature verification failed.");
             remove_temp_root(fixture.root);
         }
 
@@ -21835,10 +21831,7 @@ exit 2
                 &fixture.openssl,
                 &fixture.private_key,
             );
-            b5_assert_channel_rejected(
-                &fixture,
-                b"Update index is missing its final newline. \xE2\x9D\x8C",
-            );
+            b5_assert_channel_rejected(&fixture, b"Update index is missing its final newline.");
             remove_temp_root(fixture.root);
         }
     }
@@ -22059,7 +22052,7 @@ exit 0
             output.stdout,
             output.stderr
         );
-        let expected = b"Codex 9.9.9 is now active. \xE2\x9C\x85\n";
+        let expected = b"Codex 9.9.9 is now active.\n";
         assert!(
             output
                 .stdout
@@ -22644,8 +22637,8 @@ exit 0
         );
         assert!(second_output
             .stdout
-            .windows(b"Codex 9.9.9 is now active. \xE2\x9C\x85\n".len())
-            .any(|window| window == b"Codex 9.9.9 is now active. \xE2\x9C\x85\n"));
+            .windows(b"Codex 9.9.9 is now active.\n".len())
+            .any(|window| window == b"Codex 9.9.9 is now active.\n"));
         let expected_forward = GenerationPointerState {
             update_key: release_public_key_from_pem(&openssl, &public_key).unwrap(),
             current: "remote-second".to_string(),
@@ -22670,13 +22663,13 @@ exit 0
         assert!(current_again
             .stdout
             .windows(
-                b"Codex 9.9.9 is already up to date. \xE2\x9C\x85
+                b"Codex 9.9.9 is already up to date.
 "
                 .len()
             )
             .any(|window| {
                 window
-                    == b"Codex 9.9.9 is already up to date. \xE2\x9C\x85
+                    == b"Codex 9.9.9 is already up to date.
 "
             }));
         assert!(

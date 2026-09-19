@@ -66,6 +66,12 @@ behavior belongs in `SPEC.md`.
   acceptance-only commit binds full source acceptance to that exact product
   parent while leaving protected `main`, signed sequence 17, update-index
   bytes, release assets, Pages, and the live runtime unchanged.
+- Push-triggered full acceptance run `35457617081` then exposed eight stale
+  test-only expectations that encoded the removed check/cross marks as UTF-8
+  byte escapes rather than literal characters. Runtime output was already plain
+  text; protected-state audit and Android/AArch64 cross-build both passed. The
+  correction removes those escaped test expectations and changes no shipped
+  update, activation, rollback, trust, or publication behavior.
 - Active operation: **BARE-TTY-UPDATE-DISCOVERY**. User authorization on
   2026-09-20 selects one bounded launch-UX slice: only exact bare `codex` with
   stdin/stdout/stderr all attached to terminals may authenticate the signed
