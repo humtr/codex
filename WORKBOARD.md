@@ -17,12 +17,12 @@ behavior belongs in `SPEC.md`.
   `6b9826e3aa83b1a5947db50f4332cb9c65f1b340`.
 - TC-LIVE-BRIDGE repository-native two-step live cutover is accepted and
   complete.
-- Latest user-observed live runtime on 2026-09-19 is `codex-cli 0.155.0`
-  after ordinary `codex update` from 0.154.0 activated public sequence-13
-  generation `local-hosted-0-155-0-566034e1aff4-legacy-lag-remediation`.
-  That observation did not remeasure launcher digest, doctor, previous pointer,
-  or protected-state fingerprints; the earlier measured 0.154.0 cutover values
-  remain historical evidence rather than current-state claims.
+- Latest verified live runtime on 2026-09-19 is exact `codex-cli 0.155.1`
+  on generation `local-hosted-0-155-1-07f77b89a177-ux1-human-output`.
+  tmcp read-only preflight first measured `codex-cli 0.155.0` with healthy
+  Termux Core/Manager/runtime; the ordinary signed public update then activated
+  sequence 15. Post-update doctor binds the exact new generation and reports
+  Termux Core, runtime, code-mode host, and Manager healthy.
 - UPDATE-CHANNEL-LATEST is accepted and closed. Final source acceptance before
   the closure ledger is `057f078a091441c1f624c7b229649bd1463ef774`.
 - Current public stable is signed sequence 15 generation
@@ -51,8 +51,9 @@ behavior belongs in `SPEC.md`.
   ordinary generation-ID success text. Signed admission, anti-rollback,
   candidate probes, activation, local-derived authority, rollback, producer,
   publication, and public-stable semantics remain unchanged.
-- Active operation: **UX1-PROD-15**. The user explicitly authorized actual
-  deployment and subsequent Termux installation on 2026-09-19.
+- Active operation: **none**. UX1-PROD-15 is accepted and closed on
+  2026-09-19; its explicitly authorized production deployment and live Termux
+  consumer update are complete.
 - UX1-PROD-15 may first change only producer/workflow/docs on
   `rewrite/rust-core` and must pass full remote source acceptance. After that
   proof, the exact accepted producer may be installed as a non-forced child of
@@ -120,11 +121,15 @@ behavior belongs in `SPEC.md`.
   `main` now bind sequence 15 generation
   `local-hosted-0-155-1-07f77b89a177-ux1-human-output` at
   `ba36c44f871ef266c4887986535ed87a4d2becc9`.
-- Selected next action: use the already authorized existing tmcp durable task to
-  inspect the live Termux installation read-only, run ordinary signed public
-  `codex update`, verify exact `codex-cli 0.155.1`, then run a second
-  no-argument update and require `Codex 0.155.1 is already up to date. ✅`.
-  Only after that live proof should UX1-PROD-15 be fully closed.
+- UX1-PROD-15 live closure is proven by tmcp jobs
+  `job_w4h_aabff4f63b` (read-only 0.155.0 preflight),
+  `job_w4i_4679e91eab` (ordinary signed public activation to 0.155.1),
+  `job_w4j_b7c769f26d` (exact-current non-TTY no-op plus healthy doctor), and
+  `job_w4k_377b6ef362` (actual PTY no-op with transient-line cleanup).
+  The exact second-update permanent line is
+  `Codex 0.155.1 is already up to date. ✅`; the PTY proof observed the
+  transient `Checking for updates...` line being erased before that final
+  line. No further action is selected by this closed bundle.
 - RALD-1 local-derived Core contract, RALD-2 Core/official-producer separation,
   and RALD-3 GitHub-hosted unsigned producer preflight are accepted. RALD-3 is
   pinned to producer source commit `28e65b32c8719cf913e62080d4674b54dbcc1a01`;
