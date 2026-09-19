@@ -69,7 +69,11 @@ class Rald7AcceptanceContract(unittest.TestCase):
 
     def test_update_human_output_proofs_follow_ux1_contract(self) -> None:
         text = (ROOT / ".github/workflows/auto-release-termux.yml").read_text()
-        self.assertNotIn("activated channel generation", text)
+        self.assertEqual(text.count("activated channel generation %s"), 1)
+        self.assertIn(
+            'if test "$current" = "$UX1_DEPLOY_CURRENT_GENERATION"; then',
+            text,
+        )
         self.assertNotIn("codex is already up to date (generation", text)
         self.assertIn("Updating Codex %s -> %s...", text)
         self.assertIn("Updating the Termux release for Codex %s...", text)
@@ -187,6 +191,12 @@ class Rald7AcceptanceContract(unittest.TestCase):
         self.assertIn("Require exact sequence-14 non-Core bytes for UX-1 deployment", text)
         self.assertIn("test \"$candidate_core_digest\" != \"$current_core_digest\"", text)
         self.assertIn("UX-1 descriptor changes more than generation identity", text)
+        self.assertIn(
+            'if test "$current" = "$UX1_DEPLOY_CURRENT_GENERATION"; then',
+            text,
+        )
+        self.assertIn("activated channel generation %s", text)
+        self.assertIn("Codex %s is already up to date. ✅", text)
         self.assertIn("force:false", text)
         self.assertNotIn("force: true", text)
 
