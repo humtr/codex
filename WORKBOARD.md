@@ -53,105 +53,49 @@ behavior belongs in `SPEC.md`.
   ordinary generation-ID success text. Signed admission, anti-rollback,
   candidate probes, activation, local-derived authority, rollback, producer,
   publication, and public-stable semantics remain unchanged.
-- Active operation: **UPDATE-EXACT-CURRENT-FASTPATH**.
-  User feedback on 2026-09-19 identified that an exact-current ordinary
-  `codex update` still takes tens of seconds even though no activation is
-  needed. Investigation found the no-op path authenticates the signed stable
-  index, then unnecessarily reacquires the entire current signed generation
-  (including the roughly 233 MB runtime) before returning `AlreadyCurrent`.
-  This is a control-flow/performance defect, not a timeout-policy defect.
-- Selected bundle contract:
-  - ordinary no-argument update must still authenticate the signed stable index
-    with the existing accepted update authority before deciding exact-current;
-  - a fast exact-current return is allowed only when the authenticated index
-    generation exactly equals the active generation, the active generation is
-    still under the official update authority (`current_key == update_key`),
-    the local installed generation verifies under that authority, and normal
-    hold policy is `Enforce`;
-  - on that exact path, do not fetch release.manifest, release.sig,
-    generation.meta, runtime, Core, Manager, helpers, or code-mode-host, and do
-    not create a generation acquisition tree, stage, probe, or mutate state;
-  - `--force` retains full rollback-hold validation and does not use this
-    shortcut; a local-derived current generation, differing authenticated
-    generation, invalid index/signature, or unhealthy local installed
-    generation must also stay on the existing fail-closed/full path;
-  - real candidate acquisition/verification/activation semantics, signature,
-    digest, mode, anti-rollback, candidate probe, atomic activation, LKG,
-    rollback, local-derived behavior, and CAS are unchanged;
-  - add a curl-log regression proving exact-current ordinary update fetches only
-    the signed index pair, plus regressions proving candidate and force paths
-    still perform their existing authenticated release work.
-- Selected bundle contract:
-  - keep the existing signed-channel trust, signature/digest/mode/version,
-    anti-rollback, candidate-probe, atomic-activation, LKG, rollback, and CAS
-    behavior unchanged;
-  - when both stdout and stderr are TTYs, the single transient progress line
-    must use a genuinely animated spinner while a blocking update phase is in
-    progress, not a phase-static glyph;
-  - transient animation must stop and the line must be erased before every
-    permanent success, failure, or version header, and non-TTY output must
-    remain free of CR/ANSI progress controls;
-  - keep the exact pre-authentication message `Checking for updates...`, but
-    apply a shorter bounded transfer timeout to the small signed control-plane
-    resources used to authenticate the index/release metadata; large signed
-    payload downloads retain the existing long transfer timeout;
-  - add focused regression proof for spinner frame progression/cleanup,
-    non-TTY stability, and control-plane versus payload timeout selection before
-    any production deployment.
-- Source acceptance is complete at exact implementation source
-  `81131655d98f114b5324bd8ee5866cff0a171941`. Exact-source Termux validation
-  job `job_w9s_d47fda726c` exited 0 from a clean worktree: spinner-cycle,
-  control/payload timeout, and PTY redraw/cleanup focused tests passed; full
-  locked workspace tests passed (Core 149 passed / 0 failed / 1 explicit
-  real-Termux ignore, Manager 20/20, Manager integration 11/11,
-  release-builder 19/19); workspace check, clippy `-D warnings`, rustfmt, and
-  `git diff --check` passed. The PTY regression requires more than one redraw
-  of `Checking for updates...`, so a phase-static glyph no longer passes.
-- Accepted implementation uses an 80 ms TTY spinner tick, a 30-second transfer
-  ceiling for small signed control-plane fetches, the existing 15-second
-  connect timeout, and the existing 300-second transfer ceiling for large
-  signed payloads. Signed admission and activation semantics are unchanged.
-- Production publication and live consumer verification are complete under the
-  explicit 2026-09-19 authorization. The workflow-only producer install was
-  exact-parent child `main=40501cf88d86c1c9281d918141e90389ad2006f6`;
-  run `35434790060` then passed every build/sign/Release/Pages/readback/
-  disposable-runtime gate and committed the existing `force:false` stable CAS
-  as `main=52c69f21472fb2d082ef87f0e6583c88b7a8e3db`.
-- The production correction uses exact accepted product source
-  `81131655d98f114b5324bd8ee5866cff0a171941` and an exact one-shot
-  seq15 -> seq16 gate. Authenticated baseline must be exact version `0.155.1`,
-  generation `local-hosted-0-155-1-07f77b89a177-ux1-human-output`, signed
-  sequence 15; official stable must still be exact `0.155.1`; ordinary
-  comparison must first return `candidate=false`; next sequence must be 16.
-  Schedules and every historical acceptance/remediation gate must reject this
-  one-shot gate.
-- Before signing, non-Core load-bearing bytes/modes
-  (`codex-code-mode-host`, both helpers, Manager, runtime) must equal signed
-  sequence 15 exactly; Core must differ and come from the accepted source.
-  Ordered `generation.meta` records may differ only in unique
-  `generation_id` and `core_artifact_digest`, with both digests bound to
-  the actual old/new Core bytes. Existing signing, immutable Release,
-  Pages/LKG, public HTTPS readback, disposable update/version/doctor/no-op and
-  non-forced exact-parent CAS gates remain unchanged.
-- Exact production-gate workflow source is
-  `39983f628fe568ec98b8c69bb87b02f9449c0104`. tmcp validation job
-  `job_wai_242ba900ee` passed YAML parse/static contract checks, executable
-  positive seq15 -> seq16 selection, negative wrong-ref/authorization/
-  generation/sequence/candidate/source cases, and the ordered duplicate-helper
-  descriptor comparator with forbidden-delta rejection. The validation worktree
-  remained clean and did not mutate public stable or the live installation.
-- PROD-16 live closure is proven by `job_wal_3820f2c5d8` (read-only
-  healthy sequence-15 preflight), `job_wam_258c839b9b` (ordinary PTY
-  `codex update` that activated sequence 16), `job_wan_fe35cc553b`
-  (read-only proof that sequence 16 is active and healthy), and
-  `job_wao_d345a6690f` (new-Core PTY animation/cleanup plus exact non-TTY
-  no-op). The activation job's shell result is nonzero only because its
-  post-update harness incorrectly required the initiating sequence-15 Core to
-  already animate the pre-activation checking phase; it had already verified
-  the same-version header and signed-activation success output, and the next
-  read-only job proved the committed sequence-16 state. The final exact-current
-  permanent line is `Codex 0.155.1 is already up to date. ✅`; non-TTY output
-  contains no CR/ANSI controls. No further action is selected by this bundle.
+- Active operation: **UPDATE-EXACT-CURRENT-FASTPATH (source accepted; publication gated)**.
+  User feedback on 2026-09-19 correctly identified that the long ordinary
+  exact-current `codex update` was not fundamentally a timeout problem. The
+  old no-op path authenticated the signed stable index and then unnecessarily
+  reacquired the already-installed signed generation, including the roughly
+  233 MB runtime, before returning `AlreadyCurrent`.
+- Exact accepted implementation source is
+  `7817b939c81ce15c76d3d0d57157ca5e378a8491`. For ordinary no-argument
+  `UpdateHoldPolicy::Enforce`, the fast path is available only after the
+  signed index pair authenticates and only when the authenticated generation is
+  exactly current, `current_key == update_key`, the release-base generation
+  binding is exact, rollback-hold/guard state validates, and the installed
+  current generation fully re-verifies under the official authority.
+- That exact-current path performs no release-manifest/signature/descriptor or
+  payload fetch, creates no generation acquisition tree, performs no candidate
+  probe/staging, and mutates no state. It returns the existing exact-current
+  result after the signed-index/local-current checks.
+- `--force`, local-derived current state, a different authenticated stable
+  generation, malformed hold/guard state, bad index/signature, bad release-base
+  binding, or an invalid local generation do not use the shortcut. Candidate
+  admission, signatures/digests/modes, anti-rollback, candidate probe, atomic
+  activation, LKG/rollback, local-derived behavior, explicit remote/local
+  update behavior, and CAS remain unchanged.
+- Focused job `job_wcd_60498c3b61` passed the signed-channel exact-current and
+  rollback-hold/`--force` regressions. Its final shell status was nonzero only
+  because Cargo left an untracked `target/`; inspection job
+  `job_wci_78c1c8931f` proved that was the sole dirty entry.
+- Authoritative full validation job `job_wcj_53ab115dbc` passed from exact
+  source with job-private Cargo output and a clean final worktree: Core
+  149 passed / 0 failed / 1 explicit real-Termux ignore, Manager 20/20,
+  Manager integration 11/11, release-builder 19/19, workspace check, clippy
+  `-D warnings`, rustfmt, and `git diff --check`. Curl-log proof binds the
+  ordinary exact-current network path to exactly the signed index and
+  index-signature requests, while the force regression proves `--force` still
+  fetches release control and runtime payload data.
+- No production publication or live consumer update is authorized by this
+  source acceptance. Public stable remains signed sequence 16 generation
+  `local-hosted-0-155-1-81131655d98f-update-progress-responsiveness` at
+  `main=52c69f21472fb2d082ef87f0e6583c88b7a8e3db`; the live installation
+  remains exact `codex-cli 0.155.1` on that generation. A corrective
+  publication/live-consumption leg requires separate explicit production
+  authorization.
+
 - UX1-PROD-15 is accepted and closed on 2026-09-19; its explicitly authorized
   production deployment and live Termux consumer update remain complete.
 - UX1-PROD-15 may first change only producer/workflow/docs on
