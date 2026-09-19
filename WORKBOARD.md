@@ -25,12 +25,13 @@ behavior belongs in `SPEC.md`.
   remain historical evidence rather than current-state claims.
 - UPDATE-CHANNEL-LATEST is accepted and closed. Final source acceptance before
   the closure ledger is `057f078a091441c1f624c7b229649bd1463ef774`.
-- Current public stable is signed sequence 14 generation
-  `local-hosted-0-155-1-566034e1aff4`, promoted by the ordinary scheduled
-  producer in run `35414519346` to
-  `main=28a936dba325f3504822053cef8f8abcf6af8907`. It carries upstream
-  `0.155.1` but still uses the pre-UX product source
-  `566034e1aff42bde2f3221ebc2da2b16def77d44`.
+- Current public stable is signed sequence 15 generation
+  `local-hosted-0-155-1-07f77b89a177-ux1-human-output`, promoted by the
+  explicitly authorized UX1-PROD-15 production run `35425409155` to
+  `main=ba36c44f871ef266c4887986535ed87a4d2becc9`. It carries upstream
+  `0.155.1` and the accepted UX-1 Core from exact product source
+  `07f77b89a177682954d80ae3f797377c4731de64`. Sequence 14 generation
+  `local-hosted-0-155-1-566034e1aff4` is the authenticated production baseline.
 - AUTO-UPSTREAM-ROLLBACK is accepted and source-closed at
   `21bb1cd78d4a6e6ef8e124b7f07230206c5aa5ea`.
 - RALD-1 through RALD-7 and the post-RALD legacy-lag production remediation are
@@ -105,6 +106,25 @@ behavior belongs in `SPEC.md`.
   `main=714431daa6fdc87c524d33c57e377ac4a9b2946b`; only a full green
   Android/package/workspace/public-state acceptance may authorize the next
   non-forced workflow-only main child.
+- Helper-record deployment repair acceptance run `35425120771` passed at
+  implementation head `38a62a17309551044e9faac6cb6850f1bdf908a3`; the accepted
+  producer was then installed on `main` as non-forced child
+  `79130ffadfd979bdb1fff1c530fa74cbf0579d6e` without changing stable bytes.
+- UX1-PROD-15 production run `35425409155` is green end-to-end. It authenticated
+  the exact sequence-14 baseline, required ordinary `candidate=false`, selected
+  only the manual UX-1 gate, produced exact next sequence 15, preserved all
+  non-Core signed digest/mode bytes, passed the repaired ordered descriptor
+  comparator, Android/AArch64 smoke, production signing, immutable Release,
+  Pages/LKG, public every-byte readback, disposable update/version/doctor/no-op,
+  and committed the existing `force:false` exact-parent CAS. Public stable and
+  `main` now bind sequence 15 generation
+  `local-hosted-0-155-1-07f77b89a177-ux1-human-output` at
+  `ba36c44f871ef266c4887986535ed87a4d2becc9`.
+- Selected next action: use the already authorized existing tmcp durable task to
+  inspect the live Termux installation read-only, run ordinary signed public
+  `codex update`, verify exact `codex-cli 0.155.1`, then run a second
+  no-argument update and require `Codex 0.155.1 is already up to date. ✅`.
+  Only after that live proof should UX1-PROD-15 be fully closed.
 - RALD-1 local-derived Core contract, RALD-2 Core/official-producer separation,
   and RALD-3 GitHub-hosted unsigned producer preflight are accepted. RALD-3 is
   pinned to producer source commit `28e65b32c8719cf913e62080d4674b54dbcc1a01`;
