@@ -114,12 +114,18 @@ behavior belongs in `SPEC.md`.
   unavailable because the tmcp operation endpoint returns HTTP 404 before a
   dispatch can be submitted. The user's explicit production authorization also
   permits one operational fallback that does not broaden release authority: a
-  temporary `push` trigger bound to exact pre-trigger
-  `main=9738586528e46019109606e3d607402d726c8de4`, exact branch `main`,
-  exact trigger commit message, and the same seq16/source/seq17 gates above.
-  This bridge must be removed immediately after successful promotion. Any
-  other push, schedule, historical one-shot, wrong parent, wrong message, or
-  changed baseline remains fail-closed.
+  temporary `push` trigger bound to one exact pre-trigger parent, exact
+  branch `main`, exact trigger commit message, and the same
+  seq16/source/seq17 gates above. Initial push run `35436887423` at
+  `main=5f7a316cd433d659979c1ec1bf648294002b4307` failed before job creation
+  because the colon-space in the embedded exact message made the YAML plain
+  scalar invalid; signed stable index/signature bytes remained unchanged at
+  sequence 16 and no signing/Release/Pages/CAS work started. The repaired
+  one-shot retry is therefore rebound to exact pre-trigger
+  `main=5f7a316cd433d659979c1ec1bf648294002b4307` with a colon-free exact
+  trigger message. This bridge must be removed immediately after successful
+  promotion. Any other push, schedule, historical one-shot, wrong parent,
+  wrong message, or changed baseline remains fail-closed.
 - After public sequence 17 is independently re-read as authoritative, update
   the live Termux installation only through ordinary no-argument signed public
   `codex update`. Then verify exact `codex-cli 0.155.1`, healthy Termux
