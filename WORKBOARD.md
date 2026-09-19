@@ -53,7 +53,7 @@ behavior belongs in `SPEC.md`.
   ordinary generation-ID success text. Signed admission, anti-rollback,
   candidate probes, activation, local-derived authority, rollback, producer,
   publication, and public-stable semantics remain unchanged.
-- Active operation: **UPDATE-EXACT-CURRENT-FASTPATH (source accepted; publication gated)**.
+- Active operation: **UPDATE-EXACT-CURRENT-FASTPATH-PROD-17 (public promoted; live consumption pending tmcp transport)**.
   User feedback on 2026-09-19 correctly identified that the long ordinary
   exact-current `codex update` was not fundamentally a timeout problem. The
   old no-op path authenticated the signed stable index and then unnecessarily
@@ -126,12 +126,26 @@ behavior belongs in `SPEC.md`.
   trigger message. This bridge must be removed immediately after successful
   promotion. Any other push, schedule, historical one-shot, wrong parent,
   wrong message, or changed baseline remains fail-closed.
-- After public sequence 17 is independently re-read as authoritative, update
-  the live Termux installation only through ordinary no-argument signed public
-  `codex update`. Then verify exact `codex-cli 0.155.1`, healthy Termux
-  Core/runtime/code-mode-host/Manager, and a second exact-current update using
-  the new fast path. Capture elapsed time for that no-op as operational evidence
-  while preserving the exact permanent output contract.
+- Production run `35437042333` is green end-to-end. It promoted exact signed
+  sequence 17 generation
+  `local-hosted-0-155-1-7817b939c81c-exact-current-fastpath`; CAS job
+  `105881831694` reported `promotion_result=committed` with `force:false`.
+  Promotion commit `f361b4a241b34cee1a7ca5bf4c98914a6b9dd600` changes only
+  the signed index pair from exact trigger parent
+  `49ba318efd80f33a9181d0fb56dfd41402cffde5`. Public readback/disposable
+  proof job `105881773125` verified sequence 17, healthy Termux Core/runtime/
+  code-mode host, genuine upstream doctor execution, exact 0.155.1, and the
+  second no-op permanent line/state invariance.
+- The temporary push bridge is already removed. Final public-control
+  `main=56ba28e1baee87721767ba34b505cc2bc1303c44` is a workflow-only child of
+  the promotion commit and retains the same seq17 index/signature blobs.
+- Live Termux consumption remains authorized but not yet executed because the
+  tmcp operation endpoint currently returns HTTP 404. Do not use an alternate
+  manual install path. Once tmcp returns, update the live installation only via
+  ordinary no-argument signed public `codex update`, then verify exact
+  `codex-cli 0.155.1`, healthy Termux Core/runtime/code-mode-host/Manager, and
+  measure a second exact-current update under the new fast path while preserving
+  exact permanent output and state invariance.
 
 - UX1-PROD-15 is accepted and closed on 2026-09-19; its explicitly authorized
   production deployment and live Termux consumer update remain complete.
