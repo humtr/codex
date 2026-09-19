@@ -9,7 +9,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 BASE = "9dedc27b73ba1b045b3c1724036323e049e1dcf9"
 ACCEPTED_SOURCE = "07f77b89a177682954d80ae3f797377c4731de64"
-EXPECTED_MAIN = "28a936dba325f3504822053cef8f8abcf6af8907"
+EXPECTED_MAIN = "bacd83b8d6cff17a47b9aa1f0ab8b3bd0454f1ff"
 
 
 def run(*args: str) -> str:
@@ -190,7 +190,11 @@ class Rald7AcceptanceContract(unittest.TestCase):
         )
         self.assertIn("Require exact sequence-14 non-Core bytes for UX-1 deployment", text)
         self.assertIn("test \"$candidate_core_digest\" != \"$current_core_digest\"", text)
-        self.assertIn("UX-1 descriptor changes more than generation identity", text)
+        self.assertIn("UX-1 descriptor schema/order changed", text)
+        self.assertIn("UX-1 current descriptor Core digest does not match sequence-14 Core", text)
+        self.assertIn("UX-1 candidate descriptor Core digest does not match UX-1 Core", text)
+        self.assertIn('if key in {"generation_id", "core_artifact_digest"}:', text)
+        self.assertIn("UX-1 descriptor changed forbidden field", text)
         self.assertIn(
             'if test "$current" = "$UX1_DEPLOY_CURRENT_GENERATION"; then',
             text,

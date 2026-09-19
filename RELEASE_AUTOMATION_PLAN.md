@@ -26,8 +26,10 @@ with explicit publication authorization and exact authenticated baseline
 product source must be exact `07f77b89a177682954d80ae3f797377c4731de64`,
 and the computed next sequence must be 15. Before signing, all non-Core
 load-bearing component digests/modes must equal sequence 14, the new Core must
-differ and be built from the accepted source, and `generation.meta` may differ
-only by generation identity. Existing signing, immutable Release, Pages/LKG,
+differ and be built from the accepted source, and `generation.meta` may differ only by generation identity plus
+`core_artifact_digest`, with both old/new descriptor digests required to
+equal the actual old/new Core SHA-256 and every other descriptor field unchanged.
+Existing signing, immutable Release, Pages/LKG,
 public HTTPS readback, disposable update/version/doctor/no-op, and non-forced
 exact-parent CAS gates remain unchanged. Schedules must explicitly reject the
 gate. Once sequence 15 is promoted, the exact baseline fence makes the gate

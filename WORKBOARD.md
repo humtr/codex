@@ -68,8 +68,11 @@ behavior belongs in `SPEC.md`.
   non-forced exact-parent CAS. Non-Core load-bearing components
   (`codex-code-mode-host`, helpers, Manager, runtime) must match the signed
   sequence-14 digest/mode inventory exactly; the Core must come from the exact
-  accepted UX-1 source and differ from sequence 14; the descriptor may differ
-  only by generation identity.
+  accepted UX-1 source and differ from sequence 14. Because `generation.meta`
+  integrity-binds the Core, the descriptor must differ in exactly two fields:
+  generation identity and `core_artifact_digest`. Each old/new descriptor
+  digest must equal the SHA-256 of its corresponding old/new Core; every other
+  descriptor field must remain byte-value equivalent.
 - The one-shot gate is forbidden to schedules and becomes inert after sequence
   15 promotion because its exact sequence-14/current-generation baseline no
   longer matches. No fake credentials, force push, alternate trust key, or
@@ -77,10 +80,15 @@ behavior belongs in `SPEC.md`.
 - After public Release/Pages/readback/disposable update/no-op proof and
   non-forced CAS all succeed, the live Termux installation may be updated only
   through the ordinary signed public `codex update` path.
-- UX1-PROD-15 producer gate source is
-  `78c81e1bd6f2296450b839f4c96cc1af31d3ce47`. It is not production-authorized
-  merely by existing on the implementation branch; full remote acceptance must
-  first pass against current public sequence 14 before any `main` install.
+- UX1-PROD-15 producer gate source `78c81e1bd6f2296450b839f4c96cc1af31d3ce47`
+  passed source acceptance but its first production dispatch
+  `35422166349` failed closed before artifact upload/signing/publication
+  because the descriptor comparator incorrectly permitted only generation-id
+  change even though the intentionally changed Core requires a new
+  `core_artifact_digest`. The repair keeps the exact sequence-14 non-Core
+  byte gate and permits only those two integrity-required descriptor deltas.
+  Full remote acceptance against protected `main=bacd83b8...` and public
+  sequence 14 is required before replacing the installed producer workflow.
 - RALD-1 local-derived Core contract, RALD-2 Core/official-producer separation,
   and RALD-3 GitHub-hosted unsigned producer preflight are accepted. RALD-3 is
   pinned to producer source commit `28e65b32c8719cf913e62080d4674b54dbcc1a01`;
