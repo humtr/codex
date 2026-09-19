@@ -1,6 +1,6 @@
 # Release Automation and Local-Derived Update Plan
 
-Status: RALD-1 through RALD-7 and the post-RALD legacy-lag production remediation are complete. UX-1 update human output, including authenticated progress ordering, is source-accepted at exact product source `07f77b89a177682954d80ae3f797377c4731de64`. **UX1-PROD-15 is fully complete and accepted (2026-09-19)**: production run `35425409155` promoted signed sequence 15 generation `local-hosted-0-155-1-07f77b89a177-ux1-human-output` by the existing non-forced exact-parent CAS to `main=ba36c44f871ef266c4887986535ed87a4d2becc9` after all build/signing/Release/Pages/readback/disposable-runtime gates passed, and the authorized live Termux consumer subsequently activated that exact generation through ordinary signed public `codex update`. Live verification ended at exact `codex-cli 0.155.1`, exact-current no-op output `Codex 0.155.1 is already up to date. ✅`, healthy Termux Core/Manager/runtime, clean non-TTY output, and actual PTY transient cleanup proof. **UPDATE-PROGRESS-RESPONSIVENESS-PROD-16 is fully complete and accepted (2026-09-19)**: accepted source `81131655d98f114b5324bd8ee5866cff0a171941` provides an 80 ms animated TTY spinner and a 30-second signed-control transfer ceiling while retaining the 300-second payload ceiling; production run `35434790060` promoted signed sequence 16 generation `local-hosted-0-155-1-81131655d98f-update-progress-responsiveness` by non-forced exact-parent CAS to `main=52c69f21472fb2d082ef87f0e6583c88b7a8e3db`; the live Termux consumer then activated that exact generation through ordinary signed public `codex update`. New-Core PTY proof observed 374 in-place checking redraws across all ten spinner frames, cleanup before permanent output, exact-current `Codex 0.155.1 is already up to date. ✅`, and clean non-TTY output.
+Status: RALD-1 through RALD-7 and the post-RALD legacy-lag production remediation are complete. UX-1 update human output, including authenticated progress ordering, is source-accepted at exact product source `07f77b89a177682954d80ae3f797377c4731de64`. **UX1-PROD-15 is fully complete and accepted (2026-09-19)**: production run `35425409155` promoted signed sequence 15 generation `local-hosted-0-155-1-07f77b89a177-ux1-human-output` by the existing non-forced exact-parent CAS to `main=ba36c44f871ef266c4887986535ed87a4d2becc9` after all build/signing/Release/Pages/readback/disposable-runtime gates passed, and the authorized live Termux consumer subsequently activated that exact generation through ordinary signed public `codex update`. Live verification ended at exact `codex-cli 0.155.1`, exact-current no-op output `Codex 0.155.1 is already up to date. ✅`, healthy Termux Core/Manager/runtime, clean non-TTY output, and actual PTY transient cleanup proof. **UPDATE-PROGRESS-RESPONSIVENESS-PROD-16 is fully complete and accepted (2026-09-19)**: accepted source `81131655d98f114b5324bd8ee5866cff0a171941` provides an 80 ms animated TTY spinner and a 30-second signed-control transfer ceiling while retaining the 300-second payload ceiling; production run `35434790060` promoted signed sequence 16 generation `local-hosted-0-155-1-81131655d98f-update-progress-responsiveness` by non-forced exact-parent CAS to `main=52c69f21472fb2d082ef87f0e6583c88b7a8e3db`; the live Termux consumer then activated that exact generation through ordinary signed public `codex update`. New-Core PTY proof observed 374 in-place checking redraws across all ten spinner frames, cleanup before permanent output, exact-current `Codex 0.155.1 is already up to date. ✅`, and clean non-TTY output. **UPDATE-EXACT-CURRENT-FASTPATH is source-accepted at `7817b939c81ce15c76d3d0d57157ca5e378a8491` and production-gated**: ordinary exact-current signed-channel updates now stop after authenticated index equality plus verified official local-current state instead of reacquiring the current release payload; public stable/live remain sequence 16 until separately authorized publication and consumption.
 
 Baseline: `rewrite/rust-core` at
 `21bb1cd78d4a6e6ef8e124b7f07230206c5aa5ea` (`termux: guard rollback holds and automate stable intake`).
@@ -121,24 +121,46 @@ line contains no CR/ANSI controls. PROD-16 requires no further publication or
 live-consumer action.
 
 UPDATE-EXACT-CURRENT-FASTPATH is the selected post-production performance
-correction. This is not a timeout-policy change. The observed exact-current path
-currently authenticates the signed stable index and then unnecessarily
-reacquires the entire already-installed signed generation, including the large
-runtime payload, before returning `AlreadyCurrent`. The correction must keep
-the signed index authentication boundary intact but allow ordinary no-argument
-`UpdateHoldPolicy::Enforce` to return exact-current immediately after index
-authentication when the index generation exactly equals the active generation,
-the active `current_key` equals the official `update_key`, and the installed
-current generation re-verifies under that authority. This shortcut must not be
-used by `--force`, local-derived current state, mismatched generations, bad
-index/signature state, or a locally invalid installed generation. It must not
-fetch release control or payload bytes, stage, probe, or mutate Core state.
-Candidate, hold/force, rollback, local-derived, explicit remote/local, signing,
-digest/mode, anti-rollback, activation, LKG, and CAS semantics remain unchanged.
-Source acceptance requires a curl-log proof that ordinary exact-current fetches
-only the signed index and signature, plus regression proof that real candidate
-and force paths retain their full authenticated behavior. Production/live
-publication is a separate action after source acceptance.
+correction and is source-accepted at exact implementation source
+`7817b939c81ce15c76d3d0d57157ca5e378a8491`. This is not a timeout-policy
+change. The previous exact-current path authenticated the signed stable index
+and then unnecessarily reacquired the entire already-installed signed
+generation, including the roughly 233 MB runtime payload, before returning
+`AlreadyCurrent`.
+
+The accepted correction keeps the signed-index authentication boundary intact.
+Ordinary no-argument `UpdateHoldPolicy::Enforce` may return exact-current
+without remote release acquisition only when the authenticated index generation
+exactly equals the active generation, `current_key == update_key`, the
+release-base generation identity is exact, rollback hold/guard state validates,
+and the installed current generation fully re-verifies under the official
+authority. It then creates no generation acquisition tree, fetches no release
+control/payload bytes, performs no candidate probe/staging, and mutates no
+state. `--force`, local-derived current state, a differing authenticated
+generation, malformed hold/guard state, bad index/signature, invalid
+release-base binding, or invalid local installed state remain on the existing
+full/fail-closed paths. Candidate, rollback, local-derived, explicit
+remote/local, signature/digest/mode, anti-rollback, activation, LKG, and CAS
+semantics are unchanged.
+
+Focused validation job `job_wcd_60498c3b61` passed the exact-current
+signed-channel and rollback-hold/`--force` regressions; its final nonzero shell
+status was caused only by Cargo's untracked worktree-local `target/`, which
+inspection job `job_wci_78c1c8931f` proved was the sole dirty entry.
+Authoritative full job `job_wcj_53ab115dbc` moved Cargo output to job-private
+storage and passed cleanly: Core 149 passed / 0 failed / 1 explicit real-Termux
+ignore, Manager 20/20, Manager integration 11/11, release-builder 19/19,
+workspace check, clippy `-D warnings`, rustfmt, and `git diff --check`.
+The curl-log proof shows an ordinary exact-current update makes exactly the
+signed index and index-signature requests and no release-control or payload
+request; the force regression shows `--force` still fetches and validates
+release manifest, descriptor, and runtime data.
+
+Production/live publication remains a separate action. Public stable remains
+signed sequence 16 generation
+`local-hosted-0-155-1-81131655d98f-update-progress-responsiveness` at
+`main=52c69f21472fb2d082ef87f0e6583c88b7a8e3db`, and the live installed
+runtime remains exact `codex-cli 0.155.1` on that sequence-16 generation.
 
 
 ## 1. Objective
