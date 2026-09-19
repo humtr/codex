@@ -110,6 +110,16 @@ behavior belongs in `SPEC.md`.
   ordinary update/version/semantic-doctor/second-no-op proof, and existing
   non-forced exact-parent CAS. No force push, fake credential/provider fixture,
   alternate trust key, or direct stable-byte write is allowed.
+- The normal interactive `workflow_dispatch` transport is currently
+  unavailable because the tmcp operation endpoint returns HTTP 404 before a
+  dispatch can be submitted. The user's explicit production authorization also
+  permits one operational fallback that does not broaden release authority: a
+  temporary `push` trigger bound to exact pre-trigger
+  `main=9738586528e46019109606e3d607402d726c8de4`, exact branch `main`,
+  exact trigger commit message, and the same seq16/source/seq17 gates above.
+  This bridge must be removed immediately after successful promotion. Any
+  other push, schedule, historical one-shot, wrong parent, wrong message, or
+  changed baseline remains fail-closed.
 - After public sequence 17 is independently re-read as authoritative, update
   the live Termux installation only through ordinary no-argument signed public
   `codex update`. Then verify exact `codex-cli 0.155.1`, healthy Termux
