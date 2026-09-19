@@ -198,6 +198,30 @@ colon-free exact trigger message. The bridge is not schedule authority, cannot
 admit any historical one-shot, and must be removed from `main` after
 successful promotion.
 
+Production retry run `35437042333` completed successfully. It admitted only
+the exact seq16/0.155.1 baseline after ordinary comparison returned
+`candidate=false`, built accepted source
+`7817b939c81ce15c76d3d0d57157ca5e378a8491`, preserved every non-Core
+load-bearing byte/mode, changed only Core-bound descriptor fields, passed native
+Android/AArch64 smoke, signing/independent verification, immutable Release,
+LKG-preserving Pages, public every-byte readback, disposable update/version/
+semantic-doctor/no-op, and committed the existing `force:false` CAS.
+Promotion commit `f361b4a241b34cee1a7ca5bf4c98914a6b9dd600` published signed
+sequence 17 generation
+`local-hosted-0-155-1-7817b939c81c-exact-current-fastpath`. The temporary
+push bridge was then removed; final
+`main=56ba28e1baee87721767ba34b505cc2bc1303c44` differs from the promotion
+commit only by restoring the normal non-push workflow, and stable index/signature
+bytes remain the promoted seq17 pair.
+
+The production publication leg is complete. Live consumer activation remains
+authorized but is not yet executed because the tmcp operation endpoint still
+returns HTTP 404. The next permitted live action is only ordinary no-argument
+signed public `codex update`; alternate manual generation/Core installation
+remains forbidden. After activation, record exact 0.155.1, healthy Termux
+components, and timed second exact-current no-op evidence before closing
+PROD-17.
+
 
 ## 1. Objective
 
