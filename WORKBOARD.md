@@ -53,10 +53,34 @@ behavior belongs in `SPEC.md`.
   ordinary generation-ID success text. Signed admission, anti-rollback,
   candidate probes, activation, local-derived authority, rollback, producer,
   publication, and public-stable semantics remain unchanged.
-- Active operation: **none**. UPDATE-PROGRESS-RESPONSIVENESS-PROD-16 is
-  accepted and closed on 2026-09-19 after signed sequence-16 public promotion
-  and live ordinary-update verification. UX1-PROD-15 remains accepted and
-  closed.
+- Active operation: **UPDATE-EXACT-CURRENT-FASTPATH**.
+  User feedback on 2026-09-19 identified that an exact-current ordinary
+  `codex update` still takes tens of seconds even though no activation is
+  needed. Investigation found the no-op path authenticates the signed stable
+  index, then unnecessarily reacquires the entire current signed generation
+  (including the roughly 233 MB runtime) before returning `AlreadyCurrent`.
+  This is a control-flow/performance defect, not a timeout-policy defect.
+- Selected bundle contract:
+  - ordinary no-argument update must still authenticate the signed stable index
+    with the existing accepted update authority before deciding exact-current;
+  - a fast exact-current return is allowed only when the authenticated index
+    generation exactly equals the active generation, the active generation is
+    still under the official update authority (`current_key == update_key`),
+    the local installed generation verifies under that authority, and normal
+    hold policy is `Enforce`;
+  - on that exact path, do not fetch release.manifest, release.sig,
+    generation.meta, runtime, Core, Manager, helpers, or code-mode-host, and do
+    not create a generation acquisition tree, stage, probe, or mutate state;
+  - `--force` retains full rollback-hold validation and does not use this
+    shortcut; a local-derived current generation, differing authenticated
+    generation, invalid index/signature, or unhealthy local installed
+    generation must also stay on the existing fail-closed/full path;
+  - real candidate acquisition/verification/activation semantics, signature,
+    digest, mode, anti-rollback, candidate probe, atomic activation, LKG,
+    rollback, local-derived behavior, and CAS are unchanged;
+  - add a curl-log regression proving exact-current ordinary update fetches only
+    the signed index pair, plus regressions proving candidate and force paths
+    still perform their existing authenticated release work.
 - Selected bundle contract:
   - keep the existing signed-channel trust, signature/digest/mode/version,
     anti-rollback, candidate-probe, atomic-activation, LKG, rollback, and CAS
