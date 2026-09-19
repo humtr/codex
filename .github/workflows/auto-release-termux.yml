@@ -1922,7 +1922,7 @@ jobs:
               printf 'Updating Codex %s -> %s...\n' "$pre_version" "$version" > "$RUNNER_TEMP/rald5-first-update.expected"
             fi
             printf 'Verified and activated the signed Termux release.\n' >> "$RUNNER_TEMP/rald5-first-update.expected"
-            printf 'Codex %s is now active. ✅\n' "$version" >> "$RUNNER_TEMP/rald5-first-update.expected"
+            printf 'Codex %s is now active.\n' "$version" >> "$RUNNER_TEMP/rald5-first-update.expected"
           fi
           cmp "$RUNNER_TEMP/rald5-first-update.expected" "$RUNNER_TEMP/rald5-first-update.out"
           if test '${{ needs.producer.outputs.legacy_lag_jump_remediation }}' = true; then
@@ -2026,7 +2026,7 @@ jobs:
           }
           snapshot > "$RUNNER_TEMP/rald5-before-noop"
           "$PREFIX/bin/codex" update > "$RUNNER_TEMP/rald5-second-update.out"
-          printf 'Codex %s is already up to date. ✅\n' "$version" > "$RUNNER_TEMP/rald5-second-update.expected"
+          printf 'Codex %s is already up to date.\n' "$version" > "$RUNNER_TEMP/rald5-second-update.expected"
           cmp "$RUNNER_TEMP/rald5-second-update.expected" "$RUNNER_TEMP/rald5-second-update.out"
           snapshot > "$RUNNER_TEMP/rald5-after-noop"
           diff -u "$RUNNER_TEMP/rald5-before-noop" "$RUNNER_TEMP/rald5-after-noop"

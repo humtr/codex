@@ -7261,7 +7261,7 @@ fn render_update_failure(error: &LocalProductError) -> String {
         }
         None => "Update failed".to_owned(),
     };
-    format!("{sentence}. ❌")
+    format!("{sentence}.")
 }
 
 #[cfg(unix)]
@@ -7434,26 +7434,26 @@ impl UpdatePresentation {
     fn finish_signed_activation(&mut self, current_version: &str) {
         self.clear_transient();
         println!("Verified and activated the signed Termux release.");
-        println!("Codex {current_version} is now active. ✅");
+        println!("Codex {current_version} is now active.");
     }
 
     fn finish_local_activation(&mut self, current_version: &str) {
         self.clear_transient();
         println!("Verified and activated the locally built Termux release.");
-        println!("Codex {current_version} is now active. ✅");
+        println!("Codex {current_version} is now active.");
     }
 
     fn finish_current(&mut self, current_version: &str) {
         self.clear_transient();
-        println!("Codex {current_version} is already up to date. ✅");
+        println!("Codex {current_version} is already up to date.");
     }
 
     fn finish_rollback(&mut self, previous_version: &str, current_version: &str) {
         self.clear_transient();
         if previous_version == current_version {
-            println!("Rolled back the Termux release for Codex {current_version}. ✅");
+            println!("Rolled back the Termux release for Codex {current_version}.");
         } else {
-            println!("Rolled back Codex {previous_version} -> {current_version}. ✅");
+            println!("Rolled back Codex {previous_version} -> {current_version}.");
         }
     }
 
@@ -13918,7 +13918,7 @@ snooze_until	0
         assert!(!update_progress_enabled(false, false));
         assert_eq!(
             render_update_failure(&LocalProductError::SignatureRejected),
-            "Release signature verification failed. ❌"
+            "Release signature verification failed."
         );
     }
 
@@ -17061,7 +17061,7 @@ esac
         let stdout = String::from_utf8(output.stdout).unwrap();
         assert!(stdout.contains("Updating Codex 9.9.9 -> 0.150.1..."));
         assert!(stdout.contains("Verified and activated the locally built Termux release."));
-        assert!(stdout.contains("Codex 0.150.1 is now active. ✅"));
+        assert!(stdout.contains("Codex 0.150.1 is now active."));
         assert!(output.stderr.is_empty(), "stderr={:?}", output.stderr);
         assert!(
             !gh_log.exists(),
@@ -17145,7 +17145,7 @@ esac
         assert!(
             explicit_stdout.contains("Verified and activated the locally built Termux release.")
         );
-        assert!(explicit_stdout.contains("Codex 0.150.1 is now active. ✅"));
+        assert!(explicit_stdout.contains("Codex 0.150.1 is now active."));
         assert!(explicit.stderr.is_empty(), "stderr={:?}", explicit.stderr);
         assert!(!gh_log.exists(), "--build-local must not invoke gh");
         let explicit_state = read_pointer_state(&paths).unwrap().unwrap();
@@ -18744,8 +18744,8 @@ esac
             "stderr={stderr:?} expected={expected:?}"
         );
         assert!(
-            stderr.ends_with("❌\n".as_bytes()),
-            "operational update failure must end with the failure marker: {stderr:?}"
+            stderr.ends_with(".\n".as_bytes()),
+            "operational update failure must end with ordinary sentence punctuation: {stderr:?}"
         );
     }
 
@@ -18785,7 +18785,7 @@ esac
             output.stderr
         );
         let _ = generation_id;
-        let expected = "Codex 9.9.9 is now active. ✅\n";
+        let expected = "Codex 9.9.9 is now active.\n";
         assert!(
             output
                 .stdout
@@ -18812,7 +18812,7 @@ esac
             output.stderr
         );
         let _ = generation_id;
-        let expected = "Rolled back the Termux release for Codex 9.9.9. ✅\n";
+        let expected = "Rolled back the Termux release for Codex 9.9.9.\n";
         assert!(
             output
                 .stdout
@@ -18917,7 +18917,7 @@ esac
                             ) {
                                 Ok(state) => {
                                     let _ = state;
-                                    println!("Codex 9.9.9 is now active. ✅");
+                                    println!("Codex 9.9.9 is now active.");
                                     0
                                 }
                                 Err(error) => {
@@ -21611,7 +21611,7 @@ exit 2
             "terminal={terminal:?}"
         );
         assert!(
-            terminal.contains("Codex 9.9.9 is now active. ✅"),
+            terminal.contains("Codex 9.9.9 is now active."),
             "terminal={terminal:?}"
         );
         assert!(terminal.contains("ARGS:"), "terminal={terminal:?}");
@@ -21683,7 +21683,7 @@ exit 2
         assert!(verifying < probing);
         assert!(probing < activating);
         assert!(terminal.contains("Verified and activated the signed Termux release."));
-        assert!(terminal.contains("Codex 9.9.9 is now active. ✅"));
+        assert!(terminal.contains("Codex 9.9.9 is now active."));
         assert!(terminal.matches("\x1b[2K").count() >= 6);
         assert!(
             output.stderr.is_empty(),

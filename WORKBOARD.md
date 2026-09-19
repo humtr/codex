@@ -51,10 +51,15 @@ behavior belongs in `SPEC.md`.
   sequence-13 audit. The earlier `c3f87302...` UX source is superseded only for
   the pre-authentication progress-ordering gap.
 - UX-1 changes presentation only: version-centric permanent output, one
-  TTY-only transient progress line, sentence-final `✅` / `❌`, and no
-  ordinary generation-ID success text. Signed admission, anti-rollback,
+  TTY-only transient progress line, plain sentence-final punctuation with no
+  emoji decoration, and no ordinary generation-ID success text. Signed admission,
+  anti-rollback,
   candidate probes, activation, local-derived authority, rollback, producer,
   publication, and public-stable semantics remain unchanged.
+- Follow-up user instruction on 2026-09-20 removes all emoji decoration from
+  permanent update/rollback output and operational update failures. Success and
+  failure lines now use ordinary sentence punctuation only. The animated Braille
+  spinner remains because it is a terminal progress glyph rather than an emoji.
 - Active operation: **BARE-TTY-UPDATE-DISCOVERY**. User authorization on
   2026-09-20 selects one bounded launch-UX slice: only exact bare `codex` with
   stdin/stdout/stderr all attached to terminals may authenticate the signed
@@ -208,7 +213,7 @@ behavior belongs in `SPEC.md`.
   `job_wdu_343ee51ae9` then reported exact seq17 generation with healthy
   Core/runtime/code-mode-host/Manager/upstream/summary and doctor rc=0. Its
   timed second ordinary update completed in 1268 ms, emitted exactly
-  `Codex 0.155.1 is already up to date. ✅`, emitted no stderr or CR/ANSI
+  `Codex 0.155.1 is already up to date.`, emitted no stderr or CR/ANSI
   controls, and left the complete Core generation/activation/launcher snapshot
   unchanged. No alternate install route or protected user-state mutation was
   used. No further action is selected by this bundle.
@@ -288,7 +293,7 @@ behavior belongs in `SPEC.md`.
   `job_w4j_b7c769f26d` (exact-current non-TTY no-op plus healthy doctor), and
   `job_w4k_377b6ef362` (actual PTY no-op with transient-line cleanup).
   The exact second-update permanent line is
-  `Codex 0.155.1 is already up to date. ✅`; the PTY proof observed the
+  `Codex 0.155.1 is already up to date.`; the PTY proof observed the
   transient `Checking for updates...` line being erased before that final
   line. No further action is selected by this closed bundle.
 - RALD-1 local-derived Core contract, RALD-2 Core/official-producer separation,

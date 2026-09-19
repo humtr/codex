@@ -80,8 +80,8 @@ class Rald7AcceptanceContract(unittest.TestCase):
         self.assertIn("Updating Codex %s -> %s...", text)
         self.assertIn("Updating the Termux release for Codex %s...", text)
         self.assertIn("Verified and activated the signed Termux release.", text)
-        self.assertIn("Codex %s is now active. ✅", text)
-        self.assertIn("Codex %s is already up to date. ✅", text)
+        self.assertIn("Codex %s is now active.", text)
+        self.assertIn("Codex %s is already up to date.", text)
 
     def test_legacy_lag_jump_remediation_is_exact_manual_one_shot(self) -> None:
         text = (ROOT / ".github/workflows/auto-release-termux.yml").read_text()
@@ -278,7 +278,7 @@ class Rald7AcceptanceContract(unittest.TestCase):
             text,
         )
         self.assertIn("activated channel generation %s", text)
-        self.assertIn("Codex %s is already up to date. ✅", text)
+        self.assertIn("Codex %s is already up to date.", text)
         self.assertIn("force:false", text)
         self.assertNotIn("force: true", text)
 

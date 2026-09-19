@@ -222,7 +222,7 @@ Termux qualification. Produce one candidate for independent product review.
   with healthy Termux Core/Manager/runtime. Ordinary public update job
   `job_w4i_4679e91eab` activated the exact sequence-15 generation and then
   reported `codex-cli 0.155.1`. New-Core job `job_w4j_b7c769f26d`
-  required the exact-current line `Codex 0.155.1 is already up to date. ✅`,
+  required the exact-current line `Codex 0.155.1 is already up to date.`,
   proved non-TTY output had no CR/ANSI controls, and reported the new generation
   healthy. PTY job `job_w4k_377b6ef362` required both child stdout and stderr
   to be terminals and captured `Checking for updates...`, transient-line
@@ -240,10 +240,11 @@ Termux qualification. Produce one candidate for independent product review.
   verification phases. The PTY contract is therefore exact
   `Checking -> version header -> Downloading -> Verifying -> candidate probe ->
   Activating`. Non-TTY execution emits no carriage-return/ANSI progress
-  controls. Signed success ends with `Codex <VERSION> is now active. ✅`,
-  exact-current success ends with `Codex <VERSION> is already up to date. ✅`,
-  operational failures omit the redundant command prefix and end in `❌`, and
-  same-version corrective generations use
+  controls. Signed success ends with `Codex <VERSION> is now active.`,
+  exact-current success ends with `Codex <VERSION> is already up to date.`,
+  operational failures omit the redundant command prefix and end in a period,
+  all permanent update results use no emoji decoration, and same-version
+  corrective generations use
   `Updating the Termux release for Codex <VERSION>...`.
   Full remote acceptance run `35406952579` at acceptance head
   `71ded0446da7d86e244e140a8ba9b8c6e1e1ff57` passed workflow/credential/diff
@@ -3428,7 +3429,7 @@ remain separate explicitly authorized operations.
   healthy sequence-15 generation. PTY job `job_wam_258c839b9b` then invoked
   only no-argument `codex update`; its captured update contained the expected
   same-version header, signed-activation success sentence, and
-  `Codex 0.155.1 is now active. ✅`. That job's post-update harness exited 1
+  `Codex 0.155.1 is now active.`. That job's post-update harness exited 1
   only because it over-constrained the *initiating sequence-15 Core* to already
   show the new animated pre-activation spinner; it observed the expected old
   single frame and did not indicate an activation failure. Immediate read-only
@@ -3439,7 +3440,7 @@ remain separate explicitly authorized operations.
   observed 374 in-place `Checking for updates...` redraws and all ten spinner
   frames `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`, verified erase-before-permanent-output
   cleanup, and ended with exact
-  `Codex 0.155.1 is already up to date. ✅`. A subsequent non-TTY no-op
+  `Codex 0.155.1 is already up to date.`. A subsequent non-TTY no-op
   produced exactly the same permanent line with no CR or ANSI controls.
   The live version remains exact `codex-cli 0.155.1`; the active generation is
   now the signed sequence-16 progress-responsiveness generation. The bundle is
@@ -3521,7 +3522,7 @@ remain separate explicitly authorized operations.
   `codex-cli 0.155.1`, healthy Termux Core/runtime/code-mode host, genuine
   upstream doctor execution (unhealthy in the credential-free disposable
   environment, correctly distinct from Core integrity), and an exact second
-  no-op `Codex 0.155.1 is already up to date. ✅` with no state delta.
+  no-op `Codex 0.155.1 is already up to date.` with no state delta.
   CAS job `105881831694` reported `promotion_result=committed`,
   `ref_update_rc=0`, used `force:false`, and reverified the served stable
   index signature after promotion.
@@ -3548,14 +3549,14 @@ remain separate explicitly authorized operations.
   activation in 62014 ms, printing
   `Updating the Termux release for Codex 0.155.1...`,
   `Verified and activated the signed Termux release.`, and
-  `Codex 0.155.1 is now active. ✅`; exact version remained
+  `Codex 0.155.1 is now active.`; exact version remained
   `codex-cli 0.155.1`.
 - New-Core proof job `job_wdu_343ee51ae9` bound the active generation exactly
   to `local-hosted-0-155-1-7817b939c81c-exact-current-fastpath` and reported
   Core, runtime, code-mode host, Manager, upstream, and composed summary all
   healthy with doctor exit 0. Its timed ordinary exact-current update completed
   in **1268 ms**, emitted exactly
-  `Codex 0.155.1 is already up to date. ✅` on stdout, emitted empty stderr,
+  `Codex 0.155.1 is already up to date.` on stdout, emitted empty stderr,
   contained no CR/ANSI control bytes, and left the complete Core generation /
   activation / launcher snapshot byte-for-byte unchanged. Final version remained
   exact `codex-cli 0.155.1`. No manual generation copy, direct Core overwrite,

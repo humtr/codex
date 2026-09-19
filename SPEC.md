@@ -178,11 +178,12 @@ channel activation writes the permanent stdout header
 generation instead writes `Updating the Termux release for Codex <VERSION>...`.
 Successful signed activation then writes exactly
 `Verified and activated the signed Termux release.` followed by
-`Codex <NEW> is now active. ✅`. Exact-current success writes
-`Codex <VERSION> is already up to date. ✅` and performs no staging, probe, or
+`Codex <NEW> is now active.`. Exact-current success writes
+`Codex <VERSION> is already up to date.` and performs no staging, probe, or
 state mutation. Human operational update failures omit redundant command-name
 prefixes such as `codex update:`; after clearing any transient line they emit
-one concise sentence ending in `❌`. Usage errors retain the canonical usage
+one concise sentence ending in a period. Success and failure results use
+plain text with no emoji decoration. Usage errors retain the canonical usage
 surface and are not decorated as operational failures. Internal generation IDs,
 release sequences, digests, API/schema identities, and similar machinery do not
 become ordinary human success text; they remain available only on the
