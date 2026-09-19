@@ -120,6 +120,26 @@ erase-before-permanent-output cleanup, and then proved the non-TTY exact-current
 line contains no CR/ANSI controls. PROD-16 requires no further publication or
 live-consumer action.
 
+UPDATE-EXACT-CURRENT-FASTPATH is the selected post-production performance
+correction. This is not a timeout-policy change. The observed exact-current path
+currently authenticates the signed stable index and then unnecessarily
+reacquires the entire already-installed signed generation, including the large
+runtime payload, before returning `AlreadyCurrent`. The correction must keep
+the signed index authentication boundary intact but allow ordinary no-argument
+`UpdateHoldPolicy::Enforce` to return exact-current immediately after index
+authentication when the index generation exactly equals the active generation,
+the active `current_key` equals the official `update_key`, and the installed
+current generation re-verifies under that authority. This shortcut must not be
+used by `--force`, local-derived current state, mismatched generations, bad
+index/signature state, or a locally invalid installed generation. It must not
+fetch release control or payload bytes, stage, probe, or mutate Core state.
+Candidate, hold/force, rollback, local-derived, explicit remote/local, signing,
+digest/mode, anti-rollback, activation, LKG, and CAS semantics remain unchanged.
+Source acceptance requires a curl-log proof that ordinary exact-current fetches
+only the signed index and signature, plus regression proof that real candidate
+and force paths retain their full authenticated behavior. Production/live
+publication is a separate action after source acceptance.
+
 
 ## 1. Objective
 
