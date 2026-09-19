@@ -7140,7 +7140,7 @@ fn render_update_failure(error: &LocalProductError) -> String {
         }
         None => "Update failed".to_owned(),
     };
-    format!("{sentence}. ❌")
+    format!("{sentence}.")
 }
 
 #[cfg(unix)]
@@ -7313,26 +7313,26 @@ impl UpdatePresentation {
     fn finish_signed_activation(&mut self, current_version: &str) {
         self.clear_transient();
         println!("Verified and activated the signed Termux release.");
-        println!("Codex {current_version} is now active. ✅");
+        println!("Codex {current_version} is now active.");
     }
 
     fn finish_local_activation(&mut self, current_version: &str) {
         self.clear_transient();
         println!("Verified and activated the locally built Termux release.");
-        println!("Codex {current_version} is now active. ✅");
+        println!("Codex {current_version} is now active.");
     }
 
     fn finish_current(&mut self, current_version: &str) {
         self.clear_transient();
-        println!("Codex {current_version} is already up to date. ✅");
+        println!("Codex {current_version} is already up to date.");
     }
 
     fn finish_rollback(&mut self, previous_version: &str, current_version: &str) {
         self.clear_transient();
         if previous_version == current_version {
-            println!("Rolled back the Termux release for Codex {current_version}. ✅");
+            println!("Rolled back the Termux release for Codex {current_version}.");
         } else {
-            println!("Rolled back Codex {previous_version} -> {current_version}. ✅");
+            println!("Rolled back Codex {previous_version} -> {current_version}.");
         }
     }
 
@@ -11940,7 +11940,7 @@ exit 73
         let (status, stdout, stderr) = run_repair_probe("legacy-apply");
         assert_eq!(status.code(), Some(1));
         assert!(stdout.is_empty());
-        assert_eq!(stderr, b"Update index URL must use HTTPS. \xE2\x9D\x8C\n");
+        assert_eq!(stderr, b"Update index URL must use HTTPS.\n");
     }
 
     #[cfg(unix)]
@@ -13197,7 +13197,7 @@ exit 73
         assert!(!update_progress_enabled(false, false));
         assert_eq!(
             render_update_failure(&LocalProductError::SignatureRejected),
-            "Release signature verification failed. ❌"
+            "Release signature verification failed."
         );
     }
 
@@ -16118,8 +16118,8 @@ esac
         );
         assert!(output
             .stdout
-            .windows(b"Codex 9.9.9 is now active. \xE2\x9C\x85\n".len())
-            .any(|window| window == b"Codex 9.9.9 is now active. \xE2\x9C\x85\n"));
+            .windows(b"Codex 9.9.9 is now active.\n".len())
+            .any(|window| window == b"Codex 9.9.9 is now active.\n"));
         assert!(!fixture.home.join(LOCAL_PUBLICATION_ROOT_RELATIVE).exists());
         let calls = std::fs::read_to_string(&fixture.curl_log).unwrap();
         assert!(calls.contains(&fixture.index_url));
@@ -16180,12 +16180,12 @@ esac
         assert!(ordinary
             .stdout
             .windows(
-                b"Codex 9.9.9 is now active. \xE2\x9C\x85
+                b"Codex 9.9.9 is now active.
 "
                 .len()
             )
             .any(|window| window
-                == b"Codex 9.9.9 is now active. \xE2\x9C\x85
+                == b"Codex 9.9.9 is now active.
 "));
         assert!(!gh_log.exists(), "ordinary update must not invoke gh");
         let ordinary_calls = std::fs::read_to_string(&fixture.curl_log).unwrap();
@@ -16340,7 +16340,7 @@ esac
         let stdout = String::from_utf8(output.stdout).unwrap();
         assert!(stdout.contains("Updating Codex 9.9.9 -> 0.150.1..."));
         assert!(stdout.contains("Verified and activated the locally built Termux release."));
-        assert!(stdout.contains("Codex 0.150.1 is now active. ✅"));
+        assert!(stdout.contains("Codex 0.150.1 is now active."));
         assert!(output.stderr.is_empty(), "stderr={:?}", output.stderr);
         assert!(
             !gh_log.exists(),
@@ -16424,7 +16424,7 @@ esac
         assert!(
             explicit_stdout.contains("Verified and activated the locally built Termux release.")
         );
-        assert!(explicit_stdout.contains("Codex 0.150.1 is now active. ✅"));
+        assert!(explicit_stdout.contains("Codex 0.150.1 is now active."));
         assert!(explicit.stderr.is_empty(), "stderr={:?}", explicit.stderr);
         assert!(!gh_log.exists(), "--build-local must not invoke gh");
         let explicit_state = read_pointer_state(&paths).unwrap().unwrap();
@@ -17928,8 +17928,8 @@ esac
             "stderr={stderr:?} expected={expected:?}"
         );
         assert!(
-            stderr.ends_with("❌\n".as_bytes()),
-            "operational update failure must end with the failure marker: {stderr:?}"
+            stderr.ends_with(".\n".as_bytes()),
+            "operational update failure must end with ordinary sentence punctuation: {stderr:?}"
         );
     }
 
@@ -17969,7 +17969,7 @@ esac
             output.stderr
         );
         let _ = generation_id;
-        let expected = "Codex 9.9.9 is now active. ✅\n";
+        let expected = "Codex 9.9.9 is now active.\n";
         assert!(
             output
                 .stdout
@@ -17996,7 +17996,7 @@ esac
             output.stderr
         );
         let _ = generation_id;
-        let expected = "Rolled back the Termux release for Codex 9.9.9. ✅\n";
+        let expected = "Rolled back the Termux release for Codex 9.9.9.\n";
         assert!(
             output
                 .stdout
@@ -18101,7 +18101,7 @@ esac
                             ) {
                                 Ok(state) => {
                                     let _ = state;
-                                    println!("Codex 9.9.9 is now active. ✅");
+                                    println!("Codex 9.9.9 is now active.");
                                     0
                                 }
                                 Err(error) => {
@@ -20109,9 +20109,8 @@ exec "$cat_path" "$release_root/$relative"
         );
         assert!(rollback
             .stdout
-            .windows(b"Rolled back the Termux release for Codex 9.9.9. \xE2\x9C\x85\n".len())
-            .any(|window| window
-                == b"Rolled back the Termux release for Codex 9.9.9. \xE2\x9C\x85\n"));
+            .windows(b"Rolled back the Termux release for Codex 9.9.9.\n".len())
+            .any(|window| window == b"Rolled back the Termux release for Codex 9.9.9.\n"));
         let roots = b7_public_roots(&fixture.home, &fixture.prefix);
         assert_eq!(
             read_update_hold(&roots).unwrap(),
@@ -20264,8 +20263,8 @@ exec "$cat_path" "$release_root/$relative"
         );
         assert!(current_again
             .stdout
-            .windows(b"Codex 9.9.9 is already up to date. \xE2\x9C\x85\n".len())
-            .any(|window| window == b"Codex 9.9.9 is already up to date. \xE2\x9C\x85\n"));
+            .windows(b"Codex 9.9.9 is already up to date.\n".len())
+            .any(|window| window == b"Codex 9.9.9 is already up to date.\n"));
         assert_eq!(read_update_hold(&roots).unwrap(), None);
         b5_assert_no_acquisition(&roots.generation_root);
         m2_b1_assert_no_transaction_files(&state_paths);
@@ -20698,7 +20697,7 @@ exit 2
         assert!(verifying < probing);
         assert!(probing < activating);
         assert!(terminal.contains("Verified and activated the signed Termux release."));
-        assert!(terminal.contains("Codex 9.9.9 is now active. ✅"));
+        assert!(terminal.contains("Codex 9.9.9 is now active."));
         assert!(terminal.matches("\x1b[2K").count() >= 6);
         assert!(
             output.stderr.is_empty(),
@@ -20728,8 +20727,8 @@ exit 2
             );
             assert!(output
                 .stdout
-                .windows(b"Codex 9.9.9 is now active. \xE2\x9C\x85\n".len())
-                .any(|window| window == b"Codex 9.9.9 is now active. \xE2\x9C\x85\n"));
+                .windows(b"Codex 9.9.9 is now active.\n".len())
+                .any(|window| window == b"Codex 9.9.9 is now active.\n"));
             assert!(output.stderr.is_empty(), "stderr={:?}", output.stderr);
             assert!(!output.stdout.contains(&b'\r'));
             assert!(!output.stdout.windows(2).any(|window| window == b"\x1b["));
@@ -20783,13 +20782,13 @@ exit 2
             assert!(current_again
                 .stdout
                 .windows(
-                    b"Codex 9.9.9 is already up to date. \xE2\x9C\x85
+                    b"Codex 9.9.9 is already up to date.
 "
                     .len()
                 )
                 .any(|window| {
                     window
-                        == b"Codex 9.9.9 is already up to date. \xE2\x9C\x85
+                        == b"Codex 9.9.9 is already up to date.
 "
                 }));
             assert!(
@@ -20830,10 +20829,7 @@ exit 2
         {
             let fixture = b5_channel_fixture("r4-channel-bad-signature", "channel-bad");
             std::fs::write(&fixture.signature_path, b"not-a-signature").unwrap();
-            b5_assert_channel_rejected(
-                &fixture,
-                b"Release signature verification failed. \xE2\x9D\x8C",
-            );
+            b5_assert_channel_rejected(&fixture, b"Release signature verification failed.");
             remove_temp_root(fixture.root);
         }
 
@@ -20850,10 +20846,7 @@ exit 2
                 &fixture.openssl,
                 &fixture.private_key,
             );
-            b5_assert_channel_rejected(
-                &fixture,
-                b"Update index is missing its final newline. \xE2\x9D\x8C",
-            );
+            b5_assert_channel_rejected(&fixture, b"Update index is missing its final newline.");
             remove_temp_root(fixture.root);
         }
     }
@@ -21074,7 +21067,7 @@ exit 0
             output.stdout,
             output.stderr
         );
-        let expected = b"Codex 9.9.9 is now active. \xE2\x9C\x85\n";
+        let expected = b"Codex 9.9.9 is now active.\n";
         assert!(
             output
                 .stdout
@@ -21659,8 +21652,8 @@ exit 0
         );
         assert!(second_output
             .stdout
-            .windows(b"Codex 9.9.9 is now active. \xE2\x9C\x85\n".len())
-            .any(|window| window == b"Codex 9.9.9 is now active. \xE2\x9C\x85\n"));
+            .windows(b"Codex 9.9.9 is now active.\n".len())
+            .any(|window| window == b"Codex 9.9.9 is now active.\n"));
         let expected_forward = GenerationPointerState {
             update_key: release_public_key_from_pem(&openssl, &public_key).unwrap(),
             current: "remote-second".to_string(),
@@ -21685,13 +21678,13 @@ exit 0
         assert!(current_again
             .stdout
             .windows(
-                b"Codex 9.9.9 is already up to date. \xE2\x9C\x85
+                b"Codex 9.9.9 is already up to date.
 "
                 .len()
             )
             .any(|window| {
                 window
-                    == b"Codex 9.9.9 is already up to date. \xE2\x9C\x85
+                    == b"Codex 9.9.9 is already up to date.
 "
             }));
         assert!(
