@@ -88,13 +88,34 @@ behavior belongs in `SPEC.md`.
   ordinary exact-current network path to exactly the signed index and
   index-signature requests, while the force regression proves `--force` still
   fetches release control and runtime payload data.
-- No production publication or live consumer update is authorized by this
-  source acceptance. Public stable remains signed sequence 16 generation
-  `local-hosted-0-155-1-81131655d98f-update-progress-responsiveness` at
-  `main=52c69f21472fb2d082ef87f0e6583c88b7a8e3db`; the live installation
-  remains exact `codex-cli 0.155.1` on that generation. A corrective
-  publication/live-consumption leg requires separate explicit production
-  authorization.
+- **UPDATE-EXACT-CURRENT-FASTPATH-PROD-17 is explicitly authorized by the
+  user on 2026-09-19 for production publication and live consumption.**
+  Public baseline must authenticate as exact upstream `0.155.1`, signed
+  sequence 16 generation
+  `local-hosted-0-155-1-81131655d98f-update-progress-responsiveness`, with
+  `main=52c69f21472fb2d082ef87f0e6583c88b7a8e3db` before the producer-only
+  install. Ordinary upstream comparison must first return `candidate=false`;
+  only a new false-by-default manual/main-only fastpath gate may admit exact
+  accepted product source `7817b939c81ce15c76d3d0d57157ca5e378a8491`
+  as next signed sequence 17. Schedules and every historical one-shot gate
+  must reject this path.
+- Before signing, sequence-17 non-Core load-bearing bytes/modes
+  (`codex-code-mode-host`, both helpers, Manager, runtime) must equal signed
+  sequence 16 exactly; Core must differ and be built from the accepted fastpath
+  source. Ordered `generation.meta` may differ only in unique
+  `generation_id` and `core_artifact_digest`, with both digests bound to
+  the actual old/new Core bytes.
+- Publication must use the existing production authority, immutable Release,
+  LKG-preserving Pages deployment, public HTTPS every-byte readback, disposable
+  ordinary update/version/semantic-doctor/second-no-op proof, and existing
+  non-forced exact-parent CAS. No force push, fake credential/provider fixture,
+  alternate trust key, or direct stable-byte write is allowed.
+- After public sequence 17 is independently re-read as authoritative, update
+  the live Termux installation only through ordinary no-argument signed public
+  `codex update`. Then verify exact `codex-cli 0.155.1`, healthy Termux
+  Core/runtime/code-mode-host/Manager, and a second exact-current update using
+  the new fast path. Capture elapsed time for that no-op as operational evidence
+  while preserving the exact permanent output contract.
 
 - UX1-PROD-15 is accepted and closed on 2026-09-19; its explicitly authorized
   production deployment and live Termux consumer update remain complete.
