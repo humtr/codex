@@ -184,13 +184,19 @@ During this authorized operation the tmcp operation endpoint began returning
 HTTP 404 before dispatch submission, while GitHub repository writes/readback
 remain available. To complete the user's explicit deployment request without
 weakening candidate/publication gates, one temporary push-trigger bridge is
-authorized. It must require exact `github.event.before =
-9738586528e46019109606e3d607402d726c8de4`, exact `refs/heads/main`, an
-exact dedicated trigger commit message, and the same seq16 generation/version,
-accepted source, ordinary-`candidate=false`, target-sequence-17, publication,
-signing, readback, disposable-runtime, and `force:false` CAS requirements.
-The bridge is not schedule authority, cannot admit any historical one-shot, and
-must be removed from `main` after successful promotion.
+authorized. It must require one exact pre-trigger parent, exact
+`refs/heads/main`, an exact dedicated trigger commit message, and the same
+seq16 generation/version, accepted source, ordinary-`candidate=false`,
+target-sequence-17, publication, signing, readback, disposable-runtime, and
+`force:false` CAS requirements. Initial push run `35436887423` at
+`main=5f7a316cd433d659979c1ec1bf648294002b4307` produced no jobs because a
+colon-space inside the unquoted GitHub expression made the workflow YAML
+invalid; stable index/signature bytes stayed identical to sequence 16, so no
+release mutation occurred. The corrected retry is rebound to exact
+`github.event.before = 5f7a316cd433d659979c1ec1bf648294002b4307` and a
+colon-free exact trigger message. The bridge is not schedule authority, cannot
+admit any historical one-shot, and must be removed from `main` after
+successful promotion.
 
 
 ## 1. Objective
