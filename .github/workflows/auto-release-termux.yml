@@ -387,6 +387,7 @@ jobs:
             test "$RALD45_TRANSITION_PROMOTE" != true
             test "$RALD5_NEGATIVE_GATE" != true
             test "$LEGACY_LAG_JUMP_REMEDIATION" != true
+            test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true
             test "$CODEX_SOURCE_SHA" = "$UX1_ACCEPTED_SOURCE_SHA"
             test '${{ steps.stable.outputs.current_version }}' = "$UX1_DEPLOY_VERSION"
             test "$upstream_version" = "$UX1_DEPLOY_VERSION"
