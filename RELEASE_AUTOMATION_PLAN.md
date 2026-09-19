@@ -1,6 +1,6 @@
 # Release Automation and Local-Derived Update Plan
 
-Status: RALD-1 through RALD-7 and the post-RALD legacy-lag production remediation are complete. UX-1 update human output, including authenticated progress ordering, is source-accepted at exact product source `07f77b89a177682954d80ae3f797377c4731de64`. **UX1-PROD-15 is now selected and explicitly authorized (2026-09-19)** to install that accepted producer on `main`, publish one bounded same-version `0.155.1` corrective generation from exact public sequence 14 to sequence 15, and then update the live Termux consumer through the ordinary signed channel.
+Status: RALD-1 through RALD-7 and the post-RALD legacy-lag production remediation are complete. UX-1 update human output, including authenticated progress ordering, is source-accepted at exact product source `07f77b89a177682954d80ae3f797377c4731de64`. **UX1-PROD-15 publication is complete and accepted (2026-09-19)**: production run `35425409155` promoted signed sequence 15 generation `local-hosted-0-155-1-07f77b89a177-ux1-human-output` by the existing non-forced exact-parent CAS to `main=ba36c44f871ef266c4887986535ed87a4d2becc9` after all build/signing/Release/Pages/readback/disposable-runtime gates passed. The already authorized remaining UX1-PROD-15 step is to update the live Termux consumer through the ordinary signed public channel, verify exact `codex-cli 0.155.1`, prove the second-update exact-current UX, and then close the bundle.
 
 Baseline: `rewrite/rust-core` at
 `21bb1cd78d4a6e6ef8e124b7f07230206c5aa5ea` (`termux: guard rollback holds and automate stable intake`).
@@ -34,6 +34,19 @@ public HTTPS readback, disposable update/version/doctor/no-op, and non-forced
 exact-parent CAS gates remain unchanged. Schedules must explicitly reject the
 gate. Once sequence 15 is promoted, the exact baseline fence makes the gate
 unusable.
+
+Production run `35425409155` satisfied this contract. Its authenticated
+baseline was exact sequence 14 generation
+`local-hosted-0-155-1-566034e1aff4`; ordinary comparison first yielded no
+candidate, then only the manual UX-1 gate admitted sequence 15. The run passed
+the non-Core digest/mode identity gate and ordered raw-record descriptor
+comparison, Android/AArch64 smoke, production signing and independent
+verification, immutable Release staging, LKG-preserving Pages, public HTTPS
+byte readback, disposable update/version/doctor/no-op proof, and the existing
+`force:false` exact-parent CAS. Post-promotion public stable readback matched
+the promoted index/signature bytes and reverified the signature. The exact
+sequence-14 fence is therefore now inert by construction.
+
 
 ## 1. Objective
 
