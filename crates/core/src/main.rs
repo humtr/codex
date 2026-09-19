@@ -3897,6 +3897,8 @@ const REMOTE_RELEASE_TOTAL_MAX_BYTES: u64 = 1024 * 1024 * 1024;
 #[cfg(unix)]
 const REMOTE_CONNECT_TIMEOUT_SECONDS: &str = "15";
 #[cfg(unix)]
+const REMOTE_CONTROL_TRANSFER_TIMEOUT_SECONDS: &str = "30";
+#[cfg(unix)]
 const REMOTE_TRANSFER_TIMEOUT_SECONDS: &str = "300";
 #[cfg(unix)]
 const INTERNAL_BOOTSTRAP_MODE_ENV: &str = "CODEX_TERMUX_INTERNAL_BOOTSTRAP";
@@ -5062,6 +5064,39 @@ fn fetch_remote_file(
     output: &std::fs::File,
     max_bytes: u64,
 ) -> Result<u64, LocalProductError> {
+    fetch_remote_file_with_timeout(
+        roots,
+        url,
+        output,
+        max_bytes,
+        REMOTE_TRANSFER_TIMEOUT_SECONDS,
+    )
+}
+
+#[cfg(unix)]
+fn fetch_remote_control_file(
+    roots: &LocalCoreRoots,
+    url: &str,
+    output: &std::fs::File,
+    max_bytes: u64,
+) -> Result<u64, LocalProductError> {
+    fetch_remote_file_with_timeout(
+        roots,
+        url,
+        output,
+        max_bytes,
+        REMOTE_CONTROL_TRANSFER_TIMEOUT_SECONDS,
+    )
+}
+
+#[cfg(unix)]
+fn fetch_remote_file_with_timeout(
+    roots: &LocalCoreRoots,
+    url: &str,
+    output: &std::fs::File,
+    max_bytes: u64,
+    transfer_timeout_seconds: &str,
+) -> Result<u64, LocalProductError> {
     ensure_curl_available(&roots.curl)?;
     if max_bytes == 0 || max_bytes > REMOTE_RELEASE_TOTAL_MAX_BYTES {
         return Err(LocalProductError::Remote(
@@ -5101,7 +5136,7 @@ fn fetch_remote_file(
             "--connect-timeout",
             REMOTE_CONNECT_TIMEOUT_SECONDS,
             "--max-time",
-            REMOTE_TRANSFER_TIMEOUT_SECONDS,
+            transfer_timeout_seconds,
             "--max-filesize",
         ])
         .arg(max_bytes.to_string())
@@ -7109,10 +7144,44 @@ fn render_update_failure(error: &LocalProductError) -> String {
 }
 
 #[cfg(unix)]
+const UPDATE_SPINNER_FRAMES: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+#[cfg(unix)]
+fn update_spinner_frame(index: usize) -> &'static str {
+    UPDATE_SPINNER_FRAMES[index % UPDATE_SPINNER_FRAMES.len()]
+}
+
+#[cfg(unix)]
+fn update_spinner_frame_index(glyph: &str) -> usize {
+    UPDATE_SPINNER_FRAMES
+        .iter()
+        .position(|candidate| *candidate == glyph)
+        .unwrap_or(0)
+}
+
+#[cfg(unix)]
+#[derive(Debug)]
+enum UpdateTransientCommand {
+    Set {
+        frame_index: usize,
+        message: String,
+    },
+    Stop,
+}
+
+#[cfg(unix)]
+#[derive(Debug)]
+struct UpdateTransientWorker {
+    sender: std::sync::mpsc::Sender<UpdateTransientCommand>,
+    worker: Option<std::thread::JoinHandle<()>>,
+}
+
+#[cfg(unix)]
 #[derive(Debug)]
 struct UpdatePresentation {
     transient_enabled: bool,
     transient_visible: bool,
+    transient_worker: Option<UpdateTransientWorker>,
     update_started: bool,
 }
 
@@ -7126,6 +7195,7 @@ impl UpdatePresentation {
                 std::io::stderr().is_terminal(),
             ),
             transient_visible: false,
+            transient_worker: None,
             update_started: false,
         }
     }
@@ -7134,14 +7204,90 @@ impl UpdatePresentation {
         if !self.transient_enabled {
             return;
         }
-        use std::io::Write as _;
-        let mut stderr = std::io::stderr().lock();
-        let _ = write!(stderr, "\r\x1b[2K{glyph} {message}");
-        let _ = stderr.flush();
+        let frame_index = update_spinner_frame_index(glyph);
+        if let Some(transient) = self.transient_worker.as_mut() {
+            if transient
+                .sender
+                .send(UpdateTransientCommand::Set {
+                    frame_index,
+                    message: message.to_owned(),
+                })
+                .is_ok()
+            {
+                self.transient_visible = true;
+                return;
+            }
+            if let Some(worker) = transient.worker.take() {
+                let _ = worker.join();
+            }
+            self.transient_worker = None;
+        }
+
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let initial_message = message.to_owned();
+        let worker = std::thread::Builder::new()
+            .name("codex-update-spinner".to_owned())
+            .spawn(move || {
+                use std::io::Write as _;
+                let mut frame_index = frame_index;
+                let mut message = initial_message;
+                loop {
+                    let mut stderr = std::io::stderr().lock();
+                    let _ = write!(
+                        stderr,
+                        "\r\x1b[2K{} {}",
+                        update_spinner_frame(frame_index),
+                        message
+                    );
+                    let _ = stderr.flush();
+                    drop(stderr);
+
+                    match receiver.recv_timeout(std::time::Duration::from_millis(80)) {
+                        Ok(UpdateTransientCommand::Set {
+                            frame_index: next_frame,
+                            message: next_message,
+                        }) => {
+                            frame_index = next_frame;
+                            message = next_message;
+                        }
+                        Ok(UpdateTransientCommand::Stop)
+                        | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                            frame_index = frame_index.wrapping_add(1);
+                        }
+                    }
+                }
+            });
+
+        match worker {
+            Ok(worker) => {
+                self.transient_worker = Some(UpdateTransientWorker {
+                    sender,
+                    worker: Some(worker),
+                });
+            }
+            Err(_) => {
+                use std::io::Write as _;
+                let mut stderr = std::io::stderr().lock();
+                let _ = write!(
+                    stderr,
+                    "\r\x1b[2K{} {}",
+                    update_spinner_frame(frame_index),
+                    message
+                );
+                let _ = stderr.flush();
+            }
+        }
         self.transient_visible = true;
     }
 
     fn clear_transient(&mut self) {
+        if let Some(mut transient) = self.transient_worker.take() {
+            let _ = transient.sender.send(UpdateTransientCommand::Stop);
+            if let Some(worker) = transient.worker.take() {
+                let _ = worker.join();
+            }
+        }
         if !self.transient_visible {
             return;
         }
@@ -7195,6 +7341,13 @@ impl UpdatePresentation {
     fn fail(&mut self, error: &LocalProductError) {
         self.clear_transient();
         eprintln!("{}", render_update_failure(error));
+    }
+}
+
+#[cfg(unix)]
+impl Drop for UpdatePresentation {
+    fn drop(&mut self) {
+        self.clear_transient();
     }
 }
 
@@ -7947,6 +8100,47 @@ fn fetch_remote_resource(
     response_limit: u64,
     acquired_bytes: &mut u64,
 ) -> Result<(), LocalProductError> {
+    fetch_remote_resource_with_timeout(
+        roots,
+        base,
+        relative_path,
+        destination,
+        response_limit,
+        acquired_bytes,
+        REMOTE_TRANSFER_TIMEOUT_SECONDS,
+    )
+}
+
+#[cfg(unix)]
+fn fetch_remote_control_resource(
+    roots: &LocalCoreRoots,
+    base: &RemoteReleaseBase,
+    relative_path: &str,
+    destination: &std::path::Path,
+    response_limit: u64,
+    acquired_bytes: &mut u64,
+) -> Result<(), LocalProductError> {
+    fetch_remote_resource_with_timeout(
+        roots,
+        base,
+        relative_path,
+        destination,
+        response_limit,
+        acquired_bytes,
+        REMOTE_CONTROL_TRANSFER_TIMEOUT_SECONDS,
+    )
+}
+
+#[cfg(unix)]
+fn fetch_remote_resource_with_timeout(
+    roots: &LocalCoreRoots,
+    base: &RemoteReleaseBase,
+    relative_path: &str,
+    destination: &std::path::Path,
+    response_limit: u64,
+    acquired_bytes: &mut u64,
+    transfer_timeout_seconds: &str,
+) -> Result<(), LocalProductError> {
     let remaining = REMOTE_RELEASE_TOTAL_MAX_BYTES
         .checked_sub(*acquired_bytes)
         .ok_or(LocalProductError::RemoteResponseTooLarge)?;
@@ -7956,7 +8150,8 @@ fn fetch_remote_resource(
     }
     let url = base.resource_url(relative_path)?;
     let output = create_remote_output(destination)?;
-    let observed = fetch_remote_file(roots, &url, &output, limit)?;
+    let observed =
+        fetch_remote_file_with_timeout(roots, &url, &output, limit, transfer_timeout_seconds)?;
     *acquired_bytes = acquired_bytes
         .checked_add(observed)
         .filter(|total| *total <= REMOTE_RELEASE_TOTAL_MAX_BYTES)
@@ -7972,17 +8167,55 @@ fn fetch_verified_remote_release_file(
     file: &ReleaseFileEntry,
     acquired_bytes: &mut u64,
 ) -> Result<(), LocalProductError> {
+    fetch_verified_remote_release_file_with_timeout(
+        roots,
+        base,
+        acquisition_root,
+        file,
+        acquired_bytes,
+        REMOTE_TRANSFER_TIMEOUT_SECONDS,
+    )
+}
+
+#[cfg(unix)]
+fn fetch_verified_remote_release_control_file(
+    roots: &LocalCoreRoots,
+    base: &RemoteReleaseBase,
+    acquisition_root: &std::path::Path,
+    file: &ReleaseFileEntry,
+    acquired_bytes: &mut u64,
+) -> Result<(), LocalProductError> {
+    fetch_verified_remote_release_file_with_timeout(
+        roots,
+        base,
+        acquisition_root,
+        file,
+        acquired_bytes,
+        REMOTE_CONTROL_TRANSFER_TIMEOUT_SECONDS,
+    )
+}
+
+#[cfg(unix)]
+fn fetch_verified_remote_release_file_with_timeout(
+    roots: &LocalCoreRoots,
+    base: &RemoteReleaseBase,
+    acquisition_root: &std::path::Path,
+    file: &ReleaseFileEntry,
+    acquired_bytes: &mut u64,
+    transfer_timeout_seconds: &str,
+) -> Result<(), LocalProductError> {
     use std::os::unix::fs::PermissionsExt;
 
     ensure_remote_resource_parent(acquisition_root, &file.relative_path)?;
     let destination = acquisition_root.join(&file.relative_path);
-    fetch_remote_resource(
+    fetch_remote_resource_with_timeout(
         roots,
         base,
         &file.relative_path,
         &destination,
         REMOTE_RELEASE_FILE_MAX_BYTES,
         acquired_bytes,
+        transfer_timeout_seconds,
     )?;
     if openssl_sha256(&roots.openssl, &destination)? != file.sha256 {
         return Err(LocalProductError::ReleaseDigestMismatch);
@@ -8051,7 +8284,7 @@ fn acquire_remote_release_source(
     mut presentation: Option<&mut UpdatePresentation>,
 ) -> Result<(), LocalProductError> {
     let mut acquired_bytes = 0;
-    fetch_remote_resource(
+    fetch_remote_control_resource(
         roots,
         base,
         "release.manifest",
@@ -8060,7 +8293,7 @@ fn acquire_remote_release_source(
         &mut acquired_bytes,
     )?;
     let (_, parsed_manifest) = read_local_release_manifest(acquisition_root)?;
-    fetch_remote_resource(
+    fetch_remote_control_resource(
         roots,
         base,
         "release.sig",
@@ -8069,7 +8302,7 @@ fn acquire_remote_release_source(
         &mut acquired_bytes,
     )?;
     if parsed_manifest.release_public_key != update_key {
-        fetch_remote_resource(
+        fetch_remote_control_resource(
             roots,
             base,
             "release-authority.sig",
@@ -8093,7 +8326,7 @@ fn acquire_remote_release_source(
         .ok_or(LocalProductError::Release(
             "release inventory is missing generation descriptor",
         ))?;
-    fetch_verified_remote_release_file(
+    fetch_verified_remote_release_control_file(
         roots,
         base,
         acquisition_root,
@@ -8171,14 +8404,14 @@ fn activate_signed_update_channel_with_hold_policy(
         let index_path = acquisition_root.join("update-index");
         let signature_path = acquisition_root.join("update-index.sig");
         let index_output = create_remote_output(&index_path)?;
-        fetch_remote_file(
+        fetch_remote_control_file(
             roots,
             &index_url,
             &index_output,
             UPDATE_INDEX_MAX_BYTES as u64,
         )?;
         let signature_output = create_remote_output(&signature_path)?;
-        fetch_remote_file(
+        fetch_remote_control_file(
             roots,
             &signature_url,
             &signature_output,
@@ -20380,6 +20613,23 @@ exit 2
 
     #[cfg(unix)]
     #[test]
+    fn test_update_spinner_frames_progress_and_cycle() {
+        assert_eq!(
+            (0..UPDATE_SPINNER_FRAMES.len())
+                .map(update_spinner_frame)
+                .collect::<Vec<_>>(),
+            UPDATE_SPINNER_FRAMES.to_vec()
+        );
+        assert_eq!(
+            update_spinner_frame(UPDATE_SPINNER_FRAMES.len()),
+            UPDATE_SPINNER_FRAMES[0]
+        );
+        assert_eq!(update_spinner_frame_index("⠹"), 2);
+        assert_eq!(update_spinner_frame_index("?"), 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn test_ux1_channel_update_uses_one_tty_transient_line_and_clears_it() {
         let fixture = b5_channel_fixture("ux1-channel-tty", "ux1-channel-next");
         let output = b5_run_public_channel_update_tty(
@@ -21656,6 +21906,48 @@ exit 0
         assert!(arguments
             .windows(2)
             .any(|window| window == ["--proto-redir", "=https"]));
+
+        let control_path = root.join("remote-control-output");
+        let control_output = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&control_path)
+            .unwrap();
+        assert_eq!(
+            fetch_remote_control_file(&roots, url, &control_output, 17).unwrap(),
+            4
+        );
+        let control_arguments: Vec<_> = std::fs::read_to_string(&log)
+            .unwrap()
+            .lines()
+            .map(str::to_owned)
+            .collect();
+        assert_eq!(
+            control_arguments,
+            vec![
+                "--disable",
+                "--fail",
+                "--silent",
+                "--show-error",
+                "--proto",
+                "=https",
+                "--proto-redir",
+                "=https",
+                "--location",
+                "--cacert",
+                roots.cert_file.to_str().unwrap(),
+                "--capath",
+                roots.cert_dir.to_str().unwrap(),
+                "--connect-timeout",
+                REMOTE_CONNECT_TIMEOUT_SECONDS,
+                "--max-time",
+                REMOTE_CONTROL_TRANSFER_TIMEOUT_SECONDS,
+                "--max-filesize",
+                "17",
+                "--url",
+                url,
+            ]
+        );
 
         remove_temp_root(root);
     }
