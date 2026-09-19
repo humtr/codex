@@ -7160,11 +7160,25 @@ fn update_spinner_frame_index(glyph: &str) -> usize {
 }
 
 #[cfg(unix)]
+fn render_update_transient(frame_index: usize, message: &str) {
+    use std::io::Write as _;
+    let mut stderr = std::io::stderr().lock();
+    let _ = write!(
+        stderr,
+        "\r\x1b[2K{} {}",
+        update_spinner_frame(frame_index),
+        message
+    );
+    let _ = stderr.flush();
+}
+
+#[cfg(unix)]
 #[derive(Debug)]
 enum UpdateTransientCommand {
     Set {
         frame_index: usize,
         message: String,
+        rendered: std::sync::mpsc::Sender<()>,
     },
     Stop,
 }
@@ -7206,14 +7220,17 @@ impl UpdatePresentation {
         }
         let frame_index = update_spinner_frame_index(glyph);
         if let Some(transient) = self.transient_worker.as_mut() {
+            let (rendered, rendered_rx) = std::sync::mpsc::channel();
             if transient
                 .sender
                 .send(UpdateTransientCommand::Set {
                     frame_index,
                     message: message.to_owned(),
+                    rendered,
                 })
                 .is_ok()
             {
+                let _ = rendered_rx.recv_timeout(std::time::Duration::from_millis(250));
                 self.transient_visible = true;
                 return;
             }
@@ -7223,60 +7240,41 @@ impl UpdatePresentation {
             self.transient_worker = None;
         }
 
+        render_update_transient(frame_index, message);
         let (sender, receiver) = std::sync::mpsc::channel();
         let initial_message = message.to_owned();
         let worker = std::thread::Builder::new()
             .name("codex-update-spinner".to_owned())
             .spawn(move || {
-                use std::io::Write as _;
                 let mut frame_index = frame_index;
                 let mut message = initial_message;
                 loop {
-                    let mut stderr = std::io::stderr().lock();
-                    let _ = write!(
-                        stderr,
-                        "\r\x1b[2K{} {}",
-                        update_spinner_frame(frame_index),
-                        message
-                    );
-                    let _ = stderr.flush();
-                    drop(stderr);
-
                     match receiver.recv_timeout(std::time::Duration::from_millis(80)) {
                         Ok(UpdateTransientCommand::Set {
                             frame_index: next_frame,
                             message: next_message,
+                            rendered,
                         }) => {
                             frame_index = next_frame;
                             message = next_message;
+                            render_update_transient(frame_index, &message);
+                            let _ = rendered.send(());
                         }
                         Ok(UpdateTransientCommand::Stop)
                         | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
                         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                             frame_index = frame_index.wrapping_add(1);
+                            render_update_transient(frame_index, &message);
                         }
                     }
                 }
             });
 
-        match worker {
-            Ok(worker) => {
-                self.transient_worker = Some(UpdateTransientWorker {
-                    sender,
-                    worker: Some(worker),
-                });
-            }
-            Err(_) => {
-                use std::io::Write as _;
-                let mut stderr = std::io::stderr().lock();
-                let _ = write!(
-                    stderr,
-                    "\r\x1b[2K{} {}",
-                    update_spinner_frame(frame_index),
-                    message
-                );
-                let _ = stderr.flush();
-            }
+        if let Ok(worker) = worker {
+            self.transient_worker = Some(UpdateTransientWorker {
+                sender,
+                worker: Some(worker),
+            });
         }
         self.transient_visible = true;
     }
