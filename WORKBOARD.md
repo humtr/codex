@@ -72,6 +72,12 @@ behavior belongs in `SPEC.md`.
   text; protected-state audit and Android/AArch64 cross-build both passed. The
   correction removes those escaped test expectations and changes no shipped
   update, activation, rollback, trust, or publication behavior.
+- Exact corrected source is `872f41f4c1a7d172a34f59bd972b98085cf95697`. The CI-equivalent Core suite passed
+  152/152 executed tests with one explicit real-Termux smoke ignored and both
+  producer-only tests intentionally filtered; clippy `-D warnings`, rustfmt,
+  diff check, and repository-wide literal/escaped emoji scans also passed. The
+  following acceptance-only commit rebinds full source acceptance to this exact
+  corrected source.
 - Active operation: **BARE-TTY-UPDATE-DISCOVERY**. User authorization on
   2026-09-20 selects one bounded launch-UX slice: only exact bare `codex` with
   stdin/stdout/stderr all attached to terminals may authenticate the signed
