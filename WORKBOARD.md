@@ -18,20 +18,22 @@ behavior belongs in `SPEC.md`.
 - TC-LIVE-BRIDGE repository-native two-step live cutover is accepted and
   complete.
 - Latest verified live runtime on 2026-09-19 is exact `codex-cli 0.155.1`
-  on generation `local-hosted-0-155-1-07f77b89a177-ux1-human-output`.
-  tmcp read-only preflight first measured `codex-cli 0.155.0` with healthy
-  Termux Core/Manager/runtime; the ordinary signed public update then activated
-  sequence 15. Post-update doctor binds the exact new generation and reports
-  Termux Core, runtime, code-mode host, and Manager healthy.
+  on signed sequence-16 generation
+  `local-hosted-0-155-1-81131655d98f-update-progress-responsiveness`.
+  tmcp post-transition job `job_wan_fe35cc553b` binds that exact generation
+  with healthy Termux Core, runtime, code-mode host, and Manager; new-Core PTY
+  proof `job_wao_d345a6690f` observed 374 in-place checking redraws across
+  all ten spinner frames and exact-current cleanup.
 - UPDATE-CHANNEL-LATEST is accepted and closed. Final source acceptance before
   the closure ledger is `057f078a091441c1f624c7b229649bd1463ef774`.
-- Current public stable is signed sequence 15 generation
-  `local-hosted-0-155-1-07f77b89a177-ux1-human-output`, promoted by the
-  explicitly authorized UX1-PROD-15 production run `35425409155` to
-  `main=ba36c44f871ef266c4887986535ed87a4d2becc9`. It carries upstream
-  `0.155.1` and the accepted UX-1 Core from exact product source
-  `07f77b89a177682954d80ae3f797377c4731de64`. Sequence 14 generation
-  `local-hosted-0-155-1-566034e1aff4` is the authenticated production baseline.
+- Current public stable is signed sequence 16 generation
+  `local-hosted-0-155-1-81131655d98f-update-progress-responsiveness`,
+  promoted by explicitly authorized production run `35434790060` to
+  `main=52c69f21472fb2d082ef87f0e6583c88b7a8e3db`. It carries upstream
+  `0.155.1` and the accepted progress-responsiveness Core from exact product
+  source `81131655d98f114b5324bd8ee5866cff0a171941`. Sequence 15 generation
+  `local-hosted-0-155-1-07f77b89a177-ux1-human-output` is the authenticated
+  production baseline for this correction.
 - AUTO-UPSTREAM-ROLLBACK is accepted and source-closed at
   `21bb1cd78d4a6e6ef8e124b7f07230206c5aa5ea`.
 - RALD-1 through RALD-7 and the post-RALD legacy-lag production remediation are
@@ -51,11 +53,10 @@ behavior belongs in `SPEC.md`.
   ordinary generation-ID success text. Signed admission, anti-rollback,
   candidate probes, activation, local-derived authority, rollback, producer,
   publication, and public-stable semantics remain unchanged.
-- Active operation: **UPDATE-PROGRESS-RESPONSIVENESS-PROD-16**.
-  The user explicitly authorized the corrective public publication and subsequent
-  live ordinary signed update on 2026-09-19. UX1-PROD-15 remains accepted and
-  closed; this follow-up is bounded to updater presentation and transport
-  responsiveness only.
+- Active operation: **none**. UPDATE-PROGRESS-RESPONSIVENESS-PROD-16 is
+  accepted and closed on 2026-09-19 after signed sequence-16 public promotion
+  and live ordinary-update verification. UX1-PROD-15 remains accepted and
+  closed.
 - Selected bundle contract:
   - keep the existing signed-channel trust, signature/digest/mode/version,
     anti-rollback, candidate-probe, atomic-activation, LKG, rollback, and CAS
@@ -86,12 +87,12 @@ behavior belongs in `SPEC.md`.
   ceiling for small signed control-plane fetches, the existing 15-second
   connect timeout, and the existing 300-second transfer ceiling for large
   signed payloads. Signed admission and activation semantics are unchanged.
-- **No production publication or live consumer update has been performed for
-  this follow-up.** Public stable therefore remains signed sequence 15
-  generation `local-hosted-0-155-1-07f77b89a177-ux1-human-output`, and the
-  live installation remains the previously verified `codex-cli 0.155.1`.
-  Separate explicit production authorization was granted on 2026-09-19 for the
-  corrective signed publication and subsequent live ordinary `codex update`.
+- Production publication and live consumer verification are complete under the
+  explicit 2026-09-19 authorization. The workflow-only producer install was
+  exact-parent child `main=40501cf88d86c1c9281d918141e90389ad2006f6`;
+  run `35434790060` then passed every build/sign/Release/Pages/readback/
+  disposable-runtime gate and committed the existing `force:false` stable CAS
+  as `main=52c69f21472fb2d082ef87f0e6583c88b7a8e3db`.
 - The production correction uses exact accepted product source
   `81131655d98f114b5324bd8ee5866cff0a171941` and an exact one-shot
   seq15 -> seq16 gate. Authenticated baseline must be exact version `0.155.1`,
@@ -115,6 +116,18 @@ behavior belongs in `SPEC.md`.
   generation/sequence/candidate/source cases, and the ordered duplicate-helper
   descriptor comparator with forbidden-delta rejection. The validation worktree
   remained clean and did not mutate public stable or the live installation.
+- PROD-16 live closure is proven by `job_wal_3820f2c5d8` (read-only
+  healthy sequence-15 preflight), `job_wam_258c839b9b` (ordinary PTY
+  `codex update` that activated sequence 16), `job_wan_fe35cc553b`
+  (read-only proof that sequence 16 is active and healthy), and
+  `job_wao_d345a6690f` (new-Core PTY animation/cleanup plus exact non-TTY
+  no-op). The activation job's shell result is nonzero only because its
+  post-update harness incorrectly required the initiating sequence-15 Core to
+  already animate the pre-activation checking phase; it had already verified
+  the same-version header and signed-activation success output, and the next
+  read-only job proved the committed sequence-16 state. The final exact-current
+  permanent line is `Codex 0.155.1 is already up to date. ✅`; non-TTY output
+  contains no CR/ANSI controls. No further action is selected by this bundle.
 - UX1-PROD-15 is accepted and closed on 2026-09-19; its explicitly authorized
   production deployment and live Termux consumer update remain complete.
 - UX1-PROD-15 may first change only producer/workflow/docs on
