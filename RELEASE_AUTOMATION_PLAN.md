@@ -156,11 +156,28 @@ signed index and index-signature requests and no release-control or payload
 request; the force regression shows `--force` still fetches and validates
 release manifest, descriptor, and runtime data.
 
-Production/live publication remains a separate action. Public stable remains
-signed sequence 16 generation
-`local-hosted-0-155-1-81131655d98f-update-progress-responsiveness` at
-`main=52c69f21472fb2d082ef87f0e6583c88b7a8e3db`, and the live installed
-runtime remains exact `codex-cli 0.155.1` on that sequence-16 generation.
+Production/live publication was explicitly authorized by the user on
+2026-09-19 as UPDATE-EXACT-CURRENT-FASTPATH-PROD-17. The bounded deployment
+must add a false-by-default manual-only `main` gate for exact authenticated
+baseline upstream `0.155.1`, sequence 16 generation
+`local-hosted-0-155-1-81131655d98f-update-progress-responsiveness`, ordinary
+comparison `candidate=false`, exact accepted product source
+`7817b939c81ce15c76d3d0d57157ca5e378a8491`, and exact next sequence 17.
+Schedules and every historical acceptance/remediation one-shot must reject the
+new gate. Before signing, every non-Core load-bearing byte/mode must equal
+sequence 16 while Core differs; ordered descriptor comparison permits only
+generation identity plus Core digest with both digests bound to the corresponding
+Core bytes. The existing production signing, native Android/AArch64 smoke,
+immutable Release, LKG-preserving Pages, every-byte public HTTPS readback,
+disposable ordinary update/version/semantic-doctor/no-op, and non-forced
+exact-parent CAS remain mandatory.
+
+After promotion is independently confirmed, the live Termux consumer is
+authorized to activate sequence 17 only through ordinary signed public
+`codex update`, then prove exact `codex-cli 0.155.1`, healthy Termux
+components, and a second exact-current no-op under the accepted fast path.
+No manual generation copy, direct launcher/Core overwrite, alternate trust key,
+fake credentials, provider-success fixture, or force push is authorized.
 
 
 ## 1. Objective
