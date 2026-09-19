@@ -10,7 +10,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 BASE = "f8b456c9155f0f4f9c970f398947d75cfcd4dc66"
-ACCEPTED_SOURCE = "7817b939c81ce15c76d3d0d57157ca5e378a8491"
+ACCEPTED_SOURCE = "9300a68852c879f4730e9191e46837cfab6745d9"
 EXPECTED_MAIN = "56ba28e1baee87721767ba34b505cc2bc1303c44"
 
 
@@ -53,6 +53,9 @@ class Rald7AcceptanceContract(unittest.TestCase):
             "RALD5_NEGATIVE_GATE",
             "LEGACY_LAG_JUMP_REMEDIATION",
             "UX1_SAME_VERSION_DEPLOY",
+            "UPDATE_PROGRESS_SAME_VERSION_DEPLOY",
+            "EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY",
+            "NO_EMOJI_SAME_VERSION_DEPLOY",
         ]:
             self.assertIn(f'test "$' + gate + '" != true', text)
         self.assertIn(
@@ -282,6 +285,66 @@ class Rald7AcceptanceContract(unittest.TestCase):
         self.assertIn("force:false", text)
         self.assertNotIn("force: true", text)
 
+    def test_no_emoji_same_version_deployment_is_exact_manual_one_shot(self) -> None:
+        text = (ROOT / ".github/workflows/auto-release-termux.yml").read_text()
+        header = text.split("\njobs:\n", 1)[0]
+        self.assertIn("no_emoji_same_version_deploy:", header)
+        block = header.split("no_emoji_same_version_deploy:", 1)[1].split("\n  schedule:", 1)[0]
+        self.assertIn("type: boolean", block)
+        self.assertIn("default: false", block)
+        for exact in [
+            "CODEX_SOURCE_SHA: '9300a68852c879f4730e9191e46837cfab6745d9'",
+            "NO_EMOJI_ACCEPTED_SOURCE_SHA: '9300a68852c879f4730e9191e46837cfab6745d9'",
+            "NO_EMOJI_DEPLOY_VERSION: '0.155.1'",
+            "NO_EMOJI_DEPLOY_CURRENT_GENERATION: 'local-hosted-0-155-1-7817b939c81c-exact-current-fastpath'",
+            "NO_EMOJI_DEPLOY_CURRENT_SEQUENCE: '17'",
+            "NO_EMOJI_DEPLOY_TARGET_SEQUENCE: '18'",
+        ]:
+            self.assertIn(exact, text)
+        decision = text.split("- name: Resolve official upstream stable", 1)[1].split(
+            "- name: Cross-build Core and Manager", 1
+        )[0]
+        self.assertIn(
+            "NO_EMOJI_SAME_VERSION_DEPLOY: ${{ github.event_name == 'workflow_dispatch' && inputs.no_emoji_same_version_deploy }}",
+            decision,
+        )
+        deployment = decision.split('if test "$NO_EMOJI_SAME_VERSION_DEPLOY" = true; then', 1)[1].split(
+            'suffix="${upstream_version//./-}', 1
+        )[0]
+        for required in [
+            'test "$GITHUB_EVENT_NAME" = workflow_dispatch',
+            'test "$GITHUB_REF" = refs/heads/main',
+            'test "$RALD5_PUBLICATION_AUTHORIZED" = true',
+            'test "$RALD4_POSITIVE_GATE" != true',
+            'test "$RALD5_SAME_VERSION_ACCEPTANCE" != true',
+            'test "$RALD45_TRANSITION_STAGE" != true',
+            'test "$RALD45_TRANSITION_PROMOTE" != true',
+            'test "$RALD5_NEGATIVE_GATE" != true',
+            'test "$LEGACY_LAG_JUMP_REMEDIATION" != true',
+            'test "$UX1_SAME_VERSION_DEPLOY" != true',
+            'test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true',
+            'test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" != true',
+            'test "$CODEX_SOURCE_SHA" = "$NO_EMOJI_ACCEPTED_SOURCE_SHA"',
+            'test "$candidate" = false',
+            "NO_EMOJI_DEPLOY_CURRENT_GENERATION",
+            "NO_EMOJI_DEPLOY_CURRENT_SEQUENCE",
+            "NO_EMOJI_DEPLOY_TARGET_SEQUENCE",
+            "candidate=true",
+            "-no-emoji-output",
+        ]:
+            self.assertIn(required, deployment)
+        self.assertLess(
+            decision.index("rald3_preflight.py compare"),
+            decision.index('if test "$NO_EMOJI_SAME_VERSION_DEPLOY" = true; then'),
+        )
+        self.assertIn("Require exact sequence-17 non-Core bytes for no-emoji deployment", text)
+        self.assertIn("test \"$candidate_core_digest\" != \"$current_core_digest\"", text)
+        self.assertIn("no-emoji descriptor schema/order changed", text)
+        self.assertIn("no-emoji current descriptor Core digest does not match sequence-17 Core", text)
+        self.assertIn("no-emoji candidate descriptor Core digest does not match accepted Core", text)
+        self.assertIn('if key in {"generation_id", "core_artifact_digest"}:', text)
+        self.assertIn("force:false", text)
+        self.assertNotIn("force: true", text)
     def test_added_lines_contain_no_credentials_or_private_keys(self) -> None:
         diff = run("git", "diff", "--unified=0", f"{BASE}..HEAD", "--", ".")
         added = "\n".join(

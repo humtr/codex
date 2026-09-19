@@ -53,6 +53,11 @@ on:
         required: false
         type: boolean
         default: false
+      no_emoji_same_version_deploy:
+        description: 'One-shot production deployment: exact 0.155.1 sequence-17 to sequence-18 no-emoji output correction'
+        required: false
+        type: boolean
+        default: false
   schedule:
     - cron: '0 */6 * * *'
 
@@ -64,7 +69,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  CODEX_SOURCE_SHA: '7817b939c81ce15c76d3d0d57157ca5e378a8491'
+  CODEX_SOURCE_SHA: '9300a68852c879f4730e9191e46837cfab6745d9'
   RALD5_SOURCE_SHA: 'fa1b887b7e726202e309a2eb731aad303a6c7e03'
   RUST_VERSION: '1.98.0'
   ANDROID_API: '24'
@@ -98,6 +103,11 @@ env:
   EXACT_CURRENT_FASTPATH_DEPLOY_CURRENT_GENERATION: 'local-hosted-0-155-1-81131655d98f-update-progress-responsiveness'
   EXACT_CURRENT_FASTPATH_DEPLOY_CURRENT_SEQUENCE: '16'
   EXACT_CURRENT_FASTPATH_DEPLOY_TARGET_SEQUENCE: '17'
+  NO_EMOJI_ACCEPTED_SOURCE_SHA: '9300a68852c879f4730e9191e46837cfab6745d9'
+  NO_EMOJI_DEPLOY_VERSION: '0.155.1'
+  NO_EMOJI_DEPLOY_CURRENT_GENERATION: 'local-hosted-0-155-1-7817b939c81c-exact-current-fastpath'
+  NO_EMOJI_DEPLOY_CURRENT_SEQUENCE: '17'
+  NO_EMOJI_DEPLOY_TARGET_SEQUENCE: '18'
   WRAPPER_PUBLIC_KEY_SHA256: '62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c'
   ANDROID_RUNTIME_APEX_COMMIT: '8aeb37cca394ce39c1311744c60960cbd466aa77'
   ANDROID_RUNTIME_APEX_SHA256: '83bf0dce249728dae48149b80d28b48115c54adad95a352120d58a6ac669d1fc'
@@ -124,6 +134,7 @@ jobs:
       ux1_same_version_deploy: ${{ steps.decision.outputs.ux1_same_version_deploy }}
       update_progress_same_version_deploy: ${{ steps.decision.outputs.update_progress_same_version_deploy }}
       exact_current_fastpath_same_version_deploy: ${{ steps.decision.outputs.exact_current_fastpath_same_version_deploy }}
+      no_emoji_same_version_deploy: ${{ steps.decision.outputs.no_emoji_same_version_deploy }}
       expected_main_sha: ${{ steps.stable.outputs.expected_main_sha }}
       current_generation: ${{ steps.stable.outputs.current_generation }}
       current_release_sequence: ${{ steps.stable.outputs.current_release_sequence }}
@@ -240,6 +251,7 @@ jobs:
           UX1_SAME_VERSION_DEPLOY: ${{ github.event_name == 'workflow_dispatch' && inputs.ux1_same_version_deploy }}
           UPDATE_PROGRESS_SAME_VERSION_DEPLOY: ${{ github.event_name == 'workflow_dispatch' && inputs.update_progress_same_version_deploy }}
           EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY: ${{ github.event_name == 'workflow_dispatch' && inputs.exact_current_fastpath_same_version_deploy }}
+          NO_EMOJI_SAME_VERSION_DEPLOY: ${{ github.event_name == 'workflow_dispatch' && inputs.no_emoji_same_version_deploy }}
         run: |
           set -euo pipefail
           state="$RUNNER_TEMP/rald3-upstream"
@@ -279,6 +291,7 @@ jobs:
           test "$UX1_SAME_VERSION_DEPLOY" = true -o "$UX1_SAME_VERSION_DEPLOY" = false
           test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" = true -o "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" = false
           test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" = true -o "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" = false
+          test "$NO_EMOJI_SAME_VERSION_DEPLOY" = true -o "$NO_EMOJI_SAME_VERSION_DEPLOY" = false
           if test "$RALD4_POSITIVE_GATE" = true; then
             test "$candidate" = true
             test "$RALD5_PUBLICATION_AUTHORIZED" != true
@@ -290,6 +303,7 @@ jobs:
             test "$UX1_SAME_VERSION_DEPLOY" != true
             test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true
             test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" != true
+            test "$NO_EMOJI_SAME_VERSION_DEPLOY" != true
           fi
           if test "$RALD5_PUBLICATION_AUTHORIZED" = true; then
             case "$GITHUB_EVENT_NAME" in
@@ -305,6 +319,7 @@ jobs:
                 test "$UX1_SAME_VERSION_DEPLOY" != true
             test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true
             test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" != true
+            test "$NO_EMOJI_SAME_VERSION_DEPLOY" != true
                 ;;
               *)
                 exit 1
@@ -320,6 +335,7 @@ jobs:
             test "$UX1_SAME_VERSION_DEPLOY" != true
             test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true
             test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" != true
+            test "$NO_EMOJI_SAME_VERSION_DEPLOY" != true
             test '${{ steps.stable.outputs.current_version }}' = "$RALD5_SAME_VERSION_ACCEPTANCE_VERSION"
             test "$upstream_version" = "$RALD5_SAME_VERSION_ACCEPTANCE_VERSION"
             test '${{ steps.stable.outputs.current_version }}' = "$upstream_version"
@@ -340,6 +356,7 @@ jobs:
             test "$UX1_SAME_VERSION_DEPLOY" != true
             test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true
             test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" != true
+            test "$NO_EMOJI_SAME_VERSION_DEPLOY" != true
             test '${{ steps.stable.outputs.current_version }}' = "$RALD5_SAME_VERSION_ACCEPTANCE_VERSION"
             test "$upstream_version" = "$RALD5_SAME_VERSION_ACCEPTANCE_VERSION"
             test '${{ steps.stable.outputs.current_version }}' = "$upstream_version"
@@ -360,6 +377,7 @@ jobs:
             test "$UX1_SAME_VERSION_DEPLOY" != true
             test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true
             test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" != true
+            test "$NO_EMOJI_SAME_VERSION_DEPLOY" != true
             printf 'RALD-4.5 transition stable promotion separately authorized for %s\n' "$upstream_version"
           fi
           if test "$RALD5_NEGATIVE_GATE" = true; then
@@ -371,6 +389,7 @@ jobs:
             test "$UX1_SAME_VERSION_DEPLOY" != true
             test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true
             test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" != true
+            test "$NO_EMOJI_SAME_VERSION_DEPLOY" != true
             test "$candidate" = true
           fi
           if test "$LEGACY_LAG_JUMP_REMEDIATION" = true; then
@@ -385,6 +404,7 @@ jobs:
             test "$UX1_SAME_VERSION_DEPLOY" != true
             test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true
             test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" != true
+            test "$NO_EMOJI_SAME_VERSION_DEPLOY" != true
             test '${{ steps.stable.outputs.current_version }}' = "$LEGACY_LAG_REMEDIATION_VERSION"
             test "$upstream_version" = "$LEGACY_LAG_REMEDIATION_VERSION"
             test '${{ steps.stable.outputs.current_version }}' = "$upstream_version"
@@ -409,6 +429,7 @@ jobs:
             test "$LEGACY_LAG_JUMP_REMEDIATION" != true
             test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true
             test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" != true
+            test "$NO_EMOJI_SAME_VERSION_DEPLOY" != true
             test "$CODEX_SOURCE_SHA" = "$UX1_ACCEPTED_SOURCE_SHA"
             test '${{ steps.stable.outputs.current_version }}' = "$UX1_DEPLOY_VERSION"
             test "$upstream_version" = "$UX1_DEPLOY_VERSION"
@@ -434,6 +455,7 @@ jobs:
             test "$LEGACY_LAG_JUMP_REMEDIATION" != true
             test "$UX1_SAME_VERSION_DEPLOY" != true
             test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" != true
+            test "$NO_EMOJI_SAME_VERSION_DEPLOY" != true
             test "$CODEX_SOURCE_SHA" = "$UPDATE_PROGRESS_ACCEPTED_SOURCE_SHA"
             test '${{ steps.stable.outputs.current_version }}' = "$UPDATE_PROGRESS_DEPLOY_VERSION"
             test "$upstream_version" = "$UPDATE_PROGRESS_DEPLOY_VERSION"
@@ -459,6 +481,7 @@ jobs:
             test "$LEGACY_LAG_JUMP_REMEDIATION" != true
             test "$UX1_SAME_VERSION_DEPLOY" != true
             test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true
+            test "$NO_EMOJI_SAME_VERSION_DEPLOY" != true
             test "$CODEX_SOURCE_SHA" = "$EXACT_CURRENT_FASTPATH_ACCEPTED_SOURCE_SHA"
             test '${{ steps.stable.outputs.current_version }}' = "$EXACT_CURRENT_FASTPATH_DEPLOY_VERSION"
             test "$upstream_version" = "$EXACT_CURRENT_FASTPATH_DEPLOY_VERSION"
@@ -472,6 +495,32 @@ jobs:
             printf 'exact-current fastpath same-version production deployment selected: %s sequence %s -> sequence %s\n' \
               "$upstream_version" "$EXACT_CURRENT_FASTPATH_DEPLOY_CURRENT_SEQUENCE" "$EXACT_CURRENT_FASTPATH_DEPLOY_TARGET_SEQUENCE"
           fi
+          if test "$NO_EMOJI_SAME_VERSION_DEPLOY" = true; then
+            test "$GITHUB_EVENT_NAME" = workflow_dispatch
+            test "$GITHUB_REF" = refs/heads/main
+            test "$RALD4_POSITIVE_GATE" != true
+            test "$RALD5_PUBLICATION_AUTHORIZED" = true
+            test "$RALD5_SAME_VERSION_ACCEPTANCE" != true
+            test "$RALD45_TRANSITION_STAGE" != true
+            test "$RALD45_TRANSITION_PROMOTE" != true
+            test "$RALD5_NEGATIVE_GATE" != true
+            test "$LEGACY_LAG_JUMP_REMEDIATION" != true
+            test "$UX1_SAME_VERSION_DEPLOY" != true
+            test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true
+            test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" != true
+            test "$CODEX_SOURCE_SHA" = "$NO_EMOJI_ACCEPTED_SOURCE_SHA"
+            test '${{ steps.stable.outputs.current_version }}' = "$NO_EMOJI_DEPLOY_VERSION"
+            test "$upstream_version" = "$NO_EMOJI_DEPLOY_VERSION"
+            test '${{ steps.stable.outputs.current_version }}' = "$upstream_version"
+            test '${{ steps.stable.outputs.current_generation }}' = "$NO_EMOJI_DEPLOY_CURRENT_GENERATION"
+            test '${{ steps.stable.outputs.current_release_sequence }}' = "$NO_EMOJI_DEPLOY_CURRENT_SEQUENCE"
+            test '${{ steps.stable.outputs.release_sequence }}' = "$NO_EMOJI_DEPLOY_TARGET_SEQUENCE"
+            test "$candidate" = false
+            candidate=true
+            acceptance_suffix='-no-emoji-output'
+            printf 'no-emoji same-version production deployment selected: %s sequence %s -> sequence %s\n' \
+              "$upstream_version" "$NO_EMOJI_DEPLOY_CURRENT_SEQUENCE" "$NO_EMOJI_DEPLOY_TARGET_SEQUENCE"
+          fi
           suffix="${upstream_version//./-}-${CODEX_SOURCE_SHA:0:12}${acceptance_suffix}"
           printf 'candidate=%s\n' "$candidate" >> "$GITHUB_OUTPUT"
           printf 'acceptance_gate=%s\n' "$RALD4_POSITIVE_GATE" >> "$GITHUB_OUTPUT"
@@ -484,6 +533,7 @@ jobs:
           printf 'ux1_same_version_deploy=%s\n' "$UX1_SAME_VERSION_DEPLOY" >> "$GITHUB_OUTPUT"
           printf 'update_progress_same_version_deploy=%s\n' "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" >> "$GITHUB_OUTPUT"
           printf 'exact_current_fastpath_same_version_deploy=%s\n' "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" >> "$GITHUB_OUTPUT"
+          printf 'no_emoji_same_version_deploy=%s\n' "$NO_EMOJI_SAME_VERSION_DEPLOY" >> "$GITHUB_OUTPUT"
           printf 'artifact_name=rald3-candidate-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
           printf 'qualified_artifact_name=rald4-qualified-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
           printf 'signed_artifact_name=rald4-signed-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
@@ -867,6 +917,89 @@ jobs:
                   continue
               if current_line != candidate_line:
                   raise SystemExit(f"exact-current fastpath descriptor changed forbidden field: {key}")
+          PY
+
+      - name: Require exact sequence-17 non-Core bytes for no-emoji deployment
+        if: steps.decision.outputs.no_emoji_same_version_deploy == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          stable="$RUNNER_TEMP/rald3-stable"
+          candidate="$RUNNER_TEMP/rald3-candidate/candidate"
+          for rel in codex-code-mode-host helpers/0 helpers/1 manager runtime; do
+            entry="$RUNNER_TEMP/no-emoji-entry-${rel//\//-}"
+            python3 source/.github/scripts/rald3_preflight.py manifest-entry \
+              "$stable/release.manifest" "$rel" > "$entry"
+            expected_digest="$(sed -n 's/^sha256=//p' "$entry")"
+            expected_mode="$(sed -n 's/^mode=//p' "$entry")"
+            test "$(sha256sum "$candidate/$rel" | awk '{print $1}')" = "$expected_digest"
+            test "0$(stat -c '%a' "$candidate/$rel")" = "$expected_mode"
+          done
+
+          core_entry="$RUNNER_TEMP/no-emoji-entry-core"
+          python3 source/.github/scripts/rald3_preflight.py manifest-entry \
+            "$stable/release.manifest" core > "$core_entry"
+          current_core_digest="$(sed -n 's/^sha256=//p' "$core_entry")"
+          current_core_mode="$(sed -n 's/^mode=//p' "$core_entry")"
+          candidate_core_digest="$(sha256sum "$candidate/core" | awk '{print $1}')"
+          test "$candidate_core_digest" != "$current_core_digest"
+          test "0$(stat -c '%a' "$candidate/core")" = "$current_core_mode"
+
+          python3 - "$stable/generation.meta" "$candidate/generation.meta" \
+            "$NO_EMOJI_DEPLOY_CURRENT_GENERATION" \
+            '${{ steps.decision.outputs.generation_id }}' \
+            "$current_core_digest" "$candidate_core_digest" <<'PY'
+          from pathlib import Path
+          import sys
+
+          current_path = Path(sys.argv[1])
+          candidate_path = Path(sys.argv[2])
+          current_id = sys.argv[3]
+          candidate_id = sys.argv[4]
+          current_core_digest = sys.argv[5]
+          candidate_core_digest = sys.argv[6]
+
+          def parse(path):
+              text = path.read_text()
+              if not text.endswith("\n"):
+                  raise SystemExit("no-emoji descriptor is missing its final newline")
+              lines = text.splitlines()
+              if not lines:
+                  raise SystemExit("no-emoji descriptor is empty")
+              records = lines[1:]
+              for line in records:
+                  if "\t" not in line:
+                      raise SystemExit("no-emoji descriptor field layout is invalid")
+              return lines[0], records
+
+          def unique_field(records, key):
+              prefix = f"{key}\t"
+              matches = [line[len(prefix):] for line in records if line.startswith(prefix)]
+              if len(matches) != 1:
+                  raise SystemExit(f"no-emoji descriptor field is not unique: {key}")
+              return matches[0]
+
+          current_format, current_records = parse(current_path)
+          candidate_format, candidate_records = parse(candidate_path)
+          current_order = [line.split("\t", 1)[0] for line in current_records]
+          candidate_order = [line.split("\t", 1)[0] for line in candidate_records]
+          if current_format != candidate_format or current_order != candidate_order:
+              raise SystemExit("no-emoji descriptor schema/order changed")
+          if unique_field(current_records, "generation_id") != current_id \
+                  or unique_field(candidate_records, "generation_id") != candidate_id:
+              raise SystemExit("no-emoji generation identity binding is not exact")
+          if unique_field(current_records, "core_artifact_digest") != current_core_digest:
+              raise SystemExit("no-emoji current descriptor Core digest does not match sequence-17 Core")
+          if unique_field(candidate_records, "core_artifact_digest") != candidate_core_digest:
+              raise SystemExit("no-emoji candidate descriptor Core digest does not match accepted Core")
+          if current_core_digest == candidate_core_digest:
+              raise SystemExit("no-emoji candidate Core did not change")
+          for current_line, candidate_line in zip(current_records, candidate_records, strict=True):
+              key = current_line.split("\t", 1)[0]
+              if key in {"generation_id", "core_artifact_digest"}:
+                  continue
+              if current_line != candidate_line:
+                  raise SystemExit(f"no-emoji descriptor changed forbidden field: {key}")
           PY
 
       - name: Rebuild exact historical R10 Core for legacy-lag remediation

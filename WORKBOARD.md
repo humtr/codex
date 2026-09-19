@@ -78,6 +78,25 @@ behavior belongs in `SPEC.md`.
   diff check, and repository-wide literal/escaped emoji scans also passed. The
   following acceptance-only commit rebinds full source acceptance to this exact
   corrected source.
+- Active production operation: **NO-EMOJI-PROD-18**. User instruction on
+  2026-09-20 authorizes carrying the no-emoji permanent update/rollback output
+  correction through signed public publication and the live Termux consumer.
+  To avoid widening that authorization, production uses isolated exact source
+  `9300a68852c879f4730e9191e46837cfab6745d9`, one child of exact sequence-17 product source
+  `7817b939c81ce15c76d3d0d57157ca5e378a8491`, changing only
+  `crates/core/src/main.rs` output and matching tests. It intentionally excludes
+  the separately source-only bare-TTY startup-discovery feature.
+- NO-EMOJI-PROD-18 is one manual-only same-version correction from exact
+  authenticated `0.155.1` / sequence 17 / `local-hosted-0-155-1-7817b939c81c-exact-current-fastpath`
+  to sequence 18. Ordinary upstream comparison must first report
+  `candidate=false`; the exact isolated source must match; non-Core signed
+  bytes/modes must match sequence 17; Core must differ; and `generation.meta`
+  may change only generation identity plus Core digest. Existing production
+  signing, Android/AArch64 smoke, immutable Release, LKG-preserving Pages,
+  public HTTPS every-byte readback, disposable update/version/doctor/no-op,
+  and non-forced exact-parent CAS remain mandatory. Live mutation is allowed
+  only after independent public promotion confirmation and only through
+  ordinary signed public `codex update`.
 - Active operation: **BARE-TTY-UPDATE-DISCOVERY**. User authorization on
   2026-09-20 selects one bounded launch-UX slice: only exact bare `codex` with
   stdin/stdout/stderr all attached to terminals may authenticate the signed

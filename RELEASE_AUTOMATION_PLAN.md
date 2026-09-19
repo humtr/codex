@@ -235,6 +235,32 @@ credential/provider fixture, force push, or protected user-state mutation was
 used. UPDATE-EXACT-CURRENT-FASTPATH-PROD-17 is closed.
 
 
+## NO-EMOJI-PROD-18 — bounded same-version production correction
+
+Status: **authorized and in progress 2026-09-20**. The user requested the next
+step after confirming that live sequence 17 still printed the old emoji-decorated
+exact-current line. Production deliberately does not use the later combined
+`rewrite/rust-core` source because that would also ship the separately
+source-only bare-TTY startup-discovery feature. Exact production product source
+is instead `9300a68852c879f4730e9191e46837cfab6745d9`, one child of exact sequence-17 product source
+`7817b939c81ce15c76d3d0d57157ca5e378a8491`, changing only Core permanent
+update/rollback output and matching tests.
+
+The publication gate is manual-only on `main`, requires explicit publication
+authorization, exact authenticated public baseline `0.155.1` / sequence 17 /
+`local-hosted-0-155-1-7817b939c81c-exact-current-fastpath`, exact official upstream `0.155.1`, ordinary
+comparison `candidate=false`, exact product source `9300a68852c879f4730e9191e46837cfab6745d9`, and
+exact next sequence 18. All historical one-shot gates and schedules reject it.
+Before signing, every non-Core load-bearing byte/mode must equal sequence 17
+while Core differs; ordered `generation.meta` comparison permits only generation
+identity plus Core digest. Existing production signing, native Android/AArch64
+smoke, immutable Release, LKG-preserving Pages, every-byte HTTPS readback,
+disposable ordinary update/version/semantic-doctor/no-op, and `force:false`
+exact-parent CAS remain unchanged. Only after promotion is independently re-read
+may the live consumer activate sequence 18 through ordinary signed public
+`codex update`; manual copy/overwrite, alternate trust keys, fake credentials,
+and force push remain forbidden.
+
 ## 1. Objective
 
 Complete the release/update architecture by separating three concerns that are
