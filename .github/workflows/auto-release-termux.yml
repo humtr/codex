@@ -43,6 +43,11 @@ on:
         required: false
         type: boolean
         default: false
+      update_progress_same_version_deploy:
+        description: 'One-shot production deployment: exact 0.155.1 sequence-15 to sequence-16 animated progress responsiveness correction'
+        required: false
+        type: boolean
+        default: false
   schedule:
     - cron: '0 */6 * * *'
 
@@ -54,7 +59,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  CODEX_SOURCE_SHA: '07f77b89a177682954d80ae3f797377c4731de64'
+  CODEX_SOURCE_SHA: '81131655d98f114b5324bd8ee5866cff0a171941'
   RALD5_SOURCE_SHA: 'fa1b887b7e726202e309a2eb731aad303a6c7e03'
   RUST_VERSION: '1.98.0'
   ANDROID_API: '24'
@@ -78,6 +83,11 @@ env:
   UX1_DEPLOY_CURRENT_GENERATION: 'local-hosted-0-155-1-566034e1aff4'
   UX1_DEPLOY_CURRENT_SEQUENCE: '14'
   UX1_DEPLOY_TARGET_SEQUENCE: '15'
+  UPDATE_PROGRESS_ACCEPTED_SOURCE_SHA: '81131655d98f114b5324bd8ee5866cff0a171941'
+  UPDATE_PROGRESS_DEPLOY_VERSION: '0.155.1'
+  UPDATE_PROGRESS_DEPLOY_CURRENT_GENERATION: 'local-hosted-0-155-1-07f77b89a177-ux1-human-output'
+  UPDATE_PROGRESS_DEPLOY_CURRENT_SEQUENCE: '15'
+  UPDATE_PROGRESS_DEPLOY_TARGET_SEQUENCE: '16'
   WRAPPER_PUBLIC_KEY_SHA256: '62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c'
   ANDROID_RUNTIME_APEX_COMMIT: '8aeb37cca394ce39c1311744c60960cbd466aa77'
   ANDROID_RUNTIME_APEX_SHA256: '83bf0dce249728dae48149b80d28b48115c54adad95a352120d58a6ac669d1fc'
@@ -102,6 +112,7 @@ jobs:
       negative_gate: ${{ steps.decision.outputs.negative_gate }}
       legacy_lag_jump_remediation: ${{ steps.decision.outputs.legacy_lag_jump_remediation }}
       ux1_same_version_deploy: ${{ steps.decision.outputs.ux1_same_version_deploy }}
+      update_progress_same_version_deploy: ${{ steps.decision.outputs.update_progress_same_version_deploy }}
       expected_main_sha: ${{ steps.stable.outputs.expected_main_sha }}
       current_generation: ${{ steps.stable.outputs.current_generation }}
       current_release_sequence: ${{ steps.stable.outputs.current_release_sequence }}
@@ -216,6 +227,7 @@ jobs:
           RALD5_NEGATIVE_GATE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald5_negative_gate }}
           LEGACY_LAG_JUMP_REMEDIATION: ${{ github.event_name == 'workflow_dispatch' && inputs.legacy_lag_jump_remediation }}
           UX1_SAME_VERSION_DEPLOY: ${{ github.event_name == 'workflow_dispatch' && inputs.ux1_same_version_deploy }}
+          UPDATE_PROGRESS_SAME_VERSION_DEPLOY: ${{ github.event_name == 'workflow_dispatch' && inputs.update_progress_same_version_deploy }}
         run: |
           set -euo pipefail
           state="$RUNNER_TEMP/rald3-upstream"
@@ -253,6 +265,7 @@ jobs:
           test "$RALD5_NEGATIVE_GATE" = true -o "$RALD5_NEGATIVE_GATE" = false
           test "$LEGACY_LAG_JUMP_REMEDIATION" = true -o "$LEGACY_LAG_JUMP_REMEDIATION" = false
           test "$UX1_SAME_VERSION_DEPLOY" = true -o "$UX1_SAME_VERSION_DEPLOY" = false
+          test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" = true -o "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" = false
           if test "$RALD4_POSITIVE_GATE" = true; then
             test "$candidate" = true
             test "$RALD5_PUBLICATION_AUTHORIZED" != true
@@ -262,6 +275,7 @@ jobs:
             test "$RALD5_NEGATIVE_GATE" != true
             test "$LEGACY_LAG_JUMP_REMEDIATION" != true
             test "$UX1_SAME_VERSION_DEPLOY" != true
+            test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true
           fi
           if test "$RALD5_PUBLICATION_AUTHORIZED" = true; then
             case "$GITHUB_EVENT_NAME" in
@@ -275,6 +289,7 @@ jobs:
                 test "$RALD5_NEGATIVE_GATE" != true
                 test "$LEGACY_LAG_JUMP_REMEDIATION" != true
                 test "$UX1_SAME_VERSION_DEPLOY" != true
+            test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true
                 ;;
               *)
                 exit 1
@@ -288,6 +303,7 @@ jobs:
             test "$RALD5_PUBLICATION_AUTHORIZED" = true
             test "$LEGACY_LAG_JUMP_REMEDIATION" != true
             test "$UX1_SAME_VERSION_DEPLOY" != true
+            test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true
             test '${{ steps.stable.outputs.current_version }}' = "$RALD5_SAME_VERSION_ACCEPTANCE_VERSION"
             test "$upstream_version" = "$RALD5_SAME_VERSION_ACCEPTANCE_VERSION"
             test '${{ steps.stable.outputs.current_version }}' = "$upstream_version"
@@ -306,6 +322,7 @@ jobs:
             test "$RALD5_NEGATIVE_GATE" != true
             test "$LEGACY_LAG_JUMP_REMEDIATION" != true
             test "$UX1_SAME_VERSION_DEPLOY" != true
+            test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true
             test '${{ steps.stable.outputs.current_version }}' = "$RALD5_SAME_VERSION_ACCEPTANCE_VERSION"
             test "$upstream_version" = "$RALD5_SAME_VERSION_ACCEPTANCE_VERSION"
             test '${{ steps.stable.outputs.current_version }}' = "$upstream_version"
@@ -324,6 +341,7 @@ jobs:
             test "$RALD5_NEGATIVE_GATE" != true
             test "$LEGACY_LAG_JUMP_REMEDIATION" != true
             test "$UX1_SAME_VERSION_DEPLOY" != true
+            test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true
             printf 'RALD-4.5 transition stable promotion separately authorized for %s\n' "$upstream_version"
           fi
           if test "$RALD5_NEGATIVE_GATE" = true; then
@@ -333,6 +351,7 @@ jobs:
             test "$RALD5_PUBLICATION_AUTHORIZED" = true
             test "$LEGACY_LAG_JUMP_REMEDIATION" != true
             test "$UX1_SAME_VERSION_DEPLOY" != true
+            test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true
             test "$candidate" = true
           fi
           if test "$LEGACY_LAG_JUMP_REMEDIATION" = true; then
@@ -345,6 +364,7 @@ jobs:
             test "$RALD45_TRANSITION_PROMOTE" != true
             test "$RALD5_NEGATIVE_GATE" != true
             test "$UX1_SAME_VERSION_DEPLOY" != true
+            test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true
             test '${{ steps.stable.outputs.current_version }}' = "$LEGACY_LAG_REMEDIATION_VERSION"
             test "$upstream_version" = "$LEGACY_LAG_REMEDIATION_VERSION"
             test '${{ steps.stable.outputs.current_version }}' = "$upstream_version"
@@ -367,6 +387,7 @@ jobs:
             test "$RALD45_TRANSITION_PROMOTE" != true
             test "$RALD5_NEGATIVE_GATE" != true
             test "$LEGACY_LAG_JUMP_REMEDIATION" != true
+            test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true
             test "$CODEX_SOURCE_SHA" = "$UX1_ACCEPTED_SOURCE_SHA"
             test '${{ steps.stable.outputs.current_version }}' = "$UX1_DEPLOY_VERSION"
             test "$upstream_version" = "$UX1_DEPLOY_VERSION"
@@ -380,6 +401,30 @@ jobs:
             printf 'UX-1 same-version production deployment selected: %s sequence %s -> sequence %s\n' \
               "$upstream_version" "$UX1_DEPLOY_CURRENT_SEQUENCE" "$UX1_DEPLOY_TARGET_SEQUENCE"
           fi
+          if test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" = true; then
+            test "$GITHUB_EVENT_NAME" = workflow_dispatch
+            test "$GITHUB_REF" = refs/heads/main
+            test "$RALD4_POSITIVE_GATE" != true
+            test "$RALD5_PUBLICATION_AUTHORIZED" = true
+            test "$RALD5_SAME_VERSION_ACCEPTANCE" != true
+            test "$RALD45_TRANSITION_STAGE" != true
+            test "$RALD45_TRANSITION_PROMOTE" != true
+            test "$RALD5_NEGATIVE_GATE" != true
+            test "$LEGACY_LAG_JUMP_REMEDIATION" != true
+            test "$UX1_SAME_VERSION_DEPLOY" != true
+            test "$CODEX_SOURCE_SHA" = "$UPDATE_PROGRESS_ACCEPTED_SOURCE_SHA"
+            test '${{ steps.stable.outputs.current_version }}' = "$UPDATE_PROGRESS_DEPLOY_VERSION"
+            test "$upstream_version" = "$UPDATE_PROGRESS_DEPLOY_VERSION"
+            test '${{ steps.stable.outputs.current_version }}' = "$upstream_version"
+            test '${{ steps.stable.outputs.current_generation }}' = "$UPDATE_PROGRESS_DEPLOY_CURRENT_GENERATION"
+            test '${{ steps.stable.outputs.current_release_sequence }}' = "$UPDATE_PROGRESS_DEPLOY_CURRENT_SEQUENCE"
+            test '${{ steps.stable.outputs.release_sequence }}' = "$UPDATE_PROGRESS_DEPLOY_TARGET_SEQUENCE"
+            test "$candidate" = false
+            candidate=true
+            acceptance_suffix='-update-progress-responsiveness'
+            printf 'update-progress same-version production deployment selected: %s sequence %s -> sequence %s\n' \
+              "$upstream_version" "$UPDATE_PROGRESS_DEPLOY_CURRENT_SEQUENCE" "$UPDATE_PROGRESS_DEPLOY_TARGET_SEQUENCE"
+          fi
           suffix="${upstream_version//./-}-${CODEX_SOURCE_SHA:0:12}${acceptance_suffix}"
           printf 'candidate=%s\n' "$candidate" >> "$GITHUB_OUTPUT"
           printf 'acceptance_gate=%s\n' "$RALD4_POSITIVE_GATE" >> "$GITHUB_OUTPUT"
@@ -390,6 +435,7 @@ jobs:
           printf 'negative_gate=%s\n' "$RALD5_NEGATIVE_GATE" >> "$GITHUB_OUTPUT"
           printf 'legacy_lag_jump_remediation=%s\n' "$LEGACY_LAG_JUMP_REMEDIATION" >> "$GITHUB_OUTPUT"
           printf 'ux1_same_version_deploy=%s\n' "$UX1_SAME_VERSION_DEPLOY" >> "$GITHUB_OUTPUT"
+          printf 'update_progress_same_version_deploy=%s\n' "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" >> "$GITHUB_OUTPUT"
           printf 'artifact_name=rald3-candidate-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
           printf 'qualified_artifact_name=rald4-qualified-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
           printf 'signed_artifact_name=rald4-signed-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
@@ -607,6 +653,89 @@ jobs:
                   continue
               if current_line != candidate_line:
                   raise SystemExit(f"UX-1 descriptor changed forbidden field: {key}")
+          PY
+
+      - name: Require exact sequence-15 non-Core bytes for update-progress deployment
+        if: steps.decision.outputs.update_progress_same_version_deploy == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          stable="$RUNNER_TEMP/rald3-stable"
+          candidate="$RUNNER_TEMP/rald3-candidate/candidate"
+          for rel in codex-code-mode-host helpers/0 helpers/1 manager runtime; do
+            entry="$RUNNER_TEMP/update-progress-entry-${rel//\//-}"
+            python3 source/.github/scripts/rald3_preflight.py manifest-entry \
+              "$stable/release.manifest" "$rel" > "$entry"
+            expected_digest="$(sed -n 's/^sha256=//p' "$entry")"
+            expected_mode="$(sed -n 's/^mode=//p' "$entry")"
+            test "$(sha256sum "$candidate/$rel" | awk '{print $1}')" = "$expected_digest"
+            test "0$(stat -c '%a' "$candidate/$rel")" = "$expected_mode"
+          done
+
+          core_entry="$RUNNER_TEMP/update-progress-entry-core"
+          python3 source/.github/scripts/rald3_preflight.py manifest-entry \
+            "$stable/release.manifest" core > "$core_entry"
+          current_core_digest="$(sed -n 's/^sha256=//p' "$core_entry")"
+          current_core_mode="$(sed -n 's/^mode=//p' "$core_entry")"
+          candidate_core_digest="$(sha256sum "$candidate/core" | awk '{print $1}')"
+          test "$candidate_core_digest" != "$current_core_digest"
+          test "0$(stat -c '%a' "$candidate/core")" = "$current_core_mode"
+
+          python3 - "$stable/generation.meta" "$candidate/generation.meta" \
+            "$UPDATE_PROGRESS_DEPLOY_CURRENT_GENERATION" \
+            '${{ steps.decision.outputs.generation_id }}' \
+            "$current_core_digest" "$candidate_core_digest" <<'PY'
+          from pathlib import Path
+          import sys
+
+          current_path = Path(sys.argv[1])
+          candidate_path = Path(sys.argv[2])
+          current_id = sys.argv[3]
+          candidate_id = sys.argv[4]
+          current_core_digest = sys.argv[5]
+          candidate_core_digest = sys.argv[6]
+
+          def parse(path):
+              text = path.read_text()
+              if not text.endswith("\n"):
+                  raise SystemExit("update-progress descriptor is missing its final newline")
+              lines = text.splitlines()
+              if not lines:
+                  raise SystemExit("update-progress descriptor is empty")
+              records = lines[1:]
+              for line in records:
+                  if "\t" not in line:
+                      raise SystemExit("update-progress descriptor field layout is invalid")
+              return lines[0], records
+
+          def unique_field(records, key):
+              prefix = f"{key}\t"
+              matches = [line[len(prefix):] for line in records if line.startswith(prefix)]
+              if len(matches) != 1:
+                  raise SystemExit(f"update-progress descriptor field is not unique: {key}")
+              return matches[0]
+
+          current_format, current_records = parse(current_path)
+          candidate_format, candidate_records = parse(candidate_path)
+          current_order = [line.split("\t", 1)[0] for line in current_records]
+          candidate_order = [line.split("\t", 1)[0] for line in candidate_records]
+          if current_format != candidate_format or current_order != candidate_order:
+              raise SystemExit("update-progress descriptor schema/order changed")
+          if unique_field(current_records, "generation_id") != current_id \
+                  or unique_field(candidate_records, "generation_id") != candidate_id:
+              raise SystemExit("update-progress generation identity binding is not exact")
+          if unique_field(current_records, "core_artifact_digest") != current_core_digest:
+              raise SystemExit("update-progress current descriptor Core digest does not match sequence-15 Core")
+          if unique_field(candidate_records, "core_artifact_digest") != candidate_core_digest:
+              raise SystemExit("update-progress candidate descriptor Core digest does not match accepted Core")
+          if current_core_digest == candidate_core_digest:
+              raise SystemExit("update-progress candidate Core did not change")
+          for current_line, candidate_line in zip(current_records, candidate_records, strict=True):
+              key = current_line.split("\t", 1)[0]
+              if key in {"generation_id", "core_artifact_digest"}:
+                  continue
+              if current_line != candidate_line:
+                  raise SystemExit(f"update-progress descriptor changed forbidden field: {key}")
           PY
 
       - name: Rebuild exact historical R10 Core for legacy-lag remediation
