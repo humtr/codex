@@ -46,17 +46,22 @@ In descending order:
 ## 3. Public command contract
 
 The launcher classifies only an exact first argument of `update`, `doctor`, or
-`termux`. Every other invocation is passed to upstream Codex. `update` is a
-Core-owned safety boundary: the installed wrapper must never execute the
-upstream distribution updater, because that updater can install an unadapted
-runtime on Termux. The wrapper release pipeline obtains the official upstream
-package, applies the accepted Termux patch, qualifies it, binds the matching
-Core artifact, and publishes a signed Core-plus-generation bundle; the
+`termux`. Every invocation with one or more arguments that is not one of those
+Core/Manager routes is passed to upstream Codex unchanged after the existing
+Termux launch planning. The exact zero-argument bare `codex` invocation has one
+narrow Core preflight exception: only when stdin, stdout, and stderr are all
+terminals may Core perform the bounded signed-stable update discovery described
+below before launching upstream. `update` is a Core-owned safety boundary: the
+installed wrapper must never execute the upstream distribution updater, because
+that updater can install an unadapted runtime on Termux. The wrapper release
+pipeline obtains the official upstream package, applies the accepted Termux
+patch, qualifies it, binds the matching Core artifact, and publishes a signed Core-plus-generation bundle; the
 installed Core obtains and activates only that signed adapted bundle.
 
 | Command | Owner | Required behavior |
 | --- | --- | --- |
-| `codex [UPSTREAM_ARGS...]` | Core | execute upstream with original arguments |
+| `codex` | Core then upstream | on an all-TTY zero-argument launch, perform only the bounded signed-stable advisory check/prompt below, then execute the active upstream runtime; otherwise execute upstream immediately |
+| `codex [UPSTREAM_ARGS...]` | Core | for every non-empty upstream argument vector, execute upstream with original arguments without startup update discovery or prompting |
 | `codex --version`, `codex -V` | upstream | print exactly the upstream version output |
 | `codex update` | Core | resolve the signed stable wrapper release channel; only transport-level channel unavailability may fall back to an official-source local-derived build signed by a fresh ephemeral device-local key, activated while preserving the official `update_key`, and never published |
 | `codex update --help` | Core | print the wrapper-owned update usage without invoking upstream or changing state |
@@ -182,6 +187,55 @@ surface and are not decorated as operational failures. Internal generation IDs,
 release sequences, digests, API/schema identities, and similar machinery do not
 become ordinary human success text; they remain available only on the
 Termux-specific diagnostic/status surfaces already authorized below.
+
+### Bare interactive launch update discovery
+
+The exact zero-argument bare `codex` launch may perform update discovery only
+when stdin, stdout, and stderr are all terminals. Any non-empty argument vector,
+including `update`, `doctor`, `termux`, `exec`, `--version`, `-V`, and
+all other upstream commands/options, bypasses this discovery path completely.
+A bare launch with any non-terminal standard stream also bypasses it completely.
+Those bypasses perform no startup-update network request, prompt, or advisory
+state write.
+
+Discovery is advisory and never becomes update authority. It authenticates only
+the normal signed stable index pair under the already installed official
+`update_key` and compares the signed generation identity with the active
+generation. It does not fetch release payloads, stage a candidate, probe a
+candidate, change activation state, or execute an untrusted candidate. The
+startup fetch is separately bounded to at most two seconds per signed-index
+resource. Discovery failures, malformed advisory cache state, clock failure, or
+unavailable transport fail open to the existing active upstream runtime without
+a user-visible error; the explicit `codex update` command retains its existing
+fail-closed update semantics.
+
+A successful startup discovery is cached for six hours. Transport or discovery
+failure suppresses another startup network attempt for thirty minutes. When a
+different signed generation is available, Core may show one transient all-TTY
+prompt:
+
+```text
+Codex update available. Update now? [y/N] 5s
+```
+
+The prompt names no candidate version before authenticated generation metadata
+is available through the normal update path. `y` or `Y` followed by Enter
+selects update. Enter, `n`/`N`, any other input, or five seconds without a
+completed input line keeps the current runtime. A keep/timeout decision snoozes
+that exact signed generation identity for six hours; a different signed
+generation is not suppressed by the old snooze. An effective rollback hold or
+rollback-Core guard suppresses the startup prompt entirely; explicit
+`codex update` / `--force` remains the recovery authority.
+
+Selecting update re-enters the ordinary no-argument `codex update` path from
+the beginning, including fresh signed-index authentication and all normal
+signature, digest, mode, anti-rollback, candidate-probe, atomic-activation, LKG,
+and rollback protections. On success, bare launch then loads and executes the
+newly active upstream runtime. If that explicit-in-response-to-the-prompt update
+fails, its ordinary concise failure remains visible but bare launch still
+continues with the unchanged active runtime. Startup advisory cache/snooze state
+is Core-owned convenience state only and is never trusted as release,
+activation, rollback, or signing authority.
 
 Rollback is an explicit Core operation, not an ordinary-launch fallback and not
 a search through generation history. After a rollback activation commits, Core

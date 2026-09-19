@@ -3852,6 +3852,20 @@ const DOCTOR_OUTPUT_MAX_BYTES: usize = 64 * 1024;
 #[cfg(unix)]
 const UPDATE_INDEX_MAX_BYTES: usize = 16 * 1024;
 #[cfg(unix)]
+const STARTUP_ADVISORY_FORMAT: &str = "codex-startup-update-advisory-v1";
+#[cfg(unix)]
+const STARTUP_ADVISORY_FILE: &str = "startup-update-advisory";
+#[cfg(unix)]
+const STARTUP_ADVISORY_MAX_BYTES: usize = 4096;
+#[cfg(unix)]
+const STARTUP_ADVISORY_SUCCESS_TTL_SECONDS: u64 = 6 * 60 * 60;
+#[cfg(unix)]
+const STARTUP_ADVISORY_FAILURE_TTL_SECONDS: u64 = 30 * 60;
+#[cfg(unix)]
+const STARTUP_ADVISORY_FETCH_TIMEOUT_SECONDS: &str = "2";
+#[cfg(unix)]
+const STARTUP_ADVISORY_PROMPT_SECONDS: u64 = 5;
+#[cfg(unix)]
 const DEFAULT_UPDATE_INDEX_URL: &str =
     "https://raw.githubusercontent.com/humtr/codex/main/update-index-v1";
 #[cfg(unix)]
@@ -3969,6 +3983,7 @@ enum LocalProductError {
     OpenSslFailed(&'static str),
     Remote(&'static str),
     UpdateIndex(&'static str),
+    StartupAdvisory(&'static str),
     RemoteTransportFailed,
     RemoteResponseTooLarge,
     LocalUpdate(&'static str),
@@ -4030,6 +4045,7 @@ impl std::fmt::Display for LocalProductError {
             }
             LocalProductError::Remote(message) => f.write_str(message),
             LocalProductError::UpdateIndex(message) => f.write_str(message),
+            LocalProductError::StartupAdvisory(message) => f.write_str(message),
             LocalProductError::RemoteTransportFailed => {
                 f.write_str("remote release transport failed")
             }
@@ -4288,6 +4304,111 @@ impl RemoteReleaseBase {
 struct SignedUpdateIndex {
     generation_id: String,
     release_base: RemoteReleaseBase,
+}
+
+#[cfg(unix)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StartupAdvisoryStatus {
+    Current,
+    Candidate,
+    Failure,
+}
+
+#[cfg(unix)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct StartupAdvisoryRecord {
+    status: StartupAdvisoryStatus,
+    checked_at: u64,
+    baseline_generation: String,
+    generation_id: Option<String>,
+    snooze_generation: Option<String>,
+    snooze_until: u64,
+}
+
+#[cfg(unix)]
+impl StartupAdvisoryRecord {
+    fn preserved_snooze(
+        now: u64,
+        baseline_generation: &str,
+        previous: Option<&Self>,
+    ) -> (Option<String>, u64) {
+        let Some(previous) = previous else {
+            return (None, 0);
+        };
+        if previous.baseline_generation != baseline_generation
+            || previous.checked_at > now
+            || previous.snooze_generation.is_none()
+            || previous.snooze_until <= now
+        {
+            return (None, 0);
+        }
+        (previous.snooze_generation.clone(), previous.snooze_until)
+    }
+
+    fn failure(now: u64, baseline_generation: &str, previous: Option<&Self>) -> Self {
+        let (snooze_generation, snooze_until) =
+            Self::preserved_snooze(now, baseline_generation, previous);
+        Self {
+            status: StartupAdvisoryStatus::Failure,
+            checked_at: now,
+            baseline_generation: baseline_generation.to_owned(),
+            generation_id: None,
+            snooze_generation,
+            snooze_until,
+        }
+    }
+
+    fn signed_result(
+        now: u64,
+        baseline_generation: &str,
+        generation_id: String,
+        current: bool,
+        previous: Option<&Self>,
+    ) -> Self {
+        let (snooze_generation, snooze_until) =
+            Self::preserved_snooze(now, baseline_generation, previous);
+        Self {
+            status: if current {
+                StartupAdvisoryStatus::Current
+            } else {
+                StartupAdvisoryStatus::Candidate
+            },
+            checked_at: now,
+            baseline_generation: baseline_generation.to_owned(),
+            generation_id: Some(generation_id),
+            snooze_generation,
+            snooze_until,
+        }
+    }
+
+    fn is_fresh(&self, now: u64, current_generation: &str) -> bool {
+        if self.baseline_generation != current_generation || self.checked_at > now {
+            return false;
+        }
+        let ttl = match self.status {
+            StartupAdvisoryStatus::Failure => STARTUP_ADVISORY_FAILURE_TTL_SECONDS,
+            StartupAdvisoryStatus::Current | StartupAdvisoryStatus::Candidate => {
+                STARTUP_ADVISORY_SUCCESS_TTL_SECONDS
+            }
+        };
+        now - self.checked_at < ttl
+    }
+
+    fn candidate_for_prompt<'a>(&'a self, current_generation: &str, now: u64) -> Option<&'a str> {
+        if self.status != StartupAdvisoryStatus::Candidate
+            || self.baseline_generation != current_generation
+        {
+            return None;
+        }
+        let generation = self.generation_id.as_deref()?;
+        if generation == current_generation {
+            return None;
+        }
+        if self.snooze_generation.as_deref() == Some(generation) && now < self.snooze_until {
+            return None;
+        }
+        Some(generation)
+    }
 }
 
 #[cfg(unix)]
@@ -5073,7 +5194,7 @@ fn fetch_remote_file(
     )
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, test))]
 fn fetch_remote_control_file(
     roots: &LocalCoreRoots,
     url: &str,
@@ -8362,6 +8483,525 @@ fn acquire_remote_release_source(
 }
 
 #[cfg(unix)]
+static STARTUP_ADVISORY_COUNTER: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+#[cfg(unix)]
+fn startup_update_discovery_enabled(
+    bare: bool,
+    stdin_is_terminal: bool,
+    stdout_is_terminal: bool,
+    stderr_is_terminal: bool,
+) -> bool {
+    bare && stdin_is_terminal && stdout_is_terminal && stderr_is_terminal
+}
+
+#[cfg(unix)]
+fn current_unix_seconds() -> Option<u64> {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|duration| duration.as_secs())
+}
+
+#[cfg(unix)]
+fn startup_advisory_path(roots: &LocalCoreRoots) -> std::path::PathBuf {
+    roots.state_root.join(STARTUP_ADVISORY_FILE)
+}
+
+#[cfg(unix)]
+fn render_startup_advisory(record: &StartupAdvisoryRecord) -> String {
+    let status = match record.status {
+        StartupAdvisoryStatus::Current => "current",
+        StartupAdvisoryStatus::Candidate => "candidate",
+        StartupAdvisoryStatus::Failure => "failure",
+    };
+    format!(
+        "{STARTUP_ADVISORY_FORMAT}
+status	{status}
+checked_at	{}
+baseline_generation	{}
+generation_id	{}
+snooze_generation	{}
+snooze_until	{}
+",
+        record.checked_at,
+        record.baseline_generation,
+        record.generation_id.as_deref().unwrap_or("-"),
+        record.snooze_generation.as_deref().unwrap_or("-"),
+        record.snooze_until,
+    )
+}
+
+#[cfg(unix)]
+fn startup_advisory_generation(
+    value: &str,
+    field: &'static str,
+) -> Result<Option<String>, LocalProductError> {
+    if value == "-" {
+        return Ok(None);
+    }
+    m2_generation_state::validate_generation_identity(value, field)
+        .map_err(LocalProductError::StateFormat)?;
+    Ok(Some(value.to_owned()))
+}
+
+#[cfg(unix)]
+fn parse_startup_advisory(bytes: &[u8]) -> Result<StartupAdvisoryRecord, LocalProductError> {
+    if bytes.len() > STARTUP_ADVISORY_MAX_BYTES {
+        return Err(LocalProductError::StartupAdvisory(
+            "startup advisory exceeds its byte bound",
+        ));
+    }
+    let text = std::str::from_utf8(bytes)
+        .map_err(|_| LocalProductError::StartupAdvisory("startup advisory is not UTF-8"))?;
+    if text.contains('\r') || !text.ends_with('\n') {
+        return Err(LocalProductError::StartupAdvisory(
+            "startup advisory format is invalid",
+        ));
+    }
+    let lines: Vec<&str> = text
+        .strip_suffix('\n')
+        .unwrap_or(text)
+        .split('\n')
+        .collect();
+    if lines.len() != 7 || lines[0] != STARTUP_ADVISORY_FORMAT {
+        return Err(LocalProductError::StartupAdvisory(
+            "startup advisory format is invalid",
+        ));
+    }
+    fn field<'a>(line: &'a str, name: &str) -> Result<&'a str, LocalProductError> {
+        line.strip_prefix(name)
+            .filter(|value| !value.is_empty())
+            .ok_or(LocalProductError::StartupAdvisory(
+                "startup advisory field is invalid",
+            ))
+    }
+    let status = match field(lines[1], "status	")? {
+        "current" => StartupAdvisoryStatus::Current,
+        "candidate" => StartupAdvisoryStatus::Candidate,
+        "failure" => StartupAdvisoryStatus::Failure,
+        _ => {
+            return Err(LocalProductError::StartupAdvisory(
+                "startup advisory status is invalid",
+            ))
+        }
+    };
+    let parse_u64 = |value: &str| -> Result<u64, LocalProductError> {
+        let parsed = value.parse::<u64>().map_err(|_| {
+            LocalProductError::StartupAdvisory("startup advisory timestamp is invalid")
+        })?;
+        if parsed.to_string() != value {
+            return Err(LocalProductError::StartupAdvisory(
+                "startup advisory timestamp is invalid",
+            ));
+        }
+        Ok(parsed)
+    };
+    let checked_at = parse_u64(field(lines[2], "checked_at	")?)?;
+    let baseline_generation = startup_advisory_generation(
+        field(lines[3], "baseline_generation	")?,
+        "startup baseline_generation",
+    )?
+    .ok_or(LocalProductError::StartupAdvisory(
+        "startup advisory baseline generation is missing",
+    ))?;
+    let generation_id =
+        startup_advisory_generation(field(lines[4], "generation_id	")?, "startup generation_id")?;
+    let snooze_generation = startup_advisory_generation(
+        field(lines[5], "snooze_generation	")?,
+        "startup snooze_generation",
+    )?;
+    let snooze_until = parse_u64(field(lines[6], "snooze_until	")?)?;
+    match status {
+        StartupAdvisoryStatus::Current | StartupAdvisoryStatus::Candidate
+            if generation_id.is_none() =>
+        {
+            return Err(LocalProductError::StartupAdvisory(
+                "startup advisory signed result is missing generation identity",
+            ));
+        }
+        StartupAdvisoryStatus::Failure if generation_id.is_some() => {
+            return Err(LocalProductError::StartupAdvisory(
+                "startup advisory failure must not contain generation identity",
+            ));
+        }
+        _ => {}
+    }
+    if snooze_generation.is_none() && snooze_until != 0 {
+        return Err(LocalProductError::StartupAdvisory(
+            "startup advisory snooze is inconsistent",
+        ));
+    }
+    Ok(StartupAdvisoryRecord {
+        status,
+        checked_at,
+        baseline_generation,
+        generation_id,
+        snooze_generation,
+        snooze_until,
+    })
+}
+
+#[cfg(unix)]
+fn read_startup_advisory(
+    roots: &LocalCoreRoots,
+) -> Result<Option<StartupAdvisoryRecord>, LocalProductError> {
+    let path = startup_advisory_path(roots);
+    match std::fs::symlink_metadata(&path) {
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(source) => {
+            return Err(LocalProductError::Io {
+                operation: "inspect startup advisory",
+                source,
+            })
+        }
+        Ok(metadata) if !metadata.file_type().is_file() => {
+            return Err(LocalProductError::StartupAdvisory(
+                "startup advisory must be a regular file",
+            ))
+        }
+        Ok(_) => {}
+    }
+    let bytes = read_bounded_regular_file(
+        &path,
+        STARTUP_ADVISORY_MAX_BYTES,
+        "read startup advisory",
+        LocalProductError::StartupAdvisory("startup advisory exceeds its byte bound"),
+        LocalProductError::StartupAdvisory("startup advisory must be a regular file"),
+    )?;
+    parse_startup_advisory(&bytes).map(Some)
+}
+
+#[cfg(unix)]
+fn write_startup_advisory(
+    roots: &LocalCoreRoots,
+    record: &StartupAdvisoryRecord,
+) -> Result<(), LocalProductError> {
+    use std::io::Write as _;
+    use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
+
+    ensure_real_directory(
+        &roots.state_root,
+        "inspect Core state root for startup advisory",
+        "Core state root for startup advisory is not a real directory",
+    )?;
+    let destination = startup_advisory_path(roots);
+    match std::fs::symlink_metadata(&destination) {
+        Ok(metadata) if metadata.file_type().is_file() => {}
+        Ok(_) => {
+            return Err(LocalProductError::StartupAdvisory(
+                "startup advisory destination has an unsafe file type",
+            ))
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(source) => {
+            return Err(LocalProductError::Io {
+                operation: "inspect startup advisory destination",
+                source,
+            })
+        }
+    }
+    let sequence = STARTUP_ADVISORY_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let temporary = roots.state_root.join(format!(
+        ".startup-update-advisory.{}.{}.tmp",
+        std::process::id(),
+        sequence
+    ));
+    let result = (|| {
+        let mut output = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&temporary)
+            .map_err(|source| LocalProductError::Io {
+                operation: "create startup advisory temporary",
+                source,
+            })?;
+        output
+            .write_all(render_startup_advisory(record).as_bytes())
+            .map_err(|source| LocalProductError::Io {
+                operation: "write startup advisory temporary",
+                source,
+            })?;
+        output.sync_all().map_err(|source| LocalProductError::Io {
+            operation: "sync startup advisory temporary",
+            source,
+        })?;
+        let metadata =
+            std::fs::symlink_metadata(&temporary).map_err(|source| LocalProductError::Io {
+                operation: "inspect startup advisory temporary",
+                source,
+            })?;
+        if !metadata.file_type().is_file() {
+            return Err(LocalProductError::StartupAdvisory(
+                "startup advisory temporary is not a regular file",
+            ));
+        }
+        if metadata.permissions().mode() & 0o7777 != 0o600 {
+            let mut permissions = metadata.permissions();
+            permissions.set_mode(0o600);
+            std::fs::set_permissions(&temporary, permissions).map_err(|source| {
+                LocalProductError::Io {
+                    operation: "set startup advisory temporary mode",
+                    source,
+                }
+            })?;
+        }
+        drop(output);
+        match std::fs::symlink_metadata(&destination) {
+            Ok(metadata) if metadata.file_type().is_file() => {}
+            Ok(_) => {
+                return Err(LocalProductError::StartupAdvisory(
+                    "startup advisory destination has an unsafe file type",
+                ))
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(source) => {
+                return Err(LocalProductError::Io {
+                    operation: "reinspect startup advisory destination",
+                    source,
+                })
+            }
+        }
+        std::fs::rename(&temporary, &destination).map_err(|source| LocalProductError::Io {
+            operation: "replace startup advisory",
+            source,
+        })?;
+        sync_directory(&roots.state_root)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result
+}
+
+#[cfg(unix)]
+fn remove_startup_advisory(roots: &LocalCoreRoots) -> Result<(), LocalProductError> {
+    let path = startup_advisory_path(roots);
+    match std::fs::symlink_metadata(&path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(source) => {
+            return Err(LocalProductError::Io {
+                operation: "inspect startup advisory for removal",
+                source,
+            })
+        }
+        Ok(metadata) if !metadata.file_type().is_file() => {
+            return Err(LocalProductError::StartupAdvisory(
+                "startup advisory removal target must be a regular file",
+            ))
+        }
+        Ok(_) => {}
+    }
+    std::fs::remove_file(&path).map_err(|source| LocalProductError::Io {
+        operation: "remove startup advisory",
+        source,
+    })?;
+    sync_directory(&roots.state_root)
+}
+
+#[cfg(unix)]
+fn fetch_signed_update_index_with_timeout(
+    roots: &LocalCoreRoots,
+    update_key: ReleasePublicKey,
+    transfer_timeout_seconds: &str,
+) -> Result<SignedUpdateIndex, LocalProductError> {
+    ensure_real_directory(
+        &roots.state_root,
+        "inspect Core update state root",
+        "Core update state root is not a real directory",
+    )?;
+    ensure_openssl_available(&roots.openssl)?;
+    ensure_curl_available(&roots.curl)?;
+
+    let index_url = configured_update_index_url()?;
+    let signature_url = format!("{index_url}.sig");
+    parse_update_index_url(OsStr::new(&signature_url))?;
+    let sequence = REMOTE_ACQUISITION_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let acquisition_root = roots
+        .state_root
+        .join(format!(".update-index-{}-{sequence}", std::process::id()));
+    create_remote_acquisition_root(&acquisition_root)?;
+
+    let result = (|| {
+        let index_path = acquisition_root.join("update-index");
+        let signature_path = acquisition_root.join("update-index.sig");
+        let index_output = create_remote_output(&index_path)?;
+        fetch_remote_file_with_timeout(
+            roots,
+            &index_url,
+            &index_output,
+            UPDATE_INDEX_MAX_BYTES as u64,
+            transfer_timeout_seconds,
+        )?;
+        let signature_output = create_remote_output(&signature_path)?;
+        fetch_remote_file_with_timeout(
+            roots,
+            &signature_url,
+            &signature_output,
+            LOCAL_RELEASE_SIGNATURE_MAX_BYTES,
+            transfer_timeout_seconds,
+        )?;
+        verify_release_signature_with_key(
+            &roots.openssl,
+            update_key,
+            &index_path,
+            &signature_path,
+        )?;
+        let index = read_bounded_regular_file(
+            &index_path,
+            UPDATE_INDEX_MAX_BYTES,
+            "read signed update index",
+            LocalProductError::UpdateIndex("update index exceeds its byte bound"),
+            LocalProductError::UpdateIndex("update index is not a bounded regular file"),
+        )?;
+        parse_signed_update_index(&index)
+    })();
+    let cleanup =
+        std::fs::remove_dir_all(&acquisition_root).map_err(|source| LocalProductError::Io {
+            operation: "remove update index acquisition directory",
+            source,
+        });
+    match (result, cleanup) {
+        (_, Err(err)) => Err(err),
+        (Err(err), Ok(())) => Err(err),
+        (Ok(index), Ok(())) => Ok(index),
+    }
+}
+
+#[cfg(unix)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StartupPromptDecision {
+    Update,
+    Keep,
+}
+
+#[cfg(unix)]
+fn startup_update_prompt() -> StartupPromptDecision {
+    use std::io::Write as _;
+
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let _ = std::thread::Builder::new()
+        .name("codex-startup-update-input".to_owned())
+        .spawn(move || {
+            let mut input = String::new();
+            let read = std::io::stdin().read_line(&mut input);
+            let _ = sender.send((read, input));
+        });
+
+    let mut decision = StartupPromptDecision::Keep;
+    for remaining in (1..=STARTUP_ADVISORY_PROMPT_SECONDS).rev() {
+        {
+            let mut stderr = std::io::stderr().lock();
+            let _ = write!(
+                stderr,
+                "
+[2KCodex update available. Update now? [y/N] {remaining}s"
+            );
+            let _ = stderr.flush();
+        }
+        match receiver.recv_timeout(std::time::Duration::from_secs(1)) {
+            Ok((Ok(_), input)) => {
+                if input.trim().eq_ignore_ascii_case("y") {
+                    decision = StartupPromptDecision::Update;
+                }
+                break;
+            }
+            Ok((Err(_), _)) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+        }
+    }
+    {
+        let mut stderr = std::io::stderr().lock();
+        let _ = write!(
+            stderr,
+            "
+[2K"
+        );
+        let _ = stderr.flush();
+    }
+    decision
+}
+
+#[cfg(unix)]
+fn run_bare_startup_update_preflight(roots: &LocalCoreRoots) {
+    let Some(now) = current_unix_seconds() else {
+        return;
+    };
+    let state_paths = match m2_generation_state::CoreStatePaths::new(&roots.state_root) {
+        Ok(paths) => paths,
+        Err(_) => return,
+    };
+    let before = match m2_generation_state::recover_activation_state(&state_paths) {
+        Ok(Some(state)) => state,
+        _ => return,
+    };
+    match rollback_guard::effective_update_hold(roots) {
+        Ok(Some(_)) | Err(_) => return,
+        Ok(None) => {}
+    }
+
+    let previous = read_startup_advisory(roots).unwrap_or(None);
+    let mut record = if previous
+        .as_ref()
+        .is_some_and(|record| record.is_fresh(now, &before.current))
+    {
+        previous.clone()
+    } else {
+        match fetch_signed_update_index_with_timeout(
+            roots,
+            before.update_key,
+            STARTUP_ADVISORY_FETCH_TIMEOUT_SECONDS,
+        ) {
+            Ok(index) => {
+                let current = index.generation_id == before.current;
+                let record = StartupAdvisoryRecord::signed_result(
+                    now,
+                    &before.current,
+                    index.generation_id,
+                    current,
+                    previous.as_ref(),
+                );
+                let _ = write_startup_advisory(roots, &record);
+                Some(record)
+            }
+            Err(_) => {
+                let record =
+                    StartupAdvisoryRecord::failure(now, &before.current, previous.as_ref());
+                let _ = write_startup_advisory(roots, &record);
+                None
+            }
+        }
+    };
+    let Some(mut record) = record.take() else {
+        return;
+    };
+    let Some(candidate) = record
+        .candidate_for_prompt(&before.current, now)
+        .map(str::to_owned)
+    else {
+        return;
+    };
+
+    match startup_update_prompt() {
+        StartupPromptDecision::Update => {
+            if run_core_update(Vec::new()) == 0 {
+                let _ = remove_startup_advisory(roots);
+            } else {
+                let failure = StartupAdvisoryRecord::failure(now, &before.current, Some(&record));
+                let _ = write_startup_advisory(roots, &failure);
+            }
+        }
+        StartupPromptDecision::Keep => {
+            record.snooze_generation = Some(candidate);
+            record.snooze_until = now.saturating_add(STARTUP_ADVISORY_SUCCESS_TTL_SECONDS);
+            let _ = write_startup_advisory(roots, &record);
+        }
+    }
+}
+
+#[cfg(unix)]
 fn activate_signed_update_channel_with_hold_policy(
     roots: &LocalCoreRoots,
     process_env: &TermuxProcessEnvSnapshot,
@@ -8389,57 +9029,11 @@ fn activate_signed_update_channel_with_hold_policy(
     ensure_openssl_available(&roots.openssl)?;
     ensure_curl_available(&roots.curl)?;
 
-    let index_url = configured_update_index_url()?;
-    let signature_url = format!("{index_url}.sig");
-    parse_update_index_url(OsStr::new(&signature_url))?;
-    let sequence = REMOTE_ACQUISITION_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let acquisition_root = roots
-        .state_root
-        .join(format!(".update-index-{}-{sequence}", std::process::id()));
-    create_remote_acquisition_root(&acquisition_root)?;
-
-    let result = (|| {
-        let index_path = acquisition_root.join("update-index");
-        let signature_path = acquisition_root.join("update-index.sig");
-        let index_output = create_remote_output(&index_path)?;
-        fetch_remote_control_file(
-            roots,
-            &index_url,
-            &index_output,
-            UPDATE_INDEX_MAX_BYTES as u64,
-        )?;
-        let signature_output = create_remote_output(&signature_path)?;
-        fetch_remote_control_file(
-            roots,
-            &signature_url,
-            &signature_output,
-            LOCAL_RELEASE_SIGNATURE_MAX_BYTES,
-        )?;
-        verify_release_signature_with_key(
-            &roots.openssl,
-            before.update_key,
-            &index_path,
-            &signature_path,
-        )?;
-        let index = read_bounded_regular_file(
-            &index_path,
-            UPDATE_INDEX_MAX_BYTES,
-            "read signed update index",
-            LocalProductError::UpdateIndex("update index exceeds its byte bound"),
-            LocalProductError::UpdateIndex("update index is not a bounded regular file"),
-        )?;
-        parse_signed_update_index(&index)
-    })();
-    let cleanup =
-        std::fs::remove_dir_all(&acquisition_root).map_err(|source| LocalProductError::Io {
-            operation: "remove update index acquisition directory",
-            source,
-        });
-    let index = match (result, cleanup) {
-        (_, Err(err)) => return Err(err),
-        (Err(err), Ok(())) => return Err(err),
-        (Ok(index), Ok(())) => index,
-    };
+    let index = fetch_signed_update_index_with_timeout(
+        roots,
+        before.update_key,
+        REMOTE_CONTROL_TRANSFER_TIMEOUT_SECONDS,
+    )?;
 
     if hold_policy == UpdateHoldPolicy::Enforce
         && index.generation_id == before.current
@@ -10614,7 +11208,9 @@ where
     I: IntoIterator<Item = S>,
     S: Into<OsString>,
 {
-    let route = match plan_public_dispatch(args) {
+    let original: Vec<OsString> = args.into_iter().map(Into::into).collect();
+    let bare = original.is_empty();
+    let route = match plan_public_dispatch(original) {
         Ok(route) => route,
         Err(err) => {
             eprintln!("codex: {err}");
@@ -10645,6 +11241,17 @@ where
         }
     };
     let process_env = capture_termux_process_env();
+    if bare {
+        use std::io::IsTerminal as _;
+        if startup_update_discovery_enabled(
+            true,
+            std::io::stdin().is_terminal(),
+            std::io::stdout().is_terminal(),
+            std::io::stderr().is_terminal(),
+        ) {
+            run_bare_startup_update_preflight(&roots);
+        }
+    }
     match execute_activated_route(route, &roots, &process_env) {
         Ok(PublicDispatchCompletion::Doctor(outcome)) => {
             print!("{}", outcome.output);
@@ -13054,6 +13661,7 @@ exit 73
         }
         let scenario = std::env::var(MAIN_PROBE_ARGS).unwrap();
         let args = match scenario.as_str() {
+            "bare" => vec![],
             "version" => vec![OsString::from("--version")],
             "update" => vec![
                 OsString::from("update"),
@@ -13075,6 +13683,22 @@ exit 73
         };
         let code = run_public_main(args);
         use std::io::Write;
+        std::io::stdout().flush().unwrap();
+        std::io::stderr().flush().unwrap();
+        std::process::exit(code);
+    }
+
+    #[cfg(unix)]
+    const STARTUP_PROBE_ROLE: &str = "CODEX_BARE_STARTUP_PROBE";
+
+    #[cfg(unix)]
+    #[test]
+    fn public_startup_probe() {
+        if std::env::var(STARTUP_PROBE_ROLE).as_deref() != Ok("1") {
+            return;
+        }
+        let code = run_public_main(Vec::<OsString>::new());
+        use std::io::Write as _;
         std::io::stdout().flush().unwrap();
         std::io::stderr().flush().unwrap();
         std::process::exit(code);
@@ -13178,6 +13802,100 @@ exit 73
             .env("NO_COLOR", "1")
             .output()
             .unwrap()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_bare_startup_discovery_gate_and_advisory_record_are_exact() {
+        assert!(startup_update_discovery_enabled(true, true, true, true));
+        for tuple in [
+            (false, true, true, true),
+            (true, false, true, true),
+            (true, true, false, true),
+            (true, true, true, false),
+        ] {
+            assert!(!startup_update_discovery_enabled(
+                tuple.0, tuple.1, tuple.2, tuple.3
+            ));
+        }
+
+        let candidate = StartupAdvisoryRecord::signed_result(
+            100,
+            "current-g0",
+            "candidate-g1".to_owned(),
+            false,
+            None,
+        );
+        assert!(candidate.is_fresh(100 + STARTUP_ADVISORY_SUCCESS_TTL_SECONDS - 1, "current-g0"));
+        assert!(!candidate.is_fresh(100 + STARTUP_ADVISORY_SUCCESS_TTL_SECONDS, "current-g0"));
+        assert_eq!(
+            candidate.candidate_for_prompt("current-g0", 101),
+            Some("candidate-g1")
+        );
+        assert_eq!(candidate.candidate_for_prompt("candidate-g1", 101), None);
+
+        let mut snoozed = candidate.clone();
+        snoozed.snooze_generation = Some("candidate-g1".to_owned());
+        snoozed.snooze_until = 500;
+        assert_eq!(snoozed.candidate_for_prompt("current-g0", 499), None);
+        assert_eq!(
+            snoozed.candidate_for_prompt("current-g0", 500),
+            Some("candidate-g1")
+        );
+
+        let rendered = render_startup_advisory(&snoozed);
+        assert_eq!(
+            parse_startup_advisory(rendered.as_bytes()).unwrap(),
+            snoozed
+        );
+        let failure = StartupAdvisoryRecord::failure(1000, "current-g0", Some(&snoozed));
+        assert!(failure.is_fresh(
+            1000 + STARTUP_ADVISORY_FAILURE_TTL_SECONDS - 1,
+            "current-g0"
+        ));
+        assert!(!failure.is_fresh(1000 + STARTUP_ADVISORY_FAILURE_TTL_SECONDS, "current-g0"));
+        assert!(!candidate.is_fresh(101, "different-current"));
+        let mut future = candidate.clone();
+        future.checked_at = 200;
+        assert!(!future.is_fresh(199, "current-g0"));
+        assert!(parse_startup_advisory(
+            b"codex-startup-update-advisory-v1
+status	candidate
+checked_at	1
+baseline_generation	current-g0
+generation_id	-
+snooze_generation	-
+snooze_until	0
+"
+        )
+        .is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_bare_non_tty_launch_bypasses_startup_discovery_and_state_write() {
+        let root = b2_public_main_fixture("bare-non-tty", false);
+        let result = run_public_main_probe(&root, "bare");
+        assert_eq!(result.status.code(), Some(73));
+        assert!(result
+            .stdout
+            .windows(
+                b"ARGS:
+"
+                .len()
+            )
+            .any(|w| w
+                == b"ARGS:
+"));
+        assert!(!result
+            .stderr
+            .windows(b"Codex update available".len())
+            .any(|w| w == b"Codex update available"));
+        assert!(!root
+            .join("home/.local/share/codex/core")
+            .join(STARTUP_ADVISORY_FILE)
+            .exists());
+        remove_temp_root(root);
     }
 
     #[cfg(unix)]
@@ -16935,6 +17653,101 @@ esac
     }
 
     #[cfg(unix)]
+    fn b5_read_pty_output(mut master: std::fs::File) -> Vec<u8> {
+        use std::io::Read as _;
+
+        let mut output = Vec::new();
+        let mut buffer = [0u8; 4096];
+        loop {
+            match master.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(count) => output.extend_from_slice(&buffer[..count]),
+                Err(error) if error.raw_os_error() == Some(5) => break,
+                Err(error) => panic!("read startup PTY output: {error}"),
+            }
+        }
+        output
+    }
+
+    #[cfg(unix)]
+    fn b5_run_public_bare_pty(
+        index_url: &str,
+        home: &std::path::Path,
+        prefix: &std::path::Path,
+        tmp: &std::path::Path,
+        input: Option<&[u8]>,
+    ) -> std::process::Output {
+        use std::ffi::CStr;
+        use std::io::Write as _;
+        use std::os::fd::FromRawFd as _;
+
+        let master_fd = unsafe { posix_openpt(2 | 0x100) };
+        assert!(master_fd >= 0);
+        assert_eq!(unsafe { grantpt(master_fd) }, 0);
+        assert_eq!(unsafe { unlockpt(master_fd) }, 0);
+        let name = unsafe { CStr::from_ptr(ptsname(master_fd)) };
+        let slave_path = std::path::PathBuf::from(std::str::from_utf8(name.to_bytes()).unwrap());
+        let mut master = unsafe { std::fs::File::from_raw_fd(master_fd) };
+        let slave = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(slave_path)
+            .unwrap();
+        let stdin = slave.try_clone().unwrap();
+        let stdout = slave.try_clone().unwrap();
+
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .arg("tests::public_startup_probe")
+            .arg("--exact")
+            .arg("--nocapture")
+            .env(STARTUP_PROBE_ROLE, "1")
+            .env("CODEX_TERMUX_UPDATE_INDEX_URL", index_url)
+            .env("HOME", home)
+            .env("PREFIX", prefix)
+            .env("TMPDIR", tmp)
+            .env_remove("SSL_CERT_FILE")
+            .env_remove("SSL_CERT_DIR")
+            .stdin(std::process::Stdio::from(stdin))
+            .stdout(std::process::Stdio::from(stdout))
+            .stderr(std::process::Stdio::from(slave))
+            .spawn()
+            .unwrap();
+
+        if let Some(input) = input {
+            master.write_all(input).unwrap();
+            master.flush().unwrap();
+        }
+        let status = child.wait().unwrap();
+        let terminal = b5_read_pty_output(master);
+        std::process::Output {
+            status,
+            stdout: terminal,
+            stderr: Vec::new(),
+        }
+    }
+
+    #[cfg(unix)]
+    fn b5_run_public_bare_tty(
+        index_url: &str,
+        home: &std::path::Path,
+        prefix: &std::path::Path,
+        tmp: &std::path::Path,
+        input: &[u8],
+    ) -> std::process::Output {
+        b5_run_public_bare_pty(index_url, home, prefix, tmp, Some(input))
+    }
+
+    #[cfg(unix)]
+    fn b5_run_public_bare_tty_timeout(
+        index_url: &str,
+        home: &std::path::Path,
+        prefix: &std::path::Path,
+        tmp: &std::path::Path,
+    ) -> std::process::Output {
+        b5_run_public_bare_pty(index_url, home, prefix, tmp, None)
+    }
+
+    #[cfg(unix)]
     fn rald2_run_public_default_channel_update(
         force: bool,
         home: &std::path::Path,
@@ -20656,6 +21469,146 @@ exit 2
 
     #[cfg(unix)]
     #[test]
+    fn test_bare_tty_startup_n_and_timeout_snooze_exact_signed_generation() {
+        let fixture = b5_channel_fixture("startup-n-snooze", "startup-next");
+        let first = b5_run_public_bare_tty(
+            &fixture.index_url,
+            &fixture.home,
+            &fixture.prefix,
+            &fixture.tmp,
+            b"n
+",
+        );
+        assert_eq!(
+            first.status.code(),
+            Some(73),
+            "stdout={:?} stderr={:?}",
+            first.stdout,
+            first.stderr
+        );
+        let terminal = String::from_utf8_lossy(&first.stdout);
+        assert!(
+            terminal.contains("Codex update available. Update now? [y/N] 5s"),
+            "terminal={terminal:?}"
+        );
+        let roots = b7_public_roots(&fixture.home, &fixture.prefix);
+        let advisory = read_startup_advisory(&roots).unwrap().unwrap();
+        assert_eq!(advisory.status, StartupAdvisoryStatus::Candidate);
+        assert_eq!(advisory.generation_id.as_deref(), Some("startup-next"));
+        assert_eq!(advisory.snooze_generation.as_deref(), Some("startup-next"));
+        assert!(advisory.snooze_until > advisory.checked_at);
+
+        std::fs::write(&fixture.curl_log, b"").unwrap();
+        let second = b5_run_public_bare_tty(
+            &fixture.index_url,
+            &fixture.home,
+            &fixture.prefix,
+            &fixture.tmp,
+            b"y
+",
+        );
+        assert_eq!(second.status.code(), Some(73));
+        assert!(
+            !String::from_utf8_lossy(&second.stdout).contains("Codex update available"),
+            "stdout={:?}",
+            second.stdout
+        );
+        assert_eq!(std::fs::read(&fixture.curl_log).unwrap(), b"");
+        let state_paths = CoreStatePaths::new(&roots.state_root).unwrap();
+        assert_eq!(
+            read_pointer_state(&state_paths).unwrap().unwrap().current,
+            fixture.current_id
+        );
+        remove_temp_root(fixture.root);
+
+        let fixture = b5_channel_fixture("startup-timeout", "startup-timeout-next");
+        let started = std::time::Instant::now();
+        let timed = b5_run_public_bare_tty_timeout(
+            &fixture.index_url,
+            &fixture.home,
+            &fixture.prefix,
+            &fixture.tmp,
+        );
+        assert_eq!(
+            timed.status.code(),
+            Some(73),
+            "stdout={:?} stderr={:?}",
+            timed.stdout,
+            timed.stderr
+        );
+        assert!(started.elapsed() >= std::time::Duration::from_secs(4));
+        let terminal = String::from_utf8_lossy(&timed.stdout);
+        assert!(
+            terminal.contains("Codex update available. Update now? [y/N] 5s"),
+            "terminal={terminal:?}"
+        );
+        assert!(
+            terminal.contains("Update now? [y/N] 1s"),
+            "terminal={terminal:?}"
+        );
+        let roots = b7_public_roots(&fixture.home, &fixture.prefix);
+        let advisory = read_startup_advisory(&roots).unwrap().unwrap();
+        assert_eq!(
+            advisory.snooze_generation.as_deref(),
+            Some("startup-timeout-next")
+        );
+        remove_temp_root(fixture.root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_bare_tty_startup_y_reenters_signed_update_then_launches_active_runtime() {
+        let fixture = b5_channel_fixture("startup-y-update", "startup-y-next");
+        let result = b5_run_public_bare_tty(
+            &fixture.index_url,
+            &fixture.home,
+            &fixture.prefix,
+            &fixture.tmp,
+            b"y
+",
+        );
+        assert_eq!(
+            result.status.code(),
+            Some(73),
+            "stdout={:?} stderr={:?}",
+            result.stdout,
+            result.stderr
+        );
+        let terminal = String::from_utf8_lossy(&result.stdout);
+        assert!(
+            terminal.contains("Codex update available. Update now? [y/N] 5s"),
+            "terminal={terminal:?}"
+        );
+        assert!(
+            terminal.contains("Updating the Termux release for Codex 9.9.9..."),
+            "terminal={terminal:?}"
+        );
+        assert!(
+            terminal.contains("Verified and activated the signed Termux release."),
+            "terminal={terminal:?}"
+        );
+        assert!(
+            terminal.contains("Codex 9.9.9 is now active. ✅"),
+            "terminal={terminal:?}"
+        );
+        assert!(terminal.contains("ARGS:"), "terminal={terminal:?}");
+
+        let roots = b7_public_roots(&fixture.home, &fixture.prefix);
+        let state_paths = CoreStatePaths::new(&roots.state_root).unwrap();
+        assert_eq!(
+            read_pointer_state(&state_paths).unwrap().unwrap().current,
+            "startup-y-next"
+        );
+        let calls = std::fs::read_to_string(&fixture.curl_log).unwrap();
+        assert!(
+            calls.matches(&fixture.index_url).count() >= 2,
+            "startup discovery and selected update must each reauthenticate the signed index: {calls:?}"
+        );
+        remove_temp_root(fixture.root);
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn test_ux1_channel_update_uses_one_tty_transient_line_and_clears_it() {
         let fixture = b5_channel_fixture("ux1-channel-tty", "ux1-channel-next");
         let output = b5_run_public_channel_update_tty(
@@ -20670,6 +21623,14 @@ exit 2
             "stdout={:?} stderr={:?}",
             output.stdout,
             output.stderr
+        );
+        assert!(
+            !fixture
+                .home
+                .join(".local/share/codex/core")
+                .join(STARTUP_ADVISORY_FILE)
+                .exists(),
+            "explicit codex update must not create startup advisory state"
         );
         let terminal = String::from_utf8(output.stdout).unwrap();
         let checking = terminal.find("\r\x1b[2K⠋ Checking for updates...").unwrap();

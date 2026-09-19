@@ -55,7 +55,39 @@ behavior belongs in `SPEC.md`.
   ordinary generation-ID success text. Signed admission, anti-rollback,
   candidate probes, activation, local-derived authority, rollback, producer,
   publication, and public-stable semantics remain unchanged.
-- Active operation: **none**. UPDATE-EXACT-CURRENT-FASTPATH-PROD-17 is accepted and closed on 2026-09-19.
+- Active operation: **BARE-TTY-UPDATE-DISCOVERY**. User authorization on
+  2026-09-20 selects one bounded launch-UX slice: only exact bare `codex` with
+  stdin/stdout/stderr all attached to terminals may authenticate the signed
+  stable index, use a six-hour discovery cache, and show a five-second
+  `[y/N]` prompt when a different signed generation exists. Enter/N/timeout
+  continues the current runtime and snoozes that exact generation for six
+  hours; Y re-enters the ordinary no-argument Core update path and then launches
+  the resulting active runtime. Discovery failure is silent/fail-open with a
+  thirty-minute retry cooldown. Effective rollback holds/guards suppress the
+  prompt. Candidate version text is not shown from index identity alone.
+- This slice must prove that `codex update`, every non-empty upstream/Manager/
+  doctor invocation, and any non-TTY bare launch perform no startup discovery,
+  prompt, or advisory-state write. Existing signed update admission,
+  anti-rollback, candidate probe, atomic activation, LKG/rollback, update human
+  output, exact-current fast path, and publication semantics are unchanged.
+- Implementation/proof order: normative SPEC contract first; focused pure/state
+  tests; process-level non-TTY bypass; PTY timeout/snooze discovery; PTY Y path
+  through ordinary signed activation into upstream; then locked workspace
+  compile/test/clippy/fmt and diff review. No live runtime or public stable
+  mutation is authorized by this source bundle.
+- Source implementation and isolated-TMCP validation are complete for this
+  bundle. Focused job `job_wkx_b8b01b0007` proves advisory format/cache
+  invalidation, exact-generation N/timeout snooze, and Y re-entry through fresh
+  signed-index authentication, activation, and subsequent upstream launch.
+  Regression job `job_wl0_1b45740aa0` proves exact public dispatch preservation
+  and that explicit TTY `codex update` creates no startup-advisory state.
+  Full validation job `job_wl1_7d22b6cc19` passed Core 154/154 executed tests
+  with one explicit real-Termux smoke ignored, Manager 20/20 plus 11/11
+  integration tests, release-builder 19/19, workspace check, clippy
+  `-D warnings`, rustfmt, and `git diff --check`. This bundle authorizes source
+  publication to `rewrite/rust-core` only; it does not authorize production
+  release publication or live-runtime mutation.
+- Previous operation: **UPDATE-EXACT-CURRENT-FASTPATH-PROD-17**, accepted and closed on 2026-09-19.
   User feedback on 2026-09-19 correctly identified that the long ordinary
   exact-current `codex update` was not fundamentally a timeout problem. The
   old no-op path authenticated the signed stable index and then unnecessarily
