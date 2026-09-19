@@ -1,6 +1,6 @@
 # Release Automation and Local-Derived Update Plan
 
-Status: RALD-1 through RALD-7 and the post-RALD legacy-lag production remediation are complete. UX-1 update human output, including authenticated progress ordering, is source-accepted at exact product source `07f77b89a177682954d80ae3f797377c4731de64`. **UX1-PROD-15 is fully complete and accepted (2026-09-19)**: production run `35425409155` promoted signed sequence 15 generation `local-hosted-0-155-1-07f77b89a177-ux1-human-output` by the existing non-forced exact-parent CAS to `main=ba36c44f871ef266c4887986535ed87a4d2becc9` after all build/signing/Release/Pages/readback/disposable-runtime gates passed, and the authorized live Termux consumer subsequently activated that exact generation through ordinary signed public `codex update`. Live verification ended at exact `codex-cli 0.155.1`, exact-current no-op output `Codex 0.155.1 is already up to date. ✅`, healthy Termux Core/Manager/runtime, clean non-TTY output, and actual PTY transient cleanup proof. **UPDATE-PROGRESS-RESPONSIVENESS-PROD-16 is explicitly authorized for corrective publication and live ordinary signed consumption; source remains accepted at `81131655d98f114b5324bd8ee5866cff0a171941`**: TTY progress now genuinely animates on an 80 ms tick; small signed control-plane transfers use a 30-second ceiling while large signed payloads retain 300 seconds; exact-source job `job_w9s_d47fda726c` passed focused PTY/timeout proofs, full workspace tests/check, clippy `-D warnings`, rustfmt, and diff-check. Public stable and the live installed generation remain unchanged until separately authorized production publication and ordinary signed consumption.
+Status: RALD-1 through RALD-7 and the post-RALD legacy-lag production remediation are complete. UX-1 update human output, including authenticated progress ordering, is source-accepted at exact product source `07f77b89a177682954d80ae3f797377c4731de64`. **UX1-PROD-15 is fully complete and accepted (2026-09-19)**: production run `35425409155` promoted signed sequence 15 generation `local-hosted-0-155-1-07f77b89a177-ux1-human-output` by the existing non-forced exact-parent CAS to `main=ba36c44f871ef266c4887986535ed87a4d2becc9` after all build/signing/Release/Pages/readback/disposable-runtime gates passed, and the authorized live Termux consumer subsequently activated that exact generation through ordinary signed public `codex update`. Live verification ended at exact `codex-cli 0.155.1`, exact-current no-op output `Codex 0.155.1 is already up to date. ✅`, healthy Termux Core/Manager/runtime, clean non-TTY output, and actual PTY transient cleanup proof. **UPDATE-PROGRESS-RESPONSIVENESS-PROD-16 is fully complete and accepted (2026-09-19)**: accepted source `81131655d98f114b5324bd8ee5866cff0a171941` provides an 80 ms animated TTY spinner and a 30-second signed-control transfer ceiling while retaining the 300-second payload ceiling; production run `35434790060` promoted signed sequence 16 generation `local-hosted-0-155-1-81131655d98f-update-progress-responsiveness` by non-forced exact-parent CAS to `main=52c69f21472fb2d082ef87f0e6583c88b7a8e3db`; the live Termux consumer then activated that exact generation through ordinary signed public `codex update`. New-Core PTY proof observed 374 in-place checking redraws across all ten spinner frames, cleanup before permanent output, exact-current `Codex 0.155.1 is already up to date. ✅`, and clean non-TTY output.
 
 Baseline: `rewrite/rust-core` at
 `21bb1cd78d4a6e6ef8e124b7f07230206c5aa5ea` (`termux: guard rollback holds and automate stable intake`).
@@ -79,11 +79,9 @@ Exact-source Termux validation job `job_w9s_d47fda726c` passed spinner-frame,
 control/payload timeout, and PTY redraw/cleanup tests (including a requirement
 that `Checking for updates...` redraw more than once), the full locked
 workspace test suite, workspace check, clippy `-D warnings`, rustfmt, and
-`git diff --check`, with a clean worktree before and after. This acceptance
-does not authorize or imply signing/publication. Public stable remains sequence
-15 and the live installation remains the already verified 0.155.1 generation.
-The user granted that explicit production authorization on 2026-09-19. The
-selected publication gate is exact workflow source
+`git diff --check`, with a clean worktree before and after. The user then
+granted explicit production authorization on 2026-09-19. The selected
+publication gate was exact workflow source
 `39983f628fe568ec98b8c69bb87b02f9449c0104`: manual-only on `main`, exact
 authenticated 0.155.1 / sequence 15 /
 `local-hosted-0-155-1-07f77b89a177-ux1-human-output`, ordinary comparison
@@ -95,10 +93,32 @@ only unique generation identity plus Core digest. tmcp job
 `job_wai_242ba900ee` executed the positive gate and negative wrong-ref,
 authorization, generation, sequence, candidate, and source cases, plus the
 duplicate-helper descriptor comparator/forbidden-delta proof, all successfully.
-The next production order is workflow-only non-forced installation on the exact
-current `main` parent, then the authorized manual full publication path, then
-ordinary signed live `codex update` only after public seq16 is independently
-verified.
+That order is now complete. The exact producer workflow was installed as the
+sole-file non-forced child
+`main=40501cf88d86c1c9281d918141e90389ad2006f6` of the sequence-15
+stable parent. Production run `35434790060` then passed the exact baseline and
+ordinary-`candidate=false` gate, sequence-15 non-Core byte/mode preservation,
+Core-only descriptor delta, Android/AArch64 smoke, accepted-authority signing
+and independent verification, immutable Release, LKG-preserving Pages, public
+HTTPS every-byte readback, disposable ordinary update/version/doctor/no-op, and
+the existing `force:false` CAS. The CAS reported
+`promotion_result=committed`, producing
+`main=52c69f21472fb2d082ef87f0e6583c88b7a8e3db`, whose only changes from the
+producer-install parent are `update-index-v1` and its signature.
+
+The live consumer remained on healthy sequence 15 until the public sequence-16
+promotion was independently re-read. `job_wam_258c839b9b` then ran only
+ordinary PTY `codex update` and activated sequence 16. Its post-command
+harness returned nonzero solely because it expected the initiating sequence-15
+Core to already animate the pre-activation checking phase; the same capture had
+already matched the expected same-version header and signed-activation success
+output. Read-only `job_wan_fe35cc553b` immediately proved the exact sequence-16
+generation with healthy Core/runtime/code-mode host/Manager. Finally
+`job_wao_d345a6690f` used the new Core for an exact-current PTY proof and
+observed 374 in-place checking redraws across all ten spinner frames, verified
+erase-before-permanent-output cleanup, and then proved the non-TTY exact-current
+line contains no CR/ANSI controls. PROD-16 requires no further publication or
+live-consumer action.
 
 
 ## 1. Objective
