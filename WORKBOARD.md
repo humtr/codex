@@ -101,6 +101,10 @@ behavior belongs in `SPEC.md`.
   other record including both helper records to remain byte-value equivalent.
   Source acceptance must execute that exact inline comparator against a
   duplicate-helper descriptor fixture before another producer install.
+  The repaired source gate is bound to protected
+  `main=714431daa6fdc87c524d33c57e377ac4a9b2946b`; only a full green
+  Android/package/workspace/public-state acceptance may authorize the next
+  non-forced workflow-only main child.
 - RALD-1 local-derived Core contract, RALD-2 Core/official-producer separation,
   and RALD-3 GitHub-hosted unsigned producer preflight are accepted. RALD-3 is
   pinned to producer source commit `28e65b32c8719cf913e62080d4674b54dbcc1a01`;
