@@ -12171,16 +12171,19 @@ mod tests {
     }
 
     #[cfg(unix)]
+    fn resolve_test_tool(name: &str) -> Option<OsString> {
+        std::env::var_os("PATH").and_then(|path| {
+            std::env::split_paths(&path)
+                .map(|dir| dir.join(name))
+                .find(|candidate| candidate.is_file())
+                .map(std::path::PathBuf::into_os_string)
+        })
+    }
+
+    #[cfg(unix)]
     fn resolve_test_shell() -> OsString {
-        if let Some(path) = std::env::var_os("PATH") {
-            for dir in std::env::split_paths(&path) {
-                let candidate = dir.join("sh");
-                if candidate.is_file() {
-                    return candidate.into_os_string();
-                }
-            }
-        }
-        OsString::from("/data/data/com.termux/files/usr/bin/sh")
+        resolve_test_tool("sh")
+            .unwrap_or_else(|| OsString::from("/data/data/com.termux/files/usr/bin/sh"))
     }
 
     #[cfg(unix)]
@@ -20822,6 +20825,26 @@ exec "$cat_path" "$release_root/$relative"
     }
 
     #[cfg(unix)]
+    fn b5_delay_channel_index_fetch(fixture: &B5ChannelFixture, delay_seconds: &str) {
+        assert!(
+            !delay_seconds.is_empty()
+                && delay_seconds
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || byte == b'.')
+        );
+        let sleep = resolve_test_tool("sleep").expect("test sleep tool must be available");
+        let sleep = b5_shell_quote(std::path::Path::new(&sleep));
+        let delay = b5_shell_quote_text(delay_seconds);
+        let curl = fixture.prefix.join("bin/curl");
+        let script = std::fs::read_to_string(&curl).unwrap();
+        let marker = "case \"$url\" in\n";
+        assert_eq!(script.matches(marker).count(), 1);
+        let injected =
+            format!("if [ \"$url\" = \"$index_url\" ]; then {sleep} {delay}; fi\n{marker}");
+        std::fs::write(&curl, script.replacen(marker, &injected, 1)).unwrap();
+    }
+
+    #[cfg(unix)]
     fn b5_point_channel_at(
         fixture: &B5ChannelFixture,
         generation_id: &str,
@@ -21611,6 +21634,7 @@ exit 2
     #[test]
     fn test_ux1_channel_update_uses_one_tty_transient_line_and_clears_it() {
         let fixture = b5_channel_fixture("ux1-channel-tty", "ux1-channel-next");
+        b5_delay_channel_index_fetch(&fixture, "0.20");
         let output = b5_run_public_channel_update_tty(
             &fixture.index_url,
             &fixture.home,

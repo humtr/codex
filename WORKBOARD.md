@@ -103,6 +103,12 @@ behavior belongs in `SPEC.md`.
   RALD-7-era commit to this bundle's exact pre-change source `f8b456c9155f0f4f9c970f398947d75cfcd4dc66`, so the
   complete bare-TTY product commit plus its CI rebind changes remain scanned
   while the bounded workflow fetch can resolve the baseline.
+- Remote full acceptance then exposed one pre-existing speed-sensitive UX-1
+  spinner assertion: a signed-index fixture could complete before the 80 ms
+  animation tick, so the PTY test required a second frame even when the phase
+  legitimately finished first. The integration proof now gives only that
+  fixture a deterministic 200 ms index delay, preserving the animation
+  assertion while leaving product timing and all ordinary fixtures unchanged.
 - Previous operation: **UPDATE-EXACT-CURRENT-FASTPATH-PROD-17**, accepted and closed on 2026-09-19.
   User feedback on 2026-09-19 correctly identified that the long ordinary
   exact-current `codex update` was not fundamentally a timeout problem. The
