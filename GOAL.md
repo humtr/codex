@@ -3366,6 +3366,45 @@ remain separate explicitly authorized operations.
   public stable publication, signing authority, resolver, auth, config, profile,
   or session state.
 
+
+### UPDATE-PROGRESS-RESPONSIVENESS — animated TTY progress and bounded control fetches (source accepted)
+
+- User feedback on 2026-09-19 identified two post-UX1 responsiveness defects:
+  the transient TTY glyph changed only at phase boundaries rather than animating
+  while a blocking phase was in progress, and the pre-authentication
+  `Checking for updates...` phase reused the generic 300-second per-file
+  transfer ceiling even for small signed control-plane resources.
+- Exact accepted source is
+  `81131655d98f114b5324bd8ee5866cff0a171941`. The change preserves the
+  existing signed-channel trust, signature/digest/mode/version verification,
+  anti-rollback, candidate probing, atomic activation, LKG/rollback, and CAS
+  behavior. TTY progress now advances through the existing spinner frame set on
+  an 80 ms tick while retaining exactly one transient stderr line; phase changes
+  render immediately, and the worker is stopped and joined before transient
+  cleanup and every permanent output. Non-TTY progress remains disabled.
+- The exact pre-authentication text remains `Checking for updates...`. Small
+  signed control-plane fetches used to authenticate the index and release
+  metadata now use a 30-second transfer ceiling while retaining the existing
+  15-second connect timeout. Large signed payload downloads retain the existing
+  300-second transfer ceiling.
+- Exact-source Termux validation job `job_w9s_d47fda726c` completed with exit
+  0 from a clean worktree at the accepted source. Focused spinner-cycle,
+  control/payload-timeout, and PTY update tests passed; the PTY test requires
+  multiple redraws of the same `Checking for updates...` phase so a static
+  glyph cannot satisfy the gate. Full locked workspace tests also passed:
+  Core 149 passed / 0 failed / 1 explicitly ignored real-Termux smoke, Manager
+  20/20, Manager integration 11/11, and release-builder 19/19. Locked workspace
+  check, clippy with `-D warnings`, rustfmt, and `git diff --check` all
+  passed, and the worktree was clean before and after validation.
+- This is **source acceptance only**. No release was signed or published, public
+  stable remains sequence 15 generation
+  `local-hosted-0-155-1-07f77b89a177-ux1-human-output`, and the installed live
+  Termux runtime remains the previously verified `codex-cli 0.155.1`.
+  Publishing a same-version corrective generation and then consuming it on the
+  live device are separate production actions and are not implied by this source
+  acceptance.
+
+
 ## Blocked / Resume Conditions
 
 - Stop before any live install, activation, or replacement of the working
