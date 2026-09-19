@@ -77,6 +77,10 @@ behavior belongs in `SPEC.md`.
 - After public Release/Pages/readback/disposable update/no-op proof and
   non-forced CAS all succeed, the live Termux installation may be updated only
   through the ordinary signed public `codex update` path.
+- UX1-PROD-15 producer gate source is
+  `cc807eb7ada799e1d7457ba08a0b7d18da263b98`. It is not production-authorized
+  merely by existing on the implementation branch; full remote acceptance must
+  first pass against current public sequence 14 before any `main` install.
 - RALD-1 local-derived Core contract, RALD-2 Core/official-producer separation,
   and RALD-3 GitHub-hosted unsigned producer preflight are accepted. RALD-3 is
   pinned to producer source commit `28e65b32c8719cf913e62080d4674b54dbcc1a01`;
