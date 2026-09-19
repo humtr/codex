@@ -216,9 +216,18 @@ Termux qualification. Produce one candidate for independent product review.
   `update-index-v1` and `update-index-v1.sig`. Post-promotion HTTPS readback
   byte-matched those promoted files and reverified their signature. Public stable
   is therefore signed sequence 15 generation
-  `local-hosted-0-155-1-07f77b89a177-ux1-human-output`. The separately
-  authorized live Termux consumer update remains the final UX1-PROD-15 step and
-  is not claimed complete by this publication evidence.
+  `local-hosted-0-155-1-07f77b89a177-ux1-human-output`. The authorized live
+  Termux consumer leg is also **accepted 2026-09-19**, closing UX1-PROD-15.
+  Preflight job `job_w4h_aabff4f63b` measured exact `codex-cli 0.155.0`
+  with healthy Termux Core/Manager/runtime. Ordinary public update job
+  `job_w4i_4679e91eab` activated the exact sequence-15 generation and then
+  reported `codex-cli 0.155.1`. New-Core job `job_w4j_b7c769f26d`
+  required the exact-current line `Codex 0.155.1 is already up to date. ✅`,
+  proved non-TTY output had no CR/ANSI controls, and reported the new generation
+  healthy. PTY job `job_w4k_377b6ef362` required both child stdout and stderr
+  to be terminals and captured `Checking for updates...`, transient-line
+  erase, and the final exact-current success line; version remained exact
+  `codex-cli 0.155.1`.
 
 - POST-RALD UX-1 update human output is **source-accepted 2026-09-19** at
   corrected product source `07f77b89a177682954d80ae3f797377c4731de64`.
