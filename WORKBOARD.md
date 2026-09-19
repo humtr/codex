@@ -99,6 +99,10 @@ behavior belongs in `SPEC.md`.
   assertion for the scheduled producer is also advanced from the obsolete
   UX-1 source to the already-active exact-current source `7817b939c81c...`;
   the producer workflow itself is unchanged.
+  The credential added-lines scan baseline is rebound from the original
+  RALD-7-era commit to this bundle's exact pre-change source `f8b456c9155f0f4f9c970f398947d75cfcd4dc66`, so the
+  complete bare-TTY product commit plus its CI rebind changes remain scanned
+  while the bounded workflow fetch can resolve the baseline.
 - Previous operation: **UPDATE-EXACT-CURRENT-FASTPATH-PROD-17**, accepted and closed on 2026-09-19.
   User feedback on 2026-09-19 correctly identified that the long ordinary
   exact-current `codex update` was not fundamentally a timeout problem. The
