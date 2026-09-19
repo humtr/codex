@@ -18,22 +18,24 @@ behavior belongs in `SPEC.md`.
 - TC-LIVE-BRIDGE repository-native two-step live cutover is accepted and
   complete.
 - Latest verified live runtime on 2026-09-19 is exact `codex-cli 0.155.1`
-  on signed sequence-16 generation
-  `local-hosted-0-155-1-81131655d98f-update-progress-responsiveness`.
-  tmcp post-transition job `job_wan_fe35cc553b` binds that exact generation
-  with healthy Termux Core, runtime, code-mode host, and Manager; new-Core PTY
-  proof `job_wao_d345a6690f` observed 374 in-place checking redraws across
-  all ten spinner frames and exact-current cleanup.
+  on signed sequence-17 generation
+  `local-hosted-0-155-1-7817b939c81c-exact-current-fastpath`.
+  Read-only preflight `job_wdn_35abc56ffe` proved the previous healthy seq16
+  state before mutation; ordinary signed public activation
+  `job_wdp_a5ba929cd5` moved live to seq17; post-activation proof
+  `job_wdu_343ee51ae9` binds seq17 with healthy Core/runtime/code-mode
+  host/Manager/upstream/summary and a 1268 ms exact-current no-op with exact
+  permanent output and byte-identical Core state before/after.
 - UPDATE-CHANNEL-LATEST is accepted and closed. Final source acceptance before
   the closure ledger is `057f078a091441c1f624c7b229649bd1463ef774`.
-- Current public stable is signed sequence 16 generation
-  `local-hosted-0-155-1-81131655d98f-update-progress-responsiveness`,
-  promoted by explicitly authorized production run `35434790060` to
-  `main=52c69f21472fb2d082ef87f0e6583c88b7a8e3db`. It carries upstream
-  `0.155.1` and the accepted progress-responsiveness Core from exact product
-  source `81131655d98f114b5324bd8ee5866cff0a171941`. Sequence 15 generation
-  `local-hosted-0-155-1-07f77b89a177-ux1-human-output` is the authenticated
-  production baseline for this correction.
+- Current public stable is signed sequence 17 generation
+  `local-hosted-0-155-1-7817b939c81c-exact-current-fastpath`, promoted by
+  explicitly authorized production run `35437042333`. Promotion commit
+  `f361b4a241b34cee1a7ca5bf4c98914a6b9dd600` changed only the signed
+  index pair; final public-control `main=56ba28e1baee87721767ba34b505cc2bc1303c44`
+  removed the temporary trigger bridge without changing those stable bytes.
+  It carries upstream `0.155.1` and the accepted fastpath Core from exact
+  product source `7817b939c81ce15c76d3d0d57157ca5e378a8491`.
 - AUTO-UPSTREAM-ROLLBACK is accepted and source-closed at
   `21bb1cd78d4a6e6ef8e124b7f07230206c5aa5ea`.
 - RALD-1 through RALD-7 and the post-RALD legacy-lag production remediation are
@@ -53,7 +55,7 @@ behavior belongs in `SPEC.md`.
   ordinary generation-ID success text. Signed admission, anti-rollback,
   candidate probes, activation, local-derived authority, rollback, producer,
   publication, and public-stable semantics remain unchanged.
-- Active operation: **UPDATE-EXACT-CURRENT-FASTPATH-PROD-17 (public promoted; live consumption pending tmcp transport)**.
+- Active operation: **none**. UPDATE-EXACT-CURRENT-FASTPATH-PROD-17 is accepted and closed on 2026-09-19.
   User feedback on 2026-09-19 correctly identified that the long ordinary
   exact-current `codex update` was not fundamentally a timeout problem. The
   old no-op path authenticated the signed stable index and then unnecessarily
@@ -139,13 +141,18 @@ behavior belongs in `SPEC.md`.
 - The temporary push bridge is already removed. Final public-control
   `main=56ba28e1baee87721767ba34b505cc2bc1303c44` is a workflow-only child of
   the promotion commit and retains the same seq17 index/signature blobs.
-- Live Termux consumption remains authorized but not yet executed because the
-  tmcp operation endpoint currently returns HTTP 404. Do not use an alternate
-  manual install path. Once tmcp returns, update the live installation only via
-  ordinary no-argument signed public `codex update`, then verify exact
-  `codex-cli 0.155.1`, healthy Termux Core/runtime/code-mode-host/Manager, and
-  measure a second exact-current update under the new fast path while preserving
-  exact permanent output and state invariance.
+- Live Termux consumption is complete. tmcp recovered and read-only preflight
+  `job_wdn_35abc56ffe` proved exact healthy seq16 / `codex-cli 0.155.1`.
+  Ordinary no-argument signed public update `job_wdp_a5ba929cd5` activated
+  seq17 in 62014 ms using the initiating seq16 Core's full acquisition path and
+  ended with the accepted same-version activation output. New-Core proof
+  `job_wdu_343ee51ae9` then reported exact seq17 generation with healthy
+  Core/runtime/code-mode-host/Manager/upstream/summary and doctor rc=0. Its
+  timed second ordinary update completed in 1268 ms, emitted exactly
+  `Codex 0.155.1 is already up to date. ✅`, emitted no stderr or CR/ANSI
+  controls, and left the complete Core generation/activation/launcher snapshot
+  unchanged. No alternate install route or protected user-state mutation was
+  used. No further action is selected by this bundle.
 
 - UX1-PROD-15 is accepted and closed on 2026-09-19; its explicitly authorized
   production deployment and live Termux consumer update remain complete.
