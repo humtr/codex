@@ -1,6 +1,6 @@
 # Release Automation and Local-Derived Update Plan
 
-Status: RALD-1 through RALD-7 and the post-RALD legacy-lag production remediation are complete. UX-1 update human output, including the authenticated progress-ordering correction, is source-accepted on 2026-09-19 at exact product source `07f77b89a177682954d80ae3f797377c4731de64` by full remote acceptance run `35406952579`; it changes only Core human presentation/acquisition ordering needed to authenticate the displayed target version and does not reopen or alter any frozen producer/consumer trust, signing, publication, rollback, or promotion decision in this plan.
+Status: RALD-1 through RALD-7 and the post-RALD legacy-lag production remediation are complete. UX-1 update human output, including authenticated progress ordering, is source-accepted at exact product source `07f77b89a177682954d80ae3f797377c4731de64`. **UX1-PROD-15 is now selected and explicitly authorized (2026-09-19)** to install that accepted producer on `main`, publish one bounded same-version `0.155.1` corrective generation from exact public sequence 14 to sequence 15, and then update the live Termux consumer through the ordinary signed channel.
 
 Baseline: `rewrite/rust-core` at
 `21bb1cd78d4a6e6ef8e124b7f07230206c5aa5ea` (`termux: guard rollback holds and automate stable intake`).
@@ -11,15 +11,27 @@ override `SPEC.md`, does not retroactively alter accepted evidence in `GOAL.md`,
 and must be updated together with `WORKBOARD.md` if the selected implementation
 changes.
 
-UX-1 is deliberately outside release-production semantics. Its release-plan
-obligation is now satisfied: signed release control plus digest-bound
+UX-1 source acceptance is complete: signed release control plus digest-bound
 `generation.meta` authenticate the target version before the permanent update
-header and later download/verification progress become visible; the accepted
-producer/disposable proof source asserts the version-centric success/no-op
-output; PTY tests bind the exact phase order; non-TTY tests prove stable plain
-output with no terminal control bytes; and the full source gate passed. This
-source acceptance still authorizes no workflow install on `main`, candidate
-publication, Pages deployment, stable promotion, or live-device mutation.
+header and later download/verification progress become visible; PTY tests bind
+the exact phase order; non-TTY tests prove stable plain output with no terminal
+control bytes.
+
+UX1-PROD-15 is the separately authorized production operation. It must add a
+false-by-default manual-only gate that is reachable only from `refs/heads/main`
+with explicit publication authorization and exact authenticated baseline
+`0.155.1` / sequence 14 /
+`local-hosted-0-155-1-566034e1aff4`. The official stable must still be exact
+`0.155.1`, ordinary comparison must first yield no candidate, the accepted
+product source must be exact `07f77b89a177682954d80ae3f797377c4731de64`,
+and the computed next sequence must be 15. Before signing, all non-Core
+load-bearing component digests/modes must equal sequence 14, the new Core must
+differ and be built from the accepted source, and `generation.meta` may differ
+only by generation identity. Existing signing, immutable Release, Pages/LKG,
+public HTTPS readback, disposable update/version/doctor/no-op, and non-forced
+exact-parent CAS gates remain unchanged. Schedules must explicitly reject the
+gate. Once sequence 15 is promoted, the exact baseline fence makes the gate
+unusable.
 
 ## 1. Objective
 

@@ -25,10 +25,12 @@ behavior belongs in `SPEC.md`.
   remain historical evidence rather than current-state claims.
 - UPDATE-CHANNEL-LATEST is accepted and closed. Final source acceptance before
   the closure ledger is `057f078a091441c1f624c7b229649bd1463ef774`.
-- Public stable is signed sequence 13 generation
-  `local-hosted-0-155-0-566034e1aff4-legacy-lag-remediation` after accepted
-  production remediation commit
-  `5bef52d07a07bd8612b4538dfb29a2396937a3fb`.
+- Current public stable is signed sequence 14 generation
+  `local-hosted-0-155-1-566034e1aff4`, promoted by the ordinary scheduled
+  producer in run `35414519346` to
+  `main=28a936dba325f3504822053cef8f8abcf6af8907`. It carries upstream
+  `0.155.1` but still uses the pre-UX product source
+  `566034e1aff42bde2f3221ebc2da2b16def77d44`.
 - AUTO-UPSTREAM-ROLLBACK is accepted and source-closed at
   `21bb1cd78d4a6e6ef8e124b7f07230206c5aa5ea`.
 - RALD-1 through RALD-7 and the post-RALD legacy-lag production remediation are
@@ -48,9 +50,33 @@ behavior belongs in `SPEC.md`.
   ordinary generation-ID success text. Signed admission, anti-rollback,
   candidate probes, activation, local-derived authority, rollback, producer,
   publication, and public-stable semantics remain unchanged.
-- No implementation bundle is currently selected. Any default-branch producer
-  install, public release/public-stable activation of UX-1, or live-device
-  replacement requires a separately selected and authorized operation.
+- Active operation: **UX1-PROD-15**. The user explicitly authorized actual
+  deployment and subsequent Termux installation on 2026-09-19.
+- UX1-PROD-15 may first change only producer/workflow/docs on
+  `rewrite/rust-core` and must pass full remote source acceptance. After that
+  proof, the exact accepted producer may be installed as a non-forced child of
+  current `main` without changing the stable index.
+- Production publication is one bounded manual-only same-version correction:
+  authenticated public baseline must be exact upstream `0.155.1`, generation
+  `local-hosted-0-155-1-566034e1aff4`, signed sequence 14; official upstream
+  must still be exact `0.155.1`; accepted product source must be exact
+  `07f77b89a177682954d80ae3f797377c4731de64`; next sequence must be 15.
+  Ordinary comparison must first return `candidate=false`. Only then may the
+  dedicated UX-1 gate build a corrective candidate.
+- The corrective candidate must preserve signed admission, R10 bridge metadata,
+  anti-rollback, candidate probe, atomic activation, LKG/rollback and
+  non-forced exact-parent CAS. Non-Core load-bearing components
+  (`codex-code-mode-host`, helpers, Manager, runtime) must match the signed
+  sequence-14 digest/mode inventory exactly; the Core must come from the exact
+  accepted UX-1 source and differ from sequence 14; the descriptor may differ
+  only by generation identity.
+- The one-shot gate is forbidden to schedules and becomes inert after sequence
+  15 promotion because its exact sequence-14/current-generation baseline no
+  longer matches. No fake credentials, force push, alternate trust key, or
+  hidden provider-success fixture is permitted.
+- After public Release/Pages/readback/disposable update/no-op proof and
+  non-forced CAS all succeed, the live Termux installation may be updated only
+  through the ordinary signed public `codex update` path.
 - RALD-1 local-derived Core contract, RALD-2 Core/official-producer separation,
   and RALD-3 GitHub-hosted unsigned producer preflight are accepted. RALD-3 is
   pinned to producer source commit `28e65b32c8719cf913e62080d4674b54dbcc1a01`;
