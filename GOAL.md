@@ -3367,7 +3367,7 @@ remain separate explicitly authorized operations.
   or session state.
 
 
-### UPDATE-PROGRESS-RESPONSIVENESS — animated TTY progress and bounded control fetches (source accepted)
+### UPDATE-PROGRESS-RESPONSIVENESS — animated TTY progress and bounded control fetches (accepted)
 
 - User feedback on 2026-09-19 identified two post-UX1 responsiveness defects:
   the transient TTY glyph changed only at phase boundaries rather than animating
@@ -3396,13 +3396,54 @@ remain separate explicitly authorized operations.
   20/20, Manager integration 11/11, and release-builder 19/19. Locked workspace
   check, clippy with `-D warnings`, rustfmt, and `git diff --check` all
   passed, and the worktree was clean before and after validation.
-- This is **source acceptance only**. No release was signed or published, public
-  stable remains sequence 15 generation
-  `local-hosted-0-155-1-07f77b89a177-ux1-human-output`, and the installed live
-  Termux runtime remains the previously verified `codex-cli 0.155.1`.
-  Publishing a same-version corrective generation and then consuming it on the
-  live device are separate production actions and are not implied by this source
-  acceptance.
+- Production publication was explicitly authorized on 2026-09-19 and used a
+  separately validated one-shot sequence-15 -> sequence-16 gate from exact
+  workflow source `39983f628fe568ec98b8c69bb87b02f9449c0104`. The producer
+  workflow was first installed as the sole-file non-forced child
+  `main=40501cf88d86c1c9281d918141e90389ad2006f6` of
+  `ba36c44f871ef266c4887986535ed87a4d2becc9`, leaving stable bytes
+  unchanged. Gate-validation job `job_wai_242ba900ee` proved the positive
+  exact-baseline path plus fail-closed wrong-ref/authorization/generation/
+  sequence/candidate/source cases and the ordered duplicate-helper descriptor
+  comparator.
+- Production run `35434790060` then completed green end-to-end. It
+  authenticated exact baseline version 0.155.1, generation
+  `local-hosted-0-155-1-07f77b89a177-ux1-human-output`, sequence 15;
+  ordinary comparison first yielded no candidate; only the new manual gate
+  admitted exact next sequence 16 from accepted product source
+  `81131655d98f114b5324bd8ee5866cff0a171941`. The run passed exact
+  sequence-15 non-Core digest/mode preservation, Core-only integrity-bound
+  descriptor delta, Android/AArch64 native Manager/Core/runtime smoke,
+  production signing and independent signature verification, immutable Release
+  staging, LKG-preserving Pages deployment, public HTTPS every-byte readback,
+  disposable ordinary update/version/doctor/second-no-op proof, and the existing
+  non-forced exact-parent CAS. CAS reported `promotion_result=committed`.
+  Public stable is now signed sequence 16 generation
+  `local-hosted-0-155-1-81131655d98f-update-progress-responsiveness`;
+  `main=52c69f21472fb2d082ef87f0e6583c88b7a8e3db` is the sole child of
+  the producer-install parent and changes only `update-index-v1` and its
+  signature.
+- Live consumer closure used only the ordinary signed public update path.
+  Read-only preflight `job_wal_3820f2c5d8` confirmed exact 0.155.1 on the
+  healthy sequence-15 generation. PTY job `job_wam_258c839b9b` then invoked
+  only no-argument `codex update`; its captured update contained the expected
+  same-version header, signed-activation success sentence, and
+  `Codex 0.155.1 is now active. ✅`. That job's post-update harness exited 1
+  only because it over-constrained the *initiating sequence-15 Core* to already
+  show the new animated pre-activation spinner; it observed the expected old
+  single frame and did not indicate an activation failure. Immediate read-only
+  job `job_wan_fe35cc553b` proved that sequence 16 was active with healthy
+  Termux Core, runtime, code-mode host, and Manager.
+- New-Core PTY proof `job_wao_d345a6690f` then ran exact-current
+  `codex update` with both child stdout and stderr attached to a real PTY. It
+  observed 374 in-place `Checking for updates...` redraws and all ten spinner
+  frames `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`, verified erase-before-permanent-output
+  cleanup, and ended with exact
+  `Codex 0.155.1 is already up to date. ✅`. A subsequent non-TTY no-op
+  produced exactly the same permanent line with no CR or ANSI controls.
+  The live version remains exact `codex-cli 0.155.1`; the active generation is
+  now the signed sequence-16 progress-responsiveness generation. The bundle is
+  accepted and closed.
 
 
 ## Blocked / Resume Conditions
