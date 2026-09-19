@@ -8441,6 +8441,29 @@ fn activate_signed_update_channel_with_hold_policy(
         (Ok(index), Ok(())) => index,
     };
 
+    if hold_policy == UpdateHoldPolicy::Enforce
+        && index.generation_id == before.current
+        && before.current_key == before.update_key
+    {
+        let base = RemoteReleaseBase::parse(OsStr::new(&index.release_base.value))?;
+        if !base.matches_generation_identity(&index.generation_id)? {
+            return Err(LocalProductError::Remote(
+                "remote release base does not match signed generation identity",
+            ));
+        }
+        let _ = rollback_guard::effective_update_hold(roots)?;
+        let (_, current_loaded) = verify_installed_local_release(
+            roots,
+            &before.current,
+            before.current_key,
+            "active generation descriptor id does not match current",
+        )?;
+        return Ok(SignedUpdateOutcome::AlreadyCurrent(UpdateTarget {
+            generation_id: before.current,
+            version: current_loaded.manifest.upstream_package_version.clone(),
+        }));
+    }
+
     let outcome = activate_signed_remote_release_outcome_with_hold_policy(
         OsStr::new(&index.release_base.value),
         roots,
@@ -20118,6 +20141,7 @@ exec "$cat_path" "$release_root/$relative"
             rolled_back
         );
 
+        std::fs::write(&fixture.curl_log, b"").unwrap();
         let forced = arh1_run_public_channel_force_update(
             &fixture.index_url,
             &fixture.home,
@@ -20141,6 +20165,10 @@ exec "$cat_path" "$release_root/$relative"
                 release_sequence: 2,
             })
         );
+        let force_calls = std::fs::read_to_string(&fixture.curl_log).unwrap();
+        assert!(force_calls.contains("release.manifest"));
+        assert!(force_calls.contains("generation.meta"));
+        assert!(force_calls.contains("runtime"));
         b5_assert_no_acquisition(&roots.generation_root);
         m2_b1_assert_no_transaction_files(&state_paths);
         remove_temp_root(fixture.root);
@@ -20738,6 +20766,7 @@ exit 2
             assert!(!calls.contains("codex update"));
 
             let state_before = std::fs::read(&state_paths.activation_state).unwrap();
+            std::fs::write(&fixture.curl_log, b"").unwrap();
             let current_again = b5_run_public_channel_update(
                 &fixture.index_url,
                 &fixture.home,
@@ -20773,6 +20802,26 @@ exit 2
                 state_before
             );
             assert_eq!(read_pointer_state(&state_paths).unwrap().unwrap(), state);
+            let exact_current_calls = std::fs::read_to_string(&fixture.curl_log).unwrap();
+            assert!(exact_current_calls.contains(&fixture.index_url));
+            assert!(exact_current_calls.contains(&format!("{}.sig", fixture.index_url)));
+            for forbidden in [
+                "release.manifest",
+                "release.sig",
+                "release-authority.sig",
+                "generation.meta",
+                "codex-code-mode-host",
+                "core",
+                "runtime",
+                "manager",
+                "helpers/",
+            ] {
+                assert!(
+                    !exact_current_calls.contains(forbidden),
+                    "exact-current path unexpectedly fetched {forbidden}: {exact_current_calls}"
+                );
+            }
+            assert_eq!(exact_current_calls.matches("CALL\n").count(), 2);
             b5_assert_no_acquisition(&generation_root);
             m2_b1_assert_no_transaction_files(&state_paths);
             remove_temp_root(fixture.root);
