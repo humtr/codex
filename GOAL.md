@@ -3446,6 +3446,63 @@ remain separate explicitly authorized operations.
   accepted and closed.
 
 
+
+### UPDATE-EXACT-CURRENT-FASTPATH — signed-index exact-current short-circuit (source accepted)
+
+- User feedback on 2026-09-19 identified that ordinary exact-current
+  `codex update` remained unreasonably slow and explicitly rejected timeout
+  tuning as the explanation. Investigation confirmed a control-flow defect:
+  after authenticating the signed stable index and learning that its generation
+  was already active, Core still reacquired the entire current signed release
+  before `prepare_signed_local_release_with_hold_policy` could return
+  `AlreadyCurrent`. On the current sequence-16 release this included the
+  approximately 233 MB runtime asset, so a no-op update could take tens of
+  seconds despite requiring no activation.
+- Exact accepted source is
+  `7817b939c81ce15c76d3d0d57157ca5e378a8491`. Ordinary no-argument
+  `UpdateHoldPolicy::Enforce` now stops after the signed index pair is
+  authenticated when the index generation exactly equals the active generation,
+  `current_key == update_key`, the index release base is bound to that exact
+  generation identity, the rollback-hold/guard state validates, and the
+  installed current generation fully re-verifies under the official authority.
+  It then returns the existing `AlreadyCurrent` result without creating a
+  generation acquisition tree or fetching release control/payload bytes.
+- The shortcut is deliberately unavailable to `--force`, a local-derived
+  current generation, a different authenticated stable generation, malformed
+  hold/guard state, an invalid index/signature, an invalid release-base
+  generation binding, or a locally invalid installed generation. Those paths
+  retain the existing fail-closed/full authenticated behavior. Candidate
+  acquisition, signature/digest/mode checks, anti-rollback, candidate probing,
+  atomic activation, LKG/rollback, local-derived semantics, and CAS behavior
+  are unchanged.
+- Focused validation job `job_wcd_60498c3b61` passed the exact-current
+  signed-channel regression and the rollback-hold/`--force` regression. The
+  focused shell later returned nonzero only because Cargo created an untracked
+  worktree-local `target/` directory; inspection job `job_wci_78c1c8931f`
+  proved that was the only dirty entry and that no tracked source had changed.
+  The build output was then moved to job-private storage for the authoritative
+  full validation.
+- Exact-source full validation job `job_wcj_53ab115dbc` completed with exit
+  0 and a clean worktree. The curl-log regression proves an ordinary
+  exact-current update performs exactly the signed index and index-signature
+  fetches and does not request `release.manifest`, `release.sig`,
+  `release-authority.sig`, `generation.meta`, runtime, Core, Manager,
+  helpers, or code-mode-host. The force regression proves `--force` still
+  fetches and verifies release control and payload data. Full locked workspace
+  validation passed: Core 149 passed / 0 failed / 1 explicitly ignored
+  real-Termux smoke, Manager 20/20, Manager integration 11/11, and
+  release-builder 19/19; workspace check, clippy with `-D warnings`, rustfmt,
+  and `git diff --check` also passed.
+- This is source acceptance only. Public stable remains signed sequence 16
+  generation
+  `local-hosted-0-155-1-81131655d98f-update-progress-responsiveness` at
+  `main=52c69f21472fb2d082ef87f0e6583c88b7a8e3db`, and the live Termux
+  installation remains the previously verified exact `codex-cli 0.155.1`
+  sequence-16 generation. Publishing and consuming a corrective generation for
+  this fast path are separate production actions and are not authorized by this
+  source acceptance.
+
+
 ## Blocked / Resume Conditions
 
 - Stop before any live install, activation, or replacement of the working
