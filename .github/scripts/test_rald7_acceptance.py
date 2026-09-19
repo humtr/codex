@@ -4,6 +4,8 @@ from __future__ import annotations
 from pathlib import Path
 import re
 import subprocess
+import tempfile
+import textwrap
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -194,7 +196,83 @@ class Rald7AcceptanceContract(unittest.TestCase):
         self.assertIn("UX-1 current descriptor Core digest does not match sequence-14 Core", text)
         self.assertIn("UX-1 candidate descriptor Core digest does not match UX-1 Core", text)
         self.assertIn('if key in {"generation_id", "core_artifact_digest"}:', text)
+        self.assertIn("zip(current_records, candidate_records, strict=True)", text)
         self.assertIn("UX-1 descriptor changed forbidden field", text)
+
+        comparator_marker = (
+            'python3 - "$stable/generation.meta" "$candidate/generation.meta" \\\n'
+            '            "$UX1_DEPLOY_CURRENT_GENERATION"'
+        )
+        comparator = text.split(comparator_marker, 1)[1].split("<<'PY'\n", 1)[1].split(
+            "\n          PY", 1
+        )[0]
+        comparator = textwrap.dedent(comparator)
+        old_digest = "1" * 64
+        new_digest = "2" * 64
+        current_id = "local-hosted-0-155-1-566034e1aff4"
+        candidate_id = "local-hosted-0-155-1-07f77b89a177-ux1-human-output"
+        descriptor = (
+            "codex-local-generation-v2\n"
+            "generation_id\t{generation_id}\n"
+            "upstream_package_identity\topenai/codex:codex-package-aarch64-unknown-linux-musl.tar.gz\n"
+            "upstream_package_version\t0.155.1\n"
+            "source_artifact_digest\t{source_digest}\n"
+            "expected_platform\tandroid\n"
+            "expected_architecture\taarch64\n"
+            "patch_policy_id\ttermux-fd-remap-v1\n"
+            "patch_report\tstable-report\n"
+            "runtime_digest\t{runtime_digest}\n"
+            "core_artifact_digest\t{core_digest}\n"
+            "manager_artifact_digest\t{manager_digest}\n"
+            "core_api_identity\tcore-api-v1\n"
+            "persistent_schema_identity\tschema-v1\n"
+            "qualification\tqualified\n"
+            "creation_metadata\tr10-browser-helper-bridge-v1\n"
+            "upstream_doctor\tunsupported\n"
+            "helper_count\t2\n"
+            "helper\ttermux-browser-open-v1\t{open_digest}\n"
+            "helper\ttermux-browser-manual-v1\t{manual_digest}\n"
+        )
+        common = dict(
+            source_digest="3" * 64,
+            runtime_digest="4" * 64,
+            manager_digest="5" * 64,
+            open_digest="6" * 64,
+            manual_digest="7" * 64,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            current = Path(tmp) / "current.meta"
+            candidate = Path(tmp) / "candidate.meta"
+            current.write_text(descriptor.format(
+                generation_id=current_id, core_digest=old_digest, **common
+            ))
+            candidate.write_text(descriptor.format(
+                generation_id=candidate_id, core_digest=new_digest, **common
+            ))
+            accepted = subprocess.run(
+                ["python3", "-c", comparator, str(current), str(candidate),
+                 current_id, candidate_id, old_digest, new_digest],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            candidate.write_text(
+                descriptor.format(
+                    generation_id=candidate_id,
+                    core_digest=new_digest,
+                    **{**common, "runtime_digest": "8" * 64},
+                )
+            )
+            rejected = subprocess.run(
+                ["python3", "-c", comparator, str(current), str(candidate),
+                 current_id, candidate_id, old_digest, new_digest],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+            )
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn("descriptor changed forbidden field: runtime_digest", rejected.stderr)
         self.assertIn(
             'if test "$current" = "$UX1_DEPLOY_CURRENT_GENERATION"; then',
             text,

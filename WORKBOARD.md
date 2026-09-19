@@ -89,6 +89,18 @@ behavior belongs in `SPEC.md`.
   byte gate and permits only those two integrity-required descriptor deltas.
   Full remote acceptance against protected `main=bacd83b8...` and public
   sequence 14 is required before replacing the installed producer workflow.
+- The installed repair at `main=714431daa6fdc87c524d33c57e377ac4a9b2946b`
+  was then exercised by production dispatch `35424865601`. It again failed
+  closed in the sequence-14 descriptor gate before unsigned artifact upload,
+  signing, Release staging, Pages deployment, or CAS. The remaining bug was
+  format-specific: real generation descriptors contain two ordered
+  `helper<TAB>identity<TAB>digest` records, but the comparator incorrectly
+  required every first-column key to be unique. The active repair compares
+  ordered raw descriptor records, requires only `generation_id` and
+  `core_artifact_digest` to be unique/exact exceptions, and requires every
+  other record including both helper records to remain byte-value equivalent.
+  Source acceptance must execute that exact inline comparator against a
+  duplicate-helper descriptor fixture before another producer install.
 - RALD-1 local-derived Core contract, RALD-2 Core/official-producer separation,
   and RALD-3 GitHub-hosted unsigned producer preflight are accepted. RALD-3 is
   pinned to producer source commit `28e65b32c8719cf913e62080d4674b54dbcc1a01`;
