@@ -3447,7 +3447,7 @@ remain separate explicitly authorized operations.
 
 
 
-### UPDATE-EXACT-CURRENT-FASTPATH — signed-index exact-current short-circuit (source accepted)
+### UPDATE-EXACT-CURRENT-FASTPATH — signed-index exact-current short-circuit (accepted)
 
 - User feedback on 2026-09-19 identified that ordinary exact-current
   `codex update` remained unreasonably slow and explicitly rejected timeout
@@ -3534,12 +3534,33 @@ remain separate explicitly authorized operations.
   push bridge was immediately removed by workflow-only child
   `main=56ba28e1baee87721767ba34b505cc2bc1303c44`; stable index/signature
   blobs remained unchanged by cleanup.
-- Live Termux consumption is the only remaining leg. It has not been attempted
-  after public promotion because the tmcp operation endpoint still returns HTTP
-  404, so there has been no unauthorized alternate live mutation. When that
-  transport is available, the already-authorized action is ordinary no-argument
-  signed public `codex update`, followed by exact-version/doctor verification
-  and timed second exact-current no-op proof.
+- Live Termux consumption is **accepted 2026-09-19**, closing
+  UPDATE-EXACT-CURRENT-FASTPATH-PROD-17. After tmcp transport recovered,
+  read-only preflight job `job_wdn_35abc56ffe` proved the live installation
+  was exact `codex-cli 0.155.1` on signed sequence-16 generation
+  `local-hosted-0-155-1-81131655d98f-update-progress-responsiveness`,
+  with healthy Termux Core/runtime/code-mode host/Manager and healthy upstream
+  doctor, while the same device read public stable as the promoted seq17
+  fastpath generation.
+- Live activation job `job_wdp_a5ba929cd5` then invoked only ordinary
+  no-argument signed public `codex update`. The initiating seq16 Core used the
+  existing full acquisition path and completed the same-version corrective
+  activation in 62014 ms, printing
+  `Updating the Termux release for Codex 0.155.1...`,
+  `Verified and activated the signed Termux release.`, and
+  `Codex 0.155.1 is now active. ✅`; exact version remained
+  `codex-cli 0.155.1`.
+- New-Core proof job `job_wdu_343ee51ae9` bound the active generation exactly
+  to `local-hosted-0-155-1-7817b939c81c-exact-current-fastpath` and reported
+  Core, runtime, code-mode host, Manager, upstream, and composed summary all
+  healthy with doctor exit 0. Its timed ordinary exact-current update completed
+  in **1268 ms**, emitted exactly
+  `Codex 0.155.1 is already up to date. ✅` on stdout, emitted empty stderr,
+  contained no CR/ANSI control bytes, and left the complete Core generation /
+  activation / launcher snapshot byte-for-byte unchanged. Final version remained
+  exact `codex-cli 0.155.1`. No manual generation copy, direct Core overwrite,
+  alternate trust key, force push, provider fixture, or protected user-state
+  mutation was used.
 
 
 ## Blocked / Resume Conditions
