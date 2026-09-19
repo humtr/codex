@@ -51,9 +51,28 @@ behavior belongs in `SPEC.md`.
   ordinary generation-ID success text. Signed admission, anti-rollback,
   candidate probes, activation, local-derived authority, rollback, producer,
   publication, and public-stable semantics remain unchanged.
-- Active operation: **none**. UX1-PROD-15 is accepted and closed on
-  2026-09-19; its explicitly authorized production deployment and live Termux
-  consumer update are complete.
+- Active operation: **UPDATE-PROGRESS-RESPONSIVENESS**. UX1-PROD-15 remains
+  accepted and closed; this follow-up is bounded to updater presentation and
+  transport responsiveness only.
+- Selected bundle contract:
+  - keep the existing signed-channel trust, signature/digest/mode/version,
+    anti-rollback, candidate-probe, atomic-activation, LKG, rollback, and CAS
+    behavior unchanged;
+  - when both stdout and stderr are TTYs, the single transient progress line
+    must use a genuinely animated spinner while a blocking update phase is in
+    progress, not a phase-static glyph;
+  - transient animation must stop and the line must be erased before every
+    permanent success, failure, or version header, and non-TTY output must
+    remain free of CR/ANSI progress controls;
+  - keep the exact pre-authentication message `Checking for updates...`, but
+    apply a shorter bounded transfer timeout to the small signed control-plane
+    resources used to authenticate the index/release metadata; large signed
+    payload downloads retain the existing long transfer timeout;
+  - add focused regression proof for spinner frame progression/cleanup,
+    non-TTY stability, and control-plane versus payload timeout selection before
+    any production deployment.
+- UX1-PROD-15 is accepted and closed on 2026-09-19; its explicitly authorized
+  production deployment and live Termux consumer update remain complete.
 - UX1-PROD-15 may first change only producer/workflow/docs on
   `rewrite/rust-core` and must pass full remote source acceptance. After that
   proof, the exact accepted producer may be installed as a non-forced child of
