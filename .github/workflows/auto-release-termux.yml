@@ -1,11 +1,6 @@
 name: Termux Hosted Release Preflight
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - '.github/workflows/auto-release-termux.yml'
   workflow_dispatch:
     inputs:
       rald4_positive_gate:
@@ -236,8 +231,7 @@ jobs:
         shell: bash
         env:
           RALD4_POSITIVE_GATE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald4_positive_gate }}
-          PROD17_PUSH_AUTHORIZED: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == '5f7a316cd433d659979c1ec1bf648294002b4307' && github.event.head_commit.message == 'release trigger exact-current fastpath seq17 retry' }}
-          RALD5_PUBLICATION_AUTHORIZED: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.rald5_publication_authorized) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == '5f7a316cd433d659979c1ec1bf648294002b4307' && github.event.head_commit.message == 'release trigger exact-current fastpath seq17 retry') }}
+          RALD5_PUBLICATION_AUTHORIZED: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.rald5_publication_authorized) }}
           RALD5_SAME_VERSION_ACCEPTANCE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald5_same_version_acceptance }}
           RALD45_TRANSITION_STAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald45_transition_stage }}
           RALD45_TRANSITION_PROMOTE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald45_transition_promote }}
@@ -245,7 +239,7 @@ jobs:
           LEGACY_LAG_JUMP_REMEDIATION: ${{ github.event_name == 'workflow_dispatch' && inputs.legacy_lag_jump_remediation }}
           UX1_SAME_VERSION_DEPLOY: ${{ github.event_name == 'workflow_dispatch' && inputs.ux1_same_version_deploy }}
           UPDATE_PROGRESS_SAME_VERSION_DEPLOY: ${{ github.event_name == 'workflow_dispatch' && inputs.update_progress_same_version_deploy }}
-          EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY: ${{ (github.event_name == 'workflow_dispatch' && inputs.exact_current_fastpath_same_version_deploy) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == '5f7a316cd433d659979c1ec1bf648294002b4307' && github.event.head_commit.message == 'release trigger exact-current fastpath seq17 retry') }}
+          EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY: ${{ github.event_name == 'workflow_dispatch' && inputs.exact_current_fastpath_same_version_deploy }}
         run: |
           set -euo pipefail
           state="$RUNNER_TEMP/rald3-upstream"
@@ -284,7 +278,6 @@ jobs:
           test "$LEGACY_LAG_JUMP_REMEDIATION" = true -o "$LEGACY_LAG_JUMP_REMEDIATION" = false
           test "$UX1_SAME_VERSION_DEPLOY" = true -o "$UX1_SAME_VERSION_DEPLOY" = false
           test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" = true -o "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" = false
-          test "$PROD17_PUSH_AUTHORIZED" = true -o "$PROD17_PUSH_AUTHORIZED" = false
           test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" = true -o "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" = false
           if test "$RALD4_POSITIVE_GATE" = true; then
             test "$candidate" = true
@@ -301,9 +294,6 @@ jobs:
           if test "$RALD5_PUBLICATION_AUTHORIZED" = true; then
             case "$GITHUB_EVENT_NAME" in
               workflow_dispatch)
-                ;;
-              push)
-                test "$PROD17_PUSH_AUTHORIZED" = true
                 ;;
               schedule)
                 test "$RALD4_POSITIVE_GATE" != true
@@ -458,16 +448,7 @@ jobs:
               "$upstream_version" "$UPDATE_PROGRESS_DEPLOY_CURRENT_SEQUENCE" "$UPDATE_PROGRESS_DEPLOY_TARGET_SEQUENCE"
           fi
           if test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" = true; then
-            case "$GITHUB_EVENT_NAME" in
-              workflow_dispatch)
-                ;;
-              push)
-                test "$PROD17_PUSH_AUTHORIZED" = true
-                ;;
-              *)
-                exit 1
-                ;;
-            esac
+            test "$GITHUB_EVENT_NAME" = workflow_dispatch
             test "$GITHUB_REF" = refs/heads/main
             test "$RALD4_POSITIVE_GATE" != true
             test "$RALD5_PUBLICATION_AUTHORIZED" = true
