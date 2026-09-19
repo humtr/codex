@@ -3493,14 +3493,53 @@ remain separate explicitly authorized operations.
   real-Termux smoke, Manager 20/20, Manager integration 11/11, and
   release-builder 19/19; workspace check, clippy with `-D warnings`, rustfmt,
   and `git diff --check` also passed.
-- This is source acceptance only. Public stable remains signed sequence 16
+- Production publication was explicitly authorized by the user on 2026-09-19.
+  The normal tmcp-backed interactive dispatch transport returned HTTP 404
+  before submission, so a temporary exact-parent push bridge was used without
+  broadening release admission. Initial bridge run `35436887423` failed before
+  creating any job because a colon-space inside an unquoted GitHub expression
+  made the workflow YAML invalid; signed stable index/signature bytes remained
+  unchanged at sequence 16 and no signing, Release, Pages, or CAS action ran.
+  The repaired retry used exact trigger parent
+  `5f7a316cd433d659979c1ec1bf648294002b4307` and produced successful
+  production run `35437042333`.
+- Run `35437042333` authenticated exact upstream `0.155.1`, sequence 16,
   generation
-  `local-hosted-0-155-1-81131655d98f-update-progress-responsiveness` at
-  `main=52c69f21472fb2d082ef87f0e6583c88b7a8e3db`, and the live Termux
-  installation remains the previously verified exact `codex-cli 0.155.1`
-  sequence-16 generation. Publishing and consuming a corrective generation for
-  this fast path are separate production actions and are not authorized by this
-  source acceptance.
+  `local-hosted-0-155-1-81131655d98f-update-progress-responsiveness`;
+  ordinary comparison first returned no candidate and only the bounded
+  fastpath gate admitted exact accepted source
+  `7817b939c81ce15c76d3d0d57157ca5e378a8491` as sequence 17 generation
+  `local-hosted-0-155-1-7817b939c81c-exact-current-fastpath`. The run passed
+  exact sequence-16 non-Core byte/mode preservation with Core-only change,
+  ordered descriptor comparison, Android/AArch64 executable smoke, production
+  signing and independent verification, immutable Release staging,
+  LKG-preserving Pages deployment, public HTTPS every-byte readback, disposable
+  ordinary update/version/semantic-doctor/no-op proof, and the existing
+  non-forced exact-parent CAS.
+- Disposable public proof job `105881773125` verified the candidate as exact
+  release sequence 17, activated it through ordinary update, proved exact
+  `codex-cli 0.155.1`, healthy Termux Core/runtime/code-mode host, genuine
+  upstream doctor execution (unhealthy in the credential-free disposable
+  environment, correctly distinct from Core integrity), and an exact second
+  no-op `Codex 0.155.1 is already up to date. ✅` with no state delta.
+  CAS job `105881831694` reported `promotion_result=committed`,
+  `ref_update_rc=0`, used `force:false`, and reverified the served stable
+  index signature after promotion.
+- Promotion commit is
+  `f361b4a241b34cee1a7ca5bf4c98914a6b9dd600`, the sole child of trigger
+  parent `49ba318efd80f33a9181d0fb56dfd41402cffde5` and changes only
+  `update-index-v1` plus its signature. Public stable is now signed sequence
+  17 generation
+  `local-hosted-0-155-1-7817b939c81c-exact-current-fastpath`. The temporary
+  push bridge was immediately removed by workflow-only child
+  `main=56ba28e1baee87721767ba34b505cc2bc1303c44`; stable index/signature
+  blobs remained unchanged by cleanup.
+- Live Termux consumption is the only remaining leg. It has not been attempted
+  after public promotion because the tmcp operation endpoint still returns HTTP
+  404, so there has been no unauthorized alternate live mutation. When that
+  transport is available, the already-authorized action is ordinary no-argument
+  signed public `codex update`, followed by exact-version/doctor verification
+  and timed second exact-current no-op proof.
 
 
 ## Blocked / Resume Conditions
