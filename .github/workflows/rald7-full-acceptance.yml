@@ -23,7 +23,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  EXPECTED_PARENT: '2a8603d7aaa039553c117b71cb2a6bea44b01b65'
+  EXPECTED_PARENT: '8f8f1fd6c8940f40a50d232016ce99f130894b40'
   RUST_VERSION: '1.98.0'
   ANDROID_API: '24'
   ANDROID_NDK_VERSION: '27.3.13750724'
@@ -32,7 +32,7 @@ env:
   TERMUX_TEST_PREFIX: '/data/data/com.termux/files/usr'
   TERMUX_TEST_TMPDIR: '/data/data/com.termux/files/usr/tmp'
   EXPECTED_MAIN: '56ba28e1baee87721767ba34b505cc2bc1303c44'
-  ACCEPTED_SOURCE: 'd50ce013daa6b27cab8075761d8a1b234f3cdb81'
+  ACCEPTED_SOURCE: '8f8f1fd6c8940f40a50d232016ce99f130894b40'
   PUBLIC_GENERATION: 'local-hosted-0-155-1-7817b939c81c-exact-current-fastpath'
   PUBLIC_SEQUENCE: '17'
   PUBLIC_KEY_SHA256: '62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c'

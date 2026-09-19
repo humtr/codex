@@ -109,6 +109,11 @@ behavior belongs in `SPEC.md`.
   legitimately finished first. The integration proof now gives only that
   fixture a deterministic 200 ms index delay, preserving the animation
   assertion while leaving product timing and all ordinary fixtures unchanged.
+- Exact full-acceptance source is advanced to `8f8f1fd6c8940f40a50d232016ce99f130894b40`. Relative to
+  the bare-TTY product implementation `d50ce013...`, this source changes only
+  test-proof machinery and its workboard ledger; the shipped Core behavior is
+  unchanged. The following CI rebind commit points full acceptance at this exact
+  source.
 - Previous operation: **UPDATE-EXACT-CURRENT-FASTPATH-PROD-17**, accepted and closed on 2026-09-19.
   User feedback on 2026-09-19 correctly identified that the long ordinary
   exact-current `codex update` was not fundamentally a timeout problem. The
