@@ -87,6 +87,18 @@ behavior belongs in `SPEC.md`.
   `-D warnings`, rustfmt, and `git diff --check`. This bundle authorizes source
   publication to `rewrite/rust-core` only; it does not authorize production
   release publication or live-runtime mutation.
+- Product source commit `d50ce013daa6b27cab8075761d8a1b234f3cdb81` was CAS-fast-forwarded to
+  `rewrite/rust-core`. Its first push-triggered full-acceptance run exposed
+  only stale UX-1-era gate bindings: the workflow still expected old parent,
+  protected-main, and public sequence-14 identities. The repository-native
+  follow-up rebind therefore pins full source acceptance to product source
+  `d50ce013daa6b27cab8075761d8a1b234f3cdb81`, protected `main=56ba28e1baee87721767ba34b505cc2bc1303c44`, and the already accepted signed
+  sequence-17 generation `local-hosted-0-155-1-7817b939c81c-exact-current-fastpath`. This is CI/source-acceptance
+  maintenance only; it does not change the scheduled producer source,
+  update-index bytes, public release, or live runtime. The acceptance-script
+  assertion for the scheduled producer is also advanced from the obsolete
+  UX-1 source to the already-active exact-current source `7817b939c81c...`;
+  the producer workflow itself is unchanged.
 - Previous operation: **UPDATE-EXACT-CURRENT-FASTPATH-PROD-17**, accepted and closed on 2026-09-19.
   User feedback on 2026-09-19 correctly identified that the long ordinary
   exact-current `codex update` was not fundamentally a timeout problem. The
