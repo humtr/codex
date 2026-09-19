@@ -8089,6 +8089,26 @@ fn ensure_remote_resource_parent(
     Ok(())
 }
 
+#[cfg(all(unix, test))]
+fn fetch_remote_resource(
+    roots: &LocalCoreRoots,
+    base: &RemoteReleaseBase,
+    relative_path: &str,
+    destination: &std::path::Path,
+    response_limit: u64,
+    acquired_bytes: &mut u64,
+) -> Result<(), LocalProductError> {
+    fetch_remote_resource_with_timeout(
+        roots,
+        base,
+        relative_path,
+        destination,
+        response_limit,
+        acquired_bytes,
+        REMOTE_TRANSFER_TIMEOUT_SECONDS,
+    )
+}
+
 #[cfg(unix)]
 fn fetch_remote_control_resource(
     roots: &LocalCoreRoots,
