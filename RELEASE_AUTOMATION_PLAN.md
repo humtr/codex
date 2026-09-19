@@ -1,6 +1,6 @@
 # Release Automation and Local-Derived Update Plan
 
-Status: RALD-1 through RALD-7 and the post-RALD legacy-lag production remediation are complete. UX-1 update human output, including authenticated progress ordering, is source-accepted at exact product source `07f77b89a177682954d80ae3f797377c4731de64`. **UX1-PROD-15 is fully complete and accepted (2026-09-19)**: production run `35425409155` promoted signed sequence 15 generation `local-hosted-0-155-1-07f77b89a177-ux1-human-output` by the existing non-forced exact-parent CAS to `main=ba36c44f871ef266c4887986535ed87a4d2becc9` after all build/signing/Release/Pages/readback/disposable-runtime gates passed, and the authorized live Termux consumer subsequently activated that exact generation through ordinary signed public `codex update`. Live verification ended at exact `codex-cli 0.155.1`, exact-current no-op output `Codex 0.155.1 is already up to date. ✅`, healthy Termux Core/Manager/runtime, clean non-TTY output, and actual PTY transient cleanup proof.
+Status: RALD-1 through RALD-7 and the post-RALD legacy-lag production remediation are complete. UX-1 update human output, including authenticated progress ordering, is source-accepted at exact product source `07f77b89a177682954d80ae3f797377c4731de64`. **UX1-PROD-15 is fully complete and accepted (2026-09-19)**: production run `35425409155` promoted signed sequence 15 generation `local-hosted-0-155-1-07f77b89a177-ux1-human-output` by the existing non-forced exact-parent CAS to `main=ba36c44f871ef266c4887986535ed87a4d2becc9` after all build/signing/Release/Pages/readback/disposable-runtime gates passed, and the authorized live Termux consumer subsequently activated that exact generation through ordinary signed public `codex update`. Live verification ended at exact `codex-cli 0.155.1`, exact-current no-op output `Codex 0.155.1 is already up to date. ✅`, healthy Termux Core/Manager/runtime, clean non-TTY output, and actual PTY transient cleanup proof. **UPDATE-PROGRESS-RESPONSIVENESS is source-accepted at `81131655d98f114b5324bd8ee5866cff0a171941` but is not published or live-activated**: TTY progress now genuinely animates on an 80 ms tick; small signed control-plane transfers use a 30-second ceiling while large signed payloads retain 300 seconds; exact-source job `job_w9s_d47fda726c` passed focused PTY/timeout proofs, full workspace tests/check, clippy `-D warnings`, rustfmt, and diff-check. Public stable and the live installed generation remain unchanged until separately authorized production publication and ordinary signed consumption.
 
 Baseline: `rewrite/rust-core` at
 `21bb1cd78d4a6e6ef8e124b7f07230206c5aa5ea` (`termux: guard rollback holds and automate stable intake`).
@@ -59,6 +59,31 @@ no-op with both child stdout and stderr attached to a PTY and observed
 `Checking for updates...` as the transient line, carriage-return/erase cleanup,
 then the exact permanent current-version line. UX1-PROD-15 requires no further
 publication or live-consumer action.
+
+UPDATE-PROGRESS-RESPONSIVENESS is a bounded post-production follow-up and does
+not reopen the accepted UX1-PROD-15 operation. Its accepted source
+`81131655d98f114b5324bd8ee5866cff0a171941` changes only presentation timing
+and transport responsiveness: both stdout and stderr must be TTYs for the
+single transient progress line; the spinner is redrawn every 80 ms while a
+blocking phase is active and is stopped/joined before permanent output;
+non-TTY output remains free of progress control bytes. The exact
+pre-authentication text remains `Checking for updates...`. Signed index,
+signature, manifest, authority-signature, and authenticated release-metadata
+control fetches use the existing 15-second connect timeout with a 30-second
+transfer ceiling; large signed payloads retain the existing 300-second
+transfer ceiling. Signature/digest/mode/version verification, anti-rollback,
+candidate qualification, atomic activation, LKG/rollback, and stable CAS are
+unchanged.
+
+Exact-source Termux validation job `job_w9s_d47fda726c` passed spinner-frame,
+control/payload timeout, and PTY redraw/cleanup tests (including a requirement
+that `Checking for updates...` redraw more than once), the full locked
+workspace test suite, workspace check, clippy `-D warnings`, rustfmt, and
+`git diff --check`, with a clean worktree before and after. This acceptance
+does not authorize or imply signing/publication. Public stable remains sequence
+15 and the live installation remains the already verified 0.155.1 generation.
+Any same-version corrective production publication and subsequent live ordinary
+`codex update` are separately gated by explicit production authorization.
 
 
 ## 1. Objective
