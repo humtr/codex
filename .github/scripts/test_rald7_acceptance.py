@@ -50,6 +50,7 @@ class Rald7AcceptanceContract(unittest.TestCase):
             "RALD45_TRANSITION_PROMOTE",
             "RALD5_NEGATIVE_GATE",
             "LEGACY_LAG_JUMP_REMEDIATION",
+            "UX1_SAME_VERSION_DEPLOY",
         ]:
             self.assertIn(f'test "$' + gate + '" != true', text)
         self.assertIn(
@@ -133,6 +134,59 @@ class Rald7AcceptanceContract(unittest.TestCase):
         self.assertIn('test "$(sed -n \'s/^previous=//p\' "$state")" = "$LEGACY_LAG_GENERATION"', text)
         self.assertIn("doctor --json", text)
         self.assertIn("rald5-second-update.out", text)
+        self.assertIn("force:false", text)
+        self.assertNotIn("force: true", text)
+
+    def test_ux1_same_version_deployment_is_exact_manual_one_shot(self) -> None:
+        text = (ROOT / ".github/workflows/auto-release-termux.yml").read_text()
+        header = text.split("\njobs:\n", 1)[0]
+        self.assertIn("ux1_same_version_deploy:", header)
+        block = header.split("ux1_same_version_deploy:", 1)[1].split("\n  schedule:", 1)[0]
+        self.assertIn("type: boolean", block)
+        self.assertIn("default: false", block)
+        for exact in [
+            "UX1_ACCEPTED_SOURCE_SHA: '07f77b89a177682954d80ae3f797377c4731de64'",
+            "UX1_DEPLOY_VERSION: '0.155.1'",
+            "UX1_DEPLOY_CURRENT_GENERATION: 'local-hosted-0-155-1-566034e1aff4'",
+            "UX1_DEPLOY_CURRENT_SEQUENCE: '14'",
+            "UX1_DEPLOY_TARGET_SEQUENCE: '15'",
+        ]:
+            self.assertIn(exact, text)
+        decision = text.split("- name: Resolve official upstream stable", 1)[1].split(
+            "- name: Cross-build Core and Manager", 1
+        )[0]
+        self.assertIn(
+            "UX1_SAME_VERSION_DEPLOY: ${{ github.event_name == 'workflow_dispatch' && inputs.ux1_same_version_deploy }}",
+            decision,
+        )
+        deployment = decision.split('if test "$UX1_SAME_VERSION_DEPLOY" = true; then', 1)[1].split(
+            'suffix="${upstream_version//./-}', 1
+        )[0]
+        for required in [
+            'test "$GITHUB_EVENT_NAME" = workflow_dispatch',
+            'test "$GITHUB_REF" = refs/heads/main',
+            'test "$RALD5_PUBLICATION_AUTHORIZED" = true',
+            'test "$RALD5_SAME_VERSION_ACCEPTANCE" != true',
+            'test "$RALD45_TRANSITION_STAGE" != true',
+            'test "$RALD45_TRANSITION_PROMOTE" != true',
+            'test "$RALD5_NEGATIVE_GATE" != true',
+            'test "$LEGACY_LAG_JUMP_REMEDIATION" != true',
+            'test "$CODEX_SOURCE_SHA" = "$UX1_ACCEPTED_SOURCE_SHA"',
+            'test "$candidate" = false',
+            "UX1_DEPLOY_CURRENT_GENERATION",
+            "UX1_DEPLOY_CURRENT_SEQUENCE",
+            "UX1_DEPLOY_TARGET_SEQUENCE",
+            "candidate=true",
+            "-ux1-human-output",
+        ]:
+            self.assertIn(required, deployment)
+        self.assertLess(
+            decision.index("rald3_preflight.py compare"),
+            decision.index('if test "$UX1_SAME_VERSION_DEPLOY" = true; then'),
+        )
+        self.assertIn("Require exact sequence-14 non-Core bytes for UX-1 deployment", text)
+        self.assertIn("test \"$candidate_core_digest\" != \"$current_core_digest\"", text)
+        self.assertIn("UX-1 descriptor changes more than generation identity", text)
         self.assertIn("force:false", text)
         self.assertNotIn("force: true", text)
 

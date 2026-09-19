@@ -38,6 +38,11 @@ on:
         required: false
         type: boolean
         default: false
+      ux1_same_version_deploy:
+        description: 'One-shot production deployment: exact 0.155.1 sequence-14 to sequence-15 UX-1 Core correction'
+        required: false
+        type: boolean
+        default: false
   schedule:
     - cron: '0 */6 * * *'
 
@@ -68,6 +73,11 @@ env:
   LEGACY_LAG_ARCHIVE_SHA256: 'fc395cb043a1093ab0db34f44aba3199bfaa9ce640cd9be7fd588f44b0da64a4'
   LEGACY_LAG_GENERATION: 'legacy-lag-seq7-r10-01534'
   LEGACY_LAG_BUILD_ANDROID_API: '30'
+  UX1_ACCEPTED_SOURCE_SHA: '07f77b89a177682954d80ae3f797377c4731de64'
+  UX1_DEPLOY_VERSION: '0.155.1'
+  UX1_DEPLOY_CURRENT_GENERATION: 'local-hosted-0-155-1-566034e1aff4'
+  UX1_DEPLOY_CURRENT_SEQUENCE: '14'
+  UX1_DEPLOY_TARGET_SEQUENCE: '15'
   WRAPPER_PUBLIC_KEY_SHA256: '62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c'
   ANDROID_RUNTIME_APEX_COMMIT: '8aeb37cca394ce39c1311744c60960cbd466aa77'
   ANDROID_RUNTIME_APEX_SHA256: '83bf0dce249728dae48149b80d28b48115c54adad95a352120d58a6ac669d1fc'
@@ -91,6 +101,7 @@ jobs:
       transition_promote: ${{ steps.decision.outputs.transition_promote }}
       negative_gate: ${{ steps.decision.outputs.negative_gate }}
       legacy_lag_jump_remediation: ${{ steps.decision.outputs.legacy_lag_jump_remediation }}
+      ux1_same_version_deploy: ${{ steps.decision.outputs.ux1_same_version_deploy }}
       expected_main_sha: ${{ steps.stable.outputs.expected_main_sha }}
       current_generation: ${{ steps.stable.outputs.current_generation }}
       current_release_sequence: ${{ steps.stable.outputs.current_release_sequence }}
@@ -204,6 +215,7 @@ jobs:
           RALD45_TRANSITION_PROMOTE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald45_transition_promote }}
           RALD5_NEGATIVE_GATE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald5_negative_gate }}
           LEGACY_LAG_JUMP_REMEDIATION: ${{ github.event_name == 'workflow_dispatch' && inputs.legacy_lag_jump_remediation }}
+          UX1_SAME_VERSION_DEPLOY: ${{ github.event_name == 'workflow_dispatch' && inputs.ux1_same_version_deploy }}
         run: |
           set -euo pipefail
           state="$RUNNER_TEMP/rald3-upstream"
@@ -240,6 +252,7 @@ jobs:
           test "$RALD45_TRANSITION_PROMOTE" = true -o "$RALD45_TRANSITION_PROMOTE" = false
           test "$RALD5_NEGATIVE_GATE" = true -o "$RALD5_NEGATIVE_GATE" = false
           test "$LEGACY_LAG_JUMP_REMEDIATION" = true -o "$LEGACY_LAG_JUMP_REMEDIATION" = false
+          test "$UX1_SAME_VERSION_DEPLOY" = true -o "$UX1_SAME_VERSION_DEPLOY" = false
           if test "$RALD4_POSITIVE_GATE" = true; then
             test "$candidate" = true
             test "$RALD5_PUBLICATION_AUTHORIZED" != true
@@ -248,6 +261,7 @@ jobs:
             test "$RALD45_TRANSITION_PROMOTE" != true
             test "$RALD5_NEGATIVE_GATE" != true
             test "$LEGACY_LAG_JUMP_REMEDIATION" != true
+            test "$UX1_SAME_VERSION_DEPLOY" != true
           fi
           if test "$RALD5_PUBLICATION_AUTHORIZED" = true; then
             case "$GITHUB_EVENT_NAME" in
@@ -260,6 +274,8 @@ jobs:
                 test "$RALD45_TRANSITION_PROMOTE" != true
                 test "$RALD5_NEGATIVE_GATE" != true
                 test "$LEGACY_LAG_JUMP_REMEDIATION" != true
+                test "$UX1_SAME_VERSION_DEPLOY" != true
+            test "$UX1_SAME_VERSION_DEPLOY" != true
                 ;;
               *)
                 exit 1
@@ -272,6 +288,7 @@ jobs:
             test "$RALD4_POSITIVE_GATE" != true
             test "$RALD5_PUBLICATION_AUTHORIZED" = true
             test "$LEGACY_LAG_JUMP_REMEDIATION" != true
+            test "$UX1_SAME_VERSION_DEPLOY" != true
             test '${{ steps.stable.outputs.current_version }}' = "$RALD5_SAME_VERSION_ACCEPTANCE_VERSION"
             test "$upstream_version" = "$RALD5_SAME_VERSION_ACCEPTANCE_VERSION"
             test '${{ steps.stable.outputs.current_version }}' = "$upstream_version"
@@ -289,6 +306,7 @@ jobs:
             test "$RALD5_SAME_VERSION_ACCEPTANCE" = true
             test "$RALD5_NEGATIVE_GATE" != true
             test "$LEGACY_LAG_JUMP_REMEDIATION" != true
+            test "$UX1_SAME_VERSION_DEPLOY" != true
             test '${{ steps.stable.outputs.current_version }}' = "$RALD5_SAME_VERSION_ACCEPTANCE_VERSION"
             test "$upstream_version" = "$RALD5_SAME_VERSION_ACCEPTANCE_VERSION"
             test '${{ steps.stable.outputs.current_version }}' = "$upstream_version"
@@ -306,6 +324,7 @@ jobs:
             test "$RALD45_TRANSITION_STAGE" = true
             test "$RALD5_NEGATIVE_GATE" != true
             test "$LEGACY_LAG_JUMP_REMEDIATION" != true
+            test "$UX1_SAME_VERSION_DEPLOY" != true
             printf 'RALD-4.5 transition stable promotion separately authorized for %s\n' "$upstream_version"
           fi
           if test "$RALD5_NEGATIVE_GATE" = true; then
@@ -314,6 +333,7 @@ jobs:
             test "$RALD45_TRANSITION_STAGE" != true
             test "$RALD5_PUBLICATION_AUTHORIZED" = true
             test "$LEGACY_LAG_JUMP_REMEDIATION" != true
+            test "$UX1_SAME_VERSION_DEPLOY" != true
             test "$candidate" = true
           fi
           if test "$LEGACY_LAG_JUMP_REMEDIATION" = true; then
@@ -325,6 +345,7 @@ jobs:
             test "$RALD45_TRANSITION_STAGE" != true
             test "$RALD45_TRANSITION_PROMOTE" != true
             test "$RALD5_NEGATIVE_GATE" != true
+            test "$UX1_SAME_VERSION_DEPLOY" != true
             test '${{ steps.stable.outputs.current_version }}' = "$LEGACY_LAG_REMEDIATION_VERSION"
             test "$upstream_version" = "$LEGACY_LAG_REMEDIATION_VERSION"
             test '${{ steps.stable.outputs.current_version }}' = "$upstream_version"
@@ -337,6 +358,29 @@ jobs:
             printf 'legacy-lag direct-jump remediation selected: %s sequence %s -> sequence %s\n' \
               "$upstream_version" "$LEGACY_LAG_REMEDIATION_CURRENT_SEQUENCE" "$LEGACY_LAG_REMEDIATION_TARGET_SEQUENCE"
           fi
+          if test "$UX1_SAME_VERSION_DEPLOY" = true; then
+            test "$GITHUB_EVENT_NAME" = workflow_dispatch
+            test "$GITHUB_REF" = refs/heads/main
+            test "$RALD4_POSITIVE_GATE" != true
+            test "$RALD5_PUBLICATION_AUTHORIZED" = true
+            test "$RALD5_SAME_VERSION_ACCEPTANCE" != true
+            test "$RALD45_TRANSITION_STAGE" != true
+            test "$RALD45_TRANSITION_PROMOTE" != true
+            test "$RALD5_NEGATIVE_GATE" != true
+            test "$LEGACY_LAG_JUMP_REMEDIATION" != true
+            test "$CODEX_SOURCE_SHA" = "$UX1_ACCEPTED_SOURCE_SHA"
+            test '${{ steps.stable.outputs.current_version }}' = "$UX1_DEPLOY_VERSION"
+            test "$upstream_version" = "$UX1_DEPLOY_VERSION"
+            test '${{ steps.stable.outputs.current_version }}' = "$upstream_version"
+            test '${{ steps.stable.outputs.current_generation }}' = "$UX1_DEPLOY_CURRENT_GENERATION"
+            test '${{ steps.stable.outputs.current_release_sequence }}' = "$UX1_DEPLOY_CURRENT_SEQUENCE"
+            test '${{ steps.stable.outputs.release_sequence }}' = "$UX1_DEPLOY_TARGET_SEQUENCE"
+            test "$candidate" = false
+            candidate=true
+            acceptance_suffix='-ux1-human-output'
+            printf 'UX-1 same-version production deployment selected: %s sequence %s -> sequence %s\n' \
+              "$upstream_version" "$UX1_DEPLOY_CURRENT_SEQUENCE" "$UX1_DEPLOY_TARGET_SEQUENCE"
+          fi
           suffix="${upstream_version//./-}-${CODEX_SOURCE_SHA:0:12}${acceptance_suffix}"
           printf 'candidate=%s\n' "$candidate" >> "$GITHUB_OUTPUT"
           printf 'acceptance_gate=%s\n' "$RALD4_POSITIVE_GATE" >> "$GITHUB_OUTPUT"
@@ -346,6 +390,7 @@ jobs:
           printf 'transition_promote=%s\n' "$RALD45_TRANSITION_PROMOTE" >> "$GITHUB_OUTPUT"
           printf 'negative_gate=%s\n' "$RALD5_NEGATIVE_GATE" >> "$GITHUB_OUTPUT"
           printf 'legacy_lag_jump_remediation=%s\n' "$LEGACY_LAG_JUMP_REMEDIATION" >> "$GITHUB_OUTPUT"
+          printf 'ux1_same_version_deploy=%s\n' "$UX1_SAME_VERSION_DEPLOY" >> "$GITHUB_OUTPUT"
           printf 'artifact_name=rald3-candidate-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
           printf 'qualified_artifact_name=rald4-qualified-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
           printf 'signed_artifact_name=rald4-signed-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
@@ -480,6 +525,53 @@ jobs:
           expected = current.replace(old_id, new_id, 1).replace(old_doctor, new_doctor, 1)
           if expected != candidate:
               raise SystemExit("sequence-13 descriptor changes more than generation identity and legacy doctor signal")
+          PY
+
+      - name: Require exact sequence-14 non-Core bytes for UX-1 deployment
+        if: steps.decision.outputs.ux1_same_version_deploy == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          stable="$RUNNER_TEMP/rald3-stable"
+          candidate="$RUNNER_TEMP/rald3-candidate/candidate"
+          for rel in codex-code-mode-host helpers/0 helpers/1 manager runtime; do
+            entry="$RUNNER_TEMP/ux1-entry-${rel//\//-}"
+            python3 source/.github/scripts/rald3_preflight.py manifest-entry \
+              "$stable/release.manifest" "$rel" > "$entry"
+            expected_digest="$(sed -n 's/^sha256=//p' "$entry")"
+            expected_mode="$(sed -n 's/^mode=//p' "$entry")"
+            test "$(sha256sum "$candidate/$rel" | awk '{print $1}')" = "$expected_digest"
+            test "0$(stat -c '%a' "$candidate/$rel")" = "$expected_mode"
+          done
+
+          core_entry="$RUNNER_TEMP/ux1-entry-core"
+          python3 source/.github/scripts/rald3_preflight.py manifest-entry \
+            "$stable/release.manifest" core > "$core_entry"
+          current_core_digest="$(sed -n 's/^sha256=//p' "$core_entry")"
+          current_core_mode="$(sed -n 's/^mode=//p' "$core_entry")"
+          candidate_core_digest="$(sha256sum "$candidate/core" | awk '{print $1}')"
+          test "$candidate_core_digest" != "$current_core_digest"
+          test "0$(stat -c '%a' "$candidate/core")" = "$current_core_mode"
+
+          python3 - "$stable/generation.meta" "$candidate/generation.meta" \
+            "$UX1_DEPLOY_CURRENT_GENERATION" \
+            '${{ steps.decision.outputs.generation_id }}' <<'PY'
+          from pathlib import Path
+          import sys
+
+          current_path = Path(sys.argv[1])
+          candidate_path = Path(sys.argv[2])
+          current_id = sys.argv[3]
+          candidate_id = sys.argv[4]
+          current = current_path.read_text()
+          candidate = candidate_path.read_text()
+          old_id = f"generation_id\t{current_id}\n"
+          new_id = f"generation_id\t{candidate_id}\n"
+          if current.count(old_id) != 1 or candidate.count(new_id) != 1:
+              raise SystemExit("UX-1 generation identity binding is not unique")
+          expected = current.replace(old_id, new_id, 1)
+          if expected != candidate:
+              raise SystemExit("UX-1 descriptor changes more than generation identity")
           PY
 
       - name: Rebuild exact historical R10 Core for legacy-lag remediation
