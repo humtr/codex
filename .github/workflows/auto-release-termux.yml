@@ -573,33 +573,39 @@ jobs:
               lines = text.splitlines()
               if not lines:
                   raise SystemExit("UX-1 descriptor is empty")
-              ordered = []
-              values = {}
-              for line in lines[1:]:
-                  parts = line.split("\t", 1)
-                  if len(parts) != 2 or parts[0] in values:
+              records = lines[1:]
+              for line in records:
+                  if "\t" not in line:
                       raise SystemExit("UX-1 descriptor field layout is invalid")
-                  key, value = parts
-                  ordered.append(key)
-                  values[key] = value
-              return lines[0], ordered, values
+              return lines[0], records
 
-          current_format, current_order, current = parse(current_path)
-          candidate_format, candidate_order, candidate = parse(candidate_path)
+          def unique_field(records, key):
+              prefix = f"{key}\t"
+              matches = [line[len(prefix):] for line in records if line.startswith(prefix)]
+              if len(matches) != 1:
+                  raise SystemExit(f"UX-1 descriptor field is not unique: {key}")
+              return matches[0]
+
+          current_format, current_records = parse(current_path)
+          candidate_format, candidate_records = parse(candidate_path)
+          current_order = [line.split("\t", 1)[0] for line in current_records]
+          candidate_order = [line.split("\t", 1)[0] for line in candidate_records]
           if current_format != candidate_format or current_order != candidate_order:
               raise SystemExit("UX-1 descriptor schema/order changed")
-          if current.get("generation_id") != current_id or candidate.get("generation_id") != candidate_id:
+          if unique_field(current_records, "generation_id") != current_id \
+                  or unique_field(candidate_records, "generation_id") != candidate_id:
               raise SystemExit("UX-1 generation identity binding is not exact")
-          if current.get("core_artifact_digest") != current_core_digest:
+          if unique_field(current_records, "core_artifact_digest") != current_core_digest:
               raise SystemExit("UX-1 current descriptor Core digest does not match sequence-14 Core")
-          if candidate.get("core_artifact_digest") != candidate_core_digest:
+          if unique_field(candidate_records, "core_artifact_digest") != candidate_core_digest:
               raise SystemExit("UX-1 candidate descriptor Core digest does not match UX-1 Core")
           if current_core_digest == candidate_core_digest:
               raise SystemExit("UX-1 candidate Core did not change")
-          for key in current_order:
+          for current_line, candidate_line in zip(current_records, candidate_records, strict=True):
+              key = current_line.split("\t", 1)[0]
               if key in {"generation_id", "core_artifact_digest"}:
                   continue
-              if current[key] != candidate[key]:
+              if current_line != candidate_line:
                   raise SystemExit(f"UX-1 descriptor changed forbidden field: {key}")
           PY
 
