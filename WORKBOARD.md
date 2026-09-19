@@ -78,7 +78,7 @@ behavior belongs in `SPEC.md`.
   non-forced CAS all succeed, the live Termux installation may be updated only
   through the ordinary signed public `codex update` path.
 - UX1-PROD-15 producer gate source is
-  `cc807eb7ada799e1d7457ba08a0b7d18da263b98`. It is not production-authorized
+  `78c81e1bd6f2296450b839f4c96cc1af31d3ce47`. It is not production-authorized
   merely by existing on the implementation branch; full remote acceptance must
   first pass against current public sequence 14 before any `main` install.
 - RALD-1 local-derived Core contract, RALD-2 Core/official-producer separation,

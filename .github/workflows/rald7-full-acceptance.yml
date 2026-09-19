@@ -23,7 +23,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  EXPECTED_PARENT: 'cc807eb7ada799e1d7457ba08a0b7d18da263b98'
+  EXPECTED_PARENT: '78c81e1bd6f2296450b839f4c96cc1af31d3ce47'
   RUST_VERSION: '1.98.0'
   ANDROID_API: '24'
   ANDROID_NDK_VERSION: '27.3.13750724'
