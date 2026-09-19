@@ -1,6 +1,6 @@
 # Release Automation and Local-Derived Update Plan
 
-Status: RALD-1 through RALD-7 and the post-RALD legacy-lag production remediation are complete. UX-1 update human output, including authenticated progress ordering, is source-accepted at exact product source `07f77b89a177682954d80ae3f797377c4731de64`. **UX1-PROD-15 publication is complete and accepted (2026-09-19)**: production run `35425409155` promoted signed sequence 15 generation `local-hosted-0-155-1-07f77b89a177-ux1-human-output` by the existing non-forced exact-parent CAS to `main=ba36c44f871ef266c4887986535ed87a4d2becc9` after all build/signing/Release/Pages/readback/disposable-runtime gates passed. The already authorized remaining UX1-PROD-15 step is to update the live Termux consumer through the ordinary signed public channel, verify exact `codex-cli 0.155.1`, prove the second-update exact-current UX, and then close the bundle.
+Status: RALD-1 through RALD-7 and the post-RALD legacy-lag production remediation are complete. UX-1 update human output, including authenticated progress ordering, is source-accepted at exact product source `07f77b89a177682954d80ae3f797377c4731de64`. **UX1-PROD-15 is fully complete and accepted (2026-09-19)**: production run `35425409155` promoted signed sequence 15 generation `local-hosted-0-155-1-07f77b89a177-ux1-human-output` by the existing non-forced exact-parent CAS to `main=ba36c44f871ef266c4887986535ed87a4d2becc9` after all build/signing/Release/Pages/readback/disposable-runtime gates passed, and the authorized live Termux consumer subsequently activated that exact generation through ordinary signed public `codex update`. Live verification ended at exact `codex-cli 0.155.1`, exact-current no-op output `Codex 0.155.1 is already up to date. ✅`, healthy Termux Core/Manager/runtime, clean non-TTY output, and actual PTY transient cleanup proof.
 
 Baseline: `rewrite/rust-core` at
 `21bb1cd78d4a6e6ef8e124b7f07230206c5aa5ea` (`termux: guard rollback holds and automate stable intake`).
@@ -46,6 +46,19 @@ byte readback, disposable update/version/doctor/no-op proof, and the existing
 `force:false` exact-parent CAS. Post-promotion public stable readback matched
 the promoted index/signature bytes and reverified the signature. The exact
 sequence-14 fence is therefore now inert by construction.
+
+The live consumer leg is also complete. tmcp job `job_w4h_aabff4f63b`
+measured the pre-update installation at exact `codex-cli 0.155.0` with healthy
+Termux Core/Manager/runtime. Job `job_w4i_4679e91eab` used only ordinary
+public `codex update` and activated exact sequence-15 generation
+`local-hosted-0-155-1-07f77b89a177-ux1-human-output`, after which
+`codex --version` reported exact 0.155.1. Job `job_w4j_b7c769f26d`
+proved the new Core's exact-current non-TTY output, absence of CR/ANSI controls,
+and healthy post-update doctor state. Job `job_w4k_377b6ef362` ran the same
+no-op with both child stdout and stderr attached to a PTY and observed
+`Checking for updates...` as the transient line, carriage-return/erase cleanup,
+then the exact permanent current-version line. UX1-PROD-15 requires no further
+publication or live-consumer action.
 
 
 ## 1. Objective
