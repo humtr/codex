@@ -60,6 +60,12 @@ behavior belongs in `SPEC.md`.
   permanent update/rollback output and operational update failures. Success and
   failure lines now use ordinary sentence punctuation only. The animated Braille
   spinner remains because it is a terminal progress glyph rather than an emoji.
+- Exact no-emoji product source is `10c9b879b9ee11132ed0a72e650f7b5a75c55903`. Focused Core output, bare-TTY
+  Y-update, local-derived update, acceptance-script, clippy `-D warnings`,
+  rustfmt, and diff checks passed before source publication. The following
+  acceptance-only commit binds full source acceptance to that exact product
+  parent while leaving protected `main`, signed sequence 17, update-index
+  bytes, release assets, Pages, and the live runtime unchanged.
 - Active operation: **BARE-TTY-UPDATE-DISCOVERY**. User authorization on
   2026-09-20 selects one bounded launch-UX slice: only exact bare `codex` with
   stdin/stdout/stderr all attached to terminals may authenticate the signed
