@@ -51,9 +51,11 @@ behavior belongs in `SPEC.md`.
   ordinary generation-ID success text. Signed admission, anti-rollback,
   candidate probes, activation, local-derived authority, rollback, producer,
   publication, and public-stable semantics remain unchanged.
-- Active operation: **UPDATE-PROGRESS-RESPONSIVENESS (source accepted; publication gated)**.
-  UX1-PROD-15 remains accepted and closed; this follow-up is bounded to updater
-  presentation and transport responsiveness only.
+- Active operation: **UPDATE-PROGRESS-RESPONSIVENESS-PROD-16**.
+  The user explicitly authorized the corrective public publication and subsequent
+  live ordinary signed update on 2026-09-19. UX1-PROD-15 remains accepted and
+  closed; this follow-up is bounded to updater presentation and transport
+  responsiveness only.
 - Selected bundle contract:
   - keep the existing signed-channel trust, signature/digest/mode/version,
     anti-rollback, candidate-probe, atomic-activation, LKG, rollback, and CAS
@@ -88,8 +90,31 @@ behavior belongs in `SPEC.md`.
   this follow-up.** Public stable therefore remains signed sequence 15
   generation `local-hosted-0-155-1-07f77b89a177-ux1-human-output`, and the
   live installation remains the previously verified `codex-cli 0.155.1`.
-  A corrective signed publication/live-update leg requires separate explicit
-  production authorization; until then this bundle stops at accepted source.
+  Separate explicit production authorization was granted on 2026-09-19 for the
+  corrective signed publication and subsequent live ordinary `codex update`.
+- The production correction uses exact accepted product source
+  `81131655d98f114b5324bd8ee5866cff0a171941` and an exact one-shot
+  seq15 -> seq16 gate. Authenticated baseline must be exact version `0.155.1`,
+  generation `local-hosted-0-155-1-07f77b89a177-ux1-human-output`, signed
+  sequence 15; official stable must still be exact `0.155.1`; ordinary
+  comparison must first return `candidate=false`; next sequence must be 16.
+  Schedules and every historical acceptance/remediation gate must reject this
+  one-shot gate.
+- Before signing, non-Core load-bearing bytes/modes
+  (`codex-code-mode-host`, both helpers, Manager, runtime) must equal signed
+  sequence 15 exactly; Core must differ and come from the accepted source.
+  Ordered `generation.meta` records may differ only in unique
+  `generation_id` and `core_artifact_digest`, with both digests bound to
+  the actual old/new Core bytes. Existing signing, immutable Release,
+  Pages/LKG, public HTTPS readback, disposable update/version/doctor/no-op and
+  non-forced exact-parent CAS gates remain unchanged.
+- Exact production-gate workflow source is
+  `39983f628fe568ec98b8c69bb87b02f9449c0104`. tmcp validation job
+  `job_wai_242ba900ee` passed YAML parse/static contract checks, executable
+  positive seq15 -> seq16 selection, negative wrong-ref/authorization/
+  generation/sequence/candidate/source cases, and the ordered duplicate-helper
+  descriptor comparator with forbidden-delta rejection. The validation worktree
+  remained clean and did not mutate public stable or the live installation.
 - UX1-PROD-15 is accepted and closed on 2026-09-19; its explicitly authorized
   production deployment and live Termux consumer update remain complete.
 - UX1-PROD-15 may first change only producer/workflow/docs on
