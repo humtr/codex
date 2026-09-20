@@ -97,6 +97,19 @@ behavior belongs in `SPEC.md`.
   and non-forced exact-parent CAS remain mandatory. Live mutation is allowed
   only after independent public promotion confirmation and only through
   ordinary signed public `codex update`.
+- First production attempt run `35476726259` passed exact seq17 authentication,
+  Core-only candidate construction, native Android/AArch64 smoke, production
+  signing and independent verification, immutable Release staging, Pages
+  deployment, and every-byte public HTTPS readback, then stopped before CAS in
+  the disposable transition proof. The candidate activated correctly; the
+  proof compared the initiating sequence-17 Core's historical sentence-final
+  check-mark bytes against the new sequence-18 no-emoji expectation. Stable
+  index/signature and the live runtime therefore remain sequence 17. The repair
+  changes proof expectations only: it accepts those historical bytes for the
+  one seq17 -> seq18 transition invocation, still requires the new Core's
+  second exact-current output to be exactly undecorated, and uses a fresh
+  `-no-emoji-output-r2` generation identity so the failed immutable candidate
+  locator is never repurposed.
 - Active operation: **BARE-TTY-UPDATE-DISCOVERY**. User authorization on
   2026-09-20 selects one bounded launch-UX slice: only exact bare `codex` with
   stdin/stdout/stderr all attached to terminals may authenticate the signed

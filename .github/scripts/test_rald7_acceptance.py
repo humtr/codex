@@ -330,7 +330,7 @@ class Rald7AcceptanceContract(unittest.TestCase):
             "NO_EMOJI_DEPLOY_CURRENT_SEQUENCE",
             "NO_EMOJI_DEPLOY_TARGET_SEQUENCE",
             "candidate=true",
-            "-no-emoji-output",
+            "acceptance_suffix=\'-no-emoji-output-r2\'",
         ]:
             self.assertIn(required, deployment)
         self.assertLess(
@@ -338,6 +338,11 @@ class Rald7AcceptanceContract(unittest.TestCase):
             decision.index('if test "$NO_EMOJI_SAME_VERSION_DEPLOY" = true; then'),
         )
         self.assertIn("Require exact sequence-17 non-Core bytes for no-emoji deployment", text)
+        self.assertIn("needs.producer.outputs.no_emoji_same_version_deploy", text)
+        self.assertIn(r"Codex %s is now active. \342\234\205\n", text)
+        self.assertIn("Codex %s is already up to date.", text)
+        self.assertIn('2> "$RUNNER_TEMP/rald5-second-update.err"', text)
+        self.assertIn('test ! -s "$RUNNER_TEMP/rald5-second-update.err"', text)
         self.assertIn("test \"$candidate_core_digest\" != \"$current_core_digest\"", text)
         self.assertIn("no-emoji descriptor schema/order changed", text)
         self.assertIn("no-emoji current descriptor Core digest does not match sequence-17 Core", text)

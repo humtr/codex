@@ -261,6 +261,21 @@ may the live consumer activate sequence 18 through ordinary signed public
 `codex update`; manual copy/overwrite, alternate trust keys, fake credentials,
 and force push remain forbidden.
 
+Production attempt `35476726259` reached signed immutable Release staging,
+LKG-preserving Pages deployment, and successful every-byte public HTTPS
+readback, then failed before promotion in the disposable transition proof.
+The mismatch was proof-only: the update was initiated by the still-active
+sequence-17 Core, whose historical permanent activation line ends with the
+check-mark UTF-8 bytes; the proof had incorrectly expected the sequence-18
+undecorated line before the new Core could own output. No CAS promotion ran,
+so public stable and live remain sequence 17. The retry preserves exact product
+source `9300a68852c879f4730e9191e46837cfab6745d9`, matches the historical
+bytes only for that one initiating seq17 transition, still requires the
+newly-active Core's second exact-current output to be exactly
+`Codex 0.155.1 is already up to date.`, and selects a fresh
+`-no-emoji-output-r2` generation identity so the failed immutable Release
+locator is not reused.
+
 ## 1. Objective
 
 Complete the release/update architecture by separating three concerns that are
