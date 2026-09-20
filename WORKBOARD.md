@@ -107,9 +107,10 @@ behavior belongs in `SPEC.md`.
   index/signature and the live runtime therefore remain sequence 17. The repair
   changes proof expectations only: it accepts those historical bytes for the
   one seq17 -> seq18 transition invocation, still requires the new Core's
-  second exact-current output to be exactly undecorated, and uses a fresh
-  `-no-emoji-output-r2` generation identity so the failed immutable candidate
-  locator is never repurposed.
+  second exact-current output to be exactly undecorated, and used a fresh
+  `-no-emoji-output-r2` generation identity so the first failed immutable candidate
+  locator was never repurposed.
+- Retry run `35517580084` again passed build, native Android/AArch64 smoke, signing, immutable Release staging, Pages deployment, and every-byte public HTTPS readback, then failed inside the disposable no-op proof before CAS. The exact stdout comparison for the newly-active sequence-18 Core did not report a mismatch; the added stderr-empty assertion rejected the GitHub runner's ephemeral Android linker warning. Stable index/signature and live therefore remain sequence 17. The next retry keeps exact product source `9300a68852c879f4730e9191e46837cfab6745d9`, keeps exact stdout comparison, permits only the runner's exact known linker-warning lines on that proof stderr, rejects any other stderr, and uses fresh `-no-emoji-output-r3`.
 - Active operation: **BARE-TTY-UPDATE-DISCOVERY**. User authorization on
   2026-09-20 selects one bounded launch-UX slice: only exact bare `codex` with
   stdin/stdout/stderr all attached to terminals may authenticate the signed

@@ -272,9 +272,11 @@ so public stable and live remain sequence 17. The retry preserves exact product
 source `9300a68852c879f4730e9191e46837cfab6745d9`, matches the historical
 bytes only for that one initiating seq17 transition, still requires the
 newly-active Core's second exact-current output to be exactly
-`Codex 0.155.1 is already up to date.`, and selects a fresh
-`-no-emoji-output-r2` generation identity so the failed immutable Release
-locator is not reused.
+`Codex 0.155.1 is already up to date.`, and selected a fresh
+`-no-emoji-output-r2` generation identity so the first failed immutable Release
+locator was not reused.
+
+Retry run `35517580084` again passed build, native Android/AArch64 smoke, signing, immutable Release staging, Pages deployment, and every-byte public HTTPS readback, then failed inside the disposable no-op proof before CAS. The newly-active sequence-18 Core's exact-current stdout comparison did not report a mismatch; the added stderr-empty assertion rejected only the ephemeral Android linker warning emitted by the GitHub runner's bionic shim. Stable index/signature and live remain sequence 17. The next retry preserves exact stdout comparison, permits only those exact known runner linker-warning lines on proof stderr while rejecting all other stderr, and uses a fresh `-no-emoji-output-r3` locator.
 
 ## 1. Objective
 

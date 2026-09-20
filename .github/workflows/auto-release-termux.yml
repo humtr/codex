@@ -517,7 +517,7 @@ jobs:
             test '${{ steps.stable.outputs.release_sequence }}' = "$NO_EMOJI_DEPLOY_TARGET_SEQUENCE"
             test "$candidate" = false
             candidate=true
-            acceptance_suffix='-no-emoji-output-r2'
+            acceptance_suffix='-no-emoji-output-r3'
             printf 'no-emoji same-version production deployment selected: %s sequence %s -> sequence %s\n' \
               "$upstream_version" "$NO_EMOJI_DEPLOY_CURRENT_SEQUENCE" "$NO_EMOJI_DEPLOY_TARGET_SEQUENCE"
           fi
@@ -2173,7 +2173,19 @@ jobs:
           printf 'Codex %s is already up to date.\n' "$version" > "$RUNNER_TEMP/rald5-second-update.expected"
           cmp "$RUNNER_TEMP/rald5-second-update.expected" "$RUNNER_TEMP/rald5-second-update.out"
           if test '${{ needs.producer.outputs.no_emoji_same_version_deploy }}' = true; then
-            test ! -s "$RUNNER_TEMP/rald5-second-update.err"
+            python3 - "$RUNNER_TEMP/rald5-second-update.err" <<'PYERR'
+          from pathlib import Path
+          import sys
+
+          data = Path(sys.argv[1]).read_bytes()
+          allowed = {
+              b'linker: Warning: failed to find generated linker configuration from "/linkerconfig/ld.config.txt"',
+              b'WARNING: linker: Warning: failed to find generated linker configuration from "/linkerconfig/ld.config.txt"',
+          }
+          unexpected = [line for line in data.splitlines() if line and line not in allowed]
+          if unexpected:
+              raise SystemExit(f"unexpected stderr from sequence-18 exact-current proof: {unexpected!r}")
+          PYERR
           fi
           snapshot > "$RUNNER_TEMP/rald5-after-noop"
           diff -u "$RUNNER_TEMP/rald5-before-noop" "$RUNNER_TEMP/rald5-after-noop"

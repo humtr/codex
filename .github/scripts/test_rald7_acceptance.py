@@ -330,7 +330,7 @@ class Rald7AcceptanceContract(unittest.TestCase):
             "NO_EMOJI_DEPLOY_CURRENT_SEQUENCE",
             "NO_EMOJI_DEPLOY_TARGET_SEQUENCE",
             "candidate=true",
-            "acceptance_suffix=\'-no-emoji-output-r2\'",
+            "acceptance_suffix=\'-no-emoji-output-r3\'",
         ]:
             self.assertIn(required, deployment)
         self.assertLess(
@@ -342,7 +342,8 @@ class Rald7AcceptanceContract(unittest.TestCase):
         self.assertIn(r"Codex %s is now active. \342\234\205\n", text)
         self.assertIn("Codex %s is already up to date.", text)
         self.assertIn('2> "$RUNNER_TEMP/rald5-second-update.err"', text)
-        self.assertIn('test ! -s "$RUNNER_TEMP/rald5-second-update.err"', text)
+        self.assertIn('unexpected stderr from sequence-18 exact-current proof', text)
+        self.assertIn('failed to find generated linker configuration', text)
         self.assertIn("test \"$candidate_core_digest\" != \"$current_core_digest\"", text)
         self.assertIn("no-emoji descriptor schema/order changed", text)
         self.assertIn("no-emoji current descriptor Core digest does not match sequence-17 Core", text)
