@@ -517,7 +517,7 @@ jobs:
             test '${{ steps.stable.outputs.release_sequence }}' = "$NO_EMOJI_DEPLOY_TARGET_SEQUENCE"
             test "$candidate" = false
             candidate=true
-            acceptance_suffix='-no-emoji-output'
+            acceptance_suffix='-no-emoji-output-r2'
             printf 'no-emoji same-version production deployment selected: %s sequence %s -> sequence %s\n' \
               "$upstream_version" "$NO_EMOJI_DEPLOY_CURRENT_SEQUENCE" "$NO_EMOJI_DEPLOY_TARGET_SEQUENCE"
           fi
@@ -2048,6 +2048,17 @@ jobs:
             # itself must retain its exact historical human output. After
             # activation, all subsequent update output comes from the UX-1 Core.
             printf 'activated channel generation %s\n' "$candidate" > "$RUNNER_TEMP/rald5-first-update.expected"
+          elif test '${{ needs.producer.outputs.no_emoji_same_version_deploy }}' = true; then
+            # The sequence-17 Core still owns the one transition invocation.
+            # Match its historical check-mark bytes exactly; only the newly
+            # activated sequence-18 Core is required to emit undecorated output.
+            if test "$pre_version" = "$version"; then
+              printf 'Updating the Termux release for Codex %s...\n' "$version" > "$RUNNER_TEMP/rald5-first-update.expected"
+            else
+              printf 'Updating Codex %s -> %s...\n' "$pre_version" "$version" > "$RUNNER_TEMP/rald5-first-update.expected"
+            fi
+            printf 'Verified and activated the signed Termux release.\n' >> "$RUNNER_TEMP/rald5-first-update.expected"
+            printf 'Codex %s is now active. \342\234\205\n' "$version" >> "$RUNNER_TEMP/rald5-first-update.expected"
           else
             if test "$pre_version" = "$version"; then
               printf 'Updating the Termux release for Codex %s...\n' "$version" > "$RUNNER_TEMP/rald5-first-update.expected"
@@ -2158,9 +2169,12 @@ jobs:
           PY
           }
           snapshot > "$RUNNER_TEMP/rald5-before-noop"
-          "$PREFIX/bin/codex" update > "$RUNNER_TEMP/rald5-second-update.out"
+          "$PREFIX/bin/codex" update > "$RUNNER_TEMP/rald5-second-update.out" 2> "$RUNNER_TEMP/rald5-second-update.err"
           printf 'Codex %s is already up to date.\n' "$version" > "$RUNNER_TEMP/rald5-second-update.expected"
           cmp "$RUNNER_TEMP/rald5-second-update.expected" "$RUNNER_TEMP/rald5-second-update.out"
+          if test '${{ needs.producer.outputs.no_emoji_same_version_deploy }}' = true; then
+            test ! -s "$RUNNER_TEMP/rald5-second-update.err"
+          fi
           snapshot > "$RUNNER_TEMP/rald5-after-noop"
           diff -u "$RUNNER_TEMP/rald5-before-noop" "$RUNNER_TEMP/rald5-after-noop"
 
