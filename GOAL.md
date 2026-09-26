@@ -8,10 +8,18 @@
 - Output surface: `codex`, with dedicated `update` and `doctor` commands and a
   `codex termux` Manager boundary.
 - Allowed writes during implementation: this repository on
-  `rewrite/rust-core` and test-owned temporary roots.
+  `rewrite/rust-core` and test-owned temporary roots. The SCS-6 user-state
+  migration is the sole additional bounded exception and may begin only after
+  SCS-1 through SCS-5 are green, all Codex/app-server writers are quiesced, a
+  complete restorable backup is verified, and the migration operates only on
+  the declared profile/shared-state roots.
 - Protected surfaces: the live `$PREFIX/bin/codex`, installed runtime and
   Manager, `$PREFIX/etc/resolv.conf`, profiles, sessions, auth data,
-  `legacy/monolith`, and the pre-rewrite archive bundle.
+  `legacy/monolith`, and the pre-rewrite archive bundle. Profiles, sessions,
+  and auth remain protected during SCS source/disposable work; the SCS-6
+  exception above permits only the accepted data-layout migration, never live
+  runtime replacement, public release mutation, credential inspection, or
+  unbacked destructive cleanup.
 - Authority: `SPEC.md` for normative behavior and architecture; this file for
   acceptance; `WORKBOARD.md` for the current implementation target.
 - Secret exclusions: tokens, OAuth codes, cookies, credentials, private keys,
@@ -125,6 +133,34 @@ one current workboard, direct focused tests, and deferred independent review.
   `bf30a7dc94d4dad7f58836c69028160856e63c58` on `legacy/monolith`.
 - Keep one repository and one public `codex` entrypoint.
 - Separate native Rust Core from the Manager layer.
+- Treat Manager profiles as authentication/configuration/runtime identities, not
+  as conversation owners. Local conversation/thread state is user-global across
+  Manager profiles, with `$HOME/.codex` as the canonical shared-state root and
+  custom profile homes retaining only profile-local identity/configuration state.
+- Preserve the original thin-wrapper direction: in steady state Manager chooses
+  an execution identity, supplies only the bounded profile/shared-state
+  environment and compatibility topology, then executes the official-prebuilt
+  upstream runtime. Upstream owns conversation/thread/session persistence and
+  schema semantics. Normal Manager operation must not evolve into a second
+  thread store, routine SQLite/transcript parser, conversation-ownership layer,
+  or parallel session index.
+- Preserve the official-prebuilt upstream runtime contract. Implement the shared
+  conversation model through Manager/Core compatibility topology plus upstream's
+  supported `CODEX_SQLITE_HOME`/system-requirements surfaces; do not introduce a
+  custom upstream source build solely to add a native thread-store root.
+- Keep the internal architecture split as `profile_home` versus
+  `shared_state_home` so a future upstream-native thread-store root can replace
+  compatibility links without changing Manager semantics or migrating user
+  conversations again.
+- Legacy consolidation is a one-time bounded compatibility operation, not a new
+  steady-state subsystem. For each legacy user profile, import at most the five
+  most-recent distinct conversations by last activity, together with only the
+  dependency closure needed for faithful operation in the current upstream
+  schema. Do not replace whole SQLite databases or use blind overwrite merges;
+  deduplicate only proven-identical cross-profile state and fail closed on
+  divergent same-conversation identities. Leave non-selected legacy history in
+  the verified backup/source profile rather than expanding Manager ownership of
+  upstream storage semantics.
 - Keep management commands under `codex termux`.
 - Reserve top-level `codex update` and `codex doctor` for Termux-aware behavior.
 - Preserve upstream `--version`/`-V` output without wrapper version rows.
@@ -173,6 +209,18 @@ one current workboard, direct focused tests, and deferred independent review.
   official release production is the later GitHub-hosted producer work selected
   by `RELEASE_AUTOMATION_PLAN.md`. Private signing keys remain excluded from
   repository and device artifacts.
+- Implement that compatibility operation as rollout-authoritative migration rather than
+  a SQLite merger: read legacy SQLite only for bounded selection/conflict/dependency
+  checks, copy verified rollout JSONL, then let official upstream app-server APIs
+  rebuild metadata/history and restore explicit names. Keep rebuildable history
+  projections and diagnostic logs out of the payload. Normalize any selected canonical
+  legacy symlink to a regular canonical rollout so the resulting shared state has no
+  runtime dependency on legacy profile homes.
+- Separate rollback at the upstream-write boundary: before `finalize`, the one-shot
+  journal may undo only files/alias normalization it created; after `finalize` begins,
+  only restoration of a verified whole canonical backup is valid. This keeps rollback
+  of upstream-owned SQLite outside permanent Manager/Core logic.
+
 
 ## Execution Plan
 
@@ -2329,7 +2377,15 @@ Termux qualification. Produce one candidate for independent product review.
   legacy state import or bwrap repair path. MGR-2 session listing/resume is
   definition-only and is the next separately scoped bundle.
 
-## MGR-2 Bounded Session Listing and Resume (accepted)
+## MGR-2 Bounded Session Listing and Resume (historical; superseded by SCS)
+
+> SCS supersedes this accepted historical implementation contract. The filesystem
+> discovery, TSV projection, and pre-resume lookup described in this section are no
+> longer steady-state Manager responsibilities. Current behavior delegates browsing
+> and resume to upstream `codex resume`; a custom execution identity reaches that
+> upstream surface through `codex termux profile use <PROFILE_ID> -- resume ...`.
+> This section remains only as acceptance history and must not be used to reintroduce
+> Manager-owned conversation indexing or discovery.
 
 - MGR-2 implements the exact local Manager forms for session listing and
   resume. Listing uses the persisted MGR-1 selection unless an explicit

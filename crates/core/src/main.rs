@@ -1295,6 +1295,7 @@ where
 #[derive(Debug)]
 enum RuntimeLaunchError {
     Environment(TermuxProcessEnvError),
+    Config(std::io::Error),
     Exec(std::io::Error),
 }
 
@@ -1303,6 +1304,7 @@ impl std::fmt::Display for RuntimeLaunchError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RuntimeLaunchError::Environment(err) => err.fmt(f),
+            RuntimeLaunchError::Config(err) => err.fmt(f),
             RuntimeLaunchError::Exec(err) => err.fmt(f),
         }
     }
@@ -1313,6 +1315,7 @@ impl std::error::Error for RuntimeLaunchError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             RuntimeLaunchError::Environment(err) => Some(err),
+            RuntimeLaunchError::Config(err) => Some(err),
             RuntimeLaunchError::Exec(err) => Some(err),
         }
     }
@@ -1363,6 +1366,9 @@ where
         Err(err) => return RuntimeLaunchError::Environment(err),
     };
 
+    if let Err(error) = prepare_core_shared_state_requirements(config_dir.as_ref()) {
+        return RuntimeLaunchError::Config(error);
+    }
     prepare_core_notification_config(config_dir.as_ref(), options.manager_available);
     RuntimeLaunchError::Exec(exec_runtime(
         selection.runtime.program_path,
@@ -1373,6 +1379,10 @@ where
     ))
 }
 
+#[cfg(unix)]
+const CODEX_SQLITE_HOME_ENV: &str = "CODEX_SQLITE_HOME";
+#[cfg(unix)]
+const CORE_SHARED_REQUIREMENTS_MARKER: &str = "# codex-termux-shared-state-v1\n";
 #[cfg(unix)]
 const CORE_NOTIFY_RECORD_MAX_BYTES: usize = 4096;
 
@@ -1595,6 +1605,140 @@ fn render_core_notification_config(events: &[&str]) -> Vec<u8> {
         ));
     }
     output.into_bytes()
+}
+
+#[cfg(unix)]
+fn core_toml_basic_string(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            '"' => output.push_str("\\\""),
+            '\\' => output.push_str("\\\\"),
+            '\u{0008}' => output.push_str("\\b"),
+            '\t' => output.push_str("\\t"),
+            '\n' => output.push_str("\\n"),
+            '\u{000c}' => output.push_str("\\f"),
+            '\r' => output.push_str("\\r"),
+            character if character <= '\u{001f}' || character == '\u{007f}' => {
+                output.push_str(&format!("\\u{:04X}", character as u32));
+            }
+            character => output.push(character),
+        }
+    }
+    output
+}
+
+#[cfg(unix)]
+fn requested_core_shared_state_home() -> std::io::Result<Option<std::path::PathBuf>> {
+    let Some(sqlite_home) = std::env::var_os(CODEX_SQLITE_HOME_ENV) else {
+        return Ok(None);
+    };
+    let Some(home) = std::env::var_os("HOME") else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "shared Codex state requires HOME",
+        ));
+    };
+    let home = std::path::PathBuf::from(home);
+    if !core_notify_safe_absolute_path(&home) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "shared Codex state HOME is unsafe",
+        ));
+    }
+    let shared = home.join(".codex");
+    if std::path::PathBuf::from(sqlite_home) != shared {
+        return Ok(None);
+    }
+    Ok(Some(shared))
+}
+
+#[cfg(unix)]
+fn core_owned_requirements_file(path: &std::path::Path) -> std::io::Result<Option<bool>> {
+    use std::io::Read as _;
+
+    let metadata = match std::fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Ok(Some(false));
+    }
+    let mut file = std::fs::File::open(path)?;
+    let mut prefix = vec![0_u8; CORE_SHARED_REQUIREMENTS_MARKER.len()];
+    let read = file.read(&mut prefix)?;
+    prefix.truncate(read);
+    Ok(Some(prefix == CORE_SHARED_REQUIREMENTS_MARKER.as_bytes()))
+}
+
+#[cfg(unix)]
+fn prepare_core_shared_state_requirements(config_dir: &std::path::Path) -> std::io::Result<()> {
+    use std::io::Write as _;
+    use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
+
+    let directory_metadata = std::fs::symlink_metadata(config_dir)?;
+    if directory_metadata.file_type().is_symlink() || !directory_metadata.is_dir() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "Core configuration directory is unsafe",
+        ));
+    }
+
+    let destination = config_dir.join("requirements.toml");
+    let owned = core_owned_requirements_file(&destination)?;
+    let Some(shared) = requested_core_shared_state_home()? else {
+        if owned == Some(true) {
+            std::fs::remove_file(&destination)?;
+            std::fs::File::open(config_dir)?.sync_all()?;
+        }
+        return Ok(());
+    };
+
+    if owned == Some(false) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "existing requirements.toml is not Core-owned",
+        ));
+    }
+    let shared = shared.to_str().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "shared Codex state path is not UTF-8",
+        )
+    })?;
+    let contents = format!(
+        "{CORE_SHARED_REQUIREMENTS_MARKER}sqlite_home = \"{}\"\n\n[features]\nlocal_thread_store_compression = false\nbackground_paginated_rollout_migration = false\n",
+        core_toml_basic_string(shared)
+    );
+
+    let temporary = config_dir.join(format!(
+        ".codex-termux-shared-state-{}-{}",
+        std::process::id(),
+        LOCAL_STAGING_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    let result = (|| {
+        let mut output = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&temporary)?;
+        output.write_all(contents.as_bytes())?;
+        output.sync_all()?;
+        if output.metadata()?.permissions().mode() & 0o7777 != 0o600 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "Core requirements file mode is unsafe",
+            ));
+        }
+        std::fs::rename(&temporary, &destination)?;
+        std::fs::File::open(config_dir)?.sync_all()?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result
 }
 
 #[cfg(unix)]
@@ -12362,6 +12506,9 @@ exit 73
             ],
             "notify-projection" => vec![OsString::from("--version")],
             "notify-projection-unavailable" => vec![OsString::from("--version")],
+            "shared-requirements" | "shared-requirements-conflict" => {
+                vec![OsString::from("--version")]
+            }
             "manager" => vec![
                 OsString::from("termux"),
                 OsString::from("status"),
@@ -12390,6 +12537,8 @@ exit 73
             manager_doctor_status: ManagerDoctorStatus::Unavailable,
         };
         match execute_public_dispatch(route, context) {
+            Err(PublicDispatchExecutionError::Upstream(RuntimeLaunchError::Config(_)))
+                if scenario == "shared-requirements-conflict" => {}
             Err(PublicDispatchExecutionError::Upstream(RuntimeLaunchError::Exec(err))) => {
                 panic!("upstream exec failed: {err}")
             }
@@ -12586,8 +12735,13 @@ exit 73
             .env(PROBE_STDERR, &stderr)
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null());
-        if scenario.starts_with("notify-projection") {
+        command.env_remove(CODEX_SQLITE_HOME_ENV);
+        if scenario.starts_with("notify-projection") || scenario.starts_with("shared-requirements")
+        {
             command.env("HOME", root);
+        }
+        if scenario.starts_with("shared-requirements") {
+            command.env(CODEX_SQLITE_HOME_ENV, root.join(".codex"));
         }
         if scenario == "manager" {
             command.env(MANAGER_ARTIFACT_PROBE_ENV, "1");
@@ -12659,6 +12813,44 @@ exit 73
         assert_eq!(through.status.code(), direct.status.code());
         assert_eq!(through.stdout, direct.stdout);
         assert_eq!(through.stderr, direct.stderr);
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_shared_profile_requirements_are_exact_conflict_safe_and_stale_free() {
+        let (root, runtime, resolver, config) = prepare_exec_fixture("shared-requirements");
+
+        let projected =
+            run_product_probe("shared-requirements", &root, &runtime, &resolver, &config);
+        assert_eq!(projected.status.code(), Some(0));
+        let expected = format!(
+            "{CORE_SHARED_REQUIREMENTS_MARKER}sqlite_home = \"{}\"\n\n[features]\nlocal_thread_store_compression = false\nbackground_paginated_rollout_migration = false\n",
+            core_toml_basic_string(root.join(".codex").to_str().unwrap())
+        );
+        assert_eq!(
+            std::fs::read(config.join("requirements.toml")).unwrap(),
+            expected.as_bytes()
+        );
+
+        let ordinary = run_product_probe("version", &root, &runtime, &resolver, &config);
+        assert_eq!(ordinary.status.code(), Some(0));
+        assert!(!config.join("requirements.toml").exists());
+
+        let operator_requirements = b"sqlite_home = \"/operator-owned\"\n";
+        std::fs::write(config.join("requirements.toml"), operator_requirements).unwrap();
+        let conflict = run_product_probe(
+            "shared-requirements-conflict",
+            &root,
+            &runtime,
+            &resolver,
+            &config,
+        );
+        assert_eq!(conflict.status.code(), Some(0));
+        assert_eq!(
+            std::fs::read(config.join("requirements.toml")).unwrap(),
+            operator_requirements
+        );
         remove_temp_root(root);
     }
 

@@ -81,7 +81,7 @@ be appended to upstream `--version` or `-V` output.
 ### Manager command boundary
 
 `codex termux` is a Manager boundary and is never passed to upstream. Manager
-v1 is defined as four bounded command families:
+v1 is defined as three bounded steady-state command families:
 
 ```text
 codex termux
@@ -90,10 +90,6 @@ codex termux profile list
 codex termux profile current
 codex termux profile create <PROFILE_ID>
 codex termux profile use <PROFILE_ID> [--] [UPSTREAM_ARGS...]
-codex termux session list
-codex termux session list --all
-codex termux session list --profile <PROFILE_ID>
-codex termux session resume <SESSION_ID> [--profile <PROFILE_ID>] [--] [UPSTREAM_ARGS...]
 codex termux notify show
 codex termux notify set [NOTIFY_OPTIONS...]
 codex termux repair plan
@@ -101,9 +97,10 @@ codex termux repair apply
 ```
 
 `codex termux` with no command is equivalent to `codex termux help`. The
-profile family was the first implementation slice. The accepted MGR-2 session,
-MGR-3 notification, and MGR-4 repair commands follow their bounded contracts
-below. An unavailable or not-yet-delivered Manager reports a bounded
+profile family was the first implementation slice. The historical accepted MGR-2
+Manager-owned session discovery/list/resume surface is superseded by SCS: steady-state
+session browsing and resume belong to upstream Codex. MGR-3 notification and MGR-4
+repair commands retain their bounded contracts below. An unavailable or not-yet-delivered Manager reports a bounded
 Manager-unavailable result through the Core handoff; it never forwards an
 unknown `termux` command to upstream.
 Manager does not provide `codex termux install`, `codex termux update`, or a
@@ -113,8 +110,12 @@ doctor remain Core commands.
 `PROFILE_ID` is one ASCII path-safe identifier of 1--64 bytes beginning with
 an alphanumeric character and containing only alphanumerics, `.`, `_`, or
 `-`. `default`, `home`, `termux`, `.`, and `..` are reserved aliases or
-rejected names. `SESSION_ID` is treated as an opaque bounded upstream
-reference after syntax validation; it is never used as a filesystem path.
+rejected names. SCS deliberately provides no Manager-owned `SESSION_ID` grammar. Upstream
+`codex resume` is the canonical session picker/resume surface and already owns picker
+mode, `--all`, `--last`, names, and UUIDs. To use that upstream surface with a custom
+Manager execution identity, invoke `codex termux profile use <PROFILE_ID> -- resume
+[UPSTREAM_ARGS...]`; Manager forwards those upstream arguments byte-for-byte and does
+not inspect conversation storage.
 Arguments after `--` are forwarded byte-for-byte to the Core entrypoint. A
 Manager child launch preserves standard streams, TTY, signals, process exit
 status, and raw argument bytes at the final Core execution boundary.
@@ -1539,35 +1540,105 @@ codex termux profile create <PROFILE_ID>
 codex termux profile use <PROFILE_ID> [--] [UPSTREAM_ARGS...]
 ```
 
-`default` is the existing upstream default home and is never copied. A custom
-profile uses the derived path
-`~/.local/share/codex/manager/profiles/<PROFILE_ID>/home`. `profile create`
-creates only that directory and its Manager metadata; it never creates,
-copies, parses, or edits `auth.json`, session files, logs, or other upstream
-state. Existing legacy profile directories are not imported implicitly.
+`default` is the existing upstream default identity home. A custom profile uses
+the derived path `~/.local/share/codex/manager/profiles/<PROFILE_ID>/home`.
+Profiles are execution identities, not conversation owners: authentication,
+user configuration, MCP/plugin credentials, model/provider caches, logs, and
+shell/runtime snapshots remain profile-local, while local conversation state is
+user-global beneath the canonical shared-state root `$HOME/.codex`.
+
+`profile create` creates the private profile directory, Manager metadata, and
+only the declared compatibility topology needed by the unmodified upstream
+runtime. It never copies or parses credentials or transcript bytes. The
+compatibility topology may link these profile-home names to their exact
+canonical siblings beneath `$HOME/.codex`: `sessions`, `archived_sessions`,
+`session_index.jsonl`, `thread-writer-locks`, `rollout-migrations`, `memories`,
+`memories_v2`, `history.jsonl`, `installation_id`, and
+`tui-thread-reference-capabilities`. Directory targets are real private
+directories beneath the shared root; file links may initially be dangling only
+to the exact canonical sibling so upstream can create the target atomically.
+Manager rejects a missing, substituted, relative, chained, or otherwise
+unexpected shared-state link rather than following arbitrary filesystem
+indirection. Existing legacy profile directories are not imported implicitly. Legacy
+consolidation is a separate, one-time bounded compatibility migration with a
+verified restorable backup and conflict checks. For each legacy user profile,
+the migration selects at most the five most-recent distinct conversations by
+last activity. Selection must be deterministic; if the legacy state does not
+provide enough trustworthy information to establish that order, migration for
+that profile fails closed rather than guessing. For each selected conversation,
+the migration may inspect legacy state only as needed to normalize and carry the
+dependency closure required for faithful current-upstream resume/history
+behavior. Proven-identical copies of one conversation/thread identity may be
+deduplicated; divergent state for the same identity is a conflict and must not
+be overwritten automatically. Whole-SQLite-file replacement, blind `INSERT OR
+REPLACE`, and persistent generic legacy-merger behavior are prohibited.
+Non-selected legacy conversations remain unchanged in the verified backup or
+source profile and are outside canonical import scope.
+
+The bounded migration implementation must remain outside steady-state Manager/Core
+session semantics. Its planning phase may read legacy SQLite read-only only to select
+the bounded recoverable set, preserve explicit names, and reject unsupported
+thread-scoped dependencies. It must not merge or write SQLite. The migration payload is
+the selected authoritative rollout JSONL, verified by thread identity and content hash.
+Upstream `thread/list` owns metadata read-repair, `thread/resume` owns paginated-history
+materialization, and `thread/name/set` owns explicit-name restoration. Rebuildable
+`thread_history_1.sqlite` projections and the dedicated diagnostic `logs_2.sqlite` store
+are not migration payloads. A selected canonical rollout that is only a legacy-profile
+symlink must be normalized to an identical regular canonical rollout before legacy
+profiles can be retired.
+
+Before upstream activation, an apply journal may roll back only rollout files or alias
+normalization created by that apply. Once upstream activation begins and upstream may
+have mutated canonical SQLite, partial payload rollback is prohibited; rollback becomes
+restoration of the separately verified full canonical backup. SCS-6 therefore requires
+writer quiescence plus a restorable full backup before live apply/finalize.
+
+The steady-state architecture is deliberately thinner than that migration
+exception. Manager profiles are execution identities; conversation persistence
+and thread/session schema semantics belong to the official upstream runtime.
+Manager's normal responsibility is profile selection, bounded profile-local
+environment/configuration, the declared shared-state compatibility topology,
+and `exec` of the validated official-prebuilt Core/upstream runtime. Once
+migration is complete, ordinary Manager operation must not routinely parse
+SQLite or transcript contents, infer conversation ownership, or maintain a
+parallel thread/session store or index. Introducing such behavior is an
+architecture-regression signal unless an explicit, narrowly bounded
+upstream-compatibility exception is added to this specification with executable
+proof that the upstream-supported surfaces are insufficient.
 
 `profile list` emits `default` followed by valid custom profile IDs, one per
-line, in deterministic bytewise order. It ignores symlinked or malformed
-entries rather than following them. `profile create <PROFILE_ID>` emits
-exactly `created: <PROFILE_ID>` followed by one LF after the create-new
-transaction commits; it emits no path, environment, credential, or
-upstream-state detail. `profile current` emits exactly two LF-terminated
-lines, `current: <TARGET>` followed by `source: <SOURCE>`. `<TARGET>` is
-`default`, a valid custom profile ID, or `external`; `<SOURCE>` is `inherited`
-when the caller supplied `CODEX_HOME`, or `last-selection` otherwise. It
-never reports auth identity, token state, session bodies, paths, or arbitrary
-environment values. `profile use` requires an existing profile, atomically
-records the selected ID, then `exec`s Core and emits no Manager-owned success
-output before Core runs. For `default` it removes `CODEX_HOME` from the child
-environment; for a custom profile it sets `CODEX_HOME` to the validated
-profile home only in that child. The original upstream argv after the profile
-selector is preserved exactly. If selection-state publication fails, Core is
-not launched.
+line, in deterministic bytewise order. It ignores malformed profile records and
+validates the declared shared-state topology rather than treating arbitrary
+symlinks as profiles. `profile create <PROFILE_ID>` emits exactly
+`created: <PROFILE_ID>` followed by one LF after the create-new transaction
+commits; it emits no path, environment, credential, or upstream-state detail.
+`profile current` emits exactly two LF-terminated lines, `current: <TARGET>`
+followed by `source: <SOURCE>`. `<TARGET>` is `default`, a valid custom profile
+ID, or `external`; `<SOURCE>` is `inherited` when the caller supplied
+`CODEX_HOME`, or `last-selection` otherwise. It never reports auth identity,
+token state, session bodies, paths, or arbitrary environment values.
 
-MGR-1 does not implement profile deletion, cross-profile session copying,
-interactive terminal UI, or profile-auth migration. A missing profile is a
-non-mutating validation failure; it is never created as a side effect of
-launch.
+`profile use` requires an existing profile, validates the shared-state topology,
+atomically records the selected ID, then `exec`s Core and emits no
+Manager-owned success output before Core runs. For `default` it removes
+`CODEX_HOME`; for a custom profile it sets `CODEX_HOME` to the validated
+profile home. For both Manager-selected targets it sets `CODEX_SQLITE_HOME` to
+exactly `$HOME/.codex`. Core converts that bounded Manager launch signal into a
+system `requirements.toml` requirement that fixes `sqlite_home` to the same
+canonical shared root and requires `local_thread_store_compression=false` and
+`background_paginated_rollout_migration=false` while upstream 0.155.1 keeps
+rollout maintenance locks mixed into profile-local `.tmp`. The requirements
+file is Core-owned, is removed or replaced only through the Core marker
+contract, and prevents a profile `config.toml` from silently splitting SQLite
+or enabling those incompatible background writers. The original upstream argv
+after the profile selector is preserved exactly. If topology or
+selection-state publication fails, Core is not launched.
+
+MGR-1 does not implement profile deletion, interactive terminal UI, or
+profile-auth migration. Cross-profile session copying is deliberately absent
+because conversations are shared objects rather than profile-owned objects. A
+missing profile or invalid shared-state topology is a non-mutating validation
+failure; it is never repaired as a side effect of launch.
 
 ### MGR-2 — bounded session listing and resume
 
@@ -1582,54 +1653,61 @@ codex termux session resume <SESSION_ID> [--profile <PROFILE_ID>] [--] [UPSTREAM
 
 `--all` and `--profile` are mutually exclusive for `session list`; no other
 session-list option is accepted. For both commands, an omitted `--profile`
-uses the persisted MGR-1 last-selection target, and does not reinterpret an
+uses the persisted MGR-1 last-selection target and does not reinterpret an
 inherited arbitrary `CODEX_HOME` as a Manager profile. `default` and `home`
-select the existing `$HOME/.codex` home; a custom selector must name a
-complete MGR-1 profile. `--all` visits `default` followed by every complete
-custom profile in bytewise profile-ID order. An invalid persisted selection or
+select the default execution identity; a custom selector must name a complete
+MGR-1 profile. The selected profile is an execution identity only. `--all`
+visits `default` followed by every complete custom profile in bytewise
+profile-ID order and projects the same global session set onto each available
+execution identity. This preserves the existing three-column compatibility
+surface without implying session ownership. An invalid persisted selection or
 an incomplete explicit profile is a non-mutating Manager operation failure.
 
-The discovery root for a profile is `<PROFILE_HOME>/sessions`. A missing root
-produces an empty successful list. The root and every traversed directory must
-be a real non-symlink directory. Discovery traverses at most eight directory
-levels and 4,096 directory entries in one command. It considers only regular,
-non-symlink files whose final name ends in `.jsonl`; the `SESSION_ID` is the
-UTF-8 filename with only that final suffix removed. A session reference is
-1--256 ASCII bytes, begins with an alphanumeric byte, permits only
-alphanumerics, `.`, `_`, `-`, and `:`, and rejects `.` and `..`. The reference
-is opaque: Manager never parses its timestamp or concatenates it into a path.
-Entries with invalid references, special types, symlink components, unreadable
-files, a size over 64 MiB, or a negative/unavailable mtime are skipped. Manager
-opens a candidate only to establish readability and never reads session-file
-bytes, parses JSONL, or derives a title, worktree, branch, auth field, or
-message field. If the bounded directory-entry limit is exceeded, the command
-returns an unavailable operation result rather than emitting a partial list.
+The sole discovery root is `$HOME/.codex/sessions`, independent of execution
+profile. A missing shared root produces an empty successful list. The canonical
+shared root and every traversed session-directory component must be real
+non-symlink directories; profile-home compatibility links are validated
+separately and are never used as discovery authority. Discovery traverses at
+most eight directory levels and 4,096 directory entries in one command. It
+considers only regular, non-symlink files whose final name ends in `.jsonl`;
+the `SESSION_ID` is the UTF-8 filename with only that final suffix removed. A
+session reference is 1--256 ASCII bytes, begins with an alphanumeric byte,
+permits only alphanumerics, `.`, `_`, `-`, and `:`, and rejects `.` and `..`.
+The reference is opaque: Manager never parses its timestamp or concatenates it
+into a path. Entries with invalid references, special types, symlink
+components, unreadable files, a size over 64 MiB, or a negative/unavailable
+mtime are skipped. Manager opens a candidate only to establish readability and
+never reads transcript bytes, parses JSONL, or derives a title, worktree,
+branch, auth field, or message field. If the bounded directory-entry limit is
+exceeded, the command returns an unavailable operation result rather than
+emitting a partial list.
 
 `session list` emits no header and exactly one LF-terminated TSV row per
-accepted candidate:
+accepted execution-profile/session projection:
 
 ```text
-<PROFILE_ID>\t<SESSION_ID>\t<UPDATED_UNIX_SECONDS>\n
+<EXECUTION_PROFILE_ID>\t<SESSION_ID>\t<UPDATED_UNIX_SECONDS>\n
 ```
 
-`UPDATED_UNIX_SECONDS` is the nonnegative decimal filesystem mtime in UTC
-seconds. Rows sort by newest timestamp first, then profile ID, session
-reference, and an internal bytewise path tie-breaker. An empty discovery emits
-no stdout and returns success. The output contains no paths, session contents,
-working-directory values, or credentials.
+`EXECUTION_PROFILE_ID` states which identity a subsequent resume would use; it
+is not an ownership field. `UPDATED_UNIX_SECONDS` is the nonnegative decimal
+filesystem mtime in UTC seconds. Rows sort by newest timestamp first, then
+execution profile ID, session reference, and an internal bytewise path
+tie-breaker. An empty discovery emits no stdout and returns success. The output
+contains no paths, session contents, working-directory values, or credentials.
 
-`session resume` validates the reference grammar, resolves one selected
-profile, performs a fresh bounded discovery of that profile, and requires
-exactly one row with the supplied reference. A missing or ambiguous reference
-fails without selection or Core launch. The selected profile is then recorded
-through the existing MGR-1 atomic selection transaction. Manager invokes the
-validated Core entrypoint with exactly `resume`, the discovered opaque
-`SESSION_ID`, and the original trailing upstream argv; it sets or removes
-`CODEX_HOME` only in that child as MGR-1 does, emits no Manager success output,
-and preserves Core's streams, TTY, signals, raw arguments, and exit status.
-No session is copied, symlinked, rewritten, migrated, or indexed persistently.
-Interactive session UI, cross-profile sharing, and transcript inspection are
-outside MGR-2.
+`session resume` validates the reference grammar, resolves one execution
+profile, performs one fresh bounded discovery of the global session root, and
+requires exactly one matching opaque reference. A missing or ambiguous
+reference fails without selection or Core launch. The selected execution
+profile is then recorded through the existing MGR-1 atomic selection
+transaction. Manager invokes the validated Core entrypoint with exactly
+`resume`, the discovered opaque `SESSION_ID`, and the original trailing
+upstream argv; it applies the MGR-1 `CODEX_HOME` and shared
+`CODEX_SQLITE_HOME` launch environment, emits no Manager success output, and
+preserves Core's streams, TTY, signals, raw arguments, and exit status. Normal
+listing/resume never copies, rewrites, or migrates session content. Global
+sharing is the storage contract; transcript inspection remains outside MGR-2.
 
 ### MGR-3 — notification configuration and delivery
 
