@@ -28,6 +28,20 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
+## SCS-6 Live Shared-State Migration Acceptance (accepted 2026-09-27)
+
+- Source authority at execution was exact `rewrite/rust-core=cd3e011a86e3dfe48da99c4bbeae73fe9c10edaf`; the tracked migration implementation matched that commit.
+- The preceding SCS-1 through SCS-5 gates were green. The device-side tdev execution fix was independently deployed as tdev 0.1.11, and a fresh execution proved `RLIMIT_FSIZE=1048576` blocks (512 MiB), removing the earlier diagnostic-harness limit for the selected 173,101,495-byte rollout.
+- Immediately before live mutation, the sole canonical writer was the official `runtime app-server`; it was quiesced and a fresh FD scan proved zero open descriptors beneath `$HOME/.codex`.
+- A new full canonical backup was created at `$HOME/.codex-scs6-backup-20260927-preapply-cd3e011a` and verified file-for-file, including SHA-256 content, mode, uid/gid, mtime, and symlink targets. The verified tree contained 6,568 regular files, 3,151 directories, and 4 symlinks; verification manifest SHA-256 was `a30b2764f0ca7df7818cd03676da254746ac39a08b9a7a0efc50ced1a7aa8660`.
+- Two post-quiescence plans were byte-for-byte identical: 5 legacy profiles, 23 selected recoverable rows, 17 unique threads, 16 copies, 1 canonical legacy-alias normalization, 9 explicit names, and 7 stale skips.
+- Live apply created exactly 17 canonical regular rollout files. Every created target matched the planned size, SHA-256, and journaled inode/device identity. The selected 173,101,495-byte canonical legacy symlink was normalized to a regular canonical rollout.
+- Finalization used official `codex-cli 0.155.1` app-server APIs only. Acceptance was 17/17 selected threads discovered, 17/17 resumed/materialized, and 9/9 explicit names restored; the migration journal reached `activated`.
+- Post-activation byte classification proved all 17 migrated rollout payloads remained byte-identical prefixes of the canonical files. Upstream appended only normal `event_msg` records; no selected rollout showed non-append divergence.
+- Three pre-existing canonical symlinks still point into legacy profile paths, but all three are broken, non-selected stale entries and were intentionally left outside the bounded migration scope. No selected thread retains a legacy symlink dependency.
+- Legacy `.codex-profiles/*` sources were not deleted or rewritten. No public release, signed-generation promotion, installed-runtime replacement, or `codex update` was performed by SCS-6.
+- Disposition: **SCS-1 through SCS-6 are accepted and complete.** Shared conversation/thread/session persistence is now treated as upstream-owned canonical state under `$HOME/.codex`; the one-shot migration machinery remains operator compatibility tooling rather than a steady-state Manager subsystem.
+
 ## Primary Technical Lead Policy
 
 - Orchestration mode: lead-owned implementation
