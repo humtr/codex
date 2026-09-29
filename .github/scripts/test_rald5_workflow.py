@@ -27,6 +27,33 @@ class Rald5WorkflowContractTests(unittest.TestCase):
             "- name: Cross-build Core and Manager", 1
         )[0]
 
+    def test_download_size_sidecar_is_staged_read_back_and_pages_bound(self) -> None:
+        for name in ["download-size-v1", "download-size-v1.sig"]:
+            self.assertIn(name, self.stage)
+            self.assertIn(name, self.pages)
+        self.assertIn('fetch_generation "$candidate" "$candidate_index" true', self.verify)
+        self.assertIn("--require-download-size", self.verify)
+        self.assertIn(
+            "compare_release_asset download-size-v1 compat/download-size-v1",
+            self.verify,
+        )
+        self.assertIn(
+            "compare_release_asset download-size-v1.sig compat/download-size-v1.sig",
+            self.verify,
+        )
+        self.assertIn('"site/$GENERATION_ID/compat"', self.pages)
+        self.assertIn(
+            "-in stage/download-size-v1 -sigfile stage/download-size-v1.sig",
+            self.pages,
+        )
+        self.assertIn("manifest_sha256", self.pages)
+        self.assertIn(
+            'cp stage/download-size-v1 "site/$GENERATION_ID/compat/download-size-v1"',
+            self.pages,
+        )
+        self.assertIn("current_download_size_code", self.pages)
+        self.assertIn("404)", self.pages)
+
     def test_publication_source_and_actions_are_immutable(self) -> None:
         self.assertIn(f"CODEX_SOURCE_SHA: '{CODEX_SOURCE_SHA}'", self.auto)
         self.assertIn(f"RALD5_SOURCE_SHA: '{RALD5_SOURCE_SHA}'", self.auto)

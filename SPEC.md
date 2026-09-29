@@ -173,6 +173,23 @@ result. The ordinary signed-channel phases are concise user-facing states such a
 and `Activating Codex <VERSION>...`. If either stream is not a terminal, Core
 emits no transient progress line and no cursor-control bytes.
 
+For signed releases that publish the optional authenticated
+`compat/download-size-v1` control resource, Core may enrich only the
+`Downloading signed Termux release...` transient state with actual downloaded
+bytes and the authenticated total payload size. The sidecar is not part of the
+installed generation inventory and therefore does not change release-manifest
+format or legacy-consumer compatibility. It is signed by the release key and
+binds itself to the exact signed `release.manifest` SHA-256; its ordered file
+list and file count must match the signed manifest inventory one-for-one, and
+its declared total must equal the checked sum of those file sizes. If the
+sidecar body is unavailable, Core falls back to the existing phase-only
+presentation. Once a sidecar body is fetched, an unavailable or invalid
+signature, manifest-digest mismatch, malformed/duplicate/missing file entry, or
+actual GET byte count that differs from the authenticated file size fails the
+update closed. Progress is derived only from bytes actually written by the GET
+transfer; Core does not issue per-file HEAD requests. Non-TTY output remains
+unchanged and contains neither progress counters nor terminal-control bytes.
+
 After both versions are authenticated, a genuinely version-changing signed
 channel activation writes the permanent stdout header
 `Updating Codex <OLD> -> <NEW>...`. A same-upstream-version corrective

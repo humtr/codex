@@ -9,6 +9,11 @@ import sys
 
 GENERATION_RE = re.compile(r"local-[a-z0-9][a-z0-9._-]{0,126}\Z")
 HEX64_RE = re.compile(r"[0-9a-f]{64}\Z")
+DOWNLOAD_SIZE_FORMAT = "codex-download-size-v1"
+DOWNLOAD_SIZE_RELATIVE = "compat/download-size-v1"
+DOWNLOAD_SIZE_SIGNATURE_RELATIVE = "compat/download-size-v1.sig"
+DOWNLOAD_SIZE_ASSET = "download-size-v1"
+DOWNLOAD_SIZE_SIGNATURE_ASSET = "download-size-v1.sig"
 EXPECTED_FILES = {
     "codex-code-mode-host": "0755",
     "core": "0755",
@@ -55,6 +60,20 @@ def positive_decimal(value: str, label: str) -> int:
         fail(f"{label} is not canonical positive decimal")
     parsed = int(value)
     if parsed <= 0 or parsed >= 1 << 64:
+        fail(f"{label} is out of range")
+    return parsed
+
+
+def nonnegative_decimal(value: str, label: str) -> int:
+    if (
+        not value
+        or not value.isascii()
+        or not value.isdigit()
+        or (value.startswith("0") and value != "0")
+    ):
+        fail(f"{label} is not canonical nonnegative decimal")
+    parsed = int(value)
+    if parsed >= 1 << 64:
         fail(f"{label} is out of range")
     return parsed
 
@@ -187,6 +206,57 @@ def sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def verify_download_size_sidecar(
+    sidecar: Path,
+    signature: Path,
+    release_dir: Path,
+    public_key: Path,
+    openssl: str,
+    files: list[tuple[str, str, str]],
+) -> None:
+    require_regular(sidecar)
+    require_regular(signature)
+    verify_signature(openssl, public_key, sidecar, signature)
+    lines = read_text(sidecar, 128 * 1024).splitlines()
+    if len(lines) != 4 + len(files) or lines[0] != DOWNLOAD_SIZE_FORMAT:
+        fail("download-size sidecar shape is invalid")
+    manifest_parts = lines[1].split("\t")
+    count_parts = lines[2].split("\t")
+    total_parts = lines[3].split("\t")
+    if (
+        len(manifest_parts) != 2
+        or manifest_parts[0] != "manifest_sha256"
+        or not HEX64_RE.fullmatch(manifest_parts[1])
+        or manifest_parts[1] != sha256(release_dir / "release.manifest")
+    ):
+        fail("download-size sidecar manifest binding is invalid")
+    if (
+        len(count_parts) != 2
+        or count_parts[0] != "file_count"
+        or positive_decimal(count_parts[1], "download-size file count") != len(files)
+    ):
+        fail("download-size sidecar file count is invalid")
+    if len(total_parts) != 2 or total_parts[0] != "total_bytes":
+        fail("download-size sidecar total record is invalid")
+    declared_total = nonnegative_decimal(total_parts[1], "download-size total")
+    if declared_total > 1024 * 1024 * 1024:
+        fail("download-size sidecar total exceeds the release byte bound")
+    observed_total = 0
+    for line, (rel, _, _) in zip(lines[4:], files, strict=True):
+        parts = line.split("\t")
+        if len(parts) != 3 or parts[0] != "file" or parts[1] != rel:
+            fail("download-size sidecar inventory does not match signed manifest")
+        declared_size = nonnegative_decimal(parts[2], f"download-size {rel} size")
+        actual_size = (release_dir / rel).stat().st_size
+        if declared_size != actual_size:
+            fail(f"download-size sidecar size does not match {rel}")
+        observed_total += declared_size
+        if observed_total >= 1 << 64:
+            fail("download-size sidecar total is out of range")
+    if observed_total != declared_total:
+        fail("download-size sidecar total does not match file sizes")
+
+
 def require_regular(path: Path) -> None:
     if path.is_symlink() or not path.is_file():
         fail(f"{path} must be a regular non-symlink file")
@@ -211,6 +281,7 @@ def verify_release_tree(
     openssl: str,
     scratch: Path,
     index_inside_release: bool = False,
+    require_download_size: bool = False,
 ) -> tuple[dict[str, str], list[tuple[str, str, str]]]:
     generation = safe_generation(generation)
     positive_decimal(sequence, "release sequence")
@@ -228,13 +299,28 @@ def verify_release_tree(
         fail("release manifest does not match requested candidate")
     if manifest_values["release_public_key"] != raw_public_key(openssl, public_key, scratch):
         fail("release manifest authority does not match public key")
+    download_size_present = (release_dir / "compat").exists()
+    if require_download_size and not download_size_present:
+        fail("download-size sidecar is required")
     expected_release_entries = {"release.manifest", "release.sig", "helpers"} | {
         rel for rel in EXPECTED_FILES if "/" not in rel
     }
+    if download_size_present:
+        expected_release_entries.add("compat")
     if index_inside_release:
         expected_release_entries |= {"update-index-v1", "update-index-v1.sig"}
     exact_entries(release_dir, expected_release_entries)
     exact_entries(release_dir / "helpers", {"0", "1"})
+    if download_size_present:
+        exact_entries(release_dir / "compat", {"download-size-v1", "download-size-v1.sig"})
+        verify_download_size_sidecar(
+            release_dir / DOWNLOAD_SIZE_RELATIVE,
+            release_dir / DOWNLOAD_SIZE_SIGNATURE_RELATIVE,
+            release_dir,
+            public_key,
+            openssl,
+            files,
+        )
     for rel, digest, mode in files:
         path = release_dir / rel
         require_regular(path)
@@ -253,7 +339,16 @@ def prepare_assets(args: argparse.Namespace) -> None:
     generation = safe_generation(args.generation)
     if output.exists():
         fail("publication asset output already exists")
-    exact_entries(signed_root, {"releases", "update-index-v1", "update-index-v1.sig"})
+    exact_entries(
+        signed_root,
+        {
+            "releases",
+            "update-index-v1",
+            "update-index-v1.sig",
+            DOWNLOAD_SIZE_ASSET,
+            DOWNLOAD_SIZE_SIGNATURE_ASSET,
+        },
+    )
     exact_entries(signed_root / "releases", {generation})
     scratch = signed_root / ".rald5-publication-scratch"
     if scratch.exists():
@@ -273,16 +368,31 @@ def prepare_assets(args: argparse.Namespace) -> None:
         )
         output.mkdir(mode=0o700)
         release_dir = signed_root / "releases" / generation
+        verify_download_size_sidecar(
+            signed_root / DOWNLOAD_SIZE_ASSET,
+            signed_root / DOWNLOAD_SIZE_SIGNATURE_ASSET,
+            release_dir,
+            public_key,
+            args.openssl,
+            files,
+        )
         for rel, _, _ in files:
             shutil.copyfile(release_dir / rel, output / FLAT_ASSETS[rel])
         shutil.copyfile(release_dir / "release.manifest", output / "release.manifest")
         shutil.copyfile(release_dir / "release.sig", output / "release.sig")
+        shutil.copyfile(signed_root / DOWNLOAD_SIZE_ASSET, output / DOWNLOAD_SIZE_ASSET)
+        shutil.copyfile(
+            signed_root / DOWNLOAD_SIZE_SIGNATURE_ASSET,
+            output / DOWNLOAD_SIZE_SIGNATURE_ASSET,
+        )
         shutil.copyfile(signed_root / "update-index-v1", output / "candidate-update-index-v1")
         shutil.copyfile(signed_root / "update-index-v1.sig", output / "candidate-update-index-v1.sig")
         shutil.copyfile(public_key, output / "update-public-key.pem")
         exact_entries(output, set(FLAT_ASSETS.values()) | {
             "release.manifest",
             "release.sig",
+            DOWNLOAD_SIZE_ASSET,
+            DOWNLOAD_SIZE_SIGNATURE_ASSET,
             "candidate-update-index-v1",
             "candidate-update-index-v1.sig",
             "update-public-key.pem",
@@ -319,6 +429,7 @@ def verify_public(args: argparse.Namespace) -> None:
             args.openssl,
             scratch,
             index_inside_release=True,
+            require_download_size=args.require_download_size,
         )
         print(f"verified_generation={generation}")
         print(f"verified_sequence={args.release_sequence}")
@@ -340,6 +451,7 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument("--output", required=True)
     verify = sub.add_parser("verify-public", parents=[common])
     verify.add_argument("--root", required=True)
+    verify.add_argument("--require-download-size", action="store_true")
     return parser
 
 

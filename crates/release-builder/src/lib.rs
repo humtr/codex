@@ -47,6 +47,10 @@ const RELEASE_CHANNEL: &str = "stable";
 const RELEASE_URL_MAX_BYTES: usize = 4096;
 const RELEASE_MANIFEST_MAX_BYTES: u64 = 128 * 1024;
 const RELEASE_SIGNATURE_BYTES: u64 = 64;
+const DOWNLOAD_SIZE_FORMAT: &str = "codex-download-size-v1";
+const DOWNLOAD_SIZE_PATH: &str = "download-size-v1";
+const DOWNLOAD_SIZE_SIGNATURE_PATH: &str = "download-size-v1.sig";
+const DOWNLOAD_SIZE_MAX_BYTES: u64 = 128 * 1024;
 const RELEASE_PRIVATE_KEY_MAX_BYTES: u64 = 16 * 1024;
 const RELEASE_FILE_MAX_BYTES: u64 = 512 * 1024 * 1024;
 const RELEASE_TOTAL_FILE_MAX_BYTES: u64 = 1024 * 1024 * 1024;
@@ -973,6 +977,7 @@ struct PublishFile {
     snapshot_path: PathBuf,
     sha256: String,
     mode: u32,
+    size: u64,
 }
 
 #[derive(Debug)]
@@ -1546,6 +1551,7 @@ fn snapshot_publish_generation(
             snapshot_path: destination,
             sha256,
             mode,
+            size,
         });
     }
     validate_publish_generation_layout(&source_snapshot_root, r10_bridge)?;
@@ -1719,6 +1725,36 @@ fn release_manifest_bytes(
     Ok(manifest.into_bytes())
 }
 
+fn download_size_sidecar_bytes(
+    manifest_sha256: &str,
+    files: &[PublishFile],
+) -> Result<Vec<u8>, BuilderError> {
+    use std::fmt::Write as _;
+
+    let total_bytes = files.iter().try_fold(0u64, |total, file| {
+        total
+            .checked_add(file.size)
+            .filter(|value| *value <= RELEASE_TOTAL_FILE_MAX_BYTES)
+            .ok_or(BuilderError::Invalid(
+                "publication generation exceeds its total byte bound",
+            ))
+    })?;
+    let mut sidecar = format!(
+        "{DOWNLOAD_SIZE_FORMAT}\nmanifest_sha256\t{manifest_sha256}\nfile_count\t{}\ntotal_bytes\t{total_bytes}\n",
+        files.len(),
+    );
+    for file in files {
+        writeln!(&mut sidecar, "file\t{}\t{}", file.relative_path, file.size)
+            .expect("writing into String cannot fail");
+    }
+    if sidecar.len() as u64 > DOWNLOAD_SIZE_MAX_BYTES {
+        return Err(BuilderError::Invalid(
+            "download-size sidecar exceeds its byte bound",
+        ));
+    }
+    Ok(sidecar.into_bytes())
+}
+
 fn update_index_bytes(generation_id: &str, release_base: &str) -> Vec<u8> {
     format!(
         "{RELEASE_INDEX_FORMAT}\nchannel\t{RELEASE_CHANNEL}\ngeneration_id\t{generation_id}\nrelease_base\t{release_base}\n"
@@ -1784,7 +1820,21 @@ fn publish(request: &PublishRequest) -> Result<String, BuilderError> {
             &manifest_path,
             &release_dir.join("release.sig"),
         )?;
-
+        let manifest_sha256 = openssl_sha256(&request.openssl, &manifest_path)?;
+        let download_size = download_size_sidecar_bytes(&manifest_sha256, &generation.files)?;
+        let download_size_path = staging.join(DOWNLOAD_SIZE_PATH);
+        write_published_file(
+            &download_size_path,
+            &download_size,
+            0o644,
+            "write download-size sidecar",
+        )?;
+        sign_published_file(
+            &request.openssl,
+            &request.private_key,
+            &download_size_path,
+            &staging.join(DOWNLOAD_SIZE_SIGNATURE_PATH),
+        )?;
         let index = update_index_bytes(&generation.generation_id, &request.release_base);
         let index_path = staging.join("update-index-v1");
         write_published_file(&index_path, &index, 0o644, "write update index")?;
@@ -5322,6 +5372,59 @@ fi
         assert_eq!(
             std::fs::read_to_string(release.join("release.manifest")).unwrap(),
             expected_manifest
+        );
+        let manifest_sha256 =
+            openssl_sha256(&fixture.request.openssl, &release.join("release.manifest")).unwrap();
+        let expected_download_size = format!(
+            concat!(
+                "codex-download-size-v1\n",
+                "manifest_sha256\t{}\n",
+                "file_count\t6\n",
+                "total_bytes\t{}\n",
+                "file\tbrowser/manual/curl\t{}\n",
+                "file\tbrowser/open/curl\t{}\n",
+                "file\tcodex-code-mode-host\t{}\n",
+                "file\tcore\t{}\n",
+                "file\tgeneration.meta\t{}\n",
+                "file\truntime\t{}\n"
+            ),
+            manifest_sha256,
+            [
+                "browser/manual/curl",
+                "browser/open/curl",
+                "codex-code-mode-host",
+                "core",
+                "generation.meta",
+                "runtime",
+            ]
+            .iter()
+            .map(|path| std::fs::metadata(release.join(path)).unwrap().len())
+            .sum::<u64>(),
+            std::fs::metadata(release.join("browser/manual/curl"))
+                .unwrap()
+                .len(),
+            std::fs::metadata(release.join("browser/open/curl"))
+                .unwrap()
+                .len(),
+            std::fs::metadata(release.join("codex-code-mode-host"))
+                .unwrap()
+                .len(),
+            std::fs::metadata(release.join("core")).unwrap().len(),
+            std::fs::metadata(release.join("generation.meta"))
+                .unwrap()
+                .len(),
+            std::fs::metadata(release.join("runtime")).unwrap().len(),
+        );
+        assert_eq!(
+            std::fs::read_to_string(publication.join(DOWNLOAD_SIZE_PATH)).unwrap(),
+            expected_download_size
+        );
+        verify_publish_signature(
+            &fixture.request.openssl,
+            &private_key,
+            &publication.join(DOWNLOAD_SIZE_PATH),
+            &publication.join(DOWNLOAD_SIZE_SIGNATURE_PATH),
+            &public_key,
         );
         assert_eq!(
             std::fs::read_to_string(publication.join("update-index-v1")).unwrap(),

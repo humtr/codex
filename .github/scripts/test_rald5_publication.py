@@ -84,6 +84,32 @@ class Rald5PublicationTests(unittest.TestCase):
             "-out",
             str(release / "release.sig"),
         )
+        sizes = [(rel, (release / rel).stat().st_size) for rel, _ in FILES]
+        total = sum(size for _, size in sizes)
+        sidecar = self.signed / "download-size-v1"
+        sidecar.write_text(
+            "\n".join(
+                [
+                    "codex-download-size-v1",
+                    f"manifest_sha256\t{sha256(release / 'release.manifest')}",
+                    f"file_count\t{len(FILES)}",
+                    f"total_bytes\t{total}",
+                    *[f"file\t{rel}\t{size}" for rel, size in sizes],
+                    "",
+                ]
+            )
+        )
+        openssl(
+            "pkeyutl",
+            "-sign",
+            "-rawin",
+            "-inkey",
+            str(self.private_key),
+            "-in",
+            str(sidecar),
+            "-out",
+            str(self.signed / "download-size-v1.sig"),
+        )
         index = self.signed / "update-index-v1"
         index.parent.mkdir(parents=True, exist_ok=True)
         index.write_text(
@@ -135,6 +161,8 @@ class Rald5PublicationTests(unittest.TestCase):
                 "candidate-update-index-v1.sig",
                 "codex-code-mode-host",
                 "core",
+                "download-size-v1",
+                "download-size-v1.sig",
                 "generation.meta",
                 "helper-0",
                 "helper-1",
@@ -146,12 +174,16 @@ class Rald5PublicationTests(unittest.TestCase):
             },
         )
         self.assertEqual((output / "helper-0").read_bytes(), (self.signed / "releases" / GENERATION / "helpers/0").read_bytes())
-        self.assertIn(b"asset_count=12\n", result.stdout)
+        self.assertIn(b"asset_count=14\n", result.stdout)
 
     def test_verify_public_accepts_exact_pages_tree(self) -> None:
         site = self.root / "site"
         release = site / GENERATION
         shutil.copytree(self.signed / "releases" / GENERATION, release, copy_function=shutil.copy2)
+        compat = release / "compat"
+        compat.mkdir()
+        shutil.copy2(self.signed / "download-size-v1", compat / "download-size-v1")
+        shutil.copy2(self.signed / "download-size-v1.sig", compat / "download-size-v1.sig")
         shutil.copy2(self.signed / "update-index-v1", release / "update-index-v1")
         shutil.copy2(self.signed / "update-index-v1.sig", release / "update-index-v1.sig")
         result = run(
@@ -169,6 +201,31 @@ class Rald5PublicationTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr.decode())
         self.assertIn(f"verified_generation={GENERATION}".encode(), result.stdout)
+
+    def test_verify_public_allows_legacy_tree_but_requirement_is_fail_closed(self) -> None:
+        site = self.root / "legacy-site"
+        release = site / GENERATION
+        shutil.copytree(self.signed / "releases" / GENERATION, release, copy_function=shutil.copy2)
+        shutil.copy2(self.signed / "update-index-v1", release / "update-index-v1")
+        shutil.copy2(self.signed / "update-index-v1.sig", release / "update-index-v1.sig")
+        common = [
+            "verify-public",
+            "--root",
+            str(site),
+            "--public-key",
+            str(self.public_key),
+            "--generation",
+            GENERATION,
+            "--release-sequence",
+            SEQUENCE,
+            "--release-base",
+            BASE,
+        ]
+        legacy = run(*common)
+        self.assertEqual(legacy.returncode, 0, legacy.stderr.decode())
+        required = run(*common, "--require-download-size")
+        self.assertNotEqual(required.returncode, 0)
+        self.assertIn(b"download-size sidecar is required", required.stderr)
 
     def test_tampered_signed_file_fails_before_asset_output(self) -> None:
         (self.signed / "releases" / GENERATION / "runtime").write_bytes(b"tampered\n")

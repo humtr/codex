@@ -3992,6 +3992,14 @@ const LOCAL_RELEASE_MAX_FILES: usize = 4096;
 #[cfg(unix)]
 const LOCAL_RELEASE_SIGNATURE_MAX_BYTES: u64 = 1024;
 #[cfg(unix)]
+const DOWNLOAD_SIZE_FORMAT: &str = "codex-download-size-v1";
+#[cfg(unix)]
+const DOWNLOAD_SIZE_RESOURCE: &str = "compat/download-size-v1";
+#[cfg(unix)]
+const DOWNLOAD_SIZE_SIGNATURE_RESOURCE: &str = "compat/download-size-v1.sig";
+#[cfg(unix)]
+const DOWNLOAD_SIZE_MAX_BYTES: usize = 128 * 1024;
+#[cfg(unix)]
 const DOCTOR_OUTPUT_MAX_BYTES: usize = 64 * 1024;
 #[cfg(unix)]
 const UPDATE_INDEX_MAX_BYTES: usize = 16 * 1024;
@@ -5362,6 +5370,25 @@ fn fetch_remote_file_with_timeout(
     max_bytes: u64,
     transfer_timeout_seconds: &str,
 ) -> Result<u64, LocalProductError> {
+    fetch_remote_file_with_timeout_and_progress(
+        roots,
+        url,
+        output,
+        max_bytes,
+        transfer_timeout_seconds,
+        None,
+    )
+}
+
+#[cfg(unix)]
+fn fetch_remote_file_with_timeout_and_progress(
+    roots: &LocalCoreRoots,
+    url: &str,
+    output: &std::fs::File,
+    max_bytes: u64,
+    transfer_timeout_seconds: &str,
+    mut progress: Option<&mut dyn FnMut(u64)>,
+) -> Result<u64, LocalProductError> {
     ensure_curl_available(&roots.curl)?;
     if max_bytes == 0 || max_bytes > REMOTE_RELEASE_TOTAL_MAX_BYTES {
         return Err(LocalProductError::Remote(
@@ -5381,7 +5408,8 @@ fn fetch_remote_file_with_timeout(
         operation: "duplicate remote release output",
         source,
     })?;
-    let status = std::process::Command::new(&roots.curl)
+    let mut command = std::process::Command::new(&roots.curl);
+    command
         .arg("--disable")
         .args([
             "--fail",
@@ -5410,9 +5438,47 @@ fn fetch_remote_file_with_timeout(
         .env_clear()
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::from(child_output))
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map_err(|_| LocalProductError::CurlUnavailable)?;
+        .stderr(std::process::Stdio::null());
+
+    let status = if progress.is_none() {
+        command
+            .status()
+            .map_err(|_| LocalProductError::CurlUnavailable)?
+    } else {
+        let mut child = command
+            .spawn()
+            .map_err(|_| LocalProductError::CurlUnavailable)?;
+        let mut last_reported = 0u64;
+        loop {
+            match child
+                .try_wait()
+                .map_err(|_| LocalProductError::RemoteTransportFailed)?
+            {
+                Some(status) => break status,
+                None => {
+                    let observed = output
+                        .metadata()
+                        .map_err(|source| LocalProductError::Io {
+                            operation: "inspect downloading remote release output",
+                            source,
+                        })?
+                        .len();
+                    if observed > max_bytes {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        return Err(LocalProductError::RemoteResponseTooLarge);
+                    }
+                    if observed != last_reported {
+                        if let Some(callback) = progress.as_mut() {
+                            (*callback)(observed);
+                        }
+                        last_reported = observed;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(80));
+                }
+            }
+        }
+    };
     if !status.success() {
         return Err(LocalProductError::RemoteTransportFailed);
     }
@@ -5429,6 +5495,9 @@ fn fetch_remote_file_with_timeout(
         .len();
     if observed > max_bytes {
         return Err(LocalProductError::RemoteResponseTooLarge);
+    }
+    if let Some(callback) = progress.as_mut() {
+        (*callback)(observed);
     }
     Ok(observed)
 }
@@ -5506,6 +5575,13 @@ struct LocalReleaseManifest {
     persistent_schema_identity: String,
     release_public_key: ReleasePublicKey,
     files: Vec<ReleaseFileEntry>,
+}
+
+#[cfg(unix)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RemoteDownloadSizes {
+    total_bytes: u64,
+    file_sizes: Vec<u64>,
 }
 
 #[cfg(unix)]
@@ -5721,6 +5797,113 @@ fn parse_local_release_manifest(bytes: &[u8]) -> Result<LocalReleaseManifest, Lo
         persistent_schema_identity: persistent_schema_identity.to_owned(),
         release_public_key,
         files,
+    })
+}
+
+#[cfg(unix)]
+fn parse_remote_download_sizes(
+    bytes: &[u8],
+    manifest: &LocalReleaseManifest,
+    expected_manifest_sha256: &str,
+) -> Result<RemoteDownloadSizes, LocalProductError> {
+    if bytes.len() > DOWNLOAD_SIZE_MAX_BYTES {
+        return Err(LocalProductError::Release(
+            "download-size sidecar exceeds its byte bound",
+        ));
+    }
+    if bytes.contains(&b'\r') || !bytes.ends_with(b"\n") {
+        return Err(LocalProductError::Release(
+            "download-size sidecar format is invalid",
+        ));
+    }
+    let text = std::str::from_utf8(bytes)
+        .map_err(|_| LocalProductError::Release("download-size sidecar is not UTF-8"))?;
+    let mut lines = text.lines();
+    if lines.next() != Some(DOWNLOAD_SIZE_FORMAT) {
+        return Err(LocalProductError::Release(
+            "download-size sidecar format is unsupported",
+        ));
+    }
+    let manifest_sha256 = descriptor_field(lines.next(), "manifest_sha256")?;
+    if !valid_sha256_hex(manifest_sha256) || manifest_sha256 != expected_manifest_sha256 {
+        return Err(LocalProductError::Release(
+            "download-size sidecar does not match the signed release manifest",
+        ));
+    }
+    let file_count = descriptor_field(lines.next(), "file_count")?;
+    if !valid_positive_decimal(file_count) {
+        return Err(LocalProductError::Release(
+            "download-size sidecar file count is invalid",
+        ));
+    }
+    let file_count: usize = file_count
+        .parse()
+        .map_err(|_| LocalProductError::Release("download-size sidecar file count is invalid"))?;
+    if file_count != manifest.files.len() {
+        return Err(LocalProductError::Release(
+            "download-size sidecar file count does not match the signed inventory",
+        ));
+    }
+    let total_bytes = descriptor_field(lines.next(), "total_bytes")?;
+    if !valid_nonnegative_decimal(total_bytes) {
+        return Err(LocalProductError::Release(
+            "download-size sidecar total is invalid",
+        ));
+    }
+    let total_bytes: u64 = total_bytes
+        .parse()
+        .map_err(|_| LocalProductError::Release("download-size sidecar total is invalid"))?;
+    if total_bytes > REMOTE_RELEASE_TOTAL_MAX_BYTES {
+        return Err(LocalProductError::Release(
+            "download-size sidecar total exceeds the release byte bound",
+        ));
+    }
+
+    let mut file_sizes = Vec::with_capacity(file_count);
+    let mut observed_total = 0u64;
+    for signed in &manifest.files {
+        let line = lines.next().ok_or(LocalProductError::Release(
+            "download-size sidecar inventory is incomplete",
+        ))?;
+        let mut parts = line.split('\t');
+        if parts.next() != Some("file") || parts.next() != Some(signed.relative_path.as_str()) {
+            return Err(LocalProductError::Release(
+                "download-size sidecar inventory does not match the signed inventory",
+            ));
+        }
+        let size = parts.next().ok_or(LocalProductError::Release(
+            "download-size sidecar file size is missing",
+        ))?;
+        if parts.next().is_some() || !valid_nonnegative_decimal(size) {
+            return Err(LocalProductError::Release(
+                "download-size sidecar file size is invalid",
+            ));
+        }
+        let size: u64 = size.parse().map_err(|_| {
+            LocalProductError::Release("download-size sidecar file size is invalid")
+        })?;
+        if size > REMOTE_RELEASE_FILE_MAX_BYTES {
+            return Err(LocalProductError::Release(
+                "download-size sidecar file size exceeds the release file bound",
+            ));
+        }
+        observed_total = observed_total
+            .checked_add(size)
+            .filter(|value| *value <= REMOTE_RELEASE_TOTAL_MAX_BYTES)
+            .ok_or(LocalProductError::Release(
+                "download-size sidecar total exceeds the release byte bound",
+            ))?;
+        file_sizes.push(size);
+    }
+    if lines.next().is_some() || observed_total != total_bytes {
+        return Err(LocalProductError::Release(
+            "download-size sidecar total does not match its file sizes",
+        ));
+    }
+
+    Ok(RemoteDownloadSizes {
+        total_bytes,
+        file_sizes,
     })
 }
 
@@ -7438,6 +7621,33 @@ fn render_update_transient(frame_index: usize, message: &str) {
 }
 
 #[cfg(unix)]
+fn render_update_download_progress(downloaded: u64, total: u64) -> String {
+    const KIB: u64 = 1024;
+    const MIB: u64 = 1024 * 1024;
+
+    fn tenths(value: u64, unit: u64) -> (u64, u64) {
+        let scaled = value.saturating_mul(10).saturating_add(unit / 2) / unit;
+        (scaled / 10, scaled % 10)
+    }
+
+    if total >= MIB {
+        let (downloaded_whole, downloaded_fraction) = tenths(downloaded, MIB);
+        let (total_whole, total_fraction) = tenths(total, MIB);
+        format!(
+            "Downloading signed Termux release... {downloaded_whole}.{downloaded_fraction} / {total_whole}.{total_fraction} MiB"
+        )
+    } else if total >= KIB {
+        let (downloaded_whole, downloaded_fraction) = tenths(downloaded, KIB);
+        let (total_whole, total_fraction) = tenths(total, KIB);
+        format!(
+            "Downloading signed Termux release... {downloaded_whole}.{downloaded_fraction} / {total_whole}.{total_fraction} KiB"
+        )
+    } else {
+        format!("Downloading signed Termux release... {downloaded} / {total} bytes")
+    }
+}
+
+#[cfg(unix)]
 #[derive(Debug)]
 enum UpdateTransientCommand {
     Set {
@@ -7542,6 +7752,11 @@ impl UpdatePresentation {
             });
         }
         self.transient_visible = true;
+    }
+
+    fn download_progress(&mut self, downloaded: u64, total: u64) {
+        let message = render_update_download_progress(downloaded, total);
+        self.transient("â ", &message);
     }
 
     fn clear_transient(&mut self) {
@@ -8395,6 +8610,19 @@ fn fetch_remote_control_resource(
 }
 
 #[cfg(unix)]
+struct RemoteResourceFetchOptions<'a> {
+    transfer_timeout_seconds: &'a str,
+    progress: Option<&'a mut dyn FnMut(u64)>,
+}
+
+#[cfg(unix)]
+struct VerifiedRemoteFileFetchOptions<'a> {
+    transfer_timeout_seconds: &'a str,
+    expected_size: Option<u64>,
+    progress: Option<&'a mut dyn FnMut(u64)>,
+}
+
+#[cfg(unix)]
 fn fetch_remote_resource_with_timeout(
     roots: &LocalCoreRoots,
     base: &RemoteReleaseBase,
@@ -8404,6 +8632,35 @@ fn fetch_remote_resource_with_timeout(
     acquired_bytes: &mut u64,
     transfer_timeout_seconds: &str,
 ) -> Result<(), LocalProductError> {
+    fetch_remote_resource_with_timeout_and_progress(
+        roots,
+        base,
+        relative_path,
+        destination,
+        response_limit,
+        acquired_bytes,
+        RemoteResourceFetchOptions {
+            transfer_timeout_seconds,
+            progress: None,
+        },
+    )
+    .map(|_| ())
+}
+
+#[cfg(unix)]
+fn fetch_remote_resource_with_timeout_and_progress(
+    roots: &LocalCoreRoots,
+    base: &RemoteReleaseBase,
+    relative_path: &str,
+    destination: &std::path::Path,
+    response_limit: u64,
+    acquired_bytes: &mut u64,
+    options: RemoteResourceFetchOptions<'_>,
+) -> Result<u64, LocalProductError> {
+    let RemoteResourceFetchOptions {
+        transfer_timeout_seconds,
+        progress,
+    } = options;
     let remaining = REMOTE_RELEASE_TOTAL_MAX_BYTES
         .checked_sub(*acquired_bytes)
         .ok_or(LocalProductError::RemoteResponseTooLarge)?;
@@ -8413,13 +8670,19 @@ fn fetch_remote_resource_with_timeout(
     }
     let url = base.resource_url(relative_path)?;
     let output = create_remote_output(destination)?;
-    let observed =
-        fetch_remote_file_with_timeout(roots, &url, &output, limit, transfer_timeout_seconds)?;
+    let observed = fetch_remote_file_with_timeout_and_progress(
+        roots,
+        &url,
+        &output,
+        limit,
+        transfer_timeout_seconds,
+        progress,
+    )?;
     *acquired_bytes = acquired_bytes
         .checked_add(observed)
         .filter(|total| *total <= REMOTE_RELEASE_TOTAL_MAX_BYTES)
         .ok_or(LocalProductError::RemoteResponseTooLarge)?;
-    Ok(())
+    Ok(observed)
 }
 
 #[cfg(unix)]
@@ -8467,19 +8730,56 @@ fn fetch_verified_remote_release_file_with_timeout(
     acquired_bytes: &mut u64,
     transfer_timeout_seconds: &str,
 ) -> Result<(), LocalProductError> {
+    fetch_verified_remote_release_file_with_timeout_and_progress(
+        roots,
+        base,
+        acquisition_root,
+        file,
+        acquired_bytes,
+        VerifiedRemoteFileFetchOptions {
+            transfer_timeout_seconds,
+            expected_size: None,
+            progress: None,
+        },
+    )
+    .map(|_| ())
+}
+
+#[cfg(unix)]
+fn fetch_verified_remote_release_file_with_timeout_and_progress(
+    roots: &LocalCoreRoots,
+    base: &RemoteReleaseBase,
+    acquisition_root: &std::path::Path,
+    file: &ReleaseFileEntry,
+    acquired_bytes: &mut u64,
+    options: VerifiedRemoteFileFetchOptions<'_>,
+) -> Result<u64, LocalProductError> {
+    let VerifiedRemoteFileFetchOptions {
+        transfer_timeout_seconds,
+        expected_size,
+        progress,
+    } = options;
     use std::os::unix::fs::PermissionsExt;
 
     ensure_remote_resource_parent(acquisition_root, &file.relative_path)?;
     let destination = acquisition_root.join(&file.relative_path);
-    fetch_remote_resource_with_timeout(
+    let observed = fetch_remote_resource_with_timeout_and_progress(
         roots,
         base,
         &file.relative_path,
         &destination,
         REMOTE_RELEASE_FILE_MAX_BYTES,
         acquired_bytes,
-        transfer_timeout_seconds,
+        RemoteResourceFetchOptions {
+            transfer_timeout_seconds,
+            progress,
+        },
     )?;
+    if expected_size.is_some_and(|expected| expected != observed) {
+        return Err(LocalProductError::Release(
+            "downloaded release file size does not match authenticated size",
+        ));
+    }
     if openssl_sha256(&roots.openssl, &destination)? != file.sha256 {
         return Err(LocalProductError::ReleaseDigestMismatch);
     }
@@ -8490,10 +8790,75 @@ fn fetch_verified_remote_release_file_with_timeout(
         })?
         .permissions();
     permissions.set_mode(file.mode);
-    std::fs::set_permissions(&destination, permissions).map_err(|source| LocalProductError::Io {
-        operation: "apply signed remote release file mode",
-        source,
-    })
+    std::fs::set_permissions(&destination, permissions).map_err(|source| {
+        LocalProductError::Io {
+            operation: "apply signed remote release file mode",
+            source,
+        }
+    })?;
+    Ok(observed)
+}
+
+#[cfg(unix)]
+fn fetch_remote_download_sizes(
+    roots: &LocalCoreRoots,
+    base: &RemoteReleaseBase,
+    acquisition_root: &std::path::Path,
+    manifest: &LocalReleaseManifest,
+    acquired_bytes: &mut u64,
+) -> Result<Option<RemoteDownloadSizes>, LocalProductError> {
+    let sidecar_path = acquisition_root.join(".download-size-v1");
+    let signature_path = acquisition_root.join(".download-size-v1.sig");
+
+    match fetch_remote_control_resource(
+        roots,
+        base,
+        DOWNLOAD_SIZE_RESOURCE,
+        &sidecar_path,
+        DOWNLOAD_SIZE_MAX_BYTES as u64,
+        acquired_bytes,
+    ) {
+        Ok(()) => {}
+        Err(LocalProductError::RemoteTransportFailed) => {
+            let _ = std::fs::remove_file(&sidecar_path);
+            return Ok(None);
+        }
+        Err(error) => {
+            let _ = std::fs::remove_file(&sidecar_path);
+            return Err(error);
+        }
+    }
+
+    let result = (|| {
+        fetch_remote_control_resource(
+            roots,
+            base,
+            DOWNLOAD_SIZE_SIGNATURE_RESOURCE,
+            &signature_path,
+            LOCAL_RELEASE_SIGNATURE_MAX_BYTES,
+            acquired_bytes,
+        )?;
+        verify_release_signature_with_key(
+            &roots.openssl,
+            manifest.release_public_key,
+            &sidecar_path,
+            &signature_path,
+        )?;
+        let expected_manifest_sha256 =
+            openssl_sha256(&roots.openssl, &acquisition_root.join("release.manifest"))?;
+        let bytes = read_bounded_regular_file(
+            &sidecar_path,
+            DOWNLOAD_SIZE_MAX_BYTES,
+            "read authenticated download-size sidecar",
+            LocalProductError::Release("download-size sidecar exceeds its byte bound"),
+            LocalProductError::Release("download-size sidecar must be a regular file"),
+        )?;
+        parse_remote_download_sizes(&bytes, manifest, &expected_manifest_sha256).map(Some)
+    })();
+
+    let _ = std::fs::remove_file(&sidecar_path);
+    let _ = std::fs::remove_file(&signature_path);
+    result
 }
 
 #[cfg(unix)]
@@ -8581,45 +8946,115 @@ fn acquire_remote_release_source(
             "remote release base does not match signed generation identity",
         ));
     }
-
-    let descriptor = manifest
-        .files
-        .iter()
-        .find(|file| file.relative_path == "generation.meta")
-        .ok_or(LocalProductError::Release(
-            "release inventory is missing generation descriptor",
-        ))?;
-    fetch_verified_remote_release_control_file(
+    let download_sizes = fetch_remote_download_sizes(
         roots,
         base,
         acquisition_root,
-        descriptor,
+        &manifest,
         &mut acquired_bytes,
     )?;
-    let candidate_version =
-        authenticated_remote_generation_version(acquisition_root, &manifest.generation_id)?;
 
-    if &manifest != current_release {
-        if let Some(presentation) = presentation.as_deref_mut() {
-            presentation.begin_update(current_version, &candidate_version);
-            presentation.transient("⠙", "Downloading signed Termux release...");
-        }
-    }
-
-    for file in &manifest.files {
-        if file.relative_path == "generation.meta" {
-            continue;
-        }
-        fetch_verified_remote_release_file(
+    let descriptor_index = manifest
+        .files
+        .iter()
+        .position(|file| file.relative_path == "generation.meta")
+        .ok_or(LocalProductError::Release(
+            "release inventory is missing generation descriptor",
+        ))?;
+    let descriptor = &manifest.files[descriptor_index];
+    let descriptor_size = download_sizes
+        .as_ref()
+        .map(|sizes| sizes.file_sizes[descriptor_index]);
+    let mut payload_downloaded = if descriptor_size.is_some() {
+        fetch_verified_remote_release_file_with_timeout_and_progress(
             roots,
             base,
             acquisition_root,
-            file,
+            descriptor,
+            &mut acquired_bytes,
+            VerifiedRemoteFileFetchOptions {
+                transfer_timeout_seconds: REMOTE_CONTROL_TRANSFER_TIMEOUT_SECONDS,
+                expected_size: descriptor_size,
+                progress: None,
+            },
+        )?
+    } else {
+        fetch_verified_remote_release_control_file(
+            roots,
+            base,
+            acquisition_root,
+            descriptor,
             &mut acquired_bytes,
         )?;
+        0
+    };
+    let candidate_version =
+        authenticated_remote_generation_version(acquisition_root, &manifest.generation_id)?;
+    let updating = &manifest != current_release;
+
+    if updating {
+        if let Some(presentation) = presentation.as_deref_mut() {
+            presentation.begin_update(current_version, &candidate_version);
+            if let Some(sizes) = download_sizes.as_ref() {
+                presentation.download_progress(payload_downloaded, sizes.total_bytes);
+            } else {
+                presentation.transient("⠙", "Downloading signed Termux release...");
+            }
+        }
+    }
+
+    for (index, file) in manifest.files.iter().enumerate() {
+        if index == descriptor_index {
+            continue;
+        }
+        if let Some(sizes) = download_sizes.as_ref() {
+            let expected_size = sizes.file_sizes[index];
+            let completed_before = payload_downloaded;
+            let total_bytes = sizes.total_bytes;
+            let mut report = |current_file_bytes: u64| {
+                if updating {
+                    if let Some(presentation) = presentation.as_deref_mut() {
+                        presentation.download_progress(
+                            completed_before.saturating_add(current_file_bytes),
+                            total_bytes,
+                        );
+                    }
+                }
+            };
+            let observed = fetch_verified_remote_release_file_with_timeout_and_progress(
+                roots,
+                base,
+                acquisition_root,
+                file,
+                &mut acquired_bytes,
+                VerifiedRemoteFileFetchOptions {
+                    transfer_timeout_seconds: REMOTE_TRANSFER_TIMEOUT_SECONDS,
+                    expected_size: Some(expected_size),
+                    progress: Some(&mut report),
+                },
+            )?;
+            payload_downloaded = payload_downloaded
+                .checked_add(observed)
+                .ok_or(LocalProductError::RemoteResponseTooLarge)?;
+        } else {
+            fetch_verified_remote_release_file(
+                roots,
+                base,
+                acquisition_root,
+                file,
+                &mut acquired_bytes,
+            )?;
+        }
+    }
+    if let Some(sizes) = download_sizes.as_ref() {
+        if payload_downloaded != sizes.total_bytes {
+            return Err(LocalProductError::Release(
+                "downloaded release byte total does not match authenticated size",
+            ));
+        }
     }
     if let Some(presentation) = presentation {
-        if &manifest != current_release {
+        if updating {
             presentation.transient("⠹", "Verifying release signature and contents...");
         }
     }
@@ -15042,6 +15477,47 @@ esac
     }
 
     #[cfg(unix)]
+    fn b4_write_download_size_sidecar(
+        generation_dir: &std::path::Path,
+        openssl: &std::path::Path,
+        private_key: &std::path::Path,
+    ) -> u64 {
+        use std::fmt::Write as _;
+
+        let manifest_path = generation_dir.join("release.manifest");
+        let manifest_bytes = std::fs::read(&manifest_path).unwrap();
+        let manifest = parse_local_release_manifest(&manifest_bytes).unwrap();
+        let manifest_sha256 = openssl_sha256(openssl, &manifest_path).unwrap();
+        let mut total_bytes = 0u64;
+        let mut body = format!(
+            "{DOWNLOAD_SIZE_FORMAT}\nmanifest_sha256\t{manifest_sha256}\nfile_count\t{}\n",
+            manifest.files.len()
+        );
+        let mut entries = Vec::with_capacity(manifest.files.len());
+        for file in &manifest.files {
+            let size = std::fs::metadata(generation_dir.join(&file.relative_path))
+                .unwrap()
+                .len();
+            total_bytes = total_bytes.checked_add(size).unwrap();
+            entries.push((file.relative_path.as_str(), size));
+        }
+        writeln!(&mut body, "total_bytes\t{total_bytes}").unwrap();
+        for (path, size) in entries {
+            writeln!(&mut body, "file\t{path}\t{size}").unwrap();
+        }
+        let sidecar = generation_dir.join(DOWNLOAD_SIZE_RESOURCE);
+        std::fs::create_dir_all(sidecar.parent().unwrap()).unwrap();
+        std::fs::write(&sidecar, body).unwrap();
+        b4_sign_update_index(
+            &sidecar,
+            &generation_dir.join(DOWNLOAD_SIZE_SIGNATURE_RESOURCE),
+            openssl,
+            private_key,
+        );
+        total_bytes
+    }
+
+    #[cfg(unix)]
     fn b6_write_octal(field: &mut [u8], value: u64) {
         field.fill(b'0');
         let value = format!("{value:o}");
@@ -20393,7 +20869,7 @@ esac
         assert!(log.contains(&format!("{base}release-authority.sig\n")));
         assert_eq!(
             log.lines().filter(|line| *line == "CALL").count(),
-            files.len() + 3
+            files.len() + 4
         );
         remove_temp_root(root);
     }
@@ -20945,6 +21421,7 @@ exec "$cat_path" "$release_root/$relative"
         tmp: std::path::PathBuf,
         openssl: std::path::PathBuf,
         private_key: std::path::PathBuf,
+        release: std::path::PathBuf,
         current_id: String,
         base: String,
         index_url: String,
@@ -21007,6 +21484,7 @@ exec "$cat_path" "$release_root/$relative"
             tmp,
             openssl,
             private_key,
+            release,
             current_id,
             base,
             index_url,
@@ -21682,6 +22160,192 @@ exit 2
     }
 
     #[cfg(unix)]
+    fn download_size_test_manifest() -> LocalReleaseManifest {
+        let public_key = "11".repeat(32);
+        let manifest = format!(
+            concat!(
+                "codex-release-v3\n",
+                "generation_id\tdownload-size-test\n",
+                "release_sequence\t1\n",
+                "channel\tstable\n",
+                "expected_platform\tandroid\n",
+                "expected_architecture\taarch64\n",
+                "core_api_identity\tcore-api-v1\n",
+                "persistent_schema_identity\tschema-v1\n",
+                "release_public_key\t{}\n",
+                "file_count\t2\n",
+                "file\tgeneration.meta\t{}\t0644\n",
+                "file\truntime\t{}\t0755\n"
+            ),
+            public_key,
+            "22".repeat(32),
+            "33".repeat(32),
+        );
+        parse_local_release_manifest(manifest.as_bytes()).unwrap()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_download_size_sidecar_is_exactly_bound_to_signed_inventory() {
+        let manifest = download_size_test_manifest();
+        let manifest_sha256 = "44".repeat(32);
+        let valid = format!(
+            concat!(
+                "codex-download-size-v1\n",
+                "manifest_sha256\t{}\n",
+                "file_count\t2\n",
+                "total_bytes\t3072\n",
+                "file\tgeneration.meta\t1024\n",
+                "file\truntime\t2048\n"
+            ),
+            manifest_sha256
+        );
+        let parsed =
+            parse_remote_download_sizes(valid.as_bytes(), &manifest, &manifest_sha256).unwrap();
+        assert_eq!(parsed.total_bytes, 3072);
+        assert_eq!(parsed.file_sizes, vec![1024, 2048]);
+
+        let wrong_manifest = valid.replace(
+            &format!("manifest_sha256\t{manifest_sha256}"),
+            &format!("manifest_sha256\t{}", "55".repeat(32)),
+        );
+        assert!(parse_remote_download_sizes(
+            wrong_manifest.as_bytes(),
+            &manifest,
+            &manifest_sha256
+        )
+        .is_err());
+
+        let wrong_order = valid
+            .replace("file\tgeneration.meta\t1024", "file\truntime\t1024")
+            .replace("file\truntime\t2048", "file\tgeneration.meta\t2048");
+        assert!(
+            parse_remote_download_sizes(wrong_order.as_bytes(), &manifest, &manifest_sha256)
+                .is_err()
+        );
+
+        let wrong_total = valid.replace("total_bytes\t3072", "total_bytes\t3073");
+        assert!(
+            parse_remote_download_sizes(wrong_total.as_bytes(), &manifest, &manifest_sha256)
+                .is_err()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_download_progress_uses_bounded_human_units() {
+        assert_eq!(
+            render_update_download_progress(1024 * 1024, 284 * 1024 * 1024),
+            "Downloading signed Termux release... 1.0 / 284.0 MiB"
+        );
+        assert_eq!(
+            render_update_download_progress(512, 1000),
+            "Downloading signed Termux release... 512 / 1000 bytes"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_download_size_sidecar_drives_tty_progress_without_entering_generation() {
+        let fixture = b5_channel_fixture("download-size-progress", "download-size-progress-next");
+        let total_bytes = b4_write_download_size_sidecar(
+            &fixture.release,
+            &fixture.openssl,
+            &fixture.private_key,
+        );
+        let output = b5_run_public_channel_update_tty(
+            &fixture.index_url,
+            &fixture.home,
+            &fixture.prefix,
+            &fixture.tmp,
+        );
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "stdout={:?} stderr={:?}",
+            output.stdout,
+            output.stderr
+        );
+        let terminal = String::from_utf8(output.stdout).unwrap();
+        assert!(
+            terminal.contains(&render_update_download_progress(total_bytes, total_bytes)),
+            "terminal={terminal:?}"
+        );
+        let calls = std::fs::read_to_string(&fixture.curl_log).unwrap();
+        assert!(calls.contains(DOWNLOAD_SIZE_RESOURCE), "calls={calls:?}");
+        assert!(
+            calls.contains(DOWNLOAD_SIZE_SIGNATURE_RESOURCE),
+            "calls={calls:?}"
+        );
+        assert!(
+            !calls.contains("--head"),
+            "HEAD request observed: {calls:?}"
+        );
+        let installed = fixture
+            .home
+            .join(".local/lib/codex/core/generations/download-size-progress-next");
+        assert!(!installed.join(DOWNLOAD_SIZE_RESOURCE).exists());
+        assert!(!installed.join(DOWNLOAD_SIZE_SIGNATURE_RESOURCE).exists());
+        remove_temp_root(fixture.root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_download_size_authenticated_file_mismatch_fails_closed() {
+        let fixture = b5_channel_fixture("download-size-mismatch", "download-size-mismatch-next");
+        let total_bytes = b4_write_download_size_sidecar(
+            &fixture.release,
+            &fixture.openssl,
+            &fixture.private_key,
+        );
+        let descriptor_size = std::fs::metadata(fixture.release.join("generation.meta"))
+            .unwrap()
+            .len();
+        let sidecar = fixture.release.join(DOWNLOAD_SIZE_RESOURCE);
+        let text = std::fs::read_to_string(&sidecar).unwrap();
+        let text = text
+            .replace(
+                &format!("total_bytes\t{total_bytes}"),
+                &format!("total_bytes\t{}", total_bytes + 1),
+            )
+            .replace(
+                &format!("file\tgeneration.meta\t{descriptor_size}"),
+                &format!("file\tgeneration.meta\t{}", descriptor_size + 1),
+            );
+        std::fs::write(&sidecar, text).unwrap();
+        b4_sign_update_index(
+            &sidecar,
+            &fixture.release.join(DOWNLOAD_SIZE_SIGNATURE_RESOURCE),
+            &fixture.openssl,
+            &fixture.private_key,
+        );
+
+        let output = b5_run_public_channel_update(
+            &fixture.index_url,
+            &fixture.home,
+            &fixture.prefix,
+            &fixture.tmp,
+        );
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "stdout={:?} stderr={:?}",
+            output.stdout,
+            output.stderr
+        );
+        assert_human_update_error_contains(
+            &output.stderr,
+            b"downloaded release file size does not match authenticated size",
+        );
+        let state_paths =
+            CoreStatePaths::new(&fixture.home.join(".local/share/codex/core")).unwrap();
+        let state = read_pointer_state(&state_paths).unwrap().unwrap();
+        assert_eq!(state.current, fixture.current_id);
+        assert!(state.previous.is_none());
+        remove_temp_root(fixture.root);
+    }
+
+    #[cfg(unix)]
     #[test]
     fn test_bare_tty_startup_n_and_timeout_snooze_exact_signed_generation() {
         let fixture = b5_channel_fixture("startup-n-snooze", "startup-next");
@@ -22295,7 +22959,7 @@ exit 0
         let curl_log = std::fs::read_to_string(curl_log).unwrap();
         assert_eq!(
             curl_log.lines().filter(|line| *line == "CALL").count(),
-            manifest.files.len() + 2
+            manifest.files.len() + 3
         );
         assert!(curl_log.contains(&format!("{base}release.manifest\n")));
         assert!(curl_log.contains(&format!("{base}compat/nested/data\n")));

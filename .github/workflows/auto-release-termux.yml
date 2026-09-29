@@ -1526,6 +1526,8 @@ jobs:
           candidate-update-index-v1.sig
           codex-code-mode-host
           core
+          download-size-v1
+          download-size-v1.sig
           generation.meta
           helper-0
           helper-1
@@ -1662,6 +1664,7 @@ jobs:
           fetch_generation() {
             local generation="$1"
             local index_url="$2"
+            local require_download_size="${3:-false}"
             local release_base="https://humtr.github.io/codex/$generation/"
             local destination="$root/$generation"
             mkdir -p "$destination/helpers"
@@ -1670,6 +1673,38 @@ jobs:
               curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
                 --connect-timeout 15 --max-time 600 --output "$destination/$rel" "${release_base}${rel}"
             done
+            if test "$require_download_size" = true; then
+              mkdir -p "$destination/compat"
+              curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+                --connect-timeout 15 --max-time 120 --max-filesize 131072 \
+                --output "$destination/compat/download-size-v1" "${release_base}compat/download-size-v1"
+              curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+                --connect-timeout 15 --max-time 120 --max-filesize 1024 \
+                --output "$destination/compat/download-size-v1.sig" "${release_base}compat/download-size-v1.sig"
+            else
+              if download_size_code="$(curl --silent --show-error --location --proto '=https' --tlsv1.2 \
+                --connect-timeout 15 --max-time 120 --max-filesize 131072 --write-out '%{http_code}' \
+                --output "$destination/download-size-v1.tmp" "${release_base}compat/download-size-v1")"; then
+                case "$download_size_code" in
+                  200)
+                    mkdir -p "$destination/compat"
+                    mv "$destination/download-size-v1.tmp" "$destination/compat/download-size-v1"
+                    curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+                      --connect-timeout 15 --max-time 120 --max-filesize 1024 \
+                      --output "$destination/compat/download-size-v1.sig" "${release_base}compat/download-size-v1.sig"
+                    ;;
+                  404)
+                    rm -f "$destination/download-size-v1.tmp"
+                    ;;
+                  *)
+                    printf 'unexpected download-size response for %s: %s\n' "$generation" "$download_size_code" >&2
+                    exit 1
+                    ;;
+                esac
+              else
+                exit 1
+              fi
+            fi
             curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
               --connect-timeout 15 --max-time 60 --output "$destination/update-index-v1" "$index_url"
             curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
@@ -1678,6 +1713,9 @@ jobs:
               "$destination/helpers/0" "$destination/helpers/1" "$destination/manager" "$destination/runtime"
             chmod 0644 "$destination/generation.meta" "$destination/release.manifest" \
               "$destination/release.sig" "$destination/update-index-v1" "$destination/update-index-v1.sig"
+            if test -d "$destination/compat"; then
+              chmod 0644 "$destination/compat/download-size-v1" "$destination/compat/download-size-v1.sig"
+            fi
           }
 
           current_index="https://raw.githubusercontent.com/humtr/codex/${{ needs.producer.outputs.expected_main_sha }}/update-index-v1"
@@ -1701,7 +1739,7 @@ jobs:
             sleep 5
           done
           test "$ready" = true
-          fetch_generation "$candidate" "$candidate_index"
+          fetch_generation "$candidate" "$candidate_index" true
 
           release_readback="$root/release-readback"
           mkdir -p "$release_readback"
@@ -1716,6 +1754,8 @@ jobs:
           }
           compare_release_asset release.manifest release.manifest
           compare_release_asset release.sig release.sig
+          compare_release_asset download-size-v1 compat/download-size-v1
+          compare_release_asset download-size-v1.sig compat/download-size-v1.sig
           compare_release_asset codex-code-mode-host codex-code-mode-host
           compare_release_asset core core
           compare_release_asset generation.meta generation.meta
@@ -1735,6 +1775,7 @@ jobs:
             if python3 publication-source/.github/scripts/rald5_publication.py verify-public \
               --root "$root" --public-key "$authority" \
               --generation "$candidate" \
+              --require-download-size \
               --release-sequence '${{ needs.producer.outputs.release_sequence }}' \
               --release-base "https://humtr.github.io/codex/$candidate/"; then
               printf 'negative gate unexpectedly verified tampered candidate\n' >&2
@@ -1746,6 +1787,7 @@ jobs:
           python3 publication-source/.github/scripts/rald5_publication.py verify-public \
             --root "$root" --public-key "$authority" \
             --generation "$candidate" \
+              --require-download-size \
             --release-sequence '${{ needs.producer.outputs.release_sequence }}' \
             --release-base "https://humtr.github.io/codex/$candidate/"
 
