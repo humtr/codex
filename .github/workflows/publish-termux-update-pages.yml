@@ -49,7 +49,7 @@ jobs:
           [[ "$EXPECTED_MAIN_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$RELEASE_SEQUENCE" =~ ^[0-9]+$ ]]
           rm -rf stage site
-          mkdir -p stage "site/$GENERATION_ID/helpers"
+          mkdir -p stage "site/$GENERATION_ID/helpers" "site/$GENERATION_ID/compat"
           gh release download "$GENERATION_ID" --repo "$GITHUB_REPOSITORY" --dir stage
 
           cat > expected-assets <<'EOF'
@@ -57,6 +57,8 @@ jobs:
           candidate-update-index-v1.sig
           codex-code-mode-host
           core
+          download-size-v1
+          download-size-v1.sig
           generation.meta
           helper-0
           helper-1
@@ -76,6 +78,11 @@ jobs:
             -in stage/release.manifest -sigfile stage/release.sig
           openssl pkeyutl -verify -pubin -inkey stage/update-public-key.pem -rawin \
             -in stage/candidate-update-index-v1 -sigfile stage/candidate-update-index-v1.sig
+          openssl pkeyutl -verify -pubin -inkey stage/update-public-key.pem -rawin \
+            -in stage/download-size-v1 -sigfile stage/download-size-v1.sig
+          test "$(sed -n '1p' stage/download-size-v1)" = 'codex-download-size-v1'
+          test "$(awk -F '\t' '$1=="manifest_sha256"{print $2}' stage/download-size-v1)" = \
+            "$(sha256sum stage/release.manifest | awk '{print $1}')"
           test "$(sed -n '1p' stage/candidate-update-index-v1)" = 'codex-update-index-v1'
           test "$(awk -F '\t' '$1=="channel"{print $2}' stage/candidate-update-index-v1)" = 'stable'
           test "$(awk -F '\t' '$1=="generation_id"{print $2}' stage/candidate-update-index-v1)" = "$GENERATION_ID"
@@ -147,6 +154,31 @@ jobs:
           test "$(awk -F '\t' '$1=="channel"{print $2}' "site/$CURRENT_ID/release.manifest")" = 'stable'
           test "$(awk -F '\t' '$1=="release_public_key"{print $2}' "site/$CURRENT_ID/release.manifest")" = \
             '82d2e4a5038a439601e6efc02d3b631b7da689fbacaa0435ec1600daa3a29bf2'
+          current_download_size_code="$(curl --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --connect-timeout 15 --max-time 120 --max-filesize 131072 --write-out '%{http_code}' \
+            --output current-download-size "${CURRENT_BASE}compat/download-size-v1")"
+          case "$current_download_size_code" in
+            200)
+              curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+                --connect-timeout 15 --max-time 120 --max-filesize 1024 \
+                --output current-download-size.sig "${CURRENT_BASE}compat/download-size-v1.sig"
+              openssl pkeyutl -verify -pubin -inkey stage/update-public-key.pem -rawin \
+                -in current-download-size -sigfile current-download-size.sig
+              test "$(sed -n '1p' current-download-size)" = 'codex-download-size-v1'
+              test "$(awk -F '\t' '$1=="manifest_sha256"{print $2}' current-download-size)" = \
+                "$(sha256sum "site/$CURRENT_ID/release.manifest" | awk '{print $1}')"
+              mkdir -p "site/$CURRENT_ID/compat"
+              cp current-download-size "site/$CURRENT_ID/compat/download-size-v1"
+              cp current-download-size.sig "site/$CURRENT_ID/compat/download-size-v1.sig"
+              ;;
+            404)
+              rm -f current-download-size current-download-size.sig
+              ;;
+            *)
+              printf 'unexpected current download-size response: %s\n' "$current_download_size_code" >&2
+              exit 1
+              ;;
+          esac
           awk -F '\t' '$1=="file"{print $2}' "site/$CURRENT_ID/release.manifest" > current-signed-paths
           diff -u expected-paths current-signed-paths
           while IFS=$'\t' read -r kind rel digest mode; do
@@ -167,6 +199,8 @@ jobs:
           cp stage/runtime "site/$GENERATION_ID/runtime"
           cp stage/release.manifest "site/$GENERATION_ID/release.manifest"
           cp stage/release.sig "site/$GENERATION_ID/release.sig"
+          cp stage/download-size-v1 "site/$GENERATION_ID/compat/download-size-v1"
+          cp stage/download-size-v1.sig "site/$GENERATION_ID/compat/download-size-v1.sig"
           cp stage/candidate-update-index-v1 "site/$GENERATION_ID/update-index-v1"
           cp stage/candidate-update-index-v1.sig "site/$GENERATION_ID/update-index-v1.sig"
 

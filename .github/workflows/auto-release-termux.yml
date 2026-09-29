@@ -58,6 +58,11 @@ on:
         required: false
         type: boolean
         default: false
+      download_size_same_version_deploy:
+        description: 'One-shot production deployment: exact 0.157.1 sequence-22 to sequence-23 authenticated download-size progress correction'
+        required: false
+        type: boolean
+        default: false
   schedule:
     - cron: '0 */6 * * *'
 
@@ -69,7 +74,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  CODEX_SOURCE_SHA: '9300a68852c879f4730e9191e46837cfab6745d9'
+  CODEX_SOURCE_SHA: 'b164e5b61cb438913cdb1633d74c62d6c96f6523'
   RALD5_SOURCE_SHA: 'fa1b887b7e726202e309a2eb731aad303a6c7e03'
   RUST_VERSION: '1.98.0'
   ANDROID_API: '24'
@@ -108,6 +113,11 @@ env:
   NO_EMOJI_DEPLOY_CURRENT_GENERATION: 'local-hosted-0-155-1-7817b939c81c-exact-current-fastpath'
   NO_EMOJI_DEPLOY_CURRENT_SEQUENCE: '17'
   NO_EMOJI_DEPLOY_TARGET_SEQUENCE: '18'
+  DOWNLOAD_SIZE_ACCEPTED_SOURCE_SHA: 'b164e5b61cb438913cdb1633d74c62d6c96f6523'
+  DOWNLOAD_SIZE_DEPLOY_VERSION: '0.157.1'
+  DOWNLOAD_SIZE_DEPLOY_CURRENT_GENERATION: 'local-hosted-0-157-1-9300a68852c8'
+  DOWNLOAD_SIZE_DEPLOY_CURRENT_SEQUENCE: '22'
+  DOWNLOAD_SIZE_DEPLOY_TARGET_SEQUENCE: '23'
   WRAPPER_PUBLIC_KEY_SHA256: '62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c'
   ANDROID_RUNTIME_APEX_COMMIT: '8aeb37cca394ce39c1311744c60960cbd466aa77'
   ANDROID_RUNTIME_APEX_SHA256: '83bf0dce249728dae48149b80d28b48115c54adad95a352120d58a6ac669d1fc'
@@ -135,6 +145,7 @@ jobs:
       update_progress_same_version_deploy: ${{ steps.decision.outputs.update_progress_same_version_deploy }}
       exact_current_fastpath_same_version_deploy: ${{ steps.decision.outputs.exact_current_fastpath_same_version_deploy }}
       no_emoji_same_version_deploy: ${{ steps.decision.outputs.no_emoji_same_version_deploy }}
+      download_size_same_version_deploy: ${{ steps.decision.outputs.download_size_same_version_deploy }}
       expected_main_sha: ${{ steps.stable.outputs.expected_main_sha }}
       current_generation: ${{ steps.stable.outputs.current_generation }}
       current_release_sequence: ${{ steps.stable.outputs.current_release_sequence }}
@@ -252,6 +263,7 @@ jobs:
           UPDATE_PROGRESS_SAME_VERSION_DEPLOY: ${{ github.event_name == 'workflow_dispatch' && inputs.update_progress_same_version_deploy }}
           EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY: ${{ github.event_name == 'workflow_dispatch' && inputs.exact_current_fastpath_same_version_deploy }}
           NO_EMOJI_SAME_VERSION_DEPLOY: ${{ github.event_name == 'workflow_dispatch' && inputs.no_emoji_same_version_deploy }}
+          DOWNLOAD_SIZE_SAME_VERSION_DEPLOY: ${{ github.event_name == 'workflow_dispatch' && inputs.download_size_same_version_deploy }}
         run: |
           set -euo pipefail
           state="$RUNNER_TEMP/rald3-upstream"
@@ -292,6 +304,7 @@ jobs:
           test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" = true -o "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" = false
           test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" = true -o "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" = false
           test "$NO_EMOJI_SAME_VERSION_DEPLOY" = true -o "$NO_EMOJI_SAME_VERSION_DEPLOY" = false
+          test "$DOWNLOAD_SIZE_SAME_VERSION_DEPLOY" = true -o "$DOWNLOAD_SIZE_SAME_VERSION_DEPLOY" = false
           if test "$RALD4_POSITIVE_GATE" = true; then
             test "$candidate" = true
             test "$RALD5_PUBLICATION_AUTHORIZED" != true
@@ -304,6 +317,7 @@ jobs:
             test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true
             test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" != true
             test "$NO_EMOJI_SAME_VERSION_DEPLOY" != true
+            test "$DOWNLOAD_SIZE_SAME_VERSION_DEPLOY" != true
           fi
           if test "$RALD5_PUBLICATION_AUTHORIZED" = true; then
             case "$GITHUB_EVENT_NAME" in
@@ -320,6 +334,7 @@ jobs:
             test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true
             test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" != true
             test "$NO_EMOJI_SAME_VERSION_DEPLOY" != true
+            test "$DOWNLOAD_SIZE_SAME_VERSION_DEPLOY" != true
                 ;;
               *)
                 exit 1
@@ -336,6 +351,7 @@ jobs:
             test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true
             test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" != true
             test "$NO_EMOJI_SAME_VERSION_DEPLOY" != true
+            test "$DOWNLOAD_SIZE_SAME_VERSION_DEPLOY" != true
             test '${{ steps.stable.outputs.current_version }}' = "$RALD5_SAME_VERSION_ACCEPTANCE_VERSION"
             test "$upstream_version" = "$RALD5_SAME_VERSION_ACCEPTANCE_VERSION"
             test '${{ steps.stable.outputs.current_version }}' = "$upstream_version"
@@ -357,6 +373,7 @@ jobs:
             test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true
             test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" != true
             test "$NO_EMOJI_SAME_VERSION_DEPLOY" != true
+            test "$DOWNLOAD_SIZE_SAME_VERSION_DEPLOY" != true
             test '${{ steps.stable.outputs.current_version }}' = "$RALD5_SAME_VERSION_ACCEPTANCE_VERSION"
             test "$upstream_version" = "$RALD5_SAME_VERSION_ACCEPTANCE_VERSION"
             test '${{ steps.stable.outputs.current_version }}' = "$upstream_version"
@@ -378,6 +395,7 @@ jobs:
             test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true
             test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" != true
             test "$NO_EMOJI_SAME_VERSION_DEPLOY" != true
+            test "$DOWNLOAD_SIZE_SAME_VERSION_DEPLOY" != true
             printf 'RALD-4.5 transition stable promotion separately authorized for %s\n' "$upstream_version"
           fi
           if test "$RALD5_NEGATIVE_GATE" = true; then
@@ -390,6 +408,7 @@ jobs:
             test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true
             test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" != true
             test "$NO_EMOJI_SAME_VERSION_DEPLOY" != true
+            test "$DOWNLOAD_SIZE_SAME_VERSION_DEPLOY" != true
             test "$candidate" = true
           fi
           if test "$LEGACY_LAG_JUMP_REMEDIATION" = true; then
@@ -405,6 +424,7 @@ jobs:
             test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true
             test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" != true
             test "$NO_EMOJI_SAME_VERSION_DEPLOY" != true
+            test "$DOWNLOAD_SIZE_SAME_VERSION_DEPLOY" != true
             test '${{ steps.stable.outputs.current_version }}' = "$LEGACY_LAG_REMEDIATION_VERSION"
             test "$upstream_version" = "$LEGACY_LAG_REMEDIATION_VERSION"
             test '${{ steps.stable.outputs.current_version }}' = "$upstream_version"
@@ -430,6 +450,7 @@ jobs:
             test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true
             test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" != true
             test "$NO_EMOJI_SAME_VERSION_DEPLOY" != true
+            test "$DOWNLOAD_SIZE_SAME_VERSION_DEPLOY" != true
             test "$CODEX_SOURCE_SHA" = "$UX1_ACCEPTED_SOURCE_SHA"
             test '${{ steps.stable.outputs.current_version }}' = "$UX1_DEPLOY_VERSION"
             test "$upstream_version" = "$UX1_DEPLOY_VERSION"
@@ -456,6 +477,7 @@ jobs:
             test "$UX1_SAME_VERSION_DEPLOY" != true
             test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" != true
             test "$NO_EMOJI_SAME_VERSION_DEPLOY" != true
+            test "$DOWNLOAD_SIZE_SAME_VERSION_DEPLOY" != true
             test "$CODEX_SOURCE_SHA" = "$UPDATE_PROGRESS_ACCEPTED_SOURCE_SHA"
             test '${{ steps.stable.outputs.current_version }}' = "$UPDATE_PROGRESS_DEPLOY_VERSION"
             test "$upstream_version" = "$UPDATE_PROGRESS_DEPLOY_VERSION"
@@ -482,6 +504,7 @@ jobs:
             test "$UX1_SAME_VERSION_DEPLOY" != true
             test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true
             test "$NO_EMOJI_SAME_VERSION_DEPLOY" != true
+            test "$DOWNLOAD_SIZE_SAME_VERSION_DEPLOY" != true
             test "$CODEX_SOURCE_SHA" = "$EXACT_CURRENT_FASTPATH_ACCEPTED_SOURCE_SHA"
             test '${{ steps.stable.outputs.current_version }}' = "$EXACT_CURRENT_FASTPATH_DEPLOY_VERSION"
             test "$upstream_version" = "$EXACT_CURRENT_FASTPATH_DEPLOY_VERSION"
@@ -508,6 +531,7 @@ jobs:
             test "$UX1_SAME_VERSION_DEPLOY" != true
             test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true
             test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" != true
+            test "$DOWNLOAD_SIZE_SAME_VERSION_DEPLOY" != true
             test "$CODEX_SOURCE_SHA" = "$NO_EMOJI_ACCEPTED_SOURCE_SHA"
             test '${{ steps.stable.outputs.current_version }}' = "$NO_EMOJI_DEPLOY_VERSION"
             test "$upstream_version" = "$NO_EMOJI_DEPLOY_VERSION"
@@ -520,6 +544,33 @@ jobs:
             acceptance_suffix='-no-emoji-output-r3'
             printf 'no-emoji same-version production deployment selected: %s sequence %s -> sequence %s\n' \
               "$upstream_version" "$NO_EMOJI_DEPLOY_CURRENT_SEQUENCE" "$NO_EMOJI_DEPLOY_TARGET_SEQUENCE"
+          fi
+          if test "$DOWNLOAD_SIZE_SAME_VERSION_DEPLOY" = true; then
+            test "$GITHUB_EVENT_NAME" = workflow_dispatch
+            test "$GITHUB_REF" = refs/heads/main
+            test "$RALD4_POSITIVE_GATE" != true
+            test "$RALD5_PUBLICATION_AUTHORIZED" = true
+            test "$RALD5_SAME_VERSION_ACCEPTANCE" != true
+            test "$RALD45_TRANSITION_STAGE" != true
+            test "$RALD45_TRANSITION_PROMOTE" != true
+            test "$RALD5_NEGATIVE_GATE" != true
+            test "$LEGACY_LAG_JUMP_REMEDIATION" != true
+            test "$UX1_SAME_VERSION_DEPLOY" != true
+            test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true
+            test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" != true
+            test "$NO_EMOJI_SAME_VERSION_DEPLOY" != true
+            test "$CODEX_SOURCE_SHA" = "$DOWNLOAD_SIZE_ACCEPTED_SOURCE_SHA"
+            test '${{ steps.stable.outputs.current_version }}' = "$DOWNLOAD_SIZE_DEPLOY_VERSION"
+            test "$upstream_version" = "$DOWNLOAD_SIZE_DEPLOY_VERSION"
+            test '${{ steps.stable.outputs.current_version }}' = "$upstream_version"
+            test '${{ steps.stable.outputs.current_generation }}' = "$DOWNLOAD_SIZE_DEPLOY_CURRENT_GENERATION"
+            test '${{ steps.stable.outputs.current_release_sequence }}' = "$DOWNLOAD_SIZE_DEPLOY_CURRENT_SEQUENCE"
+            test '${{ steps.stable.outputs.release_sequence }}' = "$DOWNLOAD_SIZE_DEPLOY_TARGET_SEQUENCE"
+            test "$candidate" = false
+            candidate=true
+            acceptance_suffix='-download-size-v1'
+            printf 'download-size same-version production deployment selected: %s sequence %s -> sequence %s\n' \
+              "$upstream_version" "$DOWNLOAD_SIZE_DEPLOY_CURRENT_SEQUENCE" "$DOWNLOAD_SIZE_DEPLOY_TARGET_SEQUENCE"
           fi
           suffix="${upstream_version//./-}-${CODEX_SOURCE_SHA:0:12}${acceptance_suffix}"
           printf 'candidate=%s\n' "$candidate" >> "$GITHUB_OUTPUT"
@@ -534,6 +585,7 @@ jobs:
           printf 'update_progress_same_version_deploy=%s\n' "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" >> "$GITHUB_OUTPUT"
           printf 'exact_current_fastpath_same_version_deploy=%s\n' "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" >> "$GITHUB_OUTPUT"
           printf 'no_emoji_same_version_deploy=%s\n' "$NO_EMOJI_SAME_VERSION_DEPLOY" >> "$GITHUB_OUTPUT"
+          printf 'download_size_same_version_deploy=%s\n' "$DOWNLOAD_SIZE_SAME_VERSION_DEPLOY" >> "$GITHUB_OUTPUT"
           printf 'artifact_name=rald3-candidate-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
           printf 'qualified_artifact_name=rald4-qualified-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
           printf 'signed_artifact_name=rald4-signed-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
@@ -1000,6 +1052,89 @@ jobs:
                   continue
               if current_line != candidate_line:
                   raise SystemExit(f"no-emoji descriptor changed forbidden field: {key}")
+          PY
+
+      - name: Require exact sequence-22 non-Core bytes for download-size deployment
+        if: steps.decision.outputs.download_size_same_version_deploy == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          stable="$RUNNER_TEMP/rald3-stable"
+          candidate="$RUNNER_TEMP/rald3-candidate/candidate"
+          for rel in codex-code-mode-host helpers/0 helpers/1 manager runtime; do
+            entry="$RUNNER_TEMP/download-size-entry-${rel//\//-}"
+            python3 source/.github/scripts/rald3_preflight.py manifest-entry \
+              "$stable/release.manifest" "$rel" > "$entry"
+            expected_digest="$(sed -n 's/^sha256=//p' "$entry")"
+            expected_mode="$(sed -n 's/^mode=//p' "$entry")"
+            test "$(sha256sum "$candidate/$rel" | awk '{print $1}')" = "$expected_digest"
+            test "0$(stat -c '%a' "$candidate/$rel")" = "$expected_mode"
+          done
+
+          core_entry="$RUNNER_TEMP/download-size-entry-core"
+          python3 source/.github/scripts/rald3_preflight.py manifest-entry \
+            "$stable/release.manifest" core > "$core_entry"
+          current_core_digest="$(sed -n 's/^sha256=//p' "$core_entry")"
+          current_core_mode="$(sed -n 's/^mode=//p' "$core_entry")"
+          candidate_core_digest="$(sha256sum "$candidate/core" | awk '{print $1}')"
+          test "$candidate_core_digest" != "$current_core_digest"
+          test "0$(stat -c '%a' "$candidate/core")" = "$current_core_mode"
+
+          python3 - "$stable/generation.meta" "$candidate/generation.meta" \
+            "$DOWNLOAD_SIZE_DEPLOY_CURRENT_GENERATION" \
+            '${{ steps.decision.outputs.generation_id }}' \
+            "$current_core_digest" "$candidate_core_digest" <<'PY'
+          from pathlib import Path
+          import sys
+
+          current_path = Path(sys.argv[1])
+          candidate_path = Path(sys.argv[2])
+          current_id = sys.argv[3]
+          candidate_id = sys.argv[4]
+          current_core_digest = sys.argv[5]
+          candidate_core_digest = sys.argv[6]
+
+          def parse(path):
+              text = path.read_text()
+              if not text.endswith("\n"):
+                  raise SystemExit("download-size descriptor is missing its final newline")
+              lines = text.splitlines()
+              if not lines:
+                  raise SystemExit("download-size descriptor is empty")
+              records = lines[1:]
+              for line in records:
+                  if "\t" not in line:
+                      raise SystemExit("download-size descriptor field layout is invalid")
+              return lines[0], records
+
+          def unique_field(records, key):
+              prefix = f"{key}\t"
+              matches = [line[len(prefix):] for line in records if line.startswith(prefix)]
+              if len(matches) != 1:
+                  raise SystemExit(f"download-size descriptor field is not unique: {key}")
+              return matches[0]
+
+          current_format, current_records = parse(current_path)
+          candidate_format, candidate_records = parse(candidate_path)
+          current_order = [line.split("\t", 1)[0] for line in current_records]
+          candidate_order = [line.split("\t", 1)[0] for line in candidate_records]
+          if current_format != candidate_format or current_order != candidate_order:
+              raise SystemExit("download-size descriptor schema/order changed")
+          if unique_field(current_records, "generation_id") != current_id \
+                  or unique_field(candidate_records, "generation_id") != candidate_id:
+              raise SystemExit("download-size generation identity binding is not exact")
+          if unique_field(current_records, "core_artifact_digest") != current_core_digest:
+              raise SystemExit("download-size current descriptor Core digest does not match sequence-22 Core")
+          if unique_field(candidate_records, "core_artifact_digest") != candidate_core_digest:
+              raise SystemExit("download-size candidate descriptor Core digest does not match accepted Core")
+          if current_core_digest == candidate_core_digest:
+              raise SystemExit("download-size candidate Core did not change")
+          for current_line, candidate_line in zip(current_records, candidate_records, strict=True):
+              key = current_line.split("\t", 1)[0]
+              if key in {"generation_id", "core_artifact_digest"}:
+                  continue
+              if current_line != candidate_line:
+                  raise SystemExit(f"download-size descriptor changed forbidden field: {key}")
           PY
 
       - name: Rebuild exact historical R10 Core for legacy-lag remediation
@@ -1526,6 +1661,8 @@ jobs:
           candidate-update-index-v1.sig
           codex-code-mode-host
           core
+          download-size-v1
+          download-size-v1.sig
           generation.meta
           helper-0
           helper-1
@@ -1662,6 +1799,7 @@ jobs:
           fetch_generation() {
             local generation="$1"
             local index_url="$2"
+            local require_download_size="${3:-false}"
             local release_base="https://humtr.github.io/codex/$generation/"
             local destination="$root/$generation"
             mkdir -p "$destination/helpers"
@@ -1670,6 +1808,38 @@ jobs:
               curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
                 --connect-timeout 15 --max-time 600 --output "$destination/$rel" "${release_base}${rel}"
             done
+            if test "$require_download_size" = true; then
+              mkdir -p "$destination/compat"
+              curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+                --connect-timeout 15 --max-time 120 --max-filesize 131072 \
+                --output "$destination/compat/download-size-v1" "${release_base}compat/download-size-v1"
+              curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+                --connect-timeout 15 --max-time 120 --max-filesize 1024 \
+                --output "$destination/compat/download-size-v1.sig" "${release_base}compat/download-size-v1.sig"
+            else
+              if download_size_code="$(curl --silent --show-error --location --proto '=https' --tlsv1.2 \
+                --connect-timeout 15 --max-time 120 --max-filesize 131072 --write-out '%{http_code}' \
+                --output "$destination/download-size-v1.tmp" "${release_base}compat/download-size-v1")"; then
+                case "$download_size_code" in
+                  200)
+                    mkdir -p "$destination/compat"
+                    mv "$destination/download-size-v1.tmp" "$destination/compat/download-size-v1"
+                    curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+                      --connect-timeout 15 --max-time 120 --max-filesize 1024 \
+                      --output "$destination/compat/download-size-v1.sig" "${release_base}compat/download-size-v1.sig"
+                    ;;
+                  404)
+                    rm -f "$destination/download-size-v1.tmp"
+                    ;;
+                  *)
+                    printf 'unexpected download-size response for %s: %s\n' "$generation" "$download_size_code" >&2
+                    exit 1
+                    ;;
+                esac
+              else
+                exit 1
+              fi
+            fi
             curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
               --connect-timeout 15 --max-time 60 --output "$destination/update-index-v1" "$index_url"
             curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
@@ -1678,6 +1848,9 @@ jobs:
               "$destination/helpers/0" "$destination/helpers/1" "$destination/manager" "$destination/runtime"
             chmod 0644 "$destination/generation.meta" "$destination/release.manifest" \
               "$destination/release.sig" "$destination/update-index-v1" "$destination/update-index-v1.sig"
+            if test -d "$destination/compat"; then
+              chmod 0644 "$destination/compat/download-size-v1" "$destination/compat/download-size-v1.sig"
+            fi
           }
 
           current_index="https://raw.githubusercontent.com/humtr/codex/${{ needs.producer.outputs.expected_main_sha }}/update-index-v1"
@@ -1701,7 +1874,7 @@ jobs:
             sleep 5
           done
           test "$ready" = true
-          fetch_generation "$candidate" "$candidate_index"
+          fetch_generation "$candidate" "$candidate_index" true
 
           release_readback="$root/release-readback"
           mkdir -p "$release_readback"
@@ -1716,6 +1889,8 @@ jobs:
           }
           compare_release_asset release.manifest release.manifest
           compare_release_asset release.sig release.sig
+          compare_release_asset download-size-v1 compat/download-size-v1
+          compare_release_asset download-size-v1.sig compat/download-size-v1.sig
           compare_release_asset codex-code-mode-host codex-code-mode-host
           compare_release_asset core core
           compare_release_asset generation.meta generation.meta
@@ -1735,6 +1910,7 @@ jobs:
             if python3 publication-source/.github/scripts/rald5_publication.py verify-public \
               --root "$root" --public-key "$authority" \
               --generation "$candidate" \
+              --require-download-size \
               --release-sequence '${{ needs.producer.outputs.release_sequence }}' \
               --release-base "https://humtr.github.io/codex/$candidate/"; then
               printf 'negative gate unexpectedly verified tampered candidate\n' >&2
@@ -1746,6 +1922,7 @@ jobs:
           python3 publication-source/.github/scripts/rald5_publication.py verify-public \
             --root "$root" --public-key "$authority" \
             --generation "$candidate" \
+              --require-download-size \
             --release-sequence '${{ needs.producer.outputs.release_sequence }}' \
             --release-base "https://humtr.github.io/codex/$candidate/"
 
@@ -2172,7 +2349,7 @@ jobs:
           "$PREFIX/bin/codex" update > "$RUNNER_TEMP/rald5-second-update.out" 2> "$RUNNER_TEMP/rald5-second-update.err"
           printf 'Codex %s is already up to date.\n' "$version" > "$RUNNER_TEMP/rald5-second-update.expected"
           cmp "$RUNNER_TEMP/rald5-second-update.expected" "$RUNNER_TEMP/rald5-second-update.out"
-          if test '${{ needs.producer.outputs.no_emoji_same_version_deploy }}' = true; then
+          if test '${{ needs.producer.outputs.no_emoji_same_version_deploy }}' = true || test '${{ needs.producer.outputs.download_size_same_version_deploy }}' = true; then
             python3 - "$RUNNER_TEMP/rald5-second-update.err" <<'PYERR'
           from pathlib import Path
           import sys
@@ -2184,7 +2361,7 @@ jobs:
           }
           unexpected = [line for line in data.splitlines() if line and line not in allowed]
           if unexpected:
-              raise SystemExit(f"unexpected stderr from sequence-18 exact-current proof: {unexpected!r}")
+              raise SystemExit(f"unexpected stderr from same-version exact-current proof: {unexpected!r}")
           PYERR
           fi
           snapshot > "$RUNNER_TEMP/rald5-after-noop"
