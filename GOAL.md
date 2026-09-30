@@ -28,6 +28,39 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
+## Current Operating Baseline and Selected Maintenance (2026-09-30)
+
+This section is the current-state anchor inside the acceptance ledger. Later
+dated sections preserve historical evidence; historical words such as
+“current,” “active,” or “selected” do not override this section or
+`WORKBOARD.md`.
+
+- Source authority is the freshly rebound remote `rewrite/rust-core`. Exact
+  branch SHA is session state and must be re-read rather than copied forward as
+  a timeless constant.
+- Accepted product implementation for the current source feature set is
+  `4fd14ed8aafcf29602f43e00c314eb8da39a6e5f`; later closeout commits before
+  this maintenance operation changed authority documents only.
+- Public stable before runtime alignment is signed sequence **23**, generation
+  `local-hosted-0-159-0-b164e5b61cb4`, upstream `codex-cli 0.159.0`, with
+  public-control `main=4d7418085265073bf1dada737a364aee54b374bd`.
+- Live Termux currently runs that same 0.159.0 / sequence-23 generation and
+  retains the preceding sequence-18 generation as rollback state.
+- Sequence 23 was built from isolated production source
+  `b164e5b61cb438913cdb1633d74c62d6c96f6523`. Direct source comparison proves
+  that commit is a child of `4fd14ed8...` but differs in
+  `crates/core/src/main.rs`, `crates/manager/src/lib.rs`, and
+  `crates/manager/tests/profile_commands.rs`. Therefore this ledger does not
+  claim source-equivalence between current live sequence 23 and the accepted
+  source authority.
+- The user authorized **AUTHORITY-COMPACTION-V1 / RUNTIME-ALIGNMENT**: first
+  compact authority documents and publish that docs-only change, then restore
+  public/live runtime alignment through the existing signed publication and
+  ordinary-update boundaries without new product-code behavior.
+- Until that alignment is accepted, `WORKBOARD.md` owns the exact active
+  maintenance scope and `RELEASE_AUTOMATION_PLAN.md` owns its bounded release
+  gate.
+
 ## SCS-6 Live Shared-State Migration Acceptance (accepted 2026-09-27)
 
 - Source authority at execution was exact `rewrite/rust-core=cd3e011a86e3dfe48da99c4bbeae73fe9c10edaf`; the tracked migration implementation matched that commit.
