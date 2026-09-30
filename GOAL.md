@@ -53,6 +53,13 @@ dated sections preserve historical evidence; historical words such as
   `crates/manager/tests/profile_commands.rs`. Therefore this ledger does not
   claim source-equivalence between current live sequence 23 and the accepted
   source authority.
+- Pretrigger readback on 2026-09-30 found official latest `0.159.2` with
+  archive SHA-256
+  `05a524a463cadf7e3e22c7f923539c0d0b74c3e78b1f5f1fab52e50e6fb3312f`.
+  The planned 0.159.0 same-version sequence-24 path therefore failed closed
+  before public/live mutation and was abandoned. The selected alignment is the
+  ordinary newer-stable 0.159.2 sequence-24 path from accepted source
+  `4fd14ed8...`.
 - The user authorized **AUTHORITY-COMPACTION-V1 / RUNTIME-ALIGNMENT**: first
   compact authority documents and publish that docs-only change, then restore
   public/live runtime alignment through the existing signed publication and

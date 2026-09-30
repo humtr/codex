@@ -1,6 +1,6 @@
 # Release Automation and Local-Derived Update Plan
 
-Status: **active only for AUTHORITY-COMPACTION-V1 / RUNTIME-ALIGNMENT**.
+Status: **active only for RUNTIME-ALIGNMENT-UPSTREAM-0.159.2**.
 Historical production runs and one-shot gates are accepted evidence in
 `GOAL.md`; they are not current routing in this file.
 
@@ -9,11 +9,14 @@ current release drift-control plan. It never overrides those authorities.
 
 ## Current production baseline
 
-- Public-control branch: `main=4d7418085265073bf1dada737a364aee54b374bd`.
+- Source authority compaction commit:
+  `28cea0b97c7b4ae32e7b37816f2f1d277fdb07a6`.
+- Public-control branch before the production trigger:
+  `main=4d7418085265073bf1dada737a364aee54b374bd`.
 - Signed stable sequence: **23**.
 - Signed stable generation:
   `local-hosted-0-159-0-b164e5b61cb4`.
-- Upstream version: `codex-cli 0.159.0`.
+- Current stable/live upstream version: `codex-cli 0.159.0`.
 - Sequence-23 producer source:
   `b164e5b61cb438913cdb1633d74c62d6c96f6523`.
 - Accepted source-authority product implementation:
@@ -22,14 +25,18 @@ current release drift-control plan. It never overrides those authorities.
 - The sequence-23 immutable GitHub Release is retained.
 - Authenticated download-size resources are public at
   `<generation>/compat/download-size-v1` and
-  `<generation>/compat/download-size-v1.sig`; they are signature-verified,
-  bound to the exact `release.manifest` SHA-256, and are control resources
-  rather than installed generation inventory.
+  `<generation>/compat/download-size-v1.sig`.
 
-The sequence-23 producer source is intentionally treated as a production
-artifact, not as current source authority. It differs from the accepted source
-implementation in Core/Manager product files, so the selected maintenance bundle
-must realign public/live runtime rather than declaring those states equivalent.
+Fresh official upstream preflight on 2026-09-30 resolved:
+
+- version: **0.159.2**
+- exact archive SHA-256:
+  `05a524a463cadf7e3e22c7f923539c0d0b74c3e78b1f5f1fab52e50e6fb3312f`
+
+The previously planned 0.159.0 same-version sequence-24 correction was blocked
+by this pretrigger check before any public or live mutation and is superseded.
+The selected alignment is now an **ordinary newer-stable 0.159.2 sequence-24
+release** from the accepted source.
 
 ## Frozen release invariants
 
@@ -82,50 +89,51 @@ For generations that implement `UPDATE-DOWNLOAD-SIZE-V1`:
 - Core may use it only after authenticating the control bytes and must fail
   closed on authenticated size mismatch;
 - actual progress is based on GET-written bytes, not HEAD;
-- the sidecar never enters installed generation inventory;
-- older pre-feature signed generations may legitimately lack the sidecar.
+- the sidecar never enters installed generation inventory.
 
-## Selected runtime-alignment gate
+## Selected 0.159.2 runtime-alignment gate
 
-This is a one-shot manual same-version correction. It does not authorize a new
-feature or a different upstream release.
+This is a bounded ordinary newer-stable production operation. It does not
+authorize unrelated product changes.
 
 Required preconditions:
 
-- event is explicit/manual publication authorization for this bounded operation;
-- current public stable is exactly sequence 23 generation
+- user authorization for runtime alignment is already explicit;
+- public stable remains exact sequence 23 generation
   `local-hosted-0-159-0-b164e5b61cb4`;
-- public `main` is re-read immediately before mutation and its exact parent is
-  used for CAS;
-- official stable remains exact `0.159.0`;
+- public `main` is exact
+  `4d7418085265073bf1dada737a364aee54b374bd` before the one-shot production
+  trigger commit and is re-read immediately before that commit;
 - accepted product source is exact
-  `4fd14ed8aafcf29602f43e00c314eb8da39a6e5f`, unless a later docs-only
-  authority commit is first proven product-tree-identical;
+  `4fd14ed8aafcf29602f43e00c314eb8da39a6e5f`;
+- official latest remains exact `0.159.2` with archive SHA-256
+  `05a524a463cadf7e3e22c7f923539c0d0b74c3e78b1f5f1fab52e50e6fb3312f`;
+- ordinary comparison from authenticated stable 0.159.0 to official 0.159.2
+  returns `candidate=true`;
 - next release sequence is exactly **24**;
-- the candidate uses a fresh generation identity;
-- source-owned Core/Manager outputs must bind to the accepted source;
-- upstream runtime, code-mode host, helper payloads, and other source-independent
-  load-bearing bytes/modes must either match the authenticated sequence-23
-  baseline or have a separately proved reason for deterministic rebuild
-  difference; unexplained drift fails closed.
+- candidate uses a fresh generation identity;
+- the production trigger is a one-shot exact-parent/exact-message push bridge
+  that also pins `CODEX_SOURCE_SHA` back to the accepted source. Any parent,
+  message, baseline, source, version, sequence, or candidate mismatch fails
+  closed.
 
-Then run the frozen release invariants above in order: build -> native smoke ->
-sign -> independent verify -> immutable Release -> LKG Pages -> every-byte public
-readback -> disposable ordinary update/no-op -> non-forced exact-parent CAS.
+Because upstream changed versions, runtime/code-mode-host and other
+upstream-derived payloads are not required to be byte-identical to sequence 23.
+They must instead be derived from and qualified against the exact authenticated
+0.159.2 archive. Core/Manager remain source-bound to exact `4fd14ed8...`.
+
+Then run the frozen release invariants in order: build -> native smoke -> sign ->
+independent verify -> immutable Release -> LKG Pages -> every-byte public readback
+-> disposable ordinary update/no-op -> non-forced exact-parent CAS.
 
 After promotion, independently re-read the signed stable pair. Only then run the
-live consumer through ordinary `codex update`, verify the active generation and
-health, and run exact-current again.
+live consumer through ordinary `codex update`, verify active sequence 24 and
+`codex-cli 0.159.2`, and run exact-current again. Capture the authenticated
+TTY download progress as live acceptance evidence if present.
 
 ## Ordinary future upstream intake
 
-This maintenance gate is not reusable for a future version. When official
-upstream moves beyond `0.159.0`, rebind current authority and select a new
-Workboard bundle if source/release changes are needed. The established scheduled
-or manual producer may be used only if its exact pins and gates match the then
-accepted source and public baseline. Stale historical one-shot selectors must
-never be interpreted as current authorization.
-
-The next genuinely newer live update is also the first opportunity to complete
-the deferred user-visible TTY acceptance of authenticated
-`downloaded / total` progress from the installed 0.159.0-era Core.
+This one-shot alignment bridge is not reusable. After sequence 24 acceptance,
+future upstream releases return to the ordinary scheduled/manual producer under
+freshly rebound source/public authority. Stale historical one-shot selectors
+must never be interpreted as current authorization.
