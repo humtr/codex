@@ -3634,6 +3634,17 @@ remain separate explicitly authorized operations.
   mutation was used.
 
 
+## UPDATE-DOWNLOAD-SIZE-V1 Production Acceptance (accepted 2026-09-30)
+
+- Source acceptance was completed from `rewrite/rust-core` product source `4fd14ed8aafcf29602f43e00c314eb8da39a6e5f`. Production used exact producer source `b164e5b61cb438913cdb1633d74c62d6c96f6523` for upstream `0.159.0`.
+- Production retry run `36556869965` completed successfully through unsigned build, native Android/AArch64 executable smoke, production-authority signing, immutable Release staging, LKG-preserving Pages deployment, public every-byte readback plus disposable update proof, and exact-parent CAS promotion.
+- The promoted signed public stable is release sequence `23`, generation `local-hosted-0-159-0-b164e5b61cb4`, with upstream `codex-cli 0.159.0`. The signed generation remains retained in the repository GitHub Release under the same generation tag.
+- Public authenticated download-size control resources were verified at `<generation>/compat/download-size-v1` and `<generation>/compat/download-size-v1.sig`. Independent verification passed the Ed25519 signature and exact `release.manifest` SHA-256 binding. The authenticated payload inventory reports `7` files totaling `316535756` bytes.
+- Fresh live readback after user consumption verified the Termux installation is now exact `codex-cli 0.159.0`, with activation state `current=local-hosted-0-159-0-b164e5b61cb4` and retained previous generation `local-hosted-0-155-1-9300a68852c8-no-emoji-output-r3`.
+- The user separately observed both the real live `0.155.1 -> 0.159.0` ordinary signed update completing normally and a subsequent `0.159.0` exact-current update returning normally. The first transition was driven by the old `0.155.1` Core, so absence of the new authenticated download-size display on that transition is expected and is not a failure of the published sidecar contract.
+- Final live TTY acceptance of the new `downloaded / authenticated-total` presentation is therefore intentionally deferred until a future newer signed upstream generation is consumed by the installed `0.159.0` Core. That future observation is a release-consumer check, not unfinished work in this accepted bundle.
+- Disposition: **UPDATE-DOWNLOAD-SIZE-V1 is accepted and closed.** No further source, production, or live-runtime mutation is authorized by this bundle.
+
 ## Blocked / Resume Conditions
 
 - Stop before any live install, activation, or replacement of the working
