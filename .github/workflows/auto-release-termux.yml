@@ -77,7 +77,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  CODEX_SOURCE_SHA: 'b164e5b61cb438913cdb1633d74c62d6c96f6523'
+  CODEX_SOURCE_SHA: '4fd14ed8aafcf29602f43e00c314eb8da39a6e5f'
   RALD5_SOURCE_SHA: '4fd14ed8aafcf29602f43e00c314eb8da39a6e5f'
   RUST_VERSION: '1.98.0'
   ANDROID_API: '24'
@@ -121,6 +121,13 @@ env:
   DOWNLOAD_SIZE_DEPLOY_CURRENT_GENERATION: 'local-hosted-0-157-1-9300a68852c8'
   DOWNLOAD_SIZE_DEPLOY_CURRENT_SEQUENCE: '22'
   DOWNLOAD_SIZE_DEPLOY_TARGET_SEQUENCE: '23'
+  RUNTIME_ALIGNMENT_ACCEPTED_SOURCE_SHA: '4fd14ed8aafcf29602f43e00c314eb8da39a6e5f'
+  RUNTIME_ALIGNMENT_BASELINE_VERSION: '0.159.0'
+  RUNTIME_ALIGNMENT_TARGET_VERSION: '0.159.2'
+  RUNTIME_ALIGNMENT_TARGET_ARCHIVE_SHA256: '05a524a463cadf7e3e22c7f923539c0d0b74c3e78b1f5f1fab52e50e6fb3312f'
+  RUNTIME_ALIGNMENT_CURRENT_GENERATION: 'local-hosted-0-159-0-b164e5b61cb4'
+  RUNTIME_ALIGNMENT_CURRENT_SEQUENCE: '23'
+  RUNTIME_ALIGNMENT_TARGET_SEQUENCE: '24'
   WRAPPER_PUBLIC_KEY_SHA256: '62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c'
   ANDROID_RUNTIME_APEX_COMMIT: '8aeb37cca394ce39c1311744c60960cbd466aa77'
   ANDROID_RUNTIME_APEX_SHA256: '83bf0dce249728dae48149b80d28b48115c54adad95a352120d58a6ac669d1fc'
@@ -149,6 +156,7 @@ jobs:
       exact_current_fastpath_same_version_deploy: ${{ steps.decision.outputs.exact_current_fastpath_same_version_deploy }}
       no_emoji_same_version_deploy: ${{ steps.decision.outputs.no_emoji_same_version_deploy }}
       download_size_same_version_deploy: ${{ steps.decision.outputs.download_size_same_version_deploy }}
+      runtime_alignment_ordinary_deploy: ${{ steps.decision.outputs.runtime_alignment_ordinary_deploy }}
       expected_main_sha: ${{ steps.stable.outputs.expected_main_sha }}
       current_generation: ${{ steps.stable.outputs.current_generation }}
       current_release_sequence: ${{ steps.stable.outputs.current_release_sequence }}
@@ -257,7 +265,8 @@ jobs:
         env:
           RALD4_POSITIVE_GATE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald4_positive_gate }}
           DOWNLOAD_SIZE_PUSH_BRIDGE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == '26d29e33d5e965c8a74679178f26a7b9f67b2c6b' && github.event.head_commit.message == 'retry3-UPDATE-DOWNLOAD-SIZE-V1-ordinary-0.159.0-reuse-exact-release' }}
-          RALD5_PUBLICATION_AUTHORIZED: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.rald5_publication_authorized) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == '26d29e33d5e965c8a74679178f26a7b9f67b2c6b' && github.event.head_commit.message == 'retry3-UPDATE-DOWNLOAD-SIZE-V1-ordinary-0.159.0-reuse-exact-release') }}
+          RUNTIME_ALIGNMENT_PUSH_BRIDGE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == '4d7418085265073bf1dada737a364aee54b374bd' && github.event.head_commit.message == 'align-runtime-seq24-to-accepted-source-4fd14ed8-upstream-0.159.2' }}
+          RALD5_PUBLICATION_AUTHORIZED: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.rald5_publication_authorized) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == '26d29e33d5e965c8a74679178f26a7b9f67b2c6b' && github.event.head_commit.message == 'retry3-UPDATE-DOWNLOAD-SIZE-V1-ordinary-0.159.0-reuse-exact-release') || (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == '4d7418085265073bf1dada737a364aee54b374bd' && github.event.head_commit.message == 'align-runtime-seq24-to-accepted-source-4fd14ed8-upstream-0.159.2') }}
           RALD5_SAME_VERSION_ACCEPTANCE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald5_same_version_acceptance }}
           RALD45_TRANSITION_STAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald45_transition_stage }}
           RALD45_TRANSITION_PROMOTE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald45_transition_promote }}
@@ -310,8 +319,9 @@ jobs:
           test "$NO_EMOJI_SAME_VERSION_DEPLOY" = true -o "$NO_EMOJI_SAME_VERSION_DEPLOY" = false
           test "$DOWNLOAD_SIZE_SAME_VERSION_DEPLOY" = true -o "$DOWNLOAD_SIZE_SAME_VERSION_DEPLOY" = false
           test "$DOWNLOAD_SIZE_PUSH_BRIDGE" = true -o "$DOWNLOAD_SIZE_PUSH_BRIDGE" = false
+          test "$RUNTIME_ALIGNMENT_PUSH_BRIDGE" = true -o "$RUNTIME_ALIGNMENT_PUSH_BRIDGE" = false
           if test "$GITHUB_EVENT_NAME" = push; then
-            test "$DOWNLOAD_SIZE_PUSH_BRIDGE" = true
+            test "$DOWNLOAD_SIZE_PUSH_BRIDGE" = true -o "$RUNTIME_ALIGNMENT_PUSH_BRIDGE" = true
           fi
           if test "$DOWNLOAD_SIZE_PUSH_BRIDGE" = true; then
             test "$GITHUB_EVENT_NAME" = push
@@ -336,6 +346,35 @@ jobs:
             test "$upstream_version" = '0.159.0'
             test "$candidate" = true
           fi
+          if test "$RUNTIME_ALIGNMENT_PUSH_BRIDGE" = true; then
+            test "$GITHUB_EVENT_NAME" = push
+            test "$GITHUB_REF" = refs/heads/main
+            test "$RALD5_PUBLICATION_AUTHORIZED" = true
+            test "$RALD4_POSITIVE_GATE" != true
+            test "$RALD5_SAME_VERSION_ACCEPTANCE" != true
+            test "$RALD45_TRANSITION_STAGE" != true
+            test "$RALD45_TRANSITION_PROMOTE" != true
+            test "$RALD5_NEGATIVE_GATE" != true
+            test "$LEGACY_LAG_JUMP_REMEDIATION" != true
+            test "$UX1_SAME_VERSION_DEPLOY" != true
+            test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true
+            test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" != true
+            test "$NO_EMOJI_SAME_VERSION_DEPLOY" != true
+            test "$DOWNLOAD_SIZE_SAME_VERSION_DEPLOY" != true
+            test "$DOWNLOAD_SIZE_PUSH_BRIDGE" != true
+            test "$CODEX_SOURCE_SHA" = "$RUNTIME_ALIGNMENT_ACCEPTED_SOURCE_SHA"
+            test '${{ steps.stable.outputs.current_version }}' = "$RUNTIME_ALIGNMENT_BASELINE_VERSION"
+            test '${{ steps.stable.outputs.current_generation }}' = "$RUNTIME_ALIGNMENT_CURRENT_GENERATION"
+            test '${{ steps.stable.outputs.current_release_sequence }}' = "$RUNTIME_ALIGNMENT_CURRENT_SEQUENCE"
+            test '${{ steps.stable.outputs.release_sequence }}' = "$RUNTIME_ALIGNMENT_TARGET_SEQUENCE"
+            test "$upstream_version" = "$RUNTIME_ALIGNMENT_TARGET_VERSION"
+            test "$archive_sha256" = "$RUNTIME_ALIGNMENT_TARGET_ARCHIVE_SHA256"
+            test "$candidate" = true
+            acceptance_suffix='-runtime-alignment'
+            printf 'ordinary newer-stable runtime alignment selected: %s -> %s sequence %s -> %s\n' \
+              "$RUNTIME_ALIGNMENT_BASELINE_VERSION" "$upstream_version" \
+              "$RUNTIME_ALIGNMENT_CURRENT_SEQUENCE" "$RUNTIME_ALIGNMENT_TARGET_SEQUENCE"
+          fi
           if test "$RALD4_POSITIVE_GATE" = true; then
             test "$candidate" = true
             test "$RALD5_PUBLICATION_AUTHORIZED" != true
@@ -355,7 +394,7 @@ jobs:
               workflow_dispatch)
                 ;;
               push)
-                test "$DOWNLOAD_SIZE_PUSH_BRIDGE" = true
+                test "$DOWNLOAD_SIZE_PUSH_BRIDGE" = true -o "$RUNTIME_ALIGNMENT_PUSH_BRIDGE" = true
                 ;;
               schedule)
                 test "$RALD4_POSITIVE_GATE" != true
@@ -620,6 +659,7 @@ jobs:
           printf 'exact_current_fastpath_same_version_deploy=%s\n' "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" >> "$GITHUB_OUTPUT"
           printf 'no_emoji_same_version_deploy=%s\n' "$NO_EMOJI_SAME_VERSION_DEPLOY" >> "$GITHUB_OUTPUT"
           printf 'download_size_same_version_deploy=%s\n' "$DOWNLOAD_SIZE_SAME_VERSION_DEPLOY" >> "$GITHUB_OUTPUT"
+          printf 'runtime_alignment_ordinary_deploy=%s\n' "$RUNTIME_ALIGNMENT_PUSH_BRIDGE" >> "$GITHUB_OUTPUT"
           printf 'artifact_name=rald3-candidate-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
           printf 'qualified_artifact_name=rald4-qualified-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
           printf 'signed_artifact_name=rald4-signed-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
