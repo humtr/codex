@@ -34,3 +34,45 @@ Ordered slices:
    source release if needed, bounded activation and real immediate idle resume;
    unchanged real active owner stays read-only. Commit/push, close GOAL, archive
    only own synthetic probes through native APIs and remove temporary staging.
+
+2026-10-02 diagnosis binding: rewrite/rust-core32b7d128409dabe0e54cbf329c9afe62a2548e48,
+clean before authority changes; product4c3d013 and grouped228/90 baseline reused.
+Official0.160 core config/schema default thread_unload_delay_secs60; app-server
+lifecycle waits for no subscribers AND inactivity, rechecks Running before native
+shutdown/writer drop. Native source TUI exits0.547s, writer FD remains on25322,
+cross-account TUI read-only. Thus process slow exit is not the cause.
+Discarded diagnostic harness results: C-q is not idle-TUI exit;0.5s blank screen
+and0.15s post-R transition are not writable evidence. Harness now waits for native
+writer ownership, uses C-c, polls FD lifetime and requires visible composer.
+No product mutation occurred during these red/false-positive probes.
+Slice2 selected: KEEP native lifecycle/lock/auth; COLLAPSE correction into existing
+FD34 system default; DELETE artificial idle cache delay by native0 setting.
+One production render definition; map to existing exact policy/projection tests
+and new real exec regression covering bare argv and explicit delay CLI preservation.
+Manager absent/disabled/enabled projection, shared config refresh and full-access
+remain protected. SPEC updated first. Slice3 remains pending.
+
+Slice2 source gate green: new idle_thread_release_default_reaches_exec_without_cli_override
+1/1; existing notification projection1/1, exact root policy1/1, shared_server5/5.
+Focused test initially assumed stdout begins with ARGS, but fake runtime emits
+existing handoff diagnostics first; corrected to require one exact ARGS line,
+not weaker substring matching. All five old exact root expectations updated;
+unrelated startup probe branches from an overbroad text replacement removed in
+actual diff review. Production delta is one existing render default only.
+Native timing harness must distinguish source account writer from a previously
+resumed other-account writer; now waits for own old writer quiescence first and
+requires source composer/account server ownership. No earlier false timing accepted.
+Slice3 grouped full/build and protected checks selected; live remains32.
+
+Corrected actual32 timing proof now passes: source writer25322 and source composer
+validated after previous fixture writer quiesces; idle client exits0.930s, writer
+still present; different-account popup at4.54s; source writer remains until native
+60s lifecycle expiry, target gains writable composer at63.46s after retry.
+Earlier same-account server-reuse/transition screenshots are discarded.
+Locked release workspace build green. Protected rebind compares full st_mode
+(not permission bits against full mode, which falsely marks every path changed).
+Auth/resolver unchanged; AI's selected native title preparation touched only
+wrlab/janmori101 configs during authorized tmux fixture launch. Rebound15 paths
+for this Core-only acceptance. Publicmain remainsc728f89; sequence33 workflow
+will bind exact Core-only change, unchanged Manager/runtime/host/helpers and all
+existing signing/readback/disposable activation/no-op/CAS gates.

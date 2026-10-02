@@ -55,6 +55,23 @@
   restore/mutate auth/resolver. No backup; reuse one private scratch/cache root
   from tmux bundle and remove it when the requested resolution is accepted.
 
+- Diagnosis proves actual idle32 TUI exits0.930s, but its native server25322
+  retains the writer; other-account resume is read-only at4.54s and writable
+  after native60s expiry/retry at63.46s. Official0.160 lifecycle default is60s;
+  process slow exit and compatibility FD remap are not the root cause.
+- Source candidate keeps native subscriber/activity/Running guards and sets the
+  existing FD34 system default thread_unload_delay_secs0. No CLI injection,
+  profile setting, auth merge, lock deletion, daemon termination or runtime patch.
+  Explicit higher-priority user choices survive. Previously started servers
+  retain their startup setting until normal restart; new generation gets a new
+  server without stopping old active work.
+- New actual exec regression1/1 covers bare argv, explicit CLI preservation,
+  profile/resolver preservation and FD34 default. Existing projection1/1, exact
+  root policy1/1, shared_server5/5 green. Grouped229 Rust/90 Python (one explicit
+  device-ignore), locked workspace release build and actual diff review pass.
+  Fifteen protected paths unchanged after native title authorization rebind.
+  Candidate awaits exact signed33 publication and real installed close/resume.
+
 ## AI-TMUX-NOTIFY-FOCUS-V1 (accepted 2026-10-02)
 
 - User clarifies physical tap selected Termux's last terminal, not its source;

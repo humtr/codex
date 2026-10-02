@@ -455,6 +455,18 @@ shared background server. User-supplied upstream options remain unchanged;
 explicit unsupported sandbox requests still fail before runtime I/O. Hiding a
 shared-server warning or disabling the server does not satisfy this contract.
 
+The same Core-owned system configuration supplies the Termux default
+`thread_unload_delay_secs = 0`. Upstream unloads a thread only after its last
+subscriber disconnects and the thread is inactive; a running turn remains
+protected by native lifecycle checks. Closing an idle TUI must therefore release
+its native writer without the upstream default 60-second cache delay, allowing
+immediate same-ID resume through another account's server. Core never removes
+or steals a writer lock, copies a transcript, or overrides explicit higher-layer
+user configuration or CLI arguments. Authentication remains per account.
+This native setting is read when a shared server starts. Already-running servers
+retain their previous delay until normal restart; generation activation starts
+the new runtime's server without terminating other active clients or work.
+
 Shared-server reuse must refresh its Core-owned FD-34 configuration files
 under the existing namespace coordinator lock before the new client executes.
 Publish changed files atomically in the same opened configuration directory;

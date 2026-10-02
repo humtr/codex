@@ -1648,7 +1648,7 @@ fn core_notify_status_message(event: &str) -> &'static str {
 fn render_core_notification_config(events: &[&str]) -> Vec<u8> {
     let mut output = String::from(CORE_NOTIFY_MARKER);
     output.push_str(
-        "sandbox_mode = \"danger-full-access\"\nmcp_oauth_credentials_store = \"file\"\n\n",
+        "sandbox_mode = \"danger-full-access\"\nmcp_oauth_credentials_store = \"file\"\nthread_unload_delay_secs = 0\n\n",
     );
     for event in events {
         if *event == "UserInputRequest" && events.contains(&"PreToolUse") {
@@ -12580,12 +12580,12 @@ mod tests {
         let empty = render_core_notification_config(&[]);
         assert_eq!(
             empty,
-            b"# codex-termux-notify-v1\nsandbox_mode = \"danger-full-access\"\nmcp_oauth_credentials_store = \"file\"\n\n".to_vec()
+            b"# codex-termux-notify-v1\nsandbox_mode = \"danger-full-access\"\nmcp_oauth_credentials_store = \"file\"\nthread_unload_delay_secs = 0\n\n".to_vec()
         );
         let with_hook =
             String::from_utf8(render_core_notification_config(&["SessionStart"])).unwrap();
         assert!(with_hook
-            .starts_with("# codex-termux-notify-v1\nsandbox_mode = \"danger-full-access\"\nmcp_oauth_credentials_store = \"file\"\n\n"));
+            .starts_with("# codex-termux-notify-v1\nsandbox_mode = \"danger-full-access\"\nmcp_oauth_credentials_store = \"file\"\nthread_unload_delay_secs = 0\n\n"));
         assert!(with_hook.contains("[[hooks.SessionStart]]"));
         assert!(!with_hook.contains("keyring"));
     }
@@ -13180,6 +13180,11 @@ exit 73
         };
         let raw_args = match scenario.as_str() {
             "version" => vec![OsString::from("--version")],
+            "idle-release-bare" => vec![],
+            "idle-release-explicit" => vec![
+                OsString::from("-c"),
+                OsString::from("thread_unload_delay_secs=17"),
+            ],
             "signal" => vec![OsString::from("signal")],
             "tty" => vec![OsString::from("tty"), OsString::from("--no-daemon")],
             "exec" => vec![
@@ -13486,6 +13491,42 @@ exit 73
 
     #[cfg(unix)]
     #[test]
+    fn idle_thread_release_default_reaches_exec_without_cli_override() {
+        for (scenario, argv) in [
+            ("idle-release-bare", "ARGS:\n"),
+            (
+                "idle-release-explicit",
+                "ARGS:<-c><thread_unload_delay_secs=17>\n",
+            ),
+        ] {
+            let (root, runtime, resolver, config) = prepare_exec_fixture(scenario);
+            let profile = root.join("arbitrary-execution-home");
+            std::fs::create_dir(&profile).unwrap();
+            let user_config = b"thread_unload_delay_secs = 23\n";
+            std::fs::write(profile.join("config.toml"), user_config).unwrap();
+            let before_resolver = std::fs::read(&resolver).unwrap();
+            let result = run_product_probe(scenario, &root, &runtime, &resolver, &config);
+            assert_eq!(result.status.code(), Some(73));
+            assert!(result
+                .stdout
+                .split_inclusive(|byte| *byte == b'\n')
+                .any(|line| line == argv.as_bytes()));
+            assert!(result.stdout.windows(6).any(|w| w == b"FDS_OK"));
+            assert_eq!(
+                std::fs::read(config.join("config.toml")).unwrap(),
+                b"# codex-termux-notify-v1\nsandbox_mode = \"danger-full-access\"\nmcp_oauth_credentials_store = \"file\"\nthread_unload_delay_secs = 0\n\n"
+            );
+            assert_eq!(
+                std::fs::read(profile.join("config.toml")).unwrap(),
+                user_config
+            );
+            assert_eq!(std::fs::read(&resolver).unwrap(), before_resolver);
+            remove_temp_root(root);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn test_upstream_version_is_exact_direct_output() {
         let (root, runtime, resolver, config) = prepare_exec_fixture("version");
         let direct = std::process::Command::new(&runtime)
@@ -13594,6 +13635,7 @@ exit 73
             "# codex-termux-notify-v1\n",
             "sandbox_mode = \"danger-full-access\"\n",
             "mcp_oauth_credentials_store = \"file\"\n",
+            "thread_unload_delay_secs = 0\n",
             "\n",
             "[[hooks.SessionStart]]\n",
             "\n",
@@ -13648,7 +13690,7 @@ exit 73
         assert_eq!(unavailable.status.code(), Some(0));
         assert_eq!(
             std::fs::read_to_string(config.join("config.toml")).unwrap(),
-            "# codex-termux-notify-v1\nsandbox_mode = \"danger-full-access\"\nmcp_oauth_credentials_store = \"file\"\n\n"
+            "# codex-termux-notify-v1\nsandbox_mode = \"danger-full-access\"\nmcp_oauth_credentials_store = \"file\"\nthread_unload_delay_secs = 0\n\n"
         );
 
         std::fs::write(
@@ -13660,7 +13702,7 @@ exit 73
         assert_eq!(cleared.status.code(), Some(0));
         assert_eq!(
             std::fs::read_to_string(config.join("config.toml")).unwrap(),
-            "# codex-termux-notify-v1\nsandbox_mode = \"danger-full-access\"\nmcp_oauth_credentials_store = \"file\"\n\n"
+            "# codex-termux-notify-v1\nsandbox_mode = \"danger-full-access\"\nmcp_oauth_credentials_store = \"file\"\nthread_unload_delay_secs = 0\n\n"
         );
         std::fs::write(config.join("config.toml"), b"user_setting = true\n").unwrap();
         std::fs::write(&record_path, record).unwrap();
