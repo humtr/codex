@@ -9,17 +9,21 @@
   `codex termux` Manager boundary.
 - Allowed writes during implementation: this repository on
   `rewrite/rust-core` and test-owned temporary roots. The SCS-6 user-state
-  migration is the sole additional bounded exception and may begin only after
+  migration historically required the following SCS acceptance gates and began only after
   SCS-1 through SCS-5 are green, all Codex/app-server writers are quiesced, a
   complete restorable backup is verified, and the migration operates only on
-  the declared profile/shared-state roots.
+  the declared profile/shared-state roots. The selected 2026-10-02 user-authorized
+  corrective bundle additionally permits its SPEC-bounded online retention
+  transition, signed publication and ordinary runtime activation, without a
+  recovery backup as explicitly directed by the user.
 - Protected surfaces: the live `$PREFIX/bin/codex`, installed runtime and
   Manager, `$PREFIX/etc/resolv.conf`, profiles, sessions, auth data,
   `legacy/monolith`, and the pre-rewrite archive bundle. Profiles, sessions,
   and auth remain protected during SCS source/disposable work; the SCS-6
   exception above permits only the accepted data-layout migration, never live
   runtime replacement, public release mutation, credential inspection, or
-  unbacked destructive cleanup.
+  unbacked destructive cleanup. The explicit current corrective authorization
+  supersedes those historical SCS-6 limits only within its declared scope.
 - Authority: `SPEC.md` for normative behavior and architecture; this file for
   acceptance; `WORKBOARD.md` for the current implementation target.
 - Secret exclusions: tokens, OAuth codes, cookies, credentials, private keys,
@@ -27,6 +31,38 @@
 - Non-negotiable constraints: clean rewrite, no legacy source copying, no live
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
+
+## SHARED-SERVER-CROSS-ACCOUNT-V1 (selected 2026-10-02)
+
+- The user authorizes implementation, signed public release, and ordinary live
+  activation of the two reported defects: unchanged bare/upstream argv with
+  Termux full access and actual shared-server operation; installation-wide
+  cross-account local resume visibility retaining upstream CWD/all scope,
+  IDs, transcripts, history, deduplication, and profile-local authentication.
+- Current primary GPT-6-based agent is explicitly approved by the user as an
+  equivalent Lead for this bundle. Worker mode remains OFF; no delegation.
+- Fresh source authority: `rewrite/rust-core=f264892869577bbd776075513df77f0a330726c2`.
+  Tracked source is clean; the sole pre-existing dirty entry is unrelated
+  `.github/scripts/__pycache__/`. Public main is
+  `2dc79bd11842c9e5970b8c73c470886b780f2ff8`; live and public are sequence 27,
+  `local-hosted-0-160-0-75aed30c7ad6-startup-advisory`, upstream 0.160.0.
+- Baseline Core suite: 159 passed, 0 failed, one explicit device smoke ignored.
+- User steering: existing-profile consolidation retains every session with
+  activity during the latest seven days, rather than importing all historical
+  stores. The user explicitly declines a recovery backup and authorizes removal of
+  confirmed older entries after retained-session validation. This bounded retention selection does not filter future
+  cross-account discovery or change upstream CWD/all meaning.
+- Source acceptance candidate: unchanged argv/default config, signed-native
+  shared server and exact artifact UDS adaptation, declared shared upstream
+  topology, and bounded seven-day inode-preserving transition implemented.
+  Grouped Rust 210 and Python 14 tests passed; Core device-only smoke remains
+  explicitly ignored. Final native temporary installation proves bare TTY with
+  no fallback, native config/read full-access, exact two-profile CWD/all union,
+  old and upstream-created new cross-profile resume. Protected 17 file digests
+  and inodes unchanged; resolver/auth bytes never printed or copied.
+- Source, release, public stable, live Core, and actual upstream process behavior
+  are separate acceptance gates. Signed publication and live acceptance pending;
+  no success is inferred from a pointer alone.
 
 ## Current Operating Baseline and Selected Maintenance (2026-09-30)
 

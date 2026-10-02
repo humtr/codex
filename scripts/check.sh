@@ -23,7 +23,7 @@ trap cleanup EXIT HUP INT TERM
 export PYTHONDONTWRITEBYTECODE=1
 
 cargo fmt --all -- --check
-python3 -m unittest -v scripts/test_shared_state_migrate.py
+python3 -m unittest -v scripts/test_shared_state_migrate.py scripts/test_shared_visibility_transition.py
 cargo test --workspace
 
 # Historical .github RALD tests intentionally pin superseded release/workflow SHAs;

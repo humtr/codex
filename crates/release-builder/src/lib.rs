@@ -1,5 +1,7 @@
 #![cfg(unix)]
 
+mod uds_patch;
+
 use std::collections::BTreeSet;
 use std::ffi::{CString, OsStr, OsString};
 use std::fs::{File, OpenOptions};
@@ -1250,9 +1252,13 @@ fn validate_publish_patch_report(
     source_digest: &str,
     runtime_digest: &str,
     code_mode_host_digest: &str,
+    expected_policy: &str,
 ) -> Result<(), BuilderError> {
     let mut fields = value.split(';');
-    if fields.next() != Some(PATCH_POLICY_ID) {
+    let policy = fields.next();
+    if policy != Some(expected_policy)
+        || !matches!(policy, Some(PATCH_POLICY_ID) | Some(uds_patch::POLICY))
+    {
         return Err(BuilderError::Invalid(
             "generation patch policy report is invalid",
         ));
@@ -1271,13 +1277,26 @@ fn validate_publish_patch_report(
         .and_then(|field| field.strip_prefix("code_mode_host_sha256="));
     let source_counts = fields.next();
     let changed_bytes = fields.next();
+    let uds = if policy == Some(uds_patch::POLICY) {
+        fields.next()
+    } else {
+        None
+    };
     if fields.next().is_some()
+        || (policy == Some(uds_patch::POLICY)
+            && (uds != Some("uds_policy=termux-uds-0-160-0-v1")
+                || raw_runtime_digest != Some(uds_patch::RAW_SHA256)))
         || archive_digest != Some(source_digest)
         || raw_runtime_digest.is_none_or(|digest| !valid_lower_sha256(digest))
         || adapted_runtime_digest != Some(runtime_digest)
         || host_digest != Some(code_mode_host_digest)
         || source_counts != Some("source_counts=2,1,1,1")
-        || changed_bytes != Some("changed_bytes=54")
+        || changed_bytes
+            != Some(if policy == Some(uds_patch::POLICY) {
+                "changed_bytes=97"
+            } else {
+                "changed_bytes=54"
+            })
     {
         return Err(BuilderError::Invalid(
             "generation patch policy report is invalid",
@@ -1370,7 +1389,10 @@ fn validate_publish_generation_descriptor(
             "publication generation platform binding is invalid",
         ));
     }
-    if publish_descriptor_field(&mut lines, "patch_policy_id")? != PATCH_POLICY_ID {
+    let patch_policy = publish_descriptor_field(&mut lines, "patch_policy_id")?;
+    if !matches!(patch_policy, PATCH_POLICY_ID | uds_patch::POLICY)
+        || (patch_policy == uds_patch::POLICY && package_version != "0.160.0")
+    {
         return Err(BuilderError::Invalid(
             "publication generation patch policy is invalid",
         ));
@@ -1493,6 +1515,7 @@ fn validate_publish_generation_descriptor(
         source_digest,
         runtime_digest,
         &actual_host_digest,
+        patch_policy,
     )?;
     Ok(generation_id.to_owned())
 }
@@ -3161,6 +3184,7 @@ struct AdaptedGeneration {
     browser_open_helper_sha256: String,
     browser_manual_helper_sha256: String,
     changed_bytes: usize,
+    uds_adapted: bool,
 }
 
 fn set_mode(path: &Path, mode: u32, operation: &'static str) -> Result<(), BuilderError> {
@@ -3304,6 +3328,12 @@ fn adapt_selected_runtime(
         ));
     }
 
+    let uds_adapted = uds_patch::required(&request.version).map_err(BuilderError::Archive)?;
+    if uds_adapted {
+        changed_bytes +=
+            uds_patch::apply(&mut runtime, &raw_runtime_sha256).map_err(BuilderError::Archive)?;
+    }
+
     let runtime_path = staging.join("runtime");
     let mut runtime_file = create_private_file(&runtime_path)?;
     runtime_file
@@ -3339,6 +3369,7 @@ fn adapt_selected_runtime(
         browser_open_helper_sha256,
         browser_manual_helper_sha256,
         changed_bytes,
+        uds_adapted,
     })
 }
 
@@ -3349,14 +3380,22 @@ fn write_generation_descriptor(
     core_sha256: &str,
     manager_sha256: Option<&str>,
 ) -> Result<(), BuilderError> {
-    let patch_report = format!(
-        "{PATCH_POLICY_ID};archive_sha256={};raw_runtime_sha256={};runtime_sha256={};code_mode_host_sha256={};source_counts=2,1,1,1;changed_bytes={}",
+    let patch_policy = if adapted.uds_adapted {
+        uds_patch::POLICY
+    } else {
+        PATCH_POLICY_ID
+    };
+    let mut patch_report = format!(
+        "{patch_policy};archive_sha256={};raw_runtime_sha256={};runtime_sha256={};code_mode_host_sha256={};source_counts=2,1,1,1;changed_bytes={}",
         request.archive_sha256,
         adapted.raw_runtime_sha256,
         adapted.runtime_sha256,
         adapted.code_mode_host_sha256,
         adapted.changed_bytes
     );
+    if adapted.uds_adapted {
+        patch_report.push_str(";uds_policy=termux-uds-0-160-0-v1");
+    }
     let upstream_doctor = if request.legacy_activation_doctor_unsupported {
         "unsupported"
     } else {
@@ -3390,7 +3429,7 @@ fn write_generation_descriptor(
         PACKAGE_IDENTITY,
         request.version,
         request.archive_sha256,
-        PATCH_POLICY_ID,
+        patch_policy,
         patch_report,
         adapted.runtime_sha256,
         core_sha256,
@@ -3838,6 +3877,39 @@ fi
                 .to_string_lossy()
                 .starts_with(".codex-release-fetch-")
         })
+    }
+
+    #[test]
+    fn uds_publish_report_binds_exact_policy_artifact_and_byte_count() {
+        let digest = "a".repeat(64);
+        let report = format!("{};archive_sha256={digest};raw_runtime_sha256={};runtime_sha256={digest};code_mode_host_sha256={digest};source_counts=2,1,1,1;changed_bytes=97;uds_policy=termux-uds-0-160-0-v1", uds_patch::POLICY, uds_patch::RAW_SHA256);
+        assert!(validate_publish_patch_report(
+            &report,
+            &digest,
+            &digest,
+            &digest,
+            uds_patch::POLICY
+        )
+        .is_ok());
+        assert!(
+            validate_publish_patch_report(&report, &digest, &digest, &digest, PATCH_POLICY_ID)
+                .is_err()
+        );
+        for bad in [
+            report.replace("changed_bytes=97", "changed_bytes=54"),
+            report.replace(uds_patch::RAW_SHA256, &digest),
+            report.replace(";uds_policy=termux-uds-0-160-0-v1", ""),
+            report.clone() + ";extra=1",
+        ] {
+            assert!(validate_publish_patch_report(
+                &bad,
+                &digest,
+                &digest,
+                &digest,
+                uds_patch::POLICY
+            )
+            .is_err());
+        }
     }
 
     fn fake_elf(interpreter: bool) -> Vec<u8> {

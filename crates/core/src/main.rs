@@ -2,6 +2,10 @@ use std::ffi::{OsStr, OsString};
 
 #[cfg(unix)]
 mod rollback_guard;
+#[cfg(unix)]
+mod shared_layout;
+#[cfg(unix)]
+mod shared_server;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum PublicDispatchRoute {
@@ -235,8 +239,8 @@ fn check_unsupported_config_token(token: &str) -> Option<String> {
 ///
 /// Validates that explicit Linux sandbox requests that Termux cannot enforce
 /// (such as `read-only`, `workspace-write`, and `sandbox linux`) fail clearly.
-/// On accepted arguments, prepends exactly `-c` and `sandbox_mode="danger-full-access"`
-/// before all original user arguments unchanged.
+/// Returns all accepted original user arguments unchanged, including bare argv.
+/// The full-access default belongs to the FD-34 system configuration layer.
 fn plan_passthrough_args<I, S>(args: I) -> Result<Vec<OsString>, PassthroughError>
 where
     I: IntoIterator<Item = S>,
@@ -311,12 +315,7 @@ where
         i += 1;
     }
 
-    let mut planned = Vec::with_capacity(original.len() + 2);
-    planned.push(OsString::from("-c"));
-    planned.push(OsString::from("sandbox_mode=\"danger-full-access\""));
-    planned.extend(original);
-
-    Ok(planned)
+    Ok(original)
 }
 
 #[cfg(unix)]
@@ -324,7 +323,7 @@ pub const RESOLVER_FD: std::os::raw::c_int = 33;
 #[cfg(unix)]
 pub const CONFIG_DIR_FD: std::os::raw::c_int = 34;
 #[cfg(unix)]
-const SAFE_MIN_FD: std::os::raw::c_int = 35;
+const SAFE_MIN_FD: std::os::raw::c_int = 36;
 #[cfg(unix)]
 const F_DUPFD_CLOEXEC: std::os::raw::c_int = 1030;
 #[cfg(unix)]
@@ -345,6 +344,7 @@ extern "C" {
 struct RuntimeFdSources {
     resolver: std::os::fd::OwnedFd,
     config_dir: std::os::fd::OwnedFd,
+    temporary_root: std::os::fd::OwnedFd,
 }
 
 #[cfg(unix)]
@@ -365,6 +365,16 @@ impl RuntimeFdSources {
             return Err(std::io::Error::from_raw_os_error(20));
         }
 
+        let temporary = std::fs::File::open(std::env::temp_dir())?;
+        if !temporary.metadata()?.is_dir() {
+            return Err(std::io::Error::from_raw_os_error(20));
+        }
+        let temporary_fd = unsafe { fcntl(temporary.as_raw_fd(), F_DUPFD_CLOEXEC, SAFE_MIN_FD) };
+        if temporary_fd < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        let temporary_root = unsafe { std::os::fd::OwnedFd::from_raw_fd(temporary_fd) };
+
         let resolver_fd = unsafe { fcntl(resolver.as_raw_fd(), F_DUPFD_CLOEXEC, SAFE_MIN_FD) };
         if resolver_fd < 0 {
             return Err(std::io::Error::last_os_error());
@@ -380,6 +390,7 @@ impl RuntimeFdSources {
         Ok(Self {
             resolver,
             config_dir,
+            temporary_root,
         })
     }
 
@@ -389,9 +400,13 @@ impl RuntimeFdSources {
 
         let resolver = self.resolver.as_raw_fd();
         let config_dir = self.config_dir.as_raw_fd();
+        let temporary_root = self.temporary_root.as_raw_fd();
         unsafe {
             command.pre_exec(move || {
                 if dup2(resolver, RESOLVER_FD) < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                if dup2(temporary_root, 35) < 0 {
                     return Err(std::io::Error::last_os_error());
                 }
                 if dup2(config_dir, CONFIG_DIR_FD) < 0 {
@@ -1354,7 +1369,7 @@ where
         Ok(paths) => paths,
         Err(err) => return RuntimeLaunchError::Environment(err),
     };
-    let env_plan = match plan_termux_env(
+    let mut env_plan = match plan_termux_env(
         process_env,
         selection.compatibility_dir,
         browser_open_helper,
@@ -1366,10 +1381,41 @@ where
         Err(err) => return RuntimeLaunchError::Environment(err),
     };
 
-    if let Err(error) = prepare_core_shared_state_requirements(config_dir.as_ref()) {
+    match prepare_core_shared_state_requirements(config_dir.as_ref()) {
+        Ok(Some(shared)) => env_plan
+            .assignments
+            .push((CODEX_SQLITE_HOME_ENV.into(), shared.into_os_string())),
+        Ok(None) => (),
+        Err(error) => return RuntimeLaunchError::Config(error),
+    }
+    if let Err(error) =
+        prepare_core_notification_config(config_dir.as_ref(), options.manager_available)
+    {
         return RuntimeLaunchError::Config(error);
     }
-    prepare_core_notification_config(config_dir.as_ref(), options.manager_available);
+    use std::io::IsTerminal as _;
+    if std::io::stdin().is_terminal()
+        && std::io::stdout().is_terminal()
+        && shared_server::eligible(options.planned_args)
+    {
+        let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+        if let Some(home) = home {
+            let profile = std::env::var_os("CODEX_HOME")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| home.join(".codex"));
+            let state = home.join(".local/share/codex/core");
+            if let Err(error) = shared_server::ensure(
+                selection.runtime.program_path,
+                &profile,
+                &state,
+                resolver_path.as_ref(),
+                config_dir.as_ref(),
+                &env_plan,
+            ) {
+                return RuntimeLaunchError::Config(error);
+            }
+        }
+    }
     RuntimeLaunchError::Exec(exec_runtime(
         selection.runtime.program_path,
         options.planned_args,
@@ -1597,7 +1643,9 @@ fn core_notify_status_message(event: &str) -> &'static str {
 #[cfg(unix)]
 fn render_core_notification_config(events: &[&str]) -> Vec<u8> {
     let mut output = String::from(CORE_NOTIFY_MARKER);
-    output.push_str("mcp_oauth_credentials_store = \"file\"\n\n");
+    output.push_str(
+        "sandbox_mode = \"danger-full-access\"\nmcp_oauth_credentials_store = \"file\"\n\n",
+    );
     for event in events {
         output.push_str(&format!(
             "[[hooks.{event}]]\n\n[[hooks.{event}.hooks]]\ntype = \"command\"\ncommand = \"codex termux notify emit {event}\"\ntimeout = 10\nstatusMessage = \"{}\"\n\n",
@@ -1630,6 +1678,14 @@ fn core_toml_basic_string(value: &str) -> String {
 
 #[cfg(unix)]
 fn requested_core_shared_state_home() -> std::io::Result<Option<std::path::PathBuf>> {
+    if let Some(home) = std::env::var_os("HOME") {
+        let home = std::path::PathBuf::from(home);
+        if let Some(shared) =
+            shared_layout::prepare(&home, std::env::var_os("CODEX_HOME").as_deref())?
+        {
+            return Ok(Some(shared));
+        }
+    }
     let Some(sqlite_home) = std::env::var_os(CODEX_SQLITE_HOME_ENV) else {
         return Ok(None);
     };
@@ -1673,7 +1729,9 @@ fn core_owned_requirements_file(path: &std::path::Path) -> std::io::Result<Optio
 }
 
 #[cfg(unix)]
-fn prepare_core_shared_state_requirements(config_dir: &std::path::Path) -> std::io::Result<()> {
+fn prepare_core_shared_state_requirements(
+    config_dir: &std::path::Path,
+) -> std::io::Result<Option<std::path::PathBuf>> {
     use std::io::Write as _;
     use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
 
@@ -1692,7 +1750,7 @@ fn prepare_core_shared_state_requirements(config_dir: &std::path::Path) -> std::
             std::fs::remove_file(&destination)?;
             std::fs::File::open(config_dir)?.sync_all()?;
         }
-        return Ok(());
+        return Ok(None);
     };
 
     if owned == Some(false) {
@@ -1701,6 +1759,7 @@ fn prepare_core_shared_state_requirements(config_dir: &std::path::Path) -> std::
             "existing requirements.toml is not Core-owned",
         ));
     }
+    let shared_path = shared.clone();
     let shared = shared.to_str().ok_or_else(|| {
         std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -1738,27 +1797,38 @@ fn prepare_core_shared_state_requirements(config_dir: &std::path::Path) -> std::
     if result.is_err() {
         let _ = std::fs::remove_file(&temporary);
     }
-    result
+    result.map(|()| Some(shared_path))
 }
 
 #[cfg(unix)]
-fn prepare_core_notification_config(config_dir: &std::path::Path, manager_available: bool) {
+fn prepare_core_notification_config(
+    config_dir: &std::path::Path,
+    manager_available: bool,
+) -> std::io::Result<()> {
     use std::io::{Read as _, Write as _};
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
     let Ok(directory_metadata) = std::fs::symlink_metadata(config_dir) else {
-        return;
+        return Err(std::io::Error::other(
+            "Core system configuration is unavailable or not Core-owned",
+        ));
     };
     if directory_metadata.file_type().is_symlink() || !directory_metadata.is_dir() {
-        return;
+        return Err(std::io::Error::other(
+            "Core system configuration is unavailable or not Core-owned",
+        ));
     }
     let destination = config_dir.join("config.toml");
     if let Ok(metadata) = std::fs::symlink_metadata(&destination) {
         if metadata.file_type().is_symlink() || !metadata.is_file() {
-            return;
+            return Err(std::io::Error::other(
+                "Core system configuration is unavailable or not Core-owned",
+            ));
         }
         if metadata.len() < CORE_NOTIFY_MARKER.len() as u64 {
-            return;
+            return Err(std::io::Error::other(
+                "Core system configuration is unavailable or not Core-owned",
+            ));
         }
         let existing = std::fs::File::open(&destination).ok().and_then(|file| {
             let mut bytes = Vec::new();
@@ -1768,7 +1838,9 @@ fn prepare_core_notification_config(config_dir: &std::path::Path, manager_availa
             Some(bytes)
         });
         if existing.as_deref() != Some(CORE_NOTIFY_MARKER.as_bytes()) {
-            return;
+            return Err(std::io::Error::other(
+                "Core system configuration is unavailable or not Core-owned",
+            ));
         }
     }
     let events = manager_available
@@ -1786,20 +1858,22 @@ fn prepare_core_notification_config(config_dir: &std::path::Path, manager_availa
             .write(true)
             .create_new(true)
             .mode(0o600)
-            .open(&temporary)
-            .ok()?;
-        output.write_all(&bytes).ok()?;
-        output.sync_all().ok()?;
-        if output.metadata().ok()?.permissions().mode() & 0o7777 != 0o600 {
-            return None;
+            .open(&temporary)?;
+        output.write_all(&bytes)?;
+        output.sync_all()?;
+        if output.metadata()?.permissions().mode() & 0o7777 != 0o600 {
+            return Err(std::io::Error::other(
+                "Core system configuration mode is unsafe",
+            ));
         }
-        std::fs::rename(&temporary, &destination).ok()?;
-        std::fs::File::open(config_dir).ok()?.sync_all().ok()?;
-        Some(())
+        std::fs::rename(&temporary, &destination)?;
+        std::fs::File::open(config_dir)?.sync_all()?;
+        Ok(())
     })();
-    if result.is_none() {
+    if result.is_err() {
         let _ = std::fs::remove_file(&temporary);
     }
+    result
 }
 
 #[cfg(unix)]
@@ -2289,7 +2363,7 @@ fn doctor_script_command(runtime: &OsStr, json: bool) -> OsString {
 
     let quoted_runtime = doctor_shell_quote(runtime);
     let mut command = quoted_runtime.as_bytes().to_vec();
-    command.extend_from_slice(b" -c 'sandbox_mode=\"danger-full-access\"' doctor");
+    command.extend_from_slice(b" doctor");
     if json {
         command.extend_from_slice(b" --json");
     }
@@ -2354,7 +2428,7 @@ where
         std::process::Command::new(selection.runtime.program_path)
     };
     if pty_path.is_none() {
-        cmd.args(["-c", "sandbox_mode=\"danger-full-access\"", "doctor"]);
+        cmd.args(["doctor"]);
         if json {
             cmd.arg("--json");
         }
@@ -7549,7 +7623,7 @@ fn probe_release_candidate(
             Some(roots.cert_dir.as_os_str()),
             &roots.resolver_path,
             &roots.config_dir,
-            &["-c", "sandbox_mode=\"danger-full-access\"", "--version"],
+            &["--version"],
         )
         .map_err(|_| LocalProductError::CandidateProbe("candidate version probe failed"))?
         {
@@ -12113,9 +12187,7 @@ mod tests {
         ] {
             match plan_public_dispatch(original.clone()).unwrap() {
                 PublicDispatchRoute::Upstream(planned) => {
-                    assert_eq!(planned[0], "-c");
-                    assert_eq!(planned[1], "sandbox_mode=\"danger-full-access\"");
-                    assert_eq!(&planned[2..], original.as_slice());
+                    assert_eq!(planned, original);
                 }
                 other => panic!("unexpected route: {other:?}"),
             }
@@ -12184,9 +12256,7 @@ mod tests {
         ] {
             match plan_public_dispatch(original.clone()).unwrap() {
                 PublicDispatchRoute::Upstream(planned) => {
-                    assert_eq!(planned[0], "-c");
-                    assert_eq!(planned[1], "sandbox_mode=\"danger-full-access\"");
-                    assert_eq!(&planned[2..], original.as_slice());
+                    assert_eq!(planned, original);
                 }
                 other => panic!("unexpected route: {other:?}"),
             }
@@ -12201,8 +12271,8 @@ mod tests {
         let tail = OsString::from_vec(vec![0x80, b'x', 0xfe]);
         match plan_public_dispatch(vec![first.clone(), tail.clone()]).unwrap() {
             PublicDispatchRoute::Upstream(argv) => {
-                assert_eq!(argv[2].as_bytes(), first.as_bytes());
-                assert_eq!(argv[3].as_bytes(), tail.as_bytes());
+                assert_eq!(argv[0].as_bytes(), first.as_bytes());
+                assert_eq!(argv[1].as_bytes(), tail.as_bytes());
             }
             other => panic!("unexpected route: {other:?}"),
         }
@@ -12230,9 +12300,7 @@ mod tests {
             OsString::from("--sandbox=read-only"),
         ];
         let planned = plan_passthrough_args(original.clone()).unwrap();
-        assert_eq!(planned[0], "-c");
-        assert_eq!(planned[1], "sandbox_mode=\"danger-full-access\"");
-        assert_eq!(&planned[2..], original.as_slice());
+        assert_eq!(planned, original);
     }
 
     #[cfg(unix)]
@@ -12241,7 +12309,7 @@ mod tests {
         use std::os::unix::ffi::{OsStrExt, OsStringExt};
         let raw = OsString::from_vec(vec![0xff, 0x80, b'z']);
         let planned = plan_passthrough_args(vec![raw.clone()]).unwrap();
-        assert_eq!(planned[2].as_bytes(), raw.as_bytes());
+        assert_eq!(planned[0].as_bytes(), raw.as_bytes());
     }
 
     #[cfg(unix)]
@@ -12458,12 +12526,12 @@ mod tests {
         let empty = render_core_notification_config(&[]);
         assert_eq!(
             empty,
-            b"# codex-termux-notify-v1\nmcp_oauth_credentials_store = \"file\"\n\n".to_vec()
+            b"# codex-termux-notify-v1\nsandbox_mode = \"danger-full-access\"\nmcp_oauth_credentials_store = \"file\"\n\n".to_vec()
         );
         let with_hook =
             String::from_utf8(render_core_notification_config(&["SessionStart"])).unwrap();
         assert!(with_hook
-            .starts_with("# codex-termux-notify-v1\nmcp_oauth_credentials_store = \"file\"\n\n"));
+            .starts_with("# codex-termux-notify-v1\nsandbox_mode = \"danger-full-access\"\nmcp_oauth_credentials_store = \"file\"\n\n"));
         assert!(with_hook.contains("[[hooks.SessionStart]]"));
         assert!(!with_hook.contains("keyring"));
     }
@@ -12824,7 +12892,35 @@ mod tests {
     }
 
     #[cfg(unix)]
-    fn temp_root(label: &str) -> std::path::PathBuf {
+    #[test]
+    fn core_full_access_default_requires_owned_config_and_preserves_collisions() {
+        let root = temp_root("full-access-config");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("config.toml"), b"foreign = true\n").unwrap();
+        assert!(prepare_core_notification_config(&root, false).is_err());
+        assert_eq!(
+            std::fs::read(root.join("config.toml")).unwrap(),
+            b"foreign = true\n"
+        );
+        std::fs::remove_file(root.join("config.toml")).unwrap();
+        prepare_core_notification_config(&root, false).unwrap();
+        assert_eq!(
+            std::fs::read(root.join("config.toml")).unwrap(),
+            render_core_notification_config(&[])
+        );
+        prepare_core_notification_config(&root, false).unwrap();
+        std::fs::remove_file(root.join("config.toml")).unwrap();
+        std::fs::write(root.join("foreign"), b"foreign = true\n").unwrap();
+        std::os::unix::fs::symlink(root.join("foreign"), root.join("config.toml")).unwrap();
+        assert!(prepare_core_notification_config(&root, false).is_err());
+        assert_eq!(
+            std::fs::read(root.join("foreign")).unwrap(),
+            b"foreign = true\n"
+        );
+        remove_temp_root(&root);
+    }
+
+    pub(crate) fn temp_root(label: &str) -> std::path::PathBuf {
         static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let id = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let root =
@@ -12834,7 +12930,7 @@ mod tests {
         root
     }
 
-    fn remove_temp_root(path: impl AsRef<std::path::Path>) {
+    pub(crate) fn remove_temp_root(path: impl AsRef<std::path::Path>) {
         let path = path.as_ref();
         match std::fs::remove_dir_all(path) {
             Ok(()) => {}
@@ -12844,7 +12940,7 @@ mod tests {
     }
 
     #[cfg(unix)]
-    fn resolve_test_tool(name: &str) -> Option<OsString> {
+    pub(crate) fn resolve_test_tool(name: &str) -> Option<OsString> {
         std::env::var_os("PATH").and_then(|path| {
             std::env::split_paths(&path)
                 .map(|dir| dir.join(name))
@@ -12871,10 +12967,6 @@ if [ "${CODEX_TEST_REQUIRE_NO_ACQUISITION:-}" = "1" ]; then
   for acquisition in "$HOME"/.local/lib/codex/core/generations/.acquire-*; do
     [ ! -e "$acquisition" ] || exit 96
   done
-fi
-if [ "$1" = "-c" ]; then
-  [ "$2" = 'sandbox_mode="danger-full-access"' ] || exit 91
-  shift 2
 fi
 if [ "$1" = "--version" ] || [ "$1" = "-V" ]; then
   printf 'codex-upstream 9.9.9\n'
@@ -12925,7 +13017,7 @@ fi
 printf 'ARGS:'
 for a in "$@"; do printf '<%s>' "$a"; done
 printf '\n'
-if [ -r /proc/self/fd/33 ] && [ -d /proc/self/fd/34 ]; then printf 'FDS_OK\n'; else printf 'FDS_BAD\n'; fi
+if [ -r /proc/self/fd/33 ] && [ -d /proc/self/fd/34 ] && [ -d /proc/self/fd/35 ]; then printf 'FDS_OK\n'; else printf 'FDS_BAD\n'; fi
 if [ -z "${CODEX_MANAGED_BY_NPM+x}" ] && [ -z "${CODEX_MANAGED_BY_BUN+x}" ] && [ -z "${CODEX_MANAGED_PACKAGE_ROOT+x}" ] && [ -z "${LD_PRELOAD+x}" ] && [ -z "${LD_LIBRARY_PATH+x}" ] && [ "$CODEX_TEST_SURVIVES" = "yes" ]; then printf 'ENV_OK\n'; else printf 'ENV_BAD\n'; fi
 printf 'STDERR_MARK\n' >&2
 exit 73
@@ -12971,6 +13063,14 @@ exit 73
             assert!(unsafe { dup2(file.as_raw_fd(), 2) } >= 0);
         }
         let root = std::path::PathBuf::from(std::env::var_os(PROBE_ROOT).unwrap());
+        std::env::set_var("HOME", &root);
+        std::env::set_var("CODEX_HOME", root.join("arbitrary-execution-home"));
+        if !std::env::var(PROBE_SCENARIO)
+            .unwrap()
+            .starts_with("shared-requirements")
+        {
+            std::env::remove_var(CODEX_SQLITE_HOME_ENV);
+        }
         let runtime = std::env::var_os(PROBE_RUNTIME).unwrap();
         let resolver = std::path::PathBuf::from(std::env::var_os(PROBE_RESOLVER).unwrap());
         let config = std::path::PathBuf::from(std::env::var_os(PROBE_CONFIG).unwrap());
@@ -13027,13 +13127,13 @@ exit 73
         let raw_args = match scenario.as_str() {
             "version" => vec![OsString::from("--version")],
             "signal" => vec![OsString::from("signal")],
-            "tty" => vec![OsString::from("tty")],
+            "tty" => vec![OsString::from("tty"), OsString::from("--no-daemon")],
             "exec" => vec![
                 OsString::from("exec"),
                 OsString::from("arg with spaces"),
                 OsString::from_vec(vec![0xff, 0x80, b'z']),
             ],
-            "notify-projection" => vec![OsString::from("--version")],
+            "notify-projection" | "notify-projection-conflict" => vec![OsString::from("--version")],
             "notify-projection-unavailable" => vec![OsString::from("--version")],
             "shared-requirements" | "shared-requirements-conflict" => {
                 vec![OsString::from("--version")]
@@ -13067,7 +13167,8 @@ exit 73
         };
         match execute_public_dispatch(route, context) {
             Err(PublicDispatchExecutionError::Upstream(RuntimeLaunchError::Config(_)))
-                if scenario == "shared-requirements-conflict" => {}
+                if scenario == "shared-requirements-conflict"
+                    || scenario == "notify-projection-conflict" => {}
             Err(PublicDispatchExecutionError::Upstream(RuntimeLaunchError::Exec(err))) => {
                 panic!("upstream exec failed: {err}")
             }
@@ -13264,11 +13365,10 @@ exit 73
             .env(PROBE_STDERR, &stderr)
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null());
-        command.env_remove(CODEX_SQLITE_HOME_ENV);
-        if scenario.starts_with("notify-projection") || scenario.starts_with("shared-requirements")
-        {
-            command.env("HOME", root);
-        }
+        command
+            .env_remove(CODEX_SQLITE_HOME_ENV)
+            .env("HOME", root)
+            .env("CODEX_HOME", root.join("arbitrary-execution-home"));
         if scenario.starts_with("shared-requirements") {
             command.env(CODEX_SQLITE_HOME_ENV, root.join(".codex"));
         }
@@ -13411,6 +13511,7 @@ exit 73
         assert_eq!(projected.stderr, b"version-stderr\n");
         let expected = concat!(
             "# codex-termux-notify-v1\n",
+            "sandbox_mode = \"danger-full-access\"\n",
             "mcp_oauth_credentials_store = \"file\"\n",
             "\n",
             "[[hooks.SessionStart]]\n",
@@ -13450,7 +13551,7 @@ exit 73
         assert_eq!(unavailable.status.code(), Some(0));
         assert_eq!(
             std::fs::read_to_string(config.join("config.toml")).unwrap(),
-            "# codex-termux-notify-v1\nmcp_oauth_credentials_store = \"file\"\n\n"
+            "# codex-termux-notify-v1\nsandbox_mode = \"danger-full-access\"\nmcp_oauth_credentials_store = \"file\"\n\n"
         );
 
         std::fs::write(
@@ -13462,12 +13563,22 @@ exit 73
         assert_eq!(cleared.status.code(), Some(0));
         assert_eq!(
             std::fs::read_to_string(config.join("config.toml")).unwrap(),
-            "# codex-termux-notify-v1\nmcp_oauth_credentials_store = \"file\"\n\n"
+            "# codex-termux-notify-v1\nsandbox_mode = \"danger-full-access\"\nmcp_oauth_credentials_store = \"file\"\n\n"
         );
         std::fs::write(config.join("config.toml"), b"user_setting = true\n").unwrap();
         std::fs::write(&record_path, record).unwrap();
-        let preserved = run_product_probe("notify-projection", &root, &runtime, &resolver, &config);
+        let preserved = run_product_probe(
+            "notify-projection-conflict",
+            &root,
+            &runtime,
+            &resolver,
+            &config,
+        );
         assert_eq!(preserved.status.code(), Some(0));
+        assert!(!preserved
+            .stdout
+            .windows(b"codex-upstream 9.9.9".len())
+            .any(|w| w == b"codex-upstream 9.9.9"));
         assert_eq!(
             std::fs::read_to_string(config.join("config.toml")).unwrap(),
             "user_setting = true\n"
@@ -15273,7 +15384,7 @@ snooze_until	0
         ] {
             match plan_public_dispatch(original.clone()).unwrap() {
                 PublicDispatchRoute::Upstream(planned) => {
-                    assert_eq!(&planned[2..], original.as_slice());
+                    assert_eq!(planned, original);
                 }
                 other => panic!("unexpected route: {other:?}"),
             }
@@ -15423,10 +15534,6 @@ if [ "${{CODEX_TEST_REQUIRE_NO_ACQUISITION:-}}" = "1" ]; then
   for acquisition in "$HOME"/.local/lib/codex/core/generations/.acquire-*; do
     [ ! -e "$acquisition" ] || exit 96
   done
-fi
-if [ "$1" = "-c" ]; then
-  [ "$2" = 'sandbox_mode="danger-full-access"' ] || exit 90
-  shift 2
 fi
 case "$1" in
   --version) exit {version_exit} ;;
@@ -15785,12 +15892,12 @@ esac
             output.stderr
         );
         assert!(std::process::Command::new(&runtime)
-            .args(["-c", "sandbox_mode=\"danger-full-access\"", "--version"])
+            .args(["--version"])
             .status()
             .unwrap()
             .success());
         assert!(std::process::Command::new(&runtime)
-            .args(["-c", "sandbox_mode=\"danger-full-access\"", "doctor"])
+            .args(["doctor"])
             .status()
             .unwrap()
             .success());
@@ -18117,12 +18224,12 @@ esac
             raw_runtime
         );
         assert!(std::process::Command::new(generation.join("runtime"))
-            .args(["-c", "sandbox_mode=\"danger-full-access\"", "--version"])
+            .args(["--version"])
             .status()
             .unwrap()
             .success());
         assert!(std::process::Command::new(generation.join("runtime"))
-            .args(["-c", "sandbox_mode=\"danger-full-access\"", "doctor"])
+            .args(["doctor"])
             .status()
             .unwrap()
             .success());
@@ -18499,6 +18606,8 @@ esac
             .arg("--exact")
             .arg("--nocapture")
             .env(STARTUP_PROBE_ROLE, "1")
+            .env_remove("CODEX_HOME")
+            .env_remove(CODEX_SQLITE_HOME_ENV)
             .env("CODEX_TERMUX_UPDATE_INDEX_URL", index_url)
             .env("HOME", home)
             .env("PREFIX", prefix)
@@ -21567,8 +21676,77 @@ exec "$cat_path" "$release_root/$relative"
     }
 
     #[cfg(unix)]
+    fn daemon_capable_fixture(generation: &std::path::Path, openssl: &std::path::Path) {
+        let runtime = generation.join("runtime");
+        let script = std::fs::read_to_string(&runtime).unwrap();
+        let shell = resolve_test_shell();
+        let source = generation.parent().unwrap().join("server-fixture.rs");
+        let body = format!(
+            r#"
+use std::{{env,process::Command,os::unix::{{net::UnixListener,process::CommandExt}}}};
+fn main() {{
+ let args:Vec<String>=env::args().skip(1).collect();
+ if args.first().map(String::as_str)==Some("app-server") {{
+  let path=args[2].strip_prefix("unix://").unwrap();
+  let l=UnixListener::bind(path).unwrap(); l.set_nonblocking(true).unwrap();
+  while std::path::Path::new(path).exists() {{
+   let _=l.accept(); std::thread::sleep(std::time::Duration::from_millis(25));
+  }}
+ }} else {{
+  let error=Command::new({shell:?}).arg("-c").arg({script:?}).arg("runtime").args(args).exec();
+  panic!("{{error}}");
+ }}
+}}
+"#,
+            shell = shell.to_str().unwrap()
+        );
+        std::fs::write(&source, body).unwrap();
+        assert!(
+            std::process::Command::new(resolve_test_tool("rustc").unwrap())
+                .arg("--edition=2021")
+                .arg(&source)
+                .arg("-o")
+                .arg(&runtime)
+                .status()
+                .unwrap()
+                .success()
+        );
+        std::fs::remove_file(source).unwrap();
+        let descriptor = generation.join("generation.meta");
+        let original = std::fs::read_to_string(&descriptor).unwrap();
+        let digest = openssl_sha256(openssl, &runtime).unwrap();
+        let updated = original
+            .lines()
+            .map(|line| {
+                if line.starts_with("runtime_digest\t") {
+                    format!("runtime_digest\t{digest}")
+                } else {
+                    line.to_owned()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n";
+        std::fs::write(descriptor, updated).unwrap();
+    }
+
+    #[cfg(unix)]
     fn b5_channel_fixture(label: &str, generation_id: &str) -> B5ChannelFixture {
-        let root = temp_root(label);
+        let daemon = label.starts_with("startup-");
+        let root = if daemon {
+            let long = temp_root("");
+            let short = long.with_file_name(
+                long.file_name()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .replace("codex-r2--", "s"),
+            );
+            std::fs::rename(long, &short).unwrap();
+            short
+        } else {
+            temp_root(label)
+        };
         let openssl = b4_termux_openssl();
         let (home, prefix, tmp) = b4_prepare_public_environment(&root, &openssl, true);
         let private_key = root.join("keys/private.pem");
@@ -21580,6 +21758,9 @@ exec "$cat_path" "$release_root/$relative"
         std::fs::create_dir_all(&source_roots.generation_root).unwrap();
         let current_id = "channel-current".to_owned();
         let current = b2_write_generation(&source_roots, &current_id, false, "unsupported");
+        if daemon {
+            daemon_capable_fixture(&current, &openssl);
+        }
         b4_write_signed_release(&current, 1, &openssl, &private_key);
         b7_seed_initial_release(
             &current,
@@ -21590,6 +21771,9 @@ exec "$cat_path" "$release_root/$relative"
         std::fs::remove_file(home.join(".local/lib/codex/core/release-public-key.pem")).unwrap();
 
         let release = b2_write_root_generation(&source_roots, generation_id, false, "supported");
+        if daemon {
+            daemon_capable_fixture(&release, &openssl);
+        }
         b4_write_signed_release(&release, 2, &openssl, &private_key);
         let base = format!("https://releases.example.invalid/codex/{generation_id}/");
         let index_url = "https://updates.example.invalid/codex/update-index-v1".to_owned();

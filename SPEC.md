@@ -398,6 +398,7 @@ Before final upstream execution Core must:
   status;
 - open the selected resolver source read-only and make it available on FD 33;
 - make the process-local managed configuration directory available on FD 34;
+- expose the qualified temporary directory read-only on FD 35 for the bounded UDS adaptation;
 - ensure those descriptors survive the final `exec` boundary;
 - use the selected official runtime and compatibility tool paths;
 - report unsupported Linux sandbox requests clearly.
@@ -410,6 +411,15 @@ Core must not claim that `read-only` or `workspace-write` Linux sandbox modes
 are enforced. Ordinary supported launch uses the explicitly selected upstream
 no-sandbox policy; unsupported sandbox requests fail clearly rather than
 silently weakening the request.
+
+Core must preserve the accepted upstream argv byte-for-byte, including an empty
+bare-launch vector. It must not synthesize `-c`, `--enable`, `--disable`, or
+`--search`. The Termux no-sandbox default is supplied through the existing
+Core-owned system `config.toml` on FD 34 as
+`sandbox_mode = "danger-full-access"`, which is also visible to a qualified
+shared background server. User-supplied upstream options remain unchanged;
+explicit unsupported sandbox requests still fail before runtime I/O. Hiding a
+shared-server warning or disabling the server does not satisfy this contract.
 
 Core never invokes, installs, downloads, or repairs `bwrap`. An explicit Linux
 sandbox-policy rejection is a Core usage/policy failure with process status 2
@@ -751,6 +761,24 @@ already-patched occurrences reject the input. The output differs only at the
 selected byte positions; its deterministic patch report binds the archive,
 raw-runtime, adapted-runtime, and code-mode-host SHA-256 values, the four source
 counts, and the changed-byte count.
+
+New upstream 0.160.0 builds use patch policy `termux-fd-remap-v2`. It retains the four exact
+substitutions above and additionally qualifies the protected Unix socket root
+for upstream 0.160.0 only. The official raw runtime SHA-256 must be
+`50b06603bdcdac39b714f5c3e68583c002b8ad8779ebfdaaf4932ff016b379c0`.
+The selected AArch64 `shared_daemon_socket_directory` canonicalize argument is
+redirected from its inline `/tmp` C string to `/proc/self/fd/35`; its UID format
+retains the UID and omits only the `codex-daemon-` prefix to fit the Linux socket
+limit. Constants occupy verified zero padding inside the existing read-only
+ELF load segment. Exact original instruction bytes, offsets and format bytes
+must match before the bounded rewrite; all other instructions, `/tmp` uses,
+UID/0700 owner checks and physical-path hashing remain unchanged. Qualification
+rejects artifact/version drift or already adapted input. Core supplies a
+read-only directory FD 35 for the qualified Termux temporary root before the
+server starts; the canonical physical socket path must fit 107 bytes. The patch
+report includes the exact UDS policy and total changed-byte count. Historical
+v1 generations remain valid rollback artifacts. Other upstream versions require
+fresh source/artifact qualification before this server path is accepted.
 
 The unsigned output contains exactly `generation.meta`, the adapted `runtime`,
 and an unmodified root-level `codex-code-mode-host` beside `runtime`; the first
@@ -1662,6 +1690,58 @@ because conversations are shared objects rather than profile-owned objects. A
 missing profile or invalid shared-state topology is a non-mutating validation
 failure; it is never repaired as a side effect of launch.
 
+### Installation-wide upstream resume visibility
+
+The 2026-10-02 corrective contract extends the existing upstream-owned shared
+conversation architecture to known external execution homes directly beneath
+`$HOME/.codex-profiles/<PROFILE_ID>`. Core must apply the same canonical SQLite
+requirement even when those launches lack a Manager-provided
+`CODEX_SQLITE_HOME`. Canonical/default, complete Manager, and declared external
+execution identities discover the installation's one upstream conversation
+store under `$HOME/.codex`; credentials, user/provider configuration, logs and
+runtime snapshots remain profile-local. An arbitrary external `CODEX_HOME`
+remains isolated rather than becoming an implicit import source. Core validates
+the declared topology and never routinely reads SQLite, parses transcripts,
+merges sessions, or maintains another discovery index. Empty declared homes
+may receive only the exact compatibility links; nonempty legacy roots require
+the bounded operator transition first. User argv is unchanged.
+
+Upstream resume filtering is retained unchanged: `cwd` covers the current CWD
+across all execution accounts, and `all` covers all CWDs across all execution
+accounts, with the existing upstream archive/provider/source semantics. Account
+identity never partitions local discovery. New sessions written through any
+supported execution identity immediately enter this same store. Discovery does
+not merge authentication or let session creation identity select credentials.
+
+For this user-authorized transition only, the historical SCS-6 five-per-profile
+selection and backup prerequisite are replaced by all conversations with actual
+activity during the seven days preceding the bounded apply. The user explicitly
+authorizes deleting confirmed older conversations and declines a recovery
+backup. Read-only legacy SQLite activity and authoritative rollout timestamps
+select the set; IDs, retained transcript records and retained history entries
+are preserved. Copies sharing a thread ID may collapse only when their complete
+per-record-type payload sequences prove a prefix relation; divergent histories
+reject apply. The maximal history is authoritative. Canonical files are regular
+and deduplicated by UUID; upstream APIs own metadata repair, resume/history
+materialization, explicit names and deletion of excluded canonical projections.
+No SQLite merge or whole-file replacement is permitted.
+
+A bounded online handoff may publish retained authoritative rollouts by atomic same-filesystem move
+and atomically exchange a legacy session directory with its exact canonical
+compatibility symlink. This preserves the active writer's inode while future
+path opens use the shared store. Immediately before handoff, inspect every
+upstream writer's open retained rollout inode: multiple active differing copies,
+an active nonmaximal copy, or an active excluded rollout reject apply. Existing
+private SQLite projections used by pretransition writers must remain untouched
+until those writers exit; all new Core launches enforce canonical SQLite.
+Per-profile upstream writer coordination locks serialize the handoff; per-thread
+lock inodes move into the canonical namespace with their active owners. This
+avoids Android-denied hardlinks while retaining the writer FD. Inactive legacy
+projections and displaced payload trees may then be removed
+within the declared roots. No writer is killed, no auth/config is copied, and
+no restoration backup is created. The online exception does not permit a
+steady-state migration service or a second thread/schema authority.
+
 ### MGR-2 — bounded session listing and resume
 
 MGR-2 adds exactly these local, non-interactive forms:
@@ -2118,6 +2198,26 @@ Codex installation under `$CODEX_HOME/packages/standalone`, and no Termux
 app-server path may fetch or execute the upstream standalone installer or any
 other upstream self-updater. Bare `codex update` and all runtime replacement
 remain Core-owned signed-generation operations.
+
+For interactive local upstream TUI/resume/fork launches, Core may start one
+shared app-server directly from the already qualified active generation before
+unchanged upstream exec. This server receives the same FD-33 resolver, FD-34
+system configuration, FD-35 Termux temporary directory and qualified child environment. Its private profile-local
+socket is exposed at the upstream default control socket through one validated
+Core-owned socket symlink into a private short generation/profile namespace.
+The actual socket pathname is at most 107 encoded bytes;
+profile identities and authentication remain distinct. Core binds a reused
+server to its recorded PID, kernel socket peer PID, and exact qualified executable
+through `/proc`, and
+serializes startup with a kernel-held directory lock. Generation changes choose
+a new namespace and preserve existing clients on the old server; they never
+kill user turns as a side effect of launch. Server system configuration is a
+private snapshot of the Core-owned defaults/requirements for that identity. A substituted socket,
+record, directory or runtime is rejected. Startup is bounded; failure does not
+invoke an installer or execute any package outside signed generations. Explicit
+user embedded/remote/configuration selections retain their upstream semantics.
+Core launches no upstream daemon updater and never creates a packages tree.
+The historical public daemon/remote-control lifecycle fence remains in force.
 
 A daemon-backed app-server command, including `remote-control start`, may run
 only if it is bound to the currently qualified signed generation and cannot
