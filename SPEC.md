@@ -81,7 +81,9 @@ be appended to upstream `--version` or `-V` output.
 ### Optional AI tmux notification focus
 
 The separate humtr/ai launcher may offer explicit `ai run <provider> --tmux`
-and a default-off TUI toggle. AI owns tmux launch, private server registration,
+or `--tmux=hidden|status|off` and a default-off TUI choice: off, on-hidden,
+on-status. Legacy true/false preferences map to hidden/off. AI owns tmux launch,
+private server registration,
 and its internal `ai __tmux_focus <UUID>` endpoint; Core owns neither. Native
 argv, selected profile environment and CWD remain unchanged. Inside tmux AI
 creates a managed window on that server; outside it attaches a managed session.
@@ -2071,9 +2073,12 @@ arbitrary input are never forwarded. Hook delivery retains its silent best-effor
 contract regardless of these outcomes.
 
 The optional external AI tmux launcher owns presentation only within a session
-marked as AI-managed. It hides that session's native bottom status row so Codex
-retains the full terminal height. It must preserve status settings of an existing
-unmanaged tmux session and never change global tmux configuration. New panes use
+marked as AI-managed. Hidden mode hides that session's native bottom status row;
+status mode shows one native status row and enables session-local mouse support
+so tapping a window name selects it. The latest explicit launch mode applies to
+the shared managed session. It must preserve status and mouse settings of an
+existing unmanaged tmux session and never change global tmux configuration.
+New panes use
 current caller color preferences, including explicit unset values, rather than
 stale server environment; tmux retains native TERM/TERM_PROGRAM ownership.
 

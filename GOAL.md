@@ -32,7 +32,55 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
-## NOTIFY-SINGLE-LINE-TMUX-COLOR-V1 (selected 2026-10-02)
+## TMUX-STATUS-CHOICE-TERMINAL-FOCUS (selected 2026-10-02)
+
+- User replaces the two-way toggle with off/on-hidden/on-status and asks exact
+  notification return across native Termux terminals. Success requires both
+  native tmux window selection and visible Android terminal selection; pane-only
+  proof is insufficient. No notification may create a terminal or resume process.
+- Preserve unrelated AI dirty work, active users, auth, sessions, shared-server
+  behavior, resolver and global/foreign tmux settings. Workers OFF. Status source
+  and bounded AI-only installation are authorized after gates. Native app routing
+  remains diagnosis until an existing-only operation is proven; no APK replacement
+  is authorized merely by this ledger. Ordered proof map in WORKBOARD.md.
+- Status slice accepted: AI source `e6a91e6` offers `off / on-hidden / on-status`,
+  exact CLI selectors, legacy boolean normalization and native clickable status.
+  Exact staged tree `372e3050ffd121915ee98633959c790c27a44dc6` passed isolated
+  final37 gates/0 warnings, TUI161 and all6 standalone Python test scripts.
+  Native6 regressions include real PTY mouse selection and preserve foreign
+  status/mouse. The existing installed UI/provider changes passed working-source
+  final37/TUI162/native6 and were retained during bounded AI-only installation.
+  Installed public AI accepts every selector; unrelated dirty diff
+  `3acdf081e07b` is unchanged, fifteen auth/config/resolver identities and both
+  existing tmux pane/PID identities are unchanged; global status/mouse unchanged.
+- User-requested recovery of the closed tmux conversation identified an active
+  turn on the previous generation's shared server, with effective delay0 already
+  present. Active background turns are protected from idle unload. A targeted
+  upstream `turn/interrupt` changed active to idle and upstream removed its writer
+  lock; subsequent rebinds prove the lock remains absent. No lock deletion,
+  server kill, transcript rewrite or delay change was used. This closes the
+  immediate recovery, without claiming automatic cancellation on client closure.
+- User explicitly requested inspection of the pre-Rust branch. Sealed
+  `legacy/monolith` at `bf30a7dc94d4dad7f58836c69028160856e63c58` was inspected
+  read-only: `tools/termux-notify.sh` opens a foreground native terminal through
+  RunCommandService and runs `tmux attach`; it does not select an existing native
+  terminal. Its tests inspect generated action arguments, not actual native
+  existing-only selection. No legacy source or tests were copied. Native terminal
+  movement remains unresolved; user clarification is pending on whether the
+  historical new-terminal attach behavior is acceptable under the current
+  no-new-terminal contract.
+- Single-line notification request was reverified through the installed public
+  `codex termux notify emit Stop` path with synthetic multiline Unicode input.
+  Actual termux-notification receives single-line title/body; actual toast retains
+  configured newlines, with silent successful public emit. The own synthetic
+  notification was removed. Signed34 Manager SHA256 still equals
+  `cc0a38c5af308702318a2c9575c1efccd846e816183071d5b43a0dafc0f7544d`.
+  Legacy deliberately appended a newline even for one-line content; Termux:API
+  selects BigTextStyle on newline, explaining hidden collapsed content. Current
+  provider-boundary folding removes that trigger without changing toast policy.
+  Prompt-cache investigation remains deferred until terminal movement is resolved.
+
+## NOTIFY-SINGLE-LINE-TMUX-COLOR-V1 (accepted 2026-10-02)
 
 - User prioritizes single-line notification title/body while retaining toast
   behavior, and restoring Codex color/rich rendering through optional AI tmux.
@@ -64,7 +112,16 @@
   actual bare Codex with zero argv overrides, native screen-256color, NO_COLOR
   absent, RGB38;2;99;168;248 plus bold/dim; owned status off. Existing managed
   session status off preserves all panes/PIDs/global status. Own empty probe UI
-  exits gracefully; no model turn. Native notification/public deployment pending.
+  exits gracefully; no model turn.
+- Codex implementation4b00b8d461939a7070d95a1ea6e6a58c318cbf52 pushed. Production
+  workflow37066564003 passes all8 jobs; public07d625561283bad5d25b778782c16d4929b4939f.
+  Ordinary codex update activates signed34/upstream0.160.0, generation
+  local-hosted-0-160-0-4b00b8d46193-notify-line. Core/runtime unchanged;
+  Manager SHA256cc0a38c5af308702318a2c9575c1efccd846e816183071d5b43a0dafc0f7544d.
+  Real native both-provider emit delivers folded single-line notification and
+  configured multiline toast. Own synthetic notification removed. Doctor healthy
+  and all15 protected identities unchanged. Physical cross-terminal focus remains
+  a separate user-confirmed limitation; this bundle makes no claim of fixing it.
 
 ## RESUME-WRITER-RELEASE-V1 (accepted 2026-10-02)
 
@@ -633,12 +690,12 @@ dated sections preserve historical evidence; historical words such as
 `WORKBOARD.md`.
 
 - Source authority is remote `rewrite/rust-core`, read afresh on resume. Runtime
-  producer is **aa2685f2f68807e0040d7dd8978f7a6565de6680**; ledger-only children
-  retain identical accepted Rust source. AI main **5ce014ce7bbcffc916ee2c1a1c5e8a000e231ce9**
-  is the docs child of accepted324e201+88a21df implementation.
-- Public main **fcf9f379fdb9fcb6867084b87330197fbd61dd16**; signed/live sequence
-  **33**, upstream **0.160.0**, **local-hosted-0-160-0-aa2685f2f688-resume-writer**;
-  sequence32 rollback. Core-only default change; Manager/runtime bytes unchanged.
+  producer is **4b00b8d461939a7070d95a1ea6e6a58c318cbf52**; ledger-only children
+  retain identical accepted Rust source. AI main **e6a91e61b1ec7b96813de9049c943788e2e37154** adds
+  off/hidden/status selection and native clickable status; unrelated dirty work remains.
+- Public main **07d625561283bad5d25b778782c16d4929b4939f**; signed/live sequence
+  **34**, upstream **0.160.0**, **local-hosted-0-160-0-4b00b8d46193-notify-line**;
+  sequence33 rollback. Manager-only change; Core/runtime bytes unchanged.
   Source/release/public/live agree; actual native effective delay0/full-access.
 - AI-TMUX-NOTIFY-FOCUS-V1, NOTIFY-OPEN and INPUT-REQUEST accepted. Both channels
   and PermissionRequest/UserInputRequest/Stop active; focus=tmux. AI --tmux/TUI
