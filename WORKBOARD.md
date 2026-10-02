@@ -9,32 +9,22 @@ in `RELEASE_AUTOMATION_PLAN.md`.
 
 - Repository: `humtr/codex`.
 - Source authority branch: `rewrite/rust-core`; always re-read the remote head
-  before work. Do not use a remembered SHA as current authority.
-- Selected maintenance bundle: **STARTUP-ADVISORY-SINGLE-KEY-TRANSIENT-V1**.
-- Authority compaction completed and was pushed at
-  `28cea0b97c7b4ae32e7b37816f2f1d277fdb07a6`.
-- Product-code mutation in this bundle is limited to the bare zero-argument
-  startup update advisory: immediate single-key `y`/`n` handling without Enter,
-  transient in-place rendering, prompt-input isolation, and exact TTY-mode
-  restoration. No command ordering, update authority, release verification, or
-  Manager surface changes are authorized.
-- Accepted product implementation for the current feature set is exact source
-  `4fd14ed8aafcf29602f43e00c314eb8da39a6e5f`. The later authority commits are
-  documentation-only.
-- Current signed public stable before alignment is sequence **23**, generation
-  `local-hosted-0-159-0-b164e5b61cb4`, upstream `codex-cli 0.159.0`, with
-  public-control `main=4d7418085265073bf1dada737a364aee54b374bd`.
-- Current live Termux consumer is the same `0.159.0` / sequence-23 generation.
-- Fresh official upstream preflight on 2026-09-30 resolved exact `0.159.2`
+  before work.
+- Selected maintenance bundle:
+  **STARTUP-ADVISORY-SINGLE-KEY-TRANSIENT-V1 / SEQUENCE-27-CORRECTIVE**.
+- Accepted hotfix product source is exact
+  `75aed30c7ad6c427d30115b0667957130da198f5`. Later authority-only commits
+  must not replace this product-source pin.
+- Current public-control branch is exact
+  `main=bf833822c41cb5ee817922b2ed08e9316f288a40`.
+- Current signed public stable is sequence **26**, generation
+  `local-hosted-0-160-0-4fd14ed8aafc`, upstream `codex-cli 0.160.0`.
+- Current live Termux consumer is sequence **24**, generation
+  `local-hosted-0-159-2-4fd14ed8aafc`, upstream `codex-cli 0.159.2`.
+- Fresh official upstream preflight on 2026-10-02 resolves exact `0.160.0`
   with archive SHA-256
-  `05a524a463cadf7e3e22c7f923539c0d0b74c3e78b1f5f1fab52e50e6fb3312f`.
-- Sequence 23 was built from isolated production source
-  `b164e5b61cb438913cdb1633d74c62d6c96f6523`. That commit is a child of
-  `4fd14ed8...` but changes Core and Manager product files; therefore the live
-  sequence-23 runtime is **not** source-equivalent to current accepted source
-  authority.
-- The signed sequence-23 Release and its authenticated
-  `compat/download-size-v1` control resources remain retained and valid.
+  `7f0fe42ff22ecfa3a47bc4a34f5b22c4218b431a4ec0aba51c7d98299f07900c`.
+- The next public release sequence is therefore exactly **27**.
 
 ## Active bounded hotfix — startup advisory single-key/transient behavior
 
@@ -55,56 +45,45 @@ semantics while making the advisory a true transient TTY interaction:
   exit path;
 - non-TTY launches remain unchanged and bypass startup discovery/prompting.
 
-Source validation and focused PTY regression coverage are required before this
-hotfix may replace the source authority. Release/live activation remains a
-separate gate under the existing signed-generation invariants.
+The product source was validated with focused PTY coverage and the full repository
+validation suite, then published as `75aed30c7ad6c427d30115b0667957130da198f5`.
+Release/live activation is the remaining gate and must preserve the existing
+signed-generation invariants.
 
-## Phase A — authority compaction — complete
+## Release/live gate — sequence-27 corrective
 
-The historical Workboard/release-plan bodies were compacted into current routing
-plus reusable gates, while `GOAL.md` remains the durable evidence ledger.
-Validation was green and the exact docs-only result was pushed to
-`rewrite/rust-core`.
+This is a bounded same-upstream-version corrective release for the accepted
+startup-advisory hotfix. It does not authorize unrelated product or Manager
+changes.
 
-The initially planned 0.159.0 same-version sequence-24 correction was never
-published or applied. Its pretrigger upstream check observed official 0.159.2 and
-failed closed before public or live mutation. It is superseded by Phase B below.
+- Re-read public `main`, the signed stable index/manifest, official upstream, and
+  live activation immediately before mutation.
+- Require public stable sequence **26**, generation
+  `local-hosted-0-160-0-4fd14ed8aafc`, upstream `0.160.0`.
+- Require exact hotfix product source
+  `75aed30c7ad6c427d30115b0667957130da198f5`.
+- Require official latest to remain exact `0.160.0` with archive SHA-256
+  `7f0fe42ff22ecfa3a47bc4a34f5b22c4218b431a4ec0aba51c7d98299f07900c`.
+- The ordinary semantic version comparison is expected to report no newer
+  candidate; only this explicitly bounded same-version corrective gate may
+  produce sequence **27**.
+- Use a fresh generation identity. Never overwrite sequence 26 Release, Pages,
+  or signed index bytes.
+- Preserve unsigned qualification, production-only signing, independent
+  verification, immutable Release staging, last-known-good Pages continuity,
+  every-byte HTTPS readback, disposable update/no-op proof, and non-forced
+  exact-parent stable-index CAS.
+- Only after independent public confirmation may the live sequence-24 consumer
+  take the ordinary signed public update directly to sequence 27. Verify
+  `codex --version == codex-cli 0.160.0`, the sequence-27 generation is active,
+  Core/Manager/runtime are healthy, and a second exact-current update is a
+  no-op.
+- Final live acceptance must also exercise a future-style startup advisory in a
+  PTY fixture or equivalent installed-Core probe to prove single-key/no-Enter,
+  no-echo, transient clear, input isolation, and terminal-mode restoration.
 
-## Phase B — ordinary newer-stable runtime alignment
-
-The user explicitly authorized runtime alignment after authority compaction.
-
-- Do not rewrite product code for this phase.
-- Build from exact accepted product source
-  `4fd14ed8aafcf29602f43e00c314eb8da39a6e5f`.
-- Treat public sequence 23 / generation
-  `local-hosted-0-159-0-b164e5b61cb4` as the exact authenticated baseline.
-- Official upstream must resolve to exact `0.159.2` and exact archive SHA-256
-  `05a524a463cadf7e3e22c7f923539c0d0b74c3e78b1f5f1fab52e50e6fb3312f`.
-- The ordinary semantic version comparison must report a newer candidate. Do not
-  use a same-version override to create this release.
-- The candidate must use fresh generation identity and exact next sequence
-  **24**. It may not overwrite or repurpose the sequence-23 Release, Pages tree,
-  tag, or signed index bytes.
-- Core and Manager must be cross-built from the accepted source. Upstream-owned
-  runtime/code-mode-host bytes may legitimately change because upstream moved
-  from 0.159.0 to 0.159.2; every such byte remains bound to the exact official
-  archive and full candidate qualification.
-- Preserve production-authority signing, independent verification, immutable
-  Release staging, last-known-good Pages continuity, public HTTPS every-byte
-  readback, disposable ordinary update/no-op proof, and non-forced exact-parent
-  stable-index CAS.
-- Mutate the live Termux consumer only after public promotion has independently
-  re-read green, and only through ordinary signed public `codex update`.
-- Final acceptance requires live `codex --version == codex-cli 0.159.2`, active
-  generation equal to the newly promoted sequence-24 generation, healthy
-  Core/Manager/runtime, and a second exact-current update with no state delta.
-- Because the live sequence-23 Core already implements
-  `UPDATE-DOWNLOAD-SIZE-V1`, this real 0.159.0 -> 0.159.2 transition is also
-  the first live acceptance opportunity for authenticated
-  `downloaded / total` TTY progress.
-- After acceptance, record exact sequence/generation/run/source evidence in
-  `GOAL.md` and set this Workboard back to “no active bundle.”
+After acceptance, record exact source/public/live evidence in `GOAL.md` and
+return this Workboard to no active bundle.
 
 ## Preserved architecture
 

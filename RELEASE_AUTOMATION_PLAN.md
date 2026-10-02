@@ -1,6 +1,6 @@
 # Release Automation and Local-Derived Update Plan
 
-Status: **active only for RUNTIME-ALIGNMENT-UPSTREAM-0.159.2**.
+Status: **active only for STARTUP-ADVISORY-SINGLE-KEY-TRANSIENT-V1 / SEQUENCE-27-CORRECTIVE**.
 Historical production runs and one-shot gates are accepted evidence in
 `GOAL.md`; they are not current routing in this file.
 
@@ -9,34 +9,26 @@ current release drift-control plan. It never overrides those authorities.
 
 ## Current production baseline
 
-- Source authority compaction commit:
-  `28cea0b97c7b4ae32e7b37816f2f1d277fdb07a6`.
-- Public-control branch before the production trigger:
-  `main=4d7418085265073bf1dada737a364aee54b374bd`.
-- Signed stable sequence: **23**.
-- Signed stable generation:
-  `local-hosted-0-159-0-b164e5b61cb4`.
-- Current stable/live upstream version: `codex-cli 0.159.0`.
-- Sequence-23 producer source:
-  `b164e5b61cb438913cdb1633d74c62d6c96f6523`.
-- Accepted source-authority product implementation:
-  `4fd14ed8aafcf29602f43e00c314eb8da39a6e5f`.
-- Live Termux consumer: exact `0.159.0`, active sequence-23 generation above.
-- The sequence-23 immutable GitHub Release is retained.
-- Authenticated download-size resources are public at
-  `<generation>/compat/download-size-v1` and
-  `<generation>/compat/download-size-v1.sig`.
+- Accepted hotfix product source:
+  `75aed30c7ad6c427d30115b0667957130da198f5`.
+- Public-control branch before the corrective trigger:
+  `main=bf833822c41cb5ee817922b2ed08e9316f288a40`.
+- Signed public stable sequence: **26**.
+- Signed public stable generation:
+  `local-hosted-0-160-0-4fd14ed8aafc`.
+- Signed public stable upstream version: `codex-cli 0.160.0`.
+- Live Termux consumer sequence: **24**.
+- Live generation:
+  `local-hosted-0-159-2-4fd14ed8aafc`.
+- Live upstream version: `codex-cli 0.159.2`.
+- Fresh official upstream preflight on 2026-10-02 resolves exact `0.160.0`
+  with archive SHA-256
+  `7f0fe42ff22ecfa3a47bc4a34f5b22c4218b431a4ec0aba51c7d98299f07900c`.
+- Next public release sequence: **27**.
 
-Fresh official upstream preflight on 2026-09-30 resolved:
-
-- version: **0.159.2**
-- exact archive SHA-256:
-  `05a524a463cadf7e3e22c7f923539c0d0b74c3e78b1f5f1fab52e50e6fb3312f`
-
-The previously planned 0.159.0 same-version sequence-24 correction was blocked
-by this pretrigger check before any public or live mutation and is superseded.
-The selected alignment is now an **ordinary newer-stable 0.159.2 sequence-24
-release** from the accepted source.
+The public sequence-26 generation remains authoritative until every corrective
+publication gate below passes. The live sequence-24 consumer remains untouched
+until public promotion is independently re-read green.
 
 ## Frozen release invariants
 
@@ -91,49 +83,44 @@ For generations that implement `UPDATE-DOWNLOAD-SIZE-V1`:
 - actual progress is based on GET-written bytes, not HEAD;
 - the sidecar never enters installed generation inventory.
 
-## Selected 0.159.2 runtime-alignment gate
+## Selected startup-advisory sequence-27 corrective gate
 
-This is a bounded ordinary newer-stable production operation. It does not
-authorize unrelated product changes.
+This is a bounded same-version corrective production operation. It exists only
+to publish the accepted startup-advisory product fix and does not weaken the
+ordinary newer-version path.
 
 Required preconditions:
 
-- user authorization for runtime alignment is already explicit;
-- public stable remains exact sequence 23 generation
-  `local-hosted-0-159-0-b164e5b61cb4`;
-- public `main` is exact
-  `4d7418085265073bf1dada737a364aee54b374bd` before the one-shot production
-  trigger commit and is re-read immediately before that commit;
-- accepted product source is exact
-  `4fd14ed8aafcf29602f43e00c314eb8da39a6e5f`;
-- official latest remains exact `0.159.2` with archive SHA-256
-  `05a524a463cadf7e3e22c7f923539c0d0b74c3e78b1f5f1fab52e50e6fb3312f`;
-- ordinary comparison from authenticated stable 0.159.0 to official 0.159.2
-  returns `candidate=true`;
-- next release sequence is exactly **24**;
-- candidate uses a fresh generation identity;
-- the production trigger is a one-shot exact-parent/exact-message push bridge
-  that also pins `CODEX_SOURCE_SHA` back to the accepted source. Any parent,
-  message, baseline, source, version, sequence, or candidate mismatch fails
-  closed.
-
-Because upstream changed versions, runtime/code-mode-host and other
-upstream-derived payloads are not required to be byte-identical to sequence 23.
-They must instead be derived from and qualified against the exact authenticated
-0.159.2 archive. Core/Manager remain source-bound to exact `4fd14ed8...`.
+- user authorization for the startup-advisory fix is explicit in the active
+  Workboard bundle;
+- public `main` is re-read as exact
+  `bf833822c41cb5ee817922b2ed08e9316f288a40` before the one-shot trigger;
+- authenticated public stable is exact sequence **26**, generation
+  `local-hosted-0-160-0-4fd14ed8aafc`, version `0.160.0`;
+- product source is exact
+  `75aed30c7ad6c427d30115b0667957130da198f5`;
+- official latest remains exact `0.160.0` with archive SHA-256
+  `7f0fe42ff22ecfa3a47bc4a34f5b22c4218b431a4ec0aba51c7d98299f07900c`;
+- next release sequence is exactly **27**;
+- the same-version override is accepted only under an exact one-shot selector
+  bound to the source, public parent, current generation/sequence, target
+  sequence, upstream version/digest, and publication authorization;
+- candidate generation identity is fresh and existing public generations are
+  immutable.
 
 Then run the frozen release invariants in order: build -> native smoke -> sign ->
-independent verify -> immutable Release -> LKG Pages -> every-byte public readback
--> disposable ordinary update/no-op -> non-forced exact-parent CAS.
+independent verify -> immutable Release -> LKG Pages -> every-byte public
+readback -> disposable ordinary update/no-op -> non-forced exact-parent CAS.
 
-After promotion, independently re-read the signed stable pair. Only then run the
-live consumer through ordinary `codex update`, verify active sequence 24 and
-`codex-cli 0.159.2`, and run exact-current again. Capture the authenticated
-TTY download progress as live acceptance evidence if present.
+After promotion, independently re-read the signed stable pair and generation
+manifest. Only then run the user's live sequence-24 consumer through ordinary
+signed public `codex update`. Direct-jump acceptance must prove sequence 27 is
+active, `codex-cli 0.160.0` executes, Core/Manager/runtime remain healthy, and a
+second exact-current update causes no state delta.
 
 ## Ordinary future upstream intake
 
-This one-shot alignment bridge is not reusable. After sequence 24 acceptance,
+This sequence-27 selector is one-shot and must not be reused. After acceptance,
 future upstream releases return to the ordinary scheduled/manual producer under
-freshly rebound source/public authority. Stale historical one-shot selectors
-must never be interpreted as current authorization.
+freshly rebound source/public authority. Historical one-shot selectors never
+become current authorization merely because their code remains in history.
