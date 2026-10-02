@@ -32,6 +32,49 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
+## AI-TMUX-NOTIFY-FOCUS-V1 (selected 2026-10-02)
+
+- User clarifies physical tap selected Termux's last terminal, not its source;
+  requests optional humtr/ai tmux launch and compatible Codex Manager focus.
+  Bound Codex source68dfc9a64a95e3d95c6932a55133441c15168533 (docs child39b9324),
+  publicc92e550 and signed/current31. AI maincf92f851e5f85367f7978899431ce30e6fb966aa
+  has pre-existing dirty provider/TUI/smoke changes matching installed bytes;
+  preserve/exclude those changes from implementation commit. Baseline diff
+  66737cf6ffe0d5c5eed5a035560db15f24a63b3fd3e20e1ad281325b238ee4c6.
+  Worker mode OFF; approved equivalent primary implements directly.
+- AI dirty baseline full final-verify exits0:36 summary gates,161 TUI checks,
+  no warnings; Codex previous exact product224 Rust/90 Python is unchanged.
+  Old Activity-only proof staging removed; new private temporary proof root owns
+  official read-only source and reused public build cache, no credentials/backups.
+- KEEP native tmux/OSC title and upstream session IDs. COLLAPSE focus into AI's
+  existing launcher owner; Manager consumes its bounded focus command, not a
+  duplicate tmux registry/credential DB. DELETE guesses from daemon TMUX_PANE,
+  resume-on-click, CLI config injection, UUID-prefix-only targeting and watchers.
+- Normal AI launch remains direct; explicit --tmux launches preserved native
+  argv/profile/CWD in a managed tmux window. Codex title preparation adds native
+  thread-id as first item, retaining all other effective title items/config bytes;
+  this user-selected UI change is the only allowed profile-config change.
+  Auth, session payloads, history and shared-server lifecycle remain unchanged.
+- Full hook UUID is resolved against a live AI-managed Codex pane. Upstream0.160
+  truncates title UUID to29chars plus..., so canonical local rollout metadata must
+  uniquely validate the complete UUID; collision/missing/foreign/dead/ambiguous
+  target never guesses or starts Codex. Read no auth, never print/store transcript
+  or title content. Focus handles new/resume and native in-TUI thread changes by
+  reading current metadata at click time; no title watcher or cached PID mapping.
+- Manager exposes optional focus mode; existing notification record/format and
+  Core hook projection stay compatible. Native actual Core/system-FD full-access
+  and shared-server use survive; no hidden argv/config overrides.
+- After focused/disposable/full source green, bounded AI-only live installation
+  without backup, native title preference application, Manager focus preference,
+  signed Codex release/update and two-pane/user-tap tests are authorized. Do not
+  touch unrelated clip/AGY services or pre-existing AI dirty work. Verify source,
+  public/live bytes, preserved credentials/resolver/history, no duplicate window
+  or Codex process on repeated click; commit/push and delete staging.
+- Termux Activity still cannot select arbitrary Termux terminal IDs. Exact pane
+  focus is guaranteed within live managed tmux clients; selecting an unrelated
+  non-tmux Termux terminal remains an OS limitation, never worked around by
+  launching a new terminal or injecting shell input.
+
 ## MANAGER-NOTIFY-OPEN-V1 (accepted 2026-10-02)
 
 - User requests notification tap to return to running Termux; explicitly rejects
@@ -88,6 +131,8 @@
   assumptions and Linux /proc permission tests, as in the preceding bundle.
   It is not counted as acceptance. Current exact Termux grouped gate and full
   signed production pipeline are green; automation alignment remains separate debt.
+- Temporary Activity-only build/probe staging was removed without backups;
+  reusable public build cache/official source move into the new bounded bundle.
 
 ## MANAGER-NOTIFY-INPUT-REQUEST-V1 (accepted 2026-10-02)
 

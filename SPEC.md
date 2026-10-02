@@ -78,6 +78,39 @@ installed Core obtains and activates only that signed adapted bundle.
 `codex version` is not introduced. Wrapper/Core/Manager version rows must not
 be appended to upstream `--version` or `-V` output.
 
+### Optional AI tmux notification focus
+
+The separate humtr/ai launcher may offer explicit `ai run <provider> --tmux`
+and a default-off TUI toggle. AI owns tmux launch, private server registration,
+and its internal `ai __tmux_focus <UUID>` endpoint; Core owns neither. Native
+argv, selected profile environment and CWD remain unchanged. Inside tmux AI
+creates a managed window on that server; outside it attaches a managed session.
+Launch registration contains only socket identity, never credentials or content.
+Dead records are pruned. No notification click creates a window or starts Codex.
+
+For Codex launches AI adds upstream `thread-id` first in the selected home's
+`tui.terminal_title`, preserving other configured items (or upstream defaults)
+and all unrelated config semantics. This explicit UI preference is persisted
+atomically without backups; no CLI override or shared-server setting is added.
+A click resolves the full hook session UUID against canonical local rollout
+metadata and the current title of one live, AI-managed Codex pane. Truncated
+native IDs must uniquely correspond to the full metadata ID. Missing, colliding,
+ambiguous or closed targets cause no tmux movement. The live pane must still run
+an installed Codex runtime; titles and transcripts are not logged or cached.
+
+Manager adds `notify set --focus termux|tmux` and reports `focus` in show.
+Default is termux. Its separate private `notifications/focus-v1` contains exactly
+`termux\n` or `tmux\n`; existing `config-v1` and Core hook projection stay intact.
+Invalid/missing focus state safely uses termux. In tmux mode a canonical top-level
+hook `session_id` adds the safely quoted absolute HOME/bin/ai focus command to
+the existing Activity action. Malformed/duplicate IDs never suppress the ordinary
+notification or become shell input. The helper is bounded and silent.
+
+Termux Activity foregrounds its last selected Android terminal. Exact pane focus
+requires that terminal to display the managed tmux server. Termux exposes no
+supported selection of arbitrary existing Android terminal IDs; no new terminal,
+resume process, input injection, title watcher or daemon environment guess is used.
+
 ### Manager command boundary
 
 `codex termux` is a Manager boundary and is never passed to upstream. Manager

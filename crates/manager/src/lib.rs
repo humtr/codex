@@ -57,7 +57,7 @@ const HELP: &str = concat!(
     "codex termux profile use <PROFILE_ID> [--] [UPSTREAM_ARGS...]\n",
     "codex termux notify show\n",
     "codex termux notify test\n",
-    "codex termux notify set [--channel <notification|toast|both>] [--hooks <none|all|EVENT[,EVENT...]>] [--content-chars <0|1..4096>] [--preserve-newlines <0|1>] [--toast-gravity <top|middle|bottom>] [--toast-short <0|1>] [--toast-background <empty|#RRGGBB>] [--toast-color <empty|#RRGGBB>] [--group <GROUP_ID>]\n",
+    "codex termux notify set [--channel <notification|toast|both>] [--hooks <none|all|EVENT[,EVENT...]>] [--content-chars <0|1..4096>] [--preserve-newlines <0|1>] [--toast-gravity <top|middle|bottom>] [--toast-short <0|1>] [--toast-background <empty|#RRGGBB>] [--toast-color <empty|#RRGGBB>] [--group <GROUP_ID>] [--focus <termux|tmux>]\n",
     "codex termux repair plan\n",
     "codex termux repair apply\n",
 );
@@ -234,6 +234,7 @@ struct NotifyConfig {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct NotifyPatch {
+    focus_tmux: Option<bool>,
     channel: Option<NotifyChannel>,
     hooks: Option<NotifyHooks>,
     content_chars: Option<usize>,
@@ -345,12 +346,24 @@ fn run_inner(args: Vec<OsString>) -> Result<Option<String>, ManagerError> {
             use_profile(&context, target, &command.upstream_args)?;
             Ok(None)
         }
-        CommandKind::NotifyShow => Ok(Some(format_notify_config(&read_notify_config(&context)?))),
+        CommandKind::NotifyShow => Ok(Some(format!(
+            "{}focus={}\n",
+            format_notify_config(&read_notify_config(&context)?),
+            if read_focus_tmux(&context) {
+                "tmux"
+            } else {
+                "termux"
+            }
+        ))),
         CommandKind::NotifyTest => test_notification(&context),
         CommandKind::NotifySet => {
             let patch = command.notify_patch.expect("notify set patch is parsed");
+            let focus = patch.focus_tmux;
             let config = read_notify_config(&context)?.merge(patch);
             publish_notify_config(&context, &config)?;
+            if let Some(enabled) = focus {
+                publish_focus_tmux(&context, enabled)?;
+            }
             Ok(Some("saved\n".to_owned()))
         }
         CommandKind::NotifyEmit => {
@@ -494,6 +507,16 @@ fn parse_notify_set_args(args: &[OsString]) -> Result<NotifyPatch, ManagerError>
         let option = args[index].to_str().ok_or(ERR_USAGE)?;
         let value = args.get(index + 1).ok_or(ERR_USAGE)?;
         match option {
+            "--focus" => {
+                if patch.focus_tmux.is_some() {
+                    return Err(ERR_USAGE);
+                }
+                patch.focus_tmux = Some(match value.to_str() {
+                    Some("termux") => false,
+                    Some("tmux") => true,
+                    _ => return Err(ERR_USAGE),
+                });
+            }
             "--channel" => {
                 if patch.channel.is_some() {
                     return Err(ERR_USAGE);
@@ -1139,6 +1162,7 @@ fn publish_notify_config(context: &Context, config: &NotifyConfig) -> Result<(),
 struct HookText {
     title: Option<String>,
     body: Option<String>,
+    session_id: Option<String>,
 }
 
 fn emit_notification(context: &Context, event: &str) {
@@ -1168,13 +1192,23 @@ fn emit_notification(context: &Context, event: &str) {
     );
     match config.channel {
         NotifyChannel::Notification => {
-            invoke_termux_notification(&config, &title, &body, &notification_action(context));
+            invoke_termux_notification(
+                &config,
+                &title,
+                &body,
+                &notification_focus_action(context, text.session_id.as_deref()),
+            );
         }
         NotifyChannel::Toast => {
             invoke_termux_toast(&config, &body);
         }
         NotifyChannel::Both => {
-            invoke_termux_notification(&config, &title, &body, &notification_action(context));
+            invoke_termux_notification(
+                &config,
+                &title,
+                &body,
+                &notification_focus_action(context, text.session_id.as_deref()),
+            );
             invoke_termux_toast(&config, &body);
         }
     }
@@ -1319,6 +1353,80 @@ fn notification_action(context: &Context) -> String {
     format!(
         "{} start --activity-reorder-to-front --activity-single-top -n com.termux/com.termux.app.TermuxActivity >/dev/null 2>&1",
         shell_quote(am)
+    )
+}
+
+fn read_focus_tmux(context: &Context) -> bool {
+    let Ok(Some(directory)) = existing_notify_directory(context) else {
+        return false;
+    };
+    let path = directory.join("focus-v1");
+    let Ok(metadata) = fs::symlink_metadata(&path) else {
+        return false;
+    };
+    metadata.is_file()
+        && !metadata.file_type().is_symlink()
+        && metadata.permissions().mode() & 0o7777 == PRIVATE_FILE_MODE
+        && read_bounded(&path).is_ok_and(|bytes| bytes == b"tmux\n")
+}
+
+fn publish_focus_tmux(context: &Context, enabled: bool) -> Result<(), ManagerError> {
+    let directory = notify_directory_for_create(context)?;
+    let path = directory.join("focus-v1");
+    if let Ok(metadata) = fs::symlink_metadata(&path) {
+        if !metadata.is_file()
+            || metadata.file_type().is_symlink()
+            || metadata.permissions().mode() & 0o7777 != PRIVATE_FILE_MODE
+        {
+            return Err(ERR_NOTIFY_CONFIG);
+        }
+    }
+    let temporary = directory.join(format!(
+        ".focus-{}-{}",
+        std::process::id(),
+        TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
+    ));
+    let result = (|| {
+        write_new_record(&temporary, if enabled { b"tmux\n" } else { b"termux\n" })
+            .map_err(|_| ERR_NOTIFY_CONFIG)?;
+        fs::rename(&temporary, &path).map_err(|_| ERR_NOTIFY_CONFIG)?;
+        sync_directory(&directory).map_err(|_| ERR_NOTIFY_CONFIG)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(temporary);
+    }
+    result
+}
+
+fn canonical_session_id(value: &str) -> bool {
+    value.len() == 36
+        && value.bytes().enumerate().all(|(index, byte)| {
+            if matches!(index, 8 | 13 | 18 | 23) {
+                byte == b'-'
+            } else {
+                byte.is_ascii_digit() || matches!(byte, b'a'..=b'f')
+            }
+        })
+}
+
+fn notification_focus_action(context: &Context, session_id: Option<&str>) -> String {
+    let action = notification_action(context);
+    let Some(id) = session_id.filter(|id| canonical_session_id(id)) else {
+        return action;
+    };
+    if !read_focus_tmux(context) {
+        return action;
+    }
+    let path = context.home.join("bin/ai");
+    let Some(ai) = path.to_str() else {
+        return action;
+    };
+    // Activity launch remains available even if AI or the target is absent.
+    format!(
+        "{} __tmux_focus {} >/dev/null 2>&1; {}",
+        shell_quote(ai),
+        shell_quote(id),
+        action
     )
 }
 
@@ -1635,6 +1743,8 @@ fn parse_hook_json(input: &[u8]) -> Option<HookText> {
     let mut content = None;
     let mut last_assistant_message = None;
     let mut message = None;
+    let mut seen_session_id = false;
+    let mut duplicate_session_id = false;
     let mut seen_title = false;
     let mut seen_content = false;
     let mut seen_last_assistant_message = false;
@@ -1650,6 +1760,16 @@ fn parse_hook_json(input: &[u8]) -> Option<HookText> {
             }
             cursor.skip_whitespace();
             match key.as_str() {
+                "session_id" => {
+                    duplicate_session_id |= seen_session_id;
+                    seen_session_id = true;
+                    if cursor.bytes.get(cursor.index) == Some(&b'"') {
+                        let id = cursor.parse_string()?;
+                        text.session_id = canonical_session_id(&id).then_some(id);
+                    } else {
+                        cursor.skip_value(0)?;
+                    }
+                }
                 "title" => {
                     if seen_title {
                         return None;
@@ -1708,6 +1828,9 @@ fn parse_hook_json(input: &[u8]) -> Option<HookText> {
     cursor.skip_whitespace();
     if cursor.index != input.len() {
         return None;
+    }
+    if duplicate_session_id {
+        text.session_id = None;
     }
     text.body = content.or(last_assistant_message).or(message);
     Some(text)
@@ -2606,5 +2729,94 @@ mod tests {
             core_entrypoint: PathBuf::from(OsString::from_vec(b"/bin-\xff/codex".to_vec())),
         };
         assert_eq!(notification_action(&context), "'/data/data/com.termux/files/usr/bin/am' start --activity-reorder-to-front --activity-single-top -n com.termux/com.termux.app.TermuxActivity >/dev/null 2>&1");
+    }
+    #[test]
+    fn notification_focus_private_state_preserves_core_record_and_rejects_links() {
+        let root = TestRoot::new();
+        let context = root.context();
+        publish_notify_config(&context, &NotifyConfig::defaults()).unwrap();
+        let dir = existing_notify_directory(&context).unwrap().unwrap();
+        let original = fs::read(dir.join(NOTIFY_CONFIG)).unwrap();
+        assert!(!read_focus_tmux(&context));
+        publish_focus_tmux(&context, true).unwrap();
+        assert!(read_focus_tmux(&context));
+        assert_eq!(fs::read(dir.join(NOTIFY_CONFIG)).unwrap(), original);
+        let path = dir.join("focus-v1");
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        fs::write(&path, b"tmux\nextra\n").unwrap();
+        assert!(!read_focus_tmux(&context));
+        fs::remove_file(&path).unwrap();
+        let outside = root.0.join("outside");
+        fs::write(&outside, b"tmux\n").unwrap();
+        std::os::unix::fs::symlink(&outside, &path).unwrap();
+        assert!(!read_focus_tmux(&context));
+        assert_eq!(publish_focus_tmux(&context, true), Err(ERR_NOTIFY_CONFIG));
+        assert_eq!(fs::read(outside).unwrap(), b"tmux\n");
+    }
+
+    #[test]
+    fn notification_focus_uuid_duplicate_and_invalid_preserve_message() {
+        let id = "01a0fc82-dc8f-7d13-bb78-7e120f1fa9b3";
+        for input in [
+            format!(r#"{{"session_id":"{id}","content":"ok"}}"#),
+            format!(r#"{{"content":"ok","session_id":"{id}"}}"#),
+        ] {
+            let parsed = parse_hook_json(input.as_bytes()).unwrap();
+            assert_eq!(parsed.session_id.as_deref(), Some(id));
+            assert_eq!(parsed.body.as_deref(), Some("ok"));
+        }
+        for input in [
+            format!(r#"{{"session_id":"{id}","session_id":"{id}","content":"ok"}}"#),
+            r#"{"session_id":"$(command)","content":"ok"}"#.to_owned(),
+            r#"{"session_id":{},"content":"ok"}"#.to_owned(),
+            format!(r#"{{"nested":{{"session_id":"{id}"}},"content":"ok"}}"#),
+        ] {
+            let parsed = parse_hook_json(input.as_bytes()).unwrap();
+            assert!(parsed.session_id.is_none());
+            assert_eq!(parsed.body.as_deref(), Some("ok"));
+        }
+        assert!(!canonical_session_id(&id.to_uppercase()));
+    }
+
+    #[test]
+    fn notification_focus_action_opt_in_quoted_and_no_resume() {
+        let root = TestRoot::new();
+        let mut context = root.context();
+        context.home = root.0.join("home' with space");
+        let id = "01a0fc82-dc8f-7d13-bb78-7e120f1fa9b3";
+        assert_eq!(
+            notification_focus_action(&context, Some(id)),
+            notification_action(&context)
+        );
+        publish_focus_tmux(&context, true).unwrap();
+        let expected = format!(
+            "{} __tmux_focus '{}' >/dev/null 2>&1; {}",
+            shell_quote(context.home.join("bin/ai").to_str().unwrap()),
+            id,
+            notification_action(&context)
+        );
+        assert_eq!(notification_focus_action(&context, Some(id)), expected);
+        assert_eq!(
+            notification_focus_action(&context, Some("bad")),
+            notification_action(&context)
+        );
+        assert_eq!(
+            notification_focus_action(&context, None),
+            notification_action(&context)
+        );
+        assert!(!expected.contains("resume"));
+        let args = [OsString::from("--focus"), OsString::from("tmux")];
+        assert_eq!(parse_notify_set_args(&args).unwrap().focus_tmux, Some(true));
+        assert!(parse_notify_set_args(&[args[0].clone(), OsString::from("invalid")]).is_err());
+        assert!(parse_notify_set_args(&[
+            args[0].clone(),
+            args[1].clone(),
+            args[0].clone(),
+            args[1].clone()
+        ])
+        .is_err());
     }
 }
