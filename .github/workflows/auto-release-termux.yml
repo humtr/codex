@@ -77,8 +77,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  CODEX_SOURCE_SHA: '39b93246c09799a9abb304703f77cca7e5572074'
-  RALD5_SOURCE_SHA: '39b93246c09799a9abb304703f77cca7e5572074'
+  CODEX_SOURCE_SHA: '4c3d013cd6e224fdda7b5727efc13140e915f056'
+  RALD5_SOURCE_SHA: '4c3d013cd6e224fdda7b5727efc13140e915f056'
   RUST_VERSION: '1.98.0'
   ANDROID_API: '24'
   ANDROID_NDK_VERSION: '27.3.13750724'
@@ -121,12 +121,12 @@ env:
   DOWNLOAD_SIZE_DEPLOY_CURRENT_GENERATION: 'local-hosted-0-159-0-b164e5b61cb4'
   DOWNLOAD_SIZE_DEPLOY_CURRENT_SEQUENCE: '23'
   DOWNLOAD_SIZE_DEPLOY_TARGET_SEQUENCE: '24'
-  NOTIFY_OPEN_ACCEPTED_SOURCE_SHA: '39b93246c09799a9abb304703f77cca7e5572074'
-  NOTIFY_OPEN_CURRENT_GENERATION: 'local-hosted-0-160-0-1dd51b8be87d-manager-notify'
-  NOTIFY_OPEN_CURRENT_SEQUENCE: '30'
-  NOTIFY_OPEN_TARGET_SEQUENCE: '31'
-  NOTIFY_OPEN_TARGET_VERSION: '0.160.0'
-  NOTIFY_OPEN_TARGET_ARCHIVE_SHA256: '7f0fe42ff22ecfa3a47bc4a34f5b22c4218b431a4ec0aba51c7d98299f07900c'
+  TMUX_NOTIFY_ACCEPTED_SOURCE_SHA: '4c3d013cd6e224fdda7b5727efc13140e915f056'
+  TMUX_NOTIFY_CURRENT_GENERATION: 'local-hosted-0-160-0-39b93246c097-notify-open'
+  TMUX_NOTIFY_CURRENT_SEQUENCE: '31'
+  TMUX_NOTIFY_TARGET_SEQUENCE: '32'
+  TMUX_NOTIFY_TARGET_VERSION: '0.160.0'
+  TMUX_NOTIFY_TARGET_ARCHIVE_SHA256: '7f0fe42ff22ecfa3a47bc4a34f5b22c4218b431a4ec0aba51c7d98299f07900c'
   WRAPPER_PUBLIC_KEY_SHA256: '62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c'
   ANDROID_RUNTIME_APEX_COMMIT: '8aeb37cca394ce39c1311744c60960cbd466aa77'
   ANDROID_RUNTIME_APEX_SHA256: '83bf0dce249728dae48149b80d28b48115c54adad95a352120d58a6ac669d1fc'
@@ -155,7 +155,7 @@ jobs:
       exact_current_fastpath_same_version_deploy: ${{ steps.decision.outputs.exact_current_fastpath_same_version_deploy }}
       no_emoji_same_version_deploy: ${{ steps.decision.outputs.no_emoji_same_version_deploy }}
       download_size_same_version_deploy: ${{ steps.decision.outputs.download_size_same_version_deploy }}
-      notify_open_push_bridge: ${{ steps.decision.outputs.notify_open_push_bridge }}
+      tmux_notify_push_bridge: ${{ steps.decision.outputs.tmux_notify_push_bridge }}
       expected_main_sha: ${{ steps.stable.outputs.expected_main_sha }}
       current_generation: ${{ steps.stable.outputs.current_generation }}
       current_release_sequence: ${{ steps.stable.outputs.current_release_sequence }}
@@ -258,33 +258,33 @@ jobs:
           printf 'current_release_sequence=%s\n' "$current_sequence" >> "$GITHUB_OUTPUT"
           printf 'release_sequence=%s\n' "$release_sequence" >> "$GITHUB_OUTPUT"
 
-      - name: Validate exact notify-open corrective inputs
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == 'f9edf2e60f41bc1f394aa8cc788257f89b9ed99f' && github.event.head_commit.message == 'release-notify-open-seq31-source-39b93246' }}
+      - name: Validate exact tmux-notify corrective inputs
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == 'c92e550421a6aa6fd5496487c8f1ad78c22d2bee' && github.event.head_commit.message == 'release-tmux-notify-seq32-source-4c3d013c' }}
         shell: bash
         run: |
           set -euo pipefail
-          test "$CODEX_SOURCE_SHA" = "$NOTIFY_OPEN_ACCEPTED_SOURCE_SHA"
-          test '${{ steps.stable.outputs.current_version }}' = "$NOTIFY_OPEN_TARGET_VERSION"
-          test '${{ steps.stable.outputs.current_generation }}' = "$NOTIFY_OPEN_CURRENT_GENERATION"
-          test '${{ steps.stable.outputs.current_release_sequence }}' = "$NOTIFY_OPEN_CURRENT_SEQUENCE"
-          test '${{ steps.stable.outputs.release_sequence }}' = "$NOTIFY_OPEN_TARGET_SEQUENCE"
-          state="$RUNNER_TEMP/notify-open-preflight"
+          test "$CODEX_SOURCE_SHA" = "$TMUX_NOTIFY_ACCEPTED_SOURCE_SHA"
+          test '${{ steps.stable.outputs.current_version }}' = "$TMUX_NOTIFY_TARGET_VERSION"
+          test '${{ steps.stable.outputs.current_generation }}' = "$TMUX_NOTIFY_CURRENT_GENERATION"
+          test '${{ steps.stable.outputs.current_release_sequence }}' = "$TMUX_NOTIFY_CURRENT_SEQUENCE"
+          test '${{ steps.stable.outputs.release_sequence }}' = "$TMUX_NOTIFY_TARGET_SEQUENCE"
+          state="$RUNNER_TEMP/tmux-notify-preflight"
           rm -rf "$state"
           mkdir -p "$state"
           curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
             --connect-timeout 15 --max-time 60 --max-filesize 131072 \
             --output "$state/latest.json" "$UPSTREAM_LATEST_URL"
           python3 source/.github/scripts/rald3_preflight.py upstream "$state/latest.json" > "$state/upstream"
-          test "$(sed -n 's/^version=//p' "$state/upstream")" = "$NOTIFY_OPEN_TARGET_VERSION"
-          test "$(sed -n 's/^archive_sha256=//p' "$state/upstream")" = "$NOTIFY_OPEN_TARGET_ARCHIVE_SHA256"
+          test "$(sed -n 's/^version=//p' "$state/upstream")" = "$TMUX_NOTIFY_TARGET_VERSION"
+          test "$(sed -n 's/^archive_sha256=//p' "$state/upstream")" = "$TMUX_NOTIFY_TARGET_ARCHIVE_SHA256"
 
       - name: Resolve official upstream stable
         id: decision
         shell: bash
         env:
           RALD4_POSITIVE_GATE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald4_positive_gate }}
-          NOTIFY_OPEN_PUSH_BRIDGE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == 'f9edf2e60f41bc1f394aa8cc788257f89b9ed99f' && github.event.head_commit.message == 'release-notify-open-seq31-source-39b93246' }}
-          RALD5_PUBLICATION_AUTHORIZED: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.rald5_publication_authorized) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == 'f9edf2e60f41bc1f394aa8cc788257f89b9ed99f' && github.event.head_commit.message == 'release-notify-open-seq31-source-39b93246') }}
+          TMUX_NOTIFY_PUSH_BRIDGE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == 'c92e550421a6aa6fd5496487c8f1ad78c22d2bee' && github.event.head_commit.message == 'release-tmux-notify-seq32-source-4c3d013c' }}
+          RALD5_PUBLICATION_AUTHORIZED: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.rald5_publication_authorized) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == 'c92e550421a6aa6fd5496487c8f1ad78c22d2bee' && github.event.head_commit.message == 'release-tmux-notify-seq32-source-4c3d013c') }}
           RALD5_SAME_VERSION_ACCEPTANCE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald5_same_version_acceptance }}
           RALD45_TRANSITION_STAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald45_transition_stage }}
           RALD45_TRANSITION_PROMOTE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald45_transition_promote }}
@@ -336,11 +336,11 @@ jobs:
           test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" = true -o "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" = false
           test "$NO_EMOJI_SAME_VERSION_DEPLOY" = true -o "$NO_EMOJI_SAME_VERSION_DEPLOY" = false
           test "$DOWNLOAD_SIZE_SAME_VERSION_DEPLOY" = true -o "$DOWNLOAD_SIZE_SAME_VERSION_DEPLOY" = false
-          test "$NOTIFY_OPEN_PUSH_BRIDGE" = true -o "$NOTIFY_OPEN_PUSH_BRIDGE" = false
+          test "$TMUX_NOTIFY_PUSH_BRIDGE" = true -o "$TMUX_NOTIFY_PUSH_BRIDGE" = false
           if test "$GITHUB_EVENT_NAME" = push; then
-            test "$NOTIFY_OPEN_PUSH_BRIDGE" = true
+            test "$TMUX_NOTIFY_PUSH_BRIDGE" = true
           fi
-          if test "$NOTIFY_OPEN_PUSH_BRIDGE" = true; then
+          if test "$TMUX_NOTIFY_PUSH_BRIDGE" = true; then
             test "$GITHUB_EVENT_NAME" = push
             test "$GITHUB_REF" = refs/heads/main
             test "$RALD5_PUBLICATION_AUTHORIZED" = true
@@ -355,19 +355,19 @@ jobs:
             test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" != true
             test "$NO_EMOJI_SAME_VERSION_DEPLOY" != true
             test "$DOWNLOAD_SIZE_SAME_VERSION_DEPLOY" != true
-            test "$CODEX_SOURCE_SHA" = "$NOTIFY_OPEN_ACCEPTED_SOURCE_SHA"
-            test '${{ steps.stable.outputs.current_version }}' = "$NOTIFY_OPEN_TARGET_VERSION"
-            test "$upstream_version" = "$NOTIFY_OPEN_TARGET_VERSION"
+            test "$CODEX_SOURCE_SHA" = "$TMUX_NOTIFY_ACCEPTED_SOURCE_SHA"
+            test '${{ steps.stable.outputs.current_version }}' = "$TMUX_NOTIFY_TARGET_VERSION"
+            test "$upstream_version" = "$TMUX_NOTIFY_TARGET_VERSION"
             test '${{ steps.stable.outputs.current_version }}' = "$upstream_version"
-            test '${{ steps.stable.outputs.current_generation }}' = "$NOTIFY_OPEN_CURRENT_GENERATION"
-            test '${{ steps.stable.outputs.current_release_sequence }}' = "$NOTIFY_OPEN_CURRENT_SEQUENCE"
-            test '${{ steps.stable.outputs.release_sequence }}' = "$NOTIFY_OPEN_TARGET_SEQUENCE"
-            test "$archive_sha256" = "$NOTIFY_OPEN_TARGET_ARCHIVE_SHA256"
+            test '${{ steps.stable.outputs.current_generation }}' = "$TMUX_NOTIFY_CURRENT_GENERATION"
+            test '${{ steps.stable.outputs.current_release_sequence }}' = "$TMUX_NOTIFY_CURRENT_SEQUENCE"
+            test '${{ steps.stable.outputs.release_sequence }}' = "$TMUX_NOTIFY_TARGET_SEQUENCE"
+            test "$archive_sha256" = "$TMUX_NOTIFY_TARGET_ARCHIVE_SHA256"
             test "$candidate" = false
             candidate=true
-            acceptance_suffix='-notify-open'
-            printf 'notify-open same-version corrective selected: %s sequence %s -> sequence %s\n' \
-              "$upstream_version" "$NOTIFY_OPEN_CURRENT_SEQUENCE" "$NOTIFY_OPEN_TARGET_SEQUENCE"
+            acceptance_suffix='-tmux-notify'
+            printf 'tmux-notify same-version corrective selected: %s sequence %s -> sequence %s\n' \
+              "$upstream_version" "$TMUX_NOTIFY_CURRENT_SEQUENCE" "$TMUX_NOTIFY_TARGET_SEQUENCE"
           fi
           if test "$RALD4_POSITIVE_GATE" = true; then
             test "$candidate" = true
@@ -388,7 +388,7 @@ jobs:
               workflow_dispatch)
                 ;;
               push)
-                test "$NOTIFY_OPEN_PUSH_BRIDGE" = true
+                test "$TMUX_NOTIFY_PUSH_BRIDGE" = true
                 ;;
               schedule)
                 test "$RALD4_POSITIVE_GATE" != true
@@ -653,7 +653,7 @@ jobs:
           printf 'exact_current_fastpath_same_version_deploy=%s\n' "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" >> "$GITHUB_OUTPUT"
           printf 'no_emoji_same_version_deploy=%s\n' "$NO_EMOJI_SAME_VERSION_DEPLOY" >> "$GITHUB_OUTPUT"
           printf 'download_size_same_version_deploy=%s\n' "$DOWNLOAD_SIZE_SAME_VERSION_DEPLOY" >> "$GITHUB_OUTPUT"
-          printf 'notify_open_push_bridge=%s\n' "$NOTIFY_OPEN_PUSH_BRIDGE" >> "$GITHUB_OUTPUT"
+          printf 'tmux_notify_push_bridge=%s\n' "$TMUX_NOTIFY_PUSH_BRIDGE" >> "$GITHUB_OUTPUT"
           printf 'artifact_name=rald3-candidate-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
           printf 'qualified_artifact_name=rald4-qualified-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
           printf 'signed_artifact_name=rald4-signed-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
@@ -1206,14 +1206,14 @@ jobs:
           PY
 
       - name: Bind notification click correction to exact Manager-only component change
-        if: steps.decision.outputs.notify_open_push_bridge == 'true'
+        if: steps.decision.outputs.tmux_notify_push_bridge == 'true'
         shell: bash
         run: |
           set -euo pipefail
           stable="$RUNNER_TEMP/rald3-stable"
           candidate="$RUNNER_TEMP/rald3-candidate/candidate"
           for rel in codex-code-mode-host helpers/0 helpers/1; do
-            entry="$RUNNER_TEMP/notify-open-entry-${rel//\//-}"
+            entry="$RUNNER_TEMP/tmux-notify-entry-${rel//\//-}"
             python3 source/.github/scripts/rald3_preflight.py manifest-entry "$stable/release.manifest" "$rel" > "$entry"
             test "$(sha256sum "$candidate/$rel" | awk '{print $1}')" = "$(sed -n 's/^sha256=//p' "$entry")"
             test "0$(stat -c '%a' "$candidate/$rel")" = "$(sed -n 's/^mode=//p' "$entry")"
@@ -1754,7 +1754,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          NOTIFY_OPEN_PUSH_BRIDGE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == 'f9edf2e60f41bc1f394aa8cc788257f89b9ed99f' && github.event.head_commit.message == 'release-notify-open-seq31-source-39b93246' }}
+          TMUX_NOTIFY_PUSH_BRIDGE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == 'c92e550421a6aa6fd5496487c8f1ad78c22d2bee' && github.event.head_commit.message == 'release-tmux-notify-seq32-source-4c3d013c' }}
         run: |
           set -euo pipefail
           expected_main='${{ needs.producer.outputs.expected_main_sha }}'
@@ -2560,7 +2560,7 @@ jobs:
           "$PREFIX/bin/codex" update > "$RUNNER_TEMP/rald5-second-update.out" 2> "$RUNNER_TEMP/rald5-second-update.err"
           printf 'Codex %s is already up to date.\n' "$version" > "$RUNNER_TEMP/rald5-second-update.expected"
           cmp "$RUNNER_TEMP/rald5-second-update.expected" "$RUNNER_TEMP/rald5-second-update.out"
-          if test '${{ needs.producer.outputs.no_emoji_same_version_deploy }}' = true || test '${{ needs.producer.outputs.download_size_same_version_deploy }}' = true || test '${{ needs.producer.outputs.notify_open_push_bridge }}' = true; then
+          if test '${{ needs.producer.outputs.no_emoji_same_version_deploy }}' = true || test '${{ needs.producer.outputs.download_size_same_version_deploy }}' = true || test '${{ needs.producer.outputs.tmux_notify_push_bridge }}' = true; then
             python3 - "$RUNNER_TEMP/rald5-second-update.err" <<'PYERR'
           from pathlib import Path
           import sys
