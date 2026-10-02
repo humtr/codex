@@ -3740,6 +3740,19 @@ remain separate explicitly authorized operations.
   `6f83ec6d7994f0c978690e367696bddb26c8422872af45816be5748bc1f402e0`
   exactly matches the signed sequence-27 release manifest, binding the live
   binary to the PTY-tested Core.
+- Installed-Core PTY acceptance then executed the exact live sequence-27 Core
+  artifact (SHA-256
+  `6f83ec6d7994f0c978690e367696bddb26c8422872af45816be5748bc1f402e0`)
+  under an isolated temporary HOME with copied signed generation bytes.
+  Operation `249b77e740fd44e195a42c49f137e451` sent bare `n` and `y`
+  bytes with no newline. They cleared the advisory in 0.5 ms and 0.2 ms
+  respectively; both probes observed non-canonical/no-echo prompt mode, no
+  echoed prompt byte, zero queued input after the decision, one in-place
+  transient clear, and exact prior termios restoration before runtime handoff.
+  The `y` probe re-entered the authenticated update path and returned
+  `Codex 0.160.0 is already up to date.`, proving the selected action without
+  trusting the synthetic advisory candidate. The fixture was removed after
+  each probe and did not mutate the live activation state.
 - Exact-current live update returned exactly
   `Codex 0.160.0 is already up to date.` with empty stderr. A first
   deliberately broad snapshot also observed long-lived `.acquire-*` scratch
