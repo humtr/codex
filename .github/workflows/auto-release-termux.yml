@@ -77,8 +77,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  CODEX_SOURCE_SHA: '4fd14ed8aafcf29602f43e00c314eb8da39a6e5f'
-  RALD5_SOURCE_SHA: '4fd14ed8aafcf29602f43e00c314eb8da39a6e5f'
+  CODEX_SOURCE_SHA: '75aed30c7ad6c427d30115b0667957130da198f5'
+  RALD5_SOURCE_SHA: '75aed30c7ad6c427d30115b0667957130da198f5'
   RUST_VERSION: '1.98.0'
   ANDROID_API: '24'
   ANDROID_NDK_VERSION: '27.3.13750724'
@@ -121,8 +121,12 @@ env:
   DOWNLOAD_SIZE_DEPLOY_CURRENT_GENERATION: 'local-hosted-0-159-0-b164e5b61cb4'
   DOWNLOAD_SIZE_DEPLOY_CURRENT_SEQUENCE: '23'
   DOWNLOAD_SIZE_DEPLOY_TARGET_SEQUENCE: '24'
-  RUNTIME_ALIGNMENT_TARGET_VERSION: '0.159.2'
-  RUNTIME_ALIGNMENT_TARGET_ARCHIVE_SHA256: '05a524a463cadf7e3e22c7f923539c0d0b74c3e78b1f5f1fab52e50e6fb3312f'
+  STARTUP_ADVISORY_ACCEPTED_SOURCE_SHA: '75aed30c7ad6c427d30115b0667957130da198f5'
+  STARTUP_ADVISORY_CURRENT_GENERATION: 'local-hosted-0-160-0-4fd14ed8aafc'
+  STARTUP_ADVISORY_CURRENT_SEQUENCE: '26'
+  STARTUP_ADVISORY_TARGET_SEQUENCE: '27'
+  STARTUP_ADVISORY_TARGET_VERSION: '0.160.0'
+  STARTUP_ADVISORY_TARGET_ARCHIVE_SHA256: '7f0fe42ff22ecfa3a47bc4a34f5b22c4218b431a4ec0aba51c7d98299f07900c'
   WRAPPER_PUBLIC_KEY_SHA256: '62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c'
   ANDROID_RUNTIME_APEX_COMMIT: '8aeb37cca394ce39c1311744c60960cbd466aa77'
   ANDROID_RUNTIME_APEX_SHA256: '83bf0dce249728dae48149b80d28b48115c54adad95a352120d58a6ac669d1fc'
@@ -151,6 +155,7 @@ jobs:
       exact_current_fastpath_same_version_deploy: ${{ steps.decision.outputs.exact_current_fastpath_same_version_deploy }}
       no_emoji_same_version_deploy: ${{ steps.decision.outputs.no_emoji_same_version_deploy }}
       download_size_same_version_deploy: ${{ steps.decision.outputs.download_size_same_version_deploy }}
+      startup_advisory_push_bridge: ${{ steps.decision.outputs.startup_advisory_push_bridge }}
       expected_main_sha: ${{ steps.stable.outputs.expected_main_sha }}
       current_generation: ${{ steps.stable.outputs.current_generation }}
       current_release_sequence: ${{ steps.stable.outputs.current_release_sequence }}
@@ -253,33 +258,33 @@ jobs:
           printf 'current_release_sequence=%s\n' "$current_sequence" >> "$GITHUB_OUTPUT"
           printf 'release_sequence=%s\n' "$release_sequence" >> "$GITHUB_OUTPUT"
 
-      - name: Validate exact runtime-alignment upstream archive
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == 'f6f4ea0fd5015f3964c290f2c55186059452c74f' && github.event.head_commit.message == 'align-runtime-seq24-to-accepted-source-4fd14ed8-upstream-0.159.2' }}
+      - name: Validate exact startup-advisory corrective inputs
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == 'bf833822c41cb5ee817922b2ed08e9316f288a40' && github.event.head_commit.message == 'release-startup-advisory-seq27-source-75aed30c' }}
         shell: bash
         run: |
           set -euo pipefail
-          test "$CODEX_SOURCE_SHA" = "$DOWNLOAD_SIZE_ACCEPTED_SOURCE_SHA"
-          test '${{ steps.stable.outputs.current_version }}' = "$DOWNLOAD_SIZE_DEPLOY_VERSION"
-          test '${{ steps.stable.outputs.current_generation }}' = "$DOWNLOAD_SIZE_DEPLOY_CURRENT_GENERATION"
-          test '${{ steps.stable.outputs.current_release_sequence }}' = "$DOWNLOAD_SIZE_DEPLOY_CURRENT_SEQUENCE"
-          test '${{ steps.stable.outputs.release_sequence }}' = "$DOWNLOAD_SIZE_DEPLOY_TARGET_SEQUENCE"
-          state="$RUNNER_TEMP/runtime-alignment-preflight"
+          test "$CODEX_SOURCE_SHA" = "$STARTUP_ADVISORY_ACCEPTED_SOURCE_SHA"
+          test '${{ steps.stable.outputs.current_version }}' = "$STARTUP_ADVISORY_TARGET_VERSION"
+          test '${{ steps.stable.outputs.current_generation }}' = "$STARTUP_ADVISORY_CURRENT_GENERATION"
+          test '${{ steps.stable.outputs.current_release_sequence }}' = "$STARTUP_ADVISORY_CURRENT_SEQUENCE"
+          test '${{ steps.stable.outputs.release_sequence }}' = "$STARTUP_ADVISORY_TARGET_SEQUENCE"
+          state="$RUNNER_TEMP/startup-advisory-preflight"
           rm -rf "$state"
           mkdir -p "$state"
           curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
             --connect-timeout 15 --max-time 60 --max-filesize 131072 \
             --output "$state/latest.json" "$UPSTREAM_LATEST_URL"
           python3 source/.github/scripts/rald3_preflight.py upstream "$state/latest.json" > "$state/upstream"
-          test "$(sed -n 's/^version=//p' "$state/upstream")" = "$RUNTIME_ALIGNMENT_TARGET_VERSION"
-          test "$(sed -n 's/^archive_sha256=//p' "$state/upstream")" = "$RUNTIME_ALIGNMENT_TARGET_ARCHIVE_SHA256"
+          test "$(sed -n 's/^version=//p' "$state/upstream")" = "$STARTUP_ADVISORY_TARGET_VERSION"
+          test "$(sed -n 's/^archive_sha256=//p' "$state/upstream")" = "$STARTUP_ADVISORY_TARGET_ARCHIVE_SHA256"
 
       - name: Resolve official upstream stable
         id: decision
         shell: bash
         env:
           RALD4_POSITIVE_GATE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald4_positive_gate }}
-          DOWNLOAD_SIZE_PUSH_BRIDGE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == 'f6f4ea0fd5015f3964c290f2c55186059452c74f' && github.event.head_commit.message == 'align-runtime-seq24-to-accepted-source-4fd14ed8-upstream-0.159.2' }}
-          RALD5_PUBLICATION_AUTHORIZED: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.rald5_publication_authorized) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == 'f6f4ea0fd5015f3964c290f2c55186059452c74f' && github.event.head_commit.message == 'align-runtime-seq24-to-accepted-source-4fd14ed8-upstream-0.159.2') }}
+          STARTUP_ADVISORY_PUSH_BRIDGE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == 'bf833822c41cb5ee817922b2ed08e9316f288a40' && github.event.head_commit.message == 'release-startup-advisory-seq27-source-75aed30c' }}
+          RALD5_PUBLICATION_AUTHORIZED: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.rald5_publication_authorized) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == 'bf833822c41cb5ee817922b2ed08e9316f288a40' && github.event.head_commit.message == 'release-startup-advisory-seq27-source-75aed30c') }}
           RALD5_SAME_VERSION_ACCEPTANCE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald5_same_version_acceptance }}
           RALD45_TRANSITION_STAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald45_transition_stage }}
           RALD45_TRANSITION_PROMOTE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald45_transition_promote }}
@@ -331,11 +336,11 @@ jobs:
           test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" = true -o "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" = false
           test "$NO_EMOJI_SAME_VERSION_DEPLOY" = true -o "$NO_EMOJI_SAME_VERSION_DEPLOY" = false
           test "$DOWNLOAD_SIZE_SAME_VERSION_DEPLOY" = true -o "$DOWNLOAD_SIZE_SAME_VERSION_DEPLOY" = false
-          test "$DOWNLOAD_SIZE_PUSH_BRIDGE" = true -o "$DOWNLOAD_SIZE_PUSH_BRIDGE" = false
+          test "$STARTUP_ADVISORY_PUSH_BRIDGE" = true -o "$STARTUP_ADVISORY_PUSH_BRIDGE" = false
           if test "$GITHUB_EVENT_NAME" = push; then
-            test "$DOWNLOAD_SIZE_PUSH_BRIDGE" = true
+            test "$STARTUP_ADVISORY_PUSH_BRIDGE" = true
           fi
-          if test "$DOWNLOAD_SIZE_PUSH_BRIDGE" = true; then
+          if test "$STARTUP_ADVISORY_PUSH_BRIDGE" = true; then
             test "$GITHUB_EVENT_NAME" = push
             test "$GITHUB_REF" = refs/heads/main
             test "$RALD5_PUBLICATION_AUTHORIZED" = true
@@ -350,13 +355,19 @@ jobs:
             test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" != true
             test "$NO_EMOJI_SAME_VERSION_DEPLOY" != true
             test "$DOWNLOAD_SIZE_SAME_VERSION_DEPLOY" != true
-            test "$CODEX_SOURCE_SHA" = "$DOWNLOAD_SIZE_ACCEPTED_SOURCE_SHA"
-            test '${{ steps.stable.outputs.current_version }}' = "$DOWNLOAD_SIZE_DEPLOY_VERSION"
-            test '${{ steps.stable.outputs.current_generation }}' = "$DOWNLOAD_SIZE_DEPLOY_CURRENT_GENERATION"
-            test '${{ steps.stable.outputs.current_release_sequence }}' = "$DOWNLOAD_SIZE_DEPLOY_CURRENT_SEQUENCE"
-            test '${{ steps.stable.outputs.release_sequence }}' = "$DOWNLOAD_SIZE_DEPLOY_TARGET_SEQUENCE"
-            test "$upstream_version" = '0.159.2'
-            test "$candidate" = true
+            test "$CODEX_SOURCE_SHA" = "$STARTUP_ADVISORY_ACCEPTED_SOURCE_SHA"
+            test '${{ steps.stable.outputs.current_version }}' = "$STARTUP_ADVISORY_TARGET_VERSION"
+            test "$upstream_version" = "$STARTUP_ADVISORY_TARGET_VERSION"
+            test '${{ steps.stable.outputs.current_version }}' = "$upstream_version"
+            test '${{ steps.stable.outputs.current_generation }}' = "$STARTUP_ADVISORY_CURRENT_GENERATION"
+            test '${{ steps.stable.outputs.current_release_sequence }}' = "$STARTUP_ADVISORY_CURRENT_SEQUENCE"
+            test '${{ steps.stable.outputs.release_sequence }}' = "$STARTUP_ADVISORY_TARGET_SEQUENCE"
+            test "$archive_sha256" = "$STARTUP_ADVISORY_TARGET_ARCHIVE_SHA256"
+            test "$candidate" = false
+            candidate=true
+            acceptance_suffix='-startup-advisory'
+            printf 'startup-advisory same-version corrective selected: %s sequence %s -> sequence %s\n' \
+              "$upstream_version" "$STARTUP_ADVISORY_CURRENT_SEQUENCE" "$STARTUP_ADVISORY_TARGET_SEQUENCE"
           fi
           if test "$RALD4_POSITIVE_GATE" = true; then
             test "$candidate" = true
@@ -377,7 +388,7 @@ jobs:
               workflow_dispatch)
                 ;;
               push)
-                test "$DOWNLOAD_SIZE_PUSH_BRIDGE" = true
+                test "$STARTUP_ADVISORY_PUSH_BRIDGE" = true
                 ;;
               schedule)
                 test "$RALD4_POSITIVE_GATE" != true
@@ -642,6 +653,7 @@ jobs:
           printf 'exact_current_fastpath_same_version_deploy=%s\n' "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" >> "$GITHUB_OUTPUT"
           printf 'no_emoji_same_version_deploy=%s\n' "$NO_EMOJI_SAME_VERSION_DEPLOY" >> "$GITHUB_OUTPUT"
           printf 'download_size_same_version_deploy=%s\n' "$DOWNLOAD_SIZE_SAME_VERSION_DEPLOY" >> "$GITHUB_OUTPUT"
+          printf 'startup_advisory_push_bridge=%s\n' "$STARTUP_ADVISORY_PUSH_BRIDGE" >> "$GITHUB_OUTPUT"
           printf 'artifact_name=rald3-candidate-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
           printf 'qualified_artifact_name=rald4-qualified-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
           printf 'signed_artifact_name=rald4-signed-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
@@ -1110,8 +1122,8 @@ jobs:
                   raise SystemExit(f"no-emoji descriptor changed forbidden field: {key}")
           PY
 
-      - name: Require exact sequence-22 non-Core bytes for download-size deployment
-        if: steps.decision.outputs.download_size_same_version_deploy == 'true'
+      - name: Require exact non-Core bytes for Core-only corrective deployment
+        if: steps.decision.outputs.download_size_same_version_deploy == 'true' || steps.decision.outputs.startup_advisory_push_bridge == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -1137,7 +1149,7 @@ jobs:
           test "0$(stat -c '%a' "$candidate/core")" = "$current_core_mode"
 
           python3 - "$stable/generation.meta" "$candidate/generation.meta" \
-            "$DOWNLOAD_SIZE_DEPLOY_CURRENT_GENERATION" \
+            '${{ steps.stable.outputs.current_generation }}' \
             '${{ steps.decision.outputs.generation_id }}' \
             "$current_core_digest" "$candidate_core_digest" <<'PY'
           from pathlib import Path
@@ -1153,21 +1165,21 @@ jobs:
           def parse(path):
               text = path.read_text()
               if not text.endswith("\n"):
-                  raise SystemExit("download-size descriptor is missing its final newline")
+                  raise SystemExit("Core-only corrective descriptor is missing its final newline")
               lines = text.splitlines()
               if not lines:
-                  raise SystemExit("download-size descriptor is empty")
+                  raise SystemExit("Core-only corrective descriptor is empty")
               records = lines[1:]
               for line in records:
                   if "\t" not in line:
-                      raise SystemExit("download-size descriptor field layout is invalid")
+                      raise SystemExit("Core-only corrective descriptor field layout is invalid")
               return lines[0], records
 
           def unique_field(records, key):
               prefix = f"{key}\t"
               matches = [line[len(prefix):] for line in records if line.startswith(prefix)]
               if len(matches) != 1:
-                  raise SystemExit(f"download-size descriptor field is not unique: {key}")
+                  raise SystemExit(f"Core-only corrective descriptor field is not unique: {key}")
               return matches[0]
 
           current_format, current_records = parse(current_path)
@@ -1175,22 +1187,22 @@ jobs:
           current_order = [line.split("\t", 1)[0] for line in current_records]
           candidate_order = [line.split("\t", 1)[0] for line in candidate_records]
           if current_format != candidate_format or current_order != candidate_order:
-              raise SystemExit("download-size descriptor schema/order changed")
+              raise SystemExit("Core-only corrective descriptor schema/order changed")
           if unique_field(current_records, "generation_id") != current_id \
                   or unique_field(candidate_records, "generation_id") != candidate_id:
-              raise SystemExit("download-size generation identity binding is not exact")
+              raise SystemExit("Core-only corrective generation identity binding is not exact")
           if unique_field(current_records, "core_artifact_digest") != current_core_digest:
-              raise SystemExit("download-size current descriptor Core digest does not match sequence-22 Core")
+              raise SystemExit("Core-only corrective current descriptor Core digest does not match sequence-22 Core")
           if unique_field(candidate_records, "core_artifact_digest") != candidate_core_digest:
-              raise SystemExit("download-size candidate descriptor Core digest does not match accepted Core")
+              raise SystemExit("Core-only corrective candidate descriptor Core digest does not match accepted Core")
           if current_core_digest == candidate_core_digest:
-              raise SystemExit("download-size candidate Core did not change")
+              raise SystemExit("Core-only corrective candidate Core did not change")
           for current_line, candidate_line in zip(current_records, candidate_records, strict=True):
               key = current_line.split("\t", 1)[0]
               if key in {"generation_id", "core_artifact_digest"}:
                   continue
               if current_line != candidate_line:
-                  raise SystemExit(f"download-size descriptor changed forbidden field: {key}")
+                  raise SystemExit(f"Core-only corrective descriptor changed forbidden field: {key}")
           PY
 
       - name: Rebuild exact historical R10 Core for legacy-lag remediation
@@ -1692,7 +1704,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          DOWNLOAD_SIZE_PUSH_BRIDGE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == 'f6f4ea0fd5015f3964c290f2c55186059452c74f' && github.event.head_commit.message == 'align-runtime-seq24-to-accepted-source-4fd14ed8-upstream-0.159.2' }}
+          STARTUP_ADVISORY_PUSH_BRIDGE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == 'bf833822c41cb5ee817922b2ed08e9316f288a40' && github.event.head_commit.message == 'release-startup-advisory-seq27-source-75aed30c' }}
         run: |
           set -euo pipefail
           expected_main='${{ needs.producer.outputs.expected_main_sha }}'
@@ -1782,10 +1794,10 @@ jobs:
           test "$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" --jq '.prerelease')" = true
           tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$generation" --jq '.object.sha')"
           if test "$tag_sha" != "$expected_main"; then
-            test "$DOWNLOAD_SIZE_PUSH_BRIDGE" = true
+            test "$STARTUP_ADVISORY_PUSH_BRIDGE" = true
             if test "$generation" = local-hosted-0-159-2-4fd14ed8aafc; then
               test "$sequence" = 24
-              test "$tag_sha" = f6f4ea0fd5015f3964c290f2c55186059452c74f
+              test "$tag_sha" = bf833822c41cb5ee817922b2ed08e9316f288a40
             else
               test "$generation" = local-hosted-0-159-0-b164e5b61cb4
               test "$sequence" = 23
@@ -2508,7 +2520,7 @@ jobs:
           "$PREFIX/bin/codex" update > "$RUNNER_TEMP/rald5-second-update.out" 2> "$RUNNER_TEMP/rald5-second-update.err"
           printf 'Codex %s is already up to date.\n' "$version" > "$RUNNER_TEMP/rald5-second-update.expected"
           cmp "$RUNNER_TEMP/rald5-second-update.expected" "$RUNNER_TEMP/rald5-second-update.out"
-          if test '${{ needs.producer.outputs.no_emoji_same_version_deploy }}' = true || test '${{ needs.producer.outputs.download_size_same_version_deploy }}' = true; then
+          if test '${{ needs.producer.outputs.no_emoji_same_version_deploy }}' = true || test '${{ needs.producer.outputs.download_size_same_version_deploy }}' = true || test '${{ needs.producer.outputs.startup_advisory_push_bridge }}' = true; then
             python3 - "$RUNNER_TEMP/rald5-second-update.err" <<'PYERR'
           from pathlib import Path
           import sys
