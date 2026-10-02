@@ -32,7 +32,7 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
-## RESUME-WRITER-RELEASE-V1 (selected 2026-10-02)
+## RESUME-WRITER-RELEASE-V1 (accepted 2026-10-02)
 
 - User reports native read-only/open-in-another-app screen until retry after30-60s;
   asks investigation and resolution after tmux completion, then explicitly directs
@@ -70,7 +70,43 @@
   root policy1/1, shared_server5/5 green. Grouped229 Rust/90 Python (one explicit
   device-ignore), locked workspace release build and actual diff review pass.
   Fifteen protected paths unchanged after native title authorization rebind.
-  Candidate awaits exact signed33 publication and real installed close/resume.
+  Source acceptance is bound to the implementation below.
+
+- Implementation **aa2685f2f68807e0040d7dd8978f7a6565de6680**, pushed on the
+  independent rewrite lineage. Production **37047333858** passes all8 actual
+  jobs/7 logical jobs, including exact Core-only component gate, Android smoke,
+  accepted signing authority, every public byte, disposable ordinary update,
+  second no-op and CAS stable. Trigger3dc399243b37cc0b2c7396a1fa5fa049252482ab
+  fast-forwards parentc728f89; publicmainfcf9f379fdb9fcb6867084b87330197fbd61dd16.
+- Ordinary installed update activates signed **33**, upstream **0.160.0**,
+  **local-hosted-0-160-0-aa2685f2f688-resume-writer**;32 rollback. Stable launcher
+  equals signed Core **b083753451042c861acc6d22153d57eb9df6fe3938567eec2ec9f74e9a9978cd**.
+  Manager2af3076/runtimeba94d1d/code-mode-host/helpers and their modes unchanged.
+  Doctor healthy; second actual update exits0, exact up-to-date stdout/no stderr.
+- Actual installed AI/Core bare native33 TUI has zero argv overrides, matches the
+  new runtime process, and its title-correlated thread is loaded in the real shared
+  server. Native config/read and FD34 both report delay0/danger-full-access.
+  Cold welcome/composer is not thread readiness: corrected probes wait for actual
+  loaded thread/title; normal graceful Ctrl-C handling and asynchronous FD cleanup
+  are accounted for, with no product retry/kill/lock manipulation.
+- Existing canonical own conversation: idle source exits0.964s; other-account
+  writable TUI5.027s; reverse account4.028s; same account4.490s. No R retry, fork,
+  transcript copy or model turn. A genuinely connected other-account owner keeps
+  its lock and the competing TUI is read-only. Final idle writer releases naturally.
+- Actual native interactive thread/list is exhaustive and identical between
+  janmori101/wrlab: fixture phase CWD7/All25,18 outside CWD. Exact own SessionMeta
+  proves one current-CWD fixture is included and one different-CWD fixture excluded
+  from default scope; both appear in All, no duplicate IDs. A prior probe wrongly
+  required the other-CWD fixture in CWD; corrected to actual metadata, not policy.
+- Only2 owned synthetic conversations archived via native APIs after owned clients
+  close; IDs and exact transcript digests preserved. Post-cleanup both accounts
+  show CWD6/All23; no new empty bare rollouts persisted. Own tmux socket registry,
+  notifications and reusable384MiB staging/cache removed, no backup. Protected15
+  auth/config/resolver identities unchanged for this Core-only bundle. AI unrelated
+  dirty changes remain untouched; native notification channel/hooks/focus unchanged.
+- Limit: already-running pre33 servers keep their startup60s setting until normal
+  restart; they are not killed. Explicit user delay settings take precedence.
+  Upstream real subscribed/active/background writer protection remains in force.
 
 ## AI-TMUX-NOTIFY-FOCUS-V1 (accepted 2026-10-02)
 
@@ -563,19 +599,21 @@ dated sections preserve historical evidence; historical words such as
 `WORKBOARD.md`.
 
 - Source authority is remote `rewrite/rust-core`, read afresh on resume. Runtime
-  producer is **4c3d013cd6e224fdda7b5727efc13140e915f056**; ledger-only children
-  retain identical accepted Rust source. AI main **88a21df305c140e6d7d936902b89b935df3a22da**.
-- Public main **c728f89d8593b411ddef2961374efa9da3ee226f**; signed/live sequence
-  **32**, upstream **0.160.0**, **local-hosted-0-160-0-4c3d013cd6e2-tmux-notify**;
-  sequence31 rollback. Core/runtime unchanged; Manager/source/public/live agree.
+  producer is **aa2685f2f68807e0040d7dd8978f7a6565de6680**; ledger-only children
+  retain identical accepted Rust source. AI main **5ce014ce7bbcffc916ee2c1a1c5e8a000e231ce9**
+  is the docs child of accepted324e201+88a21df implementation.
+- Public main **fcf9f379fdb9fcb6867084b87330197fbd61dd16**; signed/live sequence
+  **33**, upstream **0.160.0**, **local-hosted-0-160-0-aa2685f2f688-resume-writer**;
+  sequence32 rollback. Core-only default change; Manager/runtime bytes unchanged.
+  Source/release/public/live agree; actual native effective delay0/full-access.
 - AI-TMUX-NOTIFY-FOCUS-V1, NOTIFY-OPEN and INPUT-REQUEST accepted. Both channels
   and PermissionRequest/UserInputRequest/Stop active; focus=tmux. AI --tmux/TUI
   option controls managed launch. Click selects exact live native pane when
   foreground terminal displays that session; ordinary non-tmux Android terminals
   still use last-selected Termux Activity. No new Codex or terminal on click.
   Auth separate; native shared conversations/DB and CWD/All policy unchanged.
-- Next selected user request: diagnose/fix30-60s read-only/writer release delay
-  after closing a client, preserving real concurrent ownership and shared server.
+- RESUME-WRITER-RELEASE-V1 accepted: idle cross-account resume in4-5s without
+  retry; genuine concurrent ownership preserved. No selected implementation remains.
 - Reviewed follow-up candidates: external profile identity naming/selection and
   historical source acceptance automation pins/runner permissions. Neither is
   silently implemented or treated as passing current acceptance evidence.
