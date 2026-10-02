@@ -32,6 +32,40 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
+## NOTIFY-SINGLE-LINE-TMUX-COLOR-V1 (selected 2026-10-02)
+
+- User prioritizes single-line notification title/body while retaining toast
+  behavior, and restoring Codex color/rich rendering through optional AI tmux.
+  Prompt-cache retention investigation is deferred; delay0 stays unchanged.
+- Bind Codex08b67cf clean/rewrite and signed/public/live33/upstream0.160.0;
+  AI5ce014c with pre-existing dirty provider/TUI/smoke files preserved/excluded.
+  Goal-md resolves this exact GOAL.md. Approved equivalent primary, workers OFF.
+- Success: actual notification provider gets trimmed one-line text even with
+  preserve_newlines1; actual toast keeps its configured multiline presentation.
+  Current caller color preferences, including absence of NO_COLOR, reach the
+  tmux child despite stale server state; explicit caller choices remain intact.
+  User additionally requests bottom tmux status inspection; hide it only for
+  AI-owned sessions, preserving existing unmanaged sessions/global configuration.
+  Keep native terminal identity, argv/profile/CWD, focus, auth and sessions.
+- Ordered slices and proof map are in WORKBOARD.md. After source baselines,
+  focused/regression/grouped gates and diff review, bounded AI-only installation,
+  signed Manager-only publication/ordinary activation, synthetic native delivery
+  and own isolated Codex tmux ANSI verification are authorized by this request.
+  Never stop/restart existing user panes or mutate global tmux/user config.
+  No backups; remove own staging after acceptance. Android width ellipsis and
+  existing process startup environments are explicit presentation limitations.
+
+- Source slice1 exact actual dispatch1/1, Manager21 unit/15 integration pass;
+  complete grouped230 Rust/90 Python (one explicit device ignore), locked workspace
+  release pass. AI final37 gates/0 warnings and native5 regression functions pass.
+  Actual code diffs reviewed; fifteen auth/config/resolver identities unchanged.
+- AI implementation7656358 pushed and installed without backup, preserving exact
+  unrelated dirty source identity9fe1bac80363. Native installed public AI opens
+  actual bare Codex with zero argv overrides, native screen-256color, NO_COLOR
+  absent, RGB38;2;99;168;248 plus bold/dim; owned status off. Existing managed
+  session status off preserves all panes/PIDs/global status. Own empty probe UI
+  exits gracefully; no model turn. Native notification/public deployment pending.
+
 ## RESUME-WRITER-RELEASE-V1 (accepted 2026-10-02)
 
 - User reports native read-only/open-in-another-app screen until retry after30-60s;

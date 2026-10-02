@@ -810,6 +810,58 @@ fn notification_configuration_and_emit_are_best_effort_at_manager_boundary() {
     );
 }
 
+#[test]
+fn notification_is_single_line_while_toast_preserves_configured_newlines() {
+    let root = TestRoot::new();
+    let core = write_core_probe(&root.0);
+    let providers = root.0.join("providers");
+    fs::create_dir(&providers).unwrap();
+    write_notification_provider(&providers, "termux-notification");
+    write_notification_provider(&providers, "termux-toast");
+    let log = root.0.join("provider.log");
+    let set = run_manager(
+        &root.0,
+        &core,
+        &[
+            "notify",
+            "set",
+            "--channel",
+            "both",
+            "--hooks",
+            "Stop",
+            "--preserve-newlines",
+            "1",
+        ],
+        None,
+    );
+    assert_eq!(set.status.code(), Some(0));
+    let before = run_manager(&root.0, &core, &["notify", "show"], None).stdout;
+    let emitted = run_manager_with_input(
+        &root.0,
+        &core,
+        &["notify", "emit", "Stop"],
+        &providers,
+        &log,
+        br#"{"title":"\n Codex\t done \r\n","content":"\r\n first\nsecond\tthird\u2028fourth \n"}"#,
+    );
+    assert_eq!(emitted.status.code(), Some(0));
+    assert!(emitted.stdout.is_empty() && emitted.stderr.is_empty());
+    let calls = fs::read_to_string(&log).unwrap();
+    let (notification, toast) = calls
+        .split_once(&format!(
+            "provider={}\n",
+            providers.join("termux-toast").display()
+        ))
+        .unwrap();
+    assert!(notification.contains("arg=--title\narg=Codex done\n"));
+    assert!(notification.contains("arg=--content\narg=first second third fourth\n"));
+    assert!(toast.contains("arg=\n first\nsecond\tthird\u{2028}fourth \n\n"));
+    assert_eq!(
+        run_manager(&root.0, &core, &["notify", "show"], None).stdout,
+        before
+    );
+}
+
 unsafe extern "C" {
     fn kill(pid: i32, signal: i32) -> i32;
 }

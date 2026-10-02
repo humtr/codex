@@ -1,33 +1,51 @@
 # Rust Core Workboard
 
 Authority SPEC.md -> GOAL.md -> WORKBOARD.md; approved equivalent primary;
-workers OFF. No selected implementation remains.
+workers OFF. Goal-md resolver binds codex-goal.md to this GOAL.md/rewrite lineage.
 
-RESUME-WRITER-RELEASE-V1 accepted on 2026-10-02. Implementationaa2685f2f68807e0040d7dd8978f7a6565de6680
-is pushed; exact grouped229 Rust/90 Python, locked workspace release, protected15
-and production37047333858 green. Signed/public/live33, upstream0.160.0,
-local-hosted-0-160-0-aa2685f2f688-resume-writer;32 rollback. Core-only change,
-Manager/runtime/host/helpers unchanged. Native bare uses actual shared server,
-zero argv overrides and effective0s/full-access. Idle cross-account/reverse/same
-account writable in5.027/4.028/4.490s without retry. Actual concurrent writer stays
-read-only. Actual native CWD/All account visibility identical; after own fixture
-archive6/23, other CWD excluded from CWD. Original IDs/transcript digests preserved.
+Selected NOTIFY-SINGLE-LINE-TMUX-COLOR-V1, 2026-10-02. Bound clean Codex
+08b67cfec7d0afd9e62f730936298219ac619fa4, signed/public/live33, upstream0.160.0.
+AI main5ce014ce7bbcffc916ee2c1a1c5e8a000e231ce9 has pre-existing dirty
+lib/ai_provider.py, lib/ai_tui.py, verify/ai-tui-smoke.sh; preserve/exclude them.
+User prioritizes single-line notification (toast unchanged) and tmux rich/color
+rendering; additionally hide native status row only for AI-managed sessions.
+Prompt-cache retention investigation is deferred; keep delay0.
+Baseline Codex grouped gate runs in one disposable root; AI final-verify passed
+37 gates/0 warnings. AI dirty identity9fe1bac80363 preserved.
 
-AI-TMUX-NOTIFY-FOCUS-V1 remains accepted: AI324e201+88a21df, docs5ce014c;
-managed originating tmux session receives exact pane focus without a new window.
-Unrelated ordinary Android Termux terminal selection is an explicit OS limitation.
-Native channelboth/PermissionRequest/UserInputRequest/Stop/focus=tmux intact.
-AI pre-existing dirty provider/TUI/smoke changes preserved and excluded from commits.
+Ordered vertical slices:
+1. Notification title/body always fold whitespace to one line; configured toast
+   newline policy stays intact. Paths Manager lib/profile_commands tests, SPEC.
+   Focus: actual both-provider multiline dispatch and Unicode folding regression.
+   Protect hook selection/action, payload limits, config shape, auth/content privacy.
+   State: CLOSED source slice. Exact focused dispatch1/1 and complete Manager
+   21 unit/15 integration pass; production diff reviewed. Notification-only fold
+   is at provider boundary; no toast/config/hook/action mutation.
+2. AI tmux launches use current caller color preferences, including explicit
+   absence, rather than stale tmux server environment. Preserve native TERM,
+   upstream argv/CWD/profile, explicit NO_COLOR and existing-pane focus. Paths
+   AI ai_tmux.py/tests/test_tmux_launch.py/README. Focus actual isolated tmux
+   stale-NO_COLOR removal, explicit preference preservation and ANSI rendition.
+   Protect unrelated dirty AI work, existing user panes/server/config/auth/history.
+   State: CLOSED source slice. Native tmux tests5/5 pass, including stale values
+   for all6 color keys, explicit NO_COLOR/FORCE_COLOR preservation, native TERM
+   and actual captured ANSI. Actual diff reviewed; no global server mutation.
+3. AI-owned session hides native bottom status row; foreign sessions preserve
+   their setting. Paths AI launch/test/README. Proof actual owned status off and
+   foreign status on before/after launch/focus. State: CLOSED source slice. Native
+   owned/foreign status and all5 tmux regression functions pass.
 
-KEEP native writer/lifecycle/auth and existing FD34 layer; COLLAPSE fix into one
-system default; DELETE artificial60s idle cache delay for new servers. No lock
-steal/delete, retry wrapper, daemon disable or profile-delay mutation. Completed
-slice/proof disposition lives only in GOAL.md. Corrected false-positive diagnostic
-harnesses are not acceptance evidence. Own fixtures archived through native APIs;
-private staging/cache and dead own tmux registration removed without backup.
+Source acceptance: grouped230 Rust/90 Python (one explicit device ignore),
+locked workspace release, AI37 gates/0 warnings and native5 tests pass. Actual
+installed AI7656358 is pushed; native bare Codex has RGB/bold/dim, zero argv
+overrides, NO_COLOR absent, native screen-256color and owned status off. Existing
+owned live status is off with unchanged pane identities/global status; protected
+15 unchanged. Actual product/authority diffs reviewed.
 
-On any new directive, bind exact branch/HEAD/dirty and authority again. Existing
-pre33 servers retain startup delay until normal restart; never terminate other
-active work. External profile identity UX and historical source automation pins/
-runner permissions remain reviewed follow-up candidates, not silently implemented
-or falsely counted as passing gates.
+Next: implementation commit/push and signed Manager-only publication/activation,
+protected fingerprints, implementation commits/push; bounded AI-only install,
+signed Manager-only Codex production/public ordinary update, native synthetic
+notification and isolated real Codex tmux ANSI proof. Existing user TUI cannot
+have its startup environment changed in place; do not terminate active work.
+Remove own probes/staging without backup after acceptance. No global tmux config
+change, credential access, transcript rewrite, lock manipulation or cache pings.

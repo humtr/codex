@@ -2019,7 +2019,12 @@ Missing title uses `Codex`; missing body uses the fixed event status strings
 `Notify turn completion`, in the canonical event order above. Malformed or
 oversized input is a successful no-op. The selected text is normalized for
 CRLF/CR, then the configured character limit and final 4,096-byte cap are
-applied, and the result is passed only to the selected Termux providers. It
+applied. Notification title and body always fold all whitespace runs to one
+space and trim surrounding whitespace, producing single-line provider arguments
+so leading blank lines cannot hide content in the collapsed notification. Android
+may still ellipsize text according to available width. `preserve_newlines` keeps
+its existing meaning for toast delivery; the notification rule applies regardless
+of that setting. The result is passed only to the selected Termux providers. It
 never persists, logs, or prints the input, notification content, paths,
 credentials, or session data.
 Provider absence, provider failure, malformed hook input, and disabled hooks
@@ -2064,6 +2069,13 @@ notification visibility or permission. Any selected-channel failure returns 1
 with a fixed error; all successful attempts return 0. Provider stdout/stderr and
 arbitrary input are never forwarded. Hook delivery retains its silent best-effort
 contract regardless of these outcomes.
+
+The optional external AI tmux launcher owns presentation only within a session
+marked as AI-managed. It hides that session's native bottom status row so Codex
+retains the full terminal height. It must preserve status settings of an existing
+unmanaged tmux session and never change global tmux configuration. New panes use
+current caller color preferences, including explicit unset values, rather than
+stale server environment; tmux retains native TERM/TERM_PROGRAM ownership.
 
 ### MGR-4 — repair planning through Core
 

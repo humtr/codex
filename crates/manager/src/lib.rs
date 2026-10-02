@@ -1436,6 +1436,8 @@ fn invoke_termux_notification(
     body: &str,
     action: &str,
 ) -> ProviderResult {
+    let title = title.split_whitespace().collect::<Vec<_>>().join(" ");
+    let body = body.split_whitespace().collect::<Vec<_>>().join(" ");
     let mut command = Command::new("termux-notification");
     command
         .arg("--action")
