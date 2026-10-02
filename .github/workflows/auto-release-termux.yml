@@ -77,8 +77,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  CODEX_SOURCE_SHA: '75aed30c7ad6c427d30115b0667957130da198f5'
-  RALD5_SOURCE_SHA: '75aed30c7ad6c427d30115b0667957130da198f5'
+  CODEX_SOURCE_SHA: '89b96680cd54f26eaf75cb2c5988dcf2b0d76187'
+  RALD5_SOURCE_SHA: '89b96680cd54f26eaf75cb2c5988dcf2b0d76187'
   RUST_VERSION: '1.98.0'
   ANDROID_API: '24'
   ANDROID_NDK_VERSION: '27.3.13750724'
@@ -121,12 +121,12 @@ env:
   DOWNLOAD_SIZE_DEPLOY_CURRENT_GENERATION: 'local-hosted-0-159-0-b164e5b61cb4'
   DOWNLOAD_SIZE_DEPLOY_CURRENT_SEQUENCE: '23'
   DOWNLOAD_SIZE_DEPLOY_TARGET_SEQUENCE: '24'
-  STARTUP_ADVISORY_ACCEPTED_SOURCE_SHA: '75aed30c7ad6c427d30115b0667957130da198f5'
-  STARTUP_ADVISORY_CURRENT_GENERATION: 'local-hosted-0-160-0-4fd14ed8aafc'
-  STARTUP_ADVISORY_CURRENT_SEQUENCE: '26'
-  STARTUP_ADVISORY_TARGET_SEQUENCE: '27'
-  STARTUP_ADVISORY_TARGET_VERSION: '0.160.0'
-  STARTUP_ADVISORY_TARGET_ARCHIVE_SHA256: '7f0fe42ff22ecfa3a47bc4a34f5b22c4218b431a4ec0aba51c7d98299f07900c'
+  SHARED_VISIBILITY_ACCEPTED_SOURCE_SHA: '89b96680cd54f26eaf75cb2c5988dcf2b0d76187'
+  SHARED_VISIBILITY_CURRENT_GENERATION: 'local-hosted-0-160-0-75aed30c7ad6-startup-advisory'
+  SHARED_VISIBILITY_CURRENT_SEQUENCE: '27'
+  SHARED_VISIBILITY_TARGET_SEQUENCE: '28'
+  SHARED_VISIBILITY_TARGET_VERSION: '0.160.0'
+  SHARED_VISIBILITY_TARGET_ARCHIVE_SHA256: '7f0fe42ff22ecfa3a47bc4a34f5b22c4218b431a4ec0aba51c7d98299f07900c'
   WRAPPER_PUBLIC_KEY_SHA256: '62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c'
   ANDROID_RUNTIME_APEX_COMMIT: '8aeb37cca394ce39c1311744c60960cbd466aa77'
   ANDROID_RUNTIME_APEX_SHA256: '83bf0dce249728dae48149b80d28b48115c54adad95a352120d58a6ac669d1fc'
@@ -155,7 +155,7 @@ jobs:
       exact_current_fastpath_same_version_deploy: ${{ steps.decision.outputs.exact_current_fastpath_same_version_deploy }}
       no_emoji_same_version_deploy: ${{ steps.decision.outputs.no_emoji_same_version_deploy }}
       download_size_same_version_deploy: ${{ steps.decision.outputs.download_size_same_version_deploy }}
-      startup_advisory_push_bridge: ${{ steps.decision.outputs.startup_advisory_push_bridge }}
+      shared_visibility_push_bridge: ${{ steps.decision.outputs.shared_visibility_push_bridge }}
       expected_main_sha: ${{ steps.stable.outputs.expected_main_sha }}
       current_generation: ${{ steps.stable.outputs.current_generation }}
       current_release_sequence: ${{ steps.stable.outputs.current_release_sequence }}
@@ -258,33 +258,33 @@ jobs:
           printf 'current_release_sequence=%s\n' "$current_sequence" >> "$GITHUB_OUTPUT"
           printf 'release_sequence=%s\n' "$release_sequence" >> "$GITHUB_OUTPUT"
 
-      - name: Validate exact startup-advisory corrective inputs
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == 'bf833822c41cb5ee817922b2ed08e9316f288a40' && github.event.head_commit.message == 'release-startup-advisory-seq27-source-75aed30c' }}
+      - name: Validate exact shared-visibility corrective inputs
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == '2dc79bd11842c9e5970b8c73c470886b780f2ff8' && github.event.head_commit.message == 'release-shared-visibility-seq28-source-89b96680' }}
         shell: bash
         run: |
           set -euo pipefail
-          test "$CODEX_SOURCE_SHA" = "$STARTUP_ADVISORY_ACCEPTED_SOURCE_SHA"
-          test '${{ steps.stable.outputs.current_version }}' = "$STARTUP_ADVISORY_TARGET_VERSION"
-          test '${{ steps.stable.outputs.current_generation }}' = "$STARTUP_ADVISORY_CURRENT_GENERATION"
-          test '${{ steps.stable.outputs.current_release_sequence }}' = "$STARTUP_ADVISORY_CURRENT_SEQUENCE"
-          test '${{ steps.stable.outputs.release_sequence }}' = "$STARTUP_ADVISORY_TARGET_SEQUENCE"
-          state="$RUNNER_TEMP/startup-advisory-preflight"
+          test "$CODEX_SOURCE_SHA" = "$SHARED_VISIBILITY_ACCEPTED_SOURCE_SHA"
+          test '${{ steps.stable.outputs.current_version }}' = "$SHARED_VISIBILITY_TARGET_VERSION"
+          test '${{ steps.stable.outputs.current_generation }}' = "$SHARED_VISIBILITY_CURRENT_GENERATION"
+          test '${{ steps.stable.outputs.current_release_sequence }}' = "$SHARED_VISIBILITY_CURRENT_SEQUENCE"
+          test '${{ steps.stable.outputs.release_sequence }}' = "$SHARED_VISIBILITY_TARGET_SEQUENCE"
+          state="$RUNNER_TEMP/shared-visibility-preflight"
           rm -rf "$state"
           mkdir -p "$state"
           curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
             --connect-timeout 15 --max-time 60 --max-filesize 131072 \
             --output "$state/latest.json" "$UPSTREAM_LATEST_URL"
           python3 source/.github/scripts/rald3_preflight.py upstream "$state/latest.json" > "$state/upstream"
-          test "$(sed -n 's/^version=//p' "$state/upstream")" = "$STARTUP_ADVISORY_TARGET_VERSION"
-          test "$(sed -n 's/^archive_sha256=//p' "$state/upstream")" = "$STARTUP_ADVISORY_TARGET_ARCHIVE_SHA256"
+          test "$(sed -n 's/^version=//p' "$state/upstream")" = "$SHARED_VISIBILITY_TARGET_VERSION"
+          test "$(sed -n 's/^archive_sha256=//p' "$state/upstream")" = "$SHARED_VISIBILITY_TARGET_ARCHIVE_SHA256"
 
       - name: Resolve official upstream stable
         id: decision
         shell: bash
         env:
           RALD4_POSITIVE_GATE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald4_positive_gate }}
-          STARTUP_ADVISORY_PUSH_BRIDGE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == 'bf833822c41cb5ee817922b2ed08e9316f288a40' && github.event.head_commit.message == 'release-startup-advisory-seq27-source-75aed30c' }}
-          RALD5_PUBLICATION_AUTHORIZED: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.rald5_publication_authorized) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == 'bf833822c41cb5ee817922b2ed08e9316f288a40' && github.event.head_commit.message == 'release-startup-advisory-seq27-source-75aed30c') }}
+          SHARED_VISIBILITY_PUSH_BRIDGE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == '2dc79bd11842c9e5970b8c73c470886b780f2ff8' && github.event.head_commit.message == 'release-shared-visibility-seq28-source-89b96680' }}
+          RALD5_PUBLICATION_AUTHORIZED: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.rald5_publication_authorized) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == '2dc79bd11842c9e5970b8c73c470886b780f2ff8' && github.event.head_commit.message == 'release-shared-visibility-seq28-source-89b96680') }}
           RALD5_SAME_VERSION_ACCEPTANCE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald5_same_version_acceptance }}
           RALD45_TRANSITION_STAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald45_transition_stage }}
           RALD45_TRANSITION_PROMOTE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald45_transition_promote }}
@@ -336,11 +336,11 @@ jobs:
           test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" = true -o "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" = false
           test "$NO_EMOJI_SAME_VERSION_DEPLOY" = true -o "$NO_EMOJI_SAME_VERSION_DEPLOY" = false
           test "$DOWNLOAD_SIZE_SAME_VERSION_DEPLOY" = true -o "$DOWNLOAD_SIZE_SAME_VERSION_DEPLOY" = false
-          test "$STARTUP_ADVISORY_PUSH_BRIDGE" = true -o "$STARTUP_ADVISORY_PUSH_BRIDGE" = false
+          test "$SHARED_VISIBILITY_PUSH_BRIDGE" = true -o "$SHARED_VISIBILITY_PUSH_BRIDGE" = false
           if test "$GITHUB_EVENT_NAME" = push; then
-            test "$STARTUP_ADVISORY_PUSH_BRIDGE" = true
+            test "$SHARED_VISIBILITY_PUSH_BRIDGE" = true
           fi
-          if test "$STARTUP_ADVISORY_PUSH_BRIDGE" = true; then
+          if test "$SHARED_VISIBILITY_PUSH_BRIDGE" = true; then
             test "$GITHUB_EVENT_NAME" = push
             test "$GITHUB_REF" = refs/heads/main
             test "$RALD5_PUBLICATION_AUTHORIZED" = true
@@ -355,19 +355,19 @@ jobs:
             test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" != true
             test "$NO_EMOJI_SAME_VERSION_DEPLOY" != true
             test "$DOWNLOAD_SIZE_SAME_VERSION_DEPLOY" != true
-            test "$CODEX_SOURCE_SHA" = "$STARTUP_ADVISORY_ACCEPTED_SOURCE_SHA"
-            test '${{ steps.stable.outputs.current_version }}' = "$STARTUP_ADVISORY_TARGET_VERSION"
-            test "$upstream_version" = "$STARTUP_ADVISORY_TARGET_VERSION"
+            test "$CODEX_SOURCE_SHA" = "$SHARED_VISIBILITY_ACCEPTED_SOURCE_SHA"
+            test '${{ steps.stable.outputs.current_version }}' = "$SHARED_VISIBILITY_TARGET_VERSION"
+            test "$upstream_version" = "$SHARED_VISIBILITY_TARGET_VERSION"
             test '${{ steps.stable.outputs.current_version }}' = "$upstream_version"
-            test '${{ steps.stable.outputs.current_generation }}' = "$STARTUP_ADVISORY_CURRENT_GENERATION"
-            test '${{ steps.stable.outputs.current_release_sequence }}' = "$STARTUP_ADVISORY_CURRENT_SEQUENCE"
-            test '${{ steps.stable.outputs.release_sequence }}' = "$STARTUP_ADVISORY_TARGET_SEQUENCE"
-            test "$archive_sha256" = "$STARTUP_ADVISORY_TARGET_ARCHIVE_SHA256"
+            test '${{ steps.stable.outputs.current_generation }}' = "$SHARED_VISIBILITY_CURRENT_GENERATION"
+            test '${{ steps.stable.outputs.current_release_sequence }}' = "$SHARED_VISIBILITY_CURRENT_SEQUENCE"
+            test '${{ steps.stable.outputs.release_sequence }}' = "$SHARED_VISIBILITY_TARGET_SEQUENCE"
+            test "$archive_sha256" = "$SHARED_VISIBILITY_TARGET_ARCHIVE_SHA256"
             test "$candidate" = false
             candidate=true
-            acceptance_suffix='-startup-advisory'
-            printf 'startup-advisory same-version corrective selected: %s sequence %s -> sequence %s\n' \
-              "$upstream_version" "$STARTUP_ADVISORY_CURRENT_SEQUENCE" "$STARTUP_ADVISORY_TARGET_SEQUENCE"
+            acceptance_suffix='-shared-visibility'
+            printf 'shared-visibility same-version corrective selected: %s sequence %s -> sequence %s\n' \
+              "$upstream_version" "$SHARED_VISIBILITY_CURRENT_SEQUENCE" "$SHARED_VISIBILITY_TARGET_SEQUENCE"
           fi
           if test "$RALD4_POSITIVE_GATE" = true; then
             test "$candidate" = true
@@ -388,7 +388,7 @@ jobs:
               workflow_dispatch)
                 ;;
               push)
-                test "$STARTUP_ADVISORY_PUSH_BRIDGE" = true
+                test "$SHARED_VISIBILITY_PUSH_BRIDGE" = true
                 ;;
               schedule)
                 test "$RALD4_POSITIVE_GATE" != true
@@ -653,7 +653,7 @@ jobs:
           printf 'exact_current_fastpath_same_version_deploy=%s\n' "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" >> "$GITHUB_OUTPUT"
           printf 'no_emoji_same_version_deploy=%s\n' "$NO_EMOJI_SAME_VERSION_DEPLOY" >> "$GITHUB_OUTPUT"
           printf 'download_size_same_version_deploy=%s\n' "$DOWNLOAD_SIZE_SAME_VERSION_DEPLOY" >> "$GITHUB_OUTPUT"
-          printf 'startup_advisory_push_bridge=%s\n' "$STARTUP_ADVISORY_PUSH_BRIDGE" >> "$GITHUB_OUTPUT"
+          printf 'shared_visibility_push_bridge=%s\n' "$SHARED_VISIBILITY_PUSH_BRIDGE" >> "$GITHUB_OUTPUT"
           printf 'artifact_name=rald3-candidate-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
           printf 'qualified_artifact_name=rald4-qualified-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
           printf 'signed_artifact_name=rald4-signed-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
@@ -1123,7 +1123,7 @@ jobs:
           PY
 
       - name: Require exact non-Core bytes for Core-only corrective deployment
-        if: steps.decision.outputs.download_size_same_version_deploy == 'true' || steps.decision.outputs.startup_advisory_push_bridge == 'true'
+        if: steps.decision.outputs.download_size_same_version_deploy == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -1204,6 +1204,45 @@ jobs:
               if current_line != candidate_line:
                   raise SystemExit(f"Core-only corrective descriptor changed forbidden field: {key}")
           PY
+
+      - name: Bind shared visibility correction to exact qualified component changes
+        if: steps.decision.outputs.shared_visibility_push_bridge == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          stable="$RUNNER_TEMP/rald3-stable"
+          candidate="$RUNNER_TEMP/rald3-candidate/candidate"
+          for rel in codex-code-mode-host helpers/0 helpers/1 manager; do
+            entry="$RUNNER_TEMP/shared-visibility-entry-${rel//\//-}"
+            python3 source/.github/scripts/rald3_preflight.py manifest-entry "$stable/release.manifest" "$rel" > "$entry"
+            test "$(sha256sum "$candidate/$rel" | awk '{print $1}')" = "$(sed -n 's/^sha256=//p' "$entry")"
+            test "0$(stat -c '%a' "$candidate/$rel")" = "$(sed -n 's/^mode=//p' "$entry")"
+          done
+          test "$(sha256sum "$candidate/runtime" | awk '{print $1}')" = ba94d1d0d9d416a7fb2f13d6ffcc6e0d9ec981ee1793158bbc9b1d96d5f51ab3
+          python3 - "$stable/generation.meta" "$candidate/generation.meta" '${{ steps.decision.outputs.generation_id }}' <<'PYQUAL'
+          from pathlib import Path
+          import sys
+          def fields(path):
+              lines = Path(path).read_text().splitlines()
+              if lines[0] != 'codex-local-generation-v2':
+                  raise SystemExit('generation format changed')
+              pairs = [line.split('\t', 1) for line in lines[1:]]
+              result = dict(pairs)
+              if len(result) != len(pairs):
+                  raise SystemExit('duplicate descriptor field')
+              return result
+          old, new = fields(sys.argv[1]), fields(sys.argv[2])
+          allowed = {'generation_id', 'core_artifact_digest', 'runtime_digest', 'patch_policy_id', 'patch_report'}
+          if old.keys() != new.keys() or any(old[k] != new[k] for k in old.keys() - allowed):
+              raise SystemExit('unrelated generation field changed')
+          if new['generation_id'] != sys.argv[3] or new['core_artifact_digest'] == old['core_artifact_digest']:
+              raise SystemExit('accepted Core/generation did not change')
+          if new['runtime_digest'] != 'ba94d1d0d9d416a7fb2f13d6ffcc6e0d9ec981ee1793158bbc9b1d96d5f51ab3' or new['patch_policy_id'] != 'termux-fd-remap-v2':
+              raise SystemExit('runtime is not the qualified UDS artifact')
+          report = new['patch_report']
+          if ';changed_bytes=97;uds_policy=termux-uds-0-160-0-v1' not in report or ';raw_runtime_sha256=50b06603bdcdac39b714f5c3e68583c002b8ad8779ebfdaaf4932ff016b379c0;' not in report:
+              raise SystemExit('qualified patch report changed')
+          PYQUAL
 
       - name: Rebuild exact historical R10 Core for legacy-lag remediation
         if: steps.decision.outputs.legacy_lag_jump_remediation == 'true'
@@ -1704,7 +1743,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          STARTUP_ADVISORY_PUSH_BRIDGE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == 'bf833822c41cb5ee817922b2ed08e9316f288a40' && github.event.head_commit.message == 'release-startup-advisory-seq27-source-75aed30c' }}
+          SHARED_VISIBILITY_PUSH_BRIDGE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == '2dc79bd11842c9e5970b8c73c470886b780f2ff8' && github.event.head_commit.message == 'release-shared-visibility-seq28-source-89b96680' }}
         run: |
           set -euo pipefail
           expected_main='${{ needs.producer.outputs.expected_main_sha }}'
@@ -1793,17 +1832,7 @@ jobs:
           test "$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" --jq '.draft')" = false
           test "$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" --jq '.prerelease')" = true
           tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$generation" --jq '.object.sha')"
-          if test "$tag_sha" != "$expected_main"; then
-            test "$STARTUP_ADVISORY_PUSH_BRIDGE" = true
-            if test "$generation" = local-hosted-0-159-2-4fd14ed8aafc; then
-              test "$sequence" = 24
-              test "$tag_sha" = bf833822c41cb5ee817922b2ed08e9316f288a40
-            else
-              test "$generation" = local-hosted-0-159-0-b164e5b61cb4
-              test "$sequence" = 23
-              test "$tag_sha" = 1cdfdac46e70c6a8b9f04f848ad5ceca973869a0
-            fi
-          fi
+          test "$tag_sha" = "$expected_main"
 
           gh api "repos/$GITHUB_REPOSITORY/releases/$release_id/assets?per_page=100" --paginate \
             --jq '.[] | [.name,.browser_download_url] | @tsv' | LC_ALL=C sort > "$work/public-assets"
@@ -2520,7 +2549,7 @@ jobs:
           "$PREFIX/bin/codex" update > "$RUNNER_TEMP/rald5-second-update.out" 2> "$RUNNER_TEMP/rald5-second-update.err"
           printf 'Codex %s is already up to date.\n' "$version" > "$RUNNER_TEMP/rald5-second-update.expected"
           cmp "$RUNNER_TEMP/rald5-second-update.expected" "$RUNNER_TEMP/rald5-second-update.out"
-          if test '${{ needs.producer.outputs.no_emoji_same_version_deploy }}' = true || test '${{ needs.producer.outputs.download_size_same_version_deploy }}' = true || test '${{ needs.producer.outputs.startup_advisory_push_bridge }}' = true; then
+          if test '${{ needs.producer.outputs.no_emoji_same_version_deploy }}' = true || test '${{ needs.producer.outputs.download_size_same_version_deploy }}' = true || test '${{ needs.producer.outputs.shared_visibility_push_bridge }}' = true; then
             python3 - "$RUNNER_TEMP/rald5-second-update.err" <<'PYERR'
           from pathlib import Path
           import sys
