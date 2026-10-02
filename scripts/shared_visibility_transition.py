@@ -268,6 +268,12 @@ def handoff(snapshot: dict) -> tuple[set[str],set[Path]]:
             os.replace(entry['path'],target)
             for copy in canonical:
                 if copy['path']!=target: copy['path'].unlink()
+        # Historical leaf aliases are redundant after every selected real payload
+        # has been published. Remove them before profile directories become aliases
+        # themselves, which would otherwise create broken or circular paths.
+        for directory in ('sessions', 'archived_sessions'):
+            for path in (shared/directory).rglob('*.jsonl'):
+                if path.is_symlink(): path.unlink()
         for name in ('history.jsonl','session_index.jsonl'): append_shared_records(snapshot,name)
         for root in snapshot['stores'][1:]:
             for name in DIRECTORIES+FILES: alias(root/name,shared/name)

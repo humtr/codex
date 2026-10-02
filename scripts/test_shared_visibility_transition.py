@@ -47,6 +47,8 @@ class VisibilityTransitionTests(unittest.TestCase):
             p=root/str(index);p.mkdir(exist_ok=True);(p/'fd').mkdir(exist_ok=True);(p/'exe').symlink_to('/qualified/runtime');(p/'fd/1').symlink_to(path)
         return root
     def test_recent_union_preserves_history_auth_and_active_inode_through_atomic_exchange(self):
+        (self.shared/'sessions/alias.jsonl').symlink_to(self.long)
+        (self.shared/'sessions/expired-alias.jsonl').symlink_to(self.b/'sessions/missing.jsonl')
         snapshot=self.snapshot()
         self.assertEqual(set(snapshot['selected']),{self.recent,self.other})
         self.assertEqual(snapshot['selected'][self.recent]['path'],self.long)

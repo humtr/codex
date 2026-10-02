@@ -309,5 +309,34 @@ for line in sys.stdin:
         self.assertTrue((source / rel).is_file())
 
 
+class AppServerClientTests(unittest.TestCase):
+    def test_event_bursts_partial_frames_and_stderr_pressure_do_not_strand_rpc(self):
+        for stderr_pressure in (False, True):
+            with self.subTest(stderr_pressure=stderr_pressure):
+                with tempfile.TemporaryDirectory(prefix="rpc-frames-") as temp:
+                    root = Path(temp)
+                    executable = root / "server"
+                    executable.write_text(
+                        "#!" + sys.executable + "\n"
+                        "import sys,json,os,time\n"
+                        "for line in sys.stdin:\n"
+                        " r=json.loads(line)\n"
+                        " if 'id' not in r: continue\n"
+                        + (" os.write(2,b'fixture diagnostic\\n'*8192)\n" if stderr_pressure else "")
+                        + " event=json.dumps({'method':'thread/status/changed','params':{}})+'\\n'\n"
+                        " response=json.dumps({'id':r['id'],'result':{'method':r['method']}})+'\\n'\n"
+                        " data=(event*3+response).encode()\n"
+                        " os.write(1,data[:9]);time.sleep(.01);os.write(1,data[9:])\n"
+                    )
+                    executable.chmod(0o700)
+                    client = m._AppServerClient(str(executable), root, runtime_home=root)
+                    try:
+                        client.notify("initialized")
+                        for method in ("initialize", "thread/resume", "thread/unsubscribe"):
+                            self.assertEqual(client.call(method, {}, timeout=2), {"method": method})
+                    finally:
+                        client.close()
+
+
 if __name__ == "__main__":
     unittest.main()

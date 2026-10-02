@@ -1712,6 +1712,10 @@ accounts, with the existing upstream archive/provider/source semantics. Account
 identity never partitions local discovery. New sessions written through any
 supported execution identity immediately enter this same store. Discovery does
 not merge authentication or let session creation identity select credentials.
+The user explicitly retains upstream's CLI/VSCode picker source policy for both
+CWD and All. Retained exec and internal guardian records stay in the shared
+store and remain addressable through upstream APIs; they are not additional
+interactive picker entries.
 
 For this user-authorized transition only, the historical SCS-6 five-per-profile
 selection and backup prerequisite are replaced by all conversations with actual

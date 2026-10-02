@@ -32,37 +32,113 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
-## SHARED-SERVER-CROSS-ACCOUNT-V1 (selected 2026-10-02)
+## SHARED-SERVER-CROSS-ACCOUNT-V1 (accepted 2026-10-02)
 
-- The user authorizes implementation, signed public release, and ordinary live
-  activation of the two reported defects: unchanged bare/upstream argv with
-  Termux full access and actual shared-server operation; installation-wide
-  cross-account local resume visibility retaining upstream CWD/all scope,
-  IDs, transcripts, history, deduplication, and profile-local authentication.
-- Current primary GPT-6-based agent is explicitly approved by the user as an
-  equivalent Lead for this bundle. Worker mode remains OFF; no delegation.
-- Fresh source authority: `rewrite/rust-core=f264892869577bbd776075513df77f0a330726c2`.
-  Tracked source is clean; the sole pre-existing dirty entry is unrelated
-  `.github/scripts/__pycache__/`. Public main is
-  `2dc79bd11842c9e5970b8c73c470886b780f2ff8`; live and public are sequence 27,
-  `local-hosted-0-160-0-75aed30c7ad6-startup-advisory`, upstream 0.160.0.
-- Baseline Core suite: 159 passed, 0 failed, one explicit device smoke ignored.
-- User steering: existing-profile consolidation retains every session with
-  activity during the latest seven days, rather than importing all historical
-  stores. The user explicitly declines a recovery backup and authorizes removal of
-  confirmed older entries after retained-session validation. This bounded retention selection does not filter future
-  cross-account discovery or change upstream CWD/all meaning.
-- Source acceptance candidate: unchanged argv/default config, signed-native
-  shared server and exact artifact UDS adaptation, declared shared upstream
-  topology, and bounded seven-day inode-preserving transition implemented.
-  Grouped Rust 210 and Python 14 tests passed; Core device-only smoke remains
-  explicitly ignored. Final native temporary installation proves bare TTY with
-  no fallback, native config/read full-access, exact two-profile CWD/all union,
-  old and upstream-created new cross-profile resume. Protected 17 file digests
-  and inodes unchanged; resolver/auth bytes never printed or copied.
-- Source, release, public stable, live Core, and actual upstream process behavior
-  are separate acceptance gates. Signed publication and live acceptance pending;
-  no success is inferred from a pointer alone.
+- User-authorized scope: fix bare shared-server execution and installation-wide
+  cross-account resume; publish the signed release and activate the actual
+  installation. Current GPT-6 primary is explicitly approved as equivalent
+  Lead; workers OFF throughout. Baseline source f264892869577bbd776075513df77f0a330726c2,
+  public main 2dc79bd11842c9e5970b8c73c470886b780f2ff8, public/live sequence 27.
+- Runtime implementation commit: `89b96680cd54f26eaf75cb2c5988dcf2b0d76187`,
+  pushed on independent `rewrite/rust-core`. DELETE synthesized upstream CLI
+  overrides, including diagnostic/version instances; COLLAPSE Termux full
+  access into the owned FD-34 system config. Preserve every user upstream arg.
+  KEEP upstream native shared-server protocol, owner/0700 checks and account
+  authentication. Core qualifies the signed generation's server and provides
+  bounded Termux-compatible sockets and FD snapshots without package installer
+  dependence. Exact official 0.160.0 archive and byte-only UDS qualification bind
+  the release; adapted runtime SHA-256
+  `ba94d1d0d9d416a7fb2f13d6ffcc6e0d9ec981ee1793158bbc9b1d96d5f51ab3`.
+- Root cause of account-dependent discovery was private upstream conversation
+  directories and SQLite projections in declared external profile homes. The
+  intended shared upstream state architecture had covered Manager-selected
+  profiles but not those external homes. COLLAPSE known profiles onto the one
+  upstream-owned `$HOME/.codex` conversation/SQLite store; DELETE private
+  discovery partitions. Arbitrary external homes remain isolated. Core does no
+  SQL merge, transcript parsing, session import or alternative discovery index.
+- User-authorized historical retention kept every conversation active within
+  the preceding seven days: 28 original UUIDs (20 CLI, one exec, seven internal
+  guardian), deduplicated by verified per-record-type payload prefixes. Confirmed
+  older payload stores were removed (52 excluded UUIDs). No recovery backup was
+  created. Every retained original record sequence remains a prefix of its
+  canonical payload; all three active writer inodes were preserved. The 25
+  inactive original threads completed native resume/turns/unsubscribe
+  finalization, while active writers were left running. Canonical leaf aliases
+  are absent; profile auth/config is neither merged nor copied.
+- The user explicitly retains upstream CLI/VSCode source visibility for both
+  picker scopes. Exec/internal guardian records remain preserved and upstream
+  API-addressable, rather than being additional user-facing picker entries.
+  CWD means current CWD across all accounts; All means all CWDs across all
+  accounts, retaining upstream archive/provider semantics.
+- Live finalization exposed an existing operator RPC defect: buffered readline
+  combined with fd readiness stranded already-prefetched responses after event
+  bursts, and undrained stderr could block the child. COLLAPSE onto one
+  unbuffered framed reader; discard the internal operator child's stderr.
+  Focused regression independently exercises event bursts/partial frames with
+  and without stderr pressure. A same-class historical-alias regression covers
+  removing redundant canonical leaf links before profile-directory exchange.
+  API-only finalization resumed after repair; the destructive handoff was never
+  repeated. These follow-up changes are repository operator/test/docs only;
+  released Core, Manager and builder production source remains byte-identical
+  to runtime implementation 89b96680.
+- Grouped source acceptance: Core 164 passed, one explicit device smoke ignored;
+  Manager library 16, Manager integration 9, builder 21 (210 Rust total), and
+  15 Python tests; formatting and diff checks pass. Separate official-runtime
+  temporary installation proved native bare full access/shared server, retained
+  union and old/new cross-profile resume. Actual production paths, not test
+  helpers, supply the device evidence below.
+- First publication control c612e70... / run 36983021570 correctly stopped
+  before signing on a proof defect involving repeated helper descriptor records.
+  Corrected control `9008fb93d31bd47db2f68c36fdad2f3e345197a8` / production run
+  **36983295730** passed exact-source Android build, native smoke, component-byte
+  preservation, signing, immutable Release, Pages, full public byte readback,
+  disposable ordinary update/legacy/noop and non-forced parent-CAS promotion.
+  Public stable main is `3224a5294d22818350a105d2adef6bc32b7e565f`.
+- Signed public/live sequence **28**, generation
+  **`local-hosted-0-160-0-89b96680cd54-shared-visibility`**, upstream **0.160.0**.
+  Ordinary live `codex update` verified and activated it; a final exact-current
+  update reports already up to date. Installed launcher/Core and runtime
+  digests match the signed generation and public descriptor exactly. Public
+  source pins remain the accepted artifact producer 89b96680; repository-only
+  operator finalization does not require republishing unchanged executable bytes.
+- Actual installed bare TTY stayed alive without fallback or unmanaged installer;
+  final upstream argv contains only argv0. Connect-only strace proves the TUI
+  successfully connects the native shared-server socket; its PID executes the
+  active generation's runtime. Native config/read reports danger-full-access.
+- Two distinct authenticated ChatGPT accounts, wrlab and jgnh2, both expose the
+  exact original current-CWD union **4** and All union **20**, without duplicates
+  or other-CWD leakage. Existing other-account sessions successfully resume and
+  expose original transcript history through installed upstream APIs.
+- One actual bare CLI conversation was then created in the current CWD. Both
+  accounts discover the same new UUID under CWD and All: **5** / **21**.
+  Other-account resume succeeds, turns are nonempty and creation-account
+  metadata remains unchanged. An immediate request while the previous native
+  writer was still closing was rejected; after native closure the same UUID
+  resumed normally, without forced takeover or a discovery retry mechanism.
+- Actual installed `codex resume` pickers under both accounts start in CWD and
+  switch to All using the upstream control. Terminal-screen reconstruction
+  confirms all 16 unique title probes in All and all four unique current-CWD
+  probes in CWD, with zero other-CWD title probes in the initial screen. API
+  snapshots independently bind the full 5/21 UUID sets. An initial raw ANSI
+  substring probe failed because cursor-addressed screen updates fragment the
+  output stream; replacing that diagnostic with terminal emulation restored
+  faithful proof, without product changes or persisting screen contents.
+- Final protected check: resolver and all profile auth/config bytes and modes
+  match all 15 prior digests. Upstream's real jgnh2 TUI automatically persisted
+  trust for the test CWD; that sole addition was identified by reconstructing the
+  exact prior hash and removed after the test. Fourteen original inodes remain;
+  upstream's atomic config save had replaced one config inode. No credential or
+  transcript contents were printed or backed up.
+- Limits: pretransition running clients retain their existing process/SQLite
+  handles until normal exit; their private live projection is intentionally
+  retained. New launches use canonical state. Active/closing thread writer
+  ownership follows upstream locking; cross-account resume never kills or
+  takes over another writer. Future upstream versions require fresh exact
+  Termux UDS qualification before publication.
+- Disposition: **SHARED-SERVER-CROSS-ACCOUNT-V1 / sequence 28 accepted and closed.**
+  Runtime source, signed release, public stable and live installed executable
+  bytes agree; repository-only finalization fixes and this ledger close the
+  bounded transition. No further product work is selected by this bundle.
 
 ## Current Operating Baseline and Selected Maintenance (2026-09-30)
 

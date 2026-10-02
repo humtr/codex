@@ -904,9 +904,8 @@ class _AppServerClient:
             [executable, "app-server", "--stdio"],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,
+            stderr=subprocess.DEVNULL,
+            bufsize=0,
             env=env,
         )
         assert self.process.stdin is not None
@@ -914,14 +913,23 @@ class _AppServerClient:
         self.selector = selectors.DefaultSelector()
         self.selector.register(self.process.stdout, selectors.EVENT_READ)
         self.sequence = 0
+        self.stdout_buffer = b""
+
+    def _write(self, request: dict[str, Any]) -> None:
+        assert self.process.stdin is not None
+        data = memoryview((json.dumps(request, separators=(",", ":")) + "\n").encode())
+        while data:
+            count = self.process.stdin.write(data)
+            if not count:
+                raise MigrationError("upstream app-server input closed")
+            data = data[count:]
 
     def notify(self, method: str, params: dict[str, Any] | None = None) -> None:
         assert self.process.stdin is not None
         request: dict[str, Any] = {"method": method}
         if params is not None:
             request["params"] = params
-        self.process.stdin.write(json.dumps(request, separators=(",", ":")) + "\n")
-        self.process.stdin.flush()
+        self._write(request)
 
     def call(
         self, method: str, params: dict[str, Any], *, timeout: float = 45.0
@@ -931,17 +939,20 @@ class _AppServerClient:
         self.sequence += 1
         request_id = self.sequence
         request = {"id": request_id, "method": method, "params": params}
-        self.process.stdin.write(json.dumps(request, separators=(",", ":")) + "\n")
-        self.process.stdin.flush()
+        self._write(request)
 
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            events = self.selector.select(max(0.0, deadline - time.monotonic()))
-            if not events:
-                break
-            line = self.process.stdout.readline()
-            if not line:
-                break
+            if b"\n" not in self.stdout_buffer:
+                events = self.selector.select(max(0.0, deadline - time.monotonic()))
+                if not events:
+                    break
+                data = os.read(self.process.stdout.fileno(), 65536)
+                if not data:
+                    break
+                self.stdout_buffer += data
+                continue
+            line, self.stdout_buffer = self.stdout_buffer.split(b"\n", 1)
             try:
                 response = json.loads(line)
             except json.JSONDecodeError:
