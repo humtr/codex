@@ -32,7 +32,7 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
-## MANAGER-NOTIFY-INPUT-REQUEST-V1 (selected 2026-10-02)
+## MANAGER-NOTIFY-INPUT-REQUEST-V1 (accepted 2026-10-02)
 
 - User requests review of repair/profile management and improvement plus actual
   reapplication of Termux notifications. Explicit preference: notification and
@@ -69,7 +69,69 @@
   KEEP fixed Core repair ownership and upstream shared conversations; COLLAPSE
   question/follow-up notification into upstream matcher; DELETE opaque operator
   delivery results, too-short provider bound and leaked timeout descendants.
-  Native lifecycle/readback and signed live acceptance remain open.
+- Implementation commit **1dd51b8be87ddbe100d0ecd235f81292198c0115** is pushed.
+  Production run **37020699856** passes all candidate, Android executable smoke,
+  signature, immutable Release, Pages, public byte readback/disposable update,
+  and non-forced CAS promotion gates. Trigger e5b99ad63634b4cf971ee5bb8ed109cdf8920721
+  promotes public main to **f9edf2e60f41bc1f394aa8cc788257f89b9ed99f**. Ordinary
+  installed codex update verifies and activates signed sequence **30**, upstream
+  **0.160.0**, **local-hosted-0-160-0-1dd51b8be87d-manager-notify**; sequence29
+  remains rollback. Runtime/UDS adaptation and helper bytes are unchanged.
+- Installed Core SHA256 7507870ebd654a9b4e195ed872d4100aaed337efc3e8e5296b0caf31d39f71f6;
+  Manager 49bd3e83219e6ca0b3a2503c9bbb8dbe313dc86318e7d6d4d72aa137f6bf35ef;
+  runtime ba94d1d0d9d416a7fb2f13d6ffcc6e0d9ec981ee1793158bbc9b1d96d5f51ab3.
+  Applied channel=both and hooks=PermissionRequest,UserInputRequest,Stop;
+  presentation preferences remain unchanged. notify test exits0 with
+  notification=ok and toast=ok; Android notification-list independently finds
+  the fixed test notification. Toast proof is successful OS provider delivery,
+  not an independent visual observation.
+- Actual all-TTY zero-argument launch under the existing account identities
+  retains argv=[runtime], uses the exact generation30 owned shared-server
+  socket/PID binding and reports danger-full-access through native config/read.
+  No shared-background-server/embedded-mode fallback warning. Current identity
+  TUI exits0. Native system hooks complete for synchronous Plan input, Default
+  asynchronous input, successful Stop and PermissionRequest; Android readback
+  finds input/approval notifications and two synthetic final-message Stop
+  notifications. The approval is canceled and its test file is never written.
+  Supplemental native probe under janmori101 with model gpt-6.1-sol proves the
+  raw function name request_user_input_async, delivery=async with one question,
+  completed PreToolUse/Stop hooks and a fresh unique synthetic Stop notification.
+  Earlier gpt-5.6-luna catalog attempts exposed request_user_input rather than
+  the async tool; they do not prove async delivery. Corrected the native probe's
+  overly literal final-text/accumulated-count predicates and reran this nonzero
+  exact async gate successfully. Tool availability remains upstream/model-owned.
+  Failed/interrupted turns do not synthesize Stop beyond upstream policy.
+- Native generation30 discovery under jgnh2/wrlab/janmori101 returns identical
+  unique UUID unions: CWD6, All23; all CWD results match the project and other
+  CWDs appear only in All. Current identity resumes the existing other-account
+  CLI session 01a0fc82-dc8f-7d13-bb78-7e120f1fa9b3 with its original ID/history.
+  Synthetic model probes are ephemeral; no transcript migration or auth merge.
+- Existing runit tunnel owners and native Tunnel MCP alias are restarted only
+  to consume generation30, preserving profiles/IDs/key references. PID pairs
+  are 14957/15077 (named), 14976/15096 (legacy), 17224/17253 (native probe).
+  All three exact upstream argv=[runtime,app-server], local initialized/ready,
+  native --require-control-plane-poll health exits0 and main-channel probe ok.
+  Both resident authenticated MCP tools-list calls return13 tools.
+- Source/pre-cutover checks preserve all15 auth/config/resolver fingerprints.
+  Final readback preserves14; janmori101/config.toml is atomically replaced
+  during native TUI startup at14:45:34UTC, retaining mode/model and showing the
+  upstream hide_rate_limit_model_nudge notice. No operator/profile command writes
+  that file; preserve its current upstream/user settings rather than restoring
+  guessed prior bytes. Every auth file and resolver remain identical.
+  Exact-current update is successful/idempotent with no acquisition residue.
+  Current30, rollback29 and generation28 with five live executable references
+  are retained by the existing lease rule; do not kill unrelated active writers.
+- Review limits: repair plan remains none/healthy for generation30 qualification;
+  broader diagnosis belongs to doctor. External identities remain unnamed by
+  Manager list/current; their discovery/use improvement is reviewed, not
+  implemented or migrated. wrlab workspace credits are exhausted, so native
+  lifecycle proof uses the existing available current identity. Historical
+  rald7-full-acceptance run37020086082 is red: obsolete seq17/parent/proof-source
+  pins and Linux runner /proc permissions. It is not acceptance evidence; local
+  exact grouped gates and current signed publication are green. This separate
+  automation debt remains open.
+- Disposition: accepted source/release/public/live notification bundle. Temporary
+  build/probe staging is removed without backups; workers remain OFF.
 
 ## EXTERNAL-TUNNEL-GENERATION-29 (accepted 2026-10-02)
 
@@ -322,19 +384,22 @@ dated sections preserve historical evidence; historical words such as
 `WORKBOARD.md`.
 
 - Source authority is remote `rewrite/rust-core`, read afresh on resume. Runtime
-  artifact producer is **bdb02cc7d10095fb923f8199d069beb995dabbcf**; subsequent
-  acceptance-only ledger changes retain identical Rust product source.
-- Public stable main is **f71324348719c1a416f42956074d925004c70ab5**. Signed public
-  and live installed generation is sequence **29**, upstream **0.160.0**,
-  **local-hosted-0-160-0-bdb02cc7d100-bounded-retention**. Installed launcher/Core
-  and runtime hashes match public signed bytes; sequence 28 is rollback.
-- SHARED-CONFIG-BOUNDED-RETENTION-V1 and EXTERNAL-TUNNEL-GENERATION-29 are accepted
-  above. No implementation or live mutation remains selected. All three external
-  tunnel app-servers now run sequence 29 after their authorized supervisor
-  restart. Only current/rollback generations remain; external clients remain
-  outside Core's server ownership.
-  Known execution homes share upstream conversation state with separate auth.
-  CWD/All picker policy remains upstream CLI/VSCode across all accounts.
+  producer is **1dd51b8be87ddbe100d0ecd235f81292198c0115**; subsequent ledger-only
+  changes retain identical accepted Rust source.
+- Public stable main is **f9edf2e60f41bc1f394aa8cc788257f89b9ed99f**. Signed public
+  and live sequence **30**, upstream **0.160.0**,
+  **local-hosted-0-160-0-1dd51b8be87d-manager-notify**; sequence29 is rollback.
+  Installed Core/Manager/runtime match signed public bytes. All three external
+  tunnel app-servers consume generation30 after their existing-owner restart.
+- MANAGER-NOTIFY-INPUT-REQUEST-V1 is accepted above. Requested both-channel
+  PermissionRequest/UserInputRequest/Stop preferences are active and native
+  event/Android delivery proof is green. No product implementation remains
+  selected. Auth stays separate, conversations/DB remain upstream shared;
+  CWD/All native interactive picker policy is preserved across all accounts.
+  Current/rollback plus genuinely active generation leases are retained.
+- Reviewed follow-up candidates: external profile identity naming/selection and
+  historical source acceptance automation pins/runner permissions. Neither is
+  silently implemented or treated as passing current acceptance evidence.
 
 ## Historical Runtime Alignment Baseline (2026-09-30)
 
