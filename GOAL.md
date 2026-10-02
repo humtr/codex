@@ -105,9 +105,56 @@
   Protected15 auth/config/resolver identities and unrelated AI diff3acdf081e07b
   remain unchanged. Own synthetic notification removed. The two authorized
   evaluation terminals remain attached for user assessment; they are not cleanup
-  fixtures. Rollback is `git revert 2ff7007` in AI then bounded `--ai-only` install;
+  fixtures. Final same-path correction `0eee1c2` makes the native title predicate
+  enforce the same hexadecimal suffix boundary as Python TITLE_ID. Its native
+  race regression passes; exact final staged tree849a4349 passes final37/0warnings,
+  TUI161/0fail/native8. Installed source equals accepted source; protected15,
+  unrelated diff and existing panes/PIDs remain unchanged. Rollback reverts
+  `0eee1c2` then `2ff7007` in AI followed by bounded `--ai-only` installation;
   existing Codex work and clients need not be terminated. No APK or native
   preference hack. Cache follow-up may now proceed without changing delay0.
+
+## INPUT-CACHE-UNLOAD-CONSIDERATION (completed 2026-10-02)
+
+- This is the user-requested read-only consideration after notification/tmux/
+  recovery closure, not authorization for new model traffic or runtime changes.
+  Exact official source tag0.160.0 binds commit
+  `a956835d020762cb2b570053af06f643a11c0ecc`; tag and immutable source bytes were
+  verified. Reviewed core client/thread-manager/session, app-server lifecycle,
+  rollout recorder and writer-lock ownership. Sources:
+  [ModelClient](https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/core/src/client.rs),
+  [thread lifecycle](https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/app-server/src/request_processors/thread_lifecycle.rs),
+  [recorder](https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/rollout/src/recorder.rs).
+- Local thread grace retains Session/ModelClient, including cached WebSocket,
+  incremental request/response state and routing. It also retains native writer
+  ownership. Native unload waits for no subscribers/inactivity, protects running
+  turns, shuts down the thread and removes its runtime; writer-lock guard release
+  follows writer lifetime. Wrapper-side lock removal while keeping a writable
+  thread would violate concurrent-writer safety.
+- Regular same-ID resume reconstructs history with the original thread UUID.
+  The default ModelClient prompt-cache key remains that session ID; unload does
+  not explicitly clear the model's remote KV cache. Therefore delay0 can still
+  permit cached input on resume, but loses local transport/incremental reuse.
+  Positive unload grace preserves those local caches, not a guaranteed model
+  cache hit. Account ownership changes explicitly discard cached transport and
+  routing; preserve this boundary instead of sharing caches between accounts.
+- Current [official prompt caching documentation](https://developers.openai.com/api/docs/guides/prompt-caching)
+  describes remote prefix matching and model-dependent retention, independent of
+  local process lifetime. Stable history/tools/model/settings and cache identity
+  matter; compaction, routing, expiry and ownership can change reuse. Its API
+  retention rules are not proof of this ChatGPT-authenticated Codex account's
+  actual hit rate. Current app-server docs describe30min grace, while the accepted
+  installed0.160.0 diagnosis bound a60s upstream default; do not substitute current
+  documentation defaults for the already-qualified installed runtime.
+- Disposition: keep native delay0/immediate idle writer release. Retaining a
+  writer-free local ModelClient cache would require an upstream lifecycle change
+  with writer reacquisition, restored-history/config validation and auth-owner
+  invalidation; no existing wrapper configuration provides that separation.
+  This conceptual possibility is not an implemented feature or a measured gain.
+  Quantitative comparison requires same-account/model/settings/history timing
+  and actual cached-input-token/latency observations around unload/resume; no
+  model requests, user-content inspection, retention override or keepalive was
+  performed. The requested consideration is complete; no cache change is queued.
 
 ## NOTIFY-SINGLE-LINE-TMUX-COLOR-V1 (accepted 2026-10-02)
 
@@ -720,7 +767,7 @@ dated sections preserve historical evidence; historical words such as
 
 - Source authority is remote `rewrite/rust-core`, read afresh on resume. Runtime
   producer is **4b00b8d461939a7070d95a1ea6e6a58c318cbf52**; ledger-only children
-  retain identical accepted Rust source. AI main **2ff7007** adds new-terminal
+  retain identical accepted Rust source. AI main **0eee1c2** adds new-terminal
   notification attach after off/hidden/status selection; unrelated dirty work remains.
 - Public main **07d625561283bad5d25b778782c16d4929b4939f**; signed/live sequence
   **34**, upstream **0.160.0**, **local-hosted-0-160-0-4b00b8d46193-notify-line**;

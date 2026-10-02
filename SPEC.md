@@ -2048,23 +2048,27 @@ delivery is unavailable. `notification`, `toast`, and `both` select the
 corresponding capability-aware provider attempts; `both` attempts each
 independently. Manager emits no success text for the endpoint.
 
-Every notification includes a click action which brings the existing Termux
+Every notification includes an Activity action which brings the existing Termux
 Activity to the foreground using Android reorder-to-front and single-top flags.
-It preserves the currently selected terminal and creates no terminal session,
-Codex process or resume invocation. `notify test` uses the same Activity-only
-route. This adds no public/internal Manager command, click state or watcher.
+In default termux focus it preserves the currently selected terminal and requests
+no terminal session, Codex process or resume invocation. `notify test` uses the
+same Activity-only route. Explicit tmux focus additionally follows the Optional
+AI tmux notification focus contract in Section 3, including its authorized new
+native-terminal attach. This Activity action adds no click state or watcher.
 
-The action uses an absolute sibling `am` path from the qualified Core entrypoint
+The Activity part uses an absolute sibling `am` path from the qualified Core entrypoint
 (or the canonical Termux `am` path if the entrypoint is not UTF-8) and shell-quotes
 that path. It passes a fixed Activity component and flags only, silences stdout/
 stderr, and contains no notification text, hook metadata, profile, CWD, auth or
 session ID. It does not use the optional termux-am socket or launch the Termux
-terminal service. Existing notifications are not rewritten; this contract applies
+terminal service; the optional AI focus helper owns the separate attach request.
+Existing notifications are not rewritten; this contract applies
 to newly delivered notifications.
 
 The installed Termux Activity has no accepted intent for selecting a particular
-existing terminal by Codex UUID. A click therefore returns to Termux's current
-terminal; exact originating-window selection is not claimed. When no terminal
+existing terminal by Codex UUID. Activity-only focus therefore returns to Termux's
+current terminal; exact originating-window selection is not claimed for that route.
+When no terminal
 exists, Termux owns its ordinary initial-terminal behavior. Android foreground
 restrictions remain provider behavior; device acceptance proves the real
 Activity-only action and unchanged running terminal/Codex process identities.
