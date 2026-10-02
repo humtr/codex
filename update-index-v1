@@ -1,4 +1,4 @@
 codex-update-index-v1
 channel	stable
-generation_id	local-hosted-0-160-0-bdb02cc7d100-bounded-retention
-release_base	https://humtr.github.io/codex/local-hosted-0-160-0-bdb02cc7d100-bounded-retention/
+generation_id	local-hosted-0-160-0-1dd51b8be87d-manager-notify
+release_base	https://humtr.github.io/codex/local-hosted-0-160-0-1dd51b8be87d-manager-notify/
