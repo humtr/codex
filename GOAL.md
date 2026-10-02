@@ -32,13 +32,13 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
-## MANAGER-NOTIFY-OPEN-V1 (selected 2026-10-02)
+## MANAGER-NOTIFY-OPEN-V1 (accepted 2026-10-02)
 
 - User requests notification tap to return to running Termux; explicitly rejects
   a new terminal/resume on every tap. Bound source99d51339c7c4722e1c8ff2b440d09e2855a5a7ba,
   public f9edf2e60f41bc1f394aa8cc788257f89b9ed99f, installed signed sequence30.
   Approved equivalent primary; workers OFF. Exact clean baseline222 Rust/90
-  Python passes with one explicit device ignore. No click implementation shipped.
+  Python passes with one explicit device ignore. Click was absent at bundle start.
 - Existing provider omits --action. KEEP native notification action and existing
   Activity foregrounding; COLLAPSE into a fixed provider action; DELETE draft
   session parsing, terminal-service/resume launch, URI/array encoding and unused
@@ -57,7 +57,37 @@
 - Final source focus8 unit+5 integration passed. Exact grouped scripts/check.sh
   exits0 with224 Rust/90 Python; one explicit device ignore. Locked release
   build passed. Fifteen protected auth/config/resolver fingerprints unchanged.
-  Source diff reviewed; signed Manager-only publication/native gate pending.
+  Source diff reviewed; implementation39b93246c09799a9abb304703f77cca7e5572074
+  committed/pushed. Source39b product bytes have final grouped evidence above.
+- Production workflow37 Bash steps and7 logical jobs qualified; fresh exact
+  public parentf9edf -> trigger84e9553de51d719173643653cb3f825550622a5a
+  replaces one workflow via non-forced parent CAS. Manager-only descriptor gate
+  preserves exact Core/runtime/code-mode-host/helpers and requires changed Manager.
+  Signing, Release/Pages, every-byte public readback, disposable ordinary update
+  and stable CAS pass in run37029403265 (8/8 jobs including split Pages stages).
+  Public stable mainc92e550421a6aa6fd5496487c8f1ad78c22d2bee.
+- Ordinary device codex update exits0 and activates signed sequence31,0.160.0,
+  local-hosted-0-160-0-39b93246c097-notify-open; rollback30 retained. Core remains
+  7507870ebd654a9b4e195ed872d4100aaed337efc3e8e5296b0caf31d39f71f6.
+  Manager is1527241f3544bfc1e3583a316b41df0889c0cef49db721b2493c1fe94815c76e.
+  Runtime remains ba94d1d0d9d416a7fb2f13d6ffcc6e0d9ec981ee1793158bbc9b1d96d5f51ab3.
+- Actual public notify test reports notification=ok,toast=ok. Transparent temporary
+  provider forwards the actual --action to native Termux API; public Stop emit is
+  silent, ignores synthetic session/path/command metadata, and Android independently
+  lists exactly one own synthetic notification. Preferences remain both and
+  PermissionRequest,UserInputRequest,Stop; no config/auth/resolver change15/15.
+- Exact registered Activity action executed3 times: exit0/silent3/3, all14 actual
+  Codex runtime PIDs/start identities/executables unchanged, current selected
+  terminal unchanged. Native am wait diagnostic reports intent delivered to existing
+  top-most Activity; no terminal service/resume invocation exists in shipped code.
+  Programmatic routing is distinguished from physical tap. User confirmed actual
+  tap returns to the existing last-selected terminal, with no new window; clarified
+  that this is not exact originating-window focus. That matches this accepted
+  Activity-only contract; the new tmux request is a separate bundle.
+- Historical source CI37029323977 is red on obsolete seq17/pinned-source/public
+  assumptions and Linux /proc permission tests, as in the preceding bundle.
+  It is not counted as acceptance. Current exact Termux grouped gate and full
+  signed production pipeline are green; automation alignment remains separate debt.
 
 ## MANAGER-NOTIFY-INPUT-REQUEST-V1 (accepted 2026-10-02)
 
@@ -411,19 +441,19 @@ dated sections preserve historical evidence; historical words such as
 `WORKBOARD.md`.
 
 - Source authority is remote `rewrite/rust-core`, read afresh on resume. Runtime
-  producer is **1dd51b8be87ddbe100d0ecd235f81292198c0115**; subsequent ledger-only
+  producer is **39b93246c09799a9abb304703f77cca7e5572074**; subsequent ledger-only
   changes retain identical accepted Rust source.
-- Public stable main is **f9edf2e60f41bc1f394aa8cc788257f89b9ed99f**. Signed public
-  and live sequence **30**, upstream **0.160.0**,
-  **local-hosted-0-160-0-1dd51b8be87d-manager-notify**; sequence29 is rollback.
-  Installed Core/Manager/runtime match signed public bytes. All three external
-  tunnel app-servers consume generation30 after their existing-owner restart.
-- MANAGER-NOTIFY-INPUT-REQUEST-V1 is accepted above. Requested both-channel
-  PermissionRequest/UserInputRequest/Stop preferences are active and native
-  event/Android delivery proof is green. No product implementation remains
-  selected. Auth stays separate, conversations/DB remain upstream shared;
-  CWD/All native interactive picker policy is preserved across all accounts.
-  Current/rollback plus genuinely active generation leases are retained.
+- Public stable main is **c92e550421a6aa6fd5496487c8f1ad78c22d2bee**. Signed public
+  and live sequence **31**, upstream **0.160.0**,
+  **local-hosted-0-160-0-39b93246c097-notify-open**; sequence30 is rollback.
+  Installed Core/Manager/runtime match signed public bytes. Previously running
+  terminals/tunnels remain undisturbed on older leases of the same runtime bytes.
+- MANAGER-NOTIFY-OPEN-V1 and INPUT-REQUEST-V1 are accepted above. Both channels
+  and PermissionRequest/UserInputRequest/Stop remain active. New notifications
+  return to the last-selected existing Termux terminal, not necessarily their
+  originating terminal. Native repeated action and physical user tap confirm it.
+  Auth stays separate, upstream conversations/DB and CWD/All policy unchanged.
+  Exact tmux originating-pane focus is the next separately selected user request.
 - Reviewed follow-up candidates: external profile identity naming/selection and
   historical source acceptance automation pins/runner permissions. Neither is
   silently implemented or treated as passing current acceptance evidence.

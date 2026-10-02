@@ -1,38 +1,29 @@
 # Rust Core Workboard
 
 Authority SPEC.md -> GOAL.md -> WORKBOARD.md; approved equivalent primary;
-workers OFF. MANAGER-NOTIFY-OPEN-V1 bound rewrite/rust-core HEAD
-99d51339c7c4722e1c8ff2b440d09e2855a5a7ba, public/live sequence30.
-Temporary proof root /data/data/com.termux/files/usr/tmp/codex-notify-open-xbfbef0f.
+workers OFF. MANAGER-NOTIFY-OPEN-V1 accepted in GOAL.md: implementation39b9324,
+signed/current31, publicc92e550,224 Rust/90 Python, native existing Activity/current
+terminal and user physical-tap confirmed. Exact origin focus was never claimed.
+Its temporary proof staging is reused only for read-only official source diagnosis;
+remove it once new tmux bundle has its own bounded temporary root.
 
-1. BASELINE/CONTRACT (complete): clean222 Rust/90 Python. User corrected contract
-   before publication: click must not create another terminal/resume. SPEC now
-   requires current Activity foregrounding only; no exact-window API is present.
-2. CLICK (complete): Manager action is fixed Activity reorder/single-top through
-   absolute installed am. DELETE draft session parsing/launch/encoding and its
-   superseded tests. KEEP quote/private-output/no-input regressions; add repeated
-   action proof for no service/resume/new window. Final nonzero focus passed
-   1 unit +1 click integration +1 notify-test integration; diff inspected.
-   All surviving definitions: shell_quote/action→repeated quoted-path click,
-   non-UTF8→canonical Activity-only unit; both emit channels/test→existing
-   channel gates plus notify-test registration. No draft session logic remains.
-3. RELEASE/LIVE (selected): grouped source gates, exact Manager-only signed
-   publication/ordinary activation; native Activity and stable process identities,
-   provider registration, protected files; source/docs commits and push.
+Selected user request: AI-TMUX-NOTIFY-FOCUS-V1, feasibility/contract baseline.
+Codex source39b93246c09799a9abb304703f77cca7e5572074 with ledger-only dirty state;
+AI maincf92f851e5f85367f7978899431ce30e6fb966aa already has existing dirty
+lib/ai_provider.py,lib/ai_tui.py,verify/ai-tui-smoke.sh matching installed runtime.
+Preserve those changes; no implementation workers or concurrent mutations.
 
-Initial full draft had one existing Core /proc-reference test PermissionDenied;
-first focused rerun also failed, next exact nonzero rerun passed. No Core mutation
-or hidden exemption. Grouped draft rerun is obsolete after user correction and
-is not final acceptance. Do not run native Android app_process probes during the
-/proc-sensitive source gate. Native termux-am socket missing; direct am0.8 works.
-
-No live mutation during source/tests. After focused/full/disposable green, user
-request permits bounded notification/Activity proof and signed cutover only.
-No terminal creation, arbitrary profile/session edits, auth merge or backups.
-Final source contract/code/test diff identity:
-4b83bc8cc89a17149d3ed45a28dfd210d00eb89aaf2117ecb2f6ecc87f71d788.
-Final focused notification group8 unit+5 integration is green. Exact final
-scripts/check.sh exits0:224 Rust (172Core+18Manager+13integration+21builder),
-90 Python, one explicit device ignore; locked release build exits0. Auth/config/
-resolver fingerprints15/15 unchanged. Source/actual diff gates now green;
-signed publication and native Activity-only acceptance pending.
+Ordered slices:
+1. BIND/BASELINE (selected): inspect both public product paths; bind existing
+   AI dirty identity in temporary root; run exact installed-source baseline.
+   Read official upstream thread/hook context and tmux routing. No product code
+   until runnable gates and reliable origin association are established.
+2. CONTRACT/LAUNCH (pending): SPEC first once exact contract is known; optional
+   AI tmux launch path with no hidden upstream override/new resume on tap.
+   Focused actual tmux launch/argv/profile/CWD/TTY/lifetime proofs.
+3. NOTIFY/ORIGIN (pending): optional Manager focus routing to exact live pane;
+   shared-server multi-pane/no guessing, closed target, no new Codex/window,
+   robust quoting and account/state privacy; focused native product path proof.
+4. PUBLIC/LIVE (pending): grouped two-repository gates, signed accepted Codex
+   release and bounded AI install without backups; actual two-pane tap proof,
+   stable Codex identities, protected state, commit/push and staging removal.
