@@ -10,7 +10,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const CORE_API_ENV: &str = "CODEX_TERMUX_CORE_API";
 const CORE_ENTRYPOINT_ENV: &str = "CODEX_TERMUX_CORE_ENTRYPOINT";
@@ -35,6 +35,7 @@ const NOTIFY_DEFAULT_GROUP: &str = "codex-turns";
 const RECORD_MAX_BYTES: usize = 4096;
 const NOTIFY_INPUT_MAX_BYTES: usize = 64 * 1024;
 const NOTIFY_PAYLOAD_MAX_BYTES: usize = 4096;
+const USER_INPUT_REQUEST_EVENT: &str = "UserInputRequest";
 const NOTIFY_MAX_CHARS: usize = 4096;
 const PRIVATE_DIR_MODE: u32 = 0o700;
 const PRIVATE_FILE_MODE: u32 = 0o600;
@@ -55,6 +56,7 @@ const HELP: &str = concat!(
     "codex termux profile create <PROFILE_ID>\n",
     "codex termux profile use <PROFILE_ID> [--] [UPSTREAM_ARGS...]\n",
     "codex termux notify show\n",
+    "codex termux notify test\n",
     "codex termux notify set [--channel <notification|toast|both>] [--hooks <none|all|EVENT[,EVENT...]>] [--content-chars <0|1..4096>] [--preserve-newlines <0|1>] [--toast-gravity <top|middle|bottom>] [--toast-short <0|1>] [--toast-background <empty|#RRGGBB>] [--toast-color <empty|#RRGGBB>] [--group <GROUP_ID>]\n",
     "codex termux repair plan\n",
     "codex termux repair apply\n",
@@ -150,6 +152,7 @@ enum CommandKind {
     Create,
     Use,
     NotifyShow,
+    NotifyTest,
     NotifySet,
     NotifyEmit,
     RepairPlan,
@@ -242,7 +245,7 @@ struct NotifyPatch {
     group: Option<String>,
 }
 
-const NOTIFY_EVENTS: [&str; 10] = [
+const NOTIFY_EVENTS: [&str; 11] = [
     "SessionStart",
     "PreToolUse",
     "PermissionRequest",
@@ -252,6 +255,7 @@ const NOTIFY_EVENTS: [&str; 10] = [
     "UserPromptSubmit",
     "SubagentStart",
     "SubagentStop",
+    USER_INPUT_REQUEST_EVENT,
     "Stop",
 ];
 
@@ -342,6 +346,7 @@ fn run_inner(args: Vec<OsString>) -> Result<Option<String>, ManagerError> {
             Ok(None)
         }
         CommandKind::NotifyShow => Ok(Some(format_notify_config(&read_notify_config(&context)?))),
+        CommandKind::NotifyTest => test_notification(&context),
         CommandKind::NotifySet => {
             let patch = command.notify_patch.expect("notify set patch is parsed");
             let config = read_notify_config(&context)?.merge(patch);
@@ -447,6 +452,13 @@ fn parse_repair_command(args: &[OsString]) -> Result<ParsedCommand, ManagerError
 
 fn parse_notify_command(args: &[OsString]) -> Result<ParsedCommand, ManagerError> {
     match args.get(1).map(OsString::as_os_str) {
+        Some(action) if action == OsStr::new("test") && args.len() == 2 => Ok(ParsedCommand {
+            kind: CommandKind::NotifyTest,
+            target: None,
+            upstream_args: Vec::new(),
+            notify_patch: None,
+            notify_event: None,
+        }),
         Some(action) if action == OsStr::new("show") && args.len() == 2 => Ok(ParsedCommand {
             kind: CommandKind::NotifyShow,
             target: None,
@@ -1198,6 +1210,7 @@ fn notify_event_status(event: &str) -> &'static str {
         "UserPromptSubmit" => "Notify prompt submit",
         "SubagentStart" => "Notify subagent start",
         "SubagentStop" => "Notify subagent stop",
+        USER_INPUT_REQUEST_EVENT => "Codex needs your input",
         "Stop" => "Notify turn completion",
         _ => "Notify Codex event",
     }
@@ -1243,7 +1256,53 @@ fn truncate_utf8(value: &str, max_bytes: usize) -> String {
     value[..end].to_owned()
 }
 
-fn invoke_termux_notification(config: &NotifyConfig, title: &str, body: &str) {
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ProviderResult {
+    Ok,
+    Unavailable,
+    Failed,
+    Timeout,
+}
+
+impl ProviderResult {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Ok => "ok",
+            Self::Unavailable => "unavailable",
+            Self::Failed => "failed",
+            Self::Timeout => "timeout",
+        }
+    }
+}
+
+fn test_notification(context: &Context) -> Result<Option<String>, ManagerError> {
+    let config = read_notify_config(context)?;
+    let mut output = String::new();
+    let mut failed = false;
+    if matches!(
+        config.channel,
+        NotifyChannel::Notification | NotifyChannel::Both
+    ) {
+        let result = invoke_termux_notification(&config, "Codex", "Codex notification test");
+        output.push_str(&format!("notification={}\n", result.as_str()));
+        failed |= result != ProviderResult::Ok;
+    }
+    if matches!(config.channel, NotifyChannel::Toast | NotifyChannel::Both) {
+        let result = invoke_termux_toast(&config, "Codex notification test");
+        output.push_str(&format!("toast={}\n", result.as_str()));
+        failed |= result != ProviderResult::Ok;
+    }
+    if failed {
+        print!("{output}");
+        Err(ManagerError::operation(
+            "codex termux: notification test failed",
+        ))
+    } else {
+        Ok(Some(output))
+    }
+}
+
+fn invoke_termux_notification(config: &NotifyConfig, title: &str, body: &str) -> ProviderResult {
     let mut command = Command::new("termux-notification");
     command
         .arg("--group")
@@ -1257,10 +1316,10 @@ fn invoke_termux_notification(config: &NotifyConfig, title: &str, body: &str) {
         .arg(title)
         .arg("--content")
         .arg(body);
-    run_bounded_provider(command);
+    run_bounded_provider(command)
 }
 
-fn invoke_termux_toast(config: &NotifyConfig, body: &str) {
+fn invoke_termux_toast(config: &NotifyConfig, body: &str) -> ProviderResult {
     let mut command = Command::new("termux-toast");
     command.arg("-g").arg(config.toast_gravity.as_str());
     if config.toast_short {
@@ -1273,27 +1332,48 @@ fn invoke_termux_toast(config: &NotifyConfig, body: &str) {
         command.arg("-c").arg(color);
     }
     command.arg(body);
-    run_bounded_provider(command);
+    run_bounded_provider(command)
 }
 
-fn run_bounded_provider(mut command: Command) {
-    let Ok(mut child) = command
+fn run_bounded_provider(mut command: Command) -> ProviderResult {
+    let mut child = match command
+        .process_group(0)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
-    else {
-        return;
-    };
-    for _ in 0..200 {
-        match child.try_wait() {
-            Ok(Some(_)) => return,
-            Ok(None) => thread::sleep(Duration::from_millis(10)),
-            Err(_) => return,
+    {
+        Ok(child) => child,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return ProviderResult::Unavailable
         }
+        Err(_) => return ProviderResult::Failed,
+    };
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let result = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                return if status.success() {
+                    ProviderResult::Ok
+                } else {
+                    ProviderResult::Failed
+                }
+            }
+            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(10)),
+            Ok(None) => break ProviderResult::Timeout,
+            Err(_) => break ProviderResult::Failed,
+        }
+    };
+    // The provider shell can own a blocking Termux API helper. Stop its whole
+    // private group so the timeout cannot leak a helper after killing the shell.
+    unsafe extern "C" {
+        fn kill(pid: i32, signal: i32) -> i32;
     }
-    let _ = child.kill();
+    unsafe {
+        kill(-(child.id() as i32), 9);
+    }
     let _ = child.wait();
+    result
 }
 
 struct JsonCursor<'a> {
@@ -2344,6 +2424,47 @@ mod tests {
         assert_eq!(
             format_notify_config(&config),
             "channel=both\nhooks=SessionStart,Stop\ncontent-chars=42\npreserve-newlines=0\ntoast-gravity=bottom\ntoast-short=1\ntoast-background=#a0b1c2\ntoast-color=empty\ngroup=ops.v1\n"
+        );
+    }
+
+    #[test]
+    fn notification_input_request_selector_roundtrips_in_canonical_order() {
+        let parsed = parse_command(
+            &[
+                "notify",
+                "set",
+                "--hooks",
+                "Stop,UserInputRequest,PermissionRequest",
+            ]
+            .into_iter()
+            .map(OsString::from)
+            .collect::<Vec<_>>(),
+        )
+        .unwrap();
+        let config = NotifyConfig::defaults().merge(parsed.notify_patch.unwrap());
+        assert_eq!(
+            config.hooks.as_str(),
+            "PermissionRequest,UserInputRequest,Stop"
+        );
+        assert_eq!(
+            parse_notify_record(&notify_record_bytes(&config)).unwrap(),
+            config
+        );
+        assert!(notify_event_enabled(
+            &config.hooks,
+            USER_INPUT_REQUEST_EVENT
+        ));
+        assert!(!notify_event_enabled(&config.hooks, "PreToolUse"));
+        assert_eq!(
+            notify_event_status(USER_INPUT_REQUEST_EVENT),
+            "Codex needs your input"
+        );
+        assert!(notify_event_enabled(
+            &NotifyHooks::All,
+            USER_INPUT_REQUEST_EVENT
+        ));
+        assert!(
+            parse_notify_hooks(OsStr::new("UserInputRequest,UserInputRequest"), ERR_USAGE).is_err()
         );
     }
 

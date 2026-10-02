@@ -92,6 +92,7 @@ codex termux profile create <PROFILE_ID>
 codex termux profile use <PROFILE_ID> [--] [UPSTREAM_ARGS...]
 codex termux notify show
 codex termux notify set [NOTIFY_OPTIONS...]
+codex termux notify test
 codex termux repair plan
 codex termux repair apply
 ```
@@ -1882,6 +1883,7 @@ MGR-3 adds exactly these user-facing local forms:
 
 ```text
 codex termux notify show
+codex termux notify test
 codex termux notify set [--channel <notification|toast|both>]
     [--hooks <none|all|EVENT[,EVENT...]>]
     [--content-chars <0|1..4096>] [--preserve-newlines <0|1>]
@@ -1901,7 +1903,15 @@ still applies a hard 4,096-byte payload bound. `none` disables all hooks.
 The canonical event allowlist and order are:
 `SessionStart`, `PreToolUse`, `PermissionRequest`, `PostToolUse`,
 `PreCompact`, `PostCompact`, `UserPromptSubmit`, `SubagentStart`,
-`SubagentStop`, and `Stop`. Hook lists contain unique canonical names, or
+`SubagentStop`, `UserInputRequest`, and `Stop`. `UserInputRequest` is a Manager
+notification selector, rendered as upstream `PreToolUse` with an anchored
+matcher for only `request_user_input` and `request_user_input_async` (including
+their `functions.` namespace spelling). It alerts before a structured question
+or follow-up input request; it is not `UserPromptSubmit`, which observes the
+user submitting input. No invented upstream event or transcript watcher is used.
+If broad `PreToolUse` is also selected, it already covers these tools and the
+narrow selector adds no duplicate handler. Hook lists contain unique canonical
+names, or
 `all`; malformed names, duplicates, empty list members, and invalid values are
 usage failures. Event lists are stored and displayed in the canonical event
 order above. `GROUP_ID` is a 1--64 byte ASCII identifier beginning with an
@@ -1972,6 +1982,21 @@ delivery is unavailable. `notification`, `toast`, and `both` select the
 corresponding capability-aware provider attempts; `both` attempts each
 independently. Manager emits no success text for the endpoint.
 
+Each provider attempt has a five-second bound; timeout terminates its owned
+process group, including API-helper descendants, and reaps the direct provider
+child. Generated command hooks
+allow fifteen seconds for two attempts and Core/Manager handoff overhead.
+`notify test` is an explicit operator delivery test, accepts no arguments, uses
+the effective selected channels and presentation settings, and sends only fixed
+non-sensitive test text. It works even when automatic hooks are disabled and
+never writes settings or upstream state. Output contains one line per selected
+channel, in notification/toast order: `<channel>=ok|unavailable|failed|timeout`.
+`ok` means the provider exited successfully, not independent proof of Android
+notification visibility or permission. Any selected-channel failure returns 1
+with a fixed error; all successful attempts return 0. Provider stdout/stderr and
+arbitrary input are never forwarded. Hook delivery retains its silent best-effort
+contract regardless of these outcomes.
+
 ### MGR-4 — repair planning through Core
 
 MGR-4 adds exactly these no-option, non-interactive forms:
@@ -1998,6 +2023,12 @@ codex-core-repair-v1
 action=<none|update|unavailable>
 reason=<healthy|legacy-generation|core-state-unavailable>
 ```
+
+`healthy` describes a qualified current-generation layout only. This remains
+valid for current signed generations, but is not a general auth/network/provider,
+notification-permission or interactive-runtime health report. Those surfaces
+belong to `codex doctor` and the explicit notification delivery test. Repair
+does not acquire a new purpose merely because legacy layouts are now uncommon.
 
 The root-level generation layout produces `action=none` and
 `reason=healthy`. The bounded legacy `compat/` layout produces

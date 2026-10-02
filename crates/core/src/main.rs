@@ -1435,7 +1435,7 @@ const CORE_SHARED_REQUIREMENTS_MARKER: &str = "# codex-termux-shared-state-v1\n"
 const CORE_NOTIFY_RECORD_MAX_BYTES: usize = 4096;
 
 #[cfg(unix)]
-const CORE_NOTIFY_EVENTS: [&str; 10] = [
+const CORE_NOTIFY_EVENTS: [&str; 11] = [
     "SessionStart",
     "PreToolUse",
     "PermissionRequest",
@@ -1445,6 +1445,7 @@ const CORE_NOTIFY_EVENTS: [&str; 10] = [
     "UserPromptSubmit",
     "SubagentStart",
     "SubagentStop",
+    "UserInputRequest",
     "Stop",
 ];
 
@@ -1637,6 +1638,7 @@ fn core_notify_status_message(event: &str) -> &'static str {
         "UserPromptSubmit" => "Notify prompt submit",
         "SubagentStart" => "Notify subagent start",
         "SubagentStop" => "Notify subagent stop",
+        "UserInputRequest" => "Codex needs your input",
         "Stop" => "Notify turn completion",
         _ => "Notify Codex event",
     }
@@ -1649,8 +1651,23 @@ fn render_core_notification_config(events: &[&str]) -> Vec<u8> {
         "sandbox_mode = \"danger-full-access\"\nmcp_oauth_credentials_store = \"file\"\n\n",
     );
     for event in events {
+        if *event == "UserInputRequest" && events.contains(&"PreToolUse") {
+            continue;
+        }
+        let hook = if *event == "UserInputRequest" {
+            "PreToolUse"
+        } else {
+            event
+        };
+        output.push_str(&format!("[[hooks.{hook}]]\n"));
+        if *event == "UserInputRequest" {
+            output.push_str(&format!(
+                "matcher = \"{}\"\n",
+                core_toml_basic_string(r"^(functions\.)?request_user_input(_async)?$")
+            ));
+        }
         output.push_str(&format!(
-            "[[hooks.{event}]]\n\n[[hooks.{event}.hooks]]\ntype = \"command\"\ncommand = \"codex termux notify emit {event}\"\ntimeout = 10\nstatusMessage = \"{}\"\n\n",
+            "\n[[hooks.{hook}.hooks]]\ntype = \"command\"\ncommand = \"codex termux notify emit {event}\"\ntimeout = 15\nstatusMessage = \"{}\"\n\n",
             core_notify_status_message(event)
         ));
     }
@@ -13522,6 +13539,33 @@ exit 73
 
     #[cfg(unix)]
     #[test]
+    fn notification_input_request_projects_actual_upstream_matcher_without_duplicates() {
+        let narrow = core_notify_parse_hooks("Stop,UserInputRequest,PermissionRequest").unwrap();
+        assert_eq!(
+            narrow,
+            vec!["PermissionRequest", "UserInputRequest", "Stop"]
+        );
+        let config = String::from_utf8(render_core_notification_config(&narrow)).unwrap();
+        assert!(config.contains(
+            "[[hooks.PreToolUse]]\nmatcher = \"^(functions\\\\.)?request_user_input(_async)?$\"\n"
+        ));
+        assert!(config.contains("command = \"codex termux notify emit UserInputRequest\""));
+        assert!(config.contains("[[hooks.PreToolUse.hooks]]"));
+        assert!(!config.contains("[[hooks.UserInputRequest"));
+        assert_eq!(config.matches("timeout = 15").count(), 3);
+        for events in [
+            vec!["PreToolUse", "UserInputRequest"],
+            core_notify_parse_hooks("all").unwrap(),
+        ] {
+            let rendered = String::from_utf8(render_core_notification_config(&events)).unwrap();
+            assert_eq!(rendered.matches("[[hooks.PreToolUse]]").count(), 1);
+            assert!(!rendered.contains("emit UserInputRequest"));
+        }
+        assert!(core_notify_parse_hooks("UserInputRequest,UserInputRequest").is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn test_mgr3_notification_record_projects_hooks_on_real_upstream_launch() {
         use std::os::unix::fs::PermissionsExt;
 
@@ -13556,7 +13600,7 @@ exit 73
             "[[hooks.SessionStart.hooks]]\n",
             "type = \"command\"\n",
             "command = \"codex termux notify emit SessionStart\"\n",
-            "timeout = 10\n",
+            "timeout = 15\n",
             "statusMessage = \"Notify session start\"\n",
             "\n",
             "[[hooks.Stop]]\n",
@@ -13564,7 +13608,7 @@ exit 73
             "[[hooks.Stop.hooks]]\n",
             "type = \"command\"\n",
             "command = \"codex termux notify emit Stop\"\n",
-            "timeout = 10\n",
+            "timeout = 15\n",
             "statusMessage = \"Notify turn completion\"\n",
             "\n",
         );
@@ -13577,6 +13621,22 @@ exit 73
             vec!["SessionStart", "Stop"]
         );
         assert!(core_notify_parse_record(b"codex-manager-notify-v1\nhooks\tStop\n").is_none());
+
+        let input_record = String::from_utf8(record.to_vec()).unwrap().replace(
+            "hooks\tStop,SessionStart",
+            "hooks\tStop,UserInputRequest,PermissionRequest",
+        );
+        std::fs::write(&record_path, &input_record).unwrap();
+        let input_projection =
+            run_product_probe("notify-projection", &root, &runtime, &resolver, &config);
+        assert_eq!(input_projection.status.code(), Some(0));
+        assert_eq!(input_projection.stdout, b"codex-upstream 9.9.9\n");
+        let events = core_notify_parse_record(input_record.as_bytes()).unwrap();
+        assert_eq!(
+            std::fs::read(config.join("config.toml")).unwrap(),
+            render_core_notification_config(&events)
+        );
+        assert!(events.contains(&"UserInputRequest"));
 
         let unavailable = run_product_probe(
             "notify-projection-unavailable",

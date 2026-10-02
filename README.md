@@ -7,16 +7,25 @@ The rewrite has one public command, `codex`, and two internal layers:
 
 - a minimal native Rust Core that makes the upstream runtime work correctly on
   Termux and owns installation, update, diagnosis, activation, and rollback;
-- a separate Manager layer reached through `codex termux` for profiles,
-  sessions, notifications, and other Termux conveniences.
+- a separate Manager layer reached through `codex termux` for execution
+  profiles, notifications, and bounded Core repair requests. Conversation
+  discovery and resume remain upstream-owned.
 
 ## Current status
 
-The signed public stable channel is release sequence 12 generation
-`local-hosted-0-155-0-566034e1aff4`, serving upstream
-`codex-cli 0.155.0`. The Rust Core owns signed installation, update, diagnosis,
-atomic activation, rollback, and recovery; Manager remains behind
-`codex termux`.
+See `GOAL.md`'s Current Operating Baseline for the accepted source, signed public
+release and installed generation. The Rust Core owns signed installation,
+update, diagnosis, atomic activation, rollback, and recovery; Manager remains
+optional behind `codex termux`.
+
+`codex termux help` lists the installed Manager commands. Profiles separate
+execution preferences and authentication while sharing upstream conversation
+storage. `notify show/set` controls Termux notification/toast delivery;
+`notify test` sends fixed test text and reports each selected provider's result.
+The `UserInputRequest` notification selector covers structured questions and
+follow-up input requests. `repair plan/apply` handles current-generation
+qualification and legacy-layout migration; `healthy` there is not a general
+authentication or network diagnosis. Exact contracts belong to `SPEC.md`.
 
 Release-automation phases through RALD-7 are accepted in `GOAL.md`. RALD-6
 proved the public fresh-install surface and same-client signed update delivery.

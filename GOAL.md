@@ -32,6 +32,45 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
+## MANAGER-NOTIFY-INPUT-REQUEST-V1 (selected 2026-10-02)
+
+- User requests review of repair/profile management and improvement plus actual
+  reapplication of Termux notifications. Explicit preference: notification and
+  toast for turn completion, approval, questions and follow-up input requests.
+  Approved equivalent primary Lead continues directly; workers OFF.
+- Bound clean source db7411bd0cc0432b5dc94b52933ccc31f2e1664d; public/live signed
+  sequence 29, upstream 0.160.0. Runnable baseline passes 217 Rust tests (one
+  explicit device ignore). No product mutation before baseline.
+- Repair remains valid generation qualification/legacy-layout migration, not
+  general health; profile review identifies known external account identities
+  absent from Manager list/current naming. Preserve upstream-owned session/DB
+  and separate authentication; review alone authorizes no profile migration.
+- Notification outcome: add observable fixed-text delivery testing and bounded
+  provider-group cleanup; map structured input requests through actual upstream
+  PreToolUse matchers without ordinary-tool spam or duplicate hooks. Qualify on
+  official 0.160.0 handler/registry and native product path. No upstream patch.
+- Allowed bounded live gate after source/disposable proof: signed Core/Manager
+  publication and ordinary activation, requested Manager notification preference
+  write, synthetic notification/toast tests and native lifecycle-event proof.
+  Preserve account auth/config, recent transcripts/history, resolver and rollback.
+  No backup; remove test/build staging after acceptance. Existing external
+  tunnel restart is permitted only as needed to consume the accepted generation,
+  preserving identities/credentials and proving readiness/polling.
+- Success requires focused regressions, grouped workspace/publication checks,
+  actual signed installation, effective hooks on shared-server launch without
+  fallback, real provider readback and review conclusions. Source/release/public/
+  live alignment and commit/push close this bounded bundle.
+- Source acceptance passes exact scripts/check.sh: 222 Rust (Core 172,
+  Manager 17+12, builder 21; one explicit device ignore), 90 Python, fmt/diff,
+  and locked release build. Provider missing/failure/timeout/group cleanup,
+  independent both channels, state/input privacy, selector canonicalization,
+  no duplicate handler and actual Core launch projection are proven. All 15
+  account auth/config/resolver bytes, modes and inodes remain unchanged.
+  KEEP fixed Core repair ownership and upstream shared conversations; COLLAPSE
+  question/follow-up notification into upstream matcher; DELETE opaque operator
+  delivery results, too-short provider bound and leaked timeout descendants.
+  Native lifecycle/readback and signed live acceptance remain open.
+
 ## EXTERNAL-TUNNEL-GENERATION-29 (accepted 2026-10-02)
 
 - User explicitly authorizes restarting the three surviving external tunnel

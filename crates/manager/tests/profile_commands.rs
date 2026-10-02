@@ -105,7 +105,9 @@ fn run_manager_with_input(
         .args(args)
         .env("PATH", provider_dir)
         .env("PROVIDER_LOG", provider_log)
-        .stdin(Stdio::piped());
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     let mut child = command.spawn().unwrap();
     child.stdin.take().unwrap().write_all(input).unwrap();
     child.wait_with_output().unwrap()
@@ -529,6 +531,155 @@ fn write_notification_provider(root: &Path, name: &str) -> PathBuf {
     fs::write(&path, body).unwrap();
     fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
     path
+}
+
+#[test]
+fn notification_test_reports_delivery_without_settings_or_hook_input() {
+    let root = TestRoot::new();
+    let core = write_core_probe(&root.0);
+    let providers = root.0.join("providers");
+    fs::create_dir(&providers).unwrap();
+    for name in ["termux-notification", "termux-toast"] {
+        let p = write_notification_provider(&providers, name);
+        fs::write(
+            &p,
+            fs::read_to_string(&p).unwrap().replace("exit 23", "exit 0"),
+        )
+        .unwrap();
+    }
+    let log = root.0.join("providers.log");
+    let default =
+        run_manager_with_input(&root.0, &core, &["notify", "test"], &providers, &log, b"");
+    assert_eq!(default.status.code(), Some(0));
+    assert_eq!(default.stdout, b"notification=ok\n");
+    assert!(default.stderr.is_empty());
+    assert!(!root.0.join(".local/share/codex/manager").exists());
+    let set = run_manager(
+        &root.0,
+        &core,
+        &["notify", "set", "--channel", "both", "--hooks", "none"],
+        None,
+    );
+    assert_eq!(set.status.code(), Some(0));
+    let config = root
+        .0
+        .join(".local/share/codex/manager/notifications/config-v1");
+    let before = fs::read(&config).unwrap();
+    let both = run_manager_with_input(
+        &root.0,
+        &core,
+        &["notify", "test"],
+        &providers,
+        &log,
+        b"secret input must be ignored",
+    );
+    assert_eq!(both.status.code(), Some(0));
+    assert_eq!(both.stdout, b"notification=ok\ntoast=ok\n");
+    assert!(both.stderr.is_empty());
+    assert_eq!(fs::read(&config).unwrap(), before);
+    let calls = fs::read_to_string(&log).unwrap();
+    assert!(calls.contains("arg=Codex notification test\n"));
+    assert!(!calls.contains("secret input"));
+    assert!(calls.contains("termux-toast\n"));
+}
+
+#[test]
+fn notification_test_reports_missing_and_failed_providers_and_keeps_both_independent() {
+    let root = TestRoot::new();
+    let core = write_core_probe(&root.0);
+    let providers = root.0.join("providers");
+    fs::create_dir(&providers).unwrap();
+    let toast = write_notification_provider(&providers, "termux-toast");
+    fs::write(
+        &toast,
+        fs::read_to_string(&toast)
+            .unwrap()
+            .replace("exit 23", "exit 0"),
+    )
+    .unwrap();
+    let log = root.0.join("providers.log");
+    let set = run_manager(
+        &root.0,
+        &core,
+        &["notify", "set", "--channel", "both"],
+        None,
+    );
+    assert_eq!(set.status.code(), Some(0));
+    let missing =
+        run_manager_with_input(&root.0, &core, &["notify", "test"], &providers, &log, b"");
+    assert_eq!(missing.status.code(), Some(1));
+    assert_eq!(missing.stdout, b"notification=unavailable\ntoast=ok\n");
+    assert_eq!(missing.stderr, b"codex termux: notification test failed\n");
+    let p = write_notification_provider(&providers, "termux-notification");
+    for executable in [true, false] {
+        if !executable {
+            fs::set_permissions(&p, fs::Permissions::from_mode(0o600)).unwrap();
+        }
+        let failed =
+            run_manager_with_input(&root.0, &core, &["notify", "test"], &providers, &log, b"");
+        assert_eq!(failed.status.code(), Some(1));
+        assert_eq!(failed.stdout, b"notification=failed\ntoast=ok\n");
+        assert_eq!(failed.stderr, missing.stderr);
+    }
+    let invalid = run_manager(&root.0, &core, &["notify", "test", "unexpected"], None);
+    assert_eq!(invalid.status.code(), Some(2));
+    assert!(invalid.stdout.is_empty());
+    let config = root
+        .0
+        .join(".local/share/codex/manager/notifications/config-v1");
+    fs::write(&config, b"malformed\n").unwrap();
+    let bad = run_manager_with_input(&root.0, &core, &["notify", "test"], &providers, &log, b"");
+    assert_eq!(bad.status.code(), Some(1));
+    assert!(bad.stdout.is_empty());
+    assert_eq!(fs::read(config).unwrap(), b"malformed\n");
+}
+
+#[test]
+fn notification_test_timeout_terminates_api_helper_descendants() {
+    let root = TestRoot::new();
+    let core = write_core_probe(&root.0);
+    let providers = root.0.join("providers");
+    fs::create_dir(&providers).unwrap();
+    let p = write_notification_provider(&providers, "termux-notification");
+    let shell = fs::read_to_string(&p)
+        .unwrap()
+        .lines()
+        .next()
+        .unwrap()
+        .to_owned();
+    let sleep = std::env::split_paths(&std::env::var_os("PATH").unwrap())
+        .map(|d| d.join("sleep"))
+        .find(|p| p.is_file())
+        .unwrap();
+    let child_pid = root.0.join("child.pid");
+    fs::write(
+        &p,
+        format!(
+            "{shell}\n{} 30 &\nprintf '%s\\n' \"$!\" > \"$PROVIDER_CHILD\"\nwait\n",
+            sleep.display()
+        ),
+    )
+    .unwrap();
+    let mut command = base_manager_command(&root.0, &core);
+    command
+        .args(["notify", "test"])
+        .env("PATH", &providers)
+        .env("PROVIDER_CHILD", &child_pid);
+    let start = std::time::Instant::now();
+    let output = command.output().unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(output.stdout, b"notification=timeout\n");
+    assert_eq!(output.stderr, b"codex termux: notification test failed\n");
+    assert!(start.elapsed() >= std::time::Duration::from_secs(5));
+    assert!(start.elapsed() < std::time::Duration::from_secs(8));
+    let pid = fs::read_to_string(child_pid).unwrap();
+    let proc = PathBuf::from("/proc").join(pid.trim());
+    if let Ok(stat) = fs::read_to_string(proc.join("stat")) {
+        assert!(matches!(
+            stat.rsplit_once(") ").unwrap().1.chars().next(),
+            Some('Z' | 'X')
+        ));
+    }
 }
 
 #[test]
