@@ -32,7 +32,30 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
-## AI-TMUX-NOTIFY-FOCUS-V1 (selected 2026-10-02)
+## RESUME-WRITER-RELEASE-V1 (selected 2026-10-02)
+
+- User reports native read-only/open-in-another-app screen until retry after30-60s;
+  asks investigation and resolution after tmux completion, then explicitly directs
+  autonomous work while sleeping. Weekly budget warning is a separate upstream
+  account limit. Workers OFF; approved equivalent primary continues directly.
+- Bind accepted Codex producer4c3d013/signed32 and AI88a21df plus docs children.
+  Same-revision code baseline228 Rust/90 Python and locked build green; no new
+  behavior before native diagnosis and SPEC if a runtime contract changes.
+- Measure real public close/resume for idle own test conversation, within account
+  and across accounts/generations. Distinguish active UI/client, daemon attachment,
+  writer lease and compatibility FD lifecycle. Inspect all surviving instances
+  once a class-level cause is found; do not invent a timeout explanation.
+- Success: preserve conversation ID/history/transcript and account auth isolation;
+  a cleanly closed idle client must not impose30-60s artificial retry delay. Keep
+  real concurrent writer exclusion and active/background work protected. No fork,
+  transcript copy, lock deletion/steal, warning suppression or shared-server disable.
+- Bounded native probes, own idle fixture cleanup, implementation/regressions,
+  ordinary signed publication/activation and matching actual installation are
+  authorized after the source gates. Never kill unrelated user servers/clients or
+  restore/mutate auth/resolver. No backup; reuse one private scratch/cache root
+  from tmux bundle and remove it when the requested resolution is accepted.
+
+## AI-TMUX-NOTIFY-FOCUS-V1 (accepted 2026-10-02)
 
 - User clarifies physical tap selected Termux's last terminal, not its source;
   requests optional humtr/ai tmux launch and compatible Codex Manager focus.
@@ -74,6 +97,43 @@
   focus is guaranteed within live managed tmux clients; selecting an unrelated
   non-tmux Termux terminal remains an OS limitation, never worked around by
   launching a new terminal or injecting shell input.
+
+- Implementation Codex4c3d013cd6e224fdda7b5727efc13140e915f056; AI324e201
+  plus88a21df305c140e6d7d936902b89b935df3a22da closed-server correction. Both
+  pushed, AI-only live install without backup preserves pre-existing dirty work.
+  Codex exact grouped228 Rust/90 Python, locked release green; AI staged candidate
+  and final current tree37 gates/162 TUI checks/0 warnings,6 standalone files,
+  focused4 native tests including race/foreign/collision/closed/dead-server.
+- Signed production37040916922 succeeds all8 actualjobs/7 logicaljobs: exact
+  accepted source/archive, Android smoke, Manager-only component bind, signing,
+  Release/Pages, public bytes/disposable ordinary update and second no-op, CAS
+  stable. Trigger22ea22e0845ac013d7c1b54b1d4c7085492144eb,parentc92e550;
+  publicmainc728f89d8593b411ddef2961374efa9da3ee226f. Ordinary deviceupdate
+  activates32,0.160.0,local-hosted-0-160-0-4c3d013cd6e2-tmux-notify;31 rollback.
+  Runtimeba94d1d0d9d416a7fb2f13d6ffcc6e0d9ec981ee1793158bbc9b1d96d5f51ab3;
+  Core7507870ebd654a9b4e195ed872d4100aaed337efc3e8e5296b0caf31d39f71f6;
+  Manager2af3076a8f82052b09b49f796e025158477f6984e63cfd2e8f098bf647c79b32.
+- Native installed AI launches2 actualCodex panes with original zero argv. Both
+  IDs uniquely corroborated by canonical metadata, runtime/TTY valid, loaded in
+  one real native shared server via thread/loaded/list. No embedded fallback;
+  actual TUI /status reports danger-full-access. New bare launch additionally
+  reaches exact latest32 runtime without overrides/fallback; native thread loaded
+  in actual shared server25322, uniquely identified by title prefix on IPC.
+- Actual installed public Stop emit forwards registered actions to Android API.
+  Each exact action executes3times and moves to its existing target pane, silent
+  exit0, no new window/Codex/PID. Fresh physical notification starts on pane2;
+  user taps and backend changes to pane1 with unchanged pane/PIDs, without any
+  agent action execution. User's ordinary Android terminal remains outside that
+  tmux session: this does not select their pre-existing non-tmux terminal. Preserve
+  this explicit distinction; exact visible focus requires the originating tmux
+  session in the foreground Termux terminal. No reparenting or new window on tap.
+- Closed real native target returns1 silently from focus with unchanged panes,
+  never reopened. Pre-live protected15 identities preserve all auth/resolver and
+  other config; only authorized janmori101 native title changes. Earlier concurrent
+  jgnh2 config replacement is outside this bundle, never restored/merged. Focus
+  preference is tmux; both channels/selectors unchanged. Own test notifications
+  removed. No recovery backup; reusable cache/official source and owned native
+  fixtures pass to the explicitly queued lock diagnosis, not retained bundles.
 
 ## MANAGER-NOTIFY-OPEN-V1 (accepted 2026-10-02)
 
@@ -486,19 +546,19 @@ dated sections preserve historical evidence; historical words such as
 `WORKBOARD.md`.
 
 - Source authority is remote `rewrite/rust-core`, read afresh on resume. Runtime
-  producer is **39b93246c09799a9abb304703f77cca7e5572074**; subsequent ledger-only
-  changes retain identical accepted Rust source.
-- Public stable main is **c92e550421a6aa6fd5496487c8f1ad78c22d2bee**. Signed public
-  and live sequence **31**, upstream **0.160.0**,
-  **local-hosted-0-160-0-39b93246c097-notify-open**; sequence30 is rollback.
-  Installed Core/Manager/runtime match signed public bytes. Previously running
-  terminals/tunnels remain undisturbed on older leases of the same runtime bytes.
-- MANAGER-NOTIFY-OPEN-V1 and INPUT-REQUEST-V1 are accepted above. Both channels
-  and PermissionRequest/UserInputRequest/Stop remain active. New notifications
-  return to the last-selected existing Termux terminal, not necessarily their
-  originating terminal. Native repeated action and physical user tap confirm it.
-  Auth stays separate, upstream conversations/DB and CWD/All policy unchanged.
-  Exact tmux originating-pane focus is the next separately selected user request.
+  producer is **4c3d013cd6e224fdda7b5727efc13140e915f056**; ledger-only children
+  retain identical accepted Rust source. AI main **88a21df305c140e6d7d936902b89b935df3a22da**.
+- Public main **c728f89d8593b411ddef2961374efa9da3ee226f**; signed/live sequence
+  **32**, upstream **0.160.0**, **local-hosted-0-160-0-4c3d013cd6e2-tmux-notify**;
+  sequence31 rollback. Core/runtime unchanged; Manager/source/public/live agree.
+- AI-TMUX-NOTIFY-FOCUS-V1, NOTIFY-OPEN and INPUT-REQUEST accepted. Both channels
+  and PermissionRequest/UserInputRequest/Stop active; focus=tmux. AI --tmux/TUI
+  option controls managed launch. Click selects exact live native pane when
+  foreground terminal displays that session; ordinary non-tmux Android terminals
+  still use last-selected Termux Activity. No new Codex or terminal on click.
+  Auth separate; native shared conversations/DB and CWD/All policy unchanged.
+- Next selected user request: diagnose/fix30-60s read-only/writer release delay
+  after closing a client, preserving real concurrent ownership and shared server.
 - Reviewed follow-up candidates: external profile identity naming/selection and
   historical source acceptance automation pins/runner permissions. Neither is
   silently implemented or treated as passing current acceptance evidence.

@@ -107,7 +107,7 @@ the existing Activity action. Malformed/duplicate IDs never suppress the ordinar
 notification or become shell input. The helper is bounded and silent.
 
 Termux Activity foregrounds its last selected Android terminal. Exact pane focus
-requires that terminal to display the managed tmux server. Termux exposes no
+requires that terminal to display the originating tmux session. Termux exposes no
 supported selection of arbitrary existing Android terminal IDs; no new terminal,
 resume process, input injection, title watcher or daemon environment guess is used.
 
