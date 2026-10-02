@@ -1,34 +1,32 @@
 # Release Automation and Local-Derived Update Plan
 
-Status: **active only for STARTUP-ADVISORY-SINGLE-KEY-TRANSIENT-V1 / SEQUENCE-27-CORRECTIVE**.
-Historical production runs and one-shot gates are accepted evidence in
-`GOAL.md`; they are not current routing in this file.
+Status: **inactive; no release/live bundle is currently selected**.
+STARTUP-ADVISORY-SINGLE-KEY-TRANSIENT-V1 / sequence 27 is accepted evidence in
+`GOAL.md`; historical production runs and one-shot gates are not current routing.
 
 Authority remains `SPEC.md` -> `GOAL.md` -> `WORKBOARD.md`. This file is the
 current release drift-control plan. It never overrides those authorities.
 
 ## Current production baseline
 
-- Accepted hotfix product source:
+- Last accepted product source:
   `75aed30c7ad6c427d30115b0667957130da198f5`.
-- Public-control branch before the corrective trigger:
-  `main=bf833822c41cb5ee817922b2ed08e9316f288a40`.
-- Signed public stable sequence: **26**.
+- Signed public stable sequence: **27**.
 - Signed public stable generation:
-  `local-hosted-0-160-0-4fd14ed8aafc`.
+  `local-hosted-0-160-0-75aed30c7ad6-startup-advisory`.
 - Signed public stable upstream version: `codex-cli 0.160.0`.
-- Live Termux consumer sequence: **24**.
+- Live Termux consumer sequence: **27**.
 - Live generation:
-  `local-hosted-0-159-2-4fd14ed8aafc`.
-- Live upstream version: `codex-cli 0.159.2`.
-- Fresh official upstream preflight on 2026-10-02 resolves exact `0.160.0`
-  with archive SHA-256
+  `local-hosted-0-160-0-75aed30c7ad6-startup-advisory`.
+- Live upstream version: `codex-cli 0.160.0`.
+- Stable promotion commit:
+  `2dc79bd11842c9e5970b8c73c470886b780f2ff8`.
+- Official upstream archive used by this accepted generation has SHA-256
   `7f0fe42ff22ecfa3a47bc4a34f5b22c4218b431a4ec0aba51c7d98299f07900c`.
-- Next public release sequence: **27**.
 
-The public sequence-26 generation remains authoritative until every corrective
-publication gate below passes. The live sequence-24 consumer remains untouched
-until public promotion is independently re-read green.
+Any future release must rebind source, public stable, official upstream, and live
+state afresh. Sequence-27 one-shot admission is historical and must not be
+reused.
 
 ## Frozen release invariants
 
@@ -83,40 +81,16 @@ For generations that implement `UPDATE-DOWNLOAD-SIZE-V1`:
 - actual progress is based on GET-written bytes, not HEAD;
 - the sidecar never enters installed generation inventory.
 
-## Selected startup-advisory sequence-27 corrective gate
+## Last accepted startup-advisory sequence-27 corrective
 
-This is a bounded same-version corrective production operation. It exists only
-to publish the accepted startup-advisory product fix and does not weaken the
-ordinary newer-version path.
+The bounded same-version corrective completed on 2026-10-02. Production run
+`36965656433` passed the frozen release invariants and promoted signed sequence
+27 generation `local-hosted-0-160-0-75aed30c7ad6-startup-advisory`. Live
+sequence 24 then consumed the result through ordinary signed public
+`codex update`, reached exact `codex-cli 0.160.0`, and passed durable
+exact-current no-op verification.
 
-Required preconditions:
-
-- user authorization for the startup-advisory fix is explicit in the active
-  Workboard bundle;
-- public `main` is re-read as exact
-  `bf833822c41cb5ee817922b2ed08e9316f288a40` before the one-shot trigger;
-- authenticated public stable is exact sequence **26**, generation
-  `local-hosted-0-160-0-4fd14ed8aafc`, version `0.160.0`;
-- product source is exact
-  `75aed30c7ad6c427d30115b0667957130da198f5`;
-- official latest remains exact `0.160.0` with archive SHA-256
-  `7f0fe42ff22ecfa3a47bc4a34f5b22c4218b431a4ec0aba51c7d98299f07900c`;
-- next release sequence is exactly **27**;
-- the same-version override is accepted only under an exact one-shot selector
-  bound to the source, public parent, current generation/sequence, target
-  sequence, upstream version/digest, and publication authorization;
-- candidate generation identity is fresh and existing public generations are
-  immutable.
-
-Then run the frozen release invariants in order: build -> native smoke -> sign ->
-independent verify -> immutable Release -> LKG Pages -> every-byte public
-readback -> disposable ordinary update/no-op -> non-forced exact-parent CAS.
-
-After promotion, independently re-read the signed stable pair and generation
-manifest. Only then run the user's live sequence-24 consumer through ordinary
-signed public `codex update`. Direct-jump acceptance must prove sequence 27 is
-active, `codex-cli 0.160.0` executes, Core/Manager/runtime remain healthy, and a
-second exact-current update causes no state delta.
+The selector is closed. It does not authorize any future same-version release.
 
 ## Ordinary future upstream intake
 

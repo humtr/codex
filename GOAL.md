@@ -3685,6 +3685,71 @@ remain separate explicitly authorized operations.
 - Final live TTY acceptance of the new `downloaded / authenticated-total` presentation is therefore intentionally deferred until a future newer signed upstream generation is consumed by the installed `0.159.0` Core. That future observation is a release-consumer check, not unfinished work in this accepted bundle.
 - Disposition: **UPDATE-DOWNLOAD-SIZE-V1 is accepted and closed.** No further source, production, or live-runtime mutation is authorized by this bundle.
 
+## STARTUP-ADVISORY-SINGLE-KEY-TRANSIENT-V1 Acceptance (accepted 2026-10-02)
+
+- User-visible failure was reproduced from the accepted Core implementation:
+  the five-second bare-launch update advisory used a background `read_line()`
+  while the terminal remained canonical. A typed `y` therefore required Enter;
+  timeout could leave that byte pending for upstream Codex, matching the
+  observed `1sy` contamination. The countdown also failed to behave as one
+  reliably transient terminal line.
+- Accepted product source is exact
+  `75aed30c7ad6c427d30115b0667957130da198f5`. Linux/Android TTY startup
+  advisory input is now bounded non-canonical/no-echo single-byte input:
+  `y`/`Y` selects update immediately without Enter, other input keeps the
+  current runtime, prompt bytes are consumed rather than forwarded, the line is
+  erased in place, and the exact prior terminal mode is restored before update
+  execution or upstream launch.
+- Focused PTY regression tests sent bare `y` and `n` bytes with no newline,
+  proved immediate `y` response before the 4-second redraw, no input echo,
+  transient clear sequences, timeout/keep behavior, and exact PTY-mode
+  restoration. Full source validation then passed the adopted repository gate:
+  Python migration 9 tests, Core 159 passed with one explicit real-device smoke
+  ignored, Manager library 16, Manager profile integration 9, release-builder
+  19, formatting, and diff checks.
+- Production authority was rebound to public sequence 26 generation
+  `local-hosted-0-160-0-4fd14ed8aafc`, while the live device was sequence 24
+  `local-hosted-0-159-2-4fd14ed8aafc`. Fresh official upstream remained exact
+  `0.160.0` with archive SHA-256
+  `7f0fe42ff22ecfa3a47bc4a34f5b22c4218b431a4ec0aba51c7d98299f07900c`.
+- One-shot main trigger commit
+  `a124e609fbddb949840d4ca091b66d277d2195b6` ran GitHub Actions production
+  run `36965656433`. Exact corrective preflight, Android/AArch64 cross-build,
+  Core-only/non-Core-byte preservation, native executable smoke, production
+  signing, independent verification, immutable Release staging, LKG-preserving
+  Pages deployment, every-byte public HTTPS readback, disposable ordinary
+  update/no-op proof, and non-forced exact-parent CAS all completed
+  successfully.
+- Stable promotion commit is
+  `2dc79bd11842c9e5970b8c73c470886b780f2ff8`. Public stable is signed release
+  sequence **27**, generation
+  `local-hosted-0-160-0-75aed30c7ad6-startup-advisory`, upstream
+  `codex-cli 0.160.0`. Independent post-promotion readback reverified the
+  Release signature under public-key SHA-256
+  `62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c`,
+  sequence 27, and exact upstream archive digest above.
+- Live activation used only ordinary signed public `codex update` from
+  sequence 24. Original operation `b1cd3dcb4037498e82634b498d4d9c0b` exited
+  0 after printing `Updating Codex 0.159.2 -> 0.160.0...`,
+  `Verified and activated the signed Termux release.`, and
+  `Codex 0.160.0 is now active.`.
+- Fresh live proof reports exact `codex-cli 0.160.0`, active generation
+  `local-hosted-0-160-0-75aed30c7ad6-startup-advisory`, release sequence 27,
+  and healthy Termux Core/runtime/code-mode-host/Manager/composed summary. The
+  installed Core SHA-256
+  `6f83ec6d7994f0c978690e367696bddb26c8422872af45816be5748bc1f402e0`
+  exactly matches the signed sequence-27 release manifest, binding the live
+  binary to the PTY-tested Core.
+- Exact-current live update returned exactly
+  `Codex 0.160.0 is already up to date.` with empty stderr. A first
+  deliberately broad snapshot also observed long-lived `.acquire-*` scratch
+  housekeeping; after excluding that explicitly ephemeral acquisition scratch,
+  a second exact-current proof showed **no durable state delta across 282
+  installed-Core entries**.
+- Disposition: **STARTUP-ADVISORY-SINGLE-KEY-TRANSIENT-V1 / sequence 27 is
+  accepted and closed.** No further source, public, or live-runtime mutation is
+  authorized by this bundle.
+
 ## Blocked / Resume Conditions
 
 - Stop before any live install, activation, or replacement of the working
