@@ -32,6 +32,53 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
+## EXTERNAL-TUNNEL-GENERATION-29 (accepted 2026-10-02)
+
+- User explicitly authorizes restarting the three surviving external tunnel
+  processes on the latest installed signed generation. Bound clean source is
+  rewrite/rust-core dd47dd107282bf148f2fa4408b4848a3f16c540d; public main remains
+  f71324348719c1a416f42956074d925004c70ab5. No Rust/public contract change, new
+  release, credential migration, or remote tunnel creation is needed.
+- Root cause is long-lived tunnel-client children launched before activation,
+  retaining upstream 0.159.2 (two children) and 0.159.0 (one child), including
+  the old Core-injected sandbox CLI override. Existing bridge command is the
+  stable public `codex app-server`, so restart reaches the accepted Core.
+- Restarted the two tdev runit services through their existing supervisor,
+  preserving resident verification and profile digests. Restarted native-managed
+  alias tdev-surface-probe-20260930 through native stop/connect, attaching its
+  existing tunnel ID and file key reference, preserving its stdio target and
+  wrlab execution identity. No second owner or ad-hoc daemon was introduced.
+- New tunnel/Codex PID pairs are 20675/20694 (named connection), 20799/20815
+  (legacy resident) and 21060/21078 (native probe). All three Codex executables
+  bind to signed sequence 29 generation
+  local-hosted-0-160-0-bdb02cc7d100-bounded-retention. Their argv contains only
+  runtime plus `app-server`; compatibility FDs 33/34/35 are present and
+  CODEX_SQLITE_HOME is the one canonical upstream store. The probe retains
+  CODEX_HOME=.codex-profiles/wrlab; resident identities are unchanged.
+- All three local /api/codex/status responses report running, ready, initialized,
+  state=ready and ChatGPT auth. Native health with --require-control-plane-poll
+  exits 0 for all three: healthz/readyz and actual successful external polling
+  are green; last successful polls were 9/24/3 seconds old at grouped readback.
+  /api/system reports main-channel probe ok for each. The native alias status
+  separately confirms process_running/healthy/ready; its unavailable richer
+  UI poll snapshot is not substituted for the proven native metrics check.
+  Actual local authenticated MCP initialize/tools-list through both resident
+  connections exits 0 and returns 13 tools each, without session-content output.
+- Ordinary Core maintenance removed both now-unreferenced old generations.
+  Only current sequence 29 and rollback sequence 28 remain; exact-current
+  `codex update` exits 0 with already-up-to-date output and no artifact growth.
+  Post-restart checks found all 20 protected auth/config/resolver/launcher/
+  activation/profile files identical in bytes, modes and inodes. During later
+  docs-only closure, jgnh2/config.toml was independently atomically replaced;
+  this operator work never writes that file and leaves the concurrent setting
+  untouched. The other 19 files remain identical at final readback. Existing
+  tunnel IDs/key references and
+  account separation are preserved. No backup or disposable test tree was made.
+- Disposition: **accepted and closed**. External processes now match the live
+  signed release; automatic future generation selection remains through the
+  existing stable launcher on supervisor restart. Long-lived processes require
+  restart after a future activation; Core does not take ownership of them.
+
 ## SHARED-CONFIG-BOUNDED-RETENTION-V1 (accepted 2026-10-02)
 
 - User explicitly requests fixing reused-server notification configuration,
@@ -242,9 +289,11 @@ dated sections preserve historical evidence; historical words such as
   and live installed generation is sequence **29**, upstream **0.160.0**,
   **local-hosted-0-160-0-bdb02cc7d100-bounded-retention**. Installed launcher/Core
   and runtime hashes match public signed bytes; sequence 28 is rollback.
-- SHARED-CONFIG-BOUNDED-RETENTION-V1 is accepted above. No implementation or live
-  mutation remains selected. Existing external tunnel clients retain two older
-  artifact references until normal exit; they are outside Core's server ownership.
+- SHARED-CONFIG-BOUNDED-RETENTION-V1 and EXTERNAL-TUNNEL-GENERATION-29 are accepted
+  above. No implementation or live mutation remains selected. All three external
+  tunnel app-servers now run sequence 29 after their authorized supervisor
+  restart. Only current/rollback generations remain; external clients remain
+  outside Core's server ownership.
   Known execution homes share upstream conversation state with separate auth.
   CWD/All picker policy remains upstream CLI/VSCode across all accounts.
 
