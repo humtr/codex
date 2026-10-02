@@ -140,12 +140,31 @@
   bytes agree; repository-only finalization fixes and this ledger close the
   bounded transition. No further product work is selected by this bundle.
 
-## Current Operating Baseline and Selected Maintenance (2026-09-30)
+## Current Operating Baseline (2026-10-02)
 
 This section is the current-state anchor inside the acceptance ledger. Later
 dated sections preserve historical evidence; historical words such as
 “current,” “active,” or “selected” do not override this section or
 `WORKBOARD.md`.
+
+- Source authority is remote `rewrite/rust-core`, read afresh on resume. Runtime
+  artifact producer is `89b96680cd54f26eaf75cb2c5988dcf2b0d76187`; later operator
+  finalization/test/documentation commits retain identical Rust product source.
+- Public stable main is `3224a5294d22818350a105d2adef6bc32b7e565f`. Signed public
+  and live installed generation is sequence **28**, upstream **0.160.0**,
+  `local-hosted-0-160-0-89b96680cd54-shared-visibility`. Installed Core and
+  runtime hashes match that signed public generation; sequence 27 remains the
+  preceding rollback generation.
+- SHARED-SERVER-CROSS-ACCOUNT-V1 is accepted above. No implementation or live
+  mutation remains selected. Existing pretransition writers exit normally;
+  known execution homes now share upstream conversation state with separate
+  authentication. WORKBOARD.md owns only a subsequently selected bundle.
+
+## Historical Runtime Alignment Baseline (2026-09-30)
+
+The following is the historical pre-alignment snapshot. Its present-tense
+wording describes that operation and is superseded by the 2026-10-02 current
+baseline and acceptance above.
 
 - Source authority is the freshly rebound remote `rewrite/rust-core`. Exact
   branch SHA is session state and must be re-read rather than copied forward as
