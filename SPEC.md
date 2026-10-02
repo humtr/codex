@@ -88,7 +88,10 @@ and its internal `ai __tmux_focus <UUID>` endpoint; Core owns neither. Native
 argv, selected profile environment and CWD remain unchanged. Inside tmux AI
 creates a managed window on that server; outside it attaches a managed session.
 Launch registration contains only socket identity, never credentials or content.
-Dead records are pruned. No notification click creates a window or starts Codex.
+Dead records are pruned. No notification click creates a tmux session, window,
+pane or Codex process. Explicit tmux notification focus may open a new native
+Android Termux terminal attached to the existing qualified tmux session, as
+authorized for reversible device evaluation on 2026-10-02.
 
 For Codex launches AI adds upstream `thread-id` first in the selected home's
 `tui.terminal_title`, preserving other configured items (or upstream defaults)
@@ -108,10 +111,20 @@ hook `session_id` adds the safely quoted absolute HOME/bin/ai focus command to
 the existing Activity action. Malformed/duplicate IDs never suppress the ordinary
 notification or become shell input. The helper is bounded and silent.
 
-Termux Activity foregrounds its last selected Android terminal. Exact pane focus
-requires that terminal to display the originating tmux session. Termux exposes no
-supported selection of arbitrary existing Android terminal IDs; no new terminal,
-resume process, input injection, title watcher or daemon environment guess is used.
+After resolving a unique live pane, AI atomically rechecks its identity, selects
+it, and obtains its existing tmux session ID. Only a successful recheck requests
+RunCommandService to open and select a new native terminal running installed
+tmux with the exact registered socket and `attach-session -t <SESSION_ID>`.
+The session action is the string-valued switch-new-and-open action. Each click
+may add a native terminal and tmux client, but never another workload. Missing,
+ambiguous, closed or changed targets issue no native-terminal request. A target
+that disappears after qualification makes attach fail; it cannot create a tmux
+session. Unsupported socket argument encoding is rejected. Service errors remain
+silent and the Manager action retains ordinary Activity foregrounding. No resume
+process, input injection, native preference editing, title watcher or daemon
+environment guess is used. Reverting this bounded AI change and reinstalling AI
+restores the earlier pane-selection/Activity behavior without changing Codex
+state or terminating existing clients.
 
 ### Manager command boundary
 

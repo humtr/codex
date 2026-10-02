@@ -32,17 +32,19 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
-## TMUX-STATUS-CHOICE-TERMINAL-FOCUS (selected 2026-10-02)
+## TMUX-STATUS-CHOICE-TERMINAL-FOCUS (accepted 2026-10-02)
 
 - User replaces the two-way toggle with off/on-hidden/on-status and asks exact
   notification return across native Termux terminals. Success requires both
   native tmux window selection and visible Android terminal selection; pane-only
-  proof is insufficient. No notification may create a terminal or resume process.
+  proof is insufficient. No notification may create a tmux workload or resume process.
+  User now explicitly permits a new Android terminal attached to existing tmux
+  for reversible evaluation, with rollback if the result is unsatisfactory.
 - Preserve unrelated AI dirty work, active users, auth, sessions, shared-server
   behavior, resolver and global/foreign tmux settings. Workers OFF. Status source
   and bounded AI-only installation are authorized after gates. Native app routing
-  remains diagnosis until an existing-only operation is proven; no APK replacement
-  is authorized merely by this ledger. Ordered proof map in WORKBOARD.md.
+  uses the authorized new-terminal attach operation after focused and full gates;
+  no APK replacement is authorized. Ordered proof map in WORKBOARD.md.
 - Status slice accepted: AI source `e6a91e6` offers `off / on-hidden / on-status`,
   exact CLI selectors, legacy boolean normalization and native clickable status.
   Exact staged tree `372e3050ffd121915ee98633959c790c27a44dc6` passed isolated
@@ -65,10 +67,16 @@
   read-only: `tools/termux-notify.sh` opens a foreground native terminal through
   RunCommandService and runs `tmux attach`; it does not select an existing native
   terminal. Its tests inspect generated action arguments, not actual native
-  existing-only selection. No legacy source or tests were copied. Native terminal
-  movement remains unresolved; user clarification is pending on whether the
-  historical new-terminal attach behavior is acceptable under the current
-  no-new-terminal contract.
+  existing-only selection. Further user-directed inspection found the preserved
+  `verify-role-layout` modular implementation at `46c16ae`: its Python
+  `TermuxProvider._open_tmux` also uses RunCommandService/attach, and notification
+  compact-body rendering preserves the separate toast body. The refactor mainline
+  `d02499b` retains the earlier shell movement path; `37f0a775` contains only Rust
+  foundation documents. No historical source or tests were copied. SPEC now
+  records the user's explicit new-terminal authorization before implementation.
+  Qualify exact socket/session targeting, native selection, repeated clicks and
+  absent/ambiguous/changed targets. Keep the routing change in a separate rollback
+  commit; no APK, Codex state, auth, resolver or existing workload mutation.
 - Single-line notification request was reverified through the installed public
   `codex termux notify emit Stop` path with synthetic multiline Unicode input.
   Actual termux-notification receives single-line title/body; actual toast retains
@@ -78,7 +86,28 @@
   Legacy deliberately appended a newline even for one-line content; Termux:API
   selects BigTextStyle on newline, explaining hidden collapsed content. Current
   provider-boundary folding removes that trigger without changing toast policy.
-  Prompt-cache investigation remains deferred until terminal movement is resolved.
+  Prompt-cache investigation follows the accepted terminal routing below.
+- Routing accepted as separate AI commit `2ff7007`; exact staged tree
+  `56662a2208f3d629426d0f4906c1c9d0f0c8bef2`. Isolated final verification exits0,
+  TUI161/0fail, all6 standalone scripts pass with8 named tmux regression functions.
+  Native atomic recheck returns a session ID only on success; false recheck now
+  returns failure instead of treating if-shell exit0 as acknowledgement. Focused
+  proofs cover ambiguity, prefix collision, changed/closed targets, repeated
+  requests, string-valued action0, unavailable providers, socket encoding/identity,
+  deadline, service error/timeout, and disappearing-session attach with no new
+  workload. Actual source/staged diff reviewed before bounded AI-only installation.
+- Installed public `codex termux notify emit Stop` generated the real notification
+  action with this live conversation ID. Executing that exact action twice opened
+  one native client per tap, changed native current-session selection each time,
+  and attached both clients to the exact existing tmux session. Existing panes/PIDs
+  and global status/mouse stayed unchanged; no Codex/tmux workload was created.
+  Installed invalid/missing target requests are silent failures and add no client.
+  Protected15 auth/config/resolver identities and unrelated AI diff3acdf081e07b
+  remain unchanged. Own synthetic notification removed. The two authorized
+  evaluation terminals remain attached for user assessment; they are not cleanup
+  fixtures. Rollback is `git revert 2ff7007` in AI then bounded `--ai-only` install;
+  existing Codex work and clients need not be terminated. No APK or native
+  preference hack. Cache follow-up may now proceed without changing delay0.
 
 ## NOTIFY-SINGLE-LINE-TMUX-COLOR-V1 (accepted 2026-10-02)
 
@@ -691,8 +720,8 @@ dated sections preserve historical evidence; historical words such as
 
 - Source authority is remote `rewrite/rust-core`, read afresh on resume. Runtime
   producer is **4b00b8d461939a7070d95a1ea6e6a58c318cbf52**; ledger-only children
-  retain identical accepted Rust source. AI main **e6a91e61b1ec7b96813de9049c943788e2e37154** adds
-  off/hidden/status selection and native clickable status; unrelated dirty work remains.
+  retain identical accepted Rust source. AI main **2ff7007** adds new-terminal
+  notification attach after off/hidden/status selection; unrelated dirty work remains.
 - Public main **07d625561283bad5d25b778782c16d4929b4939f**; signed/live sequence
   **34**, upstream **0.160.0**, **local-hosted-0-160-0-4b00b8d46193-notify-line**;
   sequence33 rollback. Manager-only change; Core/runtime bytes unchanged.
