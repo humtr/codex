@@ -259,7 +259,7 @@ jobs:
           printf 'release_sequence=%s\n' "$release_sequence" >> "$GITHUB_OUTPUT"
 
       - name: Validate exact shared-visibility corrective inputs
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == '2dc79bd11842c9e5970b8c73c470886b780f2ff8' && github.event.head_commit.message == 'release-shared-visibility-seq28-source-89b96680' }}
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == 'c612e70ab1fa09958d9ed2bfd6b297b8d8531759' && github.event.head_commit.message == 'release-shared-visibility-seq28-source-89b96680' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -283,8 +283,8 @@ jobs:
         shell: bash
         env:
           RALD4_POSITIVE_GATE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald4_positive_gate }}
-          SHARED_VISIBILITY_PUSH_BRIDGE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == '2dc79bd11842c9e5970b8c73c470886b780f2ff8' && github.event.head_commit.message == 'release-shared-visibility-seq28-source-89b96680' }}
-          RALD5_PUBLICATION_AUTHORIZED: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.rald5_publication_authorized) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == '2dc79bd11842c9e5970b8c73c470886b780f2ff8' && github.event.head_commit.message == 'release-shared-visibility-seq28-source-89b96680') }}
+          SHARED_VISIBILITY_PUSH_BRIDGE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == 'c612e70ab1fa09958d9ed2bfd6b297b8d8531759' && github.event.head_commit.message == 'release-shared-visibility-seq28-source-89b96680' }}
+          RALD5_PUBLICATION_AUTHORIZED: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.rald5_publication_authorized) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == 'c612e70ab1fa09958d9ed2bfd6b297b8d8531759' && github.event.head_commit.message == 'release-shared-visibility-seq28-source-89b96680') }}
           RALD5_SAME_VERSION_ACCEPTANCE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald5_same_version_acceptance }}
           RALD45_TRANSITION_STAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald45_transition_stage }}
           RALD45_TRANSITION_PROMOTE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald45_transition_promote }}
@@ -1227,14 +1227,20 @@ jobs:
               if lines[0] != 'codex-local-generation-v2':
                   raise SystemExit('generation format changed')
               pairs = [line.split('\t', 1) for line in lines[1:]]
-              result = dict(pairs)
-              if len(result) != len(pairs):
-                  raise SystemExit('duplicate descriptor field')
-              return result
-          old, new = fields(sys.argv[1]), fields(sys.argv[2])
+              return pairs
+          old_records, new_records = fields(sys.argv[1]), fields(sys.argv[2])
           allowed = {'generation_id', 'core_artifact_digest', 'runtime_digest', 'patch_policy_id', 'patch_report'}
-          if old.keys() != new.keys() or any(old[k] != new[k] for k in old.keys() - allowed):
+          if [k for k, v in old_records] != [k for k, v in new_records]:
+              raise SystemExit('descriptor field order changed')
+          if any(a != b for a, b in zip(old_records, new_records, strict=True) if a[0] not in allowed):
               raise SystemExit('unrelated generation field changed')
+          def scalar(records, key):
+              values = [v for k, v in records if k == key]
+              if len(values) != 1:
+                  raise SystemExit('nonunique scalar descriptor field')
+              return values[0]
+          old = {k: scalar(old_records, k) for k in allowed}
+          new = {k: scalar(new_records, k) for k in allowed}
           if new['generation_id'] != sys.argv[3] or new['core_artifact_digest'] == old['core_artifact_digest']:
               raise SystemExit('accepted Core/generation did not change')
           if new['runtime_digest'] != 'ba94d1d0d9d416a7fb2f13d6ffcc6e0d9ec981ee1793158bbc9b1d96d5f51ab3' or new['patch_policy_id'] != 'termux-fd-remap-v2':
@@ -1743,7 +1749,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          SHARED_VISIBILITY_PUSH_BRIDGE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == '2dc79bd11842c9e5970b8c73c470886b780f2ff8' && github.event.head_commit.message == 'release-shared-visibility-seq28-source-89b96680' }}
+          SHARED_VISIBILITY_PUSH_BRIDGE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == 'c612e70ab1fa09958d9ed2bfd6b297b8d8531759' && github.event.head_commit.message == 'release-shared-visibility-seq28-source-89b96680' }}
         run: |
           set -euo pipefail
           expected_main='${{ needs.producer.outputs.expected_main_sha }}'
