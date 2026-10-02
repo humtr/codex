@@ -238,9 +238,14 @@ Codex update available. Update now? [y/N] 5s
 ```
 
 The prompt names no candidate version before authenticated generation metadata
-is available through the normal update path. `y` or `Y` followed by Enter
-selects update. Enter, `n`/`N`, any other input, or five seconds without a
-completed input line keeps the current runtime. A keep/timeout decision snoozes
+is available through the normal update path. On Linux/Android TTYs, Core enters
+a bounded non-canonical, no-echo prompt mode only for this advisory: a single
+`y` or `Y` key selects update immediately without Enter, while `n`/`N`, Enter,
+or any other single input byte keeps the current runtime immediately. Five
+seconds with no input also keeps the current runtime. Core restores the exact
+prior terminal mode before update execution or upstream launch, consumes the
+prompt byte so it cannot leak into upstream Codex input, and clears the
+countdown line in place on every normal exit. A keep/timeout decision snoozes
 that exact signed generation identity for six hours; a different signed
 generation is not suppressed by the old snooze. An effective rollback hold or
 rollback-Core guard suppresses the startup prompt entirely; explicit

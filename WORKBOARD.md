@@ -10,13 +10,14 @@ in `RELEASE_AUTOMATION_PLAN.md`.
 - Repository: `humtr/codex`.
 - Source authority branch: `rewrite/rust-core`; always re-read the remote head
   before work. Do not use a remembered SHA as current authority.
-- Selected maintenance bundle:
-  **AUTHORITY-COMPACTION-V1 / RUNTIME-ALIGNMENT-UPSTREAM-0.159.2**.
+- Selected maintenance bundle: **STARTUP-ADVISORY-SINGLE-KEY-TRANSIENT-V1**.
 - Authority compaction completed and was pushed at
   `28cea0b97c7b4ae32e7b37816f2f1d277fdb07a6`.
-- Product-code mutation in this bundle: **none**. Runtime alignment must use the
-  already accepted product source and existing signed publication/activation
-  boundaries.
+- Product-code mutation in this bundle is limited to the bare zero-argument
+  startup update advisory: immediate single-key `y`/`n` handling without Enter,
+  transient in-place rendering, prompt-input isolation, and exact TTY-mode
+  restoration. No command ordering, update authority, release verification, or
+  Manager surface changes are authorized.
 - Accepted product implementation for the current feature set is exact source
   `4fd14ed8aafcf29602f43e00c314eb8da39a6e5f`. The later authority commits are
   documentation-only.
@@ -34,6 +35,29 @@ in `RELEASE_AUTOMATION_PLAN.md`.
   authority.
 - The signed sequence-23 Release and its authenticated
   `compat/download-size-v1` control resources remain retained and valid.
+
+## Active bounded hotfix — startup advisory single-key/transient behavior
+
+The user reported that the five-second bare-launch advisory was rendered as
+persistent countdown lines and that typing `y` without Enter remained buffered,
+producing output such as `1sy` and contaminating the subsequent upstream Codex
+input stream. This bundle must preserve the existing five-second default-keep
+semantics while making the advisory a true transient TTY interaction:
+
+- no background `read_line()` thread may outlive the prompt;
+- `y`/`Y` selects update immediately, without Enter;
+- `n`/`N`, Enter, or another single input byte keeps the current runtime
+  immediately;
+- prompt input is not echoed into the terminal or forwarded to upstream Codex;
+- the original terminal mode is restored before update execution or upstream
+  launch;
+- the countdown occupies one in-place transient line and is cleared on every
+  exit path;
+- non-TTY launches remain unchanged and bypass startup discovery/prompting.
+
+Source validation and focused PTY regression coverage are required before this
+hotfix may replace the source authority. Release/live activation remains a
+separate gate under the existing signed-generation invariants.
 
 ## Phase A — authority compaction — complete
 

@@ -9460,47 +9460,141 @@ enum StartupPromptDecision {
 fn startup_update_prompt() -> StartupPromptDecision {
     use std::io::Write as _;
 
-    let (sender, receiver) = std::sync::mpsc::channel();
-    let _ = std::thread::Builder::new()
-        .name("codex-startup-update-input".to_owned())
-        .spawn(move || {
-            let mut input = String::new();
-            let read = std::io::stdin().read_line(&mut input);
-            let _ = sender.send((read, input));
-        });
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    {
+        use std::os::raw::{c_int, c_ulong, c_void};
 
-    let mut decision = StartupPromptDecision::Keep;
-    for remaining in (1..=STARTUP_ADVISORY_PROMPT_SECONDS).rev() {
-        {
-            let mut stderr = std::io::stderr().lock();
-            let _ = write!(
-                stderr,
-                "
-[2KCodex update available. Update now? [y/N] {remaining}s"
-            );
-            let _ = stderr.flush();
+        const TCGETS: c_ulong = 0x5401;
+        const TCSETS: c_ulong = 0x5402;
+        const ISIG: u32 = 0x0000_0001;
+        const ICANON: u32 = 0x0000_0002;
+        const ECHO: u32 = 0x0000_0008;
+        const ECHONL: u32 = 0x0000_0040;
+        const VINTR: usize = 0;
+        const VQUIT: usize = 1;
+        const VTIME: usize = 5;
+        const VMIN: usize = 6;
+        const VSUSP: usize = 10;
+        const SIGINT: c_int = 2;
+        const SIGQUIT: c_int = 3;
+        const SIGTSTP: c_int = 20;
+        const TRANSIENT_CLEAR: &str = "\x1b[2K\x1b[1G";
+
+        #[repr(C)]
+        #[derive(Clone, Copy)]
+        struct KernelTermios {
+            c_iflag: u32,
+            c_oflag: u32,
+            c_cflag: u32,
+            c_lflag: u32,
+            c_line: u8,
+            c_cc: [u8; 19],
         }
-        match receiver.recv_timeout(std::time::Duration::from_secs(1)) {
-            Ok((Ok(_), input)) => {
-                if input.trim().eq_ignore_ascii_case("y") {
-                    decision = StartupPromptDecision::Update;
-                }
+
+        extern "C" {
+            fn ioctl(fd: c_int, request: c_ulong, ...) -> c_int;
+            fn read(fd: c_int, buffer: *mut c_void, count: usize) -> isize;
+            fn raise(signal: c_int) -> c_int;
+        }
+
+        let mut original: KernelTermios = unsafe { std::mem::zeroed() };
+        if unsafe { ioctl(0, TCGETS, &mut original as *mut KernelTermios) } != 0 {
+            return StartupPromptDecision::Keep;
+        }
+
+        let mut prompt_mode = original;
+        prompt_mode.c_lflag &= !(ISIG | ICANON | ECHO | ECHONL);
+        prompt_mode.c_cc[VMIN] = 0;
+        prompt_mode.c_cc[VTIME] = 10;
+        if unsafe { ioctl(0, TCSETS, &prompt_mode as *const KernelTermios) } != 0 {
+            return StartupPromptDecision::Keep;
+        }
+
+        let mut decision = StartupPromptDecision::Keep;
+        let mut deferred_signal = None;
+        for remaining in (1..=STARTUP_ADVISORY_PROMPT_SECONDS).rev() {
+            {
+                let mut stderr = std::io::stderr().lock();
+                let _ = write!(
+                    stderr,
+                    "{TRANSIENT_CLEAR}Codex update available. Update now? [y/N] {remaining}s"
+                );
+                let _ = stderr.flush();
+            }
+
+            let mut input = 0_u8;
+            let count = unsafe { read(0, (&mut input as *mut u8).cast::<c_void>(), 1) };
+            if count == 0 {
+                continue;
+            }
+            if count < 0 {
                 break;
             }
-            Ok((Err(_), _)) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+
+            if input.eq_ignore_ascii_case(&b'y') {
+                decision = StartupPromptDecision::Update;
+            } else if input != 0 && input == original.c_cc[VINTR] {
+                deferred_signal = Some(SIGINT);
+            } else if input != 0 && input == original.c_cc[VQUIT] {
+                deferred_signal = Some(SIGQUIT);
+            } else if input != 0 && input == original.c_cc[VSUSP] {
+                deferred_signal = Some(SIGTSTP);
+            }
+            break;
         }
+
+        {
+            let mut stderr = std::io::stderr().lock();
+            let _ = write!(stderr, "{TRANSIENT_CLEAR}");
+            let _ = stderr.flush();
+        }
+
+        let _ = unsafe { ioctl(0, TCSETS, &original as *const KernelTermios) };
+        if let Some(signal) = deferred_signal {
+            let _ = unsafe { raise(signal) };
+        }
+        return decision;
     }
+
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
     {
-        let mut stderr = std::io::stderr().lock();
-        let _ = write!(
-            stderr,
-            "
-[2K"
-        );
-        let _ = stderr.flush();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let _ = std::thread::Builder::new()
+            .name("codex-startup-update-input".to_owned())
+            .spawn(move || {
+                let mut input = String::new();
+                let read = std::io::stdin().read_line(&mut input);
+                let _ = sender.send((read, input));
+            });
+
+        let mut decision = StartupPromptDecision::Keep;
+        for remaining in (1..=STARTUP_ADVISORY_PROMPT_SECONDS).rev() {
+            {
+                let mut stderr = std::io::stderr().lock();
+                let _ = write!(
+                    stderr,
+                    "\x1b[2K\x1b[1GCodex update available. Update now? [y/N] {remaining}s"
+                );
+                let _ = stderr.flush();
+            }
+            match receiver.recv_timeout(std::time::Duration::from_secs(1)) {
+                Ok((Ok(_), input)) => {
+                    if input.trim().eq_ignore_ascii_case("y") {
+                        decision = StartupPromptDecision::Update;
+                    }
+                    break;
+                }
+                Ok((Err(_), _)) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            }
+        }
+        {
+            let mut stderr = std::io::stderr().lock();
+            let _ = write!(stderr, "\x1b[2K\x1b[1G");
+            let _ = stderr.flush();
+        }
+        decision
     }
-    decision
 }
 
 #[cfg(unix)]
@@ -18350,7 +18444,36 @@ esac
     ) -> std::process::Output {
         use std::ffi::CStr;
         use std::io::Write as _;
-        use std::os::fd::FromRawFd as _;
+        use std::os::fd::{AsRawFd as _, FromRawFd as _};
+
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        #[repr(C)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        struct TestKernelTermios {
+            c_iflag: u32,
+            c_oflag: u32,
+            c_cflag: u32,
+            c_lflag: u32,
+            c_line: u8,
+            c_cc: [u8; 19],
+        }
+
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        fn test_termios(fd: std::os::raw::c_int) -> TestKernelTermios {
+            extern "C" {
+                fn ioctl(
+                    fd: std::os::raw::c_int,
+                    request: std::os::raw::c_ulong,
+                    ...
+                ) -> std::os::raw::c_int;
+            }
+            let mut mode: TestKernelTermios = unsafe { std::mem::zeroed() };
+            assert_eq!(
+                unsafe { ioctl(fd, 0x5401, &mut mode as *mut TestKernelTermios) },
+                0
+            );
+            mode
+        }
 
         let master_fd = unsafe { posix_openpt(2 | 0x100) };
         assert!(master_fd >= 0);
@@ -18366,6 +18489,10 @@ esac
             .unwrap();
         let stdin = slave.try_clone().unwrap();
         let stdout = slave.try_clone().unwrap();
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        let control = slave.try_clone().unwrap();
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        let original_mode = test_termios(control.as_raw_fd());
 
         let mut child = std::process::Command::new(std::env::current_exe().unwrap())
             .arg("tests::public_startup_probe")
@@ -18389,6 +18516,15 @@ esac
             master.flush().unwrap();
         }
         let status = child.wait().unwrap();
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        {
+            assert_eq!(
+                test_termios(control.as_raw_fd()),
+                original_mode,
+                "startup advisory must restore the exact prior PTY mode before upstream exit"
+            );
+            drop(control);
+        }
         let terminal = b5_read_pty_output(master);
         std::process::Output {
             status,
@@ -22354,8 +22490,7 @@ exit 2
             &fixture.home,
             &fixture.prefix,
             &fixture.tmp,
-            b"n
-",
+            b"n",
         );
         assert_eq!(
             first.status.code(),
@@ -22382,8 +22517,7 @@ exit 2
             &fixture.home,
             &fixture.prefix,
             &fixture.tmp,
-            b"y
-",
+            b"y",
         );
         assert_eq!(second.status.code(), Some(73));
         assert!(
@@ -22442,8 +22576,7 @@ exit 2
             &fixture.home,
             &fixture.prefix,
             &fixture.tmp,
-            b"y
-",
+            b"y",
         );
         assert_eq!(
             result.status.code(),
@@ -22456,6 +22589,18 @@ exit 2
         assert!(
             terminal.contains("Codex update available. Update now? [y/N] 5s"),
             "terminal={terminal:?}"
+        );
+        assert!(
+            !terminal.contains("Update now? [y/N] 4s"),
+            "single-key y must react immediately without waiting for Enter: {terminal:?}"
+        );
+        assert!(
+            !terminal.contains("[y/N] 5sy"),
+            "prompt input must not echo into the transient line: {terminal:?}"
+        );
+        assert!(
+            terminal.matches("[2K[1G").count() >= 2,
+            "startup advisory must redraw and clear one transient line: {terminal:?}"
         );
         assert!(
             terminal.contains("Updating the Termux release for Codex 9.9.9..."),
