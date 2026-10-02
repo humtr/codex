@@ -32,6 +32,43 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
+## SHARED-CONFIG-BOUNDED-RETENTION-V1 (selected 2026-10-02)
+
+- User explicitly requests fixing reused-server notification configuration,
+  cleaning unused installation/cache/legacy SQLite remnants without backup,
+  and preventing unbounded installed-file accumulation. Preserve conversations
+  active in the preceding seven days, current/previous rollback generations,
+  effective trust/guard/baseline dependencies and live writers. The approved
+  equivalent primary Lead continues directly; workers OFF.
+- Bound source is rewrite/rust-core d20b245a88323fc476cf46cf7e3b8e802422413c,
+  tracked clean with pre-existing untracked .github/scripts/__pycache__/. Public
+  main 3224a5294d22818350a105d2adef6bc32b7e565f and live/public sequence 28,
+  upstream 0.160.0. Native temporary reproduction confirms Manager hook changes
+  update the owned config but not the reused server's FD-34 snapshot.
+- Baseline restored after correcting a nonexistent package selector: actual
+  `cargo test -p codex` ran 164 passing tests and one explicit device smoke
+  ignored. No product mutation before runnable baseline.
+- Success requires native same-PID configuration refresh in both directions,
+  active-thread preservation, public launch/update retention with contention,
+  recovery/rollback/unsafe-path proof, exact signed release/live activation,
+  bounded device cleanup and preserved recent cross-account resume/auth/resolver.
+  Baseline remnants: 22 other generations (6137.6 MiB), 10 acquisition roots
+  (603.4 MiB), eight publication caches (2184.0 MiB), inactive wrlab legacy SQLite
+  (~134 MiB). Inspection may remove only declared owned artifact/state roots;
+  session retention does not authorize deleting unrelated project data.
+- Source acceptance: exact `scripts/check.sh` passes 217 Rust tests
+  (Core 171, Manager 16+9, builder 21; one explicit device ignore) and 90 Python
+  tests (15 operator, 75 publication), fmt/diff checks, and release build.
+  Native temporary official 0.160.0 runtime proves same-PID hook enable/disable,
+  loaded-thread retention and real launch pruning. Source work leaves all 15
+  protected auth/config/resolver bytes, modes and inodes unchanged. KEEP existing
+  signed crash/retry and rollback; COLLAPSE cleanup onto existing state/locks;
+  DELETE startup-only config publication and indefinite disposable retention.
+  Signed publication/live cleanup remain pending acceptance; no success claim
+  for lazy rollout inodes or zero-test targets.
+- Execution/proof map is only WORKBOARD.md. This is the selected current bundle;
+  prior bundle acceptance below remains historical accepted evidence.
+
 ## SHARED-SERVER-CROSS-ACCOUNT-V1 (accepted 2026-10-02)
 
 - User-authorized scope: fix bare shared-server execution and installation-wide

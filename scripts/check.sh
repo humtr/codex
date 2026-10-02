@@ -24,8 +24,9 @@ export PYTHONDONTWRITEBYTECODE=1
 
 cargo fmt --all -- --check
 python3 -m unittest -v scripts/test_shared_state_migrate.py scripts/test_shared_visibility_transition.py
-cargo test --workspace
+python3 -m unittest discover -s .github/scripts -p 'test_*.py'
+# Process-reference retention observes the real /proc tree. Keep unrelated test
+# subprocesses out of that snapshot; lease contention is tested across processes.
+cargo test --workspace -- --test-threads=1
 
-# Historical .github RALD tests intentionally pin superseded release/workflow SHAs;
-# current product acceptance is carried by the workspace tests above.
 git diff --check

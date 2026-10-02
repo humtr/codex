@@ -1,6 +1,8 @@
 use std::ffi::{OsStr, OsString};
 
 #[cfg(unix)]
+mod maintenance;
+#[cfg(unix)]
 mod rollback_guard;
 #[cfg(unix)]
 mod shared_layout;
@@ -7556,6 +7558,13 @@ fn execute_activated_route(
     roots: &LocalCoreRoots,
     process_env: &TermuxProcessEnvSnapshot,
 ) -> Result<PublicDispatchCompletion, LocalProductError> {
+    let _ = maintenance::prune(roots);
+    let _lease = maintenance::launch_lease(&roots.generation_root).map_err(|source| {
+        LocalProductError::Io {
+            operation: "lease installed generation during launch",
+            source,
+        }
+    })?;
     let loaded = load_activated_generation(roots)?;
     with_qualified_loaded_runtime(&loaded, |generation, runtime_assets| {
         let manager_selection = loaded
@@ -10160,6 +10169,13 @@ fn bootstrap_initial_signed_local_release(
         "immutable generation root is not a real directory",
     )?;
 
+    let _lease = maintenance::launch_lease(&roots.generation_root).map_err(|source| {
+        LocalProductError::Io {
+            operation: "lease initial bootstrap generation",
+            source,
+        }
+    })?;
+
     std::fs::create_dir_all(&roots.config_dir).map_err(|source| LocalProductError::Io {
         operation: "create bootstrap config directory",
         source,
@@ -11751,6 +11767,13 @@ fn run_core_update(args: Vec<OsString>) -> i32 {
             }
         };
         let process_env = capture_termux_process_env();
+        let _lease = match maintenance::UpdateLease::acquire(&roots) {
+            Ok(lease) => lease,
+            Err(err) => {
+                presentation.fail(&err);
+                return 1;
+            }
+        };
         let hold_policy = if force {
             UpdateHoldPolicy::ForceHeld
         } else {
@@ -11801,8 +11824,22 @@ fn run_core_update(args: Vec<OsString>) -> i32 {
         }
     };
     if rollback {
+        let _lease = match maintenance::UpdateLease::acquire(&roots) {
+            Ok(lease) => lease,
+            Err(err) => {
+                presentation.fail(&err);
+                return 1;
+            }
+        };
         return run_core_rollback_with_presentation(&roots, &mut presentation);
     }
+    let _lease = match maintenance::UpdateLease::acquire(&roots) {
+        Ok(lease) => lease,
+        Err(err) => {
+            presentation.fail(&err);
+            return 1;
+        }
+    };
     let process_env = capture_termux_process_env();
     if build_local {
         return match activate_local_built_update(&roots, &process_env, Some(&mut presentation)) {
@@ -20906,6 +20943,11 @@ esac
             state_before
         );
 
+        let generation_root = home.join(".local/lib/codex/core/generations");
+        let failed_candidate = generation_root.join("version-failure");
+        assert!(failed_candidate.is_dir());
+        verify_local_release_bundle(&failed_candidate, &openssl, &public_key).unwrap();
+
         let doctor_failure =
             b2_write_generation(&source_roots, "doctor-failure", false, "supported");
         b4_write_probe_runtime(&doctor_failure, 0, 9);
@@ -20917,12 +20959,10 @@ esac
             state_after_doctor_health.previous.as_deref(),
             Some("probe-current")
         );
-        let generation_root = home.join(".local/lib/codex/core/generations");
-        for generation_id in ["version-failure", "doctor-failure"] {
-            let candidate = generation_root.join(generation_id);
-            assert!(candidate.is_dir());
-            verify_local_release_bundle(&candidate, &openssl, &public_key).unwrap();
-        }
+        assert!(!failed_candidate.exists());
+        let candidate = generation_root.join("doctor-failure");
+        assert!(candidate.is_dir());
+        verify_local_release_bundle(&candidate, &openssl, &public_key).unwrap();
         assert!(!state_paths.activation_journal.exists());
         assert!(!state_paths.activation_journal_temp.exists());
         assert!(!state_paths.activation_state_temp.exists());
@@ -25364,5 +25404,228 @@ exit 0
                 remove_temp_root(root);
             }
         }
+    }
+    #[cfg(unix)]
+    fn generation_retention_manifest(path: &std::path::Path, id: &str, sequence: u64) {
+        std::fs::write(
+            path.join("release.manifest"),
+            b4_minimal_release_manifest()
+                .replace(
+                    "generation_id\tmanifest-only",
+                    &format!("generation_id\t{id}"),
+                )
+                .replace(
+                    "release_sequence\t1",
+                    &format!("release_sequence\t{sequence}"),
+                ),
+        )
+        .unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn generation_retention_ignores_exited_zombies_without_losing_live_files() {
+        let (root, roots) = b2_test_roots("retention-zombie");
+        b2_write_generation(&roots, "current", false, "unsupported");
+        generation_retention_manifest(&roots.generation_root.join("current"), "current", 1);
+        b2_activate(&roots, "current");
+        std::fs::create_dir(roots.generation_root.join("obsolete")).unwrap();
+        let mut child = std::process::Command::new("sh")
+            .args(["-c", "exit 0"])
+            .spawn()
+            .unwrap();
+        let status = format!("/proc/{}/stat", child.id());
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            let stat = std::fs::read_to_string(&status).unwrap();
+            if stat.rsplit_once(')').unwrap().1.split_whitespace().next() == Some("Z") {
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(maintenance::prune(&roots).unwrap(), 1);
+        assert!(roots.generation_root.join("current/runtime").is_file());
+        child.wait().unwrap();
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn generation_retention_bounds_pending_candidates_and_preserves_open_staging() {
+        let (root, roots) = b2_test_roots("retention-pending");
+        for (id, sequence) in [("current", 2), ("older", 1), ("next-a", 3), ("next-b", 3)] {
+            b2_write_generation(&roots, id, false, "unsupported");
+            generation_retention_manifest(&roots.generation_root.join(id), id, sequence);
+        }
+        b2_activate(&roots, "current");
+        let staging = roots.generation_root.join(".acquire-1-7");
+        std::fs::create_dir(&staging).unwrap();
+        std::fs::write(staging.join("download"), b"in flight").unwrap();
+        let held = std::fs::File::open(staging.join("download")).unwrap();
+        assert_eq!(maintenance::prune(&roots).unwrap(), 2);
+        assert!(roots.generation_root.join("next-b/runtime").is_file());
+        assert!(staging.is_dir());
+        assert_eq!(maintenance::prune(&roots).unwrap(), 0);
+        b2_write_generation(&roots, "newest", false, "unsupported");
+        generation_retention_manifest(&roots.generation_root.join("newest"), "newest", 4);
+        let incomplete = roots.generation_root.join("incomplete");
+        std::fs::create_dir(&incomplete).unwrap();
+        generation_retention_manifest(&incomplete, "incomplete", 5);
+        assert_eq!(maintenance::prune(&roots).unwrap(), 2);
+        assert!(roots.generation_root.join("newest/runtime").is_file());
+        drop(held);
+        assert_eq!(maintenance::prune(&roots).unwrap(), 1);
+        assert_eq!(maintenance::prune(&roots).unwrap(), 0);
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn generation_retention_preserves_pointer_guard_baseline_and_open_files() {
+        let (root, roots) = b2_test_roots("retention-roles");
+        for id in [
+            "rollback", "current", "guarded", "held", "baseline", "open", "obsolete",
+        ] {
+            b2_write_generation(&roots, id, false, "unsupported");
+        }
+        generation_retention_manifest(&roots.generation_root.join("rollback"), "rollback", 1);
+        generation_retention_manifest(&roots.generation_root.join("current"), "current", 2);
+        let before = b2_activate(&roots, "rollback");
+        let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+        let after = plan_activation_pointer_state(&before, "current").unwrap();
+        activate_pointer_state(&paths, Some(&before), &after).unwrap();
+        let current = roots.generation_root.join("current");
+        let descriptor = std::fs::read_to_string(current.join("generation.meta")).unwrap()
+            .replace("source_artifact_digest\tsource-digest", &format!("source_artifact_digest\t{}", "a".repeat(64)))
+            .replace("creation_metadata\ttest-fixture", &format!("creation_metadata\t{LOCAL_DERIVED_METADATA_FORMAT};upstream_version=9.9.9;archive_sha256={};public_generation=baseline;public_sequence=1", "a".repeat(64)));
+        std::fs::write(current.join("generation.meta"), descriptor).unwrap();
+        std::fs::write(
+            current.join("release.manifest"),
+            b4_minimal_release_manifest()
+                .replace("generation_id\tmanifest-only", "generation_id\tcurrent"),
+        )
+        .unwrap();
+        let lock = m2_generation_state::acquire_activation_lock(&paths).unwrap();
+        rollback_guard::write_guard_locked(
+            &roots,
+            &rollback_guard::RollbackCoreGuardRecord {
+                target_generation_id: "current".into(),
+                held_generation_id: "guarded".into(),
+                held_release_sequence: 7,
+                held_core_sha256: "0".repeat(64),
+            },
+        )
+        .unwrap();
+        write_update_hold_locked(
+            &roots,
+            &UpdateHoldRecord {
+                generation_id: "held".into(),
+                release_sequence: 8,
+            },
+        )
+        .unwrap();
+        drop(lock);
+        let opened = std::fs::File::open(roots.generation_root.join("open/runtime")).unwrap();
+        for name in [".acquire-1-1", ".candidate-1-2"] {
+            std::fs::create_dir(roots.generation_root.join(name)).unwrap();
+        }
+        std::fs::create_dir(roots.state_root.join(".local-update-1-3")).unwrap();
+        let publications = root.join("publications");
+        std::fs::create_dir_all(publications.join("obsolete")).unwrap();
+        std::fs::create_dir_all(publications.join("current")).unwrap();
+        let foreign = root.join("foreign");
+        std::fs::create_dir(&foreign).unwrap();
+        std::fs::write(foreign.join("keep"), b"outside").unwrap();
+        std::os::unix::fs::symlink(&foreign, roots.generation_root.join("foreign-link")).unwrap();
+        let state_before = std::fs::read(paths.activation_state.clone()).unwrap();
+        assert_eq!(maintenance::prune(&roots).unwrap(), 5);
+        for id in ["rollback", "current", "guarded", "held", "baseline", "open"] {
+            assert!(roots.generation_root.join(id).is_dir(), "{id}");
+        }
+        assert!(publications.join("current").is_dir());
+        assert!(!publications.join("obsolete").exists());
+        assert_eq!(std::fs::read(foreign.join("keep")).unwrap(), b"outside");
+        assert_eq!(
+            std::fs::read(paths.activation_state.clone()).unwrap(),
+            state_before
+        );
+        assert_eq!(maintenance::prune(&roots).unwrap(), 0);
+        drop(opened);
+        assert_eq!(maintenance::prune(&roots).unwrap(), 1);
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn generation_retention_leases_recovery_and_partial_failure_preserve_authority() {
+        use std::os::unix::fs::PermissionsExt;
+        let (root, roots) = b2_test_roots("retention-contention");
+        b2_write_generation(&roots, "current", false, "unsupported");
+        b2_activate(&roots, "current");
+        generation_retention_manifest(&roots.generation_root.join("current"), "current", 1);
+        let old = roots.generation_root.join("obsolete");
+        std::fs::create_dir(&old).unwrap();
+        let lease = maintenance::UpdateLease::acquire(&roots).unwrap();
+        assert!(maintenance::prune(&roots).is_err());
+        assert!(old.is_dir());
+        std::fs::create_dir(roots.generation_root.join(".acquire-1-5")).unwrap();
+        drop(lease);
+        assert!(!old.exists());
+        assert!(!roots.generation_root.join(".acquire-1-5").exists());
+        std::fs::create_dir(&old).unwrap();
+        let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+        let writer = m2_generation_state::acquire_activation_lock(&paths).unwrap();
+        assert!(maintenance::prune(&roots).is_err());
+        assert!(old.is_dir());
+        drop(writer);
+        std::fs::write(&paths.activation_journal, b"unrecovered").unwrap();
+        assert!(maintenance::prune(&roots).is_err());
+        assert!(old.is_dir());
+        std::fs::remove_file(&paths.activation_journal).unwrap();
+        let state = std::fs::read(&paths.activation_state).unwrap();
+        std::fs::write(&paths.activation_state, b"invalid").unwrap();
+        assert!(maintenance::prune(&roots).is_err());
+        assert!(old.is_dir());
+        std::fs::write(&paths.activation_state, &state).unwrap();
+        let locked = old.join("locked");
+        std::fs::create_dir(&locked).unwrap();
+        std::fs::write(locked.join("payload"), b"stale").unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0)).unwrap();
+        assert!(maintenance::prune(&roots).is_err());
+        assert_eq!(std::fs::read(&paths.activation_state).unwrap(), state);
+        assert!(roots.generation_root.join("current/runtime").is_file());
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(maintenance::prune(&roots).unwrap(), 1);
+        assert_eq!(maintenance::prune(&roots).unwrap(), 0);
+        std::fs::rename(&roots.generation_root, root.join("real-generations")).unwrap();
+        std::os::unix::fs::symlink(root.join("real-generations"), &roots.generation_root).unwrap();
+        assert!(maintenance::prune(&roots).is_err());
+        assert!(root.join("real-generations/current/runtime").is_file());
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn generation_retention_real_launch_keeps_argv_streams_status_and_busy_roots() {
+        let root = b2_public_main_fixture("retention-public-launch", false);
+        let generations = root.join("home/.local/lib/codex/core/generations");
+        generation_retention_manifest(&generations.join("g1"), "g1", 1);
+        let old = generations.join("obsolete");
+        std::fs::create_dir(&old).unwrap();
+        let held = maintenance::launch_lease(&generations).unwrap();
+        let first = run_public_main_probe(&root, "version");
+        assert_eq!(first.status.code(), Some(0));
+        assert!(first.stdout.ends_with(b"codex-upstream 9.9.9\n"));
+        assert_eq!(first.stderr, b"version-stderr\n");
+        assert!(old.is_dir());
+        drop(held);
+        let second = run_public_main_probe(&root, "version");
+        assert_eq!(second.status.code(), first.status.code());
+        assert_eq!(second.stdout, first.stdout);
+        assert_eq!(second.stderr, first.stderr);
+        assert!(!old.exists());
+        assert!(generations.join("g1/runtime").is_file());
+        remove_temp_root(root);
     }
 }

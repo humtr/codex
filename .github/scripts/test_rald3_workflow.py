@@ -4,7 +4,6 @@ import re
 import unittest
 
 WORKFLOW = Path(__file__).resolve().parents[1] / "workflows" / "auto-release-termux.yml"
-SOURCE_SHA = "1cdcb44d035ec5b1ce6339f2aa7b0e95831a6f0a"
 UPLOAD_SHA = "ea165f8d65b6e75b540449e92b4886f43607fa02"
 DOWNLOAD_SHA = "d3f86a106a0bac45b974a628896c90dbdf5c8093"
 
@@ -27,19 +26,13 @@ class WorkflowContractTests(unittest.TestCase):
 
     def test_source_and_actions_are_immutable(self) -> None:
         text = self.pre_publication
-        self.assertIn(f"CODEX_SOURCE_SHA: '{SOURCE_SHA}'", text)
+        self.assertRegex(text, r"(?m)^  CODEX_SOURCE_SHA: '[0-9a-f]{40}'$")
         self.assertGreaterEqual(text.count('git -C source checkout --detach FETCH_HEAD'), 2)
         uses = re.findall(r"(?m)^\s*uses:\s*([^\s]+)\s*$", text)
-        self.assertEqual(
-            uses,
-            [
-                f"actions/upload-artifact@{UPLOAD_SHA}",
-                f"actions/download-artifact@{DOWNLOAD_SHA}",
-                f"actions/upload-artifact@{UPLOAD_SHA}",
-                f"actions/download-artifact@{DOWNLOAD_SHA}",
-                f"actions/upload-artifact@{UPLOAD_SHA}",
-            ],
-        )
+        self.assertEqual(set(uses), {
+            f"actions/upload-artifact@{UPLOAD_SHA}",
+            f"actions/download-artifact@{DOWNLOAD_SHA}",
+        })
         for action in uses:
             self.assertRegex(action, r"@[0-9a-f]{40}\Z")
         for action in re.findall(r"(?m)^\s*uses:\s*([^\s]+)\s*$", self.text):

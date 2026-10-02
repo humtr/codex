@@ -259,7 +259,8 @@ pub(super) fn ensure(
         .map(|(_, value)| PathBuf::from(value))
         .ok_or_else(invalid)?;
     let pid_file = directory.join("pid");
-    if !bound_connection(&socket, &pid_file, program)? {
+    let running = bound_connection(&socket, &pid_file, program)?;
+    if !running {
         match fs::symlink_metadata(&socket) {
             Ok(m) if m.file_type().is_socket() => fs::remove_file(&socket)?,
             Ok(m) if m.file_type().is_symlink() => {
@@ -279,20 +280,31 @@ pub(super) fn ensure(
             Err(e) if e.kind() == io::ErrorKind::NotFound => (),
             Err(e) => return Err(e),
         }
-        let snapshot = directory.join("config");
-        private_dir(&snapshot)?;
-        for name in ["config.toml", "requirements.toml"] {
-            let source = config.join(name);
-            match read_record(&source) {
-                Ok(b) => write_record(&snapshot.join(name), &b)?,
+    }
+    let snapshot = directory.join("config");
+    private_dir(&snapshot)?;
+    for name in ["config.toml", "requirements.toml"] {
+        let source = config.join(name);
+        match read_record(&source) {
+            Ok(b) => match read_record(&snapshot.join(name)) {
+                Ok(old) if old == b => (),
+                Ok(_) => write_record(&snapshot.join(name), &b)?,
                 Err(e) if e.kind() == io::ErrorKind::NotFound => {
-                    if snapshot.join(name).exists() {
-                        fs::remove_file(snapshot.join(name))?
-                    }
+                    write_record(&snapshot.join(name), &b)?
                 }
                 Err(e) => return Err(e),
+            },
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                match read_record(&snapshot.join(name)) {
+                    Ok(_) => fs::remove_file(snapshot.join(name))?,
+                    Err(e) if e.kind() == io::ErrorKind::NotFound => (),
+                    Err(e) => return Err(e),
+                }
             }
+            Err(e) => return Err(e),
         }
+    }
+    if !running {
         let fds = super::RuntimeFdSources::open(resolver, &snapshot)?;
         let mut command = Command::new(program);
         command
@@ -345,6 +357,111 @@ pub(super) fn ensure(
     Ok(socket)
 }
 
+pub(super) fn retire_unused(
+    state: &Path,
+    generations: &Path,
+    keep: &std::collections::HashSet<String>,
+) -> io::Result<()> {
+    let servers = state.join("servers");
+    let entries = match fs::read_dir(&servers) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e),
+    };
+    private_dir(&servers)?;
+    for entry in entries {
+        let entry = entry?;
+        let directory = entry.path();
+        if !entry.file_type()?.is_dir() {
+            continue;
+        }
+        private_dir(&directory)?;
+        let owner = read_record(&directory.join("owner"))?;
+        let mut parts = owner.split(|b| *b == 0);
+        let profile = Path::new(OsStr::from_bytes(parts.next().ok_or_else(invalid)?));
+        let program = OsStr::from_bytes(parts.next().ok_or_else(invalid)?);
+        if parts.next().is_some() || entry.file_name() != OsStr::new(&namespace(profile, program)) {
+            return Err(invalid());
+        }
+        let path = Path::new(program);
+        let Some(relative) = path.strip_prefix(generations).ok() else {
+            continue;
+        };
+        let mut components = relative.components();
+        let Some(std::path::Component::Normal(id)) = components.next() else {
+            continue;
+        };
+        let Some(id) = id.to_str() else { continue };
+        if components.next() != Some(std::path::Component::Normal(OsStr::new("runtime")))
+            || components.next().is_some()
+            || super::m2_generation_state::validate_generation_identity(id, "server generation")
+                .is_err()
+            || keep.contains(id)
+        {
+            continue;
+        }
+        let lock = File::open(&directory)?;
+        if unsafe { super::flock(lock.as_raw_fd(), 2 | 4) } != 0 {
+            continue;
+        }
+        let pid_file = directory.join("pid");
+        let pid = String::from_utf8(read_record(&pid_file)?)
+            .map_err(|_| invalid())?
+            .trim()
+            .parse::<u32>()
+            .map_err(|_| invalid())?;
+        let process = PathBuf::from(format!("/proc/{pid}"));
+        match fs::read_link(process.join("exe")) {
+            Ok(exe) if exe.as_os_str() == program => (),
+            Ok(_) => continue,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                fs::remove_dir_all(&directory)?;
+                File::open(&servers)?.sync_all()?;
+                continue;
+            }
+            Err(e) => return Err(e),
+        }
+        if !bound_connection(&directory.join("s"), &pid_file, program)? {
+            continue;
+        }
+        // Let our own peer-check connection close before counting open sockets.
+        std::thread::sleep(Duration::from_millis(20));
+        let mut sockets = 0;
+        let mut writer = false;
+        for file in fs::read_dir(process.join("fd"))? {
+            let target = match fs::read_link(file?.path()) {
+                Ok(target) => target,
+                Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
+                Err(e) => return Err(e),
+            };
+            if target.as_os_str().as_bytes().starts_with(b"socket:[") {
+                sockets += 1;
+            }
+            if target.components().any(|c| matches!(c,
+                std::path::Component::Normal(n) if n == "sessions" || n == "archived_sessions" || n == "thread-writer-locks")) {
+                writer = true;
+            }
+        }
+        if sockets != 1 || writer {
+            continue;
+        }
+        // Only upstream's graceful-only signal; a repeated request cannot force a turn.
+        if fs::read_link(process.join("exe"))?.as_os_str() != program {
+            continue;
+        }
+        unsafe extern "C" {
+            fn kill(pid: i32, signal: i32) -> i32;
+        }
+        if unsafe { kill(pid as i32, 1) } != 0 {
+            let error = io::Error::last_os_error();
+            if error.raw_os_error() != Some(3) {
+                return Err(error);
+            }
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -385,14 +502,12 @@ mod tests {
         }
     }
 
-    #[test]
-    fn shared_server_signed_process_fds_reuse_and_namespace_are_bound() {
-        let root = crate::tests::temp_root("shared-server");
+    fn server_fixture(root: &Path) -> PathBuf {
         let fixture = root.join("server.rs");
         fs::write(
             &fixture,
             r#"
-use std::{env,fs,os::unix::net::UnixListener};
+use std::{env,fs,io::Read,os::unix::net::UnixListener};
 fn main() {
  let a:Vec<String>=env::args().collect();
  assert_eq!(&a[1..3], &["app-server", "--listen"]);
@@ -403,8 +518,12 @@ fn main() {
  assert!(fs::metadata("/proc/self/fd/35").unwrap().is_dir());
  assert!(env::var_os("LD_PRELOAD").is_none());
  if fs::exists(env::var_os("CODEX_HOME").unwrap().into_string().unwrap()+"/exit").unwrap() { std::process::exit(77); }
+ let _writer=fs::File::open(std::path::PathBuf::from(env::var_os("CODEX_HOME").unwrap()).join("sessions/held.jsonl")).ok();
  let l=UnixListener::bind(path).unwrap();
- for _ in l.incoming() {}
+ for stream in l.incoming() {
+  let mut stream=stream.unwrap();let mut bytes=[0;128];
+  while stream.read(&mut bytes).unwrap_or(0)!=0 {}
+ }
 }
 "#,
         )
@@ -419,6 +538,130 @@ fn main() {
                 .unwrap()
                 .success()
         );
+        program
+    }
+
+    #[test]
+    fn shared_server_reuse_refreshes_config_without_restarting_active_server() {
+        let root = crate::tests::temp_root("shared-server-refresh");
+        let program = server_fixture(&root);
+        let state = root.join("state");
+        let config = root.join("config");
+        private_dir(&state).unwrap();
+        private_dir(&config).unwrap();
+        let resolver = root.join("resolver");
+        fs::write(&resolver, b"nameserver 127.0.0.1\n").unwrap();
+        fs::write(
+            config.join("config.toml"),
+            crate::render_core_notification_config(&[]),
+        )
+        .unwrap();
+        let env = crate::TermuxBaseEnvPlan {
+            assignments: vec![("TMPDIR".into(), root.as_os_str().into())],
+            removals: vec![],
+        };
+        let profile = root.join("profile");
+        let socket = ensure(
+            program.as_os_str(),
+            &profile,
+            &state,
+            &resolver,
+            &config,
+            &env,
+        )
+        .unwrap();
+        let directory = socket.parent().unwrap();
+        let pid = read_record(&directory.join("pid")).unwrap();
+        let pid_text = String::from_utf8(pid.clone()).unwrap();
+        let server_config = PathBuf::from(format!("/proc/{}/fd/34", pid_text.trim()));
+        let inode = fs::metadata(&server_config).unwrap().ino();
+        for events in [vec!["SessionStart"], vec![]] {
+            let bytes = crate::render_core_notification_config(&events);
+            fs::write(config.join("config.toml"), &bytes).unwrap();
+            fs::write(
+                config.join("requirements.toml"),
+                b"# refreshed requirements\n",
+            )
+            .unwrap();
+            assert_eq!(
+                ensure(
+                    program.as_os_str(),
+                    &profile,
+                    &state,
+                    &resolver,
+                    &config,
+                    &env
+                )
+                .unwrap(),
+                socket
+            );
+            assert_eq!(read_record(&directory.join("pid")).unwrap(), pid);
+            assert_eq!(fs::metadata(&server_config).unwrap().ino(), inode);
+            assert_eq!(fs::read(server_config.join("config.toml")).unwrap(), bytes);
+            assert_eq!(
+                fs::read(server_config.join("requirements.toml")).unwrap(),
+                b"# refreshed requirements\n"
+            );
+            let file_inode = fs::metadata(server_config.join("config.toml"))
+                .unwrap()
+                .ino();
+            ensure(
+                program.as_os_str(),
+                &profile,
+                &state,
+                &resolver,
+                &config,
+                &env,
+            )
+            .unwrap();
+            assert_eq!(
+                fs::metadata(server_config.join("config.toml"))
+                    .unwrap()
+                    .ino(),
+                file_inode
+            );
+        }
+        fs::remove_file(config.join("requirements.toml")).unwrap();
+        ensure(
+            program.as_os_str(),
+            &profile,
+            &state,
+            &resolver,
+            &config,
+            &env,
+        )
+        .unwrap();
+        assert!(!server_config.join("requirements.toml").exists());
+        let foreign = root.join("foreign");
+        fs::write(&foreign, b"untouched").unwrap();
+        let snapshot_file = directory.join("config/config.toml");
+        fs::remove_file(&snapshot_file).unwrap();
+        std::os::unix::fs::symlink(&foreign, &snapshot_file).unwrap();
+        assert!(ensure(
+            program.as_os_str(),
+            &profile,
+            &state,
+            &resolver,
+            &config,
+            &env
+        )
+        .is_err());
+        assert_eq!(fs::read(&foreign).unwrap(), b"untouched");
+        assert!(Path::new(&format!("/proc/{}", pid_text.trim())).exists());
+        assert!(
+            Command::new(crate::tests::resolve_test_tool("kill").unwrap())
+                .args(["-TERM", pid_text.trim()])
+                .status()
+                .unwrap()
+                .success()
+        );
+        crate::tests::remove_temp_root(root);
+    }
+
+    #[test]
+    fn shared_server_signed_process_fds_reuse_and_namespace_are_bound() {
+        let root = crate::tests::temp_root("shared-server");
+        let program = server_fixture(&root);
         let state = root.join("state");
         private_dir(&state).unwrap();
         let config = root.join("config");
@@ -520,6 +763,92 @@ fn main() {
                     .success()
             );
         }
+        crate::tests::remove_temp_root(root);
+    }
+
+    #[test]
+    fn shared_server_retirement_preserves_clients_writers_and_bound_roles() {
+        let root = crate::tests::temp_root("server-retire");
+        let generations = root.join("generations");
+        private_dir(&generations).unwrap();
+        let old = generations.join("old");
+        private_dir(&old).unwrap();
+        let program = server_fixture(&old);
+        let state = root.join("state");
+        private_dir(&state).unwrap();
+        let config = root.join("config");
+        private_dir(&config).unwrap();
+        fs::write(
+            config.join("config.toml"),
+            crate::render_core_notification_config(&[]),
+        )
+        .unwrap();
+        let resolver = root.join("resolver");
+        fs::write(&resolver, b"nameserver 127.0.0.1\n").unwrap();
+        let env = crate::TermuxBaseEnvPlan {
+            assignments: vec![("TMPDIR".into(), root.as_os_str().into())],
+            removals: vec![],
+        };
+        let busy = root.join("busy");
+        private_dir(&busy).unwrap();
+        private_dir(&busy.join("sessions")).unwrap();
+        fs::write(busy.join("sessions/held.jsonl"), b"active").unwrap();
+        let busy_socket =
+            ensure(program.as_os_str(), &busy, &state, &resolver, &config, &env).unwrap();
+        let idle = root.join("idle");
+        let idle_socket =
+            ensure(program.as_os_str(), &idle, &state, &resolver, &config, &env).unwrap();
+        let busy_pid =
+            String::from_utf8(read_record(&busy_socket.parent().unwrap().join("pid")).unwrap())
+                .unwrap();
+        let idle_pid =
+            String::from_utf8(read_record(&idle_socket.parent().unwrap().join("pid")).unwrap())
+                .unwrap();
+        retire_unused(
+            &state,
+            &generations,
+            &std::collections::HashSet::from(["old".into()]),
+        )
+        .unwrap();
+        assert!(Path::new(&format!("/proc/{}/exe", idle_pid.trim())).exists());
+        let connection = UnixStream::connect(&idle_socket).unwrap();
+        std::thread::sleep(Duration::from_millis(30));
+        let empty = std::collections::HashSet::new();
+        retire_unused(&state, &generations, &empty).unwrap();
+        assert!(Path::new(&format!("/proc/{}/exe", idle_pid.trim())).exists());
+        assert!(Path::new(&format!("/proc/{}/exe", busy_pid.trim())).exists());
+        drop(connection);
+        std::thread::sleep(Duration::from_millis(30));
+        retire_unused(&state, &generations, &empty).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Path::new(&format!("/proc/{}/exe", idle_pid.trim())).exists()
+            && Instant::now() < deadline
+        {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(!Path::new(&format!("/proc/{}/exe", idle_pid.trim())).exists());
+        assert!(Path::new(&format!("/proc/{}/exe", busy_pid.trim())).exists());
+        assert_eq!(
+            fs::read(busy.join("sessions/held.jsonl")).unwrap(),
+            b"active"
+        );
+        retire_unused(&state, &generations, &empty).unwrap();
+        assert!(!idle_socket.parent().unwrap().exists());
+        assert!(
+            Command::new(crate::tests::resolve_test_tool("kill").unwrap())
+                .args(["-TERM", busy_pid.trim()])
+                .status()
+                .unwrap()
+                .success()
+        );
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Path::new(&format!("/proc/{}/exe", busy_pid.trim())).exists()
+            && Instant::now() < deadline
+        {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        retire_unused(&state, &generations, &empty).unwrap();
+        assert!(!busy_socket.parent().unwrap().exists());
         crate::tests::remove_temp_root(root);
     }
 

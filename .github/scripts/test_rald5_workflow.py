@@ -6,8 +6,6 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 AUTO = ROOT / "workflows" / "auto-release-termux.yml"
 PAGES = ROOT / "workflows" / "publish-termux-update-pages.yml"
-CODEX_SOURCE_SHA = "37fbbd8033b8cc2d508689ab1d6637b4c4f5d516"
-RALD5_SOURCE_SHA = "fa1b887b7e726202e309a2eb731aad303a6c7e03"
 CONFIGURE_PAGES_SHA = "983d7736d9b0ae728b81ab479565c72886d7745b"
 UPLOAD_PAGES_SHA = "7b1f4a764d45c48632c6b24a0339c27f5614fb0b"
 DEPLOY_PAGES_SHA = "d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e"
@@ -55,8 +53,8 @@ class Rald5WorkflowContractTests(unittest.TestCase):
         self.assertIn("404)", self.pages)
 
     def test_publication_source_and_actions_are_immutable(self) -> None:
-        self.assertIn(f"CODEX_SOURCE_SHA: '{CODEX_SOURCE_SHA}'", self.auto)
-        self.assertIn(f"RALD5_SOURCE_SHA: '{RALD5_SOURCE_SHA}'", self.auto)
+        self.assertRegex(self.header, r"(?m)^  CODEX_SOURCE_SHA: '[0-9a-f]{40}'$")
+        self.assertRegex(self.header, r"(?m)^  RALD5_SOURCE_SHA: '[0-9a-f]{40}'$")
         self.assertGreaterEqual(self.auto.count('fetch --no-tags --depth=1 origin "$RALD5_SOURCE_SHA"'), 3)
         self.assertGreaterEqual(
             self.auto.count('test "$(git -C publication-source rev-parse HEAD)" = "$RALD5_SOURCE_SHA"'),
@@ -86,7 +84,7 @@ class Rald5WorkflowContractTests(unittest.TestCase):
         self.assertIn("type: boolean", auth_block)
         self.assertIn("default: false", auth_block)
         self.assertIn(
-            "RALD5_PUBLICATION_AUTHORIZED: ${{ github.event_name == 'workflow_dispatch' && inputs.rald5_publication_authorized }}",
+            "RALD5_PUBLICATION_AUTHORIZED: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.rald5_publication_authorized) }}",
             self.decision,
         )
         self.assertIn("publication_authorized=%s", self.decision)
@@ -315,7 +313,7 @@ class Rald5WorkflowContractTests(unittest.TestCase):
         self.assertIn("activated channel generation %s", verify)
         self.assertIn("codex-cli %s", verify)
         self.assertIn('"$PREFIX/bin/codex" doctor', verify)
-        self.assertIn("codex is already up to date (generation %s)", verify)
+        self.assertIn("Codex %s is already up to date.", verify)
         self.assertIn("rald5-before-noop", verify)
         self.assertIn("rald5-after-noop", verify)
         self.assertIn("diff -u", verify)

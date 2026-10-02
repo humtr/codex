@@ -421,6 +421,14 @@ shared background server. User-supplied upstream options remain unchanged;
 explicit unsupported sandbox requests still fail before runtime I/O. Hiding a
 shared-server warning or disabling the server does not satisfy this contract.
 
+Shared-server reuse must refresh its Core-owned FD-34 configuration files
+under the existing namespace coordinator lock before the new client executes.
+Publish changed files atomically in the same opened configuration directory;
+preserve the server PID, directory inode, credentials and running threads.
+Subsequent native config reads and new/resumed thread configuration must see
+current Manager hook selection. Do not restart active writers or add CLI
+overrides to make notification changes visible.
+
 Core never invokes, installs, downloads, or repairs `bwrap`. An explicit Linux
 sandbox-policy rejection is a Core usage/policy failure with process status 2
 and must occur before resolver/configuration descriptor setup, upstream
@@ -1424,10 +1432,63 @@ cleanup after every acquisition outcome, and remote success is impossible until
 that cleanup succeeds. A cleanup error is terminal and preserves the authoritative
 activation pointers. An uncatchable process kill or a filesystem cleanup failure
 may leave a dot-prefixed partial directory; Core never scans, launches, verifies
-as a generation, or activates such a path, and later work must not add a retry,
-fallback, or registry merely for it. Remote success reports
+as a generation, or activates such a path. Bounded installation maintenance may
+remove an abandoned partial directory under the retention contract below;
+it must not add a retry, fallback, or registry merely for it. Remote success reports
 `activated remote generation <id>`; every failure preserves the authoritative
 activation pointers.
+
+### Bounded installed-artifact retention
+
+Core performs best-effort local artifact maintenance before ordinary execution
+and after an explicit update attempt. Failure or contention in maintenance must
+not change upstream argv, streams, exit status or block an otherwise valid
+launch. The one authoritative activation state and its existing recovery journal
+own all retained pointer roles; malformed or unrecovered state disables pruning.
+Keep the current generation, the one previous rollback generation, any generation
+bound by an effective rollback guard/local-derived public baseline, at most one
+complete higher-sequence staged candidate for the existing crash/retry reuse
+contract (highest sequence, deterministic generation-ID tie-break), and complete
+generations still used by live local executables or open generation files.
+All other Core-owned installed generations/publication caches are disposable.
+Abandoned acquisition, candidate and local-build staging directories are also
+disposable. Conversation activity is not inferred from executable timestamps.
+
+Use directory flock leases rather than another registry: production update
+preparation/activation and launch selection hold a shared lease on the existing
+generation catalog parent; pruning requires its exclusive nonblocking lease plus the
+existing activation-state writer lock. The launch lease survives until exec's
+close-on-exec boundary. In-flight updates therefore protect their whole staging
+work without PID-name guesses or deletion of another updater's source.
+Inspect local process executable/open-file references before deleting retired
+generations or staging; preserve active clients and their companion/helper trees. Inspect
+only live process groups: a confirmed zombie with no surviving sibling threads
+holds no executable/open-file references and must not disable maintenance.
+Incomplete visibility of a live process still disables pruning. Inspect
+only owned real directories, never follow substituted parents or deletion-root
+symlinks, and never descend into profile/auth/session or resolver state.
+Revalidate authoritative state while locked. Removing stale files is idempotent
+and does not manufacture an activation success or invalidate rollback.
+
+Retire only an obsolete Core-owned shared server whose private owner record,
+socket peer and executable bind to its recorded signed runtime, and whose open
+FDs show only its listener socket and no conversation/writer-lock handle.
+Coordinate with its existing namespace lock. Request upstream's graceful-only
+SIGHUP shutdown; never force an active client or turn to stop. Live process/file
+references protect its generation until shutdown finishes. Dead obsolete server
+records/config snapshots may then be removed. Unknown ownership or incomplete
+process visibility keeps the affected files and never authorizes termination.
+
+The 2026-10-02 user-authorized cleanup additionally permits removing inactive
+legacy profile SQLite projections after all retained conversation payloads are
+verified in the canonical upstream store. Preserve every conversation with
+activity in the preceding seven days and all active writers. Older redundant
+installation artifacts and expired conversation records require no backup.
+The three obsolete `.codex-scs6-backup-*` / failed-activation copies may be
+removed after the same payload/prefix and inactive-handle checks; live account
+auth/configuration stays untouched. A stale backup index refresh does not count
+as new conversation work when its actual transcript activity has expired.
+This is bounded operator cleanup, not routine Core SQL/transcript ownership.
 
 Automatic channel discovery uses the same curl, certificate, timeout, and
 owner-only temporary rules. It fetches only the bounded index and its sibling

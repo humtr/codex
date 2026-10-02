@@ -4,7 +4,6 @@ import re
 import unittest
 
 WORKFLOW = Path(__file__).resolve().parents[1] / "workflows" / "auto-release-termux.yml"
-SOURCE_SHA = "1cdcb44d035ec5b1ce6339f2aa7b0e95831a6f0a"
 SECRET = "secrets.CODEX_RELEASE_SIGNING_KEY"
 UPLOAD_SHA = "ea165f8d65b6e75b540449e92b4886f43607fa02"
 DOWNLOAD_SHA = "d3f86a106a0bac45b974a628896c90dbdf5c8093"
@@ -40,7 +39,7 @@ class Rald4WorkflowContractTests(unittest.TestCase):
         self.assertIn("rald3_preflight.py next-sequence", self.text)
 
     def test_signing_source_and_tools_are_pinned_and_fail_closed(self) -> None:
-        self.assertIn(f"CODEX_SOURCE_SHA: '{SOURCE_SHA}'", self.text)
+        self.assertRegex(self.text, r"(?m)^  CODEX_SOURCE_SHA: '[0-9a-f]{40}'$")
         self.assertIn("runs-on: ubuntu-24.04-arm", self.pre_sign)
         self.assertIn("ANDROID_RUNTIME_APEX_COMMIT: '8aeb37cca394ce39c1311744c60960cbd466aa77'", self.pre_sign)
         self.assertIn("ANDROID_RUNTIME_APEX_SHA256: '83bf0dce249728dae48149b80d28b48115c54adad95a352120d58a6ac669d1fc'", self.pre_sign)
