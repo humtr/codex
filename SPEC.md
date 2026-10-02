@@ -1976,6 +1976,8 @@ matcher for only `request_user_input` and `request_user_input_async` (including
 their `functions.` namespace spelling). It alerts before a structured question
 or follow-up input request; it is not `UserPromptSubmit`, which observes the
 user submitting input. No invented upstream event or transcript watcher is used.
+Tool-execution approvals use the separate `PermissionRequest` selector;
+selecting `UserInputRequest` alone does not subscribe to approval events.
 If broad `PreToolUse` is also selected, it already covers these tools and the
 narrow selector adds no duplicate handler. Hook lists contain unique canonical
 names, or
@@ -2037,8 +2039,9 @@ IDs, commands, account/profile identifiers and working directories, are ignored.
 Missing title uses `Codex`; missing body uses the fixed event status strings
 `Notify session start`, `Notify tool start`, `Notify permission request`,
 `Notify tool finish`, `Notify before compact`, `Notify after compact`,
-`Notify prompt submit`, `Notify subagent start`, `Notify subagent stop`, and
-`Notify turn completion`, in the canonical event order above. Malformed or
+`Notify prompt submit`, `Notify subagent start`, `Notify subagent stop`,
+`Codex needs your input`, and `Notify turn completion`, in the canonical event
+order above. Malformed or
 oversized input is a successful no-op. The selected text is normalized for
 CRLF/CR, then the configured character limit and final 4,096-byte cap are
 applied. Notification title and body always fold all whitespace runs to one

@@ -32,6 +32,43 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
+## NOTIFY-USER-ANSWER-PREFERENCE (accepted 2026-10-02)
+
+- User clarifies desired waiting alert is the conversational question/choice
+  input UI, not tool-execution permission approval. Current installed preference
+  PermissionRequest,UserInputRequest,Stop is broader than that intent. Success:
+  select only UserInputRequest,Stop, preserve completion and presentation/focus,
+  suppress permission delivery even from already-loaded old upstream hooks.
+- Bound clean rewrite62c0d65; signed34/upstream0.160.0, AIea5541c. Goal-md bound,
+  approved equivalent primary, workers OFF. Existing SPEC already distinguishes
+  both selectors; this is a bounded Manager preference correction, not a new
+  product contract or approval-policy change. Disposable installed-binary proof
+  precedes the requested live preference write. Preserve runtime/auth/profile/
+  sessions/resolver and all other notification fields. Actual question UI type
+  may be clarified through one user-answer request, with no model probe workload.
+
+- Installed signed34 Manager in a private HOME proved PermissionRequest emits
+  no provider invocation, while UserInputRequest/Stop each invoke both providers.
+  First fixture run used a nonexistent HOME/bin/codex handoff path and stopped
+  red; resolving the installed public entrypoint with command-v restored the
+  exact gate. No product code changed. Live public notify set then changed only
+  hooks; all other notification fields retained their values.
+- Live public emit with instrumented own providers proved immediate suppression
+  of permission events even though the already-rendered Core configuration still
+  contains the old PermissionRequest hook. UserInputRequest/Stop both delivered;
+  no server restart, runtime update or approval-policy override is needed. Native
+  Android readback observed one Codex needs your input notification after the
+  actual asynchronous question requesting clarification of the described UI.
+  Exact Shift+Left screen equivalence remains user feedback, not claimed proof.
+- Protected18 inode/mode/digest identities (auth/config/resolver15, installed
+  Manager/runtime and focus record) remained unchanged. No model probe, session
+  edit or active-thread interruption. No new contract or product implementation:
+  existing installed behavior satisfies the requested preference, so disposable
+  and live public-path proof replace an unnecessary build/release cycle. SPEC
+  clarifies selector independence and repairs its omitted existing input status
+  string. Prior accepted input matcher, single-line delivery and bounded tmux
+  focus remain unchanged. This preference correction is accepted and closed.
+
 ## TERMINAL-FOCUS-BOUNDED-REUSE (accepted 2026-10-02)
 
 - User rejects click-per-terminal attach as incomplete because terminal windows
@@ -830,7 +867,8 @@ dated sections preserve historical evidence; historical words such as
   sequence33 rollback. Manager-only change; Core/runtime bytes unchanged.
   Source/release/public/live agree; actual native effective delay0/full-access.
 - AI-TMUX-NOTIFY-FOCUS-V1, NOTIFY-OPEN and INPUT-REQUEST accepted. Both channels
-  and PermissionRequest/UserInputRequest/Stop active; focus=tmux. AI --tmux/TUI
+  and UserInputRequest/Stop active; PermissionRequest disabled by the latest user
+  clarification; focus=tmux. AI --tmux/TUI
   option controls managed launch. Click selects the qualified live pane and its
   named native terminal, creating that terminal only if absent; repeated and
   concurrent clicks reuse it. Ordinary non-tmux notifications still use Termux
