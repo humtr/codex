@@ -32,7 +32,7 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
-## SHARED-CONFIG-BOUNDED-RETENTION-V1 (selected 2026-10-02)
+## SHARED-CONFIG-BOUNDED-RETENTION-V1 (accepted 2026-10-02)
 
 - User explicitly requests fixing reused-server notification configuration,
   cleaning unused installation/cache/legacy SQLite remnants without backup,
@@ -64,10 +64,61 @@
   protected auth/config/resolver bytes, modes and inodes unchanged. KEEP existing
   signed crash/retry and rollback; COLLAPSE cleanup onto existing state/locks;
   DELETE startup-only config publication and indefinite disposable retention.
-  Signed publication/live cleanup remain pending acceptance; no success claim
-  for lazy rollout inodes or zero-test targets.
-- Execution/proof map is only WORKBOARD.md. This is the selected current bundle;
-  prior bundle acceptance below remains historical accepted evidence.
+  The temporary empty-thread probe did not claim a lazy rollout inode. The
+  real installed proof below uses an existing materialized conversation.
+- Implementation commit **bdb02cc7d10095fb923f8199d069beb995dabbcf** is pushed.
+  Publication control cbace111b179cff3c90477b817f0135afc4facab / production run
+  **37003873759** succeeded: exact-source Android build/native smoke, Core-only
+  descriptor/component delta, signing, immutable Release/Pages, full public
+  byte/disposable ordinary update/legacy/noop proof and non-forced CAS promotion.
+  Public main **f71324348719c1a416f42956074d925004c70ab5** serves signed sequence
+  **29**, upstream **0.160.0**, generation
+  **local-hosted-0-160-0-bdb02cc7d100-bounded-retention**. Ordinary device update
+  activated it; repeated update reports already up to date without artifact
+  growth. Public manifest equals installed bytes; launcher/signed Core SHA-256
+  aa1a777e3f6020450c237482b69677ba35b67afb5d4c2622dcc5379221b97e2c.
+  Qualified upstream runtime digest remains ba94d1d0d9d416a7fb2f13d6ffcc6e0d9ec981ee1793158bbc9b1d96d5f51ab3.
+- Installed bare TTY remains alive, argv contains only argv0, strace confirms
+  successful native shared-server connection to the active generation, no
+  fallback/unmanaged installer and native danger-full-access. Warm hook enable
+  and disable both read back natively on the same PID/FD-34 directory inode,
+  preserving a loaded materialized conversation and its rollout inode. Restore
+  original Manager preferences afterward, with no recovery backup.
+- Two distinct authenticated accounts wrlab/jgnh2, before and after old SQLite
+  removal, expose the same exact **CWD 6 / All 22** CLI/VSCode UUID union; no
+  other-CWD rows or duplicate rows. Old other-account conversations resume and
+  expose history. A newly created real bare CLI conversation also appears in
+  both scopes and resumes under the other account with nonempty upstream turns
+  and unchanged creator-account metadata. An initial request during native
+  final flush was rejected; the same UUID resumed after its normal writer
+  closure without forced takeover or product retries. Keep upstream locking.
+- Actual installed `codex resume` pickers under both accounts default to six
+  CWD rows and switch to 22 rows through the existing All control, without
+  shared-server fallback. Terminal emulation reads footer counts in memory;
+  no title/transcript screen contents are persisted. Corrected a probe's wrong
+  toolbar focus assumption using the exact upstream key binding; no product
+  change. Native UUID snapshots independently prove the exact scope unions.
+- Device cleanup removes **39** disposable artifact directories (21 obsolete
+  generations, 10 acquisition roots, eight publication caches), three obsolete
+  SCS backup/failed-activation roots, and 12 inactive wrlab/jgnh2 legacy SQLite
+  files. Removed logical file bytes total **9,787,304,710** (~9.115 GiB). No new
+  backup. All **44** canonical payload inodes and the original **28** retained
+  per-record payload prefixes remain; all 15 auth/config/resolver bytes, modes
+  and inodes are unchanged. One backup index had recently reindexed an actual
+  September-20 transcript already excluded by the accepted seven-day policy;
+  it does not justify restoring expired work or merging old SQLite.
+- Remaining installed artifacts: current/rollback (29/28) plus two generation
+  trees used by three existing external tdev tunnel-client app-servers. Those
+  external live clients are preserved; after their normal exit Core can prune
+  the references on the next launch/update. No abandoned staging/publication
+  directories remain, and repeated maintenance keeps the same generation set.
+  Effective guards/local-derived baselines and at most one complete pending
+  crash-retry candidate are likewise protected when applicable. Core never
+  owns ongoing auth or transcript/SQL maintenance.
+- Disposition: **SHARED-CONFIG-BOUNDED-RETENTION-V1 accepted and closed.** The
+  active public entrypoint/runtime agrees with its exact implementation,
+  signed release and public stable. Worker mode OFF throughout. No further
+  implementation selected; WORKBOARD.md no longer retains a parallel proof map.
 
 ## SHARED-SERVER-CROSS-ACCOUNT-V1 (accepted 2026-10-02)
 
@@ -185,17 +236,17 @@ dated sections preserve historical evidence; historical words such as
 `WORKBOARD.md`.
 
 - Source authority is remote `rewrite/rust-core`, read afresh on resume. Runtime
-  artifact producer is `89b96680cd54f26eaf75cb2c5988dcf2b0d76187`; later operator
-  finalization/test/documentation commits retain identical Rust product source.
-- Public stable main is `3224a5294d22818350a105d2adef6bc32b7e565f`. Signed public
-  and live installed generation is sequence **28**, upstream **0.160.0**,
-  `local-hosted-0-160-0-89b96680cd54-shared-visibility`. Installed Core and
-  runtime hashes match that signed public generation; sequence 27 remains the
-  preceding rollback generation.
-- SHARED-SERVER-CROSS-ACCOUNT-V1 is accepted above. No implementation or live
-  mutation remains selected. Existing pretransition writers exit normally;
-  known execution homes now share upstream conversation state with separate
-  authentication. WORKBOARD.md owns only a subsequently selected bundle.
+  artifact producer is **bdb02cc7d10095fb923f8199d069beb995dabbcf**; subsequent
+  acceptance-only ledger changes retain identical Rust product source.
+- Public stable main is **f71324348719c1a416f42956074d925004c70ab5**. Signed public
+  and live installed generation is sequence **29**, upstream **0.160.0**,
+  **local-hosted-0-160-0-bdb02cc7d100-bounded-retention**. Installed launcher/Core
+  and runtime hashes match public signed bytes; sequence 28 is rollback.
+- SHARED-CONFIG-BOUNDED-RETENTION-V1 is accepted above. No implementation or live
+  mutation remains selected. Existing external tunnel clients retain two older
+  artifact references until normal exit; they are outside Core's server ownership.
+  Known execution homes share upstream conversation state with separate auth.
+  CWD/All picker policy remains upstream CLI/VSCode across all accounts.
 
 ## Historical Runtime Alignment Baseline (2026-09-30)
 
