@@ -1,22 +1,33 @@
 # Rust Core Workboard
 
-Authority SPEC.md -> GOAL.md -> WORKBOARD.md; goal-md bound, approved equivalent
-primary, workers OFF. All user-requested correction slices and subsequent
-INPUT-CACHE-UNLOAD-CONSIDERATION are closed; see GOAL acceptance/findings.
+SPEC -> GOAL -> WORKBOARD; goal-md bound, approved equivalent primary, workers OFF.
 
-Current: Codex signed34/upstream0.160.0 producer4b00b8d, docs8046f9d plus this
-closure; AI0eee1c2 after separate Android attach2ff7007 and status-modee6a91e6.
-Exact final staged tree849a4349 passes final37/0warnings/TUI161/native8. Installed
-AI matches source; protected15/unrelated diff3acdf081e07b/existing pane-PIDs intact.
-Real public notification action twice selected new native terminals attached to
-the existing workload. Two user-authorized evaluation clients remain attached.
-Original conversation lock is absent after targeted upstream interrupt.
-Single-line notification/toast separation and tmux rich-color/status gates closed.
+TERMINAL-FOCUS-BOUNDED-REUSE accepted and closed. AI main ea5541c implements one
+named native notification terminal per live tmux socket identity/session through
+Termux RunCommandService no-shell-with-name and selection action0. Repeated clicks
+reuse it; closing it permits one replacement. No new tmux/Codex workload.
 
-No implementation slice remains. Await user assessment of new-terminal attach;
-if rejected, revert AI0eee1c2 then2ff7007 and bounded --ai-only reinstall, retaining
-status modes and unrelated UI/provider changes. Do not terminate user work.
-Cache consideration concludes native transport cache and remote model KV cache
-have distinct lifetimes; same-ID resume retains prompt-cache identity. Delay0
-stays intact; cache-hit measurement is unperformed, not a claimed guarantee.
-No queued cache/config/runtime change, model traffic, APK or preference hack.
+Single vertical slice closed: lib/ai_tmux.py, tests/test_tmux_launch.py and AI
+README; SPEC changed first. Native9 focused regressions map shell naming, shared
+session/different panes, other session/socket identity, and preserved qualification/
+race/failure gates. Exact candidate tree e2517e060a950f453b53e42084ceeb11ac16d6f2
+passed all6 standalone scripts, final37/0warnings/0fail and TUI161/0fail. Diff
+reviewed; duplicate local hashlib import collapsed. Installed module matches.
+
+Real installed Manager action created/selected one terminal on an own isolated
+empty Codex fixture. Four sequential and five concurrent public-helper requests
+retained one client/PID/native handle; closing it allowed one replacement then
+reuse. Existing pane/PID/global status/mouse identities and protected15 auth/
+config/resolver identities unchanged; Core/runtime/Manager untouched. Unrelated
+AI provider/TUI/smoke dirty identity3acdf081e07b preserved and excluded from commit.
+First count assertion was red because original user target pane was already gone;
+helper correctly refused it. Isolated fixture restored actual public-path proof.
+Wrong guessed installed-library path was corrected from the launcher; recheck green.
+Own empty UI gracefully closed, native thread archived, private server/registry
+record and synthetic notification removed. No model turn, fabricated session,
+APK/preference hack, input injection or user-thread cancellation.
+
+Accepted evidence/disposition lives in GOAL.md. No implementation slice remains
+selected. Earlier click-per-terminal routing is superseded; off/hidden/status,
+single-line notifications, recovery and read-only input-cache consideration remain
+accepted. Delay0 unchanged. Further work requires a new user directive.

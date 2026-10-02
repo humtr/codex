@@ -23,8 +23,9 @@ execution preferences and authentication while sharing upstream conversation
 storage. `notify show/set` controls Termux notification/toast delivery;
 `notify test` sends fixed test text and reports each selected provider's result.
 Notification taps foreground Termux. With `notify set --focus tmux` and AI tmux
-launch, a qualified live conversation opens in a new Android terminal attached
-to its existing tmux session. No new Codex workload or `resume` is started.
+launch, a qualified live conversation selects one named Android terminal attached
+to its existing tmux session, creating it only if absent. Repeated taps reuse it;
+closing it permits one replacement. No new Codex workload or `resume` is started.
 The `UserInputRequest` notification selector covers structured questions and
 follow-up input requests. `repair plan/apply` handles current-generation
 qualification and legacy-layout migration; `healthy` there is not a general

@@ -90,8 +90,9 @@ creates a managed window on that server; outside it attaches a managed session.
 Launch registration contains only socket identity, never credentials or content.
 Dead records are pruned. No notification click creates a tmux session, window,
 pane or Codex process. Explicit tmux notification focus may open a new native
-Android Termux terminal attached to the existing qualified tmux session, as
-authorized for reversible device evaluation on 2026-10-02.
+Android Termux terminal attached to the existing qualified tmux session only
+when its named notification terminal is absent. Repeated clicks reuse that
+terminal; click count must not increase terminal/client count.
 
 For Codex launches AI adds upstream `thread-id` first in the selected home's
 `tui.terminal_title`, preserving other configured items (or upstream defaults)
@@ -113,17 +114,23 @@ notification or become shell input. The helper is bounded and silent.
 
 After resolving a unique live pane, AI atomically rechecks its identity, selects
 it, and obtains its existing tmux session ID. Only a successful recheck requests
-RunCommandService to open and select a new native terminal running installed
+RunCommandService to select or create one named native terminal running installed
 tmux with the exact registered socket and `attach-session -t <SESSION_ID>`.
-The session action is the string-valued switch-new-and-open action. Each click
-may add a native terminal and tmux client, but never another workload. Missing,
+The stable private shell name binds socket identity and tmux session ID, never
+conversation content. The string-valued `no-shell-with-name` creation mode
+delegates reuse and create-if-absent to the native Termux service. Its string-valued
+action selects the returned terminal and opens Activity. Repeated or concurrent
+clicks for a live tmux session must reuse one terminal/client, including clicks
+from different Codex panes within that tmux session. Closing the terminal permits
+one replacement; another live tmux session has its own named terminal. Clicks
+never create another workload. Missing,
 ambiguous, closed or changed targets issue no native-terminal request. A target
 that disappears after qualification makes attach fail; it cannot create a tmux
 session. Unsupported socket argument encoding is rejected. Service errors remain
 silent and the Manager action retains ordinary Activity foregrounding. No resume
 process, input injection, native preference editing, title watcher or daemon
-environment guess is used. Reverting this bounded AI change and reinstalling AI
-restores the earlier pane-selection/Activity behavior without changing Codex
+environment guess is used. Reverting the complete optional AI attachment change
+and reinstalling AI restores the earlier pane-selection/Activity behavior without changing Codex
 state or terminating existing clients.
 
 ### Manager command boundary

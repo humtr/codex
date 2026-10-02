@@ -32,7 +32,62 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
-## TMUX-STATUS-CHOICE-TERMINAL-FOCUS (accepted 2026-10-02)
+## TERMINAL-FOCUS-BOUNDED-REUSE (accepted 2026-10-02)
+
+- User rejects click-per-terminal attach as incomplete because terminal windows
+  grow indefinitely. This supersedes acceptance of the experimental routing in
+  the following historical section, while preserving accepted status modes,
+  single-line notifications and session recovery. Success now requires native
+  terminal/client count to remain constant on repeated/concurrent clicks for the
+  same live tmux session, including different originating Codex windows.
+- Bound Codex1dbcbdc clean/rewrite, AI0eee1c2 with unrelated provider/TUI/smoke
+  dirty diff3acdf081e07b. Goal-md resolves this GOAL; approved equivalent primary,
+  workers OFF. Native8 baseline passed before mutation. Installed Termux service
+  supports stable shell name and no-shell-with-name creation mode; RunCommandService
+  forwards both string extras. Re-express native behavior without legacy copying.
+- SPEC changes before implementation. Focused native/failure regressions, full
+  isolated AI gates, source inspection and protected verification precede bounded
+  AI-only install and real repeated/concurrent service/action proof. Preserve
+  auth/session/runtime/resolver, current Codex panes/PIDs, foreign/global tmux and
+  unrelated UI work. No APK/preference hack or keyboard injection. Previous
+  unnamed evaluation terminals cannot be silently adopted or terminated; their
+  uncertain ownership remains protected. Prompt-cache findings and delay0 remain.
+- Accepted AI source **ea5541c**; exact isolated candidate tree
+  `e2517e060a950f453b53e42084ceeb11ac16d6f2`. KEEP qualification/atomic pane
+  recheck and native attachment; COLLAPSE creation/reuse into the existing Termux
+  service's named-shell operation; DELETE unconditional click-per-terminal
+  behavior. Shared stdlib hashlib import replaces the duplicate local import.
+  No registry, daemon, APK change or compatibility fallback was added.
+- Nine named focused tmux regressions passed. Added native private-server proof
+  maps shell identity to socket identity/session: two Codex panes in one session
+  share a name, another session differs, and replacement socket identity differs.
+  Existing ambiguity/title race/service failure/socket/deadline tests stay green.
+  Exact candidate passed all6 standalone Python scripts, final37/0warnings/0fail
+  and TUI161/0fail. Actual source/staged diff inspected; bounded AI-only install
+  matches the accepted module and preserves unrelated dirty diff3acdf081e07b.
+- First real Manager-action probe correctly refused the original conversation:
+  its Codex pane/PID had already disappeared before the native baseline. This
+  count assertion was recorded red and investigated, never accepted as reuse
+  proof. An own empty installed Codex UI on an isolated tmux socket supplied a
+  qualified real target. Its native thread was materialized by archive/unarchive
+  and resumed through installed AI; no model turn or fabricated rollout was used.
+- Installed `codex termux notify emit Stop` produced the actual action. Executing
+  it created/selected exactly one native terminal. Four sequential and five
+  concurrent installed public-helper requests retained the same client/PID/native
+  current-session handle with no growth. Closing only that terminal allowed one
+  replacement, and the next request reused it. Pane/PID and global status/mouse
+  identities remained unchanged. Fifteen auth/config/resolver identities matched
+  their inode/mode/digest baseline; installed Core/runtime/Manager were untouched.
+- Own empty UI was gracefully closed, its native thread archived through upstream,
+  its private server and exact registry record removed, and its synthetic
+  notification removed. Closed-target public invocation is silent exit1 with no
+  creation. A final installed-module check initially guessed the wrong library
+  directory; reading the installed launcher resolved `.config/ai/lib`, and the
+  corrected check passed against the exact accepted source. No product change was
+  made to repair that check. This bundle is accepted and closed; native user-tap
+  feedback may refine UX but is not claimed by programmatic action/count proof.
+
+## TMUX-STATUS-CHOICE-TERMINAL-FOCUS (status accepted; routing superseded 2026-10-02)
 
 - User replaces the two-way toggle with off/on-hidden/on-status and asks exact
   notification return across native Termux terminals. Success requires both
@@ -767,17 +822,19 @@ dated sections preserve historical evidence; historical words such as
 
 - Source authority is remote `rewrite/rust-core`, read afresh on resume. Runtime
   producer is **4b00b8d461939a7070d95a1ea6e6a58c318cbf52**; ledger-only children
-  retain identical accepted Rust source. AI main **0eee1c2** adds new-terminal
-  notification attach after off/hidden/status selection; unrelated dirty work remains.
+  retain identical accepted Rust source. AI main **ea5541c** reuses one named
+  notification terminal per live tmux session after off/hidden/status selection;
+  unrelated dirty work remains.
 - Public main **07d625561283bad5d25b778782c16d4929b4939f**; signed/live sequence
   **34**, upstream **0.160.0**, **local-hosted-0-160-0-4b00b8d46193-notify-line**;
   sequence33 rollback. Manager-only change; Core/runtime bytes unchanged.
   Source/release/public/live agree; actual native effective delay0/full-access.
 - AI-TMUX-NOTIFY-FOCUS-V1, NOTIFY-OPEN and INPUT-REQUEST accepted. Both channels
   and PermissionRequest/UserInputRequest/Stop active; focus=tmux. AI --tmux/TUI
-  option controls managed launch. Click selects exact live native pane when
-  foreground terminal displays that session; ordinary non-tmux Android terminals
-  still use last-selected Termux Activity. No new Codex or terminal on click.
+  option controls managed launch. Click selects the qualified live pane and its
+  named native terminal, creating that terminal only if absent; repeated and
+  concurrent clicks reuse it. Ordinary non-tmux notifications still use Termux
+  Activity. No click creates a Codex or tmux workload.
   Auth separate; native shared conversations/DB and CWD/All policy unchanged.
 - RESUME-WRITER-RELEASE-V1 accepted: idle cross-account resume in4-5s without
   retry; genuine concurrent ownership preserved. No selected implementation remains.
