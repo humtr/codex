@@ -579,6 +579,14 @@ fn notification_test_reports_delivery_without_settings_or_hook_input() {
     assert_eq!(fs::read(&config).unwrap(), before);
     let calls = fs::read_to_string(&log).unwrap();
     assert!(calls.contains("arg=Codex notification test\n"));
+    assert_eq!(calls.matches("arg=--action\n").count(), 2);
+    assert_eq!(
+        calls
+            .matches("--activity-reorder-to-front --activity-single-top")
+            .count(),
+        2
+    );
+    assert!(!calls.contains("startservice") && !calls.contains("resume"));
     assert!(!calls.contains("secret input"));
     assert!(calls.contains("termux-toast\n"));
 }
@@ -804,4 +812,63 @@ fn notification_configuration_and_emit_are_best_effort_at_manager_boundary() {
 
 unsafe extern "C" {
     fn kill(pid: i32, signal: i32) -> i32;
+}
+
+#[test]
+fn notification_click_reuses_activity_repeatedly_with_quoted_absolute_provider_and_private_output()
+{
+    let root = TestRoot::new();
+    let bin = root.0.join("bin space ' $(touch injected)");
+    fs::create_dir(&bin).unwrap();
+    let core = write_core_probe(&bin);
+    let providers = root.0.join("providers");
+    fs::create_dir(&providers).unwrap();
+    write_notification_provider(&providers, "termux-notification");
+    let log = root.0.join("provider.log");
+    let output = run_manager_with_input(
+        &root.0,
+        &core,
+        &["notify", "emit", "Stop"],
+        &providers,
+        &log,
+        br#"{"content":"own synthetic click test","session_id":"01a0fc82-dc8f-7d13-bb78-7e120f1fa9b3","command":"touch injected","cwd":"/untrusted","CODEX_HOME":"/untrusted"}"#,
+    );
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stdout.is_empty() && output.stderr.is_empty());
+    let calls = fs::read_to_string(&log).unwrap();
+    let action = calls
+        .split("arg=--action\narg=")
+        .nth(1)
+        .unwrap()
+        .lines()
+        .next()
+        .unwrap();
+    assert!(action.contains("start --activity-reorder-to-front --activity-single-top -n com.termux/com.termux.app.TermuxActivity"));
+    assert!(action.contains(" >/dev/null 2>&1"));
+    assert!(!action.contains("/untrusted") && !action.contains("own synthetic click test"));
+    assert!(
+        !action.contains("01a0fc82")
+            && !action.contains("resume")
+            && !action.contains("startservice")
+    );
+    let am = bin.join("am");
+    let shell = std::env::var_os("SHELL").unwrap();
+    fs::write(&am, format!("#!{}\nprintf '%s\\n' \"$@\" >> \"$CLICK_LOG\"\nprintf private-output\nprintf private-error >&2\n", Path::new(&shell).display())).unwrap();
+    fs::set_permissions(&am, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::write(&log, "").unwrap();
+    for _ in 0..3 {
+        let clicked = Command::new(&shell)
+            .args(["-c", action])
+            .env("CLICK_LOG", &log)
+            .current_dir(&root.0)
+            .output()
+            .unwrap();
+        assert!(clicked.status.success());
+        assert!(clicked.stdout.is_empty() && clicked.stderr.is_empty());
+    }
+    assert_eq!(
+        fs::read_to_string(&log).unwrap(),
+        "start\n--activity-reorder-to-front\n--activity-single-top\n-n\ncom.termux/com.termux.app.TermuxActivity\n".repeat(3)
+    );
+    assert!(!root.0.join("injected").exists());
 }

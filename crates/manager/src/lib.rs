@@ -1168,13 +1168,13 @@ fn emit_notification(context: &Context, event: &str) {
     );
     match config.channel {
         NotifyChannel::Notification => {
-            invoke_termux_notification(&config, &title, &body);
+            invoke_termux_notification(&config, &title, &body, &notification_action(context));
         }
         NotifyChannel::Toast => {
             invoke_termux_toast(&config, &body);
         }
         NotifyChannel::Both => {
-            invoke_termux_notification(&config, &title, &body);
+            invoke_termux_notification(&config, &title, &body, &notification_action(context));
             invoke_termux_toast(&config, &body);
         }
     }
@@ -1283,7 +1283,12 @@ fn test_notification(context: &Context) -> Result<Option<String>, ManagerError> 
         config.channel,
         NotifyChannel::Notification | NotifyChannel::Both
     ) {
-        let result = invoke_termux_notification(&config, "Codex", "Codex notification test");
+        let result = invoke_termux_notification(
+            &config,
+            "Codex",
+            "Codex notification test",
+            &notification_action(context),
+        );
         output.push_str(&format!("notification={}\n", result.as_str()));
         failed |= result != ProviderResult::Ok;
     }
@@ -1302,9 +1307,31 @@ fn test_notification(context: &Context) -> Result<Option<String>, ManagerError> 
     }
 }
 
-fn invoke_termux_notification(config: &NotifyConfig, title: &str, body: &str) -> ProviderResult {
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+fn notification_action(context: &Context) -> String {
+    let am_path = context.core_entrypoint.with_file_name("am");
+    let am = am_path
+        .to_str()
+        .unwrap_or("/data/data/com.termux/files/usr/bin/am");
+    format!(
+        "{} start --activity-reorder-to-front --activity-single-top -n com.termux/com.termux.app.TermuxActivity >/dev/null 2>&1",
+        shell_quote(am)
+    )
+}
+
+fn invoke_termux_notification(
+    config: &NotifyConfig,
+    title: &str,
+    body: &str,
+    action: &str,
+) -> ProviderResult {
     let mut command = Command::new("termux-notification");
     command
+        .arg("--action")
+        .arg(action)
         .arg("--group")
         .arg(&config.group)
         .arg("--priority")
@@ -2569,5 +2596,15 @@ mod tests {
         assert!(normalized.len() <= NOTIFY_PAYLOAD_MAX_BYTES);
         assert!(normalized.is_char_boundary(normalized.len()));
         assert_eq!(notify_event_status("Stop"), "Notify turn completion");
+    }
+    #[test]
+    fn notification_click_non_utf8_entrypoint_keeps_canonical_activity_only() {
+        use std::os::unix::ffi::OsStringExt;
+        let context = Context {
+            home: PathBuf::from("/home/test"),
+            inherited_codex_home: None,
+            core_entrypoint: PathBuf::from(OsString::from_vec(b"/bin-\xff/codex".to_vec())),
+        };
+        assert_eq!(notification_action(&context), "'/data/data/com.termux/files/usr/bin/am' start --activity-reorder-to-front --activity-single-top -n com.termux/com.termux.app.TermuxActivity >/dev/null 2>&1");
     }
 }

@@ -22,6 +22,8 @@ optional behind `codex termux`.
 execution preferences and authentication while sharing upstream conversation
 storage. `notify show/set` controls Termux notification/toast delivery;
 `notify test` sends fixed test text and reports each selected provider's result.
+New notifications return to the existing Termux terminal when tapped, without
+creating another window or running `resume`.
 The `UserInputRequest` notification selector covers structured questions and
 follow-up input requests. `repair plan/apply` handles current-generation
 qualification and legacy-layout migration; `healthy` there is not a general

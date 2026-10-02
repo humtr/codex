@@ -1965,7 +1965,8 @@ The internal `notify emit <EVENT>` endpoint reads at most 64 KiB of hook input,
 which must be a UTF-8 JSON object when delivery is requested. It considers
 only the string field `title` for the notification title and, independently,
 the first string body field in this precedence: `content`,
-`last_assistant_message`, then `message`; no other field is inspected.
+`last_assistant_message`, then `message`. All other fields, including session
+IDs, commands, account/profile identifiers and working directories, are ignored.
 Missing title uses `Codex`; missing body uses the fixed event status strings
 `Notify session start`, `Notify tool start`, `Notify permission request`,
 `Notify tool finish`, `Notify before compact`, `Notify after compact`,
@@ -1981,6 +1982,28 @@ are successful no-ops so an upstream turn cannot fail because notification
 delivery is unavailable. `notification`, `toast`, and `both` select the
 corresponding capability-aware provider attempts; `both` attempts each
 independently. Manager emits no success text for the endpoint.
+
+Every notification includes a click action which brings the existing Termux
+Activity to the foreground using Android reorder-to-front and single-top flags.
+It preserves the currently selected terminal and creates no terminal session,
+Codex process or resume invocation. `notify test` uses the same Activity-only
+route. This adds no public/internal Manager command, click state or watcher.
+
+The action uses an absolute sibling `am` path from the qualified Core entrypoint
+(or the canonical Termux `am` path if the entrypoint is not UTF-8) and shell-quotes
+that path. It passes a fixed Activity component and flags only, silences stdout/
+stderr, and contains no notification text, hook metadata, profile, CWD, auth or
+session ID. It does not use the optional termux-am socket or launch the Termux
+terminal service. Existing notifications are not rewritten; this contract applies
+to newly delivered notifications.
+
+The installed Termux Activity has no accepted intent for selecting a particular
+existing terminal by Codex UUID. A click therefore returns to Termux's current
+terminal; exact originating-window selection is not claimed. When no terminal
+exists, Termux owns its ordinary initial-terminal behavior. Android foreground
+restrictions remain provider behavior; device acceptance proves the real
+Activity-only action and unchanged running terminal/Codex process identities.
+Physical notification tap is distinguished from programmatic action execution.
 
 Each provider attempt has a five-second bound; timeout terminates its owned
 process group, including API-helper descendants, and reaps the direct provider

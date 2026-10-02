@@ -32,6 +32,33 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
+## MANAGER-NOTIFY-OPEN-V1 (selected 2026-10-02)
+
+- User requests notification tap to return to running Termux; explicitly rejects
+  a new terminal/resume on every tap. Bound source99d51339c7c4722e1c8ff2b440d09e2855a5a7ba,
+  public f9edf2e60f41bc1f394aa8cc788257f89b9ed99f, installed signed sequence30.
+  Approved equivalent primary; workers OFF. Exact clean baseline222 Rust/90
+  Python passes with one explicit device ignore. No click implementation shipped.
+- Existing provider omits --action. KEEP native notification action and existing
+  Activity foregrounding; COLLAPSE into a fixed provider action; DELETE draft
+  session parsing, terminal-service/resume launch, URI/array encoding and unused
+  regressions. The user rejected that draft before commit/public/live mutation.
+- Installed Termux exposes no accepted existing-terminal-by-Codex-UUID intent.
+  Foreground its current terminal without a new window/process, ID lookup, app
+  preference mutation, helper command or auth change. Use working installed `am`;
+  termux-am's optional socket is unavailable on this device.
+- Focused regressions must execute the registered action repeatedly and prove
+  only Activity commands, safe absolute-path quoting and no hook metadata input.
+  Grouped gates and signed Manager-only release/ordinary activation follow.
+  Bounded real notification/Activity tests preserve terminal/Codex identities,
+  auth, config, recent history, resolver, rollback and both-channel selections.
+  No backups or unrelated cleanup. Physical tap requires user observation if
+  this environment cannot synthesize Android notification UI input.
+- Final source focus8 unit+5 integration passed. Exact grouped scripts/check.sh
+  exits0 with224 Rust/90 Python; one explicit device ignore. Locked release
+  build passed. Fifteen protected auth/config/resolver fingerprints unchanged.
+  Source diff reviewed; signed Manager-only publication/native gate pending.
+
 ## MANAGER-NOTIFY-INPUT-REQUEST-V1 (accepted 2026-10-02)
 
 - User requests review of repair/profile management and improvement plus actual
