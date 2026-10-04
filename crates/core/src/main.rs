@@ -1630,7 +1630,6 @@ fn core_notify_status_message(event: &str) -> &'static str {
         "SubagentStart" => "Notify subagent start",
         "SubagentStop" => "Notify subagent stop",
         "UserInputRequest" => "Codex needs your input",
-        "Stop" => "Notify turn completion",
         _ => "Notify Codex event",
     }
 }
@@ -1641,8 +1640,12 @@ fn render_core_notification_config(events: &[&str]) -> Vec<u8> {
     output.push_str(
         "sandbox_mode = \"danger-full-access\"\nmcp_oauth_credentials_store = \"file\"\nthread_unload_delay_secs = 0\n\n",
     );
+    if events.contains(&"Stop") {
+        // Upstream clears native notify for internal memory consolidation.
+        output.push_str("notify = [\"codex\", \"termux\", \"notify\", \"emit\", \"Stop\"]\n\n");
+    }
     for event in events {
-        if *event == "UserInputRequest" && events.contains(&"PreToolUse") {
+        if *event == "Stop" || (*event == "UserInputRequest" && events.contains(&"PreToolUse")) {
             continue;
         }
         let hook = if *event == "UserInputRequest" {
@@ -9578,7 +9581,7 @@ fn startup_update_prompt() -> StartupPromptDecision {
         if let Some(signal) = deferred_signal {
             let _ = unsafe { raise(signal) };
         }
-        return decision;
+        decision
     }
 
     #[cfg(not(any(target_os = "linux", target_os = "android")))]
@@ -13271,7 +13274,9 @@ exit 73
         assert!(config.contains("command = \"codex termux notify emit UserInputRequest\""));
         assert!(config.contains("[[hooks.PreToolUse.hooks]]"));
         assert!(!config.contains("[[hooks.UserInputRequest"));
-        assert_eq!(config.matches("timeout = 15").count(), 3);
+        assert_eq!(config.matches("timeout = 15").count(), 2);
+        assert!(config.contains("notify = [\"codex\", \"termux\", \"notify\", \"emit\", \"Stop\"]"));
+        assert!(!config.contains("hooks.Stop"));
         for events in [
             vec!["PreToolUse", "UserInputRequest"],
             core_notify_parse_hooks("all").unwrap(),
@@ -13315,6 +13320,8 @@ exit 73
             "mcp_oauth_credentials_store = \"file\"\n",
             "thread_unload_delay_secs = 0\n",
             "\n",
+            "notify = [\"codex\", \"termux\", \"notify\", \"emit\", \"Stop\"]\n",
+            "\n",
             "[[hooks.SessionStart]]\n",
             "\n",
             "[[hooks.SessionStart.hooks]]\n",
@@ -13322,14 +13329,6 @@ exit 73
             "command = \"codex termux notify emit SessionStart\"\n",
             "timeout = 15\n",
             "statusMessage = \"Notify session start\"\n",
-            "\n",
-            "[[hooks.Stop]]\n",
-            "\n",
-            "[[hooks.Stop.hooks]]\n",
-            "type = \"command\"\n",
-            "command = \"codex termux notify emit Stop\"\n",
-            "timeout = 15\n",
-            "statusMessage = \"Notify turn completion\"\n",
             "\n",
         );
         assert_eq!(
@@ -25706,7 +25705,7 @@ exit 0
         let locked = old.join("locked");
         std::fs::create_dir(&locked).unwrap();
         std::fs::write(locked.join("payload"), b"stale").unwrap();
-        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0)).unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o0)).unwrap();
         assert!(maintenance::prune(&roots).is_err());
         assert_eq!(std::fs::read(&paths.activation_state).unwrap(), state);
         assert!(roots.generation_root.join("current/runtime").is_file());

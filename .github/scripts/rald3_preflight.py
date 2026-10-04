@@ -210,8 +210,10 @@ def parse_descriptor(path: Path) -> dict[str, str]:
         fail("generation descriptor package identity is invalid")
     if result["expected_platform"] != "android" or result["expected_architecture"] != "aarch64":
         fail("generation descriptor platform binding is invalid")
-    if result["patch_policy_id"] not in {"termux-fd-remap-v1", "termux-fd-remap-v2"} or result["qualification"] != "qualified":
+    if result["patch_policy_id"] not in {"termux-fd-remap-v1", "termux-fd-remap-v2", "termux-fd-remap-v3"} or result["qualification"] != "qualified":
         fail("generation descriptor qualification binding is invalid")
+    if result["patch_policy_id"] in {"termux-fd-remap-v2", "termux-fd-remap-v3"} and result["upstream_package_version"] != "0.160.0":
+        fail("generation descriptor policy version binding is invalid")
     for field in ["source_artifact_digest", "runtime_digest", "core_artifact_digest"]:
         lower_sha256(result[field], field)
     if result["manager_artifact_digest"] != "-":

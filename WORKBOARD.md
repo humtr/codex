@@ -2,32 +2,24 @@
 
 SPEC -> GOAL -> WORKBOARD; goal-md bound, approved equivalent primary, workers OFF.
 
-## Current milestone: Core / Manager boundary alignment — installed
+## Current state
 
-Accepted source7285b91 and signed sequence35 are installed through ordinary
-`codex update`; Core and Manager were qualified and activated together.
-Generation: local-hosted-0-160-0-7285b91adbad-boundary-release; upstream0.160.0.
-Previous sequence34 is retained. Core owns compatibility/shared execution and
-signed lifecycle; Manager owns registration/selection and notification UX;
-upstream owns protocol/conversations/writers. Manager repair is removed.
+PERMISSION-PICKER / MEMORY-NOTIFY source corrections are closed; GOAL owns
+accepted behavior, exact artifact/source identities and conditional test evidence.
+Optimized public/native permission menus and enabled-memory exclusion passed.
+Installed sequence35 is unchanged; no publication or live activation occurred.
 
-GOAL's BOUNDARY-RELEASE owns source, workflow, hosted and device acceptance,
-protected-surface disposition and limitations. No live slice map remains.
+## Next work (not selected)
 
-## Next work
+- If the user authorizes deployment, prepare one exact-parent signed corrective
+  release from this accepted source. It must include the changed Core, Manager
+  and qualified v3 runtime, retain authenticated sequence35 as rollback and use
+  ordinary update. Never manually patch/copy an installed executable.
+- Review validation reliability separately: ordinary same-UID /proc retention
+  tests intermittently EACCES; all five passed with readlink tracing. No
+  conservative pruning rule was weakened. Historical hosted acceptance pins
+  old source/parent/main/sequence17 and still needs its own renewal.
+- Physical notification taps/layout remain unproved. Input-cache/unload
+  consideration is already recorded in GOAL.
 
-No additional product behavior is selected. Existing source CI
-rald7-full-acceptance.yml is a stale historical gate: fixed parent/source/main/
-sequence17 bindings and parallel Linux /proc proof do not express current
-acceptance. Its renewal is separate work; do not count its red runs as acceptance
-or change conservative product retention to make that environment pass.
-
-Native one-line input notification and generated Activity action were checked.
-Physical notification taps and Android screen layout were not checked.
-The input-cache/unload consideration is already recorded in GOAL under
-INPUT-CACHE-UNLOAD-CONSIDERATION; no new lifecycle implementation is selected.
-
-Any implementation resume must bind exact branch/HEAD/dirty state and current
-SPEC -> GOAL -> WORKBOARD. No worker/reviewer is enabled. Use private proof roots
-and preserve installed runtime/auth/accounts/conversations/Manager/resolver until
-another explicit bounded device acceptance authorizes a change.
+No implementation workers, advisors or independent reviewers are enabled.

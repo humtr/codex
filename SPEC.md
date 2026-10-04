@@ -184,7 +184,8 @@ Manager child launch preserves standard streams, TTY, signals, process exit
 status, and raw argument bytes at the final Core execution boundary.
 
 The generated upstream hook command may call the bounded internal Manager
-endpoint `codex termux notify emit <EVENT>`. It is not a configuration or
+endpoint `codex termux notify emit <EVENT>`. The native completion callback
+may append exactly one JSON argument for `Stop`. It is not a configuration or
 upstream passthrough form, is not shown by Manager help, and accepts only one
 canonical event name. Core remains the public-launch owner: Manager never
 writes Core's config directory or asks Core to execute an arbitrary command.
@@ -611,6 +612,33 @@ Subsequent native config reads and new/resumed thread configuration must see
 current Manager hook selection. Do not restart active writers or add CLI
 overrides to make notification changes visible.
 
+### Termux permission selection
+
+For a qualified Termux runtime, the upstream TUI permission picker and its
+permission shortcuts must preserve the supported no-sandbox execution policy.
+`Ask for approval` selects `danger-full-access`, `on-request` and the user
+reviewer. `Approve for me` selects `danger-full-access`, `on-request` and
+`auto_review`. `Full Access` selects `danger-full-access` and `never`. Changing
+reviewer must not select Linux workspace sandboxing or restart a shared server.
+The Termux picker and shortcuts exclude the unsupported Read Only choice;
+explicit CLI sandbox requests remain Core usage failures. User-supplied
+named/custom profiles retain upstream semantics. This adaptation
+must not impose a profile allowlist that silently falls back from an explicit
+restricted request to unrestricted execution.
+The UI must describe the actual no-sandbox permissions; auto review evaluates
+only approval requests and does not imply that every unrestricted command is
+reviewed. Read-only and explicitly requested workspace sandbox policies remain
+unsupported; a compatibility adaptation must not reinterpret such explicit
+requests as full access. Core does not own approval decisions or add synthetic
+CLI overrides. Manager is not required for this capability.
+
+A release-specific UI adaptation requires exact official source and artifact
+qualification, bounded byte changes, actual TUI selection and effective native
+thread-setting proof before release. A default-setting test or a direct API
+request alone does not close the picker requirement. Existing installed
+runtimes remain unchanged until signed publication and ordinary activation are
+separately accepted.
+
 Core never invokes, installs, downloads, or repairs `bwrap`. An explicit Linux
 sandbox-policy rejection is a Core usage/policy failure with process status 2
 and must occur before resolver/configuration descriptor setup, upstream
@@ -969,6 +997,18 @@ server starts; the canonical physical socket path must fit 107 bytes. The patch
 report includes the exact UDS policy and total changed-byte count. Historical
 v1 generations remain valid rollback artifacts. Other upstream versions require
 fresh source/artifact qualification before this server path is accepted.
+
+New 0.160.0 builds for the permission-picker contract use
+`termux-fd-remap-v3`. This retains all v2 path/UDS changes and the same exact raw
+runtime digest. The additional `termux-permission-picker-0-160-0-v1` policy
+adapts only the approval UI's default preset/profile selection and descriptions:
+no-sandbox with independent approval policy/reviewer. Linux sandbox profile
+resolution and explicit requests are not redefined. Original bytes and offsets
+are verified before any rewrite; unexpected or previously adapted input fails
+closed. The patch report additionally binds the permission policy and exact
+changed-byte count. Historical v1/v2 signed generations remain rollback-valid.
+Actual native picker, shortcut, no-daemon and shared-server setting readback
+qualify this policy; changes to the upstream version require fresh qualification.
 
 The unsigned output contains exactly `generation.meta`, the adapted `runtime`,
 and an unmodified root-level `codex-code-mode-host` beside `runtime`; the first
@@ -2087,12 +2127,18 @@ notifications. No second projection record/schema is introduced. Core alone
 renders the enabled hooks into its own managed
 `config.toml`; Manager never writes that Core directory. The generated file is
 owned by Core, carries a fixed `codex-termux-notify-v1` marker, contains the
-accepted Core execution defaults and selected hook blocks, and is atomically
+accepted Core execution defaults and selected notification callbacks, and is
+atomically
 replaced before runtime exec. Core replaces a missing file or its own marker
 file only; conflicting foreign state is preserved and rejected before execution.
 This Core-owned configuration conflict is distinct from invalid optional
 Manager state. Each enabled event is mapped
-to `codex termux notify emit <EVENT>`. Missing or invalid Manager notification
+to `codex termux notify emit <EVENT>`. Selected `Stop` uses upstream's native
+`notify` argv callback, with no generated `hooks.Stop` command. Upstream excludes
+internal memory consolidation from that callback; memory generation and use
+remain enabled according to operator configuration. Other selected events retain
+their command hooks, including the user-input matcher. Operator configuration
+retains ordinary upstream precedence. Missing or invalid Manager notification
 state, or a generation without a qualified Manager artifact, disables the
 optional hooks and must not make ordinary upstream launch fail.
 
@@ -2100,10 +2146,18 @@ The internal `notify emit <EVENT>` endpoint reads at most 64 KiB of hook input,
 which must be a UTF-8 JSON object when delivery is requested. It considers
 only the string field `title` for the notification title and, independently,
 the first string body field in this precedence: `content`,
-`last_assistant_message`, then `message`. A canonical, nonduplicate top-level
-`session_id` is used only for the separately selected focus action described
+`last_assistant_message`, then `message`. For the native `Stop` callback only,
+exactly one final argv JSON argument replaces stdin and must have nonduplicate
+`type = "agent-turn-complete"`; its same 64 KiB limit, successful no-op behavior
+and presentation policy apply. Native `last-assistant-message` is an alias for
+`last_assistant_message`; native `thread-id` is an alias for `session_id`.
+Duplicate aliases follow the existing duplicate-field rules. A canonical,
+nonduplicate top-level `session_id` is used only for the separately selected
+focus action described
 in Section 3. Other metadata, including commands, account/profile identifiers
 and working directories, does not become presentation content or shell input.
+Native input-message arrays are ignored. The callback uses upstream's argv
+transport directly, without logging or persisting its JSON payload.
 Missing title uses `Codex`; missing body uses the fixed event status strings
 `Notify session start`, `Notify tool start`, `Notify permission request`,
 `Notify tool finish`, `Notify before compact`, `Notify after compact`,

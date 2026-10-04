@@ -55,17 +55,12 @@ pub(super) fn prepare(home: &Path, selected: Option<&OsStr>) -> io::Result<Optio
             let path = profile.join(name);
             match fs::symlink_metadata(&path) {
                 Ok(m)
-                    if m.file_type().is_symlink() && fs::read_link(&path)? == shared.join(name) =>
-                {
-                    ()
+                    if m.file_type().is_symlink() && fs::read_link(&path)? == shared.join(name) => {
                 }
                 Ok(m)
                     if m.is_dir()
                         && DIRECTORIES.contains(name)
-                        && fs::read_dir(&path)?.next().is_none() =>
-                {
-                    ()
-                }
+                        && fs::read_dir(&path)?.next().is_none() => {}
                 Ok(_) => return Err(invalid()),
                 Err(e) if e.kind() == io::ErrorKind::NotFound => (),
                 Err(e) => return Err(e),

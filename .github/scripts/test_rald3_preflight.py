@@ -87,6 +87,20 @@ class PreflightTests(unittest.TestCase):
             ])
             (root / "generation.meta").write_text(descriptor)
             self.assertEqual(M.verify_candidate(root, "0.155.0")["generation_id"], "gen-1")
+            # Admission recognizes the new policy without dropping rollback policies.
+            for policy in ["termux-fd-remap-v1", "termux-fd-remap-v2", "termux-fd-remap-v3"]:
+                version = "0.155.0" if policy == "termux-fd-remap-v1" else "0.160.0"
+                candidate = descriptor.replace("termux-fd-remap-v1", policy).replace("0.155.0", version)
+                (root / "generation.meta").write_text(candidate)
+                self.assertEqual(M.verify_candidate(root, version)["patch_policy_id"], policy)
+                if policy != "termux-fd-remap-v1":
+                    (root / "generation.meta").write_text(candidate.replace(version, "0.160.1"))
+                    with self.assertRaises(M.PreflightError):
+                        M.verify_candidate(root, "0.160.1")
+            (root / "generation.meta").write_text(descriptor.replace("termux-fd-remap-v1", "termux-fd-remap-v4"))
+            with self.assertRaises(M.PreflightError):
+                M.verify_candidate(root, "0.155.0")
+            (root / "generation.meta").write_text(descriptor)
             with self.assertRaises(M.PreflightError):
                 M.verify_qualified_candidate(root, "0.155.0")
             marker.unlink()

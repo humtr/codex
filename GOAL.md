@@ -34,6 +34,87 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
+## PERMISSION-PICKER / MEMORY-NOTIFY (source accepted 2026-10-04)
+
+- User selects continuation of the `/permissions` defect investigation and
+  correction, followed by exclusion of internal memory-update notifications.
+  Bound clean rewrite/rust-core cb74f27e316d95634dfba3cd39e4ad570c553ac4;
+  goal-md resolves this repository GOAL; approved equivalent primary, workers OFF.
+- Native same-account ephemeral thread/start proves the server default is
+  dangerFullAccess/on-request/user, independent auto_review remains full access,
+  and never remains full access. No model turn or durable conversation created.
+  The TUI picker explicitly selects :workspace for both approval choices,
+  overriding the Core FD-34 no-sandbox default. A direct API proof is diagnosis,
+  not acceptance of a repaired picker.
+- First close the Termux picker contract with actual TUI/native setting proof;
+  preserve explicit unsupported-policy rejection, argv, approval ownership,
+  shared server reuse, auth, conversation and rollback surfaces. Then investigate
+  memory-only notification suppression without content heuristics, disabling
+  memory work or dropping ordinary Stop/user-input notifications.
+- Allowed writes are source and owned temporary proof roots. No installed
+  runtime/profile/session/auth/Manager configuration mutation, signed publication
+  or live cutover is authorized by this source bundle. Historical CI renewal
+  remains separate. WORKBOARD owns the live slice map and current proof state.
+- Accepted outcome: Ask/Approve preserve no-sandbox execution and select user/
+  auto_review independently; Full Access selects never. Unsupported Read Only is
+  omitted from builtin menus/shortcuts. Explicit CLI rejection and named/custom
+  operator semantics remain unchanged; no global permission allowlist/fallback.
+- Official 0.160.0 archive SHA256
+  7f0fe42ff22ecfa3a47bc4a34f5b22c4218b431a4ec0aba51c7d98299f07900c
+  produces termux-fd-remap-v3 with exact raw runtime SHA256
+  50b06603bdcdac39b714f5c3e68583c002b8ad8779ebfdaaf4932ff016b379c0.
+  Existing FD/UDS adaptation is preserved; 18 UI blocks change387 bytes,
+  total484 with FD/UDS. Adapted runtime SHA256
+  926a5e5c2d113db9bcf2173013d805275c21e872c77dd37eec91aff2efcff99f.
+  Drift/truncation/overlap and every v3 report field are bounded/fail-closed;
+  v1/v2 rollback and hosted v3 admission remain supported. Actual optimized
+  Builder publish with an owned fixture signer validates the real v3 output;
+  no public signing authority or publication was used.
+- Core projects selected Stop to upstream native notify, which upstream clears
+  for internal memory consolidation. Manager accepts one bounded, typed native
+  completion JSON argument, reuses the existing parser/presentation/focus path
+  and ignores input-message metadata. No extra runtime memory patch, content
+  heuristic, memory disabling, preferences/schema migration or duplicate Stop
+  hook. Other hooks, user-input matcher and operator precedence remain intact.
+- Optimized actual public Core/native TUI qualification passed default/legacy,
+  named-profile and embedded paths: four selections, current markers, F7/F6,
+  same thread and no model turn. Shared cases have6/5 effective native settings
+  events; embedded proof is native TUI acknowledgement, not captured protocol
+  JSON. No Manager is required for permissions (earlier same-runtime private
+  generation without Manager also passed all three paths).
+- Optimized native completion qualification passed two synthetic root turns,
+  one single-line delivery each, and an enabled real memory consolidation
+  worker/model fixture with successful job, selected phase2 input and watermark,
+  zero extra delivery, unchanged Manager record and no auth file. Durable
+  scripts/qualify_permissions.py and scripts/qualify_notifications.py exercise
+  owned temporary roots with no real credentials, remote model or Android alert.
+- Final grouped corpus: Python15+75; Rust237 unique passing cases = Core176,
+  Manager22+17 and builder22. Strict all-target workspace Clippy, formatting,
+  diff checks and optimized workspace build passed. Core ordinary latest run
+  was174 pass/2 existing retention EACCES/1 explicit device smoke ignored;
+  both failed names and all five retention cases passed on the same source
+  under readlink tracing. This is conditional aggregate evidence, not a claim
+  that untraced scripts/check.sh or the interrupted whole traced run exited0.
+  Ordinary /proc scan instability remains validation debt; conservative prune
+  rules were not weakened. Reused successful same-source tests rather than
+  repeating unrelated gates under the very slow tracer.
+- Rejected evidence/setup failures: zero-test filters corrected to real gates;
+  named-menu vector length and inline description tails repaired before native
+  qualification; initial memory fixture feature/trigger mismatch corrected;
+  tracked-tree audit rebound renamed/new files; moved Manager test cache rebuilt;
+  split/nested stdout accounting replaced with native summary plus exact failed
+  name readback; fixture signing URL corrected to the required final slash. Four pre-existing Clippy1.98 style lints were collapsed without
+  behavior change and mapped profile/startup PTY regressions passed.
+- Production/test/proof source identity SHA256
+  e16a06929fac25b35be930f8e833847edceb73af034955b381c821804ac11942
+  stayed unchanged through final optimized native proof. All27 bound installed/
+  auth/config/Manager/resolver identities remained unchanged. Installed signed
+  sequence35 Core/runtime/Manager match their accepted hashes; sealed legacy and
+  local main unchanged. Source acceptance does not authorize installed cutover.
+- Disposition: selected source corrections are closed with the stated /proc
+  test condition. Signed release/ordinary activation and separate validation
+  reliability work remain unselected; no live runtime/config/auth/session change.
+
 ## BOUNDARY-RELEASE (accepted and installed 2026-10-04)
 
 - User's `go` authorizes signed publication of the accepted Core and Manager

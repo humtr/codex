@@ -860,6 +860,76 @@ fn notification_configuration_and_emit_are_best_effort_at_manager_boundary() {
 }
 
 #[test]
+fn native_completion_argv_delivers_once_ignores_stdin_and_respects_disabled_events() {
+    let root = TestRoot::new();
+    let core = write_core_probe(&root.0);
+    let providers = root.0.join("providers");
+    fs::create_dir(&providers).unwrap();
+    write_notification_provider(&providers, "termux-notification");
+    let log = root.0.join("provider.log");
+    let configured = run_manager(&root.0, &core, &["notify", "set", "--focus", "tmux"], None);
+    assert!(configured.status.success());
+    let settings = run_manager(&root.0, &core, &["notify", "show"], None).stdout;
+    let payload = r#"{"type":"agent-turn-complete","thread-id":"01a0fc82-dc8f-7d13-bb78-7e120f1fa9b3","last-assistant-message":"\n completed\n normally\t","input-messages":["ignored-private-prompt"],"cwd":"/ignored-private-path"}"#;
+    let output = run_manager_with_input(
+        &root.0,
+        &core,
+        &["notify", "emit", "Stop", payload],
+        &providers,
+        &log,
+        br#"{"content":"ignored-stdin"}"#,
+    );
+    assert!(output.status.success() && output.stdout.is_empty() && output.stderr.is_empty());
+    let calls = fs::read_to_string(&log).unwrap();
+    assert_eq!(calls.matches("provider=").count(), 1);
+    assert!(calls.contains("arg=--content\narg=completed normally\n"));
+    assert!(
+        calls.contains("__tmux_focus") && calls.contains("01a0fc82-dc8f-7d13-bb78-7e120f1fa9b3")
+    );
+    assert!(!calls.contains("ignored-"));
+    let oversized = format!(
+        r#"{{"type":"agent-turn-complete","content":"{}"}}"#,
+        "x".repeat(65536)
+    );
+    for payload in [
+        "{",
+        r#"{"content":"untyped"}"#,
+        r#"{"type":"other"}"#,
+        &oversized,
+    ] {
+        let output = run_manager_with_input(
+            &root.0,
+            &core,
+            &["notify", "emit", "Stop", payload],
+            &providers,
+            &log,
+            br#"{"content":"must-not-fallback"}"#,
+        );
+        assert!(output.status.success() && output.stdout.is_empty() && output.stderr.is_empty());
+        assert_eq!(fs::read_to_string(&log).unwrap(), calls);
+    }
+    assert_eq!(
+        run_manager(&root.0, &core, &["notify", "show"], None).stdout,
+        settings
+    );
+    assert!(
+        run_manager(&root.0, &core, &["notify", "set", "--hooks", "none"], None)
+            .status
+            .success()
+    );
+    let disabled = run_manager_with_input(
+        &root.0,
+        &core,
+        &["notify", "emit", "Stop", payload],
+        &providers,
+        &log,
+        b"",
+    );
+    assert!(disabled.status.success() && disabled.stdout.is_empty() && disabled.stderr.is_empty());
+    assert_eq!(fs::read_to_string(&log).unwrap(), calls);
+}
+
+#[test]
 fn notification_is_single_line_while_toast_preserves_configured_newlines() {
     let root = TestRoot::new();
     let core = write_core_probe(&root.0);

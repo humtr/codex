@@ -130,6 +130,7 @@ struct ParsedCommand {
     upstream_args: Vec<OsString>,
     notify_patch: Option<NotifyPatch>,
     notify_event: Option<String>,
+    notify_payload: Option<OsString>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -335,7 +336,7 @@ fn run_inner(args: Vec<OsString>) -> Result<Option<String>, ManagerError> {
                 .notify_event
                 .as_deref()
                 .expect("notify event is parsed");
-            emit_notification(&context, event);
+            emit_notification(&context, event, command.notify_payload.as_deref());
             Ok(None)
         }
     }
@@ -355,6 +356,7 @@ fn parse_command(args: &[OsString]) -> Result<ParsedCommand, ManagerError> {
             upstream_args: Vec::new(),
             notify_patch: None,
             notify_event: None,
+            notify_payload: None,
         }),
         Some(action) if action == OsStr::new("current") && args.len() == 2 => Ok(ParsedCommand {
             kind: CommandKind::Current,
@@ -362,6 +364,7 @@ fn parse_command(args: &[OsString]) -> Result<ParsedCommand, ManagerError> {
             upstream_args: Vec::new(),
             notify_patch: None,
             notify_event: None,
+            notify_payload: None,
         }),
         Some(action) if action == OsStr::new("create") && args.len() == 3 => {
             let id = args.get(2).ok_or(ERR_USAGE)?;
@@ -371,6 +374,7 @@ fn parse_command(args: &[OsString]) -> Result<ParsedCommand, ManagerError> {
                 upstream_args: Vec::new(),
                 notify_patch: None,
                 notify_event: None,
+                notify_payload: None,
             })
         }
         Some(action) if action == OsStr::new("use") && args.len() >= 3 => {
@@ -395,6 +399,7 @@ fn parse_command(args: &[OsString]) -> Result<ParsedCommand, ManagerError> {
                 upstream_args,
                 notify_patch: None,
                 notify_event: None,
+                notify_payload: None,
             })
         }
         _ => Err(ERR_USAGE),
@@ -409,6 +414,7 @@ fn parse_notify_command(args: &[OsString]) -> Result<ParsedCommand, ManagerError
             upstream_args: Vec::new(),
             notify_patch: None,
             notify_event: None,
+            notify_payload: None,
         }),
         Some(action) if action == OsStr::new("show") && args.len() == 2 => Ok(ParsedCommand {
             kind: CommandKind::NotifyShow,
@@ -416,6 +422,7 @@ fn parse_notify_command(args: &[OsString]) -> Result<ParsedCommand, ManagerError
             upstream_args: Vec::new(),
             notify_patch: None,
             notify_event: None,
+            notify_payload: None,
         }),
         Some(action) if action == OsStr::new("set") => Ok(ParsedCommand {
             kind: CommandKind::NotifySet,
@@ -423,15 +430,20 @@ fn parse_notify_command(args: &[OsString]) -> Result<ParsedCommand, ManagerError
             upstream_args: Vec::new(),
             notify_patch: Some(parse_notify_set_args(&args[2..])?),
             notify_event: None,
+            notify_payload: None,
         }),
-        Some(action) if action == OsStr::new("emit") && args.len() == 3 => {
+        Some(action) if action == OsStr::new("emit") && matches!(args.len(), 3 | 4) => {
             let event = parse_notify_event(args.get(2).ok_or(ERR_USAGE)?, ERR_USAGE)?;
+            if args.len() == 4 && event != "Stop" {
+                return Err(ERR_USAGE);
+            }
             Ok(ParsedCommand {
                 kind: CommandKind::NotifyEmit,
                 target: None,
                 upstream_args: Vec::new(),
                 notify_patch: None,
                 notify_event: Some(event),
+                notify_payload: args.get(3).cloned(),
             })
         }
         _ => Err(ERR_USAGE),
@@ -1040,17 +1052,25 @@ struct HookText {
     session_id: Option<String>,
 }
 
-fn emit_notification(context: &Context, event: &str) {
+fn emit_notification(context: &Context, event: &str, payload: Option<&OsStr>) {
     let Ok(config) = read_notify_config(context) else {
         return;
     };
     if !notify_event_enabled(&config.hooks, event) {
         return;
     }
-    let Some(input) = read_hook_input() else {
-        return;
+    let stdin_input;
+    let input = match payload {
+        Some(payload) => payload.as_bytes(),
+        None => {
+            let Some(bytes) = read_hook_input() else {
+                return;
+            };
+            stdin_input = bytes;
+            &stdin_input
+        }
     };
-    let Some(text) = parse_hook_json(&input) else {
+    let Some(text) = parse_hook_json(input, payload.is_some()) else {
         return;
     };
     let title = normalize_notification_text(
@@ -1610,7 +1630,10 @@ fn hex_value(byte: u8) -> Option<u8> {
     }
 }
 
-fn parse_hook_json(input: &[u8]) -> Option<HookText> {
+fn parse_hook_json(input: &[u8], native_completion: bool) -> Option<HookText> {
+    if input.len() > NOTIFY_INPUT_MAX_BYTES {
+        return None;
+    }
     let mut cursor = JsonCursor::new(input);
     cursor.skip_whitespace();
     if !cursor.consume(b'{') {
@@ -1626,6 +1649,8 @@ fn parse_hook_json(input: &[u8]) -> Option<HookText> {
     let mut seen_content = false;
     let mut seen_last_assistant_message = false;
     let mut seen_message = false;
+    let mut seen_native_type = false;
+    let mut native_type_valid = false;
     cursor.skip_whitespace();
     if !cursor.consume(b'}') {
         loop {
@@ -1637,7 +1662,18 @@ fn parse_hook_json(input: &[u8]) -> Option<HookText> {
             }
             cursor.skip_whitespace();
             match key.as_str() {
-                "session_id" => {
+                "type" if native_completion => {
+                    if seen_native_type {
+                        return None;
+                    }
+                    seen_native_type = true;
+                    if cursor.bytes.get(cursor.index) == Some(&b'"') {
+                        native_type_valid = cursor.parse_string()? == "agent-turn-complete";
+                    } else {
+                        cursor.skip_value(0)?;
+                    }
+                }
+                "session_id" | "thread-id" => {
                     duplicate_session_id |= seen_session_id;
                     seen_session_id = true;
                     if cursor.bytes.get(cursor.index) == Some(&b'"') {
@@ -1669,7 +1705,7 @@ fn parse_hook_json(input: &[u8]) -> Option<HookText> {
                         cursor.skip_value(0)?;
                     }
                 }
-                "last_assistant_message" => {
+                "last_assistant_message" | "last-assistant-message" => {
                     if seen_last_assistant_message {
                         return None;
                     }
@@ -1703,7 +1739,7 @@ fn parse_hook_json(input: &[u8]) -> Option<HookText> {
         }
     }
     cursor.skip_whitespace();
-    if cursor.index != input.len() {
+    if cursor.index != input.len() || (native_completion && !native_type_valid) {
         return None;
     }
     if duplicate_session_id {
@@ -2406,14 +2442,59 @@ mod tests {
     }
 
     #[test]
+    fn native_completion_requires_bounded_typed_payload_and_safe_aliases() {
+        let id = "01a0fc82-dc8f-7d13-bb78-7e120f1fa9b3";
+        let payload = format!(
+            r#"{{"type":"agent-turn-complete","thread-id":"{id}","last-assistant-message":"done","input-messages":["private"],"cwd":"/private"}}"#
+        );
+        let text = parse_hook_json(payload.as_bytes(), true).unwrap();
+        assert_eq!(text.body.as_deref(), Some("done"));
+        assert_eq!(text.session_id.as_deref(), Some(id));
+        for payload in [
+            r#"{"content":"done"}"#,
+            r#"{"type":"other","content":"done"}"#,
+            r#"{"type":null,"content":"done"}"#,
+            r#"{"type":"agent-turn-complete","type":"agent-turn-complete"}"#,
+            r#"{"type":"agent-turn-complete","last_assistant_message":"one","last-assistant-message":"two"}"#,
+        ] {
+            assert!(parse_hook_json(payload.as_bytes(), true).is_none());
+        }
+        let duplicate = format!(
+            r#"{{"type":"agent-turn-complete","thread-id":"{id}","session_id":"{id}","message":"done"}}"#
+        );
+        let text = parse_hook_json(duplicate.as_bytes(), true).unwrap();
+        assert!(text.session_id.is_none());
+        assert_eq!(text.body.as_deref(), Some("done"));
+        let boundary = format!(
+            r#"{{"type":"agent-turn-complete","ignored":"{}"}}"#,
+            " ".repeat(NOTIFY_INPUT_MAX_BYTES - 43)
+        );
+        assert_eq!(boundary.len(), NOTIFY_INPUT_MAX_BYTES);
+        assert!(parse_hook_json(boundary.as_bytes(), true).is_some());
+        assert!(parse_hook_json(format!("{boundary} ").as_bytes(), true).is_none());
+        for args in [
+            vec!["notify", "emit", "Stop", "{}", "extra"],
+            vec!["notify", "emit", "PermissionRequest", "{}"],
+        ] {
+            let args = args.into_iter().map(OsString::from).collect::<Vec<_>>();
+            assert_eq!(parse_command(&args), Err(ERR_USAGE));
+        }
+        let args = ["notify", "emit", "Stop", "{}"].map(OsString::from);
+        assert_eq!(
+            parse_command(&args).unwrap().notify_payload,
+            Some("{}".into())
+        );
+    }
+
+    #[test]
     fn notification_input_accepts_only_bounded_top_level_text_fields() {
         let input = br#"{"message":"fallback","last_assistant_message":"last","content":"line\none","title":"Title","secret":"do-not-forward","nested":{"content":"wrong"}}"#;
-        let text = parse_hook_json(input).unwrap();
+        let text = parse_hook_json(input, false).unwrap();
         assert_eq!(text.title.as_deref(), Some("Title"));
         assert_eq!(text.body.as_deref(), Some("line\none"));
-        assert!(parse_hook_json(br#"{"content":"ok"} trailing"#).is_none());
-        assert!(parse_hook_json(br#"{"content": [1,]}"#).is_none());
-        assert!(parse_hook_json(br#"{"content":"\ud800"}"#).is_none());
+        assert!(parse_hook_json(br#"{"content":"ok"} trailing"#, false).is_none());
+        assert!(parse_hook_json(br#"{"content": [1,]}"#, false).is_none());
+        assert!(parse_hook_json(br#"{"content":"\ud800"}"#, false).is_none());
         assert_eq!(normalize_notification_text("a\r\nb\rc", false, 0), "a b c");
         assert_eq!(normalize_notification_text("ééé", true, 2), "éé");
         assert_eq!(truncate_utf8("ééé", 5), "éé");
@@ -2421,7 +2502,7 @@ mod tests {
 
     #[test]
     fn notification_input_and_payload_limits_are_strict() {
-        assert!(parse_hook_json(&vec![b' '; NOTIFY_INPUT_MAX_BYTES + 1]).is_none());
+        assert!(parse_hook_json(&vec![b' '; NOTIFY_INPUT_MAX_BYTES + 1], false).is_none());
         let long = "é".repeat(NOTIFY_PAYLOAD_MAX_BYTES);
         let normalized = normalize_notification_text(&long, true, 0);
         assert!(normalized.len() <= NOTIFY_PAYLOAD_MAX_BYTES);
@@ -2472,7 +2553,7 @@ mod tests {
             format!(r#"{{"session_id":"{id}","content":"ok"}}"#),
             format!(r#"{{"content":"ok","session_id":"{id}"}}"#),
         ] {
-            let parsed = parse_hook_json(input.as_bytes()).unwrap();
+            let parsed = parse_hook_json(input.as_bytes(), false).unwrap();
             assert_eq!(parsed.session_id.as_deref(), Some(id));
             assert_eq!(parsed.body.as_deref(), Some("ok"));
         }
@@ -2482,7 +2563,7 @@ mod tests {
             r#"{"session_id":{},"content":"ok"}"#.to_owned(),
             format!(r#"{{"nested":{{"session_id":"{id}"}},"content":"ok"}}"#),
         ] {
-            let parsed = parse_hook_json(input.as_bytes()).unwrap();
+            let parsed = parse_hook_json(input.as_bytes(), false).unwrap();
             assert!(parsed.session_id.is_none());
             assert_eq!(parsed.body.as_deref(), Some("ok"));
         }
