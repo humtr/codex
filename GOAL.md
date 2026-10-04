@@ -15,7 +15,9 @@
   the declared profile/shared-state roots. The selected 2026-10-02 user-authorized
   corrective bundle additionally permits its SPEC-bounded online retention
   transition, signed publication and ordinary runtime activation, without a
-  recovery backup as explicitly directed by the user.
+  recovery backup as explicitly directed by the user. The separately authorized
+  2026-10-04 BOUNDARY-RELEASE below permits its signed Core+Manager publication,
+  ordinary activation and bounded device acceptance; no data migration.
 - Protected surfaces: the live `$PREFIX/bin/codex`, installed runtime and
   Manager, `$PREFIX/etc/resolv.conf`, profiles, sessions, auth data,
   `legacy/monolith`, and the pre-rewrite archive bundle. Profiles, sessions,
@@ -32,7 +34,7 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
-## BOUNDARY-RELEASE (authorized 2026-10-04; in progress)
+## BOUNDARY-RELEASE (accepted and installed 2026-10-04)
 
 - User's `go` authorizes signed publication of the accepted Core and Manager
   together, ordinary `codex update` activation and bounded device acceptance.
@@ -67,8 +69,54 @@
   and source-helper lookup; earlier failed checks were not accepted. Fresh
   24-entry protection snapshot binds two profile config identities changed since
   prior source acceptance; this release work has not written either profile.
+- P2 passed: publication child02a4a6f4ea6806c82d7a8ab23b1a9be6df136b83,
+  hosted run37208119825 succeeded through build, Android smoke, signature,
+  immutable Release, Pages, full public readback, disposable ordinary update/
+  exact-current no-op and CAS stable promotion. Sequence35 is
+  local-hosted-0-160-0-7285b91adbad-boundary-release. Core SHA256
+  fd0fd178d903ac42087b938d888295e3234b39dd4d23c522a4bbc374eb39eda9;
+  Manager2d6212e0f6df148948fdc6f7b80bcae781bc84a127575115fcd24a29fd37d01f.
+  Both differ from sequence34; upstream runtime/code-mode-host/helpers and other
+  descriptor fields preserved. Fresh promoted index/signature exactly match
+  authenticated candidate. All24 protected identities unchanged before cutover.
+- Hosted artifact device-private qualification also passed40 actual public
+  invocations, two-account native synthetic discovery/resume with canonical
+  SQLite and false maintenance features, and bare/max-ID native shared-server
+  FD/runtime/account/config-refresh/generation and input-hook proof. No model
+  turn, credentials or live-state mutation. This proof preceded installed activation.
+- Unrelated historical source CI run37208097699 is red and not acceptance:
+  fixed source-parent/main/sequence17 assertions are obsolete; its parallel Linux
+  tests encounter real /proc PermissionDenied and conservative retention keeps
+  generations (five retention cases plus failed-candidate cleanup). Current
+  serial Termux grouped proof and hosted publication qualification are the
+  load-bearing evidence. Do not claim this historical CI passed or weaken
+  production retention to satisfy it; its automation requires separate renewal.
+- P3 passed: ordinary installed `codex update` returned0 and activated the exact
+  signed sequence35 Core and Manager, retaining sequence34 as previous. Genuine
+  upstream version is exactly codex-cli0.160.0; Core doctor returns0/healthy;
+  Manager help omits repair and retired repair plan returns2. Current accurately
+  reports external/source inherited for this unregistered legacy CODEX_HOME,
+  rather than inventing a Manager registration. A repeated ordinary update
+  reports already up to date with no subsequent protected-state changes.
+- Real Android notification proof uses only owned configuration and synthetic
+  payload: selected UserInputRequest reaches the real provider and NotificationList
+  with one-line title/body; unselected PermissionRequest makes no provider call.
+  Three generated Activity reorder/single-top actions complete successfully;
+  own synthetic notifications removed. Private proof preserves Android runtime
+  path variables and temporarily gives only the native API client its real Termux
+  environment. Earlier boolean-argument, fixture-reuse, missing Android environment
+  and logical-versus-native notification-ID assertions were corrected and rerun;
+  they are not accepted evidence. No physical screen-layout or tap claim.
+- Final protection:19 of24 bound content/mode/inode identities unchanged,
+  including all auth/account configs, Manager preferences and resolver. Five
+  ordinary activation changes are the launcher, activation pointer, two rollback
+  records and removal of the now-unreferenced sequence33 runtime; previous34 is
+  retained. Installed native processes10/10 preserve PID/start/executable identity
+  through activation and device actions. Local main and sealed legacy unchanged.
+  No manual runtime replacement, private-key access or model turn. Source and
+  installed boundary alignment are complete; historical CI renewal remains separate.
 
-## REPAIR-BOUNDARY (source accepted 2026-10-04; not installed)
+## REPAIR-BOUNDARY (source accepted 2026-10-04)
 
 - User authorized the boundary plan and explicitly reaffirmed repair removal.
   Bound rewrite/rust-core at 7f680137e157ff16f83dd08c16620424f088ff30,
@@ -122,9 +170,10 @@
 - All four boundary bundles are source accepted: Core independently prepares
   execution and owns signed lifecycle; Manager registers/selects profiles and
   delivers notifications; upstream owns conversations/protocol/writers. Repair
-  is retired. Installation and publication remain unchanged and separately scoped.
+  is retired. At source acceptance, installation and publication were unchanged;
+  subsequent signed installation is accepted under BOUNDARY-RELEASE above.
 
-## NOTIFICATION-BOUNDARY (source review accepted 2026-10-04; not installed)
+## NOTIFICATION-BOUNDARY (source review accepted 2026-10-04)
 
 - Bound clean 2c1e5f7; workers OFF. Exhaustively reviewed Manager notification
   commands, policy/default/record/publication parsers, hook input/JSON cursor,
@@ -148,9 +197,9 @@
 - Reuse same-source named Core projection/matcher regressions, Manager parser/
   input bounds/single-line/provider/focus regressions and PROFILE grouped/release
   acceptance. No live delivery, permission or device-state write. Review accepted;
-  installation/publication remain separate.
+  installation/publication were separate at source acceptance.
 
-## SERVER-BOUNDARY (source review accepted 2026-10-04; not installed)
+## SERVER-BOUNDARY (source review accepted 2026-10-04)
 
 - Bound clean 12a329e9, workers OFF; reviewed all 9 shared_server production
   definition plus launch/maintenance callers against exact upstream 0.160.0
@@ -175,9 +224,9 @@
 - Five named shared-server focused regressions and grouped 237 Rust / Python 15+75
   plus locked release builds are reused from PROFILE at identical production/test
   bytes; zero-test targets are not proof. Protected 24 content/mode/inode stayed
-  unchanged. Review/doc-only acceptance; source is not installed or published.
+  unchanged. Review/doc-only source acceptance preceded BOUNDARY-RELEASE.
 
-## PROFILE-BOUNDARY (source accepted 2026-10-04; not installed)
+## PROFILE-BOUNDARY (source accepted 2026-10-04)
 
 - User authorized the boundary-alignment plan after35d62e8; clean resume bound
   that exact HEAD, goal-md repository GOAL, approved equivalent primary, workers
@@ -234,9 +283,9 @@
   This qualifies the changed native launch/storage integration, not a newly signed
   bundle, public release, live cutover or server-supervisor replacement.
 - All24 protected file bytes/modes/inodes unchanged; sealed legacy and local main
-  unchanged. Source acceptance is closed by ordinary commit. Installed runtime
-  remains the prior accepted producer; server, notification and repair alignment
-  remain separate subsequent bundles.
+  unchanged. Source acceptance closed by ordinary commit. At that point the
+  installed runtime retained the prior producer; server, notification and repair
+  alignment followed as separate bundles before BOUNDARY-RELEASE.
 
 ## CORE-MANAGER-BOUNDARY-ALIGNMENT (criteria and plan recorded 2026-10-04)
 
@@ -274,7 +323,7 @@
   dependencies, installed state or remote release changes are selected in this
   planning turn. Implementation acceptance remains open.
 
-## CORE-MANAGER-INDEPENDENCE (source accepted 2026-10-04; not installed)
+## CORE-MANAGER-INDEPENDENCE (source accepted 2026-10-04)
 
 - User reaffirms the existing SPEC4.2 invariant: Core operates independently of
   Manager. Bound clean rewrite659ae8e, goal-md exact repository GOAL, approved
@@ -321,9 +370,9 @@
   Zero network attempts. This proves real-entrypoint routing/lifecycle behavior,
   not a genuine upstream runtime qualification, published release or device cutover.
 - All22 protected auth/config/resolver/launcher/activation/Manager/runtime file
-  bytes, modes and identities unchanged. Unrelated work preserved. Installed runtime
-  remains its previously accepted producer. Profile effective-versus-saved UX and
-  Manager repair retirement remain separate review outcomes, not implemented here.
+  bytes, modes and identities unchanged. Unrelated work preserved. At this source
+  acceptance the installed runtime retained its previous producer. Profile UX and
+  repair retirement followed separately before BOUNDARY-RELEASE.
 
 ## CORE-MANAGER-UPSTREAM-COMPLETENESS (review completed 2026-10-04; profile decision open)
 
