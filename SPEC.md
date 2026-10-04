@@ -2069,10 +2069,10 @@ toast_color\t<empty|#rrggbb>
 group\t<GROUP_ID>
 ```
 
-`notify show` emits exactly these nine public `key=value` lines for the
-effective configuration, in this order: `channel`, `hooks`, `content-chars`,
-`preserve-newlines`, `toast-gravity`, `toast-short`, `toast-background`,
-`toast-color`, and `group`. It emits no path, source detail, payload,
+`notify show` emits the nine configuration `key=value` lines in this order:
+`channel`, `hooks`, `content-chars`, `preserve-newlines`, `toast-gravity`,
+`toast-short`, `toast-background`, `toast-color`, and `group`, followed by
+`focus=termux|tmux` from the separate focus record. It emits no path, source detail, payload,
 environment, or credential. An absent record yields the defaults without
 creating Manager state. A malformed, symlinked, overlong, incorrectly-modeled,
 or conflicting record is an operation failure and is never replaced
@@ -2084,12 +2084,18 @@ It never writes an upstream profile, Core generation, activation state, or
 notification payload.
 
 For an ordinary upstream launch, Core may read this exact bounded Manager
-record read-only. Core alone renders the enabled hooks into its own managed
+record read-only. Core independently validates its path, mode, bound, version
+and complete record shape, then returns only selected hook names. It does not
+apply channel, text, toast or focus policy, publish Manager state, or deliver
+notifications. No second projection record/schema is introduced. Core alone
+renders the enabled hooks into its own managed
 `config.toml`; Manager never writes that Core directory. The generated file is
-owned by Core, carries a fixed `codex-termux-notify-v1` marker, contains only
-the enabled hook blocks, and is atomically replaced before runtime exec. Core
-replaces a missing file or its own marker file only; an unrelated regular file
-is preserved and the optional hooks are skipped. Each enabled event is mapped
+owned by Core, carries a fixed `codex-termux-notify-v1` marker, contains the
+accepted Core execution defaults and selected hook blocks, and is atomically
+replaced before runtime exec. Core replaces a missing file or its own marker
+file only; conflicting foreign state is preserved and rejected before execution.
+This Core-owned configuration conflict is distinct from invalid optional
+Manager state. Each enabled event is mapped
 to `codex termux notify emit <EVENT>`. Missing or invalid Manager notification
 state, or a generation without a qualified Manager artifact, disables the
 optional hooks and must not make ordinary upstream launch fail.
@@ -2098,8 +2104,10 @@ The internal `notify emit <EVENT>` endpoint reads at most 64 KiB of hook input,
 which must be a UTF-8 JSON object when delivery is requested. It considers
 only the string field `title` for the notification title and, independently,
 the first string body field in this precedence: `content`,
-`last_assistant_message`, then `message`. All other fields, including session
-IDs, commands, account/profile identifiers and working directories, are ignored.
+`last_assistant_message`, then `message`. A canonical, nonduplicate top-level
+`session_id` is used only for the separately selected focus action described
+in Section 3. Other metadata, including commands, account/profile identifiers
+and working directories, does not become presentation content or shell input.
 Missing title uses `Codex`; missing body uses the fixed event status strings
 `Notify session start`, `Notify tool start`, `Notify permission request`,
 `Notify tool finish`, `Notify before compact`, `Notify after compact`,

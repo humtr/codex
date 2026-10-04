@@ -32,6 +32,32 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
+## NOTIFICATION-BOUNDARY (source review accepted 2026-10-04; not installed)
+
+- Bound clean 2c1e5f7; workers OFF. Exhaustively reviewed Manager notification
+  commands, policy/default/record/publication parsers, hook input/JSON cursor,
+  text/focus/provider definitions and Core validators/projector/callers.
+  KEEP Manager policy/presentation/delivery, independent Core bounded path/mode/
+  version/full-shape validation returning only hook names, and native integration.
+  The shared event vocabulary is a versioned payload contract; Core hook activity
+  and Manager delivered fallback text serve separate interfaces. No duplicated
+  physical write or competing policy owner requires a new schema/dependency.
+- Corrected stale SPEC descriptions to match already accepted public behavior:
+  show includes the separate focus line; generated Core configuration contains
+  execution defaults; foreign Core-owned config is preserved/rejected; canonical
+  session_id affects only explicitly selected focus, never content/shell input.
+  No production/test code, command, record or behavior changed.
+- Actual optimized public Core/Manager + qualified native 0.160.0 private server
+  proof confirms effective PreToolUse request_user_input(_async) matcher and no
+  active PermissionRequest entries for UserInputRequest,Stop; configuration
+  refresh preserves server PID/FD binding. Initial key-absence check was invalid
+  because config/read includes empty disabled hook arrays; corrected the fixture
+  to inspect active entries and reran successfully. No red gate remains.
+- Reuse same-source named Core projection/matcher regressions, Manager parser/
+  input bounds/single-line/provider/focus regressions and PROFILE grouped/release
+  acceptance. No live delivery, permission or device-state write. Review accepted;
+  installation/publication remain separate.
+
 ## SERVER-BOUNDARY (source review accepted 2026-10-04; not installed)
 
 - Bound clean 12a329e9, workers OFF; reviewed all 9 shared_server production

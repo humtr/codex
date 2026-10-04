@@ -18,24 +18,13 @@ retired history, and native-equivalent empty/non-UTF8 home selection is unified.
 Source only; installed state is unchanged. P0-P2 proof map is closed and removed.
 
 User authorization covers continuing this milestone; workers OFF.
-SERVER-BOUNDARY source review is accepted (2026-10-04); GOAL owns the closed
-review and native evidence. Product/test bytes are unchanged and the fixture
-length failure is resolved. Next selected bundle is NOTIFICATION-BOUNDARY.
-Rebind exact commit/dirty state before its producer/validation/projection review.
+SERVER-BOUNDARY and NOTIFICATION-BOUNDARY source reviews are accepted
+(2026-10-04); GOAL owns their dispositions and native proof. Product/test bytes
+remain unchanged; fixture length and disabled-hook assertions are corrected.
+Next selected bundle is REPAIR-BOUNDARY; bind exact HEAD/dirty state and record
+baseline before changing public grammar or product code.
 
-### Current and subsequent bundles
-
-**NOTIFICATION-BOUNDARY — validated policy with minimal Core projection.** Inspect
-all producer/record/parser/projector paths in Manager and Core. Manager owns
-presentation and delivery; Core needs only the validated integration inputs.
-Collapse repeated policy interpretation while retaining bounded version/shape/
-path validation. Reuse an existing contract if possible; a new projection file
-or schema is not the default solution. Focused proof includes
-`test_mgr3_notification_record_projects_hooks_on_real_upstream_launch`,
-`notification_input_request_projects_actual_upstream_matcher_without_duplicates`
-and Manager delivery regressions. Protect malformed-state handling, unavailable
-Manager isolation, input-versus-permission preference, completion, one-line
-notification and existing terminal focus. No live notification test in source work.
+### Current bundle
 
 **REPAIR-BOUNDARY — disposition of the redundant repair facade.** Preferred
 disposition is DELETE if exact public-path review confirms no result beyond Core
