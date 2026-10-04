@@ -25681,12 +25681,27 @@ exit 0
         let mut churn = std::process::Command::new("python3")
             .args(["-c", "import subprocess; [subprocess.run(['sh','-c','exit 0'],check=True) for _ in range(100)]"])
             .spawn().unwrap();
-        let results: Vec<_> = (0..100).map(|_| maintenance::prune(&roots)).collect();
+        let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+        let state = std::fs::read(&paths.activation_state).unwrap();
+        let results: Vec<_> = (0..100)
+            .map(|_| {
+                let result = maintenance::prune(&roots);
+                let preserved = held_root.join("file").is_file()
+                    && std::fs::read(&paths.activation_state).unwrap() == state;
+                (result, preserved)
+            })
+            .collect();
         assert!(churn.wait().unwrap().success());
-        for result in results {
-            assert_eq!(result.unwrap(), 0);
-            assert!(held_root.join("file").is_file());
+        for (result, preserved) in results {
+            match result {
+                Ok(removed) => assert_eq!(removed, 0),
+                // Exec/exit can temporarily deny references before exit is
+                // confirmed. The bounded scan must preserve state and files.
+                Err(error) => assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied),
+            }
+            assert!(preserved);
         }
+        assert_eq!(maintenance::prune(&roots).unwrap(), 0);
         drop(held);
         assert_eq!(maintenance::prune(&roots).unwrap(), 1);
         remove_temp_root(root);

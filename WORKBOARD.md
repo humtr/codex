@@ -49,3 +49,20 @@ P1 focused closure: local hosted Python77/77, YAML/all15 shell blocks, actual
 CI/test diff and unchanged Rust source identities verified. Capability sets are
 explicitly all dropped after entering private namespaces; corpus remains non-root.
 Pending actual hosted gate, not accepted by syntax/text tests alone.
+
+P1 actual namespace gate: hosted run37239503780 at1f3dfd1e1033e5a5c71f836b7ecb967ecab44e0c
+proved host3 same-user exe EACCES (two uid1001 dirs and one root-owned),
+confirming the host contamination diagnosis. Private/non-root corpus fixed8 reds;
+Core179/1 exit-churn red/1 ignored/2 deferred. Owned persistent unreadable-live
+negative passed; all other retention cases passed. Remaining churn test wrongly
+requires every prune to succeed during active exec/exit despite SPEC's bounded
+conservative abort. KEEP production and10ms budget; COLLAPSE proof onto no live
+file/state deletion for each scan, permit only observed PermissionDenied abort,
+then require successful prune0 while held after churn and prune1 after release.
+Map test-only revision to focused all8 platform retention cases and actual hosted
+full gate. No further publication work until P1 closes.
+
+P1 churn proof focused7/7 Android and strict all-target Clippy passed; exact diff
+contains only the existing cfg(test) regression. Production/native artifacts
+unchanged; reuse Android full/native evidence and let actual hosted grouped gate
+close this test-only correction, including the Linux-only eighth retention case.

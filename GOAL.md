@@ -102,6 +102,14 @@
   regression or production's conservative visibility. Local77 Python contracts,
   YAML/all15 shell blocks and actual CI diff passed; hosted proof remains pending.
   Unchanged Android product/native full proofs are reused, not rerun for CI-only edits.
+- Hosted namespace run37239503780 at1f3dfd1e1033e5a5c71f836b7ecb967ecab44e0c
+  diagnosed three host same-user exe denials and fixed eight failures through
+  proof isolation. Core179/1 churn failure/1 ignored/2 deferred remained; the
+  real unreadable-live negative passed. The churn proof now preserves held files
+  and activation bytes on every scan, permits only observed PermissionDenied,
+  and requires successful pruning after churn and handle release. Production and
+  the10ms bound are unchanged. Android focused retention7/7 and strict all-target
+  Clippy passed; actual diff is confined to the existing test. Hosted closure pending.
 - Next: ordinary accepted-source push, require event hosted acceptance, then one
   exact-parent sequence35->36 Core+Manager+v3 runtime publication bridge;
   keep other signed fields/helper/code-mode-host bytes unchanged. Production
