@@ -80,6 +80,14 @@ be appended to upstream `--version` or `-V` output.
 
 ### Optional AI tmux notification focus
 
+The separate humtr/ai launcher is an optional convenience consumer of the
+Codex product. Core and Manager define Codex's product contracts; AI adapts to
+them. AI may present provider choices and own its tmux presentation, but must
+not define competing Codex profile identity, storage, update, recovery, or
+conversation semantics. Core and the ordinary Manager commands remain usable
+without AI. The explicitly optional tmux focus helper below does not transfer
+profile or runtime ownership to AI.
+
 The separate humtr/ai launcher may offer explicit `ai run <provider> --tmux`
 or `--tmux=hidden|status|off` and a default-off TUI choice: off, on-hidden,
 on-status. Legacy true/false preferences map to hidden/off. AI owns tmux launch,
@@ -397,10 +405,19 @@ Manager owns:
 
 - `codex termux` command UX;
 - profile selection and presentation;
-- session indexing and selection;
 - notification configuration and delivery;
 - Manager-local state and UI;
 - repair planning and requests to Core.
+
+Core and Manager are the product authority for optional convenience clients
+such as AI. Manager's profile UX and declared profile state must be evaluated
+as a standalone Codex capability; the existence of an AI profile picker is not
+a reason to move that ownership to AI. AI's Codex integration must follow the
+accepted Core/Manager identity and execution contracts. Conversely, Manager
+must not duplicate AI's generic multi-provider or tmux presentation machinery.
+Conversation persistence, discovery, selection and resume belong to upstream,
+as established by the shared-conversation contract below; Manager does not own
+a second session index or picker.
 
 The Manager executable is built separately from Core and is an optional signed
 generation asset. Core does not compile it, discover it from `PATH`, or probe

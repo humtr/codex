@@ -32,6 +32,34 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
+## CORE-MANAGER-AI-AUTHORITY (policy accepted 2026-10-04)
+
+- User corrects the architectural review: AI is a separate optional convenience
+  wrapper and must adapt to Core/Manager. Manager must not be redesigned around
+  AI's current profile paths or stripped of necessary standalone capabilities
+  merely because AI offers a picker. Core retains runtime composition,
+  qualification, installation, update, activation, recovery and rollback;
+  Manager owns Codex profile UX/state and Termux notifications; upstream owns
+  authentication and conversation semantics. AI supplies optional presentation
+  and tmux conveniences against these product contracts.
+- Bound clean rewrite cbcc9a6; goal-md resolves this GOAL, approved equivalent
+  primary, workers OFF. This is an authority clarification before any new
+  product behavior, not acceptance of profile integration or a live migration.
+  SPEC records the hierarchy and removes its stale Manager session-index owner
+  bullet, already superseded by the accepted upstream shared-conversation path.
+- Existing AI/Manager profile divergence is a next design concern: establish
+  the Core/Manager profile contract and standalone public path first, then adapt
+  AI's Codex integration. Preserve existing execution homes and credentials;
+  this decision does not authorize relocation, merging or deletion. Generic
+  AI providers and tmux presentation remain AI-owned. Do not infer that Manager
+  profile commands should be removed or replaced by AI.
+- Manager repair review remains a removal recommendation because no distinct
+  recovery result was found; it is not moved to AI and its public commands have
+  not been retired. Any retirement requires a separate SPEC-first product slice.
+  This policy/document correction changes no code, installed artifact, preference,
+  auth/profile/session data or remote release. Diff inspection/check closes the
+  documentation gate; implementation alignment remains unproven.
+
 ## NOTIFY-USER-ANSWER-PREFERENCE (accepted 2026-10-02)
 
 - User clarifies desired waiting alert is the conversational question/choice
