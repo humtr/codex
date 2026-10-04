@@ -14,7 +14,7 @@ Fresh signed every-byte/sidecar audit passed. Installed sequence35 unchanged.
 
 | Slice | Observable behavior | Writable path | Focused proof | Protected surfaces | State |
 | --- | --- | --- | --- | --- | --- |
-| P1 | Hosted acceptance proves the exact accepted event source | authority close/ordinary rewrite push only | renewed event CI including Linux denied-live-handles and two Android artifact admission cases | unrelated lineages/live state/public producer | source closed; pending authority commit/push; real public audit green |
+| P1 | Hosted acceptance proves the exact accepted event source | authority close/ordinary rewrite push only | renewed event CI including Linux denied-live-handles and two Android artifact admission cases | unrelated lineages/live state/public producer | hosted red:9 retention/failed-candidate cases; isolate proof /proc while retaining non-root UID |
 | P2 | Signed sequence36 changes only accepted Core, Manager and qualified permission runtime | separate exact-parent publication checkout: auto-release-termux.yml one spent corrective bridge | actual shell/descriptor positive and forbidden-delta matrix, YAML/shell parse; hosted signing/native smoke/Release/Pages/public readback/disposable ordinary update/CAS | signing authority, sequence35 LKG, preserved host/helpers/fields, non-force main/local main | pending P1 green; rebind parent/index/upstream before mutation |
 | P3 | Ordinary device update activates sequence36 and fresh sessions preserve independent approvals without sandbox; memory updates stay silent | ordinary installed codex update, bounded owned device proof roots | actual downloaded candidate permission/memory proof, signed ordinary activation, doctor/version/no-op/previous35 and protection | credentials/conversations/preferences/resolver/running work; no manual executable copies | pending signed publication gates |
 
@@ -30,3 +30,22 @@ P3 proof is owned configuration and synthetic loopback only, no model/account
 turn or raw user-content inspection. Physical notification layout/tap remains an
 observation, never inferred from provider/action success. Follow GOAL's persisted
 live authorization; do not ask again. Deferred input-cache review follows closure.
+
+P1 stop-on-red: hosted run37238896480 bound6f2ee908e839865878aa67f549fc2c8854082890
+passed contract/public audit/Android build/Python, but Linux whole Core171/9 red/
+1 ignored/2 deliberately deferred Android cases. All eight retention cases and
+failed-candidate cleanup saw EACCES or preserved files; final acceptance rejected.
+KEEP production fail-closed. Diagnose host-owned native visibility metadata only;
+COLLAPSE all three Cargo test invocations into one private mount/PID namespace
+with remounted /proc and original non-root UID/GID. Host tasks cannot contaminate
+positive pruning proofs; the owned non-dumpable child remains a real negative
+visibility proof because capabilities/UID are dropped. Preserve real source,
+Android artifacts, argv and serial corpus, never filter away negative tests.
+No publication checkout mutation; only owned preview exists. Map workflow change
+to source-event/one-serial-corpus regression, YAML/shell parse and actual hosted
+full gate. Existing unchanged Android product/native proofs are reusable.
+
+P1 focused closure: local hosted Python77/77, YAML/all15 shell blocks, actual
+CI/test diff and unchanged Rust source identities verified. Capability sets are
+explicitly all dropped after entering private namespaces; corpus remains non-root.
+Pending actual hosted gate, not accepted by syntax/text tests alone.

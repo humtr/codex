@@ -92,6 +92,16 @@
   never reverted or counted unchanged. All auth, installed Core/runtime/activation/
   rollback, Manager preferences, resolver, local main and sealed legacy stay exact.
   Latest27-path snapshot binds the next gate. No public or installed mutation yet.
+- Hosted source run37238896480 at6f2ee908e839865878aa67f549fc2c8854082890
+  rejected final acceptance: Core171/9 retention/cleanup failures/1 ignored/2
+  Android cases deferred; contracts/public audit/Android build/Python passed.
+  CI now diagnoses host proc visibility using metadata only and runs the entire
+  serial corpus plus both Android cases in one private PID/mount namespace,
+  remounted proc and original non-root UID/GID with all capabilities dropped.
+  This isolates foreign host tasks without weakening the owned unreadable-live
+  regression or production's conservative visibility. Local77 Python contracts,
+  YAML/all15 shell blocks and actual CI diff passed; hosted proof remains pending.
+  Unchanged Android product/native full proofs are reused, not rerun for CI-only edits.
 - Next: ordinary accepted-source push, require event hosted acceptance, then one
   exact-parent sequence35->36 Core+Manager+v3 runtime publication bridge;
   keep other signed fields/helper/code-mode-host bytes unchanged. Production

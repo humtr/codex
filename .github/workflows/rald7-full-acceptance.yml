@@ -205,20 +205,63 @@ jobs:
           python3 -m unittest -v scripts/test_shared_state_migrate.py scripts/test_shared_visibility_transition.py
           python3 -m unittest discover -s .github/scripts -p 'test_*.py'
 
-      - name: Full workspace tests
+      - name: Full workspace and Android focused proofs in private proc
         shell: bash
         run: |
           set -euo pipefail
           cd source
-          cargo test --workspace --locked -- --test-threads=1             --skip test_r6_builder_publish_output_enters_existing_signed_release_admission             --skip test_rald1_local_derived_fallback_and_explicit_build_preserve_public_authority
-
-      - name: Android Core admission and local-derived focused proofs
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd source
-          CODEX_B10_RELEASE_CORE="$RALD7_ANDROID_CORE" cargo test --locked -p codex tests::test_r6_builder_publish_output_enters_existing_signed_release_admission -- --exact --nocapture --test-threads=1
-          CODEX_B10_RELEASE_CORE="$RALD7_ANDROID_CORE" cargo test --locked -p codex tests::test_rald1_local_derived_fallback_and_explicit_build_preserve_public_authority -- --exact --nocapture --test-threads=1
+          # Record only native visibility metadata, never executable paths/argv.
+          python3 - <<'PYPROC'
+          from pathlib import Path
+          import os
+          uid = os.getuid()
+          denied = 0
+          for proc in Path('/proc').iterdir():
+              if not proc.name.isdigit():
+                  continue
+              operation = 'status'
+              owner = None
+              try:
+                  owner = proc.stat().st_uid
+                  status = (proc / 'status').read_text()
+                  ids = next(line.split()[1:] for line in status.splitlines() if line.startswith('Uid:'))
+                  if str(uid) not in ids:
+                      continue
+                  stat = (proc / 'stat').read_text().rsplit(')', 1)[1].split()
+                  if stat[0] in {'Z', 'X'} and stat[17] == '1':
+                      continue
+                  operation = 'exe'
+                  (proc / 'exe').readlink()
+                  operation = 'fd'
+                  for fd in (proc / 'fd').iterdir():
+                      try:
+                          fd.readlink()
+                      except FileNotFoundError:
+                          pass
+              except PermissionError as error:
+                  denied += 1
+                  print(f'host-proc incomplete metadata_uid={owner} local_uid={uid} op={operation} errno={error.errno}')
+              except (FileNotFoundError, ProcessLookupError, StopIteration):
+                  pass
+          print(f'host-proc denied reads={denied}; positive proofs require a private proc view')
+          PYPROC
+          # /proc belongs to the proof, while access checks use the real runner UID.
+          # Dropping root preserves the deliberately unreadable live-child test.
+          test "$(id -u)" -ne 0
+          sudo unshare --mount --pid --fork --mount-proc --propagation private \
+            setpriv --reuid="$(id -u)" --regid="$(id -g)" --init-groups \
+              --bounding-set=-all --inh-caps=-all --ambient-caps=-all \
+            env PATH="$PATH" HOME="$HOME" \
+              RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}" CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}" \
+              PREFIX="$PREFIX" TMPDIR="$TMPDIR" RALD7_ANDROID_CORE="$RALD7_ANDROID_CORE" \
+            bash --noprofile --norc -e -o pipefail -c '
+              test "$(id -u)" -ne 0
+              cargo test --workspace --locked -- --test-threads=1 \
+                --skip test_r6_builder_publish_output_enters_existing_signed_release_admission \
+                --skip test_rald1_local_derived_fallback_and_explicit_build_preserve_public_authority
+              CODEX_B10_RELEASE_CORE="$RALD7_ANDROID_CORE" cargo test --locked -p codex tests::test_r6_builder_publish_output_enters_existing_signed_release_admission -- --exact --nocapture --test-threads=1
+              CODEX_B10_RELEASE_CORE="$RALD7_ANDROID_CORE" cargo test --locked -p codex tests::test_rald1_local_derived_fallback_and_explicit_build_preserve_public_authority -- --exact --nocapture --test-threads=1
+            '
 
       - name: Clippy warnings are errors
         shell: bash
