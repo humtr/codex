@@ -8,7 +8,7 @@ The rewrite has one public command, `codex`, and two internal layers:
 - a minimal native Rust Core that makes the upstream runtime work correctly on
   Termux and owns installation, update, diagnosis, activation, and rollback;
 - a separate Manager layer reached through `codex termux` for execution
-  profiles, notifications, and bounded Core repair requests. Conversation
+  profiles and notifications. Conversation
   discovery and resume remain upstream-owned.
 
 ## Current status
@@ -27,9 +27,9 @@ launch, a qualified live conversation selects one named Android terminal attache
 to its existing tmux session, creating it only if absent. Repeated taps reuse it;
 closing it permits one replacement. No new Codex workload or `resume` is started.
 The `UserInputRequest` notification selector covers structured questions and
-follow-up input requests. `repair plan/apply` handles current-generation
-qualification and legacy-layout migration; `healthy` there is not a general
-authentication or network diagnosis. Exact contracts belong to `SPEC.md`.
+follow-up input requests. Diagnosis and recovery remain available through Core
+`codex doctor`, `codex update`, and `codex update --rollback`.
+Exact contracts belong to `SPEC.md`.
 
 Release-automation phases through RALD-7 are accepted in `GOAL.md`. RALD-6
 proved the public fresh-install surface and same-client signed update delivery.

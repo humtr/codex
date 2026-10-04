@@ -144,7 +144,7 @@ state or terminating existing clients.
 ### Manager command boundary
 
 `codex termux` is a Manager boundary and is never passed to upstream. Manager
-v1 is defined as three bounded steady-state command families:
+v1 has two bounded steady-state command families: profiles and notifications.
 
 ```text
 codex termux
@@ -156,15 +156,14 @@ codex termux profile use <PROFILE_ID> [--] [UPSTREAM_ARGS...]
 codex termux notify show
 codex termux notify set [NOTIFY_OPTIONS...]
 codex termux notify test
-codex termux repair plan
-codex termux repair apply
 ```
 
 `codex termux` with no command is equivalent to `codex termux help`. The
 profile family was the first implementation slice. The historical accepted MGR-2
 Manager-owned session discovery/list/resume surface is superseded by SCS: steady-state
-session browsing and resume belong to upstream Codex. MGR-3 notification and MGR-4
-repair commands retain their bounded contracts below. An unavailable or not-yet-delivered Manager reports a bounded
+session browsing and resume belong to upstream Codex. MGR-3 notification
+commands retain their bounded contracts below; MGR-4 repair is retired. An
+unavailable or not-yet-delivered Manager reports a bounded
 Manager-unavailable result through the Core handoff; it never forwards an
 unknown `termux` command to upstream.
 Manager does not provide `codex termux install`, `codex termux update`, or a
@@ -407,7 +406,7 @@ Manager owns:
 - profile selection and presentation;
 - notification configuration and delivery;
 - Manager-local state and UI;
-- repair planning and requests to Core.
+- profile execution handoff to the validated Core entrypoint.
 
 Manager's profile UX and declared profile state are standalone Codex product
 capabilities, assessed through the public `codex termux` path. Their completeness
@@ -546,11 +545,11 @@ authentication/configuration or share conversations. Shared conversation links
 and SQLite configuration implement the separate selected sharing policy; the
 canonical files, schemas and locks continue to be operated by upstream.
 
-These criteria govern subsequent bounded alignment slices. Existing command
-grammar, profile creation/current output, notification records and repair
-contracts remain in force until their specific contract is amended before code
-changes. This section does not itself introduce a command, move existing data,
-retire repair, or authorize an installed-runtime change.
+These criteria govern bounded alignment slices. Each specific command/state
+contract is amended before its implementation changes. Profile preparation and
+effective identity are defined in MGR-1, notification ownership in MGR-3, and
+repair retirement in MGR-4. These criteria authorize neither data migration nor
+an installed-runtime change.
 
 ## 5. Termux runtime contract
 
@@ -1792,20 +1791,17 @@ CODEX_TERMUX_CORE_API=codex-manager-core-v1
 CODEX_TERMUX_CORE_ENTRYPOINT=<validated stable Core entrypoint>
 ```
 
-MGR-4 repair requests use the additional exact internal handoff values
-`CODEX_TERMUX_CORE_REQUEST=codex-manager-repair-v1` and
-`CODEX_TERMUX_CORE_OPERATION=plan|apply`. The Manager supplies `plan` with
-the Core argv shape `doctor --json` and `apply` with the Core argv shape
-`update` and no arguments. Core consumes these values before public dispatch;
-they are never forwarded to an upstream runtime or provider process. A
-missing, malformed, or mismatched request/argv pair fails closed.
+The former MGR-4 `CODEX_TERMUX_CORE_REQUEST` and
+`CODEX_TERMUX_CORE_OPERATION` environment values have no dispatch meaning.
+Core does not parse or consume a repair request, even if those retired values
+are inherited. Ordinary doctor/update/rollback/upstream argv retain their
+normal behavior. There is no replacement repair request or hidden recovery API.
 
-The Manager validates both values before doing work. Its only route back to
-Core is an `exec` of that validated entrypoint with one of the explicitly
-allowed Core-owned argv shapes: ordinary upstream argv whose first token is
-not the exact Core selector `termux`, `doctor`, or `update`; `doctor` with its
-Core-owned options; `update` with its Core-owned options; or `update
---rollback`. It cannot address a generation path, activation state,
+Manager validates the versioned API and Core entrypoint before doing work.
+Its return path to Core is an `exec` of that entrypoint with ordinary upstream
+argv whose first token is not the exact selector `termux`, `doctor`, or
+`update`. Recovery uses the public Core commands directly. Manager cannot
+address a generation path, activation state,
 trust key, resolver, or journal directly. Core remains the final validator of
 every requested route. MGR-0 has no callback socket, network protocol, or
 second state authority.
@@ -2181,58 +2177,19 @@ New panes use
 current caller color preferences, including explicit unset values, rather than
 stale server environment; tmux retains native TERM/TERM_PROGRAM ownership.
 
-### MGR-4 — repair planning through Core
+### MGR-4 — retired repair facade
 
-MGR-4 adds exactly these no-option, non-interactive forms:
+`codex termux repair`, including the former `plan` and `apply` forms, is a
+non-mutating Manager usage failure (status 2). It does not launch Core, inspect
+or modify generations, access the network, or produce a repair plan. Help does
+not advertise it. Existing Manager notification/profile state is unchanged.
 
-```text
-codex termux repair plan
-codex termux repair apply
-```
-
-Any option or trailing argument is a usage failure. The Manager validates the
-normal MGR-0 handoff, then `exec`s the validated Core entrypoint without
-printing a Manager success line. `repair plan` submits `doctor --json` with
-the versioned repair request and `repair apply` submits `update` with no
-arguments. The Manager does not submit an action, generation ID, path,
-package, URL, rollback selector, or arbitrary Core argument.
-
-Core owns the repair decision. The plan request is read-only: it loads and
-qualifies the selected generation through the existing read-only Core path,
-does not invoke upstream, does not access the network, and does not mutate
-state. It emits exactly these final-newline lines:
-
-```text
-codex-core-repair-v1
-action=<none|update|unavailable>
-reason=<healthy|legacy-generation|core-state-unavailable>
-```
-
-`healthy` describes a qualified current-generation layout only. This remains
-valid for current signed generations, but is not a general auth/network/provider,
-notification-permission or interactive-runtime health report. Those surfaces
-belong to `codex doctor` and the explicit notification delivery test. Repair
-does not acquire a new purpose merely because legacy layouts are now uncommon.
-
-The root-level generation layout produces `action=none` and
-`reason=healthy`. The bounded legacy `compat/` layout produces
-`action=update` and `reason=legacy-generation`, because the next authenticated
-generation is the permanent migration. A failure to load or qualify the
-current Core state produces `action=unavailable` and
-`reason=core-state-unavailable`, with operation status `1`; a plan with
-`none` or `update` returns status `0`. The plan contains no path, generation
-ID, digest, credential, environment, or upstream output.
-
-For `repair apply`, Core recomputes the plan and ignores any Manager-supplied
-action. `none` emits exactly `codex repair: no repair needed` followed by one
-LF and returns `0`; `update` invokes the existing no-argument Core update
-operation, including its signed stable-channel and transport-fallback rules,
-and preserves that operation's output and status; `unavailable` emits the
-fixed error `codex repair: plan unavailable` and returns `1`. Apply never
-creates a second updater, package-manager action, raw upstream installation,
-legacy-state import, bwrap repair, or direct Manager write to Core state.
-Rollback remains an explicit Core `update --rollback` operation and is not
-silently selected by Manager repair.
+The former facade offered only generation-layout classification and an optional
+call to Core update. It has no distinct recovery outcome. Core retains ordinary
+`codex doctor`, signed `codex update`, activation recovery, update-failure
+retention and explicit `codex update --rollback`; Manager owns no recovery
+planner, updater, fallback, automatic rollback or hidden request dispatch.
+Retirement requires no persistent-state migration.
 
 ### MGR-5 — Manager artifact build and qualification
 
@@ -2566,7 +2523,7 @@ Because the accepted package adaptation excludes upstream `codex-path/rg`, a
 fresh Termux installation must not silently assume that system `rg` exists for
 ordinary product correctness. A feature that still requires it must either
 have a qualified signed helper/fallback or degrade explicitly with bounded
-doctor/user-facing evidence. The bootstrap and repair paths must not install a
+doctor/user-facing evidence. The bootstrap and Core recovery paths must not install a
 package manager dependency automatically. Bundled zsh remains excluded unless
 a later accepted feature makes it an explicit requirement.
 

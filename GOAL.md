@@ -32,6 +32,62 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
+## REPAIR-BOUNDARY (source accepted 2026-10-04; not installed)
+
+- User authorized the boundary plan and explicitly reaffirmed repair removal.
+  Bound rewrite/rust-core at 7f680137e157ff16f83dd08c16620424f088ff30,
+  workers OFF; SPEC grammar/ownership/handoff/MGR-4 amended before code.
+  Baseline Core three repair tests and Manager grammar/handoff one each passed.
+- DELETE Manager repair help entries, enum branches, parser, launch facade and
+  obsolete request-env stripping; DELETE Core request constants, action/reason/
+  plan/operation types and methods, planner/renderer/env parser/route matcher/
+  hidden dispatch plus dedicated probe/helper/superseded tests. README points to
+  ordinary Core recovery. No replacement repair command, request API, updater,
+  automatic rollback, persistent state or migration. KEEP signed generation
+  admission, Core doctor/update/rollback/recovery and original upstream execution.
+- Focused retired_repair_commands_are_usage_failures and actual Manager
+  retired_repair_routes_never_handoff_or_mutate_manager_state prove usage status 2,
+  no Core handoff, absent-state noncreation and public-created profile/notification/
+  retired-history preservation. Core `retired_repair_environment_cannot_divert_public_core_routes` compares 30 public invocations across doctor, update help,
+  update, explicit rollback and version with complete/partial/malformed retired
+  values. Existing signed update/rollback and failed-preactivation retention
+  regressions passed; Manager 21+16 passed warning-free.
+- Exhaustive actual diff review covered every removed definition and surviving
+  caller/probe. The only helper addition is an explicit rollback scenario in the
+  existing public-main probe. Stabilized production/test diff against 7f680137
+  SHA256 289007fab060f0e326a6a8a1aa6bf8e5a44fbb520e5960a816132d40c9f1db37.
+- Stop-on-red corrected test setup only: wrong Cargo package invoked no tests;
+  doctor schema field is termux_core; private launch fixture needs prefix/bin and
+  real copied OpenSSL/curl (curl rightly rejects symlinks). Focused gates reran.
+  First grouped run saw PermissionDenied in real /proc scanning during a separate
+  optimized build and three retention failures; conservative production retention
+  remained intact. After build completion, all five retention tests passed with
+  identical source. Build interference is inferred, not proven PID attribution.
+  The isolated full rerun passed Python 15+75; Core 176 with one explicit device
+  smoke ignored, Manager 21+16, builder 21 (234 Rust), formatting and diff checks;
+  no warnings. Earlier red and zero-test targets are not acceptance evidence.
+- Locked optimized Core and Manager builds passed at unchanged production bytes.
+  Actual optimized public entrypoints passed 40 invocations: retired commands and
+  help, five ordinary routes unaffected by obsolete env, dotted selected home,
+  canonical SQLite, effective identity and Manager-unavailable launch. Private
+  state remained unchanged. Qualified native 0.160.0 server proof passed bare /
+  max-ID / account-distinct sockets, runtime/FD binding, PID/inode-preserving
+  policy refresh, request_user_input matcher without active PermissionRequest,
+  generation separation and no unmanaged packages. Actual public Manager-select /
+  Core-direct paths in two accounts discover/resume one synthetic rollout with
+  canonical SQLite and maintenance flags false. No turn/start or credentials.
+- Protection: 23 of 24 original content/mode/inode identities unchanged, including
+  installed launcher/runtime, auth/account settings, Manager, resolver and
+  activation. Only startup-update-advisory (a volatile installed cache) changed
+  content/inode across the user's interruption/resume; all proof launches use
+  owned private roots. External startup refresh is inferred without process
+  attribution; cache was not restored or modified by this work. Final comparison
+  binds its newly observed identity. Main and sealed legacy remain unchanged.
+- All four boundary bundles are source accepted: Core independently prepares
+  execution and owns signed lifecycle; Manager registers/selects profiles and
+  delivers notifications; upstream owns conversations/protocol/writers. Repair
+  is retired. Installation and publication remain unchanged and separately scoped.
+
 ## NOTIFICATION-BOUNDARY (source review accepted 2026-10-04; not installed)
 
 - Bound clean 2c1e5f7; workers OFF. Exhaustively reviewed Manager notification

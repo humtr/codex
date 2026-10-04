@@ -15,9 +15,6 @@ use std::time::{Duration, Instant};
 const CORE_API_ENV: &str = "CODEX_TERMUX_CORE_API";
 const CORE_ENTRYPOINT_ENV: &str = "CODEX_TERMUX_CORE_ENTRYPOINT";
 const CORE_API: &str = "codex-manager-core-v1";
-const CORE_REQUEST_ENV: &str = "CODEX_TERMUX_CORE_REQUEST";
-const CORE_OPERATION_ENV: &str = "CODEX_TERMUX_CORE_OPERATION";
-const CORE_REPAIR_REQUEST: &str = "codex-manager-repair-v1";
 const ARTIFACT_PROBE_ARGUMENT: &str = "--artifact-probe";
 const ARTIFACT_PROBE_ENV: &str = "CODEX_MANAGER_ARTIFACT_PROBE";
 const ARTIFACT_PROBE_OUTPUT: &str = "codex-manager-artifact-v1\ncore_api=codex-manager-core-v1\n";
@@ -45,8 +42,6 @@ const HELP: &str = concat!(
     "codex termux notify show\n",
     "codex termux notify test\n",
     "codex termux notify set [--channel <notification|toast|both>] [--hooks <none|all|EVENT[,EVENT...]>] [--content-chars <0|1..4096>] [--preserve-newlines <0|1>] [--toast-gravity <top|middle|bottom>] [--toast-short <0|1>] [--toast-background <empty|#RRGGBB>] [--toast-color <empty|#RRGGBB>] [--group <GROUP_ID>] [--focus <termux|tmux>]\n",
-    "codex termux repair plan\n",
-    "codex termux repair apply\n",
 );
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -126,8 +121,6 @@ enum CommandKind {
     NotifyTest,
     NotifySet,
     NotifyEmit,
-    RepairPlan,
-    RepairApply,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -345,21 +338,10 @@ fn run_inner(args: Vec<OsString>) -> Result<Option<String>, ManagerError> {
             emit_notification(&context, event);
             Ok(None)
         }
-        CommandKind::RepairPlan => {
-            launch_repair(&context, false)?;
-            Ok(None)
-        }
-        CommandKind::RepairApply => {
-            launch_repair(&context, true)?;
-            Ok(None)
-        }
     }
 }
 
 fn parse_command(args: &[OsString]) -> Result<ParsedCommand, ManagerError> {
-    if is_exact(args.first(), "repair") {
-        return parse_repair_command(args);
-    }
     if is_exact(args.first(), "notify") {
         return parse_notify_command(args);
     }
@@ -417,21 +399,6 @@ fn parse_command(args: &[OsString]) -> Result<ParsedCommand, ManagerError> {
         }
         _ => Err(ERR_USAGE),
     }
-}
-
-fn parse_repair_command(args: &[OsString]) -> Result<ParsedCommand, ManagerError> {
-    let kind = match (args.get(1).map(OsString::as_os_str), args.len()) {
-        (Some(action), 2) if action == OsStr::new("plan") => CommandKind::RepairPlan,
-        (Some(action), 2) if action == OsStr::new("apply") => CommandKind::RepairApply,
-        _ => return Err(ERR_USAGE),
-    };
-    Ok(ParsedCommand {
-        kind,
-        target: None,
-        upstream_args: Vec::new(),
-        notify_patch: None,
-        notify_event: None,
-    })
 }
 
 fn parse_notify_command(args: &[OsString]) -> Result<ParsedCommand, ManagerError> {
@@ -1961,8 +1928,6 @@ fn launch_core(
     command.args(upstream_args);
     command.env_remove(CORE_API_ENV);
     command.env_remove(CORE_ENTRYPOINT_ENV);
-    command.env_remove(CORE_REQUEST_ENV);
-    command.env_remove(CORE_OPERATION_ENV);
     command.env_remove(CODEX_SQLITE_HOME_ENV);
     match target {
         ProfileTarget::Default => {
@@ -1977,24 +1942,6 @@ fn launch_core(
             command.env(CODEX_HOME_ENV, home);
         }
     }
-    let error = command.exec();
-    let _ = error;
-    Err(ERR_LAUNCH)
-}
-
-fn launch_repair(context: &Context, apply: bool) -> Result<(), ManagerError> {
-    let mut command = Command::new(&context.core_entrypoint);
-    if apply {
-        command.arg("update");
-    } else {
-        command.args(["doctor", "--json"]);
-    }
-    command
-        .env_remove(CORE_API_ENV)
-        .env_remove(CORE_ENTRYPOINT_ENV)
-        .env_remove(CODEX_HOME_ENV)
-        .env(CORE_REQUEST_ENV, CORE_REPAIR_REQUEST)
-        .env(CORE_OPERATION_ENV, if apply { "apply" } else { "plan" });
     let error = command.exec();
     let _ = error;
     Err(ERR_LAUNCH)
@@ -2115,33 +2062,16 @@ mod tests {
     }
 
     #[test]
-    fn parses_exact_repair_grammar_and_rejects_extra_arguments() {
-        assert_eq!(
-            parse_command(&[OsString::from("repair"), OsString::from("plan")])
-                .unwrap()
-                .kind,
-            CommandKind::RepairPlan
-        );
-        assert_eq!(
-            parse_command(&[OsString::from("repair"), OsString::from("apply")])
-                .unwrap()
-                .kind,
-            CommandKind::RepairApply
-        );
+    fn retired_repair_commands_are_usage_failures() {
+        assert!(!HELP.contains("repair"));
         for args in [
-            vec![OsString::from("repair")],
-            vec![
-                OsString::from("repair"),
-                OsString::from("plan"),
-                OsString::from("--json"),
-            ],
-            vec![
-                OsString::from("repair"),
-                OsString::from("apply"),
-                OsString::from("extra"),
-            ],
-            vec![OsString::from("repair"), OsString::from("rollback")],
+            vec!["repair"],
+            vec!["repair", "plan"],
+            vec!["repair", "apply"],
+            vec!["repair", "plan", "--json"],
+            vec!["repair", "apply", "--rollback"],
         ] {
+            let args: Vec<_> = args.into_iter().map(OsString::from).collect();
             assert_eq!(parse_command(&args), Err(ERR_USAGE));
         }
     }

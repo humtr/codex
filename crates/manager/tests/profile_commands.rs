@@ -10,7 +10,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 const CORE_API_ENV: &str = "CODEX_TERMUX_CORE_API";
 const CORE_ENTRYPOINT_ENV: &str = "CODEX_TERMUX_CORE_ENTRYPOINT";
 const CORE_API: &str = "codex-manager-core-v1";
-const CORE_REPAIR_REQUEST: &str = "codex-manager-repair-v1";
 const CALLER_SENTINEL_ENV: &str = "MGR_CALLER_SENTINEL";
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -139,8 +138,6 @@ if [ \"$1\" = \"tty\" ]; then\n\
 fi\n\
 printf 'API_SET=%s\\n' \"${{CODEX_TERMUX_CORE_API+x}}\"\n\
 printf 'ENTRY_SET=%s\\n' \"${{CODEX_TERMUX_CORE_ENTRYPOINT+x}}\"\n\
-printf 'REQUEST=%s\\n' \"${{CODEX_TERMUX_CORE_REQUEST-}}\"\n\
-printf 'OPERATION=%s\\n' \"${{CODEX_TERMUX_CORE_OPERATION-}}\"\n\
 printf 'HOME_SET=%s\\n' \"${{CODEX_HOME+x}}\"\n\
 printf 'HOME_VALUE=%s\\n' \"${{CODEX_HOME-}}\"\n\
 printf 'SQLITE_HOME_SET=%s\\n' \"${{CODEX_SQLITE_HOME+x}}\"\n\
@@ -350,69 +347,55 @@ fn invalid_handoff_and_reserved_route_are_non_mutating() {
 }
 
 #[test]
-fn repair_requests_use_only_the_fixed_core_boundary() {
-    let root = TestRoot::new();
-    let core = write_core_probe(&root.0);
-
-    let plan = run_manager(
-        &root.0,
-        &core,
-        &["repair", "plan"],
-        Some(Path::new("/caller/profile")),
-    );
-    assert_eq!(plan.status.code(), Some(37));
-    assert!(plan
-        .stderr
-        .windows(b"PROBE_STDERR\n".len())
-        .any(|window| { window == b"PROBE_STDERR\n" }));
-    for expected in [
-        format!("REQUEST={CORE_REPAIR_REQUEST}\n"),
-        "OPERATION=plan\n".to_owned(),
-        "API_SET=\n".to_owned(),
-        "ENTRY_SET=\n".to_owned(),
-        "HOME_SET=\n".to_owned(),
-        "ARG=<doctor>\n".to_owned(),
-        "ARG=<--json>\n".to_owned(),
-        "CALLER_SENTINEL=keep\n".to_owned(),
-    ] {
-        assert!(
-            plan.stdout
-                .windows(expected.len())
-                .any(|window| window == expected.as_bytes()),
-            "missing {expected:?} in {:?}",
-            plan.stdout
-        );
+fn retired_repair_routes_never_handoff_or_mutate_manager_state() {
+    for existing_state in [false, true] {
+        let root = TestRoot::new();
+        let core = write_core_probe(&root.0);
+        let mut protected = vec![core.clone()];
+        if existing_state {
+            let created = run_manager(&root.0, &core, &["profile", "create", "work"], None);
+            assert_eq!(created.status.code(), Some(0));
+            let saved = run_manager(
+                &root.0,
+                &core,
+                &["notify", "set", "--hooks", "UserInputRequest,Stop"],
+                None,
+            );
+            assert_eq!(saved.status.code(), Some(0));
+            let manager = root.0.join(".local/share/codex/manager");
+            protected.push(manager.join("notifications/config-v1"));
+            protected.push(manager.join("profiles/work/profile.meta"));
+            let history = manager.join("state-v1");
+            fs::write(&history, b"preserve retired history").unwrap();
+            protected.push(history);
+        }
+        let snapshots: Vec<_> = protected
+            .iter()
+            .map(|path| fs::read(path).unwrap())
+            .collect();
+        for args in [
+            vec!["repair"],
+            vec!["repair", "plan"],
+            vec!["repair", "apply"],
+            vec!["repair", "apply", "--rollback"],
+        ] {
+            let result = run_manager(&root.0, &core, &args, Some(Path::new("/caller/profile")));
+            assert_eq!(result.status.code(), Some(2));
+            assert!(result.stdout.is_empty());
+            assert!(!result.stderr.is_empty());
+            assert!(!result
+                .stderr
+                .windows(b"PROBE_STDERR".len())
+                .any(|w| w == b"PROBE_STDERR"));
+            assert_eq!(root.0.join(".local").exists(), existing_state);
+            for (path, before) in protected.iter().zip(&snapshots) {
+                assert_eq!(&fs::read(path).unwrap(), before);
+            }
+        }
+        let help = run_manager(&root.0, &core, &["help"], None);
+        assert_eq!(help.status.code(), Some(0));
+        assert!(!String::from_utf8_lossy(&help.stdout).contains("repair"));
     }
-
-    let apply = run_manager(
-        &root.0,
-        &core,
-        &["repair", "apply"],
-        Some(Path::new("/caller/profile")),
-    );
-    assert_eq!(apply.status.code(), Some(37));
-    for expected in [
-        format!("REQUEST={CORE_REPAIR_REQUEST}\n"),
-        "OPERATION=apply\n".to_owned(),
-        "API_SET=\n".to_owned(),
-        "ENTRY_SET=\n".to_owned(),
-        "HOME_SET=\n".to_owned(),
-        "ARG=<update>\n".to_owned(),
-    ] {
-        assert!(
-            apply
-                .stdout
-                .windows(expected.len())
-                .any(|window| window == expected.as_bytes()),
-            "missing {expected:?} in {:?}",
-            apply.stdout
-        );
-    }
-
-    let invalid = run_manager(&root.0, &core, &["repair", "apply", "--rollback"], None);
-    assert_eq!(invalid.status.code(), Some(2));
-    assert!(invalid.stdout.is_empty());
-    assert!(!invalid.stderr.is_empty());
 }
 
 #[test]
