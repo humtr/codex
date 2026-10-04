@@ -442,6 +442,18 @@ package-manager, OpenSSL, bwrap, resolver, or generation-discovery authority.
 Its first profile slice is read-only except for the explicit `profile create`
 operation and the normal upstream writes made after a profile launch.
 
+An installed generation's unavailable Manager is reported at the Manager
+boundary and by doctor; it does not invalidate the independently usable Core
+runtime. Ordinary dispatch checks the declared Manager path for a regular,
+owner-executable file without probing it or requiring OpenSSL. Installed-release
+verification still authenticates the signed inventory, descriptor and all
+Core/runtime assets; a failed optional Manager file check is excluded from that
+verification result and local-build carry forward, without disabling Core update
+or rollback. This exception applies only to already-installed generations.
+Fresh candidate admission, staging and activation
+retain complete Manager verification whenever the candidate declares one. No
+generation metadata, signed inventory or user state is rewritten to express absence.
+
 TypeScript is the preferred Manager implementation language, but no Manager
 runtime or dependency may become a prerequisite for ordinary upstream launch,
 Core doctor, update, or rollback.

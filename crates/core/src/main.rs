@@ -6537,18 +6537,6 @@ fn load_local_generation(
         .manager_artifact_digest
         .as_ref()
         .map(|_| generation_dir.join("manager"));
-    if manager_path.as_ref().is_some_and(|path| !path.is_file()) {
-        return Err(LocalProductError::Descriptor(
-            "activated generation Manager is missing",
-        ));
-    }
-    if let Some(manager_path) = manager_path.as_ref() {
-        ensure_regular_file(
-            manager_path,
-            "inspect activated generation Manager",
-            "activated generation Manager must be a regular file",
-        )?;
-    }
     let r10_browser_helper_bridge = r10_browser_helper_bridge(&manifest)?;
     let helper_paths: Vec<_> = manifest
         .helper_digests
@@ -6861,12 +6849,7 @@ fn exact_release_file_paths(
         GenerationLayout::RootCodeModeHost => files.push(CODE_MODE_HOST_FILE.to_owned()),
         GenerationLayout::LegacyCompat => {}
     }
-    if let Some(manager_path) = loaded.manager_path.as_ref() {
-        ensure_regular_file(
-            manager_path,
-            "inspect release Manager",
-            "release Manager must be a regular file",
-        )?;
+    if loaded.manager_path.is_some() {
         files.push("manager".to_owned());
     }
     for (index, helper_path) in loaded.helper_paths.iter().enumerate() {
@@ -6901,17 +6884,25 @@ fn exact_release_file_paths(
 }
 
 #[cfg(unix)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReleaseInventoryPurpose {
+    Candidate,
+    Installed,
+}
+
+#[cfg(unix)]
 fn verify_release_inventory(
     openssl: &std::path::Path,
     generation_dir: &std::path::Path,
     manifest: &LocalReleaseManifest,
+    purpose: ReleaseInventoryPurpose,
 ) -> Result<LoadedLocalGeneration, LocalProductError> {
     ensure_regular_file(
         &generation_dir.join("generation.meta"),
         "inspect release generation descriptor",
         "release generation descriptor must be a regular file",
     )?;
-    let loaded = load_local_generation(generation_dir)?;
+    let mut loaded = load_local_generation(generation_dir)?;
     if loaded.generation_id != manifest.generation_id {
         return Err(LocalProductError::Release(
             "release generation id does not match generation descriptor",
@@ -6963,17 +6954,34 @@ fn verify_release_inventory(
         ));
     }
     for file in &manifest.files {
-        if openssl_sha256(openssl, &generation_dir.join(&file.relative_path))? != file.sha256 {
-            return Err(LocalProductError::ReleaseDigestMismatch);
-        }
-        use std::os::unix::fs::PermissionsExt as _;
-        let metadata = std::fs::symlink_metadata(generation_dir.join(&file.relative_path))
-            .map_err(|source| LocalProductError::Io {
-                operation: "inspect release file mode",
-                source,
-            })?;
-        if metadata.permissions().mode() & 0o7777 != file.mode {
-            return Err(LocalProductError::ReleaseModeMismatch);
+        let verified = (|| {
+            use std::os::unix::fs::PermissionsExt as _;
+
+            let path = generation_dir.join(&file.relative_path);
+            ensure_regular_file(
+                &path,
+                "inspect release inventory file",
+                "release inventory file must be a regular file",
+            )?;
+            if openssl_sha256(openssl, &path)? != file.sha256 {
+                return Err(LocalProductError::ReleaseDigestMismatch);
+            }
+            let metadata =
+                std::fs::symlink_metadata(&path).map_err(|source| LocalProductError::Io {
+                    operation: "inspect release file mode",
+                    source,
+                })?;
+            if metadata.permissions().mode() & 0o7777 != file.mode {
+                return Err(LocalProductError::ReleaseModeMismatch);
+            }
+            Ok(())
+        })();
+        if purpose == ReleaseInventoryPurpose::Installed && file.relative_path == "manager" {
+            if verified.is_err() {
+                loaded.manager_path = None;
+            }
+        } else {
+            verified?;
         }
     }
     Ok(loaded)
@@ -7040,7 +7048,12 @@ fn verify_local_release_bundle_with_key(
     update_key: ReleasePublicKey,
 ) -> Result<(LocalReleaseManifest, LoadedLocalGeneration), LocalProductError> {
     let manifest = verify_local_release_control_with_key(generation_dir, openssl, update_key)?;
-    let loaded = verify_release_inventory(openssl, generation_dir, &manifest)?;
+    let loaded = verify_release_inventory(
+        openssl,
+        generation_dir,
+        &manifest,
+        ReleaseInventoryPurpose::Candidate,
+    )?;
     Ok((manifest, loaded))
 }
 
@@ -7081,7 +7094,12 @@ fn verify_installed_local_release(
         &generation_dir.join("release.sig"),
     )?;
     validate_local_release_policy(&manifest)?;
-    let loaded = verify_release_inventory(&roots.openssl, &generation_dir, &manifest)?;
+    let loaded = verify_release_inventory(
+        &roots.openssl,
+        &generation_dir,
+        &manifest,
+        ReleaseInventoryPurpose::Installed,
+    )?;
     if loaded.generation_id != generation_id {
         return Err(LocalProductError::Descriptor(mismatch));
     }
@@ -7575,6 +7593,8 @@ fn execute_activated_route(
     roots: &LocalCoreRoots,
     process_env: &TermuxProcessEnvSnapshot,
 ) -> Result<PublicDispatchCompletion, LocalProductError> {
+    use std::os::unix::fs::PermissionsExt as _;
+
     let _ = maintenance::prune(roots);
     let _lease = maintenance::launch_lease(&roots.generation_root).map_err(|source| {
         LocalProductError::Io {
@@ -7587,6 +7607,11 @@ fn execute_activated_route(
         let manager_selection = loaded
             .manager_path
             .as_ref()
+            .filter(|path| {
+                std::fs::symlink_metadata(path).is_ok_and(|metadata| {
+                    metadata.file_type().is_file() && metadata.permissions().mode() & 0o100 != 0
+                })
+            })
             .map(|path| ManagerArtifactSelection {
                 program_path: path.as_os_str(),
                 observed_digest: loaded
@@ -7595,8 +7620,11 @@ fn execute_activated_route(
                     .as_deref()
                     .expect("Manager path is created only for a declared Manager"),
             });
-        let manager_artifact = qualify_manager_artifact(generation, manager_selection.as_ref())
-            .map_err(LocalProductError::Manager)?;
+        let manager_artifact = match manager_selection.as_ref() {
+            Some(selection) => qualify_manager_artifact(generation, Some(selection))
+                .map_err(LocalProductError::Manager)?,
+            None => ManagerArtifact::Unavailable,
+        };
         let manager_doctor_status = match manager_artifact {
             ManagerArtifact::Unavailable => ManagerDoctorStatus::Unavailable,
             ManagerArtifact::Available(_) => ManagerDoctorStatus::Healthy,
@@ -15068,17 +15096,6 @@ snooze_until	0
             },
         );
         b2_assert_public_version_rejects_symlink(
-            "m2-r2-manager-symlink",
-            true,
-            false,
-            |generation_dir| {
-                let path = generation_dir.join("manager");
-                let outside = generation_dir.parent().unwrap().join("outside-manager");
-                std::fs::rename(&path, &outside).unwrap();
-                symlink(outside, path).unwrap();
-            },
-        );
-        b2_assert_public_version_rejects_symlink(
             "m2-r2-helper-parent-symlink",
             false,
             true,
@@ -15100,6 +15117,105 @@ snooze_until	0
                 symlink(outside, path).unwrap();
             },
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_core_manager_independence_public_launch_doctor_and_hooks() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+
+        for root_layout in [false, true] {
+            for defect in ["missing", "symlink", "directory", "non-executable"] {
+                let root = b2_public_main_fixture("core-manager-independence-launch", true);
+                let generation = root.join("home/.local/lib/codex/core/generations/g1");
+                if root_layout {
+                    std::fs::rename(
+                        generation.join("compat").join(CODE_MODE_HOST_FILE),
+                        generation.join(CODE_MODE_HOST_FILE),
+                    )
+                    .unwrap();
+                    std::fs::remove_dir(generation.join("compat")).unwrap();
+                    let descriptor = generation.join("generation.meta");
+                    let contents = std::fs::read_to_string(&descriptor).unwrap();
+                    std::fs::write(
+                        descriptor,
+                        contents.replacen(LEGACY_GENERATION_FORMAT, LOCAL_GENERATION_FORMAT, 1),
+                    )
+                    .unwrap();
+                }
+                let manager = generation.join("manager");
+                let manager_contents = std::fs::read(&manager).unwrap();
+                std::fs::remove_file(&manager).unwrap();
+                match defect {
+                    "missing" => {}
+                    "symlink" => {
+                        let outside = root.join("outside-manager");
+                        std::fs::write(&outside, manager_contents).unwrap();
+                        std::fs::set_permissions(&outside, std::fs::Permissions::from_mode(0o700))
+                            .unwrap();
+                        symlink(outside, &manager).unwrap();
+                    }
+                    "directory" => std::fs::create_dir(&manager).unwrap(),
+                    "non-executable" => {
+                        std::fs::write(&manager, manager_contents).unwrap();
+                        std::fs::set_permissions(&manager, std::fs::Permissions::from_mode(0o600))
+                            .unwrap();
+                    }
+                    _ => unreachable!(),
+                }
+                let state_path = root.join("home/.local/share/codex/core/activation-state");
+                let state_before = std::fs::read(&state_path).unwrap();
+                let descriptor_before = std::fs::read(generation.join("generation.meta")).unwrap();
+                let config = root.join("home/.local/share/codex/core/config/config.toml");
+                std::fs::write(&config, render_core_notification_config(&["Stop"])).unwrap();
+                for scenario in ["version", "doctor", "manager"] {
+                    let result = std::process::Command::new(std::env::current_exe().unwrap())
+                        .args(["tests::public_main_probe", "--exact", "--nocapture"])
+                        .env(MAIN_PROBE_ROLE, "1")
+                        .env(MAIN_PROBE_ARGS, scenario)
+                        .env("HOME", root.join("home"))
+                        .env("PREFIX", root.join("prefix"))
+                        .env("TMPDIR", root.join("tmp"))
+                        .env_remove("CODEX_HOME")
+                        .env_remove(CODEX_SQLITE_HOME_ENV)
+                        .env_remove(CORE_REPAIR_REQUEST_ENV)
+                        .env_remove(CORE_REPAIR_OPERATION_ENV)
+                        .output()
+                        .unwrap();
+                    match scenario {
+                        "version" => {
+                            assert_eq!(result.status.code(), Some(0), "{defect}: {result:?}");
+                            assert!(result.stdout.ends_with(b"codex-upstream 9.9.9\n"));
+                            assert_eq!(result.stderr, b"version-stderr\n");
+                            assert_eq!(
+                                std::fs::read(&config).unwrap(),
+                                render_core_notification_config(&[])
+                            );
+                        }
+                        "doctor" => {
+                            assert_eq!(result.status.code(), Some(1), "{defect}: {result:?}");
+                            assert!(String::from_utf8(result.stdout)
+                                .unwrap()
+                                .contains("\"manager\":{\"status\":\"unavailable\"}"));
+                        }
+                        "manager" => {
+                            assert_eq!(result.status.code(), Some(1), "{defect}: {result:?}");
+                            assert_eq!(
+                                result.stderr,
+                                format!("{TERMUX_MANAGER_UNAVAILABLE_MESSAGE}\n").as_bytes()
+                            );
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+                assert_eq!(std::fs::read(&state_path).unwrap(), state_before);
+                assert_eq!(
+                    std::fs::read(generation.join("generation.meta")).unwrap(),
+                    descriptor_before
+                );
+                remove_temp_root(root);
+            }
+        }
     }
 
     #[cfg(unix)]
@@ -20550,6 +20666,133 @@ esac
             b"release file inventory does not exactly match generation content",
         );
 
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_core_manager_independence_installed_inventory_keeps_admission_strict() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+
+        for root_layout in [false, true] {
+            for defect in ["missing", "symlink", "directory", "digest", "mode"] {
+                let (root, mut roots) = b2_test_roots("core-manager-independence-inventory");
+                roots.openssl = b4_termux_openssl();
+                let private_key = root.join("keys/private.pem");
+                let public_key = root.join("keys/public.pem");
+                b4_generate_release_keypair(&roots.openssl, &private_key, &public_key);
+                let generation = if root_layout {
+                    b2_write_root_generation(&roots, "g1", true, "supported")
+                } else {
+                    b2_write_generation(&roots, "g1", true, "supported")
+                };
+                b4_write_signed_release(&generation, 1, &roots.openssl, &private_key);
+                let key = b4_public_key_from_private(&roots.openssl, &private_key);
+                let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+                prepare_core_state_paths(&paths).unwrap();
+                let state = plan_initial_pointer_state_with_key("g1", key).unwrap();
+                activate_pointer_state(&paths, None, &state).unwrap();
+                assert!(authenticated_public_baseline(&roots, &state)
+                    .unwrap()
+                    .2
+                    .manager_path
+                    .is_some());
+                let manager = generation.join("manager");
+                match defect {
+                    "missing" => std::fs::remove_file(&manager).unwrap(),
+                    "symlink" => {
+                        let outside = root.join("outside-manager");
+                        std::fs::rename(&manager, &outside).unwrap();
+                        symlink(outside, &manager).unwrap();
+                    }
+                    "directory" => {
+                        std::fs::remove_file(&manager).unwrap();
+                        std::fs::create_dir(&manager).unwrap();
+                    }
+                    "digest" => std::fs::write(&manager, b"changed-manager").unwrap(),
+                    "mode" => {
+                        std::fs::set_permissions(&manager, std::fs::Permissions::from_mode(0o600))
+                            .unwrap();
+                    }
+                    _ => unreachable!(),
+                }
+                let descriptor = std::fs::read(generation.join("generation.meta")).unwrap();
+                let inventory = std::fs::read(generation.join("release.manifest")).unwrap();
+                let state_bytes = std::fs::read(&paths.activation_state).unwrap();
+                assert!(
+                    verify_local_release_bundle_with_key(&generation, &roots.openssl, key).is_err(),
+                    "{defect}"
+                );
+                let (_, release, loaded) = authenticated_public_baseline(&roots, &state).unwrap();
+                assert!(release
+                    .files
+                    .iter()
+                    .any(|file| file.relative_path == "manager"));
+                assert_eq!(loaded.manager_path, None, "{defect}");
+                assert_eq!(
+                    std::fs::read(generation.join("generation.meta")).unwrap(),
+                    descriptor
+                );
+                assert_eq!(
+                    std::fs::read(generation.join("release.manifest")).unwrap(),
+                    inventory
+                );
+                assert_eq!(std::fs::read(&paths.activation_state).unwrap(), state_bytes);
+                std::fs::write(generation.join("runtime"), b"changed-required-runtime").unwrap();
+                assert!(matches!(
+                    authenticated_public_baseline(&roots, &state),
+                    Err(LocalProductError::ReleaseDigestMismatch)
+                ));
+                remove_temp_root(root);
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_core_manager_independence_public_update_and_rollback() {
+        let root = temp_root("core-manager-independence-lifecycle");
+        let openssl = b4_termux_openssl();
+        let source = b4_source_roots(&root, &openssl);
+        std::fs::create_dir(&source.generation_root).unwrap();
+        let private_key = root.join("keys/private.pem");
+        let public_key = root.join("keys/public.pem");
+        b4_generate_release_keypair(&openssl, &private_key, &public_key);
+        let g0 = b2_write_root_generation(&source, "independent-g0", true, "supported");
+        let g1 = b2_write_root_generation(&source, "independent-g1", false, "supported");
+        let bad = b2_write_root_generation(&source, "independent-bad", true, "supported");
+        b4_write_signed_release(&g0, 1, &openssl, &private_key);
+        b4_write_signed_release(&g1, 2, &openssl, &private_key);
+        b4_write_signed_release(&bad, 3, &openssl, &private_key);
+        let (home, prefix, tmp) = b4_prepare_public_environment(&root, &openssl, true);
+        b7_seed_initial_release(&g0, &home, &prefix, &public_key);
+        let roots = b7_public_roots(&home, &prefix);
+        let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+        let initial = read_pointer_state(&paths).unwrap().unwrap();
+        std::fs::remove_file(roots.generation_root.join("independent-g0/manager")).unwrap();
+        std::fs::remove_file(bad.join("manager")).unwrap();
+        let rejected = b4_run_public_update(&bad, &home, &prefix, &tmp);
+        assert_eq!(rejected.status.code(), Some(1), "{rejected:?}");
+        assert_eq!(read_pointer_state(&paths).unwrap().unwrap(), initial);
+        assert!(!roots.generation_root.join("independent-bad").exists());
+        let update = b4_run_public_update(&g1, &home, &prefix, &tmp);
+        assert_eq!(update.status.code(), Some(0), "{update:?}");
+        let forward = read_pointer_state(&paths).unwrap().unwrap();
+        assert_eq!(forward.current, "independent-g1");
+        assert_eq!(forward.previous.as_deref(), Some("independent-g0"));
+        let rollback = b4_run_public_rollback(&home, &prefix, &tmp);
+        assert_eq!(rollback.status.code(), Some(0), "{rollback:?}");
+        let restored = read_pointer_state(&paths).unwrap().unwrap();
+        assert_eq!(restored.current, "independent-g0");
+        assert_eq!(restored.previous.as_deref(), Some("independent-g1"));
+        let (_, loaded) = verify_installed_local_release(
+            &roots,
+            &restored.current,
+            restored.current_key,
+            "fixture id mismatch",
+        )
+        .unwrap();
+        assert_eq!(loaded.manager_path, None);
         remove_temp_root(root);
     }
 

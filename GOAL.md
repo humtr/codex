@@ -32,7 +32,58 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
-## CORE-MANAGER-UPSTREAM-COMPLETENESS (review completed 2026-10-04; defects open)
+## CORE-MANAGER-INDEPENDENCE (source accepted 2026-10-04; not installed)
+
+- User reaffirms the existing SPEC4.2 invariant: Core operates independently of
+  Manager. Bound clean rewrite659ae8e, goal-md exact repository GOAL, approved
+  equivalent primary, workers OFF. SPEC-first clarification separates an installed
+  optional-component failure from strict fresh-candidate admission. No new command,
+  dependency, persistent state, profile policy, repair retirement or live cutover.
+- DELETE the loader's unconditional Manager file prerequisite and stale ordinary
+  launch rejection of a Manager symlink. KEEP declared generation identity, required
+  runtime/host/helper path safety, signed control policy and exact inventory.
+  Ordinary dispatch accepts only a regular owner-executable declared Manager path;
+  otherwise Manager is unavailable, Core doctor runs and optional hooks are cleared.
+  No Manager probe, PATH discovery, OpenSSL or network prerequisite is added to
+  ordinary execution.
+- COLLAPSE asset file checks into the signed inventory gate with two explicit real
+  purposes. Candidate admission remains strict for every declared asset. Installed
+  verification tolerates failure only for the optional Manager file and excludes
+  it from the returned selection and local-build carry forward. Signatures,
+  descriptor/inventory validation and all required Core/runtime assets remain
+  strict. Generation metadata and signed inventories are never rewritten to express
+  absence. Inspect every loader consumer: dispatch, inventory, direct staging,
+  installed baseline/local build, rollback and rollback guard.
+- Baseline compiled and ran Core test_m2_b2_ 6/6. Focused regressions ran 3/3:
+  test_core_manager_independence_public_launch_doctor_and_hooks covers both layouts,
+  four installed file faults and 24 public invocations; installed_inventory_keeps_
+  admission_strict covers ten paired admission/installed faults plus required-runtime
+  corruption; public_update_and_rollback proves rejected new Manager absence,
+  update from an installed missing Manager and rollback to that generation.
+  Required-runtime symlink regression also passed nonzero. Initial zero-test exact
+  filter was rejected and corrected; a mistaken malformed signed-inventory fixture
+  was removed rather than weakening signed-control policy. One failed owned fixture
+  was cleaned. No red gate remains.
+- Stabilized production diff against659ae8e SHA256
+  7a641328524ac93ea68c4b040f0a34020de91496ed24c9e5e1c399c35dfb1233.
+  Grouped scripts/check.sh passed: Python15 + Python75; Core176 (one explicit device
+  smoke ignored), Manager21, builder15 + builder21; formatting and diff checks green,
+  no unexpected warnings. Empty binary/doc-test targets and conditional device
+  return paths are not additional acceptance evidence. Locked optimized Core build
+  passed; actual production definitions/test disposition and diff inspected.
+- Built release ELF, public bootstrap and installed public commands exercised only
+  in an owned private HOME/PREFIX/TMPDIR with signed synthetic runtime fixtures:
+  ordinary launch, doctor/Manager-unavailable, rejection of a missing-Manager new
+  candidate, update from a missing installed Manager, rollback with both installed
+  Managers missing, and rejection of required-runtime corruption all passed.
+  Zero network attempts. This proves real-entrypoint routing/lifecycle behavior,
+  not a genuine upstream runtime qualification, published release or device cutover.
+- All22 protected auth/config/resolver/launcher/activation/Manager/runtime file
+  bytes, modes and identities unchanged. Unrelated work preserved. Installed runtime
+  remains its previously accepted producer. Profile effective-versus-saved UX and
+  Manager repair retirement remain separate review outcomes, not implemented here.
+
+## CORE-MANAGER-UPSTREAM-COMPLETENESS (review completed 2026-10-04; profile decision open)
 
 - User excludes separate convenience products from the completeness discussion.
   Review only how public codex/Core and codex termux/Manager support official

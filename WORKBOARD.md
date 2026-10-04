@@ -2,30 +2,21 @@
 
 SPEC -> GOAL -> WORKBOARD; goal-md bound, approved equivalent primary, workers OFF.
 
-CORE-MANAGER-UPSTREAM-COMPLETENESS review completed; findings in GOAL. Public
-codex/Core and codex termux/Manager are the completeness boundary. Upstream owns
-auth/conversations/lifecycle; Core owns compatibility and runtime/generation
-lifecycle; Manager supplies standalone profile and notification conveniences.
-No legacy feature checklist or separate convenience product defines completion.
+CORE-MANAGER-INDEPENDENCE source accepted 2026-10-04; evidence and disposition
+in GOAL. Core independently executes/diagnoses/updates/rolls back when an installed
+optional Manager is unavailable. Candidate signatures/inventories and required
+assets stay strict. Focused3, grouped acceptance, optimized build, actual release
+entrypoint private-fixture proof and protected22 comparison passed. Source only;
+no live cutover. No public command retired and no profile launch policy changed.
 
-Confirmed open defect: declared Manager absence in load_local_generation blocks
-ordinary upstream execution. Actual installed Core paired private-fixture probe
-proved presence dispatches and removal alone fails; this is routing evidence,
-not release acceptance. Profile review proved named profile use sets the child
-home but current reports saved selection while a fresh ordinary launch uses default.
-Resolve effective-versus-saved identity semantics in its own contract slice.
-
-Review-only owned fixtures cleaned. Stop-on-red setup errors (state separator,
-bridge helper paths, missing private config directory) corrected from actual
-source and paired gate rerun successfully. No production behavior or installed
-state changed. Signed admission, runtime integrity, auth isolation, shared
-conversations, active writers, resolver and notification settings are protected.
-
-Proposed first implementation slice: optional Manager absence must not block
-ordinary Core launch; constrain writes to loader/dispatch and focused public-path
-fault regressions. Establish exact HEAD/diff and runnable baseline before mutation,
-map all affected loader consumers, preserve strict signed candidate admission and
-Core update/rollback/diagnosis. Review does not claim this slice accepted.
-Then separate slices for repair retirement (currently recommendation only) and
-standalone profile UX/identity. Do not expand convenience features before the
-foundational execution invariant is restored. No public command retired yet.
+Completeness review covers public codex/Core and codex termux/Manager against
+upstream. The foundational Manager-file execution/lifecycle dependency is closed
+in source. Remaining design review: standalone profile UX must distinguish the
+actual execution identity from saved selection history and define deliberate
+account selection across already-supported homes. No automatic persistent-choice
+behavior or migration is selected. Manager repair retirement remains a recommendation
+pending its own SPEC-first public-command slice. Conveniences must support current
+user tasks through upstream/Core ownership rather than recreate their state or
+lifecycle. Every subsequent implementation needs its own baseline and vertical
+contract/proof map; preserve signed admission, auth/conversation/writer isolation,
+installed state, resolver and existing notification policy.
