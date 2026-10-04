@@ -32,6 +32,42 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
+## BOUNDARY-RELEASE (authorized 2026-10-04; in progress)
+
+- User's `go` authorizes signed publication of the accepted Core and Manager
+  together, ordinary `codex update` activation and bounded device acceptance.
+  Producer source is clean rewrite/rust-core at
+  7285b91adbad0824bbb8eb4bf7bf8e336fe532c1; workers OFF. Reuse its accepted
+  Python 90 / Rust 234, optimized and private native/public entrypoint evidence.
+- Publication starts from origin/main
+  07d625561283bad5d25b778782c16d4929b4939f and authenticated sequence 34,
+  local-hosted-0-160-0-4b00b8d46193-notify-line. Exact official 0.160.0 package
+  and qualified runtime remain unchanged. Replace the spent Manager-only
+  one-shot bridge with one exact-parent, exact-source sequence 35 bridge that
+  requires both changed Core and Manager and preserves all upstream artifacts.
+- Allowed writes additionally include a separate publication checkout, ordinary
+  non-force source/publication pushes, hosted signing/Release/Pages/CAS promotion,
+  and ordinary signed installed activation after those gates pass. Never obtain
+  a production private key or manually replace an installed artifact. Preserve
+  existing work processes, auth/account settings, conversations, Manager policy,
+  resolver, sealed legacy and local main. Private native proofs use owned roots
+  and synthetic conversation data; device checks do not start a model turn.
+- Acceptance requires focused workflow admission/component-change regressions,
+  hosted Android build and smoke for both artifacts, authenticated full public
+  readback and disposable normal update/no-op, successful ordinary installed
+  update, actual public/native device paths and protection comparison. Physical
+  notification taps must be distinguished from programmatic/native action proof.
+- P0/P1 passed: exact-parent public index and release signatures verified against
+  the pinned public key; sequence34 Core/Manager/descriptor and official0.160.0
+  archive match. Eight workflow regressions include real shell admission,
+  Core-only/Manager-only rejection, both component byte mismatches, all four
+  upstream inventory byte/mode faults and unrelated descriptor/identity/order/
+  scalar faults. YAML and all 37 run blocks parse; publication diff reviewed.
+  Proof setup corrected an empty binary signature API export, tuple unpacking,
+  and source-helper lookup; earlier failed checks were not accepted. Fresh
+  24-entry protection snapshot binds two profile config identities changed since
+  prior source acceptance; this release work has not written either profile.
+
 ## REPAIR-BOUNDARY (source accepted 2026-10-04; not installed)
 
 - User authorized the boundary plan and explicitly reaffirmed repair removal.
