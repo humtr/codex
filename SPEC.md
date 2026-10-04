@@ -2466,10 +2466,13 @@ client secrets, authorization codes, and tokens never become test evidence.
 ### App-server daemon and remote-control authority
 
 No Termux command may create, select, execute, update, or trust an unmanaged
-Codex installation under `$CODEX_HOME/packages/standalone`, and no Termux
-app-server path may fetch or execute the upstream standalone installer or any
-other upstream self-updater. Bare `codex update` and all runtime replacement
-remain Core-owned signed-generation operations.
+Codex installation under `$CODEX_HOME/packages/standalone` or
+`$CODEX_HOME/packages/app-server-daemon`, and no Termux app-server path may
+fetch or execute an upstream installer or self-updater. Upstream 0.160.0 uses
+the latter daemon package root with legacy standalone fallback; both remain
+independent package authorities rather than signed Core generations. Bare
+`codex update` and all runtime replacement remain Core-owned signed-generation
+operations.
 
 For interactive local upstream TUI/resume/fork launches, Core may start one
 shared app-server directly from the already qualified active generation before
@@ -2477,7 +2480,12 @@ unchanged upstream exec. This server receives the same FD-33 resolver, FD-34
 system configuration, FD-35 Termux temporary directory and qualified child environment. Its private profile-local
 socket is exposed at the upstream default control socket through one validated
 Core-owned socket symlink into a private short generation/profile namespace.
-The actual socket pathname is at most 107 encoded bytes;
+Both the Core rendezvous and the upstream physical socket pathname must fit
+the 107 encoded-byte bound. In qualified 0.160.0, the physical path is the
+canonical FD-35 temporary root plus UID and a 64-hex digest; the standard Termux
+temporary root fits. Disposable proof must provide a separate private temporary
+root short enough for this native path rather than nesting it under a long
+fixture root. Core does not bypass the native private socket ownership checks;
 profile identities and authentication remain distinct. Core binds a reused
 server to its recorded PID, kernel socket peer PID, and exact qualified executable
 through `/proc`, and
@@ -2493,9 +2501,10 @@ The historical public daemon/remote-control lifecycle fence remains in force.
 
 A daemon-backed app-server command, including `remote-control start`, may run
 only if it is bound to the currently qualified signed generation and cannot
-enter the upstream standalone installation/update loop. If that binding is
-not available, the command must fail closed with a stable Termux-specific
-unsupported result before creating standalone state or performing network I/O.
+enter an upstream daemon-package or standalone installation/update loop. If
+that binding is not available, the command must fail closed with a stable Termux-specific
+unsupported result before creating unmanaged package state or performing
+network I/O.
 The foreground `remote-control` form that owns a private temporary socket is a
 separate path and remains usable when otherwise qualified.
 

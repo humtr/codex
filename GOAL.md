@@ -32,6 +32,33 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
+## SERVER-BOUNDARY (source review accepted 2026-10-04; not installed)
+
+- Bound clean 12a329e9, workers OFF; reviewed all 9 shared_server production
+  definition plus launch/maintenance callers against exact upstream 0.160.0
+  source a956835d020762cb2b570053af06f643a11c0ecc (archive identity in PROFILE).
+  KEEP eligibility/explicit-mode preservation, private owner/path validation,
+  account+generation namespace, bounded/atomic records, peer/PID/executable
+  checks, qualified-runtime/FD launch with config refresh, and graceful obsolete
+  generation retirement. These establish signed execution/retention invariants;
+  upstream owns protocol, thread/writer/storage and graceful-only SIGHUP.
+- Native daemon now installs into packages/app-server-daemon, with standalone
+  fallback, and has an independent updater. It cannot replace this narrow
+  signed-generation launch. SPEC corrects the package-root description.
+  No custom supervisor, runtime installer, registry or production branch added.
+- First disposable bare proof failed readiness: native error was physical Unix
+  path exceeding SUN_LEN because the nested test TMPDIR was too long. Corrected
+  only fixture setup to a separate owned short private temporary root. Same
+  actual public optimized Core/Manager + qualified native runtime gate passed
+  default bare, 64-char account, distinct account sockets, exact executable/argv
+  and FD33/34/35, same-generation PID/FD-directory-inode-preserving refresh after
+  notify policy change, and generation separation preserving the prior process.
+  No unmanaged package installation, model turn, credential copy or live write.
+- Five named shared-server focused regressions and grouped 237 Rust / Python 15+75
+  plus locked release builds are reused from PROFILE at identical production/test
+  bytes; zero-test targets are not proof. Protected 24 content/mode/inode stayed
+  unchanged. Review/doc-only acceptance; source is not installed or published.
+
 ## PROFILE-BOUNDARY (source accepted 2026-10-04; not installed)
 
 - User authorized the boundary-alignment plan after35d62e8; clean resume bound

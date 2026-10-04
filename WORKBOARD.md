@@ -17,29 +17,13 @@ dotted direct launches retain the canonical requirement, effective identity igno
 retired history, and native-equivalent empty/non-UTF8 home selection is unified.
 Source only; installed state is unchanged. P0-P2 proof map is closed and removed.
 
-User authorization covers continuing this milestone; workers OFF. Next selected
-bundle is SERVER-BOUNDARY: exact-runtime review and minimum server integration.
-Baseline implementation is the just-accepted PROFILE-BOUNDARY source; rebind exact
-commit/dirty state at start. No server production mutation is selected until the
-native insufficiency/disposition and concrete proof map below are established.
+User authorization covers continuing this milestone; workers OFF.
+SERVER-BOUNDARY source review is accepted (2026-10-04); GOAL owns the closed
+review and native evidence. Product/test bytes are unchanged and the fixture
+length failure is resolved. Next selected bundle is NOTIFICATION-BOUNDARY.
+Rebind exact commit/dirty state before its producer/validation/projection review.
 
 ### Current and subsequent bundles
-
-**SERVER-BOUNDARY — minimum qualified upstream server launch.** Rebind native
-discovery/daemon/installer behavior to the exact runtime. Inspect every production
-definition in Core `shared_server.rs`, its `main.rs` callers and
-`maintenance.rs` retirement caller. KEEP short account-distinct sockets, qualified
-runtime and FD/environment binding. COLLAPSE/DELETE custom readiness, reuse,
-config refresh or retirement only where native behavior demonstrably supplies
-the same invariant. No broad lifecycle handoff based on documentation alone.
-Focused existing tests: `shared_server_selection_preserves_explicit_user_modes`,
-`shared_server_reuse_refreshes_config_without_restarting_active_server`,
-`shared_server_signed_process_fds_reuse_and_namespace_are_bound`,
-`shared_server_retirement_preserves_clients_writers_and_bound_roles`,
-`shared_server_rejects_unsafe_records_directories_and_sockets`.
-Add exact-runtime disposable bare/resume, long-profile, two-account, config-refresh
-and generation-change proof without unmanaged installation, lost FD bindings or
-active-writer restart. Define the actual writable scope/proof map before mutation.
 
 **NOTIFICATION-BOUNDARY — validated policy with minimal Core projection.** Inspect
 all producer/record/parser/projector paths in Manager and Core. Manager owns
