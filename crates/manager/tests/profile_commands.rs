@@ -169,34 +169,22 @@ fn profile_lifecycle_and_isolated_exec_are_publicly_wired() {
 
     let shared = root.0.join(".codex");
     let work_home = root.0.join(".local/share/codex/manager/profiles/work/home");
-    for name in [
-        "sessions",
-        "archived_sessions",
-        "thread-writer-locks",
-        "rollout-migrations",
-        "memories",
-        "memories_v2",
-        "tui-thread-reference-capabilities",
-        "session_index.jsonl",
-        "history.jsonl",
-        "installation_id",
-    ] {
-        assert_eq!(
-            fs::read_link(work_home.join(name)).unwrap(),
-            shared.join(name)
-        );
-    }
+    assert!(
+        !shared.exists(),
+        "Manager must not prepare the conversation store"
+    );
+    assert_eq!(fs::read_dir(&work_home).unwrap().count(), 0);
 
+    let dotted = run_manager(&root.0, &core, &["profile", "create", "account.a"], None);
+    assert_eq!(dotted.status.code(), Some(0));
+    assert!(!shared.exists());
     let listed = run_manager(&root.0, &core, &["profile", "list"], None);
     assert_eq!(listed.status.code(), Some(0));
-    assert_eq!(listed.stdout, b"default\nwork\n");
+    assert_eq!(listed.stdout, b"default\naccount.a\nwork\n");
 
     let current = run_manager(&root.0, &core, &["profile", "current"], None);
     assert_eq!(current.status.code(), Some(0));
-    assert_eq!(
-        current.stdout,
-        b"current: default\nsource: last-selection\n"
-    );
+    assert_eq!(current.stdout, b"current: default\nsource: default\n");
 
     let custom = run_manager(
         &root.0,
@@ -259,8 +247,7 @@ fn profile_lifecycle_and_isolated_exec_are_publicly_wired() {
         .stdout
         .windows(b"ARG=<--version>\n".len())
         .any(|window| window == b"ARG=<--version>\n"));
-    let selected = fs::read(root.0.join(".local/share/codex/manager/state-v1")).unwrap();
-    assert_eq!(selected, b"codex-manager-state-v1\nlast_profile\tdefault\n");
+    assert!(!root.0.join(".local/share/codex/manager/state-v1").exists());
 
     let raw = OsString::from_vec(vec![0xff, 0x80, b'x']);
     let mut raw_command = base_manager_command(&root.0, &core);
@@ -278,8 +265,7 @@ fn profile_lifecycle_and_isolated_exec_are_publicly_wired() {
         .windows(b"ARG=<\xff\x80x>\n".len())
         .any(|window| window == b"ARG=<\xff\x80x>\n"));
 
-    let selected = fs::read(root.0.join(".local/share/codex/manager/state-v1")).unwrap();
-    assert_eq!(selected, b"codex-manager-state-v1\nlast_profile\twork\n");
+    assert!(!root.0.join(".local/share/codex/manager/state-v1").exists());
 }
 
 #[test]
@@ -290,19 +276,19 @@ fn upstream_resume_is_forwarded_through_the_selected_execution_profile() {
     let created = run_manager(&root.0, &core, &["profile", "create", "work"], None);
     assert_eq!(created.status.code(), Some(0));
 
-    let resumed = run_manager(
-        &root.0,
-        &core,
-        &["profile", "use", "work", "--", "resume", "--all"],
-        Some(Path::new("/caller/environment")),
-    );
+    let resumed = base_manager_command(&root.0, &core)
+        .args(["profile", "use", "work", "--", "resume", "--all"])
+        .env("CODEX_HOME", "/caller/environment")
+        .env("CODEX_SQLITE_HOME", "/caller/sqlite")
+        .output()
+        .unwrap();
     assert_eq!(resumed.status.code(), Some(37));
     for expected in [
         b"ARGC=2\n".as_slice(),
         b"ARG=<resume>\n".as_slice(),
         b"ARG=<--all>\n".as_slice(),
         b"HOME_SET=x\n".as_slice(),
-        b"SQLITE_HOME_SET=x\n".as_slice(),
+        b"SQLITE_HOME_SET=\n".as_slice(),
     ] {
         assert!(
             resumed
@@ -320,7 +306,7 @@ fn upstream_resume_is_forwarded_through_the_selected_execution_profile() {
         .stdout
         .windows(expected_home.len())
         .any(|window| window == expected_home.as_bytes()));
-    let expected_sqlite = format!("SQLITE_HOME_VALUE={}\n", root.0.join(".codex").display());
+    let expected_sqlite = "SQLITE_HOME_VALUE=\n";
     assert!(resumed
         .stdout
         .windows(expected_sqlite.len())
@@ -444,6 +430,86 @@ fn inherited_codex_home_is_reported_without_revealing_paths() {
         .stdout
         .windows(root.0.to_string_lossy().len())
         .any(|window| { window == root.0.to_string_lossy().as_bytes() }));
+}
+
+#[test]
+fn current_identity_ignores_retired_history_and_matches_fresh_launch() {
+    let root = TestRoot::new();
+    let core = write_core_probe(&root.0);
+    assert_eq!(
+        run_manager(&root.0, &core, &["profile", "create", "account.a"], None)
+            .status
+            .code(),
+        Some(0)
+    );
+    let state = root.0.join(".local/share/codex/manager/state-v1");
+    fs::write(&state, b"codex-manager-state-v1\nlast_profile\taccount.a\n").unwrap();
+    let state_before = fs::read(&state).unwrap();
+    let selected = run_manager(
+        &root.0,
+        &core,
+        &["profile", "use", "account.a", "--", "--version"],
+        None,
+    );
+    assert_eq!(selected.status.code(), Some(37));
+    let current = run_manager(&root.0, &core, &["profile", "current"], None);
+    assert_eq!(current.status.code(), Some(0));
+    assert_eq!(current.stdout, b"current: default\nsource: default\n");
+    let profile = root
+        .0
+        .join(".local/share/codex/manager/profiles/account.a/home");
+    let inherited = run_manager(&root.0, &core, &["profile", "current"], Some(&profile));
+    assert_eq!(inherited.stdout, b"current: account.a\nsource: inherited\n");
+    let default = run_manager(
+        &root.0,
+        &core,
+        &["profile", "current"],
+        Some(&root.0.join(".codex")),
+    );
+    assert_eq!(default.stdout, b"current: default\nsource: inherited\n");
+    for selected in [OsString::new(), OsString::from_vec(vec![0xff, 0x80])] {
+        let current = base_manager_command(&root.0, &core)
+            .args(["profile", "current"])
+            .env("CODEX_HOME", selected)
+            .output()
+            .unwrap();
+        assert_eq!(current.status.code(), Some(0));
+        assert_eq!(current.stdout, b"current: default\nsource: default\n");
+    }
+    fs::write(&state, b"invalid legacy history\n").unwrap();
+    assert_eq!(
+        run_manager(
+            &root.0,
+            &core,
+            &["profile", "use", "default", "--", "--version"],
+            None
+        )
+        .status
+        .code(),
+        Some(37)
+    );
+    assert_eq!(fs::read(&state).unwrap(), b"invalid legacy history\n");
+    fs::write(&state, &state_before).unwrap();
+    let outside = root.0.join("retired-history-target");
+    fs::write(&outside, b"do-not-touch").unwrap();
+    fs::remove_file(&state).unwrap();
+    std::os::unix::fs::symlink(&outside, &state).unwrap();
+    assert_eq!(
+        run_manager(
+            &root.0,
+            &core,
+            &["profile", "use", "account.a", "--", "--version"],
+            None
+        )
+        .status
+        .code(),
+        Some(37)
+    );
+    assert_eq!(fs::read(&outside).unwrap(), b"do-not-touch");
+    assert!(fs::symlink_metadata(&state)
+        .unwrap()
+        .file_type()
+        .is_symlink());
 }
 
 #[test]

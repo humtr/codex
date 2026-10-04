@@ -1402,9 +1402,7 @@ where
     {
         let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
         if let Some(home) = home {
-            let profile = std::env::var_os("CODEX_HOME")
-                .map(std::path::PathBuf::from)
-                .unwrap_or_else(|| home.join(".codex"));
+            let profile = upstream_execution_home(&home);
             let state = home.join(".local/share/codex/core");
             if let Err(error) = shared_server::ensure(
                 selection.runtime.program_path,
@@ -1696,36 +1694,21 @@ fn core_toml_basic_string(value: &str) -> String {
 }
 
 #[cfg(unix)]
+fn upstream_execution_home(home: &std::path::Path) -> std::path::PathBuf {
+    std::env::var("CODEX_HOME")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| home.join(".codex"))
+}
+
+#[cfg(unix)]
 fn requested_core_shared_state_home() -> std::io::Result<Option<std::path::PathBuf>> {
-    if let Some(home) = std::env::var_os("HOME") {
-        let home = std::path::PathBuf::from(home);
-        if let Some(shared) =
-            shared_layout::prepare(&home, std::env::var_os("CODEX_HOME").as_deref())?
-        {
-            return Ok(Some(shared));
-        }
-    }
-    let Some(sqlite_home) = std::env::var_os(CODEX_SQLITE_HOME_ENV) else {
-        return Ok(None);
-    };
     let Some(home) = std::env::var_os("HOME") else {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            "shared Codex state requires HOME",
-        ));
+        return Ok(None);
     };
     let home = std::path::PathBuf::from(home);
-    if !core_notify_safe_absolute_path(&home) {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            "shared Codex state HOME is unsafe",
-        ));
-    }
-    let shared = home.join(".codex");
-    if std::path::PathBuf::from(sqlite_home) != shared {
-        return Ok(None);
-    }
-    Ok(Some(shared))
+    shared_layout::prepare(&home, Some(upstream_execution_home(&home).as_os_str()))
 }
 
 #[cfg(unix)]
@@ -13147,11 +13130,12 @@ exit 73
         let root = std::path::PathBuf::from(std::env::var_os(PROBE_ROOT).unwrap());
         std::env::set_var("HOME", &root);
         std::env::set_var("CODEX_HOME", root.join("arbitrary-execution-home"));
-        if !std::env::var(PROBE_SCENARIO)
+        std::env::remove_var(CODEX_SQLITE_HOME_ENV);
+        if std::env::var(PROBE_SCENARIO)
             .unwrap()
             .starts_with("shared-requirements")
         {
-            std::env::remove_var(CODEX_SQLITE_HOME_ENV);
+            std::env::set_var("CODEX_HOME", root.join(".codex"));
         }
         let runtime = std::env::var_os(PROBE_RUNTIME).unwrap();
         let resolver = std::path::PathBuf::from(std::env::var_os(PROBE_RESOLVER).unwrap());
@@ -13456,9 +13440,6 @@ exit 73
             .env_remove(CODEX_SQLITE_HOME_ENV)
             .env("HOME", root)
             .env("CODEX_HOME", root.join("arbitrary-execution-home"));
-        if scenario.starts_with("shared-requirements") {
-            command.env(CODEX_SQLITE_HOME_ENV, root.join(".codex"));
-        }
         if scenario == "manager" {
             command.env(MANAGER_ARTIFACT_PROBE_ENV, "1");
         }
@@ -15215,6 +15196,172 @@ snooze_until	0
                 );
                 remove_temp_root(root);
             }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_profile_boundary_direct_homes_prepare_without_manager_signal() {
+        use std::os::unix::fs::PermissionsExt;
+        for selected in [
+            None,
+            Some(".local/share/codex/manager/profiles/account.a/home"),
+            Some(".codex-profiles/account.a"),
+            Some(".codex-profiles/_account"),
+            Some(".codex-profiles/-account"),
+            Some("arbitrary-home"),
+        ] {
+            let root = b2_public_main_fixture("profile-boundary-direct", false);
+            let home = root.join("home");
+            let shared = home.join(".codex");
+            let profile = selected
+                .map(|p| home.join(p))
+                .unwrap_or_else(|| shared.clone());
+            std::fs::create_dir_all(&profile).unwrap();
+            std::fs::set_permissions(&profile, std::fs::Permissions::from_mode(0o700)).unwrap();
+            std::fs::write(profile.join("auth.json"), b"account-only-sentinel").unwrap();
+            std::fs::write(profile.join("config.toml"), b"# account-only config\n").unwrap();
+            let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+            command
+                .args(["tests::public_main_probe", "--exact", "--nocapture"])
+                .env(MAIN_PROBE_ROLE, "1")
+                .env(MAIN_PROBE_ARGS, "version")
+                .env("HOME", &home)
+                .env("PREFIX", root.join("prefix"))
+                .env("TMPDIR", root.join("tmp"))
+                .env_remove(CODEX_SQLITE_HOME_ENV)
+                .env_remove("CODEX_HOME");
+            if selected.is_some() {
+                command.env("CODEX_HOME", &profile);
+            }
+            if selected == Some("arbitrary-home") {
+                // A legacy Manager signal cannot enroll an arbitrary home.
+                command.env(CODEX_SQLITE_HOME_ENV, &shared);
+            }
+            let result = command.output().unwrap();
+            assert_eq!(result.status.code(), Some(0), "{:?}", result.stderr);
+            assert!(result.stdout.ends_with(b"codex-upstream 9.9.9\n"));
+            let requirements = home.join(".local/share/codex/core/config/requirements.toml");
+            if selected == Some("arbitrary-home") {
+                assert!(!requirements.exists());
+                assert!(!shared.exists());
+                assert!(!profile.join("sessions").exists());
+            } else {
+                let required = format!("sqlite_home = \"{}\"", shared.display());
+                assert!(std::fs::read_to_string(requirements)
+                    .unwrap()
+                    .contains(&required));
+                if profile != shared {
+                    for name in shared_layout::DIRECTORIES
+                        .iter()
+                        .chain(shared_layout::FILES)
+                    {
+                        assert_eq!(
+                            std::fs::read_link(profile.join(name)).unwrap(),
+                            shared.join(name)
+                        );
+                    }
+                }
+            }
+            assert_eq!(
+                std::fs::read(profile.join("auth.json")).unwrap(),
+                b"account-only-sentinel"
+            );
+            assert_eq!(
+                std::fs::read(profile.join("config.toml")).unwrap(),
+                b"# account-only config\n"
+            );
+            remove_temp_root(root);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_profile_boundary_empty_and_non_utf8_home_use_native_default() {
+        use std::os::unix::ffi::OsStringExt;
+        for selected in [OsString::new(), OsString::from_vec(vec![0xff, 0x80])] {
+            let root = b2_public_main_fixture("profile-boundary-native-home", false);
+            let home = root.join("home");
+            let result = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["tests::public_main_probe", "--exact", "--nocapture"])
+                .env(MAIN_PROBE_ROLE, "1")
+                .env(MAIN_PROBE_ARGS, "version")
+                .env("HOME", &home)
+                .env("PREFIX", root.join("prefix"))
+                .env("TMPDIR", root.join("tmp"))
+                .env("CODEX_HOME", selected)
+                .env_remove(CODEX_SQLITE_HOME_ENV)
+                .output()
+                .unwrap();
+            assert_eq!(result.status.code(), Some(0), "{:?}", result.stderr);
+            assert!(result.stdout.ends_with(b"codex-upstream 9.9.9\n"));
+            let required = format!("sqlite_home = \"{}\"", home.join(".codex").display());
+            assert!(std::fs::read_to_string(
+                home.join(".local/share/codex/core/config/requirements.toml")
+            )
+            .unwrap()
+            .contains(&required));
+            remove_temp_root(root);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_profile_boundary_conflicts_reject_before_upstream_exec() {
+        use std::os::unix::fs::PermissionsExt;
+        for conflict in ["nonempty", "wrong-link", "parent-link"] {
+            let root = b2_public_main_fixture("profile-boundary-conflict", false);
+            let home = root.join("home");
+            let profile = home.join(".local/share/codex/manager/profiles/account.a/home");
+            std::fs::create_dir_all(&profile).unwrap();
+            std::fs::set_permissions(&profile, std::fs::Permissions::from_mode(0o700)).unwrap();
+            let outside = root.join("outside");
+            std::fs::create_dir(&outside).unwrap();
+            std::fs::write(outside.join("sentinel"), b"do-not-touch").unwrap();
+            match conflict {
+                "nonempty" => {
+                    std::fs::create_dir(profile.join("sessions")).unwrap();
+                    std::fs::write(profile.join("sessions/thread"), b"legacy-sentinel").unwrap();
+                }
+                "wrong-link" => {
+                    std::os::unix::fs::symlink(&outside, profile.join("sessions")).unwrap()
+                }
+                "parent-link" => {
+                    std::fs::remove_dir(&profile).unwrap();
+                    std::os::unix::fs::symlink(&outside, &profile).unwrap();
+                }
+                _ => unreachable!(),
+            }
+            let result = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["tests::public_main_probe", "--exact", "--nocapture"])
+                .env(MAIN_PROBE_ROLE, "1")
+                .env(MAIN_PROBE_ARGS, "version")
+                .env("HOME", &home)
+                .env("PREFIX", root.join("prefix"))
+                .env("TMPDIR", root.join("tmp"))
+                .env("CODEX_HOME", &profile)
+                .env_remove(CODEX_SQLITE_HOME_ENV)
+                .output()
+                .unwrap();
+            assert_eq!(
+                result.status.code(),
+                Some(1),
+                "{conflict}: {:?}",
+                result.stderr
+            );
+            assert!(!result.stdout.ends_with(b"codex-upstream 9.9.9\n"));
+            assert_eq!(
+                std::fs::read(outside.join("sentinel")).unwrap(),
+                b"do-not-touch"
+            );
+            if conflict == "nonempty" {
+                assert_eq!(
+                    std::fs::read(profile.join("sessions/thread")).unwrap(),
+                    b"legacy-sentinel"
+                );
+            }
+            assert!(!profile.join("history.jsonl").exists());
+            remove_temp_root(root);
         }
     }
 

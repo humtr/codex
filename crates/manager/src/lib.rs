@@ -23,10 +23,8 @@ const ARTIFACT_PROBE_ENV: &str = "CODEX_MANAGER_ARTIFACT_PROBE";
 const ARTIFACT_PROBE_OUTPUT: &str = "codex-manager-artifact-v1\ncore_api=codex-manager-core-v1\n";
 const CODEX_HOME_ENV: &str = "CODEX_HOME";
 const CODEX_SQLITE_HOME_ENV: &str = "CODEX_SQLITE_HOME";
-const STATE_FILE: &str = "state-v1";
 const PROFILES_DIR: &str = "profiles";
 const PROFILE_META: &str = "profile.meta";
-const STATE_HEADER: &str = "codex-manager-state-v1";
 const PROFILE_HEADER: &str = "codex-manager-profile-v1";
 const NOTIFY_DIR: &str = "notifications";
 const NOTIFY_CONFIG: &str = "config-v1";
@@ -39,17 +37,6 @@ const USER_INPUT_REQUEST_EVENT: &str = "UserInputRequest";
 const NOTIFY_MAX_CHARS: usize = 4096;
 const PRIVATE_DIR_MODE: u32 = 0o700;
 const PRIVATE_FILE_MODE: u32 = 0o600;
-const SHARED_DIRECTORY_NAMES: [&str; 7] = [
-    "sessions",
-    "archived_sessions",
-    "thread-writer-locks",
-    "rollout-migrations",
-    "memories",
-    "memories_v2",
-    "tui-thread-reference-capabilities",
-];
-const SHARED_FILE_NAMES: [&str; 3] = ["session_index.jsonl", "history.jsonl", "installation_id"];
-
 const HELP: &str = concat!(
     "codex termux profile list\n",
     "codex termux profile current\n",
@@ -103,7 +90,6 @@ const ERR_USAGE: ManagerError = ManagerError::usage("codex termux: invalid comma
 const ERR_HANDOFF: ManagerError = ManagerError::operation("codex termux: Core handoff is invalid");
 const ERR_HOME: ManagerError = ManagerError::operation("codex termux: HOME is invalid");
 const ERR_PATH: ManagerError = ManagerError::operation("codex termux: Manager path is unsafe");
-const ERR_STATE: ManagerError = ManagerError::operation("codex termux: selection state is invalid");
 const ERR_PROFILE: ManagerError = ManagerError::operation("codex termux: profile is unavailable");
 const ERR_COLLISION: ManagerError = ManagerError::operation("codex termux: profile already exists");
 const ERR_CREATE: ManagerError = ManagerError::operation("codex termux: profile creation failed");
@@ -122,21 +108,6 @@ struct Context {
 enum ProfileTarget {
     Default,
     Custom(String),
-}
-
-impl ProfileTarget {
-    fn display(&self) -> &str {
-        match self {
-            Self::Default => "default",
-            Self::Custom(id) => id,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-struct ManagerDirs {
-    root: PathBuf,
-    profiles: PathBuf,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -343,7 +314,7 @@ fn run_inner(args: Vec<OsString>) -> Result<Option<String>, ManagerError> {
         }
         CommandKind::Use => {
             let target = command.target.expect("use target is parsed");
-            use_profile(&context, target, &command.upstream_args)?;
+            launch_core(&context, &target, &command.upstream_args)?;
             Ok(None)
         }
         CommandKind::NotifyShow => Ok(Some(format!(
@@ -857,80 +828,17 @@ fn manager_base(context: &Context) -> PathBuf {
     context.home.join(".local").join("share").join("codex")
 }
 
-fn shared_state_home(context: &Context) -> PathBuf {
-    context.home.join(".codex")
-}
-
-fn ensure_shared_state_for_create(context: &Context) -> Result<PathBuf, ManagerError> {
-    let shared = shared_state_home(context);
-    ensure_private_directory(&shared)?;
-    for name in SHARED_DIRECTORY_NAMES {
-        ensure_private_directory(&shared.join(name))?;
-    }
-    Ok(shared)
-}
-
-fn exact_shared_link(link: &Path, target: &Path, directory: bool) -> bool {
-    let Ok(metadata) = fs::symlink_metadata(link) else {
-        return false;
-    };
-    if !metadata.file_type().is_symlink() {
-        return false;
-    }
-    if fs::read_link(link).ok().as_deref() != Some(target) {
-        return false;
-    }
-    match fs::symlink_metadata(target) {
-        Ok(target_metadata) if target_metadata.file_type().is_symlink() => false,
-        Ok(target_metadata) if directory => target_metadata.is_dir(),
-        Ok(target_metadata) => target_metadata.is_file(),
-        Err(error) if !directory && error.kind() == io::ErrorKind::NotFound => true,
-        Err(_) => false,
-    }
-}
-
-fn shared_topology_complete(context: &Context, profile_home: &Path) -> bool {
-    let shared = shared_state_home(context);
-    let Ok(metadata) = fs::symlink_metadata(&shared) else {
-        return false;
-    };
-    if metadata.file_type().is_symlink()
-        || !metadata.is_dir()
-        || metadata.permissions().mode() & 0o7777 != PRIVATE_DIR_MODE
-    {
-        return false;
-    }
-    SHARED_DIRECTORY_NAMES
-        .iter()
-        .all(|name| exact_shared_link(&profile_home.join(name), &shared.join(name), true))
-        && SHARED_FILE_NAMES
-            .iter()
-            .all(|name| exact_shared_link(&profile_home.join(name), &shared.join(name), false))
-}
-
-fn create_shared_topology(profile_home: &Path, shared: &Path) -> Result<(), ManagerError> {
-    for name in SHARED_DIRECTORY_NAMES {
-        std::os::unix::fs::symlink(shared.join(name), profile_home.join(name))
-            .map_err(|_| ERR_CREATE)?;
-    }
-    for name in SHARED_FILE_NAMES {
-        std::os::unix::fs::symlink(shared.join(name), profile_home.join(name))
-            .map_err(|_| ERR_CREATE)?;
-    }
-    Ok(())
-}
-
-fn manager_dirs_for_create(context: &Context) -> Result<ManagerDirs, ManagerError> {
+fn manager_profiles_for_create(context: &Context) -> Result<PathBuf, ManagerError> {
     let base = manager_base(context);
     ensure_directory_chain(&base)?;
     let root = base.join("manager");
     let profiles = root.join(PROFILES_DIR);
     ensure_private_directory(&root)?;
     ensure_private_directory(&profiles)?;
-    Ok(ManagerDirs { root, profiles })
+    Ok(profiles)
 }
 
-fn existing_manager_dirs(context: &Context) -> Result<Option<ManagerDirs>, ManagerError> {
+fn existing_manager_profiles(context: &Context) -> Result<Option<PathBuf>, ManagerError> {
     let base = manager_base(context);
     if inspect_path(&base)? == PathPresence::Missing {
         return Ok(None);
@@ -945,7 +853,7 @@ fn existing_manager_dirs(context: &Context) -> Result<Option<ManagerDirs>, Manag
     }
     let profiles = root.join(PROFILES_DIR);
     if inspect_path(&profiles)? == PathPresence::Missing {
-        return Ok(Some(ManagerDirs { root, profiles }));
+        return Ok(Some(profiles));
     }
     let profiles_metadata = fs::symlink_metadata(&profiles).map_err(|_| ERR_PATH)?;
     if !profiles_metadata.is_dir()
@@ -953,7 +861,7 @@ fn existing_manager_dirs(context: &Context) -> Result<Option<ManagerDirs>, Manag
     {
         return Err(ERR_PATH);
     }
-    Ok(Some(ManagerDirs { root, profiles }))
+    Ok(Some(profiles))
 }
 
 fn notify_directory_for_create(context: &Context) -> Result<PathBuf, ManagerError> {
@@ -1838,15 +1746,15 @@ fn parse_hook_json(input: &[u8]) -> Option<HookText> {
     Some(text)
 }
 
-fn profile_path(dirs: &ManagerDirs, id: &str) -> PathBuf {
-    dirs.profiles.join(id)
+fn profile_path(dirs: &Path, id: &str) -> PathBuf {
+    dirs.join(id)
 }
 
-fn profile_home_path(dirs: &ManagerDirs, id: &str) -> PathBuf {
+fn profile_home_path(dirs: &Path, id: &str) -> PathBuf {
     profile_path(dirs, id).join("home")
 }
 
-fn profile_complete(context: &Context, dirs: &ManagerDirs, id: &str) -> bool {
+fn profile_complete(dirs: &Path, id: &str) -> bool {
     let profile = profile_path(dirs, id);
     let Ok(profile_metadata) = fs::symlink_metadata(&profile) else {
         return false;
@@ -1864,7 +1772,6 @@ fn profile_complete(context: &Context, dirs: &ManagerDirs, id: &str) -> bool {
     if home_metadata.file_type().is_symlink()
         || !home_metadata.is_dir()
         || home_metadata.permissions().mode() & 0o7777 != PRIVATE_DIR_MODE
-        || !shared_topology_complete(context, &home)
     {
         return false;
     }
@@ -1885,14 +1792,14 @@ fn profile_complete(context: &Context, dirs: &ManagerDirs, id: &str) -> bool {
 }
 
 fn list_custom_profiles(context: &Context) -> Result<Vec<String>, ManagerError> {
-    let Some(dirs) = existing_manager_dirs(context)? else {
+    let Some(dirs) = existing_manager_profiles(context)? else {
         return Ok(Vec::new());
     };
-    if !dirs.profiles.exists() {
+    if !dirs.exists() {
         return Ok(Vec::new());
     }
     let mut ids = Vec::new();
-    let entries = fs::read_dir(&dirs.profiles).map_err(|_| ERR_PATH)?;
+    let entries = fs::read_dir(&dirs).map_err(|_| ERR_PATH)?;
     for entry in entries {
         let Ok(entry) = entry else {
             continue;
@@ -1901,7 +1808,7 @@ fn list_custom_profiles(context: &Context) -> Result<Vec<String>, ManagerError> 
         let Some(id) = parse_id(&name) else {
             continue;
         };
-        if is_reserved_custom_id(&id) || !profile_complete(context, &dirs, &id) {
+        if is_reserved_custom_id(&id) || !profile_complete(&dirs, &id) {
             continue;
         }
         ids.push(id);
@@ -1920,13 +1827,17 @@ fn format_profile_list(context: &Context) -> Result<String, ManagerError> {
 }
 
 fn format_current(context: &Context) -> Result<String, ManagerError> {
-    if let Some(inherited) = context.inherited_codex_home.as_ref() {
+    if let Some(inherited) = context
+        .inherited_codex_home
+        .as_ref()
+        .filter(|value| value.to_str().is_some_and(|value| !value.is_empty()))
+    {
         let default_home = context.home.join(".codex");
         let target = if inherited == default_home.as_os_str() {
             "default".to_owned()
         } else {
             let mut target = "external".to_owned();
-            let Some(dirs) = existing_manager_dirs(context)? else {
+            let Some(dirs) = existing_manager_profiles(context)? else {
                 return Ok(format!("current: {target}\nsource: inherited\n"));
             };
             for id in list_custom_profiles(context)? {
@@ -1940,20 +1851,16 @@ fn format_current(context: &Context) -> Result<String, ManagerError> {
         return Ok(format!("current: {target}\nsource: inherited\n"));
     }
 
-    let selection = read_selection(context)?;
-    Ok(format!(
-        "current: {}\nsource: last-selection\n",
-        selection.display()
-    ))
+    Ok("current: default\nsource: default\n".to_owned())
 }
 
 fn create_profile(context: &Context, id: &str) -> Result<(), ManagerError> {
-    let dirs = manager_dirs_for_create(context)?;
+    let dirs = manager_profiles_for_create(context)?;
     let destination = profile_path(&dirs, id);
     if fs::symlink_metadata(&destination).is_ok() {
         return Err(ERR_COLLISION);
     }
-    let temporary = dirs.profiles.join(format!(
+    let temporary = dirs.join(format!(
         ".create-{}-{}",
         std::process::id(),
         TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
@@ -1967,8 +1874,6 @@ fn create_profile(context: &Context, id: &str) -> Result<(), ManagerError> {
         let home = temporary.join("home");
         fs::create_dir(&home).map_err(|_| ERR_CREATE)?;
         set_mode(&home, PRIVATE_DIR_MODE).map_err(|_| ERR_CREATE)?;
-        let shared = ensure_shared_state_for_create(context)?;
-        create_shared_topology(&home, &shared)?;
         write_new_record(&temporary.join(PROFILE_META), &profile_meta_bytes(id))?;
         sync_directory(&temporary)?;
         rename_noreplace(&temporary, &destination).map_err(|error| {
@@ -1978,7 +1883,7 @@ fn create_profile(context: &Context, id: &str) -> Result<(), ManagerError> {
                 ERR_CREATE
             }
         })?;
-        sync_directory(&dirs.profiles)?;
+        sync_directory(&dirs)?;
         Ok(())
     })();
     if result.is_err() {
@@ -1987,107 +1892,8 @@ fn create_profile(context: &Context, id: &str) -> Result<(), ManagerError> {
     result
 }
 
-fn use_profile(
-    context: &Context,
-    target: ProfileTarget,
-    upstream_args: &[OsString],
-) -> Result<(), ManagerError> {
-    let dirs = existing_manager_dirs(context)?;
-    if let ProfileTarget::Custom(id) = &target {
-        let Some(dirs) = dirs.as_ref() else {
-            return Err(ERR_PROFILE);
-        };
-        if !profile_complete(context, dirs, id) {
-            return Err(ERR_PROFILE);
-        }
-    }
-    publish_selection(context, &target)?;
-    launch_core(context, &target, upstream_args)
-}
-
-fn publish_selection(context: &Context, target: &ProfileTarget) -> Result<(), ManagerError> {
-    let _ = read_selection(context)?;
-    let dirs = manager_dirs_for_create(context)?;
-    let state = dirs.root.join(STATE_FILE);
-    let bytes = state_bytes(target);
-    if let Ok(metadata) = fs::symlink_metadata(&state) {
-        if metadata.file_type().is_symlink()
-            || !metadata.is_file()
-            || metadata.permissions().mode() & 0o7777 != PRIVATE_FILE_MODE
-        {
-            return Err(ERR_STATE);
-        }
-    }
-    let temporary = dirs.root.join(format!(
-        ".state-{}-{}",
-        std::process::id(),
-        TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
-    ));
-    let result = (|| {
-        write_new_record(&temporary, &bytes)?;
-        fs::rename(&temporary, &state).map_err(|_| ERR_STATE)?;
-        sync_directory(&dirs.root)?;
-        Ok(())
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&temporary);
-    }
-    result
-}
-
-fn read_selection(context: &Context) -> Result<ProfileTarget, ManagerError> {
-    let Some(dirs) = existing_manager_dirs(context)? else {
-        return Ok(ProfileTarget::Default);
-    };
-    let state = dirs.root.join(STATE_FILE);
-    let metadata = match fs::symlink_metadata(&state) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            return Ok(ProfileTarget::Default);
-        }
-        Err(_) => return Err(ERR_STATE),
-    };
-    if metadata.file_type().is_symlink()
-        || !metadata.is_file()
-        || metadata.permissions().mode() & 0o7777 != PRIVATE_FILE_MODE
-    {
-        return Err(ERR_STATE);
-    }
-    let bytes = read_bounded(&state).map_err(|_| ERR_STATE)?;
-    let selection = parse_state_bytes(&bytes)?;
-    if let ProfileTarget::Custom(id) = &selection {
-        if !profile_complete(context, &dirs, id) {
-            return Err(ERR_STATE);
-        }
-    }
-    Ok(selection)
-}
-
-fn parse_state_bytes(bytes: &[u8]) -> Result<ProfileTarget, ManagerError> {
-    let text = std::str::from_utf8(bytes).map_err(|_| ERR_STATE)?;
-    let expected_prefix = format!("{STATE_HEADER}\nlast_profile\t");
-    let id = text
-        .strip_prefix(&expected_prefix)
-        .and_then(|rest| rest.strip_suffix('\n'))
-        .filter(|id| !id.contains('\n') && !id.contains('\r'))
-        .ok_or(ERR_STATE)?;
-    if id == "default" {
-        return Ok(ProfileTarget::Default);
-    }
-    let id_os = OsString::from(id);
-    let parsed = parse_id(&id_os).ok_or(ERR_STATE)?;
-    if is_reserved_custom_id(&parsed) {
-        return Err(ERR_STATE);
-    }
-    Ok(ProfileTarget::Custom(parsed))
-}
-
 fn profile_meta_bytes(id: &str) -> Vec<u8> {
     format!("{PROFILE_HEADER}\nid\t{id}\n").into_bytes()
-}
-
-fn state_bytes(target: &ProfileTarget) -> Vec<u8> {
-    format!("{STATE_HEADER}\nlast_profile\t{}\n", target.display()).into_bytes()
 }
 
 fn read_bounded(path: &Path) -> io::Result<Vec<u8>> {
@@ -2157,15 +1963,15 @@ fn launch_core(
     command.env_remove(CORE_ENTRYPOINT_ENV);
     command.env_remove(CORE_REQUEST_ENV);
     command.env_remove(CORE_OPERATION_ENV);
-    command.env(CODEX_SQLITE_HOME_ENV, shared_state_home(context));
+    command.env_remove(CODEX_SQLITE_HOME_ENV);
     match target {
         ProfileTarget::Default => {
             command.env_remove(CODEX_HOME_ENV);
         }
         ProfileTarget::Custom(id) => {
-            let dirs = existing_manager_dirs(context)?.ok_or(ERR_PROFILE)?;
+            let dirs = existing_manager_profiles(context)?.ok_or(ERR_PROFILE)?;
             let home = profile_home_path(&dirs, id);
-            if !profile_complete(context, &dirs, id) {
+            if !profile_complete(&dirs, id) {
                 return Err(ERR_PROFILE);
             }
             command.env(CODEX_HOME_ENV, home);
@@ -2395,22 +2201,10 @@ mod tests {
     }
 
     #[test]
-    fn state_and_metadata_records_are_exact_and_bounded() {
+    fn profile_metadata_record_is_exact_and_bounded() {
         assert_eq!(
             profile_meta_bytes("work"),
             b"codex-manager-profile-v1\nid\twork\n"
-        );
-        assert_eq!(
-            state_bytes(&ProfileTarget::Custom("work".to_owned())),
-            b"codex-manager-state-v1\nlast_profile\twork\n"
-        );
-        assert_eq!(
-            parse_state_bytes(&state_bytes(&ProfileTarget::Default)).unwrap(),
-            ProfileTarget::Default
-        );
-        assert_eq!(
-            parse_state_bytes(b"codex-manager-state-v1\nlast_profile\t../x\n"),
-            Err(ERR_STATE)
         );
     }
 
@@ -2420,7 +2214,7 @@ mod tests {
         let context = root.context();
 
         create_profile(&context, "work").unwrap();
-        let dirs = manager_dirs_for_create(&context).unwrap();
+        let dirs = manager_profiles_for_create(&context).unwrap();
         let work_home = profile_home_path(&dirs, "work");
         let auth = work_home.join("auth.json");
         fs::write(&auth, b"opaque-test-sentinel").unwrap();
@@ -2430,7 +2224,7 @@ mod tests {
         fs::write(&default_auth, b"default-sentinel").unwrap();
 
         create_profile(&context, "Alpha").unwrap();
-        let malformed = dirs.profiles.join("bad");
+        let malformed = dirs.join("bad");
         fs::create_dir(&malformed).unwrap();
         set_mode(&malformed, PRIVATE_DIR_MODE).unwrap();
         fs::write(malformed.join(PROFILE_META), b"malformed\n").unwrap();
@@ -2438,7 +2232,7 @@ mod tests {
         let outside = root.0.join("outside");
         fs::create_dir(&outside).unwrap();
         set_mode(&outside, PRIVATE_DIR_MODE).unwrap();
-        std::os::unix::fs::symlink(&outside, dirs.profiles.join("link")).unwrap();
+        std::os::unix::fs::symlink(&outside, dirs.join("link")).unwrap();
 
         assert_eq!(
             format_profile_list(&context).unwrap(),
@@ -2446,7 +2240,7 @@ mod tests {
         );
         assert_eq!(fs::read(&auth).unwrap(), b"opaque-test-sentinel");
         assert_eq!(fs::read(&default_auth).unwrap(), b"default-sentinel");
-        assert!(fs::symlink_metadata(dirs.profiles.join("link"))
+        assert!(fs::symlink_metadata(dirs.join("link"))
             .unwrap()
             .file_type()
             .is_symlink());
@@ -2458,48 +2252,30 @@ mod tests {
     }
 
     #[test]
-    fn selection_is_atomic_and_invalid_state_never_launches_core() {
+    fn retired_selection_history_is_ignored_and_preserved() {
         let root = TestRoot::new();
         let context = root.context();
         create_profile(&context, "work").unwrap();
-
-        publish_selection(&context, &ProfileTarget::Custom("work".to_owned())).unwrap();
-        assert_eq!(
-            fs::read(
-                manager_dirs_for_create(&context)
-                    .unwrap()
-                    .root
-                    .join(STATE_FILE)
-            )
-            .unwrap(),
-            b"codex-manager-state-v1\nlast_profile\twork\n"
-        );
-        assert_eq!(
-            format_current(&context).unwrap(),
-            "current: work\nsource: last-selection\n"
-        );
-
-        let state = manager_dirs_for_create(&context)
-            .unwrap()
-            .root
-            .join(STATE_FILE);
-        fs::write(&state, b"codex-manager-state-v1\nlast_profile\tbroken\n").unwrap();
-        set_mode(&state, PRIVATE_FILE_MODE).unwrap();
-        assert_eq!(
-            use_profile(&context, ProfileTarget::Default, &[]).unwrap_err(),
-            ERR_STATE
-        );
-        assert_eq!(
-            fs::read(&state).unwrap(),
-            b"codex-manager-state-v1\nlast_profile\tbroken\n"
-        );
+        let dirs = manager_profiles_for_create(&context).unwrap();
+        let state = dirs.parent().unwrap().join("state-v1");
+        for bytes in [
+            b"codex-manager-state-v1\nlast_profile\twork\n".as_slice(),
+            b"malformed\n",
+        ] {
+            fs::write(&state, bytes).unwrap();
+            assert_eq!(
+                format_current(&context).unwrap(),
+                "current: default\nsource: default\n"
+            );
+            assert_eq!(fs::read(&state).unwrap(), bytes);
+        }
         let outside = root.0.join("state-target");
         fs::write(&outside, b"do-not-touch").unwrap();
         fs::remove_file(&state).unwrap();
         std::os::unix::fs::symlink(&outside, &state).unwrap();
         assert_eq!(
-            use_profile(&context, ProfileTarget::Default, &[]).unwrap_err(),
-            ERR_STATE
+            format_current(&context).unwrap(),
+            "current: default\nsource: default\n"
         );
         assert_eq!(fs::read(&outside).unwrap(), b"do-not-touch");
         assert!(fs::symlink_metadata(&state)

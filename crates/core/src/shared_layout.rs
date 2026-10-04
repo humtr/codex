@@ -23,8 +23,9 @@ fn identity(value: &OsStr) -> bool {
     let b = value.as_bytes();
     !b.is_empty()
         && b.len() <= 64
+        && (b[0].is_ascii_alphanumeric() || matches!(b[0], b'-' | b'_'))
         && b.iter()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
 }
 fn declared(home: &Path, profile: &Path) -> bool {
     if profile == home.join(".codex") {
@@ -111,6 +112,13 @@ mod tests {
     use super::*;
     #[test]
     fn declared_identity_shares_only_conversations_and_rejects_legacy_or_substitution() {
+        for name in ["account.a", "a", "_account", "-account"] {
+            assert!(identity(OsStr::new(name)));
+        }
+        for name in ["", ".", "..", ".hidden", "../a", "é"] {
+            assert!(!identity(OsStr::new(name)));
+        }
+        assert!(!identity(OsStr::new(&"a".repeat(65))));
         let home = crate::tests::temp_root("shared-layout");
         fs::create_dir_all(&home).unwrap();
         fs::create_dir(home.join(".codex-profiles")).unwrap();

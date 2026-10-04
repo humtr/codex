@@ -32,6 +32,67 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
+## PROFILE-BOUNDARY (source accepted 2026-10-04; not installed)
+
+- User authorized the boundary-alignment plan after35d62e8; clean resume bound
+  that exact HEAD, goal-md repository GOAL, approved equivalent primary, workers
+  OFF. SPEC amended before each product slice. P0 four named baselines ran1/1
+  and Core/Manager compiled; real private Core+Manager entrypoints reproduced a
+  dotted registered account using shared SQLite through Manager but losing Core's
+  canonical requirement on direct CODEX_HOME launch.
+- Exact upstream0.160.0 source a956835d020762cb2b570053af06f643a11c0ecc,
+  archive351a23896ba75c2c32c2d9d2050a0987079d683ea4e92d3429b3e1833945e927,
+  confirms CODEX_HOME-relative rollout/index/writer paths and profile-local .tmp
+  maintenance/compression locks; SQLite configuration/requirements precede the
+  environment. KEEP shared links, native state ownership and both maintenance
+  restrictions. Historical operator migrations remain unchanged.
+- COLLAPSE physical shared-path preparation into Core; DELETE Manager's duplicate
+  shared directory/file inventories, canonical-home/link producer/validator and
+  SQLite selection signal. Manager atomically registers only private metadata and
+  an empty account home; list/use validate registration before first execution.
+  Core recognizes accepted dotted IDs while preserving declared external IDs,
+  prepares declared missing/empty links and rejects conflicting state before
+  upstream execution. Arbitrary homes are not enrolled through a legacy signal.
+- DELETE saved-selection writes/reads/parser/formatter/error/constants, the
+  ProfileTarget display/use wrappers and ManagerDirs wrapper. Existing state-v1
+  records, including invalid or symlinked remnants, are ignored and preserved.
+  Current reports default/source default without a usable inherited home, or
+  registered/default/external with source inherited. No persistent account switch,
+  data relocation, import, auth inspection, new command, schema or dependency.
+  COLLAPSE Core's two home derivations onto upstream-equivalent empty/non-UTF8
+  handling; shared preparation and server launch use the same execution identity.
+- Focused public Core3/3 covers six direct home modes, empty/non-UTF8 defaults and
+  three conflicting topologies. Topology/requirements regressions passed; Manager
+  current/history/create/list/use, metadata and symlink regressions passed. Actual
+  optimized Core+Manager public fixtures passed17 invocations, including dotted
+  select/direct equivalence, accurate fresh identity, unchanged synthetic account
+  markers/history and direct execution after Manager removal.
+- Stop-on-red corrections: history deletion briefly removed shared read_bounded;
+  restored it unchanged for metadata/notification/focus consumers. A dead root
+  field was collapsed with all surviving wrapper callers rather than suppressing
+  its warning. Manager21+16 reran warning-free. Native config/read does not expose
+  effective managed feature flags; corrected the proof to experimentalFeature/list.
+  A synthetic runtime prints raw non-UTF8 environment bytes; corrected the private
+  reader to preserve them rather than misclassifying the decode failure. Earlier
+  failed checks are not acceptance evidence; no red gate remains.
+- Production/test source diff against35d62e8 SHA256
+  60a4fd325641248d5037a0b861bc3d0ff5085259c3cf475a8db758bb398d8a6e.
+  Grouped scripts/check.sh passed Python15+75; Core179 with one explicitly ignored
+  device smoke, Manager21+16, builder21 (237 Rust); no warnings. Empty binary/doc
+  targets are not evidence. Locked optimized Core and Manager builds passed;
+  every changed production definition/caller and affected proof was inspected.
+- Native disposable proof used the previously qualified0.160.0 runtime/host
+  copied into an owned synthetic installation, not live profile state. Actual
+  public Manager-select/Core-direct app-server paths in two accounts discover and
+  resume one synthetic rollout with the same UUID, canonical SQLite and effective
+  maintenance flags false. No turn/start, model inference or credential copy.
+  This qualifies the changed native launch/storage integration, not a newly signed
+  bundle, public release, live cutover or server-supervisor replacement.
+- All24 protected file bytes/modes/inodes unchanged; sealed legacy and local main
+  unchanged. Source acceptance is closed by ordinary commit. Installed runtime
+  remains the prior accepted producer; server, notification and repair alignment
+  remain separate subsequent bundles.
+
 ## CORE-MANAGER-BOUNDARY-ALIGNMENT (criteria and plan recorded 2026-10-04)
 
 - User requests firm technical ownership criteria and a work plan after the

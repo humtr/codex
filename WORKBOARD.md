@@ -11,91 +11,19 @@ no live cutover. No public command retired and no profile launch policy changed.
 
 ## Current milestone: Core / Manager boundary alignment
 
-Planning baseline: clean `rewrite/rust-core` at
-`edcc59d7a0d81cd5e35be6916a3709bd2b96e024` (2026-10-04).
-SPEC4.5 owns the decision criteria; GOAL owns the success threshold. Criteria and
-plan are the current user-requested deliverable. Production work has not started.
+PROFILE-BOUNDARY source accepted2026-10-04. GOAL owns its evidence/disposition:
+shared preparation is Core-owned, Manager creates only registration/private home,
+dotted direct launches retain the canonical requirement, effective identity ignores
+retired history, and native-equivalent empty/non-UTF8 home selection is unified.
+Source only; installed state is unchanged. P0-P2 proof map is closed and removed.
 
-The next implementation bundle is **PROFILE-BOUNDARY** (slices P0-P2 below).
-Server, notification and repair work are subsequent separate bundles within this
-milestone. Close each bundle before selecting the next; do not accumulate their
-independent mutations behind a single final test phase. Workers remain OFF.
+User authorization covers continuing this milestone; workers OFF. Next selected
+bundle is SERVER-BOUNDARY: exact-runtime review and minimum server integration.
+Baseline implementation is the just-accepted PROFILE-BOUNDARY source; rebind exact
+commit/dirty state at start. No server production mutation is selected until the
+native insufficiency/disposition and concrete proof map below are established.
 
-### P0 — establish exact native constraints and runnable profile proof
-
-- Observable outcome: direct Core and Manager-selected account launches have a
-  documented, reproducible execution contract for the supported upstream runtime.
-- Read paths: SPEC profile/runtime sections; Core `shared_layout.rs`, profile
-  requirements and public launch in `main.rs`; Manager profile code in `lib.rs`;
-  `tests/profile_commands.rs`; affected operator topology declarations in
-  `scripts/shared_state_migrate.py` and `scripts/shared_visibility_transition.py`.
-  Inspect exact official upstream CODEX_HOME, SQLite/rollout/lock paths, config
-  precedence, shared-server discovery and installer behavior. Legacy branches are
-  behavior evidence only. Rebind every version-sensitive conclusion to the
-  qualified runtime (currently 0.160.0), not historical 0.155.1 assumptions.
-- Writable paths: WORKBOARD findings and SPEC amendments only until proof runs.
-  Build/check relevant Core and Manager targets in an owned temporary target root;
-  run nonzero `declared_identity_shares_only_conversations_and_rejects_legacy_or_substitution`,
-  `test_shared_profile_requirements_are_exact_conflict_safe_and_stale_free`,
-  `profile_lifecycle_and_isolated_exec_are_publicly_wired` and
-  `upstream_resume_is_forwarded_through_the_selected_execution_profile` baselines.
-- Required disposition: enumerate every surviving topology producer, reader and
-  affected probe, including operator scripts; classify KEEP/COLLAPSE/DELETE.
-  Verify the existing dotted-ID discrepancy through the public launch path,
-  rather than treating isolated parser output as a complete failure proof.
-- Protected: live homes/auth/conversations/writers, resolver, installed artifacts;
-  no model traffic, transcript inspection or automatic migration. New red gates
-  stop behavior work. State: **next; not run on this planning revision**.
-
-### P1 — one shared-path preparation owner for supported account launches
-
-- Observable outcome: every accepted Manager profile ID launches through Core
-  with the same intended shared conversation store; direct declared-home launches
-  work without Manager. Arbitrary external homes retain isolation.
-- Target: Manager registers private metadata and a private new account home;
-  Core prepares/validates the exact shared execution topology before upstream
-  exec. Remove Manager's duplicate canonical-directory/link production and the
-  parallel SQLite launch signal if Core derives the same contract safely.
-  Manager list/use validates registration/home identity; Core validates execution
-  readiness. Existing complete homes remain valid; nonempty conflicting homes
-  fail without repair or migration. Accepted dotted IDs must not be stranded.
-- Amend SPEC's ID, create/list/use, readiness and shared-requirements contracts
-  before code. Prefer the existing launch path; do not invent a preparation
-  command, persisted registry or generic cross-layer framework for this change.
-  Retain independent bounded validation at each trust boundary.
-- Production/test scope: Core `shared_layout.rs` and relevant `main.rs` paths;
-  Manager profile portions of `lib.rs`; their existing unit/integration tests.
-  Operator scripts change only where the same contract requires it, preserving
-  historical bounded migration behavior. No server/notification/repair mutation.
-- Focused proof: extend the P0 regressions and add named real-entrypoint tests
-  for dotted IDs, create/list/use before first launch, direct default/Manager/
-  declared-external homes, arbitrary isolation, unavailable Manager and unsafe or
-  conflicting topology. Assert unchanged account-local markers and rejection
-  without partial writes. Native disposable discovery/resume proof is required
-  for claims beyond synthetic environment/route behavior.
-- Protected: per-account auth/config, native writer coordination, original argv,
-  generation admission and rollback. Map each changed definition/branch to proof,
-  inspect actual diff and close compile/focused gates. State: **pending P0**.
-
-### P2 — current identity reports the identity an ordinary launch would use
-
-- Observable outcome: after selecting an account in one child, a fresh ordinary
-  launch and `profile current` do not disagree about the effective account.
-- Target: current identity derives from the caller's inherited CODEX_HOME or the
-  default home. Saved last selection is history, never implicit account switching;
-  retain it only with an explicit useful presentation, separate from effective
-  identity. Recognize the already-supported homes without importing them. Write
-  exact public output and history disposition into SPEC before implementation.
-- Scope: Manager current/selection formatting, bounded metadata reads and profile
-  tests; Core only if necessary for the same public identity contract. Preserve
-  child-only environment changes and no credential/path disclosures.
-- Focused proof: update `inherited_codex_home_is_reported_without_revealing_paths`
-  and profile lifecycle tests; add a real-entrypoint select-then-fresh-launch
-  regression covering default, known homes and arbitrary external CODEX_HOME.
-  Obsolete last-selection assertions must be replaced, not compatibility-shimmed.
-- State: **pending P1**. Close PROFILE-BOUNDARY through the final batch below.
-
-### Subsequent bundles, selected only after profile closure
+### Current and subsequent bundles
 
 **SERVER-BOUNDARY — minimum qualified upstream server launch.** Rebind native
 discovery/daemon/installer behavior to the exact runtime. Inspect every production
