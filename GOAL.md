@@ -59,10 +59,44 @@
   Physical notification layout/taps require an actual observation; never equate
   provider/action success with that observation. Input-cache investigation follows
   closure of these accepted repairs.
-- Baseline: exact-source untraced focused retention target compiled and passed
-  all5 cases. Prior ordinary whole check has2 intermittent PermissionDenied cases;
-  same-UID diagnostic sweep still observed a denied process read. No product
-  mutation yet. Hosted historical acceptance remains stale and is not reused.
+- Source VALIDATION-RENEWAL accepted 2026-10-04 at product commit
+  274f6771b430c51d179e1fb3beec31108c92c159, bound six-file source identity,
+  ordinary untraced scripts/check.sh exit0: Python15+77, Core181 passed/0 failed/
+  1 explicit device smoke ignored, Manager22+17, builder22;242 unique Rust passes.
+  Strict locked all-target Clippy, fmt, actual diff, optimized locked workspace
+  build and staged added-line credential audit passed. Authority close follows
+  separately because the protection check observed another concurrent config
+  replacement and the shell committed product source before the ledger reduction.
+- KEEP conservative live visibility, roles/leases and all final execution
+  semantics; COLLAPSE retirement onto native whole-process exit confirmation with
+  one total10ms wait budget. Native live-sibling tests prove an exited leader
+  cannot authorize generation or server-record deletion; existing exit waits now
+  observe native state/thread count. Linux-only unreadable live-handle proof awaits
+  the event-source hosted gate; Android hidepid invisibility is not claimed fixed.
+- DELETE historical source/main/parent/sequence CI pins and duplicate workspace
+  job. The workflow builds/tests the event revision and verifies a pinned-key,
+  immutable-main signed public snapshot, every payload and size sidecar. Actual
+  shell fixture passed positive plus10 faults; fresh real public audit passed
+  signed sequence35 at main3cf5342a9f8c90798c13123208095d088c9c6b0f.
+- Actual optimized Builder reproduced v3 runtime SHA256
+  926a5e5c2d113db9bcf2173013d805275c21e872c77dd37eec91aff2efcff99f.
+  Native TUI legacy/named/shared and embedded paths passed menu/current marker,
+  four choices and both shortcuts, same thread and no real model turn. Two
+  synthetic root turns delivered once each; enabled successful native memory
+  consolidation delivered zero extra notifications. Missing tool arguments and
+  overlong owned socket paths were corrected fixture invocations, never acceptance.
+- Protection: original24/27 unchanged, two profile configs and startup advisory
+  replaced concurrently across session restart; active janmori101 config replaced
+  again during native proof (26/27 resumed identities exact). Proof/source commands
+  wrote only repository and owned temporary paths; concurrent settings preserved,
+  never reverted or counted unchanged. All auth, installed Core/runtime/activation/
+  rollback, Manager preferences, resolver, local main and sealed legacy stay exact.
+  Latest27-path snapshot binds the next gate. No public or installed mutation yet.
+- Next: ordinary accepted-source push, require event hosted acceptance, then one
+  exact-parent sequence35->36 Core+Manager+v3 runtime publication bridge;
+  keep other signed fields/helper/code-mode-host bytes unchanged. Production
+  private key remains exclusively hosted. Ordinary device update follows signed
+  public gates, retaining sequence35 as rollback; input-cache inquiry stays later.
 
 ## PERMISSION-PICKER / MEMORY-NOTIFY (source accepted 2026-10-04)
 
