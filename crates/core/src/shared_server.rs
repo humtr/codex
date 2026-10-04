@@ -415,6 +415,10 @@ pub(super) fn retire_unused(
             Ok(exe) if exe.as_os_str() == program => (),
             Ok(_) => continue,
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                let mut no_wait = Duration::ZERO;
+                if !super::maintenance::process_has_no_handles(&process, &mut no_wait)? {
+                    return Err(e);
+                }
                 fs::remove_dir_all(&directory)?;
                 File::open(&servers)?.sync_all()?;
                 continue;
@@ -767,6 +771,44 @@ fn main() {
     }
 
     #[test]
+    fn shared_server_retirement_dead_leader_keeps_live_sibling_records() {
+        use std::io::Write;
+        let root = crate::tests::temp_root("server-live-sibling");
+        let generations = root.join("generations");
+        private_dir(&generations).unwrap();
+        let old = generations.join("old");
+        private_dir(&old).unwrap();
+        let program = old.join("runtime");
+        fs::write(&program, b"owned record target").unwrap();
+        let state = root.join("state");
+        private_dir(&state).unwrap();
+        let servers = state.join("servers");
+        private_dir(&servers).unwrap();
+        let profile = root.join("account");
+        let directory = servers.join(namespace(&profile, program.as_os_str()));
+        private_dir(&directory).unwrap();
+        let mut owner = profile.as_os_str().as_bytes().to_vec();
+        owner.push(0);
+        owner.extend_from_slice(program.as_os_str().as_bytes());
+        write_record(&directory.join("owner"), &owner).unwrap();
+        let mut child = crate::tests::exited_leader_with_live_file(&program);
+        write_record(
+            &directory.join("pid"),
+            format!("{}\n", child.id()).as_bytes(),
+        )
+        .unwrap();
+        let result = retire_unused(&state, &generations, &std::collections::HashSet::new());
+        let preserved = directory.join("owner").is_file() && directory.join("pid").is_file();
+        child.stdin.take().unwrap().write_all(b"x").unwrap();
+        assert!(child.wait().unwrap().success());
+        assert!(result.is_err());
+        assert!(preserved);
+        retire_unused(&state, &generations, &std::collections::HashSet::new()).unwrap();
+        assert!(!directory.exists());
+        crate::tests::remove_temp_root(root);
+    }
+
+    #[test]
     fn shared_server_retirement_preserves_clients_writers_and_bound_roles() {
         let root = crate::tests::temp_root("server-retire");
         let generations = root.join("generations");
@@ -820,12 +862,35 @@ fn main() {
         drop(connection);
         std::thread::sleep(Duration::from_millis(30));
         retire_unused(&state, &generations, &empty).unwrap();
-        let deadline = Instant::now() + Duration::from_secs(3);
-        while Path::new(&format!("/proc/{}/exe", idle_pid.trim())).exists()
-            && Instant::now() < deadline
-        {
-            std::thread::sleep(Duration::from_millis(20));
-        }
+        let wait_for_exit = |pid: &str| {
+            let stat = format!("/proc/{}/stat", pid.trim());
+            let deadline = Instant::now() + Duration::from_secs(3);
+            loop {
+                match fs::read_to_string(&stat) {
+                    Ok(stat) => {
+                        let fields: Vec<_> = stat
+                            .rsplit_once(')')
+                            .unwrap()
+                            .1
+                            .split_whitespace()
+                            .collect();
+                        if matches!(fields[0], "Z" | "X") && fields[17] == "1" {
+                            break;
+                        }
+                    }
+                    Err(error)
+                        if error.kind() == io::ErrorKind::NotFound
+                            || error.raw_os_error() == Some(3) =>
+                    {
+                        break
+                    }
+                    Err(error) => panic!("cannot observe owned server exit: {error}"),
+                }
+                assert!(Instant::now() < deadline, "owned server did not exit");
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        };
+        wait_for_exit(&idle_pid);
         assert!(!Path::new(&format!("/proc/{}/exe", idle_pid.trim())).exists());
         assert!(Path::new(&format!("/proc/{}/exe", busy_pid.trim())).exists());
         assert_eq!(
@@ -841,12 +906,7 @@ fn main() {
                 .unwrap()
                 .success()
         );
-        let deadline = Instant::now() + Duration::from_secs(3);
-        while Path::new(&format!("/proc/{}/exe", busy_pid.trim())).exists()
-            && Instant::now() < deadline
-        {
-            std::thread::sleep(Duration::from_millis(20));
-        }
+        wait_for_exit(&busy_pid);
         retire_unused(&state, &generations, &empty).unwrap();
         assert!(!busy_socket.parent().unwrap().exists());
         crate::tests::remove_temp_root(root);

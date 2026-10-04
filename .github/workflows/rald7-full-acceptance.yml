@@ -1,19 +1,21 @@
-name: UX-1 full source acceptance
+name: Rust Core full source acceptance
 
 on:
   push:
     branches:
       - rewrite/rust-core
     paths:
-      - .github/workflows/auto-release-termux.yml
-      - .github/workflows/publish-termux-update-pages.yml
-      - .github/workflows/rald7-full-acceptance.yml
-      - .github/scripts/test_rald7_acceptance.py
-      - crates/core/src/main.rs
-      - SPEC.md
-      - GOAL.md
-      - WORKBOARD.md
-      - RELEASE_AUTOMATION_PLAN.md
+      - '.github/**'
+      - 'crates/**'
+      - 'scripts/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'install*.sh'
+      - 'bootstrap/**'
+      - 'SPEC.md'
+      - 'GOAL.md'
+      - 'WORKBOARD.md'
+      - 'AGENTS.md'
 
 permissions:
   contents: read
@@ -23,7 +25,6 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  EXPECTED_PARENT: '05d8d3c4c81c642c61c61e6ae57ff8ed48c42724'
   RUST_VERSION: '1.98.0'
   ANDROID_API: '24'
   ANDROID_NDK_VERSION: '27.3.13750724'
@@ -31,10 +32,7 @@ env:
   ANDROID_RUNTIME_APEX_SHA256: '83bf0dce249728dae48149b80d28b48115c54adad95a352120d58a6ac669d1fc'
   TERMUX_TEST_PREFIX: '/data/data/com.termux/files/usr'
   TERMUX_TEST_TMPDIR: '/data/data/com.termux/files/usr/tmp'
-  EXPECTED_MAIN: '71b77ad294fed07f5ae2c055ac9ddc018c27e215'
-  ACCEPTED_SOURCE: '9300a68852c879f4730e9191e46837cfab6745d9'
-  PUBLIC_GENERATION: 'local-hosted-0-155-1-7817b939c81c-exact-current-fastpath'
-  PUBLIC_SEQUENCE: '17'
+  PUBLIC_KEY_URL: 'https://github.com/humtr/codex/releases/download/local-hosted-0-154-0-37fbbd8033b8-rald45-transition/update-public-key.pem'
   PUBLIC_KEY_SHA256: '62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c'
 
 jobs:
@@ -49,10 +47,9 @@ jobs:
           set -euo pipefail
           git init source
           git -C source remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
-          git -C source fetch --no-tags --depth=64 origin "$GITHUB_SHA"
+          git -C source fetch --no-tags --depth=2 origin "$GITHUB_SHA"
           git -C source checkout --detach FETCH_HEAD
           test "$(git -C source rev-parse HEAD)" = "$GITHUB_SHA"
-          test "$(git -C source rev-parse HEAD^)" = "$EXPECTED_PARENT"
 
       - name: Validate workflow syntax and action pins
         shell: bash
@@ -64,22 +61,22 @@ jobs:
           done
           python3 -m py_compile .github/scripts/test_rald7_acceptance.py
           python3 .github/scripts/test_rald7_acceptance.py
-          git diff --check "$EXPECTED_PARENT..HEAD"
+          git diff --check HEAD^ HEAD
 
   android-core:
-    name: Build accepted Android/AArch64 Core proof artifact
+    name: Build event Android/AArch64 Core proof artifact
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - name: Fetch exact accepted product source
+      - name: Fetch exact event product source
         shell: bash
         run: |
           set -euo pipefail
           git init product
           git -C product remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
-          git -C product fetch --no-tags --depth=1 origin "$ACCEPTED_SOURCE"
+          git -C product fetch --no-tags --depth=1 origin "$GITHUB_SHA"
           git -C product checkout --detach FETCH_HEAD
-          test "$(git -C product rev-parse HEAD)" = "$ACCEPTED_SOURCE"
+          test "$(git -C product rev-parse HEAD)" = "$GITHUB_SHA"
 
       - name: Cross-build Android/AArch64 Core
         shell: bash
@@ -112,116 +109,6 @@ jobs:
           retention-days: 1
           compression-level: 0
 
-  packages:
-    name: Package full tests
-    needs: android-core
-    runs-on: ubuntu-24.04-arm
-    timeout-minutes: 45
-    steps:
-      - name: Fetch exact acceptance source
-        shell: bash
-        run: |
-          set -euo pipefail
-          git init source
-          git -C source remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
-          git -C source fetch --no-tags --depth=1 origin "$GITHUB_SHA"
-          git -C source checkout --detach FETCH_HEAD
-          test "$(git -C source rev-parse HEAD)" = "$GITHUB_SHA"
-
-      - name: Download accepted Android Core proof artifact
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: rald7-accepted-android-core
-          path: ${{ runner.temp }}/rald7-android-core
-
-      - name: Provision pinned Android bionic execution substrate
-        shell: bash
-        run: |
-          set -euo pipefail
-          core="$RUNNER_TEMP/rald7-android-core/codex"
-          chmod 0755 "$core"
-          test -x "$core"
-          file "$core" | grep -F 'ARM aarch64'
-          readelf -l "$core" | grep -F '/system/bin/linker64'
-          printf 'RALD7_ANDROID_CORE=%s\n' "$core" >> "$GITHUB_ENV"
-
-          for tool in curl base64 unzip debugfs file readelf sha256sum; do
-            command -v "$tool" >/dev/null
-          done
-          sudo test ! -e /system
-          root="$RUNNER_TEMP/rald7-bionic"
-          mkdir -p "$root/bin" "$root/lib64/bionic"
-          apex_url="https://android.googlesource.com/platform/prebuilts/runtime/+/$ANDROID_RUNTIME_APEX_COMMIT/mainline/runtime/apex/com.android.runtime-arm64.apex?format=TEXT"
-          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2             --connect-timeout 15 --max-time 120 --max-filesize 20971520             --output "$root/runtime.apex.b64" "$apex_url"
-          base64 --decode "$root/runtime.apex.b64" > "$root/runtime.apex"
-          test "$(wc -c < "$root/runtime.apex")" -eq 13881344
-          test "$(sha256sum "$root/runtime.apex" | awk '{print $1}')" = "$ANDROID_RUNTIME_APEX_SHA256"
-          unzip -p "$root/runtime.apex" apex_payload.img > "$root/apex_payload.img"
-          test "$(wc -c < "$root/apex_payload.img")" -eq 13783040
-          debugfs -R "dump -p /bin/linker64 $root/bin/linker64" "$root/apex_payload.img" >/dev/null 2>&1
-          for library in libc.so libdl.so libm.so; do
-            debugfs -R "dump -p /lib64/bionic/$library $root/lib64/bionic/$library"               "$root/apex_payload.img" >/dev/null 2>&1
-          done
-          sudo mkdir -p /system/bin /system/lib64
-          sudo install -m 0755 "$root/bin/linker64" /system/bin/linker64
-          for library in libc.so libdl.so libm.so; do
-            sudo install -m 0644 "$root/lib64/bionic/$library" "/system/lib64/$library"
-          done
-          rm -f "$root/runtime.apex.b64" "$root/runtime.apex" "$root/apex_payload.img"
-          "$core" update --help >/dev/null
-
-      - name: Provision deterministic Termux test tools
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$(uname -m)" = aarch64
-          sudo mkdir -p "$TERMUX_TEST_PREFIX/bin" "$TERMUX_TEST_TMPDIR"
-          for tool in sh openssl curl script gzip cat chmod; do
-            source_path="$(command -v "$tool")"
-            test -f "$source_path" -o -L "$source_path"
-            sudo install -m 0755 "$source_path" "$TERMUX_TEST_PREFIX/bin/$tool"
-          done
-          clang_path="$(command -v clang)"
-          test -f "$clang_path" -o -L "$clang_path"
-          sudo ln -s "$clang_path" "$TERMUX_TEST_PREFIX/bin/clang"
-          sudo chown -R "$(id -u):$(id -g)" /data/data/com.termux
-          printf 'PREFIX=%s\n' "$TERMUX_TEST_PREFIX" >> "$GITHUB_ENV"
-          printf 'TMPDIR=%s\n' "$TERMUX_TEST_TMPDIR" >> "$GITHUB_ENV"
-          for tool in sh openssl curl script gzip clang cat chmod; do
-            test -x "$TERMUX_TEST_PREFIX/bin/$tool"
-          done
-          test ! -L "$TERMUX_TEST_PREFIX/bin/gzip"
-          test ! -L "$TERMUX_TEST_PREFIX/bin/openssl"
-
-      - name: Release-builder full tests
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd source
-          cargo test --locked -p codex-release-builder
-
-      - name: Core full tests including process E2E
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd source
-          cargo test --locked -p codex --             --skip test_r6_builder_publish_output_enters_existing_signed_release_admission             --skip test_rald1_local_derived_fallback_and_explicit_build_preserve_public_authority
-
-      - name: Android Core admission and local-derived focused proofs
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd source
-          CODEX_B10_RELEASE_CORE="$RALD7_ANDROID_CORE"             cargo test --locked -p codex               tests::test_r6_builder_publish_output_enters_existing_signed_release_admission               -- --exact --nocapture
-          CODEX_B10_RELEASE_CORE="$RALD7_ANDROID_CORE"             cargo test --locked -p codex               tests::test_rald1_local_derived_fallback_and_explicit_build_preserve_public_authority               -- --exact --nocapture
-
-      - name: Manager integration tests
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd source
-          cargo test --locked -p codex-manager
-
   workspace:
     name: Locked workspace check, test, clippy, and fmt
     needs: android-core
@@ -234,7 +121,7 @@ jobs:
           set -euo pipefail
           git init source
           git -C source remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
-          git -C source fetch --no-tags --depth=1 origin "$GITHUB_SHA"
+          git -C source fetch --no-tags --depth=2 origin "$GITHUB_SHA"
           git -C source checkout --detach FETCH_HEAD
           test "$(git -C source rev-parse HEAD)" = "$GITHUB_SHA"
 
@@ -310,12 +197,28 @@ jobs:
           cd source
           cargo check --workspace --locked
 
+      - name: Python migration and hosted contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          python3 -m unittest -v scripts/test_shared_state_migrate.py scripts/test_shared_visibility_transition.py
+          python3 -m unittest discover -s .github/scripts -p 'test_*.py'
+
       - name: Full workspace tests
         shell: bash
         run: |
           set -euo pipefail
           cd source
-          cargo test --workspace --locked --             --skip test_r6_builder_publish_output_enters_existing_signed_release_admission             --skip test_rald1_local_derived_fallback_and_explicit_build_preserve_public_authority
+          cargo test --workspace --locked -- --test-threads=1             --skip test_r6_builder_publish_output_enters_existing_signed_release_admission             --skip test_rald1_local_derived_fallback_and_explicit_build_preserve_public_authority
+
+      - name: Android Core admission and local-derived focused proofs
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          CODEX_B10_RELEASE_CORE="$RALD7_ANDROID_CORE" cargo test --locked -p codex tests::test_r6_builder_publish_output_enters_existing_signed_release_admission -- --exact --nocapture --test-threads=1
+          CODEX_B10_RELEASE_CORE="$RALD7_ANDROID_CORE" cargo test --locked -p codex tests::test_rald1_local_derived_fallback_and_explicit_build_preserve_public_authority -- --exact --nocapture --test-threads=1
 
       - name: Clippy warnings are errors
         shell: bash
@@ -332,60 +235,90 @@ jobs:
           cargo fmt --all -- --check
 
   public-audit:
-    name: Protected state and signed public-stable audit
+    name: Authenticated public-stable snapshot audit
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - name: Verify main, stable index, signature, and public release bytes
+      - name: Fetch event audit source
         shell: bash
         run: |
           set -euo pipefail
+          git init source
+          git -C source remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git -C source fetch --no-tags --depth=2 origin "$GITHUB_SHA"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Verify authenticated stable snapshot and every published byte
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
           main_sha="$(git ls-remote --exit-code "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/main | awk '{print $1}')"
-          test "$main_sha" = "$EXPECTED_MAIN"
-
+          [[ "$main_sha" =~ ^[0-9a-f]{40}$ ]]
           root="$RUNNER_TEMP/rald7-public"
-          mkdir -p "$root/release"
-          exact="https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$EXPECTED_MAIN"
-          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2             --connect-timeout 15 --max-time 60 --max-filesize 16384             --output "$root/update-index-v1" "$exact/update-index-v1"
-          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2             --connect-timeout 15 --max-time 60 --max-filesize 1024             --output "$root/update-index-v1.sig" "$exact/update-index-v1.sig"
-          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2             --connect-timeout 15 --max-time 60 --max-filesize 16384             --output "$root/update-public-key.pem"             "https://github.com/$GITHUB_REPOSITORY/releases/download/$PUBLIC_GENERATION/update-public-key.pem"
-
+          mkdir -p "$root"
+          fetch() {
+            curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 --connect-timeout 15 --max-time "$3" --max-filesize "$4" --output "$2" "$1"
+          }
+          exact="https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$main_sha"
+          fetch "$exact/update-index-v1" "$root/update-index-v1" 60 16384
+          fetch "$exact/update-index-v1.sig" "$root/update-index-v1.sig" 60 1024
+          fetch "$PUBLIC_KEY_URL" "$root/update-public-key.pem" 60 16384
           test "$(sha256sum "$root/update-public-key.pem" | awk '{print $1}')" = "$PUBLIC_KEY_SHA256"
           test "$(wc -c < "$root/update-index-v1.sig")" -eq 64
-          openssl pkeyutl -verify -rawin -pubin             -inkey "$root/update-public-key.pem"             -in "$root/update-index-v1" -sigfile "$root/update-index-v1.sig" >/dev/null
-          test "$(sed -n '1p' "$root/update-index-v1")" = codex-update-index-v1
-          test "$(awk -F '\t' '$1=="channel"{print $2}' "$root/update-index-v1")" = stable
-          test "$(awk -F '\t' '$1=="generation_id"{print $2}' "$root/update-index-v1")" = "$PUBLIC_GENERATION"
-          release_base="$(awk -F '\t' '$1=="release_base"{print $2}' "$root/update-index-v1")"
-          test "$release_base" = "https://humtr.github.io/codex/$PUBLIC_GENERATION/"
-
-          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2             --connect-timeout 15 --max-time 60 --max-filesize 131072             --output "$root/release/release.manifest" "${release_base}release.manifest"
-          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2             --connect-timeout 15 --max-time 60 --max-filesize 1024             --output "$root/release/release.sig" "${release_base}release.sig"
-          test "$(wc -c < "$root/release/release.sig")" -eq 64
-          openssl pkeyutl -verify -rawin -pubin             -inkey "$root/update-public-key.pem"             -in "$root/release/release.manifest" -sigfile "$root/release/release.sig" >/dev/null
-          test "$(sed -n '1p' "$root/release/release.manifest")" = codex-release-v4
-          test "$(awk -F '\t' '$1=="generation_id"{print $2}' "$root/release/release.manifest")" = "$PUBLIC_GENERATION"
-          test "$(awk -F '\t' '$1=="release_sequence"{print $2}' "$root/release/release.manifest")" = "$PUBLIC_SEQUENCE"
-
+          openssl pkeyutl -verify -rawin -pubin -inkey "$root/update-public-key.pem" -in "$root/update-index-v1" -sigfile "$root/update-index-v1.sig" >/dev/null
+          python3 - "$root" <<'PY'
+          from pathlib import Path
+          import sys
+          sys.path.insert(0, '.github/scripts')
+          from rald5_publication import parse_index
+          root = Path(sys.argv[1])
+          index = parse_index(root / 'update-index-v1')
+          (root / 'locator').write_text(index['generation_id'] + '\n' + index['release_base'] + '\n')
+          PY
+          generation="$(sed -n '1p' "$root/locator")"
+          release_base="$(sed -n '2p' "$root/locator")"
+          release="$root/$generation"
+          mkdir -p "$release"
+          cp "$root/update-index-v1" "$root/update-index-v1.sig" "$release/"
+          fetch "${release_base}release.manifest" "$release/release.manifest" 60 131072
+          fetch "${release_base}release.sig" "$release/release.sig" 60 1024
+          test "$(wc -c < "$release/release.sig")" -eq 64
+          openssl pkeyutl -verify -rawin -pubin -inkey "$root/update-public-key.pem" -in "$release/release.manifest" -sigfile "$release/release.sig" >/dev/null
+          python3 - "$release" "$generation" <<'PY'
+          from pathlib import Path
+          import sys
+          sys.path.insert(0, '.github/scripts')
+          from rald5_publication import parse_manifest
+          release = Path(sys.argv[1])
+          manifest, files = parse_manifest(release / 'release.manifest')
+          assert manifest['generation_id'] == sys.argv[2], 'snapshot generation mismatch'
+          (release.parent / 'sequence').write_text(manifest['release_sequence'] + '\n')
+          (release.parent / 'inventory').write_text(''.join('\t'.join(row) + '\n' for row in files))
+          PY
+          sequence="$(cat "$root/sequence")"
           total=0
           tab="$(printf '\t')"
-          while IFS="$tab" read -r kind rel digest mode extra; do
-            test "$kind" = file || continue
-            test -z "$extra"
-            target="$root/release/$rel"
+          while IFS="$tab" read -r rel digest mode; do
+            target="$release/$rel"
             mkdir -p "$(dirname "$target")"
-            curl --fail --silent --show-error --location --proto '=https' --tlsv1.2               --connect-timeout 15 --max-time 300 --max-filesize 536870912               --output "$target" "${release_base}$rel"
+            fetch "${release_base}$rel" "$target" 300 536870912
             test "$(sha256sum "$target" | awk '{print $1}')" = "$digest"
-            size="$(wc -c < "$target")"
-            total=$((total + size))
+            chmod "$mode" "$target"
+            total=$((total + $(wc -c < "$target")))
             test "$total" -le 1073741824
-          done < "$root/release/release.manifest"
-
-          test "$(git ls-remote --exit-code "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/main | awk '{print $1}')" = "$EXPECTED_MAIN"
+          done < "$root/inventory"
+          mkdir "$release/compat"
+          fetch "${release_base}compat/download-size-v1" "$release/compat/download-size-v1" 60 131072
+          fetch "${release_base}compat/download-size-v1.sig" "$release/compat/download-size-v1.sig" 60 1024
+          python3 .github/scripts/rald5_publication.py verify-public --root "$root" --generation "$generation" --release-sequence "$sequence" --release-base "$release_base" --public-key "$root/update-public-key.pem" --require-download-size
+          test "$(git ls-remote --exit-code "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/main | awk '{print $1}')" = "$main_sha"
+          printf 'Authenticated public snapshot %s, sequence %s, main %s\n' "$generation" "$sequence" "$main_sha"
 
   accepted:
-    name: UX-1 source acceptance
-    needs: [contract, packages, workspace, public-audit]
+    name: Rust Core source acceptance
+    needs: [contract, workspace, public-audit]
     if: always()
     runs-on: ubuntu-24.04
     steps:
@@ -394,8 +327,6 @@ jobs:
         run: |
           set -euo pipefail
           test '${{ needs.contract.result }}' = success
-          test '${{ needs.packages.result }}' = success
           test '${{ needs.workspace.result }}' = success
           test '${{ needs.public-audit.result }}' = success
-          test "$(git ls-remote --exit-code "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/main | awk '{print $1}')" = "$EXPECTED_MAIN"
-          printf 'RALD-7 source acceptance gates are green\n'
+          printf 'Event-revision source acceptance gates are green\n'

@@ -34,6 +34,36 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
+## VALIDATION-RENEWAL / PERMISSION-MEMORY-RELEASE (selected 2026-10-04)
+
+- User `진행` selects the proposed sequence: close ordinary retention/hosted
+  source validation debt, publish one signed corrective Core+Manager+qualified
+  v3 runtime release, activate through ordinary update, then bounded fresh-session
+  permission and notification device acceptance. Bound clean rewrite/rust-core
+  6fb62507de6cbf777547398eec7c3fa14374548d; goal-md bound, approved equivalent
+  primary, workers OFF. No worker or independent review is enabled.
+- Lead plan: diagnose exact /proc failure operations before altering retention;
+  keep incomplete live-process visibility fail-closed and preserve active files.
+  Renew hosted acceptance to test the event revision and authenticate a stable
+  public snapshot rather than assert spent historical main/parent/sequence pins.
+  WORKBOARD owns ordered source proof slices; restore untraced grouped green
+  before release preparation. No conditional aggregate is a release gate.
+- Allowed writes: repository and owned proof roots, separate publication checkout,
+  ordinary non-force source/publication pushes, hosted signing/Release/Pages/CAS,
+  and ordinary signed activation only after source and hosted gates pass. Retain
+  authenticated installed sequence35 as rollback. Never manually patch installed
+  executables, inspect production private keys, or migrate user data.
+- Preserve auth/account settings, conversations, Manager preferences, resolver,
+  running work processes, sealed legacy and local main. Native device checks
+  use owned configuration and synthetic data, no real model turn or credentials.
+  Physical notification layout/taps require an actual observation; never equate
+  provider/action success with that observation. Input-cache investigation follows
+  closure of these accepted repairs.
+- Baseline: exact-source untraced focused retention target compiled and passed
+  all5 cases. Prior ordinary whole check has2 intermittent PermissionDenied cases;
+  same-UID diagnostic sweep still observed a denied process read. No product
+  mutation yet. Hosted historical acceptance remains stale and is not reused.
+
 ## PERMISSION-PICKER / MEMORY-NOTIFY (source accepted 2026-10-04)
 
 - User selects continuation of the `/permissions` defect investigation and

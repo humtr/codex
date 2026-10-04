@@ -9,8 +9,6 @@ import textwrap
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-BASE = "f8b456c9155f0f4f9c970f398947d75cfcd4dc66"
-EXPECTED_MAIN = "56ba28e1baee87721767ba34b505cc2bc1303c44"
 
 
 def run(*args: str) -> str:
@@ -348,7 +346,7 @@ class Rald7AcceptanceContract(unittest.TestCase):
         self.assertIn("force:false", text)
         self.assertNotIn("force: true", text)
     def test_added_lines_contain_no_credentials_or_private_keys(self) -> None:
-        diff = run("git", "diff", "--unified=0", f"{BASE}..HEAD", "--", ".")
+        diff = run("git", "diff", "--unified=0", "HEAD^", "--", ".")
         added = "\n".join(
             line[1:] for line in diff.splitlines()
             if line.startswith("+") and not line.startswith("+++")
@@ -424,7 +422,7 @@ class Rald7AcceptanceContract(unittest.TestCase):
             "test_r6_builder_publish_output_enters_existing_signed_release_admission",
             "test_rald1_local_derived_fallback_and_explicit_build_preserve_public_authority",
         ]:
-            self.assertGreaterEqual(workflow.count(name), 3)
+            self.assertEqual(workflow.count(name), 2)
         self.assertIn('CODEX_B10_RELEASE_CORE="$RALD7_ANDROID_CORE"', workflow)
         self.assertNotIn("CODEX_B10_RELEASE_CORE=%s", workflow)
 

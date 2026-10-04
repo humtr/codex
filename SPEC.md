@@ -1679,7 +1679,16 @@ Inspect local process executable/open-file references before deleting retired
 generations or staging; preserve active clients and their companion/helper trees. Inspect
 only live process groups: a confirmed zombie with no surviving sibling threads
 holds no executable/open-file references and must not disable maintenance.
-Incomplete visibility of a live process still disables pruning. Inspect
+Incomplete visibility of a live process still disables pruning. Where a
+non-dumpable process changes its proc-directory owner to root, use its native
+status UID fields to identify a local process; directory ownership alone must
+not hide an unreadable local process from this check. If a process
+reference read fails during exit, re-read its native process status: only a
+confirmed single-thread zombie/dead process or a vanished process may be skipped.
+The kernel exiting flag alone never proves that handles are released. A
+single-thread process with that flag may be observed until the same confirmation,
+using a total scan waiting budget of at most ten milliseconds; an unreadable,
+still-live, multi-thread or unconfirmed process disables pruning. Inspect
 only owned real directories, never follow substituted parents or deletion-root
 symlinks, and never descend into profile/auth/session or resolver state.
 Revalidate authoritative state while locked. Removing stale files is idempotent
@@ -1693,6 +1702,10 @@ SIGHUP shutdown; never force an active client or turn to stop. Live process/file
 references protect its generation until shutdown finishes. Dead obsolete server
 records/config snapshots may then be removed. Unknown ownership or incomplete
 process visibility keeps the affected files and never authorizes termination.
+A missing process executable path alone does not prove the entire process group
+has exited. Removing a dead server record/config snapshot uses the same native
+exit confirmation as generation retention, preserving records for surviving
+sibling threads or unknown visibility.
 
 The 2026-10-02 user-authorized cleanup additionally permits removing inactive
 legacy profile SQLite projections after all retained conversation payloads are

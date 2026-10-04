@@ -25520,6 +25520,42 @@ exit 0
         }
     }
     #[cfg(unix)]
+    pub(crate) fn exited_leader_with_live_file(path: &std::path::Path) -> std::process::Child {
+        use std::io::{BufRead, Write};
+        let mut child = std::process::Command::new("python3")
+            .args(["-c", "import threading,ctypes,sys,os; e=threading.Event();\ndef worker():\n f=open(sys.argv[1],'rb'); e.set(); print('ready',flush=True); sys.stdin.buffer.read(1); os._exit(0)\nt=threading.Thread(target=worker);t.start();e.wait();ctypes.CDLL(None).pthread_exit(None)"])
+            .arg(path)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn().unwrap();
+        let mut ready = String::new();
+        std::io::BufReader::new(child.stdout.take().unwrap())
+            .read_line(&mut ready)
+            .unwrap();
+        assert_eq!(ready, "ready\n");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            let status = std::fs::read_to_string(format!("/proc/{}/stat", child.id())).unwrap();
+            let fields: Vec<_> = status
+                .rsplit_once(')')
+                .unwrap()
+                .1
+                .split_whitespace()
+                .collect();
+            if fields[0] == "Z" && fields[17].parse::<u64>().unwrap() > 1 {
+                break;
+            }
+            if std::time::Instant::now() >= deadline {
+                child.stdin.take().unwrap().write_all(b"x").unwrap();
+                child.wait().unwrap();
+                panic!("owned leader did not exit while its sibling held the file");
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        child
+    }
+
+    #[cfg(unix)]
     fn generation_retention_manifest(path: &std::path::Path, id: &str, sequence: u64) {
         std::fs::write(
             path.join("release.manifest"),
@@ -25561,6 +25597,98 @@ exit 0
         assert_eq!(maintenance::prune(&roots).unwrap(), 1);
         assert!(roots.generation_root.join("current/runtime").is_file());
         child.wait().unwrap();
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn generation_retention_dead_leader_preserves_surviving_thread_handles() {
+        use std::io::Write;
+        let (root, roots) = b2_test_roots("retention-live-sibling");
+        b2_write_generation(&roots, "current", false, "unsupported");
+        generation_retention_manifest(&roots.generation_root.join("current"), "current", 1);
+        b2_activate(&roots, "current");
+        let obsolete = roots.generation_root.join("obsolete");
+        std::fs::create_dir(&obsolete).unwrap();
+        std::fs::write(obsolete.join("held"), b"owned reference").unwrap();
+        let mut child = exited_leader_with_live_file(&obsolete.join("held"));
+        let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+        let state = std::fs::read(&paths.activation_state).unwrap();
+        let result = maintenance::prune(&roots);
+        let preserved = obsolete.join("held").is_file();
+        child.stdin.take().unwrap().write_all(b"x").unwrap();
+        assert!(child.wait().unwrap().success());
+        assert!(result.is_err() || result.unwrap() == 0);
+        assert!(preserved);
+        assert_eq!(std::fs::read(&paths.activation_state).unwrap(), state);
+        assert_eq!(maintenance::prune(&roots).unwrap(), 1);
+        remove_temp_root(root);
+    }
+
+    // Android hidepid makes a non-dumpable task disappear from /proc entirely;
+    // Linux exposes it with denied references, the branch this regression proves.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn generation_retention_live_unreadable_handles_abort_without_deletion() {
+        use std::io::{BufRead, Write};
+        let (root, roots) = b2_test_roots("retention-live-denied");
+        b2_write_generation(&roots, "current", false, "unsupported");
+        generation_retention_manifest(&roots.generation_root.join("current"), "current", 1);
+        b2_activate(&roots, "current");
+        let obsolete = roots.generation_root.join("obsolete");
+        std::fs::create_dir(&obsolete).unwrap();
+        std::fs::write(obsolete.join("held"), b"owned reference").unwrap();
+        let mut child = std::process::Command::new("python3")
+            .args(["-c", "import ctypes,sys; f=open(sys.argv[1],'rb'); assert ctypes.CDLL(None).prctl(4,0,0,0,0)==0; print('ready',flush=True); sys.stdin.buffer.read(1)"])
+            .arg(obsolete.join("held"))
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn().unwrap();
+        let mut ready = String::new();
+        std::io::BufReader::new(child.stdout.take().unwrap())
+            .read_line(&mut ready)
+            .unwrap();
+        assert_eq!(ready, "ready\n");
+        let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+        let state = std::fs::read(&paths.activation_state).unwrap();
+        let denied = maintenance::prune(&roots);
+        child.stdin.take().unwrap().write_all(b"x").unwrap();
+        assert!(child.wait().unwrap().success());
+        assert_eq!(
+            denied.unwrap_err().kind(),
+            std::io::ErrorKind::PermissionDenied
+        );
+        assert!(obsolete.join("held").is_file());
+        assert_eq!(std::fs::read(&paths.activation_state).unwrap(), state);
+        assert!(roots.generation_root.join("current/runtime").is_file());
+        assert_eq!(maintenance::prune(&roots).unwrap(), 1);
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn generation_retention_exit_races_preserve_live_generation_files() {
+        let (root, roots) = b2_test_roots("retention-exit-race");
+        b2_write_generation(&roots, "current", false, "unsupported");
+        generation_retention_manifest(&roots.generation_root.join("current"), "current", 1);
+        b2_activate(&roots, "current");
+        let held_root = roots.generation_root.join("held");
+        std::fs::create_dir(&held_root).unwrap();
+        std::fs::write(held_root.join("file"), b"live").unwrap();
+        let held = std::fs::File::open(held_root.join("file")).unwrap();
+        // Forking from this test thread while prune holds flock would inherit
+        // the very lease being tested. Churn in an already-exec'd owned child.
+        let mut churn = std::process::Command::new("python3")
+            .args(["-c", "import subprocess; [subprocess.run(['sh','-c','exit 0'],check=True) for _ in range(100)]"])
+            .spawn().unwrap();
+        let results: Vec<_> = (0..100).map(|_| maintenance::prune(&roots)).collect();
+        assert!(churn.wait().unwrap().success());
+        for result in results {
+            assert_eq!(result.unwrap(), 0);
+            assert!(held_root.join("file").is_file());
+        }
+        drop(held);
+        assert_eq!(maintenance::prune(&roots).unwrap(), 1);
         remove_temp_root(root);
     }
 
