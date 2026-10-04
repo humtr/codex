@@ -34,87 +34,90 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
-## VALIDATION-RENEWAL / PERMISSION-MEMORY-RELEASE (selected 2026-10-04)
+## VALIDATION-RENEWAL / PERMISSION-MEMORY-RELEASE (accepted 2026-10-04)
 
-- User `진행` selects the proposed sequence: close ordinary retention/hosted
-  source validation debt, publish one signed corrective Core+Manager+qualified
-  v3 runtime release, activate through ordinary update, then bounded fresh-session
-  permission and notification device acceptance. Bound clean rewrite/rust-core
-  6fb62507de6cbf777547398eec7c3fa14374548d; goal-md bound, approved equivalent
-  primary, workers OFF. No worker or independent review is enabled.
-- Lead plan: diagnose exact /proc failure operations before altering retention;
-  keep incomplete live-process visibility fail-closed and preserve active files.
-  Renew hosted acceptance to test the event revision and authenticate a stable
-  public snapshot rather than assert spent historical main/parent/sequence pins.
-  WORKBOARD owns ordered source proof slices; restore untraced grouped green
-  before release preparation. No conditional aggregate is a release gate.
-- Allowed writes: repository and owned proof roots, separate publication checkout,
-  ordinary non-force source/publication pushes, hosted signing/Release/Pages/CAS,
-  and ordinary signed activation only after source and hosted gates pass. Retain
-  authenticated installed sequence35 as rollback. Never manually patch installed
-  executables, inspect production private keys, or migrate user data.
-- Preserve auth/account settings, conversations, Manager preferences, resolver,
-  running work processes, sealed legacy and local main. Native device checks
-  use owned configuration and synthetic data, no real model turn or credentials.
-  Physical notification layout/taps require an actual observation; never equate
-  provider/action success with that observation. Input-cache investigation follows
-  closure of these accepted repairs.
-- Source VALIDATION-RENEWAL accepted 2026-10-04 at product commit
-  274f6771b430c51d179e1fb3beec31108c92c159, bound six-file source identity,
-  ordinary untraced scripts/check.sh exit0: Python15+77, Core181 passed/0 failed/
-  1 explicit device smoke ignored, Manager22+17, builder22;242 unique Rust passes.
-  Strict locked all-target Clippy, fmt, actual diff, optimized locked workspace
-  build and staged added-line credential audit passed. Authority close follows
-  separately because the protection check observed another concurrent config
-  replacement and the shell committed product source before the ledger reduction.
-- KEEP conservative live visibility, roles/leases and all final execution
-  semantics; COLLAPSE retirement onto native whole-process exit confirmation with
-  one total10ms wait budget. Native live-sibling tests prove an exited leader
-  cannot authorize generation or server-record deletion; existing exit waits now
-  observe native state/thread count. Linux-only unreadable live-handle proof awaits
-  the event-source hosted gate; Android hidepid invisibility is not claimed fixed.
-- DELETE historical source/main/parent/sequence CI pins and duplicate workspace
-  job. The workflow builds/tests the event revision and verifies a pinned-key,
-  immutable-main signed public snapshot, every payload and size sidecar. Actual
-  shell fixture passed positive plus10 faults; fresh real public audit passed
-  signed sequence35 at main3cf5342a9f8c90798c13123208095d088c9c6b0f.
-- Actual optimized Builder reproduced v3 runtime SHA256
-  926a5e5c2d113db9bcf2173013d805275c21e872c77dd37eec91aff2efcff99f.
-  Native TUI legacy/named/shared and embedded paths passed menu/current marker,
-  four choices and both shortcuts, same thread and no real model turn. Two
-  synthetic root turns delivered once each; enabled successful native memory
-  consolidation delivered zero extra notifications. Missing tool arguments and
-  overlong owned socket paths were corrected fixture invocations, never acceptance.
-- Protection: original24/27 unchanged, two profile configs and startup advisory
-  replaced concurrently across session restart; active janmori101 config replaced
-  again during native proof (26/27 resumed identities exact). Proof/source commands
-  wrote only repository and owned temporary paths; concurrent settings preserved,
-  never reverted or counted unchanged. All auth, installed Core/runtime/activation/
-  rollback, Manager preferences, resolver, local main and sealed legacy stay exact.
-  Latest27-path snapshot binds the next gate. No public or installed mutation yet.
-- Hosted source run37238896480 at6f2ee908e839865878aa67f549fc2c8854082890
-  rejected final acceptance: Core171/9 retention/cleanup failures/1 ignored/2
-  Android cases deferred; contracts/public audit/Android build/Python passed.
-  CI now diagnoses host proc visibility using metadata only and runs the entire
-  serial corpus plus both Android cases in one private PID/mount namespace,
-  remounted proc and original non-root UID/GID with all capabilities dropped.
-  This isolates foreign host tasks without weakening the owned unreadable-live
-  regression or production's conservative visibility. Local77 Python contracts,
-  YAML/all15 shell blocks and actual CI diff passed; hosted proof remains pending.
-  Unchanged Android product/native full proofs are reused, not rerun for CI-only edits.
-- Hosted namespace run37239503780 at1f3dfd1e1033e5a5c71f836b7ecb967ecab44e0c
-  diagnosed three host same-user exe denials and fixed eight failures through
-  proof isolation. Core179/1 churn failure/1 ignored/2 deferred remained; the
-  real unreadable-live negative passed. The churn proof now preserves held files
-  and activation bytes on every scan, permits only observed PermissionDenied,
-  and requires successful pruning after churn and handle release. Production and
-  the10ms bound are unchanged. Android focused retention7/7 and strict all-target
-  Clippy passed; actual diff is confined to the existing test. Hosted closure pending.
-- Next: ordinary accepted-source push, require event hosted acceptance, then one
-  exact-parent sequence35->36 Core+Manager+v3 runtime publication bridge;
-  keep other signed fields/helper/code-mode-host bytes unchanged. Production
-  private key remains exclusively hosted. Ordinary device update follows signed
-  public gates, retaining sequence35 as rollback; input-cache inquiry stays later.
+- User `진행` authorized retention/hosted validation repair, one signed corrective
+  Core+Manager+qualified v3 runtime publication, ordinary activation and bounded
+  fresh-session permission/notification acceptance, followed by input-cache
+  consideration. Goal-md binds this repository; approved equivalent primary,
+  workers OFF. All selected repair slices are closed.
+- Authorization covered repository/owned roots, separate publication checkout,
+  ordinary non-force source/publication pushes, hosted signing/Release/Pages/CAS
+  and ordinary signed activation after green source/public gates. No manual live
+  patching, key inspection, data migration or real model/account turn occurred.
+- KEEP conservative live-process visibility, roles/leases and execution semantics.
+  COLLAPSE generation/server retirement onto native whole-process exit confirmation
+  with one total10ms budget. An exited leader with a live sibling retains files
+  and server records; unknown or denied live visibility remains protected.
+  Android hidepid invisibility is not claimed repaired. DELETE spent historical
+  source/main/parent/sequence CI pins and the duplicate workspace proof job.
+- Product commit274f6771b430c51d179e1fb3beec31108c92c159 passed ordinary
+  untraced scripts/check.sh: Python92/Rust242, one explicit device smoke ignored,
+  strict locked lint/fmt, optimized build and actual diff/credential gates.
+  Authority close6f2ee908 followed a concurrent protection-config replacement.
+  Hosted run37238896480 exposed host proc visibility contamination (9 reds).
+  Namespace commit1f3dfd1 isolates the entire serial corpus in one remounted
+  private proc under original non-root UID/GID with all capabilities dropped;
+  run37239503780 fixed8 reds and retained the real unreadable-live negative.
+  Remaining churn assertion was corrected without changing production: every scan
+  preserves live files/state, only observed PermissionDenied may abort, and stable
+  pruning must succeed after churn/handle release. Focused7/7 Android plus Clippy
+  passed; no failing or zero-test invocation is acceptance evidence.
+- Exact accepted producer6523921a1d3368865d46cfa9093e3f118f7e9a30 passed
+  hosted run37239860820: Python15+77; Core180 whole plus two1/1 Android
+  admission cases (182 unique), Manager22+17, builder22;243 unique Rust passes,
+  one explicit device smoke ignored. Event, strict lint/fmt/diff/credential and
+  pinned-key immutable public snapshot/every-byte/size-sidecar gates all passed.
+- Reviewed corrective bridge qualified actual component39 unique cases and
+  preflight8 cases, YAML/shell syntax, exact accepted source/parent/event/key and
+  non-force CAS. Preserve code-mode-host/helpers and unrelated ordered fields;
+  both Core and Manager change with the qualified v3 permission runtime. Official
+  upstream0.160.0 archive7f0fe42ff22ecfa3a47bc4a34f5b22c4218b431a4ec0aba51c7d98299f07900c
+  and runtime926a5e5c2d113db9bcf2173013d805275c21e872c77dd37eec91aff2efcff99f
+  remain bound. Production private signing authority remains exclusively hosted.
+- Exact-parent ordinary trigger95c5acaf834e2d30b6ae7208333093620700e337
+  from public main3cf5342a9f8c90798c13123208095d088c9c6b0f completed
+  production run37243754323, all stages success: native smoke, signing, immutable
+  Release, LKG-preserving Pages, public readback, disposable update/no-op and CAS
+  force:false/committed/ref_update_rc0. Main became
+  15487ecca7de7e28c9ed743bb09afb394b208005. Fresh pinned-key signed every-byte
+  audit independently verified sequence36
+  local-hosted-0-160-0-6523921a1d33-permission-memory.
+- Actual published binaries passed Android native legacy/named/shared and embedded
+  permission paths: four selections/current marker/both shortcuts, same thread,
+  independent user/auto_review/never without sandbox, no real model turn. Two
+  synthetic root completions deliver once each; enabled successful native memory
+  consolidation delivers zero extra alert. Publication-only compat resources in
+  an initial owned fixture were rejected correctly; rerun used the exact signed
+  seven payloads plus manifest/signature installed layout, no production weakening.
+- Ordinary installed codex update exited0 and activated signed sequence36 with
+  all seven inventory bytes/modes, launcher and signature verified. Sequence35
+  remains complete previous rollback (all9 files exact). Version remains exactly
+  codex-cli0.160.0; doctor exit0 reports Core/runtime/Manager/code-mode-host/
+  upstream/summary healthy, expected unsupported bwrap sandbox. Exact-current
+  update completed1381ms, empty stderr and all72 durable Core entries unchanged.
+- Actual installed Core/Manager with owned preferences delivered exactly one
+  Android-listed unique synthetic UserInputRequest notification with folded
+  one-line text; unselected PermissionRequest invoked no provider. Activity reuse
+  flags retained, no RunCommandService/tmux attach. Initial fixture compared CLI
+  string ID to notification-list ID incorrectly; corrected unique title/body proof
+  passed and cleanup verified no owned alert. No physical tap/layout claim.
+- Bounded device-before/final snapshots preserve auth, account/profile settings,
+  Manager preferences, resolver and all10 existing process PID/start identities.
+  Ordinary update changed only launcher/activation/rollback metadata and pruned
+  an older unretained sequence33 runtime; sequence35 remains exact. Earlier source
+  snapshots saw concurrent profile config/advisory replacements, preserved without
+  reverting or claiming unchanged. Local main2ffb95f3814ce95462ae5c0c75f57dfb8c266afd
+  and sealed legacybf30a7dc94d4dad7f58836c69028160856e63c58 remain exact.
+- Reuse the completed INPUT-CACHE-UNLOAD-CONSIDERATION below: same-ID resume may
+  retain remote prompt-cache affinity while unload loses local transport state;
+  positive grace also retains the writer lock and cannot guarantee remote hits.
+  Delay0 stays unchanged; no keepalive, retention override or model measurement
+  is selected. Existing sessions retain their old runtime until ordinary restart.
+  This closure changes authority records only, not accepted producer bytes.
+  Final two credential/tree checks, diff inspection and exact allowed device-delta
+  assertion passed. An invalid unittest dot-directory invocation ran no tests;
+  direct-file two-test rerun passed and is the only closure test evidence.
 
 ## PERMISSION-PICKER / MEMORY-NOTIFY (source accepted 2026-10-04)
 
