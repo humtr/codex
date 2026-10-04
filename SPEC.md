@@ -490,6 +490,67 @@ and delivery behavior; a configuration record or generated command alone is not
 proof of the user's completed task. Legacy functionality is evaluated against
 these user results and ownership boundaries, not as an automatic feature backlog.
 
+### 4.5 Responsibility and compatibility admission criteria
+
+Ownership is determined by the invariant and public execution path, not by
+which component currently contains the code. Apply these criteria in order:
+
+1. **Upstream first.** Authentication, conversation schemas, storage engines,
+   discovery/resume, writer ownership, thread/turn processing and native server
+   behavior remain upstream-owned. Use the supported runtime's native commands,
+   configuration and protocol before adding local machinery.
+2. **Core execution necessity.** Core owns the minimal adaptation needed to run
+   a qualified upstream runtime correctly on Termux, including direct launches
+   without Manager. Binding the selected account home, compatible runtime,
+   resolver/configuration descriptors and safe socket namespace is an execution
+   invariant. It may require Core preparation even when Manager selected the
+   account. Manager must not become the only route that establishes it.
+3. **Policy versus application.** Account selection, notification preferences
+   and their presentation are Manager conveniences. A selected product policy
+   may be applied by Core when every supported launch must satisfy it. That does
+   not make the policy a Termux limitation, or transfer upstream state ownership.
+   Installation-wide conversation sharing is the already-selected product
+   policy below; it is not required for arbitrary isolated account execution.
+4. **Concrete insufficiency.** Retain an adaptation only with evidence tied to
+   the exact supported upstream revision: the native surface attempted, the
+   observable limitation, the smallest remedy and the public path it serves.
+   Historical audits and current web documentation alone do not establish a
+   limitation of the installed or next candidate runtime. Revalidate affected
+   assumptions during qualification before deleting or expanding an adaptation.
+5. **One preparation owner.** Give each physical preparation/mutation one
+   authoritative implementation. Manager owns profile registration and its
+   private metadata; Core owns shared execution-path preparation. Collapse
+   duplicate preparation when aligning the current profile contract. Independent
+   validation of a cross-layer payload remains necessary; identical operations
+   or policy drift are not justified by that validation requirement.
+6. **Minimal lifecycle authority.** Core may bind and launch upstream's server
+   to preserve signed-runtime authority and Termux execution compatibility.
+   Native protocol, threads and writers remain upstream-owned. Custom reuse or
+   retirement is admissible only for a demonstrated runtime-binding or generation
+   retention invariant that the selected native surface cannot establish.
+   Do not add a parallel supervisor, session registry or storage engine.
+7. **Distinct convenience result.** Manager functionality needs an observable
+   user benefit beyond renaming Core/upstream operations. Recovery authority
+   remains Core-owned; a repair facade with no distinct recovery outcome is a
+   deletion candidate, not a reason to add a second recovery implementation.
+8. **Public-path proof.** KEEP necessary behavior, COLLAPSE duplicate execution
+   paths, DELETE superseded machinery. For each disposition verify the real
+   public entrypoint, including Manager-unavailable execution, protected account
+   state, original argv/process behavior and signed update/rollback integrity.
+   A synthetic fixture proves routing, not native upstream compatibility.
+
+In particular, account homes are valid upstream execution identities. A long
+Unix socket path is a communication-path constraint, not a reason to relocate
+authentication/configuration or share conversations. Shared conversation links
+and SQLite configuration implement the separate selected sharing policy; the
+canonical files, schemas and locks continue to be operated by upstream.
+
+These criteria govern subsequent bounded alignment slices. Existing command
+grammar, profile creation/current output, notification records and repair
+contracts remain in force until their specific contract is amended before code
+changes. This section does not itself introduce a command, move existing data,
+retire repair, or authorize an installed-runtime change.
+
 ## 5. Termux runtime contract
 
 The first supported release target is `aarch64-linux-android` on a supported

@@ -32,6 +32,42 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
+## CORE-MANAGER-BOUNDARY-ALIGNMENT (criteria and plan recorded 2026-10-04)
+
+- User requests firm technical ownership criteria and a work plan after the
+  upstream/Core/Manager review. Bound clean `rewrite/rust-core` at
+  `edcc59d7a0d81cd5e35be6916a3709bd2b96e024`; goal-md bound, approved equivalent
+  primary, workers OFF. SPEC4.5 is normative; WORKBOARD owns the ordered execution
+  map. This request closes documentation planning, not product implementation,
+  native-runtime qualification, publication or live activation.
+- Success threshold: Core independently supplies the minimal qualified Termux
+  execution path; upstream owns auth/conversation/server internals; Manager
+  supplies distinct selection/configuration/delivery conveniences. Direct and
+  Manager-selected launches establish the same execution invariants. Existing
+  installation-wide conversation sharing and per-account auth/config isolation
+  are preserved; arbitrary external homes remain isolated.
+- Profile alignment must remove accepted-ID drift and duplicate shared-path
+  preparation, distinguish effective execution identity from saved history, and
+  preserve existing valid homes without implicit migration or persistent account
+  switching. Server alignment must justify each retained launch/reuse/retirement
+  operation against the exact supported upstream runtime; retain required short
+  sockets, descriptor inheritance and signed-generation binding. Notification
+  alignment must keep Core's integration minimal while preserving validated
+  policy, input/completion events and accepted delivery behavior. Repair is a
+  retirement candidate whose command/request removal needs its own SPEC-first
+  slice; it is not already removed or replaced by a new recovery subsystem.
+- Each implementation bundle requires a runnable baseline, definition-to-proof
+  mapping, nonzero focused public-path regression, actual diff inspection,
+  grouped acceptance and protected-surface verification. Native compatibility
+  claims additionally need exact-runtime disposable proof; synthetic routing
+  fixtures alone are insufficient. Installed optional-Manager isolation remains
+  accepted source evidence below, not evidence of live deployment.
+- Documentation gate passed: the three authority-document diffs were inspected,
+  criteria/threshold/plan consistency and `git diff --check` passed, and all12
+  referenced existing regressions were found in source. No production source, tests,
+  dependencies, installed state or remote release changes are selected in this
+  planning turn. Implementation acceptance remains open.
+
 ## CORE-MANAGER-INDEPENDENCE (source accepted 2026-10-04; not installed)
 
 - User reaffirms the existing SPEC4.2 invariant: Core operates independently of
