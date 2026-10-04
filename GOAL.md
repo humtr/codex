@@ -32,6 +32,64 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
+## CORE-MANAGER-UPSTREAM-COMPLETENESS (review completed 2026-10-04; defects open)
+
+- User excludes separate convenience products from the completeness discussion.
+  Review only how public codex/Core and codex termux/Manager support official
+  upstream execution and establish standalone conveniences. This supersedes the
+  previous section's proposed next review of an external wrapper integration.
+  Bound clean rewrite50554ea; goal-md bound, approved equivalent primary, workers
+  OFF. Review permits source reads and owned temporary public-routing fixtures,
+  not a live state migration, release, product retirement or speculative feature.
+- KEEP Core-owned runtime composition/qualification, Termux process/config/FD
+  compatibility, shared-server namespace/identity, signed generation lifecycle,
+  update failure retention, activation recovery, explicit rollback and diagnosis.
+  KEEP upstream auth, conversation persistence, resume, locks and thread lifetime.
+  KEEP standalone Manager profile UX and notification policy/delivery. COLLAPSE
+  conveniences onto these owners; do not turn Core operations into Manager repair
+  machinery or interpret historic implementations as required features.
+- Confirmed foundational mismatch: load_local_generation requires a declared
+  Manager file before execute_activated_route reaches any public upstream route.
+  This violates the existing optional-Manager execution invariant. Installed Core
+  in a private HOME with copied nonsecret generation/activation metadata and
+  synthetic executables dispatches --version successfully with Manager present;
+  removing only that fixture file then yields exit1 and no upstream marker.
+  This is routing fault evidence, not signed release or genuine runtime acceptance.
+  Source matches the observed boundary. Do not weaken candidate signature/inventory
+  admission to fix installed optional-component isolation.
+- Profile semantics need a public contract decision: installed Manager in an own
+  private fixture creates review-account and profile use sets the named child
+  CODEX_HOME, while profile current reports that saved last-selection and a new
+  ordinary Core launch without inherited CODEX_HOME uses the default home. All
+  assertions passed through real Core/Manager; the runtime only emitted synthetic
+  environment markers. Distinguish effective execution identity from history,
+  define deliberate account selection, support the already-declared existing
+  homes, and preserve per-account credentials plus one shared conversation store.
+  No implementation change or implicit persistent-selection behavior is accepted.
+- Review the complete user path: install/run/update/diagnose/rollback belongs to
+  Core; account create/select and upstream login/logout/resume launch conveniences
+  belong to Manager UX without taking ownership of upstream state. A session
+  shortcut may delegate to upstream; a parallel index/transcript parser is excluded.
+  Notifications need real user-input/completion events, understandable presentation,
+  delivery test and persistence policy. Additional knobs or menus require a concrete
+  current user task, not legacy feature parity. Removal requires explicit ownership
+  of installed files and preservation of user data; it is not automatically selected.
+- Manager repair review remains a retirement recommendation: healthy does nothing,
+  legacy invokes ordinary update, invalid state cannot recover and may prevent
+  Manager entry entirely. Its existing internal-request tests prove that boundary,
+  not independent public recovery. No public repair command has been removed.
+- First routing probes stopped red on fixture setup: wrong activation-state field
+  separator, legacy bridge helper paths, then missing private config directory.
+  Corrected against source and reran a successful present/absent paired invocation;
+  earlier failures are not evidence. Every temporary fixture was removed; no
+  credentials/session content read, live profile/state change or model request.
+- SPEC now frames completeness around upstream/Core/Manager and removes the
+  previous external-product comparison from Manager ownership. Review/document
+  closure does not claim the optional-Manager defect or profile UX is implemented.
+  First product slice should isolate optional Manager absence from ordinary Core
+  execution, with focused real-entrypoint fault proof and protected surfaces, before
+  convenience expansion. Repair retirement and profile UX follow as separate slices.
+
 ## CORE-MANAGER-AI-AUTHORITY (policy accepted 2026-10-04)
 
 - User corrects the architectural review: AI is a separate optional convenience

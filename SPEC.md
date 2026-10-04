@@ -409,12 +409,10 @@ Manager owns:
 - Manager-local state and UI;
 - repair planning and requests to Core.
 
-Core and Manager are the product authority for optional convenience clients
-such as AI. Manager's profile UX and declared profile state must be evaluated
-as a standalone Codex capability; the existence of an AI profile picker is not
-a reason to move that ownership to AI. AI's Codex integration must follow the
-accepted Core/Manager identity and execution contracts. Conversely, Manager
-must not duplicate AI's generic multi-provider or tmux presentation machinery.
+Manager's profile UX and declared profile state are standalone Codex product
+capabilities, assessed through the public `codex termux` path. Their completeness
+is determined by how they support the official upstream runtime and user tasks,
+not by features in a separate convenience product.
 Conversation persistence, discovery, selection and resume belong to upstream,
 as established by the shared-conversation contract below; Manager does not own
 a second session index or picker.
@@ -453,6 +451,32 @@ Core doctor, update, or rollback.
 Core and Manager may share only explicit versioned data contracts. Compile-time
 types are insufficient; every external or cross-layer payload is validated at
 runtime. Unknown incompatible schema versions fail without mutation.
+
+### 4.4 Product completeness against upstream
+
+The completeness boundary is the public `codex` and `codex termux` product.
+Core supplies the supported official runtime, Termux adaptation, process and
+shared-server execution, generation lifecycle and diagnosis. It must preserve
+accepted upstream command/configuration behavior and account isolation; optional
+convenience failures must not become prerequisites for ordinary execution.
+Candidate publication and activation still require the complete signed inventory
+and qualification; optionality does not permit admitting an invalid candidate.
+
+Manager supplies standalone user-facing configuration and selection conveniences
+above that boundary. A useful convenience must produce a distinct user result,
+not another implementation of a Core command. Profile selection must clearly
+distinguish the identity supplied to the upstream child from saved selection
+history; history alone is not evidence of the identity used by a later ordinary
+launch. Authentication, conversation persistence and thread lifecycle remain
+upstream-owned. Session conveniences, if selected in a later contract, must use
+upstream-supported discovery/resume rather than a second transcript index.
+
+Notification policy and Termux delivery belong to Manager; Core projects its
+validated selections onto the upstream hook configuration. Delivery failure must
+not fail an upstream turn. Public-path proof must establish the intended event
+and delivery behavior; a configuration record or generated command alone is not
+proof of the user's completed task. Legacy functionality is evaluated against
+these user results and ownership boundaries, not as an automatic feature backlog.
 
 ## 5. Termux runtime contract
 

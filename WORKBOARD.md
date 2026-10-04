@@ -2,24 +2,30 @@
 
 SPEC -> GOAL -> WORKBOARD; goal-md bound, approved equivalent primary, workers OFF.
 
-CORE-MANAGER-AI-AUTHORITY policy accepted 2026-10-04. Core/Manager define the Codex
-product; AI is an optional convenience consumer and adapts to their contracts.
-Core owns runtime lifecycle; Manager owns Codex profile UX/state and Termux
-notifications; upstream owns auth/conversations. AI owns generic provider UI and
-tmux presentation. Necessary Manager capabilities remain usable without AI.
+CORE-MANAGER-UPSTREAM-COMPLETENESS review completed; findings in GOAL. Public
+codex/Core and codex termux/Manager are the completeness boundary. Upstream owns
+auth/conversations/lifecycle; Core owns compatibility and runtime/generation
+lifecycle; Manager supplies standalone profile and notification conveniences.
+No legacy feature checklist or separate convenience product defines completion.
 
-Documentation slice: SPEC first, accepted decision in GOAL, actual diff review
-and diff check. Removed stale Manager session-index ownership already superseded
-by upstream resume. No product behavior, installed state or profile paths changed.
-This closes the authority correction, not AI/Manager profile integration.
+Confirmed open defect: declared Manager absence in load_local_generation blocks
+ordinary upstream execution. Actual installed Core paired private-fixture probe
+proved presence dispatches and removal alone fails; this is routing evidence,
+not release acceptance. Profile review proved named profile use sets the child
+home but current reports saved selection while a fresh ordinary launch uses default.
+Resolve effective-versus-saved identity semantics in its own contract slice.
 
-Next design work: specify one Core/Manager profile identity/execution contract
-covering supported existing homes and the standalone public path, then map AI's
-Codex integration to it. No migration, credential merge or profile deletion is
-selected. Product implementation needs its own SPEC-first vertical proof map and
-runnable baseline. Repair removal is a review recommendation; its public commands
-remain present until a separate retirement slice. Do not move repair to AI.
+Review-only owned fixtures cleaned. Stop-on-red setup errors (state separator,
+bridge helper paths, missing private config directory) corrected from actual
+source and paired gate rerun successfully. No production behavior or installed
+state changed. Signed admission, runtime integrity, auth isolation, shared
+conversations, active writers, resolver and notification settings are protected.
 
-Notification preference UserInputRequest,Stop, bounded named terminal reuse,
-single-line delivery, session recovery and cache consideration remain accepted.
-Delay0 unchanged. Preserve unrelated AI provider/TUI/smoke dirty work.
+Proposed first implementation slice: optional Manager absence must not block
+ordinary Core launch; constrain writes to loader/dispatch and focused public-path
+fault regressions. Establish exact HEAD/diff and runnable baseline before mutation,
+map all affected loader consumers, preserve strict signed candidate admission and
+Core update/rollback/diagnosis. Review does not claim this slice accepted.
+Then separate slices for repair retirement (currently recommendation only) and
+standalone profile UX/identity. Do not expand convenience features before the
+foundational execution invariant is restored. No public command retired yet.
