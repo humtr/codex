@@ -1,0 +1,598 @@
+diff --git a/codex-rs/tui/src/app.rs b/codex-rs/tui/src/app.rs
+index 37b5c78..b5c1236 100644
+--- a/codex-rs/tui/src/app.rs
++++ b/codex-rs/tui/src/app.rs
+@@ -231,6 +231,8 @@ mod loaded_threads;
+ mod managed_worktree_creation;
+ mod misalignment_policy;
+ mod model_defaults;
++#[cfg(unix)]
++mod profile_manager;
+ mod new_session;
+ mod turn_tips;
+ pub(crate) use new_session::has_launch_setting;
+diff --git a/codex-rs/tui/src/app/event_dispatch.rs b/codex-rs/tui/src/app/event_dispatch.rs
+index da28bf2..a7076a4 100644
+--- a/codex-rs/tui/src/app/event_dispatch.rs
++++ b/codex-rs/tui/src/app/event_dispatch.rs
+@@ -425,6 +425,10 @@ impl App {
+             AppEvent::OpenResumePicker => {
+                 self.pending_open_resume_picker = true;
+             }
++            #[cfg(unix)]
++            AppEvent::OpenProfilePicker => {
++                profile_manager::open(self).await;
++            }
+             AppEvent::OpenExternalAgentConfigMigration => {
+                 let cwd = if self.chat_widget.thread_id().is_some()
+                     || !app_server.uses_remote_workspace()
+diff --git a/codex-rs/tui/src/app/profile_manager.rs b/codex-rs/tui/src/app/profile_manager.rs
+new file mode 100644
+index 0000000..8160d04
+--- /dev/null
++++ b/codex-rs/tui/src/app/profile_manager.rs
+@@ -0,0 +1,160 @@
++//! Unix execution-profile display; Manager remains the sole profile-state owner.
++use super::App;
++use crate::bottom_pane::SelectionItem;
++use crate::bottom_pane::SelectionViewParams;
++use crate::bottom_pane::popup_consts::accept_cancel_hint_line;
++use crate::keymap::ListAction;
++use crate::keymap::ListKeymap;
++use serde::Deserialize;
++use std::collections::HashSet;
++use std::os::unix::fs::MetadataExt;
++use std::path::Path;
++use std::process::Stdio;
++use std::time::Duration;
++use tokio::io::AsyncReadExt;
++use tokio::process::Command;
++
++#[derive(Debug, Deserialize, PartialEq)]
++#[serde(deny_unknown_fields)]
++struct Profiles {
++    schema: String,
++    profiles: Vec<String>,
++    #[serde(deserialize_with = "Option::deserialize")]
++    current: Option<String>,
++    current_source: CurrentSource,
++    saved_default: String,
++}
++
++#[derive(Debug, Deserialize, PartialEq)]
++#[serde(rename_all = "snake_case")]
++enum CurrentSource {
++    Default,
++    Saved,
++    Inherited,
++}
++
++fn decode(bytes: &[u8]) -> Option<Profiles> {
++    let view: Profiles = serde_json::from_slice(bytes).ok()?;
++    let mut unique = HashSet::new();
++    if view.schema != "codex-manager-profiles-v1"
++        || view.profiles.is_empty()
++        || view.profiles.len() > 256
++        || view.profiles[0] != "default"
++        || !view.profiles.iter().all(|id| {
++            !id.is_empty()
++                && id.len() <= 64
++                && id.as_bytes()[0].is_ascii_alphanumeric()
++                && id
++                    .bytes()
++                    .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
++                && !matches!(id.as_str(), "home" | "termux")
++                && unique.insert(id.as_str())
++        })
++        || !unique.contains(view.saved_default.as_str())
++        || view
++            .current
++            .as_ref()
++            .is_some_and(|id| !unique.contains(id.as_str()))
++    {
++        return None;
++    }
++    match view.current_source {
++        CurrentSource::Default
++            if view.current.as_deref() != Some("default") || view.saved_default != "default" =>
++        {
++            None
++        }
++        CurrentSource::Saved if view.current.as_ref() != Some(&view.saved_default) => None,
++        _ => Some(view),
++    }
++}
++
++async fn load(core: &Path) -> Option<Profiles> {
++    let metadata = std::fs::symlink_metadata(core).ok()?;
++    if !core.is_absolute()
++        || !metadata.is_file()
++        || metadata.uid() != unsafe { libc::geteuid() }
++        || metadata.mode() & 0o022 != 0
++        || metadata.mode() & 0o111 == 0
++    {
++        return None;
++    }
++    tokio::time::timeout(Duration::from_secs(3), async {
++        let mut child = Command::new(core)
++            .args(["termux", "__profile-snapshot-v1"])
++            .stdin(Stdio::null())
++            .stdout(Stdio::piped())
++            .stderr(Stdio::null())
++            .kill_on_drop(true)
++            .spawn()
++            .ok()?;
++        let mut bytes = Vec::new();
++        child
++            .stdout
++            .take()?
++            .take(65537)
++            .read_to_end(&mut bytes)
++            .await
++            .ok()?;
++        if bytes.len() > 65536 || !child.wait().await.ok()?.success() {
++            return None;
++        }
++        decode(&bytes)
++    })
++    .await
++    .ok()
++    .flatten()
++}
++
++fn picker(view: Profiles, keymap: &ListKeymap) -> SelectionViewParams {
++    let subtitle = format!(
++        "Current: {} · Default: {}",
++        view.current.as_deref().unwrap_or("external home"),
++        view.saved_default,
++    );
++    let items = view
++        .profiles
++        .into_iter()
++        .map(|id| SelectionItem {
++            is_current: view.current.as_ref() == Some(&id),
++            is_default: view.saved_default == id,
++            name: id,
++            is_disabled: true,
++            disabled_gutter_marker: Some("·"),
++            ..Default::default()
++        })
++        .collect();
++    SelectionViewParams {
++        title: Some("Profiles".to_string()),
++        subtitle: Some(subtitle),
++        items,
++        is_searchable: true,
++        search_placeholder: Some("Find a profile".to_string()),
++        footer_hint: Some(accept_cancel_hint_line(
++            None,
++            "",
++            keymap.primary_hint(ListAction::Cancel),
++            "to go back",
++        )),
++        ..SelectionViewParams::picker()
++    }
++}
++
++pub(super) async fn open(app: &mut App) {
++    let core = std::env::var_os("CODEX_PROFILE_CORE");
++    let view = match core.as_deref() {
++        Some(core) => load(Path::new(core)).await,
++        None => None,
++    };
++    if let Some(view) = view {
++        app.chat_widget
++            .show_selection_view(picker(view, &app.keymap.list));
++    } else {
++        app.chat_widget
++            .add_error_message("Profiles are unavailable.".to_string());
++    }
++}
++
++#[cfg(test)]
++#[path = "profile_manager_tests.rs"]
++mod tests;
+diff --git a/codex-rs/tui/src/app/profile_manager_tests.rs b/codex-rs/tui/src/app/profile_manager_tests.rs
+new file mode 100644
+index 0000000..636c98c
+--- /dev/null
++++ b/codex-rs/tui/src/app/profile_manager_tests.rs
+@@ -0,0 +1,232 @@
++use super::*;
++use crate::app_event_sender::AppEventSender;
++use crate::bottom_pane::BottomPaneView;
++use crate::bottom_pane::ListSelectionView;
++use crate::keymap::RuntimeKeymap;
++use crate::render::renderable::Renderable;
++use crossterm::event::KeyCode;
++use crossterm::event::KeyEvent;
++use crossterm::event::KeyModifiers;
++use pretty_assertions::assert_eq;
++use ratatui::buffer::Buffer;
++use ratatui::layout::Rect;
++use serde_json::json;
++use std::os::unix::fs::PermissionsExt;
++use tempfile::TempDir;
++
++fn record() -> serde_json::Value {
++    json!({
++        "schema":"codex-manager-profiles-v1",
++        "profiles":["default","external","work"],
++        "current":"work","current_source":"saved","saved_default":"work"
++    })
++}
++
++#[test]
++fn profile_manager_decodes_saved_default_inherited_and_external_identity() {
++    let mut value = record();
++    let mut expected = Profiles {
++        schema: "codex-manager-profiles-v1".to_string(),
++        profiles: vec!["default".into(), "external".into(), "work".into()],
++        current: Some("work".to_string()),
++        current_source: CurrentSource::Saved,
++        saved_default: "work".to_string(),
++    };
++    assert_eq!(decode(value.to_string().as_bytes()), Some(expected));
++    value["current_source"] = json!("inherited");
++    value["current"] = serde_json::Value::Null;
++    expected = Profiles {
++        schema: "codex-manager-profiles-v1".to_string(),
++        profiles: vec!["default".into(), "external".into(), "work".into()],
++        current: None,
++        current_source: CurrentSource::Inherited,
++        saved_default: "work".to_string(),
++    };
++    assert_eq!(decode(value.to_string().as_bytes()), Some(expected));
++    value["current_source"] = json!("default");
++    value["current"] = json!("default");
++    value["saved_default"] = json!("default");
++    assert!(decode(value.to_string().as_bytes()).is_some());
++}
++
++#[test]
++fn profile_manager_rejects_unknown_malformed_unregistered_and_unbounded_records() {
++    for (field, invalid) in [
++        ("schema", json!("v2")),
++        ("current_source", json!("unknown")),
++        ("extra", json!(true)),
++        ("profiles", json!([])),
++        ("profiles", json!(["work", "default"])),
++        ("profiles", json!(["default", "default"])),
++        ("profiles", json!(["default", "home"])),
++        ("profiles", json!(["default", "termux"])),
++        ("profiles", json!(["default", "../bad"])),
++        ("profiles", json!(["default", "한글"])),
++        ("profiles", json!(["default", "a".repeat(65)])),
++        ("profiles", json!(["default", ""])),
++        (
++            "profiles",
++            json!(
++                std::iter::once("default".to_string())
++                    .chain((0..256).map(|i| format!("p{i}")))
++                    .collect::<Vec<_>>()
++            ),
++        ),
++        ("current", json!("missing")),
++        ("current", serde_json::Value::Null),
++        ("saved_default", json!("missing")),
++        ("current_source", json!("default")),
++    ] {
++        let mut value = record();
++        value[field] = invalid;
++        assert_eq!(
++            decode(value.to_string().as_bytes()),
++            None,
++            "{field}: {value}"
++        );
++    }
++    for field in [
++        "schema",
++        "profiles",
++        "current",
++        "current_source",
++        "saved_default",
++    ] {
++        let mut value = record();
++        value.as_object_mut().unwrap().remove(field);
++        assert_eq!(
++            decode(value.to_string().as_bytes()),
++            None,
++            "missing {field}"
++        );
++    }
++    for bytes in [b"{bad".as_slice(), b"{} {}", b"null"] {
++        assert_eq!(decode(bytes), None);
++    }
++}
++
++fn bridge(root: &TempDir, body: &str) -> std::path::PathBuf {
++    let path = root.path().join("core");
++    std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
++    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
++    path
++}
++
++#[tokio::test]
++async fn profile_manager_bridge_uses_exact_argv_and_validates_transport() {
++    let root = TempDir::new().unwrap();
++    let body = format!(
++        "test \"$#\" = 2 && test \"$1\" = termux && test \"$2\" = __profile-snapshot-v1 || exit 2\nprintf '%s\\n' '{}'",
++        record()
++    );
++    let path = bridge(&root, &body);
++    assert_eq!(load(&path).await, decode(record().to_string().as_bytes()));
++    for body in [
++        "printf '{}'",
++        "printf '%s' 'not json'",
++        "exit 1",
++        "dd if=/dev/zero bs=65537 count=1 2>/dev/null",
++    ] {
++        let path = bridge(&root, body);
++        assert_eq!(load(&path).await, None, "{body}");
++    }
++    let path = bridge(&root, &format!("printf '%s' '{}'; exit 1", record()));
++    assert_eq!(load(&path).await, None);
++}
++
++#[tokio::test]
++async fn profile_manager_bridge_rejects_missing_relative_symlink_and_unsafe_modes() {
++    let root = TempDir::new().unwrap();
++    assert_eq!(load(&root.path().join("missing")).await, None);
++    assert_eq!(load(Path::new("relative-core")).await, None);
++    let path = bridge(&root, "exit 99");
++    let link = root.path().join("link");
++    std::os::unix::fs::symlink(&path, &link).unwrap();
++    assert_eq!(load(&link).await, None);
++    assert_eq!(load(root.path()).await, None);
++    for mode in [0o600, 0o720, 0o702] {
++        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode)).unwrap();
++        assert_eq!(load(&path).await, None);
++    }
++}
++
++#[tokio::test]
++async fn profile_manager_bridge_times_out_and_kills_its_owned_child() {
++    let root = TempDir::new().unwrap();
++    let path = bridge(&root, "printf '%s' \"$$\" > \"$0.pid\"; exec sleep 30");
++    let start = std::time::Instant::now();
++    assert_eq!(load(&path).await, None);
++    assert!(start.elapsed() < Duration::from_secs(6));
++    let pid: i32 = std::fs::read_to_string(root.path().join("core.pid"))
++        .unwrap()
++        .parse()
++        .unwrap();
++    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
++    while unsafe { libc::kill(pid, 0) } == 0 {
++        assert!(
++            tokio::time::Instant::now() < deadline,
++            "timed-out bridge survived"
++        );
++        tokio::time::sleep(Duration::from_millis(10)).await;
++    }
++}
++
++fn render(view: &ListSelectionView) -> String {
++    let area = Rect::new(0, 0, 72, view.desired_height(72));
++    let mut buffer = Buffer::empty(area);
++    view.render(area, &mut buffer);
++    (0..area.height)
++        .map(|y| {
++            (0..area.width)
++                .map(|x| buffer[(x, y)].symbol())
++                .collect::<String>()
++                .trim_end()
++                .to_string()
++        })
++        .collect::<Vec<_>>()
++        .join("\n")
++}
++
++#[test]
++fn profile_manager_picker_renders_searches_and_cancels_without_selection() {
++    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
++    let keymap = RuntimeKeymap::defaults();
++    let mut view = ListSelectionView::new(
++        picker(
++            decode(record().to_string().as_bytes()).unwrap(),
++            &keymap.list,
++        ),
++        AppEventSender::new(tx),
++        keymap.list,
++    );
++    insta::assert_snapshot!("profile_manager_saved", render(&view));
++    for c in "work".chars() {
++        view.handle_key_event(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
++    }
++    let filtered = render(&view);
++    assert!(filtered.contains("work"));
++    assert!(!filtered.contains("external"));
++    view.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
++    assert!(!view.is_complete());
++    view.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
++    if !view.is_complete() {
++        view.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
++    }
++    assert!(view.is_complete());
++    assert!(rx.try_recv().is_err());
++}
++
++#[test]
++fn profile_manager_picker_distinguishes_external_home_from_registered_external() {
++    let mut value = record();
++    value["current"] = serde_json::Value::Null;
++    value["current_source"] = json!("inherited");
++    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
++    let keymap = RuntimeKeymap::defaults();
++    let view = ListSelectionView::new(
++        picker(decode(value.to_string().as_bytes()).unwrap(), &keymap.list),
++        AppEventSender::new(tx),
++        keymap.list,
++    );
++    insta::assert_snapshot!("profile_manager_external_home", render(&view));
++}
+diff --git a/codex-rs/tui/src/app_event.rs b/codex-rs/tui/src/app_event.rs
+index ce30da4..d244aec 100644
+--- a/codex-rs/tui/src/app_event.rs
++++ b/codex-rs/tui/src/app_event.rs
+@@ -584,6 +584,10 @@ pub(crate) enum AppEvent {
+     /// Open the resume picker inside the running TUI session.
+     OpenResumePicker,
+ 
++    /// Open the Manager execution-profile view without changing accounts.
++    #[cfg(unix)]
++    OpenProfilePicker,
++
+     /// Open the Claude Code migration picker inside the running TUI session.
+     OpenExternalAgentConfigMigration,
+ 
+diff --git a/codex-rs/tui/src/bottom_pane/chat_composer.rs b/codex-rs/tui/src/bottom_pane/chat_composer.rs
+index 7272255..68f3930 100644
+--- a/codex-rs/tui/src/bottom_pane/chat_composer.rs
++++ b/codex-rs/tui/src/bottom_pane/chat_composer.rs
+@@ -484,6 +484,10 @@ pub enum InputResult {
+ }
+ 
+ fn parent_owned_command_is_allowed(command: SlashCommand, args: &str) -> bool {
++    #[cfg(unix)]
++    if command == SlashCommand::Profile && args.is_empty() {
++        return true;
++    }
+     if command == SlashCommand::Export {
+         return true;
+     }
+diff --git a/codex-rs/tui/src/bottom_pane/slash_commands.rs b/codex-rs/tui/src/bottom_pane/slash_commands.rs
+index 383376a..6b1f8f9 100644
+--- a/codex-rs/tui/src/bottom_pane/slash_commands.rs
++++ b/codex-rs/tui/src/bottom_pane/slash_commands.rs
+@@ -325,6 +325,8 @@ mod tests {
+             commands,
+             vec![
+                 SlashCommand::Ide,
++                #[cfg(unix)]
++                SlashCommand::Profile,
+                 SlashCommand::Agents,
+                 SlashCommand::Copy,
+                 SlashCommand::Export,
+diff --git a/codex-rs/tui/src/chatwidget/slash_dispatch.rs b/codex-rs/tui/src/chatwidget/slash_dispatch.rs
+index 4fe2ed0..0975fb6 100644
+--- a/codex-rs/tui/src/chatwidget/slash_dispatch.rs
++++ b/codex-rs/tui/src/chatwidget/slash_dispatch.rs
+@@ -271,6 +271,10 @@ impl ChatWidget {
+             SlashCommand::Resume => {
+                 self.app_event_tx.send(AppEvent::OpenResumePicker);
+             }
++            #[cfg(unix)]
++            SlashCommand::Profile => {
++                self.app_event_tx.send(AppEvent::OpenProfilePicker);
++            }
+             SlashCommand::Fork => {
+                 self.show_session_checkout_picker(ManagedWorktreeMode::Fork, /*name*/ None);
+             }
+@@ -1279,6 +1283,8 @@ impl ChatWidget {
+             | SlashCommand::Theme
+             | SlashCommand::Tui
+             | SlashCommand::Pets => QueueDrain::Stop,
++            #[cfg(unix)]
++            SlashCommand::Profile => QueueDrain::Stop,
+         }
+     }
+ 
+diff --git a/codex-rs/tui/src/chatwidget/tests.rs b/codex-rs/tui/src/chatwidget/tests.rs
+index 6d42ca5..419b9fd 100644
+--- a/codex-rs/tui/src/chatwidget/tests.rs
++++ b/codex-rs/tui/src/chatwidget/tests.rs
+@@ -289,6 +289,9 @@ mod review_picker_tests;
+ mod session_model_selection_tests;
+ mod side;
+ mod slash_commands;
++#[cfg(unix)]
++#[path = "tests/profile_command_tests.rs"]
++mod profile_command_tests;
+ #[path = "tests/sparkle_submission_tests.rs"]
+ mod sparkle_submission_tests;
+ #[path = "tests/startup_submission_tests.rs"]
+diff --git a/codex-rs/tui/src/chatwidget/tests/profile_command_tests.rs b/codex-rs/tui/src/chatwidget/tests/profile_command_tests.rs
+new file mode 100644
+index 0000000..1114efd
+--- /dev/null
++++ b/codex-rs/tui/src/chatwidget/tests/profile_command_tests.rs
+@@ -0,0 +1,26 @@
++use super::*;
++use pretty_assertions::assert_eq;
++
++#[tokio::test]
++async fn profile_command_dispatches_without_agent_input_in_idle_busy_side_and_owned_views() {
++    for state in ["idle", "busy", "pending", "side", "owned"] {
++        let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(None).await;
++        match state {
++            "busy" => chat.turn_lifecycle.agent_turn_running = true,
++            "pending" => chat.input_queue.user_turn_pending_start = true,
++            "side" => chat.set_side_conversation_active(true),
++            "owned" => chat.set_parent_owned_thread(),
++            _ => {}
++        }
++        chat.bottom_pane
++            .set_composer_text("/profile".to_string(), Vec::new(), Vec::new());
++        chat.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
++        chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
++        assert!(
++            matches!(rx.try_recv(), Ok(AppEvent::OpenProfilePicker)),
++            "{state}"
++        );
++        assert_eq!(chat.bottom_pane.composer_text(), "", "{state}");
++        assert_no_submit_op(&mut op_rx);
++    }
++}
+diff --git a/codex-rs/tui/src/slash_command.rs b/codex-rs/tui/src/slash_command.rs
+index 301de2e..12aaea8 100644
+--- a/codex-rs/tui/src/slash_command.rs
++++ b/codex-rs/tui/src/slash_command.rs
+@@ -32,6 +32,8 @@ pub enum SlashCommand {
+     Archive,
+     Delete,
+     Resume,
++    #[cfg(unix)]
++    Profile,
+     Fork,
+     Worktree,
+     App,
+@@ -97,6 +99,8 @@ impl SlashCommand {
+             SlashCommand::Review => "review my current changes and find issues",
+             SlashCommand::Rename => "rename the current thread",
+             SlashCommand::Resume => "resume a saved chat",
++            #[cfg(unix)]
++            SlashCommand::Profile => "view execution profiles",
+             SlashCommand::Archive => "archive this session",
+             SlashCommand::Delete => "permanently delete this session",
+             SlashCommand::Clear => "clear the terminal and start a new chat",
+@@ -191,6 +195,10 @@ impl SlashCommand {
+ 
+     /// Whether this command remains available inside an active side conversation.
+     pub fn available_in_side_conversation(self) -> bool {
++        #[cfg(unix)]
++        if self == SlashCommand::Profile {
++            return true;
++        }
+         matches!(
+             self,
+             SlashCommand::Copy
+@@ -216,6 +224,10 @@ impl SlashCommand {
+ 
+     /// Commands that do not require a writable current thread. The server must still be connected.
+     pub(crate) fn available_when_thread_unavailable(self) -> bool {
++        #[cfg(unix)]
++        if self == SlashCommand::Profile {
++            return true;
++        }
+         matches!(
+             self,
+             SlashCommand::New
+@@ -238,6 +250,8 @@ impl SlashCommand {
+     /// Whether this command can be run while a task is in progress.
+     pub fn available_during_task(self) -> bool {
+         match self {
++            #[cfg(unix)]
++            SlashCommand::Profile => true,
+             SlashCommand::New
+             | SlashCommand::Archive
+             | SlashCommand::Delete

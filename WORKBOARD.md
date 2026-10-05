@@ -19,6 +19,27 @@ Current bundle PROFILE-TUI-EXPERIMENT, user-authorized feasibility prototype.
 1. Native /profile entrypoint and bounded Manager profile display. CURRENT.
    Restore/run unchanged Manager target baseline before first Manager mutation.
    Native TUI target is runnable under stage0 actual entrypoint proof.
+   Unchanged Manager baseline33 library +41 integration passes (zero doc targets
+   excluded). Initial source identity cleance7aec8; protected stage0 proof retained.
+   Disposition: COLLAPSE current selection into one Manager profile-view resolver;
+   KEEP public text/preference/inherited semantics; add bounded private JSON data
+   endpoint and real native slash/menu, no account-launch behavior in this slice.
+   Mapped proof: profile_snapshot public integration for list/current/default,
+   external-home ambiguity, errors/no writes; native profile_manager unit protocol,
+   transport bound/error and picker snapshot; actual owned /profile PTY display,
+   search/cancel and unavailable bridge leave chat usable. Manager target, native
+   CLI/TUI focused target and actual diff must be green before slice2.
+   First Manager focus3 runs2 pass/1 red: missing handoff already has operational
+   status1, while new test incorrectly expected usage2. Correct only that assertion;
+   no existing error policy change. Nested regression module avoids an accidental
+   second Cargo integration target. All Manager targets compile; final nested focus3/3 passes.
+   Native bridge/dispatch/picker implementation now begins on this green gate.
+   Manager final gate33 library +44 integration passes; all-target clippy -D
+   warnings, fmt and diff checks pass. Candidate source identity86944cf2f51557ca.
+   Native implementation maps decode/load/picker to profile_manager_tests and
+   actual composer dispatch to profile_command_tests. The hosted slice candidate
+   now includes native.patch; first snapshot generation remains unaccepted until
+   actual diff/render inspection. No slice2 changes or full prototype claim.
    Paths: experimental upstream TUI patch and owned Manager bridge; focused proof
    actual slash dispatch, list/current/default/error/cancel; protected stage0.
 2. Reuse native history/agent selection with account-aware presentation. Pending.

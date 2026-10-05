@@ -4,7 +4,9 @@ on:
     branches: [experiment/profile-tui]
     paths:
       - '.github/workflows/profile-tui-experiment.yml'
-      - 'experiments/profile-tui/**'
+      - 'experiments/profile-tui/native.patch'
+      - 'experiments/profile-tui/normalize_lock.py'
+      - 'experiments/profile-tui/test_normalize_lock.py'
 permissions:
   contents: read
 concurrency:
@@ -12,12 +14,13 @@ concurrency:
   cancel-in-progress: false
 jobs:
   upstream-baseline:
-    name: Build exact upstream native baseline
+    name: Build and test native profile display
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 90
     env:
       UPSTREAM_SHA: a956835d020762cb2b570053af06f643a11c0ecc
       RUST_VERSION: 1.95.0
+      RUSTUP_TOOLCHAIN: 1.95.0
       CARGO_PROFILE_DEV_DEBUG: '0'
       CARGO_PROFILE_DEV_INCREMENTAL: 'false'
       CARGO_PROFILE_DEV_OPT_LEVEL: '1'
@@ -47,7 +50,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rustup toolchain install "$RUST_VERSION" --profile minimal --target aarch64-unknown-linux-musl
+          rustup toolchain install "$RUST_VERSION" --profile minimal --component rustfmt,clippy --target aarch64-unknown-linux-musl
           test "$(uname -m)" = aarch64
       - name: Install official release Zig toolchain
         shell: bash
@@ -80,21 +83,68 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             upstream/codex-rs/target
-          key: profile-tui-baseline-aarch64-musl-1.95.0-a956835d-zig014-dev-opt1-v2
+          key: profile-tui-display-aarch64-musl-1.95.0-a956835d-${{ hashFiles('experiment/experiments/profile-tui/native.patch') }}
+          restore-keys: |
+            profile-tui-display-aarch64-musl-1.95.0-a956835d-
+            profile-tui-baseline-aarch64-musl-1.95.0-a956835d-zig014-dev-opt1-v2
       - name: Normalize release workspace versions only
         shell: bash
         run: |
           set -euo pipefail
           PYTHONDONTWRITEBYTECODE=1 python3 experiment/experiments/profile-tui/test_normalize_lock.py
           python3 experiment/experiments/profile-tui/normalize_lock.py upstream/codex-rs --audit "$RUNNER_TEMP/profile-tui-lock-audit.json"
-      - name: Build exact upstream CLI with pinned external dependencies
+      - name: Apply bounded native display patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C upstream apply --check "$GITHUB_WORKSPACE/experiment/experiments/profile-tui/native.patch"
+          git -C upstream apply "$GITHUB_WORKSPACE/experiment/experiments/profile-tui/native.patch"
+          git -C upstream diff --check
+          test "$(git -C upstream diff --name-only -- codex-rs/core)" = ''
+      - name: Provision pinned upstream test and formatting tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools="$RUNNER_TEMP/profile-test-tools"
+          mkdir -p "$tools"
+          acquire() {
+            local url="$1" digest="$2" name="$3"
+            curl --fail --silent --show-error "$url" -o "$tools/$name.tar.gz"
+            echo "$digest  $tools/$name.tar.gz" | sha256sum -c -
+            mkdir "$tools/$name"
+            tar -xzf "$tools/$name.tar.gz" -C "$tools/$name"
+            find "$tools/$name" -type f -name "$name" -exec cp {} "$tools/$name-bin" \;
+            test -x "$tools/$name-bin"
+            mkdir -p "$tools/bin"
+            cp "$tools/$name-bin" "$tools/bin/$name"
+          }
+          acquire https://github.com/casey/just/releases/download/1.51.0/just-1.51.0-aarch64-unknown-linux-musl.tar.gz ed7ec466b77709198fd4afed253dba0270203ba5eb1c006bee2b0139090284f5 just
+          acquire https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.146/cargo-nextest-0.9.146-aarch64-unknown-linux-musl.tar.gz 62ae8b4ad034704f67417f8ed8b897566d82359ab44952729b925fb37eeb7622 cargo-nextest
+          acquire https://github.com/facebook/dotslash/releases/download/v0.5.9/dotslash-linux-musl.aarch64.tar.gz 11323ef72fac5885d7c54bff70d666486bd800a8d908d0acd3bd838fd8a9b0db dotslash
+          acquire https://github.com/astral-sh/uv/releases/download/0.12.23/uv-aarch64-unknown-linux-gnu.tar.gz 6524bd338177ed50d035d39354e12545e993bbeba2ecbddf0480c5b3a81d313f uv
+          echo "$tools/bin" >> "$GITHUB_PATH"
+      - name: Format and inspect native display scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd upstream
+          just fmt
+          git diff --check
+          git add -N codex-rs/tui/src/app/profile_manager.rs codex-rs/tui/src/app/profile_manager_tests.rs codex-rs/tui/src/chatwidget/tests/profile_command_tests.rs
+          git diff -- codex-rs/tui > "$RUNNER_TEMP/profile-tui-formatted.patch"
+          python3 - <<'PYTHON'
+          import subprocess
+          files = subprocess.check_output(['git', 'diff', '--name-only'], text=True).splitlines()
+          assert all(p == 'codex-rs/Cargo.lock' or p.startswith('codex-rs/tui/') for p in files), files
+          PYTHON
+      - name: Build actual patched CLI with pinned external dependencies
         shell: bash
         run: |
           set -euo pipefail
           cd upstream/codex-rs
           cargo "+$RUST_VERSION" build --locked --target aarch64-unknown-linux-musl -p codex-cli --bin codex
-          test "$(git status --porcelain)" = " M codex-rs/Cargo.lock"
-      - name: Execute and identify native baseline
+          git diff --check
+      - name: Execute and identify native display
         shell: bash
         run: |
           set -euo pipefail
@@ -102,24 +152,51 @@ jobs:
           test -x "$binary"
           file "$binary" | grep -F 'ARM aarch64'
           if readelf -l "$binary" | grep -F INTERP; then exit 1; fi
-          root="$RUNNER_TEMP/profile-tui-native-baseline"
+          root="$RUNNER_TEMP/profile-tui-native-display"
           mkdir -p "$root/home" "$root/home/.codex" "$root/tmp" "$root/artifact"
           chmod 0700 "$root/home" "$root/home/.codex" "$root/tmp"
           env -i HOME="$root/home" CODEX_HOME="$root/home/.codex" TMPDIR="$root/tmp" PATH=/usr/bin:/bin "$binary" --version > "$root/artifact/version.txt"
           env -i HOME="$root/home" CODEX_HOME="$root/home/.codex" TMPDIR="$root/tmp" PATH=/usr/bin:/bin "$binary" --help > "$root/artifact/help.txt"
           cp "$binary" "$root/artifact/codex"
           cp "$RUNNER_TEMP/profile-tui-lock-audit.json" "$root/artifact/lock-audit.json"
+          cp "$RUNNER_TEMP/profile-tui-formatted.patch" "$root/artifact/native.patch"
           sha256sum "$root/artifact/codex" > "$root/artifact/sha256.txt"
           printf 'upstream_sha=%s\nexperiment_sha=%s\ntarget=aarch64-unknown-linux-musl\n' "$UPSTREAM_SHA" "$GITHUB_SHA" > "$root/artifact/source.txt"
           cat "$root/artifact/version.txt" "$root/artifact/source.txt" "$root/artifact/sha256.txt"
-      - name: Upload unsigned nonproduction baseline
+      - name: Upload unsigned nonproduction display
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: profile-tui-native-baseline
-          path: ${{ runner.temp }}/profile-tui-native-baseline/artifact
+          name: profile-tui-native-display
+          path: ${{ runner.temp }}/profile-tui-native-display/artifact
           if-no-files-found: error
           retention-days: 3
           compression-level: 1
+      - name: Focused actual native TUI regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd upstream
+          just test --locked --target aarch64-unknown-linux-musl -p codex-tui --lib -E 'test(profile_manager) | test(profile_command) | test(side_conversation_hides_commands_without_side_flag)' 2>&1 | tee "$RUNNER_TEMP/profile-tui-focused.log"
+      - name: Inspect TUI lint fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd upstream
+          just fix --locked --target aarch64-unknown-linux-musl -p codex-tui
+          git diff -- codex-rs/tui > "$RUNNER_TEMP/profile-tui-linted.patch"
+          cmp "$RUNNER_TEMP/profile-tui-formatted.patch" "$RUNNER_TEMP/profile-tui-linted.patch"
+      - name: Retain native focus and pending snapshots
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: profile-tui-display-proof
+          path: |
+            ${{ runner.temp }}/profile-tui-focused.log
+            ${{ runner.temp }}/profile-tui-formatted.patch
+            ${{ runner.temp }}/profile-tui-linted.patch
+            upstream/codex-rs/tui/src/app/snapshots/*profile_manager*.snap*
+          if-no-files-found: error
+          retention-days: 3
       - name: Retain isolated partial compile cache
         if: ${{ !cancelled() && steps.compile-cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
@@ -128,7 +205,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             upstream/codex-rs/target
-          key: profile-tui-baseline-aarch64-musl-1.95.0-a956835d-zig014-dev-opt1-v2
+          key: profile-tui-display-aarch64-musl-1.95.0-a956835d-${{ hashFiles('experiment/experiments/profile-tui/native.patch') }}
       - name: Retain failed native build diagnosis
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

@@ -1,6 +1,8 @@
 #![cfg(unix)]
 
 mod profile;
+mod profile_view;
+use profile_view::format_current;
 mod task;
 
 use std::ffi::{OsStr, OsString};
@@ -302,6 +304,12 @@ where
 }
 
 fn run_inner(args: Vec<OsString>) -> Result<Option<String>, ManagerError> {
+    if is_exact(args.first(), "__profile-snapshot-v1") {
+        if args.len() != 1 {
+            return Err(ERR_USAGE);
+        }
+        return profile_view::snapshot(&capture_context()?).map(Some);
+    }
     if args.is_empty()
         || (args.len() == 1 && (is_exact(args.first(), "help") || is_exact(args.first(), "--help")))
     {
@@ -1859,34 +1867,6 @@ fn format_profile_list(context: &Context) -> Result<String, ManagerError> {
         output.push('\n');
     }
     Ok(output)
-}
-
-fn format_current(context: &Context) -> Result<String, ManagerError> {
-    if let Some(inherited) = context
-        .inherited_codex_home
-        .as_ref()
-        .filter(|value| value.to_str().is_some_and(|value| !value.is_empty()))
-    {
-        let default_home = context.home.join(".codex");
-        let target = if inherited == default_home.as_os_str() {
-            "default".to_owned()
-        } else {
-            let mut target = "external".to_owned();
-            let Some(dirs) = existing_manager_profiles(context)? else {
-                return Ok(format!("current: {target}\nsource: inherited\n"));
-            };
-            for id in list_custom_profiles(context)? {
-                if inherited == profile_home_path(&dirs, &id).as_os_str() {
-                    target = id;
-                    break;
-                }
-            }
-            target
-        };
-        return Ok(format!("current: {target}\nsource: inherited\n"));
-    }
-
-    profile::current_default(context)
 }
 
 fn create_profile(context: &Context, id: &str) -> Result<(), ManagerError> {

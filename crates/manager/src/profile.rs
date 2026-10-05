@@ -35,7 +35,7 @@ pub(super) fn read_default(context: &Context) -> Result<Option<ProfileTarget>, M
     Ok(Some(target))
 }
 
-fn target_name(target: &ProfileTarget) -> &str {
+pub(super) fn target_name(target: &ProfileTarget) -> &str {
     match target {
         ProfileTarget::Default => "default",
         ProfileTarget::Custom(id) => id,
@@ -162,16 +162,6 @@ pub(super) fn launch_default(
         .unwrap_or(ProfileTarget::Default);
     launch_core(context, &target, args)?;
     Ok(None)
-}
-
-pub(super) fn current_default(context: &Context) -> Result<String, ManagerError> {
-    match read_default(context)? {
-        Some(target) => Ok(format!(
-            "current: {}\nsource: saved\n",
-            target_name(&target)
-        )),
-        None => Ok("current: default\nsource: default\n".to_owned()),
-    }
 }
 
 pub(super) fn run_lifecycle(

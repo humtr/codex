@@ -33,6 +33,19 @@ No prototype is publishable or installable until separate completion and admissi
   build still uses --locked. The local inventory includes inherited-version path
   dependencies omitted from workspace.members. Original/normalized lock digests
   are recorded.
+- Experimental native TUI reads profile data through exact no-argument
+  `codex termux __profile-snapshot-v1`. Manager alone resolves registered profiles,
+  inherited/current selection and saved default. Output is one bounded JSON v1
+  record with schema, profiles (default first, at most256), current (registered ID
+  or null for an external inherited home), current_source and saved_default.
+  It contains no paths, credentials or conversation data and performs no writes.
+  Existing public profile text output and inherited-home precedence stay intact.
+- First native display slice reads this endpoint using an explicitly provided
+  absolute `CODEX_PROFILE_CORE` experiment bridge. The native client validates
+  regular executable ownership, uses fixed argv without a shell, limits stdout to
+  64KiB and elapsed time to3 seconds, and rejects malformed/unknown protocol data.
+  Failure is bounded in the current UI; cancellation returns to the current chat.
+  This read-only display is a slice gate, never full profile-switch acceptance.
 - Native upstream compile/executable baseline precedes prototype behavior. A mock
   chooser or external wrapper alone cannot prove the `/profile` product path.
   Admission requires actual slash dispatch, profile/history/agent presentation,
