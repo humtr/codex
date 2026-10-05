@@ -92,7 +92,7 @@
   approval rejection; resume binds clean sourcec5c619f1f541cf3f2d2bde3e48cd8c2158aeeab9
   and unchanged local publication candidate/remote parent before execution.
 
-## ACTIVE-TASK-HANDOFF-DELIVERY corrective candidate (qualified; operational approval pending)
+## ACTIVE-TASK-HANDOFF-DELIVERY corrective candidate (qualified; operational approval granted)
 
 - Authorized triggerca56bd76 ran hosted37259637245 to all reported-success
   stages and non-force CAS promotion3da4b294e1a6d62b1b5ba775acf88aae375c3189.
@@ -169,7 +169,8 @@
   activation36/previous35 and all8 preexisting PID/start pairs unchanged.
 - Requested explicit approval now names corrective965b661, signed generation38,
   humtr/codex normal main push/signing/Release/Pages/CAS, and independently verified
-  ordinary installed activation retaining complete36. That reply is pending.
+  ordinary installed activation retaining complete36. User replied 승인. to this
+  exact965b661/38 request; operational approval is granted.
   No new38 main push, signing, publication or installed update has executed.
   Signed/public37 remains immutable; actual38 signed-byte/native/public readback
   and fresh before-activation protection gate remain required before any install.
