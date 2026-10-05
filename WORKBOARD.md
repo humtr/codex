@@ -2,22 +2,17 @@
 
 SPEC -> GOAL -> WORKBOARD; goal-md bound, approved equivalent primary, workers OFF.
 
-## ACTIVE-TASK-HANDOFF delivery closed (2026-10-05)
+PROFILE-LIFECYCLE is accepted in GOAL.md: explicit default, rename/delete,
+physical execution leases, old-runtime guards and matching takeover selection.
+Final source/full/native/protected evidence and KEEP/COLLAPSE/DELETE disposition
+are in the acceptance ledger; no implementation slice remains open.
 
-Accepted product sourceb7c1e61019b1c5085b2627ba6cf609b3f55d74de; full hosted
-37275318923 all5 success. Exact user-approved triggerfadae244d8bf4e3f88ebf7af1e1510cb2eeea2d7
-produced signed39; hosted37288954360 all8 success, stable promotionmain471590750468f6d99b520c3a8d47b03a474aacbb.
-Fresh pinned-key every-byte/download-size and Manager-only preservation proof pass;
-actual production-signed native6 pass. Ordinary installed update activated
-local-hosted-0-160-0-b7c1e61019b1-retired-server-discovery with complete38 previous.
-Real installed task status now exits0; exact version/help/signed inventory/doctor
-pass. Immediate pre-update process identities10 and protected user paths preserved;
-only activation changed among27 bound paths. Prior36 retired by normal policy.
-Second ordinary update exits0 up-to-date with complete bound snapshot unchanged.
-Accepted evidence/disposition lives in GOAL, normative contract in SPEC.
+No next implementation bundle is selected. The next available step is separate
+Core+Manager delivery from the accepted source: build/qualify the production
+aarch64-linux-musl artifacts, then bind a concrete candidate for exact operational
+authorization before production signing/publication or installed activation.
 
-No implementation or operational bundle remains open. Preserve current39/previous38;
-do not cancel real work or modify installed profiles/auth/sessions/resolver.
-The user's deferred discussion of input-cache preservation during retained writer
-locks remains a separate follow-up; do not implement speculative cache behavior.
-Future requested work starts from exact branch/HEAD/dirty binding and owner documents.
+Current installed/public39 and retained38, all real profiles/auth/shared history,
+user jobs, resolver, main and sealed legacy remain protected. The local native
+qualification used only disposable roots and disposable signing keys. No actual
+profile deletion/rename or user job termination was performed.

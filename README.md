@@ -31,6 +31,23 @@ follow-up input requests. Diagnosis and recovery remain available through Core
 `codex doctor`, `codex update`, and `codex update --rollback`.
 Exact contracts belong to `SPEC.md`.
 
+Profiles support creation, deletion, renaming and a saved default. Rename,
+deletion and saved defaults are accepted in source and await installed delivery:
+
+```sh
+codex termux profile create work
+codex termux profile rename work personal
+codex termux profile default personal
+codex termux profile default default
+codex termux profile delete personal
+```
+
+`profile default` without an ID shows the saved choice. It affects later ordinary
+launches; an explicit `CODEX_HOME` takes priority. Deletion removes that account's
+login and settings while preserving shared conversations. Rename/delete reject
+an account still in use or selected as the saved default; choose another default
+and close its running clients/servers first.
+
 Release-automation phases through RALD-7 are accepted in `GOAL.md`. RALD-6
 proved the public fresh-install surface and same-client signed update delivery.
 RALD-7 completed full repository acceptance, activated the bounded six-hour
@@ -88,7 +105,8 @@ read-only window left open by a previous account is not treated as the owner.
 
 For explicit actions, use `task status [THREAD_UUID]`, `task reconnect THREAD_UUID`,
 `task stop THREAD_UUID`, or `task takeover THREAD_UUID --profile PROFILE_ID`
-after `codex termux`. Omitting `--profile` uses the current `CODEX_HOME` identity.
+after `codex termux`. Omitting `--profile` uses the fresh-launch account: explicit
+`CODEX_HOME`, then the saved default, then the native default.
 A completed cancellation can still leave a writer held by another connected
 window. Reconnect or close that connection before ordinary takeover.
 

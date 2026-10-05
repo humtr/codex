@@ -34,6 +34,58 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
+## PROFILE-LIFECYCLE (accepted source 2026-10-05)
+
+- User requests implementation of missing profile deletion, rename and persistent
+  default selection after current command coverage was explained. Bind clean
+  rewrite/rust-core32ff735a9dcbfa0ccbcadde0da76a32e1748234b; goal-md bound,
+  approved equivalent primary, workers OFF. Installed39/previous38 protected.
+- Implemented `profile delete ID`, `profile rename OLD NEW`, and
+  `profile default [ID]`. User confirmed deletion includes local login/settings;
+  shared history and symlink targets survive. Rename preserves local inodes/modes
+  without credential copies/inspection. Saved-default and active profiles reject
+  rename/delete; creation/preference/lifecycle serialize through directory locks.
+- Manager owns explicit preference and lifecycle; Core owns the physical execution
+  lease FD36 across TUI/server and optional default delegation. Nonempty UTF-8
+  inherited home wins, unavailable Manager/invalid optional preference preserves
+  native ordinary launch, startup discovery remains after selection. Task takeover
+  with omitted target follows the same saved/default selection and validates before
+  stopping any owner. Retired state-v1 stays ignored/unchanged.
+- Focused final proof: Manager profile6 unit+10 substantive integration (fixture-only
+  return excluded); Core2 isolated lease/FD-pressure tests and public default/direct
+  home regressions. Old server/home/cwd/fd detection, live sibling/root-reassigned
+  UID handling, collision/default/private/symlink/size/depth cases are covered.
+- Final grouped check passes: Python15+86; Core184 pass/1 explicit device smoke
+  ignored; Manager33 unit+41 integration; Builder22. Zero-test binaries/doc targets
+  are not evidence. Fmt/diff and workspace all-target clippy with warnings denied
+  pass; final release build passes. Final product/test file identity is
+  `d37ab4e6245ebd49831f3364621b092051b2358fa052acea5fdf2eebbd76a9fd`.
+- Owned signed native proof: profile3 groups (including renamed-home TUI restart,
+  shared bytes preservation, lease/default/inherited/fallback), task6 groups
+  (including actual saved-default account takeover), all pass through actual Core,
+  Manager and official0.160.0 runtime. Qualified local Core SHA256
+  `901da64a3db591f1994ace6e1832df219db9c4ab8849b57d7e78bf5b963df7fc`, Manager
+  `f5fd42ca4a9cf27c77c368afc0794651b4dc4063a9e7f7f324d6a2ed549e4b7e`.
+  Disposable signing keys removed; production credentials/publication unused.
+- 63 protected paths unchanged: current39/previous38 assets, launcher, resolver,
+  activation and account metadata. Auth/config preservation uses metadata only,
+  without reading payload. Main2ffb95f3814ce95462ae5c0c75f57dfb8c266afd and sealed
+  legacybf30a7dc94d4dad7f58836c69028160856e63c58 remain unchanged.
+- Red gates were resolved, not waived: test visibility/import errors; native caller
+  publication layout/107-byte socket path; overlapping process-snapshot validation.
+  Descriptor pressure and both aarch64 Linux-musl/Android flag definitions were
+  exhaustively checked; fresh final gates followed the source correction. KEEP
+  conservative process safety, COLLAPSE lease ownership to one safe duplicate;
+  no fallback/retry/proof injection into production. Actual diff reviewed directly.
+- This is source/owned-root acceptance. No live profile deletion/rename,
+  user job termination, production signing/publication or new installation is authorized by
+  this source bundle. Installed/public39 remains unchanged. Production
+  aarch64-linux-musl build/publication acceptance remains the separate delivery gate.
+- KEEP Core execution authority and upstream shared conversations; COLLAPSE stored
+  registration identity onto directory name with v2 header; DELETE duplicate ID
+  only for newly created/renamed registrations. Exact old v1 remains readable.
+  Persist explicit preference only, never revive retired selection-history state.
+
 ## ACTIVE-TASK-HANDOFF-DELIVERY (selected 2026-10-05)
 
 - User `resume` selects the announced next signed Manager delivery and ordinary
@@ -1805,35 +1857,34 @@
   bytes agree; repository-only finalization fixes and this ledger close the
   bounded transition. No further product work is selected by this bundle.
 
-## Current Operating Baseline (2026-10-02)
+## Current Operating Baseline (2026-10-05)
 
 This section is the current-state anchor inside the acceptance ledger. Later
 dated sections preserve historical evidence; historical words such as
 “current,” “active,” or “selected” do not override this section or
 `WORKBOARD.md`.
 
-- Source authority is remote `rewrite/rust-core`, read afresh on resume. Runtime
-  producer is **4b00b8d461939a7070d95a1ea6e6a58c318cbf52**; ledger-only children
-  retain identical accepted Rust source. AI main **ea5541c** reuses one named
-  notification terminal per live tmux session after off/hidden/status selection;
-  unrelated dirty work remains.
-- Public main **07d625561283bad5d25b778782c16d4929b4939f**; signed/live sequence
-  **34**, upstream **0.160.0**, **local-hosted-0-160-0-4b00b8d46193-notify-line**;
-  sequence33 rollback. Manager-only change; Core/runtime bytes unchanged.
-  Source/release/public/live agree; actual native effective delay0/full-access.
-- AI-TMUX-NOTIFY-FOCUS-V1, NOTIFY-OPEN and INPUT-REQUEST accepted. Both channels
-  and UserInputRequest/Stop active; PermissionRequest disabled by the latest user
-  clarification; focus=tmux. AI --tmux/TUI
-  option controls managed launch. Click selects the qualified live pane and its
-  named native terminal, creating that terminal only if absent; repeated and
-  concurrent clicks reuse it. Ordinary non-tmux notifications still use Termux
-  Activity. No click creates a Codex or tmux workload.
-  Auth separate; native shared conversations/DB and CWD/All policy unchanged.
-- RESUME-WRITER-RELEASE-V1 accepted: idle cross-account resume in4-5s without
-  retry; genuine concurrent ownership preserved. No selected implementation remains.
-- Reviewed follow-up candidates: external profile identity naming/selection and
-  historical source acceptance automation pins/runner permissions. Neither is
-  silently implemented or treated as passing current acceptance evidence.
+- Implementation authority is `rewrite/rust-core`; bind exact branch, HEAD and
+  dirty state afresh on resume. PROFILE-LIFECYCLE above is accepted development
+  source, newer than the installed delivery. It has not been published or activated.
+- Last user-accepted signed delivery is sequence39, upstream0.160.0,
+  `local-hosted-0-160-0-b7c1e61019b1-retired-server-discovery`; retained previous
+  sequence38 is `local-hosted-0-160-0-af1a3df6d99a-active-task-handoff-r2`.
+  Delivery sourceb7c1e61019b1c5085b2627ba6cf609b3f55d74de and accepted public
+  main471590750468f6d99b520c3a8d47b03a474aacbb are bound in the delivery ledger.
+  This bundle verified63 protected installed/state/account paths unchanged.
+- Installed39 includes accepted permission/memory-notification behavior and
+  active-task reconnect/stop/takeover with exited retired records ignored.
+  Conversation ownership follows the current kernel writer, and shared storage
+  remains upstream-owned. Older notification/permission acceptance sections are
+  historical evidence; SPEC owns the effective contract.
+- Source now adds profile deletion, rename and saved-default selection, physical
+  runtime leases and matching takeover destination. These extensions need a
+  separate Core+Manager delivery; ordinary restart still runs installed39.
+- No implementation bundle remains selected. Production aarch64-linux-musl
+  qualification and concrete-candidate operational authorization precede any
+  new production signing/publication/activation. Real accounts and jobs remain
+  protected; neither lifecycle actions nor version delivery happened live here.
 
 ## Historical Runtime Alignment Baseline (2026-09-30)
 

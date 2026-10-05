@@ -385,6 +385,10 @@ fn namespace(home: &Path, program: &Path) -> String {
     }
     format!("{hash:016x}")
 }
+pub(super) fn profile_in_use(context: &Context, home: &Path) -> Result<bool, ManagerError> {
+    Ok(servers(context)?.iter().any(|server| server.home == home))
+}
+
 fn servers(context: &Context) -> Result<Vec<Server>, ManagerError> {
     let root = context.home.join(".local/share/codex/core/servers");
     if inspect_path(&root)? == PathPresence::Missing {
@@ -815,12 +819,19 @@ fn destination(
             }
             profile_home_path(&dirs, id)
         }
-        None => context
+        None => match context
             .inherited_codex_home
             .as_ref()
-            .filter(|h| !h.is_empty())
-            .map(PathBuf::from)
-            .unwrap_or_else(|| context.home.join(".codex")),
+            .filter(|h| h.to_str().is_some_and(|h| !h.is_empty()))
+        {
+            Some(home) => PathBuf::from(home),
+            None => {
+                return destination(
+                    context,
+                    Some(&super::profile::read_default(context)?.unwrap_or(ProfileTarget::Default)),
+                )
+            }
+        },
     };
     private(&home, true)?;
     Ok(home)

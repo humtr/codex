@@ -234,8 +234,8 @@ fn profile_lifecycle_and_isolated_exec_are_publicly_wired() {
     assert_eq!(default.status.code(), Some(37));
     assert!(default
         .stdout
-        .windows(b"HOME_SET=\n".len())
-        .any(|window| window == b"HOME_SET=\n"));
+        .windows(b"HOME_SET=x\n".len())
+        .any(|window| window == b"HOME_SET=x\n"));
     assert!(default
         .stdout
         .windows(b"CALLER_SENTINEL=keep\n".len())
@@ -263,6 +263,453 @@ fn profile_lifecycle_and_isolated_exec_are_publicly_wired() {
         .any(|window| window == b"ARG=<\xff\x80x>\n"));
 
     assert!(!root.0.join(".local/share/codex/manager/state-v1").exists());
+}
+
+#[test]
+fn profile_saved_default_is_explicit_private_and_preserves_exec_arguments() {
+    let root = TestRoot::new();
+    let core = write_core_probe(&root.0);
+    let preference = root.0.join(".local/share/codex/manager/default-profile-v1");
+    let query = run_manager(&root.0, &core, &["profile", "default"], None);
+    assert_eq!(query.stdout, b"default: default\n");
+    assert!(!preference.exists());
+    assert_eq!(
+        run_manager(&root.0, &core, &["profile", "create", "work"], None)
+            .status
+            .code(),
+        Some(0)
+    );
+    assert_eq!(
+        run_manager(&root.0, &core, &["profile", "default", "work"], None).stdout,
+        b"default: work\n"
+    );
+    assert_eq!(
+        fs::read(&preference).unwrap(),
+        b"codex-manager-default-profile-v1\nprofile\twork\n"
+    );
+    assert_eq!(
+        fs::metadata(&preference).unwrap().permissions().mode() & 0o7777,
+        0o600
+    );
+    assert_eq!(
+        run_manager(&root.0, &core, &["profile", "current"], None).stdout,
+        b"current: work\nsource: saved\n"
+    );
+    assert_eq!(
+        run_manager(
+            &root.0,
+            &core,
+            &["profile", "current"],
+            Some(Path::new("/explicit/home"))
+        )
+        .stdout,
+        b"current: external\nsource: inherited\n"
+    );
+    let mut cmd = base_manager_command(&root.0, &core);
+    cmd.arg("__profile-launch")
+        .arg("resume")
+        .arg(OsString::from_vec(vec![0xff, b'x']));
+    let launched = cmd.output().unwrap();
+    assert_eq!(launched.status.code(), Some(37));
+    assert!(launched
+        .stdout
+        .windows(b"ARG=<\xffx>\n".len())
+        .any(|w| w == b"ARG=<\xffx>\n"));
+    let home = root.0.join(".local/share/codex/manager/profiles/work/home");
+    assert!(String::from_utf8_lossy(&launched.stdout)
+        .contains(&format!("HOME_VALUE={}\n", home.display())));
+    let native = run_manager(
+        &root.0,
+        &core,
+        &["profile", "use", "default", "--", "--version"],
+        None,
+    );
+    assert!(String::from_utf8_lossy(&native.stdout)
+        .contains(&format!("HOME_VALUE={}\n", root.0.join(".codex").display())));
+    assert_eq!(
+        fs::read(&preference).unwrap(),
+        b"codex-manager-default-profile-v1\nprofile\twork\n"
+    );
+    for args in [
+        vec!["profile", "default", "missing"],
+        vec!["profile", "default", "../escape"],
+        vec!["profile", "default", "work", "extra"],
+        vec!["__profile-launch", "termux"],
+        vec!["__profile-launch", "doctor"],
+        vec!["__profile-launch", "update"],
+    ] {
+        assert!(!run_manager(&root.0, &core, &args, None).status.success());
+    }
+    assert_eq!(
+        run_manager(&root.0, &core, &["profile", "default", "default"], None).stdout,
+        b"default: default\n"
+    );
+    assert!(!root.0.join(".local/share/codex/manager/state-v1").exists());
+}
+
+#[test]
+fn profile_saved_default_rejects_bad_records_but_optional_launch_remains_usable() {
+    use std::os::unix::fs::symlink;
+    let root = TestRoot::new();
+    let core = write_core_probe(&root.0);
+    assert_eq!(
+        run_manager(&root.0, &core, &["profile", "default", "default"], None)
+            .status
+            .code(),
+        Some(0)
+    );
+    let preference = root.0.join(".local/share/codex/manager/default-profile-v1");
+    for bytes in [
+        b"bad".as_slice(),
+        b"codex-manager-default-profile-v1\nprofile\thome\n",
+        b"codex-manager-default-profile-v1\nprofile\tmissing\n",
+        b"codex-manager-default-profile-v1\nprofile\tdefault\nextra\n",
+        &[0xff],
+        &[b'x'; 4097],
+    ] {
+        fs::write(&preference, bytes).unwrap();
+        for args in [["profile", "default"], ["profile", "current"]] {
+            assert!(!run_manager(&root.0, &core, &args, None).status.success());
+        }
+        assert!(
+            !run_manager(&root.0, &core, &["profile", "default", "default"], None)
+                .status
+                .success()
+        );
+        let output = run_manager(&root.0, &core, &["__profile-launch", "--version"], None);
+        assert_eq!(output.status.code(), Some(37));
+        assert!(String::from_utf8_lossy(&output.stdout)
+            .contains(&format!("HOME_VALUE={}\n", root.0.join(".codex").display())));
+        assert_eq!(fs::read(&preference).unwrap(), bytes);
+    }
+    fs::write(
+        &preference,
+        b"codex-manager-default-profile-v1\nprofile\tdefault\n",
+    )
+    .unwrap();
+    fs::set_permissions(&preference, fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(!run_manager(&root.0, &core, &["profile", "default"], None)
+        .status
+        .success());
+    fs::remove_file(&preference).unwrap();
+    let outside = root.0.join("outside");
+    fs::write(&outside, b"untouched").unwrap();
+    symlink(&outside, &preference).unwrap();
+    assert!(
+        !run_manager(&root.0, &core, &["profile", "default", "default"], None)
+            .status
+            .success()
+    );
+    assert_eq!(fs::read(outside).unwrap(), b"untouched");
+}
+
+#[test]
+fn profile_default_serializes_writes_and_rejects_unprivate_state() {
+    use std::os::fd::AsRawFd;
+    let root = TestRoot::new();
+    let core = write_core_probe(&root.0);
+    assert!(
+        run_manager(&root.0, &core, &["profile", "create", "work"], None)
+            .status
+            .success()
+    );
+    let manager = root.0.join(".local/share/codex/manager");
+    let lock = fs::File::open(manager.join("profiles")).unwrap();
+    assert_eq!(
+        unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) },
+        0
+    );
+    assert!(
+        !run_manager(&root.0, &core, &["profile", "default", "work"], None)
+            .status
+            .success()
+    );
+    assert!(!manager.join("default-profile-v1").exists());
+    drop(lock);
+    assert!(
+        run_manager(&root.0, &core, &["profile", "default", "work"], None)
+            .status
+            .success()
+    );
+    fs::set_permissions(&manager, fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(!run_manager(&root.0, &core, &["profile", "default"], None)
+        .status
+        .success());
+}
+
+#[test]
+fn profile_rename_and_delete_preserve_shared_targets_and_local_identity() {
+    use std::os::unix::fs::{symlink, MetadataExt};
+    let root = TestRoot::new();
+    let core = write_core_probe(&root.0);
+    assert!(
+        run_manager(&root.0, &core, &["profile", "create", "old"], None)
+            .status
+            .success()
+    );
+    let profiles = root.0.join(".local/share/codex/manager/profiles");
+    let old = profiles.join("old");
+    assert_eq!(
+        fs::read(old.join("profile.meta")).unwrap(),
+        b"codex-manager-profile-v2\n"
+    );
+    // Exact old registration remains accepted and is upgraded without moving data.
+    fs::write(
+        old.join("profile.meta"),
+        b"codex-manager-profile-v1\nid\told\n",
+    )
+    .unwrap();
+    let shared = root.0.join(".codex");
+    fs::create_dir(&shared).unwrap();
+    fs::write(shared.join("history.jsonl"), b"shared-history-sentinel").unwrap();
+    let outside = root.0.join("outside");
+    fs::create_dir(&outside).unwrap();
+    fs::write(outside.join("keep"), b"outside-sentinel").unwrap();
+    let local = old.join("home/auth.json");
+    fs::write(&local, b"owned-account-sentinel").unwrap();
+    fs::set_permissions(&local, fs::Permissions::from_mode(0o600)).unwrap();
+    let identity = fs::metadata(&local).unwrap();
+    symlink(shared.join("history.jsonl"), old.join("home/history.jsonl")).unwrap();
+    symlink(&outside, old.join("home/linked-cache")).unwrap();
+    assert_eq!(
+        run_manager(&root.0, &core, &["profile", "rename", "old", "new"], None).stdout,
+        b"renamed: old -> new\n"
+    );
+    let renamed = profiles.join("new");
+    assert!(!old.exists());
+    assert_eq!(
+        fs::read(renamed.join("profile.meta")).unwrap(),
+        b"codex-manager-profile-v2\n"
+    );
+    let after = fs::metadata(renamed.join("home/auth.json")).unwrap();
+    assert_eq!(
+        (after.dev(), after.ino(), after.mode()),
+        (identity.dev(), identity.ino(), identity.mode())
+    );
+    assert_eq!(
+        run_manager(&root.0, &core, &["profile", "list"], None).stdout,
+        b"default\nnew\n"
+    );
+    assert_eq!(
+        run_manager(
+            &root.0,
+            &core,
+            &["profile", "use", "new", "--", "--version"],
+            None
+        )
+        .status
+        .code(),
+        Some(37)
+    );
+    assert_eq!(
+        run_manager(&root.0, &core, &["profile", "delete", "new"], None).stdout,
+        b"deleted: new\n"
+    );
+    assert!(!renamed.exists());
+    assert_eq!(
+        fs::read(shared.join("history.jsonl")).unwrap(),
+        b"shared-history-sentinel"
+    );
+    assert_eq!(fs::read(outside.join("keep")).unwrap(), b"outside-sentinel");
+    assert_eq!(fs::read_dir(&profiles).unwrap().count(), 0);
+}
+
+#[test]
+fn profile_lifecycle_rejects_default_collisions_malformed_and_busy_accounts() {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::symlink;
+    let root = TestRoot::new();
+    let core = write_core_probe(&root.0);
+    for id in ["old", "other"] {
+        assert!(
+            run_manager(&root.0, &core, &["profile", "create", id], None)
+                .status
+                .success()
+        );
+    }
+    let profiles = root.0.join(".local/share/codex/manager/profiles");
+    let old = profiles.join("old");
+    for args in [
+        vec!["profile", "delete", "default"],
+        vec!["profile", "rename", "old", "home"],
+        vec!["profile", "rename", "old", "../escape"],
+        vec!["profile", "delete", "missing"],
+        vec!["profile", "rename", "old", "other"],
+        vec!["profile", "rename", "old", "old"],
+        vec!["profile", "delete", "old", "extra"],
+    ] {
+        assert!(!run_manager(&root.0, &core, &args, None).status.success());
+    }
+    assert!(
+        run_manager(&root.0, &core, &["profile", "default", "old"], None)
+            .status
+            .success()
+    );
+    for args in [
+        vec!["profile", "delete", "old"],
+        vec!["profile", "rename", "old", "new"],
+    ] {
+        assert!(!run_manager(&root.0, &core, &args, None).status.success());
+    }
+    assert!(
+        run_manager(&root.0, &core, &["profile", "default", "default"], None)
+            .status
+            .success()
+    );
+    let home_lock = fs::File::open(old.join("home")).unwrap();
+    assert_eq!(
+        unsafe { libc::flock(home_lock.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) },
+        0
+    );
+    for args in [
+        vec!["profile", "delete", "old"],
+        vec!["profile", "rename", "old", "new"],
+    ] {
+        assert!(!run_manager(&root.0, &core, &args, None).status.success());
+    }
+    drop(home_lock);
+    let root_lock = fs::File::open(&profiles).unwrap();
+    assert_eq!(
+        unsafe { libc::flock(root_lock.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) },
+        0
+    );
+    assert!(
+        !run_manager(&root.0, &core, &["profile", "create", "blocked"], None)
+            .status
+            .success()
+    );
+    assert!(
+        !run_manager(&root.0, &core, &["profile", "delete", "old"], None)
+            .status
+            .success()
+    );
+    drop(root_lock);
+    fs::write(
+        old.join("profile.meta"),
+        b"codex-manager-profile-v2\nextra\n",
+    )
+    .unwrap();
+    assert!(
+        !run_manager(&root.0, &core, &["profile", "delete", "old"], None)
+            .status
+            .success()
+    );
+    fs::write(old.join("profile.meta"), b"codex-manager-profile-v2\n").unwrap();
+    fs::set_permissions(old.join("home"), fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(
+        !run_manager(&root.0, &core, &["profile", "rename", "old", "new"], None)
+            .status
+            .success()
+    );
+    fs::set_permissions(old.join("home"), fs::Permissions::from_mode(0o700)).unwrap();
+    fs::write(
+        root.0.join(".local/share/codex/manager/default-profile-v1"),
+        b"bad",
+    )
+    .unwrap();
+    assert!(
+        !run_manager(&root.0, &core, &["profile", "delete", "old"], None)
+            .status
+            .success()
+    );
+    fs::remove_file(root.0.join(".local/share/codex/manager/default-profile-v1")).unwrap();
+    symlink(&old, profiles.join("link")).unwrap();
+    assert!(
+        !run_manager(&root.0, &core, &["profile", "delete", "link"], None)
+            .status
+            .success()
+    );
+    assert!(
+        !run_manager(&root.0, &core, &["profile", "rename", "old", "link"], None)
+            .status
+            .success()
+    );
+    assert!(old.join("home").is_dir());
+}
+
+#[test]
+fn profile_prelease_runtime_fixture() {
+    if std::env::var_os("PROFILE_PROCESS_READY").is_none() {
+        return;
+    }
+    fs::write(std::env::var_os("PROFILE_PROCESS_READY").unwrap(), b"ready").unwrap();
+    // This owned old-runtime fixture deliberately has no Core home lease.
+    loop {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+}
+
+#[test]
+fn profile_prelease_runtime_metadata_rejects_home_cwd_and_open_handles() {
+    use std::os::fd::AsRawFd;
+    for mode in ["env", "cwd", "fd"] {
+        let root = TestRoot::new();
+        let core = write_core_probe(&root.0);
+        assert!(
+            run_manager(&root.0, &core, &["profile", "create", "old"], None)
+                .status
+                .success()
+        );
+        let home = root.0.join(".local/share/codex/manager/profiles/old/home");
+        let runtime = root.0.join(".local/lib/codex/core/generations/old/runtime");
+        fs::create_dir_all(runtime.parent().unwrap()).unwrap();
+        fs::copy(std::env::current_exe().unwrap(), &runtime).unwrap();
+        fs::set_permissions(&runtime, fs::Permissions::from_mode(0o755)).unwrap();
+        let ready = root.0.join("ready");
+        let file = fs::File::open(&home).unwrap();
+        let mut cmd = Command::new(&runtime);
+        cmd.args(["--exact", "profile_prelease_runtime_fixture", "--nocapture"])
+            .env_clear()
+            .env("PROFILE_PROCESS_READY", &ready)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        match mode {
+            "env" => {
+                cmd.env("CODEX_HOME", &home);
+            }
+            "cwd" => {
+                cmd.current_dir(&home);
+            }
+            "fd" => {
+                use std::os::unix::process::CommandExt;
+                let fd = file.as_raw_fd();
+                unsafe {
+                    cmd.pre_exec(move || {
+                        if libc::dup2(fd, 39) < 0 {
+                            return Err(std::io::Error::last_os_error());
+                        }
+                        Ok(())
+                    });
+                }
+            }
+            _ => unreachable!(),
+        }
+        let mut child = cmd.spawn().unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !ready.exists() {
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        for args in [
+            vec!["profile", "delete", "old"],
+            vec!["profile", "rename", "old", "new"],
+        ] {
+            let output = run_manager(&root.0, &core, &args, None);
+            assert!(
+                !output.status.success(),
+                "old runtime {mode} must block account mutation"
+            );
+            assert!(home.is_dir());
+        }
+        assert!(child.try_wait().unwrap().is_none());
+        child.kill().unwrap();
+        child.wait().unwrap();
+        assert!(
+            run_manager(&root.0, &core, &["profile", "rename", "old", "new"], None)
+                .status
+                .success()
+        );
+    }
 }
 
 #[test]
@@ -1396,6 +1843,63 @@ impl Drop for TaskFixture {
 }
 
 #[test]
+fn profile_old_server_binding_blocks_mutation_without_home_lease() {
+    use std::os::unix::ffi::OsStrExt;
+    let mut f = TaskFixture::new();
+    assert!(
+        run_manager(&f.root.0, &f.core, &["profile", "create", "old"], None)
+            .status
+            .success()
+    );
+    let home = f
+        .root
+        .0
+        .join(".local/share/codex/manager/profiles/old/home");
+    fs::remove_dir(&home).unwrap();
+    fs::rename(&f.account, &home).unwrap();
+    let runtime = f
+        .root
+        .0
+        .join(".local/lib/codex/core/generations/fixture-old/runtime");
+    let mut hash = 0xcbf29ce484222325u64;
+    for b in home
+        .as_os_str()
+        .as_bytes()
+        .iter()
+        .chain([0].iter())
+        .chain(runtime.as_os_str().as_bytes())
+    {
+        hash = (hash ^ u64::from(*b)).wrapping_mul(0x100000001b3);
+    }
+    let updated = f.binding.parent().unwrap().join(format!("{hash:016x}"));
+    fs::rename(&f.binding, &updated).unwrap();
+    let mut owner = home.as_os_str().as_bytes().to_vec();
+    owner.push(0);
+    owner.extend_from_slice(runtime.as_os_str().as_bytes());
+    fs::write(updated.join("owner"), owner).unwrap();
+    for args in [
+        vec!["profile", "delete", "old"],
+        vec!["profile", "rename", "old", "new"],
+    ] {
+        let output = run_manager(&f.root.0, &f.core, &args, None);
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("profile is in use"));
+        assert!(home.is_dir());
+    }
+    assert!(f.child.try_wait().unwrap().is_none());
+    f.child.kill().unwrap();
+    f.child.wait().unwrap();
+    assert!(run_manager(
+        &f.root.0,
+        &f.core,
+        &["profile", "rename", "old", "new"],
+        None
+    )
+    .status
+    .success());
+}
+
+#[test]
 fn active_task_exited_records_allow_retired_homes_runtime_and_socket_without_mutation() {
     use std::os::unix::ffi::OsStrExt;
     let f = TaskFixture::new();
@@ -1797,6 +2301,66 @@ fn active_task_takeover_uses_chosen_account_and_never_starts_a_second_writer() {
             assert!(text.contains(&format!("HOME_VALUE={}\n", target.display())));
             assert!(!text.contains("ARG=<--remote>"));
             assert!(text.contains(&format!("ARG=<{}>", TASK_ID)));
+        }
+    }
+}
+
+#[test]
+fn profile_saved_default_takeover_matches_fresh_launch_and_validates_before_stopping() {
+    for mode in ["saved", "inherited", "non-utf8", "invalid"] {
+        let f = TaskFixture::new();
+        assert!(
+            run_manager(&f.root.0, &f.core, &["profile", "create", "chosen"], None)
+                .status
+                .success()
+        );
+        assert!(
+            run_manager(&f.root.0, &f.core, &["profile", "default", "chosen"], None)
+                .status
+                .success()
+        );
+        let chosen = f
+            .root
+            .0
+            .join(".local/share/codex/manager/profiles/chosen/home");
+        let inherited = match mode {
+            "inherited" => Some(f.root.0.join(".codex")),
+            "non-utf8" => Some(PathBuf::from(OsString::from_vec(vec![0xff]))),
+            _ => None,
+        };
+        if mode == "invalid" {
+            fs::write(
+                f.root
+                    .0
+                    .join(".local/share/codex/manager/default-profile-v1"),
+                b"bad",
+            )
+            .unwrap();
+        }
+        let result = run_manager(
+            &f.root.0,
+            &f.core,
+            &["task", "takeover", TASK_ID],
+            inherited.as_deref(),
+        );
+        if mode == "invalid" {
+            assert_eq!(result.status.code(), Some(1));
+            let status = run_manager(&f.root.0, &f.core, &["task", "status", TASK_ID], None);
+            assert!(String::from_utf8_lossy(&status.stdout).contains("state=active"));
+        } else {
+            assert_eq!(
+                result.status.code(),
+                Some(37),
+                "{mode}: {}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            let expected = if mode == "inherited" {
+                f.root.0.join(".codex")
+            } else {
+                chosen
+            };
+            assert!(String::from_utf8_lossy(&result.stdout)
+                .contains(&format!("HOME_VALUE={}\n", expected.display())));
         }
     }
 }

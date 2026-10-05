@@ -3,6 +3,8 @@ use std::ffi::{OsStr, OsString};
 #[cfg(unix)]
 mod maintenance;
 #[cfg(unix)]
+mod profile_lease;
+#[cfg(unix)]
 mod rollback_guard;
 #[cfg(unix)]
 mod shared_layout;
@@ -325,7 +327,7 @@ pub const RESOLVER_FD: std::os::raw::c_int = 33;
 #[cfg(unix)]
 pub const CONFIG_DIR_FD: std::os::raw::c_int = 34;
 #[cfg(unix)]
-const SAFE_MIN_FD: std::os::raw::c_int = 36;
+const SAFE_MIN_FD: std::os::raw::c_int = 64;
 #[cfg(unix)]
 const F_DUPFD_CLOEXEC: std::os::raw::c_int = 1030;
 #[cfg(unix)]
@@ -1359,6 +1361,16 @@ where
     C: AsRef<std::path::Path>,
 {
     let selection = assets.selection();
+    let _profile_lease = match std::env::var_os("HOME") {
+        Some(home) => {
+            let home = std::path::PathBuf::from(home);
+            match profile_lease::acquire(&home, &upstream_execution_home(&home)) {
+                Ok(lease) => lease,
+                Err(err) => return RuntimeLaunchError::Exec(err),
+            }
+        }
+        None => None,
+    };
     let (browser_open_helper, browser_manual_helper) = match termux_browser_helper_paths(selection)
     {
         Ok(paths) => paths,
@@ -11878,6 +11890,32 @@ where
         }
     };
     let process_env = capture_termux_process_env();
+    // Only the admitted optional Manager interprets its explicit preference.
+    // The selected child has an explicit CODEX_HOME, preventing re-delegation.
+    if let PublicDispatchRoute::Upstream(args) = &route {
+        let inherited = std::env::var("CODEX_HOME")
+            .ok()
+            .is_some_and(|v| !v.is_empty());
+        let preference = std::env::var_os("HOME")
+            .map(std::path::PathBuf::from)
+            .map(|h| h.join(".local/share/codex/manager/default-profile-v1"));
+        if !inherited && preference.is_some_and(|p| std::fs::symlink_metadata(p).is_ok()) {
+            let mut selected = vec![OsString::from("__profile-launch")];
+            selected.extend_from_slice(args);
+            match execute_activated_route(
+                PublicDispatchRoute::Termux(selected),
+                &roots,
+                &process_env,
+            ) {
+                Ok(PublicDispatchCompletion::TermuxUnavailable(_)) => (),
+                Err(err) => {
+                    eprintln!("codex: {err}");
+                    return 1;
+                }
+                _ => return 1,
+            }
+        }
+    }
     if bare {
         use std::io::IsTerminal as _;
         if startup_update_discovery_enabled(
@@ -14524,6 +14562,54 @@ snooze_until	0
             render_update_failure(&LocalProductError::SignatureRejected),
             "Release signature verification failed."
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_profile_saved_default_delegation_preserves_core_routes_and_fallback() {
+        for (manager, inherited) in [(true, false), (true, true), (false, false)] {
+            let root = b2_public_main_fixture("profile-default-delegation", manager);
+            let preference = root.join("home/.local/share/codex/manager/default-profile-v1");
+            std::fs::create_dir_all(preference.parent().unwrap()).unwrap();
+            // Core only detects presence. Parsing belongs to Manager.
+            std::fs::write(preference, b"opaque-manager-owned").unwrap();
+            let mut probe = std::process::Command::new(std::env::current_exe().unwrap());
+            probe
+                .args(["tests::public_main_probe", "--exact", "--nocapture"])
+                .env(MAIN_PROBE_ROLE, "1")
+                .env(MAIN_PROBE_ARGS, "version")
+                .env("HOME", root.join("home"))
+                .env("PREFIX", root.join("prefix"))
+                .env("TMPDIR", root.join("tmp"))
+                .env_remove("CODEX_HOME");
+            if inherited {
+                probe.env("CODEX_HOME", root.join("home/.codex"));
+            }
+            let output = probe.output().unwrap();
+            if manager && !inherited {
+                assert_eq!(output.status.code(), Some(73));
+                assert!(output
+                    .stdout
+                    .windows(b"ARGS:<__profile-launch><--version>".len())
+                    .any(|w| w == b"ARGS:<__profile-launch><--version>"));
+            } else {
+                assert_eq!(
+                    output.status.code(),
+                    Some(0),
+                    "{}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                assert!(output.stdout.ends_with(b"codex-upstream 9.9.9\n"));
+            }
+            for scenario in ["update-help", "doctor", "manager"] {
+                let output = run_public_main_probe(&root, scenario);
+                assert!(!output
+                    .stdout
+                    .windows(b"__profile-launch".len())
+                    .any(|w| w == b"__profile-launch"));
+            }
+            remove_temp_root(root);
+        }
     }
 
     #[cfg(unix)]

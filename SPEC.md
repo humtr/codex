@@ -152,6 +152,9 @@ codex termux help
 codex termux profile list
 codex termux profile current
 codex termux profile create <PROFILE_ID>
+codex termux profile delete <PROFILE_ID>
+codex termux profile rename <PROFILE_ID> <NEW_PROFILE_ID>
+codex termux profile default [PROFILE_ID]
 codex termux profile use <PROFILE_ID> [--] [UPSTREAM_ARGS...]
 codex termux task [THREAD_UUID]
 codex termux task status [THREAD_UUID]
@@ -1095,11 +1098,12 @@ The Manager v1 state root is independent of the Core root:
 ```text
 ~/.local/share/codex/manager/
   profiles/<PROFILE_ID>/profile.meta                 Manager profile record
+  default-profile-v1                                 explicit default account preference
   profiles/<PROFILE_ID>/home/                        selected upstream CODEX_HOME
   notifications/config-v1                            notification configuration
 ```
 
-`profile.meta` and `config-v1` are versioned Manager records and
+`profile.meta`, `default-profile-v1` and `config-v1` are versioned Manager records and
 contain no tokens, cookies, OAuth values, private keys, or session bodies.
 Manager creates profile directories with mode `0700` and record files with
 mode `0600`. It publishes a new profile tree with create-new atomic rename;
@@ -1112,13 +1116,20 @@ launch; Manager does not interpret the files written there by upstream Codex.
 The default profile is the existing upstream default home and is never copied
 into this tree.
 
-Manager does not persist or consume a last-selected execution account. Existing
+Manager does not persist or consume an implicit last-selected execution account.
+Only explicit `profile default` owns the new default-profile-v1 preference. Existing
 `state-v1` selection-history records are retired: they are ignored and left
 unchanged, including malformed or symlinked remnants. They never select an
 account or block execution. No migration or automatic deletion is introduced.
 
 Manager profile records use exact UTF-8 text formats with a final newline.
-Each `profiles/<PROFILE_ID>/profile.meta` contains exactly:
+New `profiles/<PROFILE_ID>/profile.meta` contains exactly:
+
+```text
+codex-manager-profile-v2
+```
+
+The existing exact private v1 form remains readable:
 
 ```text
 codex-manager-profile-v1
@@ -1888,6 +1899,9 @@ commands from the public grammar:
 codex termux profile list
 codex termux profile current
 codex termux profile create <PROFILE_ID>
+codex termux profile delete <PROFILE_ID>
+codex termux profile rename <PROFILE_ID> <NEW_PROFILE_ID>
+codex termux profile default [PROFILE_ID]
 codex termux profile use <PROFILE_ID> [--] [UPSTREAM_ARGS...]
 ```
 
@@ -1974,16 +1988,18 @@ commits; it emits no path, environment, credential, or upstream-state detail.
 `profile current` emits exactly two LF-terminated lines, `current: <TARGET>`
 followed by `source: <SOURCE>`. `<TARGET>` is `default`, a valid custom profile
 ID, or `external`; `<SOURCE>` is `inherited` when the caller supplied a nonempty
-UTF-8 `CODEX_HOME`, or `default` otherwise. Empty and non-UTF-8 values use the
-native upstream default-home interpretation. Current reports the account home a
+UTF-8 `CODEX_HOME`, `saved` for a valid explicit preference, or `default` otherwise.
+Empty and non-UTF-8 values provide no inherited selection; a saved preference
+still applies, with native upstream default-home interpretation when it is absent.
+Current reports the account home a
 fresh ordinary launch would use, not an earlier child selection. Known external
 homes are reported as `external`, without treating them as Manager registrations. It never reports auth identity,
 token state, session bodies, paths, or arbitrary environment values.
 
 `profile use` requires an existing profile, validates its private registration,
 then `exec`s Core without selection-history writes and emits no
-Manager-owned success output before Core runs. For `default` it removes
-`CODEX_HOME`; for a custom profile it sets `CODEX_HOME` to the validated
+Manager-owned success output before Core runs. For `default` it explicitly sets
+`CODEX_HOME` to `$HOME/.codex`, bypassing any persistent custom default; for a custom profile it sets `CODEX_HOME` to the validated
 profile home. Manager removes an inherited `CODEX_SQLITE_HOME` override instead
 of producing a parallel shared-store selection signal. Core derives the shared
 root from the supported execution home and supplies a system `requirements.toml`
@@ -2000,12 +2016,81 @@ before upstream execution. A selection changes neither later ordinary launches n
 the caller's environment. Core uses the same native-equivalent home interpretation
 for shared preparation and server startup, preserving the supplied environment.
 
-MGR-1 does not implement profile deletion, interactive terminal UI, or
-profile-auth migration. Cross-profile session copying is deliberately absent
+The historical MGR-1 scope is extended by the profile lifecycle contract below;
+interactive terminal UI and profile-auth migration remain absent. Cross-profile session copying is deliberately absent
 because conversations are shared objects rather than profile-owned objects. A
 missing/invalid registration is a non-mutating Manager validation failure. Core
 prepares only the declared missing/empty compatibility entries during launch;
 conflicting nonempty state is never migrated or repaired as a launch side effect.
+
+### Explicit profile lifecycle and launch default
+
+The profile commands extend execution-account convenience; they never own or
+remove installation-wide conversation history. `profile default` prints exactly
+`default: <TARGET>\n`. With a target it validates an existing registration (or
+native `default`), atomically saves the explicit preference and prints the same
+line. This is not selection history: `profile use` never writes it. Preference
+format is exactly `codex-manager-default-profile-v1\nprofile\t<TARGET>\n`,
+private mode0600 under Manager's private state root. Missing preference means
+native default. Invalid/missing-target preferences never follow an untrusted path:
+explicit default/current queries and lifecycle mutations fail; optional ordinary
+launch falls back to the native default without changing the preference.
+
+A nonempty UTF-8 inherited CODEX_HOME always wins. Otherwise the installed Core
+may delegate ordinary upstream argv to the admitted optional Manager through the
+internal `__profile-launch` endpoint only when default-profile-v1 is present.
+Core neither parses nor writes that preference or profile metadata. Manager
+validates the preference and registration, sets CODEX_HOME explicitly for this
+child, and execs the stable Core with exact original argv, TTY, streams, signals
+and exit status. A missing/unavailable Manager leaves normal native launch usable.
+Core's update/doctor/termux and unsupported-daemon routes bypass this delegation;
+no selector may be smuggled through the internal endpoint. Bare startup discovery
+still runs at most once, after selection. `profile current` adds source `saved`
+when the explicit preference selects a fresh launch; inherited source remains
+inherited. The retired state-v1 record stays ignored and unchanged.
+
+`profile delete ID` deletes that validated custom profile's local login/config/
+cache files and registration; `default` is never deletable. Exact output is
+`deleted: ID\n`. Shared canonical conversation files and compatibility-link
+targets are preserved, and deletion never follows any symlink inside the account.
+The command itself is the explicit request; no automatic deletion or cleanup of
+other accounts is introduced. `profile rename OLD NEW` changes only the registered
+ID/path, preserving local file bytes, inodes and modes without copying auth or
+session payload; exact output is `renamed: OLD -> NEW\n`. Destination collisions,
+unsafe/malformed registration and reserved/default names fail without replacement.
+A profile selected by the explicit default preference cannot be deleted or renamed:
+first choose another default. No two-record default/rename transaction is needed.
+
+Profile creation, preference writes and lifecycle mutations serialize with an
+exclusive kernel lock on the existing Manager profiles directory. Registered
+profile launch obtains a shared lock on that directory before validating/opening
+its real home, then holds a shared lock on the home inode across native runtime
+and shared-server execution using FD36. Core provides this physical execution
+lease only; it does not implement deletion, rename or default policy. Manager
+requires the exclusive home lease before any rename/delete and additionally
+rejects existing old-generation live Core server bindings for that home. No user
+server is stopped automatically. For pre-lease runtime processes, bounded same-UID
+process metadata identifies CODEX_HOME/cwd/open account handles; only the execution
+home field may be retained transiently, never unrelated environment values,
+credentials, argv or session content. Unreadable/ambiguous relevant processes
+reject mutation rather than claiming idle. Default selection may change while
+work runs; existing work retains its account and authentication.
+
+New registration metadata is exactly `codex-manager-profile-v2\n`, without an ID
+already owned by the directory name. Existing exact private v1 metadata remains
+valid; rename first atomically replaces v1 by v2 while OLD is still valid, then
+uses create-new directory rename and synchronizes the parent. Either observable
+registration remains usable after interruption. No duplicated ID or journal is
+introduced. Delete first atomically moves the validated account into one private
+hidden `.delete-*` sibling under the held locks, synchronizes the directory, then
+removes only that tree without following links. Before that move, a non-following
+preflight rejects more than 65,536 entries or a directory depth above 128; an
+unreadable tree fails before unregistering the account. Interrupted cleanup may leave
+hidden private residue; it is not a profile, never used for launch, and a failure
+is reported without pretending deletion of shared state or other profiles.
+Version rollback never reverses explicit profile lifecycle actions. Managers
+predating this extension ignore the preference and do not list v2 registrations;
+account bytes and Core direct CODEX_HOME execution remain independent of metadata.
 
 ### Installation-wide upstream resume visibility
 
@@ -2127,7 +2212,8 @@ processes outside native ownership and already-applied filesystem edits are not
 claimed undone.
 
 `task takeover UUID` performs that stop, then requires native writer release before
-ordinary same-ID resume through the current inherited account or explicit validated
+ordinary same-ID resume through the current inherited account, saved default
+(native default when neither is selected), or explicit validated
 Manager profile. Existing native writer/coordination files may be opened read-only
 and temporarily kernel-probed under native coordination; never created, modified,
 unlinked or stolen. A race after the probe is adjudicated by upstream resume.

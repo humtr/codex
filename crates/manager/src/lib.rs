@@ -1,5 +1,6 @@
 #![cfg(unix)]
 
+mod profile;
 mod task;
 
 use std::ffi::{OsStr, OsString};
@@ -40,6 +41,9 @@ const HELP: &str = concat!(
     "codex termux profile list\n",
     "codex termux profile current\n",
     "codex termux profile create <PROFILE_ID>\n",
+    "codex termux profile delete <PROFILE_ID>\n",
+    "codex termux profile rename <PROFILE_ID> <NEW_PROFILE_ID>\n",
+    "codex termux profile default [PROFILE_ID]\n",
     "codex termux profile use <PROFILE_ID> [--] [UPSTREAM_ARGS...]\n",
     "codex termux task [THREAD_UUID]\n",
     "codex termux task status [THREAD_UUID]\n",
@@ -303,6 +307,17 @@ fn run_inner(args: Vec<OsString>) -> Result<Option<String>, ManagerError> {
     {
         capture_context()?;
         return Ok(Some(HELP.to_owned()));
+    }
+    if is_exact(args.first(), "__profile-launch") {
+        return profile::launch_default(&capture_context()?, &args[1..]);
+    }
+    if is_exact(args.first(), "profile") && is_exact(args.get(1), "default") {
+        return profile::run_default(&capture_context()?, &args[2..]);
+    }
+    if is_exact(args.first(), "profile")
+        && (is_exact(args.get(1), "delete") || is_exact(args.get(1), "rename"))
+    {
+        return profile::run_lifecycle(&capture_context()?, &args[1..]);
     }
     if is_exact(args.first(), "task") {
         let command = task::parse(&args[1..])?;
@@ -1779,6 +1794,7 @@ fn profile_complete(dirs: &Path, id: &str) -> bool {
     };
     if profile_metadata.file_type().is_symlink()
         || !profile_metadata.is_dir()
+        || std::os::unix::fs::MetadataExt::uid(&profile_metadata) != unsafe { libc::geteuid() }
         || profile_metadata.permissions().mode() & 0o7777 != PRIVATE_DIR_MODE
     {
         return false;
@@ -1789,6 +1805,7 @@ fn profile_complete(dirs: &Path, id: &str) -> bool {
     };
     if home_metadata.file_type().is_symlink()
         || !home_metadata.is_dir()
+        || std::os::unix::fs::MetadataExt::uid(&home_metadata) != unsafe { libc::geteuid() }
         || home_metadata.permissions().mode() & 0o7777 != PRIVATE_DIR_MODE
     {
         return false;
@@ -1803,10 +1820,10 @@ fn profile_complete(dirs: &Path, id: &str) -> bool {
     {
         return false;
     }
-    let Ok(bytes) = read_bounded(&meta) else {
+    let Ok(bytes) = profile::read_record(&meta) else {
         return false;
     };
-    bytes == profile_meta_bytes(id)
+    bytes == profile_meta_bytes(id) || bytes == profile::METADATA_V2
 }
 
 fn list_custom_profiles(context: &Context) -> Result<Vec<String>, ManagerError> {
@@ -1869,11 +1886,13 @@ fn format_current(context: &Context) -> Result<String, ManagerError> {
         return Ok(format!("current: {target}\nsource: inherited\n"));
     }
 
-    Ok("current: default\nsource: default\n".to_owned())
+    profile::current_default(context)
 }
 
 fn create_profile(context: &Context, id: &str) -> Result<(), ManagerError> {
     let dirs = manager_profiles_for_create(context)?;
+    let _lock = profile::directory_lock(&dirs, libc::LOCK_EX)?;
+    profile::read_default(context)?;
     let destination = profile_path(&dirs, id);
     if fs::symlink_metadata(&destination).is_ok() {
         return Err(ERR_COLLISION);
@@ -1892,7 +1911,7 @@ fn create_profile(context: &Context, id: &str) -> Result<(), ManagerError> {
         let home = temporary.join("home");
         fs::create_dir(&home).map_err(|_| ERR_CREATE)?;
         set_mode(&home, PRIVATE_DIR_MODE).map_err(|_| ERR_CREATE)?;
-        write_new_record(&temporary.join(PROFILE_META), &profile_meta_bytes(id))?;
+        write_new_record(&temporary.join(PROFILE_META), profile::METADATA_V2)?;
         sync_directory(&temporary)?;
         rename_noreplace(&temporary, &destination).map_err(|error| {
             if error.kind() == io::ErrorKind::AlreadyExists {
@@ -1982,7 +2001,7 @@ fn launch_core(
     command.env_remove(CODEX_SQLITE_HOME_ENV);
     match target {
         ProfileTarget::Default => {
-            command.env_remove(CODEX_HOME_ENV);
+            command.env(CODEX_HOME_ENV, context.home.join(".codex"));
         }
         ProfileTarget::Custom(id) => {
             let dirs = existing_manager_profiles(context)?.ok_or(ERR_PROFILE)?;

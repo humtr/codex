@@ -235,7 +235,7 @@ requires_openai_auth = false
                 assert process.poll() is None, f"owned transfer exited {process.returncode}: {diagnostic[-1500:]!r}"
                 output = run("termux", "task", "status", thread)
                 last = output.stdout + output.stderr
-                if output.returncode == 0 and b"owner=default" in output.stdout:
+                if output.returncode == 0 and b"owner=account-b" in output.stdout:
                     assert b"state=idle" in output.stdout
                     return
                 time.sleep(.05)
@@ -348,9 +348,16 @@ requires_openai_auth = false
             process3.kill(); process3.wait(timeout=5)
             rpc.close()
             wait_owner(thread, "state=active")
+            # Fresh-launch selection must also choose the omitted takeover target.
+            chosen = run("termux", "profile", "create", "account-b")
+            assert chosen.returncode == 0, chosen.stderr.decode()
+            destination = home / ".local/share/codex/manager/profiles/account-b/home"
+            (destination / "config.toml").write_text(config)
+            selected = run("termux", "profile", "default", "account-b")
+            assert selected.returncode == 0, selected.stderr.decode()
             normal, normal_master = tui(["termux", "task", "takeover", thread])
             wait_transfer(thread, normal, normal_master)
-            print("PASS native goal pause persists and normal confirmed stop releases writer before account transfer")
+            print("PASS native goal pause persists and normal stop transfers the writer to the saved-default account")
         finally:
             release.set()
             model.shutdown()
