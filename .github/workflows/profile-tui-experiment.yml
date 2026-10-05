@@ -26,6 +26,7 @@ jobs:
       CARGO_PROFILE_DEV_OPT_LEVEL: '1'
       CARGO_PROFILE_TEST_OPT_LEVEL: '0'
       CARGO_BUILD_JOBS: '3'
+      CODEX_PROFILE_CORE: ''
     steps:
       - name: Fetch exact experiment authority
         shell: bash
@@ -147,7 +148,7 @@ jobs:
           cd upstream
           just fmt
           git diff --check
-          git add -N codex-rs/tui/src/app/profile_manager.rs codex-rs/tui/src/app/profile_manager_tests.rs codex-rs/tui/src/chatwidget/tests/profile_command_tests.rs
+          git add -N codex-rs/tui
           git diff -- codex-rs/tui > "$RUNNER_TEMP/profile-tui-formatted.patch"
           python3 - <<'PYTHON'
           import subprocess

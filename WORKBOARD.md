@@ -26,6 +26,14 @@ No account transition or full prototype acceptance. No outstanding red gate.
        data is green. First proof must cover queued /profile bridge failure: current
        error branch opens no picker after DrainStop, so confirm following queued
        input resumes rather than stalls. Restore this path before new navigation.
+       Trace confirms the error branch only inserts history and redraws; no modal
+       close/SettingsSelectionClosed resumes the stopped queue. Add mapped App
+       regression using existing shared session/turn/channel factories (test-only
+       visibility widened, no duplicate constructor) and resume queued input only
+       on bounded bridge failure. Hosted unavailable-bridge input is explicit empty
+       CODEX_PROFILE_CORE; no test process environment mutation or model traffic.
+       Candidate gate13 actual native tests precedes independent navigation/data.
+       Export the complete TUI patch, including snapshots, in format/lint artifacts.
        Then integrate bounded task reads, profile/history/agent routes and identity.
        Proof: native dispatch, history/agent routing, exact identity labels,
        unavailable Manager, search/cancel and manually reviewed rendered snapshots.

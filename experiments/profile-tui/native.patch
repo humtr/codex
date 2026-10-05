@@ -28,10 +28,10 @@ index da28bf2..a7076a4 100644
                      || !app_server.uses_remote_workspace()
 diff --git a/codex-rs/tui/src/app/profile_manager.rs b/codex-rs/tui/src/app/profile_manager.rs
 new file mode 100644
-index 0000000..8160d04
+index 0000000..687917b
 --- /dev/null
 +++ b/codex-rs/tui/src/app/profile_manager.rs
-@@ -0,0 +1,160 @@
+@@ -0,0 +1,161 @@
 +//! Unix execution-profile display; Manager remains the sole profile-state owner.
 +use super::App;
 +use crate::bottom_pane::SelectionItem;
@@ -186,6 +186,7 @@ index 0000000..8160d04
 +    } else {
 +        app.chat_widget
 +            .add_error_message("Profiles are unavailable.".to_string());
++        app.chat_widget.maybe_send_next_queued_input();
 +    }
 +}
 +
@@ -194,10 +195,10 @@ index 0000000..8160d04
 +mod tests;
 diff --git a/codex-rs/tui/src/app/profile_manager_tests.rs b/codex-rs/tui/src/app/profile_manager_tests.rs
 new file mode 100644
-index 0000000..120d022
+index 0000000..4a60794
 --- /dev/null
 +++ b/codex-rs/tui/src/app/profile_manager_tests.rs
-@@ -0,0 +1,257 @@
+@@ -0,0 +1,296 @@
 +use super::*;
 +use crate::app_event_sender::AppEventSender;
 +use crate::bottom_pane::BottomPaneView;
@@ -455,6 +456,45 @@ index 0000000..120d022
 +    assert_eq!(metadata.mode() & 0o777, 0o755);
 +    assert_eq!(load(&path).await, None);
 +}
++
++
++#[tokio::test]
++async fn profile_manager_unavailable_bridge_resumes_follow_up_after_a_queued_picker() {
++    assert_eq!(std::env::var_os("CODEX_PROFILE_CORE"), Some("".into()));
++    let (mut app, mut events, mut ops) = super::super::tests::make_test_app_with_channels().await;
++    let thread = codex_protocol::ThreadId::new();
++    let cwd = app.config.cwd.to_path_buf();
++    app.chat_widget.handle_thread_session(
++        super::super::tests::test_thread_session(thread, cwd),
++    );
++    app.chat_widget.handle_server_notification(
++        super::super::tests::turn_started_notification(thread, "profile-turn"),
++        None,
++    );
++    while events.try_recv().is_ok() {}
++    while ops.try_recv().is_ok() {}
++    for text in ["/profile", "follow up after profiles"] {
++        app.chat_widget.apply_external_edit(text.to_string());
++        app.chat_widget.handle_key_event(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
++    }
++    app.chat_widget.handle_server_notification(
++        super::super::tests::turn_completed_notification(
++            thread,
++            "profile-turn",
++            codex_app_server_protocol::TurnStatus::Completed,
++        ),
++        None,
++    );
++    assert!(std::iter::from_fn(|| events.try_recv().ok())
++        .any(|event| matches!(event, crate::app_event::AppEvent::OpenProfilePicker)));
++    assert_eq!(app.chat_widget.queued_user_message_texts(), vec!["follow up after profiles"]);
++    assert!(ops.try_recv().is_err());
++    open(&mut app).await;
++    assert!(app.chat_widget.queued_user_message_texts().is_empty());
++    let submitted = std::iter::from_fn(|| ops.try_recv().ok()).filter(|op|
++        matches!(op, crate::app_command::AppCommand::UserTurn { .. })).count();
++    assert_eq!(submitted, 1);
++}
 diff --git a/codex-rs/tui/src/app/snapshots/codex_tui__app__profile_manager__tests__profile_manager_external_home.snap b/codex-rs/tui/src/app/snapshots/codex_tui__app__profile_manager__tests__profile_manager_external_home.snap
 new file mode 100644
 index 0000000..2ec302f
@@ -497,6 +537,37 @@ index 0000000..b7090cc
 +  work (current)
 +
 +  Press esc to go back
+diff --git a/codex-rs/tui/src/app/tests.rs b/codex-rs/tui/src/app/tests.rs
+index 9c1af27..a254a51 100644
+--- a/codex-rs/tui/src/app/tests.rs
++++ b/codex-rs/tui/src/app/tests.rs
+@@ -6439,7 +6439,7 @@ async fn replace_goal_confirmation_snapshot() {
+     );
+ }
+
+-fn test_thread_session(thread_id: ThreadId, cwd: PathBuf) -> ThreadSessionState {
++pub(super) fn test_thread_session(thread_id: ThreadId, cwd: PathBuf) -> ThreadSessionState {
+     ThreadSessionState {
+         windows_sandbox_host: crate::app::WindowsSandboxHost::Local,
+         thread_id,
+@@ -7094,7 +7094,7 @@ fn test_turn(turn_id: &str, status: TurnStatus, items: Vec<ThreadItem>) -> Turn
+     }
+ }
+
+-fn turn_started_notification(thread_id: ThreadId, turn_id: &str) -> ServerNotification {
++pub(super) fn turn_started_notification(thread_id: ThreadId, turn_id: &str) -> ServerNotification {
+     ServerNotification::TurnStarted(TurnStartedNotification {
+         thread_id: thread_id.to_string(),
+         turn: Turn {
+@@ -7104,7 +7104,7 @@ fn turn_started_notification(thread_id: ThreadId, turn_id: &str) -> ServerNotifi
+     })
+ }
+
+-fn turn_completed_notification(
++pub(super) fn turn_completed_notification(
+     thread_id: ThreadId,
+     turn_id: &str,
+     status: TurnStatus,
 diff --git a/codex-rs/tui/src/app_event.rs b/codex-rs/tui/src/app_event.rs
 index ce30da4..d244aec 100644
 --- a/codex-rs/tui/src/app_event.rs
@@ -504,21 +575,21 @@ index ce30da4..d244aec 100644
 @@ -584,6 +584,10 @@ pub(crate) enum AppEvent {
      /// Open the resume picker inside the running TUI session.
      OpenResumePicker,
- 
+
 +    /// Open the Manager execution-profile view without changing accounts.
 +    #[cfg(unix)]
 +    OpenProfilePicker,
 +
      /// Open the Claude Code migration picker inside the running TUI session.
      OpenExternalAgentConfigMigration,
- 
+
 diff --git a/codex-rs/tui/src/bottom_pane/chat_composer.rs b/codex-rs/tui/src/bottom_pane/chat_composer.rs
 index 7272255..68f3930 100644
 --- a/codex-rs/tui/src/bottom_pane/chat_composer.rs
 +++ b/codex-rs/tui/src/bottom_pane/chat_composer.rs
 @@ -484,6 +484,10 @@ pub enum InputResult {
  }
- 
+
  fn parent_owned_command_is_allowed(command: SlashCommand, args: &str) -> bool {
 +    #[cfg(unix)]
 +    if command == SlashCommand::Profile && args.is_empty() {
@@ -563,7 +634,7 @@ index 4fe2ed0..0975fb6 100644
 +            SlashCommand::Profile => QueueDrain::Stop,
          }
      }
- 
+
 diff --git a/codex-rs/tui/src/chatwidget/tests.rs b/codex-rs/tui/src/chatwidget/tests.rs
 index 6d42ca5..0a94f80 100644
 --- a/codex-rs/tui/src/chatwidget/tests.rs
@@ -692,7 +763,7 @@ index 301de2e..12aaea8 100644
              SlashCommand::Delete => "permanently delete this session",
              SlashCommand::Clear => "clear the terminal and start a new chat",
 @@ -191,6 +195,10 @@ impl SlashCommand {
- 
+
      /// Whether this command remains available inside an active side conversation.
      pub fn available_in_side_conversation(self) -> bool {
 +        #[cfg(unix)]
@@ -703,7 +774,7 @@ index 301de2e..12aaea8 100644
              self,
              SlashCommand::Copy
 @@ -216,6 +224,10 @@ impl SlashCommand {
- 
+
      /// Commands that do not require a writable current thread. The server must still be connected.
      pub(crate) fn available_when_thread_unavailable(self) -> bool {
 +        #[cfg(unix)]
