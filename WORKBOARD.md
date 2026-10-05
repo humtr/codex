@@ -19,6 +19,13 @@ Current bundle PROFILE-TUI-EXPERIMENT, user-authorized feasibility prototype.
    GitHub-owned Actions, so mlugg/setup-zig is not admissible. Keep repository
    policy; direct official Zig download uses frozen SHA256ab64e3ea and version
    check. No user-device tool installation or production change.
+   Current retry exact2a90ff0/hosted37321565270 passes tool provisioning and
+   normalization, compiling native target. Owned-device baseline probe prepared
+   in temporary proof root only: exact version/help, native /status with zero
+   token usage, /quit and exact terminal restoration. Not executed/accepted yet.
+   Prior compile warning is unchanged upstream core/tools/registry.rs unused
+   ToolCallSource import. KEEP original release source for baseline; no suppression
+   or unrelated Core edit. New prototype definitions must add no new warnings.
    Production definitions/behavior frozen until native executable target runnable.
 1. Native /profile entrypoint and bounded Manager profile display. Pending.
    Paths: experimental upstream TUI patch and owned Manager bridge; focused proof
