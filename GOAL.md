@@ -119,6 +119,34 @@
  source-artifact admission remain required. Measured final CLI11m56s, test14m20s,
  lint4m26s; source-build cost remains an admission consideration.
 
+
+- Stage2a accepted: Manager __task-snapshot-v1 projects existing qualified current
+  kernel writers into path-free sorted JSON (id/owner_profile/state/server_token).
+  One registered-home resolver now serves current profile, public task text and
+  native data. Producer canonical field/count bounds imply at most204846 bytes,
+  below256KiB. No new task action, durable state, credential/history parser or Core
+  production change. Empty/usage/handoff/unsafe-state/no-write focus2/2 passes;
+  exact current-writer/external-null/released-owner public regression1/1 passes.
+  Final Manager33 library +46 integration, all-target clippy -D warnings/fmt/diff
+  pass. Core184 passes,1 existing live/opt-in probe ignored (not acceptance proof).
+- First grouped Manager gate has2 ETXTBSY fixture-spawn reds. All5 same-parent
+  executable-copy sites (2 Manager,3 Core) were inspected. Native libtest cases
+  now serialize through local Cargo test configuration; per-case concurrent
+  clients/writers/update actors remain intact. KEEP fixtures/production safety;
+  COLLAPSE the runner assumption; no retry, signal relaxation or new repair layer.
+  The entire affected Core/Manager gate passes after this correction.
+- Signed owned Core40/runtime40 + exact candidate Manager046dd68ea41737a298e4c375d737e3f7606e331dc7acee20ab37686ec7c04b9f
+  executes existing real native6 task scenarios. The new observer issues actual
+  private CLI reads at3 transfer checkpoints, never injects ownership results.
+  Caller stays account-a while actual same-thread writer changes account-a ->
+  default -> account-b; JSON profile/state/PID-start agrees with public current
+  status. First author/selected profile/saved preference is not an owner proxy.
+  All27 protected metadata paths,40/39 and12 original jobs match. Evidence:
+  codex-profile-tui-proof/task-snapshot-{focused,current-owner-focus,manager-final,
+  manager-final-clippy,core-full-serial,native-owner}.log and source-identity.json.
+  Native integrated history/agent presentation and same-terminal switching remain
+  required; closing this Manager data slice does not close the prototype.
+
 ## PROFILE-LIFECYCLE-DELIVERY (accepted 2026-10-05)
 
 - User `배포 4` requests deployment of the just-accepted profile lifecycle source

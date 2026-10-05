@@ -8,20 +8,27 @@ struct CurrentProfile {
     source: &'static str,
 }
 
+pub(super) fn registered_id(
+    context: &Context,
+    home: &Path,
+) -> Result<Option<String>, ManagerError> {
+    if home == context.home.join(".codex") {
+        return Ok(Some("default".to_owned()));
+    }
+    let ids = list_custom_profiles(context)?;
+    let dirs = manager_base(context).join("manager").join(PROFILES_DIR);
+    Ok(ids
+        .into_iter()
+        .find(|id| home == profile_home_path(&dirs, id)))
+}
+
 fn current(context: &Context) -> Result<CurrentProfile, ManagerError> {
     if let Some(inherited) = context
         .inherited_codex_home
         .as_ref()
         .filter(|value| value.to_str().is_some_and(|value| !value.is_empty()))
     {
-        let id = if inherited == context.home.join(".codex").as_os_str() {
-            Some("default".to_owned())
-        } else {
-            let ids = list_custom_profiles(context)?;
-            let dirs = manager_base(context).join("manager").join(PROFILES_DIR);
-            ids.into_iter()
-                .find(|id| inherited == profile_home_path(&dirs, id).as_os_str())
-        };
+        let id = registered_id(context, Path::new(inherited))?;
         return Ok(CurrentProfile {
             id,
             source: "inherited",

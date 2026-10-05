@@ -1,7 +1,7 @@
 use super::*;
 use serde_json::{json, Value};
 
-fn inventory(root: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+pub(super) fn inventory(root: &Path) -> Vec<(PathBuf, Vec<u8>)> {
     let mut result = Vec::new();
     let mut pending = vec![root.to_path_buf()];
     while let Some(directory) = pending.pop() {

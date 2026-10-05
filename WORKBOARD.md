@@ -13,23 +13,20 @@ No account transition or full prototype acceptance. No outstanding red gate.
 
 2. Reuse native history/agent selection with account-aware presentation. CURRENT.
    The native TUI baseline is now runnable and green. Ordered contract slices:
-   2a. Observable current-writer identity through a bounded read-only Manager data
-       boundary, using existing qualified-server/PID-start/kernel-lock discovery.
-       SPEC defines the private command/schema before implementation. Separate
-       execution profile from actual writer; never infer owner from first author,
-       history metadata or a currently selected profile. Failure means unavailable,
-       never unlocked. No paths/credentials/transcripts, private history index,
-       new durable state, stop action or account launch.
-       Paths: Manager task/profile-view resolver, private dispatch and focused
-       public-executable regression; owned native owner probe as needed.
-       Proof: exact JSON/argv/bounds/errors/no writes, current kernel owner rather
-       than creator, registered/external identity; existing public text unchanged.
-       Gate: focused nonzero compile/test, relevant Manager full/fmt/clippy and
-       actual diff before2b. Restore proof immediately on any red.
-   2b. Native /profile integrates navigation to the existing upstream conversation
+   2a. CLOSED: __task-snapshot-v1 current-writer projection; shared registered-home
+       resolver. Public focus2+owner1, Manager33+46/clippy, Core184 (1 opt-in ignored),
+       real native6 +3 current-writer observations and protected27/40/39/12 pass.
+       ETXTBSY test-parent class restored with serialized libtest cases across all
+       affected Core/Manager fixtures. Accepted disposition/evidence lives in GOAL.
+   2b. CURRENT. Native /profile integrates navigation to the existing upstream conversation
        selector and agents hierarchy with execution-profile/current-writer labels.
        Reuse upstream data/loaders and UI lifecycle; no replacement session store.
        Paths: bounded experimental native TUI modules/patch and separate *_tests.
+       Baseline: native display source is unchanged from accepted12/12; Manager
+       data is green. First proof must cover queued /profile bridge failure: current
+       error branch opens no picker after DrainStop, so confirm following queued
+       input resumes rather than stalls. Restore this path before new navigation.
+       Then integrate bounded task reads, profile/history/agent routes and identity.
        Proof: native dispatch, history/agent routing, exact identity labels,
        unavailable Manager, search/cancel and manually reviewed rendered snapshots.
        Gate: native CLI/TUI compile, focused nonzero just test, lint/diff before2c.

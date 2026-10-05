@@ -530,15 +530,8 @@ fn discover(context: &Context, filter: Option<&str>) -> Result<Vec<Task>, Manage
     Ok(tasks)
 }
 fn account(context: &Context, home: &Path) -> Result<String, ManagerError> {
-    if home == context.home.join(".codex") {
-        return Ok("default".to_owned());
-    }
-    if let Some(dirs) = existing_manager_profiles(context)? {
-        for id in list_custom_profiles(context)? {
-            if home == profile_home_path(&dirs, &id) {
-                return Ok(id);
-            }
-        }
+    if let Some(id) = profile_view::registered_id(context, home)? {
+        return Ok(id);
     }
     // Execution home is non-secret identity, escaped to prevent terminal control injection.
     Ok(format!(
@@ -546,6 +539,22 @@ fn account(context: &Context, home: &Path) -> Result<String, ManagerError> {
         home.display().to_string().escape_default()
     ))
 }
+pub(super) fn snapshot(context: &Context) -> Result<String, ManagerError> {
+    let mut records = Vec::new();
+    for task in discover(context, None)? {
+        records.push(json!({
+            "id": task.id,
+            "owner_profile": profile_view::registered_id(context, &task.server.home)?,
+            "state": task.state,
+            "server_token": task.server.token(),
+        }));
+    }
+    Ok(format!(
+        "{}\n",
+        json!({"schema": "codex-manager-tasks-v1", "tasks": records})
+    ))
+}
+
 fn format_tasks(context: &Context, tasks: &[Task]) -> Result<String, ManagerError> {
     let mut output = String::new();
     for task in tasks {

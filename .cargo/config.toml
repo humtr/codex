@@ -1,0 +1,5 @@
+# Native process fixtures materialize executables and fork under one test parent.
+# Serialize test cases so unrelated children cannot retain a writable executable FD.
+# Individual cases still exercise concurrent clients, writers and update actors.
+[env]
+RUST_TEST_THREADS = { value = "1", force = true }

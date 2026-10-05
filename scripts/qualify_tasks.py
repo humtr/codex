@@ -113,7 +113,7 @@ def materialize_signed_generation(generation, native):
         shutil.copy2(generation / relative, target)
 
 
-def qualify(generation, parent, public_key):
+def qualify(generation, parent, public_key, observe_owner=None):
     core = generation / "core"
     with tempfile.TemporaryDirectory(prefix="tq", dir=parent) as temporary:
         root = Path(temporary)
@@ -288,6 +288,8 @@ requires_openai_auth = false
             rpc.close()
             text = wait_owner(thread, "state=active")
             assert "owner=account-a" in text
+            if observe_owner is not None:
+                observe_owner(prefix / "bin/codex", env, root, thread, "account-a")
             print("PASS native running-disconnect preserves active writer and discovers account-a")
             # Cross-account same-ID native resume really fails while A owns the writer.
             other, other_master = tui(["resume", thread])
@@ -327,6 +329,8 @@ requires_openai_auth = false
             text = wait_owner(thread, "owner=default")
             assert transferred.poll() is None
             assert "state=idle" in text
+            if observe_owner is not None:
+                observe_owner(prefix / "bin/codex", env, root, thread, "default")
             print("PASS native PID-stable force scope and ordinary same-ID current-account takeover")
             rpc.close()
             # The previous held-subscriber client is outside server termination scope.
@@ -357,6 +361,8 @@ requires_openai_auth = false
             assert selected.returncode == 0, selected.stderr.decode()
             normal, normal_master = tui(["termux", "task", "takeover", thread])
             wait_transfer(thread, normal, normal_master)
+            if observe_owner is not None:
+                observe_owner(prefix / "bin/codex", env, root, thread, "account-b")
             print("PASS native goal pause persists and normal stop transfers the writer to the saved-default account")
         finally:
             release.set()

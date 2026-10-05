@@ -304,6 +304,12 @@ where
 }
 
 fn run_inner(args: Vec<OsString>) -> Result<Option<String>, ManagerError> {
+    if is_exact(args.first(), "__task-snapshot-v1") {
+        if args.len() != 1 {
+            return Err(ERR_USAGE);
+        }
+        return task::snapshot(&capture_context()?).map(Some);
+    }
     if is_exact(args.first(), "__profile-snapshot-v1") {
         if args.len() != 1 {
             return Err(ERR_USAGE);

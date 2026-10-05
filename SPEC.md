@@ -46,6 +46,26 @@ No prototype is publishable or installable until separate completion and admissi
   64KiB and elapsed time to3 seconds, and rejects malformed/unknown protocol data.
   Failure is bounded in the current UI; cancellation returns to the current chat.
   This read-only display is a slice gate, never full profile-switch acceptance.
+- Integrated native views read observed current writers through exact no-argument
+  `codex termux __task-snapshot-v1`. Its one JSON record uses schema
+  codex-manager-tasks-v1 and tasks sorted by canonical thread UUID, at most1024.
+  Each record contains id, owner_profile (registered ID or null for a qualified
+  external execution home), state (active/idle/systemError/notLoaded), and
+  server_token (the qualified current server's PID:start identity). Existing
+  server qualification and kernel writer-lock discovery alone determine ownership;
+  a creator, history author, selected profile or loaded read-only copy is not an
+  owner. Output is bounded to256KiB and has no paths, credentials or transcripts;
+  this command performs no writes and never stops or starts work.
+- Native task reads use the same qualified explicit Core bridge, fixed argv,
+  256KiB stdout and12-second total bound (existing Manager scan deadline10 seconds).
+  Execution-profile context is distinct from a confirmed writer's profile.
+  A null owner_profile means a confirmed external writer; missing task data or a
+  failed query is unconfirmed/unavailable, never evidence of an unlocked thread.
+  Observations are transient; later actions must revalidate actual owner identity.
+  Native history/agent navigation reuses upstream lists, ancestry and UI lifecycle
+  without a second history index or new persistent state. Cancellation/error must
+  leave the current chat usable. These read-only integration slices do not close
+  same-terminal account transition or active-owner safety requirements.
 - Native upstream compile/executable baseline precedes prototype behavior. A mock
   chooser or external wrapper alone cannot prove the `/profile` product path.
   Admission requires actual slash dispatch, profile/history/agent presentation,

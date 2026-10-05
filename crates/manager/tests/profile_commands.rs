@@ -10,6 +10,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 #[path = "profile_commands/profile_snapshot.rs"]
 mod profile_snapshot;
 
+#[path = "profile_commands/task_snapshot.rs"]
+mod task_snapshot;
+
 const CORE_API_ENV: &str = "CODEX_TERMUX_CORE_API";
 const CORE_ENTRYPOINT_ENV: &str = "CODEX_TERMUX_CORE_ENTRYPOINT";
 const CORE_API: &str = "codex-manager-core-v1";
@@ -2000,6 +2003,14 @@ fn active_task_owner_follows_current_kernel_writer_not_original_loaded_server() 
     assert!(f.child.id() > 1);
     let released = run_manager(&f.root.0, &f.core, &["task", "status", TASK_ID], None);
     assert_eq!(released.stdout, b"No current task writers found.\n");
+    let snapshot = run_manager(&f.root.0, &f.core, &["__task-snapshot-v1"], None);
+    assert_eq!(snapshot.status.code(), Some(0));
+    let value: serde_json::Value = serde_json::from_slice(&snapshot.stdout).unwrap();
+    assert!(value["tasks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|t| t["id"] != TASK_ID));
     let account = f.root.0.join("external-b");
     fs::create_dir(&account).unwrap();
     fs::set_permissions(&account, fs::Permissions::from_mode(0o700)).unwrap();
@@ -2056,6 +2067,24 @@ fn active_task_owner_follows_current_kernel_writer_not_original_loaded_server() 
     );
     let text = String::from_utf8(status.stdout).unwrap();
     assert!(text.contains("external-b") && !text.contains("external-a"));
+    let snapshot = run_manager(&f.root.0, &f.core, &["__task-snapshot-v1"], None);
+    assert_eq!(snapshot.status.code(), Some(0));
+    assert!(snapshot.stderr.is_empty());
+    assert!(!String::from_utf8_lossy(&snapshot.stdout).contains("external-"));
+    let value: serde_json::Value = serde_json::from_slice(&snapshot.stdout).unwrap();
+    assert_eq!(value["schema"], "codex-manager-tasks-v1");
+    let current = value["tasks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["id"] == TASK_ID)
+        .unwrap();
+    assert_eq!(current["owner_profile"], serde_json::Value::Null);
+    assert_eq!(current["state"], "active");
+    assert_eq!(
+        current["server_token"],
+        text.split("server=").nth(1).unwrap().trim()
+    );
     let reconnect = run_manager(&f.root.0, &f.core, &["task", "reconnect", TASK_ID], None);
     assert_eq!(reconnect.status.code(), Some(37));
     assert!(String::from_utf8(reconnect.stdout)
