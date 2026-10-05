@@ -11,7 +11,7 @@ No product source behavior changes; preserve signed Core/runtime/helpers exactly
 | Slice | Observable behavior | Allowed paths | Focused proof | Protected surfaces | State |
 | --- | --- | --- | --- | --- | --- |
 | D1 | Same-version candidate binds accepted Manager while preserving all other payloads | owned workflow preview/candidate and authority | authenticated seq36/upstream pins; actual component delta faults; event/preflight/CAS binding | installed files, credentials, public stable | closed: signed baseline, actual shell49, current regression7, native5; diff inspected |
-| D2 | Hosted signed candidate reaches authenticated public readback before stable promotion | separate publication checkout; bounded Release/Pages/main CAS | exact-parent event, native smoke, signing, every-byte readback, disposable update/no-op | signing key, old stable, sealed/source lineage | waiting: exact local ca56bd76 candidate; explicit operational approval requested |
+| D2 | Hosted signed candidate reaches authenticated public readback before stable promotion | separate publication checkout; bounded Release/Pages/main CAS | exact-parent event, native smoke, signing, every-byte readback, disposable update/no-op | signing key, old stable, sealed/source lineage | active: user explicitly approved ca56bd76 main push, signing/publication and verified installation |
 | D3 | Ordinary installed update activates only verified sequence37 and retains36 | public Core update boundary and owned device probes | candidate digest/mode/signature; version/doctor/task read-only; actual owned-root task qualification | user account/session/auth/preferences/resolver and existing jobs | pending D2 |
 | D4 | Final acceptance binds source/public/installed evidence and protected identities | GOAL/WORKBOARD; ordinary source commit/push | full gate identities, production diff review and protection comparison | installed36 rollback, user data, sealed branches | pending D3 |
 
@@ -69,3 +69,8 @@ explicit for this exact release side effect. The rejected command never ran;
 safe local commit succeeded. Exact main push/signing/publication/verified ordinary
 installation approval is pending. Keep all dependent public/live actions stopped;
 source authority commit/push and read-only verification remain unaffected.
+
+D2 approval resolved: user answered 승인 to the exact candidate/publication/
+installation question. Rebound sourcec5c619f1, clean candidateca56bd76 and remote
+main15487ecca7de7e28c9ed743bb09afb394b208005. Proceed through the same ordinary
+non-force push and hosted gates; no bypass or new authorization scope.
