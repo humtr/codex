@@ -77,8 +77,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  CODEX_SOURCE_SHA: '705afb98098f27d613130cd3fd4d0f84fb74fc50'
-  RALD5_SOURCE_SHA: '705afb98098f27d613130cd3fd4d0f84fb74fc50'
+  CODEX_SOURCE_SHA: 'af1a3df6d99a01b5c649f0f47beef6703128feab'
+  RALD5_SOURCE_SHA: 'af1a3df6d99a01b5c649f0f47beef6703128feab'
   RUST_VERSION: '1.98.0'
   ANDROID_API: '24'
   ANDROID_NDK_VERSION: '27.3.13750724'
@@ -121,10 +121,12 @@ env:
   DOWNLOAD_SIZE_DEPLOY_CURRENT_GENERATION: 'local-hosted-0-159-0-b164e5b61cb4'
   DOWNLOAD_SIZE_DEPLOY_CURRENT_SEQUENCE: '23'
   DOWNLOAD_SIZE_DEPLOY_TARGET_SEQUENCE: '24'
-  ACTIVE_TASK_RELEASE_ACCEPTED_SOURCE_SHA: '705afb98098f27d613130cd3fd4d0f84fb74fc50'
-  ACTIVE_TASK_RELEASE_CURRENT_GENERATION: 'local-hosted-0-160-0-6523921a1d33-permission-memory'
-  ACTIVE_TASK_RELEASE_CURRENT_SEQUENCE: '36'
-  ACTIVE_TASK_RELEASE_TARGET_SEQUENCE: '37'
+  ACTIVE_TASK_RELEASE_ACCEPTED_SOURCE_SHA: 'af1a3df6d99a01b5c649f0f47beef6703128feab'
+  ACTIVE_TASK_RELEASE_CURRENT_GENERATION: 'local-hosted-0-160-0-705afb98098f-active-task-handoff'
+  ACTIVE_TASK_RELEASE_CURRENT_SEQUENCE: '37'
+  ACTIVE_TASK_RELEASE_TARGET_SEQUENCE: '38'
+  ACTIVE_TASK_RELEASE_PROTECTED_GENERATION: 'local-hosted-0-160-0-6523921a1d33-permission-memory'
+  ACTIVE_TASK_RELEASE_PROTECTED_SEQUENCE: '36'
   ACTIVE_TASK_RELEASE_TARGET_VERSION: '0.160.0'
   ACTIVE_TASK_RELEASE_TARGET_ARCHIVE_SHA256: '7f0fe42ff22ecfa3a47bc4a34f5b22c4218b431a4ec0aba51c7d98299f07900c'
   WRAPPER_PUBLIC_KEY_SHA256: '62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c'
@@ -259,7 +261,7 @@ jobs:
           printf 'release_sequence=%s\n' "$release_sequence" >> "$GITHUB_OUTPUT"
 
       - name: Validate exact active-task-handoff corrective inputs
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == '15487ecca7de7e28c9ed743bb09afb394b208005' && github.event.head_commit.message == 'release-owner-handoff-seq37-source-705afb98' }}
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == '3da4b294e1a6d62b1b5ba775acf88aae375c3189' && github.event.head_commit.message == 'release-owner-handoff-seq38-source-af1a3df6' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -283,8 +285,8 @@ jobs:
         shell: bash
         env:
           RALD4_POSITIVE_GATE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald4_positive_gate }}
-          ACTIVE_TASK_RELEASE_PUSH_BRIDGE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == '15487ecca7de7e28c9ed743bb09afb394b208005' && github.event.head_commit.message == 'release-owner-handoff-seq37-source-705afb98' }}
-          RALD5_PUBLICATION_AUTHORIZED: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.rald5_publication_authorized) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == '15487ecca7de7e28c9ed743bb09afb394b208005' && github.event.head_commit.message == 'release-owner-handoff-seq37-source-705afb98') }}
+          ACTIVE_TASK_RELEASE_PUSH_BRIDGE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == '3da4b294e1a6d62b1b5ba775acf88aae375c3189' && github.event.head_commit.message == 'release-owner-handoff-seq38-source-af1a3df6' }}
+          RALD5_PUBLICATION_AUTHORIZED: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.rald5_publication_authorized) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == '3da4b294e1a6d62b1b5ba775acf88aae375c3189' && github.event.head_commit.message == 'release-owner-handoff-seq38-source-af1a3df6') }}
           RALD5_SAME_VERSION_ACCEPTANCE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald5_same_version_acceptance }}
           RALD45_TRANSITION_STAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald45_transition_stage }}
           RALD45_TRANSITION_PROMOTE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald45_transition_promote }}
@@ -365,7 +367,7 @@ jobs:
             test "$archive_sha256" = "$ACTIVE_TASK_RELEASE_TARGET_ARCHIVE_SHA256"
             test "$candidate" = false
             candidate=true
-            acceptance_suffix='-active-task-handoff'
+            acceptance_suffix='-active-task-handoff-r2'
             printf 'active-task-handoff same-version corrective selected: %s sequence %s -> sequence %s\n' \
               "$upstream_version" "$ACTIVE_TASK_RELEASE_CURRENT_SEQUENCE" "$ACTIVE_TASK_RELEASE_TARGET_SEQUENCE"
           fi
@@ -741,9 +743,6 @@ jobs:
             test ! -L "$work/candidate/$executable"
             test "$(stat -c '%a' "$work/candidate/$executable")" = '755'
           done
-          tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
-            -cf "$work/candidate.tar" -C "$work" candidate
-          test "$(stat -c '%s' "$work/candidate.tar")" -lt 1073741824
 
 
       - name: Require exact sequence-12 component bytes for legacy-lag remediation
@@ -1205,15 +1204,36 @@ jobs:
                   raise SystemExit(f"Core-only corrective descriptor changed forbidden field: {key}")
           PY
 
+      - name: Authenticate exact protected sequence36 generation
+        if: steps.decision.outputs.active_task_release_push_bridge == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          protected="$RUNNER_TEMP/rald3-protected"
+          mkdir -p "$protected"
+          base="https://github.com/humtr/codex/releases/download/$ACTIVE_TASK_RELEASE_PROTECTED_GENERATION/"
+          for rel in release.manifest release.sig generation.meta; do
+            curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+              --connect-timeout 15 --max-time 60 --max-filesize 131072 --output "$protected/$rel" "${base}$rel"
+          done
+          test "$(wc -c < "$protected/release.sig")" -eq 64
+          openssl pkeyutl -verify -rawin -pubin -inkey "$RUNNER_TEMP/rald3-stable/update-public-key.pem" \
+            -in "$protected/release.manifest" -sigfile "$protected/release.sig"
+          python3 source/.github/scripts/rald3_preflight.py manifest-entry "$protected/release.manifest" generation.meta > "$protected/entry"
+          test "$(sed -n 's/^generation_id=//p' "$protected/entry")" = "$ACTIVE_TASK_RELEASE_PROTECTED_GENERATION"
+          test "$(sed -n 's/^release_sequence=//p' "$protected/entry")" = "$ACTIVE_TASK_RELEASE_PROTECTED_SEQUENCE"
+          test "$(sed -n 's/^mode=//p' "$protected/entry")" = 0644
+          test "$(sha256sum "$protected/generation.meta" | awk '{print $1}')" = "$(sed -n 's/^sha256=//p' "$protected/entry")"
+          test "$(sed -n 's/^generation_id\t//p' "$protected/generation.meta")" = "$ACTIVE_TASK_RELEASE_PROTECTED_GENERATION"
+
       - name: Preserve authenticated stable Core for Manager-only delivery
         if: steps.decision.outputs.active_task_release_push_bridge == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          stable="$RUNNER_TEMP/rald3-stable"
+          stable="$RUNNER_TEMP/rald3-protected"
           candidate="$RUNNER_TEMP/rald3-candidate/candidate"
-          base="$(sed -n 's/^release_base=//p' "$stable/index.authenticated")"
-          test "$base" = 'https://humtr.github.io/codex/local-hosted-0-160-0-6523921a1d33-permission-memory/'
+          base='https://github.com/humtr/codex/releases/download/local-hosted-0-160-0-6523921a1d33-permission-memory/'
           python3 source/.github/scripts/rald3_preflight.py manifest-entry "$stable/release.manifest" core > "$stable/core-entry"
           test "$(sed -n 's/^mode=//p' "$stable/core-entry")" = 0755
           curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
@@ -1234,7 +1254,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          stable="$RUNNER_TEMP/rald3-stable"
+          stable="$RUNNER_TEMP/rald3-protected"
           candidate="$RUNNER_TEMP/rald3-candidate/candidate"
           for rel in core runtime codex-code-mode-host helpers/0 helpers/1; do
             entry="$RUNNER_TEMP/active-task-entry-${rel//\//-}"
@@ -1322,6 +1342,16 @@ jobs:
           if-no-files-found: error
           retention-days: 1
           compression-level: 0
+
+      - name: Package admitted unsigned candidate
+        if: steps.decision.outputs.candidate == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/rald3-candidate"
+          tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
+            -cf "$work/candidate.tar" -C "$work" candidate
+          test "$(stat -c '%s' "$work/candidate.tar")" -lt 1073741824
 
       - name: Upload unsigned candidate only
         if: steps.decision.outputs.candidate == 'true'

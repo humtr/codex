@@ -5,11 +5,12 @@ import hashlib,os,shutil,subprocess,sys,tempfile,textwrap,unittest
 
 WORKFLOW=Path(__file__).parents[1]/'workflows/auto-release-termux.yml'
 TEXT=WORKFLOW.read_text()
-SOURCE='705afb98098f27d613130cd3fd4d0f84fb74fc50'
-PARENT='15487ecca7de7e28c9ed743bb09afb394b208005'
-CURRENT='local-hosted-0-160-0-6523921a1d33-permission-memory'
-NEW='local-hosted-0-160-0-705afb98098f-active-task-handoff'
-MESSAGE='release-owner-handoff-seq37-source-705afb98'
+SOURCE='af1a3df6d99a01b5c649f0f47beef6703128feab'
+PARENT='3da4b294e1a6d62b1b5ba775acf88aae375c3189'
+CURRENT='local-hosted-0-160-0-705afb98098f-active-task-handoff'
+PROTECTED='local-hosted-0-160-0-6523921a1d33-permission-memory'
+NEW='local-hosted-0-160-0-af1a3df6d99a-active-task-handoff-r2'
+MESSAGE='release-owner-handoff-seq38-source-af1a3df6'
 
 def body(name):
  block=TEXT.split('      - name: '+name+'\n',1)[1].split('      - name:',1)[0]
@@ -37,19 +38,44 @@ class DeliveryTests(unittest.TestCase):
   start=TEXT.index('          test "$ACTIVE_TASK_RELEASE_PUSH_BRIDGE" = true -o')
   end=TEXT.index('          if test "$RALD4_POSITIVE_GATE" = true; then',start)
   code=textwrap.dedent(TEXT[start:end])
-  stable={'current_version':'0.160.0','current_generation':CURRENT,'current_release_sequence':'36','release_sequence':'37'}
+  stable={'current_version':'0.160.0','current_generation':CURRENT,'current_release_sequence':'37','release_sequence':'38'}
   for k in stable:code=code.replace("'${{ steps.stable.outputs."+k+" }}'",'"$STABLE_'+k+'"')
-  script='set -euo pipefail\n'+code+'\ntest "$candidate" = true\ntest "$acceptance_suffix" = -active-task-handoff\n'
+  script='set -euo pipefail\n'+code+'\ntest "$candidate" = true\ntest "$acceptance_suffix" = -active-task-handoff-r2\n'
   flags=['RALD4_POSITIVE_GATE','RALD5_SAME_VERSION_ACCEPTANCE','RALD45_TRANSITION_STAGE','RALD45_TRANSITION_PROMOTE','RALD5_NEGATIVE_GATE','LEGACY_LAG_JUMP_REMEDIATION','UX1_SAME_VERSION_DEPLOY','UPDATE_PROGRESS_SAME_VERSION_DEPLOY','EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY','NO_EMOJI_SAME_VERSION_DEPLOY','DOWNLOAD_SIZE_SAME_VERSION_DEPLOY']
-  env={**os.environ,**{k:'false' for k in flags},**{'STABLE_'+k:v for k,v in stable.items()},'ACTIVE_TASK_RELEASE_PUSH_BRIDGE':'true','GITHUB_EVENT_NAME':'push','GITHUB_REF':'refs/heads/main','RALD5_PUBLICATION_AUTHORIZED':'true','CODEX_SOURCE_SHA':SOURCE,'ACTIVE_TASK_RELEASE_ACCEPTED_SOURCE_SHA':SOURCE,'ACTIVE_TASK_RELEASE_TARGET_VERSION':'0.160.0','ACTIVE_TASK_RELEASE_CURRENT_GENERATION':CURRENT,'ACTIVE_TASK_RELEASE_CURRENT_SEQUENCE':'36','ACTIVE_TASK_RELEASE_TARGET_SEQUENCE':'37','ACTIVE_TASK_RELEASE_TARGET_ARCHIVE_SHA256':'7f0fe42ff22ecfa3a47bc4a34f5b22c4218b431a4ec0aba51c7d98299f07900c','upstream_version':'0.160.0','archive_sha256':'7f0fe42ff22ecfa3a47bc4a34f5b22c4218b431a4ec0aba51c7d98299f07900c','candidate':'false'}
+  env={**os.environ,**{k:'false' for k in flags},**{'STABLE_'+k:v for k,v in stable.items()},'ACTIVE_TASK_RELEASE_PUSH_BRIDGE':'true','GITHUB_EVENT_NAME':'push','GITHUB_REF':'refs/heads/main','RALD5_PUBLICATION_AUTHORIZED':'true','CODEX_SOURCE_SHA':SOURCE,'ACTIVE_TASK_RELEASE_ACCEPTED_SOURCE_SHA':SOURCE,'ACTIVE_TASK_RELEASE_TARGET_VERSION':'0.160.0','ACTIVE_TASK_RELEASE_CURRENT_GENERATION':CURRENT,'ACTIVE_TASK_RELEASE_CURRENT_SEQUENCE':'37','ACTIVE_TASK_RELEASE_TARGET_SEQUENCE':'38','ACTIVE_TASK_RELEASE_TARGET_ARCHIVE_SHA256':'7f0fe42ff22ecfa3a47bc4a34f5b22c4218b431a4ec0aba51c7d98299f07900c','upstream_version':'0.160.0','archive_sha256':'7f0fe42ff22ecfa3a47bc4a34f5b22c4218b431a4ec0aba51c7d98299f07900c','candidate':'false'}
   self.assertEqual(subprocess.run(['bash','-c',script],env=env,capture_output=True).returncode,0)
   faults={'ACTIVE_TASK_RELEASE_PUSH_BRIDGE':'false','CODEX_SOURCE_SHA':'0'*40,'GITHUB_EVENT_NAME':'schedule','GITHUB_REF':'refs/heads/other','RALD5_PUBLICATION_AUTHORIZED':'false','candidate':'true','upstream_version':'0.161.0','archive_sha256':'0'*64,**{'STABLE_'+k:'wrong' for k in stable},**{k:'true' for k in flags}}
   for k,v in faults.items():
    with self.subTest(field=k):self.assertNotEqual(subprocess.run(['bash','-c',script],env={**env,k:v},capture_output=True).returncode,0)
 
+ def test_protected_generation_authentication_rejects_substitution(self):
+  code=body('Authenticate exact protected sequence36 generation')
+  for fault in [None,'signature','manifest','descriptor','other-signed-generation','sequence','identity','key','mode']:
+   with self.subTest(fault=fault),tempfile.TemporaryDirectory(prefix='protected-release-') as temp:
+    root=Path(temp);stable=root/'rald3-stable';stable.mkdir();download=root/'downloads';download.mkdir()
+    helper=root/'source/.github/scripts/rald3_preflight.py';helper.parent.mkdir(parents=True)
+    helper.write_bytes(subprocess.check_output(['git','show',SOURCE+':.github/scripts/rald3_preflight.py'],cwd=WORKFLOW.parent))
+    private=root/'fixture-private.pem';public=stable/'update-public-key.pem'
+    subprocess.run(['openssl','genpkey','-algorithm','Ed25519','-out',str(private)],check=True,capture_output=True)
+    subprocess.run(['openssl','pkey','-in',str(private),'-pubout','-out',str(public)],check=True,capture_output=True)
+    identity=CURRENT if fault=='other-signed-generation' else PROTECTED
+    meta=download/'generation.meta';meta.write_text('codex-local-generation-v2\n'+'generation_id\t'+identity+'\n')
+    headers=[('generation_id',identity),('release_sequence','36'),('channel','stable'),('expected_platform','android'),('expected_architecture','aarch64'),('core_api_identity','core-api-v1'),('persistent_schema_identity','schema-v1'),('release_public_key','11'*32),('file_count','1')]
+    manifest=download/'release.manifest';manifest.write_text('codex-release-v4\n'+''.join(k+'\t'+v+'\n' for k,v in headers)+'file\tgeneration.meta\t'+hashlib.sha256(meta.read_bytes()).hexdigest()+'\t'+('0755' if fault=='mode' else '0644')+'\n')
+    subprocess.run(['openssl','pkeyutl','-sign','-rawin','-inkey',str(private),'-in',str(manifest),'-out',str(download/'release.sig')],check=True,capture_output=True)
+    if fault=='signature':(download/'release.sig').write_bytes(b'x'*64)
+    if fault=='manifest':manifest.write_bytes(b'changed')
+    if fault=='descriptor':meta.write_bytes(b'changed')
+    if fault=='key':public.write_bytes(b'wrong')
+    tools=root/'bin';tools.mkdir();curl=tools/'curl'
+    curl.write_text('#!'+sys.executable+'\nimport os,sys,shutil\nfrom pathlib import Path\na=sys.argv[1:]\nshutil.copyfile(Path(os.environ["FIXTURE_DOWNLOADS"])/a[-1].rsplit("/",1)[1],a[a.index("--output")+1])\n');curl.chmod(0o755)
+    env={**os.environ,'RUNNER_TEMP':str(root),'PATH':str(tools)+os.pathsep+os.environ['PATH'],'FIXTURE_DOWNLOADS':str(download),'ACTIVE_TASK_RELEASE_PROTECTED_GENERATION':'wrong' if fault=='identity' else PROTECTED,'ACTIVE_TASK_RELEASE_PROTECTED_SEQUENCE':'37' if fault=='sequence' else '36','PYTHONDONTWRITEBYTECODE':'1'}
+    result=subprocess.run(['bash','-c',code],cwd=root,env=env,capture_output=True,timeout=20)
+    self.assertEqual(result.returncode==0,fault is None)
+
  def component(self,fault=None):
   with tempfile.TemporaryDirectory(prefix='active-task-release-') as temp:
-   root=Path(temp);stable=root/'rald3-stable';new=root/'rald3-candidate/candidate';stable.mkdir();new.mkdir(parents=True)
+   root=Path(temp);stable=root/'rald3-protected';new=root/'rald3-candidate/candidate';stable.mkdir();new.mkdir(parents=True)
    helper=root/'source/.github/scripts/rald3_preflight.py';helper.parent.mkdir(parents=True)
    helper.write_bytes(subprocess.check_output(['git','show',SOURCE+':.github/scripts/rald3_preflight.py'],cwd=WORKFLOW.parent))
    inventory=[]
@@ -57,7 +83,7 @@ class DeliveryTests(unittest.TestCase):
     p=new/rel;p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(rel.encode());p.chmod(0o755)
     inventory.append((rel,hashlib.sha256(p.read_bytes()).hexdigest(),'0755'))
    digest=hashlib.sha256((new/'manager').read_bytes()).hexdigest()
-   old=[('generation_id',CURRENT),('manager_artifact_digest','0'*64),('core_artifact_digest','a'*64),('patch_policy_id','termux-fd-remap-v3'),('runtime_digest','b'*64),('helper','one'),('helper','two')]
+   old=[('generation_id',PROTECTED),('manager_artifact_digest','0'*64),('core_artifact_digest','a'*64),('patch_policy_id','termux-fd-remap-v3'),('runtime_digest','b'*64),('helper','one'),('helper','two')]
    current=[(k,NEW if k=='generation_id' else digest if k=='manager_artifact_digest' else v) for k,v in old]
    if fault:
     kind,key=fault
@@ -71,7 +97,7 @@ class DeliveryTests(unittest.TestCase):
    for path,rows in [(stable/'generation.meta',old),(new/'generation.meta',current)]:path.write_text('codex-local-generation-v2\n'+''.join(k+'\t'+v+'\n' for k,v in rows))
    if fault and fault[0]=='framing':
     p=new/'generation.meta';p.write_bytes(p.read_bytes().rstrip(b'\n'))
-   headers=[('generation_id',CURRENT),('release_sequence','36'),('channel','stable'),('expected_platform','android'),('expected_architecture','aarch64'),('core_api_identity','core-api-v1'),('persistent_schema_identity','schema-v1'),('release_public_key','11'*32),('file_count',str(len(inventory)))]
+   headers=[('generation_id',PROTECTED),('release_sequence','36'),('channel','stable'),('expected_platform','android'),('expected_architecture','aarch64'),('core_api_identity','core-api-v1'),('persistent_schema_identity','schema-v1'),('release_public_key','11'*32),('file_count',str(len(inventory)))]
    (stable/'release.manifest').write_text('codex-release-v4\n'+''.join(k+'\t'+v+'\n' for k,v in headers)+''.join('file\t'+'\t'.join(row)+'\n' for row in sorted(inventory)))
    code=body('Bind active-task Manager-only release to exact protected payloads').replace('${{ steps.decision.outputs.generation_id }}',NEW)
    return subprocess.run(['bash','-c',code],cwd=root,env={**os.environ,'RUNNER_TEMP':str(root),'PYTHONDONTWRITEBYTECODE':'1'},capture_output=True).returncode
