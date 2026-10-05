@@ -206,7 +206,7 @@
   native behaviors exit0, under credential-free owned roots only. Installation is
   still36/previous35 until the final source/protection gate and ordinary update.
 
-## ACTIVE-TASK-HANDOFF installed closure (in progress 2026-10-05)
+## ACTIVE-TASK-HANDOFF installed closure (accepted 2026-10-05)
 
 - Exact source55035d5 hosted37264886500 all5 jobs passed. Ordinary approved
   update activated signed38 and retained complete36. Independent installed
@@ -277,6 +277,44 @@
   then ordinary installed update preserving complete38 as previous rollback under
   unchanged Core policy. Never overwrite37/38, retain36 manually, mutate user data
   or cancel real jobs. Await that grant after presenting this concrete candidate.
+
+- User 승인. 진행해. explicitly authorized exactfadae244/39. Ordinary main push
+  completed; exact production37288954360 all8 jobs succeeded through Android build/
+  smoke/signing, immutable Release, LKG Pages, public every-byte/disposable update/
+  no-op and non-force CAS. Promoted main is471590750468f6d99b520c3a8d47b03a474aacbb,
+  stable signed39 generationlocal-hosted-0-160-0-b7c1e61019b1-retired-server-discovery.
+- Fresh independent pinned-key signature/index/manifest/every-byte/download-size
+  readback passes. Only Manager and descriptor identity/binding changed from38;
+  all five protected Core/runtime/helper payloads and ordered descriptor policy
+  remain exact36/38. Official0.160.0/archive7f0fe42f retained. Signed39 Manager
+  SHA-256 is31d7c076c2d49e3495d5f27171c3b8e5141d70140b20809b7b1671b96b03f2a1;
+  Core SHA-256 remains3d994dd187515276de755d1332a369469355bc2d21010b470313c7a6e7b1c648.
+- Actual production-signed39 native qualification passes all6 behaviors through
+  the real Core entrypoint, including exited record preservation, running disconnect,
+  owner reconnect/foreign writer rejection, confirmed cancellation, retained-subscriber
+  rejection, scoped PID-stable force and ordinary same-UUID account takeover/goal pause.
+  All native work/signals occur only in owned credential-free temporary roots.
+- Ordinary installed codex update exits0 and activates exact39, retaining complete38
+  (all9 files byte/mode exact) as previous. Installed signed inventory/launcher/signature,
+  upstream exact codex-cli0.160.0 and all five task help forms pass. Real installed
+  task status now exits0 (two current writers; private identities/content not saved),
+  fixing the previously observed installed38 exit1. Composed doctor exits0 with
+  upstream/Core/runtime/code-mode-host/Manager/summary healthy; sandbox remains
+  unsupported as intended. No alias trust or permission/runtime change was added.
+- Fresh immediate pre-update PID/start baseline10 is preserved exactly. Protected
+  paths27 have only authorized activation-state change; auth/profiles/sessions/
+  preferences/resolver identities remain unchanged. Obsolete36 retired normally
+  because current39/previous38 replace38/36; no live job was killed. A protection
+  probe initially retained the superseded36 expectation: reject that stale invariant,
+  bind actual authorized complete38 rollback plus all10 real jobs, and reverify.
+  No manual retained-generation copy or Core policy change was made.
+- Installed second ordinary update returns exactly Codex0.160.0 is already up to
+  date., exit0/empty stderr, with full bound snapshot unchanged. Local protectedmain
+  and sealedlegacy refs remain2ffb95f/bf30a7d; rewrite history is independent.
+- Disposition: ACTIVE-TASK-HANDOFF delivery and installed corrective39 are accepted
+  and closed. Current39/previous38 are healthy. No task stop, new public/live mutation
+  or additional feature follows from this closed bundle. Deferred input-cache discussion
+  remains separate user-selected follow-up; no speculative cache changes are made.
 
 ## ACTIVE-TASK-HANDOFF (source accepted 2026-10-05)
 
@@ -5559,3 +5597,11 @@ Resume through the installed `$goal-md` workflow with
 `gpt-5.6-sol` / `max`. The primary Lead authors, records, and directly implements
 each bounded bundle. The legacy branch may be inspected by the Lead for behavior
 discovery but no source file may be copied into the rewrite.
+
+2026-10-05 user replied 승인. 진행해. to exact fadae244d8bf4e3f88ebf7af1e1510cb2eeea2d7/39 request.
+Operational authorization now covers ordinary humtr/codex main push, signed39
+Release/Pages/non-force CAS, independent actual signed/public/native qualification,
+and ordinary installed update retaining complete38 as previous. Resume binds clean
+rewrite6a71005, clean exact candidatefadae24/parent9bac2f41, remote9bac2f41 and
+accepted exact sourceb7c1e61 hosted37275318923 success. Workers OFF. No permission
+question remains for this bounded delivery; no user work cancellation authorized.
