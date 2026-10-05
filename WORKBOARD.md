@@ -15,8 +15,8 @@ Do not claim delivery complete from an owned fixture alone.
 | Slice | Observable behavior | Allowed paths | Focused proof | Protected surfaces | State |
 | --- | --- | --- | --- | --- | --- |
 | D3a | Exited bindings do not poison discovery | SPEC; Manager task ordering; integration tests | baseline unit8; pre-fix red1; integration15; all new production branch mapping | strict live owner/writer proofs, Core, user data/processes | closed |
-| D3b | Real native/public path preserves retired metadata and works | qualifier only; owned signed fixture/native Manager | native6; qualifier7; actual real-bindings read-only exit0; grouped full/clippy/fmt/diff | public38, installed38/previous36, protected paths27/retained36 files9/PID-start7 | closed locally; exact source hosted gate pending |
-| D3c | Concrete forward Manager-only release candidate | isolated main checkout workflow/current publication tests | exact source/event/current38/next39; signed36 five protected payloads; actual workflow tests/admission/archive/shell | key, immutable37/38, source/legacy lineage, live installation | pending source commit/hosted and candidate qualification |
+| D3b | Real native/public path preserves retired metadata and works | qualifier only; owned signed fixture/native Manager | native6; qualifier7; actual real-bindings read-only exit0; grouped full/clippy/fmt/diff | public38, installed38/previous36, protected paths27/retained36 files9/PID-start7 | closed; exact source hosted37275318923 all5 success |
+| D3c | Concrete forward Manager-only release candidate | isolated main checkout workflow/current publication tests | exact source/event/current38/next39; signed36 five protected payloads; actual workflow tests/admission/archive/shell | key, immutable37/38, source/legacy lineage, live installation | closed; candidate qualified, exact grant pending |
 | D3d | Exact approved signed candidate reaches installed public path | ordinary non-force main production; ordinary Core update only | actual signed/public every-byte/native/status/doctor/protection; retain previous38 | auth/profiles/sessions/preferences/resolver and real jobs | requires new exact operational approval after concrete D3c |
 
 KEEP all process-exit/private-record/namespace/runtime/socket/peer/writer checks.
@@ -43,3 +43,25 @@ from authenticated36 (identical38), bind accepted Manager source, authenticate
 current stable38 and keep non-force exact-parent CAS/final-pack order. New update
 uses ordinary previous-generation policy: previous38, with no manual36 retention
 or Core policy change. Do not overwrite immutable38 or extend prior exact38 grant.
+
+D3c candidate source is b7c1e61019b1c5085b2627ba6cf609b3f55d74de, normal source
+push completed; full exact-event37275318923 is running. Current publication8
+regressions pass and actual publication archive2 pass. A read-only gate wrongly
+looked for source-owned generic credential tests in the thin publication tree.
+Use the existing source module with its ROOT explicitly bound to the publication
+checkout and a real parent object; no new test copy/parser or product change.
+Fresh official stable remains0.160.0/archive7f0fe42f. No new public/live mutation.
+
+D3c closes with accepted exact sourceb7c1e61, hosted37275318923 all5 success.
+Concrete clean local triggerfadae244d8bf4e3f88ebf7af1e1510cb2eeea2d7, sole child ofmain9bac2f41;
+generationlocal-hosted-0-160-0-b7c1e61019b1-retired-server-discovery, next39, fixed upstream0.160.0/archive7f0fe42f.
+Only workflow/current test pins change; stable index/signature untouched. Current8,
+actual publication archive2, action/credential/private-key3, YAML/all shell syntax,
+real fixed-key signed36 admission, deliberately wrong Core restored, actual Manager-
+only binding and every final archive byte/mode pass. Early credential check used
+prior HEAD^ binary signature rather than the candidate boundary: KEEP strict checks,
+commit candidate locally, then test against actual9bac parent; all3 pass.
+No remote main/signing/Release/Pages/CAS or installed39 action is authorized yet.
+Prior exact965b661/38 grant is complete; ask only for this concrete forward39 grant
+under SPEC MGR-7. Installed remains38, retained36; eventual ordinary39 update retains
+complete38 as previous, without changing Core policy or cancelling real user work.

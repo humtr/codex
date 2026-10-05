@@ -251,6 +251,33 @@
   public status. Delivery remains open until a forward Manager-only candidate is
   separately approved and verified; do not claim installed38 has the source fix.
 
+- Accepted corrective product source is exactb7c1e61019b1c5085b2627ba6cf609b3f55d74de.
+  Full hosted37275318923 all5 jobs succeeded, including exact-source Android Core,
+  pinned-key every-byte public stable audit and full check/test/clippy/fmt. Source
+  branch push is complete; public main remains9bac2f41 and installed38/previous36.
+- Concrete forward39 publication trigger is fadae244d8bf4e3f88ebf7af1e1510cb2eeea2d7, sole child
+  of9bac2f41d515dc894d005aa498e03064befb9f1b in a clean isolated main checkout;
+  only current workflow and delivery test pins changed. Candidate generation is
+  local-hosted-0-160-0-b7c1e61019b1-retired-server-discovery, sequence39. Source/event pins exact, existing final-pack/signing/
+  non-force CAS retained; stable index/signature unchanged. Publication8, actual
+  publication archive2, action/credential/private-key3 and YAML/all shell syntax pass.
+- Actual producer shell independently admitted real signed36 controls under the
+  fixed public key, restored a deliberately wrong unsigned Core from authenticated
+  bytes, validated the new actual release-built Manager and all five protected
+  bytes/modes plus ordered descriptor, then packed and checked every final archive
+  member byte/mode. No new publication or live install occurred.
+- A thin-publication test-module lookup was invalid; reuse the existing source
+  generic tests with ROOT bound to the real publication checkout. Precommit HEAD^
+  included the prior binary public signature and was the wrong credential-diff
+  boundary; KEEP the strict checker, establish the concrete local candidate commit
+  against actual9bac parent, then all3 security cases pass. No checker/parser bypass.
+- Prior explicit operational grant names965b661/38. Forwardfadae24/39 requires
+  its own exact MGR-7 operational authorization: humtr/codex ordinary main push,
+  hosted signed Release/Pages/CAS, fresh actual signed public/native qualification,
+  then ordinary installed update preserving complete38 as previous rollback under
+  unchanged Core policy. Never overwrite37/38, retain36 manually, mutate user data
+  or cancel real jobs. Await that grant after presenting this concrete candidate.
+
 ## ACTIVE-TASK-HANDOFF (source accepted 2026-10-05)
 
 - User authorizes implementation of the reviewed cross-account ownership,
