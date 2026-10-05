@@ -88,9 +88,13 @@
   Current-holder change, read-only child preservation, unknown-holder rejection
   and owner changes during metadata/scope queries have focused regressions.
 - KEEP upstream lifecycle/Core execution; COLLAPSE assistance onto current kernel
-  ownership/native RPC; DELETE loaded-only owner attribution. Snapshot27 entries,
-  including baseline absences, are unchanged; installed seq36/35 and sealed
-  branches remain protected. No live signing/publication/activation occurred.
+  ownership/native RPC; DELETE loaded-only owner attribution. Local qualification
+  snapshot27 entries, including baseline absences, was unchanged. At source
+  closure26 remain exact; startup-update-advisory was concurrently replaced
+  (inode/digest, mtime2026-10-05T02:22:59Z). It was only read for protection checks
+  and preserved without reverting or claiming unchanged. Installed seq36/35,
+  launcher, account/auth/preferences/resolver and sealed branches remain exact.
+  No live signing/publication/activation occurred.
 - Source implementationca5b171323a67e20351c54932ec316aa2397a420 and test-only
   correction705afb98098f27d613130cd3fd4d0f84fb74fc50 were ordinarily committed
   and pushed. Exact-event hosted run37255197297 accepted705afb98098f27d613130cd3fd4d0f84fb74fc50:
