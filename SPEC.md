@@ -791,6 +791,16 @@ sign a release, create or alter a GitHub Release, dispatch Pages, write `main`,
 or advance the stable index. Secret-backed signing and all public mutation remain
 RALD-4 and RALD-5 respectively.
 
+All candidate/component transformations and corrective bindings must complete
+before the unsigned transfer archive is created. Package the final admitted
+candidate once immediately before artifact upload; never transfer an earlier
+archive of a directory that was subsequently changed. The archive must preserve
+the admitted file inventory, bytes and modes, including the deferred Manager
+marker until native smoke removes it. Smoke packages only its final qualified
+candidate, and signing/public readback must consume that same qualified payload.
+This invariant applies equally to ordinary, Core-only and Manager-only releases;
+a successful directory check cannot qualify stale exported bytes.
+
 For any authorized official producer, an explicit version selector must be one
 stable `MAJOR.MINOR.PATCH` value; otherwise the bounded official
 `https://releases.openai.com/codex/channels/latest` metadata selects the

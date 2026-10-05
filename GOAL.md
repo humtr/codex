@@ -92,6 +92,38 @@
   approval rejection; resume binds clean sourcec5c619f1f541cf3f2d2bde3e48cd8c2158aeeab9
   and unchanged local publication candidate/remote parent before execution.
 
+## ACTIVE-TASK-HANDOFF-DELIVERY corrective candidate (source repair in progress)
+
+- Authorized triggerca56bd76 ran hosted37259637245 to all reported-success
+  stages and non-force CAS promotion3da4b294e1a6d62b1b5ba775acf88aae375c3189.
+  Public sequence37 is signed and immutable. Independent pinned-key comparison
+  rejects its Core5cfddf4d793d3e0376252816a13ab1e5c3a9994c1e2b97ee4825ee29e5a01810
+  against protected36 Core3d994dd187515276de755d1332a369469355bc2d21010b470313c7a6e7b1c648.
+  No installed update ran; device remains36/previous35. Workflow success alone
+  does not close the Manager-only delivery gate.
+- Root cause: build packaged candidate.tar before the later Core-preservation
+  and component-binding steps. The directory was correct but exported bytes were
+  stale. No signing-stage payload substitution was found. Both source and current
+  publication producer must package once after all bindings, immediately before
+  upload. SPEC now owns this final-candidate export invariant.
+- KEEP smoke/signed packaging after their final qualification, independent legacy
+  Core/source-proof exports, immutable signed releases and normal activation.
+  COLLAPSE unsigned export to one final pack; DELETE early archive construction.
+  Inspect all relevant surviving archives and prior binding-only bundles; their
+  existing non-mutating comparisons did not alter packed payloads. No Core or
+  Manager runtime change is required.
+- Runnable source baseline2, exact red reproduction, repaired focused2 and grouped
+  Python79 passed. Actual final pack replaces a deliberately stale archive and
+  reproduces final bytes/modes/inventory; ordering requires all bindings before
+  pack and upload immediately after. Actual diff inspected; hosted full accepted
+  source remains required before preparing the new exact public trigger.
+- Prepare a forward sequence38 corrective candidate preserving Core/runtime/
+  helpers from authenticated36 and accepted Manager behavior. Never overwrite
+  signed37 or decrement the public sequence. The prior explicit operational grant
+  named ca56bd76/sequence37; the new exact candidate will be made reviewable before
+  seeking any additional operational authorization. Protected installed36 remains
+  usable throughout; no live task cancellation or data migration.
+
 ## ACTIVE-TASK-HANDOFF (source accepted 2026-10-05)
 
 - User authorizes implementation of the reviewed cross-account ownership,

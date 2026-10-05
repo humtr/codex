@@ -621,9 +621,6 @@ jobs:
             test ! -L "$work/candidate/$executable"
             test "$(stat -c '%a' "$work/candidate/$executable")" = '755'
           done
-          tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
-            -cf "$work/candidate.tar" -C "$work" candidate
-          test "$(stat -c '%s' "$work/candidate.tar")" -lt 1073741824
 
 
       - name: Require exact sequence-12 component bytes for legacy-lag remediation
@@ -1045,6 +1042,16 @@ jobs:
           if-no-files-found: error
           retention-days: 1
           compression-level: 0
+
+      - name: Package admitted unsigned candidate
+        if: steps.decision.outputs.candidate == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/rald3-candidate"
+          tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
+            -cf "$work/candidate.tar" -C "$work" candidate
+          test "$(stat -c '%s' "$work/candidate.tar")" -lt 1073741824
 
       - name: Upload unsigned candidate only
         if: steps.decision.outputs.candidate == 'true'

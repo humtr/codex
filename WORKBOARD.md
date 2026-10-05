@@ -11,7 +11,7 @@ No product source behavior changes; preserve signed Core/runtime/helpers exactly
 | Slice | Observable behavior | Allowed paths | Focused proof | Protected surfaces | State |
 | --- | --- | --- | --- | --- | --- |
 | D1 | Same-version candidate binds accepted Manager while preserving all other payloads | owned workflow preview/candidate and authority | authenticated seq36/upstream pins; actual component delta faults; event/preflight/CAS binding | installed files, credentials, public stable | closed: signed baseline, actual shell49, current regression7, native5; diff inspected |
-| D2 | Hosted signed candidate reaches authenticated public readback before stable promotion | separate publication checkout; bounded Release/Pages/main CAS | exact-parent event, native smoke, signing, every-byte readback, disposable update/no-op | signing key, old stable, sealed/source lineage | active: user explicitly approved ca56bd76 main push, signing/publication and verified installation |
+| D2 | Hosted signed candidate reaches authenticated public readback before stable promotion | separate publication checkout; bounded Release/Pages/main CAS | exact-parent event, native smoke, signing, every-byte readback, disposable update/no-op | signing key, old stable, sealed/source lineage | red: signed37 exported stale Core; final archive repair focused2/grouped79 pass; hosted source pending |
 | D3 | Ordinary installed update activates only verified sequence37 and retains36 | public Core update boundary and owned device probes | candidate digest/mode/signature; version/doctor/task read-only; actual owned-root task qualification | user account/session/auth/preferences/resolver and existing jobs | pending D2 |
 | D4 | Final acceptance binds source/public/installed evidence and protected identities | GOAL/WORKBOARD; ordinary source commit/push | full gate identities, production diff review and protection comparison | installed36 rollback, user data, sealed branches | pending D3 |
 
@@ -74,3 +74,33 @@ D2 approval resolved: user answered 승인 to the exact candidate/publication/
 installation question. Rebound sourcec5c619f1, clean candidateca56bd76 and remote
 main15487ecca7de7e28c9ed743bb09afb394b208005. Proceed through the same ordinary
 non-force push and hosted gates; no bypass or new authorization scope.
+
+D2 ordinary authorized push succeeded: main15487ecca -> ca56bd76. Exact hosted
+production run37259637245 is queued for candidate705afb sequence37. No installed
+mutation yet; all public signing/readback/CAS gates remain required.
+
+D2 RED: hosted37259637245 reports all stages success and promoted signed37, but
+independent pinned-key inventory comparison rejects changed Core digest
+5cfddf4d793d3e0376252816a13ab1e5c3a9994c1e2b97ee4825ee29e5a01810
+versus protected36 digest3d994dd187515276de755d1332a369469355bc2d21010b470313c7a6e7b1c648.
+D3 is frozen: installed remains36. Trace every candidate/smoke/signing/readback
+mutation and restore the exact protected payload invariant before activation.
+No successful workflow conclusion is sufficient to override this red product gate.
+
+D2 root bound: HEADac6f437, dirty authority-only diff before mutation; existing
+source acceptance2 passed nonzero. Archive is constructed in the build step before
+later component bindings mutate candidate/core. KEEP smoke packaging after native
+qualification, signed packaging after independent verification, separate legacy
+Core export and source Core proof export; COLLAPSE unsigned candidate export to
+one final pack immediately before upload. Every affected source/public producer
+instance must obey it. Add actual stale-archive replay and ordering regressions;
+no new feature or Core/Manager runtime change while D2 is red. SPEC updated first.
+D2 focused red reproduced both early archive construction and absent final pack.
+Moved the sole archive construction to its named final step immediately before
+upload in the source workflow; no payload/runtime/signing changes. New definitions
+map to ReleaseArchiveTests ordering and stale-archive/current-byte+mode replay.
+
+D2 source slice locally closed: final source pack replay2/nonzero passed; grouped
+Python79 passed, protected Rust payload unchanged and source/public actual diff
+reviewed. Fresh hosted source gate is next. Signed37 cannot be rewritten; prepare
+forward38 with Core36 protected, then bind new exact operational candidate.

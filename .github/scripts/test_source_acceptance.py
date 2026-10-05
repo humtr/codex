@@ -1,10 +1,13 @@
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tarfile
+import tempfile
 import textwrap
 import unittest
 
@@ -144,6 +147,56 @@ class SourceAcceptanceTests(unittest.TestCase):
                 finally:
                     fixture.tearDown()
 
+
+RELEASE_WORKFLOW = ROOT / '.github/workflows/auto-release-termux.yml'
+
+
+class ReleaseArchiveTests(unittest.TestCase):
+    def test_pack_follows_all_candidate_bindings_and_immediately_precedes_upload(self):
+        workflow = RELEASE_WORKFLOW.read_text()
+        producer = workflow.split('  producer:', 1)[1].split('  smoke:', 1)[0]
+        self.assertEqual(producer.count('-cf "$work/candidate.tar"'), 1)
+        build = producer.split('- name: Fetch, adapt, and qualify unsigned candidate', 1)[1].split('      - name:', 1)[0]
+        self.assertNotIn('candidate.tar', build)
+        pack = producer.index('      - name: Package admitted unsigned candidate')
+        upload = producer.index('      - name: Upload unsigned candidate only')
+        self.assertLess(pack, upload)
+        self.assertNotIn('      - name:', producer[pack + 1:upload])
+        for name in ['      - name: Require exact', '      - name: Bind ',
+                     '      - name: Preserve authenticated stable Core']:
+            for match in re.finditer(re.escape(name), producer):
+                self.assertLess(match.start(), pack)
+
+    def test_actual_pack_replaces_stale_archive_with_final_bytes_modes_and_inventory(self):
+        block = RELEASE_WORKFLOW.read_text().split('      - name: Package admitted unsigned candidate', 1)[1].split('      - name:', 1)[0]
+        script = textwrap.dedent(block.split('        run: |\n', 1)[1])
+        with tempfile.TemporaryDirectory(prefix='release-archive-') as temp:
+            root = Path(temp)
+            work = root / 'rald3-candidate'
+            candidate = work / 'candidate'
+            candidate.mkdir(parents=True)
+            for rel in ['core', 'manager', 'runtime', 'codex-code-mode-host',
+                        'helpers/0', 'helpers/1', 'generation.meta', '.manager-probe-deferred']:
+                path = candidate / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(('initial ' + rel).encode())
+                path.chmod(0o644 if rel in ['generation.meta', '.manager-probe-deferred'] else 0o755)
+            archive = work / 'candidate.tar'
+            subprocess.run(['tar', '-cf', str(archive), '-C', str(work), 'candidate'], check=True)
+            (candidate / 'core').write_bytes(b'final protected Core')
+            (candidate / 'manager').write_bytes(b'final accepted Manager')
+            (candidate / 'generation.meta').write_text('final admitted descriptor\n')
+            expected = {str(p.relative_to(work)): (p.read_bytes(), p.stat().st_mode & 0o7777)
+                        for p in candidate.rglob('*') if p.is_file()}
+            with tarfile.open(archive) as old:
+                self.assertNotEqual(old.extractfile('candidate/core').read(), expected['candidate/core'][0])
+            result = subprocess.run(['bash', '-c', script], env={**os.environ, 'RUNNER_TEMP': str(root)},
+                                    capture_output=True, text=True, timeout=15)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            with tarfile.open(archive) as packed:
+                observed = {m.name: (packed.extractfile(m).read(), m.mode)
+                            for m in packed.getmembers() if m.isfile()}
+            self.assertEqual(observed, expected)
 
 if __name__ == '__main__':
     unittest.main()
