@@ -2,17 +2,15 @@
 
 SPEC -> GOAL -> WORKBOARD; goal-md bound, approved equivalent primary, workers OFF.
 
-PROFILE-LIFECYCLE is accepted in GOAL.md: explicit default, rename/delete,
-physical execution leases, old-runtime guards and matching takeover selection.
-Final source/full/native/protected evidence and KEEP/COLLAPSE/DELETE disposition
-are in the acceptance ledger; no implementation slice remains open.
+PROFILE-LIFECYCLE source and PROFILE-LIFECYCLE-DELIVERY are accepted in GOAL.md.
+Public/installed sequence40:
+local-hosted-0-160-0-59308430d39d-profile-lifecycle;
+complete39 retained as previous. Core+Manager updated; official0.160.0 runtime,
+code-mode-host/helpers, permission patchv3 and R10 bridge preserved.
 
-No next implementation bundle is selected. The next available step is separate
-Core+Manager delivery from the accepted source: build/qualify the production
-aarch64-linux-musl artifacts, then bind a concrete candidate for exact operational
-authorization before production signing/publication or installed activation.
+Exact-source hosted5, production8, publication6-group, actual signed/native9,
+installed inventory/doctor and exact-current34-entry no-op gates pass.
+Accounts/config/resolver unchanged; original10 native jobs survive. No real
+profile deletion/rename, credential inspection or user job termination occurred.
 
-Current installed/public39 and retained38, all real profiles/auth/shared history,
-user jobs, resolver, main and sealed legacy remain protected. The local native
-qualification used only disposable roots and disposable signing keys. No actual
-profile deletion/rename or user job termination was performed.
+No current implementation or delivery slice remains. No next bundle selected.

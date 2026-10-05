@@ -34,6 +34,68 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
+## PROFILE-LIFECYCLE-DELIVERY (accepted 2026-10-05)
+
+- User `배포 4` requests deployment of the just-accepted profile lifecycle source
+  59308430d39dc3c57159e260e5f7a873c1b16b8d. Goal-md bound; approved equivalent
+  primary, workers OFF. Bound clean rewrite HEAD; installed/public39, previous38;
+  freshly observed remote main471590750468f6d99b520c3a8d47b03a474aacbb.
+- Explicit delivery scope: humtr/codex Release/Pages/main normal non-forced CAS,
+  signed generation local-hosted-0-160-0-59308430d39d-profile-lifecycle, sequence40,
+  coordinated Core+Manager replacement, then ordinary installed codex update.
+  Retain complete39 as previous; real profiles/auth/history/jobs and resolver
+  remain protected. No actual profile lifecycle operation or user-job stop.
+- Preserve authenticated official0.160.0 runtime, code-mode-host and helpers;
+  pin source/archive and public baseline. Existing production wrapper target is
+  aarch64-linux-android (official upstream runtime is aarch64-linux-musl).
+- Ordered gates: exact-source hosted acceptance; bounded publication candidate
+  syntax/contracts and diff; hosted final candidate build/native smoke before
+  production signing; signed/public every-byte readback and isolated profile/task
+  proof; ordinary activation, doctor/no-op and protected retained39 verification.
+  User deployment directive authorizes this bounded delivery, not unrelated work.
+
+- Pre-publication closure: exact-source hosted37302982221 all5success;
+  fresh signed public39/index and official stable archive7f0fe42f authenticated.
+  Thin candidate98651a181d02fb56c1acb82b6410b91433868d5b exact parent47159075;
+  six actual-shell regression groups, YAML/bash39-step syntax and actual diff pass.
+  Obsolete seq36/Core substitution removed; both new artifact digests mandatory.
+  Candidate is concrete before ordinary main push; user deployment authorization
+  covers this source/candidate and ordinary activation retaining complete39.
+
+- Final production37303696948 exact candidate98651a18: all8success. Final
+  Android/AArch64 build, native smoke, production signing, immutable Release,
+  LKG-preserving Pages, every-byte public readback, disposable update/no-op and
+  non-force CAS accepted. Stable promotion47597099ae00284aa40ebbbf08fb91143d943ba5.
+- Independent readback authenticated pinned public-key SHA256
+  62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c, signed index40
+  and manifest, every payload/mode and
+  signed download-size sidecar. Actual Core SHA256
+  8acc8219507780095a3a03e0cd0f8bf4b6346bbe7bd4b41b0a8f761851978cfa;
+  Manager d471eb9604596953c2fd36d0ea3380c529ba312b1abe9e16273e078118472e7f.
+  Runtime/code-mode-host/helpers unchanged from authenticated39; descriptor delta
+  is generation identity and the two artifact digests only, permission patchv3
+  and R10 compatibility retained. Actual signed/native profile3+task6 all pass.
+- Ordinary installed codex update exits0, activates exact40 with complete39 as
+  previous. Installed inventory/modes/signature/launcher match public40; all9
+  retained39 files unchanged. Upstream version remains exact codex-cli0.160.0;
+  public Manager lifecycle/default/task forms work; doctor healthy/exit0 and
+  sandbox unsupported. Exact-current second update gives exact stdout, empty
+  stderr and no delta across34 durable installed entries.
+- Owned native proof preserves protected27 paths and both installed generations;
+  bounded activation changes only the authorized launcher/generation state.
+  Account/config/resolver26 paths unchanged, all original10 native PID/start
+  identities preserved. Auth/config proof is metadata-only; no payload inspection,
+  real profile deletion/rename, user job stop, resolver mutation or force push.
+  Local main2ffb95f3 and sealed legacybf30a7dc remain unchanged.
+- Evidence: owned temporary codex-profile-delivery.P5oQoGrP source/production JSON,
+  publication6-group gate, public40 audit/inventory, native profile/task logs,
+  installed verification/protection and before/after no-op snapshots. No local
+  production private key or credential content was stored.
+- Disposition: delivery40 accepted and closed. KEEP one ordinary coordinated
+  update/sign/readback/CAS route; DELETE obsolete seq36 authentication and stable
+  Core substitution from the previous Manager-only one-shot; COLLAPSE preservation
+  onto authenticated current39. No independent implementation bundle selected.
+
 ## PROFILE-LIFECYCLE (accepted source 2026-10-05)
 
 - User requests implementation of missing profile deletion, rename and persistent
@@ -80,7 +142,7 @@
 - This is source/owned-root acceptance. No live profile deletion/rename,
   user job termination, production signing/publication or new installation is authorized by
   this source bundle. Installed/public39 remains unchanged. Production
-  aarch64-linux-musl build/publication acceptance remains the separate delivery gate.
+  wrapper cross-build/publication acceptance remains the separate delivery gate.
 - KEEP Core execution authority and upstream shared conversations; COLLAPSE stored
   registration identity onto directory name with v2 header; DELETE duplicate ID
   only for newly created/renamed registrations. Exact old v1 remains readable.
