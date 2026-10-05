@@ -17,7 +17,7 @@ Release/Pages/CAS and verified ordinary installation retaining36. No rejected op
 | D2a | Final admitted payload is exported after every binding | source/public workflow, source archive tests | archive ordering and stale-file bytes/modes/inventory2; source full gate | all runtime product definitions, signing authority, sealed branches | closed; early pack DELETE; final single pack COLLAPSE |
 | D2b | Native proof waits for actual closure before same-server resume | qualifier, closure tests | retained/exact notification, timeout restoration, resume epoch4; actual native5 | real user jobs, profiles, auth and sessions | closed; idle/list absence proxy DELETE; fresh-server startup KEEP |
 | D2c | Forward38 restores authenticated Core36 and binds accepted Manager | owned publication workflow/current tests | current8, protected signed admission9, actual shell48, publication archive2, credentials/actions3, prospective native5 | public37 immutability, runtime/helpers36, installed36 | closed locally; candidate965b661 ready, explicitly approved |
-| D2d | Actual signed38 reaches independent every-byte public readback | separate publication checkout, bounded Release/Pages/main CAS | exact-parent push/event, hosted smoke/sign/readback/disposable update/no-op; independent fixed-key inventory and actual signed-native5 | key, stable authority, source lineage, user jobs | approved; fresh bind/prepush validation in progress |
+| D2d | Actual signed38 reaches independent every-byte public readback | separate publication checkout, bounded Release/Pages/main CAS | exact-parent push/event, hosted smoke/sign/readback/disposable update/no-op; independent fixed-key inventory and actual signed-native5 | key, stable authority, source lineage, user jobs | hosted8/public inventory gates green; signed-native5 green; source proof closure gate pending |
 | D3 | Ordinary installed update activates only independently verified38 and retains36 | ordinary public Core update, owned probes | fresh snapshot; signed inventory/modes/launcher; version/doctor/task read-only; complete36 retained, protected PID/start/data identities | user auth/profile/session/preferences/resolver and all existing jobs | pending D2d |
 | D4 | Delivery acceptance binds source/public/installed evidence | GOAL/WORKBOARD, ordinary source commit/push | actual accepted revision, load-bearing gates and protected surfaces | retained36, user data, sealed history | pending D3 |
 
@@ -49,3 +49,28 @@ preserved. Fresh snapshot is still required for the eventual activation gate.
 
 2026-10-05 approval resume binds clean source6380a03, clean candidate965b661 and
 exact remote parent3da4b294 before any approved public side effect. Workers OFF.
+
+D2d fresh pinned-key exact-parent raw-index37/Pages manifest37 verification passed.
+An owned prepush check initially requested the channel index at Pages root (404);
+restored the normative exact-main raw index URL, with no production change.
+Normal push3da4b294 ->965b661 succeeded; exact hosted37263252597 has passed build,
+native Android smoke and signing. Installed36 is unchanged; independent actual38
+payload/public/native qualification still required before activation.
+
+D2d hosted37263252597 all8 jobs succeeded; non-force main promotion9bac2f41d515dc894d005aa498e03064befb9f1b.
+Independent pinned-key public38 every-byte/download-size and Manager-only delta
+against36 pass. Actual signed-native fixture fails at Core/Manager profile-create
+before any task; installed remains36. STOP D3 and inspect trust/config/projection
+setup, not product behavior. Prospective unsigned proof did not expose this path.
+Exact source1561383 has authority-only Workboard diff before proof diagnosis.
+
+D2d proof fixture closure: public compat sidecar was wrongly copied into installed
+v2; Core correctly rejected it. Explicit external public authority replaces dummy11;
+existing strict inventory/key parsers are reused. DELETE separate Core/Manager
+substitution, descriptor rewrite, whole public-tree copy and unused hashlib import.
+fixture_activation_state -> AuthorityTests2; materialize_signed_generation ->
+MaterializationTests exact bytes/modes, sidecar/index exclusion and fail-before-copy1;
+qualify changed branch -> actual signed38 native5. Focused7/grouped86 pass and actual
+signed-native5 pass exit0; all new definitions mapped. Rust payload diff empty.
+No new release candidate or permission is needed for this owned proof-only fix.
+Final source commit/hosted gate, fresh protection snapshot and D3 remain.

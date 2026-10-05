@@ -3,7 +3,6 @@
 import argparse
 import base64
 import fcntl
-import hashlib
 import http.server
 import json
 import os
@@ -14,11 +13,15 @@ import shutil
 import signal
 import socket
 import struct
+import sys
 import subprocess
 import tempfile
 import termios
 import threading
 import time
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / ".github/scripts"))
+from rald5_publication import parse_manifest, raw_public_key
 
 
 class Ws:
@@ -94,23 +97,36 @@ class Ws:
         self.socket.close()
 
 
-def qualify(core, manager, generation, parent):
+def fixture_activation_state(identity, public_key):
+    with tempfile.TemporaryDirectory(prefix="tqkey-") as temporary:
+        key = raw_public_key("openssl", public_key, Path(temporary))
+    return f"format=codex-activation-state-v3\nupdate_key={key}\ncurrent={identity}\ncurrent_key={key}\nprevious_present=0\nprevious=\nprevious_key=\n"
+
+
+def materialize_signed_generation(generation, native):
+    # Download-size/index controls are published beside the generation, not
+    # installed payload. Reuse the strict signed inventory parser.
+    _, inventory = parse_manifest(generation / "release.manifest")
+    for relative in [rel for rel, _, _ in inventory] + ["release.manifest", "release.sig"]:
+        target = native / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(generation / relative, target)
+
+
+def qualify(generation, parent, public_key):
+    core = generation / "core"
     with tempfile.TemporaryDirectory(prefix="tq", dir=parent) as temporary:
         root = Path(temporary)
         home, prefix = root / "h", root / "p"
         identity = dict(line.split("\t", 1) for line in (generation / "generation.meta").read_text().splitlines()[1:])["generation_id"]
         native = home / ".local/lib/codex/core/generations" / identity
-        shutil.copytree(generation, native)
-        shutil.copy2(manager, native / "manager")
-        descriptor = native / "generation.meta"
-        digest = hashlib.sha256((native / "manager").read_bytes()).hexdigest()
-        descriptor.write_text("\n".join(f"manager_artifact_digest\t{digest}" if line.startswith("manager_artifact_digest\t") else line for line in descriptor.read_text().splitlines()) + "\n")
+        materialize_signed_generation(generation, native)
         for path in [home / ".codex", home / ".local/share/codex/core/config", prefix / "bin", prefix / "etc/tls"]:
             path.mkdir(parents=True, exist_ok=True, mode=0o700)
         shutil.copy2(core, prefix / "bin/codex")
         (prefix / "etc/resolv.conf").write_text("nameserver 127.0.0.1\n")
         (prefix / "etc/tls/cert.pem").write_text("fixture\n")
-        (home / ".local/share/codex/core/activation-state").write_text(f"format=codex-activation-state-v3\nupdate_key={'11'*32}\ncurrent={identity}\ncurrent_key={'11'*32}\nprevious_present=0\nprevious=\nprevious_key=\n")
+        (home / ".local/share/codex/core/activation-state").write_text(fixture_activation_state(identity, public_key))
         real = Path(shutil.which("python3")).parent
         env = {"HOME": str(home), "PREFIX": str(prefix), "TMPDIR": str(parent), "PATH": f"{prefix / 'bin'}:{real}", "SSL_CERT_FILE": str(real.parent / "etc/tls/cert.pem")}
         release = threading.Event()
@@ -237,7 +253,7 @@ requires_openai_auth = false
 
         try:
             created = run("termux", "profile", "create", "account-a")
-            assert created.returncode == 0
+            assert created.returncode == 0, created.stderr.decode()
             a = home / ".local/share/codex/manager/profiles/account-a/home"
             (a / "config.toml").write_text(config)
             process, master = tui(["--no-alt-screen"], a)
@@ -352,9 +368,8 @@ requires_openai_auth = false
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--core", required=True, type=Path)
-    parser.add_argument("--manager", required=True, type=Path)
+    parser.add_argument("--public-key", required=True, type=Path)
     parser.add_argument("--generation", required=True, type=Path)
     parser.add_argument("--workdir", required=True, type=Path)
     options = parser.parse_args()
-    qualify(options.core.resolve(), options.manager.resolve(), options.generation.resolve(), options.workdir.resolve())
+    qualify(options.generation.resolve(), options.workdir.resolve(), options.public_key.resolve())

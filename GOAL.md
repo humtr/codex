@@ -175,6 +175,37 @@
   Signed/public37 remains immutable; actual38 signed-byte/native/public readback
   and fresh before-activation protection gate remain required before any install.
 
+- Approved ordinary965b661 main push succeeded. Exact production37263252597 all8
+  jobs passed: Android build/smoke, signing, immutable Release, LKG-preserving
+  Pages, every-byte public/disposable update/no-op and non-force CAS. Promoted main
+  is9bac2f41d515dc894d005aa498e03064befb9f1b; public stable is signed38.
+- Fresh independent pinned-key index/manifest/every-byte/download-size audit binds
+  main9bac2f41 and generationlocal-hosted-0-160-0-af1a3df6d99a-active-task-handoff-r2,
+  sequence38. All five protected payload digests/modes equal36; full descriptor
+  order and all non-Manager/identity records equal36. Actual signed Core is
+  3d994dd187515276de755d1332a369469355bc2d21010b470313c7a6e7b1c648 and Manager is
+  20b2436a9bae5dad636f2a9e614cb1bcfdb2d73d68757dbafbfb472bf4625e8a.
+- Actual signed-native qualification caught an owned fixture defect before any
+  installed mutation: copytree imported published compat/download-size controls
+  into a v2 installed generation, which Core correctly rejects. Its old dummy
+  activation authority also did not represent the authenticated release. KEEP
+  strict Core admission and signed bytes; COLLAPSE the fixture onto existing
+  strict inventory/public-key parsers and an explicit external public authority;
+  DELETE entire-public-directory copying, unsigned candidate substitution,
+  Manager/descriptor rewriting and dummy trust. Qualifier now accepts generation,
+  public-key and short workdir only; copies exactly signed inventory + manifest/
+  signature and launches those exact bytes at the actual Core boundary.
+- Fixture authority2 and exact installed-inventory/control exclusion1 regressions
+  plus existing closure4 pass, grouped Python86 pass. Unsupported-key and malformed
+  inventory fixtures fail before materialization. Initial tests assumed generic
+  ValueError and an unsupported generation ID; bind actual ValidationError and
+  canonical hosted fixture identity. No product policy/parser was weakened, no
+  signing/public artifact was altered. Full actual diff inspected; Rust product
+  diff against acceptedaf1a3df is empty.
+- Exact signed38 task qualification with the final fixture passes all five actual
+  native behaviors exit0, under credential-free owned roots only. Installation is
+  still36/previous35 until the final source/protection gate and ordinary update.
+
 ## ACTIVE-TASK-HANDOFF (source accepted 2026-10-05)
 
 - User authorizes implementation of the reviewed cross-account ownership,
