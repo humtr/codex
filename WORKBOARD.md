@@ -6,28 +6,19 @@ Public/installed40 and retained39 remain protected.
 
 Current bundle PROFILE-TUI-EXPERIMENT, user-authorized feasibility prototype.
 
-0. Native baseline: exact upstream0.160.0 source; hosted AArch64-musl build,
-   executable proof and owned-device execution. Current RED: exactd006419/
-   hosted37318131485 passes --locked, then tikv-jemalloc-sys fails atomics probes
-   under the improvised musl-gcc toolchain. No UI behavior added.
-   KEEP exact source and locked graph; COLLAPSE improvised native build setup into
-   upstream's exact release Zig0.14 + musl-tools script. DELETE obsolete lock
-   update fallback after graph restoration. Retain failed native config logs.
-   Focused helper3/3 passes. Exhaustive normalization changes159 local inherited
-   versions;1313 external packages unchanged. Original5553f065; finalf0ea6b03.
-   Hosted37321153559/8e6f7d0 has zero jobs/startup_failure: repo permits only
-   GitHub-owned Actions, so mlugg/setup-zig is not admissible. Keep repository
-   policy; direct official Zig download uses frozen SHA256ab64e3ea and version
-   check. No user-device tool installation or production change.
-   Current retry exact2a90ff0/hosted37321565270 passes tool provisioning and
-   normalization, compiling native target. Owned-device baseline probe prepared
-   in temporary proof root only: exact version/help, native /status with zero
-   token usage, /quit and exact terminal restoration. Not executed/accepted yet.
-   Prior compile warning is unchanged upstream core/tools/registry.rs unused
-   ToolCallSource import. KEEP original release source for baseline; no suppression
-   or unrelated Core edit. New prototype definitions must add no new warnings.
-   Production definitions/behavior frozen until native executable target runnable.
-1. Native /profile entrypoint and bounded Manager profile display. Pending.
+0. Native baseline: CLOSED. Exact2a90ff0/hosted37321565270 succeeds; immutable
+   unmodified Rust sourcea956835,159 bounded lock-version corrections,1313 external
+   bindings unchanged. Native compile24m42s, CLI356418448 bytes/5de353c69b1b2183.
+   Artifact11351536549 verified; owned Termux version/help, real /status (0 tokens),
+   /quit exit0 and exact termios restoration pass. Protected40/39,27 metadata paths
+   and12 pre-existing PID/start identities preserved. Actual baseline probe lives
+   at experiments/profile-tui/qualify_native_baseline.py; evidence is in temporary
+   codex-profile-tui-proof/native-baseline-{device.json,hosted-result.json,hosted.log}.
+   KEEP exact source/original unused-import warning; COLLAPSE build tooling into
+   exact upstream Zig0.14/musl script; DELETE temporary Cargo update diagnosis.
+1. Native /profile entrypoint and bounded Manager profile display. CURRENT.
+   Restore/run unchanged Manager target baseline before first Manager mutation.
+   Native TUI target is runnable under stage0 actual entrypoint proof.
    Paths: experimental upstream TUI patch and owned Manager bridge; focused proof
    actual slash dispatch, list/current/default/error/cancel; protected stage0.
 2. Reuse native history/agent selection with account-aware presentation. Pending.

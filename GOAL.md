@@ -76,6 +76,19 @@
  musl dependency tooling; no Rust behavior or external Cargo graph change.
  No native baseline acceptance yet; `/profile` implementation remains frozen.
 
+- Stage0 accepted: exact2a90ff0/hosted37321565270 completes successfully. Rust
+ sourcea956835 remains unchanged;159 local version metadata changes preserve
+ all1313 external bindings. Cargo --locked native compile takes24m42s; unstripped
+ static AArch64 CLI356418448 bytes, SHA256
+ 5de353c69b1b218346ac5d95ca55c914335cdd9dffc4e0882626c11d8fd7e527.
+ Artifact11351536549 is139440204 compressed bytes. Exact version/help run hosted.
+ Owned Termux probe executes native /status (fixture provider,0 token usage),
+ /quit exit0 and exact termios restoration, with no auth file. All27 protected
+ metadata paths, complete40/39 and all12 pre-existing PID/start identities match
+ resume snapshot. Native feasibility baseline is runnable; no `/profile` code yet.
+ Known original upstream unused ToolCallSource import is retained unsuppressed.
+ Source-build cost and production policy remain admission gates.
+
 ## PROFILE-LIFECYCLE-DELIVERY (accepted 2026-10-05)
 
 - User `배포 4` requests deployment of the just-accepted profile lifecycle source
