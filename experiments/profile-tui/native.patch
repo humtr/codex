@@ -580,10 +580,10 @@ index 6d42ca5..0a94f80 100644
  #[path = "tests/reasoning_status_tests.rs"]
 diff --git a/codex-rs/tui/src/chatwidget/tests/profile_command_tests.rs b/codex-rs/tui/src/chatwidget/tests/profile_command_tests.rs
 new file mode 100644
-index 0000000..7cc2b61
+index 0000000..135aba4
 --- /dev/null
 +++ b/codex-rs/tui/src/chatwidget/tests/profile_command_tests.rs
-@@ -0,0 +1,82 @@
+@@ -0,0 +1,85 @@
 +use super::*;
 +use pretty_assertions::assert_eq;
 +
@@ -605,7 +605,10 @@ index 0000000..7cc2b61
 +        let mut opened = 0;
 +        while let Ok(event) = rx.try_recv() {
 +            assert!(
-+                !matches!(event, AppEvent::CodexOp(Op::UserTurn { .. } | Op::Interrupt)),
++                !matches!(
++                    event,
++                    AppEvent::CodexOp(Op::UserTurn { .. } | Op::Interrupt)
++                ),
 +                "profile command submitted agent work or interruption: {state}"
 +            );
 +            if matches!(event, AppEvent::OpenProfilePicker) {

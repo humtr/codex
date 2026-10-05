@@ -5,91 +5,51 @@ Current branch experiment/profile-tui, frozen accepted baseline rewriteb949afa.
 Public/installed40 and retained39 remain protected.
 
 Current bundle PROFILE-TUI-EXPERIMENT, user-authorized feasibility prototype.
+Stages0 native baseline and1 /profile read-only display are CLOSED in GOAL.md.
+Stage1 exact476af4a/hosted37342599783: native12/12, unchanged lint, Manager33+44,
+actual owned native display/cancel/error and native profile3 pass. Exact tested
+formatting is integrated; same1a8dce504e06f1d3 executable reuses device proof.
+No account transition or full prototype acceptance. No outstanding red gate.
 
-0. Native baseline: CLOSED. Exact2a90ff0/hosted37321565270 succeeds; immutable
-   unmodified Rust sourcea956835,159 bounded lock-version corrections,1313 external
-   bindings unchanged. Native compile24m42s, CLI356418448 bytes/5de353c69b1b2183.
-   Artifact11351536549 verified; owned Termux version/help, real /status (0 tokens),
-   /quit exit0 and exact termios restoration pass. Protected40/39,27 metadata paths
-   and12 pre-existing PID/start identities preserved. Actual baseline probe lives
-   at experiments/profile-tui/qualify_native_baseline.py; evidence is in temporary
-   codex-profile-tui-proof/native-baseline-{device.json,hosted-result.json,hosted.log}.
-   KEEP exact source/original unused-import warning; COLLAPSE build tooling into
-   exact upstream Zig0.14/musl script; DELETE temporary Cargo update diagnosis.
-1. Native /profile entrypoint and bounded Manager profile display. CURRENT.
-   Restore/run unchanged Manager target baseline before first Manager mutation.
-   Native TUI target is runnable under stage0 actual entrypoint proof.
-   Unchanged Manager baseline33 library +41 integration passes (zero doc targets
-   excluded). Initial source identity cleance7aec8; protected stage0 proof retained.
-   Disposition: COLLAPSE current selection into one Manager profile-view resolver;
-   KEEP public text/preference/inherited semantics; add bounded private JSON data
-   endpoint and real native slash/menu, no account-launch behavior in this slice.
-   Mapped proof: profile_snapshot public integration for list/current/default,
-   external-home ambiguity, errors/no writes; native profile_manager unit protocol,
-   transport bound/error and picker snapshot; actual owned /profile PTY display,
-   search/cancel and unavailable bridge leave chat usable. Manager target, native
-   CLI/TUI focused target and actual diff must be green before slice2.
-   First Manager focus3 runs2 pass/1 red: missing handoff already has operational
-   status1, while new test incorrectly expected usage2. Correct only that assertion;
-   no existing error policy change. Nested regression module avoids an accidental
-   second Cargo integration target. All Manager targets compile; final nested focus3/3 passes.
-   Native bridge/dispatch/picker implementation now begins on this green gate.
-   Manager final gate33 library +44 integration passes; all-target clippy -D
-   warnings, fmt and diff checks pass. Candidate source identity86944cf2f51557ca.
-   Hosted37329735507/df4b665 stops before native compile: GitHub tool downloads
-   omitted --location and hashed empty302 responses. KEEP strict pinned SHA checks;
-   fix redirect transport, no source/protocol changes. Proof upload now follows
-   actual formatting execution instead of producing a duplicate missing-file red.
-   Corrected ce552a6/hosted37330393565 completes just fmt and native CLI build.
-   Actual artifact11354504131, CLI356477616 bytes/1a8dce504e06f1d3, is verified.
-   Owned real /profile -> signed Core40 + new Manager data -> native list works:
-   current/default, search, Esc/Ctrl-C, same thread, unavailable bridge recovery,
-   zero tokens/no auth and exact termios restoration. Actual rendered UI proved;
-   native unit target compiles (20m05s optimized test build). Focus9 runs6 pass/3
-   red:2 missing new snapshots and1 test incorrectly assumes Profile is the first
-   composer event. Actual output reviewed and2 snapshots explicitly accepted;
-   count actual Profile event rather than reject normal FollowTranscript routing.
-   Queue deferral/unavailable-thread and executable ownership branches get mapped
-   focused proof. Test-only opt0 and byte-identical non-TUI source mtimes reduce
-   rebuild cost; changed source stays current and exact external graph is retained.
-   Cache key now uses exact event SHA so a failed early tool download cannot poison
-   a permanently hit partial cache. No retries on the focused gate. Rerun pending;
-   no slice2 or switching acceptance.
-   Resume binds clean bf6172a and hosted37338236578. Its native artifact has the
-   identical1a8dce504e06f1d3 executable, so actual ce552a6 device proof is reusable.
-   Actual test inspection finds the busy setup bypasses TurnStarted and inserts
-   Esc, while assert_no_submit_op permits Interrupt. Restore the real busy state
-   and Enter-only path, assert no UserTurn/Interrupt on both event/operation
-   channels and preserve running state. This proof defect blocks slice closure;
-   no new production behavior is added. Stronger focused rerun follows current
-   hosted cache preservation; no concurrent source or device mutations.
-   Hosted37338236578 compiles test target in14m30s;12 run11 pass/1 red.
-   Search leaves no enabled row in a read-only list, so upstream Enter cancels;
-   the test incorrectly expected the list to stay open. KEEP native cancellation
-   semantics; independently prove Enter and Esc produce no selection events.
-   Both manually reviewed snapshots now pass, all transport/protocol/queue and
-   unavailable-thread tests pass. No retry or stage2. Same executable device
-   rerun via committed-path qualifier passes,27 metadata paths/40/39/12 jobs intact.
-   Existing native profile3 groups pass sequentially using short owned HOME roots.
-   Long-root probe hits pre-existing socket pathname bound; an overlapping native
-   teardown causes conservative busy rejection. Neither is accepted evidence:
-   correct fixture scope/serialization, then exact native3 succeeds. Do not weaken
-   conservative process safety. All27 protected paths,40/39 and12 jobs match.
-   Native implementation maps decode/load/picker to profile_manager_tests and
-   actual composer dispatch to profile_command_tests. The hosted slice candidate
-   now includes native.patch; first snapshot generation remains unaccepted until
-   actual diff/render inspection. No slice2 changes or full prototype claim.
-   Paths: experimental upstream TUI patch and owned Manager bridge; focused proof
-   actual slash dispatch, list/current/default/error/cancel; protected stage0.
-2. Reuse native history/agent selection with account-aware presentation. Pending.
-   Proof: actual upstream lists/hierarchy, current writer labels, no private index.
+2. Reuse native history/agent selection with account-aware presentation. CURRENT.
+   The native TUI baseline is now runnable and green. Ordered contract slices:
+   2a. Observable current-writer identity through a bounded read-only Manager data
+       boundary, using existing qualified-server/PID-start/kernel-lock discovery.
+       SPEC defines the private command/schema before implementation. Separate
+       execution profile from actual writer; never infer owner from first author,
+       history metadata or a currently selected profile. Failure means unavailable,
+       never unlocked. No paths/credentials/transcripts, private history index,
+       new durable state, stop action or account launch.
+       Paths: Manager task/profile-view resolver, private dispatch and focused
+       public-executable regression; owned native owner probe as needed.
+       Proof: exact JSON/argv/bounds/errors/no writes, current kernel owner rather
+       than creator, registered/external identity; existing public text unchanged.
+       Gate: focused nonzero compile/test, relevant Manager full/fmt/clippy and
+       actual diff before2b. Restore proof immediately on any red.
+   2b. Native /profile integrates navigation to the existing upstream conversation
+       selector and agents hierarchy with execution-profile/current-writer labels.
+       Reuse upstream data/loaders and UI lifecycle; no replacement session store.
+       Paths: bounded experimental native TUI modules/patch and separate *_tests.
+       Proof: native dispatch, history/agent routing, exact identity labels,
+       unavailable Manager, search/cancel and manually reviewed rendered snapshots.
+       Gate: native CLI/TUI compile, focused nonzero just test, lint/diff before2c.
+   2c. Actual native integrated-screen qualification against Core-owned qualified
+       servers in short, credential-free disposable roots; sequential device work.
+       Proof: upstream real lists/ancestry, two owned profiles/current writer,
+       cancellation/error keep chat usable, no transcript parser or private index.
+       Preserve40/39, resolver/auth/config metadata and original user jobs.
+       Close2 only with implementation, grouped evidence, protected verification,
+       authority update and commit. No production cutover.
 3. Same-terminal explicit selection/reconnect/transfer. Pending.
    Proof: two owned accounts, same conversation, no extra terminal, original
    argv/TTY/streams; cancellation/failure leaves a usable source or target.
+   A transition must retain the native /profile UI after Core re-entry; reaching
+   stock40 UI after the first switch is not completion. Source-artifact policy
+   remains an explicit experiment/admission gate; no false official provenance.
 4. Active-owner safety and final feasibility acceptance. Pending.
    Proof: running-turn/retained-subscriber cases, cancellation/native lock release,
    failed destination, scoped force only when explicitly selected; protected40/39,
    resolver/auth metadata and user PID/start census unchanged. No live cutover.
 
-Do not preserve a mock/wrapper as completion evidence. Record runnable baseline,
-focused nonzero gates and actual diffs here; final experiment disposition in GOAL.
+Do not preserve a mock/wrapper as completion evidence. Record the live ordered
+slice/proof map here; accepted evidence and final disposition belong in GOAL.md.

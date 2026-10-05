@@ -89,6 +89,36 @@
  Known original upstream unused ToolCallSource import is retained unsuppressed.
  Source-build cost and production policy remain admission gates.
 
+
+- Stage1 accepted: exact476af4a/hosted37342599783 succeeds. Manager private
+  __profile-snapshot-v1, shared current-profile resolver and real native /profile
+  display are implemented; public text/default/inherited precedence is preserved.
+  Manager focused3/3, grouped33 library +44 integration, all-target clippy -D
+  warnings/fmt pass on unchanged Manager source. Native just test actually runs
+ 12/12 with no retry, including real TurnStarted busy state/no UserTurn or Interrupt,
+ queue deferral, unavailable thread, protocol/transport/owner/timeout and2 manually
+ reviewed snapshots. just fix produces no source delta; only the original
+ upstream ToolCallSource import warning survives. Repository patch now includes
+ the exact tested formatting (one matches! layout); no new behavior or rerun.
+- Verified artifact11359847286 is139461245 compressed bytes. Static AArch64 CLI
+ 356477616 bytes/SHA2561a8dce504e06f1d3b0a66666ebb1ad9379a5ea9e52c2073ef81f9b8f5b46d66e
+ is byte-identical to the actual Termux-tested ce552a6/bf6172a artifact. Committed
+ qualify_native_profile_display.py executes native slash -> signed owned Core40
+ -> candidate Manager: current/default/search, Esc/Ctrl-C and unavailable bridge
+ leave the same conversation usable;0 tokens/no auth, /quit0 and exact termios.
+ Existing native profile3 groups pass sequentially with short physical HOME roots.
+ Complete40/39, all27 protected metadata paths and12 original PID/start identities
+ match; frozen main/rewrite/legacy refs unchanged. Evidence is temporary
+ codex-profile-tui-proof/display-busy-cancel-{native,proof,hosted-result.json,hosted.log}
+ and native-repaired-display-device.json/after-display-acceptance.json.
+- Disposition: KEEP native cancellation/parent-owned/queued input behavior and
+ strict bridge bounds; COLLAPSE current selection into one Manager resolver;
+ DELETE incorrect first-event/keep-open assertions and incomplete busy fixture.
+ The read-only slice is closed, not the full prototype. Native history/agent
+ integration, actual same-terminal profile transition, current-writer safety and
+ source-artifact admission remain required. Measured final CLI11m56s, test14m20s,
+ lint4m26s; source-build cost remains an admission consideration.
+
 ## PROFILE-LIFECYCLE-DELIVERY (accepted 2026-10-05)
 
 - User `배포 4` requests deployment of the just-accepted profile lifecycle source
