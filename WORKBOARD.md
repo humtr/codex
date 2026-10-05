@@ -36,6 +36,10 @@ Current bundle PROFILE-TUI-EXPERIMENT, user-authorized feasibility prototype.
    Native bridge/dispatch/picker implementation now begins on this green gate.
    Manager final gate33 library +44 integration passes; all-target clippy -D
    warnings, fmt and diff checks pass. Candidate source identity86944cf2f51557ca.
+   Hosted37329735507/df4b665 stops before native compile: GitHub tool downloads
+   omitted --location and hashed empty302 responses. KEEP strict pinned SHA checks;
+   fix redirect transport, no source/protocol changes. Proof upload now follows
+   actual formatting execution instead of producing a duplicate missing-file red.
    Native implementation maps decode/load/picker to profile_manager_tests and
    actual composer dispatch to profile_command_tests. The hosted slice candidate
    now includes native.patch; first snapshot generation remains unaccepted until

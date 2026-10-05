@@ -109,7 +109,7 @@ jobs:
           mkdir -p "$tools"
           acquire() {
             local url="$1" digest="$2" name="$3"
-            curl --fail --silent --show-error "$url" -o "$tools/$name.tar.gz"
+            curl --location --fail --silent --show-error "$url" -o "$tools/$name.tar.gz"
             echo "$digest  $tools/$name.tar.gz" | sha256sum -c -
             mkdir "$tools/$name"
             tar -xzf "$tools/$name.tar.gz" -C "$tools/$name"
@@ -124,6 +124,7 @@ jobs:
           acquire https://github.com/astral-sh/uv/releases/download/0.12.23/uv-aarch64-unknown-linux-gnu.tar.gz 6524bd338177ed50d035d39354e12545e993bbeba2ecbddf0480c5b3a81d313f uv
           echo "$tools/bin" >> "$GITHUB_PATH"
       - name: Format and inspect native display scope
+        id: native-format
         shell: bash
         run: |
           set -euo pipefail
@@ -186,7 +187,7 @@ jobs:
           git diff -- codex-rs/tui > "$RUNNER_TEMP/profile-tui-linted.patch"
           cmp "$RUNNER_TEMP/profile-tui-formatted.patch" "$RUNNER_TEMP/profile-tui-linted.patch"
       - name: Retain native focus and pending snapshots
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.native-format.outcome != 'skipped' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: profile-tui-display-proof
