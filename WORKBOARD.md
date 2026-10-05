@@ -114,3 +114,11 @@ writer snapshot. Revalidate the same kernel holder immediately before goal pause
 turn interrupt and the first whole-server signal. Map all to the owned concurrent
 release regression; Core and builder remain protected. Rebind source identity and
 rerun final Manager/native gates after this last ownership correction.
+Hosted candidateca5b171/run37254771057 red: existing Core maintenance exit fixture
+assumes a spawned publisher runs within10ms. Native production returns false
+correctly when the synthetic deadline expires; test then joins the late publisher
+and incorrectly asserts confirmation. KEEP production budget/exit safety; give
+only asynchronous fixture publication a scheduling allowance and remove its
+scheduler-dependent consumed-budget assertion (the preceding2ms exhaustion case
+already proves budget accounting). Inspect every matching async short-budget
+fixture, run this nonzero regression and new exact-event full hosted gate.

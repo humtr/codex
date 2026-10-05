@@ -93,6 +93,12 @@
 - Local implementation is qualified. Ordinary source commit/push and exact-event
   hosted acceptance remain before source closure; a signed installed delivery is
   a separate candidate gate, not implied by these owned runtime fixtures.
+- Source candidateca5b171 was pushed; hosted run37254771057 rejected the existing
+  Core asynchronous exit fixture's10ms scheduler assumption. No product runtime
+  failure or acceptance is inferred from that late synthetic publisher. Adjust
+  only its test allowance, preserving the separate exact exhaustion assertion
+  and unchanged production process-exit safety; restore the hosted gate before
+  source closure.
 
 ## VALIDATION-RENEWAL / PERMISSION-MEMORY-RELEASE (accepted 2026-10-04)
 
