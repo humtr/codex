@@ -194,10 +194,10 @@ index 0000000..8160d04
 +mod tests;
 diff --git a/codex-rs/tui/src/app/profile_manager_tests.rs b/codex-rs/tui/src/app/profile_manager_tests.rs
 new file mode 100644
-index 0000000..df04ca2
+index 0000000..120d022
 --- /dev/null
 +++ b/codex-rs/tui/src/app/profile_manager_tests.rs
-@@ -0,0 +1,255 @@
+@@ -0,0 +1,257 @@
 +use super::*;
 +use crate::app_event_sender::AppEventSender;
 +use crate::bottom_pane::BottomPaneView;
@@ -398,31 +398,33 @@ index 0000000..df04ca2
 +
 +#[test]
 +fn profile_manager_picker_renders_searches_and_cancels_without_selection() {
-+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-+    let keymap = RuntimeKeymap::defaults();
-+    let mut view = ListSelectionView::new(
-+        picker(
-+            decode(record().to_string().as_bytes()).unwrap(),
-+            &keymap.list,
-+        ),
-+        AppEventSender::new(tx),
-+        keymap.list,
-+    );
-+    insta::assert_snapshot!("profile_manager_saved", render(&view));
-+    for c in "work".chars() {
-+        view.handle_key_event(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
++    for key in [KeyCode::Enter, KeyCode::Esc] {
++        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
++        let keymap = RuntimeKeymap::defaults();
++        let mut view = ListSelectionView::new(
++            picker(
++                decode(record().to_string().as_bytes()).unwrap(),
++                &keymap.list,
++            ),
++            AppEventSender::new(tx),
++            keymap.list,
++        );
++        if key == KeyCode::Enter {
++            insta::assert_snapshot!("profile_manager_saved", render(&view));
++        }
++        for c in "work".chars() {
++            view.handle_key_event(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
++        }
++        let filtered = render(&view);
++        assert!(filtered.contains("work"));
++        assert!(!filtered.contains("external"));
++        view.handle_key_event(KeyEvent::new(key, KeyModifiers::NONE));
++        if !view.is_complete() {
++            view.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
++        }
++        assert!(view.is_complete());
++        assert!(rx.try_recv().is_err());
 +    }
-+    let filtered = render(&view);
-+    assert!(filtered.contains("work"));
-+    assert!(!filtered.contains("external"));
-+    view.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-+    assert!(!view.is_complete());
-+    view.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-+    if !view.is_complete() {
-+        view.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-+    }
-+    assert!(view.is_complete());
-+    assert!(rx.try_recv().is_err());
 +}
 +
 +#[test]
@@ -578,10 +580,10 @@ index 6d42ca5..0a94f80 100644
  #[path = "tests/reasoning_status_tests.rs"]
 diff --git a/codex-rs/tui/src/chatwidget/tests/profile_command_tests.rs b/codex-rs/tui/src/chatwidget/tests/profile_command_tests.rs
 new file mode 100644
-index 0000000..a2c1b04
+index 0000000..7cc2b61
 --- /dev/null
 +++ b/codex-rs/tui/src/chatwidget/tests/profile_command_tests.rs
-@@ -0,0 +1,69 @@
+@@ -0,0 +1,82 @@
 +use super::*;
 +use pretty_assertions::assert_eq;
 +
@@ -589,8 +591,9 @@ index 0000000..a2c1b04
 +async fn profile_command_dispatches_without_agent_input_in_idle_busy_side_and_owned_views() {
 +    for state in ["idle", "busy", "pending", "side", "owned"] {
 +        let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(None).await;
++        chat.thread_id = Some(ThreadId::new());
 +        match state {
-+            "busy" => chat.turn_lifecycle.agent_turn_running = true,
++            "busy" => handle_turn_started(&mut chat, "profile-turn"),
 +            "pending" => chat.input_queue.user_turn_pending_start = true,
 +            "side" => chat.set_side_conversation_active(true),
 +            "owned" => chat.set_parent_owned_thread(),
@@ -598,17 +601,29 @@ index 0000000..a2c1b04
 +        }
 +        chat.bottom_pane
 +            .set_composer_text("/profile".to_string(), Vec::new(), Vec::new());
-+        chat.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
 +        chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 +        let mut opened = 0;
 +        while let Ok(event) = rx.try_recv() {
++            assert!(
++                !matches!(event, AppEvent::CodexOp(Op::UserTurn { .. } | Op::Interrupt)),
++                "profile command submitted agent work or interruption: {state}"
++            );
 +            if matches!(event, AppEvent::OpenProfilePicker) {
 +                opened += 1;
 +            }
 +        }
 +        assert_eq!(opened, 1, "{state}");
 +        assert_eq!(chat.bottom_pane.composer_text(), "", "{state}");
-+        assert_no_submit_op(&mut op_rx);
++        while let Ok(op) = op_rx.try_recv() {
++            assert!(
++                !matches!(op, Op::UserTurn { .. } | Op::Interrupt),
++                "profile command submitted agent work or interruption: {state}"
++            );
++        }
++        if state == "busy" {
++            assert!(chat.turn_lifecycle.agent_turn_running);
++            assert!(chat.bottom_pane.is_task_running());
++        }
 +    }
 +}
 +

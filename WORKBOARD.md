@@ -55,6 +55,21 @@ Current bundle PROFILE-TUI-EXPERIMENT, user-authorized feasibility prototype.
    Cache key now uses exact event SHA so a failed early tool download cannot poison
    a permanently hit partial cache. No retries on the focused gate. Rerun pending;
    no slice2 or switching acceptance.
+   Resume binds clean bf6172a and hosted37338236578. Its native artifact has the
+   identical1a8dce504e06f1d3 executable, so actual ce552a6 device proof is reusable.
+   Actual test inspection finds the busy setup bypasses TurnStarted and inserts
+   Esc, while assert_no_submit_op permits Interrupt. Restore the real busy state
+   and Enter-only path, assert no UserTurn/Interrupt on both event/operation
+   channels and preserve running state. This proof defect blocks slice closure;
+   no new production behavior is added. Stronger focused rerun follows current
+   hosted cache preservation; no concurrent source or device mutations.
+   Hosted37338236578 compiles test target in14m30s;12 run11 pass/1 red.
+   Search leaves no enabled row in a read-only list, so upstream Enter cancels;
+   the test incorrectly expected the list to stay open. KEEP native cancellation
+   semantics; independently prove Enter and Esc produce no selection events.
+   Both manually reviewed snapshots now pass, all transport/protocol/queue and
+   unavailable-thread tests pass. No retry or stage2. Same executable device
+   rerun via committed-path qualifier passes,27 metadata paths/40/39/12 jobs intact.
    Existing native profile3 groups pass sequentially using short owned HOME roots.
    Long-root probe hits pre-existing socket pathname bound; an overlapping native
    teardown causes conservative busy rejection. Neither is accepted evidence:
