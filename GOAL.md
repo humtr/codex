@@ -92,7 +92,7 @@
   approval rejection; resume binds clean sourcec5c619f1f541cf3f2d2bde3e48cd8c2158aeeab9
   and unchanged local publication candidate/remote parent before execution.
 
-## ACTIVE-TASK-HANDOFF-DELIVERY corrective candidate (source repair in progress)
+## ACTIVE-TASK-HANDOFF-DELIVERY corrective candidate (qualified; operational approval pending)
 
 - Authorized triggerca56bd76 ran hosted37259637245 to all reported-success
   stages and non-force CAS promotion3da4b294e1a6d62b1b5ba775acf88aae375c3189.
@@ -142,6 +142,37 @@
   Downloaded transport mode600 is not installation mode; authenticated Manager
   bytes are materialized mode0755 only in the owned candidate. Rust product payload
   remains unchanged. No user work or live installed state was mutated.
+
+- Final accepted sourceaf1a3df6d99a01b5c649f0f47beef6703128feab has exact hosted
+  full acceptance37262014797 success: workflow11, migration15, hosted contracts83;
+  actual Core182, Manager59 and builder22 behavior tests; check/clippy/fmt all
+  green. Exclude zero-test entrypoints/doc tests and the one fixture-only Manager
+  compilation test from acceptance counts. Protected Rust payload diff is empty.
+- Final prospective38 qualification uses that exact closure-aware qualifier and
+  owned generation identitylocal-hosted-0-160-0-af1a3df6d99a-active-task-handoff-r2.
+  Both payload signatures are authenticated: Core36 and Manager37 digests/modes
+  materialized in the owned unsigned composition; all five actual native gates
+  pass exit0. This is prospective qualification, not a signed38 or installed proof.
+- Final current publication tests8, actual shell corpus48, protected admission8
+  against real signed36 controls, durable signed-fixture admission9, archive2
+  against the actual publication producer, and action/credential/private-key3
+  pass. A stale owned preview/candidate from the superseded source was rejected;
+  DELETE the preview dependency and optional candidate reuse. The corpus now
+  reads the real publication workflow and always reconstructs its owned candidate.
+  No product gate was relaxed. Actual full diff reviewed.
+- Concrete local corrective trigger965b66113f8e1601471c0b0cc17b7881242819e2 is the
+  sole child of remote main3da4b294e1a6d62b1b5ba775acf88aae375c3189, message
+  release-owner-handoff-seq38-source-af1a3df6. Exactly workflow/current test change;
+  public index/signature are byte-identical. Owned publication checkout is clean.
+  Fixed upstream latest0.160.0/archive7f0fe42f reverified. Protected local main and
+  sealed legacy refs unchanged; device27 path identities, all9 retained36 files,
+  activation36/previous35 and all8 preexisting PID/start pairs unchanged.
+- Requested explicit approval now names corrective965b661, signed generation38,
+  humtr/codex normal main push/signing/Release/Pages/CAS, and independently verified
+  ordinary installed activation retaining complete36. That reply is pending.
+  No new38 main push, signing, publication or installed update has executed.
+  Signed/public37 remains immutable; actual38 signed-byte/native/public readback
+  and fresh before-activation protection gate remain required before any install.
 
 ## ACTIVE-TASK-HANDOFF (source accepted 2026-10-05)
 
