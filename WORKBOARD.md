@@ -40,6 +40,26 @@ Current bundle PROFILE-TUI-EXPERIMENT, user-authorized feasibility prototype.
    omitted --location and hashed empty302 responses. KEEP strict pinned SHA checks;
    fix redirect transport, no source/protocol changes. Proof upload now follows
    actual formatting execution instead of producing a duplicate missing-file red.
+   Corrected ce552a6/hosted37330393565 completes just fmt and native CLI build.
+   Actual artifact11354504131, CLI356477616 bytes/1a8dce504e06f1d3, is verified.
+   Owned real /profile -> signed Core40 + new Manager data -> native list works:
+   current/default, search, Esc/Ctrl-C, same thread, unavailable bridge recovery,
+   zero tokens/no auth and exact termios restoration. Actual rendered UI proved;
+   native unit target compiles (20m05s optimized test build). Focus9 runs6 pass/3
+   red:2 missing new snapshots and1 test incorrectly assumes Profile is the first
+   composer event. Actual output reviewed and2 snapshots explicitly accepted;
+   count actual Profile event rather than reject normal FollowTranscript routing.
+   Queue deferral/unavailable-thread and executable ownership branches get mapped
+   focused proof. Test-only opt0 and byte-identical non-TUI source mtimes reduce
+   rebuild cost; changed source stays current and exact external graph is retained.
+   Cache key now uses exact event SHA so a failed early tool download cannot poison
+   a permanently hit partial cache. No retries on the focused gate. Rerun pending;
+   no slice2 or switching acceptance.
+   Existing native profile3 groups pass sequentially using short owned HOME roots.
+   Long-root probe hits pre-existing socket pathname bound; an overlapping native
+   teardown causes conservative busy rejection. Neither is accepted evidence:
+   correct fixture scope/serialization, then exact native3 succeeds. Do not weaken
+   conservative process safety. All27 protected paths,40/39 and12 jobs match.
    Native implementation maps decode/load/picker to profile_manager_tests and
    actual composer dispatch to profile_command_tests. The hosted slice candidate
    now includes native.patch; first snapshot generation remains unaccepted until

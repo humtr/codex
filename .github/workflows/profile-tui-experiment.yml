@@ -24,6 +24,7 @@ jobs:
       CARGO_PROFILE_DEV_DEBUG: '0'
       CARGO_PROFILE_DEV_INCREMENTAL: 'false'
       CARGO_PROFILE_DEV_OPT_LEVEL: '1'
+      CARGO_PROFILE_TEST_OPT_LEVEL: '0'
       CARGO_BUILD_JOBS: '3'
     steps:
       - name: Fetch exact experiment authority
@@ -83,7 +84,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             upstream/codex-rs/target
-          key: profile-tui-display-aarch64-musl-1.95.0-a956835d-${{ hashFiles('experiment/experiments/profile-tui/native.patch') }}
+          key: profile-tui-display-aarch64-musl-1.95.0-a956835d-${{ github.sha }}
           restore-keys: |
             profile-tui-display-aarch64-musl-1.95.0-a956835d-
             profile-tui-baseline-aarch64-musl-1.95.0-a956835d-zig014-dev-opt1-v2
@@ -101,6 +102,21 @@ jobs:
           git -C upstream apply "$GITHUB_WORKSPACE/experiment/experiments/profile-tui/native.patch"
           git -C upstream diff --check
           test "$(git -C upstream diff --name-only -- codex-rs/core)" = ''
+      - name: Preserve freshness of byte-identical upstream packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd upstream
+          python3 - <<'PYTHON'
+          import os, subprocess
+          epoch = int(subprocess.check_output(['git', 'show', '-s', '--format=%ct', 'HEAD']))
+          changed = set(subprocess.check_output(['git', 'diff', '--name-only'], text=True).splitlines())
+          paths = subprocess.check_output(['git', 'ls-files', '-z', '--', 'codex-rs']).decode().split('\0')
+          for path in paths:
+              if path and path not in changed and not path.startswith('codex-rs/tui/'):
+                  os.utime(path, (epoch, epoch), follow_symlinks=False)
+          PYTHON
+          git diff --check
       - name: Provision pinned upstream test and formatting tools
         shell: bash
         run: |
@@ -172,12 +188,25 @@ jobs:
           if-no-files-found: error
           retention-days: 3
           compression-level: 1
+      - name: Prepare bounded nonowner ownership fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(id -u)" != 0
+          fixture="$(mktemp -d "$RUNNER_TEMP/profile-core-owner.XXXXXX")/core"
+          cat > "$fixture" <<'CORE_FIXTURE'
+          #!/bin/sh
+          printf '%s\n' '{"schema":"codex-manager-profiles-v1","profiles":["default"],"current":"default","current_source":"default","saved_default":"default"}'
+          CORE_FIXTURE
+          chmod 0755 "$fixture"
+          sudo chown 0 "$fixture"
+          echo "CODEX_PROFILE_NONOWNER_CORE=$fixture" >> "$GITHUB_ENV"
       - name: Focused actual native TUI regressions
         shell: bash
         run: |
           set -euo pipefail
           cd upstream
-          just test --locked --target aarch64-unknown-linux-musl -p codex-tui --lib -E 'test(profile_manager) | test(profile_command) | test(side_conversation_hides_commands_without_side_flag)' 2>&1 | tee "$RUNNER_TEMP/profile-tui-focused.log"
+          just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-tui --lib -E 'test(profile_manager) | test(profile_command) | test(side_conversation_hides_commands_without_side_flag)' 2>&1 | tee "$RUNNER_TEMP/profile-tui-focused.log"
       - name: Inspect TUI lint fixes
         shell: bash
         run: |
@@ -206,7 +235,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             upstream/codex-rs/target
-          key: profile-tui-display-aarch64-musl-1.95.0-a956835d-${{ hashFiles('experiment/experiments/profile-tui/native.patch') }}
+          key: profile-tui-display-aarch64-musl-1.95.0-a956835d-${{ github.sha }}
       - name: Retain failed native build diagnosis
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

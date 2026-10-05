@@ -1,16 +1,16 @@
 diff --git a/codex-rs/tui/src/app.rs b/codex-rs/tui/src/app.rs
-index 37b5c78..b5c1236 100644
+index 37b5c78..cba8fd4 100644
 --- a/codex-rs/tui/src/app.rs
 +++ b/codex-rs/tui/src/app.rs
-@@ -231,6 +231,8 @@ mod loaded_threads;
- mod managed_worktree_creation;
+@@ -232,6 +232,8 @@ mod managed_worktree_creation;
  mod misalignment_policy;
  mod model_defaults;
+ mod new_session;
 +#[cfg(unix)]
 +mod profile_manager;
- mod new_session;
  mod turn_tips;
  pub(crate) use new_session::has_launch_setting;
+ mod clipboard;
 diff --git a/codex-rs/tui/src/app/event_dispatch.rs b/codex-rs/tui/src/app/event_dispatch.rs
 index da28bf2..a7076a4 100644
 --- a/codex-rs/tui/src/app/event_dispatch.rs
@@ -194,10 +194,10 @@ index 0000000..8160d04
 +mod tests;
 diff --git a/codex-rs/tui/src/app/profile_manager_tests.rs b/codex-rs/tui/src/app/profile_manager_tests.rs
 new file mode 100644
-index 0000000..636c98c
+index 0000000..df04ca2
 --- /dev/null
 +++ b/codex-rs/tui/src/app/profile_manager_tests.rs
-@@ -0,0 +1,232 @@
+@@ -0,0 +1,255 @@
 +use super::*;
 +use crate::app_event_sender::AppEventSender;
 +use crate::bottom_pane::BottomPaneView;
@@ -339,7 +339,16 @@ index 0000000..636c98c
 +    let root = TempDir::new().unwrap();
 +    assert_eq!(load(&root.path().join("missing")).await, None);
 +    assert_eq!(load(Path::new("relative-core")).await, None);
-+    let path = bridge(&root, "exit 99");
++    let path = bridge(&root, &format!("printf '%s' '{}'", record()));
++    let current = std::env::current_dir().unwrap();
++    let mut relative = std::path::PathBuf::new();
++    for _ in current.components().skip(1) {
++        relative.push("..");
++    }
++    relative.push(path.strip_prefix("/").unwrap());
++    assert!(std::fs::metadata(&relative).unwrap().is_file());
++    assert_eq!(load(&relative).await, None);
++    assert!(load(&path).await.is_some());
 +    let link = root.path().join("link");
 +    std::os::unix::fs::symlink(&path, &link).unwrap();
 +    assert_eq!(load(&link).await, None);
@@ -430,6 +439,62 @@ index 0000000..636c98c
 +    );
 +    insta::assert_snapshot!("profile_manager_external_home", render(&view));
 +}
++
++#[cfg(target_os = "linux")]
++#[tokio::test]
++async fn profile_manager_bridge_rejects_the_hosted_nonowner_fixture() {
++    let path = std::path::PathBuf::from(
++        std::env::var_os("CODEX_PROFILE_NONOWNER_CORE")
++            .expect("hosted ownership fixture must be prepared"),
++    );
++    let metadata = std::fs::metadata(&path).unwrap();
++    assert!(metadata.is_file());
++    assert_ne!(metadata.uid(), unsafe { libc::geteuid() });
++    assert_eq!(metadata.mode() & 0o777, 0o755);
++    assert_eq!(load(&path).await, None);
++}
+diff --git a/codex-rs/tui/src/app/snapshots/codex_tui__app__profile_manager__tests__profile_manager_external_home.snap b/codex-rs/tui/src/app/snapshots/codex_tui__app__profile_manager__tests__profile_manager_external_home.snap
+new file mode 100644
+index 0000000..2ec302f
+--- /dev/null
++++ b/codex-rs/tui/src/app/snapshots/codex_tui__app__profile_manager__tests__profile_manager_external_home.snap
+@@ -0,0 +1,15 @@
++---
++source: tui/src/app/profile_manager_tests.rs
++expression: render(&view)
++---
++
++  Profiles
++  Current: external home · Default: work
++
++  Find a profile
++
++› default
++  external
++  work (default)
++
++  Press esc to go back
+diff --git a/codex-rs/tui/src/app/snapshots/codex_tui__app__profile_manager__tests__profile_manager_saved.snap b/codex-rs/tui/src/app/snapshots/codex_tui__app__profile_manager__tests__profile_manager_saved.snap
+new file mode 100644
+index 0000000..b7090cc
+--- /dev/null
++++ b/codex-rs/tui/src/app/snapshots/codex_tui__app__profile_manager__tests__profile_manager_saved.snap
+@@ -0,0 +1,15 @@
++---
++source: tui/src/app/profile_manager_tests.rs
++expression: render(&view)
++---
++
++  Profiles
++  Current: work · Default: work
++
++  Find a profile
++
++› default
++  external
++  work (current)
++
++  Press esc to go back
 diff --git a/codex-rs/tui/src/app_event.rs b/codex-rs/tui/src/app_event.rs
 index ce30da4..d244aec 100644
 --- a/codex-rs/tui/src/app_event.rs
@@ -498,25 +563,25 @@ index 4fe2ed0..0975fb6 100644
      }
  
 diff --git a/codex-rs/tui/src/chatwidget/tests.rs b/codex-rs/tui/src/chatwidget/tests.rs
-index 6d42ca5..419b9fd 100644
+index 6d42ca5..0a94f80 100644
 --- a/codex-rs/tui/src/chatwidget/tests.rs
 +++ b/codex-rs/tui/src/chatwidget/tests.rs
-@@ -289,6 +289,9 @@ mod review_picker_tests;
- mod session_model_selection_tests;
- mod side;
- mod slash_commands;
+@@ -276,6 +276,9 @@ mod plan_mode;
+ #[path = "tests/plugin_catalog_tests.rs"]
+ mod plugin_catalog;
+ mod popups_and_settings;
 +#[cfg(unix)]
 +#[path = "tests/profile_command_tests.rs"]
 +mod profile_command_tests;
- #[path = "tests/sparkle_submission_tests.rs"]
- mod sparkle_submission_tests;
- #[path = "tests/startup_submission_tests.rs"]
+ #[path = "tests/rate_limit_recovery_tests.rs"]
+ mod rate_limit_recovery_tests;
+ #[path = "tests/reasoning_status_tests.rs"]
 diff --git a/codex-rs/tui/src/chatwidget/tests/profile_command_tests.rs b/codex-rs/tui/src/chatwidget/tests/profile_command_tests.rs
 new file mode 100644
-index 0000000..1114efd
+index 0000000..a2c1b04
 --- /dev/null
 +++ b/codex-rs/tui/src/chatwidget/tests/profile_command_tests.rs
-@@ -0,0 +1,26 @@
+@@ -0,0 +1,69 @@
 +use super::*;
 +use pretty_assertions::assert_eq;
 +
@@ -535,13 +600,56 @@ index 0000000..1114efd
 +            .set_composer_text("/profile".to_string(), Vec::new(), Vec::new());
 +        chat.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
 +        chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-+        assert!(
-+            matches!(rx.try_recv(), Ok(AppEvent::OpenProfilePicker)),
-+            "{state}"
-+        );
++        let mut opened = 0;
++        while let Ok(event) = rx.try_recv() {
++            if matches!(event, AppEvent::OpenProfilePicker) {
++                opened += 1;
++            }
++        }
++        assert_eq!(opened, 1, "{state}");
 +        assert_eq!(chat.bottom_pane.composer_text(), "", "{state}");
 +        assert_no_submit_op(&mut op_rx);
 +    }
++}
++
++#[tokio::test]
++async fn profile_command_opens_from_an_unavailable_thread_without_agent_input() {
++    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(None).await;
++    chat.bottom_pane
++        .set_composer_text("/profile".to_string(), Vec::new(), Vec::new());
++    chat.handle_restricted_key(
++        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
++        crate::bottom_pane::RestrictedInputMode::UnavailableThread,
++    );
++    assert!(
++        std::iter::from_fn(|| rx.try_recv().ok())
++            .any(|event| matches!(event, AppEvent::OpenProfilePicker))
++    );
++    assert_eq!(chat.bottom_pane.composer_text(), "");
++    assert_no_submit_op(&mut op_rx);
++}
++
++#[tokio::test]
++async fn profile_command_queued_picker_defers_follow_up_instead_of_submitting_it() {
++    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(None).await;
++    chat.thread_id = Some(ThreadId::new());
++    handle_turn_started(&mut chat, "profile-turn");
++    for text in ["/profile", "follow up after profiles"] {
++        chat.bottom_pane
++            .set_composer_text(text.to_string(), Vec::new(), Vec::new());
++        chat.handle_key_event(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
++    }
++    assert_eq!(chat.input_queue.queued_user_messages.len(), 2);
++    handle_turn_completed(&mut chat, "profile-turn", None);
++    assert!(
++        std::iter::from_fn(|| rx.try_recv().ok())
++            .any(|event| matches!(event, AppEvent::OpenProfilePicker))
++    );
++    assert_eq!(
++        chat.queued_user_message_texts(),
++        vec!["follow up after profiles".to_string()]
++    );
++    assert_no_submit_op(&mut op_rx);
 +}
 diff --git a/codex-rs/tui/src/slash_command.rs b/codex-rs/tui/src/slash_command.rs
 index 301de2e..12aaea8 100644
