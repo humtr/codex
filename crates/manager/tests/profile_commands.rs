@@ -1102,3 +1102,785 @@ fn notification_tmux_click_executes_only_existing_focus_and_activity_with_safe_f
     assert_eq!(fs::read_to_string(&clicked_log).unwrap(), "ai\n__tmux_focus\n01a0fc82-dc8f-7d13-bb78-7e120f1fa9b3\nam\nstart\n--activity-reorder-to-front\n--activity-single-top\n-n\ncom.termux/com.termux.app.TermuxActivity\n".repeat(3));
     assert!(!root.0.join("injected").exists());
 }
+
+#[test]
+fn active_task_status_and_usage_are_publicly_wired_and_state_free() {
+    let root = TestRoot::new();
+    let core = write_core_probe(&root.0);
+    let result = run_manager(&root.0, &core, &["task", "status"], None);
+    assert_eq!(result.status.code(), Some(0));
+    assert_eq!(result.stdout, b"No current task writers found.\n");
+    assert!(result.stderr.is_empty());
+    for args in [
+        vec!["task", "stop"],
+        vec!["task", "status", "bad"],
+        vec![
+            "task",
+            "takeover",
+            "12345678-1234-1234-1234-123456789abc",
+            "--force-server",
+            "1:1",
+        ],
+    ] {
+        assert_eq!(
+            run_manager(&root.0, &core, &args, None).status.code(),
+            Some(2)
+        );
+    }
+    assert!(!root.0.join(".local").exists());
+    let help = run_manager(&root.0, &core, &["help"], None);
+    assert!(String::from_utf8(help.stdout)
+        .unwrap()
+        .contains("codex termux task"));
+}
+
+const TASK_ID: &str = "12345678-1234-1234-1234-123456789abc";
+const CHILD_TASK_ID: &str = "12345678-1234-1234-1234-123456789abe";
+const OTHER_TASK_ID: &str = "12345678-1234-1234-1234-123456789abd";
+
+// Owned executable server fixture: no production injection or live account state.
+#[test]
+fn active_task_native_fixture() {
+    use serde_json::{json, Value};
+    use std::os::unix::net::UnixListener;
+    use tungstenite::Message;
+    let Some(path) = std::env::var_os("TASK_FIXTURE_SOCKET") else {
+        return;
+    };
+    let listener = UnixListener::bind(&path).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+    if std::env::var_os("TASK_FIXTURE_IGNORE_TERM").is_some() {
+        unsafe {
+            libc::signal(libc::SIGTERM, libc::SIG_IGN);
+        }
+    }
+    let mut active = std::collections::BTreeSet::from([
+        TASK_ID.to_owned(),
+        OTHER_TASK_ID.to_owned(),
+        CHILD_TASK_ID.to_owned(),
+    ]);
+    let mut goal_active = true;
+    let mut loaded_calls = 0;
+    let mut writer = std::env::var_os("TASK_FIXTURE_WRITER").map(|p| {
+        let f = std::fs::File::open(p).unwrap();
+        f.try_lock().unwrap();
+        f
+    });
+    let mut other_writers = std::collections::BTreeMap::new();
+    if let Some(directory) = std::env::var_os("TASK_FIXTURE_LOCKS") {
+        for id in [OTHER_TASK_ID, CHILD_TASK_ID] {
+            if id == CHILD_TASK_ID && std::env::var_os("TASK_FIXTURE_CHILD_VIEW_ONLY").is_some() {
+                continue;
+            }
+            let file =
+                std::fs::File::open(PathBuf::from(&directory).join(format!("{id}.lock"))).unwrap();
+            file.try_lock().unwrap();
+            other_writers.insert(id, file);
+        }
+    }
+    if std::env::var_os("TASK_FIXTURE_UNRESPONSIVE").is_some() {
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        }
+    }
+    for stream in listener.incoming() {
+        let Ok(mut ws) = tungstenite::accept(stream.unwrap()) else {
+            continue;
+        };
+        while let Ok(message) = ws.read() {
+            let Ok(text) = message.to_text() else {
+                continue;
+            };
+            let value: Value = serde_json::from_str(text).unwrap();
+            let method = value["method"].as_str().unwrap();
+            if method == "initialized" {
+                continue;
+            }
+            let result = match method {
+                "initialize" => json!({}),
+                "thread/loaded/list" => {
+                    loaded_calls += 1;
+                    if let Some(path) = std::env::var_os("TASK_FIXTURE_WRITER") {
+                        let marker = PathBuf::from(path)
+                            .parent()
+                            .unwrap()
+                            .join(".release-during-scope");
+                        if fs::read_to_string(marker)
+                            .ok()
+                            .and_then(|s| s.trim().parse::<usize>().ok())
+                            == Some(loaded_calls)
+                        {
+                            writer.take();
+                        }
+                    }
+                    json!({"data":[TASK_ID,OTHER_TASK_ID,CHILD_TASK_ID],"nextCursor":null})
+                }
+                "thread/read" => {
+                    json!({"thread":{"id":value["params"]["threadId"],"status":{"type":if active.contains(value["params"]["threadId"].as_str().unwrap()) {"active"} else {"idle"}},"preview":"NEVER_PRINT_PRIVATE"}})
+                }
+                "thread/list" => {
+                    assert_eq!(value["params"]["ancestorThreadId"], TASK_ID);
+                    json!({"data":[{"id":CHILD_TASK_ID}],"nextCursor":null})
+                }
+                "thread/goal/get" => {
+                    if let Some(path) = std::env::var_os("TASK_FIXTURE_WRITER") {
+                        if PathBuf::from(path)
+                            .parent()
+                            .unwrap()
+                            .join(".release-before-goal-change")
+                            .exists()
+                        {
+                            writer.take();
+                        }
+                    }
+                    json!({"goal":{"status":if goal_active {"active"} else {"paused"},"objective":"NEVER_PRINT_PRIVATE"}})
+                }
+                "thread/goal/set" => {
+                    assert_eq!(value["params"]["status"], "paused");
+                    goal_active = false;
+                    json!({})
+                }
+                "thread/turns/list" => {
+                    assert_eq!(value["params"]["itemsView"], "notLoaded");
+                    json!({"data":[{"id":"turn-owned","status":"inProgress"}]})
+                }
+                "turn/interrupt" => {
+                    assert!(!goal_active);
+                    let id = value["params"]["threadId"].as_str().unwrap();
+                    assert!(id == TASK_ID || id == CHILD_TASK_ID);
+                    assert!(
+                        id != CHILD_TASK_ID
+                            || std::env::var_os("TASK_FIXTURE_CHILD_VIEW_ONLY").is_none()
+                    );
+                    active.remove(id);
+                    if std::env::var_os("TASK_FIXTURE_RETAIN").is_none() {
+                        if id == TASK_ID {
+                            writer.take();
+                        } else {
+                            other_writers.remove(id);
+                        }
+                    }
+                    json!({})
+                }
+                "thread/backgroundTerminals/clean" => json!({}),
+                _ => panic!("unexpected protocol method"),
+            };
+            if ws
+                .send(Message::Text(
+                    json!({"id":value["id"],"result":result}).to_string().into(),
+                ))
+                .is_err()
+            {
+                break;
+            }
+        }
+    }
+}
+
+struct TaskFixture {
+    root: TestRoot,
+    core: PathBuf,
+    child: std::process::Child,
+    account: PathBuf,
+    binding: PathBuf,
+}
+impl TaskFixture {
+    fn new() -> Self {
+        Self::configured(false)
+    }
+    fn configured(retain: bool) -> Self {
+        Self::configured_mode(retain, false, false, false)
+    }
+    fn configured_mode(
+        retain: bool,
+        ignore_term: bool,
+        unresponsive: bool,
+        child_view_only: bool,
+    ) -> Self {
+        use std::os::unix::ffi::OsStrExt;
+        let root = TestRoot::new();
+        let core = write_core_probe(&root.0);
+        let account = root.0.join("external-a");
+        fs::create_dir(&account).unwrap();
+        fs::set_permissions(&account, fs::Permissions::from_mode(0o700)).unwrap();
+        let runtime = root
+            .0
+            .join(".local/lib/codex/core/generations/fixture-old/runtime");
+        fs::create_dir_all(runtime.parent().unwrap()).unwrap();
+        fs::copy(std::env::current_exe().unwrap(), &runtime).unwrap();
+        fs::set_permissions(&runtime, fs::Permissions::from_mode(0o755)).unwrap();
+        let mut hash = 0xcbf29ce484222325u64;
+        for b in account
+            .as_os_str()
+            .as_bytes()
+            .iter()
+            .chain([0].iter())
+            .chain(runtime.as_os_str().as_bytes())
+        {
+            hash = (hash ^ u64::from(*b)).wrapping_mul(0x100000001b3);
+        }
+        let binding = root
+            .0
+            .join(format!(".local/share/codex/core/servers/{hash:016x}"));
+        fs::create_dir_all(&binding).unwrap();
+        for p in [binding.parent().unwrap(), binding.as_path()] {
+            fs::set_permissions(p, fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let socket = root.0.join("s");
+        let locks = root.0.join(".codex/thread-writer-locks");
+        fs::create_dir_all(&locks).unwrap();
+        for p in [locks.parent().unwrap(), locks.as_path()] {
+            fs::set_permissions(p, fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let writer = locks.join(format!("{TASK_ID}.lock"));
+        fs::write(&writer, b"native-writer").unwrap();
+        fs::set_permissions(&writer, fs::Permissions::from_mode(0o600)).unwrap();
+        for id in [OTHER_TASK_ID, CHILD_TASK_ID] {
+            let path = locks.join(format!("{id}.lock"));
+            fs::write(&path, b"native-writer").unwrap();
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        }
+        fs::write(locks.join(".coordination.lock"), b"").unwrap();
+        let mut process = Command::new(&runtime);
+        process
+            .args(["--exact", "active_task_native_fixture", "--nocapture"])
+            .env("TASK_FIXTURE_SOCKET", &socket)
+            .env("TASK_FIXTURE_WRITER", &writer)
+            .env("TASK_FIXTURE_LOCKS", &locks)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        if retain {
+            process.env("TASK_FIXTURE_RETAIN", "1");
+        }
+        if ignore_term {
+            process.env("TASK_FIXTURE_IGNORE_TERM", "1");
+        }
+        if unresponsive {
+            process.env("TASK_FIXTURE_UNRESPONSIVE", "1");
+        }
+        if child_view_only {
+            process.env("TASK_FIXTURE_CHILD_VIEW_ONLY", "1");
+        }
+        let child = process.spawn().unwrap();
+        let mut owner = account.as_os_str().as_bytes().to_vec();
+        owner.push(0);
+        owner.extend_from_slice(runtime.as_os_str().as_bytes());
+        for (name, bytes) in [
+            ("owner", owner),
+            ("pid", format!("{}\n", child.id()).into_bytes()),
+        ] {
+            let p = binding.join(name);
+            fs::write(&p, bytes).unwrap();
+            fs::set_permissions(p, fs::Permissions::from_mode(0o600)).unwrap();
+        }
+        std::os::unix::fs::symlink(&socket, binding.join("s")).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !socket.exists() {
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        Self {
+            root,
+            core,
+            child,
+            account,
+            binding,
+        }
+    }
+}
+impl Drop for TaskFixture {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+#[test]
+fn active_task_owner_follows_current_kernel_writer_not_original_loaded_server() {
+    use std::os::unix::ffi::OsStrExt;
+    struct OwnedProcess(std::process::Child);
+    impl Drop for OwnedProcess {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    let f = TaskFixture::new();
+    let stopped = run_manager(&f.root.0, &f.core, &["task", "stop", TASK_ID], None);
+    assert_eq!(stopped.status.code(), Some(0));
+    // A remains alive and loaded, but has released its writer: it is no owner.
+    assert!(f.child.id() > 1);
+    let released = run_manager(&f.root.0, &f.core, &["task", "status", TASK_ID], None);
+    assert_eq!(released.stdout, b"No current task writers found.\n");
+    let account = f.root.0.join("external-b");
+    fs::create_dir(&account).unwrap();
+    fs::set_permissions(&account, fs::Permissions::from_mode(0o700)).unwrap();
+    let runtime = f
+        .root
+        .0
+        .join(".local/lib/codex/core/generations/fixture-old/runtime");
+    let mut owner = account.as_os_str().as_bytes().to_vec();
+    owner.push(0);
+    owner.extend_from_slice(runtime.as_os_str().as_bytes());
+    let mut hash = 0xcbf29ce484222325u64;
+    for b in &owner {
+        hash = (hash ^ u64::from(*b)).wrapping_mul(0x100000001b3);
+    }
+    let binding = f.binding.parent().unwrap().join(format!("{hash:016x}"));
+    fs::create_dir(&binding).unwrap();
+    fs::set_permissions(&binding, fs::Permissions::from_mode(0o700)).unwrap();
+    let socket = f.root.0.join("s2");
+    let mut child = OwnedProcess(
+        Command::new(&runtime)
+            .args(["--exact", "active_task_native_fixture", "--nocapture"])
+            .env("TASK_FIXTURE_SOCKET", &socket)
+            .env(
+                "TASK_FIXTURE_WRITER",
+                f.root
+                    .0
+                    .join(format!(".codex/thread-writer-locks/{TASK_ID}.lock")),
+            )
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    for (name, bytes) in [
+        ("owner", owner),
+        ("pid", format!("{}\n", child.0.id()).into_bytes()),
+    ] {
+        let path = binding.join(name);
+        fs::write(&path, bytes).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    std::os::unix::fs::symlink(&socket, binding.join("s")).unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !socket.exists() {
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let status = run_manager(&f.root.0, &f.core, &["task", "status", TASK_ID], None);
+    assert_eq!(
+        status.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&status.stderr)
+    );
+    let text = String::from_utf8(status.stdout).unwrap();
+    assert!(text.contains("external-b") && !text.contains("external-a"));
+    let reconnect = run_manager(&f.root.0, &f.core, &["task", "reconnect", TASK_ID], None);
+    assert_eq!(reconnect.status.code(), Some(37));
+    assert!(String::from_utf8(reconnect.stdout)
+        .unwrap()
+        .contains(&format!("HOME_VALUE={}", account.display())));
+    assert!(child.0.try_wait().unwrap().is_none());
+}
+
+#[test]
+fn active_task_stop_preserves_loaded_descendant_without_writer_ownership() {
+    use serde_json::{json, Value};
+    let f = TaskFixture::configured_mode(false, false, false, true);
+    let stopped = run_manager(&f.root.0, &f.core, &["task", "stop", TASK_ID], None);
+    assert_eq!(
+        stopped.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&stopped.stderr)
+    );
+    let stream = std::os::unix::net::UnixStream::connect(f.root.0.join("s")).unwrap();
+    let (mut ws, _) = tungstenite::client("ws://localhost/", stream).unwrap();
+    ws.send(tungstenite::Message::Text(
+        json!({"id":1,"method":"thread/read","params":{"threadId":CHILD_TASK_ID}})
+            .to_string()
+            .into(),
+    ))
+    .unwrap();
+    let result: Value = serde_json::from_str(ws.read().unwrap().to_text().unwrap()).unwrap();
+    assert_eq!(result["result"]["thread"]["status"]["type"], "active");
+    drop(ws);
+    let status = run_manager(&f.root.0, &f.core, &["task", "status", CHILD_TASK_ID], None);
+    assert_eq!(status.stdout, b"No current task writers found.\n");
+}
+
+#[test]
+fn active_task_released_owner_resumes_current_account_without_contacting_original_author() {
+    let f = TaskFixture::new();
+    assert_eq!(
+        run_manager(&f.root.0, &f.core, &["task", "stop", TASK_ID], None)
+            .status
+            .code(),
+        Some(0)
+    );
+    let current = f.root.0.join("external-b");
+    fs::create_dir(&current).unwrap();
+    fs::set_permissions(&current, fs::Permissions::from_mode(0o700)).unwrap();
+    let resumed = run_manager(
+        &f.root.0,
+        &f.core,
+        &["task", "takeover", TASK_ID],
+        Some(&current),
+    );
+    assert_eq!(resumed.status.code(), Some(37));
+    let text = String::from_utf8(resumed.stdout).unwrap();
+    assert!(text.contains(&format!("HOME_VALUE={}", current.display())));
+    assert!(!text.contains("ARG=<--remote>"));
+    let denied = run_manager(
+        &f.root.0,
+        &f.core,
+        &["task", "takeover", TASK_ID, "--force-server", "10:123"],
+        Some(&current),
+    );
+    assert_eq!(denied.status.code(), Some(1));
+    // A holder absent from the trusted server records remains unknown, never free.
+    let lock = std::fs::File::open(
+        f.root
+            .0
+            .join(format!(".codex/thread-writer-locks/{TASK_ID}.lock")),
+    )
+    .unwrap();
+    lock.try_lock().unwrap();
+    let unknown = run_manager(&f.root.0, &f.core, &["task", "status", TASK_ID], None);
+    assert_eq!(unknown.status.code(), Some(1));
+    let blocked = run_manager(
+        &f.root.0,
+        &f.core,
+        &["task", "takeover", TASK_ID],
+        Some(&current),
+    );
+    assert_eq!(blocked.status.code(), Some(1));
+    assert!(blocked.stdout.is_empty());
+}
+
+#[test]
+fn active_task_changed_owner_during_metadata_never_authorizes_old_goal_change_or_signal() {
+    for force in [false, true] {
+        let mut f = TaskFixture::configured(true);
+        let status = run_manager(&f.root.0, &f.core, &["task", "status", TASK_ID], None);
+        let text = String::from_utf8(status.stdout).unwrap();
+        let token = text.split("server=").nth(1).unwrap().trim();
+        let locks = f.root.0.join(".codex/thread-writer-locks");
+        let output = if force {
+            fs::write(locks.join(".release-during-scope"), b"3").unwrap();
+            run_manager(
+                &f.root.0,
+                &f.core,
+                &["task", "takeover", TASK_ID, "--force-server", token],
+                None,
+            )
+        } else {
+            fs::write(locks.join(".release-before-goal-change"), b"").unwrap();
+            run_manager(&f.root.0, &f.core, &["task", "stop", TASK_ID], None)
+        };
+        assert_eq!(output.status.code(), Some(1));
+        assert!(f.child.try_wait().unwrap().is_none());
+        assert!(output.stdout.is_empty());
+        let status = run_manager(&f.root.0, &f.core, &["task", "status", OTHER_TASK_ID], None);
+        assert_eq!(status.status.code(), Some(0));
+        assert!(String::from_utf8(status.stdout)
+            .unwrap()
+            .contains("state=active"));
+    }
+}
+
+#[test]
+fn active_task_discovery_identifies_external_old_runtime_and_rejects_binding_faults() {
+    let f = TaskFixture::new();
+    let output = run_manager(&f.root.0, &f.core, &["task", "status", TASK_ID], None);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.contains(TASK_ID));
+    assert!(text.contains("external-a"));
+    assert!(text.contains("state=active"));
+    assert!(!text.contains(OTHER_TASK_ID));
+    assert!(!text.contains("NEVER_PRINT_PRIVATE"));
+    assert!(f.account.is_dir());
+    let pid = f.binding.join("pid");
+    let before = fs::read(&pid).unwrap();
+    fs::write(&pid, b"1\n").unwrap();
+    assert_eq!(
+        run_manager(&f.root.0, &f.core, &["task", "status"], None)
+            .status
+            .code(),
+        Some(1)
+    );
+    fs::write(&pid, &before).unwrap();
+    let owner = f.binding.join("owner");
+    let before = fs::read(&owner).unwrap();
+    fs::write(&owner, b"substituted\0runtime").unwrap();
+    assert_eq!(
+        run_manager(&f.root.0, &f.core, &["task", "status"], None)
+            .status
+            .code(),
+        Some(1)
+    );
+    fs::write(&owner, before).unwrap();
+    fs::set_permissions(&pid, fs::Permissions::from_mode(0o644)).unwrap();
+    assert_eq!(
+        run_manager(&f.root.0, &f.core, &["task", "status"], None)
+            .status
+            .code(),
+        Some(1)
+    );
+}
+
+#[test]
+fn active_task_reconnect_execs_owner_and_stop_waits_but_reports_retained_writer() {
+    for retain in [false, true] {
+        let f = TaskFixture::configured(retain);
+        let reconnect = run_manager(&f.root.0, &f.core, &["task", "reconnect", TASK_ID], None);
+        assert_eq!(reconnect.status.code(), Some(37));
+        let text = String::from_utf8(reconnect.stdout).unwrap();
+        assert!(text.contains(&format!("HOME_VALUE={}\n", f.account.display())));
+        assert!(text.contains("ARG=<--remote>"));
+        assert!(text.contains(&format!("ARG=<{}>", TASK_ID)));
+        assert!(text.contains("API_SET=\n"));
+        let stopped = run_manager(&f.root.0, &f.core, &["task", "stop", TASK_ID], None);
+        assert_eq!(
+            stopped.status.code(),
+            Some(0),
+            "{}",
+            String::from_utf8_lossy(&stopped.stderr)
+        );
+        assert_eq!(
+            String::from_utf8(stopped.stdout)
+                .unwrap()
+                .contains("still owned"),
+            retain
+        );
+        let status = run_manager(&f.root.0, &f.core, &["task", "status"], None);
+        let text = String::from_utf8(status.stdout).unwrap();
+        assert_eq!(
+            text.lines()
+                .any(|l| l.contains(TASK_ID) && l.contains("state=idle")),
+            retain
+        );
+        assert!(text
+            .lines()
+            .any(|l| l.contains(OTHER_TASK_ID) && l.contains("state=active")));
+        assert_eq!(
+            text.lines()
+                .any(|l| l.contains(CHILD_TASK_ID) && l.contains("state=idle")),
+            retain
+        );
+        assert_eq!(
+            fs::read(
+                f.root
+                    .0
+                    .join(format!(".codex/thread-writer-locks/{TASK_ID}.lock"))
+            )
+            .unwrap(),
+            b"native-writer"
+        );
+    }
+}
+
+#[test]
+fn active_task_takeover_uses_chosen_account_and_never_starts_a_second_writer() {
+    for retain in [false, true] {
+        let f = TaskFixture::configured(retain);
+        assert_eq!(
+            run_manager(
+                &f.root.0,
+                &f.core,
+                &["profile", "create", "account-b"],
+                None
+            )
+            .status
+            .code(),
+            Some(0)
+        );
+        let target = f
+            .root
+            .0
+            .join(".local/share/codex/manager/profiles/account-b/home");
+        let output = run_manager(
+            &f.root.0,
+            &f.core,
+            &["task", "takeover", TASK_ID, "--profile", "account-b"],
+            None,
+        );
+        if retain {
+            assert_eq!(output.status.code(), Some(1));
+            assert!(String::from_utf8(output.stderr)
+                .unwrap()
+                .contains("writer is still owned"));
+            assert!(output.stdout.is_empty());
+        } else {
+            assert_eq!(output.status.code(), Some(37));
+            let text = String::from_utf8(output.stdout).unwrap();
+            assert!(text.contains(&format!("HOME_VALUE={}\n", target.display())));
+            assert!(!text.contains("ARG=<--remote>"));
+            assert!(text.contains(&format!("ARG=<{}>", TASK_ID)));
+        }
+    }
+}
+#[test]
+fn active_task_force_is_pid_stable_server_scoped_and_rejects_stale_confirmation() {
+    let mut f = TaskFixture::configured(true);
+    let mut unrelated = TaskFixture::new();
+    let status = run_manager(&f.root.0, &f.core, &["task", "status", TASK_ID], None);
+    let status = String::from_utf8(status.stdout).unwrap();
+    let token = status.split("server=").nth(1).unwrap().trim();
+    let stale = format!("{}:0", f.child.id());
+    let denied = run_manager(
+        &f.root.0,
+        &f.core,
+        &["task", "takeover", TASK_ID, "--force-server", &stale],
+        None,
+    );
+    assert_eq!(denied.status.code(), Some(1));
+    assert!(f.child.try_wait().unwrap().is_none());
+    let takeover = run_manager(
+        &f.root.0,
+        &f.core,
+        &["task", "takeover", TASK_ID, "--force-server", token],
+        None,
+    );
+    assert_eq!(
+        takeover.status.code(),
+        Some(37),
+        "{}",
+        String::from_utf8_lossy(&takeover.stderr)
+    );
+    let scope = String::from_utf8(takeover.stderr).unwrap();
+    assert!(scope.contains("Whole-server"));
+    assert!(scope.contains(TASK_ID));
+    assert!(scope.contains(OTHER_TASK_ID));
+    assert!(f.child.wait().unwrap().code() != Some(0));
+    assert!(unrelated.child.try_wait().unwrap().is_none());
+    assert_eq!(
+        fs::read(
+            f.root
+                .0
+                .join(format!(".codex/thread-writer-locks/{TASK_ID}.lock"))
+        )
+        .unwrap(),
+        b"native-writer"
+    );
+}
+#[test]
+fn active_task_destination_failure_and_noninteractive_menu_never_cancel_owner() {
+    let f = TaskFixture::new();
+    assert_eq!(
+        run_manager(&f.root.0, &f.core, &["task"], None)
+            .status
+            .code(),
+        Some(2)
+    );
+    assert_eq!(
+        run_manager(
+            &f.root.0,
+            &f.core,
+            &["task", "takeover", TASK_ID, "--profile", "absent"],
+            None
+        )
+        .status
+        .code(),
+        Some(1)
+    );
+    let output = run_manager(&f.root.0, &f.core, &["task", "status", TASK_ID], None);
+    assert!(String::from_utf8(output.stdout)
+        .unwrap()
+        .contains("state=active"));
+}
+
+#[test]
+fn active_task_unresponsive_owner_and_term_ignoring_force_preserve_unrelated_work() {
+    let mut f = TaskFixture::configured_mode(true, true, true, false);
+    let status = run_manager(&f.root.0, &f.core, &["task", "status", TASK_ID], None);
+    assert_eq!(
+        status.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&status.stderr)
+    );
+    let text = String::from_utf8(status.stdout).unwrap();
+    assert!(text.contains("unresponsive"));
+    let token = text.split("server=").nth(1).unwrap().trim();
+    let output = run_manager(
+        &f.root.0,
+        &f.core,
+        &["task", "takeover", TASK_ID, "--force-server", token],
+        None,
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(37),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8(output.stderr)
+        .unwrap()
+        .contains("unknown"));
+    let exit = f.child.wait().unwrap();
+    use std::os::unix::process::ExitStatusExt;
+    assert_eq!(exit.signal(), Some(libc::SIGKILL));
+    // Core's old rendezvous may remain until native retirement; it cannot poison discovery.
+    let status = run_manager(&f.root.0, &f.core, &["task", "status"], None);
+    assert_eq!(status.status.code(), Some(0));
+    assert_eq!(status.stdout, b"No current task writers found.\n");
+}
+#[test]
+fn active_task_interactive_menu_allows_selection_cancel_and_current_account_takeover() {
+    let script = std::env::var_os("PATH")
+        .and_then(|p| {
+            std::env::split_paths(&p)
+                .map(|d| d.join("script"))
+                .find(|p| p.is_file())
+        })
+        .unwrap();
+    for (input, expected) in [
+        ("\n", 130),
+        ("1\n\n", 130),
+        ("1\n4\n\n", 130),
+        ("1\n3\n", 37),
+    ] {
+        let f = TaskFixture::new();
+        let current = f.root.0.join("external-b");
+        fs::create_dir(&current).unwrap();
+        fs::set_permissions(&current, fs::Permissions::from_mode(0o700)).unwrap();
+        let invocation = format!("{} task", shell_quote(manager_binary()));
+        let mut process = Command::new(&script)
+            .env_clear()
+            .env("HOME", &f.root.0)
+            .env(CORE_API_ENV, CORE_API)
+            .env(CORE_ENTRYPOINT_ENV, &f.core)
+            .env("CODEX_HOME", &current)
+            .args([
+                "--quiet",
+                "--return",
+                "--flush",
+                "--command",
+                &invocation,
+                "/dev/null",
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        process
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(input.as_bytes())
+            .unwrap();
+        let output = process.wait_with_output().unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(expected),
+            "{}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        let text = String::from_utf8(output.stdout).unwrap();
+        assert!(text.contains("Reconnect to owner") || text.contains("Task number"));
+        if expected == 37 {
+            assert!(text.contains(&format!("HOME_VALUE={}", current.display())));
+        }
+    }
+}

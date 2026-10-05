@@ -71,6 +71,33 @@ The default route consumes the signed stable channel. It does not delegate to
 the upstream self-updater, and publication credentials are not device update
 authority.
 
+## Active work across accounts
+
+When upstream resume reports an active writer in another account, run:
+
+```sh
+codex termux task
+```
+
+The helper shows current writer-lock holders and their execution accounts, then
+offers reconnect, confirmed stop, or stop and resume in the current account. A UUID can restrict
+selection: `codex termux task <THREAD_UUID>`. History browsing remains upstream
+`codex resume`.
+Ownership follows the current kernel lock holder; an original author or a
+read-only window left open by a previous account is not treated as the owner.
+
+For explicit actions, use `task status [THREAD_UUID]`, `task reconnect THREAD_UUID`,
+`task stop THREAD_UUID`, or `task takeover THREAD_UUID --profile PROFILE_ID`
+after `codex termux`. Omitting `--profile` uses the current `CODEX_HOME` identity.
+A completed cancellation can still leave a writer held by another connected
+window. Reconnect or close that connection before ordinary takeover.
+
+Force takeover stops the entire owning server, potentially including other
+work. The interactive helper shows that scope and requires confirmation; the
+explicit form uses the exact displayed `--force-server PID:START` token. It
+never deletes the writer lock. Manager is optional; ordinary Codex remains usable
+without this helper. See SPEC for authoritative scope and failure behavior.
+
 ## Documents
 
 - `SPEC.md` — normative product and architecture contract

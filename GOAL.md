@@ -34,6 +34,66 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
+## ACTIVE-TASK-HANDOFF (local source qualified 2026-10-05; hosted pending)
+
+- User authorizes implementation of the reviewed cross-account ownership,
+  reconnect/cancel/transfer requirements and adjacent convenience on the same
+  path. Bound clean rewrite/rust-core60b138d678ccc835e4d227c97831e080440d9b45;
+  goal-md bound, approved equivalent primary, workers OFF. Primary plans,
+  implements, inspects and validates directly; no agents/reviewers enabled.
+- Success: a user blocked by another account's active writer can discover the
+  owning execution identity without inspecting credentials/history, reconnect to
+  its actual live server, or stop it and resume the same UUID in the chosen
+  account after real writer release. Interactive active-work selection and explicit
+  status/actions support this result without a second conversation picker/index.
+- Native source0.160.0 already offers loaded/read/turns metadata, same-server
+  resume, goal pause and interrupt acknowledgement; no idle active-thread unload
+  or cross-account conflict workflow is provided. Use that protocol first. Core
+  retains existing execution authority only. Force is explicit whole-server scope,
+  PID-stable and never lock deletion; failure/uncertainty preserves ownership.
+- Allowed writes: source/authority and owned temporary roots; ordinary source
+  commit/push and hosted acceptance. Installed launcher/runtime/account/session/
+  auth/preferences/resolver and ongoing user jobs remain protected. Disposable
+  synthetic native proof may issue loopback fixture turns without credentials;
+  no real model turn or live task cancellation is authorized by this bundle.
+  Signing/publication/installed activation follow a separately recorded accepted
+  candidate gate, never manual copies into live paths.
+- Baseline Manager39 nonzero tests passed (22 unit+17 public integration), no
+  failures. Ordered contract/proof slices and stop-on-red map live in WORKBOARD.
+  Retain signed seq36 current/seq35 previous and independent bare Core behavior.
+- User clarification: ownership follows the actual current writer-lock holder,
+  not first author or last historical metadata. Require kernel ownership proof
+  for status/actions; read-only or released cached copies cannot claim ownership.
+- Final source payload SHA-256 is
+  `a35c1461b9702f7435893dbcc37603f2468cab65987f627e6ca8a234eb576391`
+  over the ordered Cargo/Manager/qualification file-digest map. Manager alone
+  adds the public task family; Core, release-builder and workflows are unchanged
+  from bound60b138d. Ownership is verified against native lock inode, exclusive
+  kernel lock, exact runtime PID/start and local socket peer, then revalidated
+  before goal pause, interrupt or force signal. Released owners resume directly
+  only after the existing native coordination/writer probe confirms freedom.
+- Local grouped proof: Python92; unchanged Core181 passed/one explicit device
+  smoke ignored; release-builder22; final Manager30 unit+30 integration passed,
+  with the fixture-only invocation excluded (59 behavioral proofs). Final
+  ownership-race regression and all Manager gates were re-run after the last
+  ownership correction; successful unchanged Core/builder gates were reused.
+  Strict workspace Clippy, formatting, actual diff review and credential gates
+  passed. No zero-test invocation is acceptance evidence.
+- Actual Core/new Manager/upstream0.160.0 in credential-free owned roots passed
+  running-disconnect/current writer discovery, cross-account writer rejection,
+  exact owner reconnect/confirmed cancellation, retained subscriber admission,
+  PID-stable whole-server force and normal same-ID transfer with persisted goal
+  pause. Qualification exited0 after terminating only owned fixture daemons.
+  Current-holder change, read-only child preservation, unknown-holder rejection
+  and owner changes during metadata/scope queries have focused regressions.
+- KEEP upstream lifecycle/Core execution; COLLAPSE assistance onto current kernel
+  ownership/native RPC; DELETE loaded-only owner attribution. Snapshot27 entries,
+  including baseline absences, are unchanged; installed seq36/35 and sealed
+  branches remain protected. No live signing/publication/activation occurred.
+- Local implementation is qualified. Ordinary source commit/push and exact-event
+  hosted acceptance remain before source closure; a signed installed delivery is
+  a separate candidate gate, not implied by these owned runtime fixtures.
+
 ## VALIDATION-RENEWAL / PERMISSION-MEMORY-RELEASE (accepted 2026-10-04)
 
 - User `진행` authorized retention/hosted validation repair, one signed corrective

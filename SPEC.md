@@ -144,7 +144,7 @@ state or terminating existing clients.
 ### Manager command boundary
 
 `codex termux` is a Manager boundary and is never passed to upstream. Manager
-v1 has two bounded steady-state command families: profiles and notifications.
+v1 has profiles, notifications, and a bounded active-task assistance family.
 
 ```text
 codex termux
@@ -153,6 +153,11 @@ codex termux profile list
 codex termux profile current
 codex termux profile create <PROFILE_ID>
 codex termux profile use <PROFILE_ID> [--] [UPSTREAM_ARGS...]
+codex termux task [THREAD_UUID]
+codex termux task status [THREAD_UUID]
+codex termux task reconnect <THREAD_UUID>
+codex termux task stop <THREAD_UUID>
+codex termux task takeover <THREAD_UUID> [--profile PROFILE_ID] [--force-server PID:START]
 codex termux notify show
 codex termux notify set [NOTIFY_OPTIONS...]
 codex termux notify test
@@ -437,7 +442,7 @@ reimplement the operation.
 
 The Manager artifact is optional and independently qualified. Its absence,
 incompatibility, or failure must not make ordinary upstream launch, Core
-doctor, Core update, or Core rollback unavailable. Manager v1 has no network,
+doctor, Core update, or Core rollback unavailable. Manager v1 has no external network,
 package-manager, OpenSSL, bwrap, resolver, or generation-discovery authority.
 Profile registration creates only Manager metadata and a private new account
 home. Selection affects only the child invocation; execution readiness and
@@ -2056,6 +2061,85 @@ or `codex termux profile use <PROFILE_ID> -- resume [UPSTREAM_ARGS...]`.
 Manager must not restore the former directory scanner, session index, saved
 selection dependency or alternate resume grammar. Historical MGR-2 acceptance
 is recorded in GOAL; it is not a current command contract.
+
+### Active-task account assistance
+
+`codex termux task` presents only currently loaded upstream work, not conversation
+history or a second session picker/index. A supplied canonical lowercase thread
+UUID restricts the view. `task status [THREAD_UUID]` is noninteractive and reports
+only UUID, owner execution home/account label, runtime-bound server PID/start,
+native state and force-server identity. No transcript, preview, goal objective,
+credential or tool output is printed or persisted. External supported CODEX_HOME
+identities are included, not just Manager-registered profiles. All retained Core
+server rendezvous records are considered, including old-generation active servers.
+No permanent task registry, watcher, supervisor or automatic account switch is added.
+
+Owner means the currently verified kernel writer-lock holder and that process's
+execution identity, never the original conversation author, recorded origin,
+latest historical author, or a server that merely has a read-only copy loaded.
+Discovery must match the current native lock inode and its exclusive kernel lock
+to the exact runtime PID/start and peer-verified server. A released writer has
+no current owner, even when its old server still reports the thread loaded. After
+each handoff subsequent discovery must follow the new holder. Reconnect/stop
+revalidate ownership immediately before acting; uncertain ownership fails closed.
+
+Manager may read existing private Core server binding metadata and connect only
+to same-UID kernel-peer-verified exact runtime processes. This is read-only
+consumption of execution metadata, not generation selection/preparation/activation
+ownership. Core gains no task, cancellation or transfer controller. Native
+WebSocket JSON-RPC owns discovery/status, cancellation and history. Connections,
+messages, server/task counts and scans are bounded; incomplete/ambiguous discovery
+never authorizes cancellation, force termination or successful takeover.
+
+`task reconnect UUID` selects the unique live owner's CODEX_HOME and existing
+server through upstream's explicit local `--remote unix://SOCKET` TUI route and
+resumes the exact UUID. This preserves old-generation server routing instead of
+silently launching a competing current-generation writer. It never signs out or
+changes a server's authentication. Missing/ambiguous/untrusted ownership fails
+without mutating account or conversation state.
+
+`task stop UUID` includes loaded descendants identified by native ancestry in the
+same owner server only when that server also currently holds their writer locks,
+pauses their active native goals, requests cancellation of the actual active
+turns, and observes terminal/inactive state; cancellation submission alone
+is not success. The Manager connection never claims to unsubscribe other clients.
+A live remaining subscriber may retain the writer; report it distinctly. A
+successful stop does not imply another account can write. User-requested attached
+background terminal cleanup uses the native thread-scoped endpoint. Detached
+processes outside native ownership and already-applied filesystem edits are not
+claimed undone.
+
+`task takeover UUID` performs that stop, then requires native writer release before
+ordinary same-ID resume through the current inherited account or explicit validated
+Manager profile. Existing native writer/coordination files may be opened read-only
+and temporarily kernel-probed under native coordination; never created, modified,
+unlinked or stolen. A race after the probe is adjudicated by upstream resume.
+Bounded timeout reports stopped-but-still-owned or cancellation failure and never
+starts a second writer. Resuming does not automatically reactivate a paused goal.
+If complete discovery finds no current writer, ordinary takeover requires a free
+native writer probe and resumes directly; it must not seek the original author or
+stop a read-only cached copy. A force token without a current owner is rejected.
+
+If the owner cannot stop/release, force takeover requires explicit `--force-server
+PID:START` matching the freshly verified target owner; the UI instead requests an
+explicit whole-server confirmation after showing all known affected loaded UUIDs
+or clearly stating scope is unknown when the server is unresponsive. Force acts
+on that process through a PID-stable kernel handle, first TERM then bounded KILL.
+Unsupported PID-stable signalling fails; no kill-by-name/PID fallback, process-group
+kill, unrelated-server termination or lock-file deletion. Server exit and native
+writer release must both be confirmed before current-account resume. Other work
+on that server may stop; this is never represented as thread-only force termination.
+The UI permits cancel/return without changes. Non-TTY interactive forms fail usage;
+explicit noninteractive actions retain original TTY/streams/signals/exit at exec.
+
+The interactive helper is the convenience route for a cross-account writer conflict;
+bare upstream launch/resume remains independent when Manager is absent. Manager
+help and README explain this route rather than intercept upstream argv or add a
+Core process supervisor. Qualification must reproduce running-disconnect,
+interrupt/disconnect race, same-owner reconnect, goal cancellation, retained writer,
+old-runtime owner, profile takeover, stale token, malformed protocol/substituted
+records and whole-server force scope in owned roots; native runtime proof is
+required beyond simulated RPC.
 
 ### MGR-3 — notification configuration and delivery
 

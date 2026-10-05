@@ -1,5 +1,7 @@
 #![cfg(unix)]
 
+mod task;
+
 use std::ffi::{OsStr, OsString};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
@@ -39,6 +41,11 @@ const HELP: &str = concat!(
     "codex termux profile current\n",
     "codex termux profile create <PROFILE_ID>\n",
     "codex termux profile use <PROFILE_ID> [--] [UPSTREAM_ARGS...]\n",
+    "codex termux task [THREAD_UUID]\n",
+    "codex termux task status [THREAD_UUID]\n",
+    "codex termux task reconnect <THREAD_UUID>\n",
+    "codex termux task stop <THREAD_UUID>\n",
+    "codex termux task takeover <THREAD_UUID> [--profile PROFILE_ID] [--force-server PID:START]\n",
     "codex termux notify show\n",
     "codex termux notify test\n",
     "codex termux notify set [--channel <notification|toast|both>] [--hooks <none|all|EVENT[,EVENT...]>] [--content-chars <0|1..4096>] [--preserve-newlines <0|1>] [--toast-gravity <top|middle|bottom>] [--toast-short <0|1>] [--toast-background <empty|#RRGGBB>] [--toast-color <empty|#RRGGBB>] [--group <GROUP_ID>] [--focus <termux|tmux>]\n",
@@ -50,6 +57,7 @@ static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 enum ErrorClass {
     Usage,
     Operation,
+    Cancelled,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,6 +85,7 @@ impl ManagerError {
         match self.class {
             ErrorClass::Usage => 2,
             ErrorClass::Operation => 1,
+            ErrorClass::Cancelled => 130,
         }
     }
 }
@@ -280,7 +289,9 @@ where
             0
         }
         Err(error) => {
-            eprintln!("{}", error.message);
+            if error.class != ErrorClass::Cancelled {
+                eprintln!("{}", error.message);
+            }
             error.status()
         }
     }
@@ -292,6 +303,10 @@ fn run_inner(args: Vec<OsString>) -> Result<Option<String>, ManagerError> {
     {
         capture_context()?;
         return Ok(Some(HELP.to_owned()));
+    }
+    if is_exact(args.first(), "task") {
+        let command = task::parse(&args[1..])?;
+        return task::run(&capture_context()?, command);
     }
     let command = parse_command(&args)?;
     let context = capture_context()?;
