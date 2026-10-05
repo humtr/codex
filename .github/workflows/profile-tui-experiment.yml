@@ -50,10 +50,16 @@ jobs:
           rustup toolchain install "$RUST_VERSION" --profile minimal --target aarch64-unknown-linux-musl
           test "$(uname -m)" = aarch64
       - name: Install official release Zig toolchain
-        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29
-        with:
-          version: 0.14.0
-          use-cache: false
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/zig-linux-aarch64-0.14.0.tar.xz"
+          curl --fail --silent --show-error https://ziglang.org/download/0.14.0/zig-linux-aarch64-0.14.0.tar.xz -o "$archive"
+          echo "ab64e3ea277f6fc5f3d723dcd95d9ce1ab282c8ed0f431b4de880d30df891e4f  $archive" | sha256sum -c -
+          tar -xJf "$archive" -C "$RUNNER_TEMP"
+          tool="$RUNNER_TEMP/zig-linux-aarch64-0.14.0"
+          test "$("$tool/zig" version)" = 0.14.0
+          echo "$tool" >> "$GITHUB_PATH"
       - name: Use exact upstream musl native dependency tooling
         shell: bash
         env:

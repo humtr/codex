@@ -15,6 +15,10 @@ Current bundle PROFILE-TUI-EXPERIMENT, user-authorized feasibility prototype.
    update fallback after graph restoration. Retain failed native config logs.
    Focused helper3/3 passes. Exhaustive normalization changes159 local inherited
    versions;1313 external packages unchanged. Original5553f065; finalf0ea6b03.
+   Hosted37321153559/8e6f7d0 has zero jobs/startup_failure: repo permits only
+   GitHub-owned Actions, so mlugg/setup-zig is not admissible. Keep repository
+   policy; direct official Zig download uses frozen SHA256ab64e3ea and version
+   check. No user-device tool installation or production change.
    Production definitions/behavior frozen until native executable target runnable.
 1. Native /profile entrypoint and bounded Manager profile display. Pending.
    Paths: experimental upstream TUI patch and owned Manager bridge; focused proof
