@@ -34,6 +34,26 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
+## PROFILE-TUI-EXPERIMENT (selected 2026-10-05)
+
+- User asks to finish/fix deployed baseline first, then experiment with `/profile`
+  and admit it only after actual operation and completion. Clean accepted baseline
+  rewriteb949afafb6a9a8224f7fee0fb4b45fe9aafac48d is fully pushed; exact-source
+  hosted37306623649 succeeds, public main47597099ae00284aa40ebbbf08fb91143d943ba5,
+  installed40/previous39 match accepted delivery. Workers OFF; goal-md bound.
+- Work proceeds only on experiment/profile-tui; accepted rewrite branch, public
+  index/releases, installed40/39, real account/history/job state stay protected.
+- First feasibility gate builds unmodified exact upstream0.160.0 for AArch64-musl
+  in ephemeral hosted infrastructure, executes it, then qualifies on this device
+  in owned roots. No new UI behavior while that target is not runnable.
+- Subsequent ordered slices: native `/profile` dispatch and Manager profile data;
+  integrated native history/agent presentation; explicit same-terminal profile
+  transition; active writer reconnect/takeover and cancellation/failure safety.
+  Each slice requires actual native focused proof before the next starts.
+- Experimental branch/source pushes and ephemeral hosted builds/artifact downloads
+  are authorized; production signing/publication/cutover and real-data experiments
+  are not. Successful prototype does not itself change release admission policy.
+
 ## PROFILE-LIFECYCLE-DELIVERY (accepted 2026-10-05)
 
 - User `배포 4` requests deployment of the just-accepted profile lifecycle source

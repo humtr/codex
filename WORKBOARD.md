@@ -1,19 +1,26 @@
 # Rust Core Workboard
 
-SPEC -> GOAL -> WORKBOARD; goal-md bound, approved equivalent primary, workers OFF.
+SPEC -> GOAL -> WORKBOARD; goal-md bound; workers OFF.
+Current branch experiment/profile-tui, frozen accepted baseline rewriteb949afa.
+Public/installed40 and retained39 remain protected.
 
-PROFILE-LIFECYCLE source and PROFILE-LIFECYCLE-DELIVERY are accepted in GOAL.md.
-Public/installed sequence40:
-local-hosted-0-160-0-59308430d39d-profile-lifecycle;
-complete39 retained as previous. Core+Manager updated; official0.160.0 runtime,
-code-mode-host/helpers, permission patchv3 and R10 bridge preserved.
+Current bundle PROFILE-TUI-EXPERIMENT, user-authorized feasibility prototype.
 
-Exact-source hosted5, production8, publication6-group, actual signed/native9,
-installed inventory/doctor and exact-current34-entry no-op gates pass.
-Accounts/config/resolver unchanged; original10 native jobs survive. No real
-profile deletion/rename, credential inspection or user job termination occurred.
+0. Native baseline: exact upstream0.160.0 source; unmodified AArch64-musl
+   hosted build/executable proof and owned-device execution. Pending. Production
+   definitions/behavior changes frozen until this target is runnable.
+1. Native /profile entrypoint and bounded Manager profile display. Pending.
+   Paths: experimental upstream TUI patch and owned Manager bridge; focused proof
+   actual slash dispatch, list/current/default/error/cancel; protected stage0.
+2. Reuse native history/agent selection with account-aware presentation. Pending.
+   Proof: actual upstream lists/hierarchy, current writer labels, no private index.
+3. Same-terminal explicit selection/reconnect/transfer. Pending.
+   Proof: two owned accounts, same conversation, no extra terminal, original
+   argv/TTY/streams; cancellation/failure leaves a usable source or target.
+4. Active-owner safety and final feasibility acceptance. Pending.
+   Proof: running-turn/retained-subscriber cases, cancellation/native lock release,
+   failed destination, scoped force only when explicitly selected; protected40/39,
+   resolver/auth metadata and user PID/start census unchanged. No live cutover.
 
-Input-cache/unload consideration is already completed; delay0 is unchanged.
-No cache-retention change or quantitative model experiment is selected.
-
-No current implementation or delivery slice remains. No next bundle selected.
+Do not preserve a mock/wrapper as completion evidence. Record runnable baseline,
+focused nonzero gates and actual diffs here; final experiment disposition in GOAL.

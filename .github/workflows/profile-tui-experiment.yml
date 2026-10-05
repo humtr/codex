@@ -1,0 +1,96 @@
+name: Experimental profile TUI feasibility
+on:
+  push:
+    branches: [experiment/profile-tui]
+    paths:
+      - '.github/workflows/profile-tui-experiment.yml'
+      - 'experiments/profile-tui/**'
+permissions:
+  contents: read
+concurrency:
+  group: experimental-profile-tui
+  cancel-in-progress: false
+jobs:
+  upstream-baseline:
+    name: Build exact upstream native baseline
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    env:
+      UPSTREAM_SHA: a956835d020762cb2b570053af06f643a11c0ecc
+      RUST_VERSION: 1.95.0
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_DEV_INCREMENTAL: 'false'
+      CARGO_PROFILE_DEV_OPT_LEVEL: '1'
+      CARGO_BUILD_JOBS: '3'
+      CC_aarch64_unknown_linux_musl: musl-gcc
+      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+    steps:
+      - name: Fetch exact experiment authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init experiment
+          git -C experiment remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git -C experiment fetch --no-tags --depth=1 origin "$GITHUB_SHA"
+          git -C experiment checkout --detach FETCH_HEAD
+          test "$(git -C experiment rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git -C experiment status --porcelain)"
+      - name: Fetch exact unmodified official source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init upstream
+          git -C upstream remote add origin https://github.com/openai/codex.git
+          git -C upstream fetch --no-tags --depth=1 origin "$UPSTREAM_SHA"
+          git -C upstream checkout --detach FETCH_HEAD
+          test "$(git -C upstream rev-parse HEAD)" = "$UPSTREAM_SHA"
+          test -z "$(git -C upstream status --porcelain)"
+      - name: Provision ephemeral source build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends musl-tools pkg-config clang cmake ninja-build perl make g++
+          rustup toolchain install "$RUST_VERSION" --profile minimal --target aarch64-unknown-linux-musl
+          command -v musl-gcc
+          test "$(uname -m)" = aarch64
+      - name: Restore isolated experimental compile cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            upstream/codex-rs/target
+          key: profile-tui-baseline-aarch64-musl-1.95.0-a956835d-dev-opt1-v1
+      - name: Build unmodified upstream CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd upstream/codex-rs
+          cargo "+$RUST_VERSION" build --locked --target aarch64-unknown-linux-musl -p codex-cli --bin codex
+          test -z "$(git status --porcelain)"
+      - name: Execute and identify native baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary="$GITHUB_WORKSPACE/upstream/codex-rs/target/aarch64-unknown-linux-musl/debug/codex"
+          test -x "$binary"
+          file "$binary" | grep -F 'ARM aarch64'
+          if readelf -l "$binary" | grep -F INTERP; then exit 1; fi
+          root="$RUNNER_TEMP/profile-tui-native-baseline"
+          mkdir -p "$root/home" "$root/home/.codex" "$root/tmp" "$root/artifact"
+          chmod 0700 "$root/home" "$root/home/.codex" "$root/tmp"
+          env -i HOME="$root/home" CODEX_HOME="$root/home/.codex" TMPDIR="$root/tmp" PATH=/usr/bin:/bin "$binary" --version > "$root/artifact/version.txt"
+          env -i HOME="$root/home" CODEX_HOME="$root/home/.codex" TMPDIR="$root/tmp" PATH=/usr/bin:/bin "$binary" --help > "$root/artifact/help.txt"
+          cp "$binary" "$root/artifact/codex"
+          sha256sum "$root/artifact/codex" > "$root/artifact/sha256.txt"
+          printf 'upstream_sha=%s\nexperiment_sha=%s\ntarget=aarch64-unknown-linux-musl\n' "$UPSTREAM_SHA" "$GITHUB_SHA" > "$root/artifact/source.txt"
+          cat "$root/artifact/version.txt" "$root/artifact/source.txt" "$root/artifact/sha256.txt"
+      - name: Upload unsigned nonproduction baseline
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: profile-tui-native-baseline
+          path: ${{ runner.temp }}/profile-tui-native-baseline/artifact
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 1

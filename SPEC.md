@@ -4,6 +4,34 @@ Status: initial normative baseline
 Repository: `humtr/codex`  
 Active implementation branch: `rewrite/rust-core`
 
+## Experimental /profile TUI boundary (2026-10-05)
+
+This section applies only to user-authorized experiment/profile-tui. Accepted
+production source/release40 and its ordinary runtime contract remain unchanged.
+No prototype is publishable or installable until separate completion and admission.
+
+- Prototype native `/profile` entrypoint combines upstream conversation/agent UI
+  with Manager-owned profile selection and existing reconnect/takeover semantics.
+- Upstream owns history, authentication, thread ancestry and kernel writer locks;
+  Manager owns execution-profile selection and task policy. Core gains no UI,
+  transcript parser, second session index or account-switch controller.
+- Same-terminal transition must explicitly detach the old native client, preserve
+  or stop work according to the selected action, confirm writer release before
+  same-thread account takeover, and re-enter Core with the selected child home.
+  Selecting a profile must never silently stop work, remove locks, share auth
+  between agents or create additional Android terminals.
+- Experiments use exact official0.160.0 sourcea956835d020762cb2b570053af06f643a11c0ecc,
+  owned builds/artifacts and credential-free disposable accounts/conversations.
+  Real launcher/runtime, Manager state, accounts/history/jobs and resolver remain
+  protected. Hosted disposable build tools may be installed on the ephemeral
+  runner; no device package installation, production signing or public promotion.
+- Native upstream compile/executable baseline precedes prototype behavior. A mock
+  chooser or external wrapper alone cannot prove the `/profile` product path.
+  Admission requires actual slash dispatch, profile/history/agent presentation,
+  same-terminal account transition, safe active-owner handling and failure/cancel
+  proof. Source-build cost and official-artifact policy compatibility are explicit
+  feasibility gates; no implicit new steady-state runtime distribution path.
+
 ## 1. Product definition
 
 The product provides one public `codex` entrypoint that runs the official
