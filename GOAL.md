@@ -427,8 +427,9 @@
   and sealedlegacy refs remain2ffb95f/bf30a7d; rewrite history is independent.
 - Disposition: ACTIVE-TASK-HANDOFF delivery and installed corrective39 are accepted
   and closed. Current39/previous38 are healthy. No task stop, new public/live mutation
-  or additional feature follows from this closed bundle. Deferred input-cache discussion
-  remains separate user-selected follow-up; no speculative cache changes are made.
+  or additional feature follows from this closed bundle. Input-cache consideration
+  is already completed below; empirical follow-up remains separate and unselected.
+  No speculative cache changes are made.
 
 ## ACTIVE-TASK-HANDOFF (source accepted 2026-10-05)
 
@@ -1921,32 +1922,33 @@
 
 ## Current Operating Baseline (2026-10-05)
 
-This section is the current-state anchor inside the acceptance ledger. Later
-dated sections preserve historical evidence; historical words such as
-“current,” “active,” or “selected” do not override this section or
-`WORKBOARD.md`.
+This section is the current-state anchor inside the acceptance ledger. Historical
+words such as “current,” “active,” “selected,” or “deferred” do not override this
+section or `WORKBOARD.md`.
 
 - Implementation authority is `rewrite/rust-core`; bind exact branch, HEAD and
-  dirty state afresh on resume. PROFILE-LIFECYCLE above is accepted development
-  source, newer than the installed delivery. It has not been published or activated.
-- Last user-accepted signed delivery is sequence39, upstream0.160.0,
-  `local-hosted-0-160-0-b7c1e61019b1-retired-server-discovery`; retained previous
-  sequence38 is `local-hosted-0-160-0-af1a3df6d99a-active-task-handoff-r2`.
-  Delivery sourceb7c1e61019b1c5085b2627ba6cf609b3f55d74de and accepted public
-  main471590750468f6d99b520c3a8d47b03a474aacbb are bound in the delivery ledger.
-  This bundle verified63 protected installed/state/account paths unchanged.
-- Installed39 includes accepted permission/memory-notification behavior and
-  active-task reconnect/stop/takeover with exited retired records ignored.
-  Conversation ownership follows the current kernel writer, and shared storage
-  remains upstream-owned. Older notification/permission acceptance sections are
-  historical evidence; SPEC owns the effective contract.
-- Source now adds profile deletion, rename and saved-default selection, physical
-  runtime leases and matching takeover destination. These extensions need a
-  separate Core+Manager delivery; ordinary restart still runs installed39.
-- No implementation bundle remains selected. Production aarch64-linux-musl
-  qualification and concrete-candidate operational authorization precede any
-  new production signing/publication/activation. Real accounts and jobs remain
-  protected; neither lifecycle actions nor version delivery happened live here.
+  dirty state afresh on resume. PROFILE-LIFECYCLE product source
+  59308430d39dc3c57159e260e5f7a873c1b16b8d and its delivery are accepted.
+- Public/installed signed sequence40, upstream0.160.0,
+  `local-hosted-0-160-0-59308430d39d-profile-lifecycle`; retained previous39 is
+  `local-hosted-0-160-0-b7c1e61019b1-retired-server-discovery`. Accepted public
+  main47597099ae00284aa40ebbbf08fb91143d943ba5; hosted production37303696948
+  all8success. Wrapper is Android/AArch64; upstream runtime remains Linux-musl.
+- Installed40 includes profile create/delete/rename/default/current/use, physical
+  execution leases and saved-default task takeover, plus the accepted permission,
+  memory-notification and task reconnect/stop/takeover behavior. Native signed
+  profile3/task6 pass. Ownership follows the current kernel writer; upstream
+  owns shared conversation storage. Ordinary restart now selects installed40.
+- Installed doctor is healthy/exit0; exact-current update changes none of34
+  durable entries. Complete39 payloads/modes, account/config/resolver identities
+  and all original10 native PID/start identities were preserved at activation.
+  Real profile deletion/rename and user-job termination were not performed.
+- INPUT-CACHE-UNLOAD-CONSIDERATION is completed. Delay0 remains unchanged; no
+  retention override, keepalive, model traffic or quantitative cache experiment
+  is selected. Older deferral pointers are historical, not unfinished review.
+- No implementation or delivery bundle remains selected. Any new runtime/cache
+  behavior, empirical model experiment or user-data lifecycle operation requires
+  its own concrete scope; previous delivery acceptance does not select it.
 
 ## Historical Runtime Alignment Baseline (2026-09-30)
 

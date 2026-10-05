@@ -13,4 +13,7 @@ installed inventory/doctor and exact-current34-entry no-op gates pass.
 Accounts/config/resolver unchanged; original10 native jobs survive. No real
 profile deletion/rename, credential inspection or user job termination occurred.
 
+Input-cache/unload consideration is already completed; delay0 is unchanged.
+No cache-retention change or quantitative model experiment is selected.
+
 No current implementation or delivery slice remains. No next bundle selected.
