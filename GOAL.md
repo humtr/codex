@@ -62,6 +62,12 @@
   failure: version-only correction does not yet restore the baseline. Isolated
   workspace-update diagnosis may inspect the required delta, but may not compile
   an unapproved graph. Actual native build still pending; no UI behavior.
+- Exact local minimal workspace update identifies only5 further inherited local
+  versions, omitted from workspace.members. Exhaustive source-manifest inventory
+  has159 local packages, including path dependencies; no external changes.
+  The bounded normalization now covers all159, with a focused non-member/reference
+  regression. Third37312598358 offline diagnosis cannot resolve uncached index
+  entries; this diagnostic limitation does not establish external dependency drift.
 
 ## PROFILE-LIFECYCLE-DELIVERY (accepted 2026-10-05)
 

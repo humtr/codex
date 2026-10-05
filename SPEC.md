@@ -30,7 +30,9 @@ No prototype is publishable or installable until separate completion and admissi
   packages0.0.0; only these workspace package versions and local disambiguating
   references may normalize to0.160.0. Every external package/version/source/
   checksum/dependency binding remains byte/structure unchanged, and the final
-  build still uses --locked. Original/normalized lock digests are recorded.
+  build still uses --locked. The local inventory includes inherited-version path
+  dependencies omitted from workspace.members. Original/normalized lock digests
+  are recorded.
 - Native upstream compile/executable baseline precedes prototype behavior. A mock
   chooser or external wrapper alone cannot prove the `/profile` product path.
   Admission requires actual slash dispatch, profile/history/agent presentation,

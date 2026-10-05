@@ -14,17 +14,20 @@ def normalize(source: Path) -> dict:
     target = manifest['workspace']['package']['version']
     if target != '0.160.0':
         raise ValueError('unexpected upstream release version')
-    names = set()
     for member in manifest['workspace']['members']:
-        paths = sorted(source.glob(member))
-        if not paths:
+        paths = list(source.glob(member))
+        if not paths or any(not (p / 'Cargo.toml').is_file() for p in paths):
             raise ValueError('missing workspace member')
-        for path in paths:
-            package = tomllib.loads((path / 'Cargo.toml').read_text())['package']
-            if package.get('version') == {'workspace': True}:
-                if package['name'] in names:
-                    raise ValueError('duplicate workspace package')
-                names.add(package['name'])
+    names = set()
+    # Release local crates include path dependencies omitted from members.
+    for path in sorted(source.rglob('Cargo.toml')):
+        if path.relative_to(source).parts[0] == 'target':
+            continue
+        package = tomllib.loads(path.read_text()).get('package', {})
+        if package.get('version') == {'workspace': True}:
+            if package['name'] in names:
+                raise ValueError('duplicate workspace package')
+            names.add(package['name'])
     lock = source / 'Cargo.lock'
     before = lock.read_bytes()
     old = tomllib.loads(before.decode())

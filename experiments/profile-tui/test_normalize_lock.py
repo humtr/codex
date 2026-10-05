@@ -18,6 +18,19 @@ class LockTests(unittest.TestCase):
             p=Path(t);self.fixture(p);before=(p/'Cargo.lock').read_text();audit=m.normalize(p)
             self.assertEqual((p/'Cargo.lock').read_text(),before.replace('version = "0.0.0"','version = "0.160.0"'))
             self.assertEqual(audit['workspace_versions_changed'],1);self.assertEqual(audit['external_packages_unchanged'],1)
+    def test_path_dependency_omitted_from_members_is_normalized(self):
+        with tempfile.TemporaryDirectory() as t:
+            p=Path(t);self.fixture(p)
+            (p/'path-dependency').mkdir()
+            (p/'path-dependency/Cargo.toml').write_text('[package]\nname="codex-path"\nversion.workspace=true\n')
+            lock=p/'Cargo.lock'
+            before=lock.read_text().replace('dependencies = ["external"]','dependencies = ["external", "codex-path 0.0.0"]')
+            before+='\n[[package]]\nname = "codex-path"\nversion = "0.0.0"\n'
+            lock.write_text(before)
+            audit=m.normalize(p)
+            self.assertEqual(lock.read_text(),before.replace('version = "0.0.0"','version = "0.160.0"').replace('"codex-path 0.0.0"','"codex-path 0.160.0"'))
+            self.assertEqual(audit['workspace_versions_changed'],2)
+            self.assertEqual(audit['external_packages_unchanged'],1)
     def test_release_inventory_and_version_fail_without_mutation(self):
         for field in ['release','member','inventory','version']:
             with self.subTest(field=field), tempfile.TemporaryDirectory() as t:

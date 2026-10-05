@@ -18,6 +18,15 @@ Current bundle PROFILE-TUI-EXPERIMENT, user-authorized feasibility prototype.
    Local-version normalization is insufficient; isolated Cargo workspace-update
    diagnosis must enumerate the remaining delta. No build may consume that delta
    without a separately reviewed bounded correction. No UI behavior added.
+   Complete local diagnostic requires exactly5 more inherited local versions:
+   path dependencies omitted from workspace.members. Normalize all159 local
+   release manifests, including these5; external packages remain unchanged.
+   Focused regression now covers non-member path dependencies and references.
+   Third hosted37312598358 diagnostic also exposes missing offline index entries;
+   failure diagnosis uses online resolution only in the disposable diagnostic copy.
+   Focused helper gate briefly red: rewritten inventory check accepted a missing
+   declared member manifest. Restored explicit member-manifest presence check;
+   all3 focused tests must pass before another hosted build.
    Production
    definitions/behavior changes frozen until this target is runnable.
 1. Native /profile entrypoint and bounded Manager profile display. Pending.
