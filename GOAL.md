@@ -206,6 +206,51 @@
   native behaviors exit0, under credential-free owned roots only. Installation is
   still36/previous35 until the final source/protection gate and ordinary update.
 
+## ACTIVE-TASK-HANDOFF installed closure (in progress 2026-10-05)
+
+- Exact source55035d5 hosted37264886500 all5 jobs passed. Ordinary approved
+  update activated signed38 and retained complete36. Independent installed
+  inventory/launcher/signature/modes and all nine fresh pre-update PID/start
+  identities passed; only ordinary activation and authorized35 retirement changed.
+  Version/help under the canonical registered home and composed doctor are healthy.
+- Real task status fails on retained exited-server metadata: home validation
+  precedes process exit detection. This same-root public-path blocker keeps
+  delivery acceptance open despite the owned-root native task proof passing.
+  Read-only current diagnosis shows five absent PIDs and three absent homes among
+  six records. Previously live legacy-alias server exited independently; no live
+  state or process was repaired/killed by this agent. Alias rejection is preserved.
+- Correct only Manager discovery ordering after valid private record/namespace
+  binding; confirmed exited processes do not require live execution files.
+  Live/uncertain owners retain complete strict verification. Core remains unchanged.
+  New source acceptance and concrete publication candidate precede any request for
+  another exact operational grant; immutable38 is never rewritten.
+
+- Source closure passes: baseline task unit8, new pre-fix public-entrypoint red1,
+  task integration15 (14 behavior plus one fixture-only), grouped migration15 and
+  Python86, local Rust suites Core181/one explicit device smoke ignored,
+  Manager unit30/integration32 (one fixture-only), builder22; fmt/diff and strict
+  all-target workspace clippy pass. Zero-test entrypoints are not proof.
+- Native proof initially seeded an unretained generation; Core correctly retired
+  that record before Manager handoff, making the preservation assertion invalid.
+  KEEP normal Core retirement; bind the owned dead-home record to retained current
+  runtime, matching the live defect. Final exact Core/native/new-Manager signed
+  disposable fixture passes6 actual native behaviors, including record preservation
+  and every original cancellation/reconnect/force/ordinary transfer behavior.
+  This uses an owned ephemeral test authority, never official publication authority;
+  no unsigned bypass or installed payload substitution. Final qualifier focused7 pass.
+- Release-built new Manager read-only discovery against existing real bindings
+  succeeds exit0 with three current owners and no stderr; private task metadata
+  is not persisted. This is source-artifact proof, not installed39 acceptance.
+  Fresh before/after snapshots preserve all27 protected paths, complete36 files9,
+  current38/previous36 and all7 current PID/start identities. Native fixture's private
+  signing key was removed immediately after local publication. Core/builder/deps
+  unchanged; full actual diff inspected, no new production definition or fallback.
+- KEEP live/private/namespace/peer/current-writer checks; COLLAPSE discovery ordering
+  onto process lifetime before live filesystem requirements; DELETE stale requirements
+  on dead homes. One moved home check maps to both new focused regressions and native
+  public status. Delivery remains open until a forward Manager-only candidate is
+  separately approved and verified; do not claim installed38 has the source fix.
+
 ## ACTIVE-TASK-HANDOFF (source accepted 2026-10-05)
 
 - User authorizes implementation of the reviewed cross-account ownership,

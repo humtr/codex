@@ -2,75 +2,44 @@
 
 SPEC -> GOAL -> WORKBOARD; goal-md bound, approved equivalent primary, workers OFF.
 
-## ACTIVE-TASK-HANDOFF-DELIVERY corrective38 (2026-10-05)
+## ACTIVE-TASK-HANDOFF installed closure (2026-10-05)
 
-Accepted sourceaf1a3df6d99a01b5c649f0f47beef6703128feab, exact full hosted
-37262014797 success. Local trigger965b66113f8e1601471c0b0cc17b7881242819e2 is
-sole child of remote main3da4b294e1a6d62b1b5ba775acf88aae375c3189; clean owned
-publication checkout, source/event pins fixed, only workflow/current tests changed.
-User's previous explicit grant namedca56bd76/sequence37. User replied 승인. to the new exact candidate
-question under SPEC MGR-7, authorizing965b661 ordinary main push, hosted38 signing/
-Release/Pages/CAS and verified ordinary installation retaining36. No rejected operation or timeout can substitute for approval.
+Resume baseline rewrite/rust-core55035d5b45b47747e1f18c671d036c1ee6a9f45b;
+dirty WORKBOARD-only source identity inspected before new product mutation.
+Approved exact965b661/38 delivery completed: public run37263252597 all8 success,
+main9bac2f41, ordinary installed38/previous36. Exact55035d5 source hosted
+37264886500 all5 success. Signed bytes/launcher/help/version/doctor/protection pass;
+real installed task status RED because dead registrations require missing homes.
+Do not claim delivery complete from an owned fixture alone.
 
 | Slice | Observable behavior | Allowed paths | Focused proof | Protected surfaces | State |
 | --- | --- | --- | --- | --- | --- |
-| D2a | Final admitted payload is exported after every binding | source/public workflow, source archive tests | archive ordering and stale-file bytes/modes/inventory2; source full gate | all runtime product definitions, signing authority, sealed branches | closed; early pack DELETE; final single pack COLLAPSE |
-| D2b | Native proof waits for actual closure before same-server resume | qualifier, closure tests | retained/exact notification, timeout restoration, resume epoch4; actual native5 | real user jobs, profiles, auth and sessions | closed; idle/list absence proxy DELETE; fresh-server startup KEEP |
-| D2c | Forward38 restores authenticated Core36 and binds accepted Manager | owned publication workflow/current tests | current8, protected signed admission9, actual shell48, publication archive2, credentials/actions3, prospective native5 | public37 immutability, runtime/helpers36, installed36 | closed locally; candidate965b661 ready, explicitly approved |
-| D2d | Actual signed38 reaches independent every-byte public readback | separate publication checkout, bounded Release/Pages/main CAS | exact-parent push/event, hosted smoke/sign/readback/disposable update/no-op; independent fixed-key inventory and actual signed-native5 | key, stable authority, source lineage, user jobs | hosted8/public inventory gates green; signed-native5 green; source proof closure gate pending |
-| D3 | Ordinary installed update activates only independently verified38 and retains36 | ordinary public Core update, owned probes | fresh snapshot; signed inventory/modes/launcher; version/doctor/task read-only; complete36 retained, protected PID/start/data identities | user auth/profile/session/preferences/resolver and all existing jobs | pending D2d |
-| D4 | Delivery acceptance binds source/public/installed evidence | GOAL/WORKBOARD, ordinary source commit/push | actual accepted revision, load-bearing gates and protected surfaces | retained36, user data, sealed history | pending D3 |
+| D3a | Exited bindings do not poison discovery | SPEC; Manager task ordering; integration tests | baseline unit8; pre-fix red1; integration15; all new production branch mapping | strict live owner/writer proofs, Core, user data/processes | closed |
+| D3b | Real native/public path preserves retired metadata and works | qualifier only; owned signed fixture/native Manager | native6; qualifier7; actual real-bindings read-only exit0; grouped full/clippy/fmt/diff | public38, installed38/previous36, protected paths27/retained36 files9/PID-start7 | closed locally; exact source hosted gate pending |
+| D3c | Concrete forward Manager-only release candidate | isolated main checkout workflow/current publication tests | exact source/event/current38/next39; signed36 five protected payloads; actual workflow tests/admission/archive/shell | key, immutable37/38, source/legacy lineage, live installation | pending source commit/hosted and candidate qualification |
+| D3d | Exact approved signed candidate reaches installed public path | ordinary non-force main production; ordinary Core update only | actual signed/public every-byte/native/status/doctor/protection; retain previous38 | auth/profiles/sessions/preferences/resolver and real jobs | requires new exact operational approval after concrete D3c |
 
-Candidate generation: local-hosted-0-160-0-af1a3df6d99a-active-task-handoff-r2,
-release sequence38. Current public sequence37 is immutable and independently
-rejected for this Manager-only delivery: its stale archive exported rebuilt Core.
-Current installed remains36/previous35; no live update ran. Both source/public
-producers now obey SPEC final-pack invariant; runtime/Core/Manager product payload
-source is unchanged. All prior failures/dispositions are reduced into GOAL.
+KEEP all process-exit/private-record/namespace/runtime/socket/peer/writer checks.
+COLLAPSE ordering onto confirmed process lifetime before live-only home validation.
+DELETE dead-home requirements; no Core definition or new production helper/branch.
+servers ordering maps to active_task_exited_records_allow_retired_homes_runtime_and_socket_without_mutation
+and active_task_live_unsafe_home_and_substituted_dead_binding_fail_closed.
+Qualifier's owned stale-home branch maps to actual native public-discovery PASS.
+The existing Core retirement removed the first unretained fixture record; correct
+fixture to retained current runtime, preserve Core behavior, then native6 passes.
 
-D2c final proof reads the actual publication workflow and rebuilds its owned
-candidate; no duplicate preview or optional stale reuse. Prospective unsigned
-composition uses fixed-key-authenticated signed36 Core/signed37 Manager payloads,
-not a claim of future signed38 bytes. Actual future signed38 must be reverified
-and qualified before installed activation. Reuse successful same-revision gates;
-do not repeat full source validation for later authority-only changes.
+Initial nonexistent package invocation exited101; correct codex-manager baseline
+unit8 runs nonzero. New public status regression failed exit1 before product fix.
+Final grouped check passes: migration15/Python86/Core181+ignored1/Manager30+32/
+builder22, exclude zero invocations and fixture-only test from behavior claims.
+Workspace all-target clippy -D warnings, fmt/diff and focused qualifier7 pass.
+Live source-artifact status reads three owners, exit0/stderr-empty, no private task
+output persisted. Before/after protected27/retained36 files9/state38+36/processes7
+all exact. No installed/source-generation substitution or real user task stop.
 
-Before authorized D2d: freshly bind clean source, candidate965b661, remote parent
-3da4b294, pinned index37 and sourceaf1a3df. Ordinary non-force main push only.
-Before D3: qualify actual signed production bytes, independent public every-byte
-and download-size audit, compare all five protected36 payloads plus descriptor
-fields, run exact signed-native5 using a short owned system-tmp HOME. Refresh
-protected snapshot immediately before activation. Use only ordinary codex update;
-never manual live copying or real user task cancellation. Stop on any red gate.
-
-Last protected snapshot:27 paths and all9 retained36 files unchanged;
-activation36/previous35; all8 preexisting installed process PID/start identities
-preserved. Fresh snapshot is still required for the eventual activation gate.
-
-2026-10-05 approval resume binds clean source6380a03, clean candidate965b661 and
-exact remote parent3da4b294 before any approved public side effect. Workers OFF.
-
-D2d fresh pinned-key exact-parent raw-index37/Pages manifest37 verification passed.
-An owned prepush check initially requested the channel index at Pages root (404);
-restored the normative exact-main raw index URL, with no production change.
-Normal push3da4b294 ->965b661 succeeded; exact hosted37263252597 has passed build,
-native Android smoke and signing. Installed36 is unchanged; independent actual38
-payload/public/native qualification still required before activation.
-
-D2d hosted37263252597 all8 jobs succeeded; non-force main promotion9bac2f41d515dc894d005aa498e03064befb9f1b.
-Independent pinned-key public38 every-byte/download-size and Manager-only delta
-against36 pass. Actual signed-native fixture fails at Core/Manager profile-create
-before any task; installed remains36. STOP D3 and inspect trust/config/projection
-setup, not product behavior. Prospective unsigned proof did not expose this path.
-Exact source1561383 has authority-only Workboard diff before proof diagnosis.
-
-D2d proof fixture closure: public compat sidecar was wrongly copied into installed
-v2; Core correctly rejected it. Explicit external public authority replaces dummy11;
-existing strict inventory/key parsers are reused. DELETE separate Core/Manager
-substitution, descriptor rewrite, whole public-tree copy and unused hashlib import.
-fixture_activation_state -> AuthorityTests2; materialize_signed_generation ->
-MaterializationTests exact bytes/modes, sidecar/index exclusion and fail-before-copy1;
-qualify changed branch -> actual signed38 native5. Focused7/grouped86 pass and actual
-signed-native5 pass exit0; all new definitions mapped. Rust payload diff empty.
-No new release candidate or permission is needed for this owned proof-only fix.
-Final source commit/hosted gate, fresh protection snapshot and D3 remain.
+Current38 remains installed; the new Manager fix is source/owned-root-only.
+Forward candidate39 must preserve all five protected Core/runtime/helper payloads
+from authenticated36 (identical38), bind accepted Manager source, authenticate
+current stable38 and keep non-force exact-parent CAS/final-pack order. New update
+uses ordinary previous-generation policy: previous38, with no manual36 retention
+or Core policy change. Do not overwrite immutable38 or extend prior exact38 grant.

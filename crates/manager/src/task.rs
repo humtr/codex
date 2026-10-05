@@ -403,7 +403,6 @@ fn servers(context: &Context) -> Result<Vec<Server>, ManagerError> {
         let home = PathBuf::from(OsString::from_vec(fields.next().ok_or(ERR_TASK)?.to_vec()));
         let program = PathBuf::from(OsString::from_vec(fields.next().ok_or(ERR_TASK)?.to_vec()));
         if fields.next().is_some()
-            || private(&home, true).is_err()
             || dir.file_name() != Some(OsStr::new(&namespace(&home, &program)))
         {
             return Err(ERR_TASK);
@@ -426,6 +425,9 @@ fn servers(context: &Context) -> Result<Vec<Server>, ManagerError> {
             Err(_) if process_exited(pid)? => continue,
             Err(_) => return Err(ERR_TASK),
         };
+        // Retired records survive homes and generations. Only live owners need
+        // those execution files; exited records are ignored without repairing them.
+        private(&home, true)?;
         if !is_existing_executable(&program)? {
             return Err(ERR_TASK);
         }

@@ -1396,6 +1396,87 @@ impl Drop for TaskFixture {
 }
 
 #[test]
+fn active_task_exited_records_allow_retired_homes_runtime_and_socket_without_mutation() {
+    use std::os::unix::ffi::OsStrExt;
+    let f = TaskFixture::new();
+    // Obtain an actually exited owned PID rather than guessing an unused PID.
+    let mut exited = Command::new("sh").args(["-c", "exit 0"]).spawn().unwrap();
+    let pid = exited.id();
+    assert!(exited.wait().unwrap().success());
+    let runtime = f
+        .root
+        .0
+        .join(".local/lib/codex/core/generations/retired/runtime");
+    let target = f.root.0.join("private-target");
+    fs::create_dir(&target).unwrap();
+    fs::set_permissions(&target, fs::Permissions::from_mode(0o700)).unwrap();
+    let alias = f.root.0.join("historical-alias");
+    std::os::unix::fs::symlink(&target, &alias).unwrap();
+    let broken = f.root.0.join("broken-alias");
+    std::os::unix::fs::symlink(f.root.0.join("removed-target"), &broken).unwrap();
+    let mut snapshots = Vec::new();
+    for home in [f.root.0.join("removed-home"), alias, broken] {
+        let mut owner = home.as_os_str().as_bytes().to_vec();
+        owner.push(0);
+        owner.extend_from_slice(runtime.as_os_str().as_bytes());
+        let mut hash = 0xcbf29ce484222325u64;
+        for b in &owner {
+            hash = (hash ^ u64::from(*b)).wrapping_mul(0x100000001b3);
+        }
+        let binding = f.binding.parent().unwrap().join(format!("{hash:016x}"));
+        fs::create_dir(&binding).unwrap();
+        fs::set_permissions(&binding, fs::Permissions::from_mode(0o700)).unwrap();
+        for (name, bytes) in [("owner", owner), ("pid", format!("{pid}\n").into_bytes())] {
+            let p = binding.join(name);
+            fs::write(&p, &bytes).unwrap();
+            fs::set_permissions(&p, fs::Permissions::from_mode(0o600)).unwrap();
+            snapshots.push((p, bytes));
+        }
+    }
+    let status = run_manager(&f.root.0, &f.core, &["task", "status", TASK_ID], None);
+    assert_eq!(status.status.code(), Some(0));
+    let text = String::from_utf8(status.stdout).unwrap();
+    assert!(text.contains(TASK_ID));
+    assert!(text.contains(&format!("server={}:", f.child.id())));
+    let reconnect = run_manager(&f.root.0, &f.core, &["task", "reconnect", TASK_ID], None);
+    assert_eq!(reconnect.status.code(), Some(37)); // Exact existing Core probe.
+    for (p, expected) in snapshots {
+        assert_eq!(fs::read(&p).unwrap(), expected);
+        assert_eq!(
+            fs::metadata(p).unwrap().permissions().mode() & 0o7777,
+            0o600
+        );
+    }
+    assert!(!runtime.exists());
+}
+
+#[test]
+fn active_task_live_unsafe_home_and_substituted_dead_binding_fail_closed() {
+    use std::os::unix::ffi::OsStrExt;
+    let mut f = TaskFixture::new();
+    let status = run_manager(&f.root.0, &f.core, &["task", "status", TASK_ID], None);
+    assert_eq!(status.status.code(), Some(0));
+    fs::remove_dir(&f.account).unwrap();
+    let rejected = run_manager(&f.root.0, &f.core, &["task", "status", TASK_ID], None);
+    assert_eq!(rejected.status.code(), Some(1));
+    assert!(rejected.stdout.is_empty());
+    std::os::unix::fs::symlink(&f.root.0, &f.account).unwrap();
+    let rejected = run_manager(&f.root.0, &f.core, &["task", "takeover", TASK_ID], None);
+    assert_eq!(rejected.status.code(), Some(1));
+    assert!(rejected.stdout.is_empty());
+    // Even an exited record must have private, structurally bound metadata.
+    f.child.kill().unwrap();
+    f.child.wait().unwrap();
+    let mut owner = f.account.as_os_str().as_bytes().to_vec();
+    owner.push(0);
+    owner.extend_from_slice(b"/substituted/runtime");
+    fs::write(f.binding.join("owner"), owner).unwrap();
+    let rejected = run_manager(&f.root.0, &f.core, &["task", "status", TASK_ID], None);
+    assert_eq!(rejected.status.code(), Some(1));
+    assert!(rejected.stdout.is_empty());
+}
+
+#[test]
 fn active_task_owner_follows_current_kernel_writer_not_original_loaded_server() {
     use std::os::unix::ffi::OsStrExt;
     struct OwnedProcess(std::process::Child);

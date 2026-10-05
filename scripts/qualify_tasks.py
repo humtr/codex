@@ -258,6 +258,24 @@ requires_openai_auth = false
             (a / "config.toml").write_text(config)
             process, master = tui(["--no-alt-screen"], a)
             record = bind(a)
+            # Exited Core bindings outlive account homes within retained generations.
+            # Seed only owned metadata; real Core/Manager must discover A past it.
+            exited = subprocess.Popen([sys.executable, "-c", "pass"], env=env)
+            assert exited.wait(timeout=5) == 0
+            stale_owner = os.fsencode(root / "retired-account") + b"\0" + os.fsencode(native / "runtime")
+            digest = 0xcbf29ce484222325
+            for byte in stale_owner:
+                digest = ((digest ^ byte) * 0x100000001b3) & ((1 << 64) - 1)
+            stale = record.parent / f"{digest:016x}"
+            stale.mkdir(mode=0o700)
+            for name, data in [("owner", stale_owner), ("pid", f"{exited.pid}\n".encode())]:
+                (stale / name).write_bytes(data)
+                (stale / name).chmod(0o600)
+            discovered = run("termux", "task", "status")
+            assert discovered.returncode == 0, discovered.stderr.decode()
+            assert (stale / "owner").read_bytes() == stale_owner
+            assert (stale / "pid").read_bytes() == f"{exited.pid}\n".encode()
+            print("PASS native public task discovery ignores exited retired metadata without mutation")
             rpc = Ws(record / "s")
             started = rpc.call("thread/start", {"cwd": str(root)})
             thread = started["thread"]["id"]

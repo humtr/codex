@@ -2083,6 +2083,13 @@ credential or tool output is printed or persisted. External supported CODEX_HOME
 identities are included, not just Manager-registered profiles. All retained Core
 server rendezvous records are considered, including old-generation active servers.
 No permanent task registry, watcher, supervisor or automatic account switch is added.
+A private, structurally valid binding whose recorded process is confirmed absent
+or fully exited is ignored read-only before requiring its execution home, runtime
+or socket to remain present. Retired homes, historical home aliases and removed
+old generation files do not make an exited server a current owner. Such records
+are not deleted or repaired by Manager. A live or uncertain process still requires
+all existing home/runtime/socket and peer checks; this is no permission to trust
+aliases, ignore substituted metadata, or skip an unverified live writer.
 
 Owner means the currently verified kernel writer-lock holder and that process's
 execution identity, never the original conversation author, recorded origin,
