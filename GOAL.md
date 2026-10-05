@@ -34,6 +34,46 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
+## ACTIVE-TASK-HANDOFF-DELIVERY (selected 2026-10-05)
+
+- User `resume` selects the announced next signed Manager delivery and ordinary
+  installed application. Bind clean rewrite/rust-core712790e5a42e4b86c56d1cd605d8d8c8d4736159;
+  workers OFF. Accepted product source remains705afb98098f27d613130cd3fd4d0f84fb74fc50,
+  exact-event hosted37255197297; later authority-only events also passed.
+- Intended candidate is `local-hosted-0-160-0-705afb98098f-active-task-handoff`,
+  sequence37 from authenticated sequence36
+  `local-hosted-0-160-0-6523921a1d33-permission-memory`. Target is humtr/codex
+  Release/Pages/main with ordinary non-force exact-parent CAS; observed remote
+  publication parent15487ecca7de7e28c9ed743bb09afb394b208005 must be freshly bound.
+- Delivery changes Manager and its descriptor binding/identity only. Preserve
+  signed Core, runtime, code-mode-host and helpers byte-for-byte, including v3
+  permission runtime and legacy bridge contracts. Authenticate the public baseline
+  and official upstream pin before admitting this same-version candidate.
+- Allowed writes: authority, owned publication/candidate/consumer roots, bounded
+  hosted production signing and Release/Pages/stable promotion, then ordinary
+  installed `codex update` after green independent public qualification. No
+  manual live copies, credential inspection, profile/session/auth/preferences/
+  resolver changes or cancellation of real user work. Retain complete sequence36
+  as previous rollback; sequence35 may retire only through ordinary Core policy.
+- Success requires exact candidate qualification, unchanged protected payloads,
+  hosted signing/public readback/disposable update/no-op, ordinary activation,
+  fresh installed read-only status/help plus credential-free owned-root task
+  qualification and protected data/process verification. Ordered gates live only
+  in WORKBOARD.md until closure; no new feature or repair work is selected.
+- D1 closed: fresh pinned-key signature/every-byte/download-size audit binds
+  seq36/main15487ecca7de7e28c9ed743bb09afb394b208005; official latest0.160.0
+  archive7f0fe42ff22ecfa3a47bc4a34f5b22c4218b431a4ec0aba51c7d98299f07900c.
+  Actual preview shell49 positive/fault cases, published current seven nonzero
+  regressions, workflow YAML/all shell syntax, source/event/non-force CAS binding,
+  credential/diff gates and five native candidate behaviors passed. Core source
+  difference from published6523921 is cfg(test)-only; protected signed payloads
+  remain exact. KEEP upstream/Core/signing/Pages/CAS, COLLAPSE candidate admission
+  to one current Manager-only gate, DELETE the stale seq35 boundary test and
+  replace it with current actual-shell regressions. Only fixture-copy/path/input
+  defects were corrected; no product relaxation or failing proof is accepted.
+  Device preflight binds installed36/previous35, all nine complete36 rollback
+  files, protected path identities and eight installed process PID/start pairs.
+
 ## ACTIVE-TASK-HANDOFF (source accepted 2026-10-05)
 
 - User authorizes implementation of the reviewed cross-account ownership,
