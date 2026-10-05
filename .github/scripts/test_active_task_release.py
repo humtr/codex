@@ -5,12 +5,12 @@ import hashlib,os,shutil,subprocess,sys,tempfile,textwrap,unittest
 
 WORKFLOW=Path(__file__).parents[1]/'workflows/auto-release-termux.yml'
 TEXT=WORKFLOW.read_text()
-SOURCE='af1a3df6d99a01b5c649f0f47beef6703128feab'
-PARENT='3da4b294e1a6d62b1b5ba775acf88aae375c3189'
-CURRENT='local-hosted-0-160-0-705afb98098f-active-task-handoff'
+SOURCE='b7c1e61019b1c5085b2627ba6cf609b3f55d74de'
+PARENT='9bac2f41d515dc894d005aa498e03064befb9f1b'
+CURRENT='local-hosted-0-160-0-af1a3df6d99a-active-task-handoff-r2'
 PROTECTED='local-hosted-0-160-0-6523921a1d33-permission-memory'
-NEW='local-hosted-0-160-0-af1a3df6d99a-active-task-handoff-r2'
-MESSAGE='release-owner-handoff-seq38-source-af1a3df6'
+NEW='local-hosted-0-160-0-b7c1e61019b1-retired-server-discovery'
+MESSAGE='release-retired-server-seq39-source-b7c1e610'
 
 def body(name):
  block=TEXT.split('      - name: '+name+'\n',1)[1].split('      - name:',1)[0]
@@ -38,11 +38,11 @@ class DeliveryTests(unittest.TestCase):
   start=TEXT.index('          test "$ACTIVE_TASK_RELEASE_PUSH_BRIDGE" = true -o')
   end=TEXT.index('          if test "$RALD4_POSITIVE_GATE" = true; then',start)
   code=textwrap.dedent(TEXT[start:end])
-  stable={'current_version':'0.160.0','current_generation':CURRENT,'current_release_sequence':'37','release_sequence':'38'}
+  stable={'current_version':'0.160.0','current_generation':CURRENT,'current_release_sequence':'38','release_sequence':'39'}
   for k in stable:code=code.replace("'${{ steps.stable.outputs."+k+" }}'",'"$STABLE_'+k+'"')
-  script='set -euo pipefail\n'+code+'\ntest "$candidate" = true\ntest "$acceptance_suffix" = -active-task-handoff-r2\n'
+  script='set -euo pipefail\n'+code+'\ntest "$candidate" = true\ntest "$acceptance_suffix" = -retired-server-discovery\n'
   flags=['RALD4_POSITIVE_GATE','RALD5_SAME_VERSION_ACCEPTANCE','RALD45_TRANSITION_STAGE','RALD45_TRANSITION_PROMOTE','RALD5_NEGATIVE_GATE','LEGACY_LAG_JUMP_REMEDIATION','UX1_SAME_VERSION_DEPLOY','UPDATE_PROGRESS_SAME_VERSION_DEPLOY','EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY','NO_EMOJI_SAME_VERSION_DEPLOY','DOWNLOAD_SIZE_SAME_VERSION_DEPLOY']
-  env={**os.environ,**{k:'false' for k in flags},**{'STABLE_'+k:v for k,v in stable.items()},'ACTIVE_TASK_RELEASE_PUSH_BRIDGE':'true','GITHUB_EVENT_NAME':'push','GITHUB_REF':'refs/heads/main','RALD5_PUBLICATION_AUTHORIZED':'true','CODEX_SOURCE_SHA':SOURCE,'ACTIVE_TASK_RELEASE_ACCEPTED_SOURCE_SHA':SOURCE,'ACTIVE_TASK_RELEASE_TARGET_VERSION':'0.160.0','ACTIVE_TASK_RELEASE_CURRENT_GENERATION':CURRENT,'ACTIVE_TASK_RELEASE_CURRENT_SEQUENCE':'37','ACTIVE_TASK_RELEASE_TARGET_SEQUENCE':'38','ACTIVE_TASK_RELEASE_TARGET_ARCHIVE_SHA256':'7f0fe42ff22ecfa3a47bc4a34f5b22c4218b431a4ec0aba51c7d98299f07900c','upstream_version':'0.160.0','archive_sha256':'7f0fe42ff22ecfa3a47bc4a34f5b22c4218b431a4ec0aba51c7d98299f07900c','candidate':'false'}
+  env={**os.environ,**{k:'false' for k in flags},**{'STABLE_'+k:v for k,v in stable.items()},'ACTIVE_TASK_RELEASE_PUSH_BRIDGE':'true','GITHUB_EVENT_NAME':'push','GITHUB_REF':'refs/heads/main','RALD5_PUBLICATION_AUTHORIZED':'true','CODEX_SOURCE_SHA':SOURCE,'ACTIVE_TASK_RELEASE_ACCEPTED_SOURCE_SHA':SOURCE,'ACTIVE_TASK_RELEASE_TARGET_VERSION':'0.160.0','ACTIVE_TASK_RELEASE_CURRENT_GENERATION':CURRENT,'ACTIVE_TASK_RELEASE_CURRENT_SEQUENCE':'38','ACTIVE_TASK_RELEASE_TARGET_SEQUENCE':'39','ACTIVE_TASK_RELEASE_TARGET_ARCHIVE_SHA256':'7f0fe42ff22ecfa3a47bc4a34f5b22c4218b431a4ec0aba51c7d98299f07900c','upstream_version':'0.160.0','archive_sha256':'7f0fe42ff22ecfa3a47bc4a34f5b22c4218b431a4ec0aba51c7d98299f07900c','candidate':'false'}
   self.assertEqual(subprocess.run(['bash','-c',script],env=env,capture_output=True).returncode,0)
   faults={'ACTIVE_TASK_RELEASE_PUSH_BRIDGE':'false','CODEX_SOURCE_SHA':'0'*40,'GITHUB_EVENT_NAME':'schedule','GITHUB_REF':'refs/heads/other','RALD5_PUBLICATION_AUTHORIZED':'false','candidate':'true','upstream_version':'0.161.0','archive_sha256':'0'*64,**{'STABLE_'+k:'wrong' for k in stable},**{k:'true' for k in flags}}
   for k,v in faults.items():

@@ -77,8 +77,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  CODEX_SOURCE_SHA: 'af1a3df6d99a01b5c649f0f47beef6703128feab'
-  RALD5_SOURCE_SHA: 'af1a3df6d99a01b5c649f0f47beef6703128feab'
+  CODEX_SOURCE_SHA: 'b7c1e61019b1c5085b2627ba6cf609b3f55d74de'
+  RALD5_SOURCE_SHA: 'b7c1e61019b1c5085b2627ba6cf609b3f55d74de'
   RUST_VERSION: '1.98.0'
   ANDROID_API: '24'
   ANDROID_NDK_VERSION: '27.3.13750724'
@@ -121,10 +121,10 @@ env:
   DOWNLOAD_SIZE_DEPLOY_CURRENT_GENERATION: 'local-hosted-0-159-0-b164e5b61cb4'
   DOWNLOAD_SIZE_DEPLOY_CURRENT_SEQUENCE: '23'
   DOWNLOAD_SIZE_DEPLOY_TARGET_SEQUENCE: '24'
-  ACTIVE_TASK_RELEASE_ACCEPTED_SOURCE_SHA: 'af1a3df6d99a01b5c649f0f47beef6703128feab'
-  ACTIVE_TASK_RELEASE_CURRENT_GENERATION: 'local-hosted-0-160-0-705afb98098f-active-task-handoff'
-  ACTIVE_TASK_RELEASE_CURRENT_SEQUENCE: '37'
-  ACTIVE_TASK_RELEASE_TARGET_SEQUENCE: '38'
+  ACTIVE_TASK_RELEASE_ACCEPTED_SOURCE_SHA: 'b7c1e61019b1c5085b2627ba6cf609b3f55d74de'
+  ACTIVE_TASK_RELEASE_CURRENT_GENERATION: 'local-hosted-0-160-0-af1a3df6d99a-active-task-handoff-r2'
+  ACTIVE_TASK_RELEASE_CURRENT_SEQUENCE: '38'
+  ACTIVE_TASK_RELEASE_TARGET_SEQUENCE: '39'
   ACTIVE_TASK_RELEASE_PROTECTED_GENERATION: 'local-hosted-0-160-0-6523921a1d33-permission-memory'
   ACTIVE_TASK_RELEASE_PROTECTED_SEQUENCE: '36'
   ACTIVE_TASK_RELEASE_TARGET_VERSION: '0.160.0'
@@ -261,7 +261,7 @@ jobs:
           printf 'release_sequence=%s\n' "$release_sequence" >> "$GITHUB_OUTPUT"
 
       - name: Validate exact active-task-handoff corrective inputs
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == '3da4b294e1a6d62b1b5ba775acf88aae375c3189' && github.event.head_commit.message == 'release-owner-handoff-seq38-source-af1a3df6' }}
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == '9bac2f41d515dc894d005aa498e03064befb9f1b' && github.event.head_commit.message == 'release-retired-server-seq39-source-b7c1e610' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -285,8 +285,8 @@ jobs:
         shell: bash
         env:
           RALD4_POSITIVE_GATE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald4_positive_gate }}
-          ACTIVE_TASK_RELEASE_PUSH_BRIDGE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == '3da4b294e1a6d62b1b5ba775acf88aae375c3189' && github.event.head_commit.message == 'release-owner-handoff-seq38-source-af1a3df6' }}
-          RALD5_PUBLICATION_AUTHORIZED: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.rald5_publication_authorized) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == '3da4b294e1a6d62b1b5ba775acf88aae375c3189' && github.event.head_commit.message == 'release-owner-handoff-seq38-source-af1a3df6') }}
+          ACTIVE_TASK_RELEASE_PUSH_BRIDGE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == '9bac2f41d515dc894d005aa498e03064befb9f1b' && github.event.head_commit.message == 'release-retired-server-seq39-source-b7c1e610' }}
+          RALD5_PUBLICATION_AUTHORIZED: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.rald5_publication_authorized) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before == '9bac2f41d515dc894d005aa498e03064befb9f1b' && github.event.head_commit.message == 'release-retired-server-seq39-source-b7c1e610') }}
           RALD5_SAME_VERSION_ACCEPTANCE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald5_same_version_acceptance }}
           RALD45_TRANSITION_STAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald45_transition_stage }}
           RALD45_TRANSITION_PROMOTE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald45_transition_promote }}
@@ -367,7 +367,7 @@ jobs:
             test "$archive_sha256" = "$ACTIVE_TASK_RELEASE_TARGET_ARCHIVE_SHA256"
             test "$candidate" = false
             candidate=true
-            acceptance_suffix='-active-task-handoff-r2'
+            acceptance_suffix='-retired-server-discovery'
             printf 'active-task-handoff same-version corrective selected: %s sequence %s -> sequence %s\n' \
               "$upstream_version" "$ACTIVE_TASK_RELEASE_CURRENT_SEQUENCE" "$ACTIVE_TASK_RELEASE_TARGET_SEQUENCE"
           fi
