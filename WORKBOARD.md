@@ -7,7 +7,15 @@ Public/installed40 and retained39 remain protected.
 Current bundle PROFILE-TUI-EXPERIMENT, user-authorized feasibility prototype.
 
 0. Native baseline: exact upstream0.160.0 source; unmodified AArch64-musl
-   hosted build/executable proof and owned-device execution. Pending. Production
+   hosted build/executable proof and owned-device execution. RED: exact event
+   1ec630b/hosted37310353892 fails Cargo --locked (exit101) before compilation.
+   Root cause: release manifest0.160.0 vs workspace lock0.0.0. Only local
+   version metadata normalization admitted; external bindings unchanged, --locked
+   retained. Two focused helper regressions pass; native rebuild still pending.
+   Actual source normalization passes:154 workspace versions adjusted,1313
+   external package structures unchanged. Original lock5553f065; normalized28b14a75.
+   No UI behavior added.
+   Production
    definitions/behavior changes frozen until this target is runnable.
 1. Native /profile entrypoint and bounded Manager profile display. Pending.
    Paths: experimental upstream TUI patch and owned Manager bridge; focused proof

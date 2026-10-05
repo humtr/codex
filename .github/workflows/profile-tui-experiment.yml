@@ -62,13 +62,19 @@ jobs:
             ~/.cargo/git
             upstream/codex-rs/target
           key: profile-tui-baseline-aarch64-musl-1.95.0-a956835d-dev-opt1-v1
-      - name: Build unmodified upstream CLI
+      - name: Normalize release workspace versions only
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONDONTWRITEBYTECODE=1 python3 experiment/experiments/profile-tui/test_normalize_lock.py
+          python3 experiment/experiments/profile-tui/normalize_lock.py upstream/codex-rs --audit "$RUNNER_TEMP/profile-tui-lock-audit.json"
+      - name: Build exact upstream CLI with pinned external dependencies
         shell: bash
         run: |
           set -euo pipefail
           cd upstream/codex-rs
           cargo "+$RUST_VERSION" build --locked --target aarch64-unknown-linux-musl -p codex-cli --bin codex
-          test -z "$(git status --porcelain)"
+          test "$(git status --porcelain)" = " M codex-rs/Cargo.lock"
       - name: Execute and identify native baseline
         shell: bash
         run: |
@@ -83,6 +89,7 @@ jobs:
           env -i HOME="$root/home" CODEX_HOME="$root/home/.codex" TMPDIR="$root/tmp" PATH=/usr/bin:/bin "$binary" --version > "$root/artifact/version.txt"
           env -i HOME="$root/home" CODEX_HOME="$root/home/.codex" TMPDIR="$root/tmp" PATH=/usr/bin:/bin "$binary" --help > "$root/artifact/help.txt"
           cp "$binary" "$root/artifact/codex"
+          cp "$RUNNER_TEMP/profile-tui-lock-audit.json" "$root/artifact/lock-audit.json"
           sha256sum "$root/artifact/codex" > "$root/artifact/sha256.txt"
           printf 'upstream_sha=%s\nexperiment_sha=%s\ntarget=aarch64-unknown-linux-musl\n' "$UPSTREAM_SHA" "$GITHUB_SHA" > "$root/artifact/source.txt"
           cat "$root/artifact/version.txt" "$root/artifact/source.txt" "$root/artifact/sha256.txt"

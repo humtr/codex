@@ -25,6 +25,12 @@ No prototype is publishable or installable until separate completion and admissi
   Real launcher/runtime, Manager state, accounts/history/jobs and resolver remain
   protected. Hosted disposable build tools may be installed on the ephemeral
   runner; no device package installation, production signing or public promotion.
+- Exact official release Rust source remains unchanged at the baseline. The
+  published tag records workspace version0.160.0 while its lock records local
+  packages0.0.0; only these workspace package versions and local disambiguating
+  references may normalize to0.160.0. Every external package/version/source/
+  checksum/dependency binding remains byte/structure unchanged, and the final
+  build still uses --locked. Original/normalized lock digests are recorded.
 - Native upstream compile/executable baseline precedes prototype behavior. A mock
   chooser or external wrapper alone cannot prove the `/profile` product path.
   Admission requires actual slash dispatch, profile/history/agent presentation,

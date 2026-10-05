@@ -54,6 +54,12 @@
   are authorized; production signing/publication/cutover and real-data experiments
   are not. Successful prototype does not itself change release admission policy.
 
+- Stage0 red: hosted37310353892 exact1ec630b fails --locked before compile.
+  Official tag changes Cargo workspace version to0.160.0 while local-package
+  lock versions remain0.0.0. Baseline admits only exact local-version normalization;
+  external bindings/source checksums stay unchanged and --locked remains mandatory.
+  Two focused regressions pass; actual native build still pending. No UI behavior.
+
 ## PROFILE-LIFECYCLE-DELIVERY (accepted 2026-10-05)
 
 - User `배포 4` requests deployment of the just-accepted profile lifecycle source
