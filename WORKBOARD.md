@@ -14,7 +14,10 @@ Current bundle PROFILE-TUI-EXPERIMENT, user-authorized feasibility prototype.
    retained. Two focused helper regressions pass; native rebuild still pending.
    Actual source normalization passes:154 workspace versions adjusted,1313
    external package structures unchanged. Original lock5553f065; normalized28b14a75.
-   No UI behavior added.
+   Second exact807a89c/hosted37311480006 also fails --locked before compile.
+   Local-version normalization is insufficient; isolated Cargo workspace-update
+   diagnosis must enumerate the remaining delta. No build may consume that delta
+   without a separately reviewed bounded correction. No UI behavior added.
    Production
    definitions/behavior changes frozen until this target is runnable.
 1. Native /profile entrypoint and bounded Manager profile display. Pending.

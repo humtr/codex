@@ -58,7 +58,10 @@
   Official tag changes Cargo workspace version to0.160.0 while local-package
   lock versions remain0.0.0. Baseline admits only exact local-version normalization;
   external bindings/source checksums stay unchanged and --locked remains mandatory.
-  Two focused regressions pass; actual native build still pending. No UI behavior.
+  Two focused regressions pass. Second807a89c/hosted37311480006 repeats --locked
+  failure: version-only correction does not yet restore the baseline. Isolated
+  workspace-update diagnosis may inspect the required delta, but may not compile
+  an unapproved graph. Actual native build still pending; no UI behavior.
 
 ## PROFILE-LIFECYCLE-DELIVERY (accepted 2026-10-05)
 

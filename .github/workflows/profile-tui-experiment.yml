@@ -73,7 +73,14 @@ jobs:
         run: |
           set -euo pipefail
           cd upstream/codex-rs
-          cargo "+$RUST_VERSION" build --locked --target aarch64-unknown-linux-musl -p codex-cli --bin codex
+          if ! cargo "+$RUST_VERSION" build --locked --target aarch64-unknown-linux-musl -p codex-cli --bin codex; then
+            cp Cargo.lock "$RUNNER_TEMP/profile-tui-normalized.lock"
+            # Isolated diagnosis only: never compile from an updated dependency graph.
+            cargo "+$RUST_VERSION" update --workspace --offline
+            diff -u "$RUNNER_TEMP/profile-tui-normalized.lock" Cargo.lock > "$RUNNER_TEMP/profile-tui-required-lock.diff" || true
+            head -n 240 "$RUNNER_TEMP/profile-tui-required-lock.diff"
+            exit 1
+          fi
           test "$(git status --porcelain)" = " M codex-rs/Cargo.lock"
       - name: Execute and identify native baseline
         shell: bash
@@ -101,3 +108,14 @@ jobs:
           if-no-files-found: error
           retention-days: 3
           compression-level: 1
+      - name: Retain failed baseline diagnosis
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: profile-tui-baseline-diagnosis
+          path: |
+            ${{ runner.temp }}/profile-tui-required-lock.diff
+            ${{ runner.temp }}/profile-tui-normalized.lock
+            ${{ github.workspace }}/upstream/codex-rs/Cargo.lock
+          if-no-files-found: warn
+          retention-days: 3
