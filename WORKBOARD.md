@@ -11,7 +11,7 @@ No product source behavior changes; preserve signed Core/runtime/helpers exactly
 | Slice | Observable behavior | Allowed paths | Focused proof | Protected surfaces | State |
 | --- | --- | --- | --- | --- | --- |
 | D1 | Same-version candidate binds accepted Manager while preserving all other payloads | owned workflow preview/candidate and authority | authenticated seq36/upstream pins; actual component delta faults; event/preflight/CAS binding | installed files, credentials, public stable | closed: signed baseline, actual shell49, current regression7, native5; diff inspected |
-| D2 | Hosted signed candidate reaches authenticated public readback before stable promotion | separate publication checkout; bounded Release/Pages/main CAS | exact-parent event, native smoke, signing, every-byte readback, disposable update/no-op | signing key, old stable, sealed/source lineage | active: exact-parent hosted trigger prepared |
+| D2 | Hosted signed candidate reaches authenticated public readback before stable promotion | separate publication checkout; bounded Release/Pages/main CAS | exact-parent event, native smoke, signing, every-byte readback, disposable update/no-op | signing key, old stable, sealed/source lineage | waiting: exact local ca56bd76 candidate; explicit operational approval requested |
 | D3 | Ordinary installed update activates only verified sequence37 and retains36 | public Core update boundary and owned device probes | candidate digest/mode/signature; version/doctor/task read-only; actual owned-root task qualification | user account/session/auth/preferences/resolver and existing jobs | pending D2 |
 | D4 | Final acceptance binds source/public/installed evidence and protected identities | GOAL/WORKBOARD; ordinary source commit/push | full gate identities, production diff review and protection comparison | installed36 rollback, user data, sealed branches | pending D3 |
 
@@ -59,3 +59,13 @@ passed all five native paths with exact signed36 Core/runtime. No zero-test gate
 D2 trigger must change only workflow/current release tests in the separate
 publication checkout, preserve stable index/signature, and use an ordinary push
 from exact parent15487ecca7de7e28c9ed743bb09afb394b208005.
+
+D2 local candidateca56bd76f15b557f9daee895e2e058cf3ca5d90a is complete and clean,
+parent15487ecca7de7e28c9ed743bb09afb394b208005, exact message
+release-owner-handoff-seq37-source-705afb98. Current release tests7 and
+published action/credential/private-key gates3 pass; no public index change.
+Automatic approval review rejected main push because resume was insufficiently
+explicit for this exact release side effect. The rejected command never ran;
+safe local commit succeeded. Exact main push/signing/publication/verified ordinary
+installation approval is pending. Keep all dependent public/live actions stopped;
+source authority commit/push and read-only verification remain unaffected.

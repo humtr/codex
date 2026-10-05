@@ -73,6 +73,19 @@
   defects were corrected; no product relaxation or failing proof is accepted.
   Device preflight binds installed36/previous35, all nine complete36 rollback
   files, protected path identities and eight installed process PID/start pairs.
+- Concrete local publication candidateca56bd76f15b557f9daee895e2e058cf3ca5d90a
+  is the sole child of15487ecca7de7e28c9ed743bb09afb394b208005. Exact message
+  is release-owner-handoff-seq37-source-705afb98; only workflow and current
+  regression replacement change. Stable index/signature remain byte-identical.
+  Current published regressions7 and action-pin/credential/private-key gates3
+  passed. Owned publication worktree is clean.
+- Automatic approval review rejected the proposed protected/default main push:
+  resume did not explicitly authorize this exact signing/publication side effect.
+  No rejected command executed and no public/installed mutation occurred. The
+  separate safe local candidate commit above completed. An explicit question now
+  requests this exact ordinary main push, hosted signed37 Release/Pages/CAS and
+  verified ordinary installed update retaining36; dependent work awaits reply.
+  Do not bypass rejection or infer approval from elapsed time.
 
 ## ACTIVE-TASK-HANDOFF (source accepted 2026-10-05)
 
