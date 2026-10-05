@@ -34,7 +34,7 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
-## ACTIVE-TASK-HANDOFF (local source qualified 2026-10-05; hosted pending)
+## ACTIVE-TASK-HANDOFF (source accepted 2026-10-05)
 
 - User authorizes implementation of the reviewed cross-account ownership,
   reconnect/cancel/transfer requirements and adjacent convenience on the same
@@ -59,7 +59,8 @@
   Signing/publication/installed activation follow a separately recorded accepted
   candidate gate, never manual copies into live paths.
 - Baseline Manager39 nonzero tests passed (22 unit+17 public integration), no
-  failures. Ordered contract/proof slices and stop-on-red map live in WORKBOARD.
+  failures. All four ordered discovery, action, transfer and public-proof slices
+  are closed; the accepted evidence and disposition are recorded here.
   Retain signed seq36 current/seq35 previous and independent bare Core behavior.
 - User clarification: ownership follows the actual current writer-lock holder,
   not first author or last historical metadata. Require kernel ownership proof
@@ -67,8 +68,8 @@
 - Final source payload SHA-256 is
   `a35c1461b9702f7435893dbcc37603f2468cab65987f627e6ca8a234eb576391`
   over the ordered Cargo/Manager/qualification file-digest map. Manager alone
-  adds the public task family; Core, release-builder and workflows are unchanged
-  from bound60b138d. Ownership is verified against native lock inode, exclusive
+  adds the public task family; Core production, release-builder and workflows are
+  unchanged from bound60b138d. Ownership is verified against native lock inode, exclusive
   kernel lock, exact runtime PID/start and local socket peer, then revalidated
   before goal pause, interrupt or force signal. Released owners resume directly
   only after the existing native coordination/writer probe confirms freedom.
@@ -90,15 +91,23 @@
   ownership/native RPC; DELETE loaded-only owner attribution. Snapshot27 entries,
   including baseline absences, are unchanged; installed seq36/35 and sealed
   branches remain protected. No live signing/publication/activation occurred.
-- Local implementation is qualified. Ordinary source commit/push and exact-event
-  hosted acceptance remain before source closure; a signed installed delivery is
-  a separate candidate gate, not implied by these owned runtime fixtures.
-- Source candidateca5b171 was pushed; hosted run37254771057 rejected the existing
-  Core asynchronous exit fixture's10ms scheduler assumption. No product runtime
-  failure or acceptance is inferred from that late synthetic publisher. Adjust
-  only its test allowance, preserving the separate exact exhaustion assertion
-  and unchanged production process-exit safety; restore the hosted gate before
-  source closure.
+- Source implementationca5b171323a67e20351c54932ec316aa2397a420 and test-only
+  correction705afb98098f27d613130cd3fd4d0f84fb74fc50 were ordinarily committed
+  and pushed. Exact-event hosted run37255197297 accepted705afb98098f27d613130cd3fd4d0f84fb74fc50:
+  Python15+77, Core180 whole plus two1/1 Android cases (182 unique), Manager30
+  unit+30 integration (59 behavioral proofs excluding the fixture invocation),
+  builder22;263 behavioral Rust passes, one explicit device smoke ignored.
+  Android/AArch64 Core build, workflow/credential/diff, strict locked Clippy/fmt,
+  authenticated stable snapshot audit and aggregate source gate all succeeded.
+- Prior hosted run37254771057 rejected the Core asynchronous exit fixture's10ms
+  scheduler assumption. KEEP production10ms process-exit safety and deterministic
+  exhaustion proof; give only the asynchronous test publisher a scheduling
+  allowance. Relevant timing fixtures were inspected, the nonzero focused gate
+  passed, and the fresh full hosted event above restored acceptance. No failing
+  event is counted as proof. Core production remains byte-identical to baseline.
+- Source closure is complete. Signed installed delivery remains a separate
+  candidate gate, not implied by owned runtime fixtures or source publication;
+  installed seq36/35 remains unchanged.
 
 ## VALIDATION-RENEWAL / PERMISSION-MEMORY-RELEASE (accepted 2026-10-04)
 
