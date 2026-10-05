@@ -6,29 +6,16 @@ Public/installed40 and retained39 remain protected.
 
 Current bundle PROFILE-TUI-EXPERIMENT, user-authorized feasibility prototype.
 
-0. Native baseline: exact upstream0.160.0 source; unmodified AArch64-musl
-   hosted build/executable proof and owned-device execution. RED: exact event
-   1ec630b/hosted37310353892 fails Cargo --locked (exit101) before compilation.
-   Root cause: release manifest0.160.0 vs workspace lock0.0.0. Only local
-   version metadata normalization admitted; external bindings unchanged, --locked
-   retained. Two focused helper regressions pass; native rebuild still pending.
-   Actual source normalization passes:154 workspace versions adjusted,1313
-   external package structures unchanged. Original lock5553f065; normalized28b14a75.
-   Second exact807a89c/hosted37311480006 also fails --locked before compile.
-   Local-version normalization is insufficient; isolated Cargo workspace-update
-   diagnosis must enumerate the remaining delta. No build may consume that delta
-   without a separately reviewed bounded correction. No UI behavior added.
-   Complete local diagnostic requires exactly5 more inherited local versions:
-   path dependencies omitted from workspace.members. Normalize all159 local
-   release manifests, including these5; external packages remain unchanged.
-   Focused regression now covers non-member path dependencies and references.
-   Third hosted37312598358 diagnostic also exposes missing offline index entries;
-   failure diagnosis uses online resolution only in the disposable diagnostic copy.
-   Focused helper gate briefly red: rewritten inventory check accepted a missing
-   declared member manifest. Restored explicit member-manifest presence check;
-   all3 focused tests must pass before another hosted build.
-   Production
-   definitions/behavior changes frozen until this target is runnable.
+0. Native baseline: exact upstream0.160.0 source; hosted AArch64-musl build,
+   executable proof and owned-device execution. Current RED: exactd006419/
+   hosted37318131485 passes --locked, then tikv-jemalloc-sys fails atomics probes
+   under the improvised musl-gcc toolchain. No UI behavior added.
+   KEEP exact source and locked graph; COLLAPSE improvised native build setup into
+   upstream's exact release Zig0.14 + musl-tools script. DELETE obsolete lock
+   update fallback after graph restoration. Retain failed native config logs.
+   Focused helper3/3 passes. Exhaustive normalization changes159 local inherited
+   versions;1313 external packages unchanged. Original5553f065; finalf0ea6b03.
+   Production definitions/behavior frozen until native executable target runnable.
 1. Native /profile entrypoint and bounded Manager profile display. Pending.
    Paths: experimental upstream TUI patch and owned Manager bridge; focused proof
    actual slash dispatch, list/current/default/error/cancel; protected stage0.

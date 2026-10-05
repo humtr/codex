@@ -69,6 +69,13 @@
   regression. Third37312598358 offline diagnosis cannot resolve uncached index
   entries; this diagnostic limitation does not establish external dependency drift.
 
+- Exactd006419/hosted37318131485 restores --locked resolution (159 local versions,
+ 1313 external bindings unchanged; normalized lockf0ea6b033508c394980bfc011907947beffcb7f7b1a56addbff90196617c14a4).
+ Native build then fails tikv-jemalloc-sys atomics configuration with improvised
+ musl-gcc tooling. Baseline adopts exact-source upstream release Zig0.14/native
+ musl dependency tooling; no Rust behavior or external Cargo graph change.
+ No native baseline acceptance yet; `/profile` implementation remains frozen.
+
 ## PROFILE-LIFECYCLE-DELIVERY (accepted 2026-10-05)
 
 - User `배포 4` requests deployment of the just-accepted profile lifecycle source
