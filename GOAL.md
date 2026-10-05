@@ -115,14 +115,33 @@
 - Runnable source baseline2, exact red reproduction, repaired focused2 and grouped
   Python79 passed. Actual final pack replaces a deliberately stale archive and
   reproduces final bytes/modes/inventory; ordering requires all bindings before
-  pack and upload immediately after. Actual diff inspected; hosted full accepted
-  source remains required before preparing the new exact public trigger.
+  pack and upload immediately after. Actual diff inspected; exact83d77ecc hosted
+  full gate37260778160 passed all five jobs before corrective trigger preparation.
 - Prepare a forward sequence38 corrective candidate preserving Core/runtime/
   helpers from authenticated36 and accepted Manager behavior. Never overwrite
   signed37 or decrement the public sequence. The prior explicit operational grant
   named ca56bd76/sequence37; the new exact candidate will be made reviewable before
   seeking any additional operational authorization. Protected installed36 remains
   usable throughout; no live task cancellation or data migration.
+
+- Forward candidate qualification restores protected36 from its immutable Release,
+  with pinned-key signature/manifest/descriptor identity and sequence validation;
+  current public37 remains the independently authenticated sequence predecessor.
+  Protected36 admission9 actual signed fixture cases are mapped to durable current
+  publication regression; current publication tests8, actual component/admission/
+  preservation corpus48 and final archive regressions2 against the publication
+  producer pass. Source and event pins must bind the final exact accepted source.
+- Native prospective signed36 Core + authenticated signed37 Manager qualification
+  exposed a proof-only close/resume race. Native idle/list absence is insufficient
+  while upstream teardown is pending. KEEP actual stop/writer/transfer behavior;
+  COLLAPSE qualification onto exact thread/closed notification before same-server
+  resume, subscribe before launching its second TUI, DELETE the loaded-list proxy.
+  The separate post-force A server is freshly launched through ordinary Core.
+  Native schema and official0.160.0 lifecycle were inspected. Closure regressions4
+  and grouped Python83 pass; all five actual owned-root native gates pass exit0.
+  Downloaded transport mode600 is not installation mode; authenticated Manager
+  bytes are materialized mode0755 only in the owned candidate. Rust product payload
+  remains unchanged. No user work or live installed state was mutated.
 
 ## ACTIVE-TASK-HANDOFF (source accepted 2026-10-05)
 

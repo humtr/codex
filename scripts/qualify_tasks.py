@@ -28,6 +28,7 @@ class Ws:
         self.socket.connect(os.path.realpath(path))
         self.pending = b""
         self.next = 0
+        self.closed = set()
         key = base64.b64encode(os.urandom(16)).decode()
         self.socket.sendall((f"GET / HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n").encode())
         while b"\r\n\r\n" not in self.pending:
@@ -52,22 +53,42 @@ class Ws:
         mask = os.urandom(4)
         self.socket.sendall(header + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(data)))
 
+    def receive(self):
+        opcode, length = self.take(2)
+        length &= 127
+        if length == 126:
+            length = struct.unpack("!H", self.take(2))[0]
+        elif length == 127:
+            length = struct.unpack("!Q", self.take(8))[0]
+        data = self.take(length)
+        assert opcode & 15 == 1
+        message = json.loads(data)
+        if message.get("method") == "thread/closed":
+            self.closed.add(message["params"]["threadId"])
+        return message
+
     def call(self, method, params):
+        if method == "thread/resume":
+            self.closed.discard(params["threadId"])
         self.next += 1
         self.send({"id": self.next, "method": method, "params": params})
         while True:
-            opcode, length = self.take(2)
-            length &= 127
-            if length == 126:
-                length = struct.unpack("!H", self.take(2))[0]
-            elif length == 127:
-                length = struct.unpack("!Q", self.take(8))[0]
-            data = self.take(length)
-            assert opcode & 15 == 1
-            message = json.loads(data)
+            message = self.receive()
             if message.get("id") == self.next:
                 assert "error" not in message, (method, message.get("error"))
                 return message["result"]
+
+    def wait_closed(self, thread, timeout=10):
+        deadline = time.monotonic() + timeout
+        previous = self.socket.gettimeout()
+        try:
+            while thread not in self.closed:
+                remaining = deadline - time.monotonic()
+                assert remaining > 0, "owned thread did not close"
+                self.socket.settimeout(remaining)
+                self.receive()
+        finally:
+            self.socket.settimeout(previous)
 
     def close(self):
         self.socket.close()
@@ -252,15 +273,15 @@ requires_openai_auth = false
             assert "owner=account-a" in wait_owner(thread, "state=active")
             back.terminate(); back.wait(timeout=5)
             # Native cancellation is done before transfer; idle delay0 releases A's writer.
+            rpc = Ws(record / "s")  # Observe closure without subscribing to the thread.
             stopped = run("termux", "task", "stop", thread)
             assert stopped.returncode == 0, stopped.stderr.decode()
             assert b"Task stopped" in stopped.stdout
             print("PASS native owner reconnect, cross-account lock rejection and confirmed cancellation")
             # Start A again; keep its subscriber connected to prove stopped-but-held distinction.
-            process2, master2 = tui(["resume", thread], a)
-            record = bind(a)
-            rpc = Ws(record / "s")
+            rpc.wait_closed(thread)
             rpc.call("thread/resume", {"threadId": thread, "cwd": str(root)})
+            process2, master2 = tui(["resume", thread], a)
             assert rpc.call("thread/goal/get", {"threadId": thread})["goal"]["status"] == "paused"
             held = run("termux", "task", "takeover", thread)
             assert held.returncode == 1 and b"writer is still owned" in held.stderr, held.stderr.decode()
@@ -278,13 +299,10 @@ requires_openai_auth = false
             # Close it before the independent normal-transfer scenario: otherwise it
             # can reconnect when A's server is recreated and legitimately reclaim a writer.
             process2.terminate(); process2.wait(timeout=5)
-            transferred.terminate(); transferred.wait(timeout=5)
-            # Confirm unsubscribed idle B actually unloads, then normal A-to-B cancellation transfer.
+            # Observe B closure before reusing the same UUID in a fresh A server.
             b = Ws(second_record / "s")
-            deadline = time.monotonic() + 10
-            while thread in b.call("thread/loaded/list", {})["data"]:
-                assert time.monotonic() < deadline, "idle destination did not unload"
-                time.sleep(.05)
+            transferred.terminate(); transferred.wait(timeout=5)
+            b.wait_closed(thread)
             b.close()
             process3, master3 = tui(["resume", thread], a)
             record = bind(a)

@@ -11,8 +11,8 @@ No product source behavior changes; preserve signed Core/runtime/helpers exactly
 | Slice | Observable behavior | Allowed paths | Focused proof | Protected surfaces | State |
 | --- | --- | --- | --- | --- | --- |
 | D1 | Same-version candidate binds accepted Manager while preserving all other payloads | owned workflow preview/candidate and authority | authenticated seq36/upstream pins; actual component delta faults; event/preflight/CAS binding | installed files, credentials, public stable | closed: signed baseline, actual shell49, current regression7, native5; diff inspected |
-| D2 | Hosted signed candidate reaches authenticated public readback before stable promotion | separate publication checkout; bounded Release/Pages/main CAS | exact-parent event, native smoke, signing, every-byte readback, disposable update/no-op | signing key, old stable, sealed/source lineage | red: signed37 exported stale Core; final archive repair focused2/grouped79 pass; hosted source pending |
-| D3 | Ordinary installed update activates only verified sequence37 and retains36 | public Core update boundary and owned device probes | candidate digest/mode/signature; version/doctor/task read-only; actual owned-root task qualification | user account/session/auth/preferences/resolver and existing jobs | pending D2 |
+| D2 | Hosted signed candidate reaches authenticated public readback before stable promotion | separate publication checkout; bounded Release/Pages/main CAS | exact-parent event, native smoke, signing, every-byte readback, disposable update/no-op | signing key, old stable, sealed/source lineage | archive repair source83 full hosted green; proof race repaired; final source/forward38 qualification pending |
+| D3 | Ordinary installed update activates only verified corrective sequence38 and retains36 | public Core update boundary and owned device probes | candidate digest/mode/signature; version/doctor/task read-only; actual owned-root task qualification | user account/session/auth/preferences/resolver and existing jobs | pending D2 |
 | D4 | Final acceptance binds source/public/installed evidence and protected identities | GOAL/WORKBOARD; ordinary source commit/push | full gate identities, production diff review and protection comparison | installed36 rollback, user data, sealed branches | pending D3 |
 
 Stop on any red gate; never bypass signature, candidate integrity, native writer
@@ -104,3 +104,25 @@ D2 source slice locally closed: final source pack replay2/nonzero passed; groupe
 Python79 passed, protected Rust payload unchanged and source/public actual diff
 reviewed. Fresh hosted source gate is next. Signed37 cannot be rewritten; prepare
 forward38 with Core36 protected, then bind new exact operational candidate.
+
+D2 correction source83d77ecc hosted37260778160 passes all jobs. Actual forward38
+shell corpus48, protected36 authentication8, source final-pack regressions2 against
+publication path, and current publication regressions8 are green. Native prospective
+composition (authenticated signed36 Core/signed37 Manager bytes) exposed a qualifier
+race at immediate A resume after stop: upstream returns thread closing. Downloaded
+Manager transport mode600 was incorrectly asserted as installed mode before owned
+materialization; signed digest matches, owned candidate mode755 is correct. No live
+activation. Freeze new behavior; inspect all close/resume transitions and wait for
+actual native closure before reuse. Exact source83d77ecc is clean before proof fix.
+
+D2 proof-only closure slice closed: Ws.receive/call/wait_closed map to
+ClosureTests retained interleaved notification, exact-thread matching, bounded
+missing closure/timeout restoration, and fresh closure epoch after resume4.
+Both surviving native unload-to-resume transitions use thread/closed; initial
+resume in a fresh post-force server retains ordinary Core creation. A first
+reordering incorrectly attempted to bind that killed server without restarting
+its TUI; restored the existing new-server launch order, not a fallback or retry.
+Actual native5/nonzero exit0 and grouped Python83 pass. Production Rust definitions
+unchanged. Protected36 Core and signed37 Manager digest match the fixed-key signed
+manifests; owned materialization mode755, download mode600 is only transport state.
+Actual diff inspected; final exact-source commit/hosted gate is next.
