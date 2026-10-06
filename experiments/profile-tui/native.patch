@@ -1,8 +1,16 @@
 diff --git a/codex-rs/tui/src/app.rs b/codex-rs/tui/src/app.rs
-index 37b5c78..cba8fd4 100644
+index 37b5c78..c91d458 100644
 --- a/codex-rs/tui/src/app.rs
 +++ b/codex-rs/tui/src/app.rs
-@@ -232,6 +232,8 @@ mod managed_worktree_creation;
+@@ -152,7 +152,6 @@ use codex_otel::SessionTelemetry;
+ use codex_otel::TelemetryAuthMode;
+ use codex_protocol::ThreadId;
+ use codex_protocol::models::ActivePermissionProfile;
+-use codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_WORKSPACE;
+ use codex_protocol::models::PermissionProfile;
+ use codex_protocol::openai_models::ModelAvailabilityNux;
+ use codex_protocol::openai_models::ModelPreset;
+@@ -232,6 +231,8 @@ mod managed_worktree_creation;
  mod misalignment_policy;
  mod model_defaults;
  mod new_session;
@@ -11,6 +19,15 @@ index 37b5c78..cba8fd4 100644
  mod turn_tips;
  pub(crate) use new_session::has_launch_setting;
  mod clipboard;
+@@ -428,7 +429,7 @@ fn auto_review_mode() -> AutoReviewMode {
+         approval_policy: AskForApproval::OnRequest,
+         approvals_reviewer: ApprovalsReviewer::AutoReview,
+         active_permission_profile: ActivePermissionProfile::new(
+-            BUILT_IN_PERMISSION_PROFILE_WORKSPACE,
++            crate::termux_permissions::auto_profile_id(crate::termux_permissions::enabled()),
+         ),
+     }
+ }
 diff --git a/codex-rs/tui/src/app/event_dispatch.rs b/codex-rs/tui/src/app/event_dispatch.rs
 index da28bf2..a7076a4 100644
 --- a/codex-rs/tui/src/app/event_dispatch.rs
@@ -195,10 +212,10 @@ index 0000000..687917b
 +mod tests;
 diff --git a/codex-rs/tui/src/app/profile_manager_tests.rs b/codex-rs/tui/src/app/profile_manager_tests.rs
 new file mode 100644
-index 0000000..4a60794
+index 0000000..5dd0781
 --- /dev/null
 +++ b/codex-rs/tui/src/app/profile_manager_tests.rs
-@@ -0,0 +1,296 @@
+@@ -0,0 +1,301 @@
 +use super::*;
 +use crate::app_event_sender::AppEventSender;
 +use crate::bottom_pane::BottomPaneView;
@@ -457,16 +474,14 @@ index 0000000..4a60794
 +    assert_eq!(load(&path).await, None);
 +}
 +
-+
 +#[tokio::test]
 +async fn profile_manager_unavailable_bridge_resumes_follow_up_after_a_queued_picker() {
 +    assert_eq!(std::env::var_os("CODEX_PROFILE_CORE"), Some("".into()));
 +    let (mut app, mut events, mut ops) = super::super::tests::make_test_app_with_channels().await;
 +    let thread = codex_protocol::ThreadId::new();
 +    let cwd = app.config.cwd.to_path_buf();
-+    app.chat_widget.handle_thread_session(
-+        super::super::tests::test_thread_session(thread, cwd),
-+    );
++    app.chat_widget
++        .handle_thread_session(super::super::tests::test_thread_session(thread, cwd));
 +    app.chat_widget.handle_server_notification(
 +        super::super::tests::turn_started_notification(thread, "profile-turn"),
 +        None,
@@ -475,7 +490,8 @@ index 0000000..4a60794
 +    while ops.try_recv().is_ok() {}
 +    for text in ["/profile", "follow up after profiles"] {
 +        app.chat_widget.apply_external_edit(text.to_string());
-+        app.chat_widget.handle_key_event(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
++        app.chat_widget
++            .handle_key_event(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
 +    }
 +    app.chat_widget.handle_server_notification(
 +        super::super::tests::turn_completed_notification(
@@ -485,14 +501,20 @@ index 0000000..4a60794
 +        ),
 +        None,
 +    );
-+    assert!(std::iter::from_fn(|| events.try_recv().ok())
-+        .any(|event| matches!(event, crate::app_event::AppEvent::OpenProfilePicker)));
-+    assert_eq!(app.chat_widget.queued_user_message_texts(), vec!["follow up after profiles"]);
++    assert!(
++        std::iter::from_fn(|| events.try_recv().ok())
++            .any(|event| matches!(event, crate::app_event::AppEvent::OpenProfilePicker))
++    );
++    assert_eq!(
++        app.chat_widget.queued_user_message_texts(),
++        vec!["follow up after profiles"]
++    );
 +    assert!(ops.try_recv().is_err());
 +    open(&mut app).await;
 +    assert!(app.chat_widget.queued_user_message_texts().is_empty());
-+    let submitted = std::iter::from_fn(|| ops.try_recv().ok()).filter(|op|
-+        matches!(op, crate::app_command::AppCommand::UserTurn { .. })).count();
++    let submitted = std::iter::from_fn(|| ops.try_recv().ok())
++        .filter(|op| matches!(op, crate::app_command::AppCommand::UserTurn { .. }))
++        .count();
 +    assert_eq!(submitted, 1);
 +}
 diff --git a/codex-rs/tui/src/app/snapshots/codex_tui__app__profile_manager__tests__profile_manager_external_home.snap b/codex-rs/tui/src/app/snapshots/codex_tui__app__profile_manager__tests__profile_manager_external_home.snap
@@ -611,6 +633,159 @@ index 383376a..6b1f8f9 100644
                  SlashCommand::Agents,
                  SlashCommand::Copy,
                  SlashCommand::Export,
+diff --git a/codex-rs/tui/src/chatwidget.rs b/codex-rs/tui/src/chatwidget.rs
+index 7fafd6d..49774a8 100644
+--- a/codex-rs/tui/src/chatwidget.rs
++++ b/codex-rs/tui/src/chatwidget.rs
+@@ -439,6 +439,7 @@ use crate::streaming::controller::PlanStreamController;
+ use crate::streaming::controller::StreamController;
+ use crate::workspace_command::WorkspaceCommandRunner;
+
++use crate::termux_permissions::builtin_approval_presets;
+ use chrono::Local;
+ use codex_app_server_protocol::AskForApproval;
+ use codex_file_search::FileMatch;
+@@ -450,7 +451,6 @@ use codex_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
+ use codex_protocol::plan_tool::StepStatus;
+ use codex_protocol::plan_tool::UpdatePlanArgs;
+ use codex_utils_approval_presets::ApprovalPreset;
+-use codex_utils_approval_presets::builtin_approval_presets;
+ use strum::IntoEnumIterator;
+ use unicode_segmentation::UnicodeSegmentation;
+
+@@ -458,7 +458,6 @@ const USER_SHELL_COMMAND_HELP_TITLE: &str = "Prefix a command with ! to run it l
+ const USER_SHELL_COMMAND_HELP_HINT: &str = "Example: !ls";
+ const ASK_FOR_APPROVAL_LABEL: &str = "Ask for approval";
+ const APPROVE_FOR_ME_LABEL: &str = "Approve for me";
+-const AUTO_REVIEW_DESCRIPTION: &str = "Only ask for actions detected as potentially unsafe";
+ const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
+ const DEFAULT_STATUS_LINE_ITEMS: [&str; 3] = ["model-with-reasoning", "current-dir", "thread-name"];
+
+diff --git a/codex-rs/tui/src/chatwidget/permission_popups.rs b/codex-rs/tui/src/chatwidget/permission_popups.rs
+index fc98703..070629d 100644
+--- a/codex-rs/tui/src/chatwidget/permission_popups.rs
++++ b/codex-rs/tui/src/chatwidget/permission_popups.rs
+@@ -119,7 +119,12 @@ impl ChatWidget {
+                 if guardian_approval_enabled {
+                     items.push(SelectionItem {
+                         name: APPROVE_FOR_ME_LABEL.to_string(),
+-                        description: Some(AUTO_REVIEW_DESCRIPTION.to_string()),
++                        description: Some(
++                            crate::termux_permissions::review_description(
++                                crate::termux_permissions::enabled(),
++                            )
++                            .to_string(),
++                        ),
+                         is_current: current_review_policy == ApprovalsReviewer::AutoReview
+                             && (Self::preset_matches_current(
+                                 current_approval,
+@@ -411,6 +416,9 @@ impl ChatWidget {
+                     && current_permission_profile.network_sandbox_policy()
+                         == preset.permission_profile.network_sandbox_policy()
+             }
++            "auto" if matches!(preset.permission_profile, PermissionProfile::Disabled) => {
++                matches!(current_permission_profile, PermissionProfile::Disabled)
++            }
+             "auto" => {
+                 let file_system_policy = current_permission_profile.file_system_sandbox_policy();
+                 matches!(
+@@ -516,3 +524,7 @@ impl ChatWidget {
+         });
+     }
+ }
++
++#[cfg(test)]
++#[path = "termux_permission_popups_tests.rs"]
++mod termux_tests;
+diff --git a/codex-rs/tui/src/chatwidget/permission_shortcuts.rs b/codex-rs/tui/src/chatwidget/permission_shortcuts.rs
+index 73f2e31..d4152c3 100644
+--- a/codex-rs/tui/src/chatwidget/permission_shortcuts.rs
++++ b/codex-rs/tui/src/chatwidget/permission_shortcuts.rs
+@@ -34,7 +34,9 @@ impl ChatWidget {
+         let active_profile = self.config.permissions.active_permission_profile();
+         let mut choices = Vec::new();
+         for preset in builtin_approval_presets() {
+-            if !matches!(preset.id, "read-only" | "auto") {
++            if !matches!(preset.id, "read-only" | "auto")
++                || (crate::termux_permissions::enabled() && preset.id == "read-only")
++            {
+                 continue;
+             }
+             for reviewer in [ApprovalsReviewer::User, ApprovalsReviewer::AutoReview] {
+diff --git a/codex-rs/tui/src/chatwidget/permissions_menu.rs b/codex-rs/tui/src/chatwidget/permissions_menu.rs
+index ed65384..696f32b 100644
+--- a/codex-rs/tui/src/chatwidget/permissions_menu.rs
++++ b/codex-rs/tui/src/chatwidget/permissions_menu.rs
+@@ -5,6 +5,9 @@ use crate::permission_discovery::PermissionDiscovery;
+ use codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_DANGER_FULL_ACCESS;
+
+ pub(super) fn permission_preset_description(preset: &ApprovalPreset) -> &'static str {
++    if crate::termux_permissions::enabled() && preset.id == "auto" {
++        return preset.description;
++    }
+     match preset.id {
+         "read-only" => "Read workspace files, with approval required for edits or internet access",
+         "auto" => {
+@@ -102,20 +105,25 @@ impl ChatWidget {
+         let mut items = vec![self.builtin_permission_mode_selection_item(
+             &discovery,
+             default,
+-            ":workspace",
++            &default.active_permission_profile.id,
+             permission_preset_description(default).to_string(),
+             AskForApproval::from(default.approval),
+             ApprovalsReviewer::User,
+         )];
+         if self.config.features.enabled(Feature::GuardianApproval) {
+-            items.push(self.builtin_permission_mode_selection_item(
+-                &discovery,
+-                default,
+-                ":workspace",
+-                AUTO_REVIEW_DESCRIPTION.to_string(),
+-                AskForApproval::OnRequest,
+-                ApprovalsReviewer::AutoReview,
+-            ));
++            items.push(
++                self.builtin_permission_mode_selection_item(
++                    &discovery,
++                    default,
++                    &default.active_permission_profile.id,
++                    crate::termux_permissions::review_description(
++                        crate::termux_permissions::enabled(),
++                    )
++                    .to_string(),
++                    AskForApproval::OnRequest,
++                    ApprovalsReviewer::AutoReview,
++                ),
++            );
+         }
+         items.push(self.builtin_permission_mode_selection_item(
+             &discovery,
+@@ -125,14 +133,16 @@ impl ChatWidget {
+             AskForApproval::from(full_access.approval),
+             ApprovalsReviewer::User,
+         ));
+-        items.push(self.builtin_permission_mode_selection_item(
+-            &discovery,
+-            read_only,
+-            ":read-only",
+-            permission_preset_description(read_only).to_string(),
+-            AskForApproval::from(read_only.approval),
+-            ApprovalsReviewer::User,
+-        ));
++        if !crate::termux_permissions::enabled() {
++            items.push(self.builtin_permission_mode_selection_item(
++                &discovery,
++                read_only,
++                ":read-only",
++                permission_preset_description(read_only).to_string(),
++                AskForApproval::from(read_only.approval),
++                ApprovalsReviewer::User,
++            ));
++        }
+         items.extend(
+             discovery
+                 .profiles
 diff --git a/codex-rs/tui/src/chatwidget/slash_dispatch.rs b/codex-rs/tui/src/chatwidget/slash_dispatch.rs
 index 4fe2ed0..0975fb6 100644
 --- a/codex-rs/tui/src/chatwidget/slash_dispatch.rs
@@ -635,6 +810,41 @@ index 4fe2ed0..0975fb6 100644
          }
      }
 
+diff --git a/codex-rs/tui/src/chatwidget/termux_permission_popups_tests.rs b/codex-rs/tui/src/chatwidget/termux_permission_popups_tests.rs
+new file mode 100644
+index 0000000..7dc0f94
+--- /dev/null
++++ b/codex-rs/tui/src/chatwidget/termux_permission_popups_tests.rs
+@@ -0,0 +1,29 @@
++use super::*;
++
++#[test]
++fn termux_permissions_auto_current_marker_matches_disabled_profile_and_approval() {
++    let mut auto = codex_utils_approval_presets::builtin_approval_presets()
++        .into_iter()
++        .find(|p| p.id == "full-access")
++        .unwrap();
++    auto.id = "auto";
++    auto.approval = codex_protocol::protocol::AskForApproval::OnRequest;
++    assert!(ChatWidget::preset_matches_current(
++        AskForApproval::OnRequest,
++        &PermissionProfile::Disabled,
++        std::path::Path::new("/owned"),
++        &auto
++    ));
++    assert!(!ChatWidget::preset_matches_current(
++        AskForApproval::Never,
++        &PermissionProfile::Disabled,
++        std::path::Path::new("/owned"),
++        &auto
++    ));
++    assert!(!ChatWidget::preset_matches_current(
++        AskForApproval::OnRequest,
++        &PermissionProfile::workspace_write(),
++        std::path::Path::new("/owned"),
++        &auto
++    ));
++}
 diff --git a/codex-rs/tui/src/chatwidget/tests.rs b/codex-rs/tui/src/chatwidget/tests.rs
 index 6d42ca5..0a94f80 100644
 --- a/codex-rs/tui/src/chatwidget/tests.rs
@@ -740,6 +950,38 @@ index 0000000..135aba4
 +    );
 +    assert_no_submit_op(&mut op_rx);
 +}
+diff --git a/codex-rs/tui/src/lib.rs b/codex-rs/tui/src/lib.rs
+index 2697cba..8071a03 100644
+--- a/codex-rs/tui/src/lib.rs
++++ b/codex-rs/tui/src/lib.rs
+@@ -132,6 +132,7 @@ mod markdown_copy;
+ mod permission_discovery;
+ mod pets;
+ mod security_setup;
++mod termux_permissions;
+ mod worktree_browser;
+ pub use custom_terminal::Terminal;
+ mod assistant_directives;
+diff --git a/codex-rs/tui/src/permission_discovery.rs b/codex-rs/tui/src/permission_discovery.rs
+index c40ada9..b1e3350 100644
+--- a/codex-rs/tui/src/permission_discovery.rs
++++ b/codex-rs/tui/src/permission_discovery.rs
+@@ -6,6 +6,7 @@ use crate::app_event_sender::AppEventSender;
+ use crate::app_server_session::AppServerSession;
+ use crate::app_server_session::ThreadParamsMode;
+ use crate::legacy_core::config::Config;
++use crate::termux_permissions::builtin_approval_presets;
+ use codex_app_server_client::TypedRequestError;
+ use codex_app_server_protocol::ApprovalsReviewer;
+ use codex_app_server_protocol::AskForApproval;
+@@ -18,7 +19,6 @@ use codex_app_server_protocol::PermissionProfileListParams;
+ use codex_app_server_protocol::PermissionProfileListResponse;
+ use codex_app_server_protocol::PermissionProfileSummary;
+ use codex_app_server_protocol::RequestId;
+-use codex_utils_approval_presets::builtin_approval_presets;
+ use std::collections::HashSet;
+ use std::time::Duration;
+ use uuid::Uuid;
 diff --git a/codex-rs/tui/src/slash_command.rs b/codex-rs/tui/src/slash_command.rs
 index 301de2e..12aaea8 100644
 --- a/codex-rs/tui/src/slash_command.rs
@@ -793,3 +1035,140 @@ index 301de2e..12aaea8 100644
              SlashCommand::New
              | SlashCommand::Archive
              | SlashCommand::Delete
+diff --git a/codex-rs/tui/src/termux_permissions.rs b/codex-rs/tui/src/termux_permissions.rs
+new file mode 100644
+index 0000000..bfec411
+--- /dev/null
++++ b/codex-rs/tui/src/termux_permissions.rs
+@@ -0,0 +1,57 @@
++//! Permission presentation for the explicit Termux frontend experiment.
++use codex_protocol::models::ActivePermissionProfile;
++use codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_DANGER_FULL_ACCESS;
++use codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_WORKSPACE;
++use codex_protocol::models::PermissionProfile;
++use codex_utils_approval_presets::ApprovalPreset;
++use std::ffi::OsStr;
++use std::path::Path;
++
++fn has_bridge(core: Option<&OsStr>) -> bool {
++    core.is_some_and(|core| Path::new(core).is_absolute())
++}
++
++pub(crate) fn enabled() -> bool {
++    has_bridge(std::env::var_os("CODEX_PROFILE_CORE").as_deref())
++}
++
++pub(crate) fn auto_profile_id(termux: bool) -> &'static str {
++    if termux {
++        BUILT_IN_PERMISSION_PROFILE_DANGER_FULL_ACCESS
++    } else {
++        BUILT_IN_PERMISSION_PROFILE_WORKSPACE
++    }
++}
++
++pub(crate) fn review_description(termux: bool) -> &'static str {
++    if termux {
++        "Auto-review approval requests without a sandbox."
++    } else {
++        "Only ask for actions detected as potentially unsafe"
++    }
++}
++
++fn adapt(mut presets: Vec<ApprovalPreset>, termux: bool) -> Vec<ApprovalPreset> {
++    if termux {
++        for preset in &mut presets {
++            if preset.id == "auto" {
++                preset.active_permission_profile =
++                    ActivePermissionProfile::new(auto_profile_id(true));
++                preset.permission_profile = PermissionProfile::Disabled;
++                preset.description = "Run without a sandbox; the selected reviewer handles approval requests required by command rules and policy.";
++            }
++        }
++    }
++    presets
++}
++
++pub(crate) fn builtin_approval_presets() -> Vec<ApprovalPreset> {
++    adapt(
++        codex_utils_approval_presets::builtin_approval_presets(),
++        enabled(),
++    )
++}
++
++#[cfg(test)]
++#[path = "termux_permissions_tests.rs"]
++mod tests;
+diff --git a/codex-rs/tui/src/termux_permissions_tests.rs b/codex-rs/tui/src/termux_permissions_tests.rs
+new file mode 100644
+index 0000000..f08b463
+--- /dev/null
++++ b/codex-rs/tui/src/termux_permissions_tests.rs
+@@ -0,0 +1,68 @@
++use super::*;
++
++#[test]
++fn termux_permissions_require_an_explicit_absolute_bridge() {
++    assert!(!has_bridge(None));
++    assert!(!has_bridge(Some(OsStr::new(""))));
++    assert!(!has_bridge(Some(OsStr::new("relative"))));
++    assert!(has_bridge(Some(OsStr::new("/owned/core"))));
++}
++
++#[test]
++fn termux_permissions_auto_preserves_reviewer_policy_and_disables_sandbox() {
++    let presets = adapt(
++        codex_utils_approval_presets::builtin_approval_presets(),
++        true,
++    );
++    let auto = presets.iter().find(|preset| preset.id == "auto").unwrap();
++    assert_eq!(auto.active_permission_profile.id, auto_profile_id(true));
++    assert_eq!(auto.permission_profile, PermissionProfile::Disabled);
++    assert_eq!(
++        auto.approval,
++        codex_protocol::protocol::AskForApproval::OnRequest
++    );
++    assert!(auto.description.contains("without a sandbox"));
++    let full = presets
++        .iter()
++        .find(|preset| preset.id == "full-access")
++        .unwrap();
++    assert_eq!(full.permission_profile, PermissionProfile::Disabled);
++    assert_eq!(
++        full.approval,
++        codex_protocol::protocol::AskForApproval::Never
++    );
++    assert!(review_description(true).contains("without a sandbox"));
++}
++
++#[test]
++fn termux_permissions_unselected_upstream_and_custom_presets_are_preserved() {
++    let original = codex_utils_approval_presets::builtin_approval_presets();
++    let unchanged = adapt(original.clone(), false);
++    for (before, after) in original.iter().zip(&unchanged) {
++        assert_eq!(before.id, after.id);
++        assert_eq!(
++            before.active_permission_profile,
++            after.active_permission_profile
++        );
++        assert_eq!(before.permission_profile, after.permission_profile);
++        assert_eq!(before.approval, after.approval);
++        assert_eq!(before.description, after.description);
++    }
++    assert_eq!(
++        auto_profile_id(false),
++        BUILT_IN_PERMISSION_PROFILE_WORKSPACE
++    );
++    assert_eq!(
++        review_description(false),
++        "Only ask for actions detected as potentially unsafe"
++    );
++    let mut custom = original[1].clone();
++    custom.id = "custom";
++    let adapted = adapt(vec![custom.clone()], true);
++    assert_eq!(adapted[0].permission_profile, custom.permission_profile);
++    assert_eq!(
++        adapted[0].active_permission_profile,
++        custom.active_permission_profile
++    );
++    assert_eq!(adapted[0].description, custom.description);
++}

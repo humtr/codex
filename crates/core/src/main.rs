@@ -1,5 +1,8 @@
 use std::ffi::{OsStr, OsString};
 
+#[cfg(all(unix, feature = "profile-tui-live-preview"))]
+#[path = "../../../experiments/profile-tui/live_preview.rs"]
+mod live_preview;
 #[cfg(unix)]
 mod maintenance;
 #[cfg(unix)]
@@ -1409,7 +1412,7 @@ where
         if let Some(home) = home {
             let profile = upstream_execution_home(&home);
             let state = home.join(".local/share/codex/core");
-            if let Err(error) = shared_server::ensure(
+            match shared_server::ensure(
                 selection.runtime.program_path,
                 &profile,
                 &state,
@@ -1417,7 +1420,20 @@ where
                 config_dir.as_ref(),
                 &env_plan,
             ) {
-                return RuntimeLaunchError::Config(error);
+                Ok(_socket) => {
+                    #[cfg(feature = "profile-tui-live-preview")]
+                    if let Some(error) = live_preview::launch(
+                        &_socket,
+                        &profile,
+                        options.planned_args,
+                        resolver_path.as_ref(),
+                        config_dir.as_ref(),
+                        &env_plan,
+                    ) {
+                        return RuntimeLaunchError::Exec(error);
+                    }
+                }
+                Err(error) => return RuntimeLaunchError::Config(error),
             }
         }
     }
@@ -11918,12 +11934,14 @@ where
     }
     if bare {
         use std::io::IsTerminal as _;
-        if startup_update_discovery_enabled(
-            true,
-            std::io::stdin().is_terminal(),
-            std::io::stdout().is_terminal(),
-            std::io::stderr().is_terminal(),
-        ) {
+        if !cfg!(feature = "profile-tui-live-preview")
+            && startup_update_discovery_enabled(
+                true,
+                std::io::stdin().is_terminal(),
+                std::io::stdout().is_terminal(),
+                std::io::stderr().is_terminal(),
+            )
+        {
             run_bare_startup_update_preflight(&roots);
         }
     }
@@ -11946,6 +11964,10 @@ where
 
 #[cfg(unix)]
 fn main() {
+    #[cfg(feature = "profile-tui-live-preview")]
+    if let Some(code) = live_preview::handle(&std::env::args_os().skip(1).collect::<Vec<_>>()) {
+        std::process::exit(code);
+    }
     if let Some(code) = run_internal_bootstrap_mode() {
         std::process::exit(code);
     }

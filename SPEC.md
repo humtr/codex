@@ -8,7 +8,8 @@ Active implementation branch: `rewrite/rust-core`
 
 This section applies only to user-authorized experiment/profile-tui. Accepted
 production source/release40 and its ordinary runtime contract remain unchanged.
-No prototype is publishable or installable until separate completion and admission.
+No prototype is publishable until separate completion and admission. The user
+authorized a bounded live display preview on 2026-10-06 before full completion.
 
 - Prototype native `/profile` entrypoint combines upstream conversation/agent UI
   with Manager-owned profile selection and existing reconnect/takeover semantics.
@@ -25,6 +26,34 @@ No prototype is publishable or installable until separate completion and admissi
   Real launcher/runtime, Manager state, accounts/history/jobs and resolver remain
   protected. Hosted disposable build tools may be installed on the ephemeral
   runner; no device package installation, production signing or public promotion.
+- The bounded live preview replaces only the launcher with an explicitly built,
+  default-off profile-tui-live-preview Core variant and stores hash-pinned native
+  frontend/Manager read-only assets in a private preview directory. Accepted
+  signed40/39, activation pointers and public update authority remain unchanged.
+  The actual signed40 server still owns authentication, work and Termux runtime
+  compatibility; Core prepares/qualifies that server and execs the preview native
+  frontend with its explicit socket in the same terminal. Only ordinary eligible
+  interactive launches use the frontend. Other argv use the installed runtime.
+  Missing/tampered preview assets retain a bounded usable installed launch.
+  Private snapshots use only the pinned candidate Manager and ordinary Core
+  handoff. This exception grants no transcript/auth inspection, work termination,
+  profile/config editing, production signing or publication. New user interaction
+  may use existing accounts/history normally; automated qualification stays owned.
+- The preview native frontend reproduces the accepted Termux built-in permission
+  menu/shortcut behavior: Ask and Approve for me use the no-sandbox profile,
+  Full Access remains explicit, unsupported Read Only is omitted, and current
+  markers/descriptions follow actual settings. This frontend adaptation is enabled
+  only for the explicit absolute CODEX_PROFILE_CORE preview bridge; ordinary
+  unselected upstream UI and custom profile definitions retain their semantics.
+  Core still rejects explicit unsupported sandbox argv before runtime entry.
+  Actual menu selections/shortcuts and native settings require owned proof.
+- In this preview alone, codex update --rollback atomically restores the exact
+  saved40 launcher and leaves40/39 activation unchanged. Other update requests
+  first restore40 and then forward their original argv to the installed Core.
+  Preview startup performs no public update discovery. The original complete
+  launcher is saved before replacement; rollback and corrupted/missing-asset
+  fallback must pass actual owned-terminal qualification before live replacement.
+  This opt-in variant is not ordinary release admission or prototype acceptance.
 - Exact official release Rust source remains unchanged at the baseline. The
   published tag records workspace version0.160.0 while its lock records local
   packages0.0.0; only these workspace package versions and local disambiguating

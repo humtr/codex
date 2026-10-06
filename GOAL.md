@@ -34,6 +34,20 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
+## PROFILE-TUI-LIVE-DISPLAY-PREVIEW (selected 2026-10-06)
+
+- User explicitly asks to replace the runtime now for direct testing. This permits
+  a bounded local live launcher/native-frontend preview before full prototype
+  acceptance. Public release/rewrite authority and signed40/39 remain protected.
+- Threshold: actual latest hosted native13 tests/lint, owned same-terminal Core40
+  server -> source native /profile display/search/cancel, usable fallback and exact
+  launcher rollback, then atomic user-authorized launcher replacement. Preserve
+  resolver/auth/config metadata, activation authority and every pre-existing job.
+- Current UI is display-only; integrated history/agents, account selection and
+  takeover are unfinished. Permission UI compatibility is checked on the actual
+  stock-server/source-frontend route before live installation. No claim of full
+  feasibility/admission. Workers OFF; primary implements directly.
+
 ## PROFILE-TUI-EXPERIMENT (selected 2026-10-05)
 
 - User asks to finish/fix deployed baseline first, then experiment with `/profile`
