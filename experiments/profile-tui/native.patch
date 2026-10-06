@@ -951,15 +951,14 @@ index 0000000..135aba4
 +    assert_no_submit_op(&mut op_rx);
 +}
 diff --git a/codex-rs/tui/src/lib.rs b/codex-rs/tui/src/lib.rs
-index 2697cba..786f34b 100644
+index 2697cba..c5c9a56 100644
 --- a/codex-rs/tui/src/lib.rs
 +++ b/codex-rs/tui/src/lib.rs
-@@ -130,8 +130,10 @@ mod daybreak;
- mod experimental_features;
+@@ -131,7 +131,9 @@ mod experimental_features;
  mod markdown_copy;
  mod permission_discovery;
-+mod profile_transport;
  mod pets;
++mod profile_transport;
  mod security_setup;
 +mod termux_permissions;
  mod worktree_browser;

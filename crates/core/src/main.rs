@@ -18656,7 +18656,7 @@ esac
             .unwrap()
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, not(feature = "profile-tui-live-preview")))]
     fn b5_read_pty_output(mut master: std::fs::File) -> Vec<u8> {
         use std::io::Read as _;
 
@@ -18673,7 +18673,7 @@ esac
         output
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, not(feature = "profile-tui-live-preview")))]
     fn b5_run_public_bare_pty(
         index_url: &str,
         home: &std::path::Path,
@@ -18774,7 +18774,7 @@ esac
         }
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, not(feature = "profile-tui-live-preview")))]
     fn b5_run_public_bare_tty(
         index_url: &str,
         home: &std::path::Path,
@@ -18785,7 +18785,7 @@ esac
         b5_run_public_bare_pty(index_url, home, prefix, tmp, Some(input))
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, not(feature = "profile-tui-live-preview")))]
     fn b5_run_public_bare_tty_timeout(
         index_url: &str,
         home: &std::path::Path,
@@ -22928,6 +22928,7 @@ exit 2
     }
 
     #[cfg(unix)]
+    #[cfg(not(feature = "profile-tui-live-preview"))]
     #[test]
     fn test_bare_tty_startup_n_and_timeout_snooze_exact_signed_generation() {
         let fixture = b5_channel_fixture("startup-n-snooze", "startup-next");
@@ -23014,6 +23015,7 @@ exit 2
     }
 
     #[cfg(unix)]
+    #[cfg(not(feature = "profile-tui-live-preview"))]
     #[test]
     fn test_bare_tty_startup_y_reenters_signed_update_then_launches_active_runtime() {
         let fixture = b5_channel_fixture("startup-y-update", "startup-y-next");

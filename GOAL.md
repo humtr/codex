@@ -39,14 +39,63 @@
 - User explicitly asks to replace the runtime now for direct testing. This permits
   a bounded local live launcher/native-frontend preview before full prototype
   acceptance. Public release/rewrite authority and signed40/39 remain protected.
-- Threshold: actual latest hosted native13 tests/lint, owned same-terminal Core40
+- Threshold: actual latest hosted native20 tests/lint, owned same-terminal Core40
   server -> source native /profile display/search/cancel, usable fallback and exact
   launcher rollback, then atomic user-authorized launcher replacement. Preserve
   resolver/auth/config metadata, activation authority and every pre-existing job.
+  The unsigned source frontend must consume the existing FD33/34 remaps, with
+  separately bound raw/adapted provenance and no explicit sandbox fixture override.
 - Current UI is display-only; integrated history/agents, account selection and
   takeover are unfinished. Permission UI compatibility is checked on the actual
   stock-server/source-frontend route before live installation. No claim of full
   feasibility/admission. Workers OFF; primary implements directly.
+
+- Accepted bounded local preview (2026-10-06): hosted37540051325 exact4b7194a
+  succeeds with20/20 native focus, zero lint-fix delta, and the two previously
+  accepted snapshots byte-identical. Actual formatted native patch is retained;
+  only module sorting/blank patch context differs from its submitted form.
+  Hosted raw frontend SHA256f8f0d5369227fce4c29e3c24f4b5f49f4a2ab472bb7c3c6585ff834e1fea4d76
+  becomes unsigned local frontend7e41503cf55f0a6f8422f2d4dff153a7f824643551fa951593c6971ce18e0581
+  using only the existing release-builder FD policy:2,1,1,1 occurrences,54 bytes.
+  Experimental adapter focus2/2 rejects missing/extra/prepatched sources; production
+  Builder and official-artifact admission are unchanged.
+- Final feature source focus5/5, grouped Core187 passed with1 existing opt-in
+  ignored, Manager33 library+46 integration, Builder22, all-target clippy with
+  -D warnings, formatting and actual diff inspection pass. Default Core's two
+  startup advisory tests remain enabled and pass2/2; feature-only no-discovery
+  behavior is proved through the actual public launch with a curl marker.
+  KEEP ordinary startup tests/helpers under normal-only cfg; no ignored red gate
+  or warning suppression. KEEP Core final descriptor ownership through exec,
+  stock-server qualification and upstream local-daemon semantics. COLLAPSE the
+  permission fixture into the existing strict signed inventory materializer;
+  public download sidecars are not installed payload.
+- The final Android release Core is
+  8bdf33b29c162de8516ad42ea27fe82b2858abe7820e3fbf132dd956c38ed173;
+  pinned read-only candidate Manager046dd68ea41737a298e4c375d737e3f7606e331dc7acee20ab37686ec7c04b9f.
+  Exact release artifacts pass owned public Core -> source frontend -> actual
+  signed40 backend proof: /profile current/default/search, Esc/Ctrl-C same chat,
+  missing Manager recovery, missing/corrupt native installed fallback, changed
+  client CWD with existing backend, exit0 and exact termios restoration. No explicit
+  sandbox fixture override, credentials, model turn or public update discovery.
+  Shared/named permission cases each pass four actual menu selections, current
+  marker, two shortcuts, and native no-sandbox/reviewer/approval settings on the
+  same thread/server. Restore6/6 proves exact40 rollback, ordinary update forwarding,
+  corrupted backup/changed launcher/corrupted generation refusal, and private
+  read-only bridge with extra-argv and unsupported-sandbox rejection.
+- User-authorized atomic install stores native/Manager/exact saved40 in the private
+  preview directory and replaces only PREFIX/bin/codex, holding Core's existing
+  activation-directory flock. Immediate before/after readback preserves all other
+  20 protected metadata paths, complete signed40/39, byte-identical activation
+  authority and all13 current PID/start identities. Exact upstream --version
+  remains codex-cli0.160.0. Main2ffb95f3, rewriteb949afaf and sealed legacybf30a7dc
+  are unchanged; no production publication or signing. The older development
+  snapshot predates concurrent profile/job changes and is not cutover evidence.
+- Evidence in owned codex-profile-tui-proof: live-proof, live-frontend-adaptation,
+  live-preview-final-{focus,workspace,clippy,default-focus}, live-preview-release-
+  {build,device,permissions,restore}, live-source-identity, live-install-result,
+  before/after-live-cutover and live-protection-result. The bounded preview is
+  installed and closed for user testing; profile selection/history/agent integration,
+  same-terminal transition and active-owner safety remain open prototype slices.
 
 ## PROFILE-TUI-EXPERIMENT (selected 2026-10-05)
 

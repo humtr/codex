@@ -25,6 +25,8 @@ import termios
 import time
 import tomllib
 
+from qualify_tasks import materialize_signed_generation
+
 
 ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\].*?(?:\x07|\x1b\\)", re.S)
 ASK = "No Sandbox (Ask for approval)"
@@ -55,7 +57,7 @@ def notifications(trace, method):
     return result
 
 
-def qualify(core, generation, parent, mode):
+def qualify(core, generation, parent, mode, prepare_preview=None):
     with tempfile.TemporaryDirectory(prefix="pq", dir=parent) as temporary:
         root = Path(temporary)
         home, prefix = root / "h", root / "p"
@@ -67,7 +69,7 @@ def qualify(core, generation, parent, mode):
         assert fields["patch_policy_id"] == "termux-fd-remap-v3"
         assert fields["qualification"] == "qualified"
         runtime = home / ".local/lib/codex/core/generations" / identity
-        shutil.copytree(generation, runtime)
+        materialize_signed_generation(generation, runtime)
         for directory in [prefix / "bin", prefix / "etc/tls", home / ".codex",
                           home / ".local/share/codex/core/config"]:
             directory.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -101,6 +103,8 @@ requires_openai_auth = false
                "CODEX_HOME": str(home / ".codex"), "TERM": "xterm-256color",
                "PATH": str(Path(shutil.which("sh")).parent),
                "SSL_CERT_FILE": str(Path(shutil.which("sh")).parent.parent / "etc/tls/cert.pem")}
+        if prepare_preview is not None:
+            prepare_preview(home, prefix)
         trace = root / "native.trace"
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 180, 0, 0))

@@ -55,6 +55,17 @@ fn native_args(socket: &Path, original: &[OsString]) -> io::Result<Vec<OsString>
     Ok(args)
 }
 
+fn supported_options(args: &[OsString]) -> bool {
+    !args.iter().any(|arg| {
+        arg.to_str().is_some_and(|arg| {
+            arg == "--add-dir"
+                || arg.starts_with("--add-dir=")
+                || arg == "--worktree"
+                || arg.starts_with("--worktree=")
+        })
+    })
+}
+
 pub(crate) fn launch(
     socket: &Path,
     profile: &Path,
@@ -63,6 +74,10 @@ pub(crate) fn launch(
     config: &Path,
     plan: &super::TermuxBaseEnvPlan,
 ) -> Option<io::Error> {
+    if !supported_options(original) {
+        eprintln!("Using installed Codex for these workspace options.");
+        return None;
+    }
     let prepare = || -> io::Result<_> {
         let roots = super::LocalCoreRoots::from_environment().map_err(|_| invalid())?;
         let native = directory()?.join("native");

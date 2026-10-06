@@ -77,3 +77,31 @@ fn live_preview_missing_and_substituted_assets_are_rejected() {
     assert!(executable(&link, &digest, &openssl).is_err());
     assert!(executable(&fixture.0.join("missing"), &digest, &openssl).is_err());
 }
+
+#[test]
+fn live_preview_ordinary_routes_and_extra_snapshot_arguments_keep_core_dispatch() {
+    for args in [
+        vec!["--version".into()],
+        vec!["termux".into(), "profile".into(), "list".into()],
+        vec![
+            "termux".into(),
+            "__profile-snapshot-v1".into(),
+            "extra".into(),
+        ],
+    ] {
+        assert!(handle(&args).is_none());
+    }
+}
+
+#[test]
+fn live_preview_workspace_options_retain_original_installed_route() {
+    for args in [
+        vec!["--add-dir".into(), "owned".into()],
+        vec!["--add-dir=owned".into()],
+        vec!["resume".into(), "--worktree".into()],
+    ] {
+        assert!(!supported_options(&args));
+    }
+    assert!(supported_options(&["resume".into(), "--all".into()]));
+    assert!(supported_options(&["-C".into(), "owned".into()]));
+}

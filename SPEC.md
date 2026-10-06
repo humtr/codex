@@ -36,7 +36,17 @@ authorized a bounded live display preview on 2026-10-06 before full completion.
   interactive launches use the frontend. The explicit Core-provided Unix socket
   remains a local-daemon target with no embedded fallback, preserving local CWD,
   configuration and authentication constraints. Unselected upstream Unix/WebSocket
-  remote targets retain their original semantics. Other argv use installed runtime.
+  remote targets retain their original semantics. Source CLI options --add-dir
+  and --worktree are incompatible with its explicit socket argument; the preview
+  retains the installed runtime for those options without reinterpreting argv.
+  Other ineligible argv likewise use the installed runtime.
+  Before pinning the source frontend, apply only the existing release-builder's
+  four equal-length FD33/34 path remaps, with exact counts2,1,1,1 and54 changed
+  bytes. Record its actual hosted raw and adapted digests separately. This is an
+  unsigned local experiment artifact, never an official-package runtime or new
+  release admission policy; the signed40 backend already supplies its accepted
+  socket/permission adaptations. Prove the frontend consumes Core configuration
+  without an explicit sandbox-mode fixture override before live replacement.
   Missing/tampered preview assets retain a bounded usable installed launch.
   Private snapshots use only the pinned candidate Manager and ordinary Core
   handoff. This exception grants no transcript/auth inspection, work termination,
