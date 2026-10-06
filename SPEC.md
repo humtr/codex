@@ -33,7 +33,10 @@ authorized a bounded live display preview on 2026-10-06 before full completion.
   The actual signed40 server still owns authentication, work and Termux runtime
   compatibility; Core prepares/qualifies that server and execs the preview native
   frontend with its explicit socket in the same terminal. Only ordinary eligible
-  interactive launches use the frontend. Other argv use the installed runtime.
+  interactive launches use the frontend. The explicit Core-provided Unix socket
+  remains a local-daemon target with no embedded fallback, preserving local CWD,
+  configuration and authentication constraints. Unselected upstream Unix/WebSocket
+  remote targets retain their original semantics. Other argv use installed runtime.
   Missing/tampered preview assets retain a bounded usable installed launch.
   Private snapshots use only the pinned candidate Manager and ordinary Core
   handoff. This exception grants no transcript/auth inspection, work termination,

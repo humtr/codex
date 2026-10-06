@@ -951,17 +951,29 @@ index 0000000..135aba4
 +    assert_no_submit_op(&mut op_rx);
 +}
 diff --git a/codex-rs/tui/src/lib.rs b/codex-rs/tui/src/lib.rs
-index 2697cba..8071a03 100644
+index 2697cba..786f34b 100644
 --- a/codex-rs/tui/src/lib.rs
 +++ b/codex-rs/tui/src/lib.rs
-@@ -132,6 +132,7 @@ mod markdown_copy;
+@@ -130,8 +130,10 @@ mod daybreak;
+ mod experimental_features;
+ mod markdown_copy;
  mod permission_discovery;
++mod profile_transport;
  mod pets;
  mod security_setup;
 +mod termux_permissions;
  mod worktree_browser;
  pub use custom_terminal::Terminal;
  mod assistant_directives;
+@@ -1027,7 +1029,7 @@ fn app_server_target_for_launch(
+         return Ok(AppServerTarget::Embedded);
+     }
+     Ok(match explicit_remote_endpoint {
+-        Some(endpoint) => AppServerTarget::Remote { endpoint },
++        Some(endpoint) => profile_transport::target(endpoint, termux_permissions::enabled()),
+         // A shared daemon cannot adopt this invocation's executor selection.
+         None if can_reuse_implicit_local_daemon && exec_server_url.is_none() => {
+             default_daemon_socket.map_or(AppServerTarget::Embedded, |socket_path| {
 diff --git a/codex-rs/tui/src/permission_discovery.rs b/codex-rs/tui/src/permission_discovery.rs
 index c40ada9..b1e3350 100644
 --- a/codex-rs/tui/src/permission_discovery.rs
@@ -982,6 +994,81 @@ index c40ada9..b1e3350 100644
  use std::collections::HashSet;
  use std::time::Duration;
  use uuid::Uuid;
+diff --git a/codex-rs/tui/src/profile_transport.rs b/codex-rs/tui/src/profile_transport.rs
+new file mode 100644
+index 0000000..9e988ff
+--- /dev/null
++++ b/codex-rs/tui/src/profile_transport.rs
+@@ -0,0 +1,18 @@
++//! The Core-qualified frontend socket belongs to the local execution account.
++use super::AppServerTarget;
++use codex_app_server_client::RemoteAppServerEndpoint;
++
++pub(super) fn target(endpoint: RemoteAppServerEndpoint, termux: bool) -> AppServerTarget {
++    if termux && matches!(endpoint, RemoteAppServerEndpoint::UnixSocket { .. }) {
++        AppServerTarget::LocalDaemon {
++            endpoint,
++            allow_embedded_fallback: false,
++        }
++    } else {
++        AppServerTarget::Remote { endpoint }
++    }
++}
++
++#[cfg(test)]
++#[path = "profile_transport_tests.rs"]
++mod tests;
+diff --git a/codex-rs/tui/src/profile_transport_tests.rs b/codex-rs/tui/src/profile_transport_tests.rs
+new file mode 100644
+index 0000000..ee292cf
+--- /dev/null
++++ b/codex-rs/tui/src/profile_transport_tests.rs
+@@ -0,0 +1,45 @@
++use super::*;
++use codex_utils_absolute_path::AbsolutePathBuf;
++
++fn unix() -> RemoteAppServerEndpoint {
++    RemoteAppServerEndpoint::UnixSocket {
++        socket_path: AbsolutePathBuf::from_absolute_path("/owned/socket").unwrap(),
++    }
++}
++
++#[test]
++fn profile_transport_core_socket_keeps_local_cwd_and_permission_parameters_without_fallback() {
++    let target = target(unix(), true);
++    assert!(matches!(
++        target,
++        AppServerTarget::LocalDaemon {
++            allow_embedded_fallback: false,
++            ..
++        }
++    ));
++    assert!(!target.uses_remote_workspace());
++    assert!(matches!(
++        target.thread_params_mode(),
++        crate::app_server_session::ThreadParamsMode::Embedded
++    ));
++}
++
++#[test]
++fn profile_transport_unselected_upstream_unix_target_stays_remote() {
++    let target = target(unix(), false);
++    assert!(target.uses_remote_workspace());
++    assert!(matches!(target, AppServerTarget::Remote { .. }));
++}
++
++#[test]
++fn profile_transport_websocket_stays_remote_even_with_preview_bridge() {
++    let target = target(
++        RemoteAppServerEndpoint::WebSocket {
++            websocket_url: "ws://localhost:9/".into(),
++            auth_token: None,
++        },
++        true,
++    );
++    assert!(target.uses_remote_workspace());
++    assert!(matches!(target, AppServerTarget::Remote { .. }));
++}
 diff --git a/codex-rs/tui/src/slash_command.rs b/codex-rs/tui/src/slash_command.rs
 index 301de2e..12aaea8 100644
 --- a/codex-rs/tui/src/slash_command.rs

@@ -95,7 +95,16 @@ fn restore(roots: &super::LocalCoreRoots) -> io::Result<()> {
         .map_err(|_| invalid())?;
     let _lock =
         super::m2_generation_state::acquire_activation_lock(&paths).map_err(|_| invalid())?;
-    let active = super::load_activated_generation(roots).map_err(|_| invalid())?;
+    let state = super::m2_generation_state::read_pointer_state(&paths)
+        .map_err(|_| invalid())?
+        .ok_or_else(invalid)?;
+    let (_, active) = super::verify_installed_local_release(
+        roots,
+        &state.current,
+        state.current_key,
+        "preview rollback active generation does not match current",
+    )
+    .map_err(|_| invalid())?;
     if active.manifest.core_artifact_digest != STABLE_SHA256 {
         return Err(invalid());
     }

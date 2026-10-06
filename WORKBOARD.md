@@ -21,8 +21,11 @@ P1 CURRENT (red restored before further behavior): default-off experimental Core
     paths: preset construction, named/legacy menus, current matching, shortcuts,
     discovery and experiment toggle. KEEP upstream data/lifecycle; adapt built-in
     auto only under explicit preview bridge, omit Read Only at UI/shortcut choices,
-    preserve custom profiles and unselected upstream behavior. Separate pure
-    native regressions (17 including prior13; explicit empty bridge keeps old
+    preserve custom profiles and unselected upstream behavior. Explicit Core socket
+    must retain LocalDaemon/Embedded parameter semantics (without fallback), not
+    remote-workspace semantics that change CWD and config/auth constraints. Pure
+    target regressions cover Unix selected/unselected and WebSocket preservation. Separate pure
+    native regressions (20 including prior13; explicit empty bridge keeps old
     upstream tests valid) + actual menu/settings restore this class before install.
     Proof: focused executable/digest/argv tests; owned native /profile and effective
     permissions on the real Core-server/frontend route. No live install on red.
