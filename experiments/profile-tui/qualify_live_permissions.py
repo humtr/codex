@@ -9,13 +9,14 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
 from qualify_permissions import qualify
+from qualify_native_profile_display import preview_assets
 
 if __name__ == '__main__':
     parser=argparse.ArgumentParser()
     for name in ['core','native','manager','generation','parent']:parser.add_argument('--'+name,type=Path,required=True)
     a=parser.parse_args()
     def prepare(home,prefix):
-        assets=home/'.local/lib/codex/profile-tui-preview/424e0950';assets.mkdir(parents=True,mode=0o700)
+        assets=preview_assets(home);assets.mkdir(parents=True,mode=0o700)
         for source,name in [(a.native,'native'),(a.manager,'manager'),(a.generation/'core','stable-core')]:
             shutil.copy2(source,assets/name);os.chmod(assets/name,0o755)
         os.symlink(shutil.which('openssl'),prefix/'bin/openssl')

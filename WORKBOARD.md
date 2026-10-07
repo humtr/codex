@@ -9,7 +9,8 @@ Baseline hosted37540051325 native20/20+lint; installed display Core8bdf33b,
 frontend7e41503; exact stable40 Core8acc821. Accepted artifact patch SHA2c5aed42.
 Local stable rustfmt cannot honor unstable skip_children/import settings; exhaustive
 comparison found only six intended files changed, no unrelated formatter churn.
-Native compiler/focus still unavailable locally; pinned hosted gate is mandatory.
+User approved experimental push + usable device preparation; ac670ad pushed.
+Hosted37552770589 now builds exact ac670ad; native gate remains mandatory.
 
 S1 CURRENT: one vertical contract: Enter selected profile -> same idle conversation
    under selected home, same TTY/CWD. Native rows/event/typed post-cleanup re-entry;
@@ -30,24 +31,36 @@ S1 CURRENT: one vertical contract: Enter selected profile -> same idle conversat
    all-target Clippy -D warnings pass. No zero-test harness counts as evidence.
    Expected golden footer follows enabled UI; actual hosted rendering pending,
    never treated as acceptance.
-S2: owned actual Core/native/Manager A -> B conversation transition; same TTY/CWD,
+S2: owned actual Core/native/Manager A -> B transition for both a fresh blank
+   conversation and an already persisted conversation; same TTY/CWD,
    profile/default/auth/history/owner preservation, no model turn, failure/cancel.
+   Upstream defers fresh rollout creation: inspect actual blank transition first;
+   never hide a missing product path with test-only persistence. All three preview
+   probes had old424 assets; exhaustive three-probe update now derives the path
+   from production DIRECTORY. Syntax/path-binding passes; actual invocation OPEN.
+   Native probe adds real arrow/Enter for unseeded and persisted owned conversations,
+   same UUID/PID/TTY/CWD, selected writer, saved default and config/auth preservation.
+   Hosted actual CLI build passed, but step17 native focus FAILED (run37552770589).
+   STOP-ON-RED: no device qualification/cutover until exact native focus is restored.
+   Completed log proves four test-only compile errors: ThreadId is not FromStr,
+   LocalDaemon requires endpoint, and AppEvent::CodexOp carries AppCommand rather
+   than protocol::Op. Correct all surviving instances, preserve cwd ownership,
+   regenerate the patch and confirm only profile_manager_tests.rs changed across
+   all25 sections. No new production behavior; next hosted focused gate mandatory.
    Grouped source + protected verification, actual diff, authority update, commit.
 S3: separately qualified corrected local preview installation retaining exact40
    rollback. No live mutation while S1/S2 unproven; use a separate private asset path.
 
 main/rewrite/sealed legacy, signed40/39, activation/update authority, resolver and
-real profiles/auth/history/jobs protected. Prior push was rejected by automatic
-review for missing explicit destination/payload approval. No retry/bypass without
-additional authorization; prepare concrete source candidate before requesting its
-existing GitHub experimental build. Full active-owner takeover remains later work.
+real profiles/auth/history/jobs protected. Prior push rejection was resolved by explicit user approval on 2026-10-07.
+Only the existing experiment/profile-tui branch was pushed; no public promotion. Full active-owner takeover remains later work.
 
 Disposition: KEEP upstream client cleanup/native resume/kernel locks and existing
 Manager profile lifecycle locks; COLLAPSE selection into one event + one private
 idle re-entry; DELETE the mistaken intermediate action menu/enum and disabled rows.
-Native patch SHA5485be5847f78945802ca6842c6eb90dce9ca40ef4a7241ed55638c8d9674c9b.
+Native patch SHA2268acbe9fb7eace4952682829e2dde4a14a2195e6bd5b3dbe4642f19c79c8a7.
 All25 exported TUI paths reconstruct exactly on official source; only8 differ
 from accepted native baseline. Native compile/focus/render still OPEN: pinned
-hosted build requires the explicitly approved existing-branch source push first.
+hosted run37552770589 uses the explicitly approved existing-branch source push.
 S1 is source preparation with local Core/Manager proof, not accepted native closure;
 S2/S3 remain pending. Installed launcher/signed40/39/resolver verified unchanged.

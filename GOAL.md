@@ -63,18 +63,22 @@
 - Native qualification remains OPEN: syntax formatting and official-source patch
   application agree on all25 TUI files; exactly8 files differ from the accepted
   artifact baseline. Expected goldens alter only the known footer fixture, awaiting
-  actual rendering. Pinned Rust1.95/just native compile, nonzero23-test focused run,
+  actual rendering. Hosted37552770589 exactac670ad now passes the actual native CLI
+  build. Native focus then failed compilation with four test-only type/constructor
+  errors; zero TUI tests ran, and no device replacement is permitted from this run.
+  The exhaustive affected test fixes are prepared without changing production TUI;
+  exact hosted native focus must pass before actual device qualification.
   lint/no-source-delta, actual Core/native/Manager transition and new preview restore
-  gates have not run for this candidate. Local wrapper/Manager proof does not close
+  remain OPEN. Local wrapper/Manager proof does not close
   the public /profile request. No corrected binary is installed or admitted.
 - Read-only device verification: installed launcher remains8bdf33b and both signed
   generations/resolver are unchanged from the accepted cutover snapshot. The
   current process census is12, not a claim that a historical13-process census is
   unchanged; this source-only bundle did not signal real jobs or mutate live state.
-- Hosted build dependency: existing remote experiment/profile-tui remains4b7194a.
-  Automatic review rejected the previous source push for missing explicit user
-  approval of destination/payload. No retry, alternate upload or workflow bypass;
-  prepare the complete source candidate for an explicit bounded experimental push.
+- Hosted build authorization: user explicitly approved the source push and usable
+  device preparation on2026-10-07. Existing experiment/profile-tui now points to
+  ac670ad; only the two prepared experimental commits were pushed. The prior
+  missing-approval rejection is resolved; no public branch/release changed.
   Candidate commit is preparation, not slice closure or prototype acceptance.
 
 - User explicitly asks to replace the runtime now for direct testing. This permits

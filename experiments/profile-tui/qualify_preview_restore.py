@@ -11,6 +11,7 @@ import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
 from qualify_tasks import fixture_activation_state, materialize_signed_generation
+from qualify_native_profile_display import preview_assets
 
 STABLE = '8acc8219507780095a3a03e0cd0f8bf4b6346bbe7bd4b41b0a8f761851978cfa'
 
@@ -27,7 +28,7 @@ def qualify(core, manager, generation, public_key, parent):
             materialize_signed_generation(generation, installed)
             for directory in [home/'.codex', prefix/'bin', home/'.local/share/codex/core/config']:
                 directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-            assets = home/'.local/lib/codex/profile-tui-preview/424e0950'
+            assets = preview_assets(home)
             assets.mkdir(parents=True, mode=0o700)
             shutil.copy2(generation/'core', assets/'stable-core')
             shutil.copy2(manager, assets/'manager'); os.chmod(assets/'manager', 0o755)

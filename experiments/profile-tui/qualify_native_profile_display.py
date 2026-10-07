@@ -18,15 +18,23 @@ import termios
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
-from qualify_tasks import fixture_activation_state, materialize_signed_generation
+from qualify_tasks import Ws, fixture_activation_state, materialize_signed_generation
 
 ANSI = re.compile(r'\x1b\[[0-?]*[ -/]*[@-~]|\x1b\].*?(?:\x07|\x1b\\)', re.S)
 
+def preview_assets(home):
+    source = Path(__file__).with_name('live_preview.rs').read_text()
+    directories = re.findall(r'^const DIRECTORY: &str = "([^"]+)";', source, re.M)
+    assert len(directories) == 1, 'preview directory must have one production owner'
+    relative = Path(directories[0])
+    assert not relative.is_absolute() and '..' not in relative.parts
+    return home / relative
+
 def qualify(binary, generation, public_key, parent, preview_core=None, preview_manager=None):
     results=[]
-    cases=['ready','no-manager','no-native','bad-native'] if preview_core else ['ready','no-manager']
+    cases=['ready','persisted','no-manager','no-native','bad-native'] if preview_core else ['ready','no-manager']
     for case in cases:
-        available=case=='ready'
+        available=case in ['ready','persisted']
         fallback=case in ['no-native','bad-native']
         with tempfile.TemporaryDirectory(prefix='np',dir=parent) as temporary:
             root=Path(temporary);home=root/'h';prefix=root/'p'
@@ -38,7 +46,7 @@ def qualify(binary, generation, public_key, parent, preview_core=None, preview_m
             core=prefix/'bin/codex';shutil.copy2(preview_core or generation/'core',core)
             if preview_core:
                 assert preview_manager is not None
-                assets=home/'.local/lib/codex/profile-tui-preview/424e0950'
+                assets=preview_assets(home)
                 assets.mkdir(parents=True,mode=0o700)
                 for source,name in [(binary,'native'),(preview_manager,'manager'),(generation/'core','stable-core')]:
                     shutil.copy2(source,assets/name);os.chmod(assets/name,0o755)
@@ -77,8 +85,12 @@ requires_openai_auth = false
             for id in ['external','work']:manager('profile','create',id)
             manager('profile','default','work')
             account=home/'.local/share/codex/manager/profiles/work/home'
-            (account/'config.toml').write_text(config)
+            for selected in [home/'.codex', account, home/'.local/share/codex/manager/profiles/external/home']:
+                (selected/'config.toml').write_text(config)
             env['CODEX_HOME']=str(account)
+            protected=[home/'.local/share/codex/manager/default-profile-v1']
+            protected += [selected/'config.toml' for selected in [home/'.codex',account,home/'.local/share/codex/manager/profiles/external/home']]
+            before={str(path):path.read_bytes() for path in protected}
             snapshot=json.loads(manager('__profile-snapshot-v1'))
             assert snapshot=={'schema':'codex-manager-profiles-v1','profiles':['default','external','work'],'current':'work','current_source':'inherited','saved_default':'work'},snapshot
             if available:env['CODEX_PROFILE_CORE']=str(core)
@@ -121,7 +133,7 @@ requires_openai_auth = false
             try:
                 until('fixture-model');drain(3)
                 thread=status()
-                if preview_core and case=='ready':
+                if preview_core and available:
                     command('/quit');process.wait(timeout=10)
                     assert process.returncode==0 and termios.tcgetattr(slave)==original
                     expected_cwd=root/'next';expected_cwd.mkdir(mode=0o700)
@@ -140,6 +152,14 @@ requires_openai_auth = false
                     assert 'without a sandbox' in menu,'misleading permission description'
                     os.write(master,b'\x1b');drain(.3)
                     results.append('public-preview-Core/actual-source-frontend/qualified-signed-backend/permission-menu')
+                    if case=='persisted':
+                        rpc=Ws(records[0].parent/'s')
+                        try:
+                            stored=rpc.call('thread/read',{'threadId':thread,'includeTurns':True})
+                            assert stored['thread']['id']==thread
+                            assert stored['thread']['turns']==[],'fixture unexpectedly has model turns'
+                        finally:rpc.close()
+                        assert list((home/'.codex/sessions').rglob('*'+thread+'*')),'owned read did not persist conversation'
                 if available:
                     output=until('Profiles',command('/profile'))
                     assert 'Current: work' in output and 'Default: work' in output,output[-2500:]
@@ -152,6 +172,28 @@ requires_openai_auth = false
                     os.write(master,b'\x03');drain(.5)
                     assert status()==thread,'profile interrupt changed conversation'
                     results.append('native-profile/signed-core-manager/list-current-default/search/Esc/Ctrl-C/same-thread')
+                    if preview_core:
+                        until('Profiles',command('/profile'))
+                        os.write(master,b'work');drain(.3);os.write(master,b'\r');drain(.5)
+                        assert status()==thread,'current-profile Enter changed conversation'
+                        initial_pid=process.pid
+                        for destination in ['external','work','default','work']:
+                            until('Profiles',command('/profile'))
+                            # Exercise the actual arrow selection, not a private handoff command.
+                            steps={'default':0,'external':1,'work':2}[destination]
+                            os.write(master,b'\x1b[B'*steps);drain(.3)
+                            os.write(master,b'\r')
+                            until('fixture-model');drain(2)
+                            assert process.pid==initial_pid and process.poll() is None,'profile switch replaced terminal process'
+                            assert status()==thread,'profile switch did not preserve fresh conversation'
+                            view=until('Current: '+destination,command('/profile'))
+                            assert 'Default: work' in view,'profile switch changed saved default'
+                            os.write(master,b'\x1b');drain(.3)
+                            tasks=json.loads(manager('__task-snapshot-v1'))['tasks']
+                            owners=[item['owner_profile'] for item in tasks if item['id']==thread]
+                            assert owners==[destination],'profile switch did not transfer native writer'
+                            assert Path(f'/proc/{server}/exe').resolve()==native/'runtime','previous account backend changed'
+                        results.append('direct-arrow-Enter/'+('fresh-unseeded-thread' if case=='ready' else 'persisted-thread')+'/external-work-default/same-UUID-PID-TTY-CWD/native-writer/default-preserved')
                 elif fallback:
                     assert status()==thread,'installed fallback broke current chat'
                     results.append('public-preview-Core/'+case+'/usable-installed-fallback')
@@ -163,6 +205,8 @@ requires_openai_auth = false
                 assert process.returncode==0
                 assert termios.tcgetattr(slave)==original
                 assert not (account/'auth.json').exists()
+                assert all(path.read_bytes()==before[str(path)] for path in protected if str(path) in before),'profile configuration/default changed'
+                assert not list(home.rglob('auth.json')),'owned transition wrote authentication'
                 if preview_core:assert not (root/'public-discovery-attempted').exists(),'preview requested public discovery'
             except Exception:
                 (parent/'native-profile-owned-failure.txt').write_bytes(transcript);raise

@@ -294,10 +294,10 @@ index 0000000..e861207
 +mod tests;
 diff --git a/codex-rs/tui/src/app/profile_manager_tests.rs b/codex-rs/tui/src/app/profile_manager_tests.rs
 new file mode 100644
-index 0000000..9c55e61
+index 0000000..5b6a3fc
 --- /dev/null
 +++ b/codex-rs/tui/src/app/profile_manager_tests.rs
-@@ -0,0 +1,454 @@
+@@ -0,0 +1,463 @@
 +use super::*;
 +use crate::app_event_sender::AppEventSender;
 +use crate::bottom_pane::BottomPaneView;
@@ -640,7 +640,7 @@ index 0000000..9c55e61
 +    let request = ProfileReentry {
 +        core: "/owned/core".into(),
 +        profile: "work".to_string(),
-+        thread: id.parse().unwrap(),
++        thread: codex_protocol::ThreadId::from_string(id).unwrap(),
 +    };
 +    let report = color_eyre::eyre::Report::new(std::io::Error::other(request));
 +    let error = report.downcast::<std::io::Error>().unwrap();
@@ -670,10 +670,19 @@ index 0000000..9c55e61
 +        let thread = codex_protocol::ThreadId::new();
 +        let cwd = app.config.cwd.to_path_buf();
 +        app.chat_widget
-+            .handle_thread_session(super::super::tests::test_thread_session(thread, cwd));
++            .handle_thread_session(super::super::tests::test_thread_session(
++                thread,
++                cwd.clone(),
++            ));
 +        if state != "embedded" {
 +            app.app_server_target = crate::AppServerTarget::LocalDaemon {
 +                allow_embedded_fallback: false,
++                endpoint: crate::RemoteAppServerEndpoint::UnixSocket {
++                    socket_path: codex_utils_absolute_path::AbsolutePathBuf::try_from(
++                        cwd.join("owned-profile.sock"),
++                    )
++                    .unwrap(),
++                },
 +            };
 +        }
 +        if matches!(state, "busy" | "queued") {
@@ -745,8 +754,8 @@ index 0000000..9c55e61
 +            assert!(!matches!(
 +                event,
 +                AppEvent::CodexOp(
-+                    codex_protocol::protocol::Op::UserTurn { .. }
-+                        | codex_protocol::protocol::Op::Interrupt
++                    crate::app_command::AppCommand::UserTurn { .. }
++                        | crate::app_command::AppCommand::Interrupt
 +                )
 +            ));
 +        }
