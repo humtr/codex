@@ -3,7 +3,7 @@
 SPEC -> GOAL -> WORKBOARD; goal-md bound; workers OFF.
 PROFILE-SELECTION-REENTRY: arrow selection + Enter switches the current idle
 conversation directly; no intermediate menu. Bound experiment/profile-tui
-HEAD0cb01cfc5aea8ef7dc1f23998835d0ea69a189bb. Native26-path candidate; dirty owned
+HEAD83f0e7d4340c00c41efe6d2aa7d742e272d89f97. Native26-path candidate; dirty owned
 native qualification script. Installed display Core8bdf33b remains unchanged.
 
 S1 CLOSED SOURCE GATE: direct selection event and typed post-cleanup Core re-entry;
@@ -52,6 +52,12 @@ S2 CURRENT / RED DEVICE GATE: actual Core/native/Manager arrow-Enter transitions
    make_test_app_with_channels; retain receivers. Production source is unchanged;
    accept actual formatter-only test import/visibility line layout. Zero native
    tests ran; restore exact runnable25-test gate before owned qualification.
+   Retry37569215002 exact83f0e7d restores native compilation: actual25 run,24
+   passed and1 failed only because false/default includeTurns is omitted from
+   JSON. Native fresh materialization and missing/ephemeral/unwritable refusal
+   actually passed their behavioral assertions. Compare both fresh/stored request
+   lists through the public ThreadReadParams type, preserving exact ID/order/count
+   and include-turns semantics. Entire native gate remains red until25/25.
    Every new production branch must have a named focused regression, followed by
    nonzero actual native focus and lint on exact source, before device rerun.
 

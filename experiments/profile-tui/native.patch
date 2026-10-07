@@ -340,10 +340,10 @@ index 0000000..9eeae53
 +mod tests;
 diff --git a/codex-rs/tui/src/app/profile_manager_tests.rs b/codex-rs/tui/src/app/profile_manager_tests.rs
 new file mode 100644
-index 0000000..2bf0120
+index 0000000..4df1dd9
 --- /dev/null
 +++ b/codex-rs/tui/src/app/profile_manager_tests.rs
-@@ -0,0 +1,557 @@
+@@ -0,0 +1,574 @@
 +use super::*;
 +use crate::app_event_sender::AppEventSender;
 +use crate::bottom_pane::BottomPaneView;
@@ -844,18 +844,35 @@ index 0000000..2bf0120
 +    requests.lock().unwrap().clear();
 +    assert!(ensure_resumable(&mut server, thread).await);
 +    assert!(path.is_file());
++    let reads = recorded_params(&requests, "thread/read")
++        .into_iter()
++        .map(serde_json::from_value::<codex_app_server_protocol::ThreadReadParams>)
++        .collect::<Result<Vec<_>, _>>()?;
 +    assert_eq!(
-+        recorded_params(&requests, "thread/read"),
++        reads,
 +        vec![
-+            json!({"threadId":thread.to_string(),"includeTurns":false}),
-+            json!({"threadId":thread.to_string(),"includeTurns":true}),
++            codex_app_server_protocol::ThreadReadParams {
++                thread_id: thread.to_string(),
++                include_turns: false
++            },
++            codex_app_server_protocol::ThreadReadParams {
++                thread_id: thread.to_string(),
++                include_turns: true
++            },
 +        ]
 +    );
 +    requests.lock().unwrap().clear();
 +    assert!(ensure_resumable(&mut server, thread).await);
++    let reads = recorded_params(&requests, "thread/read")
++        .into_iter()
++        .map(serde_json::from_value::<codex_app_server_protocol::ThreadReadParams>)
++        .collect::<Result<Vec<_>, _>>()?;
 +    assert_eq!(
-+        recorded_params(&requests, "thread/read"),
-+        vec![json!({"threadId":thread.to_string(),"includeTurns":false}),]
++        reads,
++        vec![codex_app_server_protocol::ThreadReadParams {
++            thread_id: thread.to_string(),
++            include_turns: false
++        },]
 +    );
 +    for method in [
 +        "turn/start",
