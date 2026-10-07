@@ -38,8 +38,9 @@ authorized a bounded live display preview on 2026-10-06 before full completion.
   Before cleanup, the frontend verifies the current native rollout exists as a
   regular file. For an unmaterialized blank conversation it requests upstream
   thread/read(includeTurns=true), which persists before history hydration; only
-  positive rollout materialization permits re-entry, even when the installed
-  server cannot hydrate paginated turns. No synthetic turn, transcript write,
+  positive rollout materialization permits re-entry. The sole tolerated request
+  failure is the qualified backend's exact -32601 list_turns-not-supported response
+  after persistence; transport, decoding and other server failures refuse re-entry. No synthetic turn, transcript write,
   archive/unarchive or metadata rewrite is permitted. Metadata lookup or failure
   to materialize within3 seconds leaves the current picker/chat alive. Existing
   stored history uses metadata-only lookup and is never loaded by this check.

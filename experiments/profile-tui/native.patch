@@ -51,10 +51,10 @@ index da28bf2..34d21e9 100644
                      || !app_server.uses_remote_workspace()
 diff --git a/codex-rs/tui/src/app/profile_manager.rs b/codex-rs/tui/src/app/profile_manager.rs
 new file mode 100644
-index 0000000..15cbb9d
+index 0000000..9eeae53
 --- /dev/null
 +++ b/codex-rs/tui/src/app/profile_manager.rs
-@@ -0,0 +1,275 @@
+@@ -0,0 +1,283 @@
 +//! Unix execution-profile selection; Manager remains the sole profile-state owner.
 +use super::App;
 +use crate::app_event::AppEvent;
@@ -322,7 +322,15 @@ index 0000000..15cbb9d
 +        // Upstream persists before hydrating turns. The signed backend can reject
 +        // paginated hydration after successful persistence; verify its durable
 +        // rollout directly instead of treating history retrieval as the gate.
-+        let _ = app_server.thread_read(thread, true).await;
++        if let Err(error) = app_server.thread_read(thread, true).await
++            && !matches!(
++                error.downcast_ref::<codex_app_server_client::TypedRequestError>(),
++                Some(codex_app_server_client::TypedRequestError::Server { source, .. })
++                    if source.code == -32601 && source.message == "list_turns is not supported yet"
++            )
++        {
++            return false;
++        }
 +    }
 +    std::fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.is_file())
 +}
