@@ -165,7 +165,7 @@ requires_openai_auth = false
                     assert 'Current: work' in output and 'Default: work' in output,output[-2500:]
                     assert 'external' in output and 'default' in output,output[-2500:]
                     os.write(master,b'work');filtered=drain(1)
-                    assert 'work' in filtered and 'external' not in filtered,filtered[-2500:]
+                    assert 'work (current)' in filtered and 'external' not in filtered,'profile search did not render the matching row'
                     os.write(master,b'\x1b');drain(.3);os.write(master,b'\x1b');drain(.3)
                     assert status()==thread,'profile cancellation changed conversation'
                     until('Profiles',command('/profile'))

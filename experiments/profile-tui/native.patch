@@ -51,10 +51,10 @@ index da28bf2..a878f14 100644
                      || !app_server.uses_remote_workspace()
 diff --git a/codex-rs/tui/src/app/profile_manager.rs b/codex-rs/tui/src/app/profile_manager.rs
 new file mode 100644
-index 0000000..e861207
+index 0000000..926cd20
 --- /dev/null
 +++ b/codex-rs/tui/src/app/profile_manager.rs
-@@ -0,0 +1,237 @@
+@@ -0,0 +1,238 @@
 +//! Unix execution-profile selection; Manager remains the sole profile-state owner.
 +use super::App;
 +use crate::app_event::AppEvent;
@@ -181,6 +181,7 @@ index 0000000..e861207
 +            SelectionItem {
 +                is_current,
 +                is_default: view.saved_default == id,
++                search_value: Some(id.clone()),
 +                name: id,
 +                actions: if is_current {
 +                    Vec::new()
@@ -294,7 +295,7 @@ index 0000000..e861207
 +mod tests;
 diff --git a/codex-rs/tui/src/app/profile_manager_tests.rs b/codex-rs/tui/src/app/profile_manager_tests.rs
 new file mode 100644
-index 0000000..5b6a3fc
+index 0000000..ca2f488
 --- /dev/null
 +++ b/codex-rs/tui/src/app/profile_manager_tests.rs
 @@ -0,0 +1,463 @@
@@ -516,6 +517,7 @@ index 0000000..5b6a3fc
 +            for c in "external".chars() {
 +                view.handle_key_event(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
 +            }
++            assert!(render(&view).contains("› external"));
 +        }
 +        view.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 +        assert!(
@@ -547,14 +549,13 @@ index 0000000..5b6a3fc
 +        for c in "work".chars() {
 +            view.handle_key_event(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
 +        }
-+        view.handle_key_event(KeyEvent::new(
-+            key,
-+            if key == KeyCode::Char('c') {
-+                KeyModifiers::CONTROL
-+            } else {
-+                KeyModifiers::NONE
-+            },
-+        ));
++        assert!(render(&view).contains("› work (current)"));
++        if key == KeyCode::Char('c') {
++            // BottomPane routes Ctrl-C to the active view's cancellation handler.
++            view.on_ctrl_c();
++        } else {
++            view.handle_key_event(KeyEvent::new(key, KeyModifiers::NONE));
++        }
 +        assert!(view.is_complete());
 +        assert!(rx.try_recv().is_err());
 +    }

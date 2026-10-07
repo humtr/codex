@@ -11,6 +11,10 @@ Local stable rustfmt cannot honor unstable skip_children/import settings; exhaus
 comparison found only six intended files changed, no unrelated formatter churn.
 User approved experimental push + usable device preparation; ac670ad pushed.
 Hosted37552770589 now builds exact ac670ad; native gate remains mandatory.
+Test-only compile repair pushed asffd8cbda08f86b62b81520dc8aac883fd17c4bd1;
+retry37555092438 compiled the TUI test target and ran23:21 passed,2 failed. All production TUI sections are byte-identical to
+the previous candidate; only profile_manager_tests.rs changed. Restored focused
+execution is mandatory before any owned transition or live installation.
 
 S1 CURRENT: one vertical contract: Enter selected profile -> same idle conversation
    under selected home, same TTY/CWD. Native rows/event/typed post-cleanup re-entry;
@@ -29,8 +33,11 @@ S1 CURRENT: one vertical contract: Enter selected profile -> same idle conversat
    held/released locks and registry rename exclusion. Workspace Core188+1 old
    ignored, Manager33+50, builder22 passes; normal all-target check and feature
    all-target Clippy -D warnings pass. No zero-test harness counts as evidence.
-   Expected golden footer follows enabled UI; actual hosted rendering pending,
-   never treated as acceptance.
+   Both actual golden renders matched during the23-test run. Whole focus remains
+   red: search rows omitted search_value, and Ctrl-C unit input bypassed the real
+   BottomPane cancellation route. Set search_value from the row ID; require visible
+   matching rows in both regressions; route Ctrl-C through on_ctrl_c as production
+   does. No test weakening or golden replacement; rebuild/re-run exact23 mandatory.
 S2: owned actual Core/native/Manager A -> B transition for both a fresh blank
    conversation and an already persisted conversation; same TTY/CWD,
    profile/default/auth/history/owner preservation, no model turn, failure/cancel.
@@ -46,7 +53,8 @@ S2: owned actual Core/native/Manager A -> B transition for both a fresh blank
    LocalDaemon requires endpoint, and AppEvent::CodexOp carries AppCommand rather
    than protocol::Op. Correct all surviving instances, preserve cwd ownership,
    regenerate the patch and confirm only profile_manager_tests.rs changed across
-   all25 sections. No new production behavior; next hosted focused gate mandatory.
+   all25 sections. Compile repair is proven by37555092438; its two behavior/test
+   routing failures above must be closed before actual owned transition.
    Grouped source + protected verification, actual diff, authority update, commit.
 S3: separately qualified corrected local preview installation retaining exact40
    rollback. No live mutation while S1/S2 unproven; use a separate private asset path.
@@ -58,7 +66,7 @@ Only the existing experiment/profile-tui branch was pushed; no public promotion.
 Disposition: KEEP upstream client cleanup/native resume/kernel locks and existing
 Manager profile lifecycle locks; COLLAPSE selection into one event + one private
 idle re-entry; DELETE the mistaken intermediate action menu/enum and disabled rows.
-Native patch SHA2268acbe9fb7eace4952682829e2dde4a14a2195e6bd5b3dbe4642f19c79c8a7.
+Native patch SHAdf0ea8552d9335b73d57acdfffaa34ee3c0f1aab42e02a13775a631df782ba67.
 All25 exported TUI paths reconstruct exactly on official source; only8 differ
 from accepted native baseline. Native compile/focus/render still OPEN: pinned
 hosted run37552770589 uses the explicitly approved existing-branch source push.

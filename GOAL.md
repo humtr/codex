@@ -68,6 +68,11 @@
   errors; zero TUI tests ran, and no device replacement is permitted from this run.
   The exhaustive affected test fixes are prepared without changing production TUI;
   exact hosted native focus must pass before actual device qualification.
+  Retry37555092438 exactffd8cbd restores native compilation and actually runs23:
+  21 pass,2 fail (missing profile search_value and a misrouted Ctrl-C unit input).
+  Arrow selection/goldens run, but the whole selection/search/cancel gate is red.
+  Correct the row search field and real cancellation routing, assert visible
+  matching rows, and rerun the exact focused gate before owned transition.
   lint/no-source-delta, actual Core/native/Manager transition and new preview restore
   remain OPEN. Local wrapper/Manager proof does not close
   the public /profile request. No corrected binary is installed or admitted.
@@ -77,7 +82,7 @@
   unchanged; this source-only bundle did not signal real jobs or mutate live state.
 - Hosted build authorization: user explicitly approved the source push and usable
   device preparation on2026-10-07. Existing experiment/profile-tui now points to
-  ac670ad; only the two prepared experimental commits were pushed. The prior
+  ffd8cbd after the bounded compile-repair push; no public publication was used. The prior
   missing-approval rejection is resolved; no public branch/release changed.
   Candidate commit is preparation, not slice closure or prototype acceptance.
 
