@@ -1,74 +1,55 @@
 # Rust Core Workboard
 
 SPEC -> GOAL -> WORKBOARD; goal-md bound; workers OFF.
-PROFILE-SELECTION-REENTRY: user clarified arrow selection + Enter directly switches
-profile in the current conversation; no intermediate action menu.
-Source candidate based on experiment/profile-tui HEADce9c12e3b9bc549751d2183d27e3683b8288de86.
-Initial dirty resume: SPEC/GOAL/WORKBOARD only; native edits remain in owned upstream root.
-Baseline hosted37540051325 native20/20+lint; installed display Core8bdf33b,
-frontend7e41503; exact stable40 Core8acc821. Accepted artifact patch SHA2c5aed42.
-Local stable rustfmt cannot honor unstable skip_children/import settings; exhaustive
-comparison found only six intended files changed, no unrelated formatter churn.
-User approved experimental push + usable device preparation; ac670ad pushed.
-Hosted37552770589 now builds exact ac670ad; native gate remains mandatory.
-Test-only compile repair pushed asffd8cbda08f86b62b81520dc8aac883fd17c4bd1;
-retry37555092438 compiled the TUI test target and ran23:21 passed,2 failed. All production TUI sections are byte-identical to
-the previous candidate; only profile_manager_tests.rs changed. Restored focused
-execution is mandatory before any owned transition or live installation.
+PROFILE-SELECTION-REENTRY: arrow selection + Enter switches the current idle
+conversation directly; no intermediate menu. Bound experiment/profile-tui
+HEAD8355983ad78097f2e3fbbb9ed8bc8bcb85eef960. Dirty resume: Workboard and owned
+native qualification script. Installed display Core8bdf33b remains unchanged.
 
-S1 CURRENT: one vertical contract: Enter selected profile -> same idle conversation
-   under selected home, same TTY/CWD. Native rows/event/typed post-cleanup re-entry;
-   delete mistaken child action menu/enum. Current profile closes picker unchanged.
-   Existing idle/queued guard protects inputs; bridge/destination revalidated.
-   Private Manager __profile-resume-v1 validates args/home, bounded kernel writer
-   release check then ordinary Core resume; no owner stop/goal pause/unlink/signal.
-   Core feature bridge forwards only exact private endpoint shape to pinned Manager.
-   Focus mapping: direct arrow/search Enter + same/cancel; fixed UUID argv and typed
-   exit; busy/queued/side/bridge rejection; Manager invalid/stale/held/free writer
-   and exact resume environment/CWD; concurrent registry rename/delete exclusion;
-   bridge strict grammar. Relevant compile/focus must pass before independent behavior.
-   Red disposition: first Core package-name invocation compiled no tests;
-   corrected codex focus6/6 passes, wrong invocation excluded. Manager focus4/4;
-   final source-stable Manager33+50 passes, including default/custom home, CWD,
-   held/released locks and registry rename exclusion. Workspace Core188+1 old
-   ignored, Manager33+50, builder22 passes; normal all-target check and feature
-   all-target Clippy -D warnings pass. No zero-test harness counts as evidence.
-   Both actual golden renders matched during the23-test run. Whole focus remains
-   red: search rows omitted search_value, and Ctrl-C unit input bypassed the real
-   BottomPane cancellation route. Set search_value from the row ID; require visible
-   matching rows in both regressions; route Ctrl-C through on_ctrl_c as production
-   does. No test weakening or golden replacement; rebuild/re-run exact23 mandatory.
-S2: owned actual Core/native/Manager A -> B transition for both a fresh blank
-   conversation and an already persisted conversation; same TTY/CWD,
-   profile/default/auth/history/owner preservation, no model turn, failure/cancel.
-   Upstream defers fresh rollout creation: inspect actual blank transition first;
-   never hide a missing product path with test-only persistence. All three preview
-   probes had old424 assets; exhaustive three-probe update now derives the path
-   from production DIRECTORY. Syntax/path-binding passes; actual invocation OPEN.
-   Native probe adds real arrow/Enter for unseeded and persisted owned conversations,
-   same UUID/PID/TTY/CWD, selected writer, saved default and config/auth preservation.
-   Hosted actual CLI build passed, but step17 native focus FAILED (run37552770589).
-   STOP-ON-RED: no device qualification/cutover until exact native focus is restored.
-   Completed log proves four test-only compile errors: ThreadId is not FromStr,
-   LocalDaemon requires endpoint, and AppEvent::CodexOp carries AppCommand rather
-   than protocol::Op. Correct all surviving instances, preserve cwd ownership,
-   regenerate the patch and confirm only profile_manager_tests.rs changed across
-   all25 sections. Compile repair is proven by37555092438; its two behavior/test
-   routing failures above must be closed before actual owned transition.
-   Grouped source + protected verification, actual diff, authority update, commit.
-S3: separately qualified corrected local preview installation retaining exact40
-   rollback. No live mutation while S1/S2 unproven; use a separate private asset path.
+S1 CLOSED SOURCE GATE: direct selection event and typed post-cleanup Core re-entry;
+   same-profile Enter/Esc/Ctrl-C cancel; idle/queued/draft/tool guards. Manager's
+   exact private resume endpoint holds registry shared lock, checks native writer
+   release, and executes ordinary Core resume without stopping work. Core's
+   default-off bridge forwards only the fixed grammar to the pinned Manager.
+   Focus mapping: profile_manager direct arrow/search/current/cancel/typed argv
+   and rejection tests; Core feature6/6; Manager focused4/4 and final33+50;
+   grouped workspace188+1 pre-existing ignored, Manager33+50, builder22;
+   normal all-target check, feature all-target Clippy -D warnings and diff pass.
+   Hosted37558324460 exact8355983 completed SUCCESS: actual native23/23,
+   both goldens, lint with no source delta. All25 formatted TUI sections match
+   the source patch after blank context normalization. Earlier zero-test invocation,
+   four native compile errors and21/23 run are excluded from acceptance; their
+   entire affected class was repaired. No child menu or disabled rows survive.
 
-main/rewrite/sealed legacy, signed40/39, activation/update authority, resolver and
-real profiles/auth/history/jobs protected. Prior push rejection was resolved by explicit user approval on 2026-10-07.
-Only the existing experiment/profile-tui branch was pushed; no public promotion. Full active-owner takeover remains later work.
+S2 CURRENT / RED DEVICE GATE: actual Core/native/Manager arrow-Enter transitions
+   on owned fresh-unseeded and persisted chats; same UUID/PID/TTY/visible CWD,
+   selected native writer, default/auth/config preservation, no model turn;
+   search/cancel/failure, permissions and exact40 preview restore.
+   Probe asset paths derive only from production DIRECTORY. Test startup failed
+   before TUI because nested TMPDIR overflowed the upstream hashed socket length;
+   short fixture root and actual short Termux runtime TMPDIR restore startup.
+   Missing real public TLS certificate override was also corrected in the fixture.
+   Actual ready case now reaches /profile -> arrow Enter -> native resume and
+   fails: No saved session found with ID. Upstream defers blank rollout creation.
+   STOP-ON-RED: preserve current chat until native persistence is positively proven;
+   no test-only seeding can close the fresh path. Signed40 thread/read(includeTurns)
+   additionally returns list_turns unsupported; diagnose actual durability before
+   choosing a production API. Do not add archive/unarchive, model turns, a second
+   history store, or speculative retry ladders.
+   Persisted probe includes upstream /cd: App config changes without os.chdir;
+   test visible CWD through actual handoff before adding any required fix.
+   Every new production branch must have a named focused regression, followed by
+   nonzero actual native focus and lint on exact source, before device rerun.
 
-Disposition: KEEP upstream client cleanup/native resume/kernel locks and existing
-Manager profile lifecycle locks; COLLAPSE selection into one event + one private
-idle re-entry; DELETE the mistaken intermediate action menu/enum and disabled rows.
-Native patch SHAdf0ea8552d9335b73d57acdfffaa34ee3c0f1aab42e02a13775a631df782ba67.
-All25 exported TUI paths reconstruct exactly on official source; only8 differ
-from accepted native baseline. Native compile/focus/render still OPEN: pinned
-hosted run37552770589 uses the explicitly approved existing-branch source push.
-S1 is source preparation with local Core/Manager proof, not accepted native closure;
-S2/S3 remain pending. Installed launcher/signed40/39/resolver verified unchanged.
+S3 PENDING: corrected local preview cutover after all S2 gates, separate private
+   assets, exact40 rollback, fresh before/after protected snapshot and commit.
+   User explicitly authorized existing experiment pushes and usable bounded device
+   preparation on2026-10-07; no further publication or destructive action authorized.
+
+Protected: main/rewrite/sealed legacy, signed40/39 and activation/update authority,
+resolver, real profiles/auth/history/jobs. No real jobs signalled or live mutation.
+KEEP native client cleanup/resume/kernel locks and Manager lifecycle locks;
+COLLAPSE profile selection to one event and one idle re-entry;
+DELETE mistaken action menu/enum and disabled rows. Full active-owner takeover
+remains later work. Raw nativec425a3f -> adapted4df45b05; candidate Core50214a7a;
+Managerb415fcc3. Installed corrected runtime is NOT yet accepted or installed.

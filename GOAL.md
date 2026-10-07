@@ -76,6 +76,15 @@
   lint/no-source-delta, actual Core/native/Manager transition and new preview restore
   remain OPEN. Local wrapper/Manager proof does not close
   the public /profile request. No corrected binary is installed or admitted.
+- Corrected native source gate (2026-10-07): hosted37558324460 exact8355983
+  completed successfully, actual23/23 plus both goldens and lint/no-source-delta.
+  All25 TUI paths match the accepted formatted artifact after blank patch-context
+  normalization. Source compile/search/cancellation reds are closed; this does not
+  close actual profile transition. Owned device startup is restored by using short
+  runtime TMPDIR; actual fresh arrow/Enter re-entry now exposes a missing saved
+  blank session. Signed40 includeTurns also reports list_turns unsupported.
+  S2 must establish durable native history before cleanup and verify /cd CWD;
+  S3 corrected installation remains pending, with installed launcher unchanged.
 - Read-only device verification: installed launcher remains8bdf33b and both signed
   generations/resolver are unchanged from the accepted cutover snapshot. The
   current process census is12, not a claim that a historical13-process census is
