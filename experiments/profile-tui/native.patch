@@ -29,7 +29,7 @@ index 37b5c78..f954a7c 100644
      }
  }
 diff --git a/codex-rs/tui/src/app/event_dispatch.rs b/codex-rs/tui/src/app/event_dispatch.rs
-index da28bf2..a878f14 100644
+index da28bf2..34d21e9 100644
 --- a/codex-rs/tui/src/app/event_dispatch.rs
 +++ b/codex-rs/tui/src/app/event_dispatch.rs
 @@ -425,6 +425,16 @@ impl App {
@@ -42,7 +42,7 @@ index da28bf2..a878f14 100644
 +            }
 +            #[cfg(unix)]
 +            AppEvent::SelectExecutionProfile(profile) => {
-+                if let Some(request) = profile_manager::prepare(self, profile).await {
++                if let Some(request) = profile_manager::prepare(self, app_server, profile).await {
 +                    return Err(std::io::Error::other(request).into());
 +                }
 +            }
@@ -51,10 +51,10 @@ index da28bf2..a878f14 100644
                      || !app_server.uses_remote_workspace()
 diff --git a/codex-rs/tui/src/app/profile_manager.rs b/codex-rs/tui/src/app/profile_manager.rs
 new file mode 100644
-index 0000000..926cd20
+index 0000000..dded787
 --- /dev/null
 +++ b/codex-rs/tui/src/app/profile_manager.rs
-@@ -0,0 +1,238 @@
+@@ -0,0 +1,278 @@
 +//! Unix execution-profile selection; Manager remains the sole profile-state owner.
 +use super::App;
 +use crate::app_event::AppEvent;
@@ -236,6 +236,7 @@ index 0000000..926cd20
 +    core: PathBuf,
 +    profile: String,
 +    thread: codex_protocol::ThreadId,
++    cwd: PathBuf,
 +}
 +
 +impl ProfileReentry {
@@ -251,6 +252,7 @@ index 0000000..926cd20
 +            &self.profile,
 +            &self.thread.to_string(),
 +        ]);
++        command.current_dir(&self.cwd);
 +        command
 +    }
 +
@@ -259,7 +261,11 @@ index 0000000..926cd20
 +    }
 +}
 +
-+pub(super) async fn prepare(app: &mut App, profile: String) -> Option<ProfileReentry> {
++pub(super) async fn prepare(
++    app: &mut App,
++    app_server: &mut crate::app_server_session::AppServerSession,
++    profile: String,
++) -> Option<ProfileReentry> {
 +    let thread = app.chat_widget.thread_id();
 +    if !matches!(
 +        app.app_server_target,
@@ -283,11 +289,45 @@ index 0000000..926cd20
 +            .add_error_message("Selected profile is unavailable.".to_string());
 +        return None;
 +    }
++    let thread = thread.expect("idle primary thread was checked");
++    if !matches!(
++        tokio::time::timeout(Duration::from_secs(3), ensure_resumable(app_server, thread)).await,
++        Ok(true)
++    ) {
++        app.chat_widget.add_error_message(
++            "Current conversation could not be saved for profile switching.".to_string(),
++        );
++        return None;
++    }
 +    Some(ProfileReentry {
 +        core,
 +        profile,
-+        thread: thread.expect("idle primary thread was checked"),
++        thread,
++        cwd: app.config.cwd.to_path_buf(),
 +    })
++}
++
++/// Only native durability is needed; saved chats do not hydrate their history.
++async fn ensure_resumable(
++    app_server: &mut crate::app_server_session::AppServerSession,
++    thread: codex_protocol::ThreadId,
++) -> bool {
++    let Ok(view) = app_server.thread_read(thread, false).await else {
++        return false;
++    };
++    if view.id != thread.to_string() {
++        return false;
++    }
++    let Some(path) = view.path else {
++        return false;
++    };
++    if !std::fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.is_file()) {
++        // Upstream persists before hydrating turns. The signed backend can reject
++        // paginated hydration after successful persistence; verify its durable
++        // rollout directly instead of treating history retrieval as the gate.
++        let _ = app_server.thread_read(thread, true).await;
++    }
++    std::fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.is_file())
 +}
 +
 +#[cfg(test)]
@@ -295,10 +335,10 @@ index 0000000..926cd20
 +mod tests;
 diff --git a/codex-rs/tui/src/app/profile_manager_tests.rs b/codex-rs/tui/src/app/profile_manager_tests.rs
 new file mode 100644
-index 0000000..ca2f488
+index 0000000..9e934d9
 --- /dev/null
 +++ b/codex-rs/tui/src/app/profile_manager_tests.rs
-@@ -0,0 +1,463 @@
+@@ -0,0 +1,555 @@
 +use super::*;
 +use crate::app_event_sender::AppEventSender;
 +use crate::bottom_pane::BottomPaneView;
@@ -642,6 +682,7 @@ index 0000000..ca2f488
 +        core: "/owned/core".into(),
 +        profile: "work".to_string(),
 +        thread: codex_protocol::ThreadId::from_string(id).unwrap(),
++        cwd: "/owned/current-workspace".into(),
 +    };
 +    let report = color_eyre::eyre::Report::new(std::io::Error::other(request));
 +    let error = report.downcast::<std::io::Error>().unwrap();
@@ -651,12 +692,25 @@ index 0000000..ca2f488
 +        command.get_args().collect::<Vec<_>>(),
 +        ["termux", "__profile-resume-v1", "work", id].map(OsStr::new)
 +    );
++    assert_eq!(
++        command.get_current_dir(),
++        Some(std::path::Path::new("/owned/current-workspace"))
++    );
 +    assert!(ProfileReentry::from_error(&std::io::Error::other("unrelated")).is_none());
 +}
 +
 +#[tokio::test]
 +async fn profile_manager_reentry_rejects_busy_queued_side_and_unavailable_without_work() {
 +    assert_eq!(std::env::var_os("CODEX_PROFILE_CORE"), Some("".into()));
++    let fixture = super::super::tests::make_test_app().await;
++    let (mut server, _, proxy) =
++        super::super::tests::session_lifecycle_requests::start_recording_app_server(
++            &fixture.config,
++            None,
++            None,
++        )
++        .await
++        .unwrap();
 +    for state in [
 +        "busy",
 +        "queued",
@@ -729,7 +783,11 @@ index 0000000..ca2f488
 +        if state == "unavailable" {
 +            assert!(app.chat_widget.can_change_working_directory(thread));
 +        }
-+        assert!(prepare(&mut app, "work".to_string()).await.is_none());
++        assert!(
++            prepare(&mut app, &mut server, "work".to_string())
++                .await
++                .is_none()
++        );
 +        assert_eq!(app.chat_widget.queued_user_message_texts(), queued);
 +        if state == "draft" {
 +            assert_eq!(
@@ -761,6 +819,80 @@ index 0000000..ca2f488
 +            ));
 +        }
 +    }
++    proxy.abort();
++}
++
++#[tokio::test]
++async fn profile_manager_persistence_materializes_blank_and_skips_saved_history()
++-> color_eyre::Result<()> {
++    use super::super::tests::session_lifecycle_requests::{
++        recorded_params, start_recording_app_server,
++    };
++    let app = super::super::tests::make_test_app().await;
++    let (mut server, requests, proxy) = start_recording_app_server(&app.config, None, None).await?;
++    let started = server.start_thread(&app.config).await?;
++    let thread = started.session.thread_id;
++    let path = server.thread_read(thread, false).await?.path.unwrap();
++    assert!(
++        !path.exists(),
++        "fixture must be a genuinely blank native thread"
++    );
++    requests.lock().unwrap().clear();
++    assert!(ensure_resumable(&mut server, thread).await);
++    assert!(path.is_file());
++    assert_eq!(
++        recorded_params(&requests, "thread/read"),
++        vec![
++            json!({"threadId":thread.to_string(),"includeTurns":false}),
++            json!({"threadId":thread.to_string(),"includeTurns":true}),
++        ]
++    );
++    requests.lock().unwrap().clear();
++    assert!(ensure_resumable(&mut server, thread).await);
++    assert_eq!(
++        recorded_params(&requests, "thread/read"),
++        vec![json!({"threadId":thread.to_string(),"includeTurns":false}),]
++    );
++    for method in [
++        "turn/start",
++        "thread/archive",
++        "thread/unarchive",
++        "thread/metadata/update",
++    ] {
++        assert!(recorded_params(&requests, method).is_empty());
++    }
++    proxy.abort();
++    Ok(())
++}
++
++#[tokio::test]
++async fn profile_manager_persistence_rejects_missing_and_unwritable_without_work()
++-> color_eyre::Result<()> {
++    use super::super::tests::session_lifecycle_requests::{
++        recorded_params, start_recording_app_server,
++    };
++    let app = super::super::tests::make_test_app().await;
++    let (mut server, requests, proxy) = start_recording_app_server(&app.config, None, None).await?;
++    assert!(!ensure_resumable(&mut server, codex_protocol::ThreadId::new()).await);
++    let started = server.start_thread(&app.config).await?;
++    let thread = started.session.thread_id;
++    let path = server.thread_read(thread, false).await?.path.unwrap();
++    assert!(!path.exists());
++    let parent = path.parent().unwrap();
++    std::fs::create_dir_all(parent)?;
++    let original = std::fs::metadata(parent)?.permissions();
++    std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o500))?;
++    let resumable = ensure_resumable(&mut server, thread).await;
++    std::fs::set_permissions(parent, original)?;
++    assert!(
++        !resumable,
++        "failed persistence must not allow client cleanup"
++    );
++    assert!(!path.exists());
++    assert!(recorded_params(&requests, "turn/start").is_empty());
++    assert!(recorded_params(&requests, "thread/unsubscribe").is_empty());
++    proxy.abort();
++    Ok(())
 +}
 diff --git a/codex-rs/tui/src/app/snapshots/codex_tui__app__profile_manager__tests__profile_manager_external_home.snap b/codex-rs/tui/src/app/snapshots/codex_tui__app__profile_manager__tests__profile_manager_external_home.snap
 new file mode 100644
@@ -805,9 +937,18 @@ index 0000000..2d29fd7
 +
 +  Press enter to switch or esc to go back
 diff --git a/codex-rs/tui/src/app/tests.rs b/codex-rs/tui/src/app/tests.rs
-index 9c1af27..a254a51 100644
+index 9c1af27..1498edb 100644
 --- a/codex-rs/tui/src/app/tests.rs
 +++ b/codex-rs/tui/src/app/tests.rs
+@@ -83,7 +83,7 @@ mod recap_generation;
+ mod resume_shutdown_tests;
+ mod safety_buffering;
+ #[path = "tests/session_lifecycle_requests.rs"]
+-mod session_lifecycle_requests;
++pub(super) mod session_lifecycle_requests;
+ mod startup;
+ #[path = "tests/startup_frame_tests.rs"]
+ mod startup_frame_tests;
 @@ -6439,7 +6439,7 @@ async fn replace_goal_confirmation_snapshot() {
      );
  }
@@ -835,6 +976,39 @@ index 9c1af27..a254a51 100644
      thread_id: ThreadId,
      turn_id: &str,
      status: TurnStatus,
+diff --git a/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs b/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs
+index 0fbf795..1f3d456 100644
+--- a/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs
++++ b/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs
+@@ -40,8 +40,8 @@ use tokio::task::JoinHandle;
+ use tokio_tungstenite::accept_async;
+ use tokio_tungstenite::tungstenite::Message;
+
+-pub(super) type RecordedRequests = Arc<Mutex<Vec<JSONRPCRequest>>>;
+-pub(super) type RecordingAppServer = (AppServerSession, RecordedRequests, JoinHandle<Result<()>>);
++pub(in crate::app) type RecordedRequests = Arc<Mutex<Vec<JSONRPCRequest>>>;
++pub(in crate::app) type RecordingAppServer = (AppServerSession, RecordedRequests, JoinHandle<Result<()>>);
+
+ async fn complete_managed_worktree_creation(
+     app: &mut App,
+@@ -179,7 +179,7 @@ fn take_backfill_counts(requests: &RecordedRequests) -> (usize, usize) {
+ }
+
+ /// Starts an embedded app server behind a loopback WebSocket proxy that records JSON-RPC methods.
+-pub(super) async fn start_recording_app_server(
++pub(in crate::app) async fn start_recording_app_server(
+     config: &Config,
+     blocked_thread_list: Option<(ThreadId, oneshot::Sender<()>, oneshot::Receiver<()>)>,
+     failed_thread_name: Option<&'static str>,
+@@ -656,7 +656,7 @@ fn create_history_rollout(
+     Ok(ThreadId::from_string(&thread_id)?)
+ }
+
+-pub(super) fn recorded_params(requests: &RecordedRequests, method: &str) -> Vec<serde_json::Value> {
++pub(in crate::app) fn recorded_params(requests: &RecordedRequests, method: &str) -> Vec<serde_json::Value> {
+     requests
+         .lock()
+         .expect("request recorder lock")
 diff --git a/codex-rs/tui/src/app_event.rs b/codex-rs/tui/src/app_event.rs
 index ce30da4..672f3e7 100644
 --- a/codex-rs/tui/src/app_event.rs

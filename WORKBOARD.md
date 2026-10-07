@@ -37,7 +37,11 @@ S2 CURRENT / RED DEVICE GATE: actual Core/native/Manager arrow-Enter transitions
    choosing a production API. Do not add archive/unarchive, model turns, a second
    history store, or speculative retry ladders.
    Persisted probe includes upstream /cd: App config changes without os.chdir;
-   test visible CWD through actual handoff before adding any required fix.
+   actual persisted handoff exposes the native CWD choice dialog because process
+   CWD remains original. Capture current App workspace in the re-entry command.
+   New proof mapping: profile_manager persistence fresh/stored/missing/unwritable
+   native-server regressions and typed argv current_dir; owned ready-unseeded and
+   persisted-/cd transitions prove the public path. No Core/Manager code change.
    Every new production branch must have a named focused regression, followed by
    nonzero actual native focus and lint on exact source, before device rerun.
 

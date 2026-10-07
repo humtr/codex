@@ -35,6 +35,16 @@ authorized a bounded live display preview on 2026-10-06 before full completion.
   for the existing kernel coordination/writer locks to become free, then execs ordinary
   Core resume in the selected home and same terminal/CWD. It never interrupts,
   pauses goals, cleans background terminals, signals an owner or removes locks.
+  Before cleanup, the frontend verifies the current native rollout exists as a
+  regular file. For an unmaterialized blank conversation it requests upstream
+  thread/read(includeTurns=true), which persists before history hydration; only
+  positive rollout materialization permits re-entry, even when the installed
+  server cannot hydrate paginated turns. No synthetic turn, transcript write,
+  archive/unarchive or metadata rewrite is permitted. Metadata lookup or failure
+  to materialize within3 seconds leaves the current picker/chat alive. Existing
+  stored history uses metadata-only lookup and is never loaded by this check.
+  Re-entry sets the child working directory to the current App workspace, including
+  an upstream /cd change, rather than inheriting the original process directory.
   Another connection or newly acquired writer causes bounded refusal; native
   resume still owns the final atomic writer acquisition. A profile disappearing
   after frontend cleanup likewise causes bounded refusal. Saved default, auth,
