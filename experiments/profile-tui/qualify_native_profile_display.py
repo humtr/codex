@@ -1,5 +1,7 @@
 """Owned real native /profile, signed Core/Manager data, cancellation and error recovery."""
 import argparse
+import contextlib
+import http.server
 import fcntl
 import hashlib
 import json
@@ -16,6 +18,8 @@ import sys
 import tempfile
 import termios
 import time
+import threading
+import tomllib
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
 from qualify_tasks import Ws, fixture_activation_state, materialize_signed_generation
@@ -30,13 +34,16 @@ def preview_assets(home):
     assert not relative.is_absolute() and '..' not in relative.parts
     return home / relative
 
-def qualify(binary, generation, public_key, parent, preview_core=None, preview_manager=None):
+def qualify(binary, generation, public_key, parent, preview_core=None, preview_manager=None, case_filter=None):
     results=[]
     cases=['ready','persisted','no-manager','no-native','bad-native'] if preview_core else ['ready','no-manager']
+    if case_filter is not None:
+        assert case_filter in cases
+        cases=[case_filter]
     for case in cases:
         available=case in ['ready','persisted']
         fallback=case in ['no-native','bad-native']
-        with tempfile.TemporaryDirectory(prefix='np',dir=parent) as temporary:
+        with tempfile.TemporaryDirectory(prefix='np',dir=parent) as temporary, contextlib.ExitStack() as fixture_cleanup:
             root=Path(temporary);home=root/'h';prefix=root/'p'
             identity=dict(line.split('\t',1) for line in (generation/'generation.meta').read_text().splitlines()[1:])['generation_id']
             native=home/'.local/lib/codex/core/generations'/identity
@@ -57,10 +64,38 @@ def qualify(binary, generation, public_key, parent, preview_core=None, preview_m
             (prefix/'etc/resolv.conf').write_text('nameserver 127.0.0.1\n')
             (prefix/'etc/tls/cert.pem').write_text('owned\n')
             (home/'.local/share/codex/core/activation-state').write_text(fixture_activation_state(identity,public_key))
+            model=None
+            if case=='persisted':
+                class HistoryModel(http.server.BaseHTTPRequestHandler):
+                    def log_message(self,*_):pass
+                    def do_POST(self):
+                        assert self.path=='/v1/responses'
+                        self.rfile.read(int(self.headers['Content-Length']))
+                        self.server.requests+=1
+                        message={'id':'owned-message','type':'message','role':'assistant','status':'completed','content':[{'type':'output_text','text':'owned-profile-history','annotations':[]}]}
+                        events=[
+                            {'type':'response.created','response':{'id':'owned-response','status':'in_progress','output':[]}},
+                            {'type':'response.output_item.added','output_index':0,'item':dict(message,status='in_progress',content=[])},
+                            {'type':'response.content_part.added','item_id':'owned-message','output_index':0,'content_index':0,'part':{'type':'output_text','text':'','annotations':[]}},
+                            {'type':'response.output_text.delta','item_id':'owned-message','output_index':0,'content_index':0,'delta':'owned-profile-history'},
+                            {'type':'response.output_item.done','output_index':0,'item':message},
+                            {'type':'response.completed','response':{'id':'owned-response','status':'completed','output':[message],'usage':{'input_tokens':0,'output_tokens':0,'total_tokens':0}}},
+                        ]
+                        body=''.join('event: '+event['type']+'\ndata: '+json.dumps(event)+'\n\n' for event in events).encode()
+                        self.send_response(200);self.send_header('Content-Type','text/event-stream');self.send_header('Content-Length',str(len(body)));self.end_headers()
+                        self.wfile.write(body);self.wfile.flush()
+                model=http.server.ThreadingHTTPServer(('127.0.0.1',0),HistoryModel)
+                model.requests=0;model.daemon_threads=True
+                fixture_cleanup.callback(model.server_close)
+                threading.Thread(target=model.serve_forever,daemon=True).start()
+                fixture_cleanup.callback(model.shutdown)
             config=f'''model = "fixture-model"
 model_provider = "fixture"
 sandbox_mode = "danger-full-access"
 check_for_update_on_startup = false
+[tui]
+screen_reader_detection_done = true
+show_tooltips = false
 [analytics]
 enabled = false
 [feedback]
@@ -76,8 +111,10 @@ base_url = "http://127.0.0.1:9/v1"
 wire_api = "responses"
 requires_openai_auth = false
 '''
+            if model is not None:config=config.replace('127.0.0.1:9/v1',f'127.0.0.1:{model.server_port}/v1')
             if preview_core:config=config.replace('sandbox_mode = "danger-full-access"\n','')
-            env={'HOME':str(home),'PREFIX':str(prefix),'TMPDIR':str(parent),'PATH':str(Path(shutil.which('sh')).parent),'TERM':'xterm-256color'}
+            env={'HOME':str(home),'PREFIX':str(prefix),'TMPDIR':str(Path(shutil.which('sh')).parent.parent/'tmp'),'PATH':str(Path(shutil.which('sh')).parent),'TERM':'xterm-256color',
+                 'SSL_CERT_FILE':str(Path(shutil.which('sh')).parent.parent/'etc/tls/cert.pem')}
             def manager(*args):
                 result=subprocess.run([str(core),'termux',*args],env=env,cwd=root,capture_output=True,timeout=15)
                 assert result.returncode==0,(args,result.stderr.decode())
@@ -113,8 +150,19 @@ requires_openai_auth = false
                     output.extend(data);transcript.extend(data)
                 assert len(transcript)<4*1024*1024,'unbounded owned TUI output'
                 return ANSI.sub('',output.decode(errors='replace'))
+            def redraw():
+                expected={native/'runtime',assets/'native'} if preview_core else {binary}
+                output=''
+                for columns in [181,180]:
+                    assert process.poll() is None and Path(f'/proc/{process.pid}/exe').resolve() in expected
+                    fcntl.ioctl(slave,termios.TIOCSWINSZ,struct.pack('HHHH',40,columns,0,0))
+                    os.kill(process.pid,signal.SIGWINCH)
+                    output+=drain(.4)
+                return output
             def command(text):
-                os.write(master,text.encode());drain(.3);os.write(master,b'\r');return drain(1)
+                os.write(master,text.encode());drain(.3);os.write(master,b'\r');output=drain(1)
+                if process.poll() is None:output+=redraw()
+                return output
             def until(text,initial=''):
                 output=initial;deadline=time.monotonic()+15
                 while text not in output:
@@ -125,7 +173,7 @@ requires_openai_auth = false
             expected_cwd=root
             def status():
                 output=until('Token usage:',command('/status'))
-                assert re.search(r'Token usage:\s+0 total',output),output[-2500:]
+                assert re.search(r'Token usage:\s+0\s*total',output),output[-2500:]
                 assert re.search(r'Model provider:\s+fixture',output),output[-2500:]
                 match=re.search(r'Session:\s+([0-9a-f-]{36})',output);assert match,output[-2500:]
                 if preview_core:assert str(expected_cwd) in output,'native working directory changed'
@@ -153,18 +201,30 @@ requires_openai_auth = false
                     os.write(master,b'\x1b');drain(.3)
                     results.append('public-preview-Core/actual-source-frontend/qualified-signed-backend/permission-menu')
                     if case=='persisted':
+                        expected_cwd=root/'changed';expected_cwd.mkdir(mode=0o700)
+                        command('/cd '+str(expected_cwd));drain(2);thread=status()
+                        until('owned-profile-history',command('owned prior conversation'));drain(3)
+                        assert status()==thread,'owned fixture turn changed thread'
+                        requests_before=model.requests
+                        assert requests_before>=1,'owned local fixture was never called'
                         rpc=Ws(records[0].parent/'s')
                         try:
-                            stored=rpc.call('thread/read',{'threadId':thread,'includeTurns':True})
+                            try:
+                                stored=rpc.call('thread/read',{'threadId':thread,'includeTurns':True})
+                            except AssertionError as error:
+                                assert error.args[0]==('thread/read', {'code':-32601,'message':'list_turns is not supported yet'}), 'unexpected owned persistence error'
+                                stored=rpc.call('thread/read',{'threadId':thread,'includeTurns':False})
                             assert stored['thread']['id']==thread
-                            assert stored['thread']['turns']==[],'fixture unexpectedly has model turns'
                         finally:rpc.close()
-                        assert list((home/'.codex/sessions').rglob('*'+thread+'*')),'owned read did not persist conversation'
+                        rollout=Path(stored['thread']['path'])
+                        assert rollout.resolve().is_relative_to(root) and rollout.is_file()
+                        prior_history=[line for line in rollout.read_text().splitlines() if 'owned-profile-history' in line]
+                        assert prior_history,'owned completed fixture turn was not persisted'
                 if available:
                     output=until('Profiles',command('/profile'))
                     assert 'Current: work' in output and 'Default: work' in output,output[-2500:]
                     assert 'external' in output and 'default' in output,output[-2500:]
-                    os.write(master,b'work');filtered=drain(1)
+                    os.write(master,b'work');filtered=drain(1)+redraw()
                     assert 'work (current)' in filtered and 'external' not in filtered,'profile search did not render the matching row'
                     os.write(master,b'\x1b');drain(.3);os.write(master,b'\x1b');drain(.3)
                     assert status()==thread,'profile cancellation changed conversation'
@@ -173,6 +233,40 @@ requires_openai_auth = false
                     assert status()==thread,'profile interrupt changed conversation'
                     results.append('native-profile/signed-core-manager/list-current-default/search/Esc/Ctrl-C/same-thread')
                     if preview_core:
+                        if case=='ready':
+                            # Fault only the owned blank rollout destination; never seed it.
+                            rpc=Ws(records[0].parent/'s')
+                            try: metadata=rpc.call('thread/read',{'threadId':thread,'includeTurns':False})['thread']
+                            finally: rpc.close()
+                            rollout=Path(metadata['path'])
+                            assert rollout.resolve().is_relative_to(root) and not rollout.exists()
+                            rollout.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
+                            original_mode=rollout.parent.stat().st_mode & 0o777
+                            try:
+                                os.chmod(rollout.parent,0o500)
+                                until('Profiles',command('/profile'))
+                                os.write(master,b'\x1b[B');drain(.3);os.write(master,b'\r')
+                                until('Current conversation could not be saved for profile switching.')
+                                assert process.poll() is None and not rollout.exists()
+                            finally: os.chmod(rollout.parent,original_mode)
+                            os.write(master,b'\x1b');drain(.3)
+                            assert status()==thread,'persistence failure lost current chat'
+                            results.append('native-profile/unwritable-blank-rollout/refusal/current-chat-preserved')
+                        # A stalled owned backend must time out before native cleanup.
+                        assert Path(f'/proc/{server}/exe').resolve()==native/'runtime'
+                        until('Profiles',command('/profile'))
+                        os.write(master,b'\x1b[B');drain(.3)
+                        os.kill(server,signal.SIGSTOP)
+                        try:
+                            os.write(master,b'\r')
+                            until('Current conversation could not be saved for profile switching.')
+                            assert process.poll() is None
+                        finally:
+                            if Path(f'/proc/{server}/exe').resolve()==native/'runtime':
+                                os.kill(server,signal.SIGCONT)
+                        os.write(master,b'\x1b');drain(.3)
+                        assert status()==thread,'persistence timeout lost current chat'
+                        results.append('native-profile/owned-backend-timeout/refusal/current-chat-preserved')
                         until('Profiles',command('/profile'))
                         os.write(master,b'work');drain(.3);os.write(master,b'\r');drain(.5)
                         assert status()==thread,'current-profile Enter changed conversation'
@@ -183,7 +277,12 @@ requires_openai_auth = false
                             steps={'default':0,'external':1,'work':2}[destination]
                             os.write(master,b'\x1b[B'*steps);drain(.3)
                             os.write(master,b'\r')
-                            until('fixture-model');drain(2)
+                            startup=until('fixture-model');startup+=drain(2)
+                            if case=='persisted':
+                                until('owned-profile-history',startup)
+                                lines=rollout.read_text().splitlines()
+                                assert all(line in lines for line in prior_history),'native prior history changed'
+                                assert model.requests==requests_before,'profile handoff started a model request'
                             assert process.pid==initial_pid and process.poll() is None,'profile switch replaced terminal process'
                             assert status()==thread,'profile switch did not preserve fresh conversation'
                             view=until('Current: '+destination,command('/profile'))
@@ -194,6 +293,7 @@ requires_openai_auth = false
                             assert owners==[destination],'profile switch did not transfer native writer'
                             assert Path(f'/proc/{server}/exe').resolve()==native/'runtime','previous account backend changed'
                         results.append('direct-arrow-Enter/'+('fresh-unseeded-thread' if case=='ready' else 'persisted-thread')+'/external-work-default/same-UUID-PID-TTY-CWD/native-writer/default-preserved')
+                        if case=='persisted':results.append('native-nonempty-completed-turn-history/public-profile-four-transitions/visible-and-byte-records-preserved/no-external-model-call/no-model-request-during-handoff')
                 elif fallback:
                     assert status()==thread,'installed fallback broke current chat'
                     results.append('public-preview-Core/'+case+'/usable-installed-fallback')
@@ -205,11 +305,28 @@ requires_openai_auth = false
                 assert process.returncode==0
                 assert termios.tcgetattr(slave)==original
                 assert not (account/'auth.json').exists()
-                assert all(path.read_bytes()==before[str(path)] for path in protected if str(path) in before),'profile configuration/default changed'
+                changed=[]
+                for path in protected:
+                    if path.read_bytes()==before[str(path)]:continue
+                    assert path.resolve().is_relative_to(root)
+                    def leaves(value, prefix=''):
+                        if isinstance(value,dict):
+                            return {key:leaf for name,child in value.items() for key,leaf in leaves(child,prefix+name+'.').items()}
+                        return {prefix.rstrip('.'):value}
+                    if path.name=='config.toml':
+                        old=leaves(tomllib.loads(before[str(path)].decode()))
+                        new=leaves(tomllib.loads(path.read_text()))
+                        fields=[key for key in sorted(set(old)|set(new)) if old.get(key)!=new.get(key)]
+                    else:fields=['saved-default-bytes']
+                    changed.append({'relative':str(path.relative_to(root)), 'fields':fields})
+                if changed:
+                    (parent/'native-profile-owned-config-diff.json').write_text(json.dumps({'case':case,'changes':changed,'completed_proof':results},sort_keys=True))
+                assert not changed,'profile configuration/default changed'
                 assert not list(home.rglob('auth.json')),'owned transition wrote authentication'
                 if preview_core:assert not (root/'public-discovery-attempted').exists(),'preview requested public discovery'
             except Exception:
-                (parent/'native-profile-owned-failure.txt').write_bytes(transcript);raise
+                (parent/'native-profile-owned-failure.txt').write_bytes(transcript)
+                raise
             finally:
                 if process.poll() is None:
                     process.terminate()
@@ -232,4 +349,5 @@ requires_openai_auth = false
 if __name__=='__main__':
     parser=argparse.ArgumentParser();parser.add_argument('binary',type=Path);parser.add_argument('--generation',type=Path,required=True);parser.add_argument('--public-key',type=Path,required=True);parser.add_argument('--parent',type=Path,required=True)
     parser.add_argument('--preview-core',type=Path);parser.add_argument('--preview-manager',type=Path)
-    a=parser.parse_args();print(json.dumps(qualify(a.binary.resolve(),a.generation.resolve(),a.public_key.resolve(),a.parent.resolve(),a.preview_core.resolve() if a.preview_core else None,a.preview_manager.resolve() if a.preview_manager else None),sort_keys=True))
+    parser.add_argument('--case',choices=['ready','persisted','no-manager','no-native','bad-native'])
+    a=parser.parse_args();print(json.dumps(qualify(a.binary.resolve(),a.generation.resolve(),a.public_key.resolve(),a.parent.resolve(),a.preview_core.resolve() if a.preview_core else None,a.preview_manager.resolve() if a.preview_manager else None,a.case),sort_keys=True))

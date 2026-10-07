@@ -34,80 +34,82 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
-## PROFILE-TUI-LIVE-DISPLAY-PREVIEW (selected 2026-10-06)
+## PROFILE-SELECTION-REENTRY (accepted local experiment 2026-10-07)
 
-- User trial finding: Enter cannot advance because the installed first display
-  slice deliberately disables every profile row. PROFILE-SELECTION-REENTRY now
-  targets arrow selection + Enter directly switching the current idle conversation
-  to that profile, without another menu. Same-profile selection/cancellation do
-  not re-enter. Manager confirms native writer release without stopping work;
-  busy/queued/stale/held-writer failures and owner preservation require proof.
-  Display acceptance below remains historical; it does not close this threshold.
-  Do not claim the user-facing selection request complete from enabled row callbacks
-  alone. Exact actual source build and owned terminal transition are mandatory.
+- User-requested outcome is complete: `/profile`, arrows, Enter switches the
+  current idle conversation directly to the registered selected profile. No
+  intermediate action menu; current-profile Enter/Esc/Ctrl-C cancel. Queued input,
+  unsent draft, active tools/work and an existing writer refuse safely. Core has
+  only a default-off pinned bridge; Manager holds its registry lock, qualifies
+  native writer release and execs ordinary Core resume. No implicit owner stop.
+- Root-cause closure: enabled/searchable rows replace the initial disabled preview;
+  the native frontend verifies durable blank-thread metadata before cleanup and
+  captures current App CWD, including `/cd`. The signed backend's exact post-persist
+  list_turns-not-supported response is the sole exception; other errors/timeouts
+  leave current chat alive. Stored history uses metadata-only lookup. No synthetic
+  turn, metadata rewrite, archive/unarchive or transcript writer in production.
+- Exact native sourcef0e676ffe2446cdf3c7237a4909985174b052cae is qualified by
+  hosted37571885732: actual25/25 (3.050s), both goldens and zero lint source delta.
+  All26 TUI artifact paths match the candidate patch. Official sourcea956835d,
+  Rust1.95.0, --locked,159 workspace version normalizations and1313 unchanged
+  external bindings remain fixed. Patch SHAd487abaef5d05fae9592dae61af90bb08522044c2a55abad114ab420c578743d;
+  formatted/linted patch SHA0ec11fc242bd17eb2c9a1ef032dcfa55841f8c3a7331974562e4e336dae6ad0f.
+- Reused unchanged Core/Manager source proof: feature Core6/6, Manager focus4/4,
+  final Manager33 library+50 integration; grouped Core188 passed+1 pre-existing
+  opt-in ignored, Manager33+50, builder22:293 passed. Normal all-target check,
+  feature all-target Clippy -D warnings, formatting and diff pass. Core/Manager
+  source is unchanged fromac670ad; no zero-test invocation is acceptance evidence.
+- Actual final device group uses the exact candidate Core/native/Manager and
+  signed40 backend through the public launcher and native arrow/Enter. Five cases
+  (fresh-unseeded, stored history, no Manager, missing native, corrupt native)
+  pass. Fresh and persisted chats each switch external -> work -> default -> work,
+  preserving UUID/PID/TTY/current CWD/default and acquiring the target native
+  writer. Storage denial and3-second stalled-backend refusal preserve current
+  chat; search/current/cancel and usable fallback pass. Persisted setup completes
+  an actual upstream user/assistant turn with a credential-free loopback fixture;
+  all four profile handoffs preserve its visible text and prior record bytes and
+  issue zero additional model requests. There is no external model call.
+- Actual shared/named permission menus: four choices/current markers/two shortcuts
+  and native no-sandbox/reviewer settings pass. Exact40 restore/public forwarding,
+  corrupt backup, changed launcher, bad signed generation and private bridge
+  qualification pass6/6. All owned cases restore exact terminal modes, create no
+  auth and preserve exact config/default bytes; no startup public discovery.
+- False-proof disposition: wrong Core package/zero tests, four native constructor
+  errors,21/23 search/cancellation, private test-helper errors and24/25 omitted
+  false-JSON comparison are rejected historical runs. Full native gates restored
+  with strict typed requests. Fixture socket length/TLS, native first-use settings
+  and sparse ANSI redraw caused test failures rather than product acceptance.
+  KEEP upstream first-use UX; owned fixtures complete detection/disable tooltips.
+  COLLAPSE current screen checks into full resize redraw on verified owned native
+  PIDs; no clear/draft/history deletion or terminal parser dependency. Other surviving
+  ANSI probes were inspected: baseline covers initial smoke only; permissions have
+  actual native setting-event proof in addition to menu text. Local shell setup
+  did not furnish durable history and is excluded; the completed-turn fixture
+  closes the actual existing-history path. No failed or stale run closes a gate.
+- Installed bounded preview Core670c93ed268bc3f0d086e0e70ca9fe99be0ef1790006dd03aba39bc4c5946fcc;
+  raw nativeb8786dbed7175c3d926728cfdfc79926715508ef97706e6d918fa6dd661e3cb9 ->
+  adapted4da7d140b63c5b09a082973ff10caf2b567df89bf4027c1b1fed2559db0d0c3c
+  (existing2,1,1,1 FD remaps,54 changed bytes only);
+  pinned Managerb415fcc36886492586fb49215a6058d905d34a1b45af746dbbc64b20c886c15b;
+  saved40 Core8acc8219507780095a3a03e0cd0f8bf4b6346bbe7bd4b41b0a8f761851978cfa.
+  New private0700 direct-selection-v1 assets are regular0755 files; old424e0950
+  assets remain intact. Launcher replacement is atomic under the existing Core
+  state directory lock. Installed --version0.160.0 passes. `codex update --rollback`
+  restores exact40 and keeps40/39 activation, as qualified in owned roots.
+- Before/after live verification: launcher alone changes among23 protected paths;
+  other22 auth/config metadata, resolver, activation/default and profile identities
+  match. All signed40/39 files and all13 real native PID/start/executable identities
+  match. Final --version causes no further protected change. No real job signalled,
+  user auth/history inspected, public signing/publication or branch promotion.
+  User authorized existing experimental pushes and bounded usable cutover; only
+  experiment/profile-tui is pushed. main/rewrite/sealed legacy remain fixed.
+- Current running clients retain their old executable; restarting Codex activates
+  direct selection. User trial is next. Integrated history/agent chooser and full
+  active-owner takeover remain separate unfinished prototype work; this acceptance
+  does not admit the full prototype or replace public signed release40. Workers OFF.
 
-- Direct-selection candidate (2026-10-07, based on localce9c12e): native rows
-  dispatch one selection event; no child menu/action enum survives. Current-profile
-  Enter and cancellation close without re-entry. One private typed exit intent
-  reaches ordinary client/terminal cleanup before Core -> pinned Manager -> Core
-  resume of the exact current thread. Existing kernel writer qualification and
-  registry shared locking supply safety; no owner-stop or lock-removal path.
-- Local candidate evidence: Core feature focus6/6; Manager focused4/4, final
-  Manager33 library +50 integration passed after the source stabilized (66.32s
-  integration); grouped workspace Core188 passed +1 pre-existing opt-in ignored,
-  Manager33+50, builder22. Zero-test binary/doc harnesses are excluded from evidence.
-  Ordinary workspace/all-target check, feature all-target Clippy -D warnings,
-  format/diff checks pass. The erroneous first Core package-name invocation ran
-  no tests and is excluded. Logs are owned selection-*.log under the existing
-  codex-profile-tui-proof temporary root; no user auth/history or model turn used.
-- Native qualification remains OPEN: syntax formatting and official-source patch
-  application agree on all25 TUI files; exactly8 files differ from the accepted
-  artifact baseline. Expected goldens alter only the known footer fixture, awaiting
-  actual rendering. Hosted37552770589 exactac670ad now passes the actual native CLI
-  build. Native focus then failed compilation with four test-only type/constructor
-  errors; zero TUI tests ran, and no device replacement is permitted from this run.
-  The exhaustive affected test fixes are prepared without changing production TUI;
-  exact hosted native focus must pass before actual device qualification.
-  Retry37555092438 exactffd8cbd restores native compilation and actually runs23:
-  21 pass,2 fail (missing profile search_value and a misrouted Ctrl-C unit input).
-  Arrow selection/goldens run, but the whole selection/search/cancel gate is red.
-  Correct the row search field and real cancellation routing, assert visible
-  matching rows, and rerun the exact focused gate before owned transition.
-  lint/no-source-delta, actual Core/native/Manager transition and new preview restore
-  remain OPEN. Local wrapper/Manager proof does not close
-  the public /profile request. No corrected binary is installed or admitted.
-- Corrected native source gate (2026-10-07): hosted37558324460 exact8355983
-  completed successfully, actual23/23 plus both goldens and lint/no-source-delta.
-  All25 TUI paths match the accepted formatted artifact after blank patch-context
-  normalization. Source compile/search/cancellation reds are closed; this does not
-  close actual profile transition. Owned device startup is restored by using short
-  runtime TMPDIR; actual fresh arrow/Enter re-entry now exposes a missing saved
-  blank session. Signed40 includeTurns also reports list_turns unsupported.
-  S2 must establish durable native history before cleanup and verify /cd CWD;
-  S3 corrected installation remains pending, with installed launcher unchanged.
-- Read-only device verification: installed launcher remains8bdf33b and both signed
-  generations/resolver are unchanged from the accepted cutover snapshot. The
-  current process census is12, not a claim that a historical13-process census is
-  unchanged; this source-only bundle did not signal real jobs or mutate live state.
-- Hosted build authorization: user explicitly approved the source push and usable
-  device preparation on2026-10-07. Existing experiment/profile-tui now points to
-  ffd8cbd after the bounded compile-repair push; no public publication was used. The prior
-  missing-approval rejection is resolved; no public branch/release changed.
-  Candidate commit is preparation, not slice closure or prototype acceptance.
-
-- User explicitly asks to replace the runtime now for direct testing. This permits
-  a bounded local live launcher/native-frontend preview before full prototype
-  acceptance. Public release/rewrite authority and signed40/39 remain protected.
-- Threshold: actual latest hosted native20 tests/lint, owned same-terminal Core40
-  server -> source native /profile display/search/cancel, usable fallback and exact
-  launcher rollback, then atomic user-authorized launcher replacement. Preserve
-  resolver/auth/config metadata, activation authority and every pre-existing job.
-  The unsigned source frontend must consume the existing FD33/34 remaps, with
-  separately bound raw/adapted provenance and no explicit sandbox fixture override.
-- Current UI is display-only; integrated history/agents, account selection and
-  takeover are unfinished. Permission UI compatibility is checked on the actual
-  stock-server/source-frontend route before live installation. No claim of full
-  feasibility/admission. Workers OFF; primary implements directly.
+Historical display-only preview evidence follows; it is superseded locally by
+this accepted direct-selection cutover.
 
 - Accepted bounded local preview (2026-10-06): hosted37540051325 exact4b7194a
   succeeds with20/20 native focus, zero lint-fix delta, and the two previously
