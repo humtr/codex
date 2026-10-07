@@ -3,7 +3,7 @@
 SPEC -> GOAL -> WORKBOARD; goal-md bound; workers OFF.
 PROFILE-SELECTION-REENTRY: arrow selection + Enter switches the current idle
 conversation directly; no intermediate menu. Bound experiment/profile-tui
-HEAD8355983ad78097f2e3fbbb9ed8bc8bcb85eef960. Dirty resume: Workboard and owned
+HEAD0cb01cfc5aea8ef7dc1f23998835d0ea69a189bb. Native26-path candidate; dirty owned
 native qualification script. Installed display Core8bdf33b remains unchanged.
 
 S1 CLOSED SOURCE GATE: direct selection event and typed post-cleanup Core re-entry;
@@ -42,6 +42,16 @@ S2 CURRENT / RED DEVICE GATE: actual Core/native/Manager arrow-Enter transitions
    New proof mapping: profile_manager persistence fresh/stored/missing/unwritable
    native-server regressions and typed argv current_dir; owned ready-unseeded and
    persisted-/cd transitions prove the public path. No Core/Manager code change.
+   Exact native candidate0cb01cf is in hosted37567124090 (25 focused tests),
+   including fresh/stored/ephemeral/missing/unwritable native persistence and CWD.
+   Earlier544a756/5eca7da runs were superseded and cancelled, never accepted.
+   A known hydration-only -32601 is permitted only after positive materialization;
+   all other persistence/transport/decode failures refuse. Native gate remains OPEN.
+   Hosted37567124090 CLI passes but native test target fails compilation: three
+   private make_test_app calls. Replace every instance with the existing public
+   make_test_app_with_channels; retain receivers. Production source is unchanged;
+   accept actual formatter-only test import/visibility line layout. Zero native
+   tests ran; restore exact runnable25-test gate before owned qualification.
    Every new production branch must have a named focused regression, followed by
    nonzero actual native focus and lint on exact source, before device rerun.
 
