@@ -36,6 +36,47 @@
 
 ## PROFILE-TUI-LIVE-DISPLAY-PREVIEW (selected 2026-10-06)
 
+- User trial finding: Enter cannot advance because the installed first display
+  slice deliberately disables every profile row. PROFILE-SELECTION-REENTRY now
+  targets arrow selection + Enter directly switching the current idle conversation
+  to that profile, without another menu. Same-profile selection/cancellation do
+  not re-enter. Manager confirms native writer release without stopping work;
+  busy/queued/stale/held-writer failures and owner preservation require proof.
+  Display acceptance below remains historical; it does not close this threshold.
+  Do not claim the user-facing selection request complete from enabled row callbacks
+  alone. Exact actual source build and owned terminal transition are mandatory.
+
+- Direct-selection candidate (2026-10-07, based on localce9c12e): native rows
+  dispatch one selection event; no child menu/action enum survives. Current-profile
+  Enter and cancellation close without re-entry. One private typed exit intent
+  reaches ordinary client/terminal cleanup before Core -> pinned Manager -> Core
+  resume of the exact current thread. Existing kernel writer qualification and
+  registry shared locking supply safety; no owner-stop or lock-removal path.
+- Local candidate evidence: Core feature focus6/6; Manager focused4/4, final
+  Manager33 library +50 integration passed after the source stabilized (66.32s
+  integration); grouped workspace Core188 passed +1 pre-existing opt-in ignored,
+  Manager33+50, builder22. Zero-test binary/doc harnesses are excluded from evidence.
+  Ordinary workspace/all-target check, feature all-target Clippy -D warnings,
+  format/diff checks pass. The erroneous first Core package-name invocation ran
+  no tests and is excluded. Logs are owned selection-*.log under the existing
+  codex-profile-tui-proof temporary root; no user auth/history or model turn used.
+- Native qualification remains OPEN: syntax formatting and official-source patch
+  application agree on all25 TUI files; exactly8 files differ from the accepted
+  artifact baseline. Expected goldens alter only the known footer fixture, awaiting
+  actual rendering. Pinned Rust1.95/just native compile, nonzero23-test focused run,
+  lint/no-source-delta, actual Core/native/Manager transition and new preview restore
+  gates have not run for this candidate. Local wrapper/Manager proof does not close
+  the public /profile request. No corrected binary is installed or admitted.
+- Read-only device verification: installed launcher remains8bdf33b and both signed
+  generations/resolver are unchanged from the accepted cutover snapshot. The
+  current process census is12, not a claim that a historical13-process census is
+  unchanged; this source-only bundle did not signal real jobs or mutate live state.
+- Hosted build dependency: existing remote experiment/profile-tui remains4b7194a.
+  Automatic review rejected the previous source push for missing explicit user
+  approval of destination/payload. No retry, alternate upload or workflow bypass;
+  prepare the complete source candidate for an explicit bounded experimental push.
+  Candidate commit is preparation, not slice closure or prototype acceptance.
+
 - User explicitly asks to replace the runtime now for direct testing. This permits
   a bounded local live launcher/native-frontend preview before full prototype
   acceptance. Public release/rewrite authority and signed40/39 remain protected.

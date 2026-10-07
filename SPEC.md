@@ -21,6 +21,28 @@ authorized a bounded live display preview on 2026-10-06 before full completion.
   same-thread account takeover, and re-enter Core with the selected child home.
   Selecting a profile must never silently stop work, remove locks, share auth
   between agents or create additional Android terminals.
+- The profile-selection slice makes arrow selection followed by Enter directly
+  switch the current idle conversation to the selected registered profile. There
+  is no intermediate history/agents/new-conversation menu. Selecting the current
+  profile closes the picker without re-entry; Esc/Ctrl-C likewise cancels.
+  Re-entry requires an idle primary session with no queued input, pending steers
+  or running local commands, unsent composer input or pending native tool calls.
+  A failed profile/Core revalidation leaves the picker and current chat usable. After ordinary native client cleanup and terminal
+  restoration, the frontend execs Core with fixed private Manager argv
+  `termux __profile-resume-v1 PROFILE_ID THREAD_UUID`. This exact command validates
+  the registered destination and canonical UUID, holds the existing Manager
+  registry shared lock against rename/delete during handoff, waits at most3 seconds
+  for the existing kernel coordination/writer locks to become free, then execs ordinary
+  Core resume in the selected home and same terminal/CWD. It never interrupts,
+  pauses goals, cleans background terminals, signals an owner or removes locks.
+  Another connection or newly acquired writer causes bounded refusal; native
+  resume still owns the final atomic writer acquisition. A profile disappearing
+  after frontend cleanup likewise causes bounded refusal. Saved default, auth,
+  conversation history and unrelated jobs remain unchanged. Core's default-off
+  preview bridge only forwards this exact argv shape to the pinned Manager;
+  ordinary builds/public command behavior remain unchanged. Automated transition
+  proof uses owned accounts only. Corrected live replacement requires actual
+  native and protected-state gates first.
 - Experiments use exact official0.160.0 sourcea956835d020762cb2b570053af06f643a11c0ecc,
   owned builds/artifacts and credential-free disposable accounts/conversations.
   Real launcher/runtime, Manager state, accounts/history/jobs and resolver remain

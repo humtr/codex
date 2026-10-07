@@ -1,5 +1,5 @@
 diff --git a/codex-rs/tui/src/app.rs b/codex-rs/tui/src/app.rs
-index 37b5c78..c91d458 100644
+index 37b5c78..f954a7c 100644
 --- a/codex-rs/tui/src/app.rs
 +++ b/codex-rs/tui/src/app.rs
 @@ -152,7 +152,6 @@ use codex_otel::SessionTelemetry;
@@ -15,7 +15,7 @@ index 37b5c78..c91d458 100644
  mod model_defaults;
  mod new_session;
 +#[cfg(unix)]
-+mod profile_manager;
++pub(crate) mod profile_manager;
  mod turn_tips;
  pub(crate) use new_session::has_launch_setting;
  mod clipboard;
@@ -29,10 +29,10 @@ index 37b5c78..c91d458 100644
      }
  }
 diff --git a/codex-rs/tui/src/app/event_dispatch.rs b/codex-rs/tui/src/app/event_dispatch.rs
-index da28bf2..a7076a4 100644
+index da28bf2..a878f14 100644
 --- a/codex-rs/tui/src/app/event_dispatch.rs
 +++ b/codex-rs/tui/src/app/event_dispatch.rs
-@@ -425,6 +425,10 @@ impl App {
+@@ -425,6 +425,16 @@ impl App {
              AppEvent::OpenResumePicker => {
                  self.pending_open_resume_picker = true;
              }
@@ -40,17 +40,24 @@ index da28bf2..a7076a4 100644
 +            AppEvent::OpenProfilePicker => {
 +                profile_manager::open(self).await;
 +            }
++            #[cfg(unix)]
++            AppEvent::SelectExecutionProfile(profile) => {
++                if let Some(request) = profile_manager::prepare(self, profile).await {
++                    return Err(std::io::Error::other(request).into());
++                }
++            }
              AppEvent::OpenExternalAgentConfigMigration => {
                  let cwd = if self.chat_widget.thread_id().is_some()
                      || !app_server.uses_remote_workspace()
 diff --git a/codex-rs/tui/src/app/profile_manager.rs b/codex-rs/tui/src/app/profile_manager.rs
 new file mode 100644
-index 0000000..687917b
+index 0000000..e861207
 --- /dev/null
 +++ b/codex-rs/tui/src/app/profile_manager.rs
-@@ -0,0 +1,161 @@
-+//! Unix execution-profile display; Manager remains the sole profile-state owner.
+@@ -0,0 +1,237 @@
++//! Unix execution-profile selection; Manager remains the sole profile-state owner.
 +use super::App;
++use crate::app_event::AppEvent;
 +use crate::bottom_pane::SelectionItem;
 +use crate::bottom_pane::SelectionViewParams;
 +use crate::bottom_pane::popup_consts::accept_cancel_hint_line;
@@ -59,7 +66,9 @@ index 0000000..687917b
 +use serde::Deserialize;
 +use std::collections::HashSet;
 +use std::os::unix::fs::MetadataExt;
++use std::os::unix::process::CommandExt;
 +use std::path::Path;
++use std::path::PathBuf;
 +use std::process::Stdio;
 +use std::time::Duration;
 +use tokio::io::AsyncReadExt;
@@ -166,13 +175,25 @@ index 0000000..687917b
 +    let items = view
 +        .profiles
 +        .into_iter()
-+        .map(|id| SelectionItem {
-+            is_current: view.current.as_ref() == Some(&id),
-+            is_default: view.saved_default == id,
-+            name: id,
-+            is_disabled: true,
-+            disabled_gutter_marker: Some("·"),
-+            ..Default::default()
++        .map(|id| {
++            let is_current = view.current.as_ref() == Some(&id);
++            let selected = id.clone();
++            SelectionItem {
++                is_current,
++                is_default: view.saved_default == id,
++                name: id,
++                actions: if is_current {
++                    Vec::new()
++                } else {
++                    vec![Box::new(move |tx| {
++                        tx.send(AppEvent::SelectExecutionProfile(selected.clone()));
++                    })]
++                },
++                // Keep queued input protected until the different profile is validated.
++                dismiss_on_select: is_current,
++                require_explicit_confirmation: true,
++                ..Default::default()
++            }
 +        })
 +        .collect();
 +    SelectionViewParams {
@@ -182,8 +203,8 @@ index 0000000..687917b
 +        is_searchable: true,
 +        search_placeholder: Some("Find a profile".to_string()),
 +        footer_hint: Some(accept_cancel_hint_line(
-+            None,
-+            "",
++            keymap.primary_hint(ListAction::Accept),
++            "to switch",
 +            keymap.primary_hint(ListAction::Cancel),
 +            "to go back",
 +        )),
@@ -207,15 +228,76 @@ index 0000000..687917b
 +    }
 +}
 +
++/// Private re-entry intent consumed after ordinary client and terminal cleanup.
++#[derive(Debug, thiserror::Error)]
++#[error("execution profile re-entry")]
++pub(crate) struct ProfileReentry {
++    core: PathBuf,
++    profile: String,
++    thread: codex_protocol::ThreadId,
++}
++
++impl ProfileReentry {
++    pub(crate) fn from_error(error: &std::io::Error) -> Option<&Self> {
++        error.get_ref()?.downcast_ref::<Self>()
++    }
++
++    fn command(&self) -> std::process::Command {
++        let mut command = std::process::Command::new(&self.core);
++        command.args([
++            "termux",
++            "__profile-resume-v1",
++            &self.profile,
++            &self.thread.to_string(),
++        ]);
++        command
++    }
++
++    pub(crate) fn exec(&self) -> std::io::Error {
++        self.command().exec()
++    }
++}
++
++pub(super) async fn prepare(app: &mut App, profile: String) -> Option<ProfileReentry> {
++    let thread = app.chat_widget.thread_id();
++    if !matches!(
++        app.app_server_target,
++        crate::AppServerTarget::LocalDaemon { .. }
++    ) || !app.chat_widget.composer_is_empty()
++        || !app.dynamic_tool_tasks.is_empty()
++        || !thread.is_some_and(|thread| app.chat_widget.can_change_working_directory(thread))
++    {
++        app.chat_widget.add_error_message(
++            "Profile switching requires an idle primary chat without pending input or tool calls."
++                .to_string(),
++        );
++        return None;
++    }
++    let core = std::env::var_os("CODEX_PROFILE_CORE")
++        .map(PathBuf::from)
++        .unwrap_or_default();
++    let view = load(&core).await;
++    if !view.is_some_and(|view| view.profiles.contains(&profile)) {
++        app.chat_widget
++            .add_error_message("Selected profile is unavailable.".to_string());
++        return None;
++    }
++    Some(ProfileReentry {
++        core,
++        profile,
++        thread: thread.expect("idle primary thread was checked"),
++    })
++}
++
 +#[cfg(test)]
 +#[path = "profile_manager_tests.rs"]
 +mod tests;
 diff --git a/codex-rs/tui/src/app/profile_manager_tests.rs b/codex-rs/tui/src/app/profile_manager_tests.rs
 new file mode 100644
-index 0000000..5dd0781
+index 0000000..9c55e61
 --- /dev/null
 +++ b/codex-rs/tui/src/app/profile_manager_tests.rs
-@@ -0,0 +1,301 @@
+@@ -0,0 +1,454 @@
 +use super::*;
 +use crate::app_event_sender::AppEventSender;
 +use crate::bottom_pane::BottomPaneView;
@@ -415,8 +497,8 @@ index 0000000..5dd0781
 +}
 +
 +#[test]
-+fn profile_manager_picker_renders_searches_and_cancels_without_selection() {
-+    for key in [KeyCode::Enter, KeyCode::Esc] {
++fn profile_manager_picker_direct_arrow_or_search_enter_dispatches_without_another_menu() {
++    for search in [false, true] {
 +        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 +        let keymap = RuntimeKeymap::defaults();
 +        let mut view = ListSelectionView::new(
@@ -427,19 +509,52 @@ index 0000000..5dd0781
 +            AppEventSender::new(tx),
 +            keymap.list,
 +        );
-+        if key == KeyCode::Enter {
++        if !search {
 +            insta::assert_snapshot!("profile_manager_saved", render(&view));
++            view.handle_key_event(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
++        } else {
++            for c in "external".chars() {
++                view.handle_key_event(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
++            }
 +        }
++        view.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
++        assert!(
++            matches!(rx.try_recv().unwrap(), AppEvent::SelectExecutionProfile(id) if id == "external")
++        );
++        assert!(
++            rx.try_recv().is_err(),
++            "one Enter must dispatch one direct transition"
++        );
++        assert!(!view.is_complete(), "validation protects queued input");
++        view.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
++        assert!(view.is_complete());
++    }
++}
++
++#[test]
++fn profile_manager_current_profile_and_cancel_close_without_reentry() {
++    for key in [KeyCode::Enter, KeyCode::Esc, KeyCode::Char('c')] {
++        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
++        let keymap = RuntimeKeymap::defaults();
++        let mut view = ListSelectionView::new(
++            picker(
++                decode(record().to_string().as_bytes()).unwrap(),
++                &keymap.list,
++            ),
++            AppEventSender::new(tx),
++            keymap.list,
++        );
 +        for c in "work".chars() {
 +            view.handle_key_event(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
 +        }
-+        let filtered = render(&view);
-+        assert!(filtered.contains("work"));
-+        assert!(!filtered.contains("external"));
-+        view.handle_key_event(KeyEvent::new(key, KeyModifiers::NONE));
-+        if !view.is_complete() {
-+            view.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-+        }
++        view.handle_key_event(KeyEvent::new(
++            key,
++            if key == KeyCode::Char('c') {
++                KeyModifiers::CONTROL
++            } else {
++                KeyModifiers::NONE
++            },
++        ));
 +        assert!(view.is_complete());
 +        assert!(rx.try_recv().is_err());
 +    }
@@ -517,9 +632,129 @@ index 0000000..5dd0781
 +        .count();
 +    assert_eq!(submitted, 1);
 +}
++
++#[test]
++fn profile_manager_reentry_preserves_typed_exit_and_exact_profile_thread_argv() {
++    use std::ffi::OsStr;
++    let id = "12345678-1234-1234-1234-123456789abc";
++    let request = ProfileReentry {
++        core: "/owned/core".into(),
++        profile: "work".to_string(),
++        thread: id.parse().unwrap(),
++    };
++    let report = color_eyre::eyre::Report::new(std::io::Error::other(request));
++    let error = report.downcast::<std::io::Error>().unwrap();
++    let command = ProfileReentry::from_error(&error).unwrap().command();
++    assert_eq!(command.get_program(), OsStr::new("/owned/core"));
++    assert_eq!(
++        command.get_args().collect::<Vec<_>>(),
++        ["termux", "__profile-resume-v1", "work", id].map(OsStr::new)
++    );
++    assert!(ProfileReentry::from_error(&std::io::Error::other("unrelated")).is_none());
++}
++
++#[tokio::test]
++async fn profile_manager_reentry_rejects_busy_queued_side_and_unavailable_without_work() {
++    assert_eq!(std::env::var_os("CODEX_PROFILE_CORE"), Some("".into()));
++    for state in [
++        "busy",
++        "queued",
++        "side",
++        "embedded",
++        "unavailable",
++        "draft",
++        "tool",
++    ] {
++        let (mut app, mut events, mut ops) =
++            super::super::tests::make_test_app_with_channels().await;
++        let thread = codex_protocol::ThreadId::new();
++        let cwd = app.config.cwd.to_path_buf();
++        app.chat_widget
++            .handle_thread_session(super::super::tests::test_thread_session(thread, cwd));
++        if state != "embedded" {
++            app.app_server_target = crate::AppServerTarget::LocalDaemon {
++                allow_embedded_fallback: false,
++            };
++        }
++        if matches!(state, "busy" | "queued") {
++            app.chat_widget.handle_server_notification(
++                super::super::tests::turn_started_notification(thread, "profile-turn"),
++                None,
++            );
++        }
++        if state == "queued" {
++            for text in ["/profile", "keep this input"] {
++                app.chat_widget.apply_external_edit(text.to_string());
++                app.chat_widget
++                    .handle_key_event(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
++            }
++            app.chat_widget.handle_server_notification(
++                super::super::tests::turn_completed_notification(
++                    thread,
++                    "profile-turn",
++                    codex_app_server_protocol::TurnStatus::Completed,
++                ),
++                None,
++            );
++        }
++        if state == "side" {
++            app.chat_widget.set_side_conversation_active(true);
++        }
++        if state == "draft" {
++            app.chat_widget
++                .apply_external_edit("keep my draft".to_string());
++        }
++        if state == "tool" {
++            app.dynamic_tool_tasks.insert(
++                codex_app_server_protocol::RequestId::String("owned-tool".to_string()),
++                ("owned".to_string(), tokio::spawn(std::future::pending())),
++            );
++        }
++        while events.try_recv().is_ok() {}
++        while ops.try_recv().is_ok() {}
++        let queued = app.chat_widget.queued_user_message_texts();
++        if state == "queued" {
++            assert_eq!(queued, vec!["keep this input"]);
++        }
++        if state == "unavailable" {
++            assert!(app.chat_widget.can_change_working_directory(thread));
++        }
++        assert!(prepare(&mut app, "work".to_string()).await.is_none());
++        assert_eq!(app.chat_widget.queued_user_message_texts(), queued);
++        if state == "draft" {
++            assert_eq!(
++                app.chat_widget.composer_text_with_pending(),
++                "keep my draft"
++            );
++        }
++        if state == "tool" {
++            let (_, task) = app
++                .dynamic_tool_tasks
++                .remove(&codex_app_server_protocol::RequestId::String(
++                    "owned-tool".to_string(),
++                ))
++                .unwrap();
++            assert!(!task.is_finished());
++            task.abort(); // Only the fixture's own pending task is cleaned up.
++        }
++        assert!(
++            ops.try_recv().is_err(),
++            "must not submit or interrupt work: {state}"
++        );
++        for event in std::iter::from_fn(|| events.try_recv().ok()) {
++            assert!(!matches!(
++                event,
++                AppEvent::CodexOp(
++                    codex_protocol::protocol::Op::UserTurn { .. }
++                        | codex_protocol::protocol::Op::Interrupt
++                )
++            ));
++        }
++    }
++}
 diff --git a/codex-rs/tui/src/app/snapshots/codex_tui__app__profile_manager__tests__profile_manager_external_home.snap b/codex-rs/tui/src/app/snapshots/codex_tui__app__profile_manager__tests__profile_manager_external_home.snap
 new file mode 100644
-index 0000000..2ec302f
+index 0000000..dc4e3ec
 --- /dev/null
 +++ b/codex-rs/tui/src/app/snapshots/codex_tui__app__profile_manager__tests__profile_manager_external_home.snap
 @@ -0,0 +1,15 @@
@@ -537,10 +772,10 @@ index 0000000..2ec302f
 +  external
 +  work (default)
 +
-+  Press esc to go back
++  Press enter to switch or esc to go back
 diff --git a/codex-rs/tui/src/app/snapshots/codex_tui__app__profile_manager__tests__profile_manager_saved.snap b/codex-rs/tui/src/app/snapshots/codex_tui__app__profile_manager__tests__profile_manager_saved.snap
 new file mode 100644
-index 0000000..b7090cc
+index 0000000..2d29fd7
 --- /dev/null
 +++ b/codex-rs/tui/src/app/snapshots/codex_tui__app__profile_manager__tests__profile_manager_saved.snap
 @@ -0,0 +1,15 @@
@@ -558,7 +793,7 @@ index 0000000..b7090cc
 +  external
 +  work (current)
 +
-+  Press esc to go back
++  Press enter to switch or esc to go back
 diff --git a/codex-rs/tui/src/app/tests.rs b/codex-rs/tui/src/app/tests.rs
 index 9c1af27..a254a51 100644
 --- a/codex-rs/tui/src/app/tests.rs
@@ -591,16 +826,18 @@ index 9c1af27..a254a51 100644
      turn_id: &str,
      status: TurnStatus,
 diff --git a/codex-rs/tui/src/app_event.rs b/codex-rs/tui/src/app_event.rs
-index ce30da4..d244aec 100644
+index ce30da4..672f3e7 100644
 --- a/codex-rs/tui/src/app_event.rs
 +++ b/codex-rs/tui/src/app_event.rs
-@@ -584,6 +584,10 @@ pub(crate) enum AppEvent {
+@@ -584,6 +584,12 @@ pub(crate) enum AppEvent {
      /// Open the resume picker inside the running TUI session.
      OpenResumePicker,
 
 +    /// Open the Manager execution-profile view without changing accounts.
 +    #[cfg(unix)]
 +    OpenProfilePicker,
++    #[cfg(unix)]
++    SelectExecutionProfile(String),
 +
      /// Open the Claude Code migration picker inside the running TUI session.
      OpenExternalAgentConfigMigration,
@@ -951,7 +1188,7 @@ index 0000000..135aba4
 +    assert_no_submit_op(&mut op_rx);
 +}
 diff --git a/codex-rs/tui/src/lib.rs b/codex-rs/tui/src/lib.rs
-index 2697cba..c5c9a56 100644
+index 2697cba..1eba04b 100644
 --- a/codex-rs/tui/src/lib.rs
 +++ b/codex-rs/tui/src/lib.rs
 @@ -131,7 +131,9 @@ mod experimental_features;
@@ -973,6 +1210,19 @@ index 2697cba..c5c9a56 100644
          // A shared daemon cannot adopt this invocation's executor selection.
          None if can_reuse_implicit_local_daemon && exec_server_url.is_none() => {
              default_daemon_socket.map_or(AppServerTarget::Embedded, |socket_path| {
+@@ -1101,6 +1103,12 @@ pub async fn run_main(
+         ))
+         .await
+         {
++            #[cfg(unix)]
++            Err(err) if app::profile_manager::ProfileReentry::from_error(&err).is_some() => {
++                Err(app::profile_manager::ProfileReentry::from_error(&err)
++                    .expect("profile re-entry was matched")
++                    .exec())
++            }
+             Err(err) if startup_draft::StartupCancelled::matches(&err) => Ok(AppExitInfo {
+                 token_usage: TokenUsage::default(),
+                 thread_id: None,
 diff --git a/codex-rs/tui/src/permission_discovery.rs b/codex-rs/tui/src/permission_discovery.rs
 index c40ada9..b1e3350 100644
 --- a/codex-rs/tui/src/permission_discovery.rs

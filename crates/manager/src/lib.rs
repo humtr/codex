@@ -1,6 +1,7 @@
 #![cfg(unix)]
 
 mod profile;
+mod profile_resume;
 mod profile_view;
 use profile_view::format_current;
 mod task;
@@ -304,6 +305,9 @@ where
 }
 
 fn run_inner(args: Vec<OsString>) -> Result<Option<String>, ManagerError> {
+    if is_exact(args.first(), "__profile-resume-v1") {
+        return profile_resume::run(&capture_context()?, &args[1..]);
+    }
     if is_exact(args.first(), "__task-snapshot-v1") {
         if args.len() != 1 {
             return Err(ERR_USAGE);

@@ -105,3 +105,40 @@ fn live_preview_workspace_options_retain_original_installed_route() {
     assert!(supported_options(&["resume".into(), "--all".into()]));
     assert!(supported_options(&["-C".into(), "owned".into()]));
 }
+
+#[test]
+fn live_preview_private_profile_reentry_forwards_only_exact_manager_shapes() {
+    for args in [
+        vec!["termux".into(), "__profile-snapshot-v1".into()],
+        vec!["termux".into(), "__task-snapshot-v1".into()],
+        vec![
+            "termux".into(),
+            "__profile-resume-v1".into(),
+            "work".into(),
+            "12345678-1234-1234-1234-123456789abc".into(),
+        ],
+    ] {
+        assert!(manager_request(&args));
+    }
+    for args in [
+        vec!["termux".into(), "__profile-resume-v1".into()],
+        vec!["termux".into(), "__profile-resume-v1".into(), "work".into()],
+        vec![
+            "termux".into(),
+            "__profile-resume-v1".into(),
+            "work".into(),
+            "id".into(),
+            "extra".into(),
+        ],
+        vec!["termux".into(), "__task-snapshot-v1".into(), "extra".into()],
+        vec![
+            "termux".into(),
+            "profile".into(),
+            "use".into(),
+            "work".into(),
+        ],
+    ] {
+        assert!(!manager_request(&args));
+        assert!(handle(&args).is_none());
+    }
+}

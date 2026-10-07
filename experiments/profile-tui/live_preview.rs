@@ -7,7 +7,7 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const DIRECTORY: &str = ".local/lib/codex/profile-tui-preview/424e0950";
+const DIRECTORY: &str = ".local/lib/codex/profile-tui-preview/direct-selection-v1";
 const NATIVE_SHA256: &str = env!("PROFILE_PREVIEW_NATIVE_SHA256");
 const MANAGER_SHA256: &str = env!("PROFILE_PREVIEW_MANAGER_SHA256");
 const STABLE_SHA256: &str = "8acc8219507780095a3a03e0cd0f8bf4b6346bbe7bd4b41b0a8f761851978cfa";
@@ -138,11 +138,16 @@ fn restore(roots: &super::LocalCoreRoots) -> io::Result<()> {
     super::install_core_entrypoint(roots, &saved, STABLE_SHA256).map_err(|_| invalid())
 }
 
+fn manager_request(args: &[OsString]) -> bool {
+    matches!(args, [termux, endpoint] if termux == "termux"
+        && (endpoint == "__profile-snapshot-v1" || endpoint == "__task-snapshot-v1"))
+        || matches!(args, [termux, endpoint, _, _] if termux == "termux"
+            && endpoint == "__profile-resume-v1")
+}
+
 pub(crate) fn handle(args: &[OsString]) -> Option<i32> {
-    let snapshot = matches!(args, [termux, endpoint] if termux == "termux"
-        && (endpoint == "__profile-snapshot-v1" || endpoint == "__task-snapshot-v1"));
     let update = args.first().is_some_and(|arg| arg == "update");
-    if !snapshot && !update {
+    if !manager_request(args) && !update {
         return None;
     }
     let execute = || -> io::Result<i32> {
@@ -160,7 +165,7 @@ pub(crate) fn handle(args: &[OsString]) -> Option<i32> {
         executable(&manager, MANAGER_SHA256, &roots.openssl)?;
         let core = super::validated_core_entrypoint()?;
         Err(Command::new(manager)
-            .arg(&args[1])
+            .args(&args[1..])
             .env(super::MANAGER_CORE_API_ENV, super::MANAGER_CORE_API)
             .env(super::MANAGER_CORE_ENTRYPOINT_ENV, core)
             .env_remove(super::CODEX_SQLITE_HOME_ENV)

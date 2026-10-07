@@ -10,6 +10,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 #[path = "profile_commands/profile_snapshot.rs"]
 mod profile_snapshot;
 
+#[path = "profile_commands/profile_resume.rs"]
+mod profile_resume;
+
 #[path = "profile_commands/task_snapshot.rs"]
 mod task_snapshot;
 

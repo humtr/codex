@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   upstream-baseline:
-    name: Build and test native profile display
+    name: Build and test native profile selection
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 90
     env:
@@ -95,7 +95,7 @@ jobs:
           set -euo pipefail
           PYTHONDONTWRITEBYTECODE=1 python3 experiment/experiments/profile-tui/test_normalize_lock.py
           python3 experiment/experiments/profile-tui/normalize_lock.py upstream/codex-rs --audit "$RUNNER_TEMP/profile-tui-lock-audit.json"
-      - name: Apply bounded native display patch
+      - name: Apply bounded native profile patch
         shell: bash
         run: |
           set -euo pipefail
@@ -140,7 +140,7 @@ jobs:
           acquire https://github.com/facebook/dotslash/releases/download/v0.5.9/dotslash-linux-musl.aarch64.tar.gz 11323ef72fac5885d7c54bff70d666486bd800a8d908d0acd3bd838fd8a9b0db dotslash
           acquire https://github.com/astral-sh/uv/releases/download/0.12.23/uv-aarch64-unknown-linux-gnu.tar.gz 6524bd338177ed50d035d39354e12545e993bbeba2ecbddf0480c5b3a81d313f uv
           echo "$tools/bin" >> "$GITHUB_PATH"
-      - name: Format and inspect native display scope
+      - name: Format and inspect native profile scope
         id: native-format
         shell: bash
         run: |
@@ -162,7 +162,7 @@ jobs:
           cd upstream/codex-rs
           cargo "+$RUST_VERSION" build --locked --target aarch64-unknown-linux-musl -p codex-cli --bin codex
           git diff --check
-      - name: Execute and identify native display
+      - name: Execute and identify native frontend
         shell: bash
         run: |
           set -euo pipefail

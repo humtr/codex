@@ -572,7 +572,7 @@ fn format_tasks(context: &Context, tasks: &[Task]) -> Result<String, ManagerErro
     Ok(output)
 }
 
-fn resume_command(
+pub(super) fn resume_command(
     context: &Context,
     home: &Path,
     id: &str,
@@ -626,7 +626,7 @@ fn native_file(path: &Path) -> Result<Option<File>, ManagerError> {
     }
     Ok(Some(file))
 }
-fn writer_free(context: &Context, id: &str) -> Result<bool, ManagerError> {
+pub(super) fn writer_free(context: &Context, id: &str) -> Result<bool, ManagerError> {
     let directory = context.home.join(".codex/thread-writer-locks");
     if inspect_path(&directory)? == PathPresence::Missing {
         return Ok(true);
@@ -815,7 +815,7 @@ fn owns_writer(context: &Context, id: &str, server: &Server) -> Result<bool, Man
     }
     Ok(false)
 }
-fn destination(
+pub(super) fn destination(
     context: &Context,
     profile: Option<&ProfileTarget>,
 ) -> Result<PathBuf, ManagerError> {

@@ -21,8 +21,15 @@ server in the existing terminal. Signed40/39 and activation/update keys stay int
 Normal Core builds do not include this frontend selector or private bridge override.
 
 After accepted local installation, start codex again and enter /profile. The
-current experiment supports display, search and cancellation; profile selection,
-integrated history/agents and takeover are not complete. Existing processes retain
+installed experiment supports display, search and cancellation; profile rows are
+still disabled. The direct-selection correction is a source candidate awaiting
+actual hosted native compile/test and owned transition qualification. Its intended
+behavior is arrow selection + Enter reopening the same idle conversation under the
+selected profile, without an intermediate menu. Current-profile selection simply
+closes the picker. Pending input/tools or an existing writer refuse the switch;
+Manager never stops an owner implicitly. Integrated history/agents and active-owner
+takeover remain incomplete. The candidate does not replace the installed preview
+until its native and protected-state gates pass. Existing processes retain
 their current executable. During the preview, codex update --rollback restores the
 saved40 launcher without changing40/39 activation. Other update commands restore
 that launcher first and then use the ordinary installed updater.
