@@ -25,3 +25,7 @@ B4: actual TUI/compact/fact/new-process resume; only proven capability may defin
 Protected main/rewrite c4d9a41, installed launcher/generations/auth/history/jobs/
 resolver, original12 prj/web files. No workers, forced refs, release/signing or
 real account/network-model calls. Keep /switch account and provider axes distinct.
+
+B1 exact official Linux/x64 Bun1.4.0 ZIP36697619 bytes SHA2d03fb5fb83ac8b567aca0a281b2ce1a1a19d488f56c2968d88c3f25e92fe452
+identified. SPEC permits only disposable hosted provision, frozen deps and owned
+HOME/CODEX_HOME for this baseline. Device Bun and all installed products unchanged.

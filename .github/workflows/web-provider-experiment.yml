@@ -1,0 +1,75 @@
+name: Experimental ChatGPT Web protocol qualification
+on:
+  push:
+    branches: [experiment/web-provider]
+    paths:
+      - '.github/workflows/web-provider-experiment.yml'
+      - 'experiments/web-provider/chatgpt-web.patch'
+      - 'experiments/web-provider/chatgpt_contract.test.ts'
+permissions:
+  contents: read
+concurrency:
+  group: experimental-chatgpt-web
+  cancel-in-progress: false
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      CHATGPT_SHA: 92a356fac2292e3af5a97ab7ba634edd8d38621e
+      BUN_SHA256: 2d03fb5fb83ac8b567aca0a281b2ce1a1a19d488f56c2968d88c3f25e92fe452
+    steps:
+      - name: Fetch exact experiment and clean immutable candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init experiment
+          git -C experiment remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git -C experiment fetch --no-tags --depth=1 origin "$GITHUB_SHA"
+          git -C experiment checkout --detach FETCH_HEAD
+          test "$(git -C experiment rev-parse HEAD)" = "$GITHUB_SHA"
+          git init candidate
+          git -C candidate remote add origin https://github.com/miuuyy/codex-chatgpt-web.git
+          git -C candidate fetch --no-tags --depth=1 origin "$CHATGPT_SHA"
+          git -C candidate checkout --detach FETCH_HEAD
+          test "$(git -C candidate rev-parse HEAD)" = "$CHATGPT_SHA"
+          test -z "$(git -C candidate status --porcelain)"
+      - name: Provision digest-pinned Bun only in disposable root
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/web-engine"
+          mkdir -p "$root"
+          curl --location --fail --silent --show-error --connect-timeout 15 --max-time 120 --max-filesize 36697619 https://github.com/oven-sh/bun/releases/download/bun-v1.4.0/bun-linux-x64.zip -o "$root/bun.zip"
+          echo "$BUN_SHA256  $root/bun.zip" | sha256sum -c -
+          unzip -q "$root/bun.zip" -d "$root"
+          test "$("$root/bun-linux-x64/bun" --version)" = 1.4.0
+          echo "$root/bun-linux-x64" >> "$GITHUB_PATH"
+      - name: Restore credential-free frozen candidate baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/web-owned"
+          mkdir -p "$root/home" "$root/codex-home" "$root/cache" "$root/tmp"
+          chmod 0700 "$root" "$root/home" "$root/codex-home"
+          sha256sum candidate/package.json candidate/bun.lock > "$RUNNER_TEMP/web-dependency-binding"
+          cd candidate
+          env -i PATH="$PATH" HOME="$root/home" CODEX_HOME="$root/codex-home" TMPDIR="$root/tmp" BUN_INSTALL_CACHE_DIR="$root/cache" bun install --frozen-lockfile --ignore-scripts --no-progress
+          env -i PATH="$PATH" HOME="$root/home" CODEX_HOME="$root/codex-home" TMPDIR="$root/tmp" bun test tests/responses-lite-tools.test.ts tests/prompt-contract.test.ts tests/subagent-environment-history.test.ts 2>&1 | tee "$RUNNER_TEMP/web-baseline.log"
+          git diff --exit-code
+          python3 - <<'PY'
+          import os, pathlib, re
+          text=(pathlib.Path(os.environ['RUNNER_TEMP'])/'web-baseline.log').read_text()
+          assert re.search(r'\b[1-9][0-9]* pass\b', text), 'nonzero candidate tests required'
+          assert re.search(r'\b0 fail\b', text), 'all candidate tests must pass'
+          PY
+      - name: Retain exact account-free baseline
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: web-candidate-baseline
+          path: |
+            ${{ runner.temp }}/web-baseline.log
+            ${{ runner.temp }}/web-dependency-binding
+          if-no-files-found: error
+          retention-days: 3

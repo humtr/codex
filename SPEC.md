@@ -41,6 +41,12 @@ Core/Manager public commands, installed state and provider behavior stay unchang
   the final reply is derived only after exact correlated outputs are verified.
   Custom/namespaced execution is claimed only for actually advertised/tested routes;
   unsupported/unobserved routes remain explicitly unproven.
+- The selected ChatGPT Web baseline may provision only the exact Bun1.4.0 binary
+  and frozen candidate dependencies in an ephemeral hosted Linux root. It has no
+  production signing, account credentials, browser login, installed configuration
+  or system service authority. Candidate setup/launcher installers are not run.
+  Matched engine, source and dependency identities plus nonzero handler tests
+  precede any candidate remedy; DEV simulated receipts never close a product gate.
 - Later slices bind one immutable bridge/service/model, exact listen address,
   access control, credential-free logs and actual tool/history conversion before
   separately scoped actual-account attribution, cancel, expiry/quota and interactive
