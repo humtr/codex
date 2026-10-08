@@ -123,12 +123,12 @@ requires_openai_auth = false
                 return result.stdout
             for id in ['external','work']:manager('profile','create',id)
             manager('profile','default','work')
-            account=home/'.local/share/codex/manager/switchs/work/home'
-            for selected in [home/'.codex', account, home/'.local/share/codex/manager/switchs/external/home']:
+            account=home/'.local/share/codex/manager/profiles/work/home'
+            for selected in [home/'.codex', account, home/'.local/share/codex/manager/profiles/external/home']:
                 (selected/'config.toml').write_text(config)
             env['CODEX_HOME']=str(account)
             protected=[home/'.local/share/codex/manager/default-profile-v1']
-            protected += [selected/'config.toml' for selected in [home/'.codex',account,home/'.local/share/codex/manager/switchs/external/home']]
+            protected += [selected/'config.toml' for selected in [home/'.codex',account,home/'.local/share/codex/manager/profiles/external/home']]
             before={str(path):path.read_bytes() for path in protected}
             snapshot=json.loads(manager('__profile-snapshot-v1'))
             assert snapshot=={'schema':'codex-manager-profiles-v1','profiles':['default','external','work'],'current':'work','current_source':'inherited','saved_default':'work'},snapshot
@@ -298,7 +298,7 @@ requires_openai_auth = false
                         results.append('direct-arrow-Enter/'+('fresh-unseeded-thread' if case=='ready' else 'persisted-thread')+'/external-work-default/same-UUID-PID-TTY-CWD/native-writer/default-preserved')
                         if case=='persisted':results.append('native-nonempty-completed-turn-history/public-profile-'+str(len(destinations))+'-transitions/visible-and-byte-records-preserved/no-external-model-call/no-model-request-during-handoff')
                         if source_return:
-                            source=home/'.local/share/codex/manager/switchs/external/home'
+                            source=home/'.local/share/codex/manager/profiles/external/home'
                             source_records=[record for record in (home/'.local/share/codex/core/servers').glob('*/pid')
                                             if (record.parent/'owner').read_bytes().split(b'\0')[0] == os.fsencode(source)]
                             assert len(source_records)==1

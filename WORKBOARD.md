@@ -49,3 +49,8 @@ S1 local gate:10/10 Python; exact pristine62 variants and all names/aliases
 preserved with Switch as sole addition; patch applies, workflow YAML/all shell
 steps parse and diff check passes. Existing25-test log exercised only the log
 validator, not new native acceptance. Native hosted candidate remains PENDING.
+
+S1 complete diff found the same broad-edit defect in probe-only profile paths.
+Restored every private filesystem path from2ed58ff; only the actual slash input
+and docstring change. No native owned invocation used the invalid probe. Hosted
+source4c791dd remains exact native candidate; this correction changes no build input.
