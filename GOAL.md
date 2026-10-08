@@ -66,7 +66,7 @@
   account/session/runtime/resolver write occurred. Full/MCP browser/tunnel/turn
   ownership remains explicitly unproven.
 
-## TERMUX-WEB-CONNECTION (selected 2026-10-08)
+## TERMUX-WEB-CONNECTION (owned browser accepted; live connection pending 2026-10-08)
 
 - User requires actual execution on Termux and permits necessary reuse of the
   already established OpenAI admin key/tunnel. No external-PC requirement remains.
@@ -75,6 +75,28 @@
   tunnel installer has no android asset. First close owned browser/managed-chrome
   vertical proof without accounts. No engine/package upgrade or installed profile
   mutation. Existing-key/tunnel access must use private references and exact scope.
+- Exact experimentbae34f4/candidate92a356f with pinned Playwright1.62.0 bundle
+  corrected from3258d1cf to4952f2e7 passes hosted37767253964: original28/28,
+  dependency4/4, focus122 pass/1 skip, typecheck, full858 pass/37 skip/0 fail.
+  Three eager cache selectors are the sole dependency changes; platform detection,
+  browser-download maps and executable/sandbox policy remain unchanged. One/two
+  selector attempts were rejected before acceptance; coreBundle imports all three.
+- Actual Termux Node24.18 and Bun1.3.14 both launch Chrome149 using the corrected
+  dependency; termux_browser_probe proves two nonce DOM reads, page close/new-page
+  separation and final browser closure in owned environment. Raw native CDP also
+  passes. Android candidate focus111 pass/1 Windows skip/0 fail at20s budget; the
+  missing-vector/5s CPU-timeout attempt is rejected. Frozen deps require copyfile
+  backend on this device; no installed package/engine change. Upstream Bun1.4.0
+  support is not generalized from these specific1.3.14 paths.
+- Existing native Android tunnel-client0.0.14 and private admin file reference are
+  discovered read-only. Both established Tdev aliases yield valid remote OpenAI
+  metadata through native runtime. System Go binary DNS/refusal is not key expiry;
+  no resolver/profile/key/tunnel mutation. Actual tunnel/MCP ownership stays pending.
+- Corrected final stat/inventory check preserves23 protected paths, complete18
+  generation assets and original12 web files. Old five jobs exited during user
+  resumes/profile switches; continued retention is not claimed. W1 focus9/9 stays
+  green; rewrite source remains clean c4d9a41. Real account/model/tool execution,
+  interactive login security, turn/cancel/quota and compact/resume remain unproven.
 
 
 ## WEB-PROTOCOL-ISOLATION (accepted owned protocol 2026-10-08)
