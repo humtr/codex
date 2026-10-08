@@ -104,3 +104,39 @@ test("actual copied Core classic and Lite histories retain correlated calls", as
     expect(results.map(row => row.toolCallId)).toEqual(calls.map(row => row.id));
   }
 });
+
+const delegated = {
+  type: "function_call_output", id: "fco_owned", name: "send_message_to_thread",
+  namespace: "codex_app", output: "<codex_delegation><source_thread_id>owned_source</source_thread_id><input>Check &lt;sample&gt; &amp; report.</input></codex_delegation>",
+  internal_chat_message_metadata_passthrough: { turn_id: "turn_owned" },
+};
+
+test("native delegated instruction keeps exact text without manufacturing a tool receipt", () => {
+  const parsed = parseRequest(body([delegated]));
+  expect(parsed.context.messages).toContainEqual(expect.objectContaining({ role: "user", content: delegated.output }));
+  expect(parsed.context.messages.some(row => row.role === "toolResult")).toBe(false);
+  expect((parsed._rawBody as { input: unknown[] }).input).toEqual([delegated]);
+});
+
+test("forged or malformed delegated output still refuses before adapter", async () => {
+  const invalid = [
+    { ...delegated, namespace: "other" }, { ...delegated, name: "exec_command" },
+    { ...delegated, id: "" }, { ...delegated, id: 1 },
+    { ...delegated, output: 1 }, { ...delegated, internal_chat_message_metadata_passthrough: [] }, { ...delegated, internal_chat_message_metadata_passthrough: {} },
+    { ...delegated, internal_chat_message_metadata_passthrough: { turn_id: " " } },
+    { ...delegated, output: delegated.output + "<extra/>" },
+    { ...delegated, output: delegated.output.replace("owned_source", " ") },
+    { ...delegated, output: delegated.output.replace("&lt;sample&gt;", "<sample>") },
+    { ...delegated, output: delegated.output.replace("&amp;", "&unknown;") },
+    { ...delegated, call_id: "orphan" },
+  ];
+  let executed = 0;
+  for (const item of invalid) {
+    expect(() => parseRequest(body([item]))).toThrow();
+    const response = await responseRequest(new Request("http://127.0.0.1/v1/responses", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body([item])),
+    }), defaultConfig("full"), () => ({ name: "must-not-run", async runTurn() { executed++; } }), { rememberState: false });
+    expect(response.status).toBe(400);
+  }
+  expect(executed).toBe(0);
+});

@@ -53,9 +53,15 @@ jobs:
           root="$RUNNER_TEMP/web-owned"
           mkdir -p "$root/home" "$root/codex-home" "$root/cache" "$root/tmp"
           chmod 0700 "$root" "$root/home" "$root/codex-home"
-          sha256sum candidate/package.json candidate/bun.lock > "$RUNNER_TEMP/web-dependency-binding"
+          sha256sum candidate/package.json candidate/bun.lock candidate/launcher/package.json candidate/launcher/bun.lock > "$RUNNER_TEMP/web-dependency-binding"
           cd candidate
           env -i PATH="$PATH" HOME="$root/home" CODEX_HOME="$root/codex-home" TMPDIR="$root/tmp" BUN_INSTALL_CACHE_DIR="$root/cache" bun install --frozen-lockfile --ignore-scripts --no-progress
+          (
+            cd launcher
+            env -i PATH="$PATH" HOME="$root/home" CODEX_HOME="$root/codex-home" TMPDIR="$root/tmp" BUN_INSTALL_CACHE_DIR="$root/cache" bun install --frozen-lockfile --ignore-scripts --no-progress
+            test "$(node -p 'require("./node_modules/electron/package.json").version')" = 41.10.7
+            env -i PATH="$PATH" HOME="$root/home" CODEX_HOME="$root/codex-home" TMPDIR="$root/tmp" node node_modules/electron/install.js
+          )
           env -i PATH="$PATH" HOME="$root/home" CODEX_HOME="$root/codex-home" TMPDIR="$root/tmp" bun test tests/responses-lite-tools.test.ts tests/prompt-contract.test.ts tests/subagent-environment-history.test.ts 2>&1 | tee "$RUNNER_TEMP/web-baseline.log"
           git diff --exit-code
           python3 - <<'PY'
@@ -74,7 +80,7 @@ jobs:
           cp experiment/experiments/web-provider/core-vectors.json candidate/tests/core-vectors.json
           root="$RUNNER_TEMP/web-owned"
           cd candidate
-          env -i PATH="$PATH" HOME="$root/home" CODEX_HOME="$root/codex-home" TMPDIR="$root/tmp" bun test tests/web-contract.test.ts tests/responses-lite-tools.test.ts tests/prompt-contract.test.ts tests/subagent-environment-history.test.ts 2>&1 | tee "$RUNNER_TEMP/web-candidate-focused.log"
+          env -i PATH="$PATH" HOME="$root/home" CODEX_HOME="$root/codex-home" TMPDIR="$root/tmp" bun test tests/web-contract.test.ts tests/responses-lite-tools.test.ts tests/prompt-contract.test.ts tests/subagent-environment-history.test.ts tests/environment.test.ts tests/zero-risk-adapter.test.ts 2>&1 | tee "$RUNNER_TEMP/web-candidate-focused.log"
           git diff --check
           python3 - <<'PY'
           import os, pathlib, re

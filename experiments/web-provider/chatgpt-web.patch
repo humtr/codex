@@ -1,3 +1,31 @@
+diff --git a/src/adapters/chatgpt-web/environment.ts b/src/adapters/chatgpt-web/environment.ts
+index bc9a9ff..5fb1c97 100644
+--- a/src/adapters/chatgpt-web/environment.ts
++++ b/src/adapters/chatgpt-web/environment.ts
+@@ -1,3 +1,4 @@
++import { isDelegatedInstruction } from "../../responses/schema";
+ import { homedir } from "node:os";
+ import { isAbsolute, join, relative, resolve, sep } from "node:path";
+ import { isReadableCompactionSummaryText, OPAQUE_COMPACTION_NOTE } from "../../responses/compaction";
+@@ -184,18 +185,6 @@ function compactionSummaryMessage(value: Record<string, unknown>): boolean {
+   return isReadableCompactionSummaryText(text) || text === OPAQUE_COMPACTION_NOTE;
+ }
+
+-/** The desktop injects cross-task messages as synthetic tool outputs without a call_id. */
+-function isDelegatedInstruction(item: Record<string, unknown> | undefined): boolean {
+-  if (item?.type !== "function_call_output" || item.name !== "send_message_to_thread"
+-    || item.namespace !== "codex_app" || item.call_id !== undefined
+-    || typeof item.id !== "string" || !item.id || !itemTurnId(item)?.trim()
+-    || typeof item.output !== "string") return false;
+-  // The native producer escapes &, < and > in both fields. Reject extra/nested tags and
+-  // malformed entities; keep the original text as task content, never environment authority.
+-  const fields = /^<codex_delegation>\s*<source_thread_id>([^<>]+)<\/source_thread_id>\s*<input>([^<>]+)<\/input>\s*<\/codex_delegation>$/.exec(item.output.trim());
+-  return fields !== null && fields.slice(1).every(text => text.trim() && !/&(?!amp;|lt;|gt;)/.test(text));
+-}
+-
+ /** V2 agent_message instructions must still come from this child's direct parent. */
+ function isNativeInstruction(
+   item: Record<string, unknown> | undefined,
 diff --git a/src/bridge.ts b/src/bridge.ts
 index 59449cb..13936df 100644
 --- a/src/bridge.ts
@@ -43,9 +71,18 @@ index 59449cb..13936df 100644
      } else {
        output.push({
 diff --git a/src/responses/parser.ts b/src/responses/parser.ts
-index ded9b12..ef8c9a0 100644
+index ded9b12..aa9b602 100644
 --- a/src/responses/parser.ts
 +++ b/src/responses/parser.ts
+@@ -12,7 +12,7 @@ import type {
+   CodexToolCall,
+ } from "../types";
+ import { namespacedToolName } from "../types";
+-import { responsesRequestSchema } from "./schema";
++import { isDelegatedInstruction, responsesRequestSchema } from "./schema";
+ import { compactionItemToText, isNativeTextCompaction } from "./compaction";
+ import { previousResponseReplayPrefixLength } from "./state";
+ import { decodeReasoningEnvelope } from "./reasoning-envelope";
 @@ -150,7 +150,7 @@ function buildTools(tools: unknown[] | undefined): CodexTool[] | undefined {
      if (namespace) tool.namespace = namespace;
      out.push(tool);
@@ -227,16 +264,22 @@ index ded9b12..ef8c9a0 100644
          const specs = Array.isArray(out.tools) ? (out.tools as Record<string, unknown>[]) : [];
          loadedToolSpecs.push(...specs);
          // List the EXACT wire names the model must call (flattened for namespaced specs), matching
-@@ -561,7 +570,7 @@ export function parseRequest(body: unknown): CodexParsedRequest {
+@@ -560,8 +569,13 @@ export function parseRequest(body: unknown): CodexParsedRequest {
+
        if (effectiveType === "function_call_output") {
          pendingReasoning.length = 0;
++        if (isDelegatedInstruction(item)) {
++          // Desktop cross-task delivery is an instruction, not an executed tool receipt.
++          messages.push({ role: "user", content: item.output, timestamp: now });
++          continue;
++        }
          const output = item as { call_id: string; output?: string | unknown[] };
 -        const toolInfo = findToolById(messages, output.call_id);
 +        const toolInfo = consumeCall(output.call_id, "function_call_output");
          messages.push({
            role: "toolResult", toolCallId: output.call_id,
            toolName: toolInfo.name, toolNamespace: toolInfo.namespace,
-@@ -573,7 +582,7 @@ export function parseRequest(body: unknown): CodexParsedRequest {
+@@ -573,7 +587,7 @@ export function parseRequest(body: unknown): CodexParsedRequest {
        if (effectiveType === "custom_tool_call_output") {
          pendingReasoning.length = 0;
          const output = item as { call_id: string; output: string | unknown[] };
@@ -245,7 +288,7 @@ index ded9b12..ef8c9a0 100644
          messages.push({
            role: "toolResult", toolCallId: output.call_id,
            toolName: toolInfo.name, toolNamespace: toolInfo.namespace,
-@@ -587,12 +596,16 @@ export function parseRequest(body: unknown): CodexParsedRequest {
+@@ -587,12 +601,16 @@ export function parseRequest(body: unknown): CodexParsedRequest {
 
    const declaredTools = buildTools(data.tools as unknown[] | undefined) ?? [];
    const loadedTools = buildTools(loadedToolSpecs) ?? [];
@@ -266,10 +309,33 @@ index ded9b12..ef8c9a0 100644
      });
    const context: CodexContext = {
 diff --git a/src/responses/schema.ts b/src/responses/schema.ts
-index 2286bab..d10ed97 100644
+index 2286bab..285eb59 100644
 --- a/src/responses/schema.ts
 +++ b/src/responses/schema.ts
-@@ -90,6 +90,7 @@ const customToolCallItemSchema = z.object({
+@@ -1,5 +1,22 @@
+ import * as z from "zod/v4";
+
++/** The desktop injects cross-task messages as synthetic tool outputs without a call_id. */
++export function isDelegatedInstruction(value: unknown): value is Record<string, unknown> & { output: string } {
++  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
++  const item = value as Record<string, unknown>;
++  const metadata = item.internal_chat_message_metadata_passthrough;
++  const turnId = typeof metadata === "object" && metadata !== null && !Array.isArray(metadata)
++    ? (metadata as Record<string, unknown>).turn_id : undefined;
++  if (item.type !== "function_call_output" || item.name !== "send_message_to_thread"
++    || item.namespace !== "codex_app" || item.call_id !== undefined
++    || typeof item.id !== "string" || !item.id || (typeof turnId !== "string" || !turnId.trim())
++    || typeof item.output !== "string") return false;
++  // The native producer escapes &, < and > in both fields. Reject extra/nested tags and
++  // malformed entities; keep the original text as task content, never environment authority.
++  const fields = /^<codex_delegation>\s*<source_thread_id>([^<>]+)<\/source_thread_id>\s*<input>([^<>]+)<\/input>\s*<\/codex_delegation>$/.exec(item.output.trim());
++  return fields !== null && fields.slice(1).every(text => text.trim() && !/&(?!amp;|lt;|gt;)/.test(text));
++}
++
+ const inputTextSchema = z.object({ type: z.literal("input_text"), text: z.string() });
+ const plainTextSchema = z.object({ type: z.literal("text"), text: z.string() });
+ const inputImageBlockSchema = z.object({
+@@ -90,6 +107,7 @@ const customToolCallItemSchema = z.object({
    id: z.string().optional(),
    call_id: z.string().min(1),
    name: z.string().min(1),

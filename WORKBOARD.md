@@ -58,3 +58,17 @@ B2 exact focused37/37 (original28 + owned9) and actual Core vector replay pass
 at hosted37755884358/source1bb8a08. Stabilized grouped TypeScript typecheck and
 all account-free candidate tests now selected; browser-dependent cases remain
 explicit skips, never account/browser acceptance. Core Rust evidence unchanged.
+
+B2 stop-on-red: exact0e69e96 hosted37756119366 typecheck passes but the full
+893-test group has852 pass/37 skip/4 fail. One strict output-correlation failure
+misclassifies an existing native codex_app delegation as a paired result; three
+Zero Risk launcher ownership tests cannot import the missing locked Electron
+dependency. Freeze independent behavior. KEEP validated native instruction and
+existing environment/revision ownership; COLLAPSE parser/environment validation
+into one schema predicate; DELETE the misclassification, never relax ordinary
+call/result IDs. Scope adds src/adapters/chatgpt-web/environment.ts for this
+shared predicate. Focus maps: preserved instruction/exact content, forged native
+shapes refused before adapter, retained environment and compaction tests. Frozen
+launcher dependencies and exact Electron dependency postinstall are disposable
+test prerequisites, not device setup or real browser/account acceptance. Restore
+focused environment/Zero Risk/contract gates before rerunning the full group.

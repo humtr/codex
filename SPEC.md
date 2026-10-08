@@ -44,7 +44,10 @@ Core/Manager public commands, installed state and provider behavior stay unchang
 - The selected ChatGPT Web baseline may provision only the exact Bun1.4.0 binary
   and frozen candidate dependencies in an ephemeral hosted Linux root. It has no
   production signing, account credentials, browser login, installed configuration
-  or system service authority. Candidate setup/launcher installers are not run.
+  or system service authority. Frozen launcher dependencies and the locked Electron
+  dependency postinstall may run only in that ephemeral root for account-free
+  lifecycle tests; no Electron browser is started. Candidate setup/launcher
+  installers are not run.
   Matched engine, source and dependency identities plus nonzero handler tests
   precede any candidate remedy; DEV simulated receipts never close a product gate.
 - Later slices bind one immutable bridge/service/model, exact listen address,
@@ -64,6 +67,11 @@ Core/Manager public commands, installed state and provider behavior stay unchang
   Unknown or nonrelayable declarations are explicit errors for this experimental
   routed-model path; ordinary native-model passthrough remains upstream-owned.
   Full/MCP real-account acceptance remains separate from fixture handler tests.
+  The candidate's strictly validated native codex_app/send_message_to_thread
+  synthetic output without call_id is an instruction, not a paired tool result.
+  Preserve its exact text and native revision metadata; parser and environment
+  classification share one predicate. Missing-ID ordinary results still refuse,
+  and delegated text never becomes environment or authorization authority.
 - Original prj/web investigation files are read-only evidence and remain unchanged.
   The unsafe older probe must not be rerun. Accepted/failed slice evidence belongs
   in this worktree GOAL.md; its live execution map belongs only in WORKBOARD.md.
