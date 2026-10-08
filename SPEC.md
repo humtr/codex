@@ -4,6 +4,54 @@ Status: initial normative baseline
 Repository: `humtr/codex`  
 Active implementation branch: `rewrite/rust-core`
 
+## Experimental web-provider qualification boundary (2026-10-08)
+
+This user-selected experiment lives only on experiment/web-provider after accepted
+source integration c4d9a41. It is independent of /switch and stable publication.
+Core/Manager public commands, installed state and provider behavior stay unchanged.
+
+- First qualification is credential-free and loopback-only. A copied, explicitly
+  pinned Core plus complete signed generation runs through the actual public Core
+  entrypoint with a fully owned HOME, CODEX_HOME, PREFIX, configuration, workspace
+  and activation state. Caller auth, provider, plugin, profile and server environment
+  is not inherited. Every artifact path/digest/version/generation/argv is recorded;
+  an installed launcher is never discovered from PATH or executed. Only test roots
+  may change; actual auth/settings/history/installed assets/resolver stay protected.
+- The first proof uses upstream -p web-probe configuration layering and exec with
+  ephemeral conversation state; it is not TUI/shared-server/resume acceptance.
+  No browser login, external model/account call, production signing or live install.
+  Borrowing a known upstream model's tool capability metadata for a loopback fixture
+  proves protocol transport only, never attribution to that real service/model.
+- Effective declarations include classic top-level tools and the pinned upstream
+  Responses-Lite additional_tools input items. Preserve their full definitions;
+  code-mode-only custom functions.exec must retain freeform JavaScript and nested
+  tool results. Both actually emitted transports must be qualified, rather than
+  assuming absence of a top-level tools array means there are no tools.
+- The known client-executed tool_search declaration is preserved as observed
+  metadata; W1 never invokes it or claims its bridge execution. Unknown definition
+  types still refuse, and unselected call/result types must not be ignored.
+  Actual nested shell commands assert owned HOME/CODEX_HOME/PREFIX before reading
+  the nonce, with explicit non-login shell invocation; configuration intent alone
+  does not prove child-environment isolation.
+- Preserve each advertised function/custom tool's exact name, namespace and schema
+  plus call history, arguments/freeform input, call ID and corresponding result.
+  Unknown/ambiguous definitions, missing/duplicated/wrong IDs, altered arguments
+  or output must refuse, never be silently dropped. A runtime-generated fixture
+  nonce must be read by actual local tools for at least two sequential roundtrips;
+  the final reply is derived only after exact correlated outputs are verified.
+  Custom/namespaced execution is claimed only for actually advertised/tested routes;
+  unsupported/unobserved routes remain explicitly unproven.
+- Later slices bind one immutable bridge/service/model, exact listen address,
+  access control, credential-free logs and actual tool/history conversion before
+  separately scoped actual-account attribution, cancel, expiry/quota and interactive
+  compact/resume proof. No silent model downgrade or invented capability/limit.
+  The bridge owns web sessions/protocol conversion, upstream owns tools/history;
+  Manager conveniences follow demonstrated capability and a separate SPEC contract.
+  Core gains no web login, browser automation or provider-selection controller.
+- Original prj/web investigation files are read-only evidence and remain unchanged.
+  The unsafe older probe must not be rerun. Accepted/failed slice evidence belongs
+  in this worktree GOAL.md; its live execution map belongs only in WORKBOARD.md.
+
 ## Optional /switch TUI source boundary (2026-10-08)
 
 This section applies to the user-authorized experiment/profile-tui and its

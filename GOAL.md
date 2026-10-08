@@ -34,6 +34,69 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
+## WEB-PROTOCOL-ISOLATION (accepted owned protocol 2026-10-08)
+
+- User requests the independent prj/web review findings as a separate experiment
+  after /switch source integration. Branch experiment/web-provider starts at exact
+  accepted rewrite/experimentc4d9a41. Worktree prj/web/codex-experiment; original12
+  investigation files remain unchanged. Primary approved equivalent; workers OFF.
+- Canonical authority is this physical worktree SPEC/GOAL/WORKBOARD. Read installed
+  goal-md and resolve the base alias, then explicitly bind this worktree GOAL;
+  the shared alias resolver cannot accept unregistered absolute paths. No shared
+  skill/index mutation or second ledger. Protected main rewrite source stays c4d9a41.
+- Runnable owned public Core version baseline passes after providing synthetic
+  Core config/resolver/TLS/openssl prerequisites; missing-prefix/config attempts
+  are rejected, not behavior evidence. Pinned signed40 Core8acc8219 and runtime
+  926a5e5c report exact codex-cli0.160.0 on owned HOME/CODEX_HOME/PREFIX.
+  No installed launch or account call occurred. Baseline record web-baseline.json.
+- User selected ChatGPT Web as the first real-service candidate. Bind immutable
+  miuuyy/codex-chatgpt-web92a356fac2292e3af5a97ab7ba634edd8d38621e after the
+  protocol foundation. No Gemini-first assumption or desktop login/install yet.
+- Actual known-model request emits Responses-Lite additional_tools, not top-level
+  tools; gpt5.6-sol is code-mode-only. Missing-inventory attempts are rejected.
+  Extend the same strict proof to additional declarations and actual namespaced
+  custom functions.exec, then prove classic fallback separately without claiming
+  an external real model was used.
+- First acceptance requires exact actual artifact attribution and full isolation,
+  unaltered advertised tool inventory, strict call/result correlation, at least two
+  real local tool roundtrips and nonce-derived reply. Namespace/custom routes get
+  explicit observed/unproven status. Real service/model, TUI, compact/resume and
+  Manager provider integration remain later gates; loopback proof cannot close them.
+
+- Final focus9/9 passes malformed/duplicate/wrong call IDs, exact arguments,
+  namespace/custom input/schema preservation, classic/Lite ambiguity, altered
+  current/prior results, failed/running/extra output, unknown calls and actual shell
+  scope refusal when HOME differs. No old fixed-response success assertion.
+- Actual public copied signed40 Core8acc8219/runtime926a5e5c pass both classic
+  gpt5.5 capability seed and Lite code-only gpt5.6-sol seed: each3 requests,
+  2 actual local command executions, correlated call/result history and nonce-derived
+  final reply. Actual shell verifies owned HOME/CODEX_HOME/PREFIX first. Classic
+  executes function exec_command; Lite executes custom functions.exec with nested
+  exec_command. Full raw advertised definitions retained (Lite9 namespace routes,
+  one custom; classic one custom plus client-search metadata). Other routes remain
+  unexecuted, not accepted as real-service support. No real model inference.
+- Rejected baseline/proofs: missing synthetic compatibility/Core config roots,
+  assuming only top-level tools, inherited login-shell startup producing a running
+  empty session, and unknown client-search metadata. KEEP exact signed artifact,
+  one strict correlation invariant; COLLAPSE effective classic/Lite declarations
+  onto that invariant; DELETE fixed-answer/exists-output acceptance. No source
+  Core/Manager change or shared skill-index mutation.
+- Python syntax/diff and actual source inspection pass. Final23 installed/auth/config
+  metadata paths, complete40/39 and all5 rebound real jobs match the switch close;
+  all12 original prj/web investigation files remain exact. No system resolver,
+  launcher, profile, auth/history, package or external-account mutation. Evidence
+  web-final-focus, web-owned-{gpt-5.5,gpt-5.6-sol} logs/JSON and web-protected-final.
+- User selected ChatGPT Web. Immutable92a356fac source is fetched in an owned
+  temporary checkout only. It requires Bun1.4.0; installed1.3.14 is not qualifying
+  engine evidence. Restore matched ephemeral hosted baseline before candidate
+  changes. A new concrete gap is nondefault custom namespace omission plus missing
+  custom call namespace/correlation handling; inspect all replay/emission/broker
+  uses before accepting a remedy. No desktop launcher/setup/browser was executed.
+- Disposition: first owned protocol slice closed. Real ChatGPT session/model,
+  tool/turn attribution through the actual bridge, cancel/expiry/quota and native
+  TUI/compact/resume remain unproven. Further work remains experimental and does
+  not change production or `/switch` account-selection semantics.
+
 ## HOSTED-PREFLIGHT-0161 (source and hosted repair accepted 2026-10-08)
 
 - Repeated public failures first37390712105/latest37698740814 are fail-closed
