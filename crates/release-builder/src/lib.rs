@@ -1256,13 +1256,9 @@ fn validate_publish_patch_report(
 ) -> Result<(), BuilderError> {
     let mut fields = value.split(';');
     let policy = fields.next();
+    let adaptation = runtime_patch::policy(expected_policy);
     if policy != Some(expected_policy)
-        || !matches!(
-            policy,
-            Some(PATCH_POLICY_ID)
-                | Some(runtime_patch::POLICY)
-                | Some(runtime_patch::PREVIOUS_POLICY)
-        )
+        || (expected_policy != PATCH_POLICY_ID && adaptation.is_none())
     {
         return Err(BuilderError::Invalid(
             "generation patch policy report is invalid",
@@ -1282,35 +1278,32 @@ fn validate_publish_patch_report(
         .and_then(|field| field.strip_prefix("code_mode_host_sha256="));
     let source_counts = fields.next();
     let changed_bytes = fields.next();
-    let is_uds = matches!(
-        policy,
-        Some(runtime_patch::POLICY) | Some(runtime_patch::PREVIOUS_POLICY)
+    let uds = adaptation
+        .and_then(|_| fields.next())
+        .and_then(|field| field.strip_prefix("uds_policy="));
+    let expected_permission = adaptation.and_then(|policy| policy.permission);
+    let permission = expected_permission
+        .and_then(|_| fields.next())
+        .and_then(|field| field.strip_prefix("permission_policy="));
+    let expected_changed = format!(
+        "changed_bytes={}",
+        54 + adaptation.map_or(0, |policy| policy.changed_bytes)
     );
-    let uds = if is_uds { fields.next() } else { None };
-    let permission = if policy == Some(runtime_patch::POLICY) {
-        fields.next()
-    } else {
-        None
-    };
-    let expected_changed = if policy == Some(runtime_patch::POLICY) {
-        format!("changed_bytes={}", 54 + runtime_patch::CHANGED_BYTES)
-    } else if is_uds {
-        "changed_bytes=97".to_owned()
-    } else {
-        "changed_bytes=54".to_owned()
-    };
     if fields.next().is_some()
-        || (is_uds
-            && (uds != Some("uds_policy=termux-uds-0-160-0-v1")
-                || raw_runtime_digest != Some(runtime_patch::RAW_SHA256)))
+        || adaptation.is_some_and(|policy| {
+            uds != Some(policy.uds)
+                || raw_runtime_digest != Some(policy.raw_sha256)
+                || policy
+                    .archive_sha256
+                    .is_some_and(|digest| archive_digest != Some(digest))
+        })
         || archive_digest != Some(source_digest)
         || raw_runtime_digest.is_none_or(|digest| !valid_lower_sha256(digest))
         || adapted_runtime_digest != Some(runtime_digest)
         || host_digest != Some(code_mode_host_digest)
         || source_counts != Some("source_counts=2,1,1,1")
         || changed_bytes != Some(expected_changed.as_str())
-        || (policy == Some(runtime_patch::POLICY)
-            && permission != Some("permission_policy=termux-permission-picker-0-160-0-v1"))
+        || permission != expected_permission
     {
         return Err(BuilderError::Invalid(
             "generation patch policy report is invalid",
@@ -1404,14 +1397,7 @@ fn validate_publish_generation_descriptor(
         ));
     }
     let patch_policy = publish_descriptor_field(&mut lines, "patch_policy_id")?;
-    if !matches!(
-        patch_policy,
-        PATCH_POLICY_ID | runtime_patch::POLICY | runtime_patch::PREVIOUS_POLICY
-    ) || (matches!(
-        patch_policy,
-        runtime_patch::POLICY | runtime_patch::PREVIOUS_POLICY
-    ) && package_version != "0.160.0")
-    {
+    if !runtime_patch::supports_version(patch_policy, package_version) {
         return Err(BuilderError::Invalid(
             "publication generation patch policy is invalid",
         ));
@@ -3203,7 +3189,7 @@ struct AdaptedGeneration {
     browser_open_helper_sha256: String,
     browser_manual_helper_sha256: String,
     changed_bytes: usize,
-    uds_adapted: bool,
+    runtime_policy: Option<runtime_patch::Policy>,
 }
 
 fn set_mode(path: &Path, mode: u32, operation: &'static str) -> Result<(), BuilderError> {
@@ -3347,9 +3333,18 @@ fn adapt_selected_runtime(
         ));
     }
 
-    let uds_adapted = runtime_patch::required(&request.version).map_err(BuilderError::Archive)?;
-    if uds_adapted {
-        changed_bytes += runtime_patch::apply(&mut runtime, &raw_runtime_sha256)
+    let runtime_policy =
+        runtime_patch::required(&request.version).map_err(BuilderError::Archive)?;
+    if let Some(policy) = runtime_policy {
+        if policy
+            .archive_sha256
+            .is_some_and(|digest| digest != request.archive_sha256)
+        {
+            return Err(BuilderError::Archive(
+                "upstream archive does not match qualified Termux policy",
+            ));
+        }
+        changed_bytes += runtime_patch::apply(&mut runtime, &raw_runtime_sha256, policy)
             .map_err(BuilderError::Archive)?;
     }
 
@@ -3388,7 +3383,7 @@ fn adapt_selected_runtime(
         browser_open_helper_sha256,
         browser_manual_helper_sha256,
         changed_bytes,
-        uds_adapted,
+        runtime_policy,
     })
 }
 
@@ -3399,11 +3394,9 @@ fn write_generation_descriptor(
     core_sha256: &str,
     manager_sha256: Option<&str>,
 ) -> Result<(), BuilderError> {
-    let patch_policy = if adapted.uds_adapted {
-        runtime_patch::POLICY
-    } else {
-        PATCH_POLICY_ID
-    };
+    let patch_policy = adapted
+        .runtime_policy
+        .map_or(PATCH_POLICY_ID, |policy| policy.id);
     let mut patch_report = format!(
         "{patch_policy};archive_sha256={};raw_runtime_sha256={};runtime_sha256={};code_mode_host_sha256={};source_counts=2,1,1,1;changed_bytes={}",
         request.archive_sha256,
@@ -3412,12 +3405,11 @@ fn write_generation_descriptor(
         adapted.code_mode_host_sha256,
         adapted.changed_bytes
     );
-    if adapted.uds_adapted {
-        patch_report.push_str(";uds_policy=termux-uds-0-160-0-v1");
-        patch_report.push_str(&format!(
-            ";permission_policy={}",
-            runtime_patch::PERMISSION_POLICY
-        ));
+    if let Some(policy) = adapted.runtime_policy {
+        patch_report.push_str(&format!(";uds_policy={}", policy.uds));
+        if let Some(permission) = policy.permission {
+            patch_report.push_str(&format!(";permission_policy={permission}"));
+        }
     }
     let upstream_doctor = if request.legacy_activation_doctor_unsupported {
         "unsupported"
@@ -3936,45 +3928,79 @@ fi
     }
 
     #[test]
-    fn permission_publish_report_preserves_legacy_and_binds_every_v3_field() {
+    fn permission_publish_report_preserves_legacy_and_binds_every_qualified_field() {
         let digest = "a".repeat(64);
-        let count = 54 + runtime_patch::CHANGED_BYTES;
-        let report = format!("{};archive_sha256={digest};raw_runtime_sha256={};runtime_sha256={digest};code_mode_host_sha256={digest};source_counts=2,1,1,1;changed_bytes={count};uds_policy=termux-uds-0-160-0-v1;permission_policy={}", runtime_patch::POLICY, runtime_patch::RAW_SHA256, runtime_patch::PERMISSION_POLICY);
-        let valid = |value: &str, policy: &str| {
-            validate_publish_patch_report(value, &digest, &digest, &digest, policy)
-        };
-        assert!(valid(&report, runtime_patch::POLICY).is_ok());
-        assert!(valid(&report, runtime_patch::PREVIOUS_POLICY).is_err());
-        assert!(valid(&report, PATCH_POLICY_ID).is_err());
-        for (index, field) in report.split(';').enumerate() {
-            let mut fields = report.split(';').collect::<Vec<_>>();
-            fields.remove(index);
-            assert!(
-                valid(&fields.join(";"), runtime_patch::POLICY).is_err(),
-                "missing {field}"
-            );
-            assert!(
-                valid(&(report.clone() + ";" + field), runtime_patch::POLICY).is_err(),
-                "duplicate {field}"
-            );
-            assert!(
-                valid(
-                    &report.replace(field, &(field.to_owned() + "x")),
-                    runtime_patch::POLICY
-                )
-                .is_err(),
-                "changed {field}"
-            );
+        for id in [
+            PATCH_POLICY_ID,
+            runtime_patch::PREVIOUS_POLICY,
+            runtime_patch::POLICY,
+            "termux-fd-remap-v4",
+            "unknown",
+        ] {
+            for version in ["0.159.2", "0.160.0", "0.160.1", "0.161.0", "0.161.1"] {
+                let expected = (id == PATCH_POLICY_ID && ["0.159.2", "0.160.0"].contains(&version))
+                    || ([runtime_patch::PREVIOUS_POLICY, runtime_patch::POLICY].contains(&id)
+                        && version == "0.160.0")
+                    || (id == "termux-fd-remap-v4" && version == "0.161.0");
+                assert_eq!(
+                    runtime_patch::supports_version(id, version),
+                    expected,
+                    "{id}/{version}"
+                );
+            }
         }
-        for bad_count in [54, 97, count - 1, count + 1] {
-            assert!(valid(
-                &report.replace(
-                    &format!("changed_bytes={count}"),
-                    &format!("changed_bytes={bad_count}")
-                ),
-                runtime_patch::POLICY
-            )
-            .is_err());
+        for id in [runtime_patch::POLICY, "termux-fd-remap-v4"] {
+            let policy = runtime_patch::policy(id).unwrap();
+            let archive = policy.archive_sha256.unwrap_or(&digest);
+            let count = 54 + policy.changed_bytes;
+            let report = format!("{id};archive_sha256={archive};raw_runtime_sha256={};runtime_sha256={digest};code_mode_host_sha256={digest};source_counts=2,1,1,1;changed_bytes={count};uds_policy={};permission_policy={}", policy.raw_sha256, policy.uds, policy.permission.unwrap());
+            let valid = |value: &str, expected: &str| {
+                validate_publish_patch_report(value, archive, &digest, &digest, expected)
+            };
+            assert!(valid(&report, id).is_ok());
+            for other in [
+                PATCH_POLICY_ID,
+                runtime_patch::PREVIOUS_POLICY,
+                runtime_patch::POLICY,
+                "termux-fd-remap-v4",
+                "unknown",
+            ] {
+                if other != id {
+                    assert!(valid(&report, other).is_err());
+                }
+            }
+            for (index, field) in report.split(';').enumerate() {
+                let mut fields = report.split(';').collect::<Vec<_>>();
+                fields.remove(index);
+                assert!(
+                    valid(&fields.join(";"), id).is_err(),
+                    "{id} missing {field}"
+                );
+                assert!(
+                    valid(&(report.clone() + ";" + field), id).is_err(),
+                    "{id} duplicate {field}"
+                );
+                assert!(
+                    valid(&report.replace(field, &(field.to_owned() + "x")), id).is_err(),
+                    "{id} changed {field}"
+                );
+            }
+            for bad_count in [54, 97, count - 1, count + 1] {
+                assert!(valid(
+                    &report.replace(
+                        &format!("changed_bytes={count}"),
+                        &format!("changed_bytes={bad_count}")
+                    ),
+                    id
+                )
+                .is_err());
+            }
+            if policy.archive_sha256.is_some() {
+                let forged = report.replace(archive, &digest);
+                assert!(
+                    validate_publish_patch_report(&forged, &digest, &digest, &digest, id).is_err()
+                );
+            }
         }
     }
 

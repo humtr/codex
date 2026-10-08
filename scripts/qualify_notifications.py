@@ -15,8 +15,12 @@ import signal
 import sqlite3
 import subprocess
 import tempfile
+import sys
 import threading
 import time
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / ".github/scripts"))
+from rald3_preflight import parse_descriptor
 
 
 class Rpc:
@@ -71,10 +75,9 @@ def qualify(core, generation, parent):
     with tempfile.TemporaryDirectory(prefix="nq", dir=parent) as temporary:
         root = Path(temporary)
         home, prefix = root / "h", root / "p"
-        fields = dict(line.split("\t", 1) for line in (generation / "generation.meta").read_text().splitlines()[1:] if line.count("\t") == 1)
+        fields = parse_descriptor(generation / "generation.meta")
         identity = fields["generation_id"]
-        assert fields["upstream_package_version"] == "0.160.0"
-        assert fields["patch_policy_id"] == "termux-fd-remap-v3"
+        assert ";permission_policy=" in fields["patch_report"]
         installed = home / ".local/lib/codex/core/generations" / identity
         shutil.copytree(generation, installed)
         assert (installed / "manager").is_file()

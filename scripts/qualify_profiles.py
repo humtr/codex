@@ -16,13 +16,16 @@ import termios
 import time
 
 from qualify_tasks import fixture_activation_state, materialize_signed_generation
+from rald3_preflight import parse_descriptor
 
 
 def qualify(generation, parent, public_key):
     with tempfile.TemporaryDirectory(prefix="pq", dir=parent) as temporary:
         root = Path(temporary)
         home, prefix = root / "h", root / "p"
-        identity = dict(line.split("\t", 1) for line in (generation / "generation.meta").read_text().splitlines()[1:])["generation_id"]
+        fields = parse_descriptor(generation / "generation.meta")
+        identity = fields["generation_id"]
+        expected_version = f"codex-cli {fields['upstream_package_version']}\n".encode()
         native = home / ".local/lib/codex/core/generations" / identity
         materialize_signed_generation(generation, native)
         for path in [home / ".codex", home / ".local/share/codex/core/config", prefix / "bin", prefix / "etc/tls"]:
@@ -124,7 +127,7 @@ requires_openai_auth = false
             override = profiles / "override/home"
             assert profile("default", "work").stdout == b"default: work\n"
             assert profile("current").stdout == b"current: work\nsource: saved\n"
-            assert b"0.160.0" in run("--version").stdout
+            assert run("--version").stdout == expected_version
             assert (account / "sessions").is_symlink(), "actual Core must prepare selected home"
             process, master = launch()
             pid = bind(account, process, master)
@@ -165,7 +168,7 @@ requires_openai_auth = false
             assert (original.st_ino, original.st_mode) == (after.st_ino, after.st_mode)
             # Prepared compatibility links must survive a rename and another launch.
             profile("default", "renamed")
-            assert b"0.160.0" in run("--version").stdout
+            assert run("--version").stdout == expected_version
             renamed_client, renamed_master = launch()
             bind(profiles / "renamed/home", renamed_client, renamed_master)
             profile("default", "default")
@@ -182,14 +185,14 @@ requires_openai_auth = false
             print("PASS native prepared-home rename, inode preservation and delete without shared-history changes")
             preference = home / ".local/share/codex/manager/default-profile-v1"
             preference.write_bytes(b"invalid-owned-preference")
-            assert b"0.160.0" in run("--version").stdout
+            assert run("--version").stdout == expected_version
             assert profile("default", success=False).returncode == 1
             assert preference.read_bytes() == b"invalid-owned-preference"
             preference.write_bytes(b"codex-manager-default-profile-v1\nprofile\tdefault\n")
             manager = native / "manager"
             manager.rename(native / "manager.unavailable")
             try:
-                assert b"0.160.0" in run("--version").stdout
+                assert run("--version").stdout == expected_version
             finally:
                 (native / "manager.unavailable").rename(manager)
             print("PASS native malformed preference and optional Manager absence preserve ordinary launch")

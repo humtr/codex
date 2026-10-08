@@ -34,6 +34,50 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
+## HOSTED-PREFLIGHT-0161 (source accepted; hosted repair pending 2026-10-08)
+
+- Repeated public failures first37390712105/latest37698740814 are fail-closed
+  qualification refusals at upstream0.160.1/0.161.0; signing/publication did not run.
+  Exact official0.161.0 archive3c02e2ae34be0d06e62557e98fc5c0a783bec5a2fed406fe00e565803bf84ee8,
+  raw0129f94f4f1197bd75f6c4265889061f386ed302bbc50c6e57e3e0660dfb28a7,
+  tag979011409de0a60b52f179721948e65531d26144 and official debuglink96904dc1
+  bind the new v4 artifact.22 blocks432 special+54 common change486 total bytes.
+  Actual native SHA d9e019075903111b5da87d5c013cacda3adef540083605fde9dbec9527949a0b;
+  original code-mode-host remains byte-identical. Unknown versions still refuse.
+- One Runtime Policy owns Rust version/artifact/report/write/publication bindings;
+  hosted preflight recognizes exact161 v4+archive. All22 legacy160 byte blocks are
+  unchanged. Public retained160 history was exhaustively checked15/15 (v1=2,
+  v2=8, v3=5); historical pre-UDS v1 through160 remains valid. New161 cannot claim
+  v1/v2/v3. Existing Core/Manager/Cargo product source remains exact signed40.
+- Exact-source source acceptance passed Core184+one opt-in ignored, Manager33+41,
+  builder22:280 actual Rust tests; migration15+hosted Python86:101. Final affected
+  builder22 and Python86 rerun after historical-v1 correction pass. Locked workspace
+  all-target check, workspace Clippy-D warnings, rustfmt and actual diff pass.
+  Binary/doc zero-test harnesses are excluded. Unchanged Core/Manager evidence is
+  reused; no unrelated broad rerun. No new dependency or runtime boundary.
+- Actual real-Termux v4 candidate passes legacy/named/embedded menu choices,
+  current marker and both shortcuts, native dangerFullAccess/reviewer settings6/5,
+  profile create/default/rename/delete and optional-Manager absence, current-writer
+  reconnect/cancellation/retained-subscriber/PID-stable force/takeover/pause, single
+  line completion and memory-consolidation notification exclusion. All homes,
+  clients, model endpoints and signing keys are owned fixtures; no credentials,
+  real account/model calls or Android notification provider calls.
+- Initial482-byte candidate is rejected: native menu exposed a skipped scratch
+  initialization. Official PC a37b7b8 identified missing x25=sp+780; final branch
+  preserves it before deleting Read Only construction. Final real-menu regression
+  passes all three paths. Type-complexity lint, wrong fixture URL and wrong probe
+  option invocations are rejected runs, not acceptance. Final one-shot fixture-key
+  publisher accepts real v4 candidate; source affects no official signing key.
+- Protected comparison proves all23 paths, complete signed40/39 payloads and all10
+  pre-existing native jobs unchanged; original experiment branch remains f64beea
+  with only its previously recorded follow-up docs dirty. Main/rewrite/sealed refs
+  are unchanged. Current fix lineage begins at production docs-only b949afa and
+  imports no experimental source. Installed preview is retained.
+- Source/artifact gate is accepted. Remaining closure is exact-source unsigned
+  hosted build/Android smoke and minimal ordinary non-forced public workflow pin
+  repair. No official signing/publication or installed activation is claimed here.
+  Idle-profile stable admission remains a separately queued bundle.
+
 ## PROFILE-LIFECYCLE-DELIVERY (accepted 2026-10-05)
 
 - User `배포 4` requests deployment of the just-accepted profile lifecycle source

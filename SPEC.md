@@ -946,7 +946,7 @@ The release builder complete output boundary is durable: final file modes are se
 
 The accepted archive is gzip-compressed POSIX ustar. A per-entry POSIX PAX
 header is optional and may contain only `mtime`; all other extended semantics
-are rejected. There are at most 32 logical entries, paths are canonical relative
+are rejected. There are at most 256 logical entries, paths are canonical relative
 UTF-8 of at most 256 bytes, the compressed archive is at most 256 MiB, each
 regular file is at most 384 MiB, and total regular-file payload is at most
 512 MiB. Duplicate paths, absolute or dot/dot-dot paths, links, special files,
@@ -1027,6 +1027,33 @@ closed. The patch report additionally binds the permission policy and exact
 changed-byte count. Historical v1/v2 signed generations remain rollback-valid.
 Actual native picker, shortcut, no-daemon and shared-server setting readback
 qualify this policy; changes to the upstream version require fresh qualification.
+
+Upstream 0.161.0 qualification is the selected current compatibility extension.
+Its official archive SHA-256 is
+`3c02e2ae34be0d06e62557e98fc5c0a783bec5a2fed406fe00e565803bf84ee8`,
+raw runtime SHA-256 is
+`0129f94f4f1197bd75f6c4265889061f386ed302bbc50c6e57e3e0660dfb28a7`,
+and official source tag commit is
+`979011409de0a60b52f179721948e65531d26144`. A new exact-artifact
+`termux-fd-remap-v4` record must retain the four common FD remaps and qualify
+only that runtime's UDS and built-in permission UI with their own exact source
+instruction/string/padding checks and original byte ranges: 22 non-overlapping
+blocks change exactly 432 bytes; the unchanged common FD policy changes 54 bytes,
+so the complete v4 report must record `changed_bytes=486`. Official debug symbols
+are bound to the stripped runtime by `.gnu_debuglink` CRC32 `96904dc1`.
+Its identities are `termux-uds-0-161-0-v1` and
+`termux-permission-picker-0-161-0-v1`; behavior keeps the same FD35 owner-safe
+physical socket/107-byte bound and independent no-sandbox approval/reviewer
+contract above. It must reject raw-artifact/offset/instruction drift or already
+adapted input before mutation. Existing 0.160.0 v2/v3 and older v1 generations
+remain readable, publishable and rollback-valid. The legacy v1 policy applies
+to versions through 0.160.0, retaining its already published pre-UDS bundles.
+Each newly built qualified version must bind its matching policy, raw digest,
+identities and count, and v4 also binds the official archive digest. Unknown
+newer versions still require fresh qualification. No Linux helper, excluded resource, browser login,
+new session index or experimental source frontend is selected by this extension.
+Source/byte qualification, actual native menus/settings and owned launch/server
+proof must pass before this version can reach hosted signing or stable promotion.
 
 The unsigned output contains exactly `generation.meta`, the adapted `runtime`,
 and an unmodified root-level `codex-code-mode-host` beside `runtime`; the first

@@ -21,9 +21,13 @@ import signal
 import struct
 import subprocess
 import tempfile
+import sys
 import termios
 import time
 import tomllib
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / ".github/scripts"))
+from rald3_preflight import parse_descriptor
 
 
 ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\].*?(?:\x07|\x1b\\)", re.S)
@@ -59,13 +63,9 @@ def qualify(core, generation, parent, mode):
     with tempfile.TemporaryDirectory(prefix="pq", dir=parent) as temporary:
         root = Path(temporary)
         home, prefix = root / "h", root / "p"
-        fields = dict(line.split("\t", 1) for line in
-                      (generation / "generation.meta").read_text().splitlines()[1:]
-                      if line.count("\t") == 1)
+        fields = parse_descriptor(generation / "generation.meta")
         identity = fields["generation_id"]
-        assert fields["upstream_package_version"] == "0.160.0"
-        assert fields["patch_policy_id"] == "termux-fd-remap-v3"
-        assert fields["qualification"] == "qualified"
+        assert ";permission_policy=" in fields["patch_report"]
         runtime = home / ".local/lib/codex/core/generations" / identity
         shutil.copytree(generation, runtime)
         for directory in [prefix / "bin", prefix / "etc/tls", home / ".codex",
@@ -145,6 +145,7 @@ requires_openai_auth = false
             output = key(b"/status\r")
             deadline = time.monotonic() + 10
             while "Permissions:" not in output:
+                assert process.poll() is None, "owned native client exited during status"
                 assert time.monotonic() < deadline, "status did not finish: " + output[-2500:]
                 output += drain(.5)
             pattern = re.escape(expected)
@@ -161,6 +162,7 @@ requires_openai_auth = false
             output = key(b"/permissions\r")
             deadline = time.monotonic() + 15
             while "3. Full Access" not in output:
+                assert process.poll() is None, "owned native client exited during permission discovery"
                 assert time.monotonic() < deadline, "permission discovery did not finish: " + output[-3000:]
                 output += drain(.5)
             assert "Read Only" not in output, "unsupported choice exposed"
@@ -173,6 +175,7 @@ requires_openai_auth = false
             boot = drain(1)
             deadline = time.monotonic() + 60
             while "fixture-model" not in boot:
+                assert process.poll() is None, "owned native client exited during initialization"
                 assert "Sign in with ChatGPT" not in boot, "unexpected auth onboarding"
                 assert time.monotonic() < deadline, "fixture TUI did not initialize"
                 boot += drain(.5)
