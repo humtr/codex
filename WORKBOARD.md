@@ -2,28 +2,23 @@
 
 SPEC -> GOAL -> WORKBOARD; goal-md bound; workers OFF, primary direct implementation.
 
-HOSTED-PREFLIGHT-0161 source/artifact bundle is accepted; evidence/disposition is
-in GOAL.md. Core/Manager exact40, actual native161 d9e01907,22 blocks486 total,
-all prior160 policies, full gates and installed/auth/session/job protection pass.
-Source lineage is fix/hosted-preflight-0161 from production-docs parentb949afa.
-No experimental frontend or preview mechanism enters this release repair.
+HOSTED-PREFLIGHT-0161 is CLOSED. Accepted source053e35, actual unsigned hosted
+37720625720 success and exact-parent non-force mainf038f2bd workflow repair are
+recorded in GOAL.md. Published signed40, installed preview/40/39, accounts/history,
+resolver and all10 original native jobs remain unchanged. Normal scheduled newer
+stable publication is retained; no manual publication or installed activation.
+No experimental frontend entered this compatibility repair.
 
-Current delivery slices:
-H1 CURRENT: commit accepted source, push only fix branch; create a subsequent
-  proof-only workflow commit with exact accepted source pin, existing public
-  producer/Android smoke and no sign/Release/Pages/CAS jobs. Dispatch existing
-  workflow path on that branch; actual hosted unsigned candidate+Android smoke
-  must pass. Proof workflow does not change accepted product source.
-H2: inspect actual latest public main exact SHA and published workflow bytes;
-  change only CODEX_SOURCE_SHA to accepted source through ordinary non-force
-  exact-parent update, preserving signed stable index and all other bytes. Existing
-  scheduled ordinary newer-stable publication keeps all its original gates.
-H3: remote readback/protected state/authority delivery closure. No installed
-  activation. Replace this map after accepted evidence is recorded in GOAL.
+Next independent bundle lives on experiment/profile-tui: prepare idle-profile
+production admission. Define source-profile recovery on post-cleanup refusal before
+implementation; keep successful same-thread switch, CWD, writer locks, queued input
+and source selection unchanged. Then qualify coherent signed frontend/Manager
+pairing and ordinary update/rollback against admitted upstream version, followed
+by bounded actual-account attribution acceptance. Never treat160 preview pairing
+as161 production acceptance. Full history/agents/active-owner takeover is separate.
 
-Queued independent idle-/profile production admission: source-profile recovery
-on post-cleanup refusal, coherent signed frontend/Manager + ordinary update and
-rollback, bounded actual-account attribution. Requalify against admitted native
-version; no stale160 experimental backend pairing is implied by161 CI repair.
-prj/web explicitly requested independent review is complete in its own report;
-web implementation/account calls are not authorized by this Codex delivery.
+prj/web independent review is complete in its separate INDEPENDENT_REVIEW.md.
+Its next unit is owned full-HOME/verified-artifact/call-ID/result-correspondence
+proof without real account calls; service/model/TUI/compaction/resume and Manager
+integration follow only their own contract and authority. No web implementation
+or real-account usage belongs to this closed Codex CI repair.

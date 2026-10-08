@@ -34,7 +34,7 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
-## HOSTED-PREFLIGHT-0161 (source accepted; hosted repair pending 2026-10-08)
+## HOSTED-PREFLIGHT-0161 (source and hosted repair accepted 2026-10-08)
 
 - Repeated public failures first37390712105/latest37698740814 are fail-closed
   qualification refusals at upstream0.160.1/0.161.0; signing/publication did not run.
@@ -73,10 +73,30 @@
   with only its previously recorded follow-up docs dirty. Main/rewrite/sealed refs
   are unchanged. Current fix lineage begins at production docs-only b949afa and
   imports no experimental source. Installed preview is retained.
-- Source/artifact gate is accepted. Remaining closure is exact-source unsigned
-  hosted build/Android smoke and minimal ordinary non-forced public workflow pin
-  repair. No official signing/publication or installed activation is claimed here.
-  Idle-profile stable admission remains a separately queued bundle.
+- Source/artifact053e35bee0cb044cd3dd1f1e2d835d0810766078 is accepted and pushed
+  on its independent fix lineage. Unsigned proof-only workflow1e442614 ran
+  GitHub37720625720 successfully: actual producer and Android/AArch64 executable
+  smoke both pass. It includes no signing or publication jobs.
+- Public delivery is exact one-file ordinary parent47597099 -> main
+  f038f2bda32b6be722c43a414c16dbc21f64d258, published with force=false. Both
+  actual workflow source pins bind053e35; every consumed seq40 push-bridge
+  instance is deleted. Scheduled/manual authorization, all seven job gates and
+  every other published tree entry remain unchanged. Actual decision four cases,
+ 36 shell syntax gates and12 inline Python compilations pass.
+- Exact remote workflow bytes and main HEAD pass readback. Raw HTTPS stable index
+  and Release signatures independently verify under the retained public key;
+  signed sequence40 is unchanged. API-content binary reencoding and an incorrect
+  index-sequence assertion were rejected readback attempts, corrected to native
+  index grammar, raw HTTPS signature bytes and authenticated Release sequence.
+  Initial fixture repeat-symlink and proof-workflow EOF whitespace failures were
+  likewise corrected, not acceptance evidence.
+- Final protected comparison proves all23 paths, signed40/39 payloads and all10
+  original live native jobs unchanged. Local main/rewrite/sealed refs are retained.
+  Disposition: compatibility and public preflight repair accepted and closed.
+  No official signing/publication run or installed161 activation is claimed;
+  next ordinary scheduled newer-stable publication retains its original gates.
+  Installed profile preview stays unchanged. Idle-profile stable admission remains
+  the separately queued source-recovery/pairing/account-attribution bundle.
 
 ## PROFILE-LIFECYCLE-DELIVERY (accepted 2026-10-05)
 
