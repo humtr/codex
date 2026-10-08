@@ -82,10 +82,13 @@ Core/Manager public commands, installed state and provider behavior stay unchang
   Pinned Playwright1.62.0 rejects Android during default-cache initialization even
   for an explicit installed executable. The experimental dependency remedy may
   extend only the three eager default-cache selectors to actual android, binding
-  exact original and
-  resulting bundle digests. Browser downloads/host-platform spoofing remain
+  exact original and resulting bundle digests. Browser downloads/host-platform spoofing remain
   disabled; actual Android browser execution and retained desktop regression must
   qualify this change. No broad claim of Playwright official Android support.
+  Preserve the existing F-Droid Termux app/distribution. Obtaining a graphical
+  login must not replace Termux with a GitHub build or require its sharedUid X11
+  variant. Any Android app installation source must satisfy the user's selected
+  distribution condition; staged GitHub APKs are not installation authorization.
   Existing OpenAI admin key/tunnel reuse is user-authorized where technically
   necessary, through private file references; credential values must not enter
   argv, logs, reports or Git. Do not recreate/delete a configured tunnel or rotate

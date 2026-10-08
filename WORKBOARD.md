@@ -50,3 +50,12 @@ freeze further loader assumptions until actual Android app/UI availability.
 Pending user answers X11 Android app presence; package enumeration is denied.
 The device package command is absent. Original Codex/runtime/config/resolver stay
 protected; no desktop requirement, key request or implicit extra tunnel creation.
+
+T3 user steering: requires a Droid/F-Droid installation route, not a GitHub
+Termux switch. Actual launcher environment confirms TERMUX_APP__APK_RELEASE=
+F_DROID and app version0.119.0-beta.3. Keep that installed app unchanged; no
+sharedUid X11 variant. Primary X11 docs distinguish GitHub-only sharedUid from
+regular APK, but no F-Droid X11 source has been verified. Pending clarification
+is whether the source constraint also excludes a regular X11 APK distributed on
+GitHub. Do not install staged APK/companion or replace app while that is pending.
+Candidate source/Android/browser/MCP acceptance stays unchanged; no test rerun.
