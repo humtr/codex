@@ -59,3 +59,32 @@ regular APK, but no F-Droid X11 source has been verified. Pending clarification
 is whether the source constraint also excludes a regular X11 APK distributed on
 GitHub. Do not install staged APK/companion or replace app while that is pending.
 Candidate source/Android/browser/MCP acceptance stays unchanged; no test rerun.
+
+T3 GUI CURRENT: user confirms ordinary X11 app installed and requests verification.
+Bind HEADf26e4c0/clean, physical worktree GOAL; no workers. SPEC-first bounded exact
+companion1.03.01-0 device gate; existing xkeyboard-config2.48.1 satisfies dependency.
+Paths: staged package and temporary test roots, one unused X display/server,
+headed Chromium fresh fixture profile. Focus: actual X readiness + nonce DOM and
+visible screenshot; protected Codex/Manager/accounts/resolver remain unchanged.
+No live ChatGPT navigation/login before this owned GUI baseline. No global kill,
+extra Termux window, general package upgrade or installed browser-profile reuse.
+
+T3 device baseline: exact companion1.03.01-0 installed; stock loader help now
+passes and loaded APK reports commitfa3a8b43. Same-byte staged loader only passes
+when read-only0400, matching official postinst: earlier writable-DEX ART abort is
+not missing-app or signing evidence. First private-TMP X socket readiness passes
+but real Chromium cannot connect: Xlib uses standard Termux socket location,
+not arbitrary client TMPDIR. Stop-on-red; restart only owned server identity at
+one free standard display, retain private browser HOME/profile/cache/temp and
+no TCP X listener. Android `am start` denied shell attribution for Termux UID;
+pending user manually opens X11, do not bypass Android permissions.
+
+T3 GUI focused gate restored: reserved standard display:90, actual headed
+Chromium149 with private browser roots, input/button roundtrip and fixture
+screenshot pass. Owned server10790/controller10823 identities retained in
+x.ufbtaonw/gui-binding.json, test controller bound15min. Protected23 paths +18
+complete generation assets + original12 files unchanged; exact companion is the
+sole installed package addition. User manually opens Android app because automatic
+launch is denied; actual phone display/touch confirmation remains pending. No
+ChatGPT page/auth capture or live Codex/runtime cutover. No product source change,
+therefore accepted full858/typecheck and Android111/29 proofs are reused.

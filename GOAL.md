@@ -68,6 +68,23 @@
 
 ## TERMUX-WEB-CONNECTION (owned browser accepted; live connection pending 2026-10-08)
 
+- User installed standalone X11 APK; exact companion1.03.01-0 is installed under
+  the SPEC-bounded GUI gate. Installed loader48e290af loads Android APK commit
+  fa3a8b43 and stock help succeeds. Same-byte staged0400 loader succeeds whereas
+  writable loader aborts ART; no missing-app/signature inference from those aborts.
+- Owned X server10790 and headed Chromium controller10823 in
+  temporary x.ufbtaonw show a synthetic Korean page and pass actual input/button
+  roundtrip, with owned screenshot inspected. Actual process start identities are
+  in the private GUI binding; no guessed start value is acceptance. Android phone
+  frontend display/touch remains user-confirmation pending. First private-TMP X
+  socket check was insufficient: Chromium Xlib uses the standard Termux socket
+  path; corrected reserved display:90 has no TCP listener and private browser
+  HOME/profile/cache/temp. Android `am start` denies shell attribution, so user
+  opens the app manually. Test browser is bounded15 minutes; no account navigation.
+- Exact protected check preserves23 paths/18 complete generation assets/original12
+  web files after companion installation. Installed Codex/Manager/auth/profiles/
+  resolver are unchanged. Existing W1/W2/T1/Android MCP evidence is reused because
+  no bridge or Core/Manager source changed. GUI is not live-account acceptance.
 - User requires actual execution on Termux and permits necessary reuse of the
   already established OpenAI admin key/tunnel. No external-PC requirement remains.
   Existing Chromium149.0.7827.155, Node24.18.0 and Bun1.3.14 are observed, not yet

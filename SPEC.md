@@ -89,6 +89,17 @@ Core/Manager public commands, installed state and provider behavior stay unchang
   login must not replace Termux with a GitHub build or require its sharedUid X11
   variant. Any Android app installation source must satisfy the user's selected
   distribution condition; staged GitHub APKs are not installation authorization.
+  The user installed the ordinary X11 Android app and requests device verification.
+  This bounded GUI gate permits the exact staged companion termux-x11-nightly
+  1.03.01-0 package installation, whose existing xkeyboard-config dependency is
+  already present. No Termux app replacement, sharedUid variant, general package
+  upgrade or Codex/Manager configuration write is authorized. Reserve one unused
+  local X display, own server/browser identities and private fixture HOME/profile;
+  first show and verify a synthetic headed Chromium page with no account content.
+  The X server uses one reserved standard Termux temporary socket/display; browser
+  HOME/profile/cache/temp stay private. Its matching companion APK loader is
+  read-only, as required by the official package postinstall and Android DEX loading.
+  Do not stop unrelated X servers/browser processes or open another Termux window.
   Existing OpenAI admin key/tunnel reuse is user-authorized where technically
   necessary, through private file references; credential values must not enter
   argv, logs, reports or Git. Do not recreate/delete a configured tunnel or rotate
