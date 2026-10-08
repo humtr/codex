@@ -54,3 +54,23 @@ S1 complete diff found the same broad-edit defect in probe-only profile paths.
 Restored every private filesystem path from2ed58ff; only the actual slash input
 and docstring change. No native owned invocation used the invalid probe. Hosted
 source4c791dd remains exact native candidate; this correction changes no build input.
+
+Resume7696595 clean: hosted37732635278 compiling candidate4c791dd. Local grouped
+run was interrupted before any final test summary; no remaining owned Cargo
+process. Its partial log is not acceptance. Preserve completed same-source
+migration15/hosted86 Python evidence; restart exact Rust/full compiler gates.
+
+S2 pre-integration baseline now passes:298 actual Rust tests (188 Core,33+55
+Manager,22 Builder), migration15/hosted86, fmt, feature Clippy-Dwarnings and
+normal all-target compile. New source053e35 integration justifies the final
+rerun; historical/zero-test harnesses remain excluded.
+
+S2 next bounded integration: merge only accepted product commit053e35 from the
+same orphan ancestorb949afaf, preserving /switch and preview qualification.
+Do not import its proof-only workflow descendants5f3a278/1e44261. SPEC retains
+both normative contracts before resolving product hunks. KEEP v1/v2/v3 old
+bundle readability and v4 exact161 qualification, KEEP preview materializer and
+explicit prepare_preview signature, COLLAPSE descriptor parsing to the accepted
+strict parser. Focus Builder22 and hosted policy regressions before grouped final.
+Actual native frontend remains exactly4c791dd hosted source; this merge changes
+no TUI/native build input. Protected runtime/profile/state/public refs unchanged.
