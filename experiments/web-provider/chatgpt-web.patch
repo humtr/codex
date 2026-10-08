@@ -1,0 +1,304 @@
+diff --git a/src/bridge.ts b/src/bridge.ts
+index 59449cb..13936df 100644
+--- a/src/bridge.ts
++++ b/src/bridge.ts
+@@ -347,6 +347,7 @@ export function bridgeToResponsesSSE(
+               type: "custom_tool_call", id: currentToolCall.itemId,
+               call_id: currentToolCall.callId, name: currentToolCall.name,
+               input: freeformInput(currentToolCall.args), status: "completed",
++              ...(currentToolCall.namespace ? { namespace: currentToolCall.namespace } : {}),
+             }
+           : {
+               type: "function_call", id: currentToolCall.itemId,
+@@ -536,12 +537,12 @@ export function bridgeToResponsesSSE(
+               const realName = mapped?.name ?? event.name;
+               const ns = mapped?.namespace;
+               const toolSearch = toolSearchToolNames?.has(realName) ?? false;
+-              const freeform = !toolSearch && (freeformToolNames?.has(realName) ?? false);
++              const freeform = !toolSearch && (freeformToolNames?.has(event.name) ?? false);
+               const itemId = `${toolSearch ? "tsc" : freeform ? "ctc" : "fc"}_${uuid()}`;
+               const item = toolSearch
+                 ? { type: "tool_search_call", id: itemId, call_id: event.id, execution: "client", arguments: {}, status: "in_progress" }
+                 : freeform
+-                ? { type: "custom_tool_call", id: itemId, call_id: event.id, name: realName, input: "", status: "in_progress" }
++                ? { type: "custom_tool_call", id: itemId, call_id: event.id, name: realName, input: "", status: "in_progress", ...(ns ? { namespace: ns } : {}) }
+                 : {
+                     type: "function_call", id: itemId, call_id: event.id, name: realName,
+                     arguments: "", status: "in_progress", ...(ns ? { namespace: ns } : {}),
+@@ -938,7 +939,7 @@ export function buildResponseJSON(
+     const realName = mapped?.name ?? currentToolCallName;
+     const ns = mapped?.namespace;
+     const toolSearch = options?.toolSearchToolNames?.has(realName) ?? false;
+-    const freeform = !toolSearch && (options?.freeformToolNames?.has(realName) ?? false);
++    const freeform = !toolSearch && (options?.freeformToolNames?.has(currentToolCallName) ?? false);
+     if (toolSearch) {
+       output.push({
+         type: "tool_search_call", id: `tsc_${uuid()}`,
+@@ -950,6 +951,7 @@ export function buildResponseJSON(
+         type: "custom_tool_call", id: `ctc_${uuid()}`,
+         call_id: currentToolCallId, name: realName,
+         input: freeformInput(currentToolCallArgs), status: "completed",
++        ...(ns ? { namespace: ns } : {}),
+       });
+     } else {
+       output.push({
+diff --git a/src/responses/parser.ts b/src/responses/parser.ts
+index ded9b12..ceb2bc3 100644
+--- a/src/responses/parser.ts
++++ b/src/responses/parser.ts
+@@ -150,7 +150,7 @@ function buildTools(tools: unknown[] | undefined): CodexTool[] | undefined {
+     if (namespace) tool.namespace = namespace;
+     out.push(tool);
+   };
+-  const pushFreeform = (t: Record<string, unknown>) => {
++  const pushFreeform = (t: Record<string, unknown>, namespace?: string) => {
+     const tool: CodexTool = {
+       name: t.name as string,
+       description: (t.description as string) ?? "",
+@@ -166,22 +166,25 @@ function buildTools(tools: unknown[] | undefined): CodexTool[] | undefined {
+       },
+       freeform: true,
+     };
++    if (namespace) tool.namespace = namespace;
+     out.push(tool);
+   };
+   for (const t of tools) {
+-    if (!isObj(t)) continue;
++    if (!isObj(t)) throw new Error("Invalid tool declaration");
+     if (t.type === "function" && typeof t.name === "string") {
+       pushFn(t);
+     } else if (t.type === "namespace" && Array.isArray(t.tools)) {
+-      // Responses Lite groups ordinary native functions and the native freeform `exec` tool under
+-      // the default `functions` namespace. Flatten normal functions from every namespace, and the
+-      // official freeform variant only from that default namespace. Non-default custom namespaces
+-      // need a distinct round-trip contract and must not be silently exposed as function calls.
++      if (typeof t.name !== "string" || !t.name || t.tools.length === 0) {
++        throw new Error("Invalid tool namespace");
++      }
+       const ns = normalizedToolNamespace(t.name);
+       for (const inner of t.tools as unknown[]) {
+-        if (!isObj(inner) || typeof inner.name !== "string") continue;
++        if (!isObj(inner) || typeof inner.name !== "string" || !inner.name) {
++          throw new Error("Invalid namespaced tool");
++        }
+         if (inner.type === "function") pushFn(inner, ns);
+-        else if (t.name === DEFAULT_FUNCTION_NAMESPACE && inner.type === "custom") pushFreeform(inner);
++        else if (inner.type === "custom") pushFreeform(inner, ns);
++        else throw new Error("Unsupported namespaced tool declaration");
+       }
+     }
+     else if (t.type === "custom" && typeof t.name === "string") {
+@@ -207,14 +210,16 @@ function buildTools(tools: unknown[] | undefined): CodexTool[] | undefined {
+         toolSearch: true,
+       });
+     }
+-    else if (typeof t.name === "string" && t.type !== "web_search" && t.type !== "image_generation") {
+-      // Any other named tool (for example a native computer-use tool type this parser does not
+-      // model) is client-executed. Pass it through as a function so the routed model can call it
+-      // naturally and the bridge can relay it as a function_call.
+-      pushFn(t);
++    else throw new Error("Unsupported routed tool declaration");
++  }
++  const identities = new Map<string, CodexTool>();
++  for (const tool of out) {
++    const wire = namespacedToolName(tool.namespace, tool.name);
++    const existing = identities.get(wire);
++    if (existing && (existing.name !== tool.name || existing.namespace !== tool.namespace)) {
++      throw new Error("Ambiguous tool wire name");
+     }
+-    // Only the OpenAI-hosted server-side tools (web_search, image_generation) are intentionally
+-    // dropped — they're executed by OpenAI and can't be relayed to a routed chat model.
++    identities.set(wire, tool);
+   }
+   return out.length > 0 ? out : undefined;
+ }
+@@ -263,16 +268,6 @@ function normalizeImageDetail(detail: string): string {
+   return detail === "original" ? "high" : detail;
+ }
+
+-function findToolById(messages: CodexMessage[], callId: string): { name: string; namespace?: string } {
+-  for (let i = messages.length - 1; i >= 0; i--) {
+-    const m = messages[i];
+-    if (m.role !== "assistant") continue;
+-    for (const part of m.content) {
+-      if (part.type === "toolCall" && part.id === callId) return { name: part.name, namespace: part.namespace };
+-    }
+-  }
+-  return { name: "" };
+-}
+
+ const REASONING_EFFORTS = new Set(["none", "minimal", "low", "medium", "high", "xhigh", "max"]);
+
+@@ -285,6 +280,21 @@ export function parseRequest(body: unknown): CodexParsedRequest {
+   const data = parsed.data;
+   const now = Date.now();
+   const messages: CodexMessage[] = [];
++  const replayCalls = new Map<string, { call: CodexToolCall; outputType: string; consumed: boolean }>();
++  const registerCall = (call: CodexToolCall, outputType: string) => {
++    if (!call.id || replayCalls.get(call.id)?.consumed === false) {
++      throw new Error("Missing or duplicate pending tool call ID");
++    }
++    replayCalls.set(call.id, { call, outputType, consumed: false });
++  };
++  const consumeCall = (callId: string, outputType: string): CodexToolCall => {
++    const entry = replayCalls.get(callId);
++    if (!entry || entry.consumed || entry.outputType !== outputType) {
++      throw new Error("Orphan, duplicate or mismatched tool result");
++    }
++    entry.consumed = true;
++    return entry.call;
++  };
+   const systemPrompt: string[] = [];
+   // Responses reasoning siblings belong to the following assistant, including across call items.
+   // Keep them off the message list until that assistant arrives; turn boundaries clear the array.
+@@ -459,16 +469,16 @@ export function parseRequest(body: unknown): CodexParsedRequest {
+
+       if (effectiveType === "function_call") {
+         const call = item as { id?: string; call_id: string; name: string; arguments?: string; namespace?: string };
+-        // Tolerate empty/non-JSON arguments (e.g. a no-arg tool call serialized as "") instead of
+-        // throwing — a single poisoned history item would otherwise 400 every subsequent turn.
++        // Missing/empty no-arg history remains valid; nonempty data must be an object.
+         let args: Record<string, unknown> = {};
+         const rawArgs = call.arguments?.trim();
+         if (rawArgs) {
+           try {
+             const parsed: unknown = JSON.parse(rawArgs);
+-            if (isObj(parsed)) args = parsed;
++            if (!isObj(parsed)) throw new Error("Invalid function arguments");
++            args = parsed;
+           } catch {
+-            console.warn(`[parser] function_call ${call.call_id} has non-JSON arguments; defaulting to {}`);
++            throw new Error("Function arguments must be a valid JSON object");
+           }
+         }
+         // Do NOT map Responses item `id` (fc_/ctc_/…) onto `thoughtSignature`. That field is
+@@ -476,18 +486,21 @@ export function parseRequest(body: unknown): CodexParsedRequest {
+         // continuity comes from the in-process replay cache and any real stored signature.
+         const toolCall: CodexToolCall = {
+           type: "toolCall", id: call.call_id, name: call.name, arguments: args,
+-          ...(call.namespace ? { namespace: call.namespace } : {}),
++          ...(normalizedToolNamespace(call.namespace) ? { namespace: normalizedToolNamespace(call.namespace) } : {}),
+         };
++        registerCall(toolCall, "function_call_output");
+         assistantHolderWithReasoning().content.push(toolCall);
+         continue;
+       }
+
+       if (effectiveType === "custom_tool_call") {
+-        const call = item as { id?: string; call_id: string; name: string; input: string };
++        const call = item as { id?: string; call_id: string; name: string; input: string; namespace?: string };
+         const toolCall: CodexToolCall = {
+           type: "toolCall", id: call.call_id, name: call.name,
+-          arguments: { input: call.input ?? "" },
++          arguments: { input: call.input },
++          ...(normalizedToolNamespace(call.namespace) ? { namespace: normalizedToolNamespace(call.namespace) } : {}),
+         };
++        registerCall(toolCall, "custom_tool_call_output");
+         assistantHolderWithReasoning().content.push(toolCall);
+         continue;
+       }
+@@ -499,10 +512,12 @@ export function parseRequest(body: unknown): CodexParsedRequest {
+         const callId = call.call_id ?? call.id;
+         if (callId) {
+           const command = Array.isArray(call.action?.command) ? call.action.command : [];
+-          assistantHolderWithReasoning().content.push({
++          const toolCall: CodexToolCall = {
+             type: "toolCall", id: callId, name: "shell",
+             arguments: command.length > 0 ? { command } : {},
+-          });
++          };
++          registerCall(toolCall, "function_call_output");
++          assistantHolderWithReasoning().content.push(toolCall);
+         }
+         continue;
+       }
+@@ -519,10 +534,12 @@ export function parseRequest(body: unknown): CodexParsedRequest {
+         // history stays complete (otherwise the model re-issues tool_search forever).
+         const call = item as { id?: string; call_id?: string; arguments?: unknown };
+         const callId = call.call_id ?? call.id ?? "";
+-        assistantHolderWithReasoning().content.push({
++        const toolCall: CodexToolCall = {
+           type: "toolCall", id: callId, name: "tool_search",
+           arguments: isObj(call.arguments) ? call.arguments : {},
+-        });
++        };
++        registerCall(toolCall, "tool_search_output");
++        assistantHolderWithReasoning().content.push(toolCall);
+         continue;
+       }
+
+@@ -530,6 +547,7 @@ export function parseRequest(body: unknown): CodexParsedRequest {
+         pendingReasoning.length = 0;
+         // Pair the tool_search call with its result so the model sees what was loaded.
+         const out = item as { call_id?: string; status?: string; tools?: unknown[] };
++        consumeCall(out.call_id ?? "", "tool_search_output");
+         const specs = Array.isArray(out.tools) ? (out.tools as Record<string, unknown>[]) : [];
+         loadedToolSpecs.push(...specs);
+         // List the EXACT wire names the model must call (flattened for namespaced specs), matching
+@@ -561,7 +579,7 @@ export function parseRequest(body: unknown): CodexParsedRequest {
+       if (effectiveType === "function_call_output") {
+         pendingReasoning.length = 0;
+         const output = item as { call_id: string; output?: string | unknown[] };
+-        const toolInfo = findToolById(messages, output.call_id);
++        const toolInfo = consumeCall(output.call_id, "function_call_output");
+         messages.push({
+           role: "toolResult", toolCallId: output.call_id,
+           toolName: toolInfo.name, toolNamespace: toolInfo.namespace,
+@@ -573,7 +591,7 @@ export function parseRequest(body: unknown): CodexParsedRequest {
+       if (effectiveType === "custom_tool_call_output") {
+         pendingReasoning.length = 0;
+         const output = item as { call_id: string; output: string | unknown[] };
+-        const toolInfo = findToolById(messages, output.call_id);
++        const toolInfo = consumeCall(output.call_id, "custom_tool_call_output");
+         messages.push({
+           role: "toolResult", toolCallId: output.call_id,
+           toolName: toolInfo.name, toolNamespace: toolInfo.namespace,
+diff --git a/src/responses/schema.ts b/src/responses/schema.ts
+index 2286bab..d10ed97 100644
+--- a/src/responses/schema.ts
++++ b/src/responses/schema.ts
+@@ -90,6 +90,7 @@ const customToolCallItemSchema = z.object({
+   id: z.string().optional(),
+   call_id: z.string().min(1),
+   name: z.string().min(1),
++  namespace: z.string().optional(),
+   input: z.string(),
+ });
+ const customToolCallOutputItemSchema = z.object({
+diff --git a/src/server.ts b/src/server.ts
+index 380b4f3..3073955 100644
+--- a/src/server.ts
++++ b/src/server.ts
+@@ -472,7 +472,7 @@ function toolBridgeMaps(parsed: CodexParsedRequest): {
+   const toolSearchToolNames = new Set<string>();
+   for (const tool of parsed.context.tools ?? []) {
+     if (tool.namespace) toolNsMap.set(namespacedToolName(tool.namespace, tool.name), { namespace: tool.namespace, name: tool.name });
+-    if (tool.freeform) freeformToolNames.add(tool.name);
++    if (tool.freeform) freeformToolNames.add(namespacedToolName(tool.namespace, tool.name));
+     if (tool.toolSearch) toolSearchToolNames.add(tool.name);
+   }
+   return { toolNsMap, freeformToolNames, toolSearchToolNames };
+diff --git a/tests/responses-lite-tools.test.ts b/tests/responses-lite-tools.test.ts
+index ba97f57..bb7f2b8 100644
+--- a/tests/responses-lite-tools.test.ts
++++ b/tests/responses-lite-tools.test.ts
+@@ -37,7 +37,7 @@ function responsesLiteTools() {
+   }];
+ }
+
+-test("Responses Lite exposes native exec from the default functions namespace only", () => {
++test("Responses Lite preserves default exec and nondefault custom namespaces", () => {
+   const parsed = parseRequest({
+     model: "chatgpt-web/luna",
+     input: [{ type: "additional_tools", role: "developer", tools: responsesLiteTools() }],
+@@ -50,7 +50,9 @@ test("Responses Lite exposes native exec from the default functions namespace on
+   const waitTool = parsed.context.tools?.find(tool => tool.name === "wait");
+   expect(waitTool).toEqual(expect.objectContaining({ name: "wait" }));
+   expect(waitTool).not.toHaveProperty("namespace");
+-  expect(parsed.context.tools?.some(tool => tool.name === "run_script")).toBe(false);
++  expect(parsed.context.tools).toContainEqual(expect.objectContaining({
++    name: "run_script", namespace: "mcp__python", freeform: true,
++  }));
+ });
+
+ test("Responses Lite native exec survives a complete server request as one custom call", async () => {

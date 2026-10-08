@@ -63,7 +63,24 @@ jobs:
           assert re.search(r'\b[1-9][0-9]* pass\b', text), 'nonzero candidate tests required'
           assert re.search(r'\b0 fail\b', text), 'all candidate tests must pass'
           PY
-      - name: Retain exact account-free baseline
+      - name: Apply bounded candidate protocol correction and focused proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C candidate apply --check "$GITHUB_WORKSPACE/experiment/experiments/web-provider/chatgpt-web.patch"
+          git -C candidate apply "$GITHUB_WORKSPACE/experiment/experiments/web-provider/chatgpt-web.patch"
+          cp experiment/experiments/web-provider/chatgpt_contract.test.ts candidate/tests/web-contract.test.ts
+          root="$RUNNER_TEMP/web-owned"
+          cd candidate
+          env -i PATH="$PATH" HOME="$root/home" CODEX_HOME="$root/codex-home" TMPDIR="$root/tmp" bun test tests/web-contract.test.ts tests/responses-lite-tools.test.ts tests/prompt-contract.test.ts tests/subagent-environment-history.test.ts 2>&1 | tee "$RUNNER_TEMP/web-candidate-focused.log"
+          git diff --check
+          python3 - <<'PY'
+          import os, pathlib, re
+          text=(pathlib.Path(os.environ['RUNNER_TEMP'])/'web-candidate-focused.log').read_text()
+          assert re.search(r'\b[1-9][0-9]* pass\b', text), 'nonzero focused tests required'
+          assert re.search(r'\b0 fail\b', text), 'all focused tests must pass'
+          PY
+      - name: Retain exact account-free baseline and candidate proof
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -71,5 +88,6 @@ jobs:
           path: |
             ${{ runner.temp }}/web-baseline.log
             ${{ runner.temp }}/web-dependency-binding
+            ${{ runner.temp }}/web-candidate-focused.log
           if-no-files-found: error
           retention-days: 3

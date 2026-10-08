@@ -54,6 +54,16 @@ Core/Manager public commands, installed state and provider behavior stay unchang
   The bridge owns web sessions/protocol conversion, upstream owns tools/history;
   Manager conveniences follow demonstrated capability and a separate SPEC contract.
   Core gains no web login, browser automation or provider-selection controller.
+- The ChatGPT candidate correction preserves custom tools in nondefault namespaces
+  through declarations, replay, result correlation, streaming and JSON emission.
+  The upstream default functions namespace may remain its established implicit
+  alias, consistently across declarations/history. Nondefault namespace/name pairs
+  are never silently flattened into another handler. Repeated/ambiguous wire names,
+  orphan/duplicate call IDs/results and nonempty invalid JSON arguments refuse
+  before browser submission; there is no forged empty-argument fallback.
+  Unknown or nonrelayable declarations are explicit errors for this experimental
+  routed-model path; ordinary native-model passthrough remains upstream-owned.
+  Full/MCP real-account acceptance remains separate from fixture handler tests.
 - Original prj/web investigation files are read-only evidence and remain unchanged.
   The unsafe older probe must not be rerun. Accepted/failed slice evidence belongs
   in this worktree GOAL.md; its live execution map belongs only in WORKBOARD.md.

@@ -7,13 +7,13 @@ Current bundle W2 CHATGPT-WEB-CONTRACT on experiment/web-provider. User chose
 ChatGPT Web; immutable candidate92a356fac2292e3af5a97ab7ba634edd8d38621e.
 
 Ordered slices:
-B1 CURRENT: restore runnable exact Bun1.4.0 candidate baseline in an ephemeral
+B1 CLOSED: restore runnable exact Bun1.4.0 candidate baseline in an ephemeral
   hosted root, frozen dependencies and no account/desktop setup. Installed device
   Bun1.3.14 is insufficient; no device upgrade/package installation. Inspect all
   custom namespace/replay/schema/emission/broker paths. Production uses explicit
   turn-bound Full/MCP; the repository DEV driver simulates results and cannot
   prove this requirement. Original candidate source stays clean until runnable.
-B2: SPEC-first namespace/call/result remedy and candidate patch with focused real
+B2 CURRENT: SPEC-first namespace/call/result remedy and candidate patch with focused real
   handler regressions, actual Core protocol vector replay, then grouped candidate
   contract gates and protected-state verification; commit/push only experiment.
 B3: concrete reviewable connection fixture/config and separate bounded actual
@@ -29,3 +29,12 @@ real account/network-model calls. Keep /switch account and provider axes distinc
 B1 exact official Linux/x64 Bun1.4.0 ZIP36697619 bytes SHA2d03fb5fb83ac8b567aca0a281b2ce1a1a19d488f56c2968d88c3f25e92fe452
 identified. SPEC permits only disposable hosted provision, frozen deps and owned
 HOME/CODEX_HOME for this baseline. Device Bun and all installed products unchanged.
+
+B1 hosted37751820976 exact72e2575 passes matched Bun1.4 and frozen candidate
+parser/HTTP baseline. B2 writable external candidate paths limited to
+src/responses/{parser,schema}.ts, src/{server,bridge}.ts and affected/new tests;
+retain patch/new owned tests in experiments/web-provider. KEEP default namespace
+alias/native passthrough; COLLAPSE strict identity/correlation; DELETE silent
+drops/malformed-argument repair. Proof names: custom namespace declaration/replay,
+SSE+JSON exact namespace/type, collision/orphan/duplicate/invalid arguments 400
+before adapter, actual classic/Lite vectors. No package/launcher/auth/browser edits.

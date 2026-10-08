@@ -34,6 +34,22 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
+## CHATGPT-WEB-CONTRACT (selected 2026-10-08)
+
+- Candidate92a356fac2292e3af5a97ab7ba634edd8d38621e remains immutable upstream
+  reference. Exact Bun1.4.0 archive2d03fb5f and frozen dependencies passed owned
+  hosted37751820976 at experiment72e2575. It exercises the candidate's real
+  parser/HTTP handler with synthetic adapters; no browser/account/tool execution
+  claim follows. Source changes were frozen until this runnable baseline.
+- Class-level correction covers buildTools, custom schema/history/result lookup,
+  tool-name maps and both SSE/JSON freeform emitters. Existing default-functions
+  alias remains; nondefault customs must keep namespace and freeform type. Remove
+  silent unsupported dropping, invalid-JSON-to-empty repair and orphan result
+  acceptance. New contract in SPEC precedes candidate patch/regressions.
+- Candidate correction must pass focused actual handler tests and all affected
+  retained tests, current real-Core protocol vector replay and grouped contract
+  suite. Full/MCP browser/tunnel/turn ownership remains explicitly unproven.
+
 ## WEB-PROTOCOL-ISOLATION (accepted owned protocol 2026-10-08)
 
 - User requests the independent prj/web review findings as a separate experiment
