@@ -92,6 +92,11 @@
   discovered read-only. Both established Tdev aliases yield valid remote OpenAI
   metadata through native runtime. System Go binary DNS/refusal is not key expiry;
   no resolver/profile/key/tunnel mutation. Actual tunnel/MCP ownership stays pending.
+- Actual Android Bun candidate public CLI starts `mcp --contract native` in
+  owned m.13wlgh3u; stdio initialize and tools/list return6 distinct typed schemas
+  and clean owned process shutdown. Retained Android MCP observation/broker/tunnel
+  focus29/29 passes. These are credential-free protocol/fixture contracts; no
+  actual ChatGPT turn or existing remote channel replacement occurred.
 - Corrected final stat/inventory check preserves23 protected paths, complete18
   generation assets and original12 web files. Old five jobs exited during user
   resumes/profile switches; continued retention is not claimed. W1 focus9/9 stays

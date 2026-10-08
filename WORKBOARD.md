@@ -33,3 +33,20 @@ Protected rewrite c4d9a41/sealed legacy/main, installed Codex/Manager/assets,
 profiles/config/auth/history/resolver and original12 prj/web files. No workers,
 production publication or implicit system package upgrade. Only owned fixture
 roots may change until a concrete later bounded device/login scope is established.
+
+T2 startup/fixture gate: actual public candidate mcp CLI initializes and lists6
+unique typed tools in Android owned root m.13wlgh3u; clean process shutdown.
+Retained Android MCP observation/broker/tunnel focus29/29 passes on unchanged
+accepted candidate/dependency bytes; hosted858 full proof is reused, not rerun.
+Actual remote MCP model/turn ownership remains pending; Tdev main channels are
+untouched. No secret-bearing test output or account/profile data is retained.
+
+T3 concrete prerequisites staged in owned web-x11-stage-xt0bbe8u: official X11
+release397927753 regular universal APK64995746 and companion deb9b529697 have
+verified exact digest/size. Existing xkeyboard-config2.48.1 requires no install.
+No APK/package installed or live-login browser started. Stock app_process loader
+help is not a valid availability gate (empty output; Android-env trial aborts);
+freeze further loader assumptions until actual Android app/UI availability.
+Pending user answers X11 Android app presence; package enumeration is denied.
+The device package command is absent. Original Codex/runtime/config/resolver stay
+protected; no desktop requirement, key request or implicit extra tunnel creation.
