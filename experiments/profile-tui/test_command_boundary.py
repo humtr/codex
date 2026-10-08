@@ -29,7 +29,7 @@ class CommandBoundaryTests(unittest.TestCase):
 
     def test_unknown_representation_or_empty_inventory_refuses(self):
         for text in [source('Resume,', 'snake_case'), source(''),
-                     source('Resume(String),'), source('#[strum(unknown = "switch")] Other,'),
+                     source('Resume(String),'), source('Resume, Resume,'), source('#[strum(unknown = "switch")] Other,'),
                      source('#[serde(rename = "switch")] Other,')]:
             with self.subTest(text=text), self.assertRaises(ValueError):
                 qualify(text)

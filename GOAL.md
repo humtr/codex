@@ -98,7 +98,7 @@
   Installed profile preview stays unchanged. Idle-profile stable admission remains
   the separately queued source-recovery/pairing/account-attribution bundle.
 
-## SWITCH-RENAME-INTEGRATION (selected 2026-10-08)
+## SWITCH-RENAME-INTEGRATION (accepted source 2026-10-08)
 
 - User authorizes `/switch` renaming, remaining same-path safeguards, ordinary
   source integration of experiment/profile-tui into rewrite/rust-core, then a
@@ -115,6 +115,60 @@
 - Web trial branch starts only after the source bundle closes. Existing prj/web
   reports remain intact; first web slice is credential-free full-home/Core and
   tool call/result/nonce qualification, with no real service/account calls.
+
+- Accepted native build input4c791dd42e8884f736779bcfd4bcdf8c9c1240fa, actual
+  hosted37732635278 SUCCESS:25/25 native tests, both snapshots,62 pristine upstream
+  variants/names/aliases preserved with Switch as sole addition,159 local lock
+  normalizations/1313 external bindings unchanged and zero lint source delta.
+  All26 final TUI files match the hosted formatted/linted output. Only the renamed
+  command-test module's alphabetical position and patch index/blank context were
+  normalized afterward; no production definition or artifact changed.
+- Exact raw native2c71e6c1e78be14cd75b56e662608e1be308f09140485a8d295be8d23f50f754
+  -> adapted598149639068251b0b0b808f6e54f26da05bfa915bf063e34ad3ff1422fa25f8;
+  existing54-byte FD policy only. Actual archive139450838 bytes SHA32e2e24b63712f078058640ce5301201466036e85e8d0992a80fbe9b82da1abb
+  matches GitHub metadata. Source Core1b08220fb17e7c4752ab974930327c17f2368704b5b9a055d74e152304ec1ece
+  binds Manager0f2e9fcb and this frontend to the signed40 backend on owned roots.
+- Actual public Core -> native `/switch` arrows/Enter passes stored-history and
+  unseeded blank chat, search/current/Esc/Ctrl-C, physical current CWD, UUID/PID/TTY,
+  durable records and zero extra model calls. Retained subscriber refusal followed
+  by explicit Enter returns to the original home while saved default stays work.
+  Missing Manager stays usable; absent/corrupt native falls back to installed
+  backend. Shared/named permission menus each pass four selections, two shortcuts,
+  current markers, native no-sandbox/reviewer settings6/5 with no model turn.
+  Six actual restore/forward/corruption/private-bridge cases pass unchanged40/39.
+- Accepted CI product commit053e35 was merged into the same orphan lineage at
+  2acf084, preserving both authority histories and the preview materializer.
+  All accepted CI product definitions remain exact053e35 except the permission
+  probe's retained preview hook/materializer and bounded failure diagnostics.
+  Proof-only workflow descendants were not imported; public workflow unchanged.
+- Stabilized product2acf084:298 grouped Rust (188 Core plus one opt-in ignored,
+  Manager33+55, Builder22), normal startup2, Python migration15/hosted86 and local
+  experiment10, locked normal compile, feature Clippy-Dwarnings, fmt and diff pass.
+  Focused CI Builder22/policy6 precede final grouped validation. Source-identical
+  successful groups are reused after tool interruption; zero-test doc/binary
+  harnesses and incomplete runs do not count. The doc/compiler gates completed.
+- Rejected proof attempts: wrong Cargo package, moved cache's embedded missing
+  executable, interrupted transport/shell, stale test-module ordering and overly
+  long fixture sockets123/112 bytes. Restore private short account roots and native
+  TMPDIR106-byte path; no Core version fix, compatibility shim or new policy was
+  justified. Stable local rustfmt's unsupported upstream unstable-setting warning
+  is diagnostic only; actual hosted fmt/fix supplies format acceptance.
+- Final protection:23 original paths and complete installed40/39 remain exact;
+  all5 real jobs rebound before the final device batch retain PID/start/executable.
+  The earlier10 jobs were independently replaced during the long user pause;
+  they are not claimed as retained. No installed launcher/assets/account/history/
+  resolver mutation, real-account call, force push or manual publication.
+- During the long pause, the already-authorized public schedule37730112615
+  succeeded through release production and non-forced CAS. Observed main5ced531
+  changes only index/signature from parentf038f2bd and announces qualified161
+  generationlocal-hosted-0-161-0-053e35bee0cb. This work did not trigger that run
+  or install it. A guessed Pages-root index404 is rejected; readback uses Core's
+  actual canonical raw-main index URL and authenticates index/Release signatures.
+- Disposition: source bundle closed; user-authorized fast-forward rewrite
+  integration follows from this accepted lineage. Separate web trial follows.
+  Installed preview remains the older `/profile`; source merge is not live cutover
+  or signed frontend admission. Generation pairing/ordinary update/rollback and
+  actual-account attribution remain explicitly unproven production gates.
 
 ## IDLE-PROFILE production admission (selected 2026-10-08)
 

@@ -131,7 +131,7 @@ requires_openai_auth = false
                     if b"\x1b[c" in data:
                         os.write(master, b"\x1b[?1;2c")
                     output.extend(data)
-            assert process.poll() is None, "native TUI exited"
+            assert process.poll() is None, "native TUI exited: " + ANSI.sub("", output.decode(errors="replace"))[-2500:]
             assert not (home / ".codex/auth.json").exists(), "unexpected auth onboarding"
             return ANSI.sub("", output.decode(errors="replace"))
 

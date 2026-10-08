@@ -340,7 +340,7 @@ index 0000000..9eeae53
 +mod tests;
 diff --git a/codex-rs/tui/src/app/profile_manager_tests.rs b/codex-rs/tui/src/app/profile_manager_tests.rs
 new file mode 100644
-index 0000000..4df1dd9
+index 0000000..dd81417
 --- /dev/null
 +++ b/codex-rs/tui/src/app/profile_manager_tests.rs
 @@ -0,0 +1,574 @@
@@ -1055,7 +1055,7 @@ index ce30da4..672f3e7 100644
      OpenExternalAgentConfigMigration,
 
 diff --git a/codex-rs/tui/src/bottom_pane/chat_composer.rs b/codex-rs/tui/src/bottom_pane/chat_composer.rs
-index 7272255..68f3930 100644
+index 7272255..247facd 100644
 --- a/codex-rs/tui/src/bottom_pane/chat_composer.rs
 +++ b/codex-rs/tui/src/bottom_pane/chat_composer.rs
 @@ -484,6 +484,10 @@ pub enum InputResult {
@@ -1070,7 +1070,7 @@ index 7272255..68f3930 100644
          return true;
      }
 diff --git a/codex-rs/tui/src/bottom_pane/slash_commands.rs b/codex-rs/tui/src/bottom_pane/slash_commands.rs
-index 383376a..6b1f8f9 100644
+index 383376a..3bacd4b 100644
 --- a/codex-rs/tui/src/bottom_pane/slash_commands.rs
 +++ b/codex-rs/tui/src/bottom_pane/slash_commands.rs
 @@ -325,6 +325,8 @@ mod tests {
@@ -1236,7 +1236,7 @@ index ed65384..696f32b 100644
              discovery
                  .profiles
 diff --git a/codex-rs/tui/src/chatwidget/slash_dispatch.rs b/codex-rs/tui/src/chatwidget/slash_dispatch.rs
-index 4fe2ed0..0975fb6 100644
+index 4fe2ed0..8984722 100644
 --- a/codex-rs/tui/src/chatwidget/slash_dispatch.rs
 +++ b/codex-rs/tui/src/chatwidget/slash_dispatch.rs
 @@ -271,6 +271,10 @@ impl ChatWidget {
@@ -1295,22 +1295,22 @@ index 0000000..7dc0f94
 +    ));
 +}
 diff --git a/codex-rs/tui/src/chatwidget/tests.rs b/codex-rs/tui/src/chatwidget/tests.rs
-index 6d42ca5..0a94f80 100644
+index 6d42ca5..05403a2 100644
 --- a/codex-rs/tui/src/chatwidget/tests.rs
 +++ b/codex-rs/tui/src/chatwidget/tests.rs
-@@ -276,6 +276,9 @@ mod plan_mode;
- #[path = "tests/plugin_catalog_tests.rs"]
- mod plugin_catalog;
- mod popups_and_settings;
+@@ -298,6 +298,9 @@ mod status_command_tests;
+ mod status_surface_previews;
+ #[path = "tests/subagent_activity_tests.rs"]
+ mod subagent_activity;
 +#[cfg(unix)]
 +#[path = "tests/switch_command_tests.rs"]
 +mod switch_command_tests;
- #[path = "tests/rate_limit_recovery_tests.rs"]
- mod rate_limit_recovery_tests;
- #[path = "tests/reasoning_status_tests.rs"]
+ mod terminal_title;
+ #[path = "tests/tool_activity_tests.rs"]
+ mod tool_activity_tests;
 diff --git a/codex-rs/tui/src/chatwidget/tests/switch_command_tests.rs b/codex-rs/tui/src/chatwidget/tests/switch_command_tests.rs
 new file mode 100644
-index 0000000..135aba4
+index 0000000..afb6f72
 --- /dev/null
 +++ b/codex-rs/tui/src/chatwidget/tests/switch_command_tests.rs
 @@ -0,0 +1,85 @@
@@ -1531,7 +1531,7 @@ index 0000000..ee292cf
 +    assert!(matches!(target, AppServerTarget::Remote { .. }));
 +}
 diff --git a/codex-rs/tui/src/slash_command.rs b/codex-rs/tui/src/slash_command.rs
-index 301de2e..12aaea8 100644
+index 301de2e..4cc082b 100644
 --- a/codex-rs/tui/src/slash_command.rs
 +++ b/codex-rs/tui/src/slash_command.rs
 @@ -32,6 +32,8 @@ pub enum SlashCommand {

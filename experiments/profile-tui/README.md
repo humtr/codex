@@ -1,7 +1,8 @@
 # /switch feasibility experiment
 
-Production remains signed sequence40 from source59308430. SPEC/GOAL/WORKBOARD
-own the prototype and the separately user-authorized local live preview.
+SPEC/GOAL/WORKBOARD own source integration and the separately user-authorized
+local live preview. The installed preview retains its signed40 backend; the
+public signed stable channel is governed independently by main.
 This is not production publication or full prototype admission.
 
 The native frontend uses exact official0.160.0 sourcea956835d for AArch64-musl
@@ -20,7 +21,8 @@ Core still qualifies/starts the signed40 backend; the frontend uses that local
 server in the existing terminal. Signed40/39 and activation/update keys stay intact.
 Normal Core builds do not include this frontend selector or private bridge override.
 
-After the accepted local installation, restart Codex and enter /switch. Arrows
+The qualified source frontend opens its picker with /switch. The installed older
+preview still uses /profile until a separate accepted replacement. Arrows
 and Enter reopen the same idle conversation under the selected profile, preserving
 its records, current workspace and terminal. Current-profile Enter, Esc and Ctrl-C
 close the picker unchanged. Pending input/tools or an existing writer refuse;
