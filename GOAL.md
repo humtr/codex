@@ -76,11 +76,45 @@
   temporary x.ufbtaonw show a synthetic Korean page and pass actual input/button
   roundtrip, with owned screenshot inspected. Actual process start identities are
   in the private GUI binding; no guessed start value is acceptance. Android phone
-  frontend display/touch remains user-confirmation pending. First private-TMP X
+  frontend display/touch was confirmed by the user: entering 확인 and pressing
+  the button displayed 확인. First private-TMP X
   socket check was insufficient: Chromium Xlib uses the standard Termux socket
   path; corrected reserved display:90 has no TCP listener and private browser
   HOME/profile/cache/temp. Android `am start` denies shell attribution, so user
   opens the app manually. Test browser is bounded15 minutes; no account navigation.
+- User confirmed the physical phone fixture/input. Bounded off-record ChatGPT
+  preview27923 on the same owned X server navigates chatgpt.com successfully200;
+  no cookie export/storageState/auth screenshot/diagnostic capture. Authentication
+  and actual provider admission remain unproven. Preview is bounded30min; previous
+  synthetic browser was stopped only by matching owned process start identity.
+- Phone fitting partial acceptance: native X root1440x2766 versus fixed960x700
+  preview. Matched Chrome27976/window2097155 resizes984x788 at10,10 to full root
+  at0,0 without restart. X11 fullscreen false->true verified with prior value
+  recorded; no other requested preference changes. Fixed page viewport removal
+  waits for user login-state confirmation before restarting a possible live
+  session. No account image/content read is fitting evidence. Android clock-domain
+  age diagnostics were discarded; exact /proc start identity remains the owner gate.
+- User-requested Linux/distribution review: official Linux ChatGPT desktop app
+  with Codex is in preview (2026-08-11), x64/ARM64 on listed desktop distributions;
+  current docs list Ubuntu24.04/26.04, Debian13, Fedora43/44 and Arch. This does
+  not establish Android/Termux support or a direct replacement for native Core.
+  Isolated proot/desktop testing remains unproven and is not authorized installation.
+  Linux sandbox prerequisites still include bwrap/user namespaces. Current official
+  mobile remote-host docs list macOS/Windows, not qualified Termux-only pairing.
+  Primary sources: https://learn.chatgpt.com/docs/linux/linux-app,
+  https://learn.chatgpt.com/docs/changelog (2026-08-11), /docs/sandboxing,
+  /docs/remote-connections and /docs/codex/cli.
+- Distribution decision: keep F-Droid Termux for current accepted native CLI/
+  Core/Manager state. GitHub + sharedUid X11 can reduce offscreen CPU throttling
+  per X11 upstream, but is not a sandbox/viewport fix and has no local comparative
+  benchmark. Same-source signing and migration backup/uninstall requirements apply.
+  Observed F-Droid0.119.0-beta.3 versus GitHub stable0.118.3 refutes any automatic
+  assumption that GitHub stable is newer. No app/source migration occurred.
+  Sources: https://github.com/termux/termux-app#installation and
+  https://github.com/termux/termux-x11#avoiding-slowdowns.
+- Post-fit protected23-path/18-asset/original12-file verification passes. No Core,
+  Manager, candidate protocol or dependency bytes changed; successful858 full/
+  typecheck and Android111/29 evidence is reused without validation churn.
 - Exact protected check preserves23 paths/18 complete generation assets/original12
   web files after companion installation. Installed Codex/Manager/auth/profiles/
   resolver are unchanged. Existing W1/W2/T1/Android MCP evidence is reused because

@@ -100,6 +100,21 @@ Core/Manager public commands, installed state and provider behavior stay unchang
   HOME/profile/cache/temp stay private. Its matching companion APK loader is
   read-only, as required by the official package postinstall and Android DEX loading.
   Do not stop unrelated X servers/browser processes or open another Termux window.
+  After the user confirms phone display/input, the bounded login preview may
+  open the selected ChatGPT service in one fresh off-record Chromium context on
+  that display for manual user authentication. Retire only the owned synthetic
+  test browser; keep the owned X server. No cookie/storageState export, persistent
+  login profile, OAuth capture, account screenshot, browser diagnostic dump or
+  credential logging is allowed. Authentication remains in the live context;
+  close/expiry ends the preview.
+  User-requested phone fitting permits resizing only the identity-bound browser
+  window to current X root bounds and enabling the X11 app's fullscreen preference
+  with its prior value recorded. Keep native resolution and unrelated input/display
+  preferences. Browser sizing must use the real display/density, not a fixed desktop
+  viewport; do not restart a potentially authenticated preview without checking the
+  user's login state. No account screenshot/content read is sizing evidence.
+  Actual provider/MCP admission still requires a
+  demonstrated production path consuming that live context and access control.
   Existing OpenAI admin key/tunnel reuse is user-authorized where technically
   necessary, through private file references; credential values must not enter
   argv, logs, reports or Git. Do not recreate/delete a configured tunnel or rotate
