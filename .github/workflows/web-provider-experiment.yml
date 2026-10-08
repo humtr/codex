@@ -7,6 +7,7 @@ on:
       - 'experiments/web-provider/chatgpt-web.patch'
       - 'experiments/web-provider/chatgpt_contract.test.ts'
       - 'experiments/web-provider/core-vectors.json'
+      - 'experiments/web-provider/playwright_android*.py'
 permissions:
   contents: read
 concurrency:
@@ -35,6 +36,8 @@ jobs:
           git -C candidate checkout --detach FETCH_HEAD
           test "$(git -C candidate rev-parse HEAD)" = "$CHATGPT_SHA"
           test -z "$(git -C candidate status --porcelain)"
+          mv candidate "$RUNNER_TEMP/web-candidate"
+          ln -s "$RUNNER_TEMP/web-candidate" candidate
       - name: Provision digest-pinned Bun only in disposable root
         shell: bash
         run: |
@@ -78,6 +81,8 @@ jobs:
           git -C candidate apply "$GITHUB_WORKSPACE/experiment/experiments/web-provider/chatgpt-web.patch"
           cp experiment/experiments/web-provider/chatgpt_contract.test.ts candidate/tests/web-contract.test.ts
           cp experiment/experiments/web-provider/core-vectors.json candidate/tests/core-vectors.json
+          PLAYWRIGHT_ORIGINAL_BUNDLE="$GITHUB_WORKSPACE/candidate/node_modules/playwright-core/lib/coreBundle.js" PYTHONDONTWRITEBYTECODE=1 python3 experiment/experiments/web-provider/playwright_android_test.py 2>&1 | tee "$RUNNER_TEMP/web-android-dependency.log"
+          TMPDIR="$RUNNER_TEMP" python3 experiment/experiments/web-provider/playwright_android.py --candidate candidate | tee "$RUNNER_TEMP/web-android-binding.json"
           root="$RUNNER_TEMP/web-owned"
           cd candidate
           env -i PATH="$PATH" HOME="$root/home" CODEX_HOME="$root/codex-home" TMPDIR="$root/tmp" bun test tests/web-contract.test.ts tests/responses-lite-tools.test.ts tests/prompt-contract.test.ts tests/subagent-environment-history.test.ts tests/environment.test.ts tests/zero-risk-adapter.test.ts 2>&1 | tee "$RUNNER_TEMP/web-candidate-focused.log"
@@ -114,5 +119,7 @@ jobs:
             ${{ runner.temp }}/web-candidate-focused.log
             ${{ runner.temp }}/web-typecheck.log
             ${{ runner.temp }}/web-full-contract.log
+            ${{ runner.temp }}/web-android-dependency.log
+            ${{ runner.temp }}/web-android-binding.json
           if-no-files-found: error
           retention-days: 3

@@ -79,6 +79,13 @@ Core/Manager public commands, installed state and provider behavior stay unchang
   follows from that baseline. Prefer the candidate's existing managed-chrome path
   when proven; do not emulate an Electron descriptor or silently pretend Android
   is Linux. W3 may provision frozen dependencies only inside owned temporary roots.
+  Pinned Playwright1.62.0 rejects Android during default-cache initialization even
+  for an explicit installed executable. The experimental dependency remedy may
+  extend only the three eager default-cache selectors to actual android, binding
+  exact original and
+  resulting bundle digests. Browser downloads/host-platform spoofing remain
+  disabled; actual Android browser execution and retained desktop regression must
+  qualify this change. No broad claim of Playwright official Android support.
   Existing OpenAI admin key/tunnel reuse is user-authorized where technically
   necessary, through private file references; credential values must not enter
   argv, logs, reports or Git. Do not recreate/delete a configured tunnel or rotate
