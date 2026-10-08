@@ -74,3 +74,7 @@ explicit prepare_preview signature, COLLAPSE descriptor parsing to the accepted
 strict parser. Focus Builder22 and hosted policy regressions before grouped final.
 Actual native frontend remains exactly4c791dd hosted source; this merge changes
 no TUI/native build input. Protected runtime/profile/state/public refs unchanged.
+
+S2 merge resolution: both Goal acceptance histories retained, only current
+Workboard kept. Permission probe retains strict descriptor parser plus signed
+inventory materialization and prepare_preview; no other product conflict.

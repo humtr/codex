@@ -210,10 +210,16 @@ def parse_descriptor(path: Path) -> dict[str, str]:
         fail("generation descriptor package identity is invalid")
     if result["expected_platform"] != "android" or result["expected_architecture"] != "aarch64":
         fail("generation descriptor platform binding is invalid")
-    if result["patch_policy_id"] not in {"termux-fd-remap-v1", "termux-fd-remap-v2", "termux-fd-remap-v3"} or result["qualification"] != "qualified":
+    policy = result["patch_policy_id"]
+    versions = {"termux-fd-remap-v2": "0.160.0", "termux-fd-remap-v3": "0.160.0",
+                "termux-fd-remap-v4": "0.161.0"}
+    if policy not in {"termux-fd-remap-v1", *versions} or result["qualification"] != "qualified":
         fail("generation descriptor qualification binding is invalid")
-    if result["patch_policy_id"] in {"termux-fd-remap-v2", "termux-fd-remap-v3"} and result["upstream_package_version"] != "0.160.0":
+    version = result["upstream_package_version"]
+    if (policy == "termux-fd-remap-v1" and stable_version(version) > (0, 160, 0)) or (policy in versions and version != versions[policy]):
         fail("generation descriptor policy version binding is invalid")
+    if policy == "termux-fd-remap-v4" and result["source_artifact_digest"] != "3c02e2ae34be0d06e62557e98fc5c0a783bec5a2fed406fe00e565803bf84ee8":
+        fail("generation descriptor policy archive binding is invalid")
     for field in ["source_artifact_digest", "runtime_digest", "core_artifact_digest"]:
         lower_sha256(result[field], field)
     if result["manager_artifact_digest"] != "-":

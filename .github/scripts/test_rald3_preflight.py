@@ -88,16 +88,29 @@ class PreflightTests(unittest.TestCase):
             (root / "generation.meta").write_text(descriptor)
             self.assertEqual(M.verify_candidate(root, "0.155.0")["generation_id"], "gen-1")
             # Admission recognizes the new policy without dropping rollback policies.
-            for policy in ["termux-fd-remap-v1", "termux-fd-remap-v2", "termux-fd-remap-v3"]:
-                version = "0.155.0" if policy == "termux-fd-remap-v1" else "0.160.0"
+            for policy in ["termux-fd-remap-v1", "termux-fd-remap-v2", "termux-fd-remap-v3", "termux-fd-remap-v4"]:
+                version = {"termux-fd-remap-v1": "0.155.0", "termux-fd-remap-v4": "0.161.0"}.get(policy, "0.160.0")
                 candidate = descriptor.replace("termux-fd-remap-v1", policy).replace("0.155.0", version)
+                if policy == "termux-fd-remap-v4":
+                    candidate = candidate.replace("source_artifact_digest\t" + "a" * 64, "source_artifact_digest\t3c02e2ae34be0d06e62557e98fc5c0a783bec5a2fed406fe00e565803bf84ee8")
                 (root / "generation.meta").write_text(candidate)
                 self.assertEqual(M.verify_candidate(root, version)["patch_policy_id"], policy)
+                if policy == "termux-fd-remap-v4":
+                    (root / "generation.meta").write_text(candidate.replace("3c02e2ae34be0d06e62557e98fc5c0a783bec5a2fed406fe00e565803bf84ee8", "a" * 64))
+                    with self.assertRaises(M.PreflightError):
+                        M.verify_candidate(root, version)
+                    (root / "generation.meta").write_text(candidate)
                 if policy != "termux-fd-remap-v1":
                     (root / "generation.meta").write_text(candidate.replace(version, "0.160.1"))
                     with self.assertRaises(M.PreflightError):
                         M.verify_candidate(root, "0.160.1")
-            (root / "generation.meta").write_text(descriptor.replace("termux-fd-remap-v1", "termux-fd-remap-v4"))
+            (root / "generation.meta").write_text(descriptor.replace("0.155.0", "0.160.0"))
+            self.assertEqual(M.verify_candidate(root, "0.160.0")["patch_policy_id"], "termux-fd-remap-v1")
+            for version in ["0.160.1", "0.161.0", "0.162.0"]:
+                (root / "generation.meta").write_text(descriptor.replace("0.155.0", version))
+                with self.assertRaises(M.PreflightError):
+                    M.verify_candidate(root, version)
+            (root / "generation.meta").write_text(descriptor.replace("termux-fd-remap-v1", "termux-fd-remap-v5"))
             with self.assertRaises(M.PreflightError):
                 M.verify_candidate(root, "0.155.0")
             (root / "generation.meta").write_text(descriptor)
