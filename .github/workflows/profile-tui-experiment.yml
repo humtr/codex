@@ -1,4 +1,4 @@
-name: Experimental profile TUI feasibility
+name: Experimental switch TUI qualification
 on:
   push:
     branches: [experiment/profile-tui]
@@ -7,6 +7,8 @@ on:
       - 'experiments/profile-tui/native.patch'
       - 'experiments/profile-tui/normalize_lock.py'
       - 'experiments/profile-tui/test_normalize_lock.py'
+      - 'experiments/profile-tui/check_command_boundary.py'
+      - 'experiments/profile-tui/test_command_boundary.py'
 permissions:
   contents: read
 concurrency:
@@ -14,7 +16,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   upstream-baseline:
-    name: Build and test native profile selection
+    name: Build and test native switch selection
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 90
     env:
@@ -93,14 +95,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          PYTHONDONTWRITEBYTECODE=1 python3 experiment/experiments/profile-tui/test_normalize_lock.py
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s experiment/experiments/profile-tui -p 'test_*.py'
           python3 experiment/experiments/profile-tui/normalize_lock.py upstream/codex-rs --audit "$RUNNER_TEMP/profile-tui-lock-audit.json"
       - name: Apply bounded native profile patch
         shell: bash
         run: |
           set -euo pipefail
+          python3 experiment/experiments/profile-tui/check_command_boundary.py upstream
+          pristine="$RUNNER_TEMP/profile-tui-pristine/codex-rs/tui/src"
+          mkdir -p "$pristine"
+          cp upstream/codex-rs/tui/src/slash_command.rs "$pristine/slash_command.rs"
           git -C upstream apply --check "$GITHUB_WORKSPACE/experiment/experiments/profile-tui/native.patch"
           git -C upstream apply "$GITHUB_WORKSPACE/experiment/experiments/profile-tui/native.patch"
+          python3 experiment/experiments/profile-tui/check_command_boundary.py "$RUNNER_TEMP/profile-tui-pristine" --patched upstream
           git -C upstream diff --check
           test "$(git -C upstream diff --name-only -- codex-rs/core)" = ''
       - name: Preserve freshness of byte-identical upstream packages
@@ -207,7 +214,8 @@ jobs:
         run: |
           set -euo pipefail
           cd upstream
-          just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-tui --lib -E 'test(profile_transport) | test(termux_permissions) | test(profile_manager) | test(profile_command) | test(side_conversation_hides_commands_without_side_flag)' 2>&1 | tee "$RUNNER_TEMP/profile-tui-focused.log"
+          just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-tui --lib -E 'test(profile_transport) | test(termux_permissions) | test(profile_manager) | test(switch_command) | test(side_conversation_hides_commands_without_side_flag)' 2>&1 | tee "$RUNNER_TEMP/profile-tui-focused.log"
+          python3 "$GITHUB_WORKSPACE/experiment/experiments/profile-tui/check_command_boundary.py" "$RUNNER_TEMP/profile-tui-pristine" --patched "$GITHUB_WORKSPACE/upstream" --test-log "$RUNNER_TEMP/profile-tui-focused.log"
       - name: Inspect TUI lint fixes
         shell: bash
         run: |

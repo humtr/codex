@@ -34,6 +34,24 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
+## SWITCH-RENAME-INTEGRATION (selected 2026-10-08)
+
+- User authorizes `/switch` renaming, remaining same-path safeguards, ordinary
+  source integration of experiment/profile-tui into rewrite/rust-core, then a
+  separate experiment/web-provider for the prj/web independent review findings.
+  Goal-md bound to this file; approved equivalent primary, workers OFF.
+- SPEC-first: one slash name, no `/profile` alias, pristine upstream name/alias
+  collision refusal and unchanged upstream command inventory after patching.
+  Upstream CLI config profiles and Manager execution homes remain distinct.
+- Source return is already accepted; new native command build/actual arrow+Enter,
+  return/fallback/permission/TTY gates must pass before source merge. Installed
+  preview, signed40/39, main, sealed legacy, auth/history/jobs/resolver protected.
+  Signed generation pairing, ordinary update/rollback and actual account proof
+  remain separate admission gates; this source merge does not publish or install.
+- Web trial branch starts only after the source bundle closes. Existing prj/web
+  reports remain intact; first web slice is credential-free full-home/Core and
+  tool call/result/nonce qualification, with no real service/account calls.
+
 ## IDLE-PROFILE production admission (selected 2026-10-08)
 
 - User selected preparation and follow-up toward production integration of idle

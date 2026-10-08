@@ -1,4 +1,4 @@
-"""Owned real native /profile, signed Core/Manager data, cancellation and error recovery."""
+"""Owned real native /switch, signed Core/Manager data, cancellation and error recovery."""
 import argparse
 import contextlib
 import http.server
@@ -123,12 +123,12 @@ requires_openai_auth = false
                 return result.stdout
             for id in ['external','work']:manager('profile','create',id)
             manager('profile','default','work')
-            account=home/'.local/share/codex/manager/profiles/work/home'
-            for selected in [home/'.codex', account, home/'.local/share/codex/manager/profiles/external/home']:
+            account=home/'.local/share/codex/manager/switchs/work/home'
+            for selected in [home/'.codex', account, home/'.local/share/codex/manager/switchs/external/home']:
                 (selected/'config.toml').write_text(config)
             env['CODEX_HOME']=str(account)
             protected=[home/'.local/share/codex/manager/default-profile-v1']
-            protected += [selected/'config.toml' for selected in [home/'.codex',account,home/'.local/share/codex/manager/profiles/external/home']]
+            protected += [selected/'config.toml' for selected in [home/'.codex',account,home/'.local/share/codex/manager/switchs/external/home']]
             before={str(path):path.read_bytes() for path in protected}
             snapshot=json.loads(manager('__profile-snapshot-v1'))
             assert snapshot=={'schema':'codex-manager-profiles-v1','profiles':['default','external','work'],'current':'work','current_source':'inherited','saved_default':'work'},snapshot
@@ -223,14 +223,14 @@ requires_openai_auth = false
                         prior_history=[line for line in rollout.read_text().splitlines() if 'owned-profile-history' in line]
                         assert prior_history,'owned completed fixture turn was not persisted'
                 if available:
-                    output=until('Profiles',command('/profile'))
+                    output=until('Profiles',command('/switch'))
                     assert 'Current: work' in output and 'Default: work' in output,output[-2500:]
                     assert 'external' in output and 'default' in output,output[-2500:]
                     os.write(master,b'work');filtered=drain(1)+redraw()
                     assert 'work (current)' in filtered and 'external' not in filtered,'profile search did not render the matching row'
                     os.write(master,b'\x1b');drain(.3);os.write(master,b'\x1b');drain(.3)
                     assert status()==thread,'profile cancellation changed conversation'
-                    until('Profiles',command('/profile'))
+                    until('Profiles',command('/switch'))
                     os.write(master,b'\x03');drain(.5)
                     assert status()==thread,'profile interrupt changed conversation'
                     results.append('native-profile/signed-core-manager/list-current-default/search/Esc/Ctrl-C/same-thread')
@@ -246,7 +246,7 @@ requires_openai_auth = false
                             original_mode=rollout.parent.stat().st_mode & 0o777
                             try:
                                 os.chmod(rollout.parent,0o500)
-                                until('Profiles',command('/profile'))
+                                until('Profiles',command('/switch'))
                                 os.write(master,b'\x1b[B');drain(.3);os.write(master,b'\r')
                                 until('Current conversation could not be saved for profile switching.')
                                 assert process.poll() is None and not rollout.exists()
@@ -256,7 +256,7 @@ requires_openai_auth = false
                             results.append('native-profile/unwritable-blank-rollout/refusal/current-chat-preserved')
                         # A stalled owned backend must time out before native cleanup.
                         assert Path(f'/proc/{server}/exe').resolve()==native/'runtime'
-                        until('Profiles',command('/profile'))
+                        until('Profiles',command('/switch'))
                         os.write(master,b'\x1b[B');drain(.3)
                         os.kill(server,signal.SIGSTOP)
                         try:
@@ -269,13 +269,13 @@ requires_openai_auth = false
                         os.write(master,b'\x1b');drain(.3)
                         assert status()==thread,'persistence timeout lost current chat'
                         results.append('native-profile/owned-backend-timeout/refusal/current-chat-preserved')
-                        until('Profiles',command('/profile'))
+                        until('Profiles',command('/switch'))
                         os.write(master,b'work');drain(.3);os.write(master,b'\r');drain(.5)
                         assert status()==thread,'current-profile Enter changed conversation'
                         initial_pid=process.pid
                         destinations=['external','work','default','work'] + (['external'] if source_return else [])
                         for destination in destinations:
-                            until('Profiles',command('/profile'))
+                            until('Profiles',command('/switch'))
                             # Exercise the actual arrow selection, not a private handoff command.
                             steps={'default':0,'external':1,'work':2}[destination]
                             os.write(master,b'\x1b[B'*steps);drain(.3)
@@ -288,7 +288,7 @@ requires_openai_auth = false
                                 assert model.requests==requests_before,'profile handoff started a model request'
                             assert process.pid==initial_pid and process.poll() is None,'profile switch replaced terminal process'
                             assert status()==thread,'profile switch did not preserve fresh conversation'
-                            view=until('Current: '+destination,command('/profile'))
+                            view=until('Current: '+destination,command('/switch'))
                             assert 'Default: work' in view,'profile switch changed saved default'
                             os.write(master,b'\x1b');drain(.3)
                             tasks=json.loads(manager('__task-snapshot-v1'))['tasks']
@@ -298,7 +298,7 @@ requires_openai_auth = false
                         results.append('direct-arrow-Enter/'+('fresh-unseeded-thread' if case=='ready' else 'persisted-thread')+'/external-work-default/same-UUID-PID-TTY-CWD/native-writer/default-preserved')
                         if case=='persisted':results.append('native-nonempty-completed-turn-history/public-profile-'+str(len(destinations))+'-transitions/visible-and-byte-records-preserved/no-external-model-call/no-model-request-during-handoff')
                         if source_return:
-                            source=home/'.local/share/codex/manager/profiles/external/home'
+                            source=home/'.local/share/codex/manager/switchs/external/home'
                             source_records=[record for record in (home/'.local/share/codex/core/servers').glob('*/pid')
                                             if (record.parent/'owner').read_bytes().split(b'\0')[0] == os.fsencode(source)]
                             assert len(source_records)==1
@@ -310,7 +310,7 @@ requires_openai_auth = false
                                 # A real second connection retains the original upstream writer
                                 # after native cleanup; no production injection or lock removal.
                                 subscriber.call('thread/resume',{'threadId':thread,'cwd':str(expected_cwd)})
-                                until('Profiles',command('/profile'))
+                                until('Profiles',command('/switch'))
                                 os.write(master,b'\x1b[B'*2);drain(.3);os.write(master,b'\r')
                                 refusal=until('Enter to return')
                                 assert 'writer is still owned' in refusal
@@ -323,7 +323,7 @@ requires_openai_auth = false
                                 returned=until('fixture-model');returned+=drain(2)
                                 until('owned-profile-history',returned)
                                 assert status()==thread and process.pid==initial_pid
-                                view=until('Current: external',command('/profile'))
+                                view=until('Current: external',command('/switch'))
                                 assert 'Default: work' in view
                                 os.write(master,b'\x1b');drain(.3)
                                 assert int(source_record.read_text())==source_pid
@@ -336,7 +336,7 @@ requires_openai_auth = false
                     assert status()==thread,'installed fallback broke current chat'
                     results.append('public-preview-Core/'+case+'/usable-installed-fallback')
                 else:
-                    until('Profiles are unavailable.',command('/profile'))
+                    until('Profiles are unavailable.',command('/switch'))
                     assert status()==thread,'unavailable bridge broke current chat'
                     results.append('native-profile/unavailable-bridge/current-chat-usable')
                 command('/quit');process.wait(timeout=10)

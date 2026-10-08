@@ -649,7 +649,7 @@ index 0000000..4df1dd9
 +    );
 +    while events.try_recv().is_ok() {}
 +    while ops.try_recv().is_ok() {}
-+    for text in ["/profile", "follow up after profiles"] {
++    for text in ["/switch", "follow up after profiles"] {
 +        app.chat_widget.apply_external_edit(text.to_string());
 +        app.chat_widget
 +            .handle_key_event(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
@@ -752,7 +752,7 @@ index 0000000..4df1dd9
 +            );
 +        }
 +        if state == "queued" {
-+            for text in ["/profile", "keep this input"] {
++            for text in ["/switch", "keep this input"] {
 +                app.chat_widget.apply_external_edit(text.to_string());
 +                app.chat_widget
 +                    .handle_key_event(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
@@ -1063,7 +1063,7 @@ index 7272255..68f3930 100644
 
  fn parent_owned_command_is_allowed(command: SlashCommand, args: &str) -> bool {
 +    #[cfg(unix)]
-+    if command == SlashCommand::Profile && args.is_empty() {
++    if command == SlashCommand::Switch && args.is_empty() {
 +        return true;
 +    }
      if command == SlashCommand::Export {
@@ -1078,7 +1078,7 @@ index 383376a..6b1f8f9 100644
              vec![
                  SlashCommand::Ide,
 +                #[cfg(unix)]
-+                SlashCommand::Profile,
++                SlashCommand::Switch,
                  SlashCommand::Agents,
                  SlashCommand::Copy,
                  SlashCommand::Export,
@@ -1244,7 +1244,7 @@ index 4fe2ed0..0975fb6 100644
                  self.app_event_tx.send(AppEvent::OpenResumePicker);
              }
 +            #[cfg(unix)]
-+            SlashCommand::Profile => {
++            SlashCommand::Switch => {
 +                self.app_event_tx.send(AppEvent::OpenProfilePicker);
 +            }
              SlashCommand::Fork => {
@@ -1255,7 +1255,7 @@ index 4fe2ed0..0975fb6 100644
              | SlashCommand::Tui
              | SlashCommand::Pets => QueueDrain::Stop,
 +            #[cfg(unix)]
-+            SlashCommand::Profile => QueueDrain::Stop,
++            SlashCommand::Switch => QueueDrain::Stop,
          }
      }
 
@@ -1303,22 +1303,22 @@ index 6d42ca5..0a94f80 100644
  mod plugin_catalog;
  mod popups_and_settings;
 +#[cfg(unix)]
-+#[path = "tests/profile_command_tests.rs"]
-+mod profile_command_tests;
++#[path = "tests/switch_command_tests.rs"]
++mod switch_command_tests;
  #[path = "tests/rate_limit_recovery_tests.rs"]
  mod rate_limit_recovery_tests;
  #[path = "tests/reasoning_status_tests.rs"]
-diff --git a/codex-rs/tui/src/chatwidget/tests/profile_command_tests.rs b/codex-rs/tui/src/chatwidget/tests/profile_command_tests.rs
+diff --git a/codex-rs/tui/src/chatwidget/tests/switch_command_tests.rs b/codex-rs/tui/src/chatwidget/tests/switch_command_tests.rs
 new file mode 100644
 index 0000000..135aba4
 --- /dev/null
-+++ b/codex-rs/tui/src/chatwidget/tests/profile_command_tests.rs
++++ b/codex-rs/tui/src/chatwidget/tests/switch_command_tests.rs
 @@ -0,0 +1,85 @@
 +use super::*;
 +use pretty_assertions::assert_eq;
 +
 +#[tokio::test]
-+async fn profile_command_dispatches_without_agent_input_in_idle_busy_side_and_owned_views() {
++async fn switch_command_dispatches_without_agent_input_in_idle_busy_side_and_owned_views() {
 +    for state in ["idle", "busy", "pending", "side", "owned"] {
 +        let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(None).await;
 +        chat.thread_id = Some(ThreadId::new());
@@ -1330,7 +1330,7 @@ index 0000000..135aba4
 +            _ => {}
 +        }
 +        chat.bottom_pane
-+            .set_composer_text("/profile".to_string(), Vec::new(), Vec::new());
++            .set_composer_text("/switch".to_string(), Vec::new(), Vec::new());
 +        chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 +        let mut opened = 0;
 +        while let Ok(event) = rx.try_recv() {
@@ -1361,10 +1361,10 @@ index 0000000..135aba4
 +}
 +
 +#[tokio::test]
-+async fn profile_command_opens_from_an_unavailable_thread_without_agent_input() {
++async fn switch_command_opens_from_an_unavailable_thread_without_agent_input() {
 +    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(None).await;
 +    chat.bottom_pane
-+        .set_composer_text("/profile".to_string(), Vec::new(), Vec::new());
++        .set_composer_text("/switch".to_string(), Vec::new(), Vec::new());
 +    chat.handle_restricted_key(
 +        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
 +        crate::bottom_pane::RestrictedInputMode::UnavailableThread,
@@ -1378,11 +1378,11 @@ index 0000000..135aba4
 +}
 +
 +#[tokio::test]
-+async fn profile_command_queued_picker_defers_follow_up_instead_of_submitting_it() {
++async fn switch_command_queued_picker_defers_follow_up_instead_of_submitting_it() {
 +    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(None).await;
 +    chat.thread_id = Some(ThreadId::new());
 +    handle_turn_started(&mut chat, "profile-turn");
-+    for text in ["/profile", "follow up after profiles"] {
++    for text in ["/switch", "follow up after profiles"] {
 +        chat.bottom_pane
 +            .set_composer_text(text.to_string(), Vec::new(), Vec::new());
 +        chat.handle_key_event(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
@@ -1539,7 +1539,7 @@ index 301de2e..12aaea8 100644
      Delete,
      Resume,
 +    #[cfg(unix)]
-+    Profile,
++    Switch,
      Fork,
      Worktree,
      App,
@@ -1548,7 +1548,7 @@ index 301de2e..12aaea8 100644
              SlashCommand::Rename => "rename the current thread",
              SlashCommand::Resume => "resume a saved chat",
 +            #[cfg(unix)]
-+            SlashCommand::Profile => "view execution profiles",
++            SlashCommand::Switch => "switch execution profile for this conversation",
              SlashCommand::Archive => "archive this session",
              SlashCommand::Delete => "permanently delete this session",
              SlashCommand::Clear => "clear the terminal and start a new chat",
@@ -1557,7 +1557,7 @@ index 301de2e..12aaea8 100644
      /// Whether this command remains available inside an active side conversation.
      pub fn available_in_side_conversation(self) -> bool {
 +        #[cfg(unix)]
-+        if self == SlashCommand::Profile {
++        if self == SlashCommand::Switch {
 +            return true;
 +        }
          matches!(
@@ -1568,7 +1568,7 @@ index 301de2e..12aaea8 100644
      /// Commands that do not require a writable current thread. The server must still be connected.
      pub(crate) fn available_when_thread_unavailable(self) -> bool {
 +        #[cfg(unix)]
-+        if self == SlashCommand::Profile {
++        if self == SlashCommand::Switch {
 +            return true;
 +        }
          matches!(
@@ -1579,7 +1579,7 @@ index 301de2e..12aaea8 100644
      pub fn available_during_task(self) -> bool {
          match self {
 +            #[cfg(unix)]
-+            SlashCommand::Profile => true,
++            SlashCommand::Switch => true,
              SlashCommand::New
              | SlashCommand::Archive
              | SlashCommand::Delete

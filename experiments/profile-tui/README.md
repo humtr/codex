@@ -1,4 +1,4 @@
-# /profile feasibility experiment
+# /switch feasibility experiment
 
 Production remains signed sequence40 from source59308430. SPEC/GOAL/WORKBOARD
 own the prototype and the separately user-authorized local live preview.
@@ -20,7 +20,7 @@ Core still qualifies/starts the signed40 backend; the frontend uses that local
 server in the existing terminal. Signed40/39 and activation/update keys stay intact.
 Normal Core builds do not include this frontend selector or private bridge override.
 
-After the accepted local installation, restart Codex and enter /profile. Arrows
+After the accepted local installation, restart Codex and enter /switch. Arrows
 and Enter reopen the same idle conversation under the selected profile, preserving
 its records, current workspace and terminal. Current-profile Enter, Esc and Ctrl-C
 close the picker unchanged. Pending input/tools or an existing writer refuse;
@@ -46,3 +46,10 @@ SOURCE-PROFILE-RETURN is separately qualified as owned source preparation in GOA
 Its Manager build has not replaced the installed pinned preview. Stable admission
 still requires coherent signed generation assets, ordinary update/rollback and
 actual-account attribution; SPEC owns those boundaries.
+
+The accepted source entrypoint is /switch with no /profile alias. The source-build
+command boundary gate checks pristine upstream names and aliases before patching,
+then proves every upstream command survives unchanged with only Switch added.
+Upstream --profile configuration layers remain independent. Source integration
+into rewrite does not update the installed older /profile preview or publish a
+signed frontend; those remain separate admission and deployment gates.

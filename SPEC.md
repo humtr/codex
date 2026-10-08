@@ -4,15 +4,29 @@ Status: initial normative baseline
 Repository: `humtr/codex`  
 Active implementation branch: `rewrite/rust-core`
 
-## Experimental /profile TUI boundary (2026-10-05)
+## Optional /switch TUI source boundary (2026-10-08)
 
-This section applies only to user-authorized experiment/profile-tui. Accepted
-production source/release40 and its ordinary runtime contract remain unchanged.
+This section applies to the user-authorized experiment/profile-tui and its
+accepted source integration into rewrite/rust-core. Accepted production
+release40 and its ordinary runtime contract remain unchanged.
 No prototype is publishable until separate completion and admission. The user
 authorized a bounded live display preview on 2026-10-06 before full completion.
 
-- Prototype native `/profile` entrypoint combines upstream conversation/agent UI
+- Prototype native `/switch` entrypoint combines upstream conversation/agent UI
   with Manager-owned profile selection and existing reconnect/takeover semantics.
+- The sole added public slash name is `/switch`, for Manager execution-home
+  selection; `/profile` is not an alias. Upstream `--profile`/`-p` configuration
+  layers, `/resume`, `/agents`, `/permissions` and every existing slash name/alias
+  retain upstream meaning. Provider/model selection is a separate capability.
+  Before applying the native patch, the source build must inspect the pristine
+  pinned upstream command inventory, including serialize/to_string aliases, and
+  refuse a `/switch` collision or an unrecognized naming representation. After
+  patching, every upstream variant/name/alias must remain identical and Switch
+  must be the sole added variant/name. This gate is mandatory in the real hosted
+  frontend build. A future collision requires an explicit contract decision;
+  silently replacing an upstream command or choosing another name is forbidden.
+  Source merge alone does not enable the default-off preview, authorize live
+  replacement, or close signed-generation admission.
 - Upstream owns history, authentication, thread ancestry and kernel writer locks;
   Manager owns execution-profile selection and task policy. Core gains no UI,
   transcript parser, second session index or account-switch controller.
@@ -159,7 +173,7 @@ authorized a bounded live display preview on 2026-10-06 before full completion.
   leave the current chat usable. These read-only integration slices do not close
   same-terminal account transition or active-owner safety requirements.
 - Native upstream compile/executable baseline precedes prototype behavior. A mock
-  chooser or external wrapper alone cannot prove the `/profile` product path.
+  chooser or external wrapper alone cannot prove the `/switch` product path.
   Admission requires actual slash dispatch, profile/history/agent presentation,
   same-terminal account transition, safe active-owner handling and failure/cancel
   proof. Source-build cost and official-artifact policy compatibility are explicit

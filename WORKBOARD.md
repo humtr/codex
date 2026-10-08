@@ -2,42 +2,50 @@
 
 SPEC -> GOAL -> WORKBOARD; goal-md bound; workers OFF, primary direct implementation.
 
-SOURCE-PROFILE-RETURN is CLOSED as source/owned-native admission preparation.
-Focused9/9, actual `/profile` post-cleanup retained-writer refusal and explicit
-original-account return, grouped298 Rust/101 Python, Clippy/fmt/normal compile,
-actual diff and final23-path/40/39/all10-job protection pass. Evidence/disposition
-is only in GOAL.md. Installed preview remains its original pinned assets.
-Public CI repair is independently closed: source053e35, unsigned hosted37720625720,
-mainf038f2bd workflow repair with signed stable40 retained. No161 stable publication
-or installed activation is claimed. prj/web independent review is complete in its
-own report; its implementation/account calls are separate.
+Current bundle: SWITCH-RENAME-INTEGRATION, selected by the user 2026-10-08.
+Bound clean experiment/profile-tui HEAD2ed58ff1148a3e1f5adbf1c03b06a159fb3cd2a3;
+rewrite/rust-core b949afafb6a9a8224f7fee0fb4b45fe9aafac48d is its ancestor.
+User authorizes ordinary source merge into rewrite and a separate web experiment.
+No installed cutover, official signing/publication or account calls selected.
 
-Next bundle: GENERATION-FRONTEND-PAIRING preparation on experiment/profile-tui.
-Before any product mutation, bind exact HEAD/diff, runnable baseline and SPEC.
+Ordered slices:
+S1 CURRENT: baseline restored9/9 Manager and5/5 Python, pristine patch applies.
+  SPEC-first rename public native entry
+  /profile to /switch with no alias (upstream --profile/config profiles untouched).
+  Native SlashCommand dispatch and all current native/probe tests move together.
+  Build gate inspects pristine pinned upstream names/aliases before applying the
+  patch, refuses collision or unknown name representation, and is required by the
+  actual hosted native build. Focus: pristine/current dispatch preservation,
+  name/alias collisions and zero-test refusal; actual native focused nonzero gate.
+  Protected: upstream other commands/CLI args, source-return logic, all installed
+  assets/profiles/auth/sessions/jobs/resolver, main/sealed legacy.
+S2: grouped Rust/Python/fmt/Clippy/normal compile, actual native /switch arrows/Enter,
+  source-return refusal, fallback and terminal/state protection; inspect actual diff.
+  Commit/push accepted experiment then fast-forward rewrite (same orphan lineage,
+  no main/legacy import); verify remote exact source. Source integration alone does
+  not assert signed generation/frontend admission or replace installed /profile.
+S3: create separate experiment/web-provider branch/worktree under prj/web without
+  overwriting the existing independent report. First account-free slice repairs
+  full HOME/Core isolation, exact artifact attribution and tool result/call-ID/nonce
+  proof. Provider/model and execution profile remain separate. No live state calls.
 
-Ordered contract slices:
-P1 CURRENT (contract/disposition): define qualified source frontend as an optional
-  Manager convenience asset bound to the same signed generation/backend version.
-  Core owns asset qualification/Termux launch only; Manager owns profile UI/action
-  policy. Inspect every affected descriptor/inventory/publisher/readback path and
-  old signed40 update entrypoint before choosing representation. Existing v2 helper
-  inventory can carry an auxiliary executable, but current publisher requires
-  exactly two browser helpers and R10 metadata also binds exactly two. These are
-  real admission constraints; do not merely add an unrecognized third file or
-  create a new schema without proving how installed40 can reach it. Prefer the
-  existing signed invariant if it expresses the full contract. Protected retained
-  R10 bundles remain readable/rollback-valid. Single-file512MiB/total1GiB remain.
-  No stable command/state/ownership change until normative SPEC and proof map agree.
-P2: qualify the minimal idle-profile frontend against exact admitted0.161 source
-  and backend, including native permission choices, persistence/error behavior,
-  same-terminal source recovery, own source/lock/patch/artifact identities. Keep
-  full history/agents/active-owner takeover separate.
-P3: implement coherent signed asset build/qualification and generation selection;
-  delete preview-specific permanent pins/launcher restoration only when ordinary
-  update/rollback and optional-Manager/backend fallback are proven on owned roots.
-  Prove actual installed40 ordinary admission, activation faults and complete
-  prior/new rollback with no live mutation before signed candidate acceptance.
-P4: bounded actual-account attribution gate after the complete candidate and
-  exact permitted account/request scope are established. Owned zero-auth proof
-  never substitutes for this gate. Signing/publication/live cutover require their
-  concrete acceptance authority; no new account calls or live cutover selected now.
+Baseline red: first Cargo command used nonexistent codex-termux-manager package,
+exit101, zero tests; rejected as invocation error. Correct package is codex-manager.
+Second invocation reached9 tests but all failed because the moved target cache
+embedded the former CARGO_BIN_EXE path (missing executable); rejected. Rebuild
+only the owned Manager cache to restore artifact attribution. Product mutations
+freeze lifted after rebuilt9/9 Manager tests and5/5 Python pass; no product
+mutation preceded this runnable baseline.
+
+Deferred coherent signed-generation/frontend pairing, ordinary update/rollback,
+actual-account attribution, full history/agents/active-owner chooser remain gates
+in GOAL.md; this rename/source merge does not close them.
+
+S1 diff inspection caught an over-broad string edit changing internal module paths.
+Corrected before build; internal profile_manager/profile_transport paths retained.
+Only slash variant/dispatch/probe text and its command-test name change.
+
+S1 local gate:10/10 Python; exact pristine62 variants and all names/aliases
+preserved with Switch as sole addition; patch applies, workflow YAML/all shell
+steps parse and diff check passes. Existing25-test log exercised only the log
+validator, not new native acceptance. Native hosted candidate remains PENDING.
