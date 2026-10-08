@@ -47,7 +47,9 @@ for (const stream of [false, true]) {
     let items: Array<Record<string, unknown>>;
     if (stream) {
       const text = await response.text();
-      const messages = text.split("\n").filter(row => row.startsWith("data: ")).map(row => JSON.parse(row.slice(6)));
+      const frames = text.split("\n").filter(row => row.startsWith("data: "));
+      expect(frames.filter(row => row === "data: [DONE]")).toHaveLength(1);
+      const messages = frames.filter(row => row !== "data: [DONE]").map(row => JSON.parse(row.slice(6)));
       items = messages.filter(row => row.type === "response.output_item.done").map(row => row.item);
     } else {
       items = ((await response.json()) as { output: Array<Record<string, unknown>> }).output;

@@ -38,3 +38,8 @@ alias/native passthrough; COLLAPSE strict identity/correlation; DELETE silent
 drops/malformed-argument repair. Proof names: custom namespace declaration/replay,
 SSE+JSON exact namespace/type, collision/orphan/duplicate/invalid arguments 400
 before adapter, actual classic/Lite vectors. No package/launcher/auth/browser edits.
+
+B2 hosted37754737928 rejects34/35 because the new SSE proof tried to JSON-parse
+the actual [DONE] sentinel. Fix only framing proof, assert exactly one sentinel
+and parse every real JSON frame; do not change production output to satisfy test.
+Restore focused gate before remaining merge/correlation breadth and full suite.
