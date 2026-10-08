@@ -53,3 +53,8 @@ collision checks were split before the final classic/Lite merge. COLLAPSE them
 into the final single wire-identity map, with cross-source collision regression.
 Add two actual Core final tool-history vectors (no message prompts); grouped
 contract/typecheck follows only after this focused gate.
+
+B2 exact focused37/37 (original28 + owned9) and actual Core vector replay pass
+at hosted37755884358/source1bb8a08. Stabilized grouped TypeScript typecheck and
+all account-free candidate tests now selected; browser-dependent cases remain
+explicit skips, never account/browser acceptance. Core Rust evidence unchanged.

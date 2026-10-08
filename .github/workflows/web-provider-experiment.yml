@@ -82,6 +82,21 @@ jobs:
           assert re.search(r'\b[1-9][0-9]* pass\b', text), 'nonzero focused tests required'
           assert re.search(r'\b0 fail\b', text), 'all focused tests must pass'
           PY
+      - name: Stabilized candidate full contract and typecheck
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/web-owned"
+          cd candidate
+          env -i PATH="$PATH" HOME="$root/home" CODEX_HOME="$root/codex-home" TMPDIR="$root/tmp" bun run typecheck 2>&1 | tee "$RUNNER_TEMP/web-typecheck.log"
+          env -i PATH="$PATH" HOME="$root/home" CODEX_HOME="$root/codex-home" TMPDIR="$root/tmp" bun test ./tests 2>&1 | tee "$RUNNER_TEMP/web-full-contract.log"
+          git diff --check
+          python3 - <<'PY'
+          import os, pathlib, re
+          text=(pathlib.Path(os.environ['RUNNER_TEMP'])/'web-full-contract.log').read_text()
+          assert re.search(r'\b[1-9][0-9]* pass\b', text), 'nonzero full contract tests required'
+          assert re.search(r'\b0 fail\b', text), 'all candidate tests must pass'
+          PY
       - name: Retain exact account-free baseline and candidate proof
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -91,5 +106,7 @@ jobs:
             ${{ runner.temp }}/web-baseline.log
             ${{ runner.temp }}/web-dependency-binding
             ${{ runner.temp }}/web-candidate-focused.log
+            ${{ runner.temp }}/web-typecheck.log
+            ${{ runner.temp }}/web-full-contract.log
           if-no-files-found: error
           retention-days: 3
