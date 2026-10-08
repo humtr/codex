@@ -104,14 +104,28 @@
   Primary sources: https://learn.chatgpt.com/docs/linux/linux-app,
   https://learn.chatgpt.com/docs/changelog (2026-08-11), /docs/sandboxing,
   /docs/remote-connections and /docs/codex/cli.
-- Distribution decision: keep F-Droid Termux for current accepted native CLI/
-  Core/Manager state. GitHub + sharedUid X11 can reduce offscreen CPU throttling
-  per X11 upstream, but is not a sandbox/viewport fix and has no local comparative
-  benchmark. Same-source signing and migration backup/uninstall requirements apply.
-  Observed F-Droid0.119.0-beta.3 versus GitHub stable0.118.3 refutes any automatic
-  assumption that GitHub stable is newer. No app/source migration occurred.
-  Sources: https://github.com/termux/termux-app#installation and
-  https://github.com/termux/termux-x11#avoiding-slowdowns.
+- Distribution decision revised after user reports AM socket failures. Current
+  F-Droid0.119.0-beta.3 + termux-am-socket1.5.0-1 has no compiled-path socket,
+  despite explicit run-termux-am-socket-server=true; termux-am --am-help fails
+  ENOENT. Plain packaged am0.8.0-2 launches existing X11 successfully in0.811s.
+  Earlier raw /system/bin/am shell-attribution failure is not an inability to
+  launch apps; discard that generalization. Accepted Manager already uses
+  packaged prefix/bin/am, so no Core/Manager workaround change is justified.
+- Exact upstream source comparison: beta3 blob a3be612 has startup call commented;
+  current master8629e632/blob1123abf has active setupTermuxAmSocketServer. Official
+  debug CI36220071137 succeeded for exact8629e632. This supports latest GitHub
+  development build as the preferred candidate when fast app integration and
+  sharedUid X11 foreground scheduling matter; neither installed-device socket
+  support nor comparative performance is accepted for that uninstalled candidate.
+  Stock GitHub0.118.3 is not an equivalent remedy. The distinction is source/build
+  capability, not a demonstrated inherent F-Droid signing restriction on sockets.
+- Current F-Droid stays installed until a separately authorized verified backup/
+  restoration/migration gate. No force-stop, properties edit, APK replacement or
+  unsupported socket-file fabrication. Ordinary packaged am is working now;
+  no new fallback ladder or subprocess/server controller was added.
+  Sources: https://github.com/termux/termux-app/blob/v0.119.0-beta.3/app/src/main/java/com/termux/app/TermuxApplication.java,
+  https://github.com/termux/termux-app/blob/8629e632fcb95da272221be327db653fb24befe9/app/src/main/java/com/termux/app/TermuxApplication.java,
+  https://github.com/termux/termux-am-socket and the Termux installation/X11 docs.
 - Post-fit protected23-path/18-asset/original12-file verification passes. No Core,
   Manager, candidate protocol or dependency bytes changed; successful858 full/
   typecheck and Android111/29 evidence is reused without validation churn.
