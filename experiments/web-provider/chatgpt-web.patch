@@ -43,7 +43,7 @@ index 59449cb..13936df 100644
      } else {
        output.push({
 diff --git a/src/responses/parser.ts b/src/responses/parser.ts
-index ded9b12..ceb2bc3 100644
+index ded9b12..ef8c9a0 100644
 --- a/src/responses/parser.ts
 +++ b/src/responses/parser.ts
 @@ -150,7 +150,7 @@ function buildTools(tools: unknown[] | undefined): CodexTool[] | undefined {
@@ -88,7 +88,7 @@ index ded9b12..ceb2bc3 100644
        }
      }
      else if (t.type === "custom" && typeof t.name === "string") {
-@@ -207,14 +210,16 @@ function buildTools(tools: unknown[] | undefined): CodexTool[] | undefined {
+@@ -207,14 +210,7 @@ function buildTools(tools: unknown[] | undefined): CodexTool[] | undefined {
          toolSearch: true,
        });
      }
@@ -97,22 +97,14 @@ index ded9b12..ceb2bc3 100644
 -      // model) is client-executed. Pass it through as a function so the routed model can call it
 -      // naturally and the bridge can relay it as a function_call.
 -      pushFn(t);
-+    else throw new Error("Unsupported routed tool declaration");
-+  }
-+  const identities = new Map<string, CodexTool>();
-+  for (const tool of out) {
-+    const wire = namespacedToolName(tool.namespace, tool.name);
-+    const existing = identities.get(wire);
-+    if (existing && (existing.name !== tool.name || existing.namespace !== tool.namespace)) {
-+      throw new Error("Ambiguous tool wire name");
-     }
+-    }
 -    // Only the OpenAI-hosted server-side tools (web_search, image_generation) are intentionally
 -    // dropped — they're executed by OpenAI and can't be relayed to a routed chat model.
-+    identities.set(wire, tool);
++    else throw new Error("Unsupported routed tool declaration");
    }
    return out.length > 0 ? out : undefined;
  }
-@@ -263,16 +268,6 @@ function normalizeImageDetail(detail: string): string {
+@@ -263,16 +259,6 @@ function normalizeImageDetail(detail: string): string {
    return detail === "original" ? "high" : detail;
  }
 
@@ -129,7 +121,7 @@ index ded9b12..ceb2bc3 100644
 
  const REASONING_EFFORTS = new Set(["none", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
-@@ -285,6 +280,21 @@ export function parseRequest(body: unknown): CodexParsedRequest {
+@@ -285,6 +271,21 @@ export function parseRequest(body: unknown): CodexParsedRequest {
    const data = parsed.data;
    const now = Date.now();
    const messages: CodexMessage[] = [];
@@ -151,7 +143,7 @@ index ded9b12..ceb2bc3 100644
    const systemPrompt: string[] = [];
    // Responses reasoning siblings belong to the following assistant, including across call items.
    // Keep them off the message list until that assistant arrives; turn boundaries clear the array.
-@@ -459,16 +469,16 @@ export function parseRequest(body: unknown): CodexParsedRequest {
+@@ -459,16 +460,16 @@ export function parseRequest(body: unknown): CodexParsedRequest {
 
        if (effectiveType === "function_call") {
          const call = item as { id?: string; call_id: string; name: string; arguments?: string; namespace?: string };
@@ -172,7 +164,7 @@ index ded9b12..ceb2bc3 100644
            }
          }
          // Do NOT map Responses item `id` (fc_/ctc_/…) onto `thoughtSignature`. That field is
-@@ -476,18 +486,21 @@ export function parseRequest(body: unknown): CodexParsedRequest {
+@@ -476,18 +477,21 @@ export function parseRequest(body: unknown): CodexParsedRequest {
          // continuity comes from the in-process replay cache and any real stored signature.
          const toolCall: CodexToolCall = {
            type: "toolCall", id: call.call_id, name: call.name, arguments: args,
@@ -197,7 +189,7 @@ index ded9b12..ceb2bc3 100644
          assistantHolderWithReasoning().content.push(toolCall);
          continue;
        }
-@@ -499,10 +512,12 @@ export function parseRequest(body: unknown): CodexParsedRequest {
+@@ -499,10 +503,12 @@ export function parseRequest(body: unknown): CodexParsedRequest {
          const callId = call.call_id ?? call.id;
          if (callId) {
            const command = Array.isArray(call.action?.command) ? call.action.command : [];
@@ -212,7 +204,7 @@ index ded9b12..ceb2bc3 100644
          }
          continue;
        }
-@@ -519,10 +534,12 @@ export function parseRequest(body: unknown): CodexParsedRequest {
+@@ -519,10 +525,12 @@ export function parseRequest(body: unknown): CodexParsedRequest {
          // history stays complete (otherwise the model re-issues tool_search forever).
          const call = item as { id?: string; call_id?: string; arguments?: unknown };
          const callId = call.call_id ?? call.id ?? "";
@@ -227,7 +219,7 @@ index ded9b12..ceb2bc3 100644
          continue;
        }
 
-@@ -530,6 +547,7 @@ export function parseRequest(body: unknown): CodexParsedRequest {
+@@ -530,6 +538,7 @@ export function parseRequest(body: unknown): CodexParsedRequest {
          pendingReasoning.length = 0;
          // Pair the tool_search call with its result so the model sees what was loaded.
          const out = item as { call_id?: string; status?: string; tools?: unknown[] };
@@ -235,7 +227,7 @@ index ded9b12..ceb2bc3 100644
          const specs = Array.isArray(out.tools) ? (out.tools as Record<string, unknown>[]) : [];
          loadedToolSpecs.push(...specs);
          // List the EXACT wire names the model must call (flattened for namespaced specs), matching
-@@ -561,7 +579,7 @@ export function parseRequest(body: unknown): CodexParsedRequest {
+@@ -561,7 +570,7 @@ export function parseRequest(body: unknown): CodexParsedRequest {
        if (effectiveType === "function_call_output") {
          pendingReasoning.length = 0;
          const output = item as { call_id: string; output?: string | unknown[] };
@@ -244,7 +236,7 @@ index ded9b12..ceb2bc3 100644
          messages.push({
            role: "toolResult", toolCallId: output.call_id,
            toolName: toolInfo.name, toolNamespace: toolInfo.namespace,
-@@ -573,7 +591,7 @@ export function parseRequest(body: unknown): CodexParsedRequest {
+@@ -573,7 +582,7 @@ export function parseRequest(body: unknown): CodexParsedRequest {
        if (effectiveType === "custom_tool_call_output") {
          pendingReasoning.length = 0;
          const output = item as { call_id: string; output: string | unknown[] };
@@ -253,6 +245,26 @@ index ded9b12..ceb2bc3 100644
          messages.push({
            role: "toolResult", toolCallId: output.call_id,
            toolName: toolInfo.name, toolNamespace: toolInfo.namespace,
+@@ -587,12 +596,16 @@ export function parseRequest(body: unknown): CodexParsedRequest {
+
+   const declaredTools = buildTools(data.tools as unknown[] | undefined) ?? [];
+   const loadedTools = buildTools(loadedToolSpecs) ?? [];
+-  const seenTools = new Set<string>();
++  const seenTools = new Map<string, CodexTool>();
+   const mergedTools = [...declaredTools, ...loadedTools]
+     .filter(t => {
+       const k = namespacedToolName(t.namespace, t.name);
+-      if (seenTools.has(k)) return false;
+-      seenTools.add(k);
++      const existing = seenTools.get(k);
++      if (existing && (existing.name !== t.name || existing.namespace !== t.namespace)) {
++        throw new Error("Ambiguous tool wire name");
++      }
++      if (existing) return false;
++      seenTools.set(k, t);
+       return true;
+     });
+   const context: CodexContext = {
 diff --git a/src/responses/schema.ts b/src/responses/schema.ts
 index 2286bab..d10ed97 100644
 --- a/src/responses/schema.ts

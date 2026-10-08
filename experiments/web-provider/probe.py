@@ -69,7 +69,10 @@ def qualify(generation, public_key, parent, core_sha, runtime_sha, capability_se
                         raise ValueError('fixture model or streaming mode changed')
                     transcript.receive(body)
                     observations.append({'path': self.path, 'model': body['model'],
-                                         'input_types': [row['type'] for row in body['input']]})
+                                         'input_types': [row['type'] for row in body['input']],
+                                         'tool_history': [row for row in body['input'] if row['type'] in
+                                             ['additional_tools', 'function_call', 'custom_tool_call',
+                                              'function_call_output', 'custom_tool_call_output']]})
                     if len(transcript.calls) < 2:
                         item = transcript.next_command(workspace, {key: env[key] for key in ['HOME', 'CODEX_HOME', 'PREFIX']})
                     else:

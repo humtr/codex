@@ -87,3 +87,20 @@ test("unknown and colliding tool declarations cannot be silently repaired", () =
     expect(() => parseRequest(body([], { tools: declared }))).toThrow();
   }
 });
+
+test("tool identity collision is refused across classic and Lite declarations", () => {
+  expect(() => parseRequest(body([declaration()], { tools: [{ type: "function", name: "mcp__python__run_script" }] }))).toThrow("Ambiguous tool wire name");
+});
+
+test("actual copied Core classic and Lite histories retain correlated calls", async () => {
+  const vectors = await Bun.file(new URL("./core-vectors.json", import.meta.url)).json() as Array<{ client_capability_seed: string; body: unknown }>;
+  expect(vectors).toHaveLength(2);
+  for (const vector of vectors) {
+    const parsed = parseRequest(vector.body);
+    const calls = parsed.context.messages.filter(row => row.role === "assistant").flatMap(row => row.content).filter(row => row.type === "toolCall");
+    const results = parsed.context.messages.filter(row => row.role === "toolResult");
+    expect(calls).toHaveLength(2);
+    expect(results).toHaveLength(2);
+    expect(results.map(row => row.toolCallId)).toEqual(calls.map(row => row.id));
+  }
+});

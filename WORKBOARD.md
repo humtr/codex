@@ -43,3 +43,13 @@ B2 hosted37754737928 rejects34/35 because the new SSE proof tried to JSON-parse
 the actual [DONE] sentinel. Fix only framing proof, assert exactly one sentinel
 and parse every real JSON frame; do not change production output to satisfy test.
 Restore focused gate before remaining merge/correlation breadth and full suite.
+
+Actual Core vector capture records only synthetic tool declarations/calls/results,
+not message prompts or any credentials. These actual classic/Lite vectors will
+exercise the candidate parser; they do not become browser/account evidence.
+
+B2 focused gate restored35/35 at hosted37755473156. Diff review found declaration
+collision checks were split before the final classic/Lite merge. COLLAPSE them
+into the final single wire-identity map, with cross-source collision regression.
+Add two actual Core final tool-history vectors (no message prompts); grouped
+contract/typecheck follows only after this focused gate.
