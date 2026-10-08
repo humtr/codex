@@ -41,3 +41,8 @@ Current text checks redraw the owned terminal on resize to avoid sparse ANSI
 updates. Only their own qualified test processes receive signals. Native25 tests,
 actual transitions/permissions, six restore cases and live protected comparison
 are accepted in GOAL.md. A mock chooser or wrapper is not feasibility evidence.
+
+SOURCE-PROFILE-RETURN is separately qualified as owned source preparation in GOAL.md.
+Its Manager build has not replaced the installed pinned preview. Stable admission
+still requires coherent signed generation assets, ordinary update/rollback and
+actual-account attribution; SPEC owns those boundaries.

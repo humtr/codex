@@ -54,6 +54,23 @@ authorized a bounded live display preview on 2026-10-06 before full completion.
   ordinary builds/public command behavior remain unchanged. Automated transition
   proof uses owned accounts only. Corrected live replacement requires actual
   native and protected-state gates first.
+- The independent idle-profile admission preparation adds explicit source return
+  after frontend cleanup: on an operational re-entry refusal, the private
+  __profile-resume-v1 Manager path may offer Enter to return to the original
+  execution home and q/other input/EOF to exit only when all three standard streams
+  are terminals and a valid explicit inherited CODEX_HOME identifies that source.
+  Manager binds the source directory's open physical identity before attempting
+  the destination, then revalidates identity and private ownership/mode immediately
+  before ordinary same-thread Core resume. No saved-default lookup or destination
+  substitution determines the return account. Missing, unsafe or replaced source
+  refuses; noninteractive/invalid-grammar invocations retain prior status/output.
+  Successful switching never prompts. Return preserves current CWD, UUID, TTY,
+  original Core exit behavior and existing writer authority; it never cancels work,
+  forces takeover, removes a lock or recreates a profile. Input is bounded to128
+  bytes, only an actual empty newline confirms return, and EOF never confirms.
+  Exit/cancel has status130. This is an owned-proof source slice, not a live
+  replacement or stable admission. Manager asset identity must be requalified
+  separately before any installed-preview update.
 - Experiments use exact official0.160.0 sourcea956835d020762cb2b570053af06f643a11c0ecc,
   owned builds/artifacts and credential-free disposable accounts/conversations.
   Real launcher/runtime, Manager state, accounts/history/jobs and resolver remain

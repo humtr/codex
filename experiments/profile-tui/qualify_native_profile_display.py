@@ -34,7 +34,9 @@ def preview_assets(home):
     assert not relative.is_absolute() and '..' not in relative.parts
     return home / relative
 
-def qualify(binary, generation, public_key, parent, preview_core=None, preview_manager=None, case_filter=None):
+def qualify(binary, generation, public_key, parent, preview_core=None, preview_manager=None, case_filter=None, source_return=False):
+    if source_return:
+        assert preview_core and case_filter == 'persisted', 'source return requires the actual persisted preview path'
     results=[]
     cases=['ready','persisted','no-manager','no-native','bad-native'] if preview_core else ['ready','no-manager']
     if case_filter is not None:
@@ -271,7 +273,8 @@ requires_openai_auth = false
                         os.write(master,b'work');drain(.3);os.write(master,b'\r');drain(.5)
                         assert status()==thread,'current-profile Enter changed conversation'
                         initial_pid=process.pid
-                        for destination in ['external','work','default','work']:
+                        destinations=['external','work','default','work'] + (['external'] if source_return else [])
+                        for destination in destinations:
                             until('Profiles',command('/profile'))
                             # Exercise the actual arrow selection, not a private handoff command.
                             steps={'default':0,'external':1,'work':2}[destination]
@@ -293,7 +296,42 @@ requires_openai_auth = false
                             assert owners==[destination],'profile switch did not transfer native writer'
                             assert Path(f'/proc/{server}/exe').resolve()==native/'runtime','previous account backend changed'
                         results.append('direct-arrow-Enter/'+('fresh-unseeded-thread' if case=='ready' else 'persisted-thread')+'/external-work-default/same-UUID-PID-TTY-CWD/native-writer/default-preserved')
-                        if case=='persisted':results.append('native-nonempty-completed-turn-history/public-profile-four-transitions/visible-and-byte-records-preserved/no-external-model-call/no-model-request-during-handoff')
+                        if case=='persisted':results.append('native-nonempty-completed-turn-history/public-profile-'+str(len(destinations))+'-transitions/visible-and-byte-records-preserved/no-external-model-call/no-model-request-during-handoff')
+                        if source_return:
+                            source=home/'.local/share/codex/manager/profiles/external/home'
+                            source_records=[record for record in (home/'.local/share/codex/core/servers').glob('*/pid')
+                                            if (record.parent/'owner').read_bytes().split(b'\0')[0] == os.fsencode(source)]
+                            assert len(source_records)==1
+                            source_record=source_records[0]
+                            source_pid=int(source_record.read_text())
+                            assert Path(f'/proc/{source_pid}/exe').resolve()==native/'runtime'
+                            subscriber=Ws(source_record.parent/'s')
+                            try:
+                                # A real second connection retains the original upstream writer
+                                # after native cleanup; no production injection or lock removal.
+                                subscriber.call('thread/resume',{'threadId':thread,'cwd':str(expected_cwd)})
+                                until('Profiles',command('/profile'))
+                                os.write(master,b'\x1b[B'*2);drain(.3);os.write(master,b'\r')
+                                refusal=until('Enter to return')
+                                assert 'writer is still owned' in refusal
+                                assert process.pid==initial_pid and Path(f'/proc/{process.pid}/exe').resolve()==assets/'manager'
+                                assert termios.tcgetattr(slave)==original,'cleanup did not restore terminal before source choice'
+                                tasks=json.loads(manager('__task-snapshot-v1'))['tasks']
+                                assert [item['owner_profile'] for item in tasks if item['id']==thread]==['external']
+                                count=len(list((home/'.local/share/codex/core/servers').glob('*/pid')))
+                                os.write(master,b'\r')
+                                returned=until('fixture-model');returned+=drain(2)
+                                until('owned-profile-history',returned)
+                                assert status()==thread and process.pid==initial_pid
+                                view=until('Current: external',command('/profile'))
+                                assert 'Default: work' in view
+                                os.write(master,b'\x1b');drain(.3)
+                                assert int(source_record.read_text())==source_pid
+                                assert len(list((home/'.local/share/codex/core/servers').glob('*/pid')))==count
+                                assert model.requests==requests_before,'source return started model work'
+                                assert all(line in rollout.read_text().splitlines() for line in prior_history)
+                            finally:subscriber.close()
+                            results.append('actual-native-arrow-Enter/post-cleanup-retained-writer-refusal/explicit-original-profile-return/same-UUID-PID-TTY-CWD/backend/default-history-preserved/no-model-request')
                 elif fallback:
                     assert status()==thread,'installed fallback broke current chat'
                     results.append('public-preview-Core/'+case+'/usable-installed-fallback')
@@ -350,4 +388,5 @@ if __name__=='__main__':
     parser=argparse.ArgumentParser();parser.add_argument('binary',type=Path);parser.add_argument('--generation',type=Path,required=True);parser.add_argument('--public-key',type=Path,required=True);parser.add_argument('--parent',type=Path,required=True)
     parser.add_argument('--preview-core',type=Path);parser.add_argument('--preview-manager',type=Path)
     parser.add_argument('--case',choices=['ready','persisted','no-manager','no-native','bad-native'])
-    a=parser.parse_args();print(json.dumps(qualify(a.binary.resolve(),a.generation.resolve(),a.public_key.resolve(),a.parent.resolve(),a.preview_core.resolve() if a.preview_core else None,a.preview_manager.resolve() if a.preview_manager else None,a.case),sort_keys=True))
+    parser.add_argument('--source-return-proof',action='store_true')
+    a=parser.parse_args();print(json.dumps(qualify(a.binary.resolve(),a.generation.resolve(),a.public_key.resolve(),a.parent.resolve(),a.preview_core.resolve() if a.preview_core else None,a.preview_manager.resolve() if a.preview_manager else None,a.case,a.source_return_proof),sort_keys=True))

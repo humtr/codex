@@ -34,6 +34,70 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
+## IDLE-PROFILE production admission (selected 2026-10-08)
+
+- User selected preparation and follow-up toward production integration of idle
+  profile selection. Scope stays independent from the fuller agent/resume/owner
+  takeover prototype. Admission requires signed coherent generation assets,
+  ordinary updates/rollback, useful source-profile return after refusal, and
+  bounded actual-account attribution acceptance. Experimental trial alone is not
+  stable release admission. Normative contracts must precede product changes.
+- User additionally requested investigation/fix of repeated hosted preflight
+  failure. Current first bundle restores qualification of official0.161.0 in the
+  production lineage, without importing experimental frontend/Manager changes.
+  Compatibility source053e35 and unsigned hosted37720625720 are accepted;
+  public mainf038f2bd pins that qualified source and removes the consumed seq40
+  trigger. Exact workflow/index/Release readback and original device protection
+  pass. No161 stable signing/publication or installed activation is claimed.
+- Independent next slice adds explicit same-terminal source return after Manager
+  refusal, bound to inherited original physical home and never saved default.
+  Baseline on f64beea plus docs-only diff4b8309cf passes4/4 actual Manager re-entry
+  tests. SPEC owns source identity, prompt/EOF/cancel and protected-writer semantics;
+  Workboard maps focused proof before product changes. Full production pairing,
+  ordinary update/rollback and actual-account attribution remain later gates.
+
+## SOURCE-PROFILE-RETURN (accepted source/owned-native preparation 2026-10-08)
+
+- `/profile` post-cleanup operational refusal now offers explicit source return
+  in the same terminal when inherited original CODEX_HOME is valid and all three
+  streams are terminals. Only an actual empty newline confirms; other input/EOF
+  exits130. An open original directory identity plus final private-mode/identity
+  revalidation rejects replacement. Saved default is never the return account.
+  Success/noninteractive/invalid grammar preserve their prior execution boundary.
+  No work stop, goal pause, lock deletion, profile recreation or account mutation.
+- KEEP native cleanup and ordinary Core resume, current UUID/CWD/TTY and final
+  native writer arbitration. KEEP original four grammar/exec/writer/registry tests.
+  The destination-validation/writer-wait path remains direct; the one source
+  directory identity guards the only new recovery path. No persistent state,
+  dependency, frontend-source patch or Core product-code change.
+- Focused Manager gate9/9 passes: five real-PTY regressions cover held-writer and
+  missing-target return to the explicit original home, same PID/CWD/UUID/TTY and
+  Core exit37, independent saved default, cancel/EOF/bounded input, absent/symlink/
+  unsafe original homes, all three redirected streams, invalid grammar, physical
+  replacement/private-mode change and successful destination exec without prompt.
+- Actual native proof follows the real public Core -> pinned frontend `/profile`
+  arrows/Enter path. A second actual upstream subscriber retains the source
+  writer after cleanup; Manager refuses destination work, then explicit Enter
+  returns to external, while saved default remains work. Same UUID/PID/TTY/CWD,
+  backend PID, five preceding switches, prior completed-turn records and visible
+  history pass; zero extra model requests, no auth writes and exact termios
+  restoration. All clients/homes/model endpoints are owned fixtures.
+- New owned release Manager0f2e9fcb914d2c03dfac97fcb577589476575c03423f19a0efd4a9cddfc1a33f
+  and preview Core7248ff8b9372ff38308fd8613eadd14a187ada9381f8fe9f3eecc0ee7b150c2b
+  bind unchanged frontend4da7d140 and signed40 backend. These assets are not installed.
+- Stabilized grouped gates pass Core188+one existing opt-in ignored, Manager33+55,
+  builder22:298 actual Rust tests; migration15+hosted Python86:101. Workspace
+  feature Clippy-D warnings, rustfmt, actual diff, Manager all-target check and
+  normal workspace all-target --locked check pass. Zero-test binary/doc harnesses
+  are excluded. Evidence lives in source-return-{focus,native,full,migration,
+  hosted-python,full-clippy,normal-check}.log in the owned proof root.
+- Final protection retains23 paths, exact installed preview, signed40/39 and all10
+  pre-existing live native jobs. Public production source053e35, mainf038f2bd and
+  local main/rewrite/sealed refs are protected. This slice is closed as source
+  preparation; no installed cutover or stable `/profile` admission is claimed.
+  Next contract is coherent signed generation frontend/Manager pairing against
+  admitted upstream, ordinary update/rollback and actual-account attribution.
+
 ## PROFILE-SELECTION-REENTRY (accepted local experiment 2026-10-07)
 
 - User-requested outcome is complete: `/profile`, arrows, Enter switches the
