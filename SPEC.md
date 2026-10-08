@@ -72,6 +72,18 @@ Core/Manager public commands, installed state and provider behavior stay unchang
   Preserve its exact text and native revision metadata; parser and environment
   classification share one predicate. Missing-ID ordinary results still refuse,
   and delegated text never becomes environment or authorization authority.
+- The user requires the real Codex/bridge/browser execution target to be Termux,
+  not a required external desktop. W3 first qualifies existing Android Chromium
+  with a fresh owned profile and account-free local page/CDP under exact existing
+  engine identities. No package upgrade, real-profile browsing or credential read
+  follows from that baseline. Prefer the candidate's existing managed-chrome path
+  when proven; do not emulate an Electron descriptor or silently pretend Android
+  is Linux. W3 may provision frozen dependencies only inside owned temporary roots.
+  Existing OpenAI admin key/tunnel reuse is user-authorized where technically
+  necessary, through private file references; credential values must not enter
+  argv, logs, reports or Git. Do not recreate/delete a configured tunnel or rotate
+  keys implicitly. Bind an existing tunnel's executable/platform/version and
+  access scope before a bounded actual-service proof; no guessed credential paths.
 - Original prj/web investigation files are read-only evidence and remain unchanged.
   The unsafe older probe must not be rerun. Accepted/failed slice evidence belongs
   in this worktree GOAL.md; its live execution map belongs only in WORKBOARD.md.

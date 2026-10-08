@@ -34,7 +34,7 @@
   cutover before acceptance, resolver non-mutation, crash-safe rollback, and
   upstream process-boundary fidelity.
 
-## CHATGPT-WEB-CONTRACT (selected 2026-10-08)
+## CHATGPT-WEB-CONTRACT (accepted account-free candidate 2026-10-08)
 
 - Candidate92a356fac2292e3af5a97ab7ba634edd8d38621e remains immutable upstream
   reference. Exact Bun1.4.0 archive2d03fb5f and frozen dependencies passed owned
@@ -46,9 +46,36 @@
   alias remains; nondefault customs must keep namespace and freeform type. Remove
   silent unsupported dropping, invalid-JSON-to-empty repair and orphan result
   acceptance. New contract in SPEC precedes candidate patch/regressions.
-- Candidate correction must pass focused actual handler tests and all affected
-  retained tests, current real-Core protocol vector replay and grouped contract
-  suite. Full/MCP browser/tunnel/turn ownership remains explicitly unproven.
+- Exact experiment00debea/candidate92a356f corrected patch passes hosted
+  37759032417: original28/28 baseline, focused122 pass/1 skip/0 fail, TypeScript
+  typecheck and full858 pass/37 skip/0 fail across895 cases/67 files. Both actual
+  classic/Lite Core histories replay through the parser. Browser-dependent skips
+  and synthetic HTTP/browser/lifecycle fixtures are not real-account acceptance.
+- Full stop-on-red at0e69e96/37756119366 (852 pass/37 skip/4 fail) uncovered native
+  cross-task instruction misclassification plus absent Electron test dependency.
+  KEEP exact native instruction/environment/revision semantics; COLLAPSE its
+  strict predicate into the schema shared by parser/environment; DELETE orphan
+  result acceptance and silent identity repairs. Ordinary missing/duplicate IDs
+  still refuse. Locked Electron41.10.7 test dependencies run only in hosted root.
+- Diff/patch applicability and workflow YAML/shell checks pass. Original12 web
+  files,23 protected paths and complete installed generation assets remain
+  unchanged. Historical five job identities exited between checks during user
+  resume/profile changes; their continued retention is not claimed. Verification
+  first rejected wrong stat mode and synthetic directory-key interpretation;
+  corrected checks compare full mode and parent-directory metadata. No live
+  account/session/runtime/resolver write occurred. Full/MCP browser/tunnel/turn
+  ownership remains explicitly unproven.
+
+## TERMUX-WEB-CONNECTION (selected 2026-10-08)
+
+- User requires actual execution on Termux and permits necessary reuse of the
+  already established OpenAI admin key/tunnel. No external-PC requirement remains.
+  Existing Chromium149.0.7827.155, Node24.18.0 and Bun1.3.14 are observed, not yet
+  a qualified browser/bridge runtime. Both engines report android; upstream
+  tunnel installer has no android asset. First close owned browser/managed-chrome
+  vertical proof without accounts. No engine/package upgrade or installed profile
+  mutation. Existing-key/tunnel access must use private references and exact scope.
+
 
 ## WEB-PROTOCOL-ISOLATION (accepted owned protocol 2026-10-08)
 

@@ -1,74 +1,37 @@
 # Rust Core Workboard
 
-SPEC -> GOAL -> WORKBOARD; worktree goal bound; workers OFF, primary direct.
+SPEC -> GOAL -> WORKBOARD; physical worktree goal bound; workers OFF, primary direct.
 
-WEB-PROTOCOL-ISOLATION W1 is CLOSED. Accepted evidence/disposition only in GOAL.
-Current bundle W2 CHATGPT-WEB-CONTRACT on experiment/web-provider. User chose
-ChatGPT Web; immutable candidate92a356fac2292e3af5a97ab7ba634edd8d38621e.
+W1 protocol isolation and W2 candidate contract CLOSED; evidence/disposition in GOAL.
+Current W3 TERMUX-WEB-CONNECTION, separate experiment/web-provider only.
+User requires actual Termux execution and authorizes necessary existing admin
+key/tunnel reuse. No PC requirement or real account credential capture yet.
 
-Ordered slices:
-B1 CLOSED: restore runnable exact Bun1.4.0 candidate baseline in an ephemeral
-  hosted root, frozen dependencies and no account/desktop setup. Installed device
-  Bun1.3.14 is insufficient; no device upgrade/package installation. Inspect all
-  custom namespace/replay/schema/emission/broker paths. Production uses explicit
-  turn-bound Full/MCP; the repository DEV driver simulates results and cannot
-  prove this requirement. Original candidate source stays clean until runnable.
-B2 CURRENT: SPEC-first namespace/call/result remedy and candidate patch with focused real
-  handler regressions, actual Core protocol vector replay, then grouped candidate
-  contract gates and protected-state verification; commit/push only experiment.
-B3: concrete reviewable connection fixture/config and separate bounded actual
-  desktop ChatGPT account/model/turn/cancel/expiry/quota acceptance. No browser
-  login, cookie read or installation over existing Codex accounts selected now.
-B4: actual TUI/compact/fact/new-process resume; only proven capability may define
-  a later Manager provider contract. No new ownership or browser logic in Core.
+Ordered vertical slices:
+T1 CURRENT: account-free Android browser/runtime baseline. Paths: only owned
+  temporary roots, experiments/web-provider probe/test and bounded candidate
+  managed-chrome/config implementation if a proven gap requires it. Pin installed
+  Chromium/Node/Bun and candidate/frozen dependency identities; fresh HOME/profile;
+  local data/loopback page, actual DOM/CDP/child isolation and cleanup. Relevant
+  candidate browser/runtime tests follow. No new platform behavior before runnable
+  baseline. KEEP managed-chrome if proven; no fake Linux/Electron authority.
+T2: bind actual existing tunnel executable/version/platform and private key-file
+  references without exposing values; select smallest necessary compatible bridge
+  path. Runnable test and SPEC decision precede platform changes. No implicit
+  tunnel recreation/rotation, setup integration, account cookies or live runtime.
+T3: exact browser/model/account attribution, two real local tool roundtrips,
+  correlated returned nonce, turn ownership/cancel/expiry/quota. Only after T1/T2.
+T4: actual TUI/compact/fact/new-process resume; only demonstrated capability may
+  define later Manager convenience. Core owns no web login/browser/controller.
 
-Protected main/rewrite c4d9a41, installed launcher/generations/auth/history/jobs/
-resolver, original12 prj/web files. No workers, forced refs, release/signing or
-real account/network-model calls. Keep /switch account and provider axes distinct.
+Protected rewrite c4d9a41, sealed history/main, installed launcher/generations,
+profiles/auth/config/history/resolver and original12 prj/web files. No workers,
+production publication or installed-state cutover. Desktop Electron hosted
+858-pass proof closes only W2, not Android browser/account execution.
 
-B1 exact official Linux/x64 Bun1.4.0 ZIP36697619 bytes SHA2d03fb5fb83ac8b567aca0a281b2ce1a1a19d488f56c2968d88c3f25e92fe452
-identified. SPEC permits only disposable hosted provision, frozen deps and owned
-HOME/CODEX_HOME for this baseline. Device Bun and all installed products unchanged.
-
-B1 hosted37751820976 exact72e2575 passes matched Bun1.4 and frozen candidate
-parser/HTTP baseline. B2 writable external candidate paths limited to
-src/responses/{parser,schema}.ts, src/{server,bridge}.ts and affected/new tests;
-retain patch/new owned tests in experiments/web-provider. KEEP default namespace
-alias/native passthrough; COLLAPSE strict identity/correlation; DELETE silent
-drops/malformed-argument repair. Proof names: custom namespace declaration/replay,
-SSE+JSON exact namespace/type, collision/orphan/duplicate/invalid arguments 400
-before adapter, actual classic/Lite vectors. No package/launcher/auth/browser edits.
-
-B2 hosted37754737928 rejects34/35 because the new SSE proof tried to JSON-parse
-the actual [DONE] sentinel. Fix only framing proof, assert exactly one sentinel
-and parse every real JSON frame; do not change production output to satisfy test.
-Restore focused gate before remaining merge/correlation breadth and full suite.
-
-Actual Core vector capture records only synthetic tool declarations/calls/results,
-not message prompts or any credentials. These actual classic/Lite vectors will
-exercise the candidate parser; they do not become browser/account evidence.
-
-B2 focused gate restored35/35 at hosted37755473156. Diff review found declaration
-collision checks were split before the final classic/Lite merge. COLLAPSE them
-into the final single wire-identity map, with cross-source collision regression.
-Add two actual Core final tool-history vectors (no message prompts); grouped
-contract/typecheck follows only after this focused gate.
-
-B2 exact focused37/37 (original28 + owned9) and actual Core vector replay pass
-at hosted37755884358/source1bb8a08. Stabilized grouped TypeScript typecheck and
-all account-free candidate tests now selected; browser-dependent cases remain
-explicit skips, never account/browser acceptance. Core Rust evidence unchanged.
-
-B2 stop-on-red: exact0e69e96 hosted37756119366 typecheck passes but the full
-893-test group has852 pass/37 skip/4 fail. One strict output-correlation failure
-misclassifies an existing native codex_app delegation as a paired result; three
-Zero Risk launcher ownership tests cannot import the missing locked Electron
-dependency. Freeze independent behavior. KEEP validated native instruction and
-existing environment/revision ownership; COLLAPSE parser/environment validation
-into one schema predicate; DELETE the misclassification, never relax ordinary
-call/result IDs. Scope adds src/adapters/chatgpt-web/environment.ts for this
-shared predicate. Focus maps: preserved instruction/exact content, forged native
-shapes refused before adapter, retained environment and compaction tests. Frozen
-launcher dependencies and exact Electron dependency postinstall are disposable
-test prerequisites, not device setup or real browser/account acceptance. Restore
-focused environment/Zero Risk/contract gates before rerunning the full group.
+T1 observed Chromium149.0.7827.155 present; Node24.18.0/Bun1.3.14 both android.
+Candidate existing managed-chrome supports real Playwright-owned pages; launcher
+is one alternative, not an unavoidable desktop requirement. Its pinned tunnel
+asset selector excludes Android: inspect existing user-established runtime before
+choosing a remedy. Scope is user-selected same web experiment; no speculative
+Core/Manager expansion or device package installation.
