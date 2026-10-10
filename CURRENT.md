@@ -62,12 +62,30 @@ to this repository and carries no external workflow or model configuration.
   fixes cross-launch overlay only. Named service-window reuse does not prove
   automatic registration of an existing unnamed terminal; that remains unresolved.
 
+## Origin-bound design decision
+
+- Connection count/order is not routing authority. SPEC defines the proposed
+  workload-to-origin invariant separately from the installed name-based path.
+  Launch stays in its invoking terminal; notification selects an existing bound
+  origin only. tmux/conversation identities and display labels cannot address
+  Android windows. Core remains outside terminal control.
+- Exact installed Termux source8629e63 matches the inspected Service and terminal
+  client source. The native session table/internal handle lookup is established;
+  a callable resolve-origin/focus-existing interface has not been qualified.
+  Minimal native exposure is a candidate, not an implemented or deployed result.
+- Next work is qualification of that actual capability plus A/B native-terminal
+  launch/return proof. Do not replace initial dispatch with direct attach and call
+  the full requirement complete, or cycle back to create-or-reuse registration.
+  This design revision makes no runtime, running-session or Termux APK changes.
+
 ## Product observations still open
 
 - First-launch use of the invoking Android terminal plus exact notification
   return is unresolved. Removing the initial service call alone would leave the
   original-terminal registration gap; do not call that a complete correction.
-  Earlier original-window reuse was proven after manual native-name setup.
+  User confirms earlier initial execution stayed in the invoking terminal,
+  while later launches reused that first terminal. The exact earlier routing
+  branch has not been established; do not infer manual setup as its cause.
   Preserve independent workload isolation while resolving this actual device path.
 - /title display after next normal launch remains a separate physical observation.
 - Retire installed preview assets only after remaining native clients exit.

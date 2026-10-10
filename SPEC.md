@@ -424,6 +424,69 @@ thread IDs or titles. Existing explicitly pinned legacy names remain valid and
 unchanged. One tmux session continues to own one reusable native terminal, even
 when `/new`, `/resume` or `/switch` changes its foreground thread/profile.
 
+#### Origin-bound launch and return target (design; not yet qualified)
+
+This target replaces the combined launch/RunCommandService path above only after
+its native capability and actual Android path pass acceptance. The installed
+name-based path is an observed compatibility baseline, not proof of this target.
+The foundational invariant is one workload binding to its actual originating
+Android terminal. Connection order is not a routing input.
+
+- Launch runs in the invoking execution terminal. Enabling tmux changes the
+  execution container, not the Android terminal. Outside tmux, use a private
+  independent session and attach it directly in that terminal. Inside tmux,
+  target the invoking pane's exact session; never the most recently active client.
+  No launch calls a create-or-reuse Android service as an implicit registration.
+- Resolve the origin before detaching/changing the caller's execution context.
+  Termux owns the actual terminal handle and live process association. An origin
+  reference must be obtained or revalidated by Termux against that association;
+  a TTY path, caller-supplied PID, selected UI, name or hash alone is not authority.
+  Propagate the qualified origin through the existing managed execution context.
+  A mirrored tmux pane must not guess an input client from recency: retain its
+  explicitly bound origin or require a qualified explicit rebind.
+- Android terminal handle, tmux pane/session and foreground conversation UUID are
+  different identities. AI maps its live workload context to the origin; Manager
+  supplies the current Codex foreground identity through its existing boundary.
+  /new, /resume, /switch and /title cannot replace the originating terminal.
+  CLI-plus-eight-hex labels remain optional presentation, never routing authority.
+- Notification return locates/revalidates the live workload, selects its existing
+  tmux pane if applicable, and asks Termux to focus that exact existing origin.
+  Repetition is idempotent. Missing, closed or ambiguous origin means explicit
+  exact-return unavailability; it cannot create a terminal/client/workload, attach
+  a replacement, choose another user's terminal, resume or inject input.
+- Native access needs only origin resolution and focus-existing operations, with
+  versioned capability discovery and an actual operation result. Reuse the
+  existing Termux AM socket/app session table if extended; do not add an Android
+  session registry, polling daemon, preference-file edits, UI key injection or
+  replacement app-state authority. A service-start transport acknowledgment does
+  not prove selection. Unsupported capability leaves ordinary execution usable
+  and reports the exact-return limitation without automatic window creation.
+- Core gains no terminal-controller responsibility. AI owns launch/container and
+  provider-independent return binding; Codex Manager owns its notifications and
+  foreground identity. Termux alone owns native window resolution/selection.
+  The reference lifetime follows its actual terminal and live workload, not a
+  conversation's first author, a saved profile or a hash-derived shell name.
+
+The installed Termux source8629e632fcb95da272221be327db653fb24befe9 already
+has an internal getTerminalSessionForHandle and a live session table. Its observed
+RunCommandService consumer instead finds a shell by name and creates one when
+absent; manual rename changes that shell name. Neither establishes a callable
+origin-resolution/focus-existing API. First qualify a real existing interface,
+or a minimal native exposure of those existing responsibilities, before claiming
+automatic origin binding. No Termux APK replacement is part of this design-only
+change. An extension must be evaluated separately for installation/signature and
+state continuity before any live app change.
+
+Acceptance covers the real native boundary: launch from terminal A stays in A;
+launch independently from B stays in B while A remains unchanged; alternate
+notifications select the corresponding existing window with unchanged window and
+client counts; /new, /resume, /switch and title changes preserve the origin;
+repeated taps, mirrors and closed/recreated handles never redirect to another
+workload. Include service failure, unavailable capability and PID/TTY reuse in
+focused regressions. Isolated tmux/PTY proofs remain useful but do not close the
+native binding requirement. Record earlier user-observed caller-window execution
+as an observation; do not infer its route or manual setup from a later test.
+
 #### Native terminal identity bridge
 
 The optional qualified native frontend maintains one same-UID private temporary
