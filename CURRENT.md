@@ -57,12 +57,19 @@ to this repository and carries no external workflow or model configuration.
   launcher, account/config files and the live tmux pane/selection snapshot match.
   Existing uncommitted AI development is preserved and excluded from this commit.
 - Codex installed/public stable44 is unchanged; this correction belongs to AI.
-  Fresh native Android launch/tap observation awaits user confirmation.
+  User device observation disproves initial-terminal acceptance: fresh launch
+  opens a new Android terminal rather than the invoking one. Source7df68b9
+  fixes cross-launch overlay only. Named service-window reuse does not prove
+  automatic registration of an existing unnamed terminal; that remains unresolved.
 
 ## Product observations still open
 
-- Fresh initial terminal registration and /title display after next normal launch.
-  Existing-window physical proof does not establish that fresh-launch observation.
+- First-launch use of the invoking Android terminal plus exact notification
+  return is unresolved. Removing the initial service call alone would leave the
+  original-terminal registration gap; do not call that a complete correction.
+  Earlier original-window reuse was proven after manual native-name setup.
+  Preserve independent workload isolation while resolving this actual device path.
+- /title display after next normal launch remains a separate physical observation.
 - Retire installed preview assets only after remaining native clients exit.
 - Current APK cannot select an arbitrary originating bare terminal. App/current
   terminal return and named tmux reuse work; notification taps do not start work.
