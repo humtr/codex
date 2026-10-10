@@ -84,3 +84,8 @@ contrary to prior assumption. Current next gate: bounded original-window binding
 through supported rename path, avoiding duplicate names and resolving dynamic
 /title presentation. Working added-window return stays enabled; no new attaches
 for exploratory tests. Original-client end-to-end proof remains OPEN.
+
+Review disposition: original-terminal UI binding proof first; automatic optional
+initial managed-Termux-terminal launch is candidate, not bare Core behavior.
+Native APK handle selection is longer-term alternative. Physical terminal4 return
+restored and user-confirmed; original-client binding and dynamic-title UX open.

@@ -6279,3 +6279,22 @@ terminal selector. Original-terminal return remains OPEN; no success claim.
   dynamic-title UX. Do not claim impossible original reuse or accepted automation
   before actual original-client return and no-growth proof. Keep working return
   enabled during investigation.
+
+### Initial terminal binding review (2026-10-10)
+
+User confirms focus rollback restored return to existing Android terminal4.
+Review conclusion: identity belongs to Android Termux terminal, not merely tmux
+session. Initial named native-terminal attachment can share the exact return
+lookup used by notifications; creating tmux alone does not register caller terminal.
+Better bounded proof is native UI rename binding of the original terminal, moving
+the known name away from added terminal first to avoid ambiguous lookup. This
+requires native UI interaction; no programmatic rename interface established.
+For automatic future launches, an explicit optional managed-Termux-terminal
+launch can create/register the working attachment at launch rather than first
+notification. This changes caller-shell/TTY/exit behavior and must not redirect
+bare Codex, pipelines or Core launch implicitly. Preserve profile/env/CWD and
+execute workload once; notification only selects existing workload. Reuse uses
+current APK no-shell-with-name (missing name still creates), not exists-only.
+Longer-term APK session-handle select/register with fail-if-absent would preserve
+original arbitrary window and eliminate missing-name creation, but is a separate
+APK feature. No new implementation or runtime cutover accepted in this review.
