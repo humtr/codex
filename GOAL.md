@@ -21,6 +21,30 @@ accepted history without deleting its published branch. No live cutover or stabl
 admission is claimed by this goal lift. The actual frontend/backend version pair,
 release pipeline and same-generation optional-Manager path are load-bearing gates.
 
+### Successful-run producer acquisition slice accepted (2026-10-10)
+
+Baseline30b6117. The actual producer acquires an exact-digest durable Release
+source input, authenticates successful native run38032317709/source29b2584,
+compares all six maintained native inputs and checks version/source/lock/raw
+SHA/27 native proofs/identical formatted-linted patch before paired builder flags.
+Builder remains the sole ELF/FD adaptation owner. Qualified rawdcf76b3c and
+archive0cc6b084 are preserved in manager-tui-native-v0.161.0-29b2584; upload and
+readback51,865,546 bytes match. No replacement of published assets occurred.
+Ordinary unqualified newer backend retains LKG; explicit authorized same-version
+161 deployment uses the pinned official archive and refuses conflicting modes.
+Active candidate inventory includes helper2, and native pre-sign smoke verifies
+its exact version with no stderr. Historical one-shot fixture inventories stay
+sealed. Builder public help now describes the existing paired flags.
+
+Focused qualifier2/34 cases and actual producer5 (acquisition4 faults, paired vs
+historical dispatch, ordinary eligibility3, manual admission5, native smoke4)
+pass. Grouped Python99, builder25, workspace Clippy/all-targets -Dwarnings,
+fmt/diff pass. Corrected test-only shell-comment/SyntaxError and initial zero-test
+Rust invocation are rejected; the exact namespaced Rust focused1 passes.
+Protected launcher670c93ed, original client18688 pts0, pinned native name and
+hidden tmux status remain unchanged. Source integration is accepted; actual main
+mirroring, hosted full public release and device cutover remain required.
+
 ### Generation frontend Core slice accepted (2026-10-10)
 
 Baseline67ef006; ordinary Core now recognizes exactly the same-version third

@@ -55,6 +55,27 @@ qualification until the new generation passes acceptance.
   and publishes the adapted executable as helper2 with its actual digest.
   Source/lock/command/version/native qualification belongs to the real producer
   gate; a caller-supplied version or ELF check alone never closes qualification.
+- Public production pins a successful native qualification run, its exact rewrite
+  source and upstream version. Before construction, it authenticates that run's
+  repository/workflow/push source and successful completion through GitHub, checks
+  the producer's maintained native inputs against that qualified source, and
+  verifies the downloaded executable digest, source/version/lock audit and actual
+  nonzero native proof with identical formatted/linted patches. Artifact existence
+  or a failed/partial run is insufficient. The qualified executable and minimal
+  proof are retained as an exact-digest GitHub Release source-input asset, never
+  overwritten after publication. The producer checks the pinned archive digest
+  before extraction and still verifies the successful run through GitHub. This
+  input has no runtime pointer or installation authority and does not depend on
+  expiring Actions artifacts. The builder retains sole ownership of
+  ELF/FD snapshot adaptation. An ordinary newer backend without this qualified
+  pair is ineligible for public production and leaves LKG unchanged; historical
+  explicitly bounded acceptance fixtures retain their historical construction.
+  A manually authorized Manager TUI deployment may replace the authenticated
+  stable generation at the exact qualified backend version with the frontend-
+  bearing generation at the next sequence. It uses the pinned official archive
+  for that version, not an unqualified newer upstream channel value, and refuses
+  combination with historical acceptance/deployment modes. Ordinary scheduled
+  updates still require a qualified newer pair and never republish equal versions.
 - Ordinary eligible interactive Core launch selects this frontend only when its
   signed helper and same-generation Manager are usable. Core supplies its existing
   qualified local-server socket and exact Core entrypoint. Unsupported explicit

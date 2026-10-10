@@ -80,3 +80,13 @@ monitor, CLI/auth, formal prj24 and dirty sources remain preserved. Installed AI
 user profile/auth code matches working source; ai_tmux has the accepted frontend
 recognition delta. Do not install clean HEAD over existing user functionality.
 Protected launcher SHA670c93ed and sole18688 pts0/native pin/statusoff unchanged.
+
+Producer acquisition slice CLOSED: accepted mapping/evidence/disposition in GOAL.
+Qualifier2/34, real producer5, grouped Python99/builder25/Clippy/fmt/diff pass;
+initial test-only reds and zero-test invocation rejected and corrected. Published
+qualified input exact archive0cc6b084 readback matches; native rawdcf remains pinned.
+NEXT publication slice: mirror accepted producer/Pages into main with normal
+ancestry-preserving commit, keep main's newer mirror/bootstrap/download-size paths,
+pin accepted source, run actual hosted manual paired161 deployment and verify signed
+public bytes/R10 disposable update before device cutover. Terminal registration
+slice stays queued until runnable baseline and normative boundary are established.

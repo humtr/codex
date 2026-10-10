@@ -160,6 +160,7 @@ const USAGE: &str = concat!(
     "       codex-release-builder build --version <MAJOR.MINOR.PATCH> ",
     "--archive <ABSOLUTE_FILE> --archive-sha256 <LOWERCASE_SHA256> ",
     "--generation-id <ID> --core <ABSOLUTE_FILE> [--manager <ABSOLUTE_FILE>] ",
+    "[--manager-tui <ABSOLUTE_FILE> --manager-tui-version <MAJOR.MINOR.PATCH>] ",
     "[--defer-manager-probe] [--legacy-activation-doctor-unsupported] ",
     "--creation-metadata <VALUE> ",
     "--gzip <ABSOLUTE_EXECUTABLE> --openssl <ABSOLUTE_EXECUTABLE> ",
@@ -4554,6 +4555,8 @@ fi
 
     #[test]
     fn test_m2_b6_slice1_request_boundary_is_strict() {
+        assert!(USAGE
+            .contains("[--manager-tui <ABSOLUTE_FILE> --manager-tui-version <MAJOR.MINOR.PATCH>]"));
         let grammar_fixture = fixture("request-grammar", happy_entries("0.150.1"), false);
         for mutation in ["missing-value", "duplicate", "unknown"] {
             let mut args = request_args(&grammar_fixture.request);
