@@ -123,3 +123,16 @@ and recommendation in GOAL: CLI + last8 full-session-ID characters, leading UUID
 time prefix collisions proven locally. Integrate full-ID collision handling and
 initial managed-terminal ownership before cutover; do not ask user to rename to
 a label the installed focus path does not yet support. Current binding preserved.
+
+## Title-independent return identity: root-cause gate
+
+Current focus resolves and rechecks title-leading ID. /title can remove or reorder
+that field: legal title customization conflicts with return identity. Freeze new
+name/cutover behavior until replacing this dependency with qualified runtime/pane
+full-session binding. Inspect actual existing lifecycle/owner data before adding
+state or watchers. Current original1 long-name binding, focus=tmux and hidden
+status remain unchanged. Hidden live dimensions36=36 accepted; no reserved row.
+Ownership candidate: Manager owns Codex integration; AI negotiates/delegates when
+available, otherwise provider fallback. No duplicate writer of native identity.
+Pinned APK automatic existing-session rename transport not established; named
+creation support is distinct. /title means item selection, /rename means chat name.

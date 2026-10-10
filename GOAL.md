@@ -6340,3 +6340,28 @@ in this sample, not a uniqueness guarantee. Recommend CLI + last8 ID characters,
 with full-ID qualification retained and collision detection before native dispatch.
 Candidate current label codex-58465dc2; this review does not activate a new name
 or change the installed legacy binding. Prior hash label is superseded proposal.
+
+### Window ownership/title/hidden review (2026-10-10)
+
+User rejects conversation-ID-bound window naming because one terminal can change
+Codex threads or restart. The prior CLI+last8 conversation-ID proposal is withdrawn;
+CLI-prefixed window identity must track terminal/container lifetime separately.
+User proposes Manager capability with AI delegation and fallback for other CLIs.
+Current Manager has notification settings/emission/AI focus invocation, not native
+Termux session rename/bind commands. Native APK UI rename updates both names;
+no programmatic existing-session rename transport is established. Capability
+negotiation alone cannot supply that missing application operation. Title update
+is already upstream OSC -> tmux set-titles -> Termux native title, not Manager.
+Exact upstream0.160.0 source and official developer-command documentation confirm
+/title is item picker and /rename is conversation naming; corrected SPEC wording.
+Actual selected config includes thread-id, activity, run-state, project-name,
+five-hour-limit, thread-title. Native Termux list renders fixed session name and
+dynamic OSC title separately. Client94x36 and pane94x36, status=off prove hidden
+mode reserves zero tmux rows on this live client (physical TUI footer separate).
+Breadth trigger: focus currently requires title-leading truncated thread ID, so
+legitimate /title removal/reordering can break return. Decouple session/pane
+identity proof from user title before claiming /title compatibility complete.
+Recommended ownership: Codex-specific lifecycle/notification identity in Manager,
+upstream title composition stays TUI, AI delegates advertised Manager capability
+and supplies provider fallback; one active binding owner per terminal. Core stays
+independent. Automatic rename and initial managed launch remain unimplemented.

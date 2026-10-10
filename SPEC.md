@@ -2657,7 +2657,9 @@ the shared managed session. It must preserve status and mouse settings of an
 existing unmanaged tmux session and never change global tmux configuration.
 Within AI-managed sessions the launcher enables session-local `set-titles` and
 uses the literal `#{pane_title}` format, forwarding the selected pane's native
-Codex title (including `/title` thread-name changes) to attached Termux clients.
+Codex title to attached Termux clients. Upstream `/title` selects and orders
+terminal-title items; `/rename` changes the conversation name. The launcher
+forwards native title output rather than implementing another title composer.
 It does not rename tmux windows or strip the native thread ID used by focus.
 Unmanaged sessions and global title options remain unchanged; no title watcher
 is introduced.
