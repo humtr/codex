@@ -89,3 +89,15 @@ Review disposition: original-terminal UI binding proof first; automatic optional
 initial managed-Termux-terminal launch is candidate, not bare Core behavior.
 Native APK handle selection is longer-term alternative. Physical terminal4 return
 restored and user-confirmed; original-client binding and dynamic-title UX open.
+
+## Initial working-terminal registration: design gate
+
+Original-window device proof accepted in GOAL: native UI moved notification name
+onto original1; user confirms actual notification returned there; existing two
+client identities/count unchanged. No automatic launch implementation yet.
+Next slice must register the initial working Termux terminal for optional tmux
+launch, preserving workload-once/profile/env/CWD and protecting bare Core TTY,
+signals/stdio/exit. No implicit switch to another Android terminal on ordinary
+launch. Resolve supported automatic registration and dynamic-title presentation
+before product mutation; SPEC must precede any public launch contract change.
+Current original1 binding and working notification path remain installed.

@@ -6298,3 +6298,18 @@ current APK no-shell-with-name (missing name still creates), not exists-only.
 Longer-term APK session-handle select/register with fail-if-absent would preserve
 original arbitrary window and eliminate missing-name creation, but is a separate
 APK feature. No new implementation or runtime cutover accepted in this review.
+
+### Original Android terminal binding proved (2026-10-10)
+
+- User moved the current exact notification shellName to original terminal1
+  and renamed added terminal4 to codex-test-extra through native UI. Same-thread
+  real Manager notification tap returned to original1, user-confirmed.
+- Client identities/count unchanged across UI transfer and actual tap: original
+ 18688 pts0 and added22177 pts4. No Codex restart/resume or new client/workload.
+  Original-window return is therefore possible with existing APK once registered;
+  prior blanket impossibility assumption is disproved. Repeated tap count and
+  dynamic-title visual acceptance are not explicitly user-confirmed yet.
+- KEEP native shellName lookup and existing tmux identity validation. COLLAPSE
+  notification-only registration into initial working-terminal registration in
+  a future optional launch slice. Current UI proof is not automatic launch code.
+  Bare Core launch/argv/TTY/exit contract and current installed runtime unchanged.
