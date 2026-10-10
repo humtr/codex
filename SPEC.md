@@ -2647,6 +2647,12 @@ status mode shows one native status row and enables session-local mouse support
 so tapping a window name selects it. The latest explicit launch mode applies to
 the shared managed session. It must preserve status and mouse settings of an
 existing unmanaged tmux session and never change global tmux configuration.
+Within AI-managed sessions the launcher enables session-local `set-titles` and
+uses the literal `#{pane_title}` format, forwarding the selected pane's native
+Codex title (including `/title` thread-name changes) to attached Termux clients.
+It does not rename tmux windows or strip the native thread ID used by focus.
+Unmanaged sessions and global title options remain unchanged; no title watcher
+is introduced.
 New panes use
 current caller color preferences, including explicit unset values, rather than
 stale server environment; tmux retains native TERM/TERM_PROGRAM ownership.

@@ -53,3 +53,17 @@ process or resume; explicit optional first named Android attach remains allowed.
 
 Supervisor recognition source correction accepted in GOAL. Actual conversation return
 user-confirmed; physical repeated-click window reuse remains OPEN.
+
+## Native terminal title forwarding
+
+User confirms repeated taps reuse terminal5, while original Android terminal1
+selection is unavailable in the pinned APK. Same-thread return/reuse accepted;
+original-window requirement remains unsupported.
+
+Slice: enable session-local native title forwarding only in AI-managed sessions.
+Baseline live set-titles=off; native pane already emits upstream thread-name.
+Paths: AI launch, native tmux launch/PTY regressions. Proof: actual attached PTY
+receives OSC title and changed pane title; unmanaged/global options unchanged.
+Protected: identity title content, user config/auth, workloads, unmanaged sessions.
+State: accepted in GOAL; AI538b607 focused10/full37 and bounded live setting passed.
+Physical rendered title awaits observation; existing clients/workloads preserved.

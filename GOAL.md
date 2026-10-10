@@ -6233,3 +6233,20 @@ question remains for this bounded delivery; no user work cancellation authorized
   reuse OPEN; do not claim overall Termux normalization complete.
 - Signed generation/frontend admission, Core code, auth/sessions and resolver
   unchanged. Manager focus setting is tmux by current explicit user trial.
+
+### Native tmux terminal title forwarding accepted (2026-10-10)
+
+- User clarified repeated taps return to the same Android terminal5: no ongoing
+  client growth. Original Android terminal1 selection remains unsupported by the
+  pinned APK; both clients attach the same existing Codex conversation.
+- AI538b607 enables set-titles/on and #{pane_title} only in AI-managed sessions.
+  Native titles are forwarded unchanged, retaining the thread ID needed by focus.
+  Existing thread-name settings carry upstream /title names; no watcher/window
+  rename/global config or Codex state mutation. Native attached-PTY regression
+  proves changed titles and literal format-like title text. The initial red proof
+  was fixture select-pane -T format interpretation, corrected by fixture escaping.
+- Focused native tmux10/10 and full AI37/0warn/0fail passed; AI-only installation
+  preserved config/provider state. Bounded live managed-session settings verified
+  on/#{pane_title}; both existing client identities unchanged. Physical Android
+  rendered-title observation remains user-side; no restart required.
+- Broader Termux normalization remains in progress; no whole-task completion claim.
