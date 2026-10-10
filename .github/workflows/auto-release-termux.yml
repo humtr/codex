@@ -3,6 +3,11 @@ name: Termux Hosted Release Preflight
 on:
   workflow_dispatch:
     inputs:
+      manager_tui_bridge_deploy:
+        description: 'Bounded preparatory Core deployment from exact stable 0.161.0 sequence41; requires Manager TUI same-version deployment authorization'
+        required: false
+        type: boolean
+        default: false
       manager_tui_same_version_deploy:
         description: 'Deploy the qualified Manager TUI into authenticated stable 0.161.0 at the next sequence'
         required: false
@@ -134,6 +139,7 @@ jobs:
       actions: read
     outputs:
       candidate: ${{ steps.decision.outputs.candidate }}
+      manager_tui_bridge_deploy: ${{ steps.decision.outputs.manager_tui_bridge_deploy }}
       artifact_name: ${{ steps.decision.outputs.artifact_name }}
       qualified_artifact_name: ${{ steps.decision.outputs.qualified_artifact_name }}
       signed_artifact_name: ${{ steps.decision.outputs.signed_artifact_name }}
@@ -256,6 +262,7 @@ jobs:
         id: decision
         shell: bash
         env:
+          MANAGER_TUI_BRIDGE_DEPLOY: ${{ github.event_name == 'workflow_dispatch' && inputs.manager_tui_bridge_deploy }}
           MANAGER_TUI_SAME_VERSION_DEPLOY: ${{ github.event_name == 'workflow_dispatch' && inputs.manager_tui_same_version_deploy }}
           RALD4_POSITIVE_GATE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald4_positive_gate }}
           RALD5_PUBLICATION_AUTHORIZED: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.rald5_publication_authorized) }}
@@ -537,6 +544,7 @@ jobs:
             printf 'no-emoji same-version production deployment selected: %s sequence %s -> sequence %s\n' \
               "$upstream_version" "$NO_EMOJI_DEPLOY_CURRENT_SEQUENCE" "$NO_EMOJI_DEPLOY_TARGET_SEQUENCE"
           fi
+          test "${MANAGER_TUI_BRIDGE_DEPLOY:-false}" != true || test "$MANAGER_TUI_SAME_VERSION_DEPLOY" = true
           if test "$MANAGER_TUI_SAME_VERSION_DEPLOY" = true; then
             test "$GITHUB_EVENT_NAME" = workflow_dispatch
             test "$GITHUB_REF" = refs/heads/main
@@ -553,6 +561,12 @@ jobs:
             archive_sha256="$MANAGER_TUI_ARCHIVE_SHA256"
             candidate=true
             acceptance_suffix='-manager-tui'
+            if test "${MANAGER_TUI_BRIDGE_DEPLOY:-false}" = true; then
+              test '${{ steps.stable.outputs.current_generation }}' = local-hosted-0-161-0-053e35bee0cb
+              test '${{ steps.stable.outputs.current_release_sequence }}' = 41
+              test '${{ steps.stable.outputs.release_sequence }}' = 42
+              acceptance_suffix='-manager-tui-bridge'
+            fi
           fi
           # Historical explicitly selected fixtures keep their sealed construction.
           # Ordinary publication requires the admitted backend/frontend pair.
@@ -562,6 +576,7 @@ jobs:
             printf 'No qualified Manager TUI pair for %s; retain authenticated stable\n' "$upstream_version"
           fi
           suffix="${upstream_version//./-}-${CODEX_SOURCE_SHA:0:12}${acceptance_suffix}"
+          printf 'manager_tui_bridge_deploy=%s\n' "${MANAGER_TUI_BRIDGE_DEPLOY:-false}" >> "$GITHUB_OUTPUT"
           printf 'candidate=%s\n' "$candidate" >> "$GITHUB_OUTPUT"
           printf 'acceptance_gate=%s\n' "$RALD4_POSITIVE_GATE" >> "$GITHUB_OUTPUT"
           printf 'publication_authorized=%s\n' "$RALD5_PUBLICATION_AUTHORIZED" >> "$GITHUB_OUTPUT"
@@ -582,7 +597,7 @@ jobs:
           printf 'archive_sha256=%s\n' "$archive_sha256" >> "$GITHUB_OUTPUT"
 
       - name: Acquire successful qualified Manager TUI input
-        if: steps.decision.outputs.candidate == 'true' && steps.decision.outputs.upstream_version == env.MANAGER_TUI_VERSION
+        if: steps.decision.outputs.candidate == 'true' && steps.decision.outputs.upstream_version == env.MANAGER_TUI_VERSION && steps.decision.outputs.manager_tui_bridge_deploy != 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -649,7 +664,8 @@ jobs:
           test "$fetched_sha256" = "$archive_sha256"
 
           frontend_args=()
-          if test "$upstream_version" = "$MANAGER_TUI_VERSION"; then
+          if test "$upstream_version" = "$MANAGER_TUI_VERSION" && \
+             test '${{ steps.decision.outputs.manager_tui_bridge_deploy }}' != true; then
             frontend_args=(--manager-tui "$RUNNER_TEMP/manager-tui-input/artifact/codex"
                            --manager-tui-version "$MANAGER_TUI_VERSION")
           fi
@@ -1293,7 +1309,8 @@ jobs:
             exit 1
           fi
 
-          if test '${{ needs.producer.outputs.upstream_version }}' = "$MANAGER_TUI_VERSION"; then
+          if test '${{ needs.producer.outputs.upstream_version }}' = "$MANAGER_TUI_VERSION" && \
+             test '${{ needs.producer.outputs.manager_tui_bridge_deploy }}' != true; then
             timeout 20 env -i "$candidate/helpers/2" --version \
               > "$RUNNER_TEMP/frontend.out" 2> "$RUNNER_TEMP/frontend.err"
             printf 'codex-cli %s\n' "$MANAGER_TUI_VERSION" > "$RUNNER_TEMP/frontend.expected"

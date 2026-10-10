@@ -21,6 +21,46 @@ accepted history without deleting its published branch. No live cutover or stabl
 admission is claimed by this goal lift. The actual frontend/backend version pair,
 release pipeline and same-generation optional-Manager path are load-bearing gates.
 
+### Terminal registration/title source and bounded publication bridge accepted (2026-10-10)
+
+Baseline45e5050. Core's private capability route passes only qualified frontend
+availability and existing supported-argv policy to Manager. Manager emits one
+exact read-only native/title identity response. AI queries this product path and
+leaves native-bound upstream title config unchanged, retaining historical title
+fallback for missing/unsupported capability. Initial explicit outside-tmux launch
+creates one workload, pins CLI+eight-hex socket/session presentation identity and
+uses the same bounded RunCommandService attachment as notification return.
+Failure uses direct attachment without replay; old pinned native names remain
+unchanged. AI0963635/7ad8479 are pushed, with unrelated user profile/auth changes
+excluded through a verified private index; accepted clean source focused2/12 and
+working full38/0warn/0fail pass. The source-only whitespace red was corrected by
+7ad8479; no historical/published rewrite occurred.
+
+Focused Core1/Manager1 and actual normal Core->Manager capability5 pass under owned
+signed-generation roots, Core7db976a4: native requested argv, unsupported add-dir/
+worktree fallback, changed optional UI and missing Manager refuse native claims;
+config remains exact and no runtime/model work starts. New AI2 tests cover exact
+protocol/environment/unset, uncertainty fallback and actual one-job tmux initial
+launch/repeated native attachment/config preservation; existing12 focus/runtime/
+title/hidden/status regressions remain. Full Core192+Manager37+public Manager55+
+builder25=309 pass (one explicit protected smoke ignore); protected1 passes
+separately. Workspace Clippy/fmt/diff and Python100 pass. A concurrent diagnostic
+cargo build replaced the Manager executable during initial public55, causing
+ENOENT/ETXTBSY in2 tests; that run is rejected. With the completed build fixed,
+the full public55 passes. Owned capability fixture mode/missing-tool reds were
+corrected before its actual public proof and are not acceptance evidence.
+
+Main normal mirrorf881461 preserves download-size/mirror/bootstrap improvements;
+its extracted33 gates pass and source38044020682 succeeds. Actual public run
+38044207264 builds/smokes/signs/stages/Pages extended generation42, then fails
+protected old stable053e35 update because intervening browser-bridge Cores enforce
+exactly2 helpers. It does not promote: stable remains41; immutable staged assets
+are preserved. Class traced from1b51902 through053e35; retained R10 predates this
+strict check. Normative exact stable161/053e35/41 -> two-helper new-Core bridge42
+then paired43 uses ordinary signed transactions, no validation bypass. Focused
+producer6 including exact bridge5 faults/three constructor modes and Python100
+pass. Hosted bridge and subsequent paired public proof/cutover remain open.
+
 ### Successful-run producer acquisition slice accepted (2026-10-10)
 
 Baseline30b6117. The actual producer acquires an exact-digest durable Release

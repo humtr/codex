@@ -76,6 +76,16 @@ qualification until the new generation passes acceptance.
   for that version, not an unqualified newer upstream channel value, and refuses
   combination with historical acceptance/deployment modes. Ordinary scheduled
   updates still require a qualified newer pair and never republish equal versions.
+  The retained R10 Core admits an extended numbered inventory, but intervening
+  published browser-bridge Cores enforce exactly two helpers. Before deploying
+  helper2 from the authenticated stable local-hosted-0-161-0-053e35bee0cb/sequence41,
+  a narrowly gated manual bridge deployment emits the same qualified backend and
+  complete two-helper layout with the accepted new Core at sequence42. It uses
+  the ordinary signed release/update/rollback transaction and actual old stable
+  updater. Only this exact preparatory deployment may omit the qualified frontend;
+  it is not a steady-state fallback. Subsequent ordinary or manual paired release
+  uses helper2 and must prove update from that published bridge. A failed paired
+  staging run cannot promote or replace any published generation assets.
 - Ordinary eligible interactive Core launch selects this frontend only when its
   signed helper and same-generation Manager are usable. Core supplies its existing
   qualified local-server socket and exact Core entrypoint. Unsupported explicit
@@ -427,13 +437,14 @@ After resolving a unique live pane, AI atomically rechecks its identity, selects
 it, and obtains its existing tmux session ID. Only a successful recheck requests
 RunCommandService to select or create one named native terminal running installed
 tmux with the exact registered socket and `attach-session -t <SESSION_ID>`.
-The default private shell name is `ai-tmux-` followed by the first sixteen lowercase
+The default private shell name uses the CLI prefix followed by eight lowercase
 hexadecimal SHA-256 digits of compact JSON `[socket_path, session_name]`. It is
 stable across server inode changes and native session-ID reuse at the same socket
 path/name. Socket inode/UID and runtime/pane qualification remain separate live
 checks; the presentation name is not authority. Native session-local
 `@humtr_ai_terminal_name`, if present, may explicitly bind an existing registered
-terminal using an `ai-tmux-` name with sixteen or sixty-four lowercase hex digits;
+terminal using a CLI-prefix/eight-hex name or the accepted legacy `ai-tmux-`
+name with sixteen or sixty-four lowercase hex digits;
 invalid bindings refuse service dispatch. This permits a bounded existing-device
 name transfer while preserving return until the native UI change is confirmed.
 Names contain no conversation content. The string-valued `no-shell-with-name` creation mode
@@ -457,6 +468,31 @@ their tab-delimited identity fields are preserved when notification environments
 omit locale variables; neither titles nor protocol fields are locale authority.
 
 ### Manager command boundary
+
+#### Optional terminal launch capability
+
+The read-only private command `codex termux __terminal-capabilities-v1 -- ARGV...`
+queries this generation's actual launch capability. Core supplies only a qualified
+frontend availability bit and its existing supported-argv decision to the same-
+generation Manager; Manager emits exactly `codex-terminal-capabilities-v1` and
+`identity=native` or `identity=title`. No authentication, profile/session scan,
+configuration mutation or runtime launch occurs. AI never parses a generation
+manifest or adds an independent qualification authority. Missing Manager/query or
+unsupported argv uses the historical title-ID fallback. For `identity=native`,
+AI leaves the user's complete upstream terminal_title configuration unchanged;
+Manager's existing descriptor owns foreground UUID independent of `/title`.
+
+Explicit AI tmux launch outside tmux creates the workload once, then requests the
+same bounded native attachment used by notifications before direct attachment.
+A successful RunCommandService request opens/reuses the registered working
+terminal and returns the invoking shell. Failed/uncertain service dispatch is
+never replayed; the workload remains available through direct tmux attachment.
+Notifications continue to attach only to the already qualified existing workload.
+New native presentation names use the CLI name, a hyphen and eight lowercase hex
+digits of the existing stable socket/session identity hash; they do not encode
+thread IDs or titles. Existing explicitly pinned legacy names remain valid and
+unchanged. One tmux session continues to own one reusable native terminal, even
+when `/new`, `/resume` or `/switch` changes its foreground thread/profile.
 
 #### Native terminal identity bridge
 
@@ -2839,7 +2875,8 @@ uses the literal `#{pane_title}` format, forwarding the selected pane's native
 Codex title to attached Termux clients. Upstream `/title` selects and orders
 terminal-title items; `/rename` changes the conversation name. The launcher
 forwards native title output rather than implementing another title composer.
-It does not rename tmux windows or strip the native thread ID used by focus.
+It does not rename tmux windows. Qualified native identity leaves upstream title
+composition unchanged; historical title-based focus retains its required thread ID.
 Unmanaged sessions and global title options remain unchanged; no title watcher
 is introduced.
 New panes use

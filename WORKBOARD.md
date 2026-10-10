@@ -90,3 +90,34 @@ ancestry-preserving commit, keep main's newer mirror/bootstrap/download-size pat
 pin accepted source, run actual hosted manual paired161 deployment and verify signed
 public bytes/R10 disposable update before device cutover. Terminal registration
 slice stays queued until runnable baseline and normative boundary are established.
+
+Terminal launch/title slice CURRENT at45e5050 clean baseline; hosted source
+38044020682 succeeds; mainf881461 normal mirror commit preserves newer paths,
+main extracted33 gates pass, hosted manual release38044207264 is running.
+Production paths: Core qualified private capability argv, Manager read-only exact
+response, AI optional launch and single shared native attachment/name/title query.
+Proof: Core capability args focused, Manager exact protocol focused, real AI
+launch/focus regression including no duplicate workload/config mutation, then
+grouped acceptance and installed bounded cutover. Protect current18688/native
+name/statusoff, all sessions/profiles/auth and dirty AI user functionality.
+
+RED public run38044207264: build/smoke/sign/Release/Pages succeeded; current
+stable053e35's strict two-helper bridge rejects helper2 at actual update. LKG41
+stays, staged candidate42 is immutable diagnostic evidence. Exhaustive source
+class origin1b51902 through053e35 has strict2; retainedR10 predates that check.
+New bounded publication slice: explicit stable161/053e35/sequence41 -> two-helper
+new-Core bridge42, then paired43. No schema/signature bypass or published asset
+replacement. Named actual decision/build/smoke focused proofs must close first;
+then real hosted old stable update, bridge->paired update and rollback gates.
+Terminal Core1/Manager1/AI new2+existing12 focused pass; invalid fixture session
+lookup/old direct-attach assumption are corrected, no live Android test claimed.
+
+Terminal/source and bounded bridge slices CLOSED in GOAL: Core1/Manager1/actual
+public capability5/AI2+12/full38, Rust309/protected1/Clippy/Python100/fmt/diff pass.
+Initial concurrent-build public55 failure is rejected; full55 rerun passes.
+NEXT: normal main bridge mirror, preserve newer main behavior and pin this source;
+actual manual bridge42 public old-stable update then protected device upgrade,
+paired43 public bridge->UI proof/CAS, installed AI-only hash-bounded cutover and
+physical tap/initial-window acceptance. Keep failed staged42 immutable. Retain a
+durable signed bridge access path for offline strict-Core clients; two transient
+channel promotions alone cannot fix their direct-jump constraint.

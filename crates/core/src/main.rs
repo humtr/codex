@@ -3157,9 +3157,12 @@ fn execute_public_dispatch<
         PublicDispatchRoute::Doctor(args) => run_local_doctor_command(args, context)
             .map(PublicDispatchCompletion::Doctor)
             .map_err(PublicDispatchExecutionError::Doctor),
-        PublicDispatchRoute::Termux(args) => execute_termux_manager(context.manager_artifact, args)
-            .map(PublicDispatchCompletion::TermuxUnavailable)
-            .map_err(PublicDispatchExecutionError::Manager),
+        PublicDispatchRoute::Termux(args) => execute_termux_manager(
+            context.manager_artifact,
+            manager_tui::capability_args(args, context.manager_tui_available),
+        )
+        .map(PublicDispatchCompletion::TermuxUnavailable)
+        .map_err(PublicDispatchExecutionError::Manager),
         PublicDispatchRoute::Upstream(args) => Err(PublicDispatchExecutionError::Upstream(
             launch_qualified_runtime(
                 context.runtime_assets,

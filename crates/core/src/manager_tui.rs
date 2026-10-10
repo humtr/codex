@@ -45,6 +45,17 @@ pub(super) fn supported(args: &[OsString]) -> bool {
     })
 }
 
+pub(super) fn capability_args(mut args: Vec<OsString>, available: bool) -> Vec<OsString> {
+    if args
+        .first()
+        .is_some_and(|a| a == "__terminal-capabilities-v1")
+    {
+        let native = available && supported(&args[1..]);
+        args.insert(1, if native { "native" } else { "title" }.into());
+    }
+    args
+}
+
 fn native_args(socket: &Path, original: &[OsString]) -> io::Result<Vec<OsString>> {
     let socket = socket
         .to_str()
@@ -143,6 +154,33 @@ mod tests {
             .helper_digests
             .push(invalid.helper_digests[2].clone());
         assert!(index(&invalid).is_err());
+    }
+
+    #[test]
+    fn terminal_capability_uses_qualified_frontend_and_actual_supported_argv() {
+        let query: Vec<OsString> = vec![
+            "__terminal-capabilities-v1".into(),
+            "--".into(),
+            "resume".into(),
+            "owned".into(),
+        ];
+        for available in [true, false] {
+            let result = capability_args(query.clone(), available);
+            assert_eq!(result[1], if available { "native" } else { "title" });
+            assert_eq!(result[2..], query[1..]);
+        }
+        for flag in [
+            "--add-dir",
+            "--add-dir=/owned",
+            "--worktree",
+            "--worktree=owned",
+        ] {
+            let mut args = query.clone();
+            args.push(flag.into());
+            assert_eq!(capability_args(args, true)[1], "title");
+        }
+        let ordinary = vec!["notify".into(), "show".into()];
+        assert_eq!(capability_args(ordinary.clone(), true), ordinary);
     }
 
     #[test]

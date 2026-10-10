@@ -306,6 +306,19 @@ where
 }
 
 fn run_inner(args: Vec<OsString>) -> Result<Option<String>, ManagerError> {
+    if is_exact(args.first(), "__terminal-capabilities-v1") {
+        if !is_exact(args.get(2), "--") {
+            return Err(ERR_USAGE);
+        }
+        let identity = match args.get(1).and_then(|a| a.to_str()) {
+            Some("native") => "native",
+            Some("title") => "title",
+            _ => return Err(ERR_USAGE),
+        };
+        return Ok(Some(format!(
+            "codex-terminal-capabilities-v1\nidentity={identity}\n"
+        )));
+    }
     if is_exact(args.first(), "__terminal-bind-v1") {
         return terminal::bind(&capture_context()?, &args[1..]);
     }
@@ -2101,6 +2114,38 @@ mod tests {
     impl Drop for TestRoot {
         fn drop(&mut self) {
             remove_private_tree(&self.0).unwrap();
+        }
+    }
+
+    #[test]
+    fn terminal_capability_is_exact_read_only_and_preserves_requested_argv() {
+        for identity in ["native", "title"] {
+            let args = [
+                "__terminal-capabilities-v1",
+                identity,
+                "--",
+                "resume",
+                "--add-dir=/owned",
+            ]
+            .map(OsString::from)
+            .to_vec();
+            assert_eq!(
+                run_inner(args).unwrap(),
+                Some(format!(
+                    "codex-terminal-capabilities-v1\nidentity={identity}\n"
+                ))
+            );
+        }
+        for args in [
+            vec!["__terminal-capabilities-v1"],
+            vec!["__terminal-capabilities-v1", "native"],
+            vec!["__terminal-capabilities-v1", "unknown", "--"],
+            vec!["__terminal-capabilities-v1", "native", "other"],
+        ] {
+            assert_eq!(
+                run_inner(args.into_iter().map(OsString::from).collect()).unwrap_err(),
+                ERR_USAGE
+            );
         }
     }
 
