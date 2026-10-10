@@ -727,11 +727,10 @@ fn validate_request(request: &BuildRequest) -> Result<(), BuilderError> {
     if let Some(frontend) = request.manager_tui.as_ref() {
         if request.manager.is_none()
             || frontend.version != request.version
-            || request.creation_metadata == R10_BROWSER_HELPER_BRIDGE_METADATA
             || !canonical_absolute_path(&frontend.path)
         {
             return Err(BuilderError::Invalid(
-                "Manager frontend requires matching version, Manager and ordinary helper layout",
+                "Manager frontend requires matching version and Manager",
             ));
         }
     }
@@ -1202,7 +1201,12 @@ fn validate_publish_generation_layout(root: &Path, r10_bridge: bool) -> Result<(
         ));
     }
     if r10_bridge {
-        validate_publish_numbered_helper_layout(root, &["0", "1"])
+        let expected: &[&str] = if std::fs::symlink_metadata(root.join("helpers/2")).is_ok() {
+            &["0", "1", "2"]
+        } else {
+            &["0", "1"]
+        };
+        validate_publish_numbered_helper_layout(root, expected)
     } else {
         validate_publish_browser_layout(root)?;
         if seen.contains("helpers") {
@@ -1493,11 +1497,9 @@ fn validate_publish_generation_descriptor(
         ));
     }
     let helper_count = publish_descriptor_field(&mut lines, "helper_count")?;
-    if !matches!(helper_count, "2" | "3")
-        || (helper_count == "3" && (r10_bridge || manager_path.is_none()))
-    {
+    if !matches!(helper_count, "2" | "3") || (helper_count == "3" && manager_path.is_none()) {
         return Err(BuilderError::Invalid(
-            "publication frontend requires Manager and ordinary three-helper layout",
+            "publication frontend requires Manager and three-helper layout",
         ));
     }
     let browser_open_helper_digest =
@@ -1636,8 +1638,10 @@ fn snapshot_publish_generation(
     if std::fs::symlink_metadata(source_root.join("manager")).is_ok() {
         entries.push(("manager", RELEASE_FILE_MAX_BYTES, true));
     }
-    if !r10_bridge && std::fs::symlink_metadata(source_root.join("helpers")).is_ok() {
-        create_private_dir(&source_snapshot_root.join("helpers"))?;
+    if std::fs::symlink_metadata(source_root.join("helpers/2")).is_ok() {
+        if !r10_bridge {
+            create_private_dir(&source_snapshot_root.join("helpers"))?;
+        }
         entries.push(("helpers/2", RELEASE_FILE_MAX_BYTES, true));
     }
     for (relative_path, max_bytes, executable) in entries {
@@ -3715,7 +3719,9 @@ fn complete_and_publish(
     }
     if frontend_sha256.is_some() {
         let helpers = staging.join("helpers");
-        create_private_dir(&helpers)?;
+        if request.creation_metadata != R10_BROWSER_HELPER_BRIDGE_METADATA {
+            create_private_dir(&helpers)?;
+        }
         rename_noreplace(&staging.join(".manager-tui-artifact"), &helpers.join("2"))?;
         sync_directory(&helpers, "sync Manager frontend helper directory")?;
     }
@@ -5100,7 +5106,6 @@ fi
         for defect in [
             "version",
             "manager",
-            "r10",
             "relative",
             "missing",
             "symlink",
@@ -5140,9 +5145,6 @@ fi
                     fixture.request.manager_tui.as_mut().unwrap().version = "0.161.0".into()
                 }
                 "manager" => fixture.request.manager = None,
-                "r10" => {
-                    fixture.request.creation_metadata = R10_BROWSER_HELPER_BRIDGE_METADATA.into()
-                }
                 "relative" => {
                     fixture.request.manager_tui.as_mut().unwrap().path = PathBuf::from("relative")
                 }
@@ -5201,7 +5203,7 @@ fi
                 before,
                 "{defect}"
             );
-            if matches!(defect, "version" | "manager" | "r10" | "relative") {
+            if matches!(defect, "version" | "manager" | "relative") {
                 assert_eq!(std::fs::read(&frontend).unwrap(), raw);
             }
             fixture.remove();
@@ -5255,156 +5257,183 @@ fi
 
     #[test]
     fn test_manager_tui_publication_binds_exact_inventory_and_rejects_layout_drift() {
-        for defect in [
-            "healthy",
-            "missing",
-            "extra",
-            "file-symlink",
-            "parent-symlink",
-            "directory",
-            "mode",
-            "digest",
-            "version",
-            "count",
-            "undeclared",
-            "manager",
-            "r10",
-        ] {
-            let mut fixture = fixture("manager-tui-publish", happy_entries("0.150.1"), false);
-            let manager = fixture.root.join("manager-source");
-            write_valid_manager_probe(&manager);
-            fixture.request.manager = Some(manager);
-            let frontend = fixture.root.join("frontend-source");
-            std::fs::write(&frontend, fake_runtime()).unwrap();
-            set_mode(&frontend, 0o755, "set frontend fixture mode").unwrap();
-            fixture.request.manager_tui = Some(ManagerTuiArtifact {
-                path: frontend,
-                version: fixture.request.version.clone(),
-            });
-            assert_eq!(run_from_args(request_args(&fixture.request)), 0);
-            let helper = fixture.request.output.join("helpers/2");
-            let descriptor_path = fixture.request.output.join("generation.meta");
-            let descriptor = std::fs::read_to_string(&descriptor_path).unwrap();
-            match defect {
-                "healthy" => {}
-                "missing" => std::fs::remove_file(&helper).unwrap(),
-                "extra" => {
-                    std::fs::write(fixture.request.output.join("helpers/0"), b"undeclared").unwrap()
+        for r10 in [false, true] {
+            for defect in [
+                "healthy",
+                "missing",
+                "extra",
+                "file-symlink",
+                "parent-symlink",
+                "directory",
+                "mode",
+                "digest",
+                "version",
+                "count",
+                "undeclared",
+                "manager",
+                "layout-marker",
+            ] {
+                let mut fixture = fixture("manager-tui-publish", happy_entries("0.150.1"), false);
+                let manager = fixture.root.join("manager-source");
+                write_valid_manager_probe(&manager);
+                fixture.request.manager = Some(manager);
+                if r10 {
+                    fixture.request.creation_metadata = R10_BROWSER_HELPER_BRIDGE_METADATA.into();
+                    fixture.request.legacy_activation_doctor_unsupported = true;
                 }
-                "file-symlink" => {
-                    let outside = fixture.root.join("outside-helper");
-                    std::fs::rename(&helper, &outside).unwrap();
-                    std::os::unix::fs::symlink(outside, &helper).unwrap();
-                }
-                "parent-symlink" => {
-                    let outside = fixture.root.join("outside-helpers");
-                    std::fs::rename(fixture.request.output.join("helpers"), &outside).unwrap();
-                    std::os::unix::fs::symlink(outside, fixture.request.output.join("helpers"))
-                        .unwrap();
-                }
-                "directory" => {
-                    std::fs::remove_file(&helper).unwrap();
-                    std::fs::create_dir(&helper).unwrap();
-                }
-                "mode" => set_mode(&helper, 0o600, "change frontend mode").unwrap(),
-                "digest" => std::fs::write(&helper, b"changed-frontend").unwrap(),
-                "version" => std::fs::write(
-                    &descriptor_path,
-                    descriptor.replace(
-                        "termux-manager-tui-v1:0.150.1",
-                        "termux-manager-tui-v1:0.161.0",
-                    ),
-                )
-                .unwrap(),
-                "count" => std::fs::write(
-                    &descriptor_path,
-                    descriptor.replace("helper_count\t3", "helper_count\t4"),
-                )
-                .unwrap(),
-                "undeclared" => {
-                    let line = descriptor
-                        .lines()
-                        .find(|line| line.starts_with("helper\ttermux-manager-tui"))
-                        .unwrap();
-                    std::fs::write(
+                let frontend = fixture.root.join("frontend-source");
+                std::fs::write(&frontend, fake_runtime()).unwrap();
+                set_mode(&frontend, 0o755, "set frontend fixture mode").unwrap();
+                fixture.request.manager_tui = Some(ManagerTuiArtifact {
+                    path: frontend,
+                    version: fixture.request.version.clone(),
+                });
+                assert_eq!(run_from_args(request_args(&fixture.request)), 0);
+                let helper = fixture.request.output.join("helpers/2");
+                let descriptor_path = fixture.request.output.join("generation.meta");
+                let descriptor = std::fs::read_to_string(&descriptor_path).unwrap();
+                match defect {
+                    "healthy" => {}
+                    "missing" => std::fs::remove_file(&helper).unwrap(),
+                    "extra" => {
+                        std::fs::write(fixture.request.output.join("helpers/3"), b"undeclared")
+                            .unwrap()
+                    }
+                    "file-symlink" => {
+                        let outside = fixture.root.join("outside-helper");
+                        std::fs::rename(&helper, &outside).unwrap();
+                        std::os::unix::fs::symlink(outside, &helper).unwrap();
+                    }
+                    "parent-symlink" => {
+                        let outside = fixture.root.join("outside-helpers");
+                        std::fs::rename(fixture.request.output.join("helpers"), &outside).unwrap();
+                        std::os::unix::fs::symlink(outside, fixture.request.output.join("helpers"))
+                            .unwrap();
+                    }
+                    "directory" => {
+                        std::fs::remove_file(&helper).unwrap();
+                        std::fs::create_dir(&helper).unwrap();
+                    }
+                    "mode" => set_mode(&helper, 0o600, "change frontend mode").unwrap(),
+                    "digest" => std::fs::write(&helper, b"changed-frontend").unwrap(),
+                    "version" => std::fs::write(
                         &descriptor_path,
-                        descriptor
-                            .replace("helper_count\t3", "helper_count\t2")
-                            .replace(&format!("{line}\n"), ""),
+                        descriptor.replace(
+                            "termux-manager-tui-v1:0.150.1",
+                            "termux-manager-tui-v1:0.161.0",
+                        ),
                     )
-                    .unwrap();
+                    .unwrap(),
+                    "count" => std::fs::write(
+                        &descriptor_path,
+                        descriptor.replace("helper_count\t3", "helper_count\t4"),
+                    )
+                    .unwrap(),
+                    "undeclared" => {
+                        let line = descriptor
+                            .lines()
+                            .find(|line| line.starts_with("helper\ttermux-manager-tui"))
+                            .unwrap();
+                        std::fs::write(
+                            &descriptor_path,
+                            descriptor
+                                .replace("helper_count\t3", "helper_count\t2")
+                                .replace(&format!("{line}\n"), ""),
+                        )
+                        .unwrap();
+                    }
+                    "manager" => {
+                        std::fs::remove_file(fixture.request.output.join("manager")).unwrap()
+                    }
+                    "layout-marker" => std::fs::write(
+                        &descriptor_path,
+                        descriptor.replace(
+                            &format!("creation_metadata\t{}", fixture.request.creation_metadata),
+                            &format!(
+                                "creation_metadata\t{}",
+                                if r10 {
+                                    "test-fixture"
+                                } else {
+                                    R10_BROWSER_HELPER_BRIDGE_METADATA
+                                }
+                            ),
+                        ),
+                    )
+                    .unwrap(),
+                    _ => unreachable!(),
                 }
-                "manager" => std::fs::remove_file(fixture.request.output.join("manager")).unwrap(),
-                "r10" => std::fs::write(
-                    &descriptor_path,
-                    descriptor.replace(
-                        "creation_metadata\ttest-fixture",
-                        &format!("creation_metadata\t{R10_BROWSER_HELPER_BRIDGE_METADATA}"),
-                    ),
-                )
-                .unwrap(),
-                _ => unreachable!(),
+                let before = std::fs::read(&descriptor_path).unwrap();
+                let private_key = fixture.root.join("owned-release-key.pem");
+                generate_publish_key(&fixture.request.openssl, &private_key);
+                let request = PublishRequest {
+                    generation: fixture.request.output.clone(),
+                    release_sequence: "1".into(),
+                    release_base: "https://example.test/releases/test-generation/".into(),
+                    private_key: private_key.clone(),
+                    openssl: fixture.request.openssl.clone(),
+                    output: fixture.root.join("publication"),
+                };
+                let result = publish(&request);
+                if defect == "healthy" {
+                    assert_eq!(result.unwrap(), "test-generation");
+                    let release = request.output.join("releases/test-generation");
+                    let manifest =
+                        std::fs::read_to_string(release.join("release.manifest")).unwrap();
+                    let digest = openssl_sha256(&request.openssl, &helper).unwrap();
+                    assert!(manifest.contains("file_count\t8\n"));
+                    assert!(manifest.contains(&format!("file\thelpers/2\t{digest}\t0755\n")));
+                    if r10 {
+                        assert!(
+                            manifest.contains("file\thelpers/0\t")
+                                && manifest.contains("file\thelpers/1\t")
+                        );
+                        assert!(!manifest.contains("file\tbrowser/"));
+                        assert!(descriptor.contains("upstream_doctor\tunsupported\n"));
+                        assert!(!release.join("browser").exists());
+                    } else {
+                        assert!(
+                            manifest.contains("file\tbrowser/manual/curl\t")
+                                && manifest.contains("file\tbrowser/open/curl\t")
+                        );
+                        assert!(
+                            !manifest.contains("file\thelpers/0\t")
+                                && !manifest.contains("file\thelpers/1\t")
+                        );
+                    }
+                    assert_eq!(
+                        std::fs::read(release.join("helpers/2")).unwrap(),
+                        std::fs::read(&helper).unwrap()
+                    );
+                    let sidecar =
+                        std::fs::read_to_string(request.output.join(DOWNLOAD_SIZE_PATH)).unwrap();
+                    assert!(sidecar.contains("file_count\t8\n"));
+                    assert!(sidecar.contains(&format!(
+                        "file\thelpers/2\t{}\n",
+                        std::fs::metadata(&helper).unwrap().len()
+                    )));
+                    let public_key = fixture.root.join("owned-public-key.der");
+                    verify_publish_signature(
+                        &request.openssl,
+                        &private_key,
+                        &release.join("release.manifest"),
+                        &release.join("release.sig"),
+                        &public_key,
+                    );
+                    verify_publish_signature(
+                        &request.openssl,
+                        &private_key,
+                        &request.output.join(DOWNLOAD_SIZE_PATH),
+                        &request.output.join(DOWNLOAD_SIZE_SIGNATURE_PATH),
+                        &public_key,
+                    );
+                } else {
+                    assert!(result.is_err(), "{defect}");
+                    assert!(!request.output.exists(), "{defect}");
+                }
+                assert_eq!(std::fs::read(&descriptor_path).unwrap(), before, "{defect}");
+                assert!(no_builder_staging(&fixture.root), "{defect}");
+                fixture.remove();
             }
-            let before = std::fs::read(&descriptor_path).unwrap();
-            let private_key = fixture.root.join("owned-release-key.pem");
-            generate_publish_key(&fixture.request.openssl, &private_key);
-            let request = PublishRequest {
-                generation: fixture.request.output.clone(),
-                release_sequence: "1".into(),
-                release_base: "https://example.test/releases/test-generation/".into(),
-                private_key: private_key.clone(),
-                openssl: fixture.request.openssl.clone(),
-                output: fixture.root.join("publication"),
-            };
-            let result = publish(&request);
-            if defect == "healthy" {
-                assert_eq!(result.unwrap(), "test-generation");
-                let release = request.output.join("releases/test-generation");
-                let manifest = std::fs::read_to_string(release.join("release.manifest")).unwrap();
-                let digest = openssl_sha256(&request.openssl, &helper).unwrap();
-                assert!(manifest.contains("file_count\t8\n"));
-                assert!(manifest.contains(&format!("file\thelpers/2\t{digest}\t0755\n")));
-                assert!(
-                    manifest.contains("file\tbrowser/manual/curl\t")
-                        && manifest.contains("file\tbrowser/open/curl\t")
-                );
-                assert!(
-                    !manifest.contains("file\thelpers/0\t")
-                        && !manifest.contains("file\thelpers/1\t")
-                );
-                assert_eq!(
-                    std::fs::read(release.join("helpers/2")).unwrap(),
-                    std::fs::read(&helper).unwrap()
-                );
-                let sidecar =
-                    std::fs::read_to_string(request.output.join(DOWNLOAD_SIZE_PATH)).unwrap();
-                assert!(sidecar.contains("file_count\t8\n"));
-                assert!(sidecar.contains(&format!(
-                    "file\thelpers/2\t{}\n",
-                    std::fs::metadata(&helper).unwrap().len()
-                )));
-                let public_key = fixture.root.join("owned-public-key.der");
-                verify_publish_signature(
-                    &request.openssl,
-                    &private_key,
-                    &release.join("release.manifest"),
-                    &release.join("release.sig"),
-                    &public_key,
-                );
-                verify_publish_signature(
-                    &request.openssl,
-                    &private_key,
-                    &request.output.join(DOWNLOAD_SIZE_PATH),
-                    &request.output.join(DOWNLOAD_SIZE_SIGNATURE_PATH),
-                    &public_key,
-                );
-            } else {
-                assert!(result.is_err(), "{defect}");
-                assert!(!request.output.exists(), "{defect}");
-            }
-            assert_eq!(std::fs::read(&descriptor_path).unwrap(), before, "{defect}");
-            assert!(no_builder_staging(&fixture.root), "{defect}");
-            fixture.remove();
         }
     }
 

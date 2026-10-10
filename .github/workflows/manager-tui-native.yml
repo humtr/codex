@@ -1,18 +1,18 @@
-name: Experimental switch TUI qualification
+name: Manager TUI native qualification
 on:
   push:
-    branches: [experiment/profile-tui]
+    branches: [rewrite/rust-core]
     paths:
-      - '.github/workflows/profile-tui-experiment.yml'
-      - 'experiments/profile-tui/native.patch'
-      - 'experiments/profile-tui/normalize_lock.py'
-      - 'experiments/profile-tui/test_normalize_lock.py'
-      - 'experiments/profile-tui/check_command_boundary.py'
-      - 'experiments/profile-tui/test_command_boundary.py'
+      - '.github/workflows/manager-tui-native.yml'
+      - 'frontend/manager-tui/native.patch'
+      - 'frontend/manager-tui/normalize_lock.py'
+      - 'frontend/manager-tui/test_normalize_lock.py'
+      - 'frontend/manager-tui/check_command_boundary.py'
+      - 'frontend/manager-tui/test_command_boundary.py'
 permissions:
   contents: read
 concurrency:
-  group: experimental-profile-tui
+  group: manager-tui-native
   cancel-in-progress: false
 jobs:
   upstream-baseline:
@@ -20,17 +20,20 @@ jobs:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 90
     env:
-      UPSTREAM_SHA: a956835d020762cb2b570053af06f643a11c0ecc
+      UPSTREAM_SHA: 979011409de0a60b52f179721948e65531d26144
       RUST_VERSION: 1.95.0
       RUSTUP_TOOLCHAIN: 1.95.0
       CARGO_PROFILE_DEV_DEBUG: '0'
       CARGO_PROFILE_DEV_INCREMENTAL: 'false'
       CARGO_PROFILE_DEV_OPT_LEVEL: '1'
       CARGO_PROFILE_TEST_OPT_LEVEL: '0'
+      CARGO_PROFILE_RELEASE_OPT_LEVEL: 'z'
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '1'
+      CARGO_PROFILE_RELEASE_STRIP: 'symbols'
       CARGO_BUILD_JOBS: '3'
       CODEX_PROFILE_CORE: ''
     steps:
-      - name: Fetch exact experiment authority
+      - name: Fetch exact frontend authority
         shell: bash
         run: |
           set -euo pipefail
@@ -79,7 +82,7 @@ jobs:
           bash upstream/.github/scripts/install-musl-build-tools.sh
           echo 'AWS_LC_SYS_NO_JITTER_ENTROPY=1' >> "$GITHUB_ENV"
           echo 'AWS_LC_SYS_NO_JITTER_ENTROPY_aarch64_unknown_linux_musl=1' >> "$GITHUB_ENV"
-      - name: Restore isolated experimental compile cache
+      - name: Restore isolated frontend compile cache
         id: compile-cache
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
@@ -87,27 +90,27 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             upstream/codex-rs/target
-          key: profile-tui-display-aarch64-musl-1.95.0-a956835d-${{ github.sha }}
+          key: profile-tui-display-aarch64-musl-1.95.0-97901140-${{ github.sha }}
           restore-keys: |
+            profile-tui-display-aarch64-musl-1.95.0-97901140-
             profile-tui-display-aarch64-musl-1.95.0-a956835d-
-            profile-tui-baseline-aarch64-musl-1.95.0-a956835d-zig014-dev-opt1-v2
       - name: Normalize release workspace versions only
         shell: bash
         run: |
           set -euo pipefail
-          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s experiment/experiments/profile-tui -p 'test_*.py'
-          python3 experiment/experiments/profile-tui/normalize_lock.py upstream/codex-rs --audit "$RUNNER_TEMP/profile-tui-lock-audit.json"
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s experiment/frontend/manager-tui -p 'test_*.py'
+          python3 experiment/frontend/manager-tui/normalize_lock.py upstream/codex-rs --audit "$RUNNER_TEMP/profile-tui-lock-audit.json"
       - name: Apply bounded native profile patch
         shell: bash
         run: |
           set -euo pipefail
-          python3 experiment/experiments/profile-tui/check_command_boundary.py upstream
+          python3 experiment/frontend/manager-tui/check_command_boundary.py upstream
           pristine="$RUNNER_TEMP/profile-tui-pristine/codex-rs/tui/src"
           mkdir -p "$pristine"
           cp upstream/codex-rs/tui/src/slash_command.rs "$pristine/slash_command.rs"
-          git -C upstream apply --check "$GITHUB_WORKSPACE/experiment/experiments/profile-tui/native.patch"
-          git -C upstream apply "$GITHUB_WORKSPACE/experiment/experiments/profile-tui/native.patch"
-          python3 experiment/experiments/profile-tui/check_command_boundary.py "$RUNNER_TEMP/profile-tui-pristine" --patched upstream
+          git -C upstream apply --check "$GITHUB_WORKSPACE/experiment/frontend/manager-tui/native.patch"
+          git -C upstream apply "$GITHUB_WORKSPACE/experiment/frontend/manager-tui/native.patch"
+          python3 experiment/frontend/manager-tui/check_command_boundary.py "$RUNNER_TEMP/profile-tui-pristine" --patched upstream
           git -C upstream diff --check
           test "$(git -C upstream diff --name-only -- codex-rs/core)" = ''
       - name: Preserve freshness of byte-identical upstream packages
@@ -167,32 +170,34 @@ jobs:
         run: |
           set -euo pipefail
           cd upstream/codex-rs
-          cargo "+$RUST_VERSION" build --locked --target aarch64-unknown-linux-musl -p codex-cli --bin codex
+          cargo "+$RUST_VERSION" build --release --locked --target aarch64-unknown-linux-musl -p codex-cli --bin codex
           git diff --check
       - name: Execute and identify native frontend
         shell: bash
         run: |
           set -euo pipefail
-          binary="$GITHUB_WORKSPACE/upstream/codex-rs/target/aarch64-unknown-linux-musl/debug/codex"
+          binary="$GITHUB_WORKSPACE/upstream/codex-rs/target/aarch64-unknown-linux-musl/release/codex"
           test -x "$binary"
           file "$binary" | grep -F 'ARM aarch64'
           if readelf -l "$binary" | grep -F INTERP; then exit 1; fi
-          root="$RUNNER_TEMP/profile-tui-native-display"
+          root="$RUNNER_TEMP/manager-tui-native"
           mkdir -p "$root/home" "$root/home/.codex" "$root/tmp" "$root/artifact"
           chmod 0700 "$root/home" "$root/home/.codex" "$root/tmp"
           env -i HOME="$root/home" CODEX_HOME="$root/home/.codex" TMPDIR="$root/tmp" PATH=/usr/bin:/bin "$binary" --version > "$root/artifact/version.txt"
           env -i HOME="$root/home" CODEX_HOME="$root/home/.codex" TMPDIR="$root/tmp" PATH=/usr/bin:/bin "$binary" --help > "$root/artifact/help.txt"
+          printf 'codex-cli 0.161.0\n' > "$root/version.expected"
+          cmp "$root/version.expected" "$root/artifact/version.txt"
           cp "$binary" "$root/artifact/codex"
           cp "$RUNNER_TEMP/profile-tui-lock-audit.json" "$root/artifact/lock-audit.json"
           cp "$RUNNER_TEMP/profile-tui-formatted.patch" "$root/artifact/native.patch"
           sha256sum "$root/artifact/codex" > "$root/artifact/sha256.txt"
-          printf 'upstream_sha=%s\nexperiment_sha=%s\ntarget=aarch64-unknown-linux-musl\n' "$UPSTREAM_SHA" "$GITHUB_SHA" > "$root/artifact/source.txt"
+          printf 'upstream_sha=%s\nsource_sha=%s\ntarget=aarch64-unknown-linux-musl\nprofile=release opt-level=z codegen-units=1 strip=symbols\n' "$UPSTREAM_SHA" "$GITHUB_SHA" > "$root/artifact/source.txt"
           cat "$root/artifact/version.txt" "$root/artifact/source.txt" "$root/artifact/sha256.txt"
-      - name: Upload unsigned nonproduction display
+      - name: Upload unsigned frontend candidate
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: profile-tui-native-display
-          path: ${{ runner.temp }}/profile-tui-native-display/artifact
+          name: manager-tui-native
+          path: ${{ runner.temp }}/manager-tui-native/artifact
           if-no-files-found: error
           retention-days: 3
           compression-level: 1
@@ -215,7 +220,7 @@ jobs:
           set -euo pipefail
           cd upstream
           just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-tui --lib -E 'test(profile_transport) | test(termux_permissions) | test(termux_terminal) | test(profile_manager) | test(switch_command) | test(side_conversation_hides_commands_without_side_flag)' 2>&1 | tee "$RUNNER_TEMP/profile-tui-focused.log"
-          python3 "$GITHUB_WORKSPACE/experiment/experiments/profile-tui/check_command_boundary.py" "$RUNNER_TEMP/profile-tui-pristine" --patched "$GITHUB_WORKSPACE/upstream" --test-log "$RUNNER_TEMP/profile-tui-focused.log"
+          python3 "$GITHUB_WORKSPACE/experiment/frontend/manager-tui/check_command_boundary.py" "$RUNNER_TEMP/profile-tui-pristine" --patched "$GITHUB_WORKSPACE/upstream" --test-log "$RUNNER_TEMP/profile-tui-focused.log"
       - name: Inspect TUI lint fixes
         shell: bash
         run: |
@@ -228,7 +233,7 @@ jobs:
         if: ${{ !cancelled() && steps.native-format.outcome != 'skipped' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: profile-tui-display-proof
+          name: manager-tui-native-proof
           path: |
             ${{ runner.temp }}/profile-tui-focused.log
             ${{ runner.temp }}/profile-tui-formatted.patch
@@ -244,12 +249,12 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             upstream/codex-rs/target
-          key: profile-tui-display-aarch64-musl-1.95.0-a956835d-${{ github.sha }}
+          key: profile-tui-display-aarch64-musl-1.95.0-97901140-${{ github.sha }}
       - name: Retain failed native build diagnosis
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: profile-tui-baseline-diagnosis
+          name: manager-tui-native-diagnosis
           path: |
             ${{ runner.temp }}/profile-tui-lock-audit.json
             ${{ github.workspace }}/upstream/codex-rs/target/**/config.log

@@ -24,7 +24,6 @@ pub(super) fn index(manifest: &GenerationManifest) -> Result<Option<usize>, Loca
         || matches[0].1.identity.strip_prefix(PREFIX)
             != Some(manifest.upstream_package_version.as_str())
         || manifest.manager_artifact_digest.is_none()
-        || manifest.creation_metadata == super::R10_BROWSER_HELPER_BRIDGE_METADATA
         || manifest.helper_digests[0].identity != super::TERMUX_BROWSER_OPEN_HELPER_IDENTITY
         || manifest.helper_digests[1].identity != super::TERMUX_BROWSER_MANUAL_HELPER_IDENTITY
     {
@@ -135,7 +134,10 @@ mod tests {
         assert!(index(&invalid).is_err());
         invalid = manifest();
         invalid.creation_metadata = super::super::R10_BROWSER_HELPER_BRIDGE_METADATA.into();
-        assert!(index(&invalid).is_err());
+        assert_eq!(index(&invalid).unwrap(), Some(2));
+        assert!(super::super::r10_browser_helper_bridge(&invalid).unwrap());
+        invalid.helper_digests[2].identity = "unqualified-third-helper".into();
+        assert!(super::super::r10_browser_helper_bridge(&invalid).is_err());
         invalid = manifest();
         invalid
             .helper_digests

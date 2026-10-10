@@ -1,5 +1,5 @@
 diff --git a/codex-rs/tui/src/app.rs b/codex-rs/tui/src/app.rs
-index 37b5c78..f954a7c 100644
+index 683c548..206171b 100644
 --- a/codex-rs/tui/src/app.rs
 +++ b/codex-rs/tui/src/app.rs
 @@ -152,7 +152,6 @@ use codex_otel::SessionTelemetry;
@@ -10,7 +10,7 @@ index 37b5c78..f954a7c 100644
  use codex_protocol::models::PermissionProfile;
  use codex_protocol::openai_models::ModelAvailabilityNux;
  use codex_protocol::openai_models::ModelPreset;
-@@ -232,6 +231,8 @@ mod managed_worktree_creation;
+@@ -233,6 +232,8 @@ mod managed_worktree_creation;
  mod misalignment_policy;
  mod model_defaults;
  mod new_session;
@@ -19,7 +19,7 @@ index 37b5c78..f954a7c 100644
  mod turn_tips;
  pub(crate) use new_session::has_launch_setting;
  mod clipboard;
-@@ -428,7 +429,7 @@ fn auto_review_mode() -> AutoReviewMode {
+@@ -429,7 +430,7 @@ fn auto_review_mode() -> AutoReviewMode {
          approval_policy: AskForApproval::OnRequest,
          approvals_reviewer: ApprovalsReviewer::AutoReview,
          active_permission_profile: ActivePermissionProfile::new(
@@ -28,20 +28,20 @@ index 37b5c78..f954a7c 100644
          ),
      }
  }
-@@ -1156,6 +1157,8 @@ impl App {
+@@ -1165,6 +1166,8 @@ impl App {
+     }
+
      fn render_chat_widget_frame(&mut self, tui: &mut tui::Tui, screen_size: Size) -> Result<Rect> {
 +        #[cfg(unix)]
 +        crate::termux_terminal::sync(self.chat_widget.thread_id().map(|id| id.to_string()));
          self.sync_thread_title_progress();
          self.chat_widget
              .set_sparkle_terminal_focus(tui.is_terminal_focused());
-         if tui.is_owned_screen() {
-             return self.render_owned_transcript(tui, screen_size);
 diff --git a/codex-rs/tui/src/app/event_dispatch.rs b/codex-rs/tui/src/app/event_dispatch.rs
-index da28bf2..34d21e9 100644
+index 258ce3d..1a85b4c 100644
 --- a/codex-rs/tui/src/app/event_dispatch.rs
 +++ b/codex-rs/tui/src/app/event_dispatch.rs
-@@ -425,6 +425,16 @@ impl App {
+@@ -438,6 +438,16 @@ impl App {
              AppEvent::OpenResumePicker => {
                  self.pending_open_resume_picker = true;
              }
@@ -970,10 +970,10 @@ index 0000000..2d29fd7
 +
 +  Press enter to switch or esc to go back
 diff --git a/codex-rs/tui/src/app/tests.rs b/codex-rs/tui/src/app/tests.rs
-index 9c1af27..1498edb 100644
+index b35b1a5..598e5e1 100644
 --- a/codex-rs/tui/src/app/tests.rs
 +++ b/codex-rs/tui/src/app/tests.rs
-@@ -83,7 +83,7 @@ mod recap_generation;
+@@ -84,7 +84,7 @@ mod recap_generation;
  mod resume_shutdown_tests;
  mod safety_buffering;
  #[path = "tests/session_lifecycle_requests.rs"]
@@ -982,16 +982,16 @@ index 9c1af27..1498edb 100644
  mod startup;
  #[path = "tests/startup_frame_tests.rs"]
  mod startup_frame_tests;
-@@ -6439,7 +6439,7 @@ async fn replace_goal_confirmation_snapshot() {
+@@ -6504,7 +6504,7 @@ async fn replace_goal_confirmation_snapshot() {
      );
  }
 
 -fn test_thread_session(thread_id: ThreadId, cwd: PathBuf) -> ThreadSessionState {
 +pub(super) fn test_thread_session(thread_id: ThreadId, cwd: PathBuf) -> ThreadSessionState {
      ThreadSessionState {
+         daybreak_enabled: false,
          windows_sandbox_host: crate::app::WindowsSandboxHost::Local,
-         thread_id,
-@@ -7094,7 +7094,7 @@ fn test_turn(turn_id: &str, status: TurnStatus, items: Vec<ThreadItem>) -> Turn
+@@ -7159,7 +7159,7 @@ fn test_turn(turn_id: &str, status: TurnStatus, items: Vec<ThreadItem>) -> Turn
      }
  }
 
@@ -1000,7 +1000,7 @@ index 9c1af27..1498edb 100644
      ServerNotification::TurnStarted(TurnStartedNotification {
          thread_id: thread_id.to_string(),
          turn: Turn {
-@@ -7104,7 +7104,7 @@ fn turn_started_notification(thread_id: ThreadId, turn_id: &str) -> ServerNotifi
+@@ -7169,7 +7169,7 @@ fn turn_started_notification(thread_id: ThreadId, turn_id: &str) -> ServerNotifi
      })
  }
 
@@ -1010,22 +1010,21 @@ index 9c1af27..1498edb 100644
      turn_id: &str,
      status: TurnStatus,
 diff --git a/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs b/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs
-index 0fbf795..73b6bcd 100644
+index 0961865..7bc311e 100644
 --- a/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs
 +++ b/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs
-@@ -40,8 +40,9 @@ use tokio::task::JoinHandle;
+@@ -40,8 +40,8 @@ use tokio::task::JoinHandle;
  use tokio_tungstenite::accept_async;
  use tokio_tungstenite::tungstenite::Message;
 
 -pub(super) type RecordedRequests = Arc<Mutex<Vec<JSONRPCRequest>>>;
 -pub(super) type RecordingAppServer = (AppServerSession, RecordedRequests, JoinHandle<Result<()>>);
 +pub(in crate::app) type RecordedRequests = Arc<Mutex<Vec<JSONRPCRequest>>>;
-+pub(in crate::app) type RecordingAppServer =
-+    (AppServerSession, RecordedRequests, JoinHandle<Result<()>>);
++pub(in crate::app) type RecordingAppServer = (AppServerSession, RecordedRequests, JoinHandle<Result<()>>);
 
- async fn complete_managed_worktree_creation(
-     app: &mut App,
-@@ -179,7 +180,7 @@ fn take_backfill_counts(requests: &RecordedRequests) -> (usize, usize) {
+ #[tokio::test]
+ async fn daybreak_command_persists_and_confirms_each_selection() -> Result<()> {
+@@ -340,7 +340,7 @@ fn take_backfill_counts(requests: &RecordedRequests) -> (usize, usize) {
  }
 
  /// Starts an embedded app server behind a loopback WebSocket proxy that records JSON-RPC methods.
@@ -1034,7 +1033,7 @@ index 0fbf795..73b6bcd 100644
      config: &Config,
      blocked_thread_list: Option<(ThreadId, oneshot::Sender<()>, oneshot::Receiver<()>)>,
      failed_thread_name: Option<&'static str>,
-@@ -656,7 +657,10 @@ fn create_history_rollout(
+@@ -827,7 +827,10 @@ fn create_history_rollout(
      Ok(ThreadId::from_string(&thread_id)?)
  }
 
@@ -1047,10 +1046,10 @@ index 0fbf795..73b6bcd 100644
          .lock()
          .expect("request recorder lock")
 diff --git a/codex-rs/tui/src/app_event.rs b/codex-rs/tui/src/app_event.rs
-index ce30da4..672f3e7 100644
+index 3185d8a..4e7a525 100644
 --- a/codex-rs/tui/src/app_event.rs
 +++ b/codex-rs/tui/src/app_event.rs
-@@ -584,6 +584,12 @@ pub(crate) enum AppEvent {
+@@ -593,6 +593,12 @@ pub(crate) enum AppEvent {
      /// Open the resume picker inside the running TUI session.
      OpenResumePicker,
 
@@ -1064,10 +1063,10 @@ index ce30da4..672f3e7 100644
      OpenExternalAgentConfigMigration,
 
 diff --git a/codex-rs/tui/src/bottom_pane/chat_composer.rs b/codex-rs/tui/src/bottom_pane/chat_composer.rs
-index 7272255..247facd 100644
+index 8921eaa..586517b 100644
 --- a/codex-rs/tui/src/bottom_pane/chat_composer.rs
 +++ b/codex-rs/tui/src/bottom_pane/chat_composer.rs
-@@ -484,6 +484,10 @@ pub enum InputResult {
+@@ -477,6 +477,10 @@ pub enum InputResult {
  }
 
  fn parent_owned_command_is_allowed(command: SlashCommand, args: &str) -> bool {
@@ -1079,10 +1078,10 @@ index 7272255..247facd 100644
          return true;
      }
 diff --git a/codex-rs/tui/src/bottom_pane/slash_commands.rs b/codex-rs/tui/src/bottom_pane/slash_commands.rs
-index 383376a..3bacd4b 100644
+index 8af67e7..06257e0 100644
 --- a/codex-rs/tui/src/bottom_pane/slash_commands.rs
 +++ b/codex-rs/tui/src/bottom_pane/slash_commands.rs
-@@ -325,6 +325,8 @@ mod tests {
+@@ -331,6 +331,8 @@ mod tests {
              commands,
              vec![
                  SlashCommand::Ide,
@@ -1092,7 +1091,7 @@ index 383376a..3bacd4b 100644
                  SlashCommand::Copy,
                  SlashCommand::Export,
 diff --git a/codex-rs/tui/src/chatwidget.rs b/codex-rs/tui/src/chatwidget.rs
-index 7fafd6d..49774a8 100644
+index 15dac97..6842c87 100644
 --- a/codex-rs/tui/src/chatwidget.rs
 +++ b/codex-rs/tui/src/chatwidget.rs
 @@ -439,6 +439,7 @@ use crate::streaming::controller::PlanStreamController;
@@ -1120,10 +1119,10 @@ index 7fafd6d..49774a8 100644
  const DEFAULT_STATUS_LINE_ITEMS: [&str; 3] = ["model-with-reasoning", "current-dir", "thread-name"];
 
 diff --git a/codex-rs/tui/src/chatwidget/permission_popups.rs b/codex-rs/tui/src/chatwidget/permission_popups.rs
-index fc98703..070629d 100644
+index 756f7dc..958b64d 100644
 --- a/codex-rs/tui/src/chatwidget/permission_popups.rs
 +++ b/codex-rs/tui/src/chatwidget/permission_popups.rs
-@@ -119,7 +119,12 @@ impl ChatWidget {
+@@ -120,7 +120,12 @@ impl ChatWidget {
                  if guardian_approval_enabled {
                      items.push(SelectionItem {
                          name: APPROVE_FOR_ME_LABEL.to_string(),
@@ -1171,7 +1170,7 @@ index 73f2e31..d4152c3 100644
              }
              for reviewer in [ApprovalsReviewer::User, ApprovalsReviewer::AutoReview] {
 diff --git a/codex-rs/tui/src/chatwidget/permissions_menu.rs b/codex-rs/tui/src/chatwidget/permissions_menu.rs
-index ed65384..696f32b 100644
+index 5ebd1db..cfa8a29 100644
 --- a/codex-rs/tui/src/chatwidget/permissions_menu.rs
 +++ b/codex-rs/tui/src/chatwidget/permissions_menu.rs
 @@ -5,6 +5,9 @@ use crate::permission_discovery::PermissionDiscovery;
@@ -1245,10 +1244,10 @@ index ed65384..696f32b 100644
              discovery
                  .profiles
 diff --git a/codex-rs/tui/src/chatwidget/slash_dispatch.rs b/codex-rs/tui/src/chatwidget/slash_dispatch.rs
-index 4fe2ed0..8984722 100644
+index 8f84887..98b55c3 100644
 --- a/codex-rs/tui/src/chatwidget/slash_dispatch.rs
 +++ b/codex-rs/tui/src/chatwidget/slash_dispatch.rs
-@@ -271,6 +271,10 @@ impl ChatWidget {
+@@ -304,6 +304,10 @@ impl ChatWidget {
              SlashCommand::Resume => {
                  self.app_event_tx.send(AppEvent::OpenResumePicker);
              }
@@ -1259,7 +1258,7 @@ index 4fe2ed0..8984722 100644
              SlashCommand::Fork => {
                  self.show_session_checkout_picker(ManagedWorktreeMode::Fork, /*name*/ None);
              }
-@@ -1279,6 +1283,8 @@ impl ChatWidget {
+@@ -1331,6 +1335,8 @@ impl ChatWidget {
              | SlashCommand::Theme
              | SlashCommand::Tui
              | SlashCommand::Pets => QueueDrain::Stop,
@@ -1304,10 +1303,10 @@ index 0000000..7dc0f94
 +    ));
 +}
 diff --git a/codex-rs/tui/src/chatwidget/tests.rs b/codex-rs/tui/src/chatwidget/tests.rs
-index 6d42ca5..05403a2 100644
+index fd24d32..0148ba6 100644
 --- a/codex-rs/tui/src/chatwidget/tests.rs
 +++ b/codex-rs/tui/src/chatwidget/tests.rs
-@@ -298,6 +298,9 @@ mod status_command_tests;
+@@ -297,6 +297,9 @@ mod status_command_tests;
  mod status_surface_previews;
  #[path = "tests/subagent_activity_tests.rs"]
  mod subagent_activity;
@@ -1409,7 +1408,7 @@ index 0000000..afb6f72
 +    assert_no_submit_op(&mut op_rx);
 +}
 diff --git a/codex-rs/tui/src/lib.rs b/codex-rs/tui/src/lib.rs
-index 2697cba..1eba04b 100644
+index 14d1c97..fa43fb2 100644
 --- a/codex-rs/tui/src/lib.rs
 +++ b/codex-rs/tui/src/lib.rs
 @@ -131,7 +131,11 @@ mod experimental_features;
@@ -1424,7 +1423,7 @@ index 2697cba..1eba04b 100644
  mod worktree_browser;
  pub use custom_terminal::Terminal;
  mod assistant_directives;
-@@ -1027,7 +1029,7 @@ fn app_server_target_for_launch(
+@@ -1025,7 +1029,7 @@ fn app_server_target_for_launch(
          return Ok(AppServerTarget::Embedded);
      }
      Ok(match explicit_remote_endpoint {
@@ -1433,7 +1432,7 @@ index 2697cba..1eba04b 100644
          // A shared daemon cannot adopt this invocation's executor selection.
          None if can_reuse_implicit_local_daemon && exec_server_url.is_none() => {
              default_daemon_socket.map_or(AppServerTarget::Embedded, |socket_path| {
-@@ -1101,6 +1103,12 @@ pub async fn run_main(
+@@ -1099,6 +1103,12 @@ pub async fn run_main(
          ))
          .await
          {
@@ -1447,7 +1446,7 @@ index 2697cba..1eba04b 100644
                  token_usage: TokenUsage::default(),
                  thread_id: None,
 diff --git a/codex-rs/tui/src/permission_discovery.rs b/codex-rs/tui/src/permission_discovery.rs
-index c40ada9..b1e3350 100644
+index 2579fc6..edfe7f0 100644
 --- a/codex-rs/tui/src/permission_discovery.rs
 +++ b/codex-rs/tui/src/permission_discovery.rs
 @@ -6,6 +6,7 @@ use crate::app_event_sender::AppEventSender;
@@ -1458,10 +1457,11 @@ index c40ada9..b1e3350 100644
  use codex_app_server_client::TypedRequestError;
  use codex_app_server_protocol::ApprovalsReviewer;
  use codex_app_server_protocol::AskForApproval;
-@@ -18,7 +19,6 @@ use codex_app_server_protocol::PermissionProfileListParams;
+@@ -16,8 +17,6 @@ use codex_app_server_protocol::PermissionProfileListParams;
  use codex_app_server_protocol::PermissionProfileListResponse;
  use codex_app_server_protocol::PermissionProfileSummary;
  use codex_app_server_protocol::RequestId;
+-#[cfg(test)]
 -use codex_utils_approval_presets::builtin_approval_presets;
  use std::collections::HashSet;
  use std::time::Duration;
@@ -1542,10 +1542,10 @@ index 0000000..ee292cf
 +    assert!(matches!(target, AppServerTarget::Remote { .. }));
 +}
 diff --git a/codex-rs/tui/src/slash_command.rs b/codex-rs/tui/src/slash_command.rs
-index 301de2e..4cc082b 100644
+index 945041b..764c243 100644
 --- a/codex-rs/tui/src/slash_command.rs
 +++ b/codex-rs/tui/src/slash_command.rs
-@@ -32,6 +32,8 @@ pub enum SlashCommand {
+@@ -33,6 +33,8 @@ pub enum SlashCommand {
      Archive,
      Delete,
      Resume,
@@ -1554,7 +1554,7 @@ index 301de2e..4cc082b 100644
      Fork,
      Worktree,
      App,
-@@ -97,6 +99,8 @@ impl SlashCommand {
+@@ -98,6 +100,8 @@ impl SlashCommand {
              SlashCommand::Review => "review my current changes and find issues",
              SlashCommand::Rename => "rename the current thread",
              SlashCommand::Resume => "resume a saved chat",
@@ -1563,7 +1563,7 @@ index 301de2e..4cc082b 100644
              SlashCommand::Archive => "archive this session",
              SlashCommand::Delete => "permanently delete this session",
              SlashCommand::Clear => "clear the terminal and start a new chat",
-@@ -191,6 +195,10 @@ impl SlashCommand {
+@@ -193,6 +197,10 @@ impl SlashCommand {
 
      /// Whether this command remains available inside an active side conversation.
      pub fn available_in_side_conversation(self) -> bool {
@@ -1574,7 +1574,7 @@ index 301de2e..4cc082b 100644
          matches!(
              self,
              SlashCommand::Copy
-@@ -216,6 +224,10 @@ impl SlashCommand {
+@@ -218,6 +226,10 @@ impl SlashCommand {
 
      /// Commands that do not require a writable current thread. The server must still be connected.
      pub(crate) fn available_when_thread_unavailable(self) -> bool {
@@ -1585,7 +1585,7 @@ index 301de2e..4cc082b 100644
          matches!(
              self,
              SlashCommand::New
-@@ -238,6 +250,8 @@ impl SlashCommand {
+@@ -240,6 +252,8 @@ impl SlashCommand {
      /// Whether this command can be run while a task is in progress.
      pub fn available_during_task(self) -> bool {
          match self {
@@ -1733,6 +1733,7 @@ index 0000000..f08b463
 +}
 diff --git a/codex-rs/tui/src/termux_terminal.rs b/codex-rs/tui/src/termux_terminal.rs
 new file mode 100644
+index 0000000..82311af
 --- /dev/null
 +++ b/codex-rs/tui/src/termux_terminal.rs
 @@ -0,0 +1,222 @@

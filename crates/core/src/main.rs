@@ -618,7 +618,8 @@ fn r10_browser_helper_bridge(manifest: &GenerationManifest) -> Result<bool, Loca
     if manifest.creation_metadata != R10_BROWSER_HELPER_BRIDGE_METADATA {
         return Ok(false);
     }
-    if manifest.helper_digests.len() != 2
+    if !(manifest.helper_digests.len() == 2
+        || (manifest.helper_digests.len() == 3 && manager_tui::index(manifest)? == Some(2)))
         || manifest.helper_digests[0].identity != TERMUX_BROWSER_OPEN_HELPER_IDENTITY
         || manifest.helper_digests[1].identity != TERMUX_BROWSER_MANUAL_HELPER_IDENTITY
     {
@@ -20941,29 +20942,31 @@ esac
     fn test_manager_tui_installed_optional_inventory_and_strict_candidate() {
         use std::os::unix::fs::{symlink, PermissionsExt};
 
-        for defect in [
-            "missing",
-            "missing-parent",
-            "symlink",
-            "parent-symlink",
-            "directory",
-            "digest",
-            "descriptor-digest",
-            "mode",
-        ] {
-            let (root, mut roots) = b2_test_roots("manager-tui-inventory");
-            roots.openssl = b4_termux_openssl();
-            let private_key = root.join("keys/private.pem");
-            let public_key = root.join("keys/public.pem");
-            b4_generate_release_keypair(&roots.openssl, &private_key, &public_key);
-            let generation = b2_write_root_generation(&roots, "g1", true, "supported");
-            b2_add_tc2_browser_helpers(&generation);
-            std::fs::create_dir(generation.join("helpers")).unwrap();
-            let frontend = generation.join("helpers/2");
-            std::fs::write(&frontend, b"owned-frontend").unwrap();
-            std::fs::set_permissions(&frontend, std::fs::Permissions::from_mode(0o755)).unwrap();
-            let descriptor_path = generation.join("generation.meta");
-            let descriptor = std::fs::read_to_string(&descriptor_path).unwrap()
+        for r10 in [false, true] {
+            for defect in [
+                "missing",
+                "missing-parent",
+                "symlink",
+                "parent-symlink",
+                "directory",
+                "digest",
+                "descriptor-digest",
+                "mode",
+            ] {
+                let (root, mut roots) = b2_test_roots("manager-tui-inventory");
+                roots.openssl = b4_termux_openssl();
+                let private_key = root.join("keys/private.pem");
+                let public_key = root.join("keys/public.pem");
+                b4_generate_release_keypair(&roots.openssl, &private_key, &public_key);
+                let generation = b2_write_root_generation(&roots, "g1", true, "supported");
+                b2_add_tc2_browser_helpers(&generation);
+                std::fs::create_dir(generation.join("helpers")).unwrap();
+                let frontend = generation.join("helpers/2");
+                std::fs::write(&frontend, b"owned-frontend").unwrap();
+                std::fs::set_permissions(&frontend, std::fs::Permissions::from_mode(0o755))
+                    .unwrap();
+                let descriptor_path = generation.join("generation.meta");
+                let descriptor = std::fs::read_to_string(&descriptor_path).unwrap()
                 .replace("helper_count\t2\n", "helper_count\t3\n")
                 .replace(
                     "helper\ttermux-browser-manual-v1\tbrowser-manual-digest\n",
@@ -20972,90 +20975,128 @@ esac
                         openssl_sha256(&roots.openssl, &frontend).unwrap()
                     ),
                 );
-            std::fs::write(&descriptor_path, descriptor).unwrap();
-            b4_write_signed_release(&generation, 1, &roots.openssl, &private_key);
-            let key = b4_public_key_from_private(&roots.openssl, &private_key);
-            assert!(
-                verify_local_release_bundle_with_key(&generation, &roots.openssl, key)
-                    .unwrap()
-                    .1
-                    .manager_tui_available
-            );
-            let paths = CoreStatePaths::new(&roots.state_root).unwrap();
-            prepare_core_state_paths(&paths).unwrap();
-            let state = plan_initial_pointer_state_with_key("g1", key).unwrap();
-            activate_pointer_state(&paths, None, &state).unwrap();
-            assert!(
-                load_activated_generation(&roots)
-                    .unwrap()
-                    .manager_tui_available
-            );
-            assert!(
-                authenticated_public_baseline(&roots, &state)
-                    .unwrap()
-                    .2
-                    .manager_tui_available
-            );
-            match defect {
-                "missing" => std::fs::remove_file(&frontend).unwrap(),
-                "missing-parent" => std::fs::remove_dir_all(generation.join("helpers")).unwrap(),
-                "symlink" => {
-                    let outside = root.join("outside-frontend");
-                    std::fs::rename(&frontend, &outside).unwrap();
-                    symlink(outside, &frontend).unwrap();
-                }
-                "parent-symlink" => {
-                    let outside = root.join("outside-helpers");
-                    std::fs::rename(generation.join("helpers"), &outside).unwrap();
-                    symlink(outside, generation.join("helpers")).unwrap();
-                }
-                "directory" => {
-                    std::fs::remove_file(&frontend).unwrap();
-                    std::fs::create_dir(&frontend).unwrap();
-                }
-                "digest" => std::fs::write(&frontend, b"changed-frontend").unwrap(),
-                "descriptor-digest" => {
-                    let descriptor = std::fs::read_to_string(&descriptor_path).unwrap().replace(
-                        &openssl_sha256(&roots.openssl, &frontend).unwrap(),
-                        &"0".repeat(64),
-                    );
-                    std::fs::write(&descriptor_path, descriptor).unwrap();
-                    b4_write_signed_release(&generation, 1, &roots.openssl, &private_key);
-                }
-                "mode" => {
-                    std::fs::set_permissions(&frontend, std::fs::Permissions::from_mode(0o600))
+                let descriptor = if r10 {
+                    std::fs::rename(
+                        generation.join("browser/open/curl"),
+                        generation.join("helpers/0"),
+                    )
+                    .unwrap();
+                    std::fs::rename(
+                        generation.join("browser/manual/curl"),
+                        generation.join("helpers/1"),
+                    )
+                    .unwrap();
+                    std::fs::remove_dir_all(generation.join("browser")).unwrap();
+                    descriptor
+                        .replace(
+                            "creation_metadata\ttest-fixture",
+                            &format!("creation_metadata\t{R10_BROWSER_HELPER_BRIDGE_METADATA}"),
+                        )
+                        .replace("upstream_doctor\tsupported", "upstream_doctor\tunsupported")
+                } else {
+                    descriptor
+                };
+                std::fs::write(&descriptor_path, descriptor).unwrap();
+                b4_write_signed_release(&generation, 1, &roots.openssl, &private_key);
+                let key = b4_public_key_from_private(&roots.openssl, &private_key);
+                assert!(
+                    verify_local_release_bundle_with_key(&generation, &roots.openssl, key)
                         .unwrap()
+                        .1
+                        .manager_tui_available
+                );
+                let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+                prepare_core_state_paths(&paths).unwrap();
+                let state = plan_initial_pointer_state_with_key("g1", key).unwrap();
+                activate_pointer_state(&paths, None, &state).unwrap();
+                assert!(
+                    load_activated_generation(&roots)
+                        .unwrap()
+                        .manager_tui_available
+                );
+                assert!(
+                    authenticated_public_baseline(&roots, &state)
+                        .unwrap()
+                        .2
+                        .manager_tui_available
+                );
+                match defect {
+                    "missing" => std::fs::remove_file(&frontend).unwrap(),
+                    "missing-parent" => {
+                        std::fs::remove_dir_all(generation.join("helpers")).unwrap()
+                    }
+                    "symlink" => {
+                        let outside = root.join("outside-frontend");
+                        std::fs::rename(&frontend, &outside).unwrap();
+                        symlink(outside, &frontend).unwrap();
+                    }
+                    "parent-symlink" => {
+                        let outside = root.join("outside-helpers");
+                        std::fs::rename(generation.join("helpers"), &outside).unwrap();
+                        symlink(outside, generation.join("helpers")).unwrap();
+                    }
+                    "directory" => {
+                        std::fs::remove_file(&frontend).unwrap();
+                        std::fs::create_dir(&frontend).unwrap();
+                    }
+                    "digest" => std::fs::write(&frontend, b"changed-frontend").unwrap(),
+                    "descriptor-digest" => {
+                        let descriptor =
+                            std::fs::read_to_string(&descriptor_path).unwrap().replace(
+                                &openssl_sha256(&roots.openssl, &frontend).unwrap(),
+                                &"0".repeat(64),
+                            );
+                        std::fs::write(&descriptor_path, descriptor).unwrap();
+                        b4_write_signed_release(&generation, 1, &roots.openssl, &private_key);
+                    }
+                    "mode" => {
+                        std::fs::set_permissions(&frontend, std::fs::Permissions::from_mode(0o600))
+                            .unwrap()
+                    }
+                    _ => unreachable!(),
                 }
-                _ => unreachable!(),
+                let descriptor = std::fs::read(&descriptor_path).unwrap();
+                let inventory = std::fs::read(generation.join("release.manifest")).unwrap();
+                let activation = std::fs::read(&paths.activation_state).unwrap();
+                assert!(
+                    verify_local_release_bundle_with_key(&generation, &roots.openssl, key).is_err(),
+                    "{defect}"
+                );
+                if r10 && matches!(defect, "missing-parent" | "parent-symlink") {
+                    // This parent also owns required browser helpers; Core cannot use it.
+                    assert!(authenticated_public_baseline(&roots, &state).is_err());
+                    assert!(load_activated_generation(&roots).is_err());
+                    assert_eq!(std::fs::read(&descriptor_path).unwrap(), descriptor);
+                    assert_eq!(
+                        std::fs::read(generation.join("release.manifest")).unwrap(),
+                        inventory
+                    );
+                    assert_eq!(std::fs::read(&paths.activation_state).unwrap(), activation);
+                    remove_temp_root(root);
+                    continue;
+                }
+                let (_, _, loaded) = authenticated_public_baseline(&roots, &state).unwrap();
+                assert!(!loaded.manager_tui_available, "{defect}");
+                assert!(
+                    !load_activated_generation(&roots)
+                        .unwrap()
+                        .manager_tui_available,
+                    "{defect}"
+                );
+                assert!(loaded.manager_path.is_some(), "{defect}");
+                assert_eq!(std::fs::read(&descriptor_path).unwrap(), descriptor);
+                assert_eq!(
+                    std::fs::read(generation.join("release.manifest")).unwrap(),
+                    inventory
+                );
+                assert_eq!(std::fs::read(&paths.activation_state).unwrap(), activation);
+                std::fs::write(generation.join("runtime"), b"changed-required-runtime").unwrap();
+                assert!(matches!(
+                    authenticated_public_baseline(&roots, &state),
+                    Err(LocalProductError::ReleaseDigestMismatch)
+                ));
+                remove_temp_root(root);
             }
-            let descriptor = std::fs::read(&descriptor_path).unwrap();
-            let inventory = std::fs::read(generation.join("release.manifest")).unwrap();
-            let activation = std::fs::read(&paths.activation_state).unwrap();
-            assert!(
-                verify_local_release_bundle_with_key(&generation, &roots.openssl, key).is_err(),
-                "{defect}"
-            );
-            let (_, _, loaded) = authenticated_public_baseline(&roots, &state).unwrap();
-            assert!(!loaded.manager_tui_available, "{defect}");
-            assert!(
-                !load_activated_generation(&roots)
-                    .unwrap()
-                    .manager_tui_available,
-                "{defect}"
-            );
-            assert!(loaded.manager_path.is_some(), "{defect}");
-            assert_eq!(std::fs::read(&descriptor_path).unwrap(), descriptor);
-            assert_eq!(
-                std::fs::read(generation.join("release.manifest")).unwrap(),
-                inventory
-            );
-            assert_eq!(std::fs::read(&paths.activation_state).unwrap(), activation);
-            std::fs::write(generation.join("runtime"), b"changed-required-runtime").unwrap();
-            assert!(matches!(
-                authenticated_public_baseline(&roots, &state),
-                Err(LocalProductError::ReleaseDigestMismatch)
-            ));
-            remove_temp_root(root);
         }
     }
 

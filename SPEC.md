@@ -14,11 +14,20 @@ qualification until the new generation passes acceptance.
 - The official adapted `runtime` remains the sole server/execution backend.
   An optional source-built Manager TUI is the third signed helper at `helpers/2`,
   identified by `termux-manager-tui-v1:UPSTREAM_VERSION`. The first two helpers
-  retain the ordinary browser identities/layout. Its version must exactly match
-  the generation's upstream version, its generation must declare Manager and it
-  cannot use the historical R10 helper-layout marker. Its digest is owned by the
-  existing generation descriptor and signed release inventory; no parallel pointer,
+  retain the accepted browser identities. Its version must exactly match the
+  generation's upstream version and its generation must declare Manager. Local
+  canonical layout uses browser/open/curl, browser/manual/curl and helpers/2.
+  Public stable retains the R10 compatibility floor through helpers/0, helpers/1
+  and helpers/2 plus its exact legacy marker/activation-doctor signal. Its digest
+  is owned by the existing generation descriptor and signed release inventory;
+  no parallel pointer,
   installation root, stable-core backup or preview-specific updater exists.
+- Maintained frontend source/build tools live in frontend/manager-tui. The active
+  source qualification pairs official0.161.0 with exact upstream commit
+  979011409de0a60b52f179721948e65531d26144 and Rust1.95.0. Local workspace lock
+  normalization changes only local0.0.0 versions/references to0.161.0; all external
+  bindings remain unchanged. Historical0.160.0 preview assets remain protected
+  until their clients exit and are not a second source/build authority.
 - Actual source build qualifies the exact official upstream source/version,
   pristine slash inventory, external dependency lock, bounded native patch,
   frontend FD remaps and actual TUI behavior before publication. The builder
@@ -28,8 +37,8 @@ qualification until the new generation passes acceptance.
 - The producer build interface accepts `--manager-tui RAW_FRONTEND` only paired
   with `--manager-tui-version UPSTREAM_VERSION`. Both are absent for historical
   or Core-only builds. A declared frontend requires Manager, exact backend-version
-  equality and the ordinary browser layout. The builder privately snapshots a
-  regular executable static AArch64 ELF within its existing512MiB file bound,
+  equality and one of these exact browser-helper layouts. The builder privately
+  snapshots a regular executable static AArch64 ELF within its existing512MiB file bound,
   applies only the shared FD33/34 remap policy (counts2,1,1,1;54 changed bytes),
   and publishes the adapted executable as helper2 with its actual digest.
   Source/lock/command/version/native qualification belongs to the real producer
@@ -1168,8 +1177,9 @@ the index.
 An explicitly authorized nested-path publication uses the repository's fixed
 GitHub Pages workflow instead of changing signed release paths or Core fetch
 semantics. A GitHub Release tagged by the generation identity is staging only:
-top-level signed files keep their basename, while the exact two R10 bridge
-helpers are uploaded under unambiguous staging names. The workflow accepts only
+top-level signed files keep their basename, while the exact R10 browser helpers
+and optional admitted frontend use unambiguous staging names. The workflow accepts
+only
 a stable `codex-release-v4` whose trusted public-key identity is the pinned
 wrapper key, verifies `release.sig`, requires exact
 `creation_metadata = "r10-browser-helper-bridge-v1"`, exact helper identities
@@ -1203,8 +1213,17 @@ remapped on the public doctor route to real upstream diagnostic execution, while
 activation-time candidate integrity remains the signed version/runtime probe.
 The official producer must therefore retain this signal on every public stable
 candidate while the R10 compatibility floor remains supported; dropping it is a
-backward-compatibility failure, not a canonicalization cleanup. A newer canonical
-local generation may continue to use `browser/open/curl` and
+backward-compatibility failure, not a canonicalization cleanup.
+The admitted Manager TUI may extend this exact numbered bridge with helpers/2,
+helper_count=3 and its same-version termux-manager-tui-v1 identity/digest. Manager
+is mandatory for that extension; no other additional helper is admitted. Historical
+two-helper releases retain their exact behavior. Stable publication, staging,
+Pages retention and public readback require either exact legacy7-file inventory or
+exact extended8-file inventory, preserving the legacy activation-doctor signal.
+The retained R10 client must directly consume the extended signed target through
+its real public update/rollback path before any stable promotion. An ordinary
+nested-browser frontend is valid local construction, not a stable floor replacement.
+A newer canonical local generation may continue to use `browser/open/curl` and
 `browser/manual/curl`; canonical nested paths are not an R10-readable public
 stable target.
 

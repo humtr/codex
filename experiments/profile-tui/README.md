@@ -1,59 +1,8 @@
-# /switch feasibility experiment
+# Retained preview qualification
 
-SPEC/GOAL/WORKBOARD own source integration and the separately user-authorized
-local live preview. The installed preview retains its signed40 backend; the
-public signed stable channel is governed independently by main.
-This is not production publication or full prototype admission.
-
-The native frontend uses exact official0.160.0 sourcea956835d for AArch64-musl
-with Rust1.95.0. Only159 local lock versions normalize to0.160.0; all1313 external
-bindings remain unchanged and --locked is mandatory. Native TUI modifications
-live in native.patch; hosted focused tests and lint qualify the exact executable.
-The unsigned frontend then receives only the existing release-builder FD33/34
-path remaps through adapt_frontend.py. Exact raw/adapted hashes are distinct;
-this does not change production artifact admission.
-
-The live preview builds Core with the default-off profile-tui-live-preview
-feature and compile-time PROFILE_PREVIEW_NATIVE_SHA256 and
-PROFILE_PREVIEW_MANAGER_SHA256 bindings. Its private assets are native, manager
-and the exact saved stable-core under the SPEC-bounded preview directory.
-Core still qualifies/starts the signed40 backend; the frontend uses that local
-server in the existing terminal. Signed40/39 and activation/update keys stay intact.
-Ordinary Core now supports only the generation-bound frontend admission in SPEC.
-The optional preview feature remains a bounded historical qualification path;
-producer/lifecycle/device admission of the paired generation is still open.
-
-The qualified source frontend opens its picker with /switch. The installed older
-preview still uses /profile until a separate accepted replacement. Arrows
-and Enter reopen the same idle conversation under the selected profile, preserving
-its records, current workspace and terminal. Current-profile Enter, Esc and Ctrl-C
-close the picker unchanged. Pending input/tools or an existing writer refuse;
-Manager never stops an owner implicitly. The frontend verifies blank-thread native
-persistence before cleanup and carries App CWD, including /cd, into ordinary resume.
-Integrated history/agents and active-owner takeover remain incomplete. Existing
-processes retain their current executable. During the preview, codex update
---rollback restores the saved40 launcher without changing40/39 activation. Other
-update commands restore that launcher first and then use the installed updater.
-
-Owned qualification covers the public Core -> actual native frontend path,
-profiles/permissions, changed client CWD, missing/corrupt frontend fallback,
-Manager failure and exact launcher restoration. All automated native probes use
-short disposable roots and no credentials or external model calls. The fresh
-handoff case is never seeded; the stored-history case completes one turn against
-a loopback fixture and asserts no additional model request during any handoff.
-Current text checks redraw the owned terminal on resize to avoid sparse ANSI
-updates. Only their own qualified test processes receive signals. Native25 tests,
-actual transitions/permissions, six restore cases and live protected comparison
-are accepted in GOAL.md. A mock chooser or wrapper is not feasibility evidence.
-
-SOURCE-PROFILE-RETURN is separately qualified as owned source preparation in GOAL.md.
-Its Manager build has not replaced the installed pinned preview. Stable admission
-still requires coherent signed generation assets, ordinary update/rollback and
-actual-account attribution; SPEC owns those boundaries.
-
-The accepted source entrypoint is /switch with no /profile alias. The source-build
-command boundary gate checks pristine upstream names and aliases before patching,
-then proves every upstream command survives unchanged with only Switch added.
-Upstream --profile configuration layers remain independent. Source integration
-into rewrite does not update the installed older /profile preview or publish a
-signed frontend; those remain separate admission and deployment gates.
+The accepted /switch source patch and source-build tools are maintained in
+[frontend/manager-tui](../../frontend/manager-tui/README.md). This directory retains
+only the bounded historical preview feature and disposable qualification probes
+while installed preview clients remain alive. It is not a release/build authority.
+SPEC.md owns retirement and protected-state conditions; GOAL.md owns acceptance.
+The installed0.160.0 preview is unchanged. Stable admission is still open.

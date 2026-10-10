@@ -109,6 +109,45 @@ restriction with exact legacy0/1 plus qualified UI2, preserving legacy two-helpe
 behavior and proving actual retained R10 update. All producer/Pages/readback7-file
 assumptions must follow that contract.0.161.0 native build and device gates remain open.
 
+### Extended legacy bridge source accepted; maintained161 build candidate (2026-10-10)
+
+Baselineff74833. Root-cause correction removes the unnecessary ordinary-only
+frontend restriction. One same-version third-helper contract now covers canonical
+local browser layout and public R10 helpers0/1/2, preserving exact browser
+identities and legacy activation-doctor signal. Legacy two-helper behavior stays
+unchanged; arbitrary third helpers, wrong version/order/Manager or extras refuse.
+No new release format, marker, pointer or updater is introduced.
+
+Mapped Core declaration/R10 classification and installed/candidate inventory
+regressions pass across both layouts. Missing/changed optional UI falls back;
+R10 helper-parent corruption remains a required-Core failure because it also owns
+browser helpers. Builder's existing named publication gate now constructs/signs
+both exact8-file layouts and rejects12 faults each. Removed stale R10-constructor
+refusal; retained13 raw artifact faults and byte-exact FD policy. Focused builder3
+and Core4 pass. Changed Core188 and builder25 full suites pass; same-source
+Manager36+55 from prior grouped304 are reused. Workspace all-target Clippy,
+fmt/diff and build pass. Current original client and installed assets are protected.
+Historical0621105 parser inspection confirms bounded generic numbered helpers;
+actual retained R10 executable update/rollback is still mandatory before stability.
+
+Maintained native patch/lock/command tools move to frontend/manager-tui and the
+hosted workflow to manager-tui-native.yml on rewrite/rust-core. This retires the
+experiment branch as an active build path without deleting its published history.
+Exact official161 patch reverse-check and pristine63-command preservation pass;
+only3 upstream context/test-import adjustments to accepted160 source are needed.
+Actual lock audit changes160 local versions and leaves1314 external bindings
+unchanged. Maintained Python8 and workflow source/YAML/trigger/shell gates pass.
+Single-space patch context diff RED was normalized without Rust changes; corrected
+reverse-apply/diff gates pass. All native production definitions remain the accepted
+160 implementation expressed against161; actual161 compile/native/lint/public TUI
+acceptance is open and must come from the hosted build.
+
+Candidate build uses upstream release/ThinLTO with opt-level=z, codegen-units1
+and stripped symbols to address existing combined-current/candidate Pages1GiB
+limit. No size or compatibility success is assumed: actual artifact FD counts,
+version/native tests and complete paired site size remain acceptance gates.
+Public main, installed preview/live jobs and signing authority remain unchanged.
+
 ### Native identity public-path slice accepted (2026-10-10)
 
 Hosted38019322660 completed successfully at2c9ec49: full AArch64-musl CLI,
