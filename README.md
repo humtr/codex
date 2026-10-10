@@ -5,7 +5,7 @@ and rollback. Optional Manager provides profiles, /switch and notifications.
 
 [Usage and development](https://github.com/humtr/codex/blob/rewrite/rust-core/README.md),
 [product contract](https://github.com/humtr/codex/blob/rewrite/rust-core/SPEC.md)
-and [current work](https://github.com/humtr/codex/blob/rewrite/rust-core/GOAL.md)
+and [current work](https://github.com/humtr/codex/blob/rewrite/rust-core/CURRENT.md)
 live with the implementation. main owns the signed stable index and an immutable
 caller; it has no mirrored product spec, goal ledger or release implementation.
 
