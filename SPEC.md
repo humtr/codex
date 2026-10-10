@@ -3162,7 +3162,7 @@ scheduling authorizes only a qualified strictly newer upstream pair. An explicit
 authorized current-version rebuild uses its exact qualified upstream/archive and
 normal next sequence, with all ordinary integrity/publication gates intact.
 
-Delete completed one-shot acceptance/deployment branches, old mutation workflows
+Remove completed one-shot acceptance/deployment code paths, old mutation workflows
 and experimental preview construction. Existing immutable migration releases and
 required consumer compatibility remain ordinary product support, not executable
 historical producer modes. Preserve normal signature/inventory verification,

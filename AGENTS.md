@@ -27,7 +27,7 @@ The repository owns this development plane; it needs no external workflow skill.
   when they cause the current defect; do not invent speculative subsystems.
 - Own actual diff review and validation. Use collaborators only when the user
   authorizes them; current preference is direct execution. No concurrent edits
-  in a shared worktree and no automatic review or planner layer.
+  in a shared worktree and no recurring checkpoint or planner layer.
 - Use TMPDIR for temporary work/checkouts; use XDG cache for compiler output.
   Never put temporary projects or installed binaries under prj.
 
