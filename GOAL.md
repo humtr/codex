@@ -1,5 +1,56 @@
 # Rust Core Rewrite Goal
 
+## SWITCH-STABLE-ADMISSION (authorized 2026-10-10; OPEN)
+
+The user explicitly requests completing `/switch`, closing the profile-TUI
+experiment and integrating its executable behavior into the maintained product.
+The earlier source merge is not completion. Required closure includes real
+Core/native/Manager account transition, title-independent foreground return,
+generation-bound frontend/backend/Manager identity, ordinary install/update and
+rollback proof, protected device acceptance and source integration. A preview
+launcher and separate pinned asset root may serve bounded qualification but
+must not remain the steady-state authority. Core remains independently usable
+without Manager; upstream argv/TTY/signals/streams/exit and user data are protected.
+
+Primary direct execution, workers OFF. First finish the current native identity
+slice against the already-built exact candidate; then qualify the smallest
+signed-generation integration. Public main has independent publication ancestry;
+no main-history import, forced main update or published-ref deletion is authorized
+by the ordinary source-integration instruction. An experiment can be closed as
+accepted history without deleting its published branch. No live cutover or stable
+admission is claimed by this goal lift. The actual frontend/backend version pair,
+release pipeline and same-generation optional-Manager path are load-bearing gates.
+
+### Native identity public-path slice accepted (2026-10-10)
+
+Hosted38019322660 completed successfully at2c9ec49: full AArch64-musl CLI,
+27 nonzero native regressions, exact pristine command inventory preservation,
+159 local lock normalizations/1313 unchanged external bindings and identical
+formatted/linted patch. Raw947891f2ffab -> adapted e640564f6525, only54 existing
+FD-remap bytes. Actual owned Core c4de5485 routes the exact terminal binding
+shape to Manager6b7d8e22; focused7/feature Clippy/fmt/diff pass. Earlier default
+workspace297+one explicit existing ignore remains same-production acceptance.
+
+Real Core/native/Manager/AI entrypoint passes full foreground identity without a
+title ID, actual /title picker and /new, previous-ID refusal, stable PID/pane/FD
+binding and repeated return. Only Android dispatch is captured in this owned gate;
+physical notification acceptance is not claimed. Five actual profile/fallback
+cases pass arrow+Enter across external/work/default, blank persistence fault and
+backend timeout refusal, unchanged nonempty history/default/CWD/TTY and no model
+request during switching. Retained-writer refusal then explicit source return
+passes the actual cleanup/re-entry path. Shared/named permission menus pass four
+selections/two shortcuts/native settings6/5; restore/forward/corruption/bridge6 pass.
+
+Rejected fixture attempts used an oversized adapted native socket TMPDIR and
+synthetic paste-burst input, then exposed a real product defect: tmux3.8 replaces
+tab fields with underscores for clients lacking locale. KEEP one exact UTF-8
+tmux control mode; DELETE locale reliance and diagnostic-only query wrapper.
+AI f1a00e1 committed/pushed,12 focused including empty locale and full37/0warn/
+0fail pass. User's pre-existing profile/auth source changes are preserved.
+Protected readback retains sole original18688 pts0, explicit old terminal binding,
+hidden status and exact installed launcher/frontend/Manager/activation bytes.
+No installed frontend/Core/Manager replacement or signed admission yet.
+
 ## Public Contract
 
 - Target: a complete native Rust Core for the Termux Codex wrapper.

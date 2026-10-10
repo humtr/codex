@@ -333,6 +333,10 @@ environment guess is used. Reverting the complete optional AI attachment change
 and reinstalling AI restores the earlier pane-selection/Activity behavior without changing Codex
 state or terminating existing clients.
 
+The AI transport's tmux control queries explicitly select UTF-8 client mode so
+their tab-delimited identity fields are preserved when notification environments
+omit locale variables; neither titles nor protocol fields are locale authority.
+
 ### Manager command boundary
 
 #### Native terminal identity bridge
@@ -347,6 +351,10 @@ foreground thread, independently of title configuration. Native identity remains
 in the open unlinked file, automatically reclaimed on process exit; there is no
 new persistent session index. It calls the private
 exact command `codex termux __terminal-bind-v1 FD` once to register this descriptor.
+The default-off preview Core forwards only that exact three-argument shape to
+its pinned preview Manager, alongside its existing private profile/task bridges.
+FD grammar and caller/pane authority remain Manager responsibilities. Ordinary
+Core dispatch and installed signed generations gain no terminal controller.
 Manager verifies its direct parent is a same-UID installed native Codex frontend, its tmux socket is
 same-UID, and its inherited pane contains that frontend directly or through the
 installed AI PTY supervisor. It records one pane-local

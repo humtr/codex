@@ -2,6 +2,28 @@ use super::*;
 use std::os::unix::ffi::OsStringExt;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+#[test]
+fn live_preview_terminal_binding_routes_only_one_descriptor() {
+    assert!(manager_request(&[
+        "termux".into(),
+        "__terminal-bind-v1".into(),
+        "8".into()
+    ]));
+    for args in [
+        vec!["termux".into(), "__terminal-bind-v1".into()],
+        vec![
+            "termux".into(),
+            "__terminal-bind-v1".into(),
+            "8".into(),
+            "extra".into(),
+        ],
+        vec!["__terminal-bind-v1".into(), "8".into()],
+    ] {
+        assert!(!manager_request(&args));
+        assert!(handle(&args).is_none());
+    }
+}
+
 struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {

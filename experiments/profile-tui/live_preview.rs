@@ -143,6 +143,8 @@ fn manager_request(args: &[OsString]) -> bool {
         && (endpoint == "__profile-snapshot-v1" || endpoint == "__task-snapshot-v1"))
         || matches!(args, [termux, endpoint, _, _] if termux == "termux"
             && endpoint == "__profile-resume-v1")
+        || matches!(args, [termux, endpoint, _] if termux == "termux"
+            && endpoint == "__terminal-bind-v1")
 }
 
 pub(crate) fn handle(args: &[OsString]) -> Option<i32> {
