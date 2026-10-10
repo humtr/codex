@@ -41,6 +41,24 @@ to this repository and carries no external workflow or model configuration.
   CURRENT.md replaces the former goal record with no external skill dependency.
   Unchanged runtime/native proof above is reused, not presented as a new run.
 
+## Independent launch correction
+
+- AI source7df68b9 removes reuse of the shared humtr-ai session for outside-tmux
+  launches. Each fresh launch owns a separate session/native return name. Inside
+  tmux, launch targets the invoking TMUX_PANE's exact session, not another client.
+- The old implementation reproduced the existing-session selection change.
+  Regression proves two independent sessions/workloads/return names, preserved
+  legacy selection, service failure without replay, repeated attach reuse, exact
+  inside-session targeting and missing-pane refusal. Real isolated PTY clients
+  keep independent screens; closing one leaves the other unchanged.
+- AI final verification38 passed, zero failures/warnings; focused committed-source
+  gates also passed. The installed tmux module passed5 registration/client checks.
+  Only that module was replaced through the bounded AI installer;31 other runtime,
+  launcher, account/config files and the live tmux pane/selection snapshot match.
+  Existing uncommitted AI development is preserved and excluded from this commit.
+- Codex installed/public stable44 is unchanged; this correction belongs to AI.
+  Fresh native Android launch/tap observation awaits user confirmation.
+
 ## Product observations still open
 
 - Fresh initial terminal registration and /title display after next normal launch.

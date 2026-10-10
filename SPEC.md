@@ -322,7 +322,12 @@ on-status. Legacy true/false preferences map to hidden/off. AI owns tmux launch,
 private server registration,
 and its internal `ai __tmux_focus <UUID>` endpoint; Core owns neither. Native
 argv, selected profile environment and CWD remain unchanged. Inside tmux AI
-creates a managed window on that server; outside it attaches a managed session.
+creates a managed window in the invoking pane's exact session on that server;
+other clients' active sessions are not launch targets. Outside tmux each explicit
+launch creates a separate managed session, workload and native return name.
+It never adds a new workload to a previously launched session or selects that
+session's Android terminal. Existing managed sessions, panes and clients remain
+unchanged; inside-session launches intentionally share that session's terminal.
 Launch registration contains only socket identity, never credentials or content.
 Dead records are pruned. No notification click creates a tmux session, window,
 pane or Codex process. Explicit tmux notification focus may open a new native
@@ -406,8 +411,9 @@ unsupported argv uses the historical title-ID fallback. For `identity=native`,
 AI leaves the user's complete upstream terminal_title configuration unchanged;
 Manager's existing descriptor owns foreground UUID independent of `/title`.
 
-Explicit AI tmux launch outside tmux creates the workload once, then requests the
-same bounded native attachment used by notifications before direct attachment.
+Explicit AI tmux launch outside tmux creates the workload once in a new isolated
+session, then requests the same bounded native attachment used by notifications
+before direct attachment.
 A successful RunCommandService request opens/reuses the registered working
 terminal and returns the invoking shell. Failed/uncertain service dispatch is
 never replayed; the workload remains available through direct tmux attachment.
