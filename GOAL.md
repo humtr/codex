@@ -71,6 +71,44 @@ Protected launcher/native/Manager/activation hashes and sole original18688 pts0,
 explicit pinned native name/status=off remain unchanged. The old preview stays
 only for existing clients until the paired producer/lifecycle/device slice closes.
 
+### Paired frontend producer and local-derived source slice accepted (2026-10-10)
+
+Baselinea7c5fd0. Builder accepts paired raw Manager frontend/version flags, privately
+snapshots a bounded static AArch64 executable and applies the one shared54-byte
+FD remap policy. Actual unsigned descriptor and signed publication bind helper2,
+its same-version identity, SHA/mode and signed8-file/download-size inventories.
+Ordinary browser helpers remain exact; historical two-helper R10 stays unchanged.
+
+Named build/publication/fault regressions map request parsing, snapshot/remap,
+unsigned completion, numbered-helper layout, descriptor digest/version/Manager
+binding, source snapshot and signed release/sidecar creation. Focused3/full builder25
+pass, including14 constructor faults and12 publication faults. Source files and
+absent-or-complete output boundaries remain protected; owned keys sign fixtures.
+
+Actual public --build-local retains an authenticated same-version admitted UI,
+including repeated local derivation and rollback, with original public update
+key/provenance. Newer unpaired version, missing Manager/UI or changed UI refuse
+without activation. Mutation after baseline authentication is caught by the copied
+asset digest before signing. The bounded copy/descriptor addition and admission
+branch map to the named public-local-build regression with six scenarios. Existing
+historical public local-build baseline1 passed before mutation; focused frontend4
+and workspace Clippy pass. No second artifact updater or adapted/raw builder mode.
+
+Grouped workspace passes304: Core188, Manager36+55, builder25; one explicit Core
+smoke ignore is covered by its actual protected-Termux invocation1. Workspace
+all-target Clippy-Dwarnings, fmt/diff and build pass. Existing launcher/preview
+native/Manager/stable-core hashes and sole original18688 pts0/pinned native name
+are unchanged. Fixture race message capitalization RED and wrong-package baseline
+invocation are rejected evidence; corrected actual nonzero gates pass.
+
+This is source admission of ordinary local construction, not public stable
+publication. Breadth discovery: stable's retained R10 floor requires numbered
+browser helpers and activation-doctor signal; ordinary nested-browser UI cannot
+satisfy that public path. Next slice replaces the unnecessary ordinary-only UI
+restriction with exact legacy0/1 plus qualified UI2, preserving legacy two-helper
+behavior and proving actual retained R10 update. All producer/Pages/readback7-file
+assumptions must follow that contract.0.161.0 native build and device gates remain open.
+
 ### Native identity public-path slice accepted (2026-10-10)
 
 Hosted38019322660 completed successfully at2c9ec49: full AArch64-musl CLI,

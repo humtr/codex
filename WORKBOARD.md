@@ -24,7 +24,21 @@ status=off. No user job restart, new attachment or automatic live name change.
    0.161.0 source979011409de0a60b52f179721948e65531d26144 is inspected in TMPDIR:
    bounded patch needs only three upstream context/test-import adjustments and
    preserves all63 pristine slash variants with sole Switch addition. Not yet a
-   compiled or published0.161.0 frontend. Focused snapshot/layout/version/fault
+   compiled or published0.161.0 frontend. Ordered proof slices:
+   (a-c) CLOSED: constructor/publication/local-derived source bundle is accepted in
+   GOAL: named focused proofs, grouped304 plus protected smoke1, workspace clippy/
+   fmt/diff/build and protected current launcher/window. No stable publication.
+   (d) CURRENT: stable compatibility bridge: SPEC's retained R10 floor requires numbered
+   helper paths and legacy activation-doctor signal; ordinary8-file frontend
+   publication alone cannot be a stable target. Historical R10 parser accepts
+   arbitrary bounded helper indices/identities. Replace new ordinary-only UI
+   restriction with exact browser helpers0/1 plus same-version UI2; retain legacy
+   two-helper behavior. SPEC-first, public publisher/Core and actual retained R10
+   update proof, then exhaust producer/readback/Pages assumptions of exactly7 files.
+   (e) maintained0.161.0 source patch/lock/command inventory/hosted compile and
+   real native gates; then paired disposable lifecycle and protected device gates.
+   Baselinea7c5fd0 clean; builder22 and workspace compile/clippy are runnable.
+   Focused snapshot/layout/version/fault
    tests, nonzero compile and actual hosted native build/27 gates precede closure.
 3. **Generation lifecycle and device — QUEUED.**
    Actual paired install/update/rollback/fault proof; preserved running clients;

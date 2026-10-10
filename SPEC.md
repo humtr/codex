@@ -25,6 +25,15 @@ qualification until the new generation passes acceptance.
   refuses a frontend version mismatch or frontend without Manager. An unqualified
   newer version cannot silently publish without `/switch`; retain the prior
   admitted generation until the new pair is qualified.
+- The producer build interface accepts `--manager-tui RAW_FRONTEND` only paired
+  with `--manager-tui-version UPSTREAM_VERSION`. Both are absent for historical
+  or Core-only builds. A declared frontend requires Manager, exact backend-version
+  equality and the ordinary browser layout. The builder privately snapshots a
+  regular executable static AArch64 ELF within its existing512MiB file bound,
+  applies only the shared FD33/34 remap policy (counts2,1,1,1;54 changed bytes),
+  and publishes the adapted executable as helper2 with its actual digest.
+  Source/lock/command/version/native qualification belongs to the real producer
+  gate; a caller-supplied version or ELF check alone never closes qualification.
 - Ordinary eligible interactive Core launch selects this frontend only when its
   signed helper and same-generation Manager are usable. Core supplies its existing
   qualified local-server socket and exact Core entrypoint. Unsupported explicit
@@ -34,6 +43,12 @@ qualification until the new generation passes acceptance.
   that optional UI while leaving independent Core usable. Candidate admission and
   publication require every declared asset and digest; an incomplete candidate is
   rejected. The frontend is never executed from an unqualified asset.
+- Local-derived update from a frontend-bearing generation retains its admitted
+  frontend only for the exact same backend version and a usable same-generation
+  Manager/frontend. Its authenticated baseline and ordinary ephemeral local signing
+  bind that preservation. An unpaired newer backend or unavailable declared asset
+  refuses local construction and retains the current generation; it never silently
+  publishes a frontend-free replacement. Official paired updates remain available.
 - Install, update, activation and rollback use the existing complete generation
   transaction and signed inventory, including the helper. Failure retains the
   current complete generation. Rollback selects the matching assets of its target;

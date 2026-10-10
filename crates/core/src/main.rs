@@ -8495,6 +8495,16 @@ fn activate_local_built_update(
         ));
     }
     let (baseline, _, current_loaded) = authenticated_public_baseline(roots, &before)?;
+    let frontend_index = manager_tui::index(&current_loaded.manifest)?;
+    if frontend_index.is_some()
+        && (metadata.version != current_loaded.manifest.upstream_package_version
+            || !current_loaded.manager_tui_available
+            || current_loaded.manager_path.is_none())
+    {
+        return Err(LocalProductError::LocalUpdate(
+            "local-derived update requires the admitted same-version Manager frontend; use a qualified paired release",
+        ));
+    }
     let staging_root = create_local_update_staging_root(&roots.state_root)?;
     let result = (|| {
         let (private_key, local_key) =
@@ -8544,6 +8554,76 @@ fn activate_local_built_update(
             &unsigned_generation,
         )
         .map_err(|_| LocalProductError::LocalUpdate("local upstream adaptation failed"))?;
+        if let Some(index) = frontend_index {
+            use std::io::Write as _;
+            use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
+
+            let helpers = unsigned_generation.join("helpers");
+            std::fs::create_dir(&helpers).map_err(|source| LocalProductError::Io {
+                operation: "create local-derived frontend directory",
+                source,
+            })?;
+            let destination = helpers.join("2");
+            let mut input =
+                std::fs::File::open(&current_loaded.helper_paths[index]).map_err(|source| {
+                    LocalProductError::Io {
+                        operation: "open admitted local-derived frontend",
+                        source,
+                    }
+                })?;
+            let mut output = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&destination)
+                .map_err(|source| LocalProductError::Io {
+                    operation: "create local-derived frontend",
+                    source,
+                })?;
+            copy_bounded_file_contents(
+                &mut input,
+                &mut output,
+                REMOTE_RELEASE_FILE_MAX_BYTES,
+                "copy admitted local-derived frontend",
+                "admitted frontend exceeds its file bound",
+            )?;
+            let helper = &current_loaded.manifest.helper_digests[index];
+            if openssl_sha256(&roots.openssl, &destination)? != helper.digest {
+                return Err(LocalProductError::LocalUpdate(
+                    "admitted frontend changed during local construction",
+                ));
+            }
+            output
+                .set_permissions(std::fs::Permissions::from_mode(0o755))
+                .and_then(|()| output.sync_all())
+                .map_err(|source| LocalProductError::Io {
+                    operation: "sync admitted local-derived frontend",
+                    source,
+                })?;
+            sync_directory(&helpers)?;
+            let descriptor_path = unsigned_generation.join("generation.meta");
+            let bytes = read_bounded_regular_file(
+                &descriptor_path,
+                LOCAL_GENERATION_MAX_BYTES,
+                "read local-derived frontend descriptor",
+                LocalProductError::Descriptor("generation descriptor is too large"),
+                LocalProductError::UnsafeSource("generation descriptor must be a regular file"),
+            )?;
+            let mut descriptor = String::from_utf8(bytes)
+                .map_err(|_| LocalProductError::Descriptor("generation descriptor is not UTF-8"))?;
+            descriptor = descriptor.replacen("helper_count\t2\n", "helper_count\t3\n", 1);
+            descriptor.push_str(&format!("helper\t{}\t{}\n", helper.identity, helper.digest));
+            std::fs::File::create(&descriptor_path)
+                .and_then(|mut file| {
+                    file.write_all(descriptor.as_bytes())?;
+                    file.sync_all()
+                })
+                .map_err(|source| LocalProductError::Io {
+                    operation: "bind admitted local-derived frontend",
+                    source,
+                })?;
+            sync_directory(&unsigned_generation)?;
+        }
         let publication = staging_root.join("local-derived-publication");
         let release_base = format!("https://local.invalid/codex/{generation_id}/");
         codex_release_builder::publish_generation(
@@ -18044,6 +18124,243 @@ esac
         );
         assert!(!fixture.home.join(LOCAL_PUBLICATION_ROOT_RELATIVE).exists());
         remove_temp_root(fixture.root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_manager_tui_public_local_build_preserves_pair_and_refuses_unpaired_update() {
+        use std::os::unix::fs::PermissionsExt;
+
+        for defect in [
+            "healthy",
+            "newer",
+            "missing-manager",
+            "missing-frontend",
+            "changed-frontend",
+            "changed-during-build",
+        ] {
+            let root = temp_root("manager-tui-local-update");
+            let openssl = b4_termux_openssl();
+            let (home, prefix, tmp) = b4_prepare_public_environment(&root, &openssl, true);
+            std::fs::remove_file(prefix.join("bin/openssl")).unwrap();
+            std::fs::copy(&openssl, prefix.join("bin/openssl")).unwrap();
+            let live_prefix = std::path::PathBuf::from(std::env::var_os("PREFIX").unwrap());
+            let gzip = prefix.join("bin/gzip");
+            std::fs::copy(live_prefix.join("bin/gzip"), &gzip).unwrap();
+            let private_key = root.join("keys/private.pem");
+            let public_key = root.join("keys/public.pem");
+            b4_generate_release_keypair(&openssl, &private_key, &public_key);
+            b4_install_trusted_release_key(&home, &public_key);
+            let source = b4_source_roots(&root.join("source"), &openssl);
+            std::fs::create_dir_all(&source.generation_root).unwrap();
+            let current = b2_write_root_generation(&source, "paired-current", true, "supported");
+            b2_add_tc2_browser_helpers(&current);
+            std::fs::create_dir(current.join("helpers")).unwrap();
+            let frontend_bytes = b"owned already-adapted admitted frontend";
+            std::fs::write(current.join("helpers/2"), frontend_bytes).unwrap();
+            std::fs::set_permissions(
+                current.join("helpers/2"),
+                std::fs::Permissions::from_mode(0o755),
+            )
+            .unwrap();
+            let digest = openssl_sha256(&openssl, &current.join("helpers/2")).unwrap();
+            std::fs::write(current.join("manager"), format!(
+                "#!{}\n[ \"$1\" = --artifact-probe ] || exit 9\nprintf 'codex-manager-artifact-v1\\ncore_api=codex-manager-core-v1\\n'\n",
+                resolve_test_shell().display()
+            )).unwrap();
+            let descriptor_path = current.join("generation.meta");
+            let mut descriptor = std::fs::read_to_string(&descriptor_path)
+                .unwrap()
+                .replace(
+                    "upstream_package_version\t9.9.9",
+                    "upstream_package_version\t0.150.1",
+                )
+                .replace("helper_count\t2\n", "helper_count\t3\n");
+            descriptor.push_str(&format!(
+                "helper\ttermux-manager-tui-v1:0.150.1\t{digest}\n"
+            ));
+            std::fs::write(descriptor_path, descriptor).unwrap();
+            b4_write_signed_release(&current, 1, &openssl, &private_key);
+            b7_seed_initial_release(
+                &current,
+                &home,
+                &prefix,
+                &home.join(".local/lib/codex/core/release-public-key.pem"),
+            );
+            std::fs::copy(std::env::current_exe().unwrap(), prefix.join("bin/codex")).unwrap();
+            std::fs::set_permissions(
+                prefix.join("bin/codex"),
+                std::fs::Permissions::from_mode(0o755),
+            )
+            .unwrap();
+            let roots = b7_public_roots(&home, &prefix);
+            let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+            let before = read_pointer_state(&paths).unwrap().unwrap();
+            let installed = roots.generation_root.join(&before.current);
+            match defect {
+                "missing-manager" => std::fs::remove_file(installed.join("manager")).unwrap(),
+                "missing-frontend" => std::fs::remove_file(installed.join("helpers/2")).unwrap(),
+                "changed-frontend" => {
+                    std::fs::write(installed.join("helpers/2"), b"changed").unwrap()
+                }
+                _ => {}
+            }
+            let archive = root.join(UPSTREAM_PACKAGE_ASSET);
+            let runtime = b8_compile_static_probe_runtime(&root);
+            b6_write_official_shape_archive_with_runtime(
+                &gzip,
+                &archive,
+                &std::fs::read(runtime).unwrap(),
+            );
+            let archive_digest = openssl_sha256(&openssl, &archive).unwrap();
+            let version = if defect == "newer" {
+                "0.150.2"
+            } else {
+                "0.150.1"
+            };
+            let metadata = root.join("upstream-release.json");
+            std::fs::write(&metadata, format!(
+                "{{\"tag_name\":\"rust-v{version}\",\"assets\":[{{\"name\":\"{UPSTREAM_PACKAGE_ASSET}\",\"digest\":\"sha256:{archive_digest}\"}}]}}"
+            )).unwrap();
+            let archive_url =
+                format!("{UPSTREAM_RELEASE_METADATA_BASE}/{version}/{UPSTREAM_PACKAGE_ASSET}");
+            let curl_log = root.join("curl-log");
+            b7_write_local_update_curl(
+                &prefix.join("bin/curl"),
+                &curl_log,
+                "https://example.invalid/update-index-v1",
+                DEFAULT_UPSTREAM_LATEST_URL,
+                &metadata,
+                &archive_url,
+                &archive,
+            );
+            if defect == "changed-during-build" {
+                let curl_path = prefix.join("bin/curl");
+                let script = std::fs::read_to_string(&curl_path).unwrap();
+                let script = script.replace(
+                    "\"$archive_url\") exec",
+                    &format!(
+                        "\"$archive_url\") printf changed > {}; exec",
+                        b5_shell_quote(&installed.join("helpers/2"))
+                    ),
+                );
+                std::fs::write(curl_path, script).unwrap();
+            }
+            let output = b7_run_public_build_local(None, None, &home, &prefix, &tmp);
+            if defect == "healthy" {
+                assert_eq!(
+                    output.status.code(),
+                    Some(0),
+                    "stdout={:?} stderr={:?}",
+                    output.stdout,
+                    output.stderr
+                );
+                let first = read_pointer_state(&paths).unwrap().unwrap();
+                assert_eq!(first.previous.as_deref(), Some("paired-current"));
+                assert_eq!(first.update_key, before.update_key);
+                assert_ne!(first.current_key, before.current_key);
+                let (release, loaded) = verify_installed_local_release(
+                    &roots,
+                    &first.current,
+                    first.current_key,
+                    "local pair",
+                )
+                .unwrap();
+                assert!(loaded.manager_tui_available);
+                assert_eq!(loaded.manifest.helper_digests[2].digest, digest);
+                assert_eq!(
+                    std::fs::read(&loaded.helper_paths[2]).unwrap(),
+                    frontend_bytes
+                );
+                assert_eq!(
+                    parse_local_derived_metadata(&release, &loaded)
+                        .unwrap()
+                        .unwrap()
+                        .generation_component,
+                    "paired-current"
+                );
+                assert_eq!(
+                    std::fs::metadata(&loaded.helper_paths[2])
+                        .unwrap()
+                        .permissions()
+                        .mode()
+                        & 0o7777,
+                    0o755
+                );
+                let second = b7_run_public_build_local(None, None, &home, &prefix, &tmp);
+                assert_eq!(second.status.code(), Some(0), "{:?}", second.stderr);
+                let second_state = read_pointer_state(&paths).unwrap().unwrap();
+                assert_eq!(
+                    second_state.previous.as_deref(),
+                    Some(first.current.as_str())
+                );
+                let (_, loaded) = verify_installed_local_release(
+                    &roots,
+                    &second_state.current,
+                    second_state.current_key,
+                    "repeated local pair",
+                )
+                .unwrap();
+                assert!(loaded.manager_tui_available);
+                assert_eq!(
+                    std::fs::read(&loaded.helper_paths[2]).unwrap(),
+                    frontend_bytes
+                );
+                let rollback = b4_run_public_rollback(&home, &prefix, &tmp);
+                assert_eq!(rollback.status.code(), Some(0), "{:?}", rollback.stderr);
+                assert_eq!(
+                    read_pointer_state(&paths).unwrap().unwrap().current,
+                    first.current
+                );
+                assert!(
+                    load_activated_generation(&roots)
+                        .unwrap()
+                        .manager_tui_available
+                );
+            } else {
+                assert_eq!(
+                    output.status.code(),
+                    Some(1),
+                    "{defect}: {:?}",
+                    output.stdout
+                );
+                assert!(
+                    String::from_utf8_lossy(&output.stderr).contains(
+                        if defect == "changed-during-build" {
+                            "Admitted frontend changed during local construction."
+                        } else {
+                            "admitted same-version Manager frontend"
+                        }
+                    ),
+                    "{defect}: {:?}",
+                    output.stderr
+                );
+                assert_eq!(
+                    read_pointer_state(&paths).unwrap().unwrap(),
+                    before,
+                    "{defect}"
+                );
+                assert!(
+                    std::fs::read_to_string(&curl_log)
+                        .unwrap()
+                        .contains(&archive_url)
+                        == (defect == "changed-during-build"),
+                    "{defect}"
+                );
+            }
+            assert!(std::fs::read_dir(&roots.state_root)
+                .unwrap()
+                .all(|entry| !entry
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".local-update-")));
+            assert_eq!(
+                std::fs::read(current.join("helpers/2")).unwrap(),
+                frontend_bytes
+            );
+            remove_temp_root(root);
+        }
     }
 
     #[cfg(unix)]

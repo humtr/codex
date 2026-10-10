@@ -221,12 +221,19 @@ struct BuildRequest {
     generation_id: String,
     core: PathBuf,
     manager: Option<PathBuf>,
+    manager_tui: Option<ManagerTuiArtifact>,
     defer_manager_probe: bool,
     legacy_activation_doctor_unsupported: bool,
     creation_metadata: String,
     gzip: PathBuf,
     openssl: PathBuf,
     output: PathBuf,
+}
+
+#[derive(Debug)]
+struct ManagerTuiArtifact {
+    path: PathBuf,
+    version: String,
 }
 
 #[derive(Debug)]
@@ -255,6 +262,8 @@ struct RequestFields {
     generation_id: Option<String>,
     core: Option<PathBuf>,
     manager: Option<PathBuf>,
+    manager_tui: Option<PathBuf>,
+    manager_tui_version: Option<String>,
     defer_manager_probe: bool,
     legacy_activation_doctor_unsupported: bool,
     creation_metadata: Option<String>,
@@ -326,6 +335,10 @@ where
             Some("--generation-id") => set_once(&mut fields.generation_id, text_value(value)?)?,
             Some("--core") => set_once(&mut fields.core, PathBuf::from(value))?,
             Some("--manager") => set_once(&mut fields.manager, PathBuf::from(value))?,
+            Some("--manager-tui") => set_once(&mut fields.manager_tui, PathBuf::from(value))?,
+            Some("--manager-tui-version") => {
+                set_once(&mut fields.manager_tui_version, text_value(value)?)?
+            }
             Some("--creation-metadata") => {
                 set_once(&mut fields.creation_metadata, text_value(value)?)?
             }
@@ -342,6 +355,11 @@ where
         generation_id: fields.generation_id.ok_or(BuilderError::Usage)?,
         core: fields.core.ok_or(BuilderError::Usage)?,
         manager: fields.manager,
+        manager_tui: match (fields.manager_tui, fields.manager_tui_version) {
+            (Some(path), Some(version)) => Some(ManagerTuiArtifact { path, version }),
+            (None, None) => None,
+            _ => return Err(BuilderError::Usage),
+        },
         defer_manager_probe: fields.defer_manager_probe,
         legacy_activation_doctor_unsupported: fields.legacy_activation_doctor_unsupported,
         creation_metadata: fields.creation_metadata.ok_or(BuilderError::Usage)?,
@@ -706,6 +724,17 @@ fn validate_request(request: &BuildRequest) -> Result<(), BuilderError> {
             ));
         }
     }
+    if let Some(frontend) = request.manager_tui.as_ref() {
+        if request.manager.is_none()
+            || frontend.version != request.version
+            || request.creation_metadata == R10_BROWSER_HELPER_BRIDGE_METADATA
+            || !canonical_absolute_path(&frontend.path)
+        {
+            return Err(BuilderError::Invalid(
+                "Manager frontend requires matching version, Manager and ordinary helper layout",
+            ));
+        }
+    }
     ensure_executable(&request.gzip, "gzip is not an executable regular file")?;
     ensure_executable(
         &request.openssl,
@@ -1064,13 +1093,16 @@ fn validate_publish_browser_layout(root: &Path) -> Result<(), BuilderError> {
     Ok(())
 }
 
-fn validate_publish_r10_bridge_layout(root: &Path) -> Result<(), BuilderError> {
+fn validate_publish_numbered_helper_layout(
+    root: &Path,
+    expected: &[&str],
+) -> Result<(), BuilderError> {
     let helpers = root.join("helpers");
     let metadata = std::fs::symlink_metadata(&helpers)
         .map_err(|source| io_error("inspect R10 bridge helper root", source))?;
     if !metadata.file_type().is_dir() {
         return Err(BuilderError::Invalid(
-            "R10 bridge helper root is not a real directory",
+            "numbered publication helper root is not a real directory",
         ));
     }
     let mut seen = BTreeSet::new();
@@ -1081,22 +1113,26 @@ fn validate_publish_r10_bridge_layout(root: &Path) -> Result<(), BuilderError> {
         let name = entry
             .file_name()
             .into_string()
-            .map_err(|_| BuilderError::Invalid("R10 bridge helper path is not UTF-8"))?;
-        if !matches!(name.as_str(), "0" | "1") || !seen.insert(name) {
+            .map_err(|_| BuilderError::Invalid("numbered publication helper path is not UTF-8"))?;
+        if !expected.contains(&name.as_str()) || !seen.insert(name) {
             return Err(BuilderError::Invalid(
-                "R10 bridge helper layout is not exact",
+                "numbered publication helper layout is not exact",
             ));
         }
         let helper_metadata = ensure_regular_file(
             &entry.path(),
             "inspect R10 bridge helper",
-            "R10 bridge helper is not a regular file",
+            "numbered publication helper is not a regular file",
         )?;
-        validate_publish_file_mode(&helper_metadata, true, "R10 bridge helper mode is unsafe")?;
+        validate_publish_file_mode(
+            &helper_metadata,
+            true,
+            "numbered publication helper mode is unsafe",
+        )?;
     }
-    if seen.len() != 2 {
+    if seen.len() != expected.len() {
         return Err(BuilderError::Invalid(
-            "R10 bridge helper layout is incomplete",
+            "numbered publication helper layout is incomplete",
         ));
     }
     Ok(())
@@ -1127,14 +1163,16 @@ fn validate_publish_generation_layout(root: &Path, r10_bridge: bool) -> Result<(
             .file_name()
             .into_string()
             .map_err(|_| BuilderError::Invalid("publication generation path is not UTF-8"))?;
-        if (!required.contains(&name.as_str()) && !matches!(name.as_str(), "core" | "manager"))
+        if (!required.contains(&name.as_str())
+            && !matches!(name.as_str(), "core" | "manager")
+            && !(!r10_bridge && name == "helpers"))
             || !seen.insert(name.clone())
         {
             return Err(BuilderError::Invalid(
                 "publication generation layout is unsupported",
             ));
         }
-        if name == helper_root {
+        if name == helper_root || (!r10_bridge && name == "helpers") {
             let metadata = std::fs::symlink_metadata(entry.path())
                 .map_err(|source| io_error("inspect publication helper root", source))?;
             if !metadata.file_type().is_dir() {
@@ -1164,9 +1202,13 @@ fn validate_publish_generation_layout(root: &Path, r10_bridge: bool) -> Result<(
         ));
     }
     if r10_bridge {
-        validate_publish_r10_bridge_layout(root)
+        validate_publish_numbered_helper_layout(root, &["0", "1"])
     } else {
-        validate_publish_browser_layout(root)
+        validate_publish_browser_layout(root)?;
+        if seen.contains("helpers") {
+            validate_publish_numbered_helper_layout(root, &["2"])?;
+        }
+        Ok(())
     }
 }
 
@@ -1314,7 +1356,7 @@ fn validate_publish_patch_report(
 
 fn publish_descriptor_helper<'a>(
     lines: &mut std::str::Lines<'a>,
-    expected_identity: &'static str,
+    expected_identity: &str,
 ) -> Result<&'a str, BuilderError> {
     let line = lines.next().ok_or(BuilderError::Invalid(
         "generation descriptor helper is missing",
@@ -1445,16 +1487,50 @@ fn validate_publish_generation_descriptor(
         creation_metadata == R10_BROWSER_HELPER_BRIDGE_METADATA && upstream_doctor == "unsupported";
     if (creation_metadata == R10_BROWSER_HELPER_BRIDGE_METADATA) != r10_bridge
         || (upstream_doctor != "supported" && !transition_doctor)
-        || publish_descriptor_field(&mut lines, "helper_count")? != "2"
     {
         return Err(BuilderError::Invalid(
             "publication generation browser helper layout binding is invalid",
+        ));
+    }
+    let helper_count = publish_descriptor_field(&mut lines, "helper_count")?;
+    if !matches!(helper_count, "2" | "3")
+        || (helper_count == "3" && (r10_bridge || manager_path.is_none()))
+    {
+        return Err(BuilderError::Invalid(
+            "publication frontend requires Manager and ordinary three-helper layout",
         ));
     }
     let browser_open_helper_digest =
         publish_descriptor_helper(&mut lines, TERMUX_BROWSER_OPEN_HELPER_IDENTITY)?;
     let browser_manual_helper_digest =
         publish_descriptor_helper(&mut lines, TERMUX_BROWSER_MANUAL_HELPER_IDENTITY)?;
+    let frontend_path = descriptor_path
+        .parent()
+        .ok_or(BuilderError::Invalid(
+            "publication descriptor has no parent",
+        ))?
+        .join("helpers/2");
+    if helper_count == "3" {
+        let digest = publish_descriptor_helper(
+            &mut lines,
+            &format!("termux-manager-tui-v1:{package_version}"),
+        )?;
+        let metadata = ensure_regular_file(
+            &frontend_path,
+            "inspect publication frontend",
+            "publication frontend is not a regular file",
+        )?;
+        validate_publish_file_mode(&metadata, true, "publication frontend mode is unsafe")?;
+        if openssl_sha256(openssl, &frontend_path)? != digest {
+            return Err(BuilderError::Invalid(
+                "publication frontend does not match its descriptor",
+            ));
+        }
+    } else if std::fs::symlink_metadata(&frontend_path).is_ok() {
+        return Err(BuilderError::Invalid(
+            "publication frontend is absent from its descriptor",
+        ));
+    }
     if lines.next().is_some() {
         return Err(BuilderError::Invalid(
             "publication generation qualification binding is invalid",
@@ -1530,7 +1606,8 @@ fn snapshot_publish_generation(
     staging: &Path,
     openssl: &Path,
 ) -> Result<PublishGeneration, BuilderError> {
-    let r10_bridge = std::fs::symlink_metadata(source_root.join("helpers")).is_ok();
+    let r10_bridge = std::fs::symlink_metadata(source_root.join("helpers")).is_ok()
+        && std::fs::symlink_metadata(source_root.join("browser")).is_err();
     validate_publish_generation_layout(source_root, r10_bridge)?;
     let source_snapshot_root = staging.join(".generation-source");
     create_private_dir(&source_snapshot_root)?;
@@ -1558,6 +1635,10 @@ fn snapshot_publish_generation(
     }
     if std::fs::symlink_metadata(source_root.join("manager")).is_ok() {
         entries.push(("manager", RELEASE_FILE_MAX_BYTES, true));
+    }
+    if !r10_bridge && std::fs::symlink_metadata(source_root.join("helpers")).is_ok() {
+        create_private_dir(&source_snapshot_root.join("helpers"))?;
+        entries.push(("helpers/2", RELEASE_FILE_MAX_BYTES, true));
     }
     for (relative_path, max_bytes, executable) in entries {
         let destination = source_snapshot_root.join(relative_path);
@@ -1806,7 +1887,7 @@ fn publish(request: &PublishRequest) -> Result<String, BuilderError> {
         let release_dir = releases.join(&generation.generation_id);
         create_private_dir(&releases)?;
         create_private_dir(&release_dir)?;
-        let helper_directories = if generation.r10_bridge {
+        let mut helper_directories = if generation.r10_bridge {
             let release_helpers = release_dir.join("helpers");
             create_private_dir(&release_helpers)?;
             vec![release_helpers]
@@ -1823,6 +1904,16 @@ fn publish(request: &PublishRequest) -> Result<String, BuilderError> {
                 release_browser,
             ]
         };
+        if !generation.r10_bridge
+            && generation
+                .files
+                .iter()
+                .any(|file| file.relative_path == "helpers/2")
+        {
+            let helpers = release_dir.join("helpers");
+            create_private_dir(&helpers)?;
+            helper_directories.push(helpers);
+        }
         for file in &generation.files {
             rename_noreplace(&file.snapshot_path, &release_dir.join(file.relative_path))?;
         }
@@ -1974,6 +2065,63 @@ fn snapshot_manager_artifact(
         .map_err(|source| io_error("sync Manager artifact snapshot mode", source))?;
     let sha256 = openssl_sha256(&request.openssl, &snapshot_path)?;
     Ok(Some(sha256))
+}
+
+fn snapshot_manager_tui_artifact(
+    request: &BuildRequest,
+    staging: &Path,
+) -> Result<Option<String>, BuilderError> {
+    let Some(frontend) = request.manager_tui.as_ref() else {
+        return Ok(None);
+    };
+    let source_metadata = ensure_regular_file(
+        &frontend.path,
+        "inspect Manager frontend",
+        "Manager frontend is not a regular file",
+    )?;
+    if source_metadata.permissions().mode() & 0o100 == 0
+        || source_metadata.len() > RELEASE_FILE_MAX_BYTES
+    {
+        return Err(BuilderError::Invalid(
+            "Manager frontend is outside its executable or byte bound",
+        ));
+    }
+    let mut source =
+        File::open(&frontend.path).map_err(|source| io_error("open Manager frontend", source))?;
+    let snapshot_path = staging.join(".manager-tui-artifact");
+    let mut snapshot = create_private_file(&snapshot_path)?;
+    let copied = io::copy(
+        &mut Read::by_ref(&mut source).take(RELEASE_FILE_MAX_BYTES + 1),
+        &mut snapshot,
+    )
+    .map_err(|source| io_error("snapshot Manager frontend", source))?;
+    if copied != source_metadata.len()
+        || copied > RELEASE_FILE_MAX_BYTES
+        || source
+            .metadata()
+            .map_err(|source| io_error("inspect Manager frontend after snapshot", source))?
+            .len()
+            != copied
+    {
+        return Err(BuilderError::Invalid(
+            "Manager frontend changed or exceeds its byte bound",
+        ));
+    }
+    snapshot
+        .sync_all()
+        .map_err(|source| io_error("sync Manager frontend snapshot", source))?;
+    drop(snapshot);
+    validate_static_aarch64_elf(&snapshot_path)?;
+    let mut bytes = std::fs::read(&snapshot_path)
+        .map_err(|source| io_error("read Manager frontend snapshot", source))?;
+    apply_fd_path_remaps(&mut bytes)?;
+    std::fs::write(&snapshot_path, bytes)
+        .map_err(|source| io_error("adapt Manager frontend snapshot", source))?;
+    set_mode(&snapshot_path, 0o755, "set Manager frontend mode")?;
+    File::open(&snapshot_path)
+        .and_then(|file| file.sync_all())
+        .map_err(|source| io_error("sync adapted Manager frontend", source))?;
+    Ok(Some(openssl_sha256(&request.openssl, &snapshot_path)?))
 }
 
 fn create_staging(output: &Path) -> Result<PathBuf, BuilderError> {
@@ -3277,14 +3425,7 @@ fn create_browser_helpers(
     Ok((open_sha256, manual_sha256))
 }
 
-fn adapt_selected_runtime(
-    request: &BuildRequest,
-    staging: &Path,
-    selected: ArchiveSelection,
-) -> Result<AdaptedGeneration, BuilderError> {
-    let raw_runtime_sha256 = openssl_sha256(&request.openssl, &selected.raw_runtime)?;
-    let mut runtime = std::fs::read(&selected.raw_runtime)
-        .map_err(|source| io_error("read selected raw runtime", source))?;
+fn apply_fd_path_remaps(runtime: &mut [u8]) -> Result<usize, BuilderError> {
     let mut selected_offsets = Vec::new();
     for (source, replacement, expected) in PATCHES {
         if source.len() != replacement.len() {
@@ -3292,8 +3433,8 @@ fn adapt_selected_runtime(
                 "patch policy lengths are inconsistent",
             ));
         }
-        let source_offsets = occurrence_offsets(&runtime, source);
-        if source_offsets.len() != expected || !occurrence_offsets(&runtime, replacement).is_empty()
+        let source_offsets = occurrence_offsets(runtime, source);
+        if source_offsets.len() != expected || !occurrence_offsets(runtime, replacement).is_empty()
         {
             return Err(BuilderError::Archive(
                 "runtime patch source occurrences do not match policy",
@@ -3319,8 +3460,8 @@ fn adapt_selected_runtime(
         runtime[*offset..*offset + source.len()].copy_from_slice(replacement);
     }
     for (source, replacement, expected) in PATCHES {
-        if !occurrence_offsets(&runtime, source).is_empty()
-            || occurrence_offsets(&runtime, replacement).len() != expected
+        if !occurrence_offsets(runtime, source).is_empty()
+            || occurrence_offsets(runtime, replacement).len() != expected
         {
             return Err(BuilderError::Archive(
                 "adapted runtime does not match patch policy",
@@ -3332,6 +3473,19 @@ fn adapt_selected_runtime(
             "patch policy changed-byte count is inconsistent",
         ));
     }
+
+    Ok(changed_bytes)
+}
+
+fn adapt_selected_runtime(
+    request: &BuildRequest,
+    staging: &Path,
+    selected: ArchiveSelection,
+) -> Result<AdaptedGeneration, BuilderError> {
+    let raw_runtime_sha256 = openssl_sha256(&request.openssl, &selected.raw_runtime)?;
+    let mut runtime = std::fs::read(&selected.raw_runtime)
+        .map_err(|source| io_error("read selected raw runtime", source))?;
+    let mut changed_bytes = apply_fd_path_remaps(&mut runtime)?;
 
     let runtime_policy =
         runtime_patch::required(&request.version).map_err(BuilderError::Archive)?;
@@ -3393,6 +3547,7 @@ fn write_generation_descriptor(
     adapted: &AdaptedGeneration,
     core_sha256: &str,
     manager_sha256: Option<&str>,
+    frontend_sha256: Option<&str>,
 ) -> Result<(), BuilderError> {
     let patch_policy = adapted
         .runtime_policy
@@ -3416,7 +3571,7 @@ fn write_generation_descriptor(
     } else {
         "supported"
     };
-    let descriptor = format!(
+    let mut descriptor = format!(
         concat!(
             "{}\n",
             "generation_id\t{}\n",
@@ -3435,7 +3590,7 @@ fn write_generation_descriptor(
             "qualification\tqualified\n",
             "creation_metadata\t{}\n",
             "upstream_doctor\t{}\n",
-            "helper_count\t2\n",
+            "helper_count\t{}\n",
             "helper\t{}\t{}\n",
             "helper\t{}\t{}\n"
         ),
@@ -3453,11 +3608,18 @@ fn write_generation_descriptor(
         PERSISTENT_SCHEMA_IDENTITY,
         request.creation_metadata,
         upstream_doctor,
+        if frontend_sha256.is_some() { 3 } else { 2 },
         TERMUX_BROWSER_OPEN_HELPER_IDENTITY,
         adapted.browser_open_helper_sha256,
         TERMUX_BROWSER_MANUAL_HELPER_IDENTITY,
         adapted.browser_manual_helper_sha256
     );
+    if let Some(digest) = frontend_sha256 {
+        descriptor.push_str(&format!(
+            "helper\ttermux-manager-tui-v1:{}\t{digest}\n",
+            request.version
+        ));
+    }
     let path = staging.join("generation.meta");
     let mut file = create_private_file(&path)?;
     file.write_all(descriptor.as_bytes())
@@ -3534,6 +3696,7 @@ fn complete_and_publish(
     selected: ArchiveSelection,
     core_sha256: &str,
     manager_sha256: Option<&str>,
+    frontend_sha256: Option<&str>,
 ) -> Result<(), BuilderError> {
     let adapted = adapt_selected_runtime(request, staging, selected)?;
     rename_noreplace(&staging.join(".core-artifact"), &staging.join("core"))?;
@@ -3550,7 +3713,20 @@ fn complete_and_publish(
             .and_then(|file| file.sync_all())
             .map_err(|source| io_error("sync generation Manager", source))?;
     }
-    write_generation_descriptor(request, staging, &adapted, core_sha256, manager_sha256)?;
+    if frontend_sha256.is_some() {
+        let helpers = staging.join("helpers");
+        create_private_dir(&helpers)?;
+        rename_noreplace(&staging.join(".manager-tui-artifact"), &helpers.join("2"))?;
+        sync_directory(&helpers, "sync Manager frontend helper directory")?;
+    }
+    write_generation_descriptor(
+        request,
+        staging,
+        &adapted,
+        core_sha256,
+        manager_sha256,
+        frontend_sha256,
+    )?;
     sync_directory(staging, "sync complete unsigned generation")?;
     rename_noreplace(staging, &request.output)?;
     sync_directory(
@@ -3578,6 +3754,7 @@ fn build(request: &BuildRequest) -> Result<(), BuilderError> {
     let result = (|| {
         let core_sha256 = snapshot_core_artifact(request, &staging)?;
         let manager_sha256 = snapshot_manager_artifact(request, &staging)?;
+        let frontend_sha256 = snapshot_manager_tui_artifact(request, &staging)?;
         if manager_sha256.is_some() {
             let manager_snapshot = staging.join(".manager-artifact");
             if request.defer_manager_probe {
@@ -3597,6 +3774,7 @@ fn build(request: &BuildRequest) -> Result<(), BuilderError> {
             selected,
             &core_sha256,
             manager_sha256.as_deref(),
+            frontend_sha256.as_deref(),
         )
     })();
     match (result, cleanup_staging(&staging)) {
@@ -3672,6 +3850,7 @@ pub fn build_generation_with_manager(
         generation_id: generation_id.to_owned(),
         core: core.to_owned(),
         manager: manager.map(Path::to_owned),
+        manager_tui: None,
         defer_manager_probe: false,
         legacy_activation_doctor_unsupported: false,
         creation_metadata: creation_metadata.to_owned(),
@@ -4211,6 +4390,7 @@ fi
                 generation_id: "test-generation".to_owned(),
                 core,
                 manager: None,
+                manager_tui: None,
                 defer_manager_probe: false,
                 legacy_activation_doctor_unsupported: false,
                 creation_metadata: "test-fixture".to_owned(),
@@ -4251,6 +4431,14 @@ fi
                 11..11,
                 [OsString::from("--manager"), manager.as_os_str().to_owned()],
             );
+        }
+        if let Some(frontend) = request.manager_tui.as_ref() {
+            args.extend([
+                OsString::from("--manager-tui"),
+                frontend.path.as_os_str().to_owned(),
+                OsString::from("--manager-tui-version"),
+                frontend.version.clone().into(),
+            ]);
         }
         if request.defer_manager_probe {
             args.push(OsString::from("--defer-manager-probe"));
@@ -4474,6 +4662,7 @@ fi
             generation_id: "official-fetch-generation".to_owned(),
             core: fixture.request.core.clone(),
             manager: None,
+            manager_tui: None,
             defer_manager_probe: false,
             legacy_activation_doctor_unsupported: false,
             creation_metadata: "r5-fetch-test".to_owned(),
@@ -4852,6 +5041,174 @@ fi
     }
 
     #[test]
+    fn test_manager_tui_build_snapshots_adapts_and_binds_third_helper() {
+        let mut fixture = fixture("manager-tui-build", happy_entries("0.150.1"), false);
+        let manager = fixture.root.join("manager-source");
+        write_valid_manager_probe(&manager);
+        fixture.request.manager = Some(manager);
+        let frontend = fixture.root.join("frontend-source");
+        let raw = fake_runtime();
+        std::fs::write(&frontend, &raw).unwrap();
+        set_mode(&frontend, 0o755, "set frontend fixture mode").unwrap();
+        fixture.request.manager_tui = Some(ManagerTuiArtifact {
+            path: frontend.clone(),
+            version: fixture.request.version.clone(),
+        });
+        assert_eq!(run_from_args(request_args(&fixture.request)), 0);
+        let published = fixture.request.output.join("helpers/2");
+        let bytes = std::fs::read(&published).unwrap();
+        assert_eq!(std::fs::read(&frontend).unwrap(), raw);
+        assert_eq!(bytes.len(), raw.len());
+        assert_eq!(bytes.iter().zip(&raw).filter(|(a, b)| a != b).count(), 54);
+        let mut restored = bytes.clone();
+        for (source, replacement, expected) in PATCHES {
+            assert!(occurrence_offsets(&bytes, source).is_empty());
+            let offsets = occurrence_offsets(&restored, replacement);
+            assert_eq!(offsets.len(), expected);
+            for offset in offsets {
+                restored[offset..offset + source.len()].copy_from_slice(source);
+            }
+        }
+        assert_eq!(
+            restored, raw,
+            "changes must be limited to the shared FD policy"
+        );
+        assert_eq!(
+            std::fs::metadata(&published).unwrap().permissions().mode() & 0o7777,
+            0o755
+        );
+        let descriptor =
+            std::fs::read_to_string(fixture.request.output.join("generation.meta")).unwrap();
+        assert!(descriptor.contains("helper_count\t3\nhelper\ttermux-browser-open-v1\t"));
+        assert!(descriptor.ends_with(&format!(
+            "helper\ttermux-manager-tui-v1:0.150.1\t{}\n",
+            openssl_sha256(&fixture.request.openssl, &published).unwrap()
+        )));
+        assert!(fixture.request.output.join("browser/open/curl").is_file());
+        assert!(fixture.request.output.join("browser/manual/curl").is_file());
+        assert!(!fixture
+            .request
+            .output
+            .join(".manager-tui-artifact")
+            .exists());
+        assert!(no_builder_staging(&fixture.root));
+        fixture.remove();
+    }
+
+    #[test]
+    fn test_manager_tui_request_and_artifact_faults_preserve_sources_and_output() {
+        for defect in [
+            "version",
+            "manager",
+            "r10",
+            "relative",
+            "missing",
+            "symlink",
+            "directory",
+            "mode",
+            "size",
+            "elf",
+            "dynamic",
+            "missing-remap",
+            "extra-remap",
+            "prepatched",
+        ] {
+            let mut fixture = fixture("manager-tui-fault", happy_entries("0.150.1"), false);
+            let manager = fixture.root.join("manager-source");
+            write_valid_manager_probe(&manager);
+            fixture.request.manager = Some(manager);
+            let frontend = fixture.root.join("frontend-source");
+            let raw = fake_runtime();
+            std::fs::write(&frontend, &raw).unwrap();
+            set_mode(&frontend, 0o755, "set frontend fixture mode").unwrap();
+            fixture.request.manager_tui = Some(ManagerTuiArtifact {
+                path: frontend.clone(),
+                version: fixture.request.version.clone(),
+            });
+            // Paired grammar and duplicate flags fail before touching the source.
+            for flag in ["--manager-tui", "--manager-tui-version"] {
+                let mut args = request_args(&fixture.request);
+                let at = args.iter().position(|arg| arg == flag).unwrap();
+                let mut missing = args.clone();
+                missing.drain(at..at + 2);
+                assert!(matches!(parse_request(missing), Err(BuilderError::Usage)));
+                args.extend([flag.into(), args[at + 1].clone()]);
+                assert!(matches!(parse_request(args), Err(BuilderError::Usage)));
+            }
+            match defect {
+                "version" => {
+                    fixture.request.manager_tui.as_mut().unwrap().version = "0.161.0".into()
+                }
+                "manager" => fixture.request.manager = None,
+                "r10" => {
+                    fixture.request.creation_metadata = R10_BROWSER_HELPER_BRIDGE_METADATA.into()
+                }
+                "relative" => {
+                    fixture.request.manager_tui.as_mut().unwrap().path = PathBuf::from("relative")
+                }
+                "missing" => std::fs::remove_file(&frontend).unwrap(),
+                "symlink" => {
+                    let outside = fixture.root.join("outside-frontend");
+                    std::fs::rename(&frontend, &outside).unwrap();
+                    std::os::unix::fs::symlink(outside, &frontend).unwrap();
+                }
+                "directory" => {
+                    std::fs::remove_file(&frontend).unwrap();
+                    std::fs::create_dir(&frontend).unwrap();
+                }
+                "mode" => set_mode(&frontend, 0o600, "change frontend mode").unwrap(),
+                "size" => OpenOptions::new()
+                    .write(true)
+                    .open(&frontend)
+                    .unwrap()
+                    .set_len(RELEASE_FILE_MAX_BYTES + 1)
+                    .unwrap(),
+                "elf" => std::fs::write(&frontend, b"not-elf").unwrap(),
+                "dynamic" => {
+                    let mut bytes = raw.clone();
+                    bytes[64..68].copy_from_slice(&3u32.to_le_bytes());
+                    std::fs::write(&frontend, bytes).unwrap();
+                }
+                "missing-remap" => {
+                    let mut bytes = raw.clone();
+                    replace_first(&mut bytes, PATCHES[0].0, b"XXXXXXXXXXXXXXXX");
+                    std::fs::write(&frontend, bytes).unwrap();
+                }
+                "extra-remap" => {
+                    let mut bytes = raw.clone();
+                    bytes.extend_from_slice(PATCHES[0].0);
+                    std::fs::write(&frontend, bytes).unwrap();
+                }
+                "prepatched" => {
+                    let mut bytes = raw.clone();
+                    replace_first(&mut bytes, PATCHES[0].0, PATCHES[0].1);
+                    std::fs::write(&frontend, bytes).unwrap();
+                }
+                _ => unreachable!(),
+            }
+            let before = std::fs::symlink_metadata(&frontend)
+                .ok()
+                .map(|m| (m.len(), m.permissions().mode(), m.file_type()));
+            assert_eq!(run_from_args(request_args(&fixture.request)), 1, "{defect}");
+            assert!(!fixture.request.output.exists(), "{defect}");
+            assert!(no_builder_staging(&fixture.root), "{defect}");
+            assert_eq!(
+                std::fs::symlink_metadata(&frontend).ok().map(|m| (
+                    m.len(),
+                    m.permissions().mode(),
+                    m.file_type()
+                )),
+                before,
+                "{defect}"
+            );
+            if matches!(defect, "version" | "manager" | "r10" | "relative") {
+                assert_eq!(std::fs::read(&frontend).unwrap(), raw);
+            }
+            fixture.remove();
+        }
+    }
+
+    #[test]
     fn test_mgr1_slice1_build_carries_optional_manager_artifact_and_digest() {
         let mut fixture = fixture("mgr1-manager-build", happy_entries("0.150.1"), false);
         let manager = fixture.root.join("manager-source");
@@ -4894,6 +5251,161 @@ fi
         );
         assert!(no_builder_staging(&fixture.root));
         fixture.remove();
+    }
+
+    #[test]
+    fn test_manager_tui_publication_binds_exact_inventory_and_rejects_layout_drift() {
+        for defect in [
+            "healthy",
+            "missing",
+            "extra",
+            "file-symlink",
+            "parent-symlink",
+            "directory",
+            "mode",
+            "digest",
+            "version",
+            "count",
+            "undeclared",
+            "manager",
+            "r10",
+        ] {
+            let mut fixture = fixture("manager-tui-publish", happy_entries("0.150.1"), false);
+            let manager = fixture.root.join("manager-source");
+            write_valid_manager_probe(&manager);
+            fixture.request.manager = Some(manager);
+            let frontend = fixture.root.join("frontend-source");
+            std::fs::write(&frontend, fake_runtime()).unwrap();
+            set_mode(&frontend, 0o755, "set frontend fixture mode").unwrap();
+            fixture.request.manager_tui = Some(ManagerTuiArtifact {
+                path: frontend,
+                version: fixture.request.version.clone(),
+            });
+            assert_eq!(run_from_args(request_args(&fixture.request)), 0);
+            let helper = fixture.request.output.join("helpers/2");
+            let descriptor_path = fixture.request.output.join("generation.meta");
+            let descriptor = std::fs::read_to_string(&descriptor_path).unwrap();
+            match defect {
+                "healthy" => {}
+                "missing" => std::fs::remove_file(&helper).unwrap(),
+                "extra" => {
+                    std::fs::write(fixture.request.output.join("helpers/0"), b"undeclared").unwrap()
+                }
+                "file-symlink" => {
+                    let outside = fixture.root.join("outside-helper");
+                    std::fs::rename(&helper, &outside).unwrap();
+                    std::os::unix::fs::symlink(outside, &helper).unwrap();
+                }
+                "parent-symlink" => {
+                    let outside = fixture.root.join("outside-helpers");
+                    std::fs::rename(fixture.request.output.join("helpers"), &outside).unwrap();
+                    std::os::unix::fs::symlink(outside, fixture.request.output.join("helpers"))
+                        .unwrap();
+                }
+                "directory" => {
+                    std::fs::remove_file(&helper).unwrap();
+                    std::fs::create_dir(&helper).unwrap();
+                }
+                "mode" => set_mode(&helper, 0o600, "change frontend mode").unwrap(),
+                "digest" => std::fs::write(&helper, b"changed-frontend").unwrap(),
+                "version" => std::fs::write(
+                    &descriptor_path,
+                    descriptor.replace(
+                        "termux-manager-tui-v1:0.150.1",
+                        "termux-manager-tui-v1:0.161.0",
+                    ),
+                )
+                .unwrap(),
+                "count" => std::fs::write(
+                    &descriptor_path,
+                    descriptor.replace("helper_count\t3", "helper_count\t4"),
+                )
+                .unwrap(),
+                "undeclared" => {
+                    let line = descriptor
+                        .lines()
+                        .find(|line| line.starts_with("helper\ttermux-manager-tui"))
+                        .unwrap();
+                    std::fs::write(
+                        &descriptor_path,
+                        descriptor
+                            .replace("helper_count\t3", "helper_count\t2")
+                            .replace(&format!("{line}\n"), ""),
+                    )
+                    .unwrap();
+                }
+                "manager" => std::fs::remove_file(fixture.request.output.join("manager")).unwrap(),
+                "r10" => std::fs::write(
+                    &descriptor_path,
+                    descriptor.replace(
+                        "creation_metadata\ttest-fixture",
+                        &format!("creation_metadata\t{R10_BROWSER_HELPER_BRIDGE_METADATA}"),
+                    ),
+                )
+                .unwrap(),
+                _ => unreachable!(),
+            }
+            let before = std::fs::read(&descriptor_path).unwrap();
+            let private_key = fixture.root.join("owned-release-key.pem");
+            generate_publish_key(&fixture.request.openssl, &private_key);
+            let request = PublishRequest {
+                generation: fixture.request.output.clone(),
+                release_sequence: "1".into(),
+                release_base: "https://example.test/releases/test-generation/".into(),
+                private_key: private_key.clone(),
+                openssl: fixture.request.openssl.clone(),
+                output: fixture.root.join("publication"),
+            };
+            let result = publish(&request);
+            if defect == "healthy" {
+                assert_eq!(result.unwrap(), "test-generation");
+                let release = request.output.join("releases/test-generation");
+                let manifest = std::fs::read_to_string(release.join("release.manifest")).unwrap();
+                let digest = openssl_sha256(&request.openssl, &helper).unwrap();
+                assert!(manifest.contains("file_count\t8\n"));
+                assert!(manifest.contains(&format!("file\thelpers/2\t{digest}\t0755\n")));
+                assert!(
+                    manifest.contains("file\tbrowser/manual/curl\t")
+                        && manifest.contains("file\tbrowser/open/curl\t")
+                );
+                assert!(
+                    !manifest.contains("file\thelpers/0\t")
+                        && !manifest.contains("file\thelpers/1\t")
+                );
+                assert_eq!(
+                    std::fs::read(release.join("helpers/2")).unwrap(),
+                    std::fs::read(&helper).unwrap()
+                );
+                let sidecar =
+                    std::fs::read_to_string(request.output.join(DOWNLOAD_SIZE_PATH)).unwrap();
+                assert!(sidecar.contains("file_count\t8\n"));
+                assert!(sidecar.contains(&format!(
+                    "file\thelpers/2\t{}\n",
+                    std::fs::metadata(&helper).unwrap().len()
+                )));
+                let public_key = fixture.root.join("owned-public-key.der");
+                verify_publish_signature(
+                    &request.openssl,
+                    &private_key,
+                    &release.join("release.manifest"),
+                    &release.join("release.sig"),
+                    &public_key,
+                );
+                verify_publish_signature(
+                    &request.openssl,
+                    &private_key,
+                    &request.output.join(DOWNLOAD_SIZE_PATH),
+                    &request.output.join(DOWNLOAD_SIZE_SIGNATURE_PATH),
+                    &public_key,
+                );
+            } else {
+                assert!(result.is_err(), "{defect}");
+                assert!(!request.output.exists(), "{defect}");
+            }
+            assert_eq!(std::fs::read(&descriptor_path).unwrap(), before, "{defect}");
+            assert!(no_builder_staging(&fixture.root), "{defect}");
+            fixture.remove();
+        }
     }
 
     #[test]
