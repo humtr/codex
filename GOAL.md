@@ -6262,3 +6262,20 @@ notification service attachments; this is containment, not exact-window success.
 Pinned APK service searches private shellName, not existing tmux client TTY;
 missing name creates another terminal. AM transport alone adds no arbitrary
 terminal selector. Original-terminal return remains OPEN; no success claim.
+
+### Focus regression rollback and existing-terminal rename discovery (2026-10-10)
+
+- My focus=termux containment change disabled the user-confirmed named-terminal
+  return path. Restored focus=tmux. Actual public AI focus exited0 and clients
+ 18688 pts0 /22177 pts4 were unchanged; emitted same-thread Stop notification.
+  Physical restored return is pending user observation.
+- Exhaustive pinned-source follow-up found TermuxTerminalSessionActivityClient
+  renameSession sets BOTH TerminalSession.mSessionName and the corresponding
+  ExecutionCommand.shellName. Earlier claim that renaming affects only a separate
+  display name was false. Existing terminals can therefore be registered through
+  native UI rename; no new terminal is intrinsically required by the reuse lookup.
+- No external rename request is established. Moving the name from added terminal
+  to original is a possible bounded UI proof; avoid duplicate names and preserve
+  dynamic-title UX. Do not claim impossible original reuse or accepted automation
+  before actual original-client return and no-growth proof. Keep working return
+  enabled during investigation.

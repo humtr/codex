@@ -75,3 +75,12 @@ plus new22177. Live notification focus=termux contains further automatic attache
 Exact original-window selection is absent from pinned APK; inspect supported
 existing-terminal API before any next device trial. No new test attachment or
 claimed success from reuse of an added terminal. Prior title proof remains valid.
+
+## Existing-window binding investigation
+
+Focus regression rolled back to tmux; public focus0/client identities unchanged.
+Pinned APK renameSession updates both display name and ExecutionCommand.shellName,
+contrary to prior assumption. Current next gate: bounded original-window binding
+through supported rename path, avoiding duplicate names and resolving dynamic
+/title presentation. Working added-window return stays enabled; no new attaches
+for exploratory tests. Original-client end-to-end proof remains OPEN.
