@@ -87,7 +87,8 @@ class PublicTransportTests(unittest.TestCase):
             args = sys.argv[1:]
             assert args[:2] == ['release', 'download']
             destination = Path(args[args.index('--dir')+1])
-            for path in (Path(os.environ['TRANSPORT_FIXTURE'])/'release-assets').iterdir():
+            assets = 'bridge-assets' if destination.name == 'migration-stage' else 'release-assets'
+            for path in (Path(os.environ['TRANSPORT_FIXTURE'])/assets).iterdir():
                 shutil.copy2(path, destination/path.name)
         '''))
         for tool in tools.iterdir():
@@ -95,7 +96,7 @@ class PublicTransportTests(unittest.TestCase):
         env = {**os.environ, 'TRANSPORT_FIXTURE': str(root),
                'PATH': str(tools) + os.pathsep + os.environ['PATH'],
                'GENERATION_ID': CANDIDATE, 'RELEASE_SEQUENCE': fixtures.SEQUENCE,
-               'CURRENT_GENERATION': fixtures.GENERATION, 'EXPECTED_MAIN_SHA': MAIN,
+               'CURRENT_GENERATION': fixtures.GENERATION, 'EXPECTED_MAIN_SHA': MAIN, 'MIGRATION_BRIDGE_GENERATION': '',
                'GITHUB_REPOSITORY': 'humtr/codex', 'PYTHONDONTWRITEBYTECODE': '1'}
         return fixture, current, assets, env
 
@@ -138,6 +139,43 @@ class PublicTransportTests(unittest.TestCase):
                         self.assertEqual((release / 'core').stat().st_mode & 0o7777, 0o755)
                     self.assertEqual({path.name for path in (root / 'site').iterdir()}, {fixtures.GENERATION, CANDIDATE})
                     self.assertIn('current_generation=' + fixtures.GENERATION, result.stdout)
+
+    def test_real_pages_retains_one_signed_migration_bridge_and_refuses_asset_faults(self):
+        bridge = 'local-hosted-0-161-0-ab644771ac89-manager-tui-bridge'
+        block = PAGES.read_text().split('- name: Reconstruct and verify signed generation', 1)[1].split('      - name:', 1)[0]
+        script = textwrap.dedent(block.split('        run: |\n', 1)[1])
+        for fault in (None, 'missing', 'changed', 'extra', 'key', 'sequence', 'identifier', 'dedup-current', 'dedup-candidate'):
+            with self.subTest(fault=fault):
+                selected_current = bridge if fault == 'dedup-current' else fixtures.GENERATION
+                selected_candidate = bridge if fault == 'dedup-candidate' else CANDIDATE
+                with patch.object(fixtures, 'GENERATION', selected_current), patch.object(fixtures, 'BASE', 'https://humtr.github.io/codex/' + selected_current + '/'), patch.object(sys.modules[__name__], 'CANDIDATE', selected_candidate):
+                    fixture, current, assets, env = self.fixture(False, fault != 'dedup-candidate')
+                root = fixture.root
+                env['MIGRATION_BRIDGE_GENERATION'] = 'unexpected' if fault == 'identifier' else bridge
+                migration = fixtures.Rald5PublicationTests('test_verify_public_accepts_exact_pages_tree')
+                migration.setUp();self.addCleanup(migration.tearDown)
+                if fault != 'key':
+                    migration.private_key = fixture.private_key
+                    migration.public_key = fixture.public_key
+                with patch.object(fixtures, 'GENERATION', bridge), patch.object(fixtures, 'SEQUENCE', '43' if fault == 'sequence' else '42'), patch.object(fixtures, 'BASE', 'https://humtr.github.io/codex/' + bridge + '/'):
+                    migration.build_signed(frontend=False)
+                    bridge_assets = root / 'bridge-assets'
+                    result = migration.prepare(bridge_assets)
+                    self.assertEqual(result.returncode, 0, result.stderr.decode())
+                if fault == 'missing': (bridge_assets/'helper-1').unlink()
+                if fault == 'changed': (bridge_assets/'runtime').write_text('changed')
+                if fault == 'extra': (bridge_assets/'unexpected').write_text('extra')
+                key_digest = hashlib.sha256(fixture.public_key.read_bytes()).hexdigest()
+                actual = script.replace('62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c',key_digest)
+                result = subprocess.run(['bash','-c',actual],cwd=root,env=env,capture_output=True,text=True,timeout=25)
+                success = fault in (None, 'dedup-current', 'dedup-candidate')
+                self.assertEqual(result.returncode==0,success,result.stderr)
+                if success:
+                    self.assertTrue((root/'site'/bridge/'core').is_file())
+                    self.assertEqual(len(list((root/'site').iterdir())),2 if fault else 3)
+                    self.assertEqual((root/'migration-stage').exists(),fault is None)
+                else:
+                    self.assertFalse((root/'site'/bridge).exists())
 
     def test_real_https_fetch_follows_authenticated_optional_helper_inventory(self):
         workflow = AUTO.read_text()

@@ -1709,6 +1709,7 @@ jobs:
       generation_id: ${{ needs.producer.outputs.generation_id }}
       release_sequence: ${{ needs.producer.outputs.release_sequence }}
       current_generation: ${{ needs.producer.outputs.current_generation }}
+      migration_bridge_generation: local-hosted-0-161-0-ab644771ac89-manager-tui-bridge
       expected_main_sha: ${{ needs.producer.outputs.expected_main_sha }}
       publication_source_sha: dce2d7dee2a2ddbfdd9c4646c84c250400781f28
 

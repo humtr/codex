@@ -86,6 +86,13 @@ qualification until the new generation passes acceptance.
   it is not a steady-state fallback. Subsequent ordinary or manual paired release
   uses helper2 and must prove update from that published bridge. A failed paired
   staging run cannot promote or replace any published generation assets.
+  Pages retains this immutable signed migration bridge alongside candidate/LKG,
+  deduplicating when it is already one of them, within the existing1GiB site bound.
+  Reconstruction uses the same signed Release inventory validator and pinned
+  production key. It creates no runtime pointer, service or new trust authority.
+  Offline clients of intervening strict Cores must explicitly update from that
+  durable bridge URL once, then use ordinary stable updates. Two brief stable
+  promotions alone are insufficient for clients that skip the preparatory release.
 - Ordinary eligible interactive Core launch selects this frontend only when its
   signed helper and same-generation Manager are usable. Core supplies its existing
   qualified local-server socket and exact Core entrypoint. Unsupported explicit

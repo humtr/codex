@@ -121,3 +121,21 @@ paired43 public bridge->UI proof/CAS, installed AI-only hash-bounded cutover and
 physical tap/initial-window acceptance. Keep failed staged42 immutable. Retain a
 durable signed bridge access path for offline strict-Core clients; two transient
 channel promotions alone cannot fix their direct-jump constraint.
+
+Migration access slice CURRENT, cleanab64477 baseline, source hosted acceptance
+38045379341 in progress. Two promotions cannot heal offline intervening strict
+clients; preserve exactly immutable bridge42 as additional Pages payload using
+existing restore-assets/signature validator/1GiB total, without another pointer.
+Production: optional fixed bridge input and deduplicated Pages restore, main
+explicit bridge URL parameter, README one-time migration instruction. Focused:
+actual extracted Pages third signed generation, missing/tampered/extra asset and
+deduplication; protected signed authority/runtime sources unchanged.
+
+Migration access source slice CLOSED: actual Pages3/nine new signed cases and
+Python101 pass; evidence/disposition in GOAL. Bridge hosted38045585667 SUCCESS,
+stable42 promoted on mainc6bb96b; sourceab64477 hosted38045379341 SUCCESS.
+NEXT: mirror durable bridge Pages/main parameter with normal main ancestry and
+this accepted source pin, run manual paired43 through bridge42 old updater/CAS;
+finish device bridge transaction, then paired channel update while existing
+preview clients remain intact. Installed AI-only cutover preserves all other
+module hashes; current window binding is unchanged.

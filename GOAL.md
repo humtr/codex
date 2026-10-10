@@ -21,6 +21,35 @@ accepted history without deleting its published branch. No live cutover or stabl
 admission is claimed by this goal lift. The actual frontend/backend version pair,
 release pipeline and same-generation optional-Manager path are load-bearing gates.
 
+### Durable migration bridge source and preparatory public release accepted (2026-10-10)
+
+Baselineab64477. Pages accepts only the fixed signed migration generation
+local-hosted-0-161-0-ab644771ac89-manager-tui-bridge and retains it beside candidate
+and LKG, deduplicating when already one of them. Restore uses the existing
+signed Release inventory validator and exact production-key comparison; the
+existing1GiB total site bound includes this additional payload. No extra runtime
+pointer, daemon, signing authority or manifest parser exists. README documents
+one-time explicit bridge update for offline intervening strict-Core installations;
+subsequent updates use the ordinary signed stable channel.
+
+Actual extracted Pages3 regressions pass: prior legacy/extended transport and
+nine new signed-bridge cases (healthy third payload, missing/changed/extra asset,
+wrong key/sequence/identifier, current/candidate deduplication). Test-only URL-base
+and mock Release-selection reds were corrected and rejected. Grouped Python101,
+fmt/diff pass; unchanged Core/Manager/builder production reuses309/protected1 and
+Clippy evidence from the immediately accepted slice.
+
+Source38045379341 atab64477 succeeds. Main normal bridge mirror1a6d851/extracted34
+passes. Actual public38045585667 succeeds end-to-end: unsigned Android candidate,
+native smoke, signing, immutable Release, Pages retaining stable41, full HTTPS
+readback, disposable old stable053e35 update/version/doctor/second update proof and
+CAS promotion to bridge42, mainc6bb96b. Failed earlier paired staging42 remains
+immutable; it never promoted. AI-only installed cutover preserves every other
+installed module byte and existing user profile/auth implementation. Device's
+ordinary preview->stable restoration and public bridge update is in progress;
+active original18688/native binding remain preserved. Paired43 publication and
+protected device/native physical tap admission remain open.
+
 ### Terminal registration/title source and bounded publication bridge accepted (2026-10-10)
 
 Baseline45e5050. Core's private capability route passes only qualified frontend

@@ -133,3 +133,10 @@ The implementation branch remains independent from the publication branch.
 Current stable-channel promotion changes only the signed public index authority
 on `main` through the accepted non-forced CAS release path; implementation
 development continues on `rewrite/rust-core`.
+
+Published browser-bridge releases before the Manager TUI may reject a direct
+update with “R10 browser helper bridge contract is invalid.” Those installations
+must run `codex update --remote https://humtr.github.io/codex/local-hosted-0-161-0-ab644771ac89-manager-tui-bridge/`
+once, then `codex update`. This authenticated migration generation is retained
+on Pages; ordinary updates and fresh installation use the current signed stable
+channel. Existing conversations, profiles and running clients remain preserved.
