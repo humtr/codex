@@ -6328,3 +6328,15 @@ Extra22177 pts4 no longer attached; managed status=off implements user hidden
 trial. Current original legacy name explicitly pinned, awaiting user UI rename
 to ai-tmux-a387f067eedfb630 then unpin; no silent live name switch.
 Automatic initial named launch remains next slice, not claimed by this change.
+
+### CLI short-name length review (2026-10-10)
+
+User requests comparing4/6/8 characters with CLI prefix. Actual180 unique local
+rollout filename IDs are all UUIDv7: first4 collision groups contain180 sessions,
+first6 contain162, first8 contain46. Current prefix matches56/7/1 respectively.
+UUIDv7 first48 bits are millisecond timestamp (RFC9562 sec5.7), making raw leading
+characters unsuitable as a stable short discriminator. Last4/6/8 had no collisions
+in this sample, not a uniqueness guarantee. Recommend CLI + last8 ID characters,
+with full-ID qualification retained and collision detection before native dispatch.
+Candidate current label codex-58465dc2; this review does not activate a new name
+or change the installed legacy binding. Prior hash label is superseded proposal.

@@ -117,3 +117,9 @@ State: source accepted in GOAL, AI888d19f native11/full37 installed. Sole origin
 then unset explicit legacy binding is the next bounded gate. No service dispatch
 with new name before UI confirmation. Automatic named initial launch remains
 next separate slice; do not claim it implemented by stable naming alone.
+
+User naming steering supersedes opaque hash UI proposal: compare4/6/8. Evidence
+and recommendation in GOAL: CLI + last8 full-session-ID characters, leading UUIDv7
+time prefix collisions proven locally. Integrate full-ID collision handling and
+initial managed-terminal ownership before cutover; do not ask user to rename to
+a label the installed focus path does not yet support. Current binding preserved.
