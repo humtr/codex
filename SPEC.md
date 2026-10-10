@@ -281,8 +281,10 @@ For Codex launches AI adds upstream `thread-id` first in the selected home's
 `tui.terminal_title`, preserving other configured items (or upstream defaults)
 and all unrelated config semantics. This explicit UI preference is persisted
 atomically without backups; no CLI override or shared-server setting is added.
-A click resolves the full hook session UUID against canonical local rollout
-metadata and the current title of one live, AI-managed Codex pane. Truncated
+A click uses the qualified native foreground descriptor when the private terminal
+binding exists. Only an unbridged frontend resolves the full hook session UUID
+against canonical local rollout metadata and the current title of one live,
+AI-managed Codex pane. Truncated
 native IDs must uniquely correspond to the full metadata ID. Missing, colliding,
 ambiguous or closed targets cause no tmux movement. The live pane must still run
 an installed Codex runtime, directly or through the installed AI PTY supervisor.
@@ -332,6 +334,40 @@ and reinstalling AI restores the earlier pane-selection/Activity behavior withou
 state or terminating existing clients.
 
 ### Manager command boundary
+
+#### Native terminal identity bridge
+
+The optional qualified native frontend maintains one same-UID private temporary
+file descriptor, created exclusively
+with mode0600 and close-on-exec and immediately unlinked. Its former basename
+is `.codex-terminal-thread-v1-PID-NONCE`.
+Its entire content is the canonical full UUID of the displayed thread, or empty
+when no thread is displayed. It updates this slot before rendering a changed
+foreground thread, independently of title configuration. Native identity remains
+in the open unlinked file, automatically reclaimed on process exit; there is no
+new persistent session index. It calls the private
+exact command `codex termux __terminal-bind-v1 FD` once to register this descriptor.
+Manager verifies its direct parent is a same-UID installed native Codex frontend, its tmux socket is
+same-UID, and its inherited pane contains that frontend directly or through the
+installed AI PTY supervisor. It records one pane-local
+`@codex_terminal_binding_v1` value containing the native/root PID plus kernel
+start identities and descriptor. Manager validates the descriptor's private
+unlinked-file identity. No transcript, profile index or daemon is
+introduced. Publication is bounded and rechecks the pane root atomically.
+This command cannot rename a native Android terminal or start a workload.
+
+AI consumes this binding without rewriting it, reads the current full UUID from
+that qualified native process's descriptor, and rechecks it at the selection and
+Android dispatch boundaries. A thread change remains visible even if Manager
+registration later becomes unavailable; stale UUIDs cannot remain cached in tmux.
+With a binding present, malformed, stale or mismatching native/root/descriptor
+identity refuses focus; it never falls back to the title. Unbridged installed
+frontends retain the previous title qualification
+until the native producer is admitted. The bridge is independent of upstream
+`/title` selections and OSC display text. Core's ordinary launch and the current
+original Android terminal registration remain unchanged. Native source/build
+proof precedes admission; consumer-only or seeded fixtures do not establish
+automatic thread-switch integration.
 
 `codex termux` is a Manager boundary and is never passed to upstream. Manager
 v1 has profiles, notifications, and a bounded active-task assistance family.

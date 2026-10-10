@@ -6365,3 +6365,41 @@ Recommended ownership: Codex-specific lifecycle/notification identity in Manager
 upstream title composition stays TUI, AI delegates advertised Manager capability
 and supplies provider fallback; one active binding owner per terminal. Core stays
 independent. Automatic rename and initial managed launch remain unimplemented.
+
+### Title-independent foreground identity — source candidate (2026-10-10)
+
+Baseline3a07e63 clean, workers OFF. Implemented native App foreground hook with
+one mode0600/CLOEXEC temporary descriptor unlinked immediately; foreground full
+UUID updates independently of /title. Manager's private __terminal-bind-v1 FD
+qualifies caller/runtime, native or installed PTY supervisor, UID/socket/pane and
+PID/start identities, then atomically publishes one pane-local binding. AI13710ac
+reads/rechecks that descriptor; a stale or malformed binding never downgrades to
+title matching. Normal unbridged frontends retain their prior path during admission.
+
+Actual Android memfd_create failed EACCES: rejected implementation deleted, direct
+unlinked ordinary file verified instead. No new daemon, session index, transcript
+access, native preference edit or workload start. KEEP upstream OSC/title composition,
+Manager binding publisher and AI consumer; COLLAPSE per-thread registration into
+one per-native-process descriptor; DELETE conversation-ID window label proposal,
+memfd attempt and stale Workboard history/next steps already recorded in this ledger.
+
+Proof: Manager36 unit +55 integration, Core184, builder22 (297 passed,1 existing
+explicit Core ignore); clippy all-targets -D warnings/fmt/diff passed. Profile
+experiment10 tests passed. Actual private Manager entrypoint passed with real
+native and installed-path PTY-supervisor callers; wrong script/plan and foreign
+caller refused. Native module compiled with -D warnings and its2 tests passed,
+including the real sync entrypoint in a separately isolated nonzero child gate;
+existing pinned App/lib source accepts the patch. AI12 native focus tests and
+runtime/supervisor regressions passed; exact committed AI tree focused gates also
+passed. Working-tree AI full37/0warn/0fail passed, user profile/auth source changes
+preserved. Fixture JSON publication race fixed by atomic test-only marker writes.
+Empty/reordered/no-ID titles, ambiguity, malformed/current-other/empty UUID,
+native/root start and descriptor faults, binding and thread changes at selection
+are covered. No installed consumer/frontend/Core/Manager replacement yet.
+
+Protected device readback: sole original client18688 pts0, explicit legacy native
+terminal name unchanged, status=off. Native full CLI build/hosted focused tests and
+actual owned TUI thread-switch/title/descriptor proof remain OPEN; standalone
+module/caller fixtures do not close those gates. Initial registered launch,
+CLI-prefixed fixed window8 names and capability delegation are queued behind this
+slice. No complete normalization or live automatic-binding claim.

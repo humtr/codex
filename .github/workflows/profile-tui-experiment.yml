@@ -214,7 +214,7 @@ jobs:
         run: |
           set -euo pipefail
           cd upstream
-          just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-tui --lib -E 'test(profile_transport) | test(termux_permissions) | test(profile_manager) | test(switch_command) | test(side_conversation_hides_commands_without_side_flag)' 2>&1 | tee "$RUNNER_TEMP/profile-tui-focused.log"
+          just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-tui --lib -E 'test(profile_transport) | test(termux_permissions) | test(termux_terminal) | test(profile_manager) | test(switch_command) | test(side_conversation_hides_commands_without_side_flag)' 2>&1 | tee "$RUNNER_TEMP/profile-tui-focused.log"
           python3 "$GITHUB_WORKSPACE/experiment/experiments/profile-tui/check_command_boundary.py" "$RUNNER_TEMP/profile-tui-pristine" --patched "$GITHUB_WORKSPACE/upstream" --test-log "$RUNNER_TEMP/profile-tui-focused.log"
       - name: Inspect TUI lint fixes
         shell: bash

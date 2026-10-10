@@ -5,6 +5,7 @@ mod profile_resume;
 mod profile_view;
 use profile_view::format_current;
 mod task;
+mod terminal;
 
 use std::ffi::{OsStr, OsString};
 use std::fs::{self, File, OpenOptions};
@@ -305,6 +306,9 @@ where
 }
 
 fn run_inner(args: Vec<OsString>) -> Result<Option<String>, ManagerError> {
+    if is_exact(args.first(), "__terminal-bind-v1") {
+        return terminal::bind(&capture_context()?, &args[1..]);
+    }
     if is_exact(args.first(), "__profile-resume-v1") {
         return profile_resume::run(&capture_context()?, &args[1..]);
     }
