@@ -1,30 +1,19 @@
-name: Rust Core full source acceptance
+name: Source acceptance
 
 on:
   push:
     branches:
       - rewrite/rust-core
-    paths:
-      - '.github/**'
-      - 'crates/**'
-      - 'scripts/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - 'install*.sh'
-      - 'bootstrap/**'
-      - 'SPEC.md'
-      - 'GOAL.md'
-      - 'WORKBOARD.md'
-      - 'AGENTS.md'
 
 permissions:
   contents: read
 
 concurrency:
-  group: rald7-full-source-acceptance
+  group: source-acceptance
   cancel-in-progress: false
 
 env:
+  CARGO_TARGET_DIR: ${{ github.workspace }}/cargo-target
   RUST_VERSION: '1.98.0'
   ANDROID_API: '24'
   ANDROID_NDK_VERSION: '27.3.13750724'
@@ -32,14 +21,14 @@ env:
   ANDROID_RUNTIME_APEX_SHA256: '83bf0dce249728dae48149b80d28b48115c54adad95a352120d58a6ac669d1fc'
   TERMUX_TEST_PREFIX: '/data/data/com.termux/files/usr'
   TERMUX_TEST_TMPDIR: '/data/data/com.termux/files/usr/tmp'
-  PUBLIC_KEY_URL: 'https://github.com/humtr/codex/releases/download/local-hosted-0-154-0-37fbbd8033b8-rald45-transition/update-public-key.pem'
-  PUBLIC_KEY_SHA256: '62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c'
 
 jobs:
   contract:
     name: Workflow, credential, and diff gate
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    outputs:
+      scope: ${{ steps.scope.outputs.scope }}
     steps:
       - name: Fetch exact acceptance source
         shell: bash
@@ -51,19 +40,39 @@ jobs:
           git -C source checkout --detach FETCH_HEAD
           test "$(git -C source rev-parse HEAD)" = "$GITHUB_SHA"
 
-      - name: Validate workflow syntax and action pins
+      - name: Select verification scope
+        id: scope
+        shell: bash
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          cd source
+          if [[ "$BEFORE" =~ ^[0-9a-f]{40}$ ]] && test "$BEFORE" != 0000000000000000000000000000000000000000 && \
+             git fetch --no-tags --depth=1 origin "$BEFORE"; then
+            git diff --name-only -z "$BEFORE" HEAD | python3 scripts/ci_scope.py --stdin | sed 's/^/scope=/' >> "$GITHUB_OUTPUT"
+          else
+            printf 'scope=full\n' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Workflow syntax, focused Python and diff
         shell: bash
         run: |
           set -euo pipefail
           cd source
+          export PYTHONDONTWRITEBYTECODE=1
           for workflow in .github/workflows/*.yml; do
             ruby -e 'require "psych"; Psych.parse_file(ARGV.fetch(0))' "$workflow"
           done
-          python3 -m py_compile .github/scripts/test_rald7_acceptance.py
-          python3 .github/scripts/test_rald7_acceptance.py
+          python3 .github/scripts/test_release_workflow.py
+          if test '${{ steps.scope.outputs.scope }}' != docs; then
+            scripts/check.sh python
+          fi
           git diff --check HEAD^ HEAD
 
   android-core:
+    needs: contract
+    if: needs.contract.outputs.scope == 'full'
     name: Build event Android/AArch64 Core proof artifact
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -77,6 +86,17 @@ jobs:
           git -C product fetch --no-tags --depth=1 origin "$GITHUB_SHA"
           git -C product checkout --detach FETCH_HEAD
           test "$(git -C product rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Restore compiler cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ${{ env.CARGO_TARGET_DIR }}
+          key: source-${{ runner.os }}-${{ runner.arch }}-rust${{ env.RUST_VERSION }}-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            source-${{ runner.os }}-${{ runner.arch }}-rust${{ env.RUST_VERSION }}-${{ hashFiles('**/Cargo.lock') }}-
 
       - name: Cross-build Android/AArch64 Core
         shell: bash
@@ -92,7 +112,7 @@ jobs:
           export CC_aarch64_linux_android="$linker"
           export AR_aarch64_linux_android="$toolchain/llvm-ar"
           cargo "+$RUST_VERSION" build --release --locked             --manifest-path product/Cargo.toml             --target aarch64-linux-android -p codex
-          core="product/target/aarch64-linux-android/release/codex"
+          core="$CARGO_TARGET_DIR/aarch64-linux-android/release/codex"
           test -x "$core"
           file "$core" | grep -F 'ARM aarch64'
           readelf -l "$core" | grep -F '/system/bin/linker64'
@@ -111,7 +131,8 @@ jobs:
 
   workspace:
     name: Locked workspace check, test, clippy, and fmt
-    needs: android-core
+    needs: [contract, android-core]
+    if: needs.contract.outputs.scope == 'full'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 45
     steps:
@@ -190,20 +211,23 @@ jobs:
           test ! -L "$TERMUX_TEST_PREFIX/bin/gzip"
           test ! -L "$TERMUX_TEST_PREFIX/bin/openssl"
 
+      - name: Restore compiler cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ${{ env.CARGO_TARGET_DIR }}
+          key: source-${{ runner.os }}-${{ runner.arch }}-rust${{ env.RUST_VERSION }}-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            source-${{ runner.os }}-${{ runner.arch }}-rust${{ env.RUST_VERSION }}-${{ hashFiles('**/Cargo.lock') }}-
+
       - name: Cargo check
         shell: bash
         run: |
           set -euo pipefail
           cd source
           cargo check --workspace --locked
-
-      - name: Python migration and hosted contracts
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd source
-          python3 -m unittest -v scripts/test_shared_state_migrate.py scripts/test_shared_visibility_transition.py
-          python3 -m unittest discover -s .github/scripts -p 'test_*.py'
 
       - name: Full workspace and Android focused proofs in private proc
         shell: bash
@@ -253,6 +277,7 @@ jobs:
               --bounding-set=-all --inh-caps=-all --ambient-caps=-all \
             env PATH="$PATH" HOME="$HOME" \
               RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}" CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}" \
+              CARGO_TARGET_DIR="$CARGO_TARGET_DIR" \
               PREFIX="$PREFIX" TMPDIR="$TMPDIR" RALD7_ANDROID_CORE="$RALD7_ANDROID_CORE" \
             bash --noprofile --norc -e -o pipefail -c '
               test "$(id -u)" -ne 0
@@ -260,9 +285,12 @@ jobs:
                 --skip test_r6_builder_publish_output_enters_existing_signed_release_admission \
                 --skip test_rald1_local_derived_fallback_and_explicit_build_preserve_public_authority \
                 --skip test_manager_tui_public_local_build_preserves_pair_and_refuses_unpaired_update
-              CODEX_B10_RELEASE_CORE="$RALD7_ANDROID_CORE" cargo test --locked -p codex tests::test_r6_builder_publish_output_enters_existing_signed_release_admission -- --exact --nocapture --test-threads=1
-              CODEX_B10_RELEASE_CORE="$RALD7_ANDROID_CORE" cargo test --locked -p codex tests::test_rald1_local_derived_fallback_and_explicit_build_preserve_public_authority -- --exact --nocapture --test-threads=1
-              CODEX_B10_RELEASE_CORE="$RALD7_ANDROID_CORE" cargo test --locked -p codex tests::test_manager_tui_public_local_build_preserves_pair_and_refuses_unpaired_update -- --exact --nocapture --test-threads=1
+              CODEX_B10_RELEASE_CORE="$RALD7_ANDROID_CORE" cargo test --locked -p codex tests::test_r6_builder_publish_output_enters_existing_signed_release_admission -- --exact --nocapture --test-threads=1 | tee "$TMPDIR/test_r6_builder_publish_output_enters_existing_signed_release_admission.out"
+              grep -F "test result: ok. 1 passed" "$TMPDIR/test_r6_builder_publish_output_enters_existing_signed_release_admission.out"
+              CODEX_B10_RELEASE_CORE="$RALD7_ANDROID_CORE" cargo test --locked -p codex tests::test_rald1_local_derived_fallback_and_explicit_build_preserve_public_authority -- --exact --nocapture --test-threads=1 | tee "$TMPDIR/test_rald1_local_derived_fallback_and_explicit_build_preserve_public_authority.out"
+              grep -F "test result: ok. 1 passed" "$TMPDIR/test_rald1_local_derived_fallback_and_explicit_build_preserve_public_authority.out"
+              CODEX_B10_RELEASE_CORE="$RALD7_ANDROID_CORE" cargo test --locked -p codex tests::test_manager_tui_public_local_build_preserves_pair_and_refuses_unpaired_update -- --exact --nocapture --test-threads=1 | tee "$TMPDIR/test_manager_tui_public_local_build_preserves_pair_and_refuses_unpaired_update.out"
+              grep -F "test result: ok. 1 passed" "$TMPDIR/test_manager_tui_public_local_build_preserves_pair_and_refuses_unpaired_update.out"
             '
 
       - name: Clippy warnings are errors
@@ -279,91 +307,9 @@ jobs:
           cd source
           cargo fmt --all -- --check
 
-  public-audit:
-    name: Authenticated public-stable snapshot audit
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    steps:
-      - name: Fetch event audit source
-        shell: bash
-        run: |
-          set -euo pipefail
-          git init source
-          git -C source remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
-          git -C source fetch --no-tags --depth=2 origin "$GITHUB_SHA"
-          git -C source checkout --detach FETCH_HEAD
-          test "$(git -C source rev-parse HEAD)" = "$GITHUB_SHA"
-
-      - name: Verify authenticated stable snapshot and every published byte
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd source
-          main_sha="$(git ls-remote --exit-code "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/main | awk '{print $1}')"
-          [[ "$main_sha" =~ ^[0-9a-f]{40}$ ]]
-          root="$RUNNER_TEMP/rald7-public"
-          mkdir -p "$root"
-          fetch() {
-            curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 --connect-timeout 15 --max-time "$3" --max-filesize "$4" --output "$2" "$1"
-          }
-          exact="https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$main_sha"
-          fetch "$exact/update-index-v1" "$root/update-index-v1" 60 16384
-          fetch "$exact/update-index-v1.sig" "$root/update-index-v1.sig" 60 1024
-          fetch "$PUBLIC_KEY_URL" "$root/update-public-key.pem" 60 16384
-          test "$(sha256sum "$root/update-public-key.pem" | awk '{print $1}')" = "$PUBLIC_KEY_SHA256"
-          test "$(wc -c < "$root/update-index-v1.sig")" -eq 64
-          openssl pkeyutl -verify -rawin -pubin -inkey "$root/update-public-key.pem" -in "$root/update-index-v1" -sigfile "$root/update-index-v1.sig" >/dev/null
-          python3 - "$root" <<'PY'
-          from pathlib import Path
-          import sys
-          sys.path.insert(0, '.github/scripts')
-          from rald5_publication import parse_index
-          root = Path(sys.argv[1])
-          index = parse_index(root / 'update-index-v1')
-          (root / 'locator').write_text(index['generation_id'] + '\n' + index['release_base'] + '\n')
-          PY
-          generation="$(sed -n '1p' "$root/locator")"
-          release_base="$(sed -n '2p' "$root/locator")"
-          release="$root/$generation"
-          mkdir -p "$release"
-          cp "$root/update-index-v1" "$root/update-index-v1.sig" "$release/"
-          fetch "${release_base}release.manifest" "$release/release.manifest" 60 131072
-          fetch "${release_base}release.sig" "$release/release.sig" 60 1024
-          test "$(wc -c < "$release/release.sig")" -eq 64
-          openssl pkeyutl -verify -rawin -pubin -inkey "$root/update-public-key.pem" -in "$release/release.manifest" -sigfile "$release/release.sig" >/dev/null
-          python3 - "$release" "$generation" <<'PY'
-          from pathlib import Path
-          import sys
-          sys.path.insert(0, '.github/scripts')
-          from rald5_publication import parse_manifest
-          release = Path(sys.argv[1])
-          manifest, files = parse_manifest(release / 'release.manifest')
-          assert manifest['generation_id'] == sys.argv[2], 'snapshot generation mismatch'
-          (release.parent / 'sequence').write_text(manifest['release_sequence'] + '\n')
-          (release.parent / 'inventory').write_text(''.join('\t'.join(row) + '\n' for row in files))
-          PY
-          sequence="$(cat "$root/sequence")"
-          total=0
-          tab="$(printf '\t')"
-          while IFS="$tab" read -r rel digest mode; do
-            target="$release/$rel"
-            mkdir -p "$(dirname "$target")"
-            fetch "${release_base}$rel" "$target" 300 536870912
-            test "$(sha256sum "$target" | awk '{print $1}')" = "$digest"
-            chmod "$mode" "$target"
-            total=$((total + $(wc -c < "$target")))
-            test "$total" -le 1073741824
-          done < "$root/inventory"
-          mkdir "$release/compat"
-          fetch "${release_base}compat/download-size-v1" "$release/compat/download-size-v1" 60 131072
-          fetch "${release_base}compat/download-size-v1.sig" "$release/compat/download-size-v1.sig" 60 1024
-          python3 .github/scripts/rald5_publication.py verify-public --root "$root" --generation "$generation" --release-sequence "$sequence" --release-base "$release_base" --public-key "$root/update-public-key.pem" --require-download-size
-          test "$(git ls-remote --exit-code "https://github.com/$GITHUB_REPOSITORY.git" refs/heads/main | awk '{print $1}')" = "$main_sha"
-          printf 'Authenticated public snapshot %s, sequence %s, main %s\n' "$generation" "$sequence" "$main_sha"
-
   accepted:
     name: Rust Core source acceptance
-    needs: [contract, workspace, public-audit]
+    needs: [contract, workspace]
     if: always()
     runs-on: ubuntu-24.04
     steps:
@@ -372,6 +318,9 @@ jobs:
         run: |
           set -euo pipefail
           test '${{ needs.contract.result }}' = success
-          test '${{ needs.workspace.result }}' = success
-          test '${{ needs.public-audit.result }}' = success
+          if test '${{ needs.contract.outputs.scope }}' = full; then
+            test '${{ needs.workspace.result }}' = success
+          else
+            test '${{ needs.workspace.result }}' = skipped
+          fi
           printf 'Event-revision source acceptance gates are green\n'

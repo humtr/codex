@@ -1,75 +1,20 @@
-name: Termux Hosted Release Preflight
+name: Qualified Termux release
 
 on:
-  workflow_dispatch:
+  workflow_call:
     inputs:
-      manager_tui_bridge_deploy:
-        description: 'Bounded preparatory Core deployment from exact stable 0.161.0 sequence41; requires Manager TUI same-version deployment authorization'
-        required: false
+      source_sha:
+        required: true
+        type: string
+      publish:
         type: boolean
         default: false
-      manager_tui_same_version_deploy:
-        description: 'Deploy the qualified Manager TUI into authenticated stable 0.161.0 at the next sequence'
-        required: false
+      rebuild_current:
         type: boolean
         default: false
-      rald4_positive_gate:
-        description: 'Run the bounded RALD-4 acceptance-only signing gate'
+    secrets:
+      CODEX_RELEASE_SIGNING_KEY:
         required: false
-        type: boolean
-        default: false
-      rald5_publication_authorized:
-        description: 'Explicitly authorize public Release/Pages/promotion for this manual run; RALD-7 schedules authorize only ordinary newer stable'
-        required: false
-        type: boolean
-        default: false
-      rald5_same_version_acceptance:
-        description: 'Bounded RALD-5 acceptance: republish exact official 0.154.0 through the full public path'
-        required: false
-        type: boolean
-        default: false
-      rald45_transition_stage:
-        description: 'Stage/prove the backward-compatible RALD-4.5 transition generation without stable promotion'
-        required: false
-        type: boolean
-        default: false
-      rald45_transition_promote:
-        description: 'Separately authorize stable promotion of the proved RALD-4.5 transition generation'
-        required: false
-        type: boolean
-        default: false
-      rald5_negative_gate:
-        description: 'For an authorized publication candidate, fail public readback before promotion'
-        required: false
-        type: boolean
-        default: false
-      legacy_lag_jump_remediation:
-        description: 'One-shot production remediation: exact 0.155.0 sequence-13 R10 direct-jump bridge'
-        required: false
-        type: boolean
-        default: false
-      ux1_same_version_deploy:
-        description: 'One-shot production deployment: exact 0.155.1 sequence-14 to sequence-15 UX-1 Core correction'
-        required: false
-        type: boolean
-        default: false
-      update_progress_same_version_deploy:
-        description: 'One-shot production deployment: exact 0.155.1 sequence-15 to sequence-16 animated progress responsiveness correction'
-        required: false
-        type: boolean
-        default: false
-      exact_current_fastpath_same_version_deploy:
-        description: 'One-shot production deployment: exact 0.155.1 sequence-16 to sequence-17 exact-current fastpath correction'
-        required: false
-        type: boolean
-        default: false
-      no_emoji_same_version_deploy:
-        description: 'One-shot production deployment: exact 0.155.1 sequence-17 to sequence-18 no-emoji output correction'
-        required: false
-        type: boolean
-        default: false
-  schedule:
-    - cron: '0 */6 * * *'
 
 permissions:
   contents: read
@@ -79,8 +24,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  CODEX_SOURCE_SHA: '9300a68852c879f4730e9191e46837cfab6745d9'
-  RALD5_SOURCE_SHA: 'dce2d7dee2a2ddbfdd9c4646c84c250400781f28'
+  CODEX_SOURCE_SHA: ${{ inputs.source_sha }}
   MANAGER_TUI_ARCHIVE_SHA256: '3c02e2ae34be0d06e62557e98fc5c0a783bec5a2fed406fe00e565803bf84ee8'
   MANAGER_TUI_VERSION: '0.161.0'
   MANAGER_TUI_SOURCE_SHA: '29b25841273c792eedc8fc6c5e28eb7e3489be48'
@@ -93,38 +37,6 @@ env:
   ANDROID_NDK_VERSION: '27.3.13750724'
   PUBLIC_INDEX_URL: 'https://raw.githubusercontent.com/humtr/codex/main/update-index-v1'
   UPSTREAM_LATEST_URL: 'https://releases.openai.com/codex/channels/latest'
-  RALD4_ACCEPTANCE_BASELINE_VERSION: '0.153.4'
-  RALD4_ACCEPTANCE_TARGET_VERSION: '0.154.0'
-  RALD5_SAME_VERSION_ACCEPTANCE_VERSION: '0.154.0'
-  LEGACY_LAG_REMEDIATION_VERSION: '0.155.0'
-  LEGACY_LAG_REMEDIATION_CURRENT_GENERATION: 'local-hosted-0-155-0-566034e1aff4'
-  LEGACY_LAG_REMEDIATION_CURRENT_SEQUENCE: '12'
-  LEGACY_LAG_REMEDIATION_TARGET_SEQUENCE: '13'
-  LEGACY_LAG_SOURCE_SHA: '0621105fd1be8461b370466fbfa981938241074d'
-  LEGACY_LAG_VERSION: '0.153.4'
-  LEGACY_LAG_ARCHIVE_SHA256: 'fc395cb043a1093ab0db34f44aba3199bfaa9ce640cd9be7fd588f44b0da64a4'
-  LEGACY_LAG_GENERATION: 'legacy-lag-seq7-r10-01534'
-  LEGACY_LAG_BUILD_ANDROID_API: '30'
-  UX1_ACCEPTED_SOURCE_SHA: '07f77b89a177682954d80ae3f797377c4731de64'
-  UX1_DEPLOY_VERSION: '0.155.1'
-  UX1_DEPLOY_CURRENT_GENERATION: 'local-hosted-0-155-1-566034e1aff4'
-  UX1_DEPLOY_CURRENT_SEQUENCE: '14'
-  UX1_DEPLOY_TARGET_SEQUENCE: '15'
-  UPDATE_PROGRESS_ACCEPTED_SOURCE_SHA: '81131655d98f114b5324bd8ee5866cff0a171941'
-  UPDATE_PROGRESS_DEPLOY_VERSION: '0.155.1'
-  UPDATE_PROGRESS_DEPLOY_CURRENT_GENERATION: 'local-hosted-0-155-1-07f77b89a177-ux1-human-output'
-  UPDATE_PROGRESS_DEPLOY_CURRENT_SEQUENCE: '15'
-  UPDATE_PROGRESS_DEPLOY_TARGET_SEQUENCE: '16'
-  EXACT_CURRENT_FASTPATH_ACCEPTED_SOURCE_SHA: '7817b939c81ce15c76d3d0d57157ca5e378a8491'
-  EXACT_CURRENT_FASTPATH_DEPLOY_VERSION: '0.155.1'
-  EXACT_CURRENT_FASTPATH_DEPLOY_CURRENT_GENERATION: 'local-hosted-0-155-1-81131655d98f-update-progress-responsiveness'
-  EXACT_CURRENT_FASTPATH_DEPLOY_CURRENT_SEQUENCE: '16'
-  EXACT_CURRENT_FASTPATH_DEPLOY_TARGET_SEQUENCE: '17'
-  NO_EMOJI_ACCEPTED_SOURCE_SHA: '9300a68852c879f4730e9191e46837cfab6745d9'
-  NO_EMOJI_DEPLOY_VERSION: '0.155.1'
-  NO_EMOJI_DEPLOY_CURRENT_GENERATION: 'local-hosted-0-155-1-7817b939c81c-exact-current-fastpath'
-  NO_EMOJI_DEPLOY_CURRENT_SEQUENCE: '17'
-  NO_EMOJI_DEPLOY_TARGET_SEQUENCE: '18'
   WRAPPER_PUBLIC_KEY_SHA256: '62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c'
   ANDROID_RUNTIME_APEX_COMMIT: '8aeb37cca394ce39c1311744c60960cbd466aa77'
   ANDROID_RUNTIME_APEX_SHA256: '83bf0dce249728dae48149b80d28b48115c54adad95a352120d58a6ac669d1fc'
@@ -139,23 +51,11 @@ jobs:
       actions: read
     outputs:
       candidate: ${{ steps.decision.outputs.candidate }}
-      manager_tui_bridge_deploy: ${{ steps.decision.outputs.manager_tui_bridge_deploy }}
       artifact_name: ${{ steps.decision.outputs.artifact_name }}
       qualified_artifact_name: ${{ steps.decision.outputs.qualified_artifact_name }}
       signed_artifact_name: ${{ steps.decision.outputs.signed_artifact_name }}
       generation_id: ${{ steps.decision.outputs.generation_id }}
       upstream_version: ${{ steps.decision.outputs.upstream_version }}
-      acceptance_gate: ${{ steps.decision.outputs.acceptance_gate }}
-      publication_authorized: ${{ steps.decision.outputs.publication_authorized }}
-      same_version_acceptance: ${{ steps.decision.outputs.same_version_acceptance }}
-      transition_stage: ${{ steps.decision.outputs.transition_stage }}
-      transition_promote: ${{ steps.decision.outputs.transition_promote }}
-      negative_gate: ${{ steps.decision.outputs.negative_gate }}
-      legacy_lag_jump_remediation: ${{ steps.decision.outputs.legacy_lag_jump_remediation }}
-      ux1_same_version_deploy: ${{ steps.decision.outputs.ux1_same_version_deploy }}
-      update_progress_same_version_deploy: ${{ steps.decision.outputs.update_progress_same_version_deploy }}
-      exact_current_fastpath_same_version_deploy: ${{ steps.decision.outputs.exact_current_fastpath_same_version_deploy }}
-      no_emoji_same_version_deploy: ${{ steps.decision.outputs.no_emoji_same_version_deploy }}
       expected_main_sha: ${{ steps.stable.outputs.expected_main_sha }}
       current_generation: ${{ steps.stable.outputs.current_generation }}
       current_release_sequence: ${{ steps.stable.outputs.current_release_sequence }}
@@ -165,6 +65,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          [[ "$CODEX_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
           rm -rf source
           git init source
           git -C source remote add origin https://github.com/humtr/codex.git
@@ -262,342 +163,39 @@ jobs:
         id: decision
         shell: bash
         env:
-          MANAGER_TUI_BRIDGE_DEPLOY: ${{ github.event_name == 'workflow_dispatch' && inputs.manager_tui_bridge_deploy }}
-          MANAGER_TUI_SAME_VERSION_DEPLOY: ${{ github.event_name == 'workflow_dispatch' && inputs.manager_tui_same_version_deploy }}
-          RALD4_POSITIVE_GATE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald4_positive_gate }}
-          RALD5_PUBLICATION_AUTHORIZED: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.rald5_publication_authorized) }}
-          RALD5_SAME_VERSION_ACCEPTANCE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald5_same_version_acceptance }}
-          RALD45_TRANSITION_STAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald45_transition_stage }}
-          RALD45_TRANSITION_PROMOTE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald45_transition_promote }}
-          RALD5_NEGATIVE_GATE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald5_negative_gate }}
-          LEGACY_LAG_JUMP_REMEDIATION: ${{ github.event_name == 'workflow_dispatch' && inputs.legacy_lag_jump_remediation }}
-          UX1_SAME_VERSION_DEPLOY: ${{ github.event_name == 'workflow_dispatch' && inputs.ux1_same_version_deploy }}
-          UPDATE_PROGRESS_SAME_VERSION_DEPLOY: ${{ github.event_name == 'workflow_dispatch' && inputs.update_progress_same_version_deploy }}
-          EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY: ${{ github.event_name == 'workflow_dispatch' && inputs.exact_current_fastpath_same_version_deploy }}
-          NO_EMOJI_SAME_VERSION_DEPLOY: ${{ github.event_name == 'workflow_dispatch' && inputs.no_emoji_same_version_deploy }}
+          PUBLISH: ${{ inputs.publish }}
+          REBUILD_CURRENT: ${{ inputs.rebuild_current }}
+          CURRENT_VERSION: ${{ steps.stable.outputs.current_version }}
+          RELEASE_SEQUENCE: ${{ steps.stable.outputs.release_sequence }}
         run: |
           set -euo pipefail
-          state="$RUNNER_TEMP/rald3-upstream"
-          rm -rf "$state"
+          state="$RUNNER_TEMP/upstream"
           mkdir -p "$state"
-          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
-            --connect-timeout 15 --max-time 60 --max-filesize 131072 \
-            --output "$state/latest.json" "$UPSTREAM_LATEST_URL"
-          python3 source/.github/scripts/rald3_preflight.py upstream \
-            "$state/latest.json" > "$state/upstream"
-          upstream_version="$(sed -n 's/^version=//p' "$state/upstream")"
-          archive_sha256="$(sed -n 's/^archive_sha256=//p' "$state/upstream")"
-
-          comparison_version='${{ steps.stable.outputs.current_version }}'
-          acceptance_suffix=''
-          if test "$RALD4_POSITIVE_GATE" = true; then
-            test "$GITHUB_EVENT_NAME" = workflow_dispatch
-            test "$GITHUB_REF" = refs/heads/rewrite/rust-core
-            test '${{ steps.stable.outputs.current_version }}' = "$RALD4_ACCEPTANCE_TARGET_VERSION"
-            test "$upstream_version" = "$RALD4_ACCEPTANCE_TARGET_VERSION"
-            comparison_version="$RALD4_ACCEPTANCE_BASELINE_VERSION"
-            acceptance_suffix='-acceptance'
-            printf 'RALD-4 acceptance-only comparison baseline %s; authenticated public stable remains %s\n' \
-              "$comparison_version" '${{ steps.stable.outputs.current_version }}'
-          fi
-
-          python3 source/.github/scripts/rald3_preflight.py compare \
-            "$comparison_version" "$upstream_version" > "$state/decision"
-          candidate="$(sed -n 's/^candidate=//p' "$state/decision")"
-          test "$candidate" = true -o "$candidate" = false
-          test "$RALD5_PUBLICATION_AUTHORIZED" = true -o "$RALD5_PUBLICATION_AUTHORIZED" = false
-          test "$RALD5_SAME_VERSION_ACCEPTANCE" = true -o "$RALD5_SAME_VERSION_ACCEPTANCE" = false
-          test "$RALD45_TRANSITION_STAGE" = true -o "$RALD45_TRANSITION_STAGE" = false
-          test "$RALD45_TRANSITION_PROMOTE" = true -o "$RALD45_TRANSITION_PROMOTE" = false
-          test "$RALD5_NEGATIVE_GATE" = true -o "$RALD5_NEGATIVE_GATE" = false
-          test "$LEGACY_LAG_JUMP_REMEDIATION" = true -o "$LEGACY_LAG_JUMP_REMEDIATION" = false
-          test "$UX1_SAME_VERSION_DEPLOY" = true -o "$UX1_SAME_VERSION_DEPLOY" = false
-          test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" = true -o "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" = false
-          test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" = true -o "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" = false
-          test "$NO_EMOJI_SAME_VERSION_DEPLOY" = true -o "$NO_EMOJI_SAME_VERSION_DEPLOY" = false
-          if test "$RALD4_POSITIVE_GATE" = true; then
-            test "$candidate" = true
-            test "$RALD5_PUBLICATION_AUTHORIZED" != true
-            test "$RALD5_SAME_VERSION_ACCEPTANCE" != true
-            test "$RALD45_TRANSITION_STAGE" != true
-            test "$RALD45_TRANSITION_PROMOTE" != true
-            test "$RALD5_NEGATIVE_GATE" != true
-            test "$LEGACY_LAG_JUMP_REMEDIATION" != true
-            test "$UX1_SAME_VERSION_DEPLOY" != true
-            test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true
-            test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" != true
-            test "$NO_EMOJI_SAME_VERSION_DEPLOY" != true
-          fi
-          if test "$RALD5_PUBLICATION_AUTHORIZED" = true; then
-            case "$GITHUB_EVENT_NAME" in
-              workflow_dispatch)
-                ;;
-              schedule)
-                test "$RALD4_POSITIVE_GATE" != true
-                test "$RALD5_SAME_VERSION_ACCEPTANCE" != true
-                test "$RALD45_TRANSITION_STAGE" != true
-                test "$RALD45_TRANSITION_PROMOTE" != true
-                test "$RALD5_NEGATIVE_GATE" != true
-                test "$LEGACY_LAG_JUMP_REMEDIATION" != true
-                test "$UX1_SAME_VERSION_DEPLOY" != true
-            test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true
-            test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" != true
-            test "$NO_EMOJI_SAME_VERSION_DEPLOY" != true
-                ;;
-              *)
-                exit 1
-                ;;
-            esac
-          fi
-          if test "$RALD5_SAME_VERSION_ACCEPTANCE" = true; then
-            test "$GITHUB_EVENT_NAME" = workflow_dispatch
-            test "$GITHUB_REF" = refs/heads/rewrite/rust-core
-            test "$RALD4_POSITIVE_GATE" != true
-            test "$RALD5_PUBLICATION_AUTHORIZED" = true
-            test "$LEGACY_LAG_JUMP_REMEDIATION" != true
-            test "$UX1_SAME_VERSION_DEPLOY" != true
-            test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true
-            test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" != true
-            test "$NO_EMOJI_SAME_VERSION_DEPLOY" != true
-            test '${{ steps.stable.outputs.current_version }}' = "$RALD5_SAME_VERSION_ACCEPTANCE_VERSION"
-            test "$upstream_version" = "$RALD5_SAME_VERSION_ACCEPTANCE_VERSION"
-            test '${{ steps.stable.outputs.current_version }}' = "$upstream_version"
-            test "$candidate" = false
-            candidate=true
-            acceptance_suffix='-rald5-same-version-acceptance'
-            printf 'RALD-5 same-version acceptance bridge selected for exact authenticated/official stable %s\n' \
-              "$upstream_version"
-          fi
-          if test "$RALD45_TRANSITION_STAGE" = true; then
-            test "$GITHUB_EVENT_NAME" = workflow_dispatch
-            test "$GITHUB_REF" = refs/heads/rewrite/rust-core
-            test "$RALD4_POSITIVE_GATE" != true
-            test "$RALD5_PUBLICATION_AUTHORIZED" = true
-            test "$RALD5_SAME_VERSION_ACCEPTANCE" = true
-            test "$RALD5_NEGATIVE_GATE" != true
-            test "$LEGACY_LAG_JUMP_REMEDIATION" != true
-            test "$UX1_SAME_VERSION_DEPLOY" != true
-            test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true
-            test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" != true
-            test "$NO_EMOJI_SAME_VERSION_DEPLOY" != true
-            test '${{ steps.stable.outputs.current_version }}' = "$RALD5_SAME_VERSION_ACCEPTANCE_VERSION"
-            test "$upstream_version" = "$RALD5_SAME_VERSION_ACCEPTANCE_VERSION"
-            test '${{ steps.stable.outputs.current_version }}' = "$upstream_version"
-            test "$candidate" = true
-            acceptance_suffix='-rald45-transition'
-            printf 'RALD-4.5 transition stage selected from authenticated public stable %s to corrected Core source %s\n' \
-              "$upstream_version" "$CODEX_SOURCE_SHA"
-          fi
-          if test "$RALD45_TRANSITION_PROMOTE" = true; then
-            test "$GITHUB_EVENT_NAME" = workflow_dispatch
-            test "$GITHUB_REF" = refs/heads/rewrite/rust-core
-            test "$RALD4_POSITIVE_GATE" != true
-            test "$RALD5_PUBLICATION_AUTHORIZED" = true
-            test "$RALD5_SAME_VERSION_ACCEPTANCE" = true
-            test "$RALD45_TRANSITION_STAGE" = true
-            test "$RALD5_NEGATIVE_GATE" != true
-            test "$LEGACY_LAG_JUMP_REMEDIATION" != true
-            test "$UX1_SAME_VERSION_DEPLOY" != true
-            test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true
-            test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" != true
-            test "$NO_EMOJI_SAME_VERSION_DEPLOY" != true
-            printf 'RALD-4.5 transition stable promotion separately authorized for %s\n' "$upstream_version"
-          fi
-          if test "$RALD5_NEGATIVE_GATE" = true; then
-            test "$GITHUB_EVENT_NAME" = workflow_dispatch
-            test "$RALD4_POSITIVE_GATE" != true
-            test "$RALD45_TRANSITION_STAGE" != true
-            test "$RALD5_PUBLICATION_AUTHORIZED" = true
-            test "$LEGACY_LAG_JUMP_REMEDIATION" != true
-            test "$UX1_SAME_VERSION_DEPLOY" != true
-            test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true
-            test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" != true
-            test "$NO_EMOJI_SAME_VERSION_DEPLOY" != true
-            test "$candidate" = true
-          fi
-          if test "$LEGACY_LAG_JUMP_REMEDIATION" = true; then
+          if test "$REBUILD_CURRENT" = true; then
             test "$GITHUB_EVENT_NAME" = workflow_dispatch
             test "$GITHUB_REF" = refs/heads/main
-            test "$RALD4_POSITIVE_GATE" != true
-            test "$RALD5_PUBLICATION_AUTHORIZED" = true
-            test "$RALD5_SAME_VERSION_ACCEPTANCE" != true
-            test "$RALD45_TRANSITION_STAGE" != true
-            test "$RALD45_TRANSITION_PROMOTE" != true
-            test "$RALD5_NEGATIVE_GATE" != true
-            test "$UX1_SAME_VERSION_DEPLOY" != true
-            test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true
-            test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" != true
-            test "$NO_EMOJI_SAME_VERSION_DEPLOY" != true
-            test '${{ steps.stable.outputs.current_version }}' = "$LEGACY_LAG_REMEDIATION_VERSION"
-            test "$upstream_version" = "$LEGACY_LAG_REMEDIATION_VERSION"
-            test '${{ steps.stable.outputs.current_version }}' = "$upstream_version"
-            test '${{ steps.stable.outputs.current_generation }}' = "$LEGACY_LAG_REMEDIATION_CURRENT_GENERATION"
-            test '${{ steps.stable.outputs.current_release_sequence }}' = "$LEGACY_LAG_REMEDIATION_CURRENT_SEQUENCE"
-            test '${{ steps.stable.outputs.release_sequence }}' = "$LEGACY_LAG_REMEDIATION_TARGET_SEQUENCE"
-            test "$candidate" = false
-            candidate=true
-            acceptance_suffix='-legacy-lag-remediation'
-            printf 'legacy-lag direct-jump remediation selected: %s sequence %s -> sequence %s\n' \
-              "$upstream_version" "$LEGACY_LAG_REMEDIATION_CURRENT_SEQUENCE" "$LEGACY_LAG_REMEDIATION_TARGET_SEQUENCE"
-          fi
-          if test "$UX1_SAME_VERSION_DEPLOY" = true; then
-            test "$GITHUB_EVENT_NAME" = workflow_dispatch
-            test "$GITHUB_REF" = refs/heads/main
-            test "$RALD4_POSITIVE_GATE" != true
-            test "$RALD5_PUBLICATION_AUTHORIZED" = true
-            test "$RALD5_SAME_VERSION_ACCEPTANCE" != true
-            test "$RALD45_TRANSITION_STAGE" != true
-            test "$RALD45_TRANSITION_PROMOTE" != true
-            test "$RALD5_NEGATIVE_GATE" != true
-            test "$LEGACY_LAG_JUMP_REMEDIATION" != true
-            test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true
-            test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" != true
-            test "$NO_EMOJI_SAME_VERSION_DEPLOY" != true
-            test "$CODEX_SOURCE_SHA" = "$UX1_ACCEPTED_SOURCE_SHA"
-            test '${{ steps.stable.outputs.current_version }}' = "$UX1_DEPLOY_VERSION"
-            test "$upstream_version" = "$UX1_DEPLOY_VERSION"
-            test '${{ steps.stable.outputs.current_version }}' = "$upstream_version"
-            test '${{ steps.stable.outputs.current_generation }}' = "$UX1_DEPLOY_CURRENT_GENERATION"
-            test '${{ steps.stable.outputs.current_release_sequence }}' = "$UX1_DEPLOY_CURRENT_SEQUENCE"
-            test '${{ steps.stable.outputs.release_sequence }}' = "$UX1_DEPLOY_TARGET_SEQUENCE"
-            test "$candidate" = false
-            candidate=true
-            acceptance_suffix='-ux1-human-output'
-            printf 'UX-1 same-version production deployment selected: %s sequence %s -> sequence %s\n' \
-              "$upstream_version" "$UX1_DEPLOY_CURRENT_SEQUENCE" "$UX1_DEPLOY_TARGET_SEQUENCE"
-          fi
-          if test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" = true; then
-            test "$GITHUB_EVENT_NAME" = workflow_dispatch
-            test "$GITHUB_REF" = refs/heads/main
-            test "$RALD4_POSITIVE_GATE" != true
-            test "$RALD5_PUBLICATION_AUTHORIZED" = true
-            test "$RALD5_SAME_VERSION_ACCEPTANCE" != true
-            test "$RALD45_TRANSITION_STAGE" != true
-            test "$RALD45_TRANSITION_PROMOTE" != true
-            test "$RALD5_NEGATIVE_GATE" != true
-            test "$LEGACY_LAG_JUMP_REMEDIATION" != true
-            test "$UX1_SAME_VERSION_DEPLOY" != true
-            test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" != true
-            test "$NO_EMOJI_SAME_VERSION_DEPLOY" != true
-            test "$CODEX_SOURCE_SHA" = "$UPDATE_PROGRESS_ACCEPTED_SOURCE_SHA"
-            test '${{ steps.stable.outputs.current_version }}' = "$UPDATE_PROGRESS_DEPLOY_VERSION"
-            test "$upstream_version" = "$UPDATE_PROGRESS_DEPLOY_VERSION"
-            test '${{ steps.stable.outputs.current_version }}' = "$upstream_version"
-            test '${{ steps.stable.outputs.current_generation }}' = "$UPDATE_PROGRESS_DEPLOY_CURRENT_GENERATION"
-            test '${{ steps.stable.outputs.current_release_sequence }}' = "$UPDATE_PROGRESS_DEPLOY_CURRENT_SEQUENCE"
-            test '${{ steps.stable.outputs.release_sequence }}' = "$UPDATE_PROGRESS_DEPLOY_TARGET_SEQUENCE"
-            test "$candidate" = false
-            candidate=true
-            acceptance_suffix='-update-progress-responsiveness'
-            printf 'update-progress same-version production deployment selected: %s sequence %s -> sequence %s\n' \
-              "$upstream_version" "$UPDATE_PROGRESS_DEPLOY_CURRENT_SEQUENCE" "$UPDATE_PROGRESS_DEPLOY_TARGET_SEQUENCE"
-          fi
-          if test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" = true; then
-            test "$GITHUB_EVENT_NAME" = workflow_dispatch
-            test "$GITHUB_REF" = refs/heads/main
-            test "$RALD4_POSITIVE_GATE" != true
-            test "$RALD5_PUBLICATION_AUTHORIZED" = true
-            test "$RALD5_SAME_VERSION_ACCEPTANCE" != true
-            test "$RALD45_TRANSITION_STAGE" != true
-            test "$RALD45_TRANSITION_PROMOTE" != true
-            test "$RALD5_NEGATIVE_GATE" != true
-            test "$LEGACY_LAG_JUMP_REMEDIATION" != true
-            test "$UX1_SAME_VERSION_DEPLOY" != true
-            test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true
-            test "$NO_EMOJI_SAME_VERSION_DEPLOY" != true
-            test "$CODEX_SOURCE_SHA" = "$EXACT_CURRENT_FASTPATH_ACCEPTED_SOURCE_SHA"
-            test '${{ steps.stable.outputs.current_version }}' = "$EXACT_CURRENT_FASTPATH_DEPLOY_VERSION"
-            test "$upstream_version" = "$EXACT_CURRENT_FASTPATH_DEPLOY_VERSION"
-            test '${{ steps.stable.outputs.current_version }}' = "$upstream_version"
-            test '${{ steps.stable.outputs.current_generation }}' = "$EXACT_CURRENT_FASTPATH_DEPLOY_CURRENT_GENERATION"
-            test '${{ steps.stable.outputs.current_release_sequence }}' = "$EXACT_CURRENT_FASTPATH_DEPLOY_CURRENT_SEQUENCE"
-            test '${{ steps.stable.outputs.release_sequence }}' = "$EXACT_CURRENT_FASTPATH_DEPLOY_TARGET_SEQUENCE"
-            test "$candidate" = false
-            candidate=true
-            acceptance_suffix='-exact-current-fastpath'
-            printf 'exact-current fastpath same-version production deployment selected: %s sequence %s -> sequence %s\n' \
-              "$upstream_version" "$EXACT_CURRENT_FASTPATH_DEPLOY_CURRENT_SEQUENCE" "$EXACT_CURRENT_FASTPATH_DEPLOY_TARGET_SEQUENCE"
-          fi
-          if test "$NO_EMOJI_SAME_VERSION_DEPLOY" = true; then
-            test "$GITHUB_EVENT_NAME" = workflow_dispatch
-            test "$GITHUB_REF" = refs/heads/main
-            test "$RALD4_POSITIVE_GATE" != true
-            test "$RALD5_PUBLICATION_AUTHORIZED" = true
-            test "$RALD5_SAME_VERSION_ACCEPTANCE" != true
-            test "$RALD45_TRANSITION_STAGE" != true
-            test "$RALD45_TRANSITION_PROMOTE" != true
-            test "$RALD5_NEGATIVE_GATE" != true
-            test "$LEGACY_LAG_JUMP_REMEDIATION" != true
-            test "$UX1_SAME_VERSION_DEPLOY" != true
-            test "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" != true
-            test "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" != true
-            test "$CODEX_SOURCE_SHA" = "$NO_EMOJI_ACCEPTED_SOURCE_SHA"
-            test '${{ steps.stable.outputs.current_version }}' = "$NO_EMOJI_DEPLOY_VERSION"
-            test "$upstream_version" = "$NO_EMOJI_DEPLOY_VERSION"
-            test '${{ steps.stable.outputs.current_version }}' = "$upstream_version"
-            test '${{ steps.stable.outputs.current_generation }}' = "$NO_EMOJI_DEPLOY_CURRENT_GENERATION"
-            test '${{ steps.stable.outputs.current_release_sequence }}' = "$NO_EMOJI_DEPLOY_CURRENT_SEQUENCE"
-            test '${{ steps.stable.outputs.release_sequence }}' = "$NO_EMOJI_DEPLOY_TARGET_SEQUENCE"
-            test "$candidate" = false
-            candidate=true
-            acceptance_suffix='-no-emoji-output-r3'
-            printf 'no-emoji same-version production deployment selected: %s sequence %s -> sequence %s\n' \
-              "$upstream_version" "$NO_EMOJI_DEPLOY_CURRENT_SEQUENCE" "$NO_EMOJI_DEPLOY_TARGET_SEQUENCE"
-          fi
-          test "${MANAGER_TUI_BRIDGE_DEPLOY:-false}" != true || test "$MANAGER_TUI_SAME_VERSION_DEPLOY" = true
-          if test "$MANAGER_TUI_SAME_VERSION_DEPLOY" = true; then
-            test "$GITHUB_EVENT_NAME" = workflow_dispatch
-            test "$GITHUB_REF" = refs/heads/main
-            test "$RALD5_PUBLICATION_AUTHORIZED" = true
-            test '${{ steps.stable.outputs.current_version }}' = "$MANAGER_TUI_VERSION"
-            for mode in RALD4_POSITIVE_GATE RALD5_SAME_VERSION_ACCEPTANCE \
-              RALD45_TRANSITION_STAGE RALD45_TRANSITION_PROMOTE RALD5_NEGATIVE_GATE \
-              LEGACY_LAG_JUMP_REMEDIATION UX1_SAME_VERSION_DEPLOY \
-              UPDATE_PROGRESS_SAME_VERSION_DEPLOY EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY \
-              NO_EMOJI_SAME_VERSION_DEPLOY DOWNLOAD_SIZE_SAME_VERSION_DEPLOY; do
-              test "${!mode:-false}" != true
-            done
+            test "$CURRENT_VERSION" = "$MANAGER_TUI_VERSION"
             upstream_version="$MANAGER_TUI_VERSION"
             archive_sha256="$MANAGER_TUI_ARCHIVE_SHA256"
-            candidate=true
-            acceptance_suffix='-manager-tui'
-            if test "${MANAGER_TUI_BRIDGE_DEPLOY:-false}" = true; then
-              test '${{ steps.stable.outputs.current_generation }}' = local-hosted-0-161-0-053e35bee0cb
-              test '${{ steps.stable.outputs.current_release_sequence }}' = 41
-              test '${{ steps.stable.outputs.release_sequence }}' = 42
-              acceptance_suffix='-manager-tui-bridge'
-            fi
+          else
+            curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+              --connect-timeout 15 --max-time 60 --max-filesize 131072 \
+              --output "$state/latest.json" "$UPSTREAM_LATEST_URL"
+            python3 source/.github/scripts/rald3_preflight.py upstream \
+              "$state/latest.json" > "$state/upstream"
+            upstream_version="$(sed -n 's/^version=//p' "$state/upstream")"
+            archive_sha256="$(sed -n 's/^archive_sha256=//p' "$state/upstream")"
           fi
-          # Historical explicitly selected fixtures keep their sealed construction.
-          # Ordinary publication requires the admitted backend/frontend pair.
-          if test "$candidate" = true && test -z "$acceptance_suffix" && \
-             test "$upstream_version" != "$MANAGER_TUI_VERSION"; then
-            candidate=false
-            printf 'No qualified Manager TUI pair for %s; retain authenticated stable\n' "$upstream_version"
-          fi
-          suffix="${upstream_version//./-}-${CODEX_SOURCE_SHA:0:12}${acceptance_suffix}"
-          printf 'manager_tui_bridge_deploy=%s\n' "${MANAGER_TUI_BRIDGE_DEPLOY:-false}" >> "$GITHUB_OUTPUT"
-          printf 'candidate=%s\n' "$candidate" >> "$GITHUB_OUTPUT"
-          printf 'acceptance_gate=%s\n' "$RALD4_POSITIVE_GATE" >> "$GITHUB_OUTPUT"
-          printf 'publication_authorized=%s\n' "$RALD5_PUBLICATION_AUTHORIZED" >> "$GITHUB_OUTPUT"
-          printf 'same_version_acceptance=%s\n' "$RALD5_SAME_VERSION_ACCEPTANCE" >> "$GITHUB_OUTPUT"
-          printf 'transition_stage=%s\n' "$RALD45_TRANSITION_STAGE" >> "$GITHUB_OUTPUT"
-          printf 'transition_promote=%s\n' "$RALD45_TRANSITION_PROMOTE" >> "$GITHUB_OUTPUT"
-          printf 'negative_gate=%s\n' "$RALD5_NEGATIVE_GATE" >> "$GITHUB_OUTPUT"
-          printf 'legacy_lag_jump_remediation=%s\n' "$LEGACY_LAG_JUMP_REMEDIATION" >> "$GITHUB_OUTPUT"
-          printf 'ux1_same_version_deploy=%s\n' "$UX1_SAME_VERSION_DEPLOY" >> "$GITHUB_OUTPUT"
-          printf 'update_progress_same_version_deploy=%s\n' "$UPDATE_PROGRESS_SAME_VERSION_DEPLOY" >> "$GITHUB_OUTPUT"
-          printf 'exact_current_fastpath_same_version_deploy=%s\n' "$EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY" >> "$GITHUB_OUTPUT"
-          printf 'no_emoji_same_version_deploy=%s\n' "$NO_EMOJI_SAME_VERSION_DEPLOY" >> "$GITHUB_OUTPUT"
-          printf 'artifact_name=rald3-candidate-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
-          printf 'qualified_artifact_name=rald4-qualified-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
-          printf 'signed_artifact_name=rald4-signed-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
-          printf 'generation_id=local-hosted-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
-          printf 'upstream_version=%s\n' "$upstream_version" >> "$GITHUB_OUTPUT"
-          printf 'archive_sha256=%s\n' "$archive_sha256" >> "$GITHUB_OUTPUT"
+          python3 source/.github/scripts/release_decision.py \
+            --current "$CURRENT_VERSION" --upstream "$upstream_version" \
+            --qualified "$MANAGER_TUI_VERSION" --archive "$archive_sha256" \
+            --qualified-archive "$MANAGER_TUI_ARCHIVE_SHA256" \
+            --source "$CODEX_SOURCE_SHA" --sequence "$RELEASE_SEQUENCE" \
+            --event "$GITHUB_EVENT_NAME" --ref "$GITHUB_REF" \
+            --publish "$PUBLISH" --rebuild-current "$REBUILD_CURRENT" >> "$GITHUB_OUTPUT"
 
       - name: Acquire successful qualified Manager TUI input
-        if: steps.decision.outputs.candidate == 'true' && steps.decision.outputs.upstream_version == env.MANAGER_TUI_VERSION && steps.decision.outputs.manager_tui_bridge_deploy != 'true'
+        if: steps.decision.outputs.candidate == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -618,6 +216,17 @@ jobs:
             --run-json "$work/run.json" --run-id "$MANAGER_TUI_RUN_ID" \
             --version "$MANAGER_TUI_VERSION" --sha256 "$MANAGER_TUI_SHA256" \
             --artifact "$work/artifact" --proof "$work/proof"
+
+      - name: Restore compiler inputs
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            source/target
+          key: producer-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_VERSION }}-${{ hashFiles('source/Cargo.lock') }}-${{ inputs.source_sha }}
+          restore-keys: |
+            producer-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_VERSION }}-${{ hashFiles('source/Cargo.lock') }}-
 
       - name: Cross-build Core and Manager
         if: steps.decision.outputs.candidate == 'true'
@@ -663,12 +272,9 @@ jobs:
           fetched_sha256="$(printf '%s\n' "$fetch_output" | awk -F '\t' '$1=="archive_sha256"{print $2}')"
           test "$fetched_sha256" = "$archive_sha256"
 
-          frontend_args=()
-          if test "$upstream_version" = "$MANAGER_TUI_VERSION" && \
-             test '${{ steps.decision.outputs.manager_tui_bridge_deploy }}' != true; then
-            frontend_args=(--manager-tui "$RUNNER_TEMP/manager-tui-input/artifact/codex"
-                           --manager-tui-version "$MANAGER_TUI_VERSION")
-          fi
+          test "$upstream_version" = "$MANAGER_TUI_VERSION"
+          frontend_args=(--manager-tui "$RUNNER_TEMP/manager-tui-input/artifact/codex"
+                         --manager-tui-version "$MANAGER_TUI_VERSION")
           "$builder" build \
             --version "$upstream_version" \
             --archive "$work/upstream.tar.gz" \
@@ -697,14 +303,11 @@ jobs:
           generation.meta
           helpers/0
           helpers/1
+          helpers/2
           manager
           runtime
           EOF
-          executables=(codex-code-mode-host core helpers/0 helpers/1 manager runtime)
-          if test "${#frontend_args[@]}" != 0; then
-            printf 'helpers/2\n' >> "$work/expected-files"
-            executables+=(helpers/2)
-          fi
+          executables=(codex-code-mode-host core helpers/0 helpers/1 helpers/2 manager runtime)
           LC_ALL=C sort -o "$work/expected-files" "$work/expected-files"
           diff -u "$work/expected-files" "$work/actual-files"
           for executable in "${executables[@]}"; do
@@ -712,427 +315,6 @@ jobs:
             test ! -L "$work/candidate/$executable"
             test "$(stat -c '%a' "$work/candidate/$executable")" = '755'
           done
-
-
-      - name: Require exact sequence-12 component bytes for legacy-lag remediation
-        if: steps.decision.outputs.legacy_lag_jump_remediation == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          stable="$RUNNER_TEMP/rald3-stable"
-          candidate="$RUNNER_TEMP/rald3-candidate/candidate"
-          for rel in codex-code-mode-host core helpers/0 helpers/1 manager runtime; do
-            entry="$RUNNER_TEMP/legacy-lag-entry-${rel//\//-}"
-            python3 source/.github/scripts/rald3_preflight.py manifest-entry \
-              "$stable/release.manifest" "$rel" > "$entry"
-            expected_digest="$(sed -n 's/^sha256=//p' "$entry")"
-            expected_mode="$(sed -n 's/^mode=//p' "$entry")"
-            test "$(sha256sum "$candidate/$rel" | awk '{print $1}')" = "$expected_digest"
-            test "0$(stat -c '%a' "$candidate/$rel")" = "$expected_mode"
-          done
-          python3 - "$stable/generation.meta" "$candidate/generation.meta" \
-            "$LEGACY_LAG_REMEDIATION_CURRENT_GENERATION" \
-            '${{ steps.decision.outputs.generation_id }}' <<'PY'
-          from pathlib import Path
-          import sys
-
-          current_path = Path(sys.argv[1])
-          candidate_path = Path(sys.argv[2])
-          current_id = sys.argv[3]
-          candidate_id = sys.argv[4]
-          current = current_path.read_text()
-          candidate = candidate_path.read_text()
-          old_id = f"generation_id\t{current_id}\n"
-          new_id = f"generation_id\t{candidate_id}\n"
-          marker = "creation_metadata\tr10-browser-helper-bridge-v1\n"
-          old_doctor = "upstream_doctor\tsupported\n"
-          new_doctor = "upstream_doctor\tunsupported\n"
-          if current.count(old_id) != 1 or candidate.count(new_id) != 1:
-              raise SystemExit("generation identity binding is not unique")
-          if current.count(marker) != 1 or candidate.count(marker) != 1:
-              raise SystemExit("R10 bridge marker is not exact")
-          if current.count(old_doctor) != 1 or candidate.count(new_doctor) != 1:
-              raise SystemExit("legacy activation doctor transition is not exact")
-          expected = current.replace(old_id, new_id, 1).replace(old_doctor, new_doctor, 1)
-          if expected != candidate:
-              raise SystemExit("sequence-13 descriptor changes more than generation identity and legacy doctor signal")
-          PY
-
-      - name: Require exact sequence-14 non-Core bytes for UX-1 deployment
-        if: steps.decision.outputs.ux1_same_version_deploy == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          stable="$RUNNER_TEMP/rald3-stable"
-          candidate="$RUNNER_TEMP/rald3-candidate/candidate"
-          for rel in codex-code-mode-host helpers/0 helpers/1 manager runtime; do
-            entry="$RUNNER_TEMP/ux1-entry-${rel//\//-}"
-            python3 source/.github/scripts/rald3_preflight.py manifest-entry \
-              "$stable/release.manifest" "$rel" > "$entry"
-            expected_digest="$(sed -n 's/^sha256=//p' "$entry")"
-            expected_mode="$(sed -n 's/^mode=//p' "$entry")"
-            test "$(sha256sum "$candidate/$rel" | awk '{print $1}')" = "$expected_digest"
-            test "0$(stat -c '%a' "$candidate/$rel")" = "$expected_mode"
-          done
-
-          core_entry="$RUNNER_TEMP/ux1-entry-core"
-          python3 source/.github/scripts/rald3_preflight.py manifest-entry \
-            "$stable/release.manifest" core > "$core_entry"
-          current_core_digest="$(sed -n 's/^sha256=//p' "$core_entry")"
-          current_core_mode="$(sed -n 's/^mode=//p' "$core_entry")"
-          candidate_core_digest="$(sha256sum "$candidate/core" | awk '{print $1}')"
-          test "$candidate_core_digest" != "$current_core_digest"
-          test "0$(stat -c '%a' "$candidate/core")" = "$current_core_mode"
-
-          python3 - "$stable/generation.meta" "$candidate/generation.meta" \
-            "$UX1_DEPLOY_CURRENT_GENERATION" \
-            '${{ steps.decision.outputs.generation_id }}' \
-            "$current_core_digest" "$candidate_core_digest" <<'PY'
-          from pathlib import Path
-          import sys
-
-          current_path = Path(sys.argv[1])
-          candidate_path = Path(sys.argv[2])
-          current_id = sys.argv[3]
-          candidate_id = sys.argv[4]
-          current_core_digest = sys.argv[5]
-          candidate_core_digest = sys.argv[6]
-
-          def parse(path):
-              text = path.read_text()
-              if not text.endswith("\n"):
-                  raise SystemExit("UX-1 descriptor is missing its final newline")
-              lines = text.splitlines()
-              if not lines:
-                  raise SystemExit("UX-1 descriptor is empty")
-              records = lines[1:]
-              for line in records:
-                  if "\t" not in line:
-                      raise SystemExit("UX-1 descriptor field layout is invalid")
-              return lines[0], records
-
-          def unique_field(records, key):
-              prefix = f"{key}\t"
-              matches = [line[len(prefix):] for line in records if line.startswith(prefix)]
-              if len(matches) != 1:
-                  raise SystemExit(f"UX-1 descriptor field is not unique: {key}")
-              return matches[0]
-
-          current_format, current_records = parse(current_path)
-          candidate_format, candidate_records = parse(candidate_path)
-          current_order = [line.split("\t", 1)[0] for line in current_records]
-          candidate_order = [line.split("\t", 1)[0] for line in candidate_records]
-          if current_format != candidate_format or current_order != candidate_order:
-              raise SystemExit("UX-1 descriptor schema/order changed")
-          if unique_field(current_records, "generation_id") != current_id \
-                  or unique_field(candidate_records, "generation_id") != candidate_id:
-              raise SystemExit("UX-1 generation identity binding is not exact")
-          if unique_field(current_records, "core_artifact_digest") != current_core_digest:
-              raise SystemExit("UX-1 current descriptor Core digest does not match sequence-14 Core")
-          if unique_field(candidate_records, "core_artifact_digest") != candidate_core_digest:
-              raise SystemExit("UX-1 candidate descriptor Core digest does not match UX-1 Core")
-          if current_core_digest == candidate_core_digest:
-              raise SystemExit("UX-1 candidate Core did not change")
-          for current_line, candidate_line in zip(current_records, candidate_records, strict=True):
-              key = current_line.split("\t", 1)[0]
-              if key in {"generation_id", "core_artifact_digest"}:
-                  continue
-              if current_line != candidate_line:
-                  raise SystemExit(f"UX-1 descriptor changed forbidden field: {key}")
-          PY
-
-      - name: Require exact sequence-15 non-Core bytes for update-progress deployment
-        if: steps.decision.outputs.update_progress_same_version_deploy == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          stable="$RUNNER_TEMP/rald3-stable"
-          candidate="$RUNNER_TEMP/rald3-candidate/candidate"
-          for rel in codex-code-mode-host helpers/0 helpers/1 manager runtime; do
-            entry="$RUNNER_TEMP/update-progress-entry-${rel//\//-}"
-            python3 source/.github/scripts/rald3_preflight.py manifest-entry \
-              "$stable/release.manifest" "$rel" > "$entry"
-            expected_digest="$(sed -n 's/^sha256=//p' "$entry")"
-            expected_mode="$(sed -n 's/^mode=//p' "$entry")"
-            test "$(sha256sum "$candidate/$rel" | awk '{print $1}')" = "$expected_digest"
-            test "0$(stat -c '%a' "$candidate/$rel")" = "$expected_mode"
-          done
-
-          core_entry="$RUNNER_TEMP/update-progress-entry-core"
-          python3 source/.github/scripts/rald3_preflight.py manifest-entry \
-            "$stable/release.manifest" core > "$core_entry"
-          current_core_digest="$(sed -n 's/^sha256=//p' "$core_entry")"
-          current_core_mode="$(sed -n 's/^mode=//p' "$core_entry")"
-          candidate_core_digest="$(sha256sum "$candidate/core" | awk '{print $1}')"
-          test "$candidate_core_digest" != "$current_core_digest"
-          test "0$(stat -c '%a' "$candidate/core")" = "$current_core_mode"
-
-          python3 - "$stable/generation.meta" "$candidate/generation.meta" \
-            "$UPDATE_PROGRESS_DEPLOY_CURRENT_GENERATION" \
-            '${{ steps.decision.outputs.generation_id }}' \
-            "$current_core_digest" "$candidate_core_digest" <<'PY'
-          from pathlib import Path
-          import sys
-
-          current_path = Path(sys.argv[1])
-          candidate_path = Path(sys.argv[2])
-          current_id = sys.argv[3]
-          candidate_id = sys.argv[4]
-          current_core_digest = sys.argv[5]
-          candidate_core_digest = sys.argv[6]
-
-          def parse(path):
-              text = path.read_text()
-              if not text.endswith("\n"):
-                  raise SystemExit("update-progress descriptor is missing its final newline")
-              lines = text.splitlines()
-              if not lines:
-                  raise SystemExit("update-progress descriptor is empty")
-              records = lines[1:]
-              for line in records:
-                  if "\t" not in line:
-                      raise SystemExit("update-progress descriptor field layout is invalid")
-              return lines[0], records
-
-          def unique_field(records, key):
-              prefix = f"{key}\t"
-              matches = [line[len(prefix):] for line in records if line.startswith(prefix)]
-              if len(matches) != 1:
-                  raise SystemExit(f"update-progress descriptor field is not unique: {key}")
-              return matches[0]
-
-          current_format, current_records = parse(current_path)
-          candidate_format, candidate_records = parse(candidate_path)
-          current_order = [line.split("\t", 1)[0] for line in current_records]
-          candidate_order = [line.split("\t", 1)[0] for line in candidate_records]
-          if current_format != candidate_format or current_order != candidate_order:
-              raise SystemExit("update-progress descriptor schema/order changed")
-          if unique_field(current_records, "generation_id") != current_id \
-                  or unique_field(candidate_records, "generation_id") != candidate_id:
-              raise SystemExit("update-progress generation identity binding is not exact")
-          if unique_field(current_records, "core_artifact_digest") != current_core_digest:
-              raise SystemExit("update-progress current descriptor Core digest does not match sequence-15 Core")
-          if unique_field(candidate_records, "core_artifact_digest") != candidate_core_digest:
-              raise SystemExit("update-progress candidate descriptor Core digest does not match accepted Core")
-          if current_core_digest == candidate_core_digest:
-              raise SystemExit("update-progress candidate Core did not change")
-          for current_line, candidate_line in zip(current_records, candidate_records, strict=True):
-              key = current_line.split("\t", 1)[0]
-              if key in {"generation_id", "core_artifact_digest"}:
-                  continue
-              if current_line != candidate_line:
-                  raise SystemExit(f"update-progress descriptor changed forbidden field: {key}")
-          PY
-
-      - name: Require exact sequence-16 non-Core bytes for exact-current fastpath deployment
-        if: steps.decision.outputs.exact_current_fastpath_same_version_deploy == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          stable="$RUNNER_TEMP/rald3-stable"
-          candidate="$RUNNER_TEMP/rald3-candidate/candidate"
-          for rel in codex-code-mode-host helpers/0 helpers/1 manager runtime; do
-            entry="$RUNNER_TEMP/exact-current-fastpath-entry-${rel//\//-}"
-            python3 source/.github/scripts/rald3_preflight.py manifest-entry \
-              "$stable/release.manifest" "$rel" > "$entry"
-            expected_digest="$(sed -n 's/^sha256=//p' "$entry")"
-            expected_mode="$(sed -n 's/^mode=//p' "$entry")"
-            test "$(sha256sum "$candidate/$rel" | awk '{print $1}')" = "$expected_digest"
-            test "0$(stat -c '%a' "$candidate/$rel")" = "$expected_mode"
-          done
-
-          core_entry="$RUNNER_TEMP/exact-current-fastpath-entry-core"
-          python3 source/.github/scripts/rald3_preflight.py manifest-entry \
-            "$stable/release.manifest" core > "$core_entry"
-          current_core_digest="$(sed -n 's/^sha256=//p' "$core_entry")"
-          current_core_mode="$(sed -n 's/^mode=//p' "$core_entry")"
-          candidate_core_digest="$(sha256sum "$candidate/core" | awk '{print $1}')"
-          test "$candidate_core_digest" != "$current_core_digest"
-          test "0$(stat -c '%a' "$candidate/core")" = "$current_core_mode"
-
-          python3 - "$stable/generation.meta" "$candidate/generation.meta" \
-            "$EXACT_CURRENT_FASTPATH_DEPLOY_CURRENT_GENERATION" \
-            '${{ steps.decision.outputs.generation_id }}' \
-            "$current_core_digest" "$candidate_core_digest" <<'PY'
-          from pathlib import Path
-          import sys
-
-          current_path = Path(sys.argv[1])
-          candidate_path = Path(sys.argv[2])
-          current_id = sys.argv[3]
-          candidate_id = sys.argv[4]
-          current_core_digest = sys.argv[5]
-          candidate_core_digest = sys.argv[6]
-
-          def parse(path):
-              text = path.read_text()
-              if not text.endswith("\n"):
-                  raise SystemExit("exact-current fastpath descriptor is missing its final newline")
-              lines = text.splitlines()
-              if not lines:
-                  raise SystemExit("exact-current fastpath descriptor is empty")
-              records = lines[1:]
-              for line in records:
-                  if "\t" not in line:
-                      raise SystemExit("exact-current fastpath descriptor field layout is invalid")
-              return lines[0], records
-
-          def unique_field(records, key):
-              prefix = f"{key}\t"
-              matches = [line[len(prefix):] for line in records if line.startswith(prefix)]
-              if len(matches) != 1:
-                  raise SystemExit(f"exact-current fastpath descriptor field is not unique: {key}")
-              return matches[0]
-
-          current_format, current_records = parse(current_path)
-          candidate_format, candidate_records = parse(candidate_path)
-          current_order = [line.split("\t", 1)[0] for line in current_records]
-          candidate_order = [line.split("\t", 1)[0] for line in candidate_records]
-          if current_format != candidate_format or current_order != candidate_order:
-              raise SystemExit("exact-current fastpath descriptor schema/order changed")
-          if unique_field(current_records, "generation_id") != current_id \
-                  or unique_field(candidate_records, "generation_id") != candidate_id:
-              raise SystemExit("exact-current fastpath generation identity binding is not exact")
-          if unique_field(current_records, "core_artifact_digest") != current_core_digest:
-              raise SystemExit("exact-current fastpath current descriptor Core digest does not match sequence-16 Core")
-          if unique_field(candidate_records, "core_artifact_digest") != candidate_core_digest:
-              raise SystemExit("exact-current fastpath candidate descriptor Core digest does not match accepted Core")
-          if current_core_digest == candidate_core_digest:
-              raise SystemExit("exact-current fastpath candidate Core did not change")
-          for current_line, candidate_line in zip(current_records, candidate_records, strict=True):
-              key = current_line.split("\t", 1)[0]
-              if key in {"generation_id", "core_artifact_digest"}:
-                  continue
-              if current_line != candidate_line:
-                  raise SystemExit(f"exact-current fastpath descriptor changed forbidden field: {key}")
-          PY
-
-      - name: Require exact sequence-17 non-Core bytes for no-emoji deployment
-        if: steps.decision.outputs.no_emoji_same_version_deploy == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          stable="$RUNNER_TEMP/rald3-stable"
-          candidate="$RUNNER_TEMP/rald3-candidate/candidate"
-          for rel in codex-code-mode-host helpers/0 helpers/1 manager runtime; do
-            entry="$RUNNER_TEMP/no-emoji-entry-${rel//\//-}"
-            python3 source/.github/scripts/rald3_preflight.py manifest-entry \
-              "$stable/release.manifest" "$rel" > "$entry"
-            expected_digest="$(sed -n 's/^sha256=//p' "$entry")"
-            expected_mode="$(sed -n 's/^mode=//p' "$entry")"
-            test "$(sha256sum "$candidate/$rel" | awk '{print $1}')" = "$expected_digest"
-            test "0$(stat -c '%a' "$candidate/$rel")" = "$expected_mode"
-          done
-
-          core_entry="$RUNNER_TEMP/no-emoji-entry-core"
-          python3 source/.github/scripts/rald3_preflight.py manifest-entry \
-            "$stable/release.manifest" core > "$core_entry"
-          current_core_digest="$(sed -n 's/^sha256=//p' "$core_entry")"
-          current_core_mode="$(sed -n 's/^mode=//p' "$core_entry")"
-          candidate_core_digest="$(sha256sum "$candidate/core" | awk '{print $1}')"
-          test "$candidate_core_digest" != "$current_core_digest"
-          test "0$(stat -c '%a' "$candidate/core")" = "$current_core_mode"
-
-          python3 - "$stable/generation.meta" "$candidate/generation.meta" \
-            "$NO_EMOJI_DEPLOY_CURRENT_GENERATION" \
-            '${{ steps.decision.outputs.generation_id }}' \
-            "$current_core_digest" "$candidate_core_digest" <<'PY'
-          from pathlib import Path
-          import sys
-
-          current_path = Path(sys.argv[1])
-          candidate_path = Path(sys.argv[2])
-          current_id = sys.argv[3]
-          candidate_id = sys.argv[4]
-          current_core_digest = sys.argv[5]
-          candidate_core_digest = sys.argv[6]
-
-          def parse(path):
-              text = path.read_text()
-              if not text.endswith("\n"):
-                  raise SystemExit("no-emoji descriptor is missing its final newline")
-              lines = text.splitlines()
-              if not lines:
-                  raise SystemExit("no-emoji descriptor is empty")
-              records = lines[1:]
-              for line in records:
-                  if "\t" not in line:
-                      raise SystemExit("no-emoji descriptor field layout is invalid")
-              return lines[0], records
-
-          def unique_field(records, key):
-              prefix = f"{key}\t"
-              matches = [line[len(prefix):] for line in records if line.startswith(prefix)]
-              if len(matches) != 1:
-                  raise SystemExit(f"no-emoji descriptor field is not unique: {key}")
-              return matches[0]
-
-          current_format, current_records = parse(current_path)
-          candidate_format, candidate_records = parse(candidate_path)
-          current_order = [line.split("\t", 1)[0] for line in current_records]
-          candidate_order = [line.split("\t", 1)[0] for line in candidate_records]
-          if current_format != candidate_format or current_order != candidate_order:
-              raise SystemExit("no-emoji descriptor schema/order changed")
-          if unique_field(current_records, "generation_id") != current_id \
-                  or unique_field(candidate_records, "generation_id") != candidate_id:
-              raise SystemExit("no-emoji generation identity binding is not exact")
-          if unique_field(current_records, "core_artifact_digest") != current_core_digest:
-              raise SystemExit("no-emoji current descriptor Core digest does not match sequence-17 Core")
-          if unique_field(candidate_records, "core_artifact_digest") != candidate_core_digest:
-              raise SystemExit("no-emoji candidate descriptor Core digest does not match accepted Core")
-          if current_core_digest == candidate_core_digest:
-              raise SystemExit("no-emoji candidate Core did not change")
-          for current_line, candidate_line in zip(current_records, candidate_records, strict=True):
-              key = current_line.split("\t", 1)[0]
-              if key in {"generation_id", "core_artifact_digest"}:
-                  continue
-              if current_line != candidate_line:
-                  raise SystemExit(f"no-emoji descriptor changed forbidden field: {key}")
-          PY
-
-      - name: Rebuild exact historical R10 Core for legacy-lag remediation
-        if: steps.decision.outputs.legacy_lag_jump_remediation == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          rm -rf legacy-source
-          git init legacy-source
-          git -C legacy-source remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
-          git -C legacy-source fetch --no-tags --depth=1 origin "$LEGACY_LAG_SOURCE_SHA"
-          git -C legacy-source checkout --detach FETCH_HEAD
-          test "$(git -C legacy-source rev-parse HEAD)" = "$LEGACY_LAG_SOURCE_SHA"
-          test -z "$(git -C legacy-source status --porcelain)"
-          ndk="$ANDROID_SDK_ROOT/ndk/$ANDROID_NDK_VERSION"
-          toolchain="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          linker="$toolchain/aarch64-linux-android${LEGACY_LAG_BUILD_ANDROID_API}-clang"
-          test -x "$linker"
-          test -x "$toolchain/llvm-ar"
-          nm -D "$ndk/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/$LEGACY_LAG_BUILD_ANDROID_API/libc.so" |
-            grep -Eq '[[:space:]]renameat2(@@|$)'
-          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$linker"
-          export CC_aarch64_linux_android="$linker"
-          export AR_aarch64_linux_android="$toolchain/llvm-ar"
-          cargo "+$RUST_VERSION" build --manifest-path legacy-source/Cargo.toml \
-            --release --locked --target aarch64-linux-android -p codex
-          core="$GITHUB_WORKSPACE/legacy-source/target/aarch64-linux-android/release/codex"
-          test -x "$core"
-          file "$core" | grep -F 'ARM aarch64'
-          readelf -h "$core" | grep -Eq 'Machine:[[:space:]]+AArch64'
-          readelf -l "$core" | grep -F '/system/bin/linker64'
-          mkdir -p "$RUNNER_TEMP/legacy-r10-core"
-          cp "$core" "$RUNNER_TEMP/legacy-r10-core/core"
-          chmod 0755 "$RUNNER_TEMP/legacy-r10-core/core"
-          tar -cf "$RUNNER_TEMP/legacy-r10-core.tar" -C "$RUNNER_TEMP/legacy-r10-core" core
-
-      - name: Upload unsigned historical R10 Core only
-        if: steps.decision.outputs.legacy_lag_jump_remediation == 'true'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: legacy-lag-r10-core
-          path: ${{ runner.temp }}/legacy-r10-core.tar
-          if-no-files-found: error
-          retention-days: 1
-          compression-level: 0
 
       - name: Package admitted unsigned candidate
         if: steps.decision.outputs.candidate == 'true'
@@ -1210,11 +392,18 @@ jobs:
           rm -rf "$root"
           mkdir -p "$root/bin" "$root/lib64/bionic"
           apex_url="https://android.googlesource.com/platform/prebuilts/runtime/+/${ANDROID_RUNTIME_APEX_COMMIT}/mainline/runtime/apex/com.android.runtime-arm64.apex?format=TEXT"
-          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+          apex_mirror_url="https://raw.githubusercontent.com/msft-mirror-aosp/platform.prebuilts.runtime/${ANDROID_RUNTIME_APEX_COMMIT}/mainline/runtime/apex/com.android.runtime-arm64.apex"
+          if curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
             --connect-timeout 15 --max-time 120 --max-filesize 20971520 \
-            --output "$root/runtime.apex.b64" "$apex_url"
-          base64 --decode "$root/runtime.apex.b64" > "$root/runtime.apex"
-          rm "$root/runtime.apex.b64"
+            --output "$root/runtime.apex.b64" "$apex_url"; then
+            base64 --decode "$root/runtime.apex.b64" > "$root/runtime.apex"
+            rm "$root/runtime.apex.b64"
+          else
+            rm -f "$root/runtime.apex.b64"
+            curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+              --connect-timeout 15 --max-time 120 --max-filesize 20971520 \
+              --output "$root/runtime.apex" "$apex_mirror_url"
+          fi
           test "$(wc -c < "$root/runtime.apex")" -eq 13881344
           test "$(sha256sum "$root/runtime.apex" | awk '{print $1}')" = \
             "$ANDROID_RUNTIME_APEX_SHA256"
@@ -1309,14 +498,12 @@ jobs:
             exit 1
           fi
 
-          if test '${{ needs.producer.outputs.upstream_version }}' = "$MANAGER_TUI_VERSION" && \
-             test '${{ needs.producer.outputs.manager_tui_bridge_deploy }}' != true; then
+          test '${{ needs.producer.outputs.upstream_version }}' = "$MANAGER_TUI_VERSION"
             timeout 20 env -i "$candidate/helpers/2" --version \
               > "$RUNNER_TEMP/frontend.out" 2> "$RUNNER_TEMP/frontend.err"
             printf 'codex-cli %s\n' "$MANAGER_TUI_VERSION" > "$RUNNER_TEMP/frontend.expected"
             cmp "$RUNNER_TEMP/frontend.expected" "$RUNNER_TEMP/frontend.out"
             test ! -s "$RUNNER_TEMP/frontend.err"
-          fi
 
           rm "$candidate/.manager-probe-deferred"
           test ! -e "$candidate/.manager-probe-deferred"
@@ -1345,7 +532,7 @@ jobs:
   sign:
     name: Sign qualified candidate
     needs: [producer, smoke]
-    if: needs.producer.outputs.candidate == 'true' && needs.smoke.result == 'success'
+    if: needs.producer.outputs.candidate == 'true' && needs.smoke.result == 'success' && inputs.publish
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -1353,6 +540,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          [[ "$CODEX_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
           rm -rf source
           git init source
           git -C source remote add origin https://github.com/humtr/codex.git
@@ -1391,6 +579,17 @@ jobs:
             > "$work/accepted-public.der"
           test "$(wc -c < "$work/accepted-public.der")" -eq 44
 
+      - name: Restore compiler inputs
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            source/target
+          key: producer-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_VERSION }}-${{ hashFiles('source/Cargo.lock') }}-${{ inputs.source_sha }}
+          restore-keys: |
+            producer-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_VERSION }}-${{ hashFiles('source/Cargo.lock') }}-
+
       - name: Build exact release signer
         shell: bash
         run: |
@@ -1404,50 +603,6 @@ jobs:
             source/.github/scripts/rald4_signing.py \
             source/.github/scripts/test_rald4_signing.py
 
-
-      - name: Download historical R10 Core for legacy-lag remediation
-        if: needs.producer.outputs.legacy_lag_jump_remediation == 'true'
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: legacy-lag-r10-core
-          path: ${{ runner.temp }}/legacy-lag-r10-download
-
-      - name: Prepare exact historical sequence-7 generation
-        if: needs.producer.outputs.legacy_lag_jump_remediation == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          work="$RUNNER_TEMP/rald4-sign"
-          tar -xf "$RUNNER_TEMP/legacy-lag-r10-download/legacy-r10-core.tar" -C "$work"
-          mv "$work/core" "$work/legacy-r10-core"
-          test -x "$work/legacy-r10-core"
-          readelf -l "$work/legacy-r10-core" | grep -F '/system/bin/linker64'
-
-          rm -rf legacy-source
-          git init legacy-source
-          git -C legacy-source remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
-          git -C legacy-source fetch --no-tags --depth=1 origin "$LEGACY_LAG_SOURCE_SHA"
-          git -C legacy-source checkout --detach FETCH_HEAD
-          test "$(git -C legacy-source rev-parse HEAD)" = "$LEGACY_LAG_SOURCE_SHA"
-          cargo "+$RUST_VERSION" build --manifest-path legacy-source/Cargo.toml \
-            --release --locked -p codex-release-builder
-          builder="$GITHUB_WORKSPACE/legacy-source/target/release/codex-release-builder"
-          test -x "$builder"
-          archive="$work/codex-package-aarch64-unknown-linux-musl.tar.gz"
-          "$builder" fetch --version "$LEGACY_LAG_VERSION" --curl /usr/bin/curl \
-            --openssl /usr/bin/openssl --output "$archive" > "$work/legacy-fetch.out"
-          test "$(sha256sum "$archive" | awk '{print $1}')" = "$LEGACY_LAG_ARCHIVE_SHA256"
-          "$builder" build --version "$LEGACY_LAG_VERSION" \
-            --archive "$archive" --archive-sha256 "$LEGACY_LAG_ARCHIVE_SHA256" \
-            --generation-id "$LEGACY_LAG_GENERATION" --core "$work/legacy-r10-core" \
-            --creation-metadata legacy-lag-direct-jump-v1 \
-            --gzip /usr/bin/gzip --openssl /usr/bin/openssl \
-            --output "$work/legacy-generation"
-          test "$(sed -n 's/^generation_id\t//p' "$work/legacy-generation/generation.meta")" = "$LEGACY_LAG_GENERATION"
-          test "$(sed -n 's/^upstream_package_version\t//p' "$work/legacy-generation/generation.meta")" = "$LEGACY_LAG_VERSION"
-          test "$(sed -n 's/^upstream_doctor\t//p' "$work/legacy-generation/generation.meta")" = supported
-          cmp "$work/legacy-r10-core" "$work/legacy-generation/core"
-
       - name: Sign qualified candidate with accepted authority only
         shell: bash
         env:
@@ -1455,9 +610,6 @@ jobs:
         run: |
           set -euo pipefail
           release_base='https://humtr.github.io/codex/${{ needs.producer.outputs.generation_id }}/'
-          if test '${{ needs.producer.outputs.acceptance_gate }}' = true; then
-            release_base='https://rald4-acceptance.invalid/${{ needs.producer.outputs.generation_id }}/'
-          fi
           python3 source/.github/scripts/rald4_signing.py \
             --candidate "$RUNNER_TEMP/rald4-sign/candidate" \
             --accepted-public-key "$RUNNER_TEMP/rald4-sign/update-public-key.pem" \
@@ -1467,18 +619,6 @@ jobs:
             --openssl /usr/bin/openssl \
             --runner-temp "$RUNNER_TEMP" \
             --output "$RUNNER_TEMP/rald4-sign/signed-output"
-
-          if test '${{ needs.producer.outputs.legacy_lag_jump_remediation }}' = true; then
-            python3 source/.github/scripts/rald4_signing.py \
-              --candidate "$RUNNER_TEMP/rald4-sign/legacy-generation" \
-              --accepted-public-key "$RUNNER_TEMP/rald4-sign/update-public-key.pem" \
-              --release-sequence 7 \
-              --release-base "https://legacy-lag.invalid/$LEGACY_LAG_GENERATION/" \
-              --builder "$GITHUB_WORKSPACE/legacy-source/target/release/codex-release-builder" \
-              --openssl /usr/bin/openssl \
-              --runner-temp "$RUNNER_TEMP" \
-              --output "$RUNNER_TEMP/rald4-sign/legacy-publication"
-          fi
 
       - name: Independently verify signed candidate
         shell: bash
@@ -1507,42 +647,14 @@ jobs:
           test "$(sed -n 's/^generation_id\t//p' "$manifest")" = "$generation"
           test "$(sed -n 's/^generation_id\t//p' "$index")" = "$generation"
           actual_release_base="$(sed -n 's/^release_base\t//p' "$index")"
-          if test '${{ needs.producer.outputs.acceptance_gate }}' = true; then
-            test "$actual_release_base" = "https://rald4-acceptance.invalid/$generation/"
-          else
-            test "$actual_release_base" = "https://humtr.github.io/codex/$generation/"
-          fi
+          test "$actual_release_base" = "https://humtr.github.io/codex/$generation/"
           test -z "$(find "$RUNNER_TEMP" -maxdepth 1 -name '.rald4-signing-*' -print -quit)"
-
-          if test '${{ needs.producer.outputs.legacy_lag_jump_remediation }}' = true; then
-            legacy_release="$work/legacy-publication/releases/$LEGACY_LAG_GENERATION"
-            test -d "$legacy_release"
-            openssl pkeyutl -verify -rawin -pubin -inkey "$authority" \
-              -in "$legacy_release/release.manifest" -sigfile "$legacy_release/release.sig" >/dev/null
-            test "$(awk -F '\t' '$1=="release_sequence"{print $2}' "$legacy_release/release.manifest")" = 7
-            test "$(awk -F '\t' '$1=="generation_id"{print $2}' "$legacy_release/release.manifest")" = "$LEGACY_LAG_GENERATION"
-            tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
-              -cf "$work/legacy-sequence7-signed.tar" \
-              -C "$work/legacy-publication/releases" "$LEGACY_LAG_GENERATION"
-            test "$(stat -c '%s' "$work/legacy-sequence7-signed.tar")" -lt 1073741824
-          fi
 
           tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
             -cf "$work/signed-candidate.tar" -C "$work" signed-output
           test "$(stat -c '%s' "$work/signed-candidate.tar")" -lt 1073741824
 
-      - name: Remove acceptance-only signed output
-        if: needs.producer.outputs.acceptance_gate == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          rm -rf "$RUNNER_TEMP/rald4-sign/signed-output" \
-            "$RUNNER_TEMP/rald4-sign/signed-candidate.tar"
-          test ! -e "$RUNNER_TEMP/rald4-sign/signed-output"
-          test ! -e "$RUNNER_TEMP/rald4-sign/signed-candidate.tar"
-
       - name: Upload signed candidate only
-        if: needs.producer.outputs.acceptance_gate != 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ${{ needs.producer.outputs.signed_artifact_name }}
@@ -1551,21 +663,10 @@ jobs:
           retention-days: 1
           compression-level: 0
 
-
-      - name: Upload signed historical sequence-7 fixture only
-        if: needs.producer.outputs.legacy_lag_jump_remediation == 'true'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: legacy-lag-sequence7-signed
-          path: ${{ runner.temp }}/rald4-sign/legacy-sequence7-signed.tar
-          if-no-files-found: error
-          retention-days: 1
-          compression-level: 0
-
   stage_release:
     name: Stage immutable candidate Release
     needs: [producer, sign]
-    if: needs.producer.outputs.candidate == 'true' && needs.sign.result == 'success' && needs.producer.outputs.acceptance_gate != 'true' && needs.producer.outputs.publication_authorized == 'true'
+    if: needs.producer.outputs.candidate == 'true' && needs.sign.result == 'success' && inputs.publish
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -1573,16 +674,16 @@ jobs:
     outputs:
       release_id: ${{ steps.stage.outputs.release_id }}
     steps:
-      - name: Fetch exact RALD-5 publication verifier
+      - name: Fetch exact publication verifier
         shell: bash
         run: |
           set -euo pipefail
           rm -rf publication-source
           git init publication-source
           git -C publication-source remote add origin https://github.com/humtr/codex.git
-          git -C publication-source fetch --no-tags --depth=1 origin "$RALD5_SOURCE_SHA"
+          git -C publication-source fetch --no-tags --depth=1 origin "$CODEX_SOURCE_SHA"
           git -C publication-source checkout --detach FETCH_HEAD
-          test "$(git -C publication-source rev-parse HEAD)" = "$RALD5_SOURCE_SHA"
+          test "$(git -C publication-source rev-parse HEAD)" = "$CODEX_SOURCE_SHA"
           python3 publication-source/.github/scripts/test_rald5_publication.py
           python3 publication-source/.github/scripts/test_rald5_publication_contract.py
           python3 publication-source/.github/scripts/test_rald5_promotion.py
@@ -1699,7 +800,7 @@ jobs:
   pages:
     name: Deploy candidate Pages while retaining LKG
     needs: [producer, stage_release]
-    if: needs.producer.outputs.candidate == 'true' && needs.stage_release.result == 'success' && needs.producer.outputs.acceptance_gate != 'true' && needs.producer.outputs.publication_authorized == 'true'
+    if: needs.producer.outputs.candidate == 'true' && needs.stage_release.result == 'success' && inputs.publish
     permissions:
       contents: read
       pages: write
@@ -1710,18 +811,18 @@ jobs:
       release_sequence: ${{ needs.producer.outputs.release_sequence }}
       current_generation: ${{ needs.producer.outputs.current_generation }}
       expected_main_sha: ${{ needs.producer.outputs.expected_main_sha }}
-      publication_source_sha: dce2d7dee2a2ddbfdd9c4646c84c250400781f28
+      publication_source_sha: ${{ inputs.source_sha }}
 
   verify_public:
     name: Public readback and disposable update proof
     needs: [producer, stage_release, pages]
-    if: needs.producer.outputs.candidate == 'true' && needs.stage_release.result == 'success' && needs.pages.result == 'success' && needs.producer.outputs.acceptance_gate != 'true' && needs.producer.outputs.publication_authorized == 'true'
+    if: needs.producer.outputs.candidate == 'true' && needs.stage_release.result == 'success' && needs.pages.result == 'success' && inputs.publish
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 45
     permissions:
       contents: read
     steps:
-      - name: Fetch exact RALD-5 publication verifier
+      - name: Fetch exact publication verifier
         shell: bash
         run: |
           set -euo pipefail
@@ -1729,9 +830,9 @@ jobs:
           rm -rf publication-source
           git init publication-source
           git -C publication-source remote add origin https://github.com/humtr/codex.git
-          git -C publication-source fetch --no-tags --depth=1 origin "$RALD5_SOURCE_SHA"
+          git -C publication-source fetch --no-tags --depth=1 origin "$CODEX_SOURCE_SHA"
           git -C publication-source checkout --detach FETCH_HEAD
-          test "$(git -C publication-source rev-parse HEAD)" = "$RALD5_SOURCE_SHA"
+          test "$(git -C publication-source rev-parse HEAD)" = "$CODEX_SOURCE_SHA"
           python3 publication-source/.github/scripts/test_rald5_publication.py
           python3 publication-source/.github/scripts/test_rald5_publication_contract.py
           python3 publication-source/.github/scripts/test_rald5_promotion.py
@@ -1880,34 +981,12 @@ jobs:
             --output "$release_readback/update-public-key.pem" "$release_url/update-public-key.pem"
           cmp "$release_readback/update-public-key.pem" "$authority"
 
-          if test '${{ needs.producer.outputs.negative_gate }}' = true; then
-            printf 'rald5-negative-gate\n' >> "$root/$candidate/runtime"
-            if python3 publication-source/.github/scripts/rald5_publication.py verify-public \
-              --root "$root" --public-key "$authority" \
-              --generation "$candidate" \
-              --require-download-size \
-              --release-sequence '${{ needs.producer.outputs.release_sequence }}' \
-              --release-base "https://humtr.github.io/codex/$candidate/"; then
-              printf 'negative gate unexpectedly verified tampered candidate\n' >&2
-              exit 1
-            fi
-            printf 'RALD-5 negative gate rejected staged candidate before promotion as required\n' >&2
-            exit 1
-          fi
           python3 publication-source/.github/scripts/rald5_publication.py verify-public \
             --root "$root" --public-key "$authority" \
             --generation "$candidate" \
               --require-download-size \
             --release-sequence '${{ needs.producer.outputs.release_sequence }}' \
             --release-base "https://humtr.github.io/codex/$candidate/"
-
-
-      - name: Download production-authority-signed historical sequence-7 fixture
-        if: needs.producer.outputs.legacy_lag_jump_remediation == 'true'
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: legacy-lag-sequence7-signed
-          path: ${{ runner.temp }}/legacy-lag-sequence7-download
 
       - name: Provision ephemeral Android bionic interpreter path
         shell: bash
@@ -1922,10 +1001,18 @@ jobs:
           rm -rf "$root"
           mkdir -p "$root/bin" "$root/lib64/bionic"
           apex_url="https://android.googlesource.com/platform/prebuilts/runtime/+/${ANDROID_RUNTIME_APEX_COMMIT}/mainline/runtime/apex/com.android.runtime-arm64.apex?format=TEXT"
-          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+          apex_mirror_url="https://raw.githubusercontent.com/msft-mirror-aosp/platform.prebuilts.runtime/${ANDROID_RUNTIME_APEX_COMMIT}/mainline/runtime/apex/com.android.runtime-arm64.apex"
+          if curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
             --connect-timeout 15 --max-time 120 --max-filesize 20971520 \
-            --output "$root/runtime.apex.b64" "$apex_url"
-          base64 --decode "$root/runtime.apex.b64" > "$root/runtime.apex"
+            --output "$root/runtime.apex.b64" "$apex_url"; then
+            base64 --decode "$root/runtime.apex.b64" > "$root/runtime.apex"
+            rm -f "$root/runtime.apex.b64"
+          else
+            rm -f "$root/runtime.apex.b64"
+            curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+              --connect-timeout 15 --max-time 120 --max-filesize 20971520 \
+              --output "$root/runtime.apex" "$apex_mirror_url"
+          fi
           test "$(wc -c < "$root/runtime.apex")" -eq 13881344
           test "$(sha256sum "$root/runtime.apex" | awk '{print $1}')" = "$ANDROID_RUNTIME_APEX_SHA256"
           unzip -p "$root/runtime.apex" apex_payload.img > "$root/apex_payload.img"
@@ -1945,6 +1032,81 @@ jobs:
           readelf -h /system/bin/linker64 | grep -Eq 'Machine:[[:space:]]+AArch64'
           rm -f "$root/runtime.apex.b64" "$root/runtime.apex" "$root/apex_payload.img"
 
+      - name: Prepare manifest-owned current generation bootstrap fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/rald5-public"
+          current='${{ needs.producer.outputs.current_generation }}'
+          source="$root/$current"
+          destination="$RUNNER_TEMP/rald5-bootstrap-current"
+          rm -rf "$destination"
+          python3 - "$source" "$destination" <<'PYBOOT'
+          import hashlib
+          import os
+          from pathlib import Path, PurePosixPath
+          import shutil
+          import stat
+          import sys
+
+          source = Path(sys.argv[1])
+          destination = Path(sys.argv[2])
+          manifest = source / "release.manifest"
+          data = manifest.read_bytes()
+          if len(data) > 128 * 1024 or not data.endswith(b"\n"):
+              raise SystemExit("bootstrap manifest is not bounded canonical text")
+          lines = data.decode("utf-8").splitlines()
+          if not lines or lines[0] != "codex-release-v4":
+              raise SystemExit("bootstrap manifest format is not v4")
+          headers = {}
+          for line in lines[1:10]:
+              parts = line.split("\t")
+              if len(parts) != 2 or parts[0] in headers:
+                  raise SystemExit("bootstrap manifest header is invalid")
+              headers[parts[0]] = parts[1]
+          if headers.get("generation_id") != source.name:
+              raise SystemExit("bootstrap manifest generation id mismatch")
+          count = int(headers.get("file_count", "0"))
+          records = lines[10:]
+          if count != len(records) or count <= 0:
+              raise SystemExit("bootstrap manifest inventory size mismatch")
+          destination.mkdir(mode=0o755)
+          seen = set()
+          for line in records:
+              parts = line.split("\t")
+              if len(parts) != 4 or parts[0] != "file":
+                  raise SystemExit("bootstrap manifest file record is invalid")
+              rel, digest, mode = parts[1:]
+              pure = PurePosixPath(rel)
+              if pure.is_absolute() or ".." in pure.parts or rel in seen:
+                  raise SystemExit("bootstrap manifest path is unsafe")
+              if mode not in {"0644", "0755"}:
+                  raise SystemExit("bootstrap manifest mode is invalid")
+              seen.add(rel)
+              src = source / rel
+              st = src.lstat()
+              if not stat.S_ISREG(st.st_mode) or src.is_symlink():
+                  raise SystemExit(f"bootstrap source is not a regular file: {rel}")
+              if hashlib.sha256(src.read_bytes()).hexdigest() != digest:
+                  raise SystemExit(f"bootstrap source digest mismatch: {rel}")
+              if f"{stat.S_IMODE(st.st_mode):04o}" != mode:
+                  raise SystemExit(f"bootstrap source mode mismatch: {rel}")
+              target = destination / rel
+              target.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copyfile(src, target)
+              os.chmod(target, int(mode, 8))
+          for name in ("release.manifest", "release.sig"):
+              src = source / name
+              st = src.lstat()
+              if not stat.S_ISREG(st.st_mode) or src.is_symlink():
+                  raise SystemExit(f"bootstrap authority file is unsafe: {name}")
+              shutil.copyfile(src, destination / name)
+              os.chmod(destination / name, 0o644)
+          if (destination / "compat").exists():
+              raise SystemExit("publication-only compat directory entered bootstrap fixture")
+          PYBOOT
+          test ! -e "$destination/compat"
+
       - name: Bootstrap protected source state and update through staged Pages
         shell: bash
         run: |
@@ -1953,19 +1115,10 @@ jobs:
           current='${{ needs.producer.outputs.current_generation }}'
           candidate='${{ needs.producer.outputs.generation_id }}'
           version='${{ needs.producer.outputs.upstream_version }}'
-          if test '${{ needs.producer.outputs.legacy_lag_jump_remediation }}' = true; then
-            export HOME=/data/data/com.termux/files/home
-            export PREFIX=/data/data/com.termux/files/usr
-            export TMPDIR=/data/data/com.termux/files/usr/tmp
-            sudo test ! -e /data/data/com.termux
-            sudo mkdir -p "$HOME" "$PREFIX/bin" "$PREFIX/etc/tls/certs" "$TMPDIR"
-            sudo chown -R "$(id -u):$(id -g)" /data/data/com.termux
-          else
-            export HOME="$RUNNER_TEMP/rald5-home"
-            export PREFIX="$RUNNER_TEMP/rald5-prefix"
-            export TMPDIR="$RUNNER_TEMP/rald5-tmp"
-            mkdir -p "$HOME" "$PREFIX/bin" "$PREFIX/etc/tls/certs" "$TMPDIR"
-          fi
+          export HOME="$RUNNER_TEMP/rald5-home"
+          export PREFIX="$RUNNER_TEMP/rald5-prefix"
+          export TMPDIR="$RUNNER_TEMP/rald5-tmp"
+          mkdir -p "$HOME" "$PREFIX/bin" "$PREFIX/etc/tls/certs" "$TMPDIR"
           export PATH="$PREFIX/bin:/usr/bin:/bin"
           export SSL_CERT_FILE="$PREFIX/etc/tls/cert.pem"
           export SSL_CERT_DIR="$PREFIX/etc/tls/certs"
@@ -1976,264 +1129,28 @@ jobs:
           cp /bin/sh "$PREFIX/bin/sh"
           cp /etc/resolv.conf "$PREFIX/etc/resolv.conf"
           cp /etc/ssl/certs/ca-certificates.crt "$PREFIX/etc/tls/cert.pem"
-          if test '${{ needs.producer.outputs.legacy_lag_jump_remediation }}' = true; then
-            legacy="$LEGACY_LAG_GENERATION"
-            fixture_root="$RUNNER_TEMP/legacy-lag-sequence7-fixture"
-            rm -rf "$fixture_root"
-            mkdir -p "$fixture_root"
-            tar -xf "$RUNNER_TEMP/legacy-lag-sequence7-download/legacy-sequence7-signed.tar" -C "$fixture_root"
-            release="$fixture_root/$legacy"
-            test -d "$release"
-            openssl pkeyutl -verify -rawin -pubin -inkey "$root/update-public-key.pem" \
-              -in "$release/release.manifest" -sigfile "$release/release.sig" >/dev/null
-            test "$(awk -F '\t' '$1=="release_sequence"{print $2}' "$release/release.manifest")" = 7
-            test "$(awk -F '\t' '$1=="generation_id"{print $2}' "$release/release.manifest")" = "$legacy"
-            generation_root="$HOME/.local/lib/codex/core/generations"
-            legacy_dir="$generation_root/$legacy"
-            state_root="$HOME/.local/share/codex/core"
-            mkdir -p "$generation_root" "$state_root/config"
-            python3 - "$release" "$legacy_dir" <<'PY'
-          import hashlib
-          import os
-          from pathlib import Path, PurePosixPath
-          import shutil
-          import stat
-          import sys
-
-          source = Path(sys.argv[1])
-          destination = Path(sys.argv[2])
-          if destination.exists():
-              raise SystemExit("legacy destination already exists")
-          manifest = source / "release.manifest"
-          data = manifest.read_bytes()
-          if len(data) > 128 * 1024 or not data.endswith(b"\n"):
-              raise SystemExit("legacy manifest is not bounded canonical text")
-          lines = data.decode("utf-8").splitlines()
-          if not lines or lines[0] != "codex-release-v4":
-              raise SystemExit("legacy manifest is not v4")
-          headers = {}
-          for line in lines[1:10]:
-              parts = line.split("\t")
-              if len(parts) != 2 or parts[0] in headers:
-                  raise SystemExit("legacy manifest header is invalid")
-              headers[parts[0]] = parts[1]
-          if headers.get("generation_id") != destination.name:
-              raise SystemExit("legacy manifest generation id mismatch")
-          if headers.get("release_sequence") != "7":
-              raise SystemExit("legacy manifest release sequence mismatch")
-          count = int(headers.get("file_count", "0"))
-          records = lines[10:]
-          if count != len(records) or count <= 0:
-              raise SystemExit("legacy manifest inventory size mismatch")
-          destination.mkdir(mode=0o755)
-          seen = set()
-          for line in records:
-              parts = line.split("\t")
-              if len(parts) != 4 or parts[0] != "file":
-                  raise SystemExit("legacy manifest file record is invalid")
-              rel, digest, mode = parts[1:]
-              pure = PurePosixPath(rel)
-              if pure.is_absolute() or ".." in pure.parts or rel in seen:
-                  raise SystemExit("legacy manifest path is unsafe")
-              if mode not in {"0644", "0755"}:
-                  raise SystemExit("legacy manifest mode is invalid")
-              seen.add(rel)
-              src = source / rel
-              st = src.lstat()
-              if not stat.S_ISREG(st.st_mode) or src.is_symlink():
-                  raise SystemExit("legacy source is not a regular file: " + rel)
-              if hashlib.sha256(src.read_bytes()).hexdigest() != digest:
-                  raise SystemExit("legacy source digest mismatch: " + rel)
-              if f"{stat.S_IMODE(st.st_mode):04o}" != mode:
-                  raise SystemExit("legacy source mode mismatch: " + rel)
-              target = destination / rel
-              target.parent.mkdir(parents=True, exist_ok=True)
-              shutil.copyfile(src, target)
-              os.chmod(target, int(mode, 8))
-          for name in ("release.manifest", "release.sig"):
-              src = source / name
-              st = src.lstat()
-              if not stat.S_ISREG(st.st_mode) or src.is_symlink():
-                  raise SystemExit("legacy authority file is unsafe: " + name)
-              shutil.copyfile(src, destination / name)
-              os.chmod(destination / name, 0o644)
-          PY
-            openssl pkey -pubin -in "$root/update-public-key.pem" -pubout -outform DER \
-              > "$RUNNER_TEMP/legacy-lag-public.der"
-            test "$(wc -c < "$RUNNER_TEMP/legacy-lag-public.der")" -eq 44
-            manifest_key="$(awk -F '\t' '$1=="release_public_key"{print $2}' "$legacy_dir/release.manifest")"
-            authority_key="$(tail -c 32 "$RUNNER_TEMP/legacy-lag-public.der" | od -An -vtx1 | tr -d ' \n')"
-            test "$manifest_key" = "$authority_key"
-            install -m 0644 "$root/update-public-key.pem" \
-              "$HOME/.local/lib/codex/core/release-public-key.pem"
-            cat > "$state_root/activation-state" <<EOF
-          format=codex-activation-state-v3
-          update_key=$manifest_key
-          current=$legacy
-          current_key=$manifest_key
-          previous_present=0
-          previous=
-          previous_key=
-          EOF
-            chmod 0644 "$state_root/activation-state"
-            install -m 0755 "$legacy_dir/core" "$PREFIX/bin/codex"
-            cmp "$PREFIX/bin/codex" "$legacy_dir/core"
-            test ! -e "$state_root/activation-journal"
-            test ! -e "$state_root/activation-journal.tmp"
-            test ! -e "$state_root/activation-state.tmp"
-            "$PREFIX/bin/codex" --version > "$RUNNER_TEMP/legacy-lag-pre-update-version.out"
-            printf 'codex-cli %s\n' "$LEGACY_LAG_VERSION" > "$RUNNER_TEMP/legacy-lag-pre-update-version.expected"
-            cmp "$RUNNER_TEMP/legacy-lag-pre-update-version.expected" "$RUNNER_TEMP/legacy-lag-pre-update-version.out"
-          elif test '${{ needs.producer.outputs.transition_stage }}' = true; then
-            generation_root="$HOME/.local/lib/codex/core/generations"
-            current_dir="$generation_root/$current"
-            state_root="$HOME/.local/share/codex/core"
-            mkdir -p "$generation_root" "$state_root/config"
-            python3 - "$root/$current" "$current_dir" <<'PY'
-          import hashlib
-          import os
-          from pathlib import Path, PurePosixPath
-          import shutil
-          import stat
-          import sys
-
-          source = Path(sys.argv[1])
-          destination = Path(sys.argv[2])
-          if destination.exists():
-              raise SystemExit("current generation destination already exists")
-          manifest = source / "release.manifest"
-          data = manifest.read_bytes()
-          if len(data) > 128 * 1024 or not data.endswith(b"\n"):
-              raise SystemExit("current manifest is not bounded canonical text")
-          lines = data.decode("utf-8").splitlines()
-          if not lines or lines[0] != "codex-release-v4":
-              raise SystemExit("current manifest format is not v4")
-          headers = {}
-          for line in lines[1:10]:
-              parts = line.split("\t")
-              if len(parts) != 2 or parts[0] in headers:
-                  raise SystemExit("current manifest header is invalid")
-              headers[parts[0]] = parts[1]
-          if headers.get("generation_id") != destination.name:
-              raise SystemExit("current manifest generation id mismatch")
-          count = int(headers.get("file_count", "0"))
-          records = lines[10:]
-          if count != len(records) or count != 7:
-              raise SystemExit("current manifest inventory size mismatch")
-          destination.mkdir(mode=0o755)
-          seen = set()
-          for line in records:
-              parts = line.split("\t")
-              if len(parts) != 4 or parts[0] != "file":
-                  raise SystemExit("current manifest file record is invalid")
-              rel, digest, mode = parts[1:]
-              pure = PurePosixPath(rel)
-              if pure.is_absolute() or ".." in pure.parts or rel in seen:
-                  raise SystemExit("current manifest path is unsafe")
-              if mode not in {"0644", "0755"}:
-                  raise SystemExit("current manifest mode is invalid")
-              seen.add(rel)
-              src = source / rel
-              st = src.lstat()
-              if not stat.S_ISREG(st.st_mode) or src.is_symlink():
-                  raise SystemExit(f"current source is not a regular file: {rel}")
-              if hashlib.sha256(src.read_bytes()).hexdigest() != digest:
-                  raise SystemExit(f"current source digest mismatch: {rel}")
-              if f"{stat.S_IMODE(st.st_mode):04o}" != mode:
-                  raise SystemExit(f"current source mode mismatch: {rel}")
-              target = destination / rel
-              target.parent.mkdir(parents=True, exist_ok=True)
-              shutil.copyfile(src, target)
-              os.chmod(target, int(mode, 8))
-          for name in ("release.manifest", "release.sig"):
-              src = source / name
-              st = src.lstat()
-              if not stat.S_ISREG(st.st_mode) or src.is_symlink():
-                  raise SystemExit(f"current authority file is unsafe: {name}")
-              shutil.copyfile(src, destination / name)
-              os.chmod(destination / name, 0o644)
-          PY
-            manifest_key="$(awk -F '	' '$1=="release_public_key"{print $2}' "$current_dir/release.manifest")"
-            test "${#manifest_key}" -eq 64
-            case "$manifest_key" in (*[!0-9a-f]*) exit 1;; esac
-            openssl pkey -pubin -in "$root/update-public-key.pem" -pubout -outform DER \
-              > "$RUNNER_TEMP/rald45-public.der"
-            test "$(wc -c < "$RUNNER_TEMP/rald45-public.der")" -eq 44
-            authority_key="$(tail -c 32 "$RUNNER_TEMP/rald45-public.der" | od -An -vtx1 | tr -d ' \n')"
-            test "$authority_key" = "$manifest_key"
-            install -m 0644 "$root/update-public-key.pem" \
-              "$HOME/.local/lib/codex/core/release-public-key.pem"
-            cat > "$state_root/activation-state" <<EOF
-          format=codex-activation-state-v3
-          update_key=$manifest_key
-          current=$current
-          current_key=$manifest_key
-          previous_present=0
-          previous=
-          previous_key=
-          EOF
-            chmod 0644 "$state_root/activation-state"
-            test ! -e "$state_root/activation-journal"
-            test ! -e "$state_root/activation-journal.tmp"
-            test ! -e "$state_root/activation-state.tmp"
-            install -m 0755 "$current_dir/core" "$PREFIX/bin/codex"
-            cmp "$PREFIX/bin/codex" "$current_dir/core"
-            if cmp -s "$PREFIX/bin/codex" "$root/$candidate/core"; then
-              printf 'transition fixture did not preserve the old public stable Core\n' >&2
-              exit 1
-            fi
-            "$PREFIX/bin/codex" --version > "$RUNNER_TEMP/rald45-pre-update-version.out"
-            printf 'codex-cli %s\n' "$version" > "$RUNNER_TEMP/rald45-pre-update-version.expected"
-            cmp "$RUNNER_TEMP/rald45-pre-update-version.expected" "$RUNNER_TEMP/rald45-pre-update-version.out"
-          else
-            /bin/sh publication-source/bootstrap/codex-bootstrap \
-              "$root/$current/core" "$root/$current" "$root/update-public-key.pem"
-          fi
+          bootstrap_current="$RUNNER_TEMP/rald5-bootstrap-current"
+          test ! -e "$bootstrap_current/compat"
+          /bin/sh publication-source/bootstrap/codex-bootstrap \
+            "$bootstrap_current/core" "$bootstrap_current" "$root/update-public-key.pem"
           test -x "$PREFIX/bin/codex"
 
           export CODEX_TERMUX_UPDATE_INDEX_URL="https://humtr.github.io/codex/$candidate/update-index-v1"
           pre_version="$("$PREFIX/bin/codex" --version | sed -n 's/^codex-cli //p')"
           test -n "$pre_version"
           "$PREFIX/bin/codex" update > "$RUNNER_TEMP/rald5-first-update.out"
-          if test "$current" = "$UX1_DEPLOY_CURRENT_GENERATION"; then
-            # The sequence-14 Core predates UX-1, so the transition invocation
-            # itself must retain its exact historical human output. After
-            # activation, all subsequent update output comes from the UX-1 Core.
-            printf 'activated channel generation %s\n' "$candidate" > "$RUNNER_TEMP/rald5-first-update.expected"
-          elif test '${{ needs.producer.outputs.no_emoji_same_version_deploy }}' = true; then
-            # The sequence-17 Core still owns the one transition invocation.
-            # Match its historical check-mark bytes exactly; only the newly
-            # activated sequence-18 Core is required to emit undecorated output.
-            if test "$pre_version" = "$version"; then
-              printf 'Updating the Termux release for Codex %s...\n' "$version" > "$RUNNER_TEMP/rald5-first-update.expected"
-            else
-              printf 'Updating Codex %s -> %s...\n' "$pre_version" "$version" > "$RUNNER_TEMP/rald5-first-update.expected"
-            fi
-            printf 'Verified and activated the signed Termux release.\n' >> "$RUNNER_TEMP/rald5-first-update.expected"
-            printf 'Codex %s is now active. \342\234\205\n' "$version" >> "$RUNNER_TEMP/rald5-first-update.expected"
+          if test "$pre_version" = "$version"; then
+            printf 'Updating the Termux release for Codex %s...\n' "$version" > "$RUNNER_TEMP/rald5-first-update.expected"
           else
-            if test "$pre_version" = "$version"; then
-              printf 'Updating the Termux release for Codex %s...\n' "$version" > "$RUNNER_TEMP/rald5-first-update.expected"
-            else
-              printf 'Updating Codex %s -> %s...\n' "$pre_version" "$version" > "$RUNNER_TEMP/rald5-first-update.expected"
-            fi
-            printf 'Verified and activated the signed Termux release.\n' >> "$RUNNER_TEMP/rald5-first-update.expected"
-            printf 'Codex %s is now active.\n' "$version" >> "$RUNNER_TEMP/rald5-first-update.expected"
+            printf 'Updating Codex %s -> %s...\n' "$pre_version" "$version" > "$RUNNER_TEMP/rald5-first-update.expected"
           fi
+          printf 'Verified and activated the signed Termux release.\n' >> "$RUNNER_TEMP/rald5-first-update.expected"
+          printf 'Codex %s is now active.\n' "$version" >> "$RUNNER_TEMP/rald5-first-update.expected"
           cmp "$RUNNER_TEMP/rald5-first-update.expected" "$RUNNER_TEMP/rald5-first-update.out"
-          if test '${{ needs.producer.outputs.legacy_lag_jump_remediation }}' = true; then
-            state="$HOME/.local/share/codex/core/activation-state"
-            test "$(sed -n 's/^current=//p' "$state")" = "$candidate"
-            test "$(sed -n 's/^previous_present=//p' "$state")" = 1
-            test "$(sed -n 's/^previous=//p' "$state")" = "$LEGACY_LAG_GENERATION"
-            cmp "$PREFIX/bin/codex" "$root/$candidate/core"
-            test "$(awk -F '\t' '$1=="release_sequence"{print $2}' "$HOME/.local/lib/codex/core/generations/$candidate/release.manifest")" = "$LEGACY_LAG_REMEDIATION_TARGET_SEQUENCE"
-            test "$(awk -F '\t' '$1=="release_sequence"{print $2}' "$HOME/.local/lib/codex/core/generations/$LEGACY_LAG_GENERATION/release.manifest")" = 7
-          elif test '${{ needs.producer.outputs.transition_stage }}' = true; then
-            test "$(sed -n 's/^current=//p' "$HOME/.local/share/codex/core/activation-state")" = "$candidate"
-            test "$(sed -n 's/^previous=//p' "$HOME/.local/share/codex/core/activation-state")" = "$current"
-            cmp "$PREFIX/bin/codex" "$root/$candidate/core"
-          fi
+          state="$HOME/.local/share/codex/core/activation-state"
+          test "$(sed -n 's/^current=//p' "$state")" = "$candidate"
+          test "$(sed -n 's/^previous=//p' "$state")" = "$current"
+          cmp "$PREFIX/bin/codex" "$root/$candidate/core"
           "$PREFIX/bin/codex" --version > "$RUNNER_TEMP/rald5-version.out"
           printf 'codex-cli %s\n' "$version" > "$RUNNER_TEMP/rald5-version.expected"
           cmp "$RUNNER_TEMP/rald5-version.expected" "$RUNNER_TEMP/rald5-version.out"
@@ -2324,8 +1241,7 @@ jobs:
           "$PREFIX/bin/codex" update > "$RUNNER_TEMP/rald5-second-update.out" 2> "$RUNNER_TEMP/rald5-second-update.err"
           printf 'Codex %s is already up to date.\n' "$version" > "$RUNNER_TEMP/rald5-second-update.expected"
           cmp "$RUNNER_TEMP/rald5-second-update.expected" "$RUNNER_TEMP/rald5-second-update.out"
-          if test '${{ needs.producer.outputs.no_emoji_same_version_deploy }}' = true; then
-            python3 - "$RUNNER_TEMP/rald5-second-update.err" <<'PYERR'
+          python3 - "$RUNNER_TEMP/rald5-second-update.err" <<'PYERR'
           from pathlib import Path
           import sys
 
@@ -2336,9 +1252,8 @@ jobs:
           }
           unexpected = [line for line in data.splitlines() if line and line not in allowed]
           if unexpected:
-              raise SystemExit(f"unexpected stderr from sequence-18 exact-current proof: {unexpected!r}")
+              raise SystemExit(f"unexpected stderr from same-version exact-current proof: {unexpected!r}")
           PYERR
-          fi
           snapshot > "$RUNNER_TEMP/rald5-after-noop"
           diff -u "$RUNNER_TEMP/rald5-before-noop" "$RUNNER_TEMP/rald5-after-noop"
 
@@ -2350,18 +1265,12 @@ jobs:
           if sudo test -e /system; then
             sudo rm -rf /system
           fi
-          if test '${{ needs.producer.outputs.legacy_lag_jump_remediation }}' = true && sudo test -e /data/data/com.termux; then
-            sudo rm -rf /data/data/com.termux
-          fi
           sudo test ! -e /system
-          if test '${{ needs.producer.outputs.legacy_lag_jump_remediation }}' = true; then
-            sudo test ! -e /data/data/com.termux
-          fi
 
   promote:
     name: CAS-promote signed stable index
     needs: [producer, verify_public]
-    if: needs.producer.outputs.candidate == 'true' && needs.verify_public.result == 'success' && needs.producer.outputs.acceptance_gate != 'true' && needs.producer.outputs.publication_authorized == 'true' && needs.producer.outputs.negative_gate != 'true' && (needs.producer.outputs.transition_stage != 'true' || needs.producer.outputs.transition_promote == 'true')
+    if: needs.producer.outputs.candidate == 'true' && needs.verify_public.result == 'success' && inputs.publish
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -2376,9 +1285,9 @@ jobs:
           rm -rf publication-source
           git init publication-source
           git -C publication-source remote add origin https://github.com/humtr/codex.git
-          git -C publication-source fetch --no-tags --depth=1 origin "$RALD5_SOURCE_SHA"
+          git -C publication-source fetch --no-tags --depth=1 origin "$CODEX_SOURCE_SHA"
           git -C publication-source checkout --detach FETCH_HEAD
-          test "$(git -C publication-source rev-parse HEAD)" = "$RALD5_SOURCE_SHA"
+          test "$(git -C publication-source rev-parse HEAD)" = "$CODEX_SOURCE_SHA"
           python3 publication-source/.github/scripts/test_rald5_promotion.py
 
           expected='${{ needs.producer.outputs.expected_main_sha }}'

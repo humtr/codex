@@ -1,15 +1,14 @@
 # Codex Termux Rewrite Specification
 
-Status: initial normative baseline  
-Repository: `humtr/codex`  
+Status: current product contract
+Repository: `humtr/codex`
 Active implementation branch: `rewrite/rust-core`
 
 ## Generation-bound Manager TUI admission (2026-10-10)
 
-The user authorizes replacing the accepted `/switch` experiment with maintained
-executable integration. This section owns that new admission; historical preview
-exceptions below remain valid only for the already-running preview and bounded
-qualification until the new generation passes acceptance.
+The signed generation owns the maintained `/switch` frontend. Existing preview
+clients retain their executable until exit; no preview construction or parallel
+update authority is maintained.
 
 - The official adapted `runtime` remains the sole server/execution backend.
   An optional source-built Manager TUI is the third signed helper at `helpers/2`,
@@ -70,22 +69,11 @@ qualification until the new generation passes acceptance.
   ELF/FD snapshot adaptation. An ordinary newer backend without this qualified
   pair is ineligible for public production and leaves LKG unchanged; historical
   explicitly bounded acceptance fixtures retain their historical construction.
-  A manually authorized Manager TUI deployment may replace the authenticated
-  stable generation at the exact qualified backend version with the frontend-
-  bearing generation at the next sequence. It uses the pinned official archive
-  for that version, not an unqualified newer upstream channel value, and refuses
-  combination with historical acceptance/deployment modes. Ordinary scheduled
-  updates still require a qualified newer pair and never republish equal versions.
-  The retained R10 Core admits an extended numbered inventory, but intervening
-  published browser-bridge Cores enforce exactly two helpers. Before deploying
-  helper2 from the authenticated stable local-hosted-0-161-0-053e35bee0cb/sequence41,
-  a narrowly gated manual bridge deployment emits the same qualified backend and
-  complete two-helper layout with the accepted new Core at sequence42. It uses
-  the ordinary signed release/update/rollback transaction and actual old stable
-  updater. Only this exact preparatory deployment may omit the qualified frontend;
-  it is not a steady-state fallback. Subsequent ordinary or manual paired release
-  uses helper2 and must prove update from that published bridge. A failed paired
-  staging run cannot promote or replace any published generation assets.
+  An explicitly authorized manual rebuild may publish the authenticated current
+  qualified backend at the next sequence. All new candidates require the paired
+  frontend. Scheduled production requires a strictly newer qualified backend;
+  unsupported versions leave LKG unchanged. Failed staging cannot replace any
+  published assets or promote stable.
   The migration bridge remains available as immutable GitHub Release assets.
   Pages retains only candidate/LKG within the existing1GiB site bound: a third
   complete payload would exceed this bound on the next paired update. Offline
@@ -140,19 +128,13 @@ qualification until the new generation passes acceptance.
   recognize only the exact qualified generation frontend path for binding/focus;
   titles and fixed native-window identifiers remain separate from conversation ID.
 
-Acceptance is open until focused and real public-path tests, coherent disposable
-install/update/rollback/fault proof and bounded protected device cutover pass.
+Admission requires real public-path install/update/rollback/fault proof; device
+observations are reported separately from automated qualification.
 
-## Optional /switch TUI source boundary (2026-10-08)
+## Native /switch behavior
 
-This section applies to the user-authorized experiment/profile-tui and its
-accepted source integration into rewrite/rust-core. Accepted production
-release40 and its ordinary runtime contract remain unchanged.
-No prototype is publishable until separate completion and admission. The user
-authorized a bounded live display preview on 2026-10-06 before full completion.
+Manager owns execution-profile selection within the upstream conversation UI.
 
-- Prototype native `/switch` entrypoint combines upstream conversation/agent UI
-  with Manager-owned profile selection and existing reconnect/takeover semantics.
 - The sole added public slash name is `/switch`, for Manager execution-home
   selection; `/profile` is not an alias. Upstream `--profile`/`-p` configuration
   layers, `/resume`, `/agents`, `/permissions` and every existing slash name/alias
@@ -164,8 +146,6 @@ authorized a bounded live display preview on 2026-10-06 before full completion.
   must be the sole added variant/name. This gate is mandatory in the real hosted
   frontend build. A future collision requires an explicit contract decision;
   silently replacing an upstream command or choosing another name is forbidden.
-  Source merge alone does not enable the default-off preview, authorize live
-  replacement, or close signed-generation admission.
 - Upstream owns history, authentication, thread ancestry and kernel writer locks;
   Manager owns execution-profile selection and task policy. Core gains no UI,
   transcript parser, second session index or account-switch controller.
@@ -202,11 +182,8 @@ authorized a bounded live display preview on 2026-10-06 before full completion.
   Another connection or newly acquired writer causes bounded refusal; native
   resume still owns the final atomic writer acquisition. A profile disappearing
   after frontend cleanup likewise causes bounded refusal. Saved default, auth,
-  conversation history and unrelated jobs remain unchanged. Core's default-off
-  preview bridge only forwards this exact argv shape to the pinned Manager;
-  ordinary builds/public command behavior remain unchanged. Automated transition
-  proof uses owned accounts only. Corrected live replacement requires actual
-  native and protected-state gates first.
+  conversation history and unrelated jobs remain unchanged. Automated transition
+  proof uses disposable owned accounts.
 - The independent idle-profile admission preparation adds explicit source return
   after frontend cleanup: on an operational re-entry refusal, the private
   __profile-resume-v1 Manager path may offer Enter to return to the original
@@ -221,76 +198,27 @@ authorized a bounded live display preview on 2026-10-06 before full completion.
   original Core exit behavior and existing writer authority; it never cancels work,
   forces takeover, removes a lock or recreates a profile. Input is bounded to128
   bytes, only an actual empty newline confirms return, and EOF never confirms.
-  Exit/cancel has status130. This is an owned-proof source slice, not a live
-  replacement or stable admission. Manager asset identity must be requalified
-  separately before any installed-preview update.
-- Experiments use exact official0.160.0 sourcea956835d020762cb2b570053af06f643a11c0ecc,
-  owned builds/artifacts and credential-free disposable accounts/conversations.
-  Real launcher/runtime, Manager state, accounts/history/jobs and resolver remain
-  protected. Hosted disposable build tools may be installed on the ephemeral
-  runner; no device package installation, production signing or public promotion.
-- The bounded live preview replaces only the launcher with an explicitly built,
-  default-off profile-tui-live-preview Core variant and stores hash-pinned native
-  frontend/Manager read-only assets in a private preview directory. Accepted
-  signed40/39, activation pointers and public update authority remain unchanged.
-  The actual signed40 server still owns authentication, work and Termux runtime
-  compatibility; Core prepares/qualifies that server and execs the preview native
-  frontend with its explicit socket in the same terminal. Only ordinary eligible
-  interactive launches use the frontend. The explicit Core-provided Unix socket
-  remains a local-daemon target with no embedded fallback, preserving local CWD,
-  configuration and authentication constraints. Unselected upstream Unix/WebSocket
-  remote targets retain their original semantics. Source CLI options --add-dir
-  and --worktree are incompatible with its explicit socket argument; the preview
-  retains the installed runtime for those options without reinterpreting argv.
-  Other ineligible argv likewise use the installed runtime.
-  Before pinning the source frontend, apply only the existing release-builder's
-  four equal-length FD33/34 path remaps, with exact counts2,1,1,1 and54 changed
-  bytes. Record its actual hosted raw and adapted digests separately. This is an
-  unsigned local experiment artifact, never an official-package runtime or new
-  release admission policy; the signed40 backend already supplies its accepted
-  socket/permission adaptations. Prove the frontend consumes Core configuration
-  without an explicit sandbox-mode fixture override before live replacement.
-  Missing/tampered preview assets retain a bounded usable installed launch.
-  Private snapshots use only the pinned candidate Manager and ordinary Core
-  handoff. This exception grants no transcript/auth inspection, work termination,
-  profile/config editing, production signing or publication. New user interaction
-  may use existing accounts/history normally; automated qualification stays owned.
-- The preview native frontend reproduces the accepted Termux built-in permission
+  Exit/cancel has status130.
+- The generation frontend reproduces the accepted Termux built-in permission
   menu/shortcut behavior: Ask and Approve for me use the no-sandbox profile,
   Full Access remains explicit, unsupported Read Only is omitted, and current
   markers/descriptions follow actual settings. This frontend adaptation is enabled
-  only for the explicit absolute CODEX_PROFILE_CORE preview bridge; ordinary
+  only for the explicit absolute CODEX_PROFILE_CORE bridge; ordinary
   unselected upstream UI and custom profile definitions retain their semantics.
   Core still rejects explicit unsupported sandbox argv before runtime entry.
   Actual menu selections/shortcuts and native settings require owned proof.
-- In this preview alone, codex update --rollback atomically restores the exact
-  saved40 launcher and leaves40/39 activation unchanged. Other update requests
-  first restore40 and then forward their original argv to the installed Core.
-  Preview startup performs no public update discovery. The original complete
-  launcher is saved before replacement; rollback and corrupted/missing-asset
-  fallback must pass actual owned-terminal qualification before live replacement.
-  This opt-in variant is not ordinary release admission or prototype acceptance.
-- Exact official release Rust source remains unchanged at the baseline. The
-  published tag records workspace version0.160.0 while its lock records local
-  packages0.0.0; only these workspace package versions and local disambiguating
-  references may normalize to0.160.0. Every external package/version/source/
-  checksum/dependency binding remains byte/structure unchanged, and the final
-  build still uses --locked. The local inventory includes inherited-version path
-  dependencies omitted from workspace.members. Original/normalized lock digests
-  are recorded.
-- Experimental native TUI reads profile data through exact no-argument
+- The native frontend reads profile data through exact no-argument
   `codex termux __profile-snapshot-v1`. Manager alone resolves registered profiles,
   inherited/current selection and saved default. Output is one bounded JSON v1
   record with schema, profiles (default first, at most256), current (registered ID
   or null for an external inherited home), current_source and saved_default.
   It contains no paths, credentials or conversation data and performs no writes.
   Existing public profile text output and inherited-home precedence stay intact.
-- First native display slice reads this endpoint using an explicitly provided
-  absolute `CODEX_PROFILE_CORE` experiment bridge. The native client validates
+- Native display reads this endpoint using an explicitly provided
+  absolute `CODEX_PROFILE_CORE` bridge. The native client validates
   regular executable ownership, uses fixed argv without a shell, limits stdout to
   64KiB and elapsed time to3 seconds, and rejects malformed/unknown protocol data.
   Failure is bounded in the current UI; cancellation returns to the current chat.
-  This read-only display is a slice gate, never full profile-switch acceptance.
 - Integrated native views read observed current writers through exact no-argument
   `codex termux __task-snapshot-v1`. Its one JSON record uses schema
   codex-manager-tasks-v1 and tasks sorted by canonical thread UUID, at most1024.
@@ -309,14 +237,7 @@ authorized a bounded live display preview on 2026-10-06 before full completion.
   Observations are transient; later actions must revalidate actual owner identity.
   Native history/agent navigation reuses upstream lists, ancestry and UI lifecycle
   without a second history index or new persistent state. Cancellation/error must
-  leave the current chat usable. These read-only integration slices do not close
-  same-terminal account transition or active-owner safety requirements.
-- Native upstream compile/executable baseline precedes prototype behavior. A mock
-  chooser or external wrapper alone cannot prove the `/switch` product path.
-  Admission requires actual slash dispatch, profile/history/agent presentation,
-  same-terminal account transition, safe active-owner handling and failure/cancel
-  proof. Source-build cost and official-artifact policy compatibility are explicit
-  feasibility gates; no implicit new steady-state runtime distribution path.
+  leave the current chat usable.
 
 ## 1. Product definition
 
@@ -331,15 +252,8 @@ system:
 2. **Manager** — a separately implemented convenience layer reached through
    `codex termux` for profiles, sessions, notifications, and related Termux UX.
 
-The current two-milestone program completes Core. Manager product contracts
-are post-Core and remain optional for ordinary launch. MGR-1 through MGR-5 are
-accepted source slices; MGR-5 qualifies the separately built Manager artifact
-before it enters a signed generation. MGR-6 is an accepted distribution and
-disposable-qualification slice for that optional artifact. MGR-7 is the
-accepted remote-readback and operational-qualification slice for one explicit
-Manager-bearing signed generation; it adds no source command or state. R10 is
-the accepted coordinated Core + generation update slice opened by the bounded
-live qualification finding that followed MGR-7.
+Manager remains optional for ordinary launch. Its separately built artifact must
+qualify before entering a signed generation with matching Core and runtime.
 
 This is a clean rewrite. Legacy source is historical evidence, not an
 implementation dependency or migration base.
@@ -516,8 +430,7 @@ foreground thread, independently of title configuration. Native identity remains
 in the open unlinked file, automatically reclaimed on process exit; there is no
 new persistent session index. It calls the private
 exact command `codex termux __terminal-bind-v1 FD` once to register this descriptor.
-The default-off preview Core forwards only that exact three-argument shape to
-its pinned preview Manager, alongside its existing private profile/task bridges.
+Core forwards only that exact three-argument shape to its same-generation Manager.
 FD grammar and caller/pane authority remain Manager responsibilities. Ordinary
 Core dispatch and installed signed generations gain no terminal controller.
 Manager verifies its direct parent is a same-UID installed native Codex frontend, its tmux socket is
@@ -565,14 +478,10 @@ codex termux notify set [NOTIFY_OPTIONS...]
 codex termux notify test
 ```
 
-`codex termux` with no command is equivalent to `codex termux help`. The
-profile family was the first implementation slice. The historical accepted MGR-2
-Manager-owned session discovery/list/resume surface is superseded by SCS: steady-state
-session browsing and resume belong to upstream Codex. MGR-3 notification
-commands retain their bounded contracts below; MGR-4 repair is retired. An
-unavailable or not-yet-delivered Manager reports a bounded
-Manager-unavailable result through the Core handoff; it never forwards an
-unknown `termux` command to upstream.
+`codex termux` with no command is equivalent to `codex termux help`.
+Session browsing and resume belong to upstream Codex; Manager owns profiles,
+active-writer assistance and notifications. An unavailable Manager reports a
+bounded unavailable result; it never forwards an unknown `termux` command.
 Manager does not provide `codex termux install`, `codex termux update`, or a
 second doctor/version authority. Installation, update, rollback, and top-level
 doctor remain Core commands.
@@ -961,8 +870,8 @@ canonical files, schemas and locks continue to be operated by upstream.
 
 These criteria govern bounded alignment slices. Each specific command/state
 contract is amended before its implementation changes. Profile preparation and
-effective identity are defined in MGR-1, notification ownership in MGR-3, and
-repair retirement in MGR-4. These criteria authorize neither data migration nor
+effective identity are defined by profile contracts; notifications belong to
+Manager and recovery belongs to Core. These criteria authorize neither data migration nor
 an installed-runtime change.
 
 ## 5. Termux runtime contract
@@ -1183,21 +1092,14 @@ adaptation and qualification, and `publish` constructs the signed immutable
 release/index publication tree using an explicitly supplied signing authority.
 Those commands do not make `codex update` a producer and do not themselves grant
 network publication authority. GitHub-hosted scheduling, secret-backed signing,
-and Release/Pages promotion are separate later RALD phases.
+and Release/Pages promotion require the complete publication gate.
 
-The repository-owned hosted producer preflight is
-`.github/workflows/auto-release-termux.yml`. Its source contract is a fixed
-accepted commit SHA, never a moving branch head. When installed on the default
-branch it may run every six hours and by manual dispatch, with one serialized
-producer concurrency group and read-only repository permissions. RALD-3 is a
-pre-sign dry-run boundary only: it may read and authenticate the current public
-stable channel, read official OpenAI stable metadata, cross-build Core and
-Manager for Android/AArch64, adapt one unsigned candidate, transfer that
-candidate only as a short-lived Actions artifact, and run a Termux-compatible
-Android/AArch64 executable smoke. It must not read an Actions signing secret,
-sign a release, create or alter a GitHub Release, dispatch Pages, write `main`,
-or advance the stable index. Secret-backed signing and all public mutation remain
-RALD-4 and RALD-5 respectively.
+The maintained release workflow runs from one exact accepted source selected by
+the main publication caller. Candidate construction and Android/AArch64 smoke
+are read-only and have no signing secret or public mutation authority. Signing,
+immutable Release/Pages staging, public consumer proof and stable CAS are separate
+jobs on the same admitted payload. Normal scheduling is six-hour; manual dispatch
+is available for non-publishing qualification or explicitly authorized publication.
 
 All candidate/component transformations and corrective bindings must complete
 before the unsigned transfer archive is created. Package the final admitted
@@ -1248,22 +1150,13 @@ Core runtime has no official publication path and never invokes
 publication authority outside Core; GitHub authentication alone never authorizes
 publication.
 
-After RALD-7 activation, the installed repository-owned six-hour `schedule`
-event is itself the production publication authorization **only** for the
-ordinary path where the independently authenticated official upstream stable is
-strictly newer than the independently authenticated wrapper public stable. A
-scheduled run must have every acceptance-only control false: RALD-4 positive
-acceptance, RALD-5 same-version acceptance, RALD-4.5 transition stage/promotion,
-and the RALD-5 negative gate. Equality remains an exact-current no-op, and an
-older/malformed/unavailable upstream remains fail-closed. A manual
-`workflow_dispatch` still requires its explicit publication-authorization
-input before any Release/Pages/stable mutation; merely being manually dispatched
-or GitHub-authenticated grants no publication authority. The scheduled and
-explicitly authorized manual ordinary-newer paths converge on the **same**
-candidate qualification, production-key match/signing, immutable Release
-staging, LKG-preserving Pages deployment, complete public HTTPS readback,
-disposable update/runtime/doctor/no-op proof, and non-forced exact-parent CAS.
-No schedule event can enable a same-version or transition acceptance bypass.
+The six-hour schedule authorizes publication only when independently authenticated
+official upstream stable is strictly newer and its frontend/backend pair is
+qualified. Equality is a no-op; older/malformed/unavailable or unqualified inputs
+cannot publish. Manual publication requires its explicit authorization input.
+Scheduled and authorized manual releases share qualification, production-key
+signing, immutable staging, LKG-preserving Pages, complete HTTPS readback,
+disposable update/runtime/doctor/no-op proof and non-forced exact-parent CAS.
 
 When such a producer is authorized to publish, its complete official candidate
 targets the fixed wrapper repository `humtr/codex` and the selected stable
@@ -1580,8 +1473,8 @@ id\t<PROFILE_ID>
 
 The derived profile-home path is not duplicated inside metadata. Unknown
 records, duplicate records, invalid UTF-8, or a mismatched ID invalidate that
-record and never cause a path to be followed. MGR-1 does not write
-`notifications/config-v1`; MGR-3 owns that record.
+record and never cause a path to be followed. Notification commands alone write
+`notifications/config-v1`.
 
 Manager does not persist a session transcript, a second session database or a
 parallel discovery index. Upstream owns discovery/resume and conversation state;
@@ -1734,7 +1627,7 @@ binding, candidate probes, and activation transaction.
 
 The network frontend obtains the audited local `install.sh` and
 `bootstrap/codex-bootstrap` only from one immutable accepted repository commit
-chosen by the RALD-6 source, recreates their sibling layout in the private
+chosen by the immutable installer, recreates their sibling layout in the private
 workspace, and invokes local `install.sh <CORE_ARTIFACT>
 <SIGNED_RELEASE_DIR> <BOOTSTRAP_PUBLIC_KEY>`. It never writes
 `$PREFIX/bin/codex`, the bootstrap trust pin, a generation, activation state,
@@ -2294,15 +2187,15 @@ produces that layout, and it never treats an unlisted root-level symlink as the
 companion. The next authenticated generation is the required permanent repair
 for such an old layout.
 
-## Manager v1 definition (post-Core)
+## Manager contracts
 
-This section defines work after the two Core milestones. It does not weaken or
+This section defines the optional Manager. It does not weaken or
 extend the Core completion threshold, and it does not make Manager a
 prerequisite for ordinary upstream launch, Core doctor, update, rollback, or
 fresh installation. Manager is an optional, separately qualified artifact
 behind the existing `codex termux` boundary.
 
-### MGR-0 — process and ownership boundary
+### Process and ownership boundary
 
 Core selects Manager only from the signed, qualified generation and invokes
 the artifact with a versioned handoff environment:
@@ -2312,7 +2205,7 @@ CODEX_TERMUX_CORE_API=codex-manager-core-v1
 CODEX_TERMUX_CORE_ENTRYPOINT=<validated stable Core entrypoint>
 ```
 
-The former MGR-4 `CODEX_TERMUX_CORE_REQUEST` and
+The retired `CODEX_TERMUX_CORE_REQUEST` and
 `CODEX_TERMUX_CORE_OPERATION` environment values have no dispatch meaning.
 Core does not parse or consume a repair request, even if those retired values
 are inherited. Ordinary doctor/update/rollback/upstream argv retain their
@@ -2324,7 +2217,7 @@ argv whose first token is not the exact selector `termux`, `doctor`, or
 `update`. Recovery uses the public Core commands directly. Manager cannot
 address a generation path, activation state,
 trust key, resolver, or journal directly. Core remains the final validator of
-every requested route. MGR-0 has no callback socket, network protocol, or
+every requested route. There is no callback socket, network protocol, or
 second state authority.
 
 Manager receives no credential or session-content payload from Core. It may
@@ -2332,10 +2225,9 @@ inherit ordinary process environment needed for a child launch, but it must
 not print or persist that environment. A missing, malformed, or incompatible
 handoff fails before any Manager state mutation.
 
-### MGR-1 — profile selection and isolated launch
+### Profile selection and isolated launch
 
-MGR-1 is the first implementation bundle. It implements only the profile
-commands from the public grammar:
+Profile commands use this public grammar:
 
 ```text
 codex termux profile list
@@ -2458,7 +2350,7 @@ before upstream execution. A selection changes neither later ordinary launches n
 the caller's environment. Core uses the same native-equivalent home interpretation
 for shared preparation and server startup, preserving the supplied environment.
 
-The historical MGR-1 scope is extended by the profile lifecycle contract below;
+The profile lifecycle contract below applies;
 interactive terminal UI and profile-auth migration remain absent. Cross-profile session copying is deliberately absent
 because conversations are shared objects rather than profile-owned objects. A
 missing/invalid registration is a non-mutating Manager validation failure. Core
@@ -2590,13 +2482,13 @@ within the declared roots. No writer is killed, no auth/config is copied, and
 no restoration backup is created. The online exception does not permit a
 steady-state migration service or a second thread/schema authority.
 
-### MGR-2 — retired session convenience surface
+### Upstream session authority
 
 The historical `codex termux session list/resume` family is retired. Upstream
 owns discovery, filtering, selection and resume through ordinary `codex resume`
 or `codex termux profile use <PROFILE_ID> -- resume [UPSTREAM_ARGS...]`.
 Manager must not restore the former directory scanner, session index, saved
-selection dependency or alternate resume grammar. Historical MGR-2 acceptance
+selection dependency or alternate resume grammar. Prior session-helper acceptance
 is recorded in GOAL; it is not a current command contract.
 
 ### Active-task account assistance
@@ -2686,9 +2578,9 @@ old-runtime owner, profile takeover, stale token, malformed protocol/substituted
 records and whole-server force scope in owned roots; native runtime proof is
 required beyond simulated RPC.
 
-### MGR-3 — notification configuration and delivery
+### Notification configuration and delivery
 
-MGR-3 adds exactly these user-facing local forms:
+Notification commands use these user-facing forms:
 
 ```text
 codex termux notify show
@@ -2893,7 +2785,7 @@ New panes use
 current caller color preferences, including explicit unset values, rather than
 stale server environment; tmux retains native TERM/TERM_PROGRAM ownership.
 
-### MGR-4 — retired repair facade
+### Core recovery authority
 
 `codex termux repair`, including the former `plan` and `apply` forms, is a
 non-mutating Manager usage failure (status 2). It does not launch Core, inspect
@@ -2907,9 +2799,9 @@ retention and explicit `codex update --rollback`; Manager owns no recovery
 planner, updater, fallback, automatic rollback or hidden request dispatch.
 Retirement requires no persistent-state migration.
 
-### MGR-5 — Manager artifact build and qualification
+### Manager artifact build and qualification
 
-MGR-5 adds no user-facing `codex termux` command and no Manager persistent
+Artifact qualification adds no user-facing `codex termux` command and no Manager persistent
 record. A release qualification supplies one separately built executable
 Manager artifact; the release builder must snapshot and qualify that exact
 private copy before publishing it into a generation. The normal on-device
@@ -2928,7 +2820,7 @@ library API used by Core never select this exception.
 
 A generation carrying `.manager-probe-deferred` is not publishable:
 `codex-release-builder publish` must fail closed before release signing. The
-hosted producer must execute the exact MGR-5 probe in its Termux-compatible
+hosted producer must execute the exact Manager probe in its Termux-compatible
 Android/AArch64 smoke environment and may remove the marker only after the probe
 returns the exact accepted result. No deferred candidate may enter official
 signing or signed release inventory.
@@ -2972,10 +2864,10 @@ that admission and preserves the existing Core handoff, streams, TTY,
 signals, raw arguments, and exit status. A generation without a Manager
 artifact remains valid and reports Manager unavailable.
 
-### MGR-6 — Manager artifact distribution and disposable qualification
+### Manager distribution and disposable qualification
 
-MGR-6 adds no public command, Manager record, Core trust source, or on-device
-build path. It defines how the MGR-5-qualified optional Manager artifact is
+Distribution adds no public command, Manager record, Core trust source, or device
+build path. The qualified optional Manager artifact is
 supplied to release production, carried by a signed generation, and proven in
 disposable environments before any live cutover. Manager remains optional for
 ordinary upstream launch, Core doctor, update, rollback, and fresh install.
@@ -3001,10 +2893,10 @@ fallback may produce only such a Core-only generation unless an explicit
 already-qualified Manager artifact is supplied through the bounded release
 producer; it never builds or discovers one on-device.
 
-MGR-6 disposable qualification uses private temporary roots and separate
+Disposable qualification uses private temporary roots and separate
 fresh-install and legacy-upgrade consumers. For a hosted cross-build carrying the
-RALD-3 deferred marker, the Termux-compatible Android/AArch64 smoke must first
-execute the exact MGR-5 artifact probe successfully and remove the marker before
+deferred probe marker, the Termux-compatible Android/AArch64 smoke must first
+execute the exact Manager artifact probe successfully and remove the marker before
 any later signing step. It then installs or selects a release-built
 Manager-bearing generation through the existing Core admission,
 then proves `codex termux help`, one read-only profile query, and one isolated
@@ -3020,13 +2912,12 @@ If artifact input, probe, signed inventory, Release asset, remote readback,
 or disposable launch qualification fails, the candidate is rejected and the
 existing active/previous state remains unchanged. Remote publication and any
 live runtime replacement remain separate operational actions requiring an
-explicit target and authorization; MGR-6 source acceptance alone authorizes
+explicit target and authorization; source acceptance alone authorizes
 neither a push nor a live cutover.
 
-### MGR-7 — Remote publication readback and bounded operational qualification
+### Public readback and device qualification
 
-MGR-7 adds no public command, persistent state, trust source, or release
-format. It is an operational qualification of one already accepted,
+Readback adds no public command, persistent state, trust source or release format. It is an operational qualification of one already accepted,
 probe-qualified signed generation; it must not rebuild Manager, rewrite the
 generation, or infer a target from the live active generation. The candidate
 generation ID, local publication directory, GitHub repository/branch, and
@@ -3061,7 +2952,7 @@ presentation, and absence of bwrap invocation. Any readback, admission,
 Manager handoff, doctor, or protected-surface failure rejects the candidate
 and leaves the live installation untouched.
 
-MGR-7 source acceptance authorizes no remote push or live runtime replacement.
+Source acceptance alone authorizes no remote push or live runtime replacement.
 Those actions require a separate explicit operational authorization naming the
 exact candidate generation, target, and rollback boundary. A failed optional
 remote publication never changes a locally accepted generation; credentials,
@@ -3069,12 +2960,9 @@ tokens, and unredacted session content are never recorded as evidence.
 
 ### Manager definition gate
 
-Before MGR-1 implementation, the repository must have focused proof for the
-exact profile grammar, path containment and symlink rejection, create-new
-profile publication, effective account reporting, child-only `CODEX_HOME`, raw
-argv/stream/signal/exit preservation, and no credential/session-content
-inspection. Each later MGR bundle requires its own focused proof and must not
-use an unaccepted future command as a hidden implementation dependency.
+Profile behavior requires meaningful proof for exact grammar, path containment,
+symlink rejection, create-new publication, effective account reporting and raw
+process preservation. Later features need their own affected-path proof.
 
 ## 9A. Post-Core Termux compatibility extension
 
@@ -3262,71 +3150,37 @@ remote-control behavior outside the daemon path is preserved. For browser and
 clipboard slices, acceptance covers every enumerated upstream surface rather
 than one observed call site.
 
-## 10. Milestones
+## Development and release execution
 
-### Milestone 1 — local Core
+AGENTS.md owns concise working instructions; GOAL.md owns current success and
+operating state and next work. A separate workboard is unnecessary. Process history belongs in
+Git, not an accumulating active ledger. Skills, model selection and collaboration
+follow the user/session; no fixed model, maximum effort, mandatory planner,
+checkpoint reviewer, milestone ceremony or full-document reread is required.
 
-Deliver a buildable, test-backed Rust Core with:
+Verification follows the changed behavior and risk. Documentation-only checks
+perform no Rust/native compilation or public payload download. Scoped code changes
+use focused regression and relevant compile/lint; runtime/state/security/installer
+changes and release candidates require full source acceptance. Successful proof
+can be reused only with unchanged actual inputs and applicable environment/scope;
+never relabel it as a new run. Build caches are disposable acceleration in XDG
+cache, not source/runtime/artifact authority. User data and running jobs remain
+protected, with tests confined to owned disposable roots.
 
-- public dispatch and exact upstream passthrough;
-- upstream-only `--version` and `-V` behavior;
-- environment planning and final process execution;
-- FD 33/34 setup and resolver non-mutation tests;
-- explicit sandbox capability behavior;
-- read-only local doctor composition;
-- generation manifest and updater interfaces without live network mutation;
-- focused unit, integration, fault, and real-Termux smoke tests.
+One maintained release workflow owns construction and publication. main is a
+small immutable-source caller, with no second implementation or manually mirrored
+producer. The caller selects an accepted exact implementation commit; nested
+publication logic comes from that same source. Job-specific permissions separate
+read-only construction/smoke from signing/public mutation. Signing secrets appear
+only at the signing boundary. A manual publication needs explicit authorization;
+scheduling authorizes only a qualified strictly newer upstream pair. An explicitly
+authorized current-version rebuild uses its exact qualified upstream/archive and
+normal next sequence, with all ordinary integrity/publication gates intact.
 
-Milestone 1 does not install or activate the candidate over the currently
-working Codex runtime.
-
-### Milestone 2 — delivery and recovery
-
-Deliver:
-
-- prebuilt Android/Termux Core release artifacts;
-- minimal fresh-install and explicit legacy-handoff bootstrap;
-- signed immutable release manifests and key-rotation policy;
-- official upstream artifact acquisition and safe adaptation;
-- atomic update, activation, recovery, and rollback;
-- offline install/recovery;
-- basic launch/update overlap and injected-failure coverage proving launches
-  see only complete generations; speculative multi-writer coordination is not
-  a release requirement without demonstrated product need;
-- isolated fresh-Termux and upgrade-from-legacy qualification;
-- a complete candidate suitable for independent product review.
-
-## 11. Acceptance principles
-
-- Passing source tests proves only the tested source behavior.
-- A build does not prove installation or activation.
-- An active pointer does not prove process behavior.
-- A successful local launch does not prove fresh installation, update,
-  rollback, offline recovery, or another Termux device.
-- Every release claim must name the exact source, artifact digests, generation,
-  test set, and observed device/runtime boundary.
-- After the core integrity invariants are met, release velocity and a small
-  state machine take priority over speculative resilience mechanisms.
-- A new defensive branch, retry, fallback, lock, lease, or fencing mechanism
-  requires a concrete product failure that is not already handled by complete
-  generation construction, atomic activation, or last-known-good rollback.
-- Prefer one recovery path over fallback chains. Complexity added only for a
-  hypothetical edge case is itself a reliability and security cost.
-- Review findings change implementation only after the responsible normative
-  contract is updated.
-
-## 12. Change discipline
-
-A separate SDD is intentionally omitted for speed. Its necessary function is
-covered by the following rules:
-
-- normative product or architecture changes update this specification first;
-- success-threshold changes update `GOAL.md` first;
-- current sequencing changes update `WORKBOARD.md` without copying history;
-- implementation details that preserve these contracts need no design record;
-- a new decision document is introduced only when an irreversible choice has
-  multiple viable alternatives that cannot be resolved within one bounded
-  specification change.
-
-This policy may be revised when the product demonstrates a real coordination
-need. Documentation ceremony alone is not a reason to add another owner.
+Delete completed one-shot acceptance/deployment branches, old mutation workflows
+and experimental preview construction. Existing immutable migration releases and
+required consumer compatibility remain ordinary product support, not executable
+historical producer modes. Preserve normal signature/inventory verification,
+LKG continuity, candidate site size, complete public readback, disposable consumer
+proof and non-forced exact-parent CAS. No public release or installed activation
+is implied by a development-plane change.

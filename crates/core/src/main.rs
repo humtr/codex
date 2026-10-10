@@ -1,8 +1,5 @@
 use std::ffi::{OsStr, OsString};
 
-#[cfg(all(unix, feature = "profile-tui-live-preview"))]
-#[path = "../../../experiments/profile-tui/live_preview.rs"]
-mod live_preview;
 #[cfg(unix)]
 mod maintenance;
 #[cfg(unix)]
@@ -1453,17 +1450,6 @@ where
                                 &env_plan,
                             ));
                         }
-                    }
-                    #[cfg(feature = "profile-tui-live-preview")]
-                    if let Some(error) = live_preview::launch(
-                        &_socket,
-                        &profile,
-                        options.planned_args,
-                        resolver_path.as_ref(),
-                        config_dir.as_ref(),
-                        &env_plan,
-                    ) {
-                        return RuntimeLaunchError::Exec(error);
                     }
                 }
                 Err(error) => return RuntimeLaunchError::Config(error),
@@ -12107,14 +12093,12 @@ where
     }
     if bare {
         use std::io::IsTerminal as _;
-        if !cfg!(feature = "profile-tui-live-preview")
-            && startup_update_discovery_enabled(
-                true,
-                std::io::stdin().is_terminal(),
-                std::io::stdout().is_terminal(),
-                std::io::stderr().is_terminal(),
-            )
-        {
+        if startup_update_discovery_enabled(
+            true,
+            std::io::stdin().is_terminal(),
+            std::io::stdout().is_terminal(),
+            std::io::stderr().is_terminal(),
+        ) {
             run_bare_startup_update_preflight(&roots);
         }
     }
@@ -12137,10 +12121,6 @@ where
 
 #[cfg(unix)]
 fn main() {
-    #[cfg(feature = "profile-tui-live-preview")]
-    if let Some(code) = live_preview::handle(&std::env::args_os().skip(1).collect::<Vec<_>>()) {
-        std::process::exit(code);
-    }
     if let Some(code) = run_internal_bootstrap_mode() {
         std::process::exit(code);
     }
@@ -19258,7 +19238,7 @@ esac
             .unwrap()
     }
 
-    #[cfg(all(unix, not(feature = "profile-tui-live-preview")))]
+    #[cfg(unix)]
     fn b5_read_pty_output(mut master: std::fs::File) -> Vec<u8> {
         use std::io::Read as _;
 
@@ -19275,7 +19255,7 @@ esac
         output
     }
 
-    #[cfg(all(unix, not(feature = "profile-tui-live-preview")))]
+    #[cfg(unix)]
     fn b5_run_public_bare_pty(
         index_url: &str,
         home: &std::path::Path,
@@ -19376,7 +19356,7 @@ esac
         }
     }
 
-    #[cfg(all(unix, not(feature = "profile-tui-live-preview")))]
+    #[cfg(unix)]
     fn b5_run_public_bare_tty(
         index_url: &str,
         home: &std::path::Path,
@@ -19387,7 +19367,7 @@ esac
         b5_run_public_bare_pty(index_url, home, prefix, tmp, Some(input))
     }
 
-    #[cfg(all(unix, not(feature = "profile-tui-live-preview")))]
+    #[cfg(unix)]
     fn b5_run_public_bare_tty_timeout(
         index_url: &str,
         home: &std::path::Path,
@@ -23753,7 +23733,6 @@ exit 2
     }
 
     #[cfg(unix)]
-    #[cfg(not(feature = "profile-tui-live-preview"))]
     #[test]
     fn test_bare_tty_startup_n_and_timeout_snooze_exact_signed_generation() {
         let fixture = b5_channel_fixture("startup-n-snooze", "startup-next");
@@ -23840,7 +23819,6 @@ exit 2
     }
 
     #[cfg(unix)]
-    #[cfg(not(feature = "profile-tui-live-preview"))]
     #[test]
     fn test_bare_tty_startup_y_reenters_signed_update_then_launches_active_runtime() {
         let fixture = b5_channel_fixture("startup-y-update", "startup-y-next");

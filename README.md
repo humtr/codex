@@ -13,7 +13,7 @@ The rewrite has one public command, `codex`, and two internal layers:
 
 ## Current status
 
-See `GOAL.md`'s Current Operating Baseline for the accepted source, signed public
+See `GOAL.md` for the accepted source, signed public
 release and installed generation. The Rust Core owns signed installation,
 update, diagnosis, atomic activation, rollback, and recovery; Manager remains
 optional behind `codex termux`.
@@ -31,8 +31,7 @@ follow-up input requests. Diagnosis and recovery remain available through Core
 `codex doctor`, `codex update`, and `codex update --rollback`.
 Exact contracts belong to `SPEC.md`.
 
-Profiles support creation, deletion, renaming and a saved default. Rename,
-deletion and saved defaults are accepted in source and await installed delivery:
+Profiles support creation, deletion, renaming and a saved default. All lifecycle commands are available in the installed Manager:
 
 ```sh
 codex termux profile create work
@@ -48,20 +47,13 @@ login and settings while preserving shared conversations. Rename/delete reject
 an account still in use or selected as the saved default; choose another default
 and close its running clients/servers first.
 
-Release-automation phases through RALD-7 are accepted in `GOAL.md`. RALD-6
-proved the public fresh-install surface and same-client signed update delivery.
-RALD-7 completed full repository acceptance, activated the bounded six-hour
-official producer, and promoted the first real newer official candidate through
-the complete build/smoke/sign/Release/Pages/readback/runtime/non-forced-CAS
-path.
-
 ## Fresh install
 
 A fresh Termux environment needs the existing Termux shell, curl, and OpenSSL.
 No Rust compiler, package-manager install, release private key, or GitHub account
 is required on the device.
 
-The accepted public entrypoint is the immutable RALD-6 online installer:
+The accepted public entrypoint is the immutable online installer:
 
 ```sh
 "$PREFIX/bin/curl" -q --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 60 --max-filesize 131072 'https://raw.githubusercontent.com/humtr/codex/9972a3288c0531ba744e9bd1356273d9a080aa79/install-online.sh' | "$PREFIX/bin/sh"
@@ -119,8 +111,7 @@ without this helper. See SPEC for authoritative scope and failure behavior.
 ## Documents
 
 - `SPEC.md` — normative product and architecture contract
-- `GOAL.md` — success threshold and acceptance ledger
-- `WORKBOARD.md` — current milestone and next work only
+- `GOAL.md` — current objective, accepted baseline and open work
 - `AGENTS.md` — repository-local execution and safety rules
 
 ## Branches
@@ -160,3 +151,16 @@ and running clients are preserved. The temporary download is always cleaned.
   codex update
 )
 ```
+
+## Development
+
+Use the session model and judgment; no model family, planner or review ceremony
+is required. `scripts/check.sh docs`, `python`, `rust`, or `full` selects the
+relevant gate. Compiler output lives in the XDG cache; test data is disposable.
+Runtime/security/installer changes and release candidates require full acceptance.
+
+Implementation and reusable release logic live on `rewrite/rust-core`. The small
+`main` caller pins accepted workflow and source to one immutable commit. Scheduled
+publication admits qualified newer backends; manual `rebuild_current` rebuilds
+the qualified current version. Manual `publish` defaults to false: unsigned
+build/smoke only, without signing, Release, Pages or stable mutation.
