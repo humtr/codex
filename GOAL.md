@@ -6313,3 +6313,18 @@ APK feature. No new implementation or runtime cutover accepted in this review.
   notification-only registration into initial working-terminal registration in
   a future optional launch slice. Current UI proof is not automatic launch code.
   Bare Core launch/argv/TTY/exit contract and current installed runtime unchanged.
+
+### Stable return identifier source accepted (2026-10-10)
+
+AI888d19f derives default native terminal name from socket pathname and native
+session name, separate from live UID/inode/runtime qualification. Sixteen hex
+digits avoid kernel inode/session-ID churn; explicit native session binding
+preserves an existing 16/64-digit named terminal during native UI transfer.
+Focused native11 passed (baseline10); actual temporary server restart changed
+sessionID but kept return name, different server/name isolated, invalid binding
+refused service, stale live socket still rejected. AI full37/0warn/0fail passed.
+AI-only installed; installed public focus0 preserved sole original18688 pts0.
+Extra22177 pts4 no longer attached; managed status=off implements user hidden
+trial. Current original legacy name explicitly pinned, awaiting user UI rename
+to ai-tmux-a387f067eedfb630 then unpin; no silent live name switch.
+Automatic initial named launch remains next slice, not claimed by this change.

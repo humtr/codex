@@ -306,8 +306,16 @@ After resolving a unique live pane, AI atomically rechecks its identity, selects
 it, and obtains its existing tmux session ID. Only a successful recheck requests
 RunCommandService to select or create one named native terminal running installed
 tmux with the exact registered socket and `attach-session -t <SESSION_ID>`.
-The stable private shell name binds socket identity and tmux session ID, never
-conversation content. The string-valued `no-shell-with-name` creation mode
+The default private shell name is `ai-tmux-` followed by the first sixteen lowercase
+hexadecimal SHA-256 digits of compact JSON `[socket_path, session_name]`. It is
+stable across server inode changes and native session-ID reuse at the same socket
+path/name. Socket inode/UID and runtime/pane qualification remain separate live
+checks; the presentation name is not authority. Native session-local
+`@humtr_ai_terminal_name`, if present, may explicitly bind an existing registered
+terminal using an `ai-tmux-` name with sixteen or sixty-four lowercase hex digits;
+invalid bindings refuse service dispatch. This permits a bounded existing-device
+name transfer while preserving return until the native UI change is confirmed.
+Names contain no conversation content. The string-valued `no-shell-with-name` creation mode
 delegates reuse and create-if-absent to the native Termux service. Its string-valued
 action selects the returned terminal and opens Activity. Repeated or concurrent
 clicks for a live tmux session must reuse one terminal/client, including clicks

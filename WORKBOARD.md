@@ -101,3 +101,19 @@ signals/stdio/exit. No implicit switch to another Android terminal on ordinary
 launch. Resolve supported automatic registration and dynamic-title presentation
 before product mutation; SPEC must precede any public launch contract change.
 Current original1 binding and working notification path remain installed.
+
+## Stable native terminal identifier slice
+
+Baseline AI538b607 native tmux10 passed, user dirty AI launch/profile work preserved.
+Paths: AI terminal-name/focus only, native tmux regression tests. Default name uses
+socket pathname + native session name, not kernel inode/session ID. Explicit native
+session binding supports current original1 name during confirmed UI transition;
+invalid binding must refuse dispatch. Proof: restart with different session IDs at
+same socket/name keeps name, different server/session isolates; explicit/invalid
+binding focused cases plus native focused/full AI checks. Protected: focus identity
+checks, workload execution, old original1 binding, bare Core/profile/auth/argv.
+State: source accepted in GOAL, AI888d19f native11/full37 installed. Sole original
+18688 pts0 preserved and status=off. User UI rename to ai-tmux-a387f067eedfb630
+then unset explicit legacy binding is the next bounded gate. No service dispatch
+with new name before UI confirmation. Automatic named initial launch remains
+next separate slice; do not claim it implemented by stable naming alone.
