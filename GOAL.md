@@ -21,6 +21,56 @@ accepted history without deleting its published branch. No live cutover or stabl
 admission is claimed by this goal lift. The actual frontend/backend version pair,
 release pipeline and same-generation optional-Manager path are load-bearing gates.
 
+### Generation frontend Core slice accepted (2026-10-10)
+
+Baseline67ef006; ordinary Core now recognizes exactly the same-version third
+helper, requires Manager and ordinary browser layout, and qualifies its existing
+signed inventory at the actual activated public launch boundary. Installed optional
+frontend/Manager failure preserves official execution; candidate admission remains
+strict. Core still owns only qualified socket/argv/environment/FD execution, while
+native/Manager own UI/account/binding. No new durable root, pointer or config owner.
+
+Proof mapping: manager_tui index -> declaration/version/Manager/layout regression;
+supported/native_args -> original non-UTF8 argv/socket/options regression; loaded
+helper paths, exact inventory, verification and activated loader -> eight installed
+optional/candidate faults (missing file/parent, file/parent symlink, directory,
+content digest, descriptor digest, changed mode), plus required-runtime corruption.
+launch/availability propagation -> owned ordinary Core/native/Manager public TUI.
+Manager/AI exact helpers/2 path -> unit and direct/supervised path regressions plus
+actual normal Core foreground binding/focus. AI77c6966 committed/pushed; focused
+identity/native12 and full37/0warn/0fail pass, pre-existing user work preserved.
+
+Actual ordinary Core7ff4c6ba / Managerb73f07f1 / nativee640564f prove /title without
+an ID, /new/current full UUID/old-ID refusal, stable pane/PID/binding and repeated
+return with Android dispatch captured. Five normal-generation profile/fallback
+cases prove actual arrow+Enter across external/work/default, writer ownership,
+blank persistence failure and stalled-backend refusal, missing Manager/native and
+changed native usable fallback, unchanged saved default/auth/config, same UUID/
+PID/TTY/CWD and exact terminal restoration. Persisted-history source-return gate
+proves retained writer after frontend cleanup then Enter returns only to the
+original execution profile, preserving history/backend and starting no model work.
+Shared/named actual menus prove four selections/two shortcuts and native settings6/5.
+The owned generation uses a one-shot test signing key, not production credentials
+or publication; producer/paired update/rollback/device acceptance remains OPEN.
+
+Grouped Core187 + Manager36 + public Manager55 + builder22 pass (300 total, one
+explicit Core smoke ignore); actual protected-Termux smoke1 passes separately.
+Workspace clippy/all-targets -D warnings, fmt/diff and final build pass. Initial
+Manager signal gate exposed a test readiness race: both shell probes published
+PID before installing TERM trap. Both now install the handler first; focused
+Manager1/Core2 and failed full Manager55 rerun pass. Same-production Core187 and
+Manager36 evidence is reused. Final actual Core/Manager digests remain identical
+to the public native probes. No installation/cutover or physical tap is claimed.
+
+Disposition: KEEP actual signed qualification and foundational executable-mode
+release policy; DELETE duplicate proposed mode branch/invalid signed-mode fallback
+fixture. COLLAPSE sparse ANSI header expectations into full selected-row marker
+(with only cursor-skipped whitespace tolerated) plus actual writer proof. Earlier
+compile, candidate-only availability and ANSI fixture reds are rejected evidence.
+Protected launcher/native/Manager/activation hashes and sole original18688 pts0,
+explicit pinned native name/status=off remain unchanged. The old preview stays
+only for existing clients until the paired producer/lifecycle/device slice closes.
+
 ### Native identity public-path slice accepted (2026-10-10)
 
 Hosted38019322660 completed successfully at2c9ec49: full AArch64-musl CLI,

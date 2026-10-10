@@ -41,7 +41,8 @@ fn native(home: &Path, executable: &Path) -> bool {
         return false;
     };
     let parts: Vec<_> = relative.components().collect();
-    parts.len() == 2 && parts[1].as_os_str() == "runtime"
+    (parts.len() == 2 && parts[1].as_os_str() == "runtime")
+        || (parts.len() == 3 && parts[1].as_os_str() == "helpers" && parts[2].as_os_str() == "2")
 }
 
 fn tmux(socket: &Path, args: &[&str]) -> Result<String, ManagerError> {
@@ -260,10 +261,18 @@ mod tests {
             home,
             Path::new("/owned/.local/lib/codex/profile-tui-preview/direct-selection-v1/native")
         ));
+        assert!(native(
+            home,
+            Path::new("/owned/.local/lib/codex/core/generations/a/helpers/2")
+        ));
         for path in [
             "/owned/runtime",
             "/owned/.local/lib/codex/core/generations/runtime",
             "/owned/.local/lib/codex/core/generations/a/b/runtime",
+            "/owned/.local/lib/codex/core/generations/a/helpers/0",
+            "/owned/.local/lib/codex/core/generations/a/helpers/1",
+            "/owned/.local/lib/codex/core/generations/a/b/helpers/2",
+            "/owned/.local/lib/codex/core/generations/a/helpers/2/native",
         ] {
             assert!(!native(home, Path::new(path)));
         }

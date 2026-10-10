@@ -6,6 +6,8 @@ mod live_preview;
 #[cfg(unix)]
 mod maintenance;
 #[cfg(unix)]
+mod manager_tui;
+#[cfg(unix)]
 mod profile_lease;
 #[cfg(unix)]
 mod rollback_guard;
@@ -1347,6 +1349,7 @@ impl std::error::Error for RuntimeLaunchError {
 struct QualifiedRuntimeLaunchOptions<'args> {
     planned_args: &'args [OsString],
     manager_available: bool,
+    manager_tui_available: bool,
 }
 
 #[cfg(unix)]
@@ -1421,6 +1424,26 @@ where
                 &env_plan,
             ) {
                 Ok(_socket) => {
+                    if options.manager_available
+                        && options.manager_tui_available
+                        && manager_tui::supported(options.planned_args)
+                    {
+                        if let Some(frontend) = selection
+                            .helpers
+                            .iter()
+                            .find(|helper| helper.identity.starts_with(manager_tui::PREFIX))
+                        {
+                            return RuntimeLaunchError::Exec(manager_tui::launch(
+                                frontend.asset_path,
+                                &_socket,
+                                &profile,
+                                options.planned_args,
+                                resolver_path.as_ref(),
+                                config_dir.as_ref(),
+                                &env_plan,
+                            ));
+                        }
+                    }
                     #[cfg(feature = "profile-tui-live-preview")]
                     if let Some(error) = live_preview::launch(
                         &_socket,
@@ -3055,6 +3078,7 @@ struct LocalPublicDispatchContext<
     generation_id: &'context str,
     generation_layout: GenerationLayout,
     manager_doctor_status: ManagerDoctorStatus,
+    manager_tui_available: bool,
 }
 
 #[cfg(unix)]
@@ -3142,6 +3166,7 @@ fn execute_public_dispatch<
                         context.manager_artifact,
                         ManagerArtifact::Available(_)
                     ),
+                    manager_tui_available: context.manager_tui_available,
                 },
             ),
         )),
@@ -6300,6 +6325,7 @@ struct LoadedLocalGeneration {
     compatibility_dir: std::path::PathBuf,
     manager_path: Option<std::path::PathBuf>,
     helper_paths: Vec<std::path::PathBuf>,
+    manager_tui_available: bool,
 }
 
 #[cfg(unix)]
@@ -6544,6 +6570,7 @@ fn load_local_generation(
         .manager_artifact_digest
         .as_ref()
         .map(|_| generation_dir.join("manager"));
+    let manager_tui_index = manager_tui::index(&manifest)?;
     let r10_browser_helper_bridge = r10_browser_helper_bridge(&manifest)?;
     let helper_paths: Vec<_> = manifest
         .helper_digests
@@ -6557,12 +6584,21 @@ fn load_local_generation(
             ))
         })
         .collect();
-    if helper_paths.iter().any(|path| !path.is_file()) {
+    if helper_paths
+        .iter()
+        .enumerate()
+        .any(|(index, path)| Some(index) != manager_tui_index && !path.is_file())
+    {
         return Err(LocalProductError::Descriptor(
             "activated generation helper is missing",
         ));
     }
     for (index, helper_path) in helper_paths.iter().enumerate() {
+        // Optional installed frontend failure is handled by signed inventory
+        // qualification below; it must never disable independent Core.
+        if Some(index) == manager_tui_index {
+            continue;
+        }
         let identity = manifest.helper_digests[index].identity.as_str();
         match identity {
             TERMUX_BROWSER_OPEN_HELPER_IDENTITY | TERMUX_BROWSER_MANUAL_HELPER_IDENTITY
@@ -6615,6 +6651,7 @@ fn load_local_generation(
         compatibility_dir,
         manager_path,
         helper_paths,
+        manager_tui_available: false,
     })
 }
 
@@ -6860,11 +6897,13 @@ fn exact_release_file_paths(
         files.push("manager".to_owned());
     }
     for (index, helper_path) in loaded.helper_paths.iter().enumerate() {
-        ensure_regular_file(
-            helper_path,
-            "inspect release helper",
-            "release helper must be a regular file",
-        )?;
+        if Some(index) != manager_tui::index(&loaded.manifest)? {
+            ensure_regular_file(
+                helper_path,
+                "inspect release helper",
+                "release helper must be a regular file",
+            )?;
+        }
         files.push(
             generation_helper_relative_path_for_layout(
                 index,
@@ -6961,10 +7000,22 @@ fn verify_release_inventory(
         ));
     }
     for file in &manifest.files {
+        let frontend =
+            manager_tui::index(&loaded.manifest)?.filter(|_| file.relative_path == "helpers/2");
         let verified = (|| {
             use std::os::unix::fs::PermissionsExt as _;
 
             let path = generation_dir.join(&file.relative_path);
+            if let Some(index) = frontend {
+                ensure_real_directory(
+                    &generation_dir.join("helpers"),
+                    "inspect Manager frontend directory",
+                    "Manager frontend directory must be a real directory",
+                )?;
+                if file.sha256 != loaded.manifest.helper_digests[index].digest {
+                    return Err(LocalProductError::ReleaseDigestMismatch);
+                }
+            }
             ensure_regular_file(
                 &path,
                 "inspect release inventory file",
@@ -6986,6 +7037,11 @@ fn verify_release_inventory(
         if purpose == ReleaseInventoryPurpose::Installed && file.relative_path == "manager" {
             if verified.is_err() {
                 loaded.manager_path = None;
+            }
+        } else if frontend.is_some() {
+            loaded.manager_tui_available = verified.is_ok();
+            if purpose == ReleaseInventoryPurpose::Candidate {
+                verified?;
             }
         } else {
             verified?;
@@ -7431,6 +7487,18 @@ fn load_activated_generation(
             "activated generation descriptor id does not match current",
         ));
     }
+    if manager_tui::index(&loaded.manifest)?.is_some() {
+        // Ordinary historical launches trust their admitted immutable generation.
+        // The optional frontend needs actual installed signed-file qualification
+        // at this public boundary, not an availability flag from candidate proof.
+        return verify_installed_local_release(
+            roots,
+            &state.current,
+            state.current_key,
+            "activated frontend generation does not match current",
+        )
+        .map(|(_, qualified)| qualified);
+    }
     Ok(loaded)
 }
 
@@ -7577,6 +7645,7 @@ fn execute_activated_route(
             generation_id: &loaded.generation_id,
             generation_layout: loaded.generation_layout,
             manager_doctor_status,
+            manager_tui_available: loaded.manager_tui_available,
         };
         execute_public_dispatch(route, context).map_err(LocalProductError::Dispatch)
     })
@@ -12924,8 +12993,8 @@ if [ "$1" = "--version" ] || [ "$1" = "-V" ]; then
   exit 0
 fi
 if [ "$1" = "signal" ]; then
-  printf '%s\n' "$$" > "$CODEX_TEST_PID_FILE"
   trap 'exit 143' TERM
+  printf '%s\n' "$$" > "$CODEX_TEST_PID_FILE"
   while :; do :; done
 fi
 if [ "$1" = "tty" ]; then
@@ -13120,6 +13189,7 @@ exit 73
             generation_id: "test-generation",
             generation_layout: GenerationLayout::RootCodeModeHost,
             manager_doctor_status: ManagerDoctorStatus::Unavailable,
+            manager_tui_available: false,
         };
         match execute_public_dispatch(route, context) {
             Err(PublicDispatchExecutionError::Upstream(RuntimeLaunchError::Config(_)))
@@ -13594,6 +13664,7 @@ exit 73
                 QualifiedRuntimeLaunchOptions {
                     planned_args: &planned,
                     manager_available: false,
+                    manager_tui_available: false,
                 },
             ),
             RuntimeLaunchError::Environment(TermuxProcessEnvError::MissingRequired("PREFIX"))
@@ -13645,6 +13716,7 @@ exit 73
                 generation_id: "test-generation",
                 generation_layout: GenerationLayout::RootCodeModeHost,
                 manager_doctor_status: ManagerDoctorStatus::Unavailable,
+                manager_tui_available: false,
             },
         )
         .unwrap();
@@ -13693,6 +13765,7 @@ exit 73
             generation_id: "test-generation",
             generation_layout: GenerationLayout::RootCodeModeHost,
             manager_doctor_status: ManagerDoctorStatus::Unavailable,
+            manager_tui_available: false,
         };
         assert_eq!(
             execute_public_dispatch(PublicDispatchRoute::Update(vec!["--x".into()]), context)
@@ -20544,6 +20617,129 @@ esac
         );
 
         remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_manager_tui_installed_optional_inventory_and_strict_candidate() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+
+        for defect in [
+            "missing",
+            "missing-parent",
+            "symlink",
+            "parent-symlink",
+            "directory",
+            "digest",
+            "descriptor-digest",
+            "mode",
+        ] {
+            let (root, mut roots) = b2_test_roots("manager-tui-inventory");
+            roots.openssl = b4_termux_openssl();
+            let private_key = root.join("keys/private.pem");
+            let public_key = root.join("keys/public.pem");
+            b4_generate_release_keypair(&roots.openssl, &private_key, &public_key);
+            let generation = b2_write_root_generation(&roots, "g1", true, "supported");
+            b2_add_tc2_browser_helpers(&generation);
+            std::fs::create_dir(generation.join("helpers")).unwrap();
+            let frontend = generation.join("helpers/2");
+            std::fs::write(&frontend, b"owned-frontend").unwrap();
+            std::fs::set_permissions(&frontend, std::fs::Permissions::from_mode(0o755)).unwrap();
+            let descriptor_path = generation.join("generation.meta");
+            let descriptor = std::fs::read_to_string(&descriptor_path).unwrap()
+                .replace("helper_count\t2\n", "helper_count\t3\n")
+                .replace(
+                    "helper\ttermux-browser-manual-v1\tbrowser-manual-digest\n",
+                    &format!(
+                        "helper\ttermux-browser-manual-v1\tbrowser-manual-digest\nhelper\ttermux-manager-tui-v1:9.9.9\t{}\n",
+                        openssl_sha256(&roots.openssl, &frontend).unwrap()
+                    ),
+                );
+            std::fs::write(&descriptor_path, descriptor).unwrap();
+            b4_write_signed_release(&generation, 1, &roots.openssl, &private_key);
+            let key = b4_public_key_from_private(&roots.openssl, &private_key);
+            assert!(
+                verify_local_release_bundle_with_key(&generation, &roots.openssl, key)
+                    .unwrap()
+                    .1
+                    .manager_tui_available
+            );
+            let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+            prepare_core_state_paths(&paths).unwrap();
+            let state = plan_initial_pointer_state_with_key("g1", key).unwrap();
+            activate_pointer_state(&paths, None, &state).unwrap();
+            assert!(
+                load_activated_generation(&roots)
+                    .unwrap()
+                    .manager_tui_available
+            );
+            assert!(
+                authenticated_public_baseline(&roots, &state)
+                    .unwrap()
+                    .2
+                    .manager_tui_available
+            );
+            match defect {
+                "missing" => std::fs::remove_file(&frontend).unwrap(),
+                "missing-parent" => std::fs::remove_dir_all(generation.join("helpers")).unwrap(),
+                "symlink" => {
+                    let outside = root.join("outside-frontend");
+                    std::fs::rename(&frontend, &outside).unwrap();
+                    symlink(outside, &frontend).unwrap();
+                }
+                "parent-symlink" => {
+                    let outside = root.join("outside-helpers");
+                    std::fs::rename(generation.join("helpers"), &outside).unwrap();
+                    symlink(outside, generation.join("helpers")).unwrap();
+                }
+                "directory" => {
+                    std::fs::remove_file(&frontend).unwrap();
+                    std::fs::create_dir(&frontend).unwrap();
+                }
+                "digest" => std::fs::write(&frontend, b"changed-frontend").unwrap(),
+                "descriptor-digest" => {
+                    let descriptor = std::fs::read_to_string(&descriptor_path).unwrap().replace(
+                        &openssl_sha256(&roots.openssl, &frontend).unwrap(),
+                        &"0".repeat(64),
+                    );
+                    std::fs::write(&descriptor_path, descriptor).unwrap();
+                    b4_write_signed_release(&generation, 1, &roots.openssl, &private_key);
+                }
+                "mode" => {
+                    std::fs::set_permissions(&frontend, std::fs::Permissions::from_mode(0o600))
+                        .unwrap()
+                }
+                _ => unreachable!(),
+            }
+            let descriptor = std::fs::read(&descriptor_path).unwrap();
+            let inventory = std::fs::read(generation.join("release.manifest")).unwrap();
+            let activation = std::fs::read(&paths.activation_state).unwrap();
+            assert!(
+                verify_local_release_bundle_with_key(&generation, &roots.openssl, key).is_err(),
+                "{defect}"
+            );
+            let (_, _, loaded) = authenticated_public_baseline(&roots, &state).unwrap();
+            assert!(!loaded.manager_tui_available, "{defect}");
+            assert!(
+                !load_activated_generation(&roots)
+                    .unwrap()
+                    .manager_tui_available,
+                "{defect}"
+            );
+            assert!(loaded.manager_path.is_some(), "{defect}");
+            assert_eq!(std::fs::read(&descriptor_path).unwrap(), descriptor);
+            assert_eq!(
+                std::fs::read(generation.join("release.manifest")).unwrap(),
+                inventory
+            );
+            assert_eq!(std::fs::read(&paths.activation_state).unwrap(), activation);
+            std::fs::write(generation.join("runtime"), b"changed-required-runtime").unwrap();
+            assert!(matches!(
+                authenticated_public_baseline(&roots, &state),
+                Err(LocalProductError::ReleaseDigestMismatch)
+            ));
+            remove_temp_root(root);
+        }
     }
 
     #[cfg(unix)]

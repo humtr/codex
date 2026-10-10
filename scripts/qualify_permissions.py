@@ -28,7 +28,7 @@ import tomllib
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / ".github/scripts"))
 from rald3_preflight import parse_descriptor
-from qualify_tasks import materialize_signed_generation
+from qualify_tasks import fixture_activation_state, materialize_signed_generation
 
 
 ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\].*?(?:\x07|\x1b\\)", re.S)
@@ -60,15 +60,22 @@ def notifications(trace, method):
     return result
 
 
-def qualify(core, generation, parent, mode, prepare_preview=None):
+def qualify(core, generation, parent, mode, prepare_preview=None, public_key=None):
     with tempfile.TemporaryDirectory(prefix="pq", dir=parent) as temporary:
         root = Path(temporary)
         home, prefix = root / "h", root / "p"
-        fields = parse_descriptor(generation / "generation.meta")
+        if public_key is not None:
+            fields = dict(line.split("\t", 1) for line in
+                          (generation / "generation.meta").read_text().splitlines()[1:])
+        else:
+            fields = parse_descriptor(generation / "generation.meta")
         identity = fields["generation_id"]
         assert ";permission_policy=" in fields["patch_report"]
         runtime = home / ".local/lib/codex/core/generations" / identity
-        materialize_signed_generation(generation, runtime)
+        if public_key is not None:
+            shutil.copytree(generation, runtime)
+        else:
+            materialize_signed_generation(generation, runtime)
         for directory in [prefix / "bin", prefix / "etc/tls", home / ".codex",
                           home / ".local/share/codex/core/config"]:
             directory.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -79,6 +86,10 @@ def qualify(core, generation, parent, mode, prepare_preview=None):
             f"format=codex-activation-state-v3\nupdate_key={'11' * 32}\n"
             f"current={identity}\ncurrent_key={'11' * 32}\n"
             "previous_present=0\nprevious=\nprevious_key=\n")
+        if public_key is not None:
+            (home / ".local/share/codex/core/activation-state").write_text(
+                fixture_activation_state(identity, public_key))
+            os.symlink(shutil.which("openssl"), prefix / "bin/openssl")
         named = 'default_permissions = ":danger-full-access"\n' if mode == "named" else ""
         config = named + f'''model = "fixture-model"
 model_provider = "fixture"
@@ -266,14 +277,15 @@ def main():
     parser.add_argument("--core", type=Path, required=True)
     parser.add_argument("--generation", type=Path, required=True)
     parser.add_argument("--temp-parent", type=Path, required=True)
+    parser.add_argument("--public-key", type=Path)
     args = parser.parse_args()
     assert shutil.which("strace"), "strace is required for native settings proof"
     for path in [args.core, args.generation, args.temp_parent]:
         assert path.is_absolute(), "qualification paths must be absolute"
     runtime = args.generation / "runtime"
     print("Runtime SHA256", hashlib.file_digest(runtime.open("rb"), "sha256").hexdigest(), flush=True)
-    for mode in ["legacy", "named", "embedded"]:
-        qualify(args.core, args.generation, args.temp_parent, mode)
+    for mode in (["shared", "named"] if args.public_key else ["legacy", "named", "embedded"]):
+        qualify(args.core, args.generation, args.temp_parent, mode, public_key=args.public_key)
 
 
 if __name__ == "__main__":

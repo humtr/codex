@@ -19,7 +19,9 @@ PROFILE_PREVIEW_MANAGER_SHA256 bindings. Its private assets are native, manager
 and the exact saved stable-core under the SPEC-bounded preview directory.
 Core still qualifies/starts the signed40 backend; the frontend uses that local
 server in the existing terminal. Signed40/39 and activation/update keys stay intact.
-Normal Core builds do not include this frontend selector or private bridge override.
+Ordinary Core now supports only the generation-bound frontend admission in SPEC.
+The optional preview feature remains a bounded historical qualification path;
+producer/lifecycle/device admission of the paired generation is still open.
 
 The qualified source frontend opens its picker with /switch. The installed older
 preview still uses /profile until a separate accepted replacement. Arrows

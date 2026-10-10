@@ -137,8 +137,8 @@ fn write_core_probe(root: &Path) -> PathBuf {
     let body = format!(
         "#!{}\n\
 if [ \"$1\" = \"signal\" ]; then\n\
-  printf '%s\\n' \"$$\" > \"$MGR_SIGNAL_PID\"\n\
   trap 'exit 143' TERM\n\
+  printf '%s\\n' \"$$\" > \"$MGR_SIGNAL_PID\"\n\
   while :; do :; done\n\
 fi\n\
 if [ \"$1\" = \"tty\" ]; then\n\

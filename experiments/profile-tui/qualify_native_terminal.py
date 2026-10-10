@@ -21,22 +21,31 @@ from qualify_native_profile_display import preview_assets
 UUID = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')
 
 
-def qualify(binary, core, manager, generation, public_key, ai_source, parent):
+def qualify(binary, core, manager, generation, public_key, ai_source, parent, generation_mode=False):
     sys.path.insert(0, str(ai_source / 'lib'))
     import ai_tmux
     with tempfile.TemporaryDirectory(prefix='nt', dir=parent) as temporary:
         root = Path(temporary)
         home, prefix = root / 'h', root / 'p'
-        identity = dict(line.split('\t', 1) for line in (generation / 'generation.meta').read_text().splitlines()[1:])['generation_id']
+        identity = next(line.split('\t', 1)[1] for line in (generation / 'generation.meta').read_text().splitlines() if line.startswith('generation_id\t'))
         stable = home / '.local/lib/codex/core/generations' / identity
-        materialize_signed_generation(generation, stable)
+        if generation_mode:
+            shutil.copytree(generation, stable)
+        else:
+            materialize_signed_generation(generation, stable)
         for path in [home / '.codex', prefix / 'bin', prefix / 'etc/tls', home / '.local/share/codex/core/config']:
             path.mkdir(parents=True, exist_ok=True, mode=0o700)
-        assets = preview_assets(home)
-        assets.mkdir(parents=True, mode=0o700)
-        for source, name in [(binary, 'native'), (manager, 'manager'), (generation / 'core', 'stable-core')]:
-            shutil.copy2(source, assets / name)
-            (assets / name).chmod(0o755)
+        if generation_mode:
+            frontend = stable / 'helpers/2'
+            assert frontend.read_bytes() == binary.read_bytes()
+            assert (stable / 'manager').read_bytes() == manager.read_bytes()
+        else:
+            assets = preview_assets(home)
+            assets.mkdir(parents=True, mode=0o700)
+            for source, name in [(binary, 'native'), (manager, 'manager'), (generation / 'core', 'stable-core')]:
+                shutil.copy2(source, assets / name)
+                (assets / name).chmod(0o755)
+            frontend = assets / 'native'
         installed = prefix / 'bin/codex'
         shutil.copy2(core, installed)
         os.symlink(shutil.which('openssl'), prefix / 'bin/openssl')
@@ -100,7 +109,7 @@ requires_openai_auth = false
         try:
             await_value(screen, lambda text: 'fixture-model' in text, 'native ready')
             pid = tm('display-message', '-p', '-t', pane, '#{pane_pid}')
-            assert Path(f'/proc/{pid}/exe').resolve() == assets / 'native', 'public Core did not execute pinned native'
+            assert Path(f'/proc/{pid}/exe').resolve() == frontend, 'public Core did not execute qualified native'
             tty = tm('display-message', '-p', '-t', pane, '#{pane_tty}')
             binding = await_value(lambda: tm('show-options', '-pqv', '-t', pane, '@codex_terminal_binding_v1'), bool, 'native-to-Core-to-Manager registration')
             with patch.dict(os.environ, env, clear=True):
@@ -162,5 +171,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     for name in ['binary', 'core', 'manager', 'generation', 'public-key', 'ai-source', 'parent']:
         parser.add_argument('--' + name, required=True, type=Path)
+    parser.add_argument('--generation-mode', action='store_true')
     args = parser.parse_args()
-    print(json.dumps(qualify(args.binary.resolve(), args.core.resolve(), args.manager.resolve(), args.generation.resolve(), args.public_key.resolve(), args.ai_source.resolve(), args.parent.resolve()), sort_keys=True))
+    print(json.dumps(qualify(args.binary.resolve(), args.core.resolve(), args.manager.resolve(), args.generation.resolve(), args.public_key.resolve(), args.ai_source.resolve(), args.parent.resolve(), args.generation_mode), sort_keys=True))

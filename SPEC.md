@@ -4,6 +4,50 @@ Status: initial normative baseline
 Repository: `humtr/codex`  
 Active implementation branch: `rewrite/rust-core`
 
+## Generation-bound Manager TUI admission (2026-10-10)
+
+The user authorizes replacing the accepted `/switch` experiment with maintained
+executable integration. This section owns that new admission; historical preview
+exceptions below remain valid only for the already-running preview and bounded
+qualification until the new generation passes acceptance.
+
+- The official adapted `runtime` remains the sole server/execution backend.
+  An optional source-built Manager TUI is the third signed helper at `helpers/2`,
+  identified by `termux-manager-tui-v1:UPSTREAM_VERSION`. The first two helpers
+  retain the ordinary browser identities/layout. Its version must exactly match
+  the generation's upstream version, its generation must declare Manager and it
+  cannot use the historical R10 helper-layout marker. Its digest is owned by the
+  existing generation descriptor and signed release inventory; no parallel pointer,
+  installation root, stable-core backup or preview-specific updater exists.
+- Actual source build qualifies the exact official upstream source/version,
+  pristine slash inventory, external dependency lock, bounded native patch,
+  frontend FD remaps and actual TUI behavior before publication. The builder
+  refuses a frontend version mismatch or frontend without Manager. An unqualified
+  newer version cannot silently publish without `/switch`; retain the prior
+  admitted generation until the new pair is qualified.
+- Ordinary eligible interactive Core launch selects this frontend only when its
+  signed helper and same-generation Manager are usable. Core supplies its existing
+  qualified local-server socket and exact Core entrypoint. Unsupported explicit
+  upstream modes/options retain the official runtime path and original argv.
+  Core owns no picker, account transition, title composition or terminal controller.
+  Missing or changed optional frontend/Manager on an installed generation disables
+  that optional UI while leaving independent Core usable. Candidate admission and
+  publication require every declared asset and digest; an incomplete candidate is
+  rejected. The frontend is never executed from an unqualified asset.
+- Install, update, activation and rollback use the existing complete generation
+  transaction and signed inventory, including the helper. Failure retains the
+  current complete generation. Rollback selects the matching assets of its target;
+  a historical pre-TUI generation retains its historical upstream-only behavior.
+  Existing clients keep their executable and jobs. The old preview can be removed
+  only after its remaining native clients have exited, without terminating them.
+- `/switch`, permissions, current-writer/source-return guards and title-independent
+  identity retain their accepted native/Manager contracts below. Manager and AI
+  recognize only the exact qualified generation frontend path for binding/focus;
+  titles and fixed native-window identifiers remain separate from conversation ID.
+
+Acceptance is open until focused and real public-path tests, coherent disposable
+install/update/rollback/fault proof and bounded protected device cutover pass.
+
 ## Optional /switch TUI source boundary (2026-10-08)
 
 This section applies to the user-authorized experiment/profile-tui and its
