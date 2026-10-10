@@ -6157,3 +6157,30 @@ and ordinary installed update retaining complete38 as previous. Resume binds cle
 rewrite6a71005, clean exact candidatefadae24/parent9bac2f41, remote9bac2f41 and
 accepted exact sourceb7c1e61 hosted37275318923 success. Workers OFF. No permission
 question remains for this bounded delivery; no user work cancellation authorized.
+
+
+### TERMUX-RESTORE-NORMALIZATION — Android navigation source acceptance (2026-10-10)
+
+- Socket-first bounded Activity actions on c4d9a41 are accepted. Generated shell
+  execution covers success/refusal/absence under quoted paths. No execution service,
+  new Codex or resume is reachable. Only idempotent Activity navigation may retry.
+- Grouped workspace: Core184/0/1 explicit smoke ignored; Manager34/0 unit and55/0
+  public integration; builder22/0. Explicit real-Termux read-only smoke passed1/1.
+  Workspace/all-targets clippy -D warnings, fmt and diff checks passed. Existing
+  update/rollback/publication/profile/state-collision regressions run on Android;
+  no production hard-link call survives in Core, Manager or builder.
+- COLLAPSE the historical static repeated-flag count into delivered-action count
+  and actual generated-shell dispatch proof; focused public integration passed1/1.
+- KEEP optional AI tmux identity/pane/socket checks and named-terminal reuse.
+  APK8629e63 has no arbitrary bare-terminal selector. Activity return without tmux
+  preserves the selected terminal. Actual notification tap remains unproved.
+- Installed standard am is owned by private humtr/termux-compat59e99a8 (5 fixture
+  tests, real socket to-uri/check passed; package original/diversion preserved).
+  AI6b91766 is pushed; installed AI-only refresh passed37 full checks and1 socket
+  selector proof. Signed Codex generations and pinned /profile frontend assets
+  are unchanged. New Manager source is not a signed-generation cutover. Installed
+  older Manager uses socket through standard am; focus=termux, preserve-newlines=0.
+  Notification and toast delivery succeeded; physical tap observation is pending.
+- Installed default X11 :99 returned a successful protocol handshake without
+  overrides. Exact app_process with copied readonly AM APK and normal ART options
+  returned to-uri. No Android system-library or resolver mutation.

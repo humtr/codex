@@ -2590,12 +2590,18 @@ same Activity-only route. Explicit tmux focus additionally follows the Optional
 AI tmux notification focus contract in Section 3, including its authorized new
 native-terminal attach. This Activity action adds no click state or watcher.
 
-The Activity part uses an absolute sibling `am` path from the qualified Core entrypoint
-(or the canonical Termux `am` path if the entrypoint is not UTF-8) and shell-quotes
-that path. It passes a fixed Activity component and flags only, silences stdout/
-stderr, and contains no notification text, hook metadata, profile, CWD, auth or
-session ID. It does not use the optional termux-am socket or launch the Termux
-terminal service; the optional AI focus helper owns the separate attach request.
+The Activity part first uses the absolute sibling `termux-am` socket client from the
+qualified Core entrypoint when executable, then the existing sibling `am` compatibility
+route if unavailable or unsuccessful. A non-UTF-8 entrypoint uses canonical Termux paths.
+Each route is bounded by the base environment's `timeout` command to three seconds.
+This fallback retries only idempotent Activity reorder/single-top navigation, never an
+execution-service request. Paths are shell-quoted; only a fixed Activity component and
+flags are passed. Output is silenced and no hook payload, profile, CWD, auth or session ID
+is included. It never launches the terminal execution service. Socket availability does
+not imply an existing-terminal selection API: the installed Termux 8629e63 Activity only
+restores its current selection. Exact bare-terminal selection remains unavailable on that
+APK; it must never be simulated by creating a terminal or resuming Codex. The optional AI
+focus helper owns its separately opted-in existing-tmux attachment path.
 Existing notifications are not rewritten; this contract applies
 to newly delivered notifications.
 

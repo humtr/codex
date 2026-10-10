@@ -1290,12 +1290,19 @@ fn shell_quote(value: &str) -> String {
 
 fn notification_action(context: &Context) -> String {
     let am_path = context.core_entrypoint.with_file_name("am");
+    let socket_path = context.core_entrypoint.with_file_name("termux-am");
     let am = am_path
         .to_str()
         .unwrap_or("/data/data/com.termux/files/usr/bin/am");
+    let socket = socket_path
+        .to_str()
+        .unwrap_or("/data/data/com.termux/files/usr/bin/termux-am");
+    let activity = "start --activity-reorder-to-front --activity-single-top -n com.termux/com.termux.app.TermuxActivity";
+    let compatibility = format!("timeout 3 {} {activity} >/dev/null 2>&1", shell_quote(am));
+    // Only Activity navigation is retried. Never dispatch a terminal command here.
     format!(
-        "{} start --activity-reorder-to-front --activity-single-top -n com.termux/com.termux.app.TermuxActivity >/dev/null 2>&1",
-        shell_quote(am)
+        "if [ -x {socket} ]; then timeout 3 {socket} {activity} >/dev/null 2>&1 || {compatibility}; else {compatibility}; fi",
+        socket = shell_quote(socket)
     )
 }
 
@@ -2541,8 +2548,74 @@ mod tests {
             inherited_codex_home: None,
             core_entrypoint: PathBuf::from(OsString::from_vec(b"/bin-\xff/codex".to_vec())),
         };
-        assert_eq!(notification_action(&context), "'/data/data/com.termux/files/usr/bin/am' start --activity-reorder-to-front --activity-single-top -n com.termux/com.termux.app.TermuxActivity >/dev/null 2>&1");
+        let action = notification_action(&context);
+        assert!(action.contains("'/data/data/com.termux/files/usr/bin/termux-am'"));
+        assert!(action.contains("'/data/data/com.termux/files/usr/bin/am'"));
+        assert!(!action.contains("bin-"));
     }
+    #[test]
+    fn notification_activity_socket_success_failure_and_absence_execute_existing_activity_only() {
+        let root = TestRoot::new();
+        let bin = root.0.join("quoted ' bin");
+        fs::create_dir(&bin).unwrap();
+        let mut context = root.context();
+        context.core_entrypoint = bin.join("codex");
+        let log = root.0.join("actions");
+        let shell = Command::new("sh")
+            .args(["-c", "command -v sh"])
+            .output()
+            .unwrap();
+        let shell = String::from_utf8(shell.stdout).unwrap();
+        let write_script = |name: &str, result: u8| {
+            let script = format!(
+                "#!{}\nprintf '%s\\n' '{}' \"$@\" >> \"$ACTION_PROBE\"\nexit {result}\n",
+                shell.trim(),
+                name
+            );
+            let path = bin.join(name);
+            fs::write(&path, script).unwrap();
+            fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
+        };
+        write_script("am", 0);
+        let action = notification_action(&context);
+        for (socket_result, expected) in [
+            (Some(0), vec!["termux-am"]),
+            (Some(1), vec!["termux-am", "am"]),
+            (None, vec!["am"]),
+        ] {
+            log.exists().then(|| fs::remove_file(&log).unwrap());
+            if let Some(result) = socket_result {
+                write_script("termux-am", result);
+            } else {
+                fs::remove_file(bin.join("termux-am")).unwrap();
+            }
+            let status = Command::new("sh")
+                .args(["-c", &action])
+                .env("ACTION_PROBE", &log)
+                .status()
+                .unwrap();
+            assert!(status.success());
+            let actual = fs::read_to_string(&log).unwrap();
+            let commands: Vec<_> = actual
+                .lines()
+                .filter(|line| *line == "termux-am" || *line == "am")
+                .collect();
+            assert_eq!(commands, expected);
+            assert_eq!(
+                actual.matches("--activity-reorder-to-front").count(),
+                expected.len()
+            );
+            assert_eq!(
+                actual.matches("--activity-single-top").count(),
+                expected.len()
+            );
+            assert!(!actual.contains("startservice"));
+            assert!(!actual.contains("RunCommand"));
+            assert!(!actual.contains("resume"));
+            assert!(!actual.contains("codex"));
+        }
+    }
+
     #[test]
     fn notification_focus_private_state_preserves_core_record_and_rejects_links() {
         let root = TestRoot::new();
