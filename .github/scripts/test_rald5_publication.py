@@ -156,6 +156,61 @@ class Rald5PublicationTests(unittest.TestCase):
             BASE,
         )
 
+    def test_actual_reconstruction_preserves_both_inventories_and_rejects_faults(self) -> None:
+        for frontend in (False, True):
+            for fault in (None, "missing", "payload", "extra", "symlink", "manifest",
+                          "signature", "index", "sidecar", "key", "occupied"):
+                with self.subTest(frontend=frontend, fault=fault):
+                    self.build_signed(frontend=frontend)
+                    assets = self.root / f"restore-assets-{frontend}-{fault}"
+                    prepared = self.prepare(assets)
+                    self.assertEqual(prepared.returncode, 0, prepared.stderr.decode())
+                    helper = assets / ("helper-2" if frontend else "helper-1")
+                    if fault == "missing":
+                        helper.unlink()
+                    elif fault == "payload":
+                        helper.write_bytes(b"changed")
+                    elif fault == "extra":
+                        (assets / "helper-3").write_bytes(b"extra")
+                    elif fault == "symlink":
+                        helper.unlink(); helper.symlink_to(assets / "core")
+                    elif fault == "manifest":
+                        path = assets / "release.manifest"
+                        path.write_text(path.read_text().replace("helpers/1", "helpers/9"))
+                    elif fault == "signature":
+                        (assets / "release.sig").write_bytes(b"x" * 64)
+                    elif fault == "index":
+                        (assets / "candidate-update-index-v1").write_bytes(b"changed")
+                    elif fault == "sidecar":
+                        (assets / "download-size-v1").write_bytes(b"changed")
+                    elif fault == "key":
+                        (assets / "update-public-key.pem").write_bytes(b"foreign")
+                    site = self.root / f"restore-site-{frontend}-{fault}"
+                    destination = site / GENERATION
+                    if fault == "occupied":
+                        destination.mkdir(parents=True)
+                        (destination / "keep").write_bytes(b"owned")
+                    result = run("restore-assets", "--assets", str(assets), "--root", str(site),
+                                 "--public-key", str(self.public_key), "--generation", GENERATION,
+                                 "--release-sequence", SEQUENCE, "--release-base", BASE)
+                    if fault is None:
+                        self.assertEqual(result.returncode, 0, result.stderr.decode())
+                        source = self.signed / "releases" / GENERATION
+                        for path in source.rglob("*"):
+                            if path.is_file():
+                                installed = destination / path.relative_to(source)
+                                self.assertEqual(installed.read_bytes(), path.read_bytes())
+                                expected_mode = 0o644 if path.name in ("release.manifest", "release.sig") else path.stat().st_mode & 0o7777
+                                self.assertEqual(installed.stat().st_mode & 0o7777, expected_mode)
+                        self.assertEqual((destination / "helpers/2").exists(), frontend)
+                        self.assertEqual({p.name for p in site.iterdir()}, {GENERATION})
+                    else:
+                        self.assertNotEqual(result.returncode, 0)
+                        if fault == "occupied":
+                            self.assertEqual((destination / "keep").read_bytes(), b"owned")
+                        else:
+                            self.assertFalse(destination.exists())
+
     def test_extended_signed_assets_and_pages_reject_helper_faults(self) -> None:
         for fault in (None, "missing", "tampered", "mode", "extra", "undeclared"):
             with self.subTest(fault=fault):

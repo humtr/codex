@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 
 GENERATION_RE = re.compile(r"local-[a-z0-9][a-z0-9._-]{0,126}\Z")
 HEX64_RE = re.compile(r"[0-9a-f]{64}\Z")
@@ -413,6 +414,59 @@ def prepare_assets(args: argparse.Namespace) -> None:
         shutil.rmtree(scratch, ignore_errors=True)
 
 
+def restore_assets(args: argparse.Namespace) -> None:
+    assets = Path(args.assets).resolve()
+    public_key = Path(args.public_key).resolve()
+    root = Path(args.root).resolve()
+    generation = safe_generation(args.generation)
+    destination = root / generation
+    if destination.exists() or destination.is_symlink():
+        fail("publication generation output already exists")
+    require_regular(public_key)
+    require_regular(assets / "update-public-key.pem")
+    if (assets / "update-public-key.pem").read_bytes() != public_key.read_bytes():
+        fail("publication asset authority does not match trusted public key")
+    require_regular(assets / "release.manifest")
+    _, files = parse_manifest(assets / "release.manifest")
+    metadata = {
+        "release.manifest": "release.manifest",
+        "release.sig": "release.sig",
+        DOWNLOAD_SIZE_ASSET: DOWNLOAD_SIZE_RELATIVE,
+        DOWNLOAD_SIZE_SIGNATURE_ASSET: DOWNLOAD_SIZE_SIGNATURE_RELATIVE,
+        "candidate-update-index-v1": "update-index-v1",
+        "candidate-update-index-v1.sig": "update-index-v1.sig",
+    }
+    expected = {FLAT_ASSETS[rel] for rel, _, _ in files} | set(metadata) | {"update-public-key.pem"}
+    exact_entries(assets, expected)
+    for name in expected:
+        require_regular(assets / name)
+    root.mkdir(parents=True, exist_ok=True)
+    destination.mkdir(mode=0o700)
+    try:
+        for rel, _, mode in files:
+            path = destination / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(assets / FLAT_ASSETS[rel], path)
+            path.chmod(int(mode, 8))
+        for name, rel in metadata.items():
+            path = destination / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(assets / name, path)
+            path.chmod(0o644)
+        with tempfile.TemporaryDirectory(prefix="publication-verify-", dir=root) as temporary:
+            verify_release_tree(
+                destination, destination / "update-index-v1",
+                destination / "update-index-v1.sig", public_key,
+                generation, args.release_sequence, args.release_base, args.openssl,
+                Path(temporary), index_inside_release=True, require_download_size=True,
+            )
+        print(f"verified_generation={generation}")
+        print(f"verified_sequence={args.release_sequence}")
+    except Exception:
+        shutil.rmtree(destination)
+        raise
+
+
 def verify_public(args: argparse.Namespace) -> None:
     root = Path(args.root).resolve()
     public_key = Path(args.public_key).resolve()
@@ -454,6 +508,9 @@ def build_parser() -> argparse.ArgumentParser:
     prepare = sub.add_parser("prepare-assets", parents=[common])
     prepare.add_argument("--signed-root", required=True)
     prepare.add_argument("--output", required=True)
+    restore = sub.add_parser("restore-assets", parents=[common])
+    restore.add_argument("--assets", required=True)
+    restore.add_argument("--root", required=True)
     verify = sub.add_parser("verify-public", parents=[common])
     verify.add_argument("--root", required=True)
     verify.add_argument("--require-download-size", action="store_true")
@@ -465,6 +522,8 @@ def main() -> int:
     try:
         if args.command == "prepare-assets":
             prepare_assets(args)
+        elif args.command == "restore-assets":
+            restore_assets(args)
         elif args.command == "verify-public":
             verify_public(args)
         else:

@@ -22,6 +22,11 @@ qualification until the new generation passes acceptance.
   is owned by the existing generation descriptor and signed release inventory;
   no parallel pointer,
   installation root, stable-core backup or preview-specific updater exists.
+  Release flattening, Pages reconstruction, LKG retention and HTTPS readback use
+  that exact signed inventory through one publication validator. Historical seven
+  and extended eight files remain distinct exact sets; missing or undeclared
+  assets refuse transport, and failed reconstruction removes only its own new
+  disposable output. An occupied output is preserved.
 - Maintained frontend source/build tools live in frontend/manager-tui. The active
   source qualification pairs official0.161.0 with exact upstream commit
   979011409de0a60b52f179721948e65531d26144 and Rust1.95.0. Local workspace lock

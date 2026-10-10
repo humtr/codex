@@ -105,3 +105,26 @@ Exact public inventory source slice CLOSED: focused13 and grouped Python88 pass,
 actual diff inspected; accepted disposition recorded in GOAL. Next transport slice
 must make Release staging, Pages reconstruction/LKG retention and public readback
 use that same inventory, with actual extracted-workflow execution regressions.
+
+Public transport slice — CURRENT, baseline208a460 clean:
+- Collapse the reusable Pages workflow's independent seven-file Bash parser into
+  the existing publication tool: reconstruct exact flat Release assets to a Pages
+  generation and verify through the same signed-inventory owner. No descriptor,
+  signing or trust authority is added. Both legacy and extended generations work.
+- Focused production entrypoint proof: restore-assets healthy legacy/extended and
+  missing, changed, mode/path/extra assets, signature/key/sidecar and occupied output
+  failures. Close this command vertically before editing its workflow consumers.
+- Protected: source qualification, original client/runtime, main/index/publication.
+
+Transport reconstruction initial focused RED: synthetic OpenSSL signatures inherit
+0600 from device umask, while Pages metadata correctly reconstructs at0644. The
+regression compared this unsigned metadata mode as if it were a signed payload
+mode. Freeze further transport changes; assert manifest-declared payload modes
+and Pages0644 metadata explicitly, then restore the nonzero focused gate.
+
+Pages reconstruction command slice CLOSED: nonzero14 focused and89 grouped
+Python tests pass, exact diff inspected; source acceptance/disposition in GOAL.
+Next: wire consumers to this owner, collapse duplicate Bash inventory/parsing,
+retain signed LKG and exact public readback with real extracted-workflow proofs.
+Tdev isolated commit/push and migration selector/private-source preservation are
+closed; remaining broader device cleanup/validation/report is still queued.

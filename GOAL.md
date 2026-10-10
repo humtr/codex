@@ -6614,3 +6614,28 @@ this slice changes only Python publication tooling/tests. Actual diff inspected;
 no installed launcher, native client, account, stable index or main mutation.
 Workflow transport/producer acquisition, actual native161 qualification, R10
 binary lifecycle and stable/device admission remain open.
+
+### Pages reconstruction publication owner — accepted source (2026-10-10)
+
+At208a460, added the inverse flat-Release -> disposable Pages generation path to
+rald5_publication.py. It uses the existing manifest, signature, index, mode and
+signed-size verifier; no new descriptor validator or trust authority. Exact
+legacy/extended assets are restored to declared paths/modes, occupied output is
+preserved, and failure removes only its new generation. Named actual CLI proof
+covers both inventories with ten faults each (missing/changed/extra/symlink,
+manifest/signature/index/sidecar/key and occupied output). Focused14 and grouped
+Python89 pass; actual diff inspected. Initial red was a test comparing OpenSSL's
+umask-dependent signature mode with signed payload modes; corrected assertion
+uses Pages0644 metadata and retains exact manifest-declared executable modes.
+Transport consumers and real stable/device admission remain open.
+
+Broader normalization source preservation: Tdev bdd8773092221751615124bdd8c8ef423e306dad
+pushed on runtime-foundation with only the authorized CLI/owned-cleanup/scratch
+changes, selected documentation hunks and regressions. Private-index clean-tree
+Python4+25+17 pass; current working Rust fmt/clippy pass. Existing separate dirty
+Rust development remains untouched. termux-migration81c080d pushed to the new
+private humtr/termux-migration repository; native Tdev state is retained rather
+than blanket excluded. Five normalization/actual synthetic restore regressions
+pass. No fresh whole-device backup or restored-live-data deletion performed.
+Protected current Codex launcher SHA670c93ed… remains identical, sole original
+client18688 pts0, statusoff and explicit legacy native name unchanged.
