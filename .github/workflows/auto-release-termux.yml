@@ -84,8 +84,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  CODEX_SOURCE_SHA: 'ab644771ac8934ade22200d4428ebee7c628d1f1'
-  RALD5_SOURCE_SHA: 'ab644771ac8934ade22200d4428ebee7c628d1f1'
+  CODEX_SOURCE_SHA: '3ddc83ef351c42b3ab2dca9315a68cd65560cf2b'
+  RALD5_SOURCE_SHA: '3ddc83ef351c42b3ab2dca9315a68cd65560cf2b'
   MANAGER_TUI_ARCHIVE_SHA256: '3c02e2ae34be0d06e62557e98fc5c0a783bec5a2fed406fe00e565803bf84ee8'
   MANAGER_TUI_VERSION: '0.161.0'
   MANAGER_TUI_SOURCE_SHA: '29b25841273c792eedc8fc6c5e28eb7e3489be48'
@@ -1852,7 +1852,7 @@ jobs:
       release_sequence: ${{ needs.producer.outputs.release_sequence }}
       current_generation: ${{ needs.producer.outputs.current_generation }}
       expected_main_sha: ${{ needs.producer.outputs.expected_main_sha }}
-      publication_source_sha: ab644771ac8934ade22200d4428ebee7c628d1f1
+      publication_source_sha: 3ddc83ef351c42b3ab2dca9315a68cd65560cf2b
 
   verify_public:
     name: Public readback and disposable update proof

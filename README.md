@@ -45,3 +45,29 @@ than interrupting ordinary implementation checkpoints.
 
 The legacy implementation is not a source base for the rewrite.
 
+Published browser-bridge releases before the Manager TUI may reject a direct
+update with “R10 browser helper bridge contract is invalid.” Run this one-time
+migration from the immutable signed Release, then ordinary updates. The existing
+Core verifies its trusted signature and complete inventory; profiles, conversations
+and running clients are preserved. The temporary download is always cleaned.
+
+```sh
+(
+  set -eu
+  migration="$(mktemp -d "${TMPDIR:?}/codex-migration.XXXXXX")"
+  trap 'rm -rf -- "$migration"' EXIT
+  gh release download local-hosted-0-161-0-ab644771ac89-manager-tui-bridge \
+    --repo humtr/codex --dir "$migration" \
+    --pattern core --pattern generation.meta --pattern manager --pattern runtime \
+    --pattern codex-code-mode-host --pattern helper-0 --pattern helper-1 \
+    --pattern release.manifest --pattern release.sig
+  chmod 0644 "$migration/generation.meta" "$migration/release.manifest" "$migration/release.sig"
+  mkdir "$migration/helpers"
+  mv "$migration/helper-0" "$migration/helpers/0"
+  mv "$migration/helper-1" "$migration/helpers/1"
+  chmod 0755 "$migration/core" "$migration/manager" "$migration/runtime" \
+    "$migration/codex-code-mode-host" "$migration/helpers/0" "$migration/helpers/1"
+  codex update --local "$migration"
+  codex update
+)
+```
