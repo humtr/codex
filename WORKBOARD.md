@@ -67,3 +67,11 @@ receives OSC title and changed pane title; unmanaged/global options unchanged.
 Protected: identity title content, user config/auth, workloads, unmanaged sessions.
 State: accepted in GOAL; AI538b607 focused10/full37 and bounded live setting passed.
 Physical rendered title awaits observation; existing clients/workloads preserved.
+
+## Original Android terminal return: OPEN
+
+User rejects first-extra-terminal allowance. Restart reproduced original18688
+plus new22177. Live notification focus=termux contains further automatic attaches.
+Exact original-window selection is absent from pinned APK; inspect supported
+existing-terminal API before any next device trial. No new test attachment or
+claimed success from reuse of an added terminal. Prior title proof remains valid.

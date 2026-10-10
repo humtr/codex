@@ -6250,3 +6250,15 @@ question remains for this bounded delivery; no user work cancellation authorized
   on/#{pane_title}; both existing client identities unchanged. Physical Android
   rendered-title observation remains user-side; no restart required.
 - Broader Termux normalization remains in progress; no whole-task completion claim.
+
+### Original terminal requirement reopened (2026-10-10)
+
+User rejects creating even the first named notification attachment while an
+existing original tmux client is present. The earlier optional first-attachment
+acceptance is insufficient for this requirement and is withdrawn for the live
+notification path. Actual restart test original18688 pts0 plus newly created
+22177 pts4 proves the defect. Manager focus changed to termux to stop further
+notification service attachments; this is containment, not exact-window success.
+Pinned APK service searches private shellName, not existing tmux client TTY;
+missing name creates another terminal. AM transport alone adds no arbitrary
+terminal selector. Original-terminal return remains OPEN; no success claim.
