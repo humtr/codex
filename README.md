@@ -13,7 +13,7 @@ The rewrite has one public command, `codex`, and two internal layers:
 
 ## Current status
 
-See `GOAL.md` for the accepted source, signed public
+See `CURRENT.md` for the accepted source, signed public
 release and installed generation. The Rust Core owns signed installation,
 update, diagnosis, atomic activation, rollback, and recovery; Manager remains
 optional behind `codex termux`.
@@ -111,7 +111,7 @@ without this helper. See SPEC for authoritative scope and failure behavior.
 ## Documents
 
 - `SPEC.md` — normative product and architecture contract
-- `GOAL.md` — current objective, accepted baseline and open work
+- `CURRENT.md` — operating baseline, proof and remaining work
 - `AGENTS.md` — repository-local execution and safety rules
 
 ## Branches
@@ -154,9 +154,10 @@ and running clients are preserved. The temporary download is always cleaned.
 
 ## Development
 
-Use the session model and judgment; no model family, planner or review ceremony
-is required. `scripts/check.sh docs`, `python`, `rust`, or `full` selects the
-relevant gate. Compiler output lives in the XDG cache; test data is disposable.
+The repository owns its development rules in `AGENTS.md`, optimized for
+GPT-6.1 Sol. Use concise context, direct implementation and calibrated reasoning.
+`scripts/check.sh docs`, `python`, `rust`, or `full` selects the relevant gate.
+Compiler output lives in the XDG cache; test data is disposable.
 Runtime/security/installer changes and release candidates require full acceptance.
 
 Implementation and reusable release logic live on `rewrite/rust-core`. The small

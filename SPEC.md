@@ -2488,8 +2488,8 @@ The historical `codex termux session list/resume` family is retired. Upstream
 owns discovery, filtering, selection and resume through ordinary `codex resume`
 or `codex termux profile use <PROFILE_ID> -- resume [UPSTREAM_ARGS...]`.
 Manager must not restore the former directory scanner, session index, saved
-selection dependency or alternate resume grammar. Prior session-helper acceptance
-is recorded in GOAL; it is not a current command contract.
+selection dependency or alternate resume grammar. Retired helper history is
+retained in Git and is not a current command contract.
 
 ### Active-task account assistance
 
@@ -3150,22 +3150,7 @@ remote-control behavior outside the daemon path is preserved. For browser and
 clipboard slices, acceptance covers every enumerated upstream surface rather
 than one observed call site.
 
-## Development and release execution
-
-AGENTS.md owns concise working instructions; GOAL.md owns current success and
-operating state and next work. A separate workboard is unnecessary. Process history belongs in
-Git, not an accumulating active ledger. Skills, model selection and collaboration
-follow the user/session; no fixed model, maximum effort, mandatory planner,
-checkpoint reviewer, milestone ceremony or full-document reread is required.
-
-Verification follows the changed behavior and risk. Documentation-only checks
-perform no Rust/native compilation or public payload download. Scoped code changes
-use focused regression and relevant compile/lint; runtime/state/security/installer
-changes and release candidates require full source acceptance. Successful proof
-can be reused only with unchanged actual inputs and applicable environment/scope;
-never relabel it as a new run. Build caches are disposable acceleration in XDG
-cache, not source/runtime/artifact authority. User data and running jobs remain
-protected, with tests confined to owned disposable roots.
+## Release execution
 
 One maintained release workflow owns construction and publication. main is a
 small immutable-source caller, with no second implementation or manually mirrored

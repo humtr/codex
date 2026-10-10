@@ -1,65 +1,56 @@
-# Working in humtr/codex
+# Development in humtr/codex
 
-Build and maintain the Termux compatibility layer for upstream Codex. Prefer a
-small product and a direct path from the user's request to verified behavior.
+Maintain a small Termux compatibility layer for upstream Codex. These rules are
+optimized for GPT-6.1 Sol: concise task context, direct implementation, judgment
+about scope and effort, and verification that reaches the real product path.
+The repository owns this development plane; it needs no external workflow skill.
 
-## Authority and context
+## Context and ownership
 
 - SPEC.md owns product behavior, runtime/security boundaries and update/rollback.
-- GOAL.md contains the current objective, accepted operating baseline and open work.
-- Keep current execution with the existing work record; no separate workboard,
-  mandatory ledger or template. README.md is the user entrypoint.
-- Start by checking branch, HEAD and dirty state. Read these short current-state
-  record when relevant, then only the SPEC sections and code relevant to the task. Do not
-  reread historical commits or unrelated material without a concrete need.
-- Use skills when their capability helps this task; no skill is a compulsory
-  planning, approval, delegation or checkpoint layer.
-- Update a product contract when changing its behavior; ordinary implementation
-  detail needs no separate design record. Keep completed investigation in Git.
+- CURRENT.md records the operating baseline, remaining work and useful proof.
+  Consult it when relevant; update stale state instead of appending a diary.
+- README.md is the user entrypoint. Keep history in Git; ordinary changes need
+  no extra plan, template, ledger or design hierarchy.
+- Check branch, HEAD and user changes. Read only the contracts/code needed to
+  resolve the task; widen the investigation when evidence shows a shared defect.
+- Change the product contract before implementing different public behavior.
 
-## Execution
+## Work
 
-- Honor the user's outcome and existing authorization. Resolve routine choices
-  directly; ask only for information or authorization genuinely missing.
-- Own diagnosis, implementation, actual diff review, appropriate validation and
-  completion. Continue independent useful work while a required answer is pending.
-- Follow a demonstrated defect through the affected product path. Expand scope
-  when necessary for correctness; avoid speculative features and defensive layers.
-- Choose the available model/effort through the user's session. Do not pin model
-  families, max reasoning, named leadership roles or recurring review ceremonies.
-- Use collaborators only when authorized by the user/platform. Current user
-  preference is direct execution. Never run concurrent edits in a shared worktree.
-- Create temporary checkouts/probes in TMPDIR; retain reusable compiler state in
-  XDG_CACHE_HOME. Do not add temporary projects or installed binaries under prj.
+- Turn the request into an observable outcome and finish its authorized scope.
+  Resolve routine choices directly; clarify only genuinely missing information.
+- Adjust investigation and reasoning to uncertainty and consequences. Simple
+  edits should stay simple; difficult architecture or diagnosis merits depth.
+  No mandatory maximum effort, fixed leadership role or checkpoint cadence.
+- Prefer one direct production path. Remove obsolete mechanisms and duplication
+  when they cause the current defect; do not invent speculative subsystems.
+- Own actual diff review and validation. Use collaborators only when the user
+  authorizes them; current preference is direct execution. No concurrent edits
+  in a shared worktree and no automatic review or planner layer.
+- Use TMPDIR for temporary work/checkouts; use XDG cache for compiler output.
+  Never put temporary projects or installed binaries under prj.
 
-## Verification
+## Verification and publication
 
-- Choose tests from changed behavior and its real failure modes. Low-impact
-  reversible changes need appropriate checks, not artificial regression tests.
-- Use scripts/check.sh for docs, Python, Rust, or full verification as appropriate.
-  Full acceptance is required for runtime/state/security/installer changes and
-  release candidates; small scoped changes may close with relevant passing gates.
-- Reuse successful evidence only when its actual inputs, environment and scope
-  still apply. Record source/artifact identity; do not call reused evidence a new run.
-- A failing or zero-test required gate is unfinished. Diagnose it before adding
-  dependent behavior. Do not repeat green checks without a change or open concern.
-- Public deployment still requires build/smoke, signing, exact public readback,
-  disposable update and non-forced stable promotion. Test fixtures alone do not
-  prove a real device action; state physical observations separately.
-
-## Source and publication
-
-- rewrite/rust-core owns implementation. main owns publication controls and uses
-  an immutable accepted source; it is not a second implementation tree.
-- Keep independent histories independent. Never import main or legacy code/history
-  into the rewrite. Never force-push main or delete a published branch without the
-  user's explicit authorization for that operation.
-- Public release assets are immutable. Release changes do not imply live cutover.
+- Select scripts/check.sh docs, python, rust or full from the changed behavior.
+  Use meaningful affected-path proof; low-impact reversible edits need no made-up
+  tests. Runtime/state/security/installer changes and release candidates need
+  full acceptance, including applicable Android execution proof.
+- Reuse green evidence only when its actual inputs/environment/scope still apply.
+  Failed or zero-test required gates remain unfinished. Do not repeat passing
+  checks without a change or unresolved concern.
+- rewrite/rust-core owns implementation and reusable release logic; main is a
+  caller pinned to an accepted exact source. Keep independent histories separate.
+  Never force-push main or delete published branches without explicit approval.
+- Public assets are immutable. Deployment requires build/smoke, signing, complete
+  public readback, disposable update proof and non-forced stable promotion.
+  Device activation is separate; report physical observations separately.
 
 ## Protected state
 
 Preserve user changes, credentials, profiles, conversations and running jobs.
-Use disposable roots for tests; no live launcher/runtime/state edits except a
-user-authorized bounded device action. Never print/store credential values or
-unredacted session contents, and never change a system resolver file. Core normal
+Use disposable roots for tests. Do not edit live launcher/runtime/state except
+for a user-authorized bounded device action; never expose credential values or
+private session contents, and never modify a system resolver file. Ordinary Core
 launch must work when optional Manager or update discovery is unavailable.
