@@ -2590,18 +2590,23 @@ same Activity-only route. Explicit tmux focus additionally follows the Optional
 AI tmux notification focus contract in Section 3, including its authorized new
 native-terminal attach. This Activity action adds no click state or watcher.
 
-The Activity part first uses the absolute sibling `termux-am` socket client from the
-qualified Core entrypoint when executable, then the existing sibling `am` compatibility
-route if unavailable or unsuccessful. A non-UTF-8 entrypoint uses canonical Termux paths.
-Each route is bounded by the base environment's `timeout` command to three seconds.
-This fallback retries only idempotent Activity reorder/single-top navigation, never an
-execution-service request. Paths are shell-quoted; only a fixed Activity component and
-flags are passed. Output is silenced and no hook payload, profile, CWD, auth or session ID
-is included. It never launches the terminal execution service. Socket availability does
-not imply an existing-terminal selection API: the installed Termux 8629e63 Activity only
-restores its current selection. Exact bare-terminal selection remains unavailable on that
-APK; it must never be simulated by creating a terminal or resuming Codex. The optional AI
-focus helper owns its separately opted-in existing-tmux attachment path.
+The Activity action invokes only the absolute sibling `am` compatibility entrypoint,
+which owns transport selection. A non-UTF-8 entrypoint uses the canonical Termux path.
+The outer action allows twenty seconds; the installed compatibility entrypoint allows
+fifteen seconds for one socket request, exceeding the server's ten-second socket budgets.
+Manager must not wrap a shorter timeout around it or call the socket again after failure.
+Only the compatibility entrypoint may fall back to `cmd activity` after an unsuccessful
+idempotent Activity return. Service requests are never replayed. Paths are shell-quoted;
+only a fixed Activity component and flags are passed. Output is silenced and no hook
+payload, profile, CWD, auth or session ID is included. It never launches the terminal
+execution service. Socket existence and successful read-only commands do not prove
+Activity authorization: the APK requires Android display-over-other-apps permission for
+background starts. This user-granted capability and actual start results are separate gates.
+Socket availability does not imply an existing-terminal selection API: installed Termux
+8629e63 restores its current selection. Exact bare-terminal selection remains unavailable;
+it must never be simulated by creating a terminal or resuming Codex. The optional AI
+focus helper owns its separately opted-in existing-tmux attachment path and gives the one
+service response fifteen seconds independently of its two-second identity search budget.
 Existing notifications are not rewritten; this contract applies
 to newly delivered notifications.
 

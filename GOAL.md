@@ -6184,3 +6184,27 @@ question remains for this bounded delivery; no user work cancellation authorized
 - Installed default X11 :99 returned a successful protocol handshake without
   overrides. Exact app_process with copied readonly AM APK and normal ART options
   returned to-uri. No Android system-library or resolver mutation.
+
+### Android navigation response-lifetime correction (2026-10-10)
+
+- Device report205/204 Broken pipe exposed an undersized1s installed shim budget;
+  source Manager3s + am fallback also repeated socket dispatch. This correction
+  supersedes the earlier socket-first Manager action evidence. One owned am
+  entrypoint now selects transport; Manager20s outer / shim15s response budget.
+  AI's two-second identity scan stays unchanged; one service reply allows15s.
+- Actual socket start first refused missing Android overlay permission; cmd activity
+  refused shell-package/UID mismatch. After the user granted overlay permission,
+  installed am Activity returned exit0 in0.099s. User observed notification tap
+  opening Termux, but no exact bare-terminal return (unsupported by APK).
+- Delayed1.2s shim reply regression plus5 installer/dispatch tests passed6/6.
+  Generated Manager entrypoint proof1/1 covers success/failure without socket
+  retry, canonical non-UTF8 proof1/1. Grouped workspace repeated295 pass/0fail,
+  one explicitly ignored device smoke (prior same protected Core smoke accepted).
+  Workspace/all-targets clippy-Dwarnings, fmt and diff checks passed.
+- AI focused native tmux10 + full37 checks passed; uncertain service is never
+  retried and its timeout assertion covers independent response budget. Installed
+  AI-only refresh completed without settings/auth changes. termux-compat a45ef6b
+  installed; no signed Codex generation or frontend replacement.
+- Bounded real Android tmux attach to one temporary named terminal was repeated
+  three times: exactly one identical client PID/TTY/session each time. No Codex
+  process started. Physical tmux notification return remains a separate live gate.

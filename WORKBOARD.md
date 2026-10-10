@@ -26,3 +26,16 @@ Android navigation source slice CLOSED; acceptance/disposition lives in GOAL.md.
 Physical notification tap observation remains pending. Do not claim exact arbitrary
 bare-terminal selection or a signed-generation/frontend cutover. Broader authorized
 Termux maintenance continues outside this repository; workers OFF.
+
+## Android navigation response-lifetime correction — source CLOSED
+
+User device report205/204 Broken pipe invalidates physical click acceptance. Baseline
+Manager source e56ef20 clean; owned am59e99a8 bounds Activity socket at1s and direct
+Manager3s can re-enter socket through am. Real socket start refuses missing overlay
+permission; cmd activity refuses shell-package/UID identity. to-uri is not a start gate.
+Slice: one am entrypoint;20s outer/15s dispatch; AI identity search2s remains separate.
+Focused: actual generated shell success/failure, delayed shim response, single uncertain
+service dispatch and AI response budget. Protected: no new session/resume, tmux identity
+checks, signed generations/auth/state. Physical repeat after user Android permission.
+
+Source response correction accepted in GOAL; physical tmux test pending.
