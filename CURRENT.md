@@ -24,15 +24,16 @@ to this repository and carries no external workflow or model configuration.
   e205875: source acceptance38051413777 successful. Local Rust309 passed,
   1 pre-existing ignored; Clippy/fmt green. Python migration/check/scope18 and
   hosted59 passed; workflow syntax/action pins and scope/cache/failure proof pass.
-- main59c66d0 selects exact e205875 workflow and source. Duplicate main specs,
+- mainbafd4d4 selects exact e205875 workflow and source. Duplicate main specs,
   goal/workboard and producer implementation are removed. Signed stable index
   and signature bytes are unchanged. No new public runtime or device cutover.
 - Unsigned real caller execution38051722501 passed actual Android build and
   executable smoke (publish=false, rebuild_current=true). Signing and all public
   mutation jobs were skipped; signed stable index/signature remain unchanged.
-- Repository-local instruction/state refinement also updates the documentation
-  scope test for CURRENT.md; scoped CI is the remaining verification. Unchanged
-  runtime/workflow proof above is reused, not rerun.
+- Repository-local rules/state and scope-test revision9865efe: successful scoped
+  source acceptance38052220630; Android/workspace builds correctly skipped.
+  CURRENT.md replaces the former goal record with no external skill dependency.
+  Unchanged runtime/native proof above is reused, not presented as a new run.
 
 ## Product observations still open
 
