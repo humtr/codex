@@ -3,6 +3,11 @@ name: Termux Hosted Release Preflight
 on:
   workflow_dispatch:
     inputs:
+      manager_tui_same_version_deploy:
+        description: 'Deploy the qualified Manager TUI into authenticated stable 0.161.0 at the next sequence'
+        required: false
+        type: boolean
+        default: false
       rald4_positive_gate:
         description: 'Run the bounded RALD-4 acceptance-only signing gate'
         required: false
@@ -74,8 +79,15 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  CODEX_SOURCE_SHA: '053e35bee0cb044cd3dd1f1e2d835d0810766078'
-  RALD5_SOURCE_SHA: '053e35bee0cb044cd3dd1f1e2d835d0810766078'
+  CODEX_SOURCE_SHA: '45e5050bf82a8a15caefd5a34ba0f03cb525cbce'
+  RALD5_SOURCE_SHA: '45e5050bf82a8a15caefd5a34ba0f03cb525cbce'
+  MANAGER_TUI_ARCHIVE_SHA256: '3c02e2ae34be0d06e62557e98fc5c0a783bec5a2fed406fe00e565803bf84ee8'
+  MANAGER_TUI_VERSION: '0.161.0'
+  MANAGER_TUI_SOURCE_SHA: '29b25841273c792eedc8fc6c5e28eb7e3489be48'
+  MANAGER_TUI_RUN_ID: '38032317709'
+  MANAGER_TUI_SHA256: 'dcf76b3ccd114ac70117e799d00b106bb6d28ea10773b1834824276cb656bdeb'
+  MANAGER_TUI_INPUT_URL: 'https://github.com/humtr/codex/releases/download/manager-tui-native-v0.161.0-29b2584/manager-tui-inputs-0.161.0.tar.gz'
+  MANAGER_TUI_INPUT_SHA256: '0cc6b084f9466387111163077a0d3b74e35528ef240b1f76f7b381fe8b6c3445'
   RUST_VERSION: '1.98.0'
   ANDROID_API: '24'
   ANDROID_NDK_VERSION: '27.3.13750724'
@@ -127,6 +139,9 @@ jobs:
     name: Build unsigned Android/AArch64 candidate
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
     outputs:
       candidate: ${{ steps.decision.outputs.candidate }}
       artifact_name: ${{ steps.decision.outputs.artifact_name }}
@@ -252,6 +267,7 @@ jobs:
         id: decision
         shell: bash
         env:
+          MANAGER_TUI_SAME_VERSION_DEPLOY: ${{ github.event_name == 'workflow_dispatch' && inputs.manager_tui_same_version_deploy }}
           RALD4_POSITIVE_GATE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald4_positive_gate }}
           RALD5_PUBLICATION_AUTHORIZED: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.rald5_publication_authorized) }}
           RALD5_SAME_VERSION_ACCEPTANCE: ${{ github.event_name == 'workflow_dispatch' && inputs.rald5_same_version_acceptance }}
@@ -572,6 +588,30 @@ jobs:
             printf 'download-size same-version production deployment selected: %s sequence %s -> sequence %s\n' \
               "$upstream_version" "$DOWNLOAD_SIZE_DEPLOY_CURRENT_SEQUENCE" "$DOWNLOAD_SIZE_DEPLOY_TARGET_SEQUENCE"
           fi
+          if test "$MANAGER_TUI_SAME_VERSION_DEPLOY" = true; then
+            test "$GITHUB_EVENT_NAME" = workflow_dispatch
+            test "$GITHUB_REF" = refs/heads/main
+            test "$RALD5_PUBLICATION_AUTHORIZED" = true
+            test '${{ steps.stable.outputs.current_version }}' = "$MANAGER_TUI_VERSION"
+            for mode in RALD4_POSITIVE_GATE RALD5_SAME_VERSION_ACCEPTANCE \
+              RALD45_TRANSITION_STAGE RALD45_TRANSITION_PROMOTE RALD5_NEGATIVE_GATE \
+              LEGACY_LAG_JUMP_REMEDIATION UX1_SAME_VERSION_DEPLOY \
+              UPDATE_PROGRESS_SAME_VERSION_DEPLOY EXACT_CURRENT_FASTPATH_SAME_VERSION_DEPLOY \
+              NO_EMOJI_SAME_VERSION_DEPLOY DOWNLOAD_SIZE_SAME_VERSION_DEPLOY; do
+              test "${!mode:-false}" != true
+            done
+            upstream_version="$MANAGER_TUI_VERSION"
+            archive_sha256="$MANAGER_TUI_ARCHIVE_SHA256"
+            candidate=true
+            acceptance_suffix='-manager-tui'
+          fi
+          # Historical explicitly selected fixtures keep their sealed construction.
+          # Ordinary publication requires the admitted backend/frontend pair.
+          if test "$candidate" = true && test -z "$acceptance_suffix" && \
+             test "$upstream_version" != "$MANAGER_TUI_VERSION"; then
+            candidate=false
+            printf 'No qualified Manager TUI pair for %s; retain authenticated stable\n' "$upstream_version"
+          fi
           suffix="${upstream_version//./-}-${CODEX_SOURCE_SHA:0:12}${acceptance_suffix}"
           printf 'candidate=%s\n' "$candidate" >> "$GITHUB_OUTPUT"
           printf 'acceptance_gate=%s\n' "$RALD4_POSITIVE_GATE" >> "$GITHUB_OUTPUT"
@@ -592,6 +632,29 @@ jobs:
           printf 'generation_id=local-hosted-%s\n' "$suffix" >> "$GITHUB_OUTPUT"
           printf 'upstream_version=%s\n' "$upstream_version" >> "$GITHUB_OUTPUT"
           printf 'archive_sha256=%s\n' "$archive_sha256" >> "$GITHUB_OUTPUT"
+
+      - name: Acquire successful qualified Manager TUI input
+        if: steps.decision.outputs.candidate == 'true' && steps.decision.outputs.upstream_version == env.MANAGER_TUI_VERSION
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/manager-tui-input"
+          mkdir "$work"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --connect-timeout 15 --max-time 180 --max-filesize 536870912 \
+            --output "$work/input.tar.gz" "$MANAGER_TUI_INPUT_URL"
+          test "$(sha256sum "$work/input.tar.gz" | awk '{print $1}')" = "$MANAGER_TUI_INPUT_SHA256"
+          # Only the exact qualified archive is extracted into a new owned root.
+          tar -xzf "$work/input.tar.gz" --no-same-owner -C "$work"
+          gh api "repos/humtr/codex/actions/runs/$MANAGER_TUI_RUN_ID" > "$work/run.json"
+          git -C source fetch --no-tags --depth=1 origin "$MANAGER_TUI_SOURCE_SHA"
+          python3 source/.github/scripts/manager_tui_artifact.py \
+            --source source --source-sha "$MANAGER_TUI_SOURCE_SHA" \
+            --run-json "$work/run.json" --run-id "$MANAGER_TUI_RUN_ID" \
+            --version "$MANAGER_TUI_VERSION" --sha256 "$MANAGER_TUI_SHA256" \
+            --artifact "$work/artifact" --proof "$work/proof"
 
       - name: Cross-build Core and Manager
         if: steps.decision.outputs.candidate == 'true'
@@ -637,6 +700,11 @@ jobs:
           fetched_sha256="$(printf '%s\n' "$fetch_output" | awk -F '\t' '$1=="archive_sha256"{print $2}')"
           test "$fetched_sha256" = "$archive_sha256"
 
+          frontend_args=()
+          if test "$upstream_version" = "$MANAGER_TUI_VERSION"; then
+            frontend_args=(--manager-tui "$RUNNER_TEMP/manager-tui-input/artifact/codex"
+                           --manager-tui-version "$MANAGER_TUI_VERSION")
+          fi
           "$builder" build \
             --version "$upstream_version" \
             --archive "$work/upstream.tar.gz" \
@@ -644,6 +712,7 @@ jobs:
             --generation-id "$generation_id" \
             --core "$core" \
             --manager "$manager" \
+            "${frontend_args[@]}" \
             --defer-manager-probe \
             "${transition_args[@]}" \
             --creation-metadata r10-browser-helper-bridge-v1 \
@@ -667,8 +736,14 @@ jobs:
           manager
           runtime
           EOF
+          executables=(codex-code-mode-host core helpers/0 helpers/1 manager runtime)
+          if test "${#frontend_args[@]}" != 0; then
+            printf 'helpers/2\n' >> "$work/expected-files"
+            executables+=(helpers/2)
+          fi
+          LC_ALL=C sort -o "$work/expected-files" "$work/expected-files"
           diff -u "$work/expected-files" "$work/actual-files"
-          for executable in codex-code-mode-host core helpers/0 helpers/1 manager runtime; do
+          for executable in "${executables[@]}"; do
             test -f "$work/candidate/$executable"
             test ! -L "$work/candidate/$executable"
             test "$(stat -c '%a' "$work/candidate/$executable")" = '755'
@@ -1360,6 +1435,14 @@ jobs:
             exit 1
           fi
 
+          if test '${{ needs.producer.outputs.upstream_version }}' = "$MANAGER_TUI_VERSION"; then
+            timeout 20 env -i "$candidate/helpers/2" --version \
+              > "$RUNNER_TEMP/frontend.out" 2> "$RUNNER_TEMP/frontend.err"
+            printf 'codex-cli %s\n' "$MANAGER_TUI_VERSION" > "$RUNNER_TEMP/frontend.expected"
+            cmp "$RUNNER_TEMP/frontend.expected" "$RUNNER_TEMP/frontend.out"
+            test ! -s "$RUNNER_TEMP/frontend.err"
+          fi
+
           rm "$candidate/.manager-probe-deferred"
           test ! -e "$candidate/.manager-probe-deferred"
           printf 'unsigned candidate passed native Android/AArch64 pre-sign smoke\n'
@@ -1670,23 +1753,8 @@ jobs:
             --release-sequence "$sequence" \
             --release-base "$release_base"
 
-          cat > "$work/expected-assets" <<'EOF'
-          candidate-update-index-v1
-          candidate-update-index-v1.sig
-          codex-code-mode-host
-          core
-          download-size-v1
-          download-size-v1.sig
-          generation.meta
-          helper-0
-          helper-1
-          manager
-          release.manifest
-          release.sig
-          runtime
-          update-public-key.pem
-          EOF
-          LC_ALL=C sort -o "$work/expected-assets" "$work/expected-assets"
+          # prepare-assets has already verified this exact signed set.
+          find "$assets" -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort > "$work/expected-assets"
 
           gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --paginate \
             --jq ".[] | select(.tag_name == \"$generation\") | .id" \
@@ -1767,6 +1835,7 @@ jobs:
       release_sequence: ${{ needs.producer.outputs.release_sequence }}
       current_generation: ${{ needs.producer.outputs.current_generation }}
       expected_main_sha: ${{ needs.producer.outputs.expected_main_sha }}
+      publication_source_sha: 45e5050bf82a8a15caefd5a34ba0f03cb525cbce
 
   verify_public:
     name: Public readback and disposable update proof
@@ -1817,11 +1886,30 @@ jobs:
             local release_base="https://humtr.github.io/codex/$generation/"
             local destination="$root/$generation"
             mkdir -p "$destination/helpers"
-            for rel in release.manifest release.sig codex-code-mode-host core generation.meta helpers/0 helpers/1 manager runtime; do
+            for rel in release.manifest release.sig; do
               mkdir -p "$(dirname "$destination/$rel")"
               curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
                 --connect-timeout 15 --max-time 600 --output "$destination/$rel" "${release_base}${rel}"
             done
+            openssl pkeyutl -verify -pubin -inkey "$authority" -rawin \
+              -in "$destination/release.manifest" -sigfile "$destination/release.sig"
+            python3 - "$destination/release.manifest" "$generation" <<'PYTHON' > "$root/$generation.inventory"
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, 'publication-source/.github/scripts')
+          from rald5_publication import parse_manifest
+          values, files = parse_manifest(Path(sys.argv[1]))
+          assert values['generation_id'] == sys.argv[2]
+          for record in files:
+              print('\t'.join(record))
+          PYTHON
+            while IFS=$'\t' read -r rel digest mode; do
+              mkdir -p "$(dirname "$destination/$rel")"
+              curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+                --connect-timeout 15 --max-time 600 --max-filesize 1073741824 \
+                --output "$destination/$rel" "${release_base}${rel}"
+              chmod "$mode" "$destination/$rel"
+            done < "$root/$generation.inventory"
             if test "$require_download_size" = true; then
               mkdir -p "$destination/compat"
               curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
@@ -1858,8 +1946,6 @@ jobs:
               --connect-timeout 15 --max-time 60 --output "$destination/update-index-v1" "$index_url"
             curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
               --connect-timeout 15 --max-time 60 --output "$destination/update-index-v1.sig" "${index_url}.sig"
-            chmod 0755 "$destination/codex-code-mode-host" "$destination/core" \
-              "$destination/helpers/0" "$destination/helpers/1" "$destination/manager" "$destination/runtime"
             chmod 0644 "$destination/generation.meta" "$destination/release.manifest" \
               "$destination/release.sig" "$destination/update-index-v1" "$destination/update-index-v1.sig"
             if test -d "$destination/compat"; then
@@ -1905,13 +1991,13 @@ jobs:
           compare_release_asset release.sig release.sig
           compare_release_asset download-size-v1 compat/download-size-v1
           compare_release_asset download-size-v1.sig compat/download-size-v1.sig
-          compare_release_asset codex-code-mode-host codex-code-mode-host
-          compare_release_asset core core
-          compare_release_asset generation.meta generation.meta
-          compare_release_asset helper-0 helpers/0
-          compare_release_asset helper-1 helpers/1
-          compare_release_asset manager manager
-          compare_release_asset runtime runtime
+          while IFS=$'\t' read -r relative digest mode; do
+            case "$relative" in
+              helpers/*) asset="helper-${relative##*/}" ;;
+              *) asset="$relative" ;;
+            esac
+            compare_release_asset "$asset" "$relative"
+          done < "$root/$candidate.inventory"
           compare_release_asset candidate-update-index-v1 update-index-v1
           compare_release_asset candidate-update-index-v1.sig update-index-v1.sig
           curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \

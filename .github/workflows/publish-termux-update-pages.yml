@@ -16,6 +16,10 @@ on:
         description: Authenticated LKG generation that must remain deployed
         required: true
         type: string
+      publication_source_sha:
+        description: Exact source of the signed publication validator
+        required: true
+        type: string
       expected_main_sha:
         description: Exact pre-promotion main SHA that owns the LKG index
         required: true
@@ -34,6 +38,18 @@ jobs:
   prepare:
     runs-on: ubuntu-24.04
     steps:
+      - name: Fetch exact signed publication validator
+        shell: bash
+        env:
+          PUBLICATION_SOURCE_SHA: ${{ inputs.publication_source_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$PUBLICATION_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git init publication-source
+          git -C publication-source remote add origin https://github.com/humtr/codex.git
+          git -C publication-source fetch --no-tags --depth=1 origin "$PUBLICATION_SOURCE_SHA"
+          git -C publication-source checkout --detach FETCH_HEAD
+          test "$(git -C publication-source rev-parse HEAD)" = "$PUBLICATION_SOURCE_SHA"
       - name: Reconstruct and verify signed generation
         shell: bash
         env:
@@ -49,76 +65,15 @@ jobs:
           [[ "$EXPECTED_MAIN_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$RELEASE_SEQUENCE" =~ ^[0-9]+$ ]]
           rm -rf stage site
-          mkdir -p stage "site/$GENERATION_ID/helpers" "site/$GENERATION_ID/compat"
+          mkdir -p stage site
           gh release download "$GENERATION_ID" --repo "$GITHUB_REPOSITORY" --dir stage
-
-          cat > expected-assets <<'EOF'
-          candidate-update-index-v1
-          candidate-update-index-v1.sig
-          codex-code-mode-host
-          core
-          download-size-v1
-          download-size-v1.sig
-          generation.meta
-          helper-0
-          helper-1
-          manager
-          release.manifest
-          release.sig
-          runtime
-          update-public-key.pem
-          EOF
-          find stage -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort > actual-assets
-          LC_ALL=C sort -o expected-assets expected-assets
-          diff -u expected-assets actual-assets
 
           test "$(sha256sum stage/update-public-key.pem | awk '{print $1}')" = \
             '62ab1640b6b4e63afbd5952d11a0bd0a9f1cb78ddde2472e003a42c4db2b832c'
-          openssl pkeyutl -verify -pubin -inkey stage/update-public-key.pem -rawin \
-            -in stage/release.manifest -sigfile stage/release.sig
-          openssl pkeyutl -verify -pubin -inkey stage/update-public-key.pem -rawin \
-            -in stage/candidate-update-index-v1 -sigfile stage/candidate-update-index-v1.sig
-          openssl pkeyutl -verify -pubin -inkey stage/update-public-key.pem -rawin \
-            -in stage/download-size-v1 -sigfile stage/download-size-v1.sig
-          test "$(sed -n '1p' stage/download-size-v1)" = 'codex-download-size-v1'
-          test "$(awk -F '\t' '$1=="manifest_sha256"{print $2}' stage/download-size-v1)" = \
-            "$(sha256sum stage/release.manifest | awk '{print $1}')"
-          test "$(sed -n '1p' stage/candidate-update-index-v1)" = 'codex-update-index-v1'
-          test "$(awk -F '\t' '$1=="channel"{print $2}' stage/candidate-update-index-v1)" = 'stable'
-          test "$(awk -F '\t' '$1=="generation_id"{print $2}' stage/candidate-update-index-v1)" = "$GENERATION_ID"
-          test "$(awk -F '\t' '$1=="release_base"{print $2}' stage/candidate-update-index-v1)" = \
-            "https://humtr.github.io/codex/$GENERATION_ID/"
-
-          test "$(sed -n '1p' stage/release.manifest)" = 'codex-release-v4'
-          test "$(awk -F '\t' '$1=="generation_id"{print $2}' stage/release.manifest)" = "$GENERATION_ID"
-          test "$(awk -F '\t' '$1=="release_sequence"{print $2}' stage/release.manifest)" = "$RELEASE_SEQUENCE"
-          test "$(awk -F '\t' '$1=="channel"{print $2}' stage/release.manifest)" = 'stable'
-          test "$(awk -F '\t' '$1=="release_public_key"{print $2}' stage/release.manifest)" = \
-            '82d2e4a5038a439601e6efc02d3b631b7da689fbacaa0435ec1600daa3a29bf2'
-          test "$(awk -F '\t' '$1=="file_count"{print $2}' stage/release.manifest)" = '7'
-
-          test "$(awk -F '\t' '$1=="generation_id"{print $2}' stage/generation.meta)" = "$GENERATION_ID"
-          UPSTREAM_VERSION="$(awk -F '\t' '$1=="upstream_package_version"{print $2}' stage/generation.meta)"
-          [[ "$UPSTREAM_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
-          test "$(awk -F '\t' '$1=="creation_metadata"{print $2}' stage/generation.meta)" = \
-            'r10-browser-helper-bridge-v1'
-          test "$(awk -F '\t' '$1=="helper_count"{print $2}' stage/generation.meta)" = '2'
-          test "$(awk -F '\t' '$1=="helper" && $2=="termux-browser-open-v1"{print $3}' stage/generation.meta)" = \
-            '2c49fe962f2e2588573ef75177dce32c6c8b1ee3c37fd106bd18c36b20f7bba9'
-          test "$(awk -F '\t' '$1=="helper" && $2=="termux-browser-manual-v1"{print $3}' stage/generation.meta)" = \
-            '90f6e634ef0039c78b8fbefc52aed0bdc4dd4a421c5991886c5387dcd3c46685'
-
-          awk -F '\t' '$1=="file"{print $2}' stage/release.manifest > signed-paths
-          cat > expected-paths <<'EOF'
-          codex-code-mode-host
-          core
-          generation.meta
-          helpers/0
-          helpers/1
-          manager
-          runtime
-          EOF
-          diff -u expected-paths signed-paths
+          python3 publication-source/.github/scripts/rald5_publication.py restore-assets \
+            --assets stage --root site --public-key stage/update-public-key.pem \
+            --generation "$GENERATION_ID" --release-sequence "$RELEASE_SEQUENCE" \
+            --release-base "https://humtr.github.io/codex/$GENERATION_ID/"
 
           # Preserve the currently authoritative stable generation while the
           # candidate is deployed for pre-promotion readback. Pages deployment
@@ -134,26 +89,37 @@ jobs:
             -o current-index.sig "https://raw.githubusercontent.com/humtr/codex/$EXPECTED_MAIN_SHA/update-index-v1.sig"
           openssl pkeyutl -verify -pubin -inkey stage/update-public-key.pem -rawin \
             -in current-index -sigfile current-index.sig
-          test "$(sed -n '1p' current-index)" = 'codex-update-index-v1'
-          test "$(awk -F '\t' '$1=="channel"{print $2}' current-index)" = 'stable'
-          CURRENT_ID="$(awk -F '\t' '$1=="generation_id"{print $2}' current-index)"
-          CURRENT_BASE="$(awk -F '\t' '$1=="release_base"{print $2}' current-index)"
-          [[ "$CURRENT_ID" =~ ^local-[a-z0-9][a-z0-9._-]{0,126}$ ]]
+          read -r CURRENT_ID CURRENT_BASE < <(python3 - <<'PYTHON'
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, 'publication-source/.github/scripts')
+          from rald5_publication import parse_index
+          values = parse_index(Path('current-index'))
+          print(values['generation_id'], values['release_base'])
+          PYTHON
+          )
           test "$CURRENT_ID" = "$CURRENT_GENERATION"
           test "$CURRENT_ID" != "$GENERATION_ID"
-          test "$CURRENT_BASE" = "https://humtr.github.io/codex/$CURRENT_ID/"
-          mkdir -p "site/$CURRENT_ID/helpers"
-          curl --fail --silent --show-error --location --connect-timeout 15 --max-time 120 \
-            -o "site/$CURRENT_ID/release.manifest" "${CURRENT_BASE}release.manifest"
-          curl --fail --silent --show-error --location --connect-timeout 15 --max-time 120 \
-            -o "site/$CURRENT_ID/release.sig" "${CURRENT_BASE}release.sig"
+          mkdir -p "site/$CURRENT_ID"
+          for rel in release.manifest release.sig; do
+            curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+              --connect-timeout 15 --max-time 120 --max-filesize 131072 \
+              --output "site/$CURRENT_ID/$rel" "${CURRENT_BASE}${rel}"
+          done
           openssl pkeyutl -verify -pubin -inkey stage/update-public-key.pem -rawin \
             -in "site/$CURRENT_ID/release.manifest" -sigfile "site/$CURRENT_ID/release.sig"
-          test "$(sed -n '1p' "site/$CURRENT_ID/release.manifest")" = 'codex-release-v4'
-          test "$(awk -F '\t' '$1=="generation_id"{print $2}' "site/$CURRENT_ID/release.manifest")" = "$CURRENT_ID"
-          test "$(awk -F '\t' '$1=="channel"{print $2}' "site/$CURRENT_ID/release.manifest")" = 'stable'
-          test "$(awk -F '\t' '$1=="release_public_key"{print $2}' "site/$CURRENT_ID/release.manifest")" = \
-            '82d2e4a5038a439601e6efc02d3b631b7da689fbacaa0435ec1600daa3a29bf2'
+          python3 - "$CURRENT_ID" <<'PYTHON' > current-signed-paths
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, 'publication-source/.github/scripts')
+          from rald5_publication import parse_manifest
+          values, files = parse_manifest(Path('site') / sys.argv[1] / 'release.manifest')
+          assert values['generation_id'] == sys.argv[1]
+          print(values['release_sequence'])
+          for record in files:
+              print('\t'.join(record))
+          PYTHON
+          CURRENT_SEQUENCE="$(head -n 1 current-signed-paths)"
           current_download_size_code="$(curl --silent --show-error --location --proto '=https' --tlsv1.2 \
             --connect-timeout 15 --max-time 120 --max-filesize 131072 --write-out '%{http_code}' \
             --output current-download-size "${CURRENT_BASE}compat/download-size-v1")"
@@ -162,11 +128,6 @@ jobs:
               curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
                 --connect-timeout 15 --max-time 120 --max-filesize 1024 \
                 --output current-download-size.sig "${CURRENT_BASE}compat/download-size-v1.sig"
-              openssl pkeyutl -verify -pubin -inkey stage/update-public-key.pem -rawin \
-                -in current-download-size -sigfile current-download-size.sig
-              test "$(sed -n '1p' current-download-size)" = 'codex-download-size-v1'
-              test "$(awk -F '\t' '$1=="manifest_sha256"{print $2}' current-download-size)" = \
-                "$(sha256sum "site/$CURRENT_ID/release.manifest" | awk '{print $1}')"
               mkdir -p "site/$CURRENT_ID/compat"
               cp current-download-size "site/$CURRENT_ID/compat/download-size-v1"
               cp current-download-size.sig "site/$CURRENT_ID/compat/download-size-v1.sig"
@@ -179,35 +140,21 @@ jobs:
               exit 1
               ;;
           esac
-          awk -F '\t' '$1=="file"{print $2}' "site/$CURRENT_ID/release.manifest" > current-signed-paths
-          diff -u expected-paths current-signed-paths
-          while IFS=$'\t' read -r kind rel digest mode; do
-            [[ "$kind" == file ]] || continue
+          while IFS=$'\t' read -r rel digest mode; do
             mkdir -p "$(dirname "site/$CURRENT_ID/$rel")"
-            curl --fail --silent --show-error --location \
-              --connect-timeout 15 --max-time 600 \
-              -o "site/$CURRENT_ID/$rel" "${CURRENT_BASE}${rel}"
-            test "$(sha256sum "site/$CURRENT_ID/$rel" | awk '{print $1}')" = "$digest"
-          done < "site/$CURRENT_ID/release.manifest"
-
-          cp stage/codex-code-mode-host "site/$GENERATION_ID/codex-code-mode-host"
-          cp stage/core "site/$GENERATION_ID/core"
-          cp stage/generation.meta "site/$GENERATION_ID/generation.meta"
-          cp stage/helper-0 "site/$GENERATION_ID/helpers/0"
-          cp stage/helper-1 "site/$GENERATION_ID/helpers/1"
-          cp stage/manager "site/$GENERATION_ID/manager"
-          cp stage/runtime "site/$GENERATION_ID/runtime"
-          cp stage/release.manifest "site/$GENERATION_ID/release.manifest"
-          cp stage/release.sig "site/$GENERATION_ID/release.sig"
-          cp stage/download-size-v1 "site/$GENERATION_ID/compat/download-size-v1"
-          cp stage/download-size-v1.sig "site/$GENERATION_ID/compat/download-size-v1.sig"
-          cp stage/candidate-update-index-v1 "site/$GENERATION_ID/update-index-v1"
-          cp stage/candidate-update-index-v1.sig "site/$GENERATION_ID/update-index-v1.sig"
-
-          while IFS=$'\t' read -r kind rel digest mode; do
-            [[ "$kind" == file ]] || continue
-            test "$(sha256sum "site/$GENERATION_ID/$rel" | awk '{print $1}')" = "$digest"
-          done < stage/release.manifest
+            curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+              --connect-timeout 15 --max-time 600 --max-filesize 1073741824 \
+              --output "site/$CURRENT_ID/$rel" "${CURRENT_BASE}${rel}"
+            chmod "$mode" "site/$CURRENT_ID/$rel"
+          done < <(tail -n +2 current-signed-paths)
+          cp current-index "site/$CURRENT_ID/update-index-v1"
+          cp current-index.sig "site/$CURRENT_ID/update-index-v1.sig"
+          python3 publication-source/.github/scripts/rald5_publication.py verify-public \
+            --root site --public-key stage/update-public-key.pem \
+            --generation "$CURRENT_ID" --release-sequence "$CURRENT_SEQUENCE" \
+            --release-base "$CURRENT_BASE"
+          test "$(git ls-remote --exit-code https://github.com/humtr/codex.git refs/heads/main | awk '{print $1}')" = \
+            "$EXPECTED_MAIN_SHA"
 
           candidate_bytes=$(du -sb "site/$GENERATION_ID" | awk '{print $1}')
           current_bytes=$(du -sb "site/$CURRENT_ID" | awk '{print $1}')
