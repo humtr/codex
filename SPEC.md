@@ -31,7 +31,14 @@ qualification until the new generation passes acceptance.
   source qualification pairs official0.161.0 with exact upstream commit
   979011409de0a60b52f179721948e65531d26144 and Rust1.95.0. Local workspace lock
   normalization changes only local0.0.0 versions/references to0.161.0; all external
-  bindings remain unchanged. Historical0.160.0 preview assets remain protected
+  bindings remain unchanged. The qualified161 frontend release build leaves
+  upstream Core source unchanged. Its Clippy check alone may temporarily prepend
+  recursion_limit=256 to the exact pristine upstream Core crate root, because
+  Rust1.95 Clippy exceeds the default128 query depth in unchanged plugin handling.
+  The check must verify the annotated body remains exact and restore the original
+  bytes even on failure; every other Core modification refuses qualification.
+  This validation resource allowance never enters the native patch or artifact.
+  Historical0.160.0 preview assets remain protected
   until their clients exit and are not a second source/build authority.
 - Actual source build qualifies the exact official upstream source/version,
   pristine slash inventory, external dependency lock, bounded native patch,

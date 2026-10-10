@@ -226,9 +226,35 @@ jobs:
         run: |
           set -euo pipefail
           cd upstream
-          just fix --locked --target aarch64-unknown-linux-musl -p codex-tui
+          # This is a validation-only compiler capacity allowance. The release
+          # CLI above was built from pristine Core; no Core edit enters an asset.
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          import subprocess
+          core = Path('codex-rs/core/src/lib.rs')
+          original = core.read_bytes()
+          pristine = subprocess.check_output(['git', 'show', 'HEAD:codex-rs/core/src/lib.rs'])
+          if original != pristine:
+              raise RuntimeError('upstream Core source must remain pristine')
+          annotated = b'#![recursion_limit = "256"]\n' + original
+          core.write_bytes(annotated)
+          try:
+              result = subprocess.run(['just', 'fix', '--locked', '--target',
+                                       'aarch64-unknown-linux-musl', '-p', 'codex-tui'])
+              if core.read_bytes() != annotated:
+                  raise RuntimeError('lint changed upstream Core source')
+              result.check_returncode()
+          finally:
+              core.write_bytes(original)
+          PYTHON
+          git diff --exit-code -- codex-rs/core
           git diff -- codex-rs/tui > "$RUNNER_TEMP/profile-tui-linted.patch"
           cmp "$RUNNER_TEMP/profile-tui-formatted.patch" "$RUNNER_TEMP/profile-tui-linted.patch"
+          python3 - <<'PYTHON'
+          import subprocess
+          files = subprocess.check_output(['git', 'diff', '--name-only'], text=True).splitlines()
+          assert all(p == 'codex-rs/Cargo.lock' or p.startswith('codex-rs/tui/') for p in files), files
+          PYTHON
       - name: Retain native focus and pending snapshots
         if: ${{ !cancelled() && steps.native-format.outcome != 'skipped' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

@@ -54,3 +54,19 @@ automatic live name change or installed cutover before bounded acceptance.
 
 Web-provider experiment deferred;109 files/6aab6 preserved in
 ~/.cache/codex/web-investigation. Rebind its own authorities before further work.
+
+Native161 stop-on-red38027361674: release CLI/version and actual27 TUI tests pass,
+but Rust1.95 Clippy query depth130 exceeds default128 in unchanged upstream
+Core request_plugin_install. Freeze new producer/UI behavior. SPEC permits only
+validation-time recursion256 on the exact original Core crate root, exact-body
+check and unconditional byte restoration; other Core changes refuse. Extracted
+workflow regression must prove success/failure/body mutation/foreign source and
+restoration, then actual native hosted rerun with nonzero27 and zero lint delta.
+No failed-run artifact may be consumed or published.
+
+Lint-boundary source repair gate restored locally: extracted real step1/five
+outcomes, frontend tools8 and grouped Python92 pass; actual diff inspected. Push
+repair and require successful native hosted rerun; failed-run binary stays
+quarantined and is allowed only in existing owned diagnostic proof, not producer
+admission/publication/live installation. No new UI or producer behavior until the
+real Clippy gate is green. Source full38029529700 ataca8287 succeeds.

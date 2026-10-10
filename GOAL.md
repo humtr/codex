@@ -6664,3 +6664,20 @@ not weakened safety guarantees. Hosted source runs38028521780(208a460) and
 Native161 run38027361674 has reached lint after actual focused TUI tests; overall
 success/artifact admission remains open. Retained exactR10 source0621105 compiled
 in owned TMPDIR for actual compatibility proof; no legacy history imported.
+
+### Native161 lint capacity gate restoration — source repair (2026-10-10)
+
+Run38027361674 atafb52ee completed actual release CLI/version and native27/27,
+but Clippy failed while compiling unchanged upstream Core: default128 query depth
+was exceeded by130 in request_plugin_install. Its artifact is not admitted and
+must not be installed or published. SPEC now limits a validation-only recursion256
+annotation to exact pristine Core/src/lib.rs during Clippy, checks unchanged
+annotated body and restores original bytes on success/failure; all other Core
+changes refuse. The actual executable/native patch never gains this annotation.
+The real hosted lint step's extracted regression passes success, compiler failure,
+root mutation, other-Core mutation and foreign-source cases; original root bytes
+are restored every time. Frontend source tools8 and grouped hosted Python92 pass;
+actual diff inspected. Actual hosted rerun still required to close the red gate.
+Source acceptance38029529700 succeeds ataca8287. Failed-run frontend is quarantined
+in TMPDIR for bounded owned candidate diagnostics only, never production artifact
+consumption or device cutover; any later proof must bind successful-run identity.
