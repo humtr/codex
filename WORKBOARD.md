@@ -39,3 +39,17 @@ service dispatch and AI response budget. Protected: no new session/resume, tmux 
 checks, signed generations/auth/state. Physical repeat after user Android permission.
 
 Source response correction accepted in GOAL; physical tmux test pending.
+
+## Actual tmux supervisor focus correction
+
+Current same-thread tmux registered; initial live click FAILED before Android dispatch:
+pane_pid is installed ai_run.py Python PTY supervisor, not native runtime. Qualified
+preview native is its direct child on another PTY. AI fixes both proof paths with
+UID/parent/start-time/TTY/launch-plan qualification and rejects ambiguity/foreign
+runtimes; focused temporary runtime cases + actual installed live recognition passed.
+AI focused tmux10 and full37 gates passed, AI-only install refreshed. New actual
+same-thread notification sent; user physical result remains pending. No new Codex
+process or resume; explicit optional first named Android attach remains allowed.
+
+Supervisor recognition source correction accepted in GOAL. Actual conversation return
+user-confirmed; physical repeated-click window reuse remains OPEN.

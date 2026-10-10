@@ -6208,3 +6208,28 @@ question remains for this bounded delivery; no user work cancellation authorized
 - Bounded real Android tmux attach to one temporary named terminal was repeated
   three times: exactly one identical client PID/TTY/session each time. No Codex
   process started. Physical tmux notification return remains a separate live gate.
+
+### Actual tmux PTY supervisor recognition — source correction accepted (2026-10-10)
+
+- User restarted the same thread in registered UID10593 tmux pane%0. Real click
+  first failed: pane_pid17259 was installed ai_run.py Python, native preview17274
+  was its direct child on a separate PTY. `_runtime` assumed pane_pid was native,
+  so focus never reached Android. This was a real public-path blocker.
+- AI c6480b7/0877dc8 qualifies the direct runtime or exact installed AI PTY
+  supervisor, pinned native/qualified preview child, same UID/parent/start-time/TTY
+  and Codex plan. Arbitrary scripts/interpreters/runtimes, missing/ambiguous
+  children, wrong PTYs and changed root/child start identities reject. Focused
+  synthetic process/PTY regressions passed; actual installed live supervisor
+  qualification passed. Existing native tmux10 and AI grouped37 checks passed.
+  AI-only installs preserve settings/auth; source commits pushed.
+- AI d494b0e removes the remaining3s CLI watchdog conflicting with15s dispatch:
+  it now permits20s, proved by focused endpoint/watchdog regression and full37.
+- User then observed actual same-thread return success but reported continuing
+  Android window growth. Three direct public `ai __tmux_focus UUID` calls returned
+  0 and preserved exactly the same two client PIDs/TTYs/session: original16816 and
+  named27285. First named attachment is allowed by the explicit optional contract;
+  physical per-click growth is NOT closed by this programmatic result. A precise
+  same-notification repetition clarification is pending. Keep physical window
+  reuse OPEN; do not claim overall Termux normalization complete.
+- Signed generation/frontend admission, Core code, auth/sessions and resolver
+  unchanged. Manager focus setting is tmux by current explicit user trial.

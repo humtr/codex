@@ -285,7 +285,14 @@ A click resolves the full hook session UUID against canonical local rollout
 metadata and the current title of one live, AI-managed Codex pane. Truncated
 native IDs must uniquely correspond to the full metadata ID. Missing, colliding,
 ambiguous or closed targets cause no tmux movement. The live pane must still run
-an installed Codex runtime; titles and transcripts are not logged or cached.
+an installed Codex runtime, directly or through the installed AI PTY supervisor.
+The supervisor path requires its exact installed script/interpreter and Codex launch
+plan, same-UID pane TTY and stable process identity, and exactly one direct installed
+Codex frontend child with a PTY. The user-qualified direct-selection preview native
+path is eligible without changing its separate signed-generation admission status.
+Foreign scripts/interpreters, ambiguous children and changed process identities refuse
+focus. The AI CLI watchdog allows twenty seconds, exceeding its fifteen-second Android
+response budget. Titles, plans and transcripts are not logged or cached.
 
 Manager adds `notify set --focus termux|tmux` and reports `focus` in show.
 Default is termux. Its separate private `notifications/focus-v1` contains exactly
