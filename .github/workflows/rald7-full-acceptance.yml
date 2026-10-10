@@ -258,9 +258,11 @@ jobs:
               test "$(id -u)" -ne 0
               cargo test --workspace --locked -- --test-threads=1 \
                 --skip test_r6_builder_publish_output_enters_existing_signed_release_admission \
-                --skip test_rald1_local_derived_fallback_and_explicit_build_preserve_public_authority
+                --skip test_rald1_local_derived_fallback_and_explicit_build_preserve_public_authority \
+                --skip test_manager_tui_public_local_build_preserves_pair_and_refuses_unpaired_update
               CODEX_B10_RELEASE_CORE="$RALD7_ANDROID_CORE" cargo test --locked -p codex tests::test_r6_builder_publish_output_enters_existing_signed_release_admission -- --exact --nocapture --test-threads=1
               CODEX_B10_RELEASE_CORE="$RALD7_ANDROID_CORE" cargo test --locked -p codex tests::test_rald1_local_derived_fallback_and_explicit_build_preserve_public_authority -- --exact --nocapture --test-threads=1
+              CODEX_B10_RELEASE_CORE="$RALD7_ANDROID_CORE" cargo test --locked -p codex tests::test_manager_tui_public_local_build_preserves_pair_and_refuses_unpaired_update -- --exact --nocapture --test-threads=1
             '
 
       - name: Clippy warnings are errors

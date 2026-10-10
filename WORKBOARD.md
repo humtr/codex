@@ -67,3 +67,17 @@ are in GOAL. Changed Core188/builder25 and reused unchanged Manager91 form304;
 clippy/fmt/diff/build pass. Native hosted compile/tests/lint are the current gate.
 Public preflight, Pages, retention and readback still assume7 files and must be
 updated for exact extended8, with named regression before actual publication.
+
+Hosted full source acceptance RED38026691878: new public local-build regression
+was included in the ordinary Linux suite, where current_exe is a Linux ELF and
+Builder correctly refuses it as an Android Core. Same root as the two existing
+Android-artifact local-builder gates. Freeze new product changes; move the new
+regression into the existing skipped-from-host/explicit CODEX_B10_RELEASE_CORE
+phase, update its nonzero gate-count contract and require real hosted rerun.
+Native161 build38027361674 remains in progress at exactafb52ee; no product
+artifact or stable acceptance claim until success.
+
+Hosted placement correction local gates restored: source4, acceptance11,
+full hosted Python86 and actual Android-artifact injected public local-build1.
+Exact three-test skip/explicit-artifact membership is now asserted. Product code
+unchanged; commit/push and actual hosted successful rerun precede next mutation.

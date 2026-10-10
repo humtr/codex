@@ -148,6 +148,19 @@ limit. No size or compatibility success is assumed: actual artifact FD counts,
 version/native tests and complete paired site size remain acceptance gates.
 Public main, installed preview/live jobs and signing authority remain unchanged.
 
+### Hosted Android-artifact proof placement correction (2026-10-10)
+
+Remote full-source RED38026691878 exposed the new local-builder regression's
+Linux current_exe being rejected as an Android Core. This is the same fixture
+class as existing r6/rald1 local-builder tests, not a runtime-product workaround.
+Host corpus skips all three and the existing private-proc phase explicitly runs
+each exact nonzero test with the event-built Android Core. Source contract now
+asserts exact membership of both skip and Android-artifact phases, not only count.
+Production Core/Builder unchanged. Focused source4/acceptance11, full Python86 and
+actual Termux Android-artifact-injected local-build1 pass; final source diff passes.
+Hosted rerun is required; prior local304 remains valid Termux evidence, not proof
+of restored hosted placement. Native161 run38027361674 continues at afb52ee.
+
 ### Native identity public-path slice accepted (2026-10-10)
 
 Hosted38019322660 completed successfully at2c9ec49: full AArch64-musl CLI,

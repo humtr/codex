@@ -33,7 +33,16 @@ class SourceAcceptanceTests(unittest.TestCase):
         self.assertEqual(workflow.count('test "$(id -u)" -ne 0'), 2)
         isolated = workflow.split('sudo unshare --mount', 1)[1].split('- name: Clippy warnings', 1)[0]
         self.assertIn('cargo test --workspace --locked', isolated)
-        self.assertEqual(isolated.count('CODEX_B10_RELEASE_CORE="$RALD7_ANDROID_CORE" cargo test'), 2)
+        self.assertEqual(isolated.count('CODEX_B10_RELEASE_CORE="$RALD7_ANDROID_CORE" cargo test'), 3)
+        android_artifact_tests = {
+            'test_r6_builder_publish_output_enters_existing_signed_release_admission',
+            'test_rald1_local_derived_fallback_and_explicit_build_preserve_public_authority',
+            'test_manager_tui_public_local_build_preserves_pair_and_refuses_unpaired_update',
+        }
+        self.assertEqual(set(re.findall(r'--skip ([a-z0-9_]+)', isolated)), android_artifact_tests)
+        self.assertEqual(set(re.findall(
+            r'CODEX_B10_RELEASE_CORE="\$RALD7_ANDROID_CORE" cargo test --locked -p codex tests::([a-z0-9_]+) -- --exact --nocapture --test-threads=1',
+            isolated)), android_artifact_tests)
         self.assertNotIn('sudo cargo', isolated)
         self.assertIn('--bounding-set=-all --inh-caps=-all --ambient-caps=-all', isolated)
         self.assertEqual(workflow.count('git -C source fetch --no-tags --depth=2'), 3)
