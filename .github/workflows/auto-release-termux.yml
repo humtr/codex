@@ -70,7 +70,7 @@ concurrency:
 
 env:
   CODEX_SOURCE_SHA: '9300a68852c879f4730e9191e46837cfab6745d9'
-  RALD5_SOURCE_SHA: 'fa1b887b7e726202e309a2eb731aad303a6c7e03'
+  RALD5_SOURCE_SHA: 'dce2d7dee2a2ddbfdd9c4646c84c250400781f28'
   RUST_VERSION: '1.98.0'
   ANDROID_API: '24'
   ANDROID_NDK_VERSION: '27.3.13750724'
@@ -1528,23 +1528,8 @@ jobs:
             --release-sequence "$sequence" \
             --release-base "$release_base"
 
-          cat > "$work/expected-assets" <<'EOF'
-          candidate-update-index-v1
-          candidate-update-index-v1.sig
-          codex-code-mode-host
-          core
-          download-size-v1
-          download-size-v1.sig
-          generation.meta
-          helper-0
-          helper-1
-          manager
-          release.manifest
-          release.sig
-          runtime
-          update-public-key.pem
-          EOF
-          LC_ALL=C sort -o "$work/expected-assets" "$work/expected-assets"
+          # prepare-assets has already verified this exact signed set.
+          find "$assets" -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort > "$work/expected-assets"
 
           gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --paginate \
             --jq ".[] | select(.tag_name == \"$generation\") | .id" \
@@ -1625,6 +1610,7 @@ jobs:
       release_sequence: ${{ needs.producer.outputs.release_sequence }}
       current_generation: ${{ needs.producer.outputs.current_generation }}
       expected_main_sha: ${{ needs.producer.outputs.expected_main_sha }}
+      publication_source_sha: dce2d7dee2a2ddbfdd9c4646c84c250400781f28
 
   verify_public:
     name: Public readback and disposable update proof
@@ -1675,11 +1661,30 @@ jobs:
             local release_base="https://humtr.github.io/codex/$generation/"
             local destination="$root/$generation"
             mkdir -p "$destination/helpers"
-            for rel in release.manifest release.sig codex-code-mode-host core generation.meta helpers/0 helpers/1 manager runtime; do
+            for rel in release.manifest release.sig; do
               mkdir -p "$(dirname "$destination/$rel")"
               curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
                 --connect-timeout 15 --max-time 600 --output "$destination/$rel" "${release_base}${rel}"
             done
+            openssl pkeyutl -verify -pubin -inkey "$authority" -rawin \
+              -in "$destination/release.manifest" -sigfile "$destination/release.sig"
+            python3 - "$destination/release.manifest" "$generation" <<'PYTHON' > "$root/$generation.inventory"
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, 'publication-source/.github/scripts')
+          from rald5_publication import parse_manifest
+          values, files = parse_manifest(Path(sys.argv[1]))
+          assert values['generation_id'] == sys.argv[2]
+          for record in files:
+              print('\t'.join(record))
+          PYTHON
+            while IFS=$'\t' read -r rel digest mode; do
+              mkdir -p "$(dirname "$destination/$rel")"
+              curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+                --connect-timeout 15 --max-time 600 --max-filesize 1073741824 \
+                --output "$destination/$rel" "${release_base}${rel}"
+              chmod "$mode" "$destination/$rel"
+            done < "$root/$generation.inventory"
             if test "$require_download_size" = true; then
               mkdir -p "$destination/compat"
               curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
@@ -1716,8 +1721,6 @@ jobs:
               --connect-timeout 15 --max-time 60 --output "$destination/update-index-v1" "$index_url"
             curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
               --connect-timeout 15 --max-time 60 --output "$destination/update-index-v1.sig" "${index_url}.sig"
-            chmod 0755 "$destination/codex-code-mode-host" "$destination/core" \
-              "$destination/helpers/0" "$destination/helpers/1" "$destination/manager" "$destination/runtime"
             chmod 0644 "$destination/generation.meta" "$destination/release.manifest" \
               "$destination/release.sig" "$destination/update-index-v1" "$destination/update-index-v1.sig"
             if test -d "$destination/compat"; then
@@ -1763,13 +1766,13 @@ jobs:
           compare_release_asset release.sig release.sig
           compare_release_asset download-size-v1 compat/download-size-v1
           compare_release_asset download-size-v1.sig compat/download-size-v1.sig
-          compare_release_asset codex-code-mode-host codex-code-mode-host
-          compare_release_asset core core
-          compare_release_asset generation.meta generation.meta
-          compare_release_asset helper-0 helpers/0
-          compare_release_asset helper-1 helpers/1
-          compare_release_asset manager manager
-          compare_release_asset runtime runtime
+          while IFS=$'\t' read -r relative digest mode; do
+            case "$relative" in
+              helpers/*) asset="helper-${relative##*/}" ;;
+              *) asset="$relative" ;;
+            esac
+            compare_release_asset "$asset" "$relative"
+          done < "$root/$candidate.inventory"
           compare_release_asset candidate-update-index-v1 update-index-v1
           compare_release_asset candidate-update-index-v1.sig update-index-v1.sig
           curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \

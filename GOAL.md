@@ -6639,3 +6639,28 @@ than blanket excluded. Five normalization/actual synthetic restore regressions
 pass. No fresh whole-device backup or restored-live-data deletion performed.
 Protected current Codex launcher SHA670c93ed… remains identical, sole original
 client18688 pts0, statusoff and explicit legacy native name unchanged.
+
+### Release/Pages/HTTPS extended transport — accepted source (2026-10-10)
+
+Baseline dce2d7d, workers OFF. Pages now fetches the exact pinned publication
+validator and invokes restore-assets, replacing its independent descriptor/parser
+and seven-file lists. Signed LKG index/manifest are authenticated before deriving
+transfer paths from parse_index/parse_manifest; final same-owner verification
+checks every payload and signed-size sidecar. Existing 404-only historical sidecar
+absence, LKG retention, main compare-and-swap and site<1GiB remain. Release staging
+uses names from already-validated prepare-assets output. Public HTTPS fetch and
+immutable Release comparison iterate that exact inventory, including helper2.
+KEEP signature-before-path-use and final payload proof; COLLAPSE duplicate Bash
+parsers/sidecar proof; DELETE fixed transport file/asset lists. No new trust owner.
+
+Focused actual extracted Pages/readback2 tests cover nine Pages cases (all four
+legacy/extended LKG/candidate combinations, candidate/current corruption, missing
+helper, moved main and historical absent sidecar) and five HTTPS cases including
+signature rejection before payload fetch. Workflow contract15, acceptance11,
+all36 affected shell blocks and actual diff pass; grouped Python91 passes. Initial
+three stale string tests were replaced with delegation/exact-inventory checks,
+not weakened safety guarantees. Hosted source runs38028521780(208a460) and
+38028871543(dce2d7d) also succeed. No real Pages/Release/index mutation yet.
+Native161 run38027361674 has reached lint after actual focused TUI tests; overall
+success/artifact admission remains open. Retained exactR10 source0621105 compiled
+in owned TMPDIR for actual compatibility proof; no legacy history imported.

@@ -27,7 +27,7 @@ class Rald5WorkflowContractTests(unittest.TestCase):
 
     def test_download_size_sidecar_is_staged_read_back_and_pages_bound(self) -> None:
         for name in ["download-size-v1", "download-size-v1.sig"]:
-            self.assertIn(name, self.stage)
+            self.assertIn("rald5_publication.py prepare-assets", self.stage)
             self.assertIn(name, self.pages)
         self.assertIn('fetch_generation "$candidate" "$candidate_index" true', self.verify)
         self.assertIn("--require-download-size", self.verify)
@@ -39,16 +39,9 @@ class Rald5WorkflowContractTests(unittest.TestCase):
             "compare_release_asset download-size-v1.sig compat/download-size-v1.sig",
             self.verify,
         )
-        self.assertIn('"site/$GENERATION_ID/compat"', self.pages)
-        self.assertIn(
-            "-in stage/download-size-v1 -sigfile stage/download-size-v1.sig",
-            self.pages,
-        )
-        self.assertIn("manifest_sha256", self.pages)
-        self.assertIn(
-            'cp stage/download-size-v1 "site/$GENERATION_ID/compat/download-size-v1"',
-            self.pages,
-        )
+        self.assertIn("rald5_publication.py restore-assets", self.pages)
+        self.assertIn("--assets stage --root site --public-key stage/update-public-key.pem", self.pages)
+        self.assertIn("rald5_publication.py verify-public", self.pages)
         self.assertIn("current_download_size_code", self.pages)
         self.assertIn("404)", self.pages)
 
@@ -260,8 +253,8 @@ class Rald5WorkflowContractTests(unittest.TestCase):
         self.assertIn("openssl pkeyutl -verify -pubin", pages)
         self.assertIn("site/$CURRENT_ID", pages)
         self.assertIn("site/$GENERATION_ID", pages)
-        self.assertIn("sha256sum \"site/$CURRENT_ID/$rel\"", pages)
-        self.assertIn("sha256sum \"site/$GENERATION_ID/$rel\"", pages)
+        self.assertIn("rald5_publication.py verify-public", pages)
+        self.assertIn("rald5_publication.py restore-assets", pages)
         self.assertIn("1073741824", pages)
         self.assertNotIn('cp current-index "site/update-index-v1"', pages)
         self.assertNotIn('cp current-index.sig "site/update-index-v1.sig"', pages)
@@ -285,17 +278,14 @@ class Rald5WorkflowContractTests(unittest.TestCase):
         for mapping in [
             "release.manifest release.manifest",
             "release.sig release.sig",
-            "codex-code-mode-host codex-code-mode-host",
-            "core core",
-            "generation.meta generation.meta",
-            "helper-0 helpers/0",
-            "helper-1 helpers/1",
-            "manager manager",
-            "runtime runtime",
             "candidate-update-index-v1 update-index-v1",
             "candidate-update-index-v1.sig update-index-v1.sig",
         ]:
             self.assertIn(f"compare_release_asset {mapping}", verify)
+        self.assertIn('done < "$root/$candidate.inventory"', verify)
+        self.assertIn('compare_release_asset "$asset" "$relative"', verify)
+        self.assertIn('helpers/*) asset="helper-${relative##*/}"', verify)
+        self.assertIn('from rald5_publication import parse_manifest', verify)
         self.assertIn('cmp "$release_readback/$asset" "$root/$candidate/$relative"', verify)
         self.assertIn('cmp "$release_readback/update-public-key.pem" "$authority"', verify)
         self.assertIn("rald5_publication.py verify-public", verify)
