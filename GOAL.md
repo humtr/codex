@@ -21,7 +21,64 @@ accepted history without deleting its published branch. No live cutover or stabl
 admission is claimed by this goal lift. The actual frontend/backend version pair,
 release pipeline and same-generation optional-Manager path are load-bearing gates.
 
+### Paired public stable and protected device accepted (2026-10-10)
+
+Normalization readback retains canonical Tdev0.1.35/healthy controller+two tunnels,
+actual MCP13+13, SQLite integrity and project15/deployment1/operation87/task7;
+formal prj24 and existing dirty work remain. Six owned TMPDIR build/download/fixture
+roots (~6GiB) removed only after process-reference checks, preserving focused proof
+metadata and bounded diagnostic sources privately under normal XDG state. Temporary
+publication worktree/local unpublished branch removed; published branches untouched.
+Full operational report lives in ~/.local/state/termux-normalization/report.txt.
+Active old preview retirement waits for its client exit; no real-user work is killed.
+
+Main8e1b002 normal publication commit and actual hosted38047435946 succeed:
+Android build/smoke, qualified signing, immutable Release, Pages candidate+LKG,
+complete public readback/disposable bridge update and CAS. Stable sequence43 is
+local-hosted-0-161-0-3ddc83ef351c-manager-tui; main promotiona49f83b preserves
+independent publication ancestry. No force-push or published asset/ref replacement.
+
+Device uses that production-signed exact eight-file payload through the installed
+update --local transaction. Runtime/code-mode/browser bytes from bridge and the
+already-qualified adapted native are reused only after the production signature
+and exact signed digest match; Core still validates the complete candidate before
+activation. CLI0.161.0, native capability, Core/Manager/summary doctor healthy,
+ordinary second update already-current. All12 account/config hashes unchanged;
+original18688 pts0/statusoff/native pin and existing preview client remain alive.
+
+The cancelled owned bulk download left a flat partial helper-2. A temporary
+preparation exact-directory check rejected that fragment; its shell initially
+continued to Core, whose authenticated complete declared inventory succeeded.
+This failed preparation check is not acceptance evidence. Removed only the owned
+partial file, reran with set-eu: production signature, exact eight-file inventory,
+all modes/digests pass. No installed data was removed or verification bypassed.
+
+A current-window notification probe first imported source AI instead of installed
+AI and assumed a native identity slot on the historical running preview. Rejected
+its failure. Installed AI correctly qualifies the existing preview supervisor and
+legacy title fallback; the unique current foreground synthetic notification is
+visible in Android. The user confirms two notification taps return to original1
+without increasing the window count. Installed AI native capability delegation
+and two real public focus calls also pass with identical original client identity.
+New initial registered-window UX remains a fresh-launch physical observation. Do not conflate
+public/device generation acceptance with these physical gates. Old preview assets
+must remain until its active native client exits; new ordinary launches use the
+signed generation helper2. The experiment is accepted history, not a build or
+runtime authority; published refs remain intact.
+
 ### Durable Release migration simplification accepted (2026-10-10)
+
+Device first-stage bridge acceptance succeeded through the documented immutable
+Release and installed authenticated update --local transaction. At that checkpoint,
+current was bridgeab644771ac89,
+CLI0.161.0; ordinary second update is already-current. All12 account/config baseline
+hashes match relative to HOME; original18688 pts0/native binding remains unchanged.
+Initial relative-path readback against CWD reported12 missing files; this invalid
+check is rejected. Corrected HOME-rooted readback matches all12, without mutation.
+Source38047021783 succeeds at3ddc83ef. Main normal commit8e1b002 mirrors only
+accepted pins/tested migration procedure; extracted main33 passes. Manual paired
+publication38047435946 was in progress; its final public/device result is recorded
+above. Physical admission remains open.
 
 Baseline197eb0d. Actual immutable bridge payload is322,670,487 bytes; adding it
 beside two paired ~434MiB generations exceeds the existing1GiB site bound on the
