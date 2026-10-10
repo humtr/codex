@@ -76,6 +76,24 @@ qualification until the new generation passes acceptance.
   a historical pre-TUI generation retains its historical upstream-only behavior.
   Existing clients keep their executable and jobs. The old preview can be removed
   only after its remaining native clients have exited, without terminating them.
+- Qualified launch, upstream command probes and doctor capture derive browser
+  aliases only from the generation's declared complete browser-helper pair.
+  Historical signed generations declaring neither helper remain executable in
+  the base qualified Termux environment, including under a hold-aware rollback
+  launcher. They do not acquire invented helpers or helpers from another
+  generation. A partial pair still refuses environment construction, and missing
+  or changed declared assets still fail ordinary inventory qualification. The
+  current builder and public producer continue to declare the complete pair.
+- Explicit rollback selects the authenticated retained previous generation in
+  either direction. If it reactivates an equal or higher signed release sequence,
+  it installs that generation's matching Core/assets and clears obsolete hold and
+  guard state only after activation commits, through ordinary hold finalization.
+  Reactivating the held sequence retains its normal authenticated hold and removes
+  the rollback guard, just as an explicit force retry does. A public rollback hold and legacy
+  Core guard apply to movement to a lower sequence; a local-derived current still
+  creates neither. Failed selection preserves the prior launcher, pointers and
+  controls. This explicit retained selection does not relax ordinary channel
+  update, signature, inventory or force-retry rules.
 - `/switch`, permissions, current-writer/source-return guards and title-independent
   identity retain their accepted native/Manager contracts below. Manager and AI
   recognize only the exact qualified generation frontend path for binding/focus;
@@ -648,13 +666,19 @@ is Core-owned convenience state only and is never trusted as release,
 activation, rollback, or signing authority.
 
 Rollback is an explicit Core operation, not an ordinary-launch fallback and not
-a search through generation history. After a rollback activation commits, Core
+a search through generation history. It selects the one retained previous complete
+generation, including explicit reactivation of a newer previous generation.
+After an authenticated public rollback to a lower release sequence commits, Core
 atomically records a separate bounded exact-format `update-hold` file containing
 only the authenticated generation identity and signed release sequence that were
 current before rollback. Activation-state v3 is not extended. The hold file must
 be a regular file, must reject malformed/oversized/symlink state, and must use
 temporary-create, file sync, atomic rename, and parent-directory sync semantics.
-A failed rollback must not create or change the hold.
+A failed rollback must not create or change the hold. Explicit selection of an
+equal or newer previous sequence creates no hold for the older generation and
+clears obsolete hold/guard controls only after the existing activation transaction
+commits; an existing hold for that selected sequence remains authenticated while
+its rollback guard is removed. It never weakens qualification of that retained target.
 
 The first rollback from a hold-aware Core to an older Core that does not advertise
 exact `codex-update-hold-v1` capability must not lose hold enforcement. Core may

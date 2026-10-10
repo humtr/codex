@@ -20,15 +20,14 @@ automatic live name change or installed cutover before bounded acceptance.
    - Exact retained R10 helpers0/1/2 bridge: SOURCE CLOSED; both layouts/faults
      proved. Actual retainedR10 executable update/rollback remains open. Its exact
      source0621105 binary is built in TMPDIR, with no history import.
-   - Maintained frontend161: CURRENT hosted rerun38030196838 at eeabb1d, exact official
+   - Maintained frontend161: CLOSED hosted38032317709 at 29b2584, exact official
      source979011409de0a60b52f179721948e65531d26144. Version/lock/command inventory
-     and release CLI build pass; focused native gate is running after the bounded
-     lint-capacity repair. Require
-     overall workflow success before artifact consumption/admission.
+     and release CLI build pass; actual27/lint/zero-Core-delta and successful raw artifact are admitted
+     for owned qualification. Real producer acquisition remains next.
    - Exact public inventory, Pages reconstruction and transport: SOURCE CLOSED.
      One signed validator admits only legacy7/extended8. Actual prepare/restore/
      verify and extracted Pages/HTTPS regressions plus Python91 pass. Hosted
-     full source38030196866 at eeabb1d succeeds, including transport and lint-step
+     full source38032317748 at 29b2584 succeeds, including transport and lint-step
      regression. Native qualification remains separate and open.
    - NEXT producer slice: qualify native artifact against successful exact hosted
      source/version/lock and retained same frontend tree; real producer must pass
@@ -57,45 +56,27 @@ automatic live name change or installed cutover before bounded acceptance.
 Web-provider experiment deferred;109 files/6aab6 preserved in
 ~/.cache/codex/web-investigation. Rebind its own authorities before further work.
 
-Native161 stop-on-red38027361674: release CLI/version and actual27 TUI tests pass,
-but Rust1.95 Clippy query depth130 exceeds default128 in unchanged upstream
-Core request_plugin_install. Freeze new producer/UI behavior. SPEC permits only
-validation-time recursion256 on the exact original Core crate root, exact-body
-check and unconditional byte restoration; other Core changes refuse. Extracted
-workflow regression must prove success/failure/body mutation/foreign source and
-restoration, then actual native hosted rerun with nonzero27 and zero lint delta.
-No failed-run artifact may be consumed or published.
+Native161 source qualification CLOSED:38032317709 at29b2584 succeeds, actual27
+and zero Core/lint delta; input rawdcf76b3c, adaptedcd4a6619. Complete accepted
+evidence/disposition lives in GOAL, not a duplicate live proof ledger.
 
-Lint-boundary source repair gate restored locally: extracted real step1/five
-outcomes, frontend tools8 and grouped Python92 pass; actual diff inspected. Push
-repair and require successful native hosted rerun; failed-run binary stays
-quarantined and is allowed only in existing owned diagnostic proof, not producer
-admission/publication/live installation. No new UI or producer behavior until the
-real Clippy gate is green. Source full38029529700 ataca8287 succeeds.
+Historical env/retained lifecycle CLOSED: optional complete declared browser pair;
+no implicit signing-fixture helper insertion. Explicit authenticated previous
+selection supports reactivation using ordinary hold finalization and verified
+locked state. Focused3/9/1/5/extended guard1, full307/protected1, Clippy/fmt/diff and
+actual R10 refusal/update/rollback/corrupt-previous/paired reactivation pass.
+Same-byte Core0218a411/Managerb73f07f1/nativecd4a6619 profile5/source-return/title/
+foreground/permissions gates pass in owned roots. No real publication/cutover.
 
-Resume eeabb1d is clean. Source full38030196866 succeeds; native38030196838 is
-still running. Interrupted owned161 profile invocation has no completion output
-and is not acceptance evidence. Its two exact TMPDIR-root runtime processes were
-terminated after executable identity checks; protected live clients unchanged.
-Repeat against an admitted successful-run artifact. Existing failed-run owned
-terminal proof remains diagnostic only. Retained R10 generation construction is
-owned compatibility preparation, not publication or a new product behavior.
+NEXT: producer successful-run artifact acquisition/pair qualification, same frontend
+source inputs and backend version; actual builder flags/help and exhaustive active
+candidate/smoke inventory. Preserve current main5ced531 newer workflow behavior;
+no old-template overwrite. Focused actual production-path regression and grouped
+Python gate precede publication mirroring. Unknown newer backend must retain LKG,
+never silently publish without the admitted frontend.
 
-Stop-on-red native38030196838: actual native27 pass and Core query-capacity repair
-works, but Clippy --fix removes a non-cfg(test) import used only by the permission
-fixture and then its test compilation fails. Two profile paths also use expect()
-where the established Option guards already own refusal. FIRST repair test-only
-import scope and collapse duplicate Option checks without changing behavior;
-existing profile/permission native27 and full lint/zero-Core-delta are the gate.
-No producer behavior before that gate is restored.
-
-Owned retained-R10 remote proof rejects missing/changed helper2, completes the
-direct update and commits rollback. Post-rollback --version then fails because
-the hold-aware retained launcher requires browser helpers absent in the authentic
-four-file historical generation. QUEUED defect repair: preserve historical launch
-without adding unsigned helpers or weakening present-helper verification. Inspect
-all three qualified environment consumers (launch, command probe, doctor capture),
-map exact historical/modern refusal regressions, then repeat actual R10 lifecycle.
-Initial launcher rollback assertion was stale: SPEC deliberately retains the
-hold-aware launcher for an older target. That corrected assertion exposed this
-real missing-helper failure; no live state was changed.
+Latest installed Tdev0.1.35/MCP13+13/DB integrity and15/1/87/7 counts, runit/15s
+monitor, CLI/auth, formal prj24 and dirty sources remain preserved. Installed AI
+user profile/auth code matches working source; ai_tmux has the accepted frontend
+recognition delta. Do not install clean HEAD over existing user functionality.
+Protected launcher SHA670c93ed and sole18688 pts0/native pin/statusoff unchanged.

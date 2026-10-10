@@ -6704,3 +6704,63 @@ generation. This is a real compatibility defect, not an assertion to suppress.
 All three qualified environment consumers must preserve admitted historical
 browserless behavior while still rejecting incomplete declared modern helpers.
 Repair and actual lifecycle reproof remain open; no production state changed.
+
+### Qualified native161 and retained-generation lifecycle — accepted source (2026-10-10)
+
+At29b2584 native38032317709 succeeds: exact upstream97901140/Rust1.95,
+unchanged external1314/normalized workspace160, pristine63 slash commands plus
+sole switch, actual27/27, complete Clippy and identical formatted/linted patch,
+zero upstream Core delta. Raw SHA dcf76b3ccd114ac70117e799d00b106bb6d28ea10773b1834824276cb656bdeb;
+adapted SHA cd4a66199ce548db3b4b2b07b8114db376bc4926eb767e8db938f1356ff071ca.
+Successful-run bytes replace all failed-run diagnostics as the qualification input.
+
+The actual retainedR10 lifecycle exposed a mandatory browser-helper assumption
+after historical rollback. Qualified launch, command probe and doctor now consume
+one optional complete declared pair: absence preserves base Termux execution,
+partial pair refuses, declared asset integrity stays mandatory. No version-name
+exception, helper graft or foreign-generation fallback. Deleted signing-fixture
+auto-addition that concealed genuine empty inventories across84 callers. Focused3
+cover pair/absence/partial, both signed layouts and all three runtime consumers.
+
+Real-executable full gates also exposed explicit previous selection back to a
+newer signed generation being rejected by descending-only guard construction.
+SPEC retains either-direction explicit previous selection; only a lower public
+sequence creates a new hold/guard. Reactivation uses existing hold finalization:
+same held sequence keeps the authenticated hold and removes the guard; superseded
+hold clears after commit. Under the existing writer lock, hold verification uses
+the already rechecked authoritative state instead of reacquiring that lock.
+All five external hold consumers retain normal recovery. No signature/inventory/
+force bypass or new durable state. Extended named legacy-guard regression proves
+corrupt-previous refusal preserving launcher/pointers/hold/guard, reactivation and
+return to guarded legacy before its original force/greater-sequence matrix.
+
+Earlier whole-corpus artifact injection revealed dormant real-executable tests: two
+asserted superseded doctor presentation, one exposed the genuine ascending failure.
+Collapsed all surviving stale doctor row assertions into six actual human+JSON
+public checks preserving semantic health/degradation. These gates are now enabled
+with the actual owned Core, not early-return acceptance. Focused historical3,
+B11nine, offline recovery1, hold5 and extended legacy guard1 pass. Grouped Core191,
+Manager36/public55 and builder25 pass (307, one explicit smoke ignore); real-Termux
+protected smoke1 passes separately, all-target Clippy-Dwarnings/fmt/diff pass.
+Actual production and proof diff reviewed, including all six hold call sites.
+
+Owned signed local-paired-final-161/sequence102 binds Core0218a4116e69e73c766d690fe4f13a9311703da059e64de90578d0091a6ea4a2,
+Managerb73f07f1 and frontendcd4a6619. Exact retainedR10 source0621105/Coreb7d4586b
+with official0.153.4 proves remote missing/changed-frontend refusal, direct paired161
+update, historical rollback/version, corrupt retained previous refusal preserving
+controls, and explicit reactivation restoring all paired assets/removing guard while
+retaining authenticated held102. No auth or model work, all roots disposable.
+Actual same-byte native/Core/Manager title/no-ID, /new/current full UUID/old-ID refusal,
+stable PID/pane/foreground binding and captured repeated Android dispatch pass.
+Five native profile/fallback cases and persisted source-return proof preserve
+history/default/config/backend/UUID/PID/TTY/CWD with zero external model work/auth.
+Actual shared/named permissions prove four choices/two shortcuts and native6/5
+settings events. Earlier owned probe configuration-path error and nested-lock
+regression were rejected and repaired; their results are not passes.
+
+Protected installed launcher SHA670c93ed…/current preview and sole18688 pts0 remain
+unchanged. This closes source/native/owned-lifecycle repair, not real publication
+or device cutover. Producer artifact acquisition/pins/help, real Pages admission,
+optional registered initial terminal/title delegation and final normalization
+remain open. Main5ced531 remains independent publication authority; its newer
+one-shot/mirror/bootstrap behavior must be preserved when applying transport fixes.

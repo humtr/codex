@@ -377,18 +377,28 @@ fn verify_explicit_hold_binding(
 
 pub(super) fn effective_update_hold(
     roots: &LocalCoreRoots,
+    locked_state: Option<&m2_generation_state::GenerationPointerState>,
 ) -> Result<Option<UpdateHoldRecord>, LocalProductError> {
     let explicit = read_update_hold(roots)?;
     let guard = read_guard(roots)?;
     if explicit.is_none() && guard.is_none() {
         return Ok(None);
     }
-    let state = authoritative_state(roots)?;
+    // The rollback caller already owns the writer lock and has rechecked this
+    // exact state. Recover only for callers outside that lock.
+    let recovered;
+    let state = match locked_state {
+        Some(state) => state,
+        None => {
+            recovered = authoritative_state(roots)?;
+            &recovered
+        }
+    };
     if let Some(hold) = explicit.as_ref() {
-        verify_explicit_hold_binding(roots, &state, hold)?;
+        verify_explicit_hold_binding(roots, state, hold)?;
     }
     if let Some(guard) = guard.as_ref() {
-        let _ = verify_guard_binding(roots, &state, guard)?;
+        let _ = verify_guard_binding(roots, state, guard)?;
         if let Some(hold) = explicit.as_ref() {
             if hold.generation_id != guard.held_generation_id
                 || hold.release_sequence != guard.held_release_sequence

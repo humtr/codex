@@ -645,8 +645,7 @@ fn valid_browser_helper_path(path: &OsStr) -> bool {
 fn plan_termux_env(
     snapshot: &TermuxProcessEnvSnapshot,
     compat_dir: &OsStr,
-    browser_open_helper: &OsStr,
-    browser_manual_helper: &OsStr,
+    browser_helpers: Option<(&OsStr, &OsStr)>,
     cert_file: &OsStr,
     cert_dir: Option<&OsStr>,
 ) -> Result<TermuxBaseEnvPlan, TermuxProcessEnvError> {
@@ -668,15 +667,17 @@ fn plan_termux_env(
     if !valid_path_component(prefix_bin.as_os_str()) {
         return Err(TermuxProcessEnvError::InvalidPathComponent("prefix_bin"));
     }
-    if !valid_browser_helper_path(browser_open_helper) {
-        return Err(TermuxProcessEnvError::InvalidPathComponent(
-            "browser_open_helper",
-        ));
-    }
-    if !valid_browser_helper_path(browser_manual_helper) {
-        return Err(TermuxProcessEnvError::InvalidPathComponent(
-            "browser_manual_helper",
-        ));
+    if let Some((browser_open_helper, browser_manual_helper)) = browser_helpers {
+        if !valid_browser_helper_path(browser_open_helper) {
+            return Err(TermuxProcessEnvError::InvalidPathComponent(
+                "browser_open_helper",
+            ));
+        }
+        if !valid_browser_helper_path(browser_manual_helper) {
+            return Err(TermuxProcessEnvError::InvalidPathComponent(
+                "browser_manual_helper",
+            ));
+        }
     }
 
     let inherited_path = snapshot.inherited_path.as_deref().unwrap_or_default();
@@ -717,19 +718,21 @@ fn plan_termux_env(
     }
     assignments.push((OsString::from("PATH"), OsString::from_vec(path)));
 
-    let opener = prefix_bin.join("termux-open-url");
-    let mut browser = Vec::with_capacity(
-        browser_open_helper.as_bytes().len() + browser_manual_helper.as_bytes().len() + 9,
-    );
-    browser.extend_from_slice(browser_open_helper.as_bytes());
-    browser.extend_from_slice(b" %s:");
-    browser.extend_from_slice(browser_manual_helper.as_bytes());
-    browser.extend_from_slice(b" %s");
-    assignments.push((OsString::from("BROWSER"), OsString::from_vec(browser)));
-    assignments.push((
-        OsString::from("CODEX_TERMUX_URL_OPENER"),
-        opener.into_os_string(),
-    ));
+    if let Some((browser_open_helper, browser_manual_helper)) = browser_helpers {
+        let opener = prefix_bin.join("termux-open-url");
+        let mut browser = Vec::with_capacity(
+            browser_open_helper.as_bytes().len() + browser_manual_helper.as_bytes().len() + 9,
+        );
+        browser.extend_from_slice(browser_open_helper.as_bytes());
+        browser.extend_from_slice(b" %s:");
+        browser.extend_from_slice(browser_manual_helper.as_bytes());
+        browser.extend_from_slice(b" %s");
+        assignments.push((OsString::from("BROWSER"), OsString::from_vec(browser)));
+        assignments.push((
+            OsString::from("CODEX_TERMUX_URL_OPENER"),
+            opener.into_os_string(),
+        ));
+    }
     assignments.push((OsString::from("DISPLAY"), OsString::new()));
     assignments.push((
         OsString::from("WAYLAND_DISPLAY"),
@@ -1074,19 +1077,27 @@ impl<'selection, 'asset> QualifiedRuntimeAssets<'selection, 'asset> {
 #[cfg(unix)]
 fn termux_browser_helper_paths<'asset>(
     selection: &RuntimeAssetSelection<'asset>,
-) -> Result<(&'asset OsStr, &'asset OsStr), TermuxProcessEnvError> {
+) -> Result<Option<(&'asset OsStr, &'asset OsStr)>, TermuxProcessEnvError> {
     let find = |identity: &'static str| {
         selection
             .helpers
             .iter()
             .find(|helper| helper.identity == identity)
             .map(|helper| helper.asset_path)
-            .ok_or(TermuxProcessEnvError::MissingQualifiedHelper(identity))
     };
-    Ok((
-        find(TERMUX_BROWSER_OPEN_HELPER_IDENTITY)?,
-        find(TERMUX_BROWSER_MANUAL_HELPER_IDENTITY)?,
-    ))
+    match (
+        find(TERMUX_BROWSER_OPEN_HELPER_IDENTITY),
+        find(TERMUX_BROWSER_MANUAL_HELPER_IDENTITY),
+    ) {
+        (None, None) => Ok(None),
+        (Some(open), Some(manual)) => Ok(Some((open, manual))),
+        (None, Some(_)) => Err(TermuxProcessEnvError::MissingQualifiedHelper(
+            TERMUX_BROWSER_OPEN_HELPER_IDENTITY,
+        )),
+        (Some(_), None) => Err(TermuxProcessEnvError::MissingQualifiedHelper(
+            TERMUX_BROWSER_MANUAL_HELPER_IDENTITY,
+        )),
+    }
 }
 
 #[cfg(unix)]
@@ -1378,16 +1389,14 @@ where
         }
         None => None,
     };
-    let (browser_open_helper, browser_manual_helper) = match termux_browser_helper_paths(selection)
-    {
+    let browser_helpers = match termux_browser_helper_paths(selection) {
         Ok(paths) => paths,
         Err(err) => return RuntimeLaunchError::Environment(err),
     };
     let mut env_plan = match plan_termux_env(
         process_env,
         selection.compatibility_dir,
-        browser_open_helper,
-        browser_manual_helper,
+        browser_helpers,
         cert_file,
         cert_dir,
     ) {
@@ -1974,13 +1983,12 @@ where
     C: AsRef<std::path::Path>,
 {
     let selection = assets.selection();
-    let (browser_open_helper, browser_manual_helper) = termux_browser_helper_paths(selection)
+    let browser_helpers = termux_browser_helper_paths(selection)
         .map_err(QualifiedUpstreamDoctorProbeError::Environment)?;
     let env_plan = plan_termux_env(
         process_env,
         selection.compatibility_dir,
-        browser_open_helper,
-        browser_manual_helper,
+        browser_helpers,
         cert_file,
         cert_dir,
     )
@@ -2450,13 +2458,12 @@ where
     let force_color = options.force_color;
     let mut use_color = options.use_color;
     let selection = assets.selection();
-    let (browser_open_helper, browser_manual_helper) = termux_browser_helper_paths(selection)
+    let browser_helpers = termux_browser_helper_paths(selection)
         .map_err(QualifiedUpstreamDoctorProbeError::Environment)?;
     let env_plan = plan_termux_env(
         process_env,
         selection.compatibility_dir,
-        browser_open_helper,
-        browser_manual_helper,
+        browser_helpers,
         cert_file,
         cert_dir,
     )
@@ -8040,7 +8047,7 @@ fn prepare_signed_local_release_with_hold_policy(
     if source_release.release_sequence < current_release.release_sequence {
         return Err(LocalProductError::ReleaseSequenceRollback);
     }
-    let validated_hold = rollback_guard::effective_update_hold(roots)?;
+    let validated_hold = rollback_guard::effective_update_hold(roots, None)?;
     if source_release.release_sequence == current_release.release_sequence {
         if source_loaded.generation_id == before.current && source_release == current_release {
             if hold_policy == UpdateHoldPolicy::ForceHeld {
@@ -8163,7 +8170,7 @@ fn prepare_local_derived_release(
         "inspect immutable generation root",
         "immutable generation root is not a real directory",
     )?;
-    if rollback_guard::effective_update_hold(roots)?.is_some() {
+    if rollback_guard::effective_update_hold(roots, None)?.is_some() {
         return Err(LocalProductError::LocalUpdate(
             "local-derived update is unavailable while a rollback hold is active",
         ));
@@ -8490,7 +8497,7 @@ fn activate_local_built_update(
     let before = m2_generation_state::recover_activation_state(&state_paths)
         .map_err(LocalProductError::State)?
         .ok_or(LocalProductError::NoCurrentGeneration)?;
-    if rollback_guard::effective_update_hold(roots)?.is_some() {
+    if rollback_guard::effective_update_hold(roots, None)?.is_some() {
         return Err(LocalProductError::LocalUpdate(
             "local-derived update is unavailable while a rollback hold is active",
         ));
@@ -9816,7 +9823,7 @@ fn run_bare_startup_update_preflight(roots: &LocalCoreRoots) {
         Ok(Some(state)) => state,
         _ => return,
     };
-    match rollback_guard::effective_update_hold(roots) {
+    match rollback_guard::effective_update_hold(roots, None) {
         Ok(Some(_)) | Err(_) => return,
         Ok(None) => {}
     }
@@ -9924,7 +9931,7 @@ fn activate_signed_update_channel_with_hold_policy(
                 "remote release base does not match signed generation identity",
             ));
         }
-        let _ = rollback_guard::effective_update_hold(roots)?;
+        let _ = rollback_guard::effective_update_hold(roots, None)?;
         let (_, current_loaded) = verify_installed_local_release(
             roots,
             &before.current,
@@ -11730,7 +11737,13 @@ fn rollback_signed_local_release(
 
     let current_is_local_derived =
         parse_local_derived_metadata(&current_release, &current_loaded)?.is_some();
-    let hold = if current_is_local_derived {
+    let reactivating_previous = target_release.release_sequence >= current_release.release_sequence;
+    let prior_hold = if !current_is_local_derived && reactivating_previous {
+        rollback_guard::effective_update_hold(roots, Some(&before))?
+    } else {
+        None
+    };
+    let hold = if current_is_local_derived || reactivating_previous {
         None
     } else {
         Some(UpdateHoldRecord {
@@ -11857,6 +11870,13 @@ fn rollback_signed_local_release(
     }
     if guard.is_some() && target_hold_aware {
         rollback_guard::remove_guard_if_present(roots)?;
+    }
+    if reactivating_previous {
+        finalize_validated_update_hold_locked(
+            roots,
+            prior_hold.as_ref(),
+            target_release.release_sequence,
+        )?;
     }
     Ok(ActivatedUpdate {
         generation_id: after.current,
@@ -12428,8 +12448,10 @@ mod tests {
         let plan = plan_termux_env(
             &snapshot,
             OsStr::new("/test/compat"),
-            OsStr::new("/test/browser/open/curl"),
-            OsStr::new("/test/browser/manual/curl"),
+            Some((
+                OsStr::new("/test/browser/open/curl"),
+                OsStr::new("/test/browser/manual/curl"),
+            )),
             OsStr::new("/fallback/cert.pem"),
             None,
         )
@@ -12501,8 +12523,7 @@ mod tests {
         let plan = plan_termux_env(
             &snapshot,
             OsStr::new("/generation"),
-            open,
-            manual,
+            Some((open, manual)),
             OsStr::new("/cert.pem"),
             None,
         )
@@ -12537,8 +12558,7 @@ mod tests {
             plan_termux_env(
                 &wsl_snapshot,
                 OsStr::new("/generation"),
-                open,
-                manual,
+                Some((open, manual)),
                 OsStr::new("/cert.pem"),
                 None,
             ),
@@ -12550,8 +12570,7 @@ mod tests {
             plan_termux_env(
                 &unreadable_kernel_snapshot,
                 OsStr::new("/generation"),
-                open,
-                manual,
+                Some((open, manual)),
                 OsStr::new("/cert.pem"),
                 None,
             )
@@ -12569,8 +12588,7 @@ mod tests {
                 plan_termux_env(
                     &snapshot,
                     OsStr::new("/generation"),
-                    invalid.as_os_str(),
-                    manual,
+                    Some((invalid.as_os_str(), manual)),
                     OsStr::new("/cert.pem"),
                     None,
                 ),
@@ -12651,8 +12669,10 @@ mod tests {
             plan_termux_env(
                 &snapshot,
                 OsStr::new("/compat"),
-                OsStr::new("/browser/open/curl"),
-                OsStr::new("/browser/manual/curl"),
+                Some((
+                    OsStr::new("/browser/open/curl"),
+                    OsStr::new("/browser/manual/curl")
+                )),
                 OsStr::new("/cert"),
                 None,
             ),
@@ -12664,8 +12684,10 @@ mod tests {
             plan_termux_env(
                 &snapshot,
                 OsStr::new("/compat"),
-                OsStr::new("/browser/open/curl"),
-                OsStr::new("/browser/manual/curl"),
+                Some((
+                    OsStr::new("/browser/open/curl"),
+                    OsStr::new("/browser/manual/curl")
+                )),
                 OsStr::new("/cert"),
                 None,
             ),
@@ -15842,10 +15864,6 @@ esac
         openssl: &std::path::Path,
         private_key: &std::path::Path,
     ) {
-        let descriptor = std::fs::read_to_string(generation_dir.join("generation.meta")).unwrap();
-        if descriptor.contains("helper_count\t0\n") {
-            b2_add_tc2_browser_helpers(generation_dir);
-        }
         let files = b4_exact_release_inventory(generation_dir, openssl);
         b4_write_signed_release_inventory(
             generation_dir,
@@ -15854,6 +15872,208 @@ esac
             private_key,
             &files,
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_historical_browserless_environment_accepts_absence_and_refuses_partial_pair() {
+        let snapshot = TermuxProcessEnvSnapshot {
+            wsl_kernel: Some(false),
+            prefix: Some("/test/prefix".into()),
+            tmpdir: Some("/test/tmp".into()),
+            inherited_path: Some("/test/inherited".into()),
+            inherited_ssl_cert_file: None,
+            inherited_ssl_cert_dir: None,
+        };
+        let helpers = tc2_helper_bindings(
+            OsStr::new("/test/open/curl"),
+            OsStr::new("/test/manual/curl"),
+        );
+        let mut selection = RuntimeAssetSelection {
+            runtime: RuntimeAssetBinding {
+                program_path: OsStr::new("/test/runtime"),
+                observed_digest: "runtime-digest",
+            },
+            compatibility_dir: OsStr::new("/test/compat"),
+            helpers: &[],
+        };
+        assert_eq!(termux_browser_helper_paths(&selection).unwrap(), None);
+        let historical = plan_termux_env(
+            &snapshot,
+            selection.compatibility_dir,
+            None,
+            OsStr::new("/test/cert.pem"),
+            None,
+        )
+        .unwrap();
+        assert!(!historical
+            .assignments
+            .iter()
+            .any(|(key, _)| key == "BROWSER" || key == "CODEX_TERMUX_URL_OPENER"));
+        assert!(historical
+            .assignments
+            .iter()
+            .any(|(key, value)| key == "PATH"
+                && value == "/test/compat:/test/prefix/bin:/test/inherited"));
+        assert!(historical
+            .assignments
+            .iter()
+            .any(|(key, value)| key == "TMPDIR" && value == "/test/tmp"));
+        assert!(historical
+            .assignments
+            .iter()
+            .any(|(key, value)| key == "SSL_CERT_FILE" && value == "/test/cert.pem"));
+        for (partial, missing) in [
+            (&helpers[..1], TERMUX_BROWSER_MANUAL_HELPER_IDENTITY),
+            (&helpers[1..], TERMUX_BROWSER_OPEN_HELPER_IDENTITY),
+        ] {
+            selection.helpers = partial;
+            assert_eq!(
+                termux_browser_helper_paths(&selection),
+                Err(TermuxProcessEnvError::MissingQualifiedHelper(missing))
+            );
+        }
+        selection.helpers = &helpers;
+        let pair = termux_browser_helper_paths(&selection).unwrap();
+        assert_eq!(pair, Some((helpers[0].asset_path, helpers[1].asset_path)));
+        let modern = plan_termux_env(
+            &snapshot,
+            selection.compatibility_dir,
+            pair,
+            OsStr::new("/test/cert.pem"),
+            None,
+        )
+        .unwrap();
+        assert!(modern
+            .assignments
+            .iter()
+            .any(|(key, value)| key == "BROWSER"
+                && value == "/test/open/curl %s:/test/manual/curl %s"));
+        assert!(modern
+            .assignments
+            .iter()
+            .any(|(key, value)| key == "CODEX_TERMUX_URL_OPENER"
+                && value == "/test/prefix/bin/termux-open-url"));
+        let mut without_browser = modern;
+        without_browser
+            .assignments
+            .retain(|(key, _)| key != "BROWSER" && key != "CODEX_TERMUX_URL_OPENER");
+        assert_eq!(historical, without_browser);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_historical_browserless_signing_fixture_preserves_declared_helpers() {
+        let (root, roots) = b2_test_roots("historical-browserless-signing");
+        let openssl = b4_termux_openssl();
+        let private_key = root.join("keys/private.pem");
+        let public_key = root.join("keys/public.pem");
+        b4_generate_release_keypair(&openssl, &private_key, &public_key);
+        for (name, browser_pair) in [("historical", false), ("modern", true)] {
+            let generation = b2_write_root_generation(&roots, name, false, "supported");
+            if browser_pair {
+                b2_add_tc2_browser_helpers(&generation);
+            }
+            let before = load_local_generation(&generation)
+                .unwrap()
+                .manifest
+                .helper_digests;
+            b4_write_signed_release(&generation, 1, &openssl, &private_key);
+            let (_, loaded) =
+                verify_local_release_bundle(&generation, &openssl, &public_key).unwrap();
+            assert_eq!(loaded.manifest.helper_digests.len(), before.len());
+            assert_eq!(loaded.helper_paths.len(), before.len());
+        }
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_historical_browserless_signed_launch_probe_and_doctor_remain_usable() {
+        for root_layout in [false, true] {
+            let root = b2_public_main_fixture("historical-browserless-public", false);
+            let home = root.join("home");
+            let prefix = root.join("prefix");
+            let generation = home.join(".local/lib/codex/core/generations/g1");
+            let descriptor = generation.join("generation.meta");
+            let original = std::fs::read_to_string(&descriptor).unwrap();
+            let mut contents = original
+                .lines()
+                .filter(|line| !line.starts_with("helper\t"))
+                .map(|line| {
+                    if line.starts_with("helper_count\t") {
+                        "helper_count\t0"
+                    } else {
+                        line
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+                + "\n";
+            contents =
+                contents.replace("upstream_doctor\tunsupported", "upstream_doctor\tsupported");
+            std::fs::remove_dir_all(generation.join("browser")).unwrap();
+            if root_layout {
+                std::fs::rename(
+                    generation.join("compat").join(CODE_MODE_HOST_FILE),
+                    generation.join(CODE_MODE_HOST_FILE),
+                )
+                .unwrap();
+                std::fs::remove_dir(generation.join("compat")).unwrap();
+                contents = contents.replacen(LEGACY_GENERATION_FORMAT, LOCAL_GENERATION_FORMAT, 1);
+            }
+            std::fs::write(&descriptor, contents).unwrap();
+            let openssl = b4_termux_openssl();
+            let private_key = root.join("keys/private.pem");
+            let public_key = root.join("keys/public.pem");
+            b4_generate_release_keypair(&openssl, &private_key, &public_key);
+            let inventory = b4_exact_release_inventory(&generation, &openssl);
+            b4_write_signed_release_inventory(&generation, 1, &openssl, &private_key, &inventory);
+            let (_, loaded) =
+                verify_local_release_bundle(&generation, &openssl, &public_key).unwrap();
+            assert!(loaded.helper_paths.is_empty());
+            let key = release_public_key_from_pem(&openssl, &public_key).unwrap();
+            let state = plan_initial_pointer_state_with_key("g1", key).unwrap();
+            let state_path = home.join(".local/share/codex/core/activation-state");
+            std::fs::write(&state_path, encode_pointer_state(&state).unwrap()).unwrap();
+            let protected = [
+                state_path,
+                descriptor,
+                generation.join("release.manifest"),
+                prefix.join("etc/resolv.conf"),
+            ];
+            let before: Vec<_> = protected
+                .iter()
+                .map(|path| std::fs::read(path).unwrap())
+                .collect();
+            let version = run_public_main_probe(&root, "version");
+            assert_eq!(version.status.code(), Some(0), "{version:?}");
+            assert!(version.stdout.ends_with(b"codex-upstream 9.9.9\n"));
+            assert_eq!(version.stderr, b"version-stderr\n");
+            let doctor = run_public_main_probe(&root, "doctor");
+            assert_eq!(doctor.status.code(), Some(1), "{doctor:?}");
+            assert!(String::from_utf8_lossy(&doctor.stdout)
+                .contains("\"upstream\":{\"status\":\"healthy\""));
+            let snapshot = b8_process_env(&prefix, &root.join("tmp"));
+            with_qualified_loaded_runtime(&loaded, |_, assets| {
+                assert!(probe_qualified_upstream_command(
+                    assets,
+                    &snapshot,
+                    prefix.join("etc/tls/cert.pem").as_os_str(),
+                    None,
+                    prefix.join("etc/resolv.conf"),
+                    home.join(".local/share/codex/core/config"),
+                    &["--version"]
+                )
+                .unwrap());
+                Ok(())
+            })
+            .unwrap();
+            for (path, bytes) in protected.iter().zip(before) {
+                assert_eq!(std::fs::read(path).unwrap(), bytes);
+            }
+            remove_temp_root(root);
+        }
     }
 
     #[cfg(unix)]
@@ -16219,6 +16439,40 @@ esac
     }
 
     #[cfg(unix)]
+    fn b10_assert_public_doctor_degraded(
+        core: &std::path::Path,
+        home: &std::path::Path,
+        prefix: &std::path::Path,
+        tmp: &std::path::Path,
+    ) {
+        for args in [vec!["doctor"], vec!["doctor", "--json"]] {
+            let result = std::process::Command::new(core)
+                .args(&args)
+                .env_clear()
+                .env("HOME", home)
+                .env("PREFIX", prefix)
+                .env("TMPDIR", tmp)
+                .env("PATH", std::env::var_os("PATH").unwrap())
+                .output()
+                .unwrap();
+            assert_eq!(result.status.code(), Some(1), "{result:?}");
+            let output = String::from_utf8(result.stdout).unwrap();
+            if args.len() == 2 {
+                assert!(output.contains("\"upstream\":{\"status\":\"healthy\""));
+                assert!(output.contains("\"termux_core\":{\"status\":\"healthy\""));
+                assert!(output.contains("\"manager\":{\"status\":\"unavailable\"}"));
+                assert!(output.contains("\"summary\":{\"status\":\"degraded\"}"));
+            } else {
+                assert!(output.starts_with("Upstream doctor output unavailable: healthy\n"));
+                assert!(output.contains("[Termux doctor]"));
+                assert!(output.contains("[Manager]"));
+                assert!(output.contains("[Summary]"));
+                assert!(!output.contains("[Upstream]"));
+            }
+        }
+    }
+
+    #[cfg(unix)]
     fn b10_build_signed_release(
         root: &std::path::Path,
         core: &std::path::Path,
@@ -16478,18 +16732,7 @@ esac
             version.stderr
         );
 
-        let doctor = run_installed(&["doctor"]);
-        assert_eq!(
-            doctor.status.code(),
-            Some(1),
-            "stdout={:?} stderr={:?}",
-            doctor.stdout,
-            doctor.stderr
-        );
-        let doctor_output = String::from_utf8_lossy(&doctor.stdout);
-        assert!(doctor_output.contains("[Upstream]\nstatus: healthy"));
-        assert!(doctor_output.contains("[Manager]\nstatus: unavailable"));
-        assert!(doctor_output.contains("[Summary]\nstatus: degraded"));
+        b10_assert_public_doctor_degraded(&installed_core, &home, &prefix, &tmp);
 
         let update = std::process::Command::new(&installed_core)
             .args(["update", "--local"])
@@ -16508,11 +16751,7 @@ esac
         );
         assert!(!network_log.exists());
 
-        let updated_doctor = run_installed(&["doctor"]);
-        assert_eq!(updated_doctor.status.code(), Some(1));
-        let updated_doctor_output = String::from_utf8_lossy(&updated_doctor.stdout);
-        assert!(updated_doctor_output.contains("[Upstream]\nstatus: healthy"));
-        assert!(updated_doctor_output.contains("[Summary]\nstatus: degraded"));
+        b10_assert_public_doctor_degraded(&installed_core, &home, &prefix, &tmp);
 
         let rollback = run_installed(&["update", "--rollback"]);
         assert_eq!(
@@ -16524,11 +16763,7 @@ esac
         );
         assert!(!network_log.exists());
 
-        let rolled_back_doctor = run_installed(&["doctor"]);
-        assert_eq!(rolled_back_doctor.status.code(), Some(1));
-        let rolled_back_doctor_output = String::from_utf8_lossy(&rolled_back_doctor.stdout);
-        assert!(rolled_back_doctor_output.contains("[Upstream]\nstatus: healthy"));
-        assert!(rolled_back_doctor_output.contains("[Summary]\nstatus: degraded"));
+        b10_assert_public_doctor_degraded(&installed_core, &home, &prefix, &tmp);
         assert!(!network_log.exists());
 
         let roots = b7_public_roots(&home, &prefix);
@@ -17311,15 +17546,7 @@ esac
             version.stdout,
             version.stderr
         );
-        let doctor = std::process::Command::new(&entrypoint)
-            .arg("doctor")
-            .env("HOME", &home)
-            .env("PREFIX", &prefix)
-            .env("TMPDIR", &tmp)
-            .output()
-            .unwrap();
-        assert_eq!(doctor.status.code(), Some(1));
-        assert!(String::from_utf8_lossy(&doctor.stdout).contains("[Summary]\nstatus: degraded"));
+        b10_assert_public_doctor_degraded(&entrypoint, &home, &prefix, &tmp);
         let update = std::process::Command::new(&entrypoint)
             .args(["update", "--local"])
             .arg(&next_release)
@@ -17341,17 +17568,7 @@ esac
         let forward = read_pointer_state(&paths).unwrap().unwrap();
         assert_eq!(forward.current, "b11-release-legacy-g1");
         assert_eq!(forward.previous.as_deref(), Some("b11-release-legacy-g0"));
-        let updated_doctor = std::process::Command::new(&entrypoint)
-            .arg("doctor")
-            .env("HOME", &home)
-            .env("PREFIX", &prefix)
-            .env("TMPDIR", &tmp)
-            .output()
-            .unwrap();
-        assert_eq!(updated_doctor.status.code(), Some(1));
-        assert!(
-            String::from_utf8_lossy(&updated_doctor.stdout).contains("[Summary]\nstatus: degraded")
-        );
+        b10_assert_public_doctor_degraded(&entrypoint, &home, &prefix, &tmp);
         let rollback = std::process::Command::new(&entrypoint)
             .args(["update", "--rollback"])
             .env("HOME", &home)
@@ -17365,16 +17582,7 @@ esac
         let state = read_pointer_state(&paths).unwrap().unwrap();
         assert_eq!(state.current, "b11-release-legacy-g0");
         assert_eq!(state.previous.as_deref(), Some("b11-release-legacy-g1"));
-        let rolled_back_doctor = std::process::Command::new(&entrypoint)
-            .arg("doctor")
-            .env("HOME", &home)
-            .env("PREFIX", &prefix)
-            .env("TMPDIR", &tmp)
-            .output()
-            .unwrap();
-        assert_eq!(rolled_back_doctor.status.code(), Some(1));
-        assert!(String::from_utf8_lossy(&rolled_back_doctor.stdout)
-            .contains("[Summary]\nstatus: degraded"));
+        b10_assert_public_doctor_degraded(&entrypoint, &home, &prefix, &tmp);
         m2_b1_assert_no_transaction_files(&paths);
         remove_temp_root(root);
     }
@@ -23027,6 +23235,66 @@ exit 2
         assert_eq!(
             openssl_sha256(&fixture.openssl, &fixture.prefix.join("bin/codex")).unwrap(),
             guard.held_core_sha256
+        );
+
+        // The real rollback control path must also select the authenticated
+        // newer previous generation while a legacy guard holds the writer lock.
+        let previous_descriptor = roots
+            .generation_root
+            .join("arh1-legacy-held/generation.meta");
+        let descriptor_before = std::fs::read(&previous_descriptor).unwrap();
+        std::fs::write(&previous_descriptor, b"changed-retained-previous\n").unwrap();
+        let corrupt_previous =
+            arh1_run_public_rollback(&fixture.home, &fixture.prefix, &fixture.tmp);
+        assert_eq!(corrupt_previous.status.code(), Some(1));
+        assert_eq!(
+            read_pointer_state(&state_paths).unwrap().unwrap(),
+            rolled_back
+        );
+        assert_eq!(
+            read_update_hold(&roots).unwrap(),
+            Some(expected_hold.clone())
+        );
+        assert_eq!(
+            rollback_guard::read_guard(&roots).unwrap(),
+            Some(guard.clone())
+        );
+        assert_eq!(
+            openssl_sha256(&fixture.openssl, &fixture.prefix.join("bin/codex")).unwrap(),
+            held_core_digest
+        );
+        std::fs::write(&previous_descriptor, descriptor_before).unwrap();
+        let reactivated = arh1_run_public_rollback(&fixture.home, &fixture.prefix, &fixture.tmp);
+        assert_eq!(reactivated.status.code(), Some(0), "{reactivated:?}");
+        let reactivated_state = read_pointer_state(&state_paths).unwrap().unwrap();
+        assert_eq!(reactivated_state.current, "arh1-legacy-held");
+        assert_eq!(
+            reactivated_state.previous.as_deref(),
+            Some("channel-current")
+        );
+        assert_eq!(
+            read_update_hold(&roots).unwrap(),
+            Some(expected_hold.clone())
+        );
+        assert_eq!(rollback_guard::read_guard(&roots).unwrap(), None);
+        let back_to_legacy = arh1_run_public_rollback_with_capability(
+            &fixture.home,
+            &fixture.prefix,
+            &fixture.tmp,
+            "0",
+        );
+        assert_eq!(back_to_legacy.status.code(), Some(0), "{back_to_legacy:?}");
+        assert_eq!(
+            read_pointer_state(&state_paths).unwrap().unwrap(),
+            rolled_back
+        );
+        assert_eq!(
+            read_update_hold(&roots).unwrap(),
+            Some(expected_hold.clone())
+        );
+        assert_eq!(
+            rollback_guard::read_guard(&roots).unwrap(),
+            Some(guard.clone())
         );
 
         let held = b5_run_public_channel_update(
