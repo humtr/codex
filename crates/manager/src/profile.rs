@@ -42,7 +42,10 @@ pub(super) fn target_name(target: &ProfileTarget) -> &str {
     }
 }
 
-fn validate_target(context: &Context, target: &ProfileTarget) -> Result<(), ManagerError> {
+pub(super) fn validate_target(
+    context: &Context,
+    target: &ProfileTarget,
+) -> Result<(), ManagerError> {
     if let ProfileTarget::Custom(id) = target {
         let dirs = existing_manager_profiles(context)?.ok_or(ERR_PROFILE)?;
         if !profile_complete(&dirs, id) {

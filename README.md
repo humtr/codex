@@ -80,6 +80,28 @@ The default route consumes the signed stable channel. It does not delegate to
 the upstream self-updater, and publication credentials are not device update
 authority.
 
+## Launch in tmux without AI
+
+```sh
+codex termux tmux
+```
+
+Choose an existing Manager profile with Up/Down and Enter. Escape or Ctrl-C cancels.
+The current account is highlighted; selection does not change the saved default.
+The workload attaches in the terminal where you entered the command, with hidden
+tmux status and native titles. An independent terminal owns an independent session.
+
+For scripting or an existing conversation:
+
+```sh
+codex termux tmux --profile work
+codex termux tmux --profile work -- resume
+```
+
+Exact notification return additionally needs the qualified Termux existing-origin
+socket capability. Its native app candidate is separate from this launch command;
+an unavailable/closed origin never opens a replacement notification window.
+
 ## Active work across accounts
 
 When upstream resume reports an active writer in another account, run:

@@ -324,16 +324,14 @@ and its internal `ai __tmux_focus <UUID>` endpoint; Core owns neither. Native
 argv, selected profile environment and CWD remain unchanged. Inside tmux AI
 creates a managed window in the invoking pane's exact session on that server;
 other clients' active sessions are not launch targets. Outside tmux each explicit
-launch creates a separate managed session, workload and native return name.
+launch creates a separate managed session and workload, bound to its real origin.
 It never adds a new workload to a previously launched session or selects that
 session's Android terminal. Existing managed sessions, panes and clients remain
 unchanged; inside-session launches intentionally share that session's terminal.
 Launch registration contains only socket identity, never credentials or content.
-Dead records are pruned. No notification click creates a tmux session, window,
-pane or Codex process. Explicit tmux notification focus may open a new native
-Android Termux terminal attached to the existing qualified tmux session only
-when its named notification terminal is absent. Repeated clicks reuse that
-terminal; click count must not increase terminal/client count.
+Dead records are pruned. No notification click creates an Android terminal,
+tmux session/window/pane, attached client or Codex process. Repeated clicks
+select only the existing qualified origin; terminal/client counts stay unchanged.
 
 For Codex launches AI adds upstream `thread-id` first in the selected home's
 `tui.terminal_title`, preserving other configured items (or upstream defaults)
@@ -354,49 +352,68 @@ Foreign scripts/interpreters, ambiguous children and changed process identities 
 focus. The AI CLI watchdog allows twenty seconds, exceeding its fifteen-second Android
 response budget. Titles, plans and transcripts are not logged or cached.
 
-Manager adds `notify set --focus termux|tmux` and reports `focus` in show.
+Manager owns `notify set --focus termux|tmux` and reports `focus` in show.
 Default is termux. Its separate private `notifications/focus-v1` contains exactly
 `termux\n` or `tmux\n`; existing `config-v1` and Core hook projection stay intact.
 Invalid/missing focus state safely uses termux. In tmux mode a canonical top-level
-hook `session_id` adds the safely quoted absolute HOME/bin/ai focus command to
-the existing Activity action. Malformed/duplicate IDs never suppress the ordinary
+hook `session_id` selects the safely quoted installed Core `termux
+__terminal-focus-v1 UUID` action. It invokes only the same-generation Manager,
+without an AI executable or an automatic Activity/constructor fallback. Malformed/duplicate IDs never suppress the ordinary
 notification or become shell input. The helper is bounded and silent.
 
-After resolving a unique live pane, AI atomically rechecks its identity, selects
-it, and obtains its existing tmux session ID. Only a successful recheck requests
-RunCommandService to select or create one named native terminal running installed
-tmux with the exact registered socket and `attach-session -t <SESSION_ID>`.
-The default private shell name uses the CLI prefix followed by eight lowercase
-hexadecimal SHA-256 digits of compact JSON `[socket_path, session_name]`. It is
-stable across server inode changes and native session-ID reuse at the same socket
-path/name. Socket inode/UID and runtime/pane qualification remain separate live
-checks; the presentation name is not authority. Native session-local
-`@humtr_ai_terminal_name`, if present, may explicitly bind an existing registered
-terminal using a CLI-prefix/eight-hex name or the accepted legacy `ai-tmux-`
-name with sixteen or sixty-four lowercase hex digits;
-invalid bindings refuse service dispatch. This permits a bounded existing-device
-name transfer while preserving return until the native UI change is confirmed.
-Names contain no conversation content. The string-valued `no-shell-with-name` creation mode
-delegates reuse and create-if-absent to the native Termux service. Its string-valued
-action selects the returned terminal and opens Activity. Repeated or concurrent
-clicks for a live tmux session must reuse one terminal/client, including clicks
-from different Codex panes within that tmux session. Closing the terminal permits
-one replacement; another live tmux session has its own named terminal. Clicks
-never create another workload. Missing,
-ambiguous, closed or changed targets issue no native-terminal request. A target
-that disappears after qualification makes attach fail; it cannot create a tmux
-session. Unsupported socket argument encoding is rejected. Service errors remain
-silent and the Manager action retains ordinary Activity foregrounding. No resume
-process, input injection, native preference editing, title watcher or daemon
-environment guess is used. Reverting the complete optional AI attachment change
-and reinstalling AI restores the earlier pane-selection/Activity behavior without changing Codex
-state or terminating existing clients.
-
-The AI transport's tmux control queries explicitly select UTF-8 client mode so
-their tab-delimited identity fields are preserved when notification environments
-omit locale variables; neither titles nor protocol fields are locale authority.
+Exact return uses the origin-bound target below. Native Android terminal handles,
+managed tmux execution containers and conversation identity are separate. New
+source must not select Android windows by shell names or make RunCommandService
+create-or-reuse requests at launch or return. Installed earlier name-based paths
+are operating history in CURRENT.md, not acceptance evidence for this target.
 
 ### Manager command boundary
+
+#### Existing-origin socket protocol (candidate; device qualification pending)
+
+The Termux app candidate uses the existing authenticated AM socket framing and
+adds only `termux-terminal-v1 origin`, `capabilities`, and `validate|focus HANDLE
+PID START`. The origin command derives its reference from the real same-UID
+socket peer's ancestry and Termux's existing live session table. Returned bounded
+JSON has schema `termux-terminal-origin-v1`, result `ok`, and origin fields handle,
+pid and start. The requester never supplies an origin PID for ancestry resolution.
+Validate/focus require the exact live handle/PID/kernel-start association; closed,
+recycled or ambiguous identities fail. Focus operates on the app main thread with
+a bounded lifetime and an existing-handle Activity guard, so a target closing
+before Activity connects cannot create a replacement terminal. Unsupported calls
+return failure; a successful transport start is not semantic success.
+
+Managed tmux sessions carry only that private live reference in @termux_origin_v1.
+The Manager-only `__terminal-focus-v1 UUID` revalidates installed native foreground
+FD identity and its exact pane, then validates/selects the existing origin. The
+notification action invokes installed Core's Manager command; it requires no AI
+binary, title-based route or create-or-reuse Android service. A failed exact-return
+request stays failed and does not fall through to a constructor. A minimal native
+candidate retaining the installed package/certificate is build-qualified; an APK
+change and actual device A/B launch/return acceptance remain separate gates.
+
+#### Standalone tmux launch
+
+`codex termux tmux [--profile PROFILE_ID] [-- UPSTREAM_ARGS...]` is an optional
+Manager convenience; Core ordinary argv and execution remain unchanged. No AI
+installation or Python is required. With no explicit profile, an interactive
+profile picker uses the existing Manager inventory and highlights ordinary Core
+resolution (explicit CODEX_HOME, saved default, native default). Up/down and Enter
+select; Esc/Ctrl-C cancel without work. The inherited external home, if any, is
+a distinct current-home entry and is never silently replaced. An explicit
+profile uses the existing `profile use` contract and is checked before creating
+work; there is no second profile preference. Upstream options, including its own
+--profile, follow the separator unchanged. Wrapper maintenance commands are not
+upstream workloads. CWD, caller color settings including absence, and streams
+are preserved; tmux owns TERM.
+
+Outside tmux, create one independent session, hide its status row and forward the
+pane title, then exec its attachment directly on the caller terminal. Inside,
+create/select a window in the exact invoking TMUX_PANE's session without changing
+other sessions' options. No Android service, AI helper, persistent launch record,
+new alias entrypoint or automatic application window is used to start work.
+Session creation/attachment failure is explicit, without launch replay. This
+command alone does not qualify the separate native origin-return capability.
 
 #### Optional terminal launch capability
 
@@ -411,18 +428,13 @@ unsupported argv uses the historical title-ID fallback. For `identity=native`,
 AI leaves the user's complete upstream terminal_title configuration unchanged;
 Manager's existing descriptor owns foreground UUID independent of `/title`.
 
-Explicit AI tmux launch outside tmux creates the workload once in a new isolated
-session, then requests the same bounded native attachment used by notifications
-before direct attachment.
-A successful RunCommandService request opens/reuses the registered working
-terminal and returns the invoking shell. Failed/uncertain service dispatch is
-never replayed; the workload remains available through direct tmux attachment.
-Notifications continue to attach only to the already qualified existing workload.
-New native presentation names use the CLI name, a hyphen and eight lowercase hex
-digits of the existing stable socket/session identity hash; they do not encode
-thread IDs or titles. Existing explicitly pinned legacy names remain valid and
-unchanged. One tmux session continues to own one reusable native terminal, even
-when `/new`, `/resume` or `/switch` changes its foreground thread/profile.
+AI tmux launch creates the workload once and directly attaches in the invoking
+terminal. The separate thin origin client resolves/revalidates the actual Termux
+reference through the existing socket capability and stores it only in the managed
+session's live @termux_origin_v1 option. AI emits no native window-construction
+request, including on service failure. CLI labels and thread titles remain
+presentation; neither addresses the native window. Unsupported capability keeps
+ordinary execution usable but cannot claim exact return.
 
 #### Origin-bound launch and return target (design; not yet qualified)
 
@@ -530,6 +542,7 @@ v1 has profiles, notifications, and a bounded active-task assistance family.
 ```text
 codex termux
 codex termux help
+codex termux tmux [--profile PROFILE_ID] [-- UPSTREAM_ARGS...]
 codex termux profile list
 codex termux profile current
 codex termux profile create <PROFILE_ID>

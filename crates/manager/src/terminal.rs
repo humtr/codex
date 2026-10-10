@@ -47,6 +47,7 @@ fn native(home: &Path, executable: &Path) -> bool {
 
 fn tmux(socket: &Path, args: &[&str]) -> Result<String, ManagerError> {
     let mut child = Command::new("tmux")
+        .arg("-u")
         .arg("-S")
         .arg(socket)
         .args(args)
@@ -74,19 +75,15 @@ fn tmux(socket: &Path, args: &[&str]) -> Result<String, ManagerError> {
     }
 }
 
-pub(super) fn bind(context: &Context, args: &[OsString]) -> Result<Option<String>, ManagerError> {
-    let descriptor = args
-        .first()
-        .and_then(|v| v.to_str())
-        .filter(|v| !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit()))
-        .and_then(|v| v.parse::<u32>().ok())
-        .filter(|v| *v <= 1048576)
-        .ok_or(ERR_USAGE)?;
-    if args.len() != 1 {
-        return Err(ERR_USAGE);
+fn slot(
+    context: &Context,
+    parent: u32,
+    start: u64,
+    descriptor: u32,
+) -> Result<String, ManagerError> {
+    if process(parent)?.1 != start {
+        return Err(ERROR);
     }
-    let parent = process(std::process::id())?.0;
-    let identity = process(parent)?;
     let executable = fs::read_link(format!("/proc/{parent}/exe")).map_err(|_| ERROR)?;
     if !native(&context.home, &executable) {
         return Err(ERROR);
@@ -125,42 +122,20 @@ pub(super) fn bind(context: &Context, args: &[OsString]) -> Result<Option<String
     if !content.is_empty() && !canonical_session_id(&content) {
         return Err(ERROR);
     }
-    let pane = std::env::var("TMUX_PANE").map_err(|_| ERROR)?;
-    if !pane
-        .strip_prefix('%')
-        .is_some_and(|v| !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit()))
-    {
+    if process(parent)?.1 != start {
         return Err(ERROR);
     }
-    let environment = std::env::var("TMUX").map_err(|_| ERROR)?;
-    let socket = PathBuf::from(environment.rsplitn(3, ',').nth(2).ok_or(ERROR)?);
-    if !socket.is_absolute() {
-        return Err(ERROR);
-    }
-    let metadata = fs::metadata(&socket).map_err(|_| ERROR)?;
-    if !metadata.file_type().is_socket() || metadata.uid() != unsafe { libc::getuid() } {
-        return Err(ERROR);
-    }
-    let row = tmux(
-        &socket,
-        &[
-            "display-message",
-            "-p",
-            "-t",
-            &pane,
-            "#{pane_pid}:#{pane_dead}:#{pane_tty}",
-        ],
-    )?;
-    let fields: Vec<_> = row.split(':').collect();
-    if fields.len() != 3 {
-        return Err(ERROR);
-    }
-    let (root, dead, tty) = (fields[0], fields[1], fields[2]);
-    let root_pid: u32 = root.parse().map_err(|_| ERROR)?;
+    Ok(content)
+}
+
+fn pane_runtime(
+    context: &Context,
+    parent: u32,
+    identity: (u32, u64),
+    root_pid: u32,
+    tty: &str,
+) -> Result<(u32, u64), ManagerError> {
     let root_identity = process(root_pid)?;
-    if dead != "0" {
-        return Err(ERROR);
-    }
     let device = fs::metadata(tty).map_err(|_| ERROR)?.rdev();
     if !tty.starts_with("/dev/pts/")
         || device == 0
@@ -208,6 +183,59 @@ pub(super) fn bind(context: &Context, args: &[OsString]) -> Result<Option<String
     {
         return Err(ERROR);
     }
+    Ok(root_identity)
+}
+
+pub(super) fn bind(context: &Context, args: &[OsString]) -> Result<Option<String>, ManagerError> {
+    let descriptor = args
+        .first()
+        .and_then(|v| v.to_str())
+        .filter(|v| !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit()))
+        .and_then(|v| v.parse::<u32>().ok())
+        .filter(|v| *v <= 1048576)
+        .ok_or(ERR_USAGE)?;
+    if args.len() != 1 {
+        return Err(ERR_USAGE);
+    }
+    let parent = process(std::process::id())?.0;
+    let identity = process(parent)?;
+    slot(context, parent, identity.1, descriptor)?;
+    let pane = std::env::var("TMUX_PANE").map_err(|_| ERROR)?;
+    if !pane
+        .strip_prefix('%')
+        .is_some_and(|v| !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit()))
+    {
+        return Err(ERROR);
+    }
+    let environment = std::env::var("TMUX").map_err(|_| ERROR)?;
+    let socket = PathBuf::from(environment.rsplitn(3, ',').nth(2).ok_or(ERROR)?);
+    if !socket.is_absolute() {
+        return Err(ERROR);
+    }
+    let metadata = fs::metadata(&socket).map_err(|_| ERROR)?;
+    if !metadata.file_type().is_socket() || metadata.uid() != unsafe { libc::getuid() } {
+        return Err(ERROR);
+    }
+    let row = tmux(
+        &socket,
+        &[
+            "display-message",
+            "-p",
+            "-t",
+            &pane,
+            "#{pane_pid}:#{pane_dead}:#{pane_tty}",
+        ],
+    )?;
+    let fields: Vec<_> = row.split(':').collect();
+    if fields.len() != 3 {
+        return Err(ERROR);
+    }
+    let (root, dead, tty) = (fields[0], fields[1], fields[2]);
+    let root_pid: u32 = root.parse().map_err(|_| ERROR)?;
+    if dead != "0" {
+        return Err(ERROR);
+    }
+    let root_identity = pane_runtime(context, parent, identity, root_pid, tty)?;
     let current_socket = fs::metadata(&socket).map_err(|_| ERROR)?;
     if (current_socket.dev(), current_socket.ino()) != (metadata.dev(), metadata.ino())
         || process(parent)? != identity
@@ -228,6 +256,175 @@ pub(super) fn bind(context: &Context, args: &[OsString]) -> Result<Option<String
         &["if-shell", "-F", "-t", &pane, &predicate, &command],
     )? != "bound"
     {
+        return Err(ERROR);
+    }
+    Ok(None)
+}
+
+pub(super) fn focus(context: &Context, args: &[OsString]) -> Result<Option<String>, ManagerError> {
+    let [id] = args else {
+        return Err(ERR_USAGE);
+    };
+    let id = id
+        .to_str()
+        .filter(|id| canonical_session_id(id))
+        .ok_or(ERR_USAGE)?;
+    let mut targets = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    for entry in fs::read_dir("/proc").map_err(|_| ERROR)? {
+        if Instant::now() >= deadline {
+            return Err(ERROR);
+        }
+        let Ok(entry) = entry else { continue };
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|name| name.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        let Ok(identity) = process(pid) else { continue };
+        let Ok(image) = fs::read_link(entry.path().join("exe")) else {
+            continue;
+        };
+        if !native(&context.home, &image) {
+            continue;
+        }
+        let Ok(environment) = fs::File::open(entry.path().join("environ")) else {
+            continue;
+        };
+        let mut bytes = Vec::new();
+        if environment.take(65537).read_to_end(&mut bytes).is_err() || bytes.len() > 65536 {
+            continue;
+        }
+        let variable = |key: &[u8]| {
+            bytes
+                .split(|b| *b == 0)
+                .find_map(|field| field.strip_prefix(key))
+        };
+        let Some(socket) = variable(b"TMUX=")
+            .and_then(|v| std::str::from_utf8(v).ok())
+            .and_then(|v| v.rsplitn(3, ',').nth(2))
+            .map(PathBuf::from)
+        else {
+            continue;
+        };
+        let Some(pane) = variable(b"TMUX_PANE=").and_then(|v| std::str::from_utf8(v).ok()) else {
+            continue;
+        };
+        if !pane
+            .strip_prefix('%')
+            .is_some_and(|v| !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit()))
+            || !socket.is_absolute()
+        {
+            continue;
+        }
+        let Ok(metadata) = fs::metadata(&socket) else {
+            continue;
+        };
+        if !metadata.file_type().is_socket() || metadata.uid() != unsafe { libc::getuid() } {
+            continue;
+        }
+        let Ok(row) = tmux(
+            &socket,
+            &[
+                "display-message",
+                "-p",
+                "-t",
+                pane,
+                "#{pane_pid} #{pane_dead} #{pane_tty} #{@codex_terminal_binding_v1}",
+            ],
+        ) else {
+            continue;
+        };
+        let fields: Vec<_> = row.split_whitespace().collect();
+        if fields.len() != 4 || fields[1] != "0" {
+            continue;
+        }
+        let binding: Vec<u64> = fields[3]
+            .split(':')
+            .map(str::parse)
+            .collect::<Result<_, _>>()
+            .unwrap_or_default();
+        if binding.len() != 5
+            || binding[0] != u64::from(pid)
+            || binding[1] != identity.1
+            || binding[4] > 1048576
+        {
+            continue;
+        }
+        let Ok(root) = fields[0].parse::<u32>() else {
+            continue;
+        };
+        if binding[2] != u64::from(root)
+            || process(root).ok().map(|v| v.1) != Some(binding[3])
+            || (pid != root && identity.0 != root)
+        {
+            continue;
+        }
+        if pane_runtime(context, pid, identity, root, fields[2])
+            .ok()
+            .map(|v| v.1)
+            != Some(binding[3])
+        {
+            continue;
+        }
+        if slot(context, pid, identity.1, binding[4] as u32)
+            .ok()
+            .as_deref()
+            != Some(id)
+        {
+            continue;
+        }
+        let Ok(record) = tmux(
+            &socket,
+            &["show-options", "-qv", "-t", pane, super::origin::OPTION],
+        ) else {
+            continue;
+        };
+        let Some(origin) = super::origin::Origin::parse(&record) else {
+            continue;
+        };
+        targets.push((
+            socket,
+            pane.to_owned(),
+            pid,
+            identity.1,
+            binding[4] as u32,
+            root,
+            binding[3],
+            metadata.dev(),
+            metadata.ino(),
+            origin,
+        ));
+    }
+    if targets.len() != 1 {
+        return Err(ERROR);
+    }
+    let (socket, pane, pid, start, descriptor, root, root_start, device, inode, origin) =
+        targets.pop().unwrap();
+    let metadata = fs::metadata(&socket).map_err(|_| ERROR)?;
+    if (metadata.dev(), metadata.ino()) != (device, inode)
+        || process(root)?.1 != root_start
+        || slot(context, pid, start, descriptor)? != id
+    {
+        return Err(ERROR);
+    }
+    if !super::origin::validate(&origin) {
+        return Err(ERROR);
+    }
+    let predicate = format!("#{{&&:#{{==:#{{pane_pid}},{root}}},#{{==:#{{pane_dead}},0}}}}");
+    let select =
+        format!("select-window -t {pane} ; select-pane -t {pane} ; display-message -p selected");
+    if tmux(
+        &socket,
+        &["if-shell", "-F", "-t", &pane, &predicate, &select],
+    )? != "selected"
+        || slot(context, pid, start, descriptor)? != id
+    {
+        return Err(ERROR);
+    }
+    if !super::origin::focus(&origin) {
         return Err(ERROR);
     }
     Ok(None)

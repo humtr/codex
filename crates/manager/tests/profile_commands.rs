@@ -1337,7 +1337,8 @@ fn native_completion_argv_delivers_once_ignores_stdin_and_respects_disabled_even
     assert_eq!(calls.matches("provider=").count(), 1);
     assert!(calls.contains("arg=--content\narg=completed normally\n"));
     assert!(
-        calls.contains("__tmux_focus") && calls.contains("01a0fc82-dc8f-7d13-bb78-7e120f1fa9b3")
+        calls.contains("__terminal-focus-v1")
+            && calls.contains("01a0fc82-dc8f-7d13-bb78-7e120f1fa9b3")
     );
     assert!(!calls.contains("ignored-"));
     let oversized = format!(
@@ -1498,7 +1499,7 @@ fn notification_click_reuses_activity_repeatedly_with_quoted_absolute_provider_a
 }
 
 #[test]
-fn notification_tmux_click_executes_only_existing_focus_and_activity_with_safe_fallback() {
+fn notification_tmux_click_uses_core_only_and_failure_never_creates_a_window() {
     let root = TestRoot::new();
     let home = root.0.join("home ' $(touch injected)");
     fs::create_dir(&home).unwrap();
@@ -1526,33 +1527,30 @@ fn notification_tmux_click_executes_only_existing_focus_and_activity_with_safe_f
         .lines()
         .next()
         .unwrap();
-    assert!(action.contains("__tmux_focus") && !action.contains("resume"));
+    assert!(
+        action.contains("__terminal-focus-v1")
+            && !action.contains("resume")
+            && !action.contains("bin/ai")
+            && !action.contains("startservice")
+    );
     let shell = std::env::var_os("SHELL").unwrap();
-    for (name, code) in [("ai", 1), ("am", 0)] {
-        let path = bin.join(name);
-        fs::write(
-            &path,
-            format!(
-                "#!{}\nprintf '%s\n' '{}' \"$@\" >> \"$CLICK_LOG\"\nexit {}\n",
-                Path::new(&shell).display(),
-                name,
-                code
-            ),
-        )
-        .unwrap();
-        fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
-    }
+    fs::write(&core, format!("#!{}\nprintf '%s\\n' core \"$@\" >> \"$CLICK_LOG\"\nprintf private-output\nprintf private-error >&2\nexit \"$CLICK_STATUS\"\n",Path::new(&shell).display())).unwrap();
     let clicked_log = root.0.join("click.log");
-    for _ in 0..3 {
+    for status in ["0", "0", "1"] {
         let clicked = Command::new(&shell)
             .args(["-c", action])
             .env("CLICK_LOG", &clicked_log)
+            .env("CLICK_STATUS", status)
             .current_dir(&root.0)
             .output()
             .unwrap();
-        assert!(clicked.status.success() && clicked.stdout.is_empty() && clicked.stderr.is_empty());
+        assert_eq!(clicked.status.code(), status.parse::<i32>().ok());
+        assert!(clicked.stdout.is_empty() && clicked.stderr.is_empty());
     }
-    assert_eq!(fs::read_to_string(&clicked_log).unwrap(), "ai\n__tmux_focus\n01a0fc82-dc8f-7d13-bb78-7e120f1fa9b3\nam\nstart\n--activity-reorder-to-front\n--activity-single-top\n-n\ncom.termux/com.termux.app.TermuxActivity\n".repeat(3));
+    assert_eq!(
+        fs::read_to_string(&clicked_log).unwrap(),
+        "core\ntermux\n__terminal-focus-v1\n01a0fc82-dc8f-7d13-bb78-7e120f1fa9b3\n".repeat(3)
+    );
     assert!(!root.0.join("injected").exists());
 }
 

@@ -4,8 +4,10 @@ mod profile;
 mod profile_resume;
 mod profile_view;
 use profile_view::format_current;
+mod origin;
 mod task;
 mod terminal;
+mod tmux_launch;
 
 use std::ffi::{OsStr, OsString};
 use std::fs::{self, File, OpenOptions};
@@ -42,6 +44,7 @@ const NOTIFY_MAX_CHARS: usize = 4096;
 const PRIVATE_DIR_MODE: u32 = 0o700;
 const PRIVATE_FILE_MODE: u32 = 0o600;
 const HELP: &str = concat!(
+    "codex termux tmux [--profile PROFILE_ID] [-- UPSTREAM_ARGS...]\n",
     "codex termux profile list\n",
     "codex termux profile current\n",
     "codex termux profile create <PROFILE_ID>\n",
@@ -319,6 +322,9 @@ fn run_inner(args: Vec<OsString>) -> Result<Option<String>, ManagerError> {
             "codex-terminal-capabilities-v1\nidentity={identity}\n"
         )));
     }
+    if is_exact(args.first(), "__terminal-focus-v1") {
+        return terminal::focus(&capture_context()?, &args[1..]);
+    }
     if is_exact(args.first(), "__terminal-bind-v1") {
         return terminal::bind(&capture_context()?, &args[1..]);
     }
@@ -353,6 +359,9 @@ fn run_inner(args: Vec<OsString>) -> Result<Option<String>, ManagerError> {
         && (is_exact(args.get(1), "delete") || is_exact(args.get(1), "rename"))
     {
         return profile::run_lifecycle(&capture_context()?, &args[1..]);
+    }
+    if is_exact(args.first(), "tmux") {
+        return tmux_launch::run(&capture_context()?, &args[1..]);
     }
     if is_exact(args.first(), "task") {
         let command = task::parse(&args[1..])?;
@@ -1378,16 +1387,14 @@ fn notification_focus_action(context: &Context, session_id: Option<&str>) -> Str
     if !read_focus_tmux(context) {
         return action;
     }
-    let path = context.home.join("bin/ai");
-    let Some(ai) = path.to_str() else {
+    let Some(core) = context.core_entrypoint.to_str() else {
         return action;
     };
-    // Activity launch remains available even if AI or the target is absent.
+    // Exact return never dispatches a native window constructor or guesses a replacement.
     format!(
-        "{} __tmux_focus {} >/dev/null 2>&1; {}",
-        shell_quote(ai),
-        shell_quote(id),
-        action
+        "{} termux __terminal-focus-v1 {} >/dev/null 2>&1",
+        shell_quote(core),
+        shell_quote(id)
     )
 }
 
@@ -2716,10 +2723,9 @@ mod tests {
         );
         publish_focus_tmux(&context, true).unwrap();
         let expected = format!(
-            "{} __tmux_focus '{}' >/dev/null 2>&1; {}",
-            shell_quote(context.home.join("bin/ai").to_str().unwrap()),
-            id,
-            notification_action(&context)
+            "{} termux __terminal-focus-v1 '{}' >/dev/null 2>&1",
+            shell_quote(context.core_entrypoint.to_str().unwrap()),
+            id
         );
         assert_eq!(notification_focus_action(&context, Some(id)), expected);
         assert_eq!(

@@ -91,3 +91,32 @@ to this repository and carries no external workflow or model configuration.
 - Retire installed preview assets only after remaining native clients exit.
 - Current APK cannot select an arbitrary originating bare terminal. App/current
   terminal return and named tmux reuse work; notification taps do not start work.
+
+## Origin-bound implementation candidate
+
+- Source implements `codex termux tmux`: interactive existing-profile picker,
+  arrow/Enter selection, explicit profile/native-argv separation, direct caller
+  attachment, independent outside sessions and exact inside-session targeting.
+  No AI installation or Android window constructor is needed to launch.
+- Manager owns `__terminal-focus-v1 UUID`, qualifying the actual native FD/pane
+  identity and selecting only a validated existing Termux origin. Notifications
+  no longer depend on HOME/bin/ai or constructor/Activity fallback in exact mode.
+- Local Core192 passed/1 existing ignored; Python18+59 passed. After correcting
+  two superseded AI-action assertions, Manager40 unit +55 integration +2 public
+  tmux/native-FD paths passed. Release-builder acceptance and workspace Clippy
+  pass. Core proof uses unchanged inputs; no repeat after test-only corrections.
+- AI experimental origin client e1245e9 (experiment/origin-terminal) passed full
+  isolated verification38 and focused protocol, direct-PTY, title/native-FD,
+  color/status and runtime-qualification checks. Old window-construction tests
+  and helpers were removed. Original AI worktree/user changes remain untouched.
+- Native Termux candidate f10d4ec, build38086750520, pins installed source8629e63.
+  Actual APK build and3 focused source tests passed; package com.termux/code118,
+  apt-android-7 and certificate match the installed APK (local keytool comparison).
+  It reports real selected-view match/count, and refuses expired/closed handles.
+- Reviewable APK: /sdcard/Download/termux-origin-candidate/termux-origin-f10d4ec.apk
+  SHA256 c389b4b5e6e441e381787f0d2d3d3d8813a698ea6c7590b163274e496698e005.
+  Original APK is retained beside it. User confirmation for app update is pending
+  because current jobs may stop; no APK or installed wrapper cutover has occurred.
+- Closure still requires native app installation, real A/B terminal launch and
+  notification return with stable counts, then qualified wrapper deployment.
+  Source/PTY/build evidence is not a claim that this Android gate has passed.
