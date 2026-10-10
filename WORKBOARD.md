@@ -139,3 +139,22 @@ this accepted source pin, run manual paired43 through bridge42 old updater/CAS;
 finish device bridge transaction, then paired channel update while existing
 preview clients remain intact. Installed AI-only cutover preserves all other
 module hashes; current window binding is unchanged.
+
+STOP-ON-RED breadth: actual bridge payload322,670,487 bytes plus two paired
+payloads (~434,274,xxx each) exceeds1GiB on the next normal publication. Tiny
+fixture9 retention proof missed this real lifetime constraint and is superseded.
+COLLAPSE extra Pages bridge/input/mock paths to durable existing immutable Release
+plus exact nine-file TMPDIR materialization and authenticated public --local path.
+No new CLI/helper/pointer. Keep candidate+LKG only. README shell procedure focused
+proof must cover exact files/rename/mode/cleanup/refusal, then public device --local
+bridge and grouped Python. Actual device Pages update timed out while downloading
+252,899,528-byte runtime; old generation remains usable (preview launcher restored
+to accepted stable8acc). Use direct Release transport with the same signed trust.
+
+Release migration simplification CLOSED: README actual procedure1/six cases and
+Python101 pass; deletion/disposition and prior tiny-fixture limitation in GOAL.
+Umask077 control-mode red was corrected by explicit0644 before accepted focused
+proof. Core/Manager/builder unchanged; reuse309/protected1/Clippy evidence.
+NEXT: mirror only final source pin and durable Release procedure to mainc6bb96b,
+normal commit; paired43 public gate through bridge42 and CAS. Device direct
+Release download is in progress; do not terminate current Codex or old servers.

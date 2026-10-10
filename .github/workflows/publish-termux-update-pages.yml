@@ -12,11 +12,6 @@ on:
         description: Expected signed release sequence
         required: true
         type: string
-      migration_bridge_generation:
-        description: Immutable signed sequence42 migration bridge for intervening strict Cores
-        required: false
-        type: string
-        default: ''
       current_generation:
         description: Authenticated LKG generation that must remain deployed
         required: true
@@ -62,7 +57,6 @@ jobs:
           GENERATION_ID: ${{ inputs.generation_id }}
           RELEASE_SEQUENCE: ${{ inputs.release_sequence }}
           CURRENT_GENERATION: ${{ inputs.current_generation }}
-          MIGRATION_BRIDGE_GENERATION: ${{ inputs.migration_bridge_generation }}
           EXPECTED_MAIN_SHA: ${{ inputs.expected_main_sha }}
         run: |
           set -euo pipefail
@@ -161,22 +155,6 @@ jobs:
             --release-base "$CURRENT_BASE"
           test "$(git ls-remote --exit-code https://github.com/humtr/codex.git refs/heads/main | awk '{print $1}')" = \
             "$EXPECTED_MAIN_SHA"
-
-          # Keep one authenticated migration payload for clients that missed the
-          # preparatory Core release; it is not another stable pointer.
-          if test -n "${MIGRATION_BRIDGE_GENERATION:-}"; then
-            test "$MIGRATION_BRIDGE_GENERATION" = local-hosted-0-161-0-ab644771ac89-manager-tui-bridge
-            if test "$MIGRATION_BRIDGE_GENERATION" != "$CURRENT_ID" && \
-               test "$MIGRATION_BRIDGE_GENERATION" != "$GENERATION_ID"; then
-              mkdir migration-stage
-              gh release download "$MIGRATION_BRIDGE_GENERATION" --repo "$GITHUB_REPOSITORY" --dir migration-stage
-              cmp stage/update-public-key.pem migration-stage/update-public-key.pem
-              python3 publication-source/.github/scripts/rald5_publication.py restore-assets \
-                --assets migration-stage --root site --public-key stage/update-public-key.pem \
-                --generation "$MIGRATION_BRIDGE_GENERATION" --release-sequence 42 \
-                --release-base "https://humtr.github.io/codex/$MIGRATION_BRIDGE_GENERATION/"
-            fi
-          fi
 
           candidate_bytes=$(du -sb "site/$GENERATION_ID" | awk '{print $1}')
           current_bytes=$(du -sb "site/$CURRENT_ID" | awk '{print $1}')

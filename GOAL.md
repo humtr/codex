@@ -21,7 +21,32 @@ accepted history without deleting its published branch. No live cutover or stabl
 admission is claimed by this goal lift. The actual frontend/backend version pair,
 release pipeline and same-generation optional-Manager path are load-bearing gates.
 
-### Durable migration bridge source and preparatory public release accepted (2026-10-10)
+### Durable Release migration simplification accepted (2026-10-10)
+
+Baseline197eb0d. Actual immutable bridge payload is322,670,487 bytes; adding it
+beside two paired ~434MiB generations exceeds the existing1GiB site bound on the
+next update. The prior tiny-fixture third-payload proof did not close this lifetime
+contract and is superseded. DELETE its Pages branch/input/test mock machinery.
+KEEP normal candidate+LKG signed reconstruction and the immutable bridge Release.
+COLLAPSE durable migration to README's exact nine-file disposable download,
+numbered helper names, explicit executable/control modes, existing authenticated
+`update --local`, then ordinary stable update. No product helper, new command,
+pointer, signature parser or separate trust authority is introduced. The shell
+trap cleans its owned TMPDIR root on success and every failure.
+
+Focused actual documented procedure1/six cases proves exact flags/files/digests,
+real owned signature verification, modes, download/signature/runtime/local/channel
+refusal and unconditional cleanup. Initial owner umask077 exposed missing explicit
+0644 control modes; README now sets them, and the corrected focused1 passes.
+Grouped Python101 and diff/fmt pass; runtime production is unchanged from accepted
+309/protected1/Clippy. Hosted197eb0d38046167976 succeeds but does not justify the
+superseded third-payload design. Device Pages update reached the existing transport
+limit downloading252,899,528-byte runtime and refused without generation activation;
+restored accepted stable launcher8acc remains usable. Direct immutable Release
+procedure is running through the existing signed local-update path; protected
+account/config digest baseline remains exact, with no credential values recorded.
+
+### Preparatory public release accepted; third Pages payload SUPERSEDED (2026-10-10)
 
 Baselineab64477. Pages accepts only the fixed signed migration generation
 local-hosted-0-161-0-ab644771ac89-manager-tui-bridge and retains it beside candidate
