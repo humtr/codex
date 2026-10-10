@@ -60,7 +60,7 @@ index 258ce3d..1a85b4c 100644
                      || !app_server.uses_remote_workspace()
 diff --git a/codex-rs/tui/src/app/profile_manager.rs b/codex-rs/tui/src/app/profile_manager.rs
 new file mode 100644
-index 0000000..9eeae53
+index 0000000..2be4494
 --- /dev/null
 +++ b/codex-rs/tui/src/app/profile_manager.rs
 @@ -0,0 +1,283 @@
@@ -275,20 +275,21 @@ index 0000000..9eeae53
 +    app_server: &mut crate::app_server_session::AppServerSession,
 +    profile: String,
 +) -> Option<ProfileReentry> {
-+    let thread = app.chat_widget.thread_id();
-+    if !matches!(
-+        app.app_server_target,
-+        crate::AppServerTarget::LocalDaemon { .. }
-+    ) || !app.chat_widget.composer_is_empty()
-+        || !app.dynamic_tool_tasks.is_empty()
-+        || !thread.is_some_and(|thread| app.chat_widget.can_change_working_directory(thread))
-+    {
++    let thread = app.chat_widget.thread_id().filter(|thread| {
++        matches!(
++            app.app_server_target,
++            crate::AppServerTarget::LocalDaemon { .. }
++        ) && app.chat_widget.composer_is_empty()
++            && app.dynamic_tool_tasks.is_empty()
++            && app.chat_widget.can_change_working_directory(*thread)
++    });
++    let Some(thread) = thread else {
 +        app.chat_widget.add_error_message(
 +            "Profile switching requires an idle primary chat without pending input or tool calls."
 +                .to_string(),
 +        );
 +        return None;
-+    }
++    };
 +    let core = std::env::var_os("CODEX_PROFILE_CORE")
 +        .map(PathBuf::from)
 +        .unwrap_or_default();
@@ -298,7 +299,6 @@ index 0000000..9eeae53
 +            .add_error_message("Selected profile is unavailable.".to_string());
 +        return None;
 +    }
-+    let thread = thread.expect("idle primary thread was checked");
 +    if !matches!(
 +        tokio::time::timeout(Duration::from_secs(3), ensure_resumable(app_server, thread)).await,
 +        Ok(true)
@@ -349,10 +349,10 @@ index 0000000..9eeae53
 +mod tests;
 diff --git a/codex-rs/tui/src/app/profile_manager_tests.rs b/codex-rs/tui/src/app/profile_manager_tests.rs
 new file mode 100644
-index 0000000..dd81417
+index 0000000..c877fe1
 --- /dev/null
 +++ b/codex-rs/tui/src/app/profile_manager_tests.rs
-@@ -0,0 +1,574 @@
+@@ -0,0 +1,577 @@
 +use super::*;
 +use crate::app_event_sender::AppEventSender;
 +use crate::bottom_pane::BottomPaneView;
@@ -733,16 +733,19 @@ index 0000000..dd81417
 +        "unavailable",
 +        "draft",
 +        "tool",
++        "no-thread",
 +    ] {
 +        let (mut app, mut events, mut ops) =
 +            super::super::tests::make_test_app_with_channels().await;
 +        let thread = codex_protocol::ThreadId::new();
 +        let cwd = app.config.cwd.to_path_buf();
-+        app.chat_widget
-+            .handle_thread_session(super::super::tests::test_thread_session(
-+                thread,
-+                cwd.clone(),
-+            ));
++        if state != "no-thread" {
++            app.chat_widget
++                .handle_thread_session(super::super::tests::test_thread_session(
++                    thread,
++                    cwd.clone(),
++                ));
++        }
 +        if state != "embedded" {
 +            app.app_server_target = crate::AppServerTarget::LocalDaemon {
 +                allow_embedded_fallback: false,
@@ -1408,7 +1411,7 @@ index 0000000..afb6f72
 +    assert_no_submit_op(&mut op_rx);
 +}
 diff --git a/codex-rs/tui/src/lib.rs b/codex-rs/tui/src/lib.rs
-index 14d1c97..fa43fb2 100644
+index 14d1c97..857bb7c 100644
 --- a/codex-rs/tui/src/lib.rs
 +++ b/codex-rs/tui/src/lib.rs
 @@ -131,7 +131,11 @@ mod experimental_features;
@@ -1432,32 +1435,43 @@ index 14d1c97..fa43fb2 100644
          // A shared daemon cannot adopt this invocation's executor selection.
          None if can_reuse_implicit_local_daemon && exec_server_url.is_none() => {
              default_daemon_socket.map_or(AppServerTarget::Embedded, |socket_path| {
-@@ -1099,6 +1103,12 @@ pub async fn run_main(
+@@ -1091,14 +1095,20 @@ pub async fn run_main(
+     startup_recovery::scope(async move {
+         // Startup retains a large future for the whole session. Keep it off callers' stacks,
+         // which also need room to construct a replacement chat widget on `/new`.
+-        match Box::pin(startup_orchestration::run_main_inner(
++        let result = Box::pin(startup_orchestration::run_main_inner(
+             cli,
+             arg0_paths,
+             loader_overrides,
+             explicit_remote_endpoint,
          ))
-         .await
+-        .await
++        .await;
++        #[cfg(unix)]
++        if let Err(err) = &result
++            && let Some(reentry) = app::profile_manager::ProfileReentry::from_error(err)
          {
-+            #[cfg(unix)]
-+            Err(err) if app::profile_manager::ProfileReentry::from_error(&err).is_some() => {
-+                Err(app::profile_manager::ProfileReentry::from_error(&err)
-+                    .expect("profile re-entry was matched")
-+                    .exec())
-+            }
++            return Err(reentry.exec());
++        }
++        match result {
              Err(err) if startup_draft::StartupCancelled::matches(&err) => Ok(AppExitInfo {
                  token_usage: TokenUsage::default(),
                  thread_id: None,
 diff --git a/codex-rs/tui/src/permission_discovery.rs b/codex-rs/tui/src/permission_discovery.rs
-index 2579fc6..edfe7f0 100644
+index 2579fc6..10a4102 100644
 --- a/codex-rs/tui/src/permission_discovery.rs
 +++ b/codex-rs/tui/src/permission_discovery.rs
-@@ -6,6 +6,7 @@ use crate::app_event_sender::AppEventSender;
+@@ -6,6 +6,8 @@ use crate::app_event_sender::AppEventSender;
  use crate::app_server_session::AppServerSession;
  use crate::app_server_session::ThreadParamsMode;
  use crate::legacy_core::config::Config;
++#[cfg(test)]
 +use crate::termux_permissions::builtin_approval_presets;
  use codex_app_server_client::TypedRequestError;
  use codex_app_server_protocol::ApprovalsReviewer;
  use codex_app_server_protocol::AskForApproval;
-@@ -16,8 +17,6 @@ use codex_app_server_protocol::PermissionProfileListParams;
+@@ -16,8 +18,6 @@ use codex_app_server_protocol::PermissionProfileListParams;
  use codex_app_server_protocol::PermissionProfileListResponse;
  use codex_app_server_protocol::PermissionProfileSummary;
  use codex_app_server_protocol::RequestId;

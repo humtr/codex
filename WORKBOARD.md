@@ -20,14 +20,16 @@ automatic live name change or installed cutover before bounded acceptance.
    - Exact retained R10 helpers0/1/2 bridge: SOURCE CLOSED; both layouts/faults
      proved. Actual retainedR10 executable update/rollback remains open. Its exact
      source0621105 binary is built in TMPDIR, with no history import.
-   - Maintained frontend161: CURRENT hosted run38027361674 at afb52ee, exact official
+   - Maintained frontend161: CURRENT hosted rerun38030196838 at eeabb1d, exact official
      source979011409de0a60b52f179721948e65531d26144. Version/lock/command inventory
-     and release CLI build pass; actual native focused tests reached lint. Require
+     and release CLI build pass; focused native gate is running after the bounded
+     lint-capacity repair. Require
      overall workflow success before artifact consumption/admission.
    - Exact public inventory, Pages reconstruction and transport: SOURCE CLOSED.
      One signed validator admits only legacy7/extended8. Actual prepare/restore/
      verify and extracted Pages/HTTPS regressions plus Python91 pass. Hosted
-     full source38028871543 at dce2d7d succeeds; new transport rerun pending.
+     full source38030196866 at eeabb1d succeeds, including transport and lint-step
+     regression. Native qualification remains separate and open.
    - NEXT producer slice: qualify native artifact against successful exact hosted
      source/version/lock and retained same frontend tree; real producer must pass
      raw frontend + version to builder. Refuse unpaired future backend and retain
@@ -70,3 +72,30 @@ repair and require successful native hosted rerun; failed-run binary stays
 quarantined and is allowed only in existing owned diagnostic proof, not producer
 admission/publication/live installation. No new UI or producer behavior until the
 real Clippy gate is green. Source full38029529700 ataca8287 succeeds.
+
+Resume eeabb1d is clean. Source full38030196866 succeeds; native38030196838 is
+still running. Interrupted owned161 profile invocation has no completion output
+and is not acceptance evidence. Its two exact TMPDIR-root runtime processes were
+terminated after executable identity checks; protected live clients unchanged.
+Repeat against an admitted successful-run artifact. Existing failed-run owned
+terminal proof remains diagnostic only. Retained R10 generation construction is
+owned compatibility preparation, not publication or a new product behavior.
+
+Stop-on-red native38030196838: actual native27 pass and Core query-capacity repair
+works, but Clippy --fix removes a non-cfg(test) import used only by the permission
+fixture and then its test compilation fails. Two profile paths also use expect()
+where the established Option guards already own refusal. FIRST repair test-only
+import scope and collapse duplicate Option checks without changing behavior;
+existing profile/permission native27 and full lint/zero-Core-delta are the gate.
+No producer behavior before that gate is restored.
+
+Owned retained-R10 remote proof rejects missing/changed helper2, completes the
+direct update and commits rollback. Post-rollback --version then fails because
+the hold-aware retained launcher requires browser helpers absent in the authentic
+four-file historical generation. QUEUED defect repair: preserve historical launch
+without adding unsigned helpers or weakening present-helper verification. Inspect
+all three qualified environment consumers (launch, command probe, doctor capture),
+map exact historical/modern refusal regressions, then repeat actual R10 lifecycle.
+Initial launcher rollback assertion was stale: SPEC deliberately retains the
+hold-aware launcher for an older target. That corrected assertion exposed this
+real missing-helper failure; no live state was changed.

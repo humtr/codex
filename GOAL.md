@@ -6681,3 +6681,26 @@ actual diff inspected. Actual hosted rerun still required to close the red gate.
 Source acceptance38029529700 succeeds ataca8287. Failed-run frontend is quarantined
 in TMPDIR for bounded owned candidate diagnostics only, never production artifact
 consumption or device cutover; any later proof must bind successful-run identity.
+
+### Native161 lint target repair candidate (2026-10-10)
+
+At eeabb1d native38030196838 again passes actual27 and the bounded Core query
+allowance works. Clippy then removes the non-test import used only by the local
+permission fixture, making its subsequent test build fail. Candidate scopes that
+import to cfg(test); profile preparation consumes its existing Option guard once,
+and native startup downcasts profile re-entry once while preserving upstream
+cancellation/error arms. No production expect remains on either accepted path.
+Mapped native regression profile_manager_reentry_rejects_busy_queued_side_and_unavailable_without_work
+now also covers absent thread; typed re-entry/permission tests retain their gates.
+Command inventory63 plus sole switch, source tools8 and hosted Python92 pass,
+actual diff inspected. Full native release/test/lint remains OPEN pending the
+new hosted run; neither failed artifact is admitted. No live replacement.
+
+Owned actual retained-R10 remote diagnostics reject absent/changed helper2, then
+activate the complete paired161 generation and commit historical rollback. The
+retained hold-aware launcher correctly stays (SPEC rollback guard), but normal
+--version then requires browser helpers absent in the authentic four-file old
+generation. This is a real compatibility defect, not an assertion to suppress.
+All three qualified environment consumers must preserve admitted historical
+browserless behavior while still rejecting incomplete declared modern helpers.
+Repair and actual lifecycle reproof remain open; no production state changed.
