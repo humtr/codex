@@ -47,10 +47,16 @@ class Rald5PublicationTests(unittest.TestCase):
         self.public_key = self.root / "public.pem"
         openssl("genpkey", "-algorithm", "ED25519", "-out", str(self.private_key))
         openssl("pkey", "-in", str(self.private_key), "-pubout", "-out", str(self.public_key))
+        self.build_signed()
+
+    def build_signed(self, *, frontend: bool = False) -> None:
+        files = sorted(FILES + ([("helpers/2", 0o755)] if frontend else []))
         self.signed = self.root / "signed"
+        if self.signed.exists():
+            shutil.rmtree(self.signed)
         release = self.signed / "releases" / GENERATION
         (release / "helpers").mkdir(parents=True)
-        for rel, mode in FILES:
+        for rel, mode in files:
             path = release / rel
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes((f"fixture:{rel}\n").encode())
@@ -68,9 +74,9 @@ class Rald5PublicationTests(unittest.TestCase):
             "core_api_identity\tcore-api-v1",
             "persistent_schema_identity\tschema-v1",
             f"release_public_key\t{raw_key}",
-            "file_count\t7",
+            f"file_count\t{len(files)}",
         ]
-        for rel, mode in FILES:
+        for rel, mode in files:
             manifest.append(f"file\t{rel}\t{sha256(release / rel)}\t{mode:04o}")
         (release / "release.manifest").write_text("\n".join(manifest) + "\n")
         openssl(
@@ -84,7 +90,7 @@ class Rald5PublicationTests(unittest.TestCase):
             "-out",
             str(release / "release.sig"),
         )
-        sizes = [(rel, (release / rel).stat().st_size) for rel, _ in FILES]
+        sizes = [(rel, (release / rel).stat().st_size) for rel, _ in files]
         total = sum(size for _, size in sizes)
         sidecar = self.signed / "download-size-v1"
         sidecar.write_text(
@@ -92,7 +98,7 @@ class Rald5PublicationTests(unittest.TestCase):
                 [
                     "codex-download-size-v1",
                     f"manifest_sha256\t{sha256(release / 'release.manifest')}",
-                    f"file_count\t{len(FILES)}",
+                    f"file_count\t{len(files)}",
                     f"total_bytes\t{total}",
                     *[f"file\t{rel}\t{size}" for rel, size in sizes],
                     "",
@@ -149,6 +155,44 @@ class Rald5PublicationTests(unittest.TestCase):
             "--release-base",
             BASE,
         )
+
+    def test_extended_signed_assets_and_pages_reject_helper_faults(self) -> None:
+        for fault in (None, "missing", "tampered", "mode", "extra", "undeclared"):
+            with self.subTest(fault=fault):
+                self.build_signed(frontend=fault != "undeclared")
+                release = self.signed / "releases" / GENERATION
+                helper = release / "helpers/2"
+                if fault == "missing":
+                    helper.unlink()
+                elif fault == "tampered":
+                    helper.write_bytes(b"changed")
+                elif fault == "mode":
+                    helper.chmod(0o644)
+                elif fault == "extra":
+                    (release / "helpers/3").write_bytes(b"extra")
+                elif fault == "undeclared":
+                    helper.write_bytes(b"undeclared")
+                output = self.root / f"assets-{fault}"
+                result = self.prepare(output)
+                if fault is not None:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertFalse(output.exists())
+                else:
+                    self.assertEqual(result.returncode, 0, result.stderr.decode())
+                    self.assertEqual((output / "helper-2").read_bytes(), helper.read_bytes())
+                    self.assertEqual(len(list(output.iterdir())), 15)
+                site = self.root / f"site-{fault}"
+                destination = site / GENERATION
+                shutil.copytree(release, destination, copy_function=shutil.copy2)
+                (destination / "compat").mkdir()
+                for name in ("download-size-v1", "download-size-v1.sig"):
+                    shutil.copy2(self.signed / name, destination / "compat" / name)
+                for name in ("update-index-v1", "update-index-v1.sig"):
+                    shutil.copy2(self.signed / name, destination / name)
+                result = run("verify-public", "--root", str(site), "--public-key", str(self.public_key),
+                             "--generation", GENERATION, "--release-sequence", SEQUENCE,
+                             "--release-base", BASE, "--require-download-size")
+                self.assertEqual(result.returncode == 0, fault is None, result.stderr.decode())
 
     def test_prepare_assets_flattens_only_exact_signed_publication_set(self) -> None:
         output = self.root / "assets"

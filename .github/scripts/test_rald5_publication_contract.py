@@ -41,6 +41,30 @@ class Rald5PublicationContractTests(unittest.TestCase):
         path.write_text("\n".join(lines) + "\n")
         return path
 
+    def test_extended_inventory_accepts_only_the_third_helper(self) -> None:
+        lines = manifest_lines()
+        lines[9] = "file_count\t8"
+        lines.insert(15, f"file\thelpers/2\t{'c' * 64}\t0755")
+        _, files = publication.parse_manifest(self.write_manifest(lines))
+        self.assertEqual([row[0] for row in files], list(publication.EXTENDED_FILES))
+        for fault in ("count", "path", "mode", "digest", "order", "duplicate"):
+            with self.subTest(fault=fault):
+                changed = lines.copy()
+                if fault == "count":
+                    changed[9] = "file_count\t7"
+                elif fault == "path":
+                    changed[15] = changed[15].replace("helpers/2", "helpers/3")
+                elif fault == "mode":
+                    changed[15] = changed[15].replace("0755", "0644")
+                elif fault == "digest":
+                    changed[15] = changed[15].replace("c" * 64, "invalid")
+                elif fault == "order":
+                    changed[15], changed[16] = changed[16], changed[15]
+                else:
+                    changed[15] = changed[14]
+                with self.assertRaises(publication.ValidationError):
+                    publication.parse_manifest(self.write_manifest(changed))
+
     def test_missing_release_entry_is_rejected(self) -> None:
         release = self.root / "release"
         release.mkdir()

@@ -158,8 +158,11 @@ each exact nonzero test with the event-built Android Core. Source contract now
 asserts exact membership of both skip and Android-artifact phases, not only count.
 Production Core/Builder unchanged. Focused source4/acceptance11, full Python86 and
 actual Termux Android-artifact-injected local-build1 pass; final source diff passes.
-Hosted rerun is required; prior local304 remains valid Termux evidence, not proof
-of restored hosted placement. Native161 run38027361674 continues at afb52ee.
+Actual hosted rerun38027625867 at exactc97ec31 passes every job: workflow/diff,
+event Android Core build, private-proc full/three exact Android-artifact gates,
+Clippy/fmt and authenticated public-stable byte audit. Hosted placement is restored;
+prior local304 remains valid Termux evidence. Native161 run38027361674 continues
+at afb52ee; this is not native executable or stable frontend admission.
 
 ### Native identity public-path slice accepted (2026-10-10)
 
@@ -6594,3 +6597,20 @@ actual owned TUI thread-switch/title/descriptor proof remain OPEN; standalone
 module/caller fixtures do not close those gates. Initial registered launch,
 CLI-prefixed fixed window8 names and capability delegation are queued behind this
 slice. No complete normalization or live automatic-binding claim.
+
+### Exact extended public inventory — accepted source slice (2026-10-10)
+
+Baselinec97ec31, workers OFF. Existing RALD5 prepare-assets and verify-public
+accept exactly historical seven files or those files plus mode0755 helpers/2,
+with exact ordered paths and signed digests. Flattening and filesystem checks
+use the authenticated manifest; undeclared files remain forbidden. KEEP one
+signed inventory and the Rust constructor qualification owner; DELETE fixed
+seven-file assumptions in these entrypoints without adding a parallel descriptor
+validator. Focused13 and complete hosted Python88 pass. New public-path regression
+covers healthy extended prepare/readback plus missing, changed, wrong-mode, extra
+and undeclared helpers; manifest regression covers six shape faults. Prior
+same-product Rust304/protected1 and hosted source38027625867 remain valid because
+this slice changes only Python publication tooling/tests. Actual diff inspected;
+no installed launcher, native client, account, stable index or main mutation.
+Workflow transport/producer acquisition, actual native161 qualification, R10
+binary lifecycle and stable/device admission remain open.

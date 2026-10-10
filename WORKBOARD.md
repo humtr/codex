@@ -81,3 +81,27 @@ Hosted placement correction local gates restored: source4, acceptance11,
 full hosted Python86 and actual Android-artifact injected public local-build1.
 Exact three-test skip/explicit-artifact membership is now asserted. Product code
 unchanged; commit/push and actual hosted successful rerun precede next mutation.
+
+Hosted source rerun38027625867 SUCCESS at c97ec31 restores the load-bearing gate:
+all five jobs pass, including the three actual Android-artifact tests and public
+snapshot audit. Stop-on-red is resolved; native161 compile and paired publication
+remain open. Continue the exact extended8-file publication slice.
+
+Next vertical slice — exact public extended inventory:
+- Observable behavior: the existing signed-publication prepare/readback entrypoints
+  accept exactly legacy seven files or the same inventory plus helper2, and reject
+  every other path/count/order/mode. Asset flattening and Pages verification follow
+  that authenticated inventory rather than a fixed legacy count.
+- Paths: rald5_publication.py and its contract/public-entrypoint regressions only.
+  Constructor/native qualification remains the Rust producer's authority; no second
+  descriptor validator is introduced. Public workflow transport changes follow
+  after this slice passes, not in parallel with its proof restoration.
+- Focused proof: exact extended manifest, signed prepare-assets/verify-public, and
+  third-helper missing/tampered/mode/undeclared/extra-path failures; full hosted
+  Python corpus baseline86 is green at c97ec31.
+- Protected: live launcher, native clients, accounts/state, stable index and main.
+
+Exact public inventory source slice CLOSED: focused13 and grouped Python88 pass,
+actual diff inspected; accepted disposition recorded in GOAL. Next transport slice
+must make Release staging, Pages reconstruction/LKG retention and public readback
+use that same inventory, with actual extracted-workflow execution regressions.

@@ -23,12 +23,14 @@ EXPECTED_FILES = {
     "manager": "0755",
     "runtime": "0755",
 }
+EXTENDED_FILES = dict(sorted({**EXPECTED_FILES, "helpers/2": "0755"}.items()))
 FLAT_ASSETS = {
     "codex-code-mode-host": "codex-code-mode-host",
     "core": "core",
     "generation.meta": "generation.meta",
     "helpers/0": "helper-0",
     "helpers/1": "helper-1",
+    "helpers/2": "helper-2",
     "manager": "manager",
     "runtime": "runtime",
 }
@@ -142,8 +144,9 @@ def parse_manifest(path: Path) -> tuple[dict[str, str], list[tuple[str, str, str
         fail("release public key is not canonical")
     count = positive_decimal(values["file_count"], "file count")
     records = lines[1 + len(keys) :]
-    if len(records) != count or count != len(EXPECTED_FILES):
+    if len(records) != count or count not in (len(EXPECTED_FILES), len(EXTENDED_FILES)):
         fail("release file count is invalid")
+    inventory = EXTENDED_FILES if count == len(EXTENDED_FILES) else EXPECTED_FILES
     files: list[tuple[str, str, str]] = []
     seen: set[str] = set()
     for line in records:
@@ -151,13 +154,13 @@ def parse_manifest(path: Path) -> tuple[dict[str, str], list[tuple[str, str, str
         if len(parts) != 4 or parts[0] != "file":
             fail("release file record is invalid")
         rel, digest, mode = parts[1:]
-        if rel in seen or rel not in EXPECTED_FILES:
+        if rel in seen or rel not in inventory:
             fail("release file inventory path is invalid")
-        if not HEX64_RE.fullmatch(digest) or mode != EXPECTED_FILES[rel]:
+        if not HEX64_RE.fullmatch(digest) or mode != inventory[rel]:
             fail("release file inventory digest or mode is invalid")
         seen.add(rel)
         files.append((rel, digest, mode))
-    if [rel for rel, _, _ in files] != list(EXPECTED_FILES):
+    if [rel for rel, _, _ in files] != list(inventory):
         fail("release file inventory ordering is invalid")
     return values, files
 
@@ -303,14 +306,16 @@ def verify_release_tree(
     if require_download_size and not download_size_present:
         fail("download-size sidecar is required")
     expected_release_entries = {"release.manifest", "release.sig", "helpers"} | {
-        rel for rel in EXPECTED_FILES if "/" not in rel
+        rel for rel, _, _ in files if "/" not in rel
     }
     if download_size_present:
         expected_release_entries.add("compat")
     if index_inside_release:
         expected_release_entries |= {"update-index-v1", "update-index-v1.sig"}
     exact_entries(release_dir, expected_release_entries)
-    exact_entries(release_dir / "helpers", {"0", "1"})
+    exact_entries(release_dir / "helpers", {
+        rel.split("/")[1] for rel, _, _ in files if rel.startswith("helpers/")
+    })
     if download_size_present:
         exact_entries(release_dir / "compat", {"download-size-v1", "download-size-v1.sig"})
         verify_download_size_sidecar(
@@ -388,7 +393,7 @@ def prepare_assets(args: argparse.Namespace) -> None:
         shutil.copyfile(signed_root / "update-index-v1", output / "candidate-update-index-v1")
         shutil.copyfile(signed_root / "update-index-v1.sig", output / "candidate-update-index-v1.sig")
         shutil.copyfile(public_key, output / "update-public-key.pem")
-        exact_entries(output, set(FLAT_ASSETS.values()) | {
+        exact_entries(output, {FLAT_ASSETS[rel] for rel, _, _ in files} | {
             "release.manifest",
             "release.sig",
             DOWNLOAD_SIZE_ASSET,
