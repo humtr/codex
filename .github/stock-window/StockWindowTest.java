@@ -67,6 +67,6 @@ public class StockWindowTest {
         until(()->!new File("/proc/"+pids[0]).exists());
         int before=count();assertEquals("closed binding refuses before AM constructor",1,focus(IDS[0]));assertEquals(before,count());
         assertEquals(0,focus(IDS[1]));until(()->selected()==pids[1]);
-        System.out.println("STOCK_WINDOW_PROOF real-stock-apk real-manager real-am-client bare-two-launches six-existing-returns no-replay stale-refusal");
+        android.util.Log.i("StockWindowProof", "STOCK_WINDOW_PROOF real-stock-apk real-manager real-am-client bare-two-launches six-existing-returns no-replay stale-refusal");
     }
 }

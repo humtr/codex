@@ -112,8 +112,9 @@ jobs:
           grep -F "Error: unknown command 'termux-terminal-v1'" "$RUNNER_TEMP/stock-capability.txt"
           timeout 240 adb shell am instrument -w -r -e class com.termux.app.StockWindowTest com.termux.test/androidx.test.runner.AndroidJUnitRunner > "$RUNNER_TEMP/stock-proof.txt" 2>&1
           cat "$RUNNER_TEMP/stock-proof.txt"
-          grep -F 'STOCK_WINDOW_PROOF real-stock-apk real-manager real-am-client' "$RUNNER_TEMP/stock-proof.txt"
           grep -F 'OK (1 test)' "$RUNNER_TEMP/stock-proof.txt"
+          adb logcat -d -s StockWindowProof:I > "$RUNNER_TEMP/stock-proof-marker.txt"
+          grep -F 'STOCK_WINDOW_PROOF real-stock-apk real-manager real-am-client' "$RUNNER_TEMP/stock-proof-marker.txt"
       - name: Preserve bounded proof and diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -121,6 +122,7 @@ jobs:
           name: stock-window-proof
           path: |
             ${{ runner.temp }}/stock-proof.txt
+            ${{ runner.temp }}/stock-proof-marker.txt
             ${{ runner.temp }}/stock-capability.txt
             ${{ runner.temp }}/emulator.log
           retention-days: 7
