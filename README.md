@@ -98,6 +98,8 @@ uses the same window routing with its usual account resolution and no picker.
 work running while detached; detach with Ctrl-B then D. `tmux ls` lists sessions;
 `codex termux attach SESSION` reconnects detached Manager work and registers the
 new connection window without restarting Codex.
+Requesting another tmux container from inside tmux is refused; no extra pane or
+workload is created in that terminal. Use a separate Termux terminal for independent work.
 Changing execution mode requires a safe new launch, rather than migrating a live
 Codex process. Independent launches never share a workload or cover another launch.
 

@@ -4,6 +4,15 @@ use std::io::IsTerminal;
 use std::os::unix::ffi::OsStringExt;
 
 const ERROR: ManagerError = ManagerError::operation("codex termux: tmux launch failed");
+fn container_allowed(mode: &str) -> Result<(), ManagerError> {
+    if mode != "off" && std::env::var_os("TMUX").is_some_and(|v| !v.is_empty()) {
+        return Err(ManagerError::operation(
+            "codex termux: this terminal already uses tmux; use its existing container or a separate terminal",
+        ));
+    }
+    Ok(())
+}
+
 const CANCEL: ManagerError = ManagerError {
     class: ErrorClass::Cancelled,
     message: "codex termux: launch cancelled",
@@ -251,6 +260,7 @@ pub(super) fn launch(
         }
     }
     let (profile, upstream) = parse(&filtered)?;
+    container_allowed(mode)?;
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() || !io::stderr().is_terminal() {
         return Err(ManagerError::operation(
             "codex termux: launch requires an interactive terminal",
@@ -356,6 +366,7 @@ pub(super) fn client(context: &Context, args: &[OsString]) -> Result<Option<Stri
     if !is_safe_absolute_path(&program) || !is_existing_executable(&program)? {
         return Err(ERR_USAGE);
     }
+    container_allowed(mode)?;
     interactive()?;
     if std::env::var_os("TMUX").is_none_or(|v| v.is_empty())
         && window::inherited_route(context).is_none()
@@ -411,6 +422,7 @@ fn execute_work(
     upstream: &[OsString],
     program: Option<&Path>,
 ) -> Result<Option<String>, ManagerError> {
+    container_allowed(mode)?;
     std::env::set_var(window::READY_ENV, "1");
     if mode == "attach" {
         let session = attach_target(upstream)?;
@@ -435,57 +447,6 @@ fn execute_work(
     }
     let (command, request) = workload(context, profile, upstream, program)?;
     let cwd = std::env::current_dir().map_err(|_| ERROR)?;
-    if std::env::var_os("TMUX").is_some_and(|v| !v.is_empty()) {
-        let pane = std::env::var_os("TMUX_PANE").ok_or(ERROR)?;
-        if !pane
-            .as_bytes()
-            .strip_prefix(b"%")
-            .is_some_and(|v| !v.is_empty() && v.iter().all(u8::is_ascii_digit))
-        {
-            return Err(ERROR);
-        }
-        let session = control(&[
-            "display-message".into(),
-            "-p".into(),
-            "-t".into(),
-            pane,
-            "#{session_id}".into(),
-        ])?;
-        let inherited_origin = control(&[
-            "show-options".into(),
-            "-qv".into(),
-            "-t".into(),
-            session.clone().into(),
-            origin::OPTION.into(),
-        ])?;
-        if let Some(origin) = origin::Origin::parse(&inherited_origin) {
-            if !origin::validate(&origin) {
-                return Err(ERROR);
-            }
-        }
-        let window = control(&[
-            "new-window".into(),
-            "-d".into(),
-            "-P".into(),
-            "-F".into(),
-            "#{pane_id}".into(),
-            "-t".into(),
-            session.into(),
-            "-c".into(),
-            cwd.as_os_str().to_owned(),
-            command,
-        ])?;
-        control(&["select-window".into(), "-t".into(), window.into()])?;
-        let deadline = Instant::now() + Duration::from_secs(3);
-        while request.exists() && Instant::now() < deadline {
-            thread::sleep(Duration::from_millis(5));
-        }
-        if request.exists() {
-            let _ = fs::remove_file(&request);
-            return Err(ERROR);
-        }
-        return Ok(None);
-    }
     let ready = format!(
         "codex-launch-{}-{}",
         std::process::id(),

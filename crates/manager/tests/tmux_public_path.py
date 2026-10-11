@@ -73,16 +73,21 @@ with tempfile.TemporaryDirectory(prefix='codex-manager-tmux-') as tmp:
         external,_=start([],b'\r');third=records(3)[2]
         assert third['argv']==[] and third['home']==env['CODEX_HOME']
         print('PASS inherited_external_home_preservation')
-        # An inside launch targets source session even while another client is active.
+        # Existing container: all entrypoints refuse without creating work/panes.
         env['TMUX']=socket+',1,0';env['TMUX_PANE']=tm('list-panes','-t','$0','-F','#{pane_id}')
-        before=tm('list-panes','-t','$1','-F','#{pane_id}:#{pane_pid}:#{window_active}')
-        inside,_=start(['--profile','work']);assert inside.wait(timeout=3)==0;records(4)
-        assert len(tm('list-panes','-s','-t','$0','-F','#{pane_id}').splitlines())==2
-        assert tm('list-panes','-t','$1','-F','#{pane_id}:#{pane_pid}:#{window_active}')==before
-        print('PASS inside_exact_source_session')
+        before=tm('list-panes','-a','-F','#{session_id}:#{pane_id}:#{pane_pid}:#{window_active}')
+        for argv in (['tmux'], ['tmux','--profile','work'], ['launch','--tmux=status'],
+                     ['__terminal-launch-command-v1','hidden','--',str(core)]):
+            master,slave=pty.openpty();fds.extend([master,slave])
+            rejected=subprocess.run([str(manager),*argv],stdin=slave,stdout=slave,stderr=slave,env=env,cwd=root,timeout=3)
+            assert rejected.returncode==1,argv
+            assert tm('list-panes','-a','-F','#{session_id}:#{pane_id}:#{pane_pid}:#{window_active}')==before
+            assert len(records(3))==3
+            assert not list((home/'.local/share/codex/manager/terminals').glob('launch-*'))
+        print('PASS existing_tmux_refuses_nested_or_additional_work_without_picker')
         env['TMUX']='';env['TMUX_PANE']=''
         missing,_=start(['--profile','missing']);assert missing.wait(timeout=3)==1
-        assert len(records(4))==4
+        assert len(records(3))==3
         print('PASS missing_profile_without_workload')
     finally:
         subprocess.run(['tmux','-S',socket,'kill-server'],capture_output=True)

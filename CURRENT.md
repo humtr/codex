@@ -29,8 +29,9 @@ This repository carries no external workflow skill or model configuration.
 - `codex termux tmux` works without AI: existing-profile arrow/Enter picker,
   Esc/Ctrl-C cancellation, unchanged saved default, explicit --profile ID and
   upstream argv after --. Attachment stays in the invoking terminal. Fresh
-  outside launches own independent tmux sessions; inside launches target the
-  invoking TMUX_PANE's exact session. Status is hidden; native titles pass through.
+  outside launches own independent tmux sessions. Stable45 still has the historical
+  inside-pane window path; the final candidate below removes it at the user's
+  request. Status is hidden; native titles pass through.
 - The native Termux extension uses its existing authenticated AM socket and live
   session table. References bind handle plus kernel PID/start. Same-UID ancestry
   stops at the owning app boundary; protected Android system parents are not read.
@@ -96,22 +97,23 @@ This repository carries no external workflow skill or model configuration.
   Manager gate passed after the descriptor helper cleanup; unaffected Core and
   release proofs remain applicable. AI composed and clean full verification both
   passed38 with zero warnings/failures. Clean AI commit5caf2e8 preserves unrelated
-  working bytes; automatic review rejected its main push for missing explicit
-  default-branch authorization, so that exact push awaits the user.
-- Four entry notifications were physically opened by the user. Fresh A/B/C/D
-  return notifications were sent through Manager's real emit path, with outcome
-  probes in the owned TMPDIR fixture. Return observations remain pending; do not
-  replace those observations with a successful send or create more test windows.
-  TMPDIR/codex-window-device-current identifies the owned fixture. Native bare A/B,
-  hidden tmux C and seeded stock named D are separate claims; D does not simulate
-  installing a stock APK. Single taps consume notifications, so retries need new
-  notifications. Termux count was baseline1 plus four owned fixtures.
-- main caller2da52f3 is prepared only in the owned TMPDIR worktree, based on
-  current mainda2d89b and pinned to accepted source88b0a09. It has not been pushed.
-  Signed publication and bounded device activation remain pending. Public and
-  installed stable45 remain the operating authority. No live runtime was changed.
-  TMPDIR/codex-window-main-current and codex-window-progress.json locate prepared
-  work and gate state. Do not bypass the AI push rejection or force-push main.
+  working bytes. User-authorized fast-forward pushes completed for AI5caf2e8
+  and main caller2da52f3; no new stable generation was published or activated.
+- User tapped all four fresh return notifications. A/B native bare and C hidden
+  tmux recorded exit0, exact selected=true and count5; D seeded stock returned
+  exit0 with count5 on the custom installed APK. D proves the actual named-service
+  route and workload reuse, not an installation of an official APK. All four owned
+  workloads exited normally after user-requested cleanup; baseline count1 restored.
+  Private proof: ~/.cache/codex/acceptance/window-device-88b0a09.json.
+- Additional user requirement supersedes inside-session new-window behavior:
+  explicit hidden/status requests from inside tmux now refuse before picker,
+  descriptor publication, Android request or workload execution. Both Manager and
+  AI removed the obsolete inside new-window branch. Bare execution and independent
+  other-terminal launches remain available. Final full acceptance and source pin
+  for this follow-up are in progress; do not deploy the earlier caller alone.
+- Stable45 remains public/installed. Future signed publication and bounded device
+  activation use the final accepted follow-up source. No protected live runtime,
+  user job, profile or authentication data has been changed.
 
 ## Source and installed AI
 

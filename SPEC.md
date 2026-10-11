@@ -330,6 +330,11 @@ An inherited external CODEX_HOME remains a distinct current-home choice. Explici
 profiles use the existing profile contract. CWD, raw upstream argv and caller
 color preferences including absence are preserved. Default is tmux off.
 `codex termux tmux ...` remains a shorthand for the hidden tmux launch.
+A hidden/status container request inside an existing tmux client is rejected
+before profile selection, state publication or work. No nested tmux session,
+new tmux window/pane, implicit detach or replacement workload is created. Use
+the existing container or a separate Android terminal for an independent launch.
+AI follows the same refusal even when an older Manager lacks the adapter.
 Ordinary interactive Codex launches use the same optional window routing without
 showing a profile picker. Noninteractive and maintenance commands retain their
 ordinary execution behavior.
