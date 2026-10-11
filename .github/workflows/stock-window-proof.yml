@@ -76,6 +76,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$ANDROID_SDK_ROOT/platform-tools:$PATH"
           sudo chmod a+rw /dev/kvm
           sdkmanager 'system-images;android-30;google_apis;x86_64'
           echo no | avdmanager create avd --force --name stock-proof --package 'system-images;android-30;google_apis;x86_64'
