@@ -60,38 +60,36 @@ WebSocket greeting alone did not cover this browser URL-resolution defect.
 No screenshots, raw canvas pixels or authentication are recorded by the proof.
 Rendering is checked through aggregate non-black coverage and color counts only.
 
-The temporary viewer adds explicit mobile keyboard/fullscreen controls without
-editing the pinned noVNC source. Remote desktop resizing replaces scaled tiny
-text; actual Chromium with a360px touch viewport proves a360x680 desktop and
-focus on noVNC's virtual keyboard element. The same actual client must render
-non-black desktop content, not only enter noVNC's connected state. This proves browser focus, not the
-physical Android IME; that observation remains user-owned. The dedicated login
-window was maximized only after its X11 PID, live image, start and owned display
-were checked. wmctrl/xwininfo are ordinary X11 inspection utilities, not services.
-Chromium remains a Termux-UID process with --no-sandbox; a private login profile
-is data separation, not OS sandbox isolation. Android browser login/autofill/
-passkeys do not automatically transfer into the remote Chromium profile.
+The temporary viewer uses a40px single-row toolbar: a manual keyboard button,
+a compact automatic-keyboard switch and a fullscreen icon. Manual open/close does
+not change the automatic preference; changing that preference does not open/close
+the keyboard. The setting stays in browser-local storage for the viewer origin.
+The controls move above the Android keyboard using visualViewport geometry.
+Original noVNC assets stay pinned and unchanged; viewer-owned JS/CSS have explicit
+capability-protected routes and contain no account information.
 
-The first mobile trial showed a black screen despite native client rendering
-success. The user subsequently confirmed normal display; actual phone metrics
-show connected/secure context, viewport480x825 and480x973, matching desktop
-geometry, non-black coverage above99%, keyboard-element focus and zero errors.
-Account login/model acceptance remains open. The temporary
-viewer now reports only connection/dimension/rendering aggregates to a same-origin,
-capability-protected endpoint; arbitrary strings are rejected and no input, page
-text, screenshots, credentials or URLs are retained. This is diagnostic evidence,
-not a claim that the Android display/IME has been repaired.
+Native actual-client proof checks first/repeated touch, stale-focus recovery, three
+RFB click/key DOM readbacks, independent manual/automatic state and toolbar bounds.
+It also waits beyond noVNC's2-second startup-menu close: the previous version lost
+input focus there, reproduced in the account-free fixture. Opening the keyboard
+now cancels that pending menu action, closes its sidebar before input focus and
+uses preventScroll. The live login display is never tapped by this fixture.
+`viewer_touch_probe.py BUN CANDIDATE NOVNC_ASSETS` creates private Xvnc/Chromium
+instances and stops its temporary servers after the proof. Its toolbar-only image
+is from that account-free fixture; live login screenshots/raw pixels are never
+retained. The native proof shows a40px toolbar with no control overflow at360px.
 
-A single remote canvas touch enables virtual keyboard focus inside that trusted
-gesture without consuming the RFB click. Every subsequent tap refreshes focus,
-including Android Back dismissing IME while the textarea retains DOM focus. The
-repeat-touch regression covers that state explicitly. Scrolling, mouse clicks and
-multiple touches do not activate focus. The clearly labelled “키보드 자동: 켬/끔”
-button controls this mode; explicit off stays off until re-enabled. A pixel viewer
-cannot identify remote form fields, so normal non-form taps can also open IME.
-`viewer_touch_probe.py BUN CANDIDATE NOVNC_ASSETS` creates its own private Xvnc
-and account-free Chromium input fixture. Native actual browser proof verifies
-first/repeated touch focus, stale-focus refresh, real RFB click/key delivery and
-three DOM readbacks, explicit mode off remaining off, and manual re-enable. It
-never taps the live login display. Its temporary servers stop after the proof;
-private logs stay under TMPDIR. Actual Android IME observations remain user-owned.
+Mobile connection and ChatGPT display were confirmed by the user. Repeated IME
+open/close worked after the former first-focus loss; the compact independent
+controls and startup-focus correction still need actual phone confirmation.
+Client diagnostics retain only connection/geometry/rendering aggregates, reject
+arbitrary strings and store no input, page text, cookies, screenshots or URLs.
+DOM focus in the automated client is separate from physical Android IME evidence.
+Scrolling, mouse clicks and multiple touches do not activate automatic focus. A
+pixel viewer cannot identify remote form fields, so ordinary non-form taps can
+also open IME while automatic mode is on; the switch can disable that behavior.
+
+Chromium remains a Termux-UID process with --no-sandbox. A private login profile
+separates data and is not an OS sandbox. Android browser login/autofill/passkeys do
+not transfer into the remote Chromium profile. Browser/account/model/tool-loop
+acceptance remains open; normal production routing is unchanged.

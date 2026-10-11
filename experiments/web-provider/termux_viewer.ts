@@ -22,7 +22,7 @@ const server=Bun.serve({
    if(raw.length>2048)return new Response("Too large",{status:413,headers});
    let record:Record<string,unknown>;
    try{record=JSON.parse(raw);}catch{return new Response("Bad record",{status:400,headers});}
-   const allowed=["connected","secureContext","canvasWidth","canvasHeight","visibleWidth","visibleHeight","nonBlackRatio","colorBuckets","viewportWidth","viewportHeight","keyboardFocused","errorCount"];
+   const allowed=["connected","secureContext","canvasWidth","canvasHeight","visibleWidth","visibleHeight","nonBlackRatio","colorBuckets","viewportWidth","viewportHeight","keyboardFocused","errorCount","visualViewportHeight","visualViewportOffsetTop","keyboardAutoEnabled","toolbarHeight"];
    if(!record||typeof record!=="object"||Array.isArray(record)||Object.keys(record).some(k=>!allowed.includes(k))||Object.values(record).some(v=>typeof v!=="boolean"&&(typeof v!=="number"||!Number.isFinite(v))))return new Response("Bad record",{status:400,headers});
    // Aggregates only: never save screenshots, text, input, cookies or URLs.
    appendFileSync(statePath+".display-proof.jsonl",JSON.stringify({time:Date.now(),...record})+"\n",{mode:0o600});
@@ -35,65 +35,24 @@ const server=Bun.serve({
   }
   let decoded:string;
   try{decoded=decodeURIComponent(path);}catch{return new Response("Bad path",{status:400,headers});}
+  if(path==="mobile_controls.js"||path==="mobile_controls.css"){
+   const content=Bun.file(new URL("./"+path,import.meta.url));
+   return new Response(content,{headers:{...headers,"Content-Type":path.endsWith(".js")?"text/javascript;charset=utf-8":"text/css;charset=utf-8"}});
+  }
   const file=resolve(root,decoded);
   if(!file.startsWith(root+sep))return new Response("Not found",{status:404,headers});
   const content=Bun.file(file);
   if(!await content.exists()||content.size>10*1024*1024)return new Response("Not found",{status:404,headers});
   if(path==="vnc.html"){
-   const mobile=`<style>
-#noVNC_container{height:calc(100dvh - 60px)!important}
-#owned_mobile_controls{position:fixed;bottom:0;left:0;right:0;min-height:54px;padding:3px;display:flex;align-items:center;justify-content:center;gap:8px;background:#202124;color:white;z-index:9999;font:14px system-ui}
-#owned_mobile_controls button{min-height:44px;padding:8px 14px;background:#e8eaed;color:#202124;border:0;border-radius:8px;font:16px system-ui}
-</style><div id="owned_mobile_controls"><button id="owned_keyboard" aria-pressed="true">키보드 자동: 켬</button><button id="owned_fullscreen">전체 화면</button></div>
-<script type="module">
-import UI from './app/ui.js';
-let keyboardAutoEnabled=true;let touchStart=null;let touchProofCount=0;
-const keyboardButton=document.getElementById('owned_keyboard');
-function focusKeyboard(){
- const input=document.getElementById('noVNC_keyboardinput');
- // Android Back may dismiss IME while DOM focus stays on this textarea.
- // Re-focus inside the trusted gesture even when noVNC thinks it is focused.
- input.blur();UI.showVirtualKeyboard();
-}
-function manualKeyboard(){
- keyboardAutoEnabled=!keyboardAutoEnabled;
- keyboardButton.setAttribute('aria-pressed',String(keyboardAutoEnabled));
- keyboardButton.textContent=keyboardAutoEnabled?'키보드 자동: 켬':'키보드 자동: 끔';
- if(keyboardAutoEnabled)focusKeyboard();else UI.hideVirtualKeyboard();
-}
-keyboardButton.onclick=manualKeyboard;
-const originalKeyboardButton=document.getElementById('noVNC_keyboard_button');
-originalKeyboardButton.removeEventListener('click',UI.toggleVirtualKeyboard);
-originalKeyboardButton.addEventListener('click',manualKeyboard);
-const container=document.getElementById('noVNC_container');
-container.addEventListener('pointerdown',event=>{
- if(keyboardAutoEnabled&&event.pointerType==='touch'&&event.isPrimary&&event.target.tagName==='CANVAS')touchStart={id:event.pointerId,x:event.clientX,y:event.clientY};
- else touchStart=null;
-},true);
-container.addEventListener('pointercancel',()=>{touchStart=null;},true);
-container.addEventListener('pointerup',event=>{
- const start=touchStart;touchStart=null;
- if(!keyboardAutoEnabled||!start||start.id!==event.pointerId||Math.hypot(event.clientX-start.x,event.clientY-start.y)>12||event.target.tagName!=='CANVAS'||!document.documentElement.classList.contains('noVNC_connected'))return;
- // Preserve noVNC's remote tap; mouse, scroll and multi-touch do not open IME.
- focusKeyboard();if(touchProofCount++<3)setTimeout(displayProof,500);
-},true);
-let errorCount=0;window.addEventListener('error',()=>errorCount++);window.addEventListener('unhandledrejection',()=>errorCount++);
-async function displayProof(){
- const canvas=document.querySelector('#noVNC_container canvas');
- const record={connected:document.documentElement.classList.contains('noVNC_connected'),secureContext:window.isSecureContext,viewportWidth:window.innerWidth,viewportHeight:window.innerHeight,keyboardFocused:document.activeElement?.id==='noVNC_keyboardinput',errorCount};
- if(canvas){
-  const box=canvas.getBoundingClientRect();Object.assign(record,{canvasWidth:canvas.width,canvasHeight:canvas.height,visibleWidth:box.width,visibleHeight:box.height});
-  try{const data=canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height).data;let lit=0;const colors=new Set();
-   for(let i=0;i<data.length;i+=16){if(data[i]+data[i+1]+data[i+2]>30)lit++;colors.add(((data[i]>>4)<<8)|((data[i+1]>>4)<<4)|(data[i+2]>>4));}
-   Object.assign(record,{nonBlackRatio:lit/Math.max(1,Math.ceil(data.length/16)),colorBuckets:colors.size});
-  }catch{record.errorCount++;}
- }
- await fetch('./display-proof',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(record)}).catch(()=>{});
-}
-for(const delay of [1500,5000,12000])setTimeout(displayProof,delay);
-document.getElementById('owned_keyboard').addEventListener('click',()=>setTimeout(displayProof,500));
-document.getElementById('owned_fullscreen').onclick=()=>{if(!document.fullscreenElement)document.documentElement.requestFullscreen?.();else document.exitFullscreen?.();};
-</script>`;
+   const mobile=`<link rel="stylesheet" href="./mobile_controls.css">
+<div id="owned_mobile_controls" role="toolbar" aria-label="원격 화면 조작">
+ <button id="owned_keyboard" type="button" aria-pressed="false" aria-label="키보드 열기" title="키보드 열기/닫기">
+  <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="3"/><path d="M6 9h1m3 0h1m3 0h1m3 0h1M6 12h1m3 0h1m3 0h1m3 0h1M7 16h10"/></svg><span>키보드</span>
+ </button>
+ <button id="owned_keyboard_auto" type="button" role="switch" aria-checked="true" aria-label="터치 시 자동 키보드" title="화면을 터치할 때 키보드 열기"><span class="owned_switch" aria-hidden="true"></span><span>자동</span></button>
+ <span class="owned_divider" aria-hidden="true"></span>
+ <button id="owned_fullscreen" type="button" aria-label="전체 화면" title="전체 화면"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></svg></button>
+</div><script type="module" src="./mobile_controls.js"></script>`;
    const html=(await content.text()).replace('</body>',mobile+'</body>');
    return new Response(html,{headers:{...headers,"Content-Type":"text/html;charset=utf-8"}});
   }

@@ -42,6 +42,9 @@ try{
  stage='first-input';
  await page.keyboard.type('owned-touch-731');
  await remote.waitForFunction(()=>document.querySelector('#owned').value==='owned-touch-731',{},{timeout:5000});
+ stage='first-focus-retention';
+ await page.waitForTimeout(2300);
+ if(!await page.evaluate(()=>document.activeElement?.id==='noVNC_keyboardinput'))throw Error('Initial delayed controlbar stole keyboard focus');
  const input=page.locator('#noVNC_keyboardinput');
  await input.evaluate(element=>{window.ownedFocusCount=0;element.addEventListener('focus',()=>window.ownedFocusCount++);element.blur();});
  await canvas.tap({position:{x:330,y:220}});
@@ -60,16 +63,33 @@ try{
  await page.keyboard.press('End');
  await page.keyboard.type('-third');
  await remote.waitForFunction(()=>document.querySelector('#owned').value==='owned-touch-731-second-third',{},{timeout:5000});
- await page.locator('#owned_keyboard').tap();
- if(await page.locator('#owned_keyboard').getAttribute('aria-pressed')!=='false')throw Error('Keyboard mode did not turn off');
- const hidden=await page.evaluate(()=>document.activeElement?.id!=='noVNC_keyboardinput');
+ const automatic=page.locator('#owned_keyboard_auto');
+ const manualButton=page.locator('#owned_keyboard');
+ stage='independent-controls';
+ await manualButton.tap();
+ if(await page.evaluate(()=>document.activeElement?.id==='noVNC_keyboardinput')||await automatic.getAttribute('aria-checked')!=='true')throw Error('Manual close changed automatic setting or failed to close');
  await canvas.tap({position:{x:330,y:220}});
- const stayedOff=await page.evaluate(()=>document.activeElement?.id!=='noVNC_keyboardinput');
- if(!hidden||!stayedOff)throw Error('Explicit keyboard dismissal was overridden');
- await page.locator('#owned_keyboard').tap();
- const manual=await page.evaluate(()=>document.activeElement?.id==='noVNC_keyboardinput');
- if(!manual)throw Error('Manual keyboard enable failed');
- console.log(JSON.stringify({mouseAndScrollDoNotOpen:true,firstTrustedTouchFocused:true,repeatAfterBlur:true,staleFocusRefreshed:true,threeRealRfbInputReadbacks:true,explicitOffPreserved:true,manualReenable:true}));
+ if(!await page.evaluate(()=>document.activeElement?.id==='noVNC_keyboardinput'))throw Error('Automatic mode failed after manual close');
+ await automatic.tap();
+ if(await automatic.getAttribute('aria-checked')!=='false'||!await page.evaluate(()=>document.activeElement?.id==='noVNC_keyboardinput'))throw Error('Automatic preference changed manual visibility');
+ await manualButton.tap();
+ await canvas.tap({position:{x:330,y:220}});
+ if(await page.evaluate(()=>document.activeElement?.id==='noVNC_keyboardinput'))throw Error('Disabled automatic mode reopened keyboard');
+ await manualButton.tap();
+ if(!await page.evaluate(()=>document.activeElement?.id==='noVNC_keyboardinput')||await automatic.getAttribute('aria-checked')!=='false')throw Error('Manual open changed automatic setting or failed to open');
+ await automatic.tap();
+ if(!await page.evaluate(()=>document.activeElement?.id==='noVNC_keyboardinput'))throw Error('Automatic preference stole keyboard focus');
+ await manualButton.tap();
+ const footer=await page.locator('#owned_mobile_controls').boundingBox();
+ if(!footer||footer.height>44||footer.width>360||Math.abs(footer.y+footer.height-740)>1)throw Error('Compact mobile toolbar layout failed');
+ for(const id of ['owned_keyboard','owned_keyboard_auto','owned_fullscreen']){
+  const box=await page.locator('#'+id).boundingBox();
+  if(!box||box.x<0||box.x+box.width>360||box.y<footer.y||box.y+box.height>footer.y+footer.height)throw Error('Toolbar control overflowed viewport');
+ }
+ const toolbarImage=join(gui,'toolbar.png');
+ // The fixture is account-free. Capture only this owned toolbar, never login UI.
+ await page.screenshot({path:toolbarImage,clip:{x:0,y:footer.y,width:360,height:footer.height}});
+ console.log(JSON.stringify({mouseAndScrollDoNotOpen:true,initialDelayedFocusPreserved:true,repeatAfterBlur:true,staleFocusRefreshed:true,threeRealRfbInputReadbacks:true,manualAndAutomaticIndependent:true,autoOffPreserved:true,toolbarHeight:footer.height,toolbarImage}));
 }catch(error){
  const fixture=remote?await remote.evaluate(()=>{const input=document.querySelector('#owned');return {focused:document.activeElement===input,length:input?.value.length,prefix:input?.value.startsWith('owned-touch-731'),second:input?.value.includes('-second'),third:input?.value.includes('-third')};}).catch(()=>null):null;
  console.log(JSON.stringify({failedStage:stage,fixture}));throw error;
