@@ -129,10 +129,27 @@ This repository carries no external workflow skill or model configuration.
   despite Manager supporting bare bindings. Existing synthetic native workload
   path proofs do not cover this real-frontend call. The maintained patch now removes
   that condition, and its native child gate exercises both bare and tmux processes.
-  Native compilation/tests/lint, qualification binding, signing/publication and
-  fresh physical return across `/switch` are pending; stable47 is not evidence that
+  Native compilation/all27 regressions/lint/pristine Core proof38135821930 and
+  qualification binding passed at73f77de. Both bare and tmux children exercise the
+  call. Qualified raw frontend00842f35 and input archive805a71f9 have immutable
+  public readback proof; the producer now pins this exact source/run/input pair.
+  Signing/publication and fresh physical return across `/switch` are pending;
+  stable47 is not evidence that
   bare real-frontend notification return is complete. `/title` rendering itself
   remains accepted by the user.
+- The user separately confirmed `/switch` to the owned other profile rendered
+  normally in the same Android terminal on stable47. This confirms screen/profile
+  transition, not missing bare FD registration or notification return. Private
+  proof: title-switch-device.json in the acceptance cache.
+- Official unmodified Termux8629e632 production inputs, real Android/x86_64 APK,
+  accepted Manager24ad60d and real AM client1.5.0 passed hosted38137172382. Two bare
+  launches retain their caller terminals and each construct one dedicated terminal;
+  six A/B existing returns preserve count and workload count. A dead binding refuses
+  before constructor and the other still returns. Only the model frontend is a
+  synthetic FD fixture; an emulator-only libc shim exposes the same renameat2 kernel
+  syscall already used by production arm64. This is actual stock APK/Manager proof,
+  separately from phone/native Codex frontend acceptance. The reproducible manual
+  workflow and fixture are retained under .github/stock-window.
 
 - Broader authorized normalization continues separately: genuine official-APK
   fallback execution, independent AGY/OpenCode
