@@ -22,11 +22,12 @@ optional behind `codex termux`.
 execution preferences and authentication while sharing upstream conversation
 storage. `notify show/set` controls Termux notification/toast delivery;
 `notify test` sends fixed test text and reports each selected provider's result.
-Notification taps foreground Termux. With `notify set --focus tmux`, a registered
-tmux launch and the qualified Termux socket extension, a live conversation returns
-to its existing originating Android terminal. One tap consumes the notification;
-use a fresh notification for another return. An unavailable/closed origin never
-creates a replacement terminal, new Codex workload or `resume` invocation.
+Notifications return to the live workload's registered window by default, with or
+without tmux (`notify set --focus window`). Native-origin capable Termux runs in
+the invoking terminal. Official APK fallback creates one named dedicated terminal
+per launch, then reuses it. A tap consumes the notification; use a fresh one for
+another return. Return never starts/resumes Codex. Stock APK lacks atomic existing-
+window selection: manual rename or a closing-window race can open an inert empty terminal. `--focus termux` only brings the app forward.
 The `UserInputRequest` notification selector covers structured questions and
 follow-up input requests. Diagnosis and recovery remain available through Core
 `codex doctor`, `codex update`, and `codex update --rollback`.
@@ -81,27 +82,24 @@ The default route consumes the signed stable channel. It does not delegate to
 the upstream self-updater, and publication credentials are not device update
 authority.
 
-## Launch in tmux without AI
+## Profile selection and optional tmux
 
 ```sh
-codex termux tmux
+codex termux launch
+codex termux launch --profile work -- resume
+codex termux launch --tmux=hidden
+codex termux launch --tmux=status --profile work
 ```
 
-Choose an existing Manager profile with Up/Down and Enter. Escape or Ctrl-C cancels.
-The current account is highlighted; selection does not change the saved default.
-The workload attaches in the terminal where you entered the command, with hidden
-tmux status and native titles. An independent terminal owns an independent session.
-
-For scripting or an existing conversation:
-
-```sh
-codex termux tmux --profile work
-codex termux tmux --profile work -- resume
-```
-
-Exact notification return additionally needs the qualified Termux existing-origin
-socket capability. The native app extension is maintained separately;
-an unavailable/closed origin never opens a replacement notification window.
+Choose a profile with Up/Down and Enter; Escape or Ctrl-C cancels. Selection does
+not change the saved default. Default execution uses no tmux. Ordinary `codex`
+uses the same window routing with its usual account resolution and no picker.
+`codex termux tmux` is a shorthand for hidden tmux. tmux is optional for keeping
+work running while detached; detach with Ctrl-B then D. `tmux ls` lists sessions;
+`codex termux attach SESSION` reconnects detached Manager work and registers the
+new connection window without restarting Codex.
+Changing execution mode requires a safe new launch, rather than migrating a live
+Codex process. Independent launches never share a workload or cover another launch.
 
 ## Active work across accounts
 

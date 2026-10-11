@@ -8,6 +8,7 @@ mod origin;
 mod task;
 mod terminal;
 mod tmux_launch;
+mod window;
 
 use std::ffi::{OsStr, OsString};
 use std::fs::{self, File, OpenOptions};
@@ -44,6 +45,8 @@ const NOTIFY_MAX_CHARS: usize = 4096;
 const PRIVATE_DIR_MODE: u32 = 0o700;
 const PRIVATE_FILE_MODE: u32 = 0o600;
 const HELP: &str = concat!(
+    "codex termux launch [--profile PROFILE_ID] [--tmux=off|hidden|status] [-- UPSTREAM_ARGS...]\n",
+    "codex termux attach SESSION\n",
     "codex termux tmux [--profile PROFILE_ID] [-- UPSTREAM_ARGS...]\n",
     "codex termux profile list\n",
     "codex termux profile current\n",
@@ -59,7 +62,7 @@ const HELP: &str = concat!(
     "codex termux task takeover <THREAD_UUID> [--profile PROFILE_ID] [--force-server PID:START]\n",
     "codex termux notify show\n",
     "codex termux notify test\n",
-    "codex termux notify set [--channel <notification|toast|both>] [--hooks <none|all|EVENT[,EVENT...]>] [--content-chars <0|1..4096>] [--preserve-newlines <0|1>] [--toast-gravity <top|middle|bottom>] [--toast-short <0|1>] [--toast-background <empty|#RRGGBB>] [--toast-color <empty|#RRGGBB>] [--group <GROUP_ID>] [--focus <termux|tmux>]\n",
+    "codex termux notify set [--channel <notification|toast|both>] [--hooks <none|all|EVENT[,EVENT...]>] [--content-chars <0|1..4096>] [--preserve-newlines <0|1>] [--toast-gravity <top|middle|bottom>] [--toast-short <0|1>] [--toast-background <empty|#RRGGBB>] [--toast-color <empty|#RRGGBB>] [--group <GROUP_ID>] [--focus <window|termux>]\n",
 );
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -219,7 +222,7 @@ struct NotifyConfig {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct NotifyPatch {
-    focus_tmux: Option<bool>,
+    focus_window: Option<bool>,
     channel: Option<NotifyChannel>,
     hooks: Option<NotifyHooks>,
     content_chars: Option<usize>,
@@ -322,6 +325,33 @@ fn run_inner(args: Vec<OsString>) -> Result<Option<String>, ManagerError> {
             "codex-terminal-capabilities-v1\nidentity={identity}\n"
         )));
     }
+    if is_exact(args.first(), "__terminal-launch-capabilities-v1") {
+        capture_context()?;
+        if args.len() != 1 {
+            return Err(ERR_USAGE);
+        }
+        return Ok(Some(
+            "codex-terminal-launch-v1\ncontainer=off,hidden,status\n".to_owned(),
+        ));
+    }
+    if is_exact(args.first(), "__terminal-launch-command-v1") {
+        return tmux_launch::client(&capture_context()?, &args[1..]);
+    }
+    if is_exact(args.first(), "__terminal-exec-v1") {
+        return window::start(&capture_context()?, &args[1..], false);
+    }
+    if is_exact(args.first(), "__terminal-start-v1") {
+        return window::start(&capture_context()?, &args[1..], true);
+    }
+    if is_exact(args.first(), "__terminal-auto-launch-v1") {
+        return tmux_launch::automatic(&capture_context()?, &args[1..]);
+    }
+    if is_exact(args.first(), "attach") {
+        return tmux_launch::attach(&capture_context()?, &args[1..]);
+    }
+    if is_exact(args.first(), "launch") {
+        return tmux_launch::launch(&capture_context()?, &args[1..], "off");
+    }
     if is_exact(args.first(), "__terminal-focus-v1") {
         return terminal::focus(&capture_context()?, &args[1..]);
     }
@@ -388,8 +418,8 @@ fn run_inner(args: Vec<OsString>) -> Result<Option<String>, ManagerError> {
         CommandKind::NotifyShow => Ok(Some(format!(
             "{}focus={}\n",
             format_notify_config(&read_notify_config(&context)?),
-            if read_focus_tmux(&context) {
-                "tmux"
+            if read_focus_window(&context) {
+                "window"
             } else {
                 "termux"
             }
@@ -397,11 +427,11 @@ fn run_inner(args: Vec<OsString>) -> Result<Option<String>, ManagerError> {
         CommandKind::NotifyTest => test_notification(&context),
         CommandKind::NotifySet => {
             let patch = command.notify_patch.expect("notify set patch is parsed");
-            let focus = patch.focus_tmux;
+            let focus = patch.focus_window;
             let config = read_notify_config(&context)?.merge(patch);
             publish_notify_config(&context, &config)?;
             if let Some(enabled) = focus {
-                publish_focus_tmux(&context, enabled)?;
+                publish_focus_window(&context, enabled)?;
             }
             Ok(Some("saved\n".to_owned()))
         }
@@ -532,12 +562,12 @@ fn parse_notify_set_args(args: &[OsString]) -> Result<NotifyPatch, ManagerError>
         let value = args.get(index + 1).ok_or(ERR_USAGE)?;
         match option {
             "--focus" => {
-                if patch.focus_tmux.is_some() {
+                if patch.focus_window.is_some() {
                     return Err(ERR_USAGE);
                 }
-                patch.focus_tmux = Some(match value.to_str() {
+                patch.focus_window = Some(match value.to_str() {
                     Some("termux") => false,
-                    Some("tmux") => true,
+                    Some("window" | "tmux") => true,
                     _ => return Err(ERR_USAGE),
                 });
             }
@@ -1326,21 +1356,24 @@ fn notification_action(context: &Context) -> String {
     )
 }
 
-fn read_focus_tmux(context: &Context) -> bool {
-    let Ok(Some(directory)) = existing_notify_directory(context) else {
-        return false;
+fn read_focus_window(context: &Context) -> bool {
+    let directory = match existing_notify_directory(context) {
+        Ok(Some(directory)) => directory,
+        Ok(None) => return true,
+        Err(_) => return false,
     };
     let path = directory.join("focus-v1");
-    let Ok(metadata) = fs::symlink_metadata(&path) else {
-        return false;
+    let metadata = match fs::symlink_metadata(&path) {
+        Ok(m) => m,
+        Err(e) => return e.kind() == io::ErrorKind::NotFound,
     };
     metadata.is_file()
         && !metadata.file_type().is_symlink()
         && metadata.permissions().mode() & 0o7777 == PRIVATE_FILE_MODE
-        && read_bounded(&path).is_ok_and(|bytes| bytes == b"tmux\n")
+        && read_bounded(&path).is_ok_and(|bytes| bytes == b"tmux\n" || bytes == b"window\n")
 }
 
-fn publish_focus_tmux(context: &Context, enabled: bool) -> Result<(), ManagerError> {
+fn publish_focus_window(context: &Context, enabled: bool) -> Result<(), ManagerError> {
     let directory = notify_directory_for_create(context)?;
     let path = directory.join("focus-v1");
     if let Ok(metadata) = fs::symlink_metadata(&path) {
@@ -1357,7 +1390,7 @@ fn publish_focus_tmux(context: &Context, enabled: bool) -> Result<(), ManagerErr
         TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
     ));
     let result = (|| {
-        write_new_record(&temporary, if enabled { b"tmux\n" } else { b"termux\n" })
+        write_new_record(&temporary, if enabled { b"window\n" } else { b"termux\n" })
             .map_err(|_| ERR_NOTIFY_CONFIG)?;
         fs::rename(&temporary, &path).map_err(|_| ERR_NOTIFY_CONFIG)?;
         sync_directory(&directory).map_err(|_| ERR_NOTIFY_CONFIG)
@@ -1384,7 +1417,7 @@ fn notification_focus_action(context: &Context, session_id: Option<&str>) -> Str
     let Some(id) = session_id.filter(|id| canonical_session_id(id)) else {
         return action;
     };
-    if !read_focus_tmux(context) {
+    if !read_focus_window(context) {
         return action;
     }
     let Some(core) = context.core_entrypoint.to_str() else {
@@ -2667,9 +2700,9 @@ mod tests {
         publish_notify_config(&context, &NotifyConfig::defaults()).unwrap();
         let dir = existing_notify_directory(&context).unwrap().unwrap();
         let original = fs::read(dir.join(NOTIFY_CONFIG)).unwrap();
-        assert!(!read_focus_tmux(&context));
-        publish_focus_tmux(&context, true).unwrap();
-        assert!(read_focus_tmux(&context));
+        assert!(read_focus_window(&context));
+        publish_focus_window(&context, true).unwrap();
+        assert!(read_focus_window(&context));
         assert_eq!(fs::read(dir.join(NOTIFY_CONFIG)).unwrap(), original);
         let path = dir.join("focus-v1");
         assert_eq!(
@@ -2677,13 +2710,13 @@ mod tests {
             0o600
         );
         fs::write(&path, b"tmux\nextra\n").unwrap();
-        assert!(!read_focus_tmux(&context));
+        assert!(!read_focus_window(&context));
         fs::remove_file(&path).unwrap();
         let outside = root.0.join("outside");
         fs::write(&outside, b"tmux\n").unwrap();
         std::os::unix::fs::symlink(&outside, &path).unwrap();
-        assert!(!read_focus_tmux(&context));
-        assert_eq!(publish_focus_tmux(&context, true), Err(ERR_NOTIFY_CONFIG));
+        assert!(!read_focus_window(&context));
+        assert_eq!(publish_focus_window(&context, true), Err(ERR_NOTIFY_CONFIG));
         assert_eq!(fs::read(outside).unwrap(), b"tmux\n");
     }
 
@@ -2712,16 +2745,12 @@ mod tests {
     }
 
     #[test]
-    fn notification_focus_action_opt_in_quoted_and_no_resume() {
+    fn notification_focus_action_default_window_quoted_and_no_resume() {
         let root = TestRoot::new();
         let mut context = root.context();
         context.home = root.0.join("home' with space");
         let id = "01a0fc82-dc8f-7d13-bb78-7e120f1fa9b3";
-        assert_eq!(
-            notification_focus_action(&context, Some(id)),
-            notification_action(&context)
-        );
-        publish_focus_tmux(&context, true).unwrap();
+        publish_focus_window(&context, true).unwrap();
         let expected = format!(
             "{} termux __terminal-focus-v1 '{}' >/dev/null 2>&1",
             shell_quote(context.core_entrypoint.to_str().unwrap()),
@@ -2738,7 +2767,10 @@ mod tests {
         );
         assert!(!expected.contains("resume"));
         let args = [OsString::from("--focus"), OsString::from("tmux")];
-        assert_eq!(parse_notify_set_args(&args).unwrap().focus_tmux, Some(true));
+        assert_eq!(
+            parse_notify_set_args(&args).unwrap().focus_window,
+            Some(true)
+        );
         assert!(parse_notify_set_args(&[args[0].clone(), OsString::from("invalid")]).is_err());
         assert!(parse_notify_set_args(&[
             args[0].clone(),

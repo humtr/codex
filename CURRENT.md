@@ -59,6 +59,42 @@ This repository carries no external workflow skill or model configuration.
   output cannot register an unnamed originating terminal. The extension supplies
   automatic origin lookup/selection. Manual named reuse does not require it.
 
+## Independent window/container candidate
+
+- Ordinary interactive Core launches now delegate only optional window routing to
+  the qualified same-generation Manager. Maintenance/non-TTY paths and Manager-
+  unavailable Core remain independent. The handoff strips inherited loader
+  overrides; the one-time READY guard prevents recursive convenience dispatch.
+- `codex termux launch` selects a profile with tmux off by default; hidden/status
+  are explicit containers. Native-capable APK runs in the invoking window.
+  Confirmed stock API uses one random named dedicated terminal per launch without
+  requiring tmux. Inconclusive AM failure never becomes a constructor fallback.
+- Bare native foreground FD bindings and tmux pane bindings share notification
+  focus. UUID changes read the existing FD, rather than titles or stored session
+  content. `codex termux attach` rebinds only detached Manager-created work, without
+  restarting it. Native return remains existing-only; stock rename/close races can
+  create an inert empty terminal, never a new/resumed Codex workload.
+- tmux and Android starters use private single-consumption bounded descriptors to
+  retain raw argv and caller environment. Terminal identity remains new-terminal
+  owned. Descriptors are deleted before exec; lazy cleanup requires verified process
+  departure. Credentials may occur temporarily in the private launch descriptor,
+  never in permanent bindings, intents, notifications or logs.
+- Focus defaults to window; explicit termux still brings only the app forward.
+  Earlier tmux focus state is accepted. AI's advertised-command adapter retains
+  its chosen authentication supervisor; unrelated AI worktree changes are preserved.
+- Local targeted proof: Manager42 unit tests; actual PTY/native FD paths cover
+  bare A/B, changed/ambiguous UUID, stock one-shot launch, raw non-UTF8 argv and
+  synthetic auth/color/CWD, inert reuse, tmux status, detached-work rebind and
+  inconclusive capability. Core PTY dispatch regression proves automatic routing,
+  its recursion guard, absent Manager, maintenance and non-TTY boundaries.
+- Local full acceptance passed Core193 (one pre-existing ignored), Manager42
+  unit +55 integration +three public path gates, release-builder25 and Python18+59,
+  fmt/Clippy/diff checks. Actual Android disposable launches A/B bare, C hidden
+  tmux and D seeded stock named route retained synthetic env and consumed their
+  private launch data. Exact-source CI, fresh single-tap physical observations and
+  signed publication remain pending. Stable45 above is still installed/public.
+  Disposable real Android trials are separate from the fixture transport tests.
+
 ## Source and installed AI
 
 - AI main22e8fd5 incorporates the six client-only paths from candidate e1245e9;

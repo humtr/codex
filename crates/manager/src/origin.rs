@@ -33,19 +33,20 @@ impl Origin {
     }
 }
 
-fn request(operation: &str, origin: Option<&Origin>) -> Option<Origin> {
+// Inconclusive transport failure is not evidence that the native API is absent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Capability {
+    Native,
+    Stock,
+    Unavailable,
+}
+
+pub(super) fn command(request: &str, seconds: u64) -> Option<std::process::Output> {
     let prefix = PathBuf::from(std::env::var_os("PREFIX")?);
     let socket = prefix.parent()?.join("apps/com.termux/termux-am/am.sock");
     let metadata = fs::symlink_metadata(socket).ok()?;
     if !metadata.file_type().is_socket() || metadata.uid() != unsafe { libc::getuid() } {
         return None;
-    }
-    let mut request = format!("termux-terminal-v1 {operation}");
-    if let Some(origin) = origin {
-        request.push_str(&format!(
-            " {} {} {}",
-            origin.handle, origin.pid, origin.start
-        ));
     }
     let mut child = Command::new(prefix.join("bin/termux-am-socket"))
         .arg(request)
@@ -54,26 +55,35 @@ fn request(operation: &str, origin: Option<&Origin>) -> Option<Origin> {
         .stderr(Stdio::piped())
         .spawn()
         .ok()?;
-    let deadline = Instant::now() + Duration::from_secs(3);
+    use std::os::fd::AsRawFd;
+    let mut stdout = child.stdout.take()?;
+    let mut stderr = child.stderr.take()?;
+    for fd in [stdout.as_raw_fd(), stderr.as_raw_fd()] {
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+        if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        }
+    }
+    let mut out = Vec::new();
+    let mut err = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(seconds);
     loop {
+        if drain(&mut stdout, &mut out).is_err() || drain(&mut stderr, &mut err).is_err() {
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        }
         match child.try_wait() {
             Ok(Some(status)) => {
-                let output = child.wait_with_output().ok()?;
-                if !status.success() || !output.stderr.is_empty() || output.stdout.len() > 4096 {
-                    return None;
-                }
-                let response: serde_json::Value = serde_json::from_slice(&output.stdout).ok()?;
-                if response.get("schema")?.as_str()? != SCHEMA
-                    || response.get("result")?.as_str()? != "ok"
-                {
-                    return None;
-                }
-                let found = Origin::parse(&response.get("origin")?.to_string())?;
-                return if origin.is_none_or(|expected| expected == &found) {
-                    Some(found)
-                } else {
-                    None
-                };
+                drain(&mut stdout, &mut out).ok()?;
+                drain(&mut stderr, &mut err).ok()?;
+                return Some(std::process::Output {
+                    status,
+                    stdout: out,
+                    stderr: err,
+                });
             }
             Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(5)),
             _ => {
@@ -83,6 +93,72 @@ fn request(operation: &str, origin: Option<&Origin>) -> Option<Origin> {
             }
         }
     }
+}
+fn drain(reader: &mut impl Read, bytes: &mut Vec<u8>) -> io::Result<()> {
+    let mut chunk = [0u8; 1024];
+    loop {
+        match reader.read(&mut chunk) {
+            Ok(0) => return Ok(()),
+            Ok(n) => {
+                bytes.extend_from_slice(&chunk[..n]);
+                if bytes.len() > 16384 {
+                    return Err(io::Error::other("AM response exceeds bound"));
+                }
+            }
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => (),
+            Err(e) => return Err(e),
+        }
+    }
+}
+
+pub(super) fn capability() -> Capability {
+    let Some(output) = command("termux-terminal-v1 capabilities", 3) else {
+        return Capability::Unavailable;
+    };
+    if std::str::from_utf8(&output.stderr)
+        .ok()
+        .and_then(|s| s.trim_end().lines().last())
+        == Some("Error: unknown command 'termux-terminal-v1'")
+    {
+        return Capability::Stock;
+    }
+    let parsed: Option<serde_json::Value> = serde_json::from_slice(&output.stdout).ok();
+    if output.status.success()
+        && output.stdout.len() <= 4096
+        && output.stderr.is_empty()
+        && parsed.as_ref().is_some_and(|v| {
+            v["schema"] == SCHEMA
+                && v["result"] == "ok"
+                && v["operations"] == "origin,validate,focus"
+        })
+    {
+        Capability::Native
+    } else {
+        Capability::Unavailable
+    }
+}
+
+fn request(operation: &str, origin: Option<&Origin>) -> Option<Origin> {
+    let mut request = format!("termux-terminal-v1 {operation}");
+    if let Some(origin) = origin {
+        request.push_str(&format!(
+            " {} {} {}",
+            origin.handle, origin.pid, origin.start
+        ));
+    }
+    let output = command(&request, 3)?;
+    if !output.status.success() || !output.stderr.is_empty() || output.stdout.len() > 4096 {
+        return None;
+    }
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).ok()?;
+    if response.get("schema")?.as_str()? != SCHEMA || response.get("result")?.as_str()? != "ok" {
+        return None;
+    }
+    let found = Origin::parse(&response.get("origin")?.to_string())?;
+    origin
+        .is_none_or(|expected| expected == &found)
+        .then_some(found)
 }
 
 pub(super) fn resolve() -> Option<Origin> {

@@ -1,4 +1,4 @@
-//! Direct caller-terminal tmux launch. No Android window constructor or AI dependency.
+//! Shared profile launch; tmux is an optional execution container.
 use super::*;
 use std::io::IsTerminal;
 use std::os::unix::ffi::OsStringExt;
@@ -47,49 +47,34 @@ fn quote(value: &OsStr) -> OsString {
     OsString::from_vec(result)
 }
 
-fn workload(context: &Context, profile: Option<&ProfileTarget>, args: &[OsString]) -> OsString {
+fn workload(
+    context: &Context,
+    profile: Option<&ProfileTarget>,
+    args: &[OsString],
+    program: Option<&Path>,
+) -> Result<(OsString, PathBuf), ManagerError> {
+    let (token, path) = window::execution(context, profile, args, program)?;
     let mut words = vec![
         OsString::from("exec"),
         OsString::from("env"),
-        OsString::from("-u"),
-        OsString::from(CORE_API_ENV),
-        OsString::from("-u"),
-        OsString::from(CORE_ENTRYPOINT_ENV),
+        "-u".into(),
+        CORE_API_ENV.into(),
+        "-u".into(),
+        CORE_ENTRYPOINT_ENV.into(),
     ];
-    let mut assignments = Vec::new();
-    for key in [
-        "HOME",
-        "PATH",
-        "PREFIX",
-        CODEX_HOME_ENV,
-        "NO_COLOR",
-        "FORCE_COLOR",
-        "CLICOLOR",
-        "CLICOLOR_FORCE",
-        "COLORTERM",
-        "COLORFGBG",
-    ] {
+    for key in ["HOME", "PATH", "PREFIX", "TMPDIR"] {
         if let Some(value) = std::env::var_os(key) {
             let mut assignment = OsString::from(format!("{key}="));
             assignment.push(value);
-            assignments.push(assignment);
-        } else {
-            words.push("-u".into());
-            words.push(key.into());
+            words.push(assignment);
         }
     }
-    words.extend(assignments);
-    words.push(context.core_entrypoint.as_os_str().to_owned());
-    if let Some(profile) = profile {
-        words.extend([
-            "termux".into(),
-            "profile".into(),
-            "use".into(),
-            profile::target_name(profile).into(),
-            "--".into(),
-        ]);
-    }
-    words.extend_from_slice(args);
+    words.extend([
+        context.core_entrypoint.as_os_str().to_owned(),
+        "termux".into(),
+        "__terminal-exec-v1".into(),
+        token.into(),
+    ]);
     let mut result = OsString::new();
     for (index, word) in words.iter().enumerate() {
         if index != 0 {
@@ -97,7 +82,7 @@ fn workload(context: &Context, profile: Option<&ProfileTarget>, args: &[OsString
         }
         result.push(quote(word));
     }
-    result
+    Ok((result, path))
 }
 
 fn control(args: &[OsString]) -> Result<String, ManagerError> {
@@ -156,7 +141,7 @@ fn read_key() -> Result<u8, ManagerError> {
     }
 }
 
-fn choose(context: &Context) -> Result<Option<ProfileTarget>, ManagerError> {
+pub(super) fn choose(context: &Context) -> Result<Option<ProfileTarget>, ManagerError> {
     let snapshot: serde_json::Value =
         serde_json::from_str(&profile_view::snapshot(context)?).map_err(|_| ERR_PROFILE)?;
     let profiles = snapshot["profiles"].as_array().ok_or(ERR_PROFILE)?;
@@ -237,20 +222,218 @@ fn choose(context: &Context) -> Result<Option<ProfileTarget>, ManagerError> {
 }
 
 pub(super) fn run(context: &Context, args: &[OsString]) -> Result<Option<String>, ManagerError> {
-    let (profile, upstream) = parse(args)?;
+    launch(context, args, "hidden")
+}
+pub(super) fn launch(
+    context: &Context,
+    args: &[OsString],
+    default_mode: &str,
+) -> Result<Option<String>, ManagerError> {
+    let mut filtered = Vec::new();
+    let mut mode = default_mode;
+    let mut chosen_mode = false;
+    let mut upstream = false;
+    for arg in args {
+        if arg == "--" {
+            upstream = true;
+        }
+        if !upstream && arg.to_str().is_some_and(|v| v.starts_with("--tmux=")) {
+            if chosen_mode {
+                return Err(ERR_USAGE);
+            }
+            mode = arg.to_str().unwrap().strip_prefix("--tmux=").unwrap();
+            if !matches!(mode, "off" | "hidden" | "status") {
+                return Err(ERR_USAGE);
+            }
+            chosen_mode = true;
+        } else {
+            filtered.push(arg.clone());
+        }
+    }
+    let (profile, upstream) = parse(&filtered)?;
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() || !io::stderr().is_terminal() {
         return Err(ManagerError::operation(
-            "codex termux: tmux requires an interactive terminal",
+            "codex termux: launch requires an interactive terminal",
         ));
     }
     let profile = match profile {
         Some(profile) => Some(profile),
         None => choose(context)?,
     };
-    if let Some(profile) = profile.as_ref() {
+    if let Some(profile) = &profile {
         profile::validate_target(context, profile)?;
     }
-    let command = workload(context, profile.as_ref(), upstream);
+    route(context, profile.as_ref(), mode, upstream)
+}
+pub(super) fn attach(context: &Context, args: &[OsString]) -> Result<Option<String>, ManagerError> {
+    interactive()?;
+    attach_target(args)?;
+    route(context, None, "attach", args)
+}
+fn attach_target(args: &[OsString]) -> Result<String, ManagerError> {
+    let [session] = args else {
+        return Err(ERR_USAGE);
+    };
+    let session = session
+        .to_str()
+        .filter(|s| {
+            !s.is_empty()
+                && s.len() <= 64
+                && s.bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'$' | b'_' | b'-'))
+        })
+        .ok_or(ERR_USAGE)?;
+    if std::env::var_os("TMUX").is_some_and(|v| !v.is_empty()) {
+        return Err(ERR_USAGE);
+    }
+    let row = control(&[
+        "display-message".into(),
+        "-p".into(),
+        "-t".into(),
+        session.into(),
+        "#{session_id}:#{session_attached}:#{@codex_manager_session_v1}".into(),
+    ])?;
+    let fields: Vec<_> = row.split(':').collect();
+    if fields.len() != 3 || fields[1] != "0" || fields[2] != "1" {
+        return Err(ERROR);
+    }
+    Ok(fields[0].to_owned())
+}
+fn bind_session(context: &Context, session: &str) -> Result<(), ManagerError> {
+    let route = window::inherited_route(context);
+    let origin = if route.is_none() {
+        origin::resolve()
+    } else {
+        None
+    };
+    for (option, value) in [
+        (
+            terminal::ROUTE_OPTION,
+            route.map(|v| v.to_string()).unwrap_or_default(),
+        ),
+        (
+            origin::OPTION,
+            origin.map(|v| v.record()).unwrap_or_default(),
+        ),
+    ] {
+        control(&[
+            "set-option".into(),
+            "-t".into(),
+            session.into(),
+            option.into(),
+            value.into(),
+        ])?;
+    }
+    Ok(())
+}
+
+pub(super) fn automatic(
+    context: &Context,
+    args: &[OsString],
+) -> Result<Option<String>, ManagerError> {
+    interactive()?;
+    route(context, None, "off", args)
+}
+fn interactive() -> Result<(), ManagerError> {
+    if io::stdin().is_terminal() && io::stdout().is_terminal() && io::stderr().is_terminal() {
+        Ok(())
+    } else {
+        Err(ManagerError::operation(
+            "codex termux: launch requires an interactive terminal",
+        ))
+    }
+}
+pub(super) fn client(context: &Context, args: &[OsString]) -> Result<Option<String>, ManagerError> {
+    let mode = args
+        .first()
+        .and_then(|v| v.to_str())
+        .filter(|v| matches!(*v, "off" | "hidden" | "status"))
+        .ok_or(ERR_USAGE)?;
+    if args.get(1).is_none_or(|v| v != "--") {
+        return Err(ERR_USAGE);
+    }
+    let program = PathBuf::from(args.get(2).ok_or(ERR_USAGE)?);
+    if !is_safe_absolute_path(&program) || !is_existing_executable(&program)? {
+        return Err(ERR_USAGE);
+    }
+    interactive()?;
+    if std::env::var_os("TMUX").is_none_or(|v| v.is_empty())
+        && window::inherited_route(context).is_none()
+        && origin::capability() == origin::Capability::Stock
+    {
+        return window::launch(context, None, mode, &args[3..], Some(&program));
+    }
+    execute_command(context, &program, mode, &args[3..])
+}
+pub(super) fn execute_command(
+    context: &Context,
+    program: &Path,
+    mode: &str,
+    args: &[OsString],
+) -> Result<Option<String>, ManagerError> {
+    if !is_safe_absolute_path(program) || !is_existing_executable(program)? {
+        return Err(ERR_USAGE);
+    }
+    execute_work(context, None, mode, args, Some(program))
+}
+
+fn route(
+    context: &Context,
+    profile: Option<&ProfileTarget>,
+    mode: &str,
+    args: &[OsString],
+) -> Result<Option<String>, ManagerError> {
+    if std::env::var_os("TMUX").is_none_or(|v| v.is_empty())
+        && window::inherited_route(context).is_none()
+    {
+        match origin::capability() {
+            origin::Capability::Stock => return window::launch(context, profile, mode, args, None),
+            origin::Capability::Unavailable => eprintln!(
+                "codex termux: exact window return unavailable; continuing in this terminal"
+            ),
+            origin::Capability::Native => (),
+        }
+    }
+    execute(context, profile, mode, args)
+}
+pub(super) fn execute(
+    context: &Context,
+    profile: Option<&ProfileTarget>,
+    mode: &str,
+    upstream: &[OsString],
+) -> Result<Option<String>, ManagerError> {
+    execute_work(context, profile, mode, upstream, None)
+}
+fn execute_work(
+    context: &Context,
+    profile: Option<&ProfileTarget>,
+    mode: &str,
+    upstream: &[OsString],
+    program: Option<&Path>,
+) -> Result<Option<String>, ManagerError> {
+    std::env::set_var(window::READY_ENV, "1");
+    if mode == "attach" {
+        let session = attach_target(upstream)?;
+        bind_session(context, &session)?;
+        let _ = Command::new("tmux")
+            .args(["attach-session", "-t", &session])
+            .exec();
+        return Err(ERROR);
+    }
+    if mode == "off" {
+        if program.is_none() {
+            if let Some(profile) = profile {
+                launch_core(context, profile, upstream)?;
+            }
+        }
+        let _ = Command::new(program.unwrap_or(&context.core_entrypoint))
+            .args(upstream)
+            .env_remove(CORE_API_ENV)
+            .env_remove(CORE_ENTRYPOINT_ENV)
+            .exec();
+        return Err(ERR_LAUNCH);
+    }
+    let (command, request) = workload(context, profile, upstream, program)?;
     let cwd = std::env::current_dir().map_err(|_| ERROR)?;
     if std::env::var_os("TMUX").is_some_and(|v| !v.is_empty()) {
         let pane = std::env::var_os("TMUX_PANE").ok_or(ERROR)?;
@@ -293,9 +476,25 @@ pub(super) fn run(context: &Context, args: &[OsString]) -> Result<Option<String>
             command,
         ])?;
         control(&["select-window".into(), "-t".into(), window.into()])?;
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while request.exists() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(5));
+        }
+        if request.exists() {
+            let _ = fs::remove_file(&request);
+            return Err(ERROR);
+        }
         return Ok(None);
     }
-    let origin = origin::resolve();
+    let ready = format!(
+        "codex-launch-{}-{}",
+        std::process::id(),
+        TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
+    );
+    let mut held = OsString::from("tmux -u wait-for ");
+    held.push(quote(OsStr::new(&ready)));
+    held.push(" && ");
+    held.push(command);
     let session = control(&[
         "new-session".into(),
         "-d".into(),
@@ -304,20 +503,19 @@ pub(super) fn run(context: &Context, args: &[OsString]) -> Result<Option<String>
         "#{session_id}".into(),
         "-c".into(),
         cwd.as_os_str().to_owned(),
-        command,
+        held,
     ])?;
     let setup = (|| {
-        if let Some(origin) = &origin {
-            control(&[
-                "set-option".into(),
-                "-t".into(),
-                session.clone().into(),
-                origin::OPTION.into(),
-                origin.record().into(),
-            ])?;
-        }
+        bind_session(context, &session)?;
+        control(&[
+            "set-option".into(),
+            "-t".into(),
+            session.clone().into(),
+            "@codex_manager_session_v1".into(),
+            "1".into(),
+        ])?;
         for (name, value) in [
-            ("status", "off"),
+            ("status", if mode == "status" { "on" } else { "off" }),
             ("set-titles", "on"),
             ("set-titles-string", "#{pane_title}"),
         ] {
@@ -332,9 +530,11 @@ pub(super) fn run(context: &Context, args: &[OsString]) -> Result<Option<String>
         Ok::<_, ManagerError>(())
     })();
     if let Err(error) = setup {
+        let _ = fs::remove_file(&request);
         let _ = control(&["kill-session".into(), "-t".into(), session.into()]);
         return Err(error);
     }
+    control(&["wait-for".into(), "-S".into(), ready.into()])?;
     let _ = Command::new("tmux")
         .args(["attach-session", "-t", &session])
         .exec();

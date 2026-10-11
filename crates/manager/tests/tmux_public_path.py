@@ -18,7 +18,7 @@ assert shutil.which('tmux')
 with tempfile.TemporaryDirectory(prefix='codex-manager-tmux-') as tmp:
     root = Path(tmp); home = root/'home'; home.mkdir(); (root/'run').mkdir()
     marker = root/'runs'; core = root/'core'
-    core.write_text('#!'+sys.executable+'\nimport json,os,sys,time\np='+repr(str(marker))+'\nwith open(p,"a") as f:f.write(json.dumps({"argv":sys.argv[1:],"home":os.environ.get("CODEX_HOME"),"cwd":os.getcwd(),"color":os.environ.get("NO_COLOR"),"tty":os.ttyname(0),"pid":os.getpid()})+"\\n")\nprint("OWNED_WORKLOAD",flush=True)\ntime.sleep(90)\n');core.chmod(0o755)
+    core.write_text('#!'+sys.executable+'\nimport json,os,sys,time\nif sys.argv[1:3]==["termux","__terminal-exec-v1"]:\n os.environ["CODEX_TERMUX_CORE_API"]="codex-manager-core-v1";os.environ["CODEX_TERMUX_CORE_ENTRYPOINT"]=os.path.abspath(sys.argv[0]);os.execv('+repr(str(manager))+',["manager",*sys.argv[2:]])\np='+repr(str(marker))+'\nwith open(p,"a") as f:f.write(json.dumps({"argv":sys.argv[1:],"home":os.environ.get("CODEX_HOME"),"cwd":os.getcwd(),"color":os.environ.get("NO_COLOR"),"tty":os.ttyname(0),"pid":os.getpid()})+"\\n")\nprint("OWNED_WORKLOAD",flush=True)\ntime.sleep(90)\n');core.chmod(0o755)
     env = {**os.environ, 'HOME':str(home), 'CODEX_TERMUX_CORE_API':'codex-manager-core-v1', 'CODEX_TERMUX_CORE_ENTRYPOINT':str(core), 'TMUX':'', 'TMUX_PANE':'', 'TMUX_TMPDIR':str(root/'run'), 'PREFIX':str(root/'prefix'), 'TERM':'xterm-256color'}
     env.pop('CODEX_HOME', None); env.pop('NO_COLOR', None)
     socket = str(root/'run'/('tmux-'+str(os.getuid()))/'default')
@@ -54,7 +54,7 @@ with tempfile.TemporaryDirectory(prefix='codex-manager-tmux-') as tmp:
         print('PASS picker_cancel_and_partial_escape_restore_tty')
         result=subprocess.run([str(manager),'profile','create','work'],env=env,capture_output=True);assert result.returncode==0,result.stderr
         explicit, explicit_tty=start(['--profile','work','--','resume','space arg',"apostrophe'",'$(false)'])
-        first=records(1)[0];assert first['argv']==['termux','profile','use','work','--','resume','space arg',"apostrophe'",'$(false)'];assert first['cwd']==str(root)
+        first=records(1)[0];assert first['argv']==['resume','space arg',"apostrophe'",'$(false)'] and first['home']==str(home/'.local/share/codex/manager/profiles/work/home');assert first['cwd']==str(root)
         assert explicit.poll() is None and not (root/'false').exists()
         assert tm('show-options','-v','-t','$0','status')=='off'
         assert tm('show-options','-v','-t','$0','set-titles-string')=='#{pane_title}'
@@ -63,7 +63,7 @@ with tempfile.TemporaryDirectory(prefix='codex-manager-tmux-') as tmp:
         # A stale server color cannot replace the caller's explicit absence.
         tm('set-environment','-g','NO_COLOR','1')
         selected, selected_tty=start([],b'\x1b[B\r');second=records(2)[1]
-        assert second['argv']==['termux','profile','use','work','--'] and second['color'] is None
+        assert second['argv']==[] and second['home']==first['home'] and second['color'] is None
         assert tm('list-panes','-t','$0','-F','#{pane_id}:#{pane_pid}:#{window_active}')==first_state
         rows=dict(row.split('\t') for row in tm('list-clients','-F','#{client_tty}\t#{session_id}').splitlines())
         assert rows[os.ttyname(explicit_tty)]=='$0' and rows[os.ttyname(selected_tty)]=='$1'

@@ -1311,6 +1311,8 @@ where
                 .env(MANAGER_CORE_API_ENV, MANAGER_CORE_API)
                 .env(MANAGER_CORE_ENTRYPOINT_ENV, core_entrypoint)
                 .env_remove(MANAGER_ARTIFACT_PROBE_ENV)
+                .env_remove("LD_PRELOAD")
+                .env_remove("LD_LIBRARY_PATH")
                 .args(args);
             Err(command.exec())
         }
@@ -3149,24 +3151,44 @@ fn execute_public_dispatch<
         )
         .map(PublicDispatchCompletion::TermuxUnavailable)
         .map_err(PublicDispatchExecutionError::Manager),
-        PublicDispatchRoute::Upstream(args) => Err(PublicDispatchExecutionError::Upstream(
-            launch_qualified_runtime(
-                context.runtime_assets,
-                context.process_env,
-                context.cert_file,
-                context.cert_dir,
-                context.resolver_path,
-                context.config_dir,
-                QualifiedRuntimeLaunchOptions {
-                    planned_args: &args,
-                    manager_available: matches!(
-                        context.manager_artifact,
-                        ManagerArtifact::Available(_)
-                    ),
-                    manager_tui_available: context.manager_tui_available,
-                },
-            ),
-        )),
+        PublicDispatchRoute::Upstream(args) => {
+            use std::io::IsTerminal as _;
+            // Manager owns optional Android routing. This guard suppresses only
+            // recursive convenience dispatch; it grants no profile/window authority.
+            if context.manager_tui_available
+                && matches!(context.manager_artifact, ManagerArtifact::Available(_))
+                && std::io::stdin().is_terminal()
+                && std::io::stdout().is_terminal()
+                && std::io::stderr().is_terminal()
+                && shared_server::eligible(&args)
+                && manager_tui::supported(&args)
+                && std::env::var_os("CODEX_TERMUX_WINDOW_READY").is_none()
+            {
+                let mut selected = vec![OsString::from("__terminal-auto-launch-v1")];
+                selected.extend_from_slice(&args);
+                return execute_termux_manager(context.manager_artifact, selected)
+                    .map(PublicDispatchCompletion::TermuxUnavailable)
+                    .map_err(PublicDispatchExecutionError::Manager);
+            }
+            Err(PublicDispatchExecutionError::Upstream(
+                launch_qualified_runtime(
+                    context.runtime_assets,
+                    context.process_env,
+                    context.cert_file,
+                    context.cert_dir,
+                    context.resolver_path,
+                    context.config_dir,
+                    QualifiedRuntimeLaunchOptions {
+                        planned_args: &args,
+                        manager_available: matches!(
+                            context.manager_artifact,
+                            ManagerArtifact::Available(_)
+                        ),
+                        manager_tui_available: context.manager_tui_available,
+                    },
+                ),
+            ))
+        }
     }
 }
 
@@ -12091,7 +12113,7 @@ where
             }
         }
     }
-    if bare {
+    if bare && std::env::var_os("CODEX_TERMUX_WINDOW_READY").is_none() {
         use std::io::IsTerminal as _;
         if startup_update_discovery_enabled(
             true,
@@ -13068,6 +13090,9 @@ mod tests {
         let shell = std::str::from_utf8(shell.as_bytes()).expect("test shell path must be UTF-8");
         let path = root.join("fake-codex");
         let body = r#"
+if [ -n "${CODEX_TEST_ARGS_FILE:-}" ]; then
+  printf '%s\n' "$@" > "$CODEX_TEST_ARGS_FILE"
+fi
 if [ "${CODEX_TEST_REQUIRE_NO_ACQUISITION:-}" = "1" ]; then
   for acquisition in "$HOME"/.local/lib/codex/core/generations/.acquire-*; do
     [ ! -e "$acquisition" ] || exit 96
@@ -13186,7 +13211,9 @@ exit 73
         let cert = root.join("cert.pem");
         let cert_dir = root.join("certs");
         let scenario = std::env::var(PROBE_SCENARIO).unwrap();
-        let manager_enabled = scenario == "manager" || scenario == "notify-projection";
+        let manager_enabled = scenario == "manager"
+            || scenario == "notify-projection"
+            || (scenario.starts_with("window-") && scenario != "window-manager-absent");
         let manifest = tc2_manifest(manager_enabled);
         let browser_open = root.join("browser/open/curl");
         let browser_manual = root.join("browser/manual/curl");
@@ -13231,7 +13258,10 @@ exit 73
             observed_digest: "manager-digest",
         };
         let raw_args = match scenario.as_str() {
-            "version" => vec![OsString::from("--version")],
+            "version" | "window-version" => vec![OsString::from("--version")],
+            "window-bare" | "window-ready" | "window-manager-absent" | "window-non-tty" => vec![],
+            "window-resume" => vec![OsString::from("resume"), OsString::from("owned title")],
+            "window-exec" => vec![OsString::from("exec"), OsString::from("owned")],
             "idle-release-bare" => vec![],
             "idle-release-explicit" => vec![
                 OsString::from("-c"),
@@ -13275,9 +13305,16 @@ exit 73
             generation_id: "test-generation",
             generation_layout: GenerationLayout::RootCodeModeHost,
             manager_doctor_status: ManagerDoctorStatus::Unavailable,
-            manager_tui_available: false,
+            manager_tui_available: scenario.starts_with("window-"),
         };
         match execute_public_dispatch(route, context) {
+            // The bare PTY fallback reaches the normal shared-server setup. This
+            // fixture intentionally has no server; it must not exec the Manager.
+            Err(PublicDispatchExecutionError::Upstream(RuntimeLaunchError::Config(_)))
+                if scenario == "window-ready" || scenario == "window-manager-absent" =>
+            {
+                std::process::exit(42);
+            }
             Err(PublicDispatchExecutionError::Upstream(RuntimeLaunchError::Config(_)))
                 if scenario == "shared-requirements-conflict"
                     || scenario == "notify-projection-conflict" => {}
@@ -13705,6 +13742,98 @@ exit 73
         drop(master);
         assert_eq!(status.code(), Some(0));
         remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn interactive_core_routes_once_with_optional_manager_and_preserves_other_launches() {
+        use std::ffi::CStr;
+        use std::os::fd::{FromRawFd, OwnedFd};
+        for (scenario, expected) in [
+            ("window-bare", "__terminal-auto-launch-v1\n"),
+            (
+                "window-resume",
+                "__terminal-auto-launch-v1\nresume\nowned title\n",
+            ),
+            ("window-ready", "NO_MANAGER_EXEC"),
+            ("window-manager-absent", "NO_MANAGER_EXEC"),
+            ("window-non-tty", "\n"),
+            ("window-version", "--version\n"),
+            ("window-exec", "exec\nowned\n"),
+        ] {
+            let (root, runtime, resolver, config) = prepare_exec_fixture(scenario);
+            let record = root.join("actual-args");
+            let master_fd = unsafe { posix_openpt(2 | 0x100) };
+            assert!(master_fd >= 0);
+            let master = unsafe { OwnedFd::from_raw_fd(master_fd) };
+            assert_eq!(unsafe { grantpt(master_fd) }, 0);
+            assert_eq!(unsafe { unlockpt(master_fd) }, 0);
+            let name = unsafe { CStr::from_ptr(ptsname(master_fd)) };
+            let slave = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(std::str::from_utf8(name.to_bytes()).unwrap())
+                .unwrap();
+            let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+            command
+                .arg("tests::product_exec_probe")
+                .arg("--exact")
+                .env(PROBE_ROLE, "1")
+                .env(PROBE_SCENARIO, scenario)
+                .env(PROBE_ROOT, &root)
+                .env(PROBE_RUNTIME, &runtime)
+                .env(PROBE_RESOLVER, &resolver)
+                .env(PROBE_CONFIG, &config)
+                .env("CODEX_TEST_ARGS_FILE", &record)
+                .env_remove(PROBE_STDOUT)
+                .env_remove(PROBE_STDERR)
+                .env_remove("CODEX_TERMUX_WINDOW_READY");
+            if scenario == "window-ready" {
+                command.env("CODEX_TERMUX_WINDOW_READY", "1");
+            }
+            if scenario == "window-non-tty" {
+                command
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null());
+            } else {
+                command
+                    .stdin(slave.try_clone().unwrap())
+                    .stdout(slave.try_clone().unwrap())
+                    .stderr(slave);
+            }
+            let status = command.status().unwrap();
+            if !status.success() && !matches!(status.code(), Some(73 | 42)) {
+                use std::io::Read;
+                let mut reader = std::fs::File::from(master);
+                let mut bytes = [0u8; 4096];
+                let count = reader.read(&mut bytes).unwrap_or(0);
+                panic!(
+                    "{scenario}: status {status}, terminal={}",
+                    String::from_utf8_lossy(&bytes[..count])
+                );
+            }
+            if expected == "NO_MANAGER_EXEC" {
+                assert_eq!(status.code(), Some(42), "{scenario}");
+                assert!(
+                    !record.exists(),
+                    "{scenario}: optional Manager was incorrectly executed"
+                );
+            } else {
+                assert_eq!(
+                    status.code(),
+                    Some(if scenario == "window-version" { 0 } else { 73 }),
+                    "{scenario}"
+                );
+                assert_eq!(
+                    std::fs::read_to_string(record).unwrap(),
+                    expected,
+                    "{scenario}"
+                );
+            }
+            drop(master);
+            remove_temp_root(root);
+        }
     }
 
     #[cfg(unix)]

@@ -1249,7 +1249,7 @@ fn notification_configuration_and_emit_are_best_effort_at_manager_boundary() {
     assert_eq!(shown.status.code(), Some(0));
     assert_eq!(
         shown.stdout,
-        b"channel=both\nhooks=Stop\ncontent-chars=8\npreserve-newlines=0\ntoast-gravity=bottom\ntoast-short=1\ntoast-background=#a0b1c2\ntoast-color=#d3e4f5\ngroup=ops.v1\nfocus=termux\n"
+        b"channel=both\nhooks=Stop\ncontent-chars=8\npreserve-newlines=0\ntoast-gravity=bottom\ntoast-short=1\ntoast-background=#a0b1c2\ntoast-color=#d3e4f5\ngroup=ops.v1\nfocus=window\n"
     );
     assert!(shown.stderr.is_empty());
 
@@ -1450,6 +1450,15 @@ fn notification_click_reuses_activity_repeatedly_with_quoted_absolute_provider_a
     fs::create_dir(&providers).unwrap();
     write_notification_provider(&providers, "termux-notification");
     let log = root.0.join("provider.log");
+    assert!(run_manager(
+        &root.0,
+        &core,
+        &["notify", "set", "--focus", "termux"],
+        None
+    )
+    .status
+    .success());
+
     let output = run_manager_with_input(
         &root.0,
         &core,
@@ -1515,7 +1524,7 @@ fn notification_tmux_click_uses_core_only_and_failure_never_creates_a_window() {
     let shown = run_manager(&home, &core, &["notify", "show"], None);
     assert!(String::from_utf8(shown.stdout)
         .unwrap()
-        .ends_with("focus=tmux\n"));
+        .ends_with("focus=window\n"));
     let output = run_manager_with_input(&home, &core, &["notify", "emit", "Stop"], &providers, &log,
         br#"{"session_id":"01a0fc82-dc8f-7d13-bb78-7e120f1fa9b3","content":"test","command":"touch injected"}"#);
     assert!(output.status.success() && output.stdout.is_empty() && output.stderr.is_empty());
