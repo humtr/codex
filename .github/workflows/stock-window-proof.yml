@@ -1,0 +1,119 @@
+name: Official APK window fallback proof
+on:
+  push:
+    branches: [experiment/stock-window-proof]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      STOCK_SOURCE: 8629e632fcb95da272221be327db653fb24befe9
+      PRODUCT_SOURCE: 24ad60da232d279063939c83cc7cebe0fb60bc3d
+      ANDROID_NDK_VERSION: '27.3.13750724'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: proof
+          persist-credentials: false
+      - name: Fetch unmodified official app and accepted Manager
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init stock
+          git -C stock remote add origin https://github.com/termux/termux-app.git
+          git -C stock fetch --depth=1 origin "$STOCK_SOURCE"
+          git -C stock checkout --detach FETCH_HEAD
+          test "$(git -C stock rev-parse HEAD)" = "$STOCK_SOURCE"
+          git init product
+          git -C product remote add origin https://github.com/humtr/codex.git
+          git -C product fetch --depth=1 origin "$PRODUCT_SOURCE"
+          git -C product checkout --detach FETCH_HEAD
+          test "$(git -C product rev-parse HEAD)" = "$PRODUCT_SOURCE"
+          mkdir -p stock/app/src/androidTest/java/com/termux/app
+          cp proof/.github/stock-window/StockWindowTest.java stock/app/src/androidTest/java/com/termux/app/
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('stock/app/build.gradle');s=p.read_text()
+          s=s.replace('    defaultConfig {','    defaultConfig {\n        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"',1)
+          s+='\ndependencies {\n androidTestImplementation "androidx.test:runner:1.6.2"\n androidTestImplementation "androidx.test.ext:junit:1.2.1"\n}\n'
+          p.write_text(s)
+          PY
+          # Only test compilation changes; all production Java/native inputs are stock.
+          test "$(git -C stock diff --name-only)" = app/build.gradle
+      - name: Build stock APK and native executable fixtures
+        shell: bash
+        env:
+          TERMUX_PACKAGE_VARIANT: apt-android-7
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="$JAVA_HOME_17_X64"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          (cd stock; ./gradlew --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest)
+          ndk="$ANDROID_SDK_ROOT/ndk/$ANDROID_NDK_VERSION"
+          rustup toolchain install 1.98.0 --profile minimal --target x86_64-linux-android
+          export CARGO_TARGET_DIR="$RUNNER_TEMP/cargo-target"
+          export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android24-clang"
+          "$CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER" -O2 -Wall -Wextra -Werror -c proof/.github/stock-window/rename.c -o "$RUNNER_TEMP/rename.o"
+          export RUSTFLAGS="-C link-arg=$RUNNER_TEMP/rename.o"
+          cargo +1.98.0 build --release --locked --manifest-path product/Cargo.toml --target x86_64-linux-android -p codex-manager
+          mkdir fixture
+          cp "$CARGO_TARGET_DIR/x86_64-linux-android/release/codex-manager" fixture/manager
+          "$CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER" -O2 -Wall -Wextra -Werror proof/.github/stock-window/workload.c -o fixture/core
+          curl --fail --silent --show-error --location https://github.com/termux/termux-am-socket/archive/refs/tags/1.5.0.tar.gz -o am.tar.gz
+          echo '5175023c7fd675492451a72d06b75c772f257685b69fe117227bae5a5e6f5494  am.tar.gz' | sha256sum -c -
+          tar -xzf am.tar.gz
+          cmake -S termux-am-socket-1.5.0 -B "$RUNNER_TEMP/am-build" \
+            -DCMAKE_TOOLCHAIN_FILE="$ndk/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=x86_64 -DANDROID_PLATFORM=24 -DANDROID_STL=c++_static \
+            -DCMAKE_INSTALL_PREFIX=/data/data/com.termux/files/usr \
+            -DTERMUX_APPS_DIR=/data/data/com.termux/files/apps -DTERMUX_APP_PACKAGE=com.termux
+          cmake --build "$RUNNER_TEMP/am-build"
+          cp "$RUNNER_TEMP/am-build/termux-am-socket" fixture/
+      - name: Execute on disposable Android emulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo chmod a+rw /dev/kvm
+          sdkmanager 'system-images;android-30;google_apis;x86_64'
+          echo no | avdmanager create avd --force --name stock-proof --package 'system-images;android-30;google_apis;x86_64'
+          "$ANDROID_SDK_ROOT/emulator/emulator" -avd stock-proof -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect > "$RUNNER_TEMP/emulator.log" 2>&1 &
+          adb wait-for-device
+          for attempt in $(seq 1 180); do
+            test "$(adb shell getprop sys.boot_completed | tr -d '\r')" != 1 || break
+            sleep 1
+          done
+          test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = 1
+          stock_apk=stock/app/build/outputs/apk/debug/termux-app_apt-android-7-debug_x86_64.apk
+          test -f "$stock_apk"
+          adb install "$stock_apk"
+          adb install stock/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+          adb shell pm grant com.termux android.permission.WRITE_EXTERNAL_STORAGE
+          adb shell pm grant com.termux android.permission.READ_EXTERNAL_STORAGE
+          adb shell appops set com.termux SYSTEM_ALERT_WINDOW allow
+          adb shell am start -n com.termux/com.termux.app.TermuxActivity
+          for attempt in $(seq 1 120); do
+            adb shell run-as com.termux test -x /data/data/com.termux/files/usr/bin/env && break
+            sleep 1
+          done
+          adb shell run-as com.termux test -x /data/data/com.termux/files/usr/bin/env
+          for file in core manager termux-am-socket; do adb push "fixture/$file" "/data/local/tmp/stock-$file"; done
+          adb shell "run-as com.termux sh -c 'mkdir -p files/home/.stock-proof files/home/.termux files/home/.local/lib/codex/core/generations/stock-proof/helpers; chmod 700 files/home/.stock-proof; cp /data/local/tmp/stock-core files/home/.stock-proof/core; cp /data/local/tmp/stock-manager files/home/.stock-proof/manager; cp /data/local/tmp/stock-core files/home/.local/lib/codex/core/generations/stock-proof/helpers/2; cp /data/local/tmp/stock-termux-am-socket files/usr/bin/termux-am-socket; chmod 755 files/home/.stock-proof/core files/home/.stock-proof/manager files/home/.local/lib/codex/core/generations/stock-proof/helpers/2 files/usr/bin/termux-am-socket; echo allow-external-apps=true > files/home/.termux/termux.properties'"
+          adb shell "run-as com.termux /data/data/com.termux/files/usr/bin/termux-am-socket 'termux-terminal-v1 capabilities'" > "$RUNNER_TEMP/stock-capability.txt" 2>&1 || true
+          grep -F "Error: unknown command 'termux-terminal-v1'" "$RUNNER_TEMP/stock-capability.txt"
+          adb shell am instrument -w -r -e class com.termux.app.StockWindowTest com.termux.test/androidx.test.runner.AndroidJUnitRunner > "$RUNNER_TEMP/stock-proof.txt" 2>&1
+          cat "$RUNNER_TEMP/stock-proof.txt"
+          grep -F 'STOCK_WINDOW_PROOF real-stock-apk real-manager real-am-client' "$RUNNER_TEMP/stock-proof.txt"
+          grep -F 'OK (1 test)' "$RUNNER_TEMP/stock-proof.txt"
+      - name: Preserve bounded proof and diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: stock-window-proof
+          path: |
+            ${{ runner.temp }}/stock-proof.txt
+            ${{ runner.temp }}/stock-capability.txt
+            ${{ runner.temp }}/emulator.log
+          retention-days: 7
