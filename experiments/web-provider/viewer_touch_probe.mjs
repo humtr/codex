@@ -12,14 +12,15 @@ const {chromium}=await import(pathToFileURL(join(candidate,'node_modules/playwri
 const executablePath=join(process.env.PREFIX,'lib/chromium/chrome');
 const args=['--no-sandbox','--disable-dev-shm-usage','--window-position=0,0'];
 const desktop=await chromium.launch({executablePath,headless:false,args});
-let viewer;
+let viewer;let remote;let stage='launch';
 try{
- const remote=await desktop.newPage({viewport:{width:520,height:600}});
+ remote=await desktop.newPage({viewport:{width:520,height:600}});
  await remote.goto('data:text/html,<style>body{margin:0;background:white}input{width:100vw;height:80vh;font:24px sans-serif;border:0}</style><input id="owned" aria-label="Owned test input">');
  await remote.bringToFront();
  viewer=await chromium.launch({executablePath,headless:true,args});
  const page=await viewer.newPage({viewport:{width:360,height:740},isMobile:true,hasTouch:true});
  await page.goto(encoded.stdout.trim(),{waitUntil:'domcontentloaded',timeout:15000});
+ stage='connect';
  await page.waitForFunction(()=>document.documentElement.classList.contains('noVNC_connected'),{},{timeout:15000});
  await page.waitForTimeout(750);
  const canvas=page.locator('#noVNC_container canvas');
@@ -35,18 +36,41 @@ try{
  await session.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
  if(await page.evaluate(()=>document.activeElement?.id==='noVNC_keyboardinput'))throw Error('Scroll gesture opened mobile keyboard');
  await session.detach();
- await canvas.tap({position:{x:120,y:220}});
+ await canvas.tap({position:{x:330,y:220}});
  const focused=await page.evaluate(()=>document.activeElement?.id==='noVNC_keyboardinput');
  if(!focused)throw Error('First trusted touch did not focus virtual keyboard');
+ stage='first-input';
  await page.keyboard.type('owned-touch-731');
  await remote.waitForFunction(()=>document.querySelector('#owned').value==='owned-touch-731',{},{timeout:5000});
+ const input=page.locator('#noVNC_keyboardinput');
+ await input.evaluate(element=>{window.ownedFocusCount=0;element.addEventListener('focus',()=>window.ownedFocusCount++);element.blur();});
+ await canvas.tap({position:{x:330,y:220}});
+ if(!await page.evaluate(()=>document.activeElement?.id==='noVNC_keyboardinput'))throw Error('Repeat touch after blur did not focus keyboard');
+ stage='second-input';
+ // Closely spaced remote taps may select a word; append through the real End key.
+ await page.keyboard.press('End');
+ await page.keyboard.type('-second');
+ await remote.waitForFunction(()=>document.querySelector('#owned').value==='owned-touch-731-second',{},{timeout:5000});
+ const firstCount=await page.evaluate(()=>window.ownedFocusCount);
+ await canvas.tap({position:{x:330,y:220}});
+ const refreshed=await page.evaluate(()=>document.activeElement?.id==='noVNC_keyboardinput'&&window.ownedFocusCount>0);
+ const nextCount=await page.evaluate(()=>window.ownedFocusCount);
+ if(!refreshed||nextCount<=firstCount)throw Error('Repeat touch did not refresh stale DOM focus');
+ stage='third-input';
+ await page.keyboard.press('End');
+ await page.keyboard.type('-third');
+ await remote.waitForFunction(()=>document.querySelector('#owned').value==='owned-touch-731-second-third',{},{timeout:5000});
  await page.locator('#owned_keyboard').tap();
+ if(await page.locator('#owned_keyboard').getAttribute('aria-pressed')!=='false')throw Error('Keyboard mode did not turn off');
  const hidden=await page.evaluate(()=>document.activeElement?.id!=='noVNC_keyboardinput');
- await canvas.tap({position:{x:120,y:220}});
+ await canvas.tap({position:{x:330,y:220}});
  const stayedOff=await page.evaluate(()=>document.activeElement?.id!=='noVNC_keyboardinput');
  if(!hidden||!stayedOff)throw Error('Explicit keyboard dismissal was overridden');
  await page.locator('#owned_keyboard').tap();
  const manual=await page.evaluate(()=>document.activeElement?.id==='noVNC_keyboardinput');
  if(!manual)throw Error('Manual keyboard enable failed');
- console.log(JSON.stringify({mouseAndScrollDoNotOpen:true,firstTrustedTouchFocused:true,realRfbClickAndInputReadback:true,explicitOffPreserved:true,manualReenable:true}));
+ console.log(JSON.stringify({mouseAndScrollDoNotOpen:true,firstTrustedTouchFocused:true,repeatAfterBlur:true,staleFocusRefreshed:true,threeRealRfbInputReadbacks:true,explicitOffPreserved:true,manualReenable:true}));
+}catch(error){
+ const fixture=remote?await remote.evaluate(()=>{const input=document.querySelector('#owned');return {focused:document.activeElement===input,length:input?.value.length,prefix:input?.value.startsWith('owned-touch-731'),second:input?.value.includes('-second'),third:input?.value.includes('-third')};}).catch(()=>null):null;
+ console.log(JSON.stringify({failedStage:stage,fixture}));throw error;
 }finally{await viewer?.close();await desktop.close();}

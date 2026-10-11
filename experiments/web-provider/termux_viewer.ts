@@ -44,25 +44,38 @@ const server=Bun.serve({
 #noVNC_container{height:calc(100dvh - 60px)!important}
 #owned_mobile_controls{position:fixed;bottom:0;left:0;right:0;min-height:54px;padding:3px;display:flex;align-items:center;justify-content:center;gap:8px;background:#202124;color:white;z-index:9999;font:14px system-ui}
 #owned_mobile_controls button{min-height:44px;padding:8px 14px;background:#e8eaed;color:#202124;border:0;border-radius:8px;font:16px system-ui}
-</style><div id="owned_mobile_controls"><button id="owned_keyboard">키보드</button><button id="owned_fullscreen">전체 화면</button><span>입력할 곳 → 키보드</span></div>
+</style><div id="owned_mobile_controls"><button id="owned_keyboard" aria-pressed="true">키보드 자동: 켬</button><button id="owned_fullscreen">전체 화면</button></div>
 <script type="module">
 import UI from './app/ui.js';
-let firstTouchArmed=true;let touchStart=null;
-// A real touch gesture permits Android IME focus. Do not consume the RFB tap,
-// open on scrolling/multiple touches, or override an explicit keyboard toggle.
-function manualKeyboard(){firstTouchArmed=false;UI.toggleVirtualKeyboard();}
-document.getElementById('owned_keyboard').onclick=manualKeyboard;
-document.getElementById('noVNC_keyboard_button').addEventListener('click',()=>{firstTouchArmed=false;},true);
+let keyboardAutoEnabled=true;let touchStart=null;let touchProofCount=0;
+const keyboardButton=document.getElementById('owned_keyboard');
+function focusKeyboard(){
+ const input=document.getElementById('noVNC_keyboardinput');
+ // Android Back may dismiss IME while DOM focus stays on this textarea.
+ // Re-focus inside the trusted gesture even when noVNC thinks it is focused.
+ input.blur();UI.showVirtualKeyboard();
+}
+function manualKeyboard(){
+ keyboardAutoEnabled=!keyboardAutoEnabled;
+ keyboardButton.setAttribute('aria-pressed',String(keyboardAutoEnabled));
+ keyboardButton.textContent=keyboardAutoEnabled?'키보드 자동: 켬':'키보드 자동: 끔';
+ if(keyboardAutoEnabled)focusKeyboard();else UI.hideVirtualKeyboard();
+}
+keyboardButton.onclick=manualKeyboard;
+const originalKeyboardButton=document.getElementById('noVNC_keyboard_button');
+originalKeyboardButton.removeEventListener('click',UI.toggleVirtualKeyboard);
+originalKeyboardButton.addEventListener('click',manualKeyboard);
 const container=document.getElementById('noVNC_container');
 container.addEventListener('pointerdown',event=>{
- if(firstTouchArmed&&event.pointerType==='touch'&&event.isPrimary&&event.target.tagName==='CANVAS')touchStart={id:event.pointerId,x:event.clientX,y:event.clientY};
+ if(keyboardAutoEnabled&&event.pointerType==='touch'&&event.isPrimary&&event.target.tagName==='CANVAS')touchStart={id:event.pointerId,x:event.clientX,y:event.clientY};
  else touchStart=null;
 },true);
 container.addEventListener('pointercancel',()=>{touchStart=null;},true);
 container.addEventListener('pointerup',event=>{
  const start=touchStart;touchStart=null;
- if(!firstTouchArmed||!start||start.id!==event.pointerId||Math.hypot(event.clientX-start.x,event.clientY-start.y)>12||event.target.tagName!=='CANVAS'||!document.documentElement.classList.contains('noVNC_connected'))return;
- firstTouchArmed=false;UI.showVirtualKeyboard();
+ if(!keyboardAutoEnabled||!start||start.id!==event.pointerId||Math.hypot(event.clientX-start.x,event.clientY-start.y)>12||event.target.tagName!=='CANVAS'||!document.documentElement.classList.contains('noVNC_connected'))return;
+ // Preserve noVNC's remote tap; mouse, scroll and multi-touch do not open IME.
+ focusKeyboard();if(touchProofCount++<3)setTimeout(displayProof,500);
 },true);
 let errorCount=0;window.addEventListener('error',()=>errorCount++);window.addEventListener('unhandledrejection',()=>errorCount++);
 async function displayProof(){
