@@ -22,10 +22,11 @@ optional behind `codex termux`.
 execution preferences and authentication while sharing upstream conversation
 storage. `notify show/set` controls Termux notification/toast delivery;
 `notify test` sends fixed test text and reports each selected provider's result.
-Notification taps foreground Termux. With `notify set --focus tmux` and AI tmux
-launch, a qualified live conversation selects one named Android terminal attached
-to its existing tmux session, creating it only if absent. Repeated taps reuse it;
-closing it permits one replacement. No new Codex workload or `resume` is started.
+Notification taps foreground Termux. With `notify set --focus tmux`, a registered
+tmux launch and the qualified Termux socket extension, a live conversation returns
+to its existing originating Android terminal. One tap consumes the notification;
+use a fresh notification for another return. An unavailable/closed origin never
+creates a replacement terminal, new Codex workload or `resume` invocation.
 The `UserInputRequest` notification selector covers structured questions and
 follow-up input requests. Diagnosis and recovery remain available through Core
 `codex doctor`, `codex update`, and `codex update --rollback`.
@@ -99,7 +100,7 @@ codex termux tmux --profile work -- resume
 ```
 
 Exact notification return additionally needs the qualified Termux existing-origin
-socket capability. Its native app candidate is separate from this launch command;
+socket capability. The native app extension is maintained separately;
 an unavailable/closed origin never opens a replacement notification window.
 
 ## Active work across accounts
