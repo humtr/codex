@@ -425,6 +425,8 @@ foreground thread, independently of title configuration. Native identity remains
 in the open unlinked file, automatically reclaimed on process exit; there is no
 new persistent session index. It calls the private
 exact command `codex termux __terminal-bind-v1 FD` once to register this descriptor.
+This registration applies to bare and tmux frontends alike; tmux environment
+variables cannot gate native foreground identity or notification return.
 Core forwards only that exact three-argument shape to its same-generation Manager.
 FD grammar and caller/pane authority remain Manager responsibilities. Ordinary
 Core dispatch and installed signed generations gain no terminal controller.

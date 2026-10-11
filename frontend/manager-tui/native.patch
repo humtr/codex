@@ -1750,7 +1750,7 @@ new file mode 100644
 index 0000000..82311af
 --- /dev/null
 +++ b/codex-rs/tui/src/termux_terminal.rs
-@@ -0,0 +1,222 @@
+@@ -0,0 +1,221 @@
 +//! Foreground identity for the optional Termux Manager; title display stays upstream.
 +use std::fs::{File, OpenOptions};
 +use std::io;
@@ -1852,13 +1852,6 @@ index 0000000..82311af
 +    let Some(core) = std::env::var_os("CODEX_PROFILE_CORE") else {
 +        return;
 +    };
-+    if std::env::var_os("TMUX").filter(|v| !v.is_empty()).is_none()
-+        || std::env::var_os("TMUX_PANE")
-+            .filter(|v| !v.is_empty())
-+            .is_none()
-+    {
-+        return;
-+    }
 +    static SLOT: OnceLock<io::Result<Mutex<Slot>>> = OnceLock::new();
 +    let Ok(slot) = SLOT.get_or_init(|| Slot::new().map(Mutex::new)) else {
 +        return;
@@ -1945,24 +1938,30 @@ index 0000000..82311af
 +        .unwrap();
 +        std::fs::set_permissions(&core, std::fs::Permissions::from_mode(0o700)).unwrap();
 +        let test_name = std::thread::current().name().unwrap().to_owned();
-+        let child = Command::new(std::env::current_exe().unwrap())
-+            .args(["--exact", &test_name, "--nocapture"])
-+            .env("CODEX_TERMINAL_TEST_ROOT", &root)
-+            .env("CODEX_PROFILE_CORE", &core)
-+            .env("TMUX", "owned-fixture")
-+            .env("TMUX_PANE", "%0")
-+            .output()
-+            .unwrap();
-+        assert!(
-+            child.status.success(),
-+            "{}",
-+            String::from_utf8_lossy(&child.stdout)
-+        );
-+        assert!(
-+            String::from_utf8_lossy(&child.stdout).contains("1 passed; 0 failed;"),
-+            "nonzero child gate required"
-+        );
-+        assert!(output.exists());
++        for inside_tmux in [false, true] {
++            let mut command = Command::new(std::env::current_exe().unwrap());
++            command
++                .args(["--exact", &test_name, "--nocapture"])
++                .env("CODEX_TERMINAL_TEST_ROOT", &root)
++                .env("CODEX_PROFILE_CORE", &core)
++                .env_remove("TMUX")
++                .env_remove("TMUX_PANE");
++            if inside_tmux {
++                command.env("TMUX", "owned-fixture").env("TMUX_PANE", "%0");
++            }
++            let child = command.output().unwrap();
++            assert!(
++                child.status.success(),
++                "tmux={inside_tmux}: {}",
++                String::from_utf8_lossy(&child.stdout)
++            );
++            assert!(
++                String::from_utf8_lossy(&child.stdout).contains("1 passed; 0 failed;"),
++                "nonzero child gate required"
++            );
++            assert!(output.exists());
++            std::fs::remove_file(&output).unwrap();
++        }
 +        std::fs::set_permissions(&core, std::fs::Permissions::from_mode(0o722)).unwrap();
 +        assert!(!register(&core, &slot.file));
 +        std::fs::set_permissions(&core, std::fs::Permissions::from_mode(0o700)).unwrap();
