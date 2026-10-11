@@ -6,12 +6,12 @@ This repository carries no external workflow skill or model configuration.
 
 ## Operating baseline
 
-- Public and installed stable47: local-hosted-0-161-0-24ad60da232d-s47,
-  CLI0.161.0, accepted implementation24ad60d. Publication38134363609 passed all
+- Public and installed stable48: local-hosted-0-161-0-b4126438d87d-s48,
+  CLI0.161.0, accepted implementationb412643. Publication38139742400 passed all
   eight jobs, including Android execution, signing, public readback/disposable
-  update and non-forced promotion. main callera19e0b4 pins that exact source.
-  Source acceptance38134059541 passed all four jobs. Frontend source29b2584
-  remains the installed artifact; its bare-registration omission is open below.
+  update and non-forced promotion. main caller86927c1 pins that exact source.
+  Source acceptance38139038173 passed all four jobs. Frontend source73f77de
+  removes the bare-registration omission; native27/lint/pristine Core proof passed.
 - Local composed full acceptance passed Core193/one pre-existing ignored,
   Manager42+55+three actual path gates, builder25, Python18+59 and fmt/Clippy/diff.
   The two first-launch startup fixtures now remove inherited window-ready state;
@@ -21,17 +21,17 @@ This repository carries no external workflow skill or model configuration.
   boundary refused it; stable45 remained intact. This was a transport/fallback
   failure, not rejection of the paired signed stable46 release. No trust boundary
   was weakened to activate it.
-- Device activation used the normal signed `codex update --local` path, with five
-  identical large/helper files copied from stable46 against the signed inventory.
-  Core/Manager/meta came from immutable public assets. All eight hashes/modes and
-  the public manifest signature/key verified before activation. stable46 is the
+- Device activation used the normal signed `codex update --local` path, with six
+  identical files copied from stable47 against the signed inventory. Only metadata
+  and the new frontend helper needed downloading. All eight hashes/modes and
+  the public manifest signature/key verified before activation. stable47 is the
   bounded rollback target; older busy images stay retained. A subsequent ordinary
   update was a no-op. Core/Manager/upstream doctor passed, twelve configuration/auth
   files and fifteen installed process PID/start/image identities stayed unchanged.
-  Private proof: ~/.cache/codex/acceptance/stable47-device.json.
-- /switch frontend rawdcf76b3c/adaptedcd4a6619, official source97901140.
-  Native27/lint/pristine Core qualification38032317709 at29b2584 remains applicable:
-  all six maintained frontend inputs are unchanged. New launches use the new signed
+  Private proof: ~/.cache/codex/acceptance/stable48-device.json.
+- /switch frontend raw00842f35/adaptede29c5625, official source97901140.
+  Native27/lint/pristine Core qualification38135821930 at73f77de applies to the
+  exact admitted frontend. New launches use the new signed
   generation; current running clients keep their old image until normal exit.
 
 ## Independent window return and optional tmux
@@ -86,8 +86,17 @@ This repository carries no external workflow skill or model configuration.
   Python18+59, fmt/Clippy/diff. Two startup fixtures now clear inherited window-ready
   state, so a connected caller cannot silently bypass the first-launch advisory
   test. Hosted acceptance and signed stable47 installation passed. A fresh real frontend
-  trial exposed a separate missing bare-registration call, which blocks its
-  `/switch` notification-return acceptance until the frontend is replaced.
+  trial exposed a separate missing bare-registration call; stable48 corrects it.
+  The user confirmed the fresh return selected `title switch48` after `/switch`.
+  Two notification actions exited0, changed selected=false to true and kept
+  terminal count3; the latest fresh tap has explicit user confirmation. The first
+  tap's screen observation was inconclusive. PID/start/TTY and Android origin stayed unchanged while the FD
+  binding changed across re-entry. This is actual signed frontend/Manager proof,
+  with tmux off, not merely the synthetic FD fixture.
+  An owned version-only reproduction also identifies a trial-only PATH-alias
+  warning: upstream refuses a CODEX_HOME beneath TMPDIR. A separate scratch
+  directory removes that warning without weakening the upstream check. Future
+  trial launches use this separation; the user's fleeting text was not captured.
 
 ## Source and installed AI
 
@@ -125,18 +134,18 @@ This repository carries no external workflow skill or model configuration.
 
 ## Remaining limits
 
-- The installed native frontend still gates FD registration on TMUX/TMUX_PANE,
-  despite Manager supporting bare bindings. Existing synthetic native workload
-  path proofs do not cover this real-frontend call. The maintained patch now removes
+- The former native frontend gated FD registration on TMUX/TMUX_PANE despite
+  Manager supporting bare bindings. Synthetic native workload path proofs did
+  not cover this real-frontend call. The admitted stable48 frontend removes
   that condition, and its native child gate exercises both bare and tmux processes.
   Native compilation/all27 regressions/lint/pristine Core proof38135821930 and
   qualification binding passed at73f77de. Both bare and tmux children exercise the
   call. Qualified raw frontend00842f35 and input archive805a71f9 have immutable
   public readback proof; the producer now pins this exact source/run/input pair.
-  Signing/publication and fresh physical return across `/switch` are pending;
-  stable47 is not evidence that
-  bare real-frontend notification return is complete. `/title` rendering itself
-  remains accepted by the user.
+  Signed publication/activation passed; the real phone frontend publishes its
+  bare FD binding with the matching original Android route. The fresh physical
+  return across `/switch` is accepted by the user and has selected/count proof in
+  stable48-device.json. `/title` rendering itself is also accepted by the user.
 - The user separately confirmed `/switch` to the owned other profile rendered
   normally in the same Android terminal on stable47. This confirms screen/profile
   transition, not missing bare FD registration or notification return. Private
@@ -151,13 +160,32 @@ This repository carries no external workflow skill or model configuration.
   separately from phone/native Codex frontend acceptance. The reproducible manual
   workflow and fixture are retained under .github/stock-window.
 
-- Broader authorized normalization continues separately: genuine official-APK
-  fallback execution, independent AGY/OpenCode
+- Broader authorized normalization continues separately: independent AGY/OpenCode
   notification hooks, isolated real ChatGPT Web acceptance and the final home/usr
   authority audit. Existing synthetic browser proofs do not establish account,
   model, tool-loop, cancel, compact or resume acceptance. Photos v3 cleanup90b8546
   is published: retired snapshots remain recoverable in Git, active data/source
   bytes are preserved and clean-tree packaging/service-smoke passed.
+- Termux source/runtime audit: Tdev's CLI uses ~/.local/share/tdev/active, the old
+  composition root is absent, actual authenticated local MCP tools/list returns13
+  tools and both default/janmori connections are enabled with control-plane polling.
+  Controller/retained House databases pass read-only SQLite quick_check. Runit root
+  and15-second monitor preserve their original PIDs; service/AM installer ownership
+  checks pass. Package-owned inactive GUI/Cloudflare service entries remain down.
+  Four inactive home source/recovery trees were relocated intact to the private
+  ~/.local/share/termux-recovery/20261011/original-trees after425 files were extracted
+  and hash-verified from a private recovery archive. Automatic review rejected
+  deletion; the reversible relocation preserves every original byte instead.
+  Legacy credential configuration is unchanged. Empty prj/artex was removed.
+- Independent experiment/web-termux has native Android Bun1.4.0, locked bridge6.1.5
+  and actual Chromium152 DOM proof. The earlier wire correction applies to this
+  exact bridge: original9 contract failures became26 passing HTTP/parser tests
+  after correction, plus full TypeScript verification. Parser tests use an inert
+  configuration executable; they are not model/runtime-service acceptance.
+  Native headed Chromium/X11, private Unix RFB and capability-protected mobile
+  viewer HTTP/WebSocket roundtrips pass. Browser/account/model/tool-loop acceptance
+  is still pending; no existing auth was imported and no production route/service
+  was changed. New experimental browser data belongs to ~/.local/share/codex-web-experiment.
 
 - Public update currently fetches complete payloads with a300-second per-payload
   budget. Slow large downloads can hit that limit and trigger local-derived
