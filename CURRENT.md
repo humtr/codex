@@ -77,23 +77,42 @@ This repository carries no external workflow skill or model configuration.
   fresh launch, binding and focus code is unchanged. Actual Android signed installed
   Manager also refused all three nested entrypoints before any state creation.
 - A fresh notification is required for each trial: Android consumes it on one tap.
-  Never ask for a second tap on an already consumed notification. Title display
-  after the next ordinary production launch remains a separate user observation.
+  Never ask for a second tap on an already consumed notification.
+- The owned direct signed-stable46 title trial has no PTY intermediary or copied
+  authentication. The user confirmed normal rendering and Termux title propagation;
+  upstream persisted the selected activity/app-name/model/run-state/current-dir
+  order. `/title` configures title fields/order, separately from route identity.
+  A discarded intermediary trial rendered badly; it is not product acceptance.
+- Bare same-PID frontend re-entry needs replacement of the old qualified FD
+  binding. The affected real-exec path now passes native and named-route return,
+  UUID changes and preservation of unknown bindings. Local composed full acceptance
+  passed Core193/one pre-existing ignored, Manager42+55+three path gates, builder25,
+  Python18+59, fmt/Clippy/diff. Two startup fixtures now clear inherited window-ready
+  state, so a connected caller cannot silently bypass the first-launch advisory
+  test. Hosted acceptance, publication and a fresh installed `/switch` return
+  observation remain required.
 
 ## Source and installed AI
 
-- AI maine4bbeba includes the qualified Manager adapter5caf2e8 and same-terminal
-  refusal. Both user-composed and clean publication trees passed full verification38
-  with zero warnings/failures; TUI166 and affected native tests pass. Temporary-index
-  commits excluded unrelated profile/recovery changes and kept all user working bytes.
-  Explicitly approved main pushes completed normally.
-- A minimal install-script request was automatically rejected for concern about its
-  unrelated directory-deletion branch. The safe replacement installed ai_tmux.py
-  alone with an atomic file replacement; all other seventeen library files and AI
-  launcher retained their hashes. Installed provider list and nested refusal pass.
-  Existing profile/auth recovery behavior is preserved in the composed live module.
+- AI main e8d49c3 formally includes the installed profile/auth/Manager adapter and
+  migration support; the approved normal push completed, with a clean source tree.
+  Enhanced full verification passes50/warn0/fail0, including TUI166 and isolated
+  installed Manager profile lifecycle. Migration stages complete accounts before
+  publication, restores the source on failure and refuses unreadable live owners;
+  unique AGY profile state is preserved. No real account migration was performed.
+  All thirteen installed ai_* modules match the published source; only three
+  modules needed atomic replacement, and seventeen other runtime/config hashes
+  remained unchanged. Private proof: ~/.cache/codex/acceptance/ai-formal-source.json.
 - App source remains the separate formal ~/prj/termux repository, with official Git
   history and read-only upstream. AI has no competing Codex profile/window authority.
+- AI follow-up1f958e5 removes its AGY shim/installation path; enhanced full verification
+  passes48/warn0/fail0. AGY main ac228cf publishes the formerly installed native Android
+  support. Its full suite passed and the formal setup installed wrapper261011.01,
+  upstream1.2.17, with one $PREFIX/bin/agy entrypoint. The raw input and all9302
+  protected profile/authentication files retain their hashes; installed library and
+  builder match published source. Native allocator/syscall patterns stay unchanged,
+  while explicit Linux compatibility remains available. Default installation does
+  not require glibc/proot. Private proof: agy-formal-source.json in the same cache.
 
 ## Reusable acceptance
 
@@ -108,6 +127,14 @@ This repository carries no external workflow skill or model configuration.
   Standard checks are scripts/check.sh docs, python, rust or full, chosen by scope.
 
 ## Remaining limits
+
+- Broader authorized normalization continues separately: genuine official-APK
+  fallback execution, independent AGY/OpenCode
+  notification hooks, isolated real ChatGPT Web acceptance and the final home/usr
+  authority audit. Existing synthetic browser proofs do not establish account,
+  model, tool-loop, cancel, compact or resume acceptance. Photos v3 cleanup90b8546
+  is published: retired snapshots remain recoverable in Git, active data/source
+  bytes are preserved and clean-tree packaging/service-smoke passed.
 
 - Public update currently fetches complete payloads with a300-second per-payload
   budget. Slow large downloads can hit that limit and trigger local-derived

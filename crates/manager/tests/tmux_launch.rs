@@ -73,6 +73,6 @@ fn manager_window_and_container_paths() {
             .lines()
             .filter(|s| s.starts_with("PASS "))
             .count(),
-        8
+        9
     );
 }

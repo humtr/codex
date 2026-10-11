@@ -437,6 +437,11 @@ directly or through the installed AI PTY supervisor. The existing pane-local
 session holds its separately validated Android route. Foreground UUID always stays
 in the live descriptor, never a persistent conversation index. Selection rechecks
 process, FD, pane and window identity.
+A bare frontend re-exec may replace its own process binding: the prior private
+record must have the same schema, PID/start, TTY and Android route, and the new
+unlinked descriptor must qualify against the current native image. Replacement is
+atomic; mismatched, foreign or malformed records remain untouched. This preserves
+return across `/switch` without changing the original Android terminal.
 This command cannot rename a native Android terminal or start a workload.
 
 AI consumes this binding without rewriting it, reads the current full UUID from

@@ -231,7 +231,46 @@ pub(super) fn bind(context: &Context, args: &[OsString]) -> Result<Option<String
         let directory = super::window::directory(context)?;
         prune(&directory);
         let path = directory.join(format!("binding-{parent}-{}", identity.1));
-        super::write_new_record(&path, record.to_string().as_bytes())?;
+        match fs::symlink_metadata(&path) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                super::write_new_record(&path, record.to_string().as_bytes())?;
+            }
+            Ok(_) => {
+                let previous = super::window::read(&path)?;
+                if previous.as_object().map(|v| v.len()) != record.as_object().map(|v| v.len())
+                    || previous["schema"] != record["schema"]
+                    || previous["pid"] != record["pid"]
+                    || previous["start"] != record["start"]
+                    || previous["tty"] != record["tty"]
+                    || previous["route"] != record["route"]
+                    || previous["fd"].as_u64().is_none_or(|v| v > 1048576)
+                    || previous["dev"].as_u64().is_none()
+                    || previous["ino"].as_u64().is_none()
+                {
+                    return Err(ERROR);
+                }
+                // Exec closes the old foreground FD while preserving PID/start.
+                // Publish the newly qualified FD without exposing a second target.
+                let temporary = directory.join(format!(
+                    ".binding-{}-{}",
+                    std::process::id(),
+                    super::TEMP_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                ));
+                super::write_new_record(&temporary, record.to_string().as_bytes())?;
+                let replaced = (|| {
+                    slot(context, parent, identity.1, descriptor)?;
+                    if super::window::read(&path)? != previous {
+                        return Err(ERROR);
+                    }
+                    fs::rename(&temporary, &path).map_err(|_| ERROR)
+                })();
+                if replaced.is_err() {
+                    let _ = fs::remove_file(temporary);
+                }
+                replaced?;
+            }
+            Err(_) => return Err(ERROR),
+        }
         super::sync_directory(&directory).map_err(|_| ERROR)?;
         return Ok(None);
     }

@@ -33,6 +33,13 @@ with tempfile.TemporaryDirectory(prefix='codex-window-') as tmp:
 #include <sys/wait.h>
 #include <unistd.h>
 static int slot;
+static void reexecute(int sig) {
+ (void)sig;
+ // Keep the old unlinked inode pinned, so exec must qualify a different inode.
+ int pin=fcntl(slot,F_DUPFD,64);if(pin<0)_exit(14);fcntl(pin,F_SETFD,0);
+ char executable[4096];ssize_t n=readlink("/proc/self/exe",executable,sizeof(executable)-1);
+ if(n<0)_exit(15);executable[n]=0;char *args[]={executable,NULL};execv(executable,args);_exit(16);
+}
 static void change(int sig) { (void)sig; lseek(slot,0,SEEK_SET); write(slot,"11a0fe94-2d11-79f3-8f5b-9c1958465dc2",36); }
 int main(int argc,char **argv) {
  char path[1024],number[32];snprintf(path,sizeof(path),"%s/.codex-terminal-thread-v1-%d-owned",getenv("TMPDIR"),getpid());
@@ -40,7 +47,7 @@ int main(int argc,char **argv) {
  snprintf(number,sizeof(number),"%d",slot);pid_t child=fork();if(child==0){execl(getenv("FIXTURE_MANAGER"),"manager","__terminal-bind-v1",number,NULL);_exit(12);}
  int status;waitpid(child,&status,0);if(!WIFEXITED(status)||WEXITSTATUS(status))return 13;
  snprintf(path,sizeof(path),"%s/%d.ready",getenv("TMPDIR"),getpid());FILE *ready=fopen(path,"w");fprintf(ready,"%s",ttyname(0));fclose(ready);
- signal(SIGUSR1,change);for(;;)pause();
+ signal(SIGUSR1,change);signal(SIGUSR2,reexecute);for(;;)pause();
 }
 ''')
     subprocess.run([shutil.which('cc') or 'clang',str(source),'-o',str(native)],check=True)
@@ -125,7 +132,22 @@ os.execv('''+repr(str(native))+''',['native'])
         b,_,b_tty=start([str(manager),'launch','--profile','default','--',sid2]);r2=workloads(2)[1]
         assert r1['tty']==os.ttyname(a_tty) and r2['tty']==os.ttyname(b_tty) and not r1['tmux'] and not r2['tmux'] and calls()==0
         first=focus(sid1);second=focus(sid2);assert first.returncode==0 and second.returncode==0 and calls()==0,(first.stderr,second.stderr,state['requests'])
-        print('PASS bare_independent_invoking_ptys_existing_native_return')
+        # A real exec replaces FD identity but retains the live terminal and PID/start.
+        bindings=home/'.local/share/codex/manager/terminals'
+        def reexec_and_return(row,sid):
+            binding=next(bindings.glob(f'binding-{row["pid"]}-*'))
+            previous=json.loads(binding.read_text());ready=root/f'{row["pid"]}.ready';ready.unlink()
+            os.kill(row['pid'],signal.SIGUSR2);deadline=time.monotonic()+4
+            while not ready.exists() and time.monotonic()<deadline:time.sleep(.01)
+            assert ready.exists(),'reexec binding failed'
+            current=json.loads(binding.read_text())
+            assert current['pid']==previous['pid'] and current['start']==previous['start']
+            assert current['route']==previous['route'] and current['tty']==previous['tty']
+            assert (current['dev'],current['ino'])!=(previous['dev'],previous['ino'])
+            assert focus(sid).returncode==0
+            assert not list(bindings.glob('.binding-*'))
+        reexec_and_return(r1,sid1)
+        print('PASS bare_independent_invoking_ptys_and_reexec_existing_native_return')
         os.kill(r1['pid'],signal.SIGUSR1);time.sleep(.05);before=len(state['requests'])
         assert focus(sid1).returncode==1 and focus(sid2).returncode==1 and len(state['requests'])==before
         os.kill(r1['pid'],signal.SIGTERM);a.wait(timeout=3);assert focus(sid2).returncode==0
@@ -137,8 +159,9 @@ os.execv('''+repr(str(native))+''',['native'])
         assert launch.wait(timeout=8)==0
         r3=workloads(3)[2];assert not r3['tmux'] and r3['argv']==[list(os.fsencode(x)) for x in [sid1,os.fsdecode(b'raw-\xff'),"quote' $(false)"]]
         assert r3['home']==str(home/'.codex') and r3['color'] is None and r3['auth']=='synthetic-auth-retained' and r3['cwd']==str(root) and calls()==before+1
+        reexec_and_return(r3,sid1)
         for _ in range(2):assert focus(sid1).returncode==0
-        assert len(workloads(3))==3 and len(state['windows'])==1 and calls()==before+3
+        assert len(workloads(3))==3 and len(state['windows'])==1 and calls()==before+4
         assert all(shlex.split(r)[shlex.split(r).index('com.termux.RUN_COMMAND_PATH')+1]==str(prefix/'bin/true') for r in state['requests'] if r.startswith('startservice') and '__terminal-start-v1' not in r)
         assert not list((home/'.local/share/codex/manager/terminals').glob('launch-*')) and not list((home/'.local/share/codex/manager/terminals').glob('consumed-*'))
         print('PASS stock_bare_one_launch_raw_argv_profile_and_inert_reuse')
@@ -168,6 +191,18 @@ os.execv('''+repr(str(native))+''',['native'])
         launch,_,_=start([str(manager),'launch','--profile','default']);assert launch.wait(timeout=8)==13
         assert calls()==before and len(state['windows'])==4
         print('PASS inconclusive_native_failure_no_constructor_fallback')
+        state['mode']='native'
+        guarded,_,_=start([str(manager),'launch','--profile','default','--',sid1])
+        deadline=time.monotonic()+4
+        while not (root/f'{guarded.pid}.ready').exists() and time.monotonic()<deadline:time.sleep(.01)
+        assert (root/f'{guarded.pid}.ready').exists()
+        r6=next(r for r in [json.loads(line) for line in log.read_text().splitlines()] if r['pid']==guarded.pid)
+        binding=next(bindings.glob(f'binding-{r6["pid"]}-*'))
+        foreign=json.loads(binding.read_text());foreign['schema']='future-or-foreign-binding'
+        binding.write_text(json.dumps(foreign));preserved=binding.read_bytes()
+        os.kill(r6['pid'],signal.SIGUSR2);assert guarded.wait(timeout=4)==13
+        assert binding.read_bytes()==preserved and not list(bindings.glob('.binding-*'))
+        print('PASS reexec_preserves_unknown_or_foreign_binding_without_replacement')
         assert not state['errors'],state['errors']
     finally:
         subprocess.run(['tmux','-S',tsock,'kill-server'],capture_output=True)

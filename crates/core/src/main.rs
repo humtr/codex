@@ -19449,6 +19449,7 @@ esac
             .arg("--exact")
             .arg("--nocapture")
             .env(STARTUP_PROBE_ROLE, "1")
+            .env_remove("CODEX_TERMUX_WINDOW_READY")
             .env_remove("CODEX_HOME")
             .env_remove(CODEX_SQLITE_HOME_ENV)
             .env("CODEX_TERMUX_UPDATE_INDEX_URL", index_url)
