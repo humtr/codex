@@ -115,8 +115,22 @@ to this repository and carries no external workflow or model configuration.
   It reports real selected-view match/count, and refuses expired/closed handles.
 - Reviewable APK: /sdcard/Download/termux-origin-candidate/termux-origin-f10d4ec.apk
   SHA256 c389b4b5e6e441e381787f0d2d3d3d8813a698ea6c7590b163274e496698e005.
-  Original APK is retained beside it. User confirmation for app update is pending
-  because current jobs may stop; no APK or installed wrapper cutover has occurred.
-- Closure still requires native app installation, real A/B terminal launch and
+  Original APK is retained beside it. User approved and installed this candidate.
+  Actual capabilities work; real origin requests fail. The origin walk continued
+  past the Termux app PID into Android system ancestry, where /proc is protected.
+  AI candidate ca061a7 stops at the owning app boundary and adds3 regression
+  cases. Build38099833533 passed actual APK compilation, all6 focused tests
+  and same-package/certificate verification; the actual Java ancestry helper
+  also passed protected-parent and invalid-chain proof on this device.
+  Corrected APK termux-origin-ca061a7.apk is staged in the same Download folder;
+  SHA256 d32973c555ff9d8d726306948a0e0af1c2b41ccd2938a22edcd848bf7a278453.
+  An install notification is sent without changing the current view.
+  Device installation and automatic-origin proof remain pending.
+- Source6c5819c acceptance38087812283 passed all4 jobs, including actual
+  Android/AArch64 Core proof and locked workspace tests/Clippy/fmt.
+- User confirms A/B test-entry notifications work through the old named service
+  path. This is setup evidence only: it does not qualify automatic native origin
+  capture or the new production return path. Do not silently switch user views.
+- Closure still requires the corrected app installation, real A/B launch and
   notification return with stable counts, then qualified wrapper deployment.
   Source/PTY/build evidence is not a claim that this Android gate has passed.
