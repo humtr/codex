@@ -14,7 +14,7 @@ const server=Bun.serve({
  async fetch(request,server){
   const url=new URL(request.url), parts=url.pathname.split("/");
   const found=parts[1]||"";
-  if(found.length!==capability.length||!timingSafeEqual(Buffer.from(found),Buffer.from(capability)))return new Response("Not found",{status:404,headers});
+  if(!/^[a-f0-9]{64}$/.test(found)||!timingSafeEqual(Buffer.from(found),Buffer.from(capability)))return new Response("Not found",{status:404,headers});
   const path=parts.slice(2).join("/");
   if(path==="display-proof"){
    if(request.method!=="POST"||request.headers.get("origin")!==`http://127.0.0.1:${server.port}`)return new Response("Forbidden",{status:403,headers});
@@ -47,7 +47,23 @@ const server=Bun.serve({
 </style><div id="owned_mobile_controls"><button id="owned_keyboard">키보드</button><button id="owned_fullscreen">전체 화면</button><span>입력할 곳 → 키보드</span></div>
 <script type="module">
 import UI from './app/ui.js';
-document.getElementById('owned_keyboard').onclick=()=>UI.toggleVirtualKeyboard();
+let firstTouchArmed=true;let touchStart=null;
+// A real touch gesture permits Android IME focus. Do not consume the RFB tap,
+// open on scrolling/multiple touches, or override an explicit keyboard toggle.
+function manualKeyboard(){firstTouchArmed=false;UI.toggleVirtualKeyboard();}
+document.getElementById('owned_keyboard').onclick=manualKeyboard;
+document.getElementById('noVNC_keyboard_button').addEventListener('click',()=>{firstTouchArmed=false;},true);
+const container=document.getElementById('noVNC_container');
+container.addEventListener('pointerdown',event=>{
+ if(firstTouchArmed&&event.pointerType==='touch'&&event.isPrimary&&event.target.tagName==='CANVAS')touchStart={id:event.pointerId,x:event.clientX,y:event.clientY};
+ else touchStart=null;
+},true);
+container.addEventListener('pointercancel',()=>{touchStart=null;},true);
+container.addEventListener('pointerup',event=>{
+ const start=touchStart;touchStart=null;
+ if(!firstTouchArmed||!start||start.id!==event.pointerId||Math.hypot(event.clientX-start.x,event.clientY-start.y)>12||event.target.tagName!=='CANVAS'||!document.documentElement.classList.contains('noVNC_connected'))return;
+ firstTouchArmed=false;UI.showVirtualKeyboard();
+},true);
 let errorCount=0;window.addEventListener('error',()=>errorCount++);window.addEventListener('unhandledrejection',()=>errorCount++);
 async function displayProof(){
  const canvas=document.querySelector('#noVNC_container canvas');

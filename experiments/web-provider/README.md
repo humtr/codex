@@ -72,9 +72,24 @@ Chromium remains a Termux-UID process with --no-sandbox; a private login profile
 is data separation, not OS sandbox isolation. Android browser login/autofill/
 passkeys do not automatically transfer into the remote Chromium profile.
 
-Physical mobile acceptance is still open: the user observed a black screen after
-the first mobile adjustment despite native client rendering success. The temporary
+The first mobile trial showed a black screen despite native client rendering
+success. The user subsequently confirmed normal display; actual phone metrics
+show connected/secure context, viewport480x825 and480x973, matching desktop
+geometry, non-black coverage above99%, keyboard-element focus and zero errors.
+Account login/model acceptance remains open. The temporary
 viewer now reports only connection/dimension/rendering aggregates to a same-origin,
 capability-protected endpoint; arbitrary strings are rejected and no input, page
 text, screenshots, credentials or URLs are retained. This is diagnostic evidence,
 not a claim that the Android display/IME has been repaired.
+
+The first single touch on the remote canvas now enables virtual keyboard focus
+inside that trusted gesture, without consuming the RFB click. Scrolling, mouse
+clicks and multiple touches do not arm it; an explicit keyboard toggle disables
+this one-time automatic action. The viewer sees pixels, so it cannot identify a
+remote form field: the first ordinary remote tap can also enable the keyboard.
+`viewer_touch_probe.py BUN CANDIDATE NOVNC_ASSETS` creates its own private Xvnc
+and account-free Chromium input fixture. Native actual browser proof verifies
+first-touch focus, real RFB click/key delivery and DOM readback, explicit keyboard
+off remaining off on the next tap, and manual re-enable. It never taps the live
+login display. Its two temporary servers stop after the proof; private logs stay
+under TMPDIR. Physical Android IME behavior still requires user observation.
