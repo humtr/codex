@@ -91,9 +91,27 @@ This repository carries no external workflow skill or model configuration.
   unit +55 integration +three public path gates, release-builder25 and Python18+59,
   fmt/Clippy/diff checks. Actual Android disposable launches A/B bare, C hidden
   tmux and D seeded stock named route retained synthetic env and consumed their
-  private launch data. Exact-source CI, fresh single-tap physical observations and
-  signed publication remain pending. Stable45 above is still installed/public.
-  Disposable real Android trials are separate from the fixture transport tests.
+  private launch data. Exact source88b0a09 acceptance38110327826 passed all four
+  jobs, including actual Android/AArch64 Core execution. The separate final
+  Manager gate passed after the descriptor helper cleanup; unaffected Core and
+  release proofs remain applicable. AI composed and clean full verification both
+  passed38 with zero warnings/failures. Clean AI commit5caf2e8 preserves unrelated
+  working bytes; automatic review rejected its main push for missing explicit
+  default-branch authorization, so that exact push awaits the user.
+- Four entry notifications were physically opened by the user. Fresh A/B/C/D
+  return notifications were sent through Manager's real emit path, with outcome
+  probes in the owned TMPDIR fixture. Return observations remain pending; do not
+  replace those observations with a successful send or create more test windows.
+  TMPDIR/codex-window-device-current identifies the owned fixture. Native bare A/B,
+  hidden tmux C and seeded stock named D are separate claims; D does not simulate
+  installing a stock APK. Single taps consume notifications, so retries need new
+  notifications. Termux count was baseline1 plus four owned fixtures.
+- main caller2da52f3 is prepared only in the owned TMPDIR worktree, based on
+  current mainda2d89b and pinned to accepted source88b0a09. It has not been pushed.
+  Signed publication and bounded device activation remain pending. Public and
+  installed stable45 remain the operating authority. No live runtime was changed.
+  TMPDIR/codex-window-main-current and codex-window-progress.json locate prepared
+  work and gate state. Do not bypass the AI push rejection or force-push main.
 
 ## Source and installed AI
 
