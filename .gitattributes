@@ -1,0 +1,2 @@
+# Unified diff context contains a required blank-line space.
+experiments/web-provider/*.patch whitespace=-blank-at-eol

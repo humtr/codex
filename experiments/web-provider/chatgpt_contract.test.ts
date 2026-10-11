@@ -1,0 +1,142 @@
+import { expect, test } from "bun:test";
+import { defaultConfig } from "../src/config";
+import { parseRequest } from "../src/responses/parser";
+import { responseRequest } from "../src/server";
+
+const input = "print('owned namespace')\n";
+const tools = [{ type: "namespace", name: "mcp__python", tools: [
+  { type: "custom", name: "run_script", description: "Owned fixture", format: { type: "grammar", syntax: "lark", definition: "start: /.+/" } },
+]}];
+const call = { type: "custom_tool_call", call_id: "call_owned", namespace: "mcp__python", name: "run_script", input };
+const output = { type: "custom_tool_call_output", call_id: "call_owned", output: [{ type: "input_text", text: "owned result" }] };
+
+function body(items: unknown[], extra = {}) {
+  return { model: "chatgpt-web/luna", input: items, ...extra };
+}
+
+function declaration() {
+  return { type: "additional_tools", role: "developer", tools };
+}
+
+test("custom namespace, raw input and result ID survive parser replay", () => {
+  const parsed = parseRequest(body([declaration(), call, output]));
+  expect(parsed.context.tools).toContainEqual(expect.objectContaining({ name: "run_script", namespace: "mcp__python", freeform: true }));
+  const assistant = parsed.context.messages.find(row => row.role === "assistant");
+  expect(assistant?.content).toContainEqual(expect.objectContaining({ type: "toolCall", id: "call_owned", namespace: "mcp__python", name: "run_script", arguments: { input } }));
+  expect(parsed.context.messages).toContainEqual(expect.objectContaining({ role: "toolResult", toolCallId: "call_owned", toolName: "run_script", toolNamespace: "mcp__python" }));
+});
+
+for (const stream of [false, true]) {
+  test(`real HTTP handler retains custom namespace/type in ${stream ? "SSE" : "JSON"}`, async () => {
+    const config = defaultConfig("full");config.solAvailable = false;config.proAvailable = false;
+    const turnId = `turn_owned_namespace_${stream}`;
+    const req = new Request("http://127.0.0.1:17841/v1/responses", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify(body([declaration(), { type: "message", role: "user", content: [{ type: "input_text", text: "owned fixture" }], internal_chat_message_metadata_passthrough: { turn_id: turnId } }], { stream, metadata: { turn_id: turnId, thread_id: "thread_owned_namespace" } })),
+    });
+    const response = await responseRequest(req, config, () => ({
+      name: "owned-contract-fixture",
+      async runTurn(parsed, _incoming, emit) {
+        expect(parsed.context.tools).toContainEqual(expect.objectContaining({ namespace: "mcp__python", freeform: true }));
+        emit({ type: "tool_call_start", id: "call_owned", name: "mcp__python__run_script" });
+        emit({ type: "tool_call_delta", arguments: JSON.stringify({ input }) });
+        emit({ type: "tool_call_end" });emit({ type: "done", endTurn: false });
+      },
+    }), { rememberState: false });
+    expect(response.status).toBe(200);
+    let items: Array<Record<string, unknown>>;
+    if (stream) {
+      const text = await response.text();
+      const frames = text.split("\n").filter(row => row.startsWith("data: "));
+      expect(frames.filter(row => row === "data: [DONE]")).toHaveLength(1);
+      const messages = frames.filter(row => row !== "data: [DONE]").map(row => JSON.parse(row.slice(6)));
+      items = messages.filter(row => row.type === "response.output_item.done").map(row => row.item);
+    } else {
+      items = ((await response.json()) as { output: Array<Record<string, unknown>> }).output;
+    }
+    expect(items.filter(row => row.type === "custom_tool_call")).toEqual([expect.objectContaining({ call_id: "call_owned", namespace: "mcp__python", name: "run_script", input })]);
+    expect(items.some(row => row.type === "function_call")).toBe(false);
+  });
+}
+
+test("default functions remains its established implicit alias", () => {
+  const parsed = parseRequest(body([{ ...declaration(), tools: [{ ...tools[0], name: "functions" }] }, { ...call, namespace: "functions" }, output]));
+  const assistant = parsed.context.messages.find(row => row.role === "assistant");
+  const selected = assistant?.content.find(row => row.type === "toolCall");
+  expect(selected).not.toHaveProperty("namespace");
+  expect(parsed.context.tools?.[0]).not.toHaveProperty("namespace");
+});
+
+test("orphan duplicate or mismatched call/result refuses before adapter", async () => {
+  const invalid = [[output], [call, call, output], [call, output, output], [call, { ...output, call_id: "other" }], [call, { ...output, type: "function_call_output" }], [{ type: "function_call", call_id: "fn", name: "exec_command", arguments: "{" }], [{ type: "function_call", call_id: "fn", name: "exec_command", arguments: "[]" }]];
+  let executed = 0;
+  for (const items of invalid) {
+    expect(() => parseRequest(body(items))).toThrow();
+    const response = await responseRequest(new Request("http://127.0.0.1/v1/responses", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body(items)) }), defaultConfig("full"), () => ({ name: "must-not-run", async runTurn() { executed++; } }), { rememberState: false });
+    expect(response.status).toBe(400);
+  }
+  expect(executed).toBe(0);
+});
+
+test("completed IDs may be reused in a later exchange, not duplicated while pending", () => {
+  expect(() => parseRequest(body([call, output, call, output]))).not.toThrow();
+});
+
+test("unknown and colliding tool declarations cannot be silently repaired", () => {
+  for (const declared of [[{ type: "unknown", name: "bad" }], [{ type: "web_search" }], [{ type: "namespace", name: "bad", tools: [{ type: "unknown", name: "bad" }] }], [{ type: "function", name: "mcp__python__run_script" }, ...tools]]) {
+    expect(() => parseRequest(body([], { tools: declared }))).toThrow();
+  }
+});
+
+test("tool identity collision is refused across classic and Lite declarations", () => {
+  expect(() => parseRequest(body([declaration()], { tools: [{ type: "function", name: "mcp__python__run_script" }] }))).toThrow("Ambiguous tool wire name");
+});
+
+test("actual copied Core classic and Lite histories retain correlated calls", async () => {
+  const vectors = await Bun.file(new URL("./core-vectors.json", import.meta.url)).json() as Array<{ client_capability_seed: string; body: unknown }>;
+  expect(vectors).toHaveLength(2);
+  for (const vector of vectors) {
+    const parsed = parseRequest(vector.body);
+    const calls = parsed.context.messages.filter(row => row.role === "assistant").flatMap(row => row.content).filter(row => row.type === "toolCall");
+    const results = parsed.context.messages.filter(row => row.role === "toolResult");
+    expect(calls).toHaveLength(2);
+    expect(results).toHaveLength(2);
+    expect(results.map(row => row.toolCallId)).toEqual(calls.map(row => row.id));
+  }
+});
+
+const delegated = {
+  type: "function_call_output", id: "fco_owned", name: "send_message_to_thread",
+  namespace: "codex_app", output: "<codex_delegation><source_thread_id>owned_source</source_thread_id><input>Check &lt;sample&gt; &amp; report.</input></codex_delegation>",
+  internal_chat_message_metadata_passthrough: { turn_id: "turn_owned" },
+};
+
+test("native delegated instruction keeps exact text without manufacturing a tool receipt", () => {
+  const parsed = parseRequest(body([delegated]));
+  expect(parsed.context.messages).toContainEqual(expect.objectContaining({ role: "user", content: delegated.output }));
+  expect(parsed.context.messages.some(row => row.role === "toolResult")).toBe(false);
+  expect((parsed._rawBody as { input: unknown[] }).input).toEqual([delegated]);
+});
+
+test("forged or malformed delegated output still refuses before adapter", async () => {
+  const invalid = [
+    { ...delegated, namespace: "other" }, { ...delegated, name: "exec_command" },
+    { ...delegated, id: "" }, { ...delegated, id: 1 },
+    { ...delegated, output: 1 }, { ...delegated, internal_chat_message_metadata_passthrough: [] }, { ...delegated, internal_chat_message_metadata_passthrough: {} },
+    { ...delegated, internal_chat_message_metadata_passthrough: { turn_id: " " } },
+    { ...delegated, output: delegated.output + "<extra/>" },
+    { ...delegated, output: delegated.output.replace("owned_source", " ") },
+    { ...delegated, output: delegated.output.replace("&lt;sample&gt;", "<sample>") },
+    { ...delegated, output: delegated.output.replace("&amp;", "&unknown;") },
+    { ...delegated, call_id: "orphan" },
+  ];
+  let executed = 0;
+  for (const item of invalid) {
+    expect(() => parseRequest(body([item]))).toThrow();
+    const response = await responseRequest(new Request("http://127.0.0.1/v1/responses", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body([item])),
+    }), defaultConfig("full"), () => ({ name: "must-not-run", async runTurn() { executed++; } }), { rememberState: false });
+    expect(response.status).toBe(400);
+  }
+  expect(executed).toBe(0);
+});
