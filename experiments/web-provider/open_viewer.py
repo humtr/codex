@@ -12,7 +12,7 @@ from urllib.parse import urlencode
 def viewer_url(state):
     assert type(state["port"]) is int and 0 < state["port"] < 65536
     assert isinstance(state["capability"], str) and re.fullmatch(r"[0-9a-f]{64}", state["capability"])
-    query = urlencode({"autoconnect": "1", "resize": "scale", "path": "/" + state["capability"] + "/websock"})
+    query = urlencode({"autoconnect": "1", "resize": "remote", "path": "/" + state["capability"] + "/websock"})
     return f'http://127.0.0.1:{state["port"]}/{state["capability"]}/vnc.html?{query}'
 
 

@@ -57,4 +57,24 @@ noVNC. `open_viewer.py` now supplies an absolute path. `viewer_browser_probe.mjs
 loads the URL from that same builder in actual native Chromium and requires
 noVNC's connected state, the exact WebSocket path and a screen canvas. A raw
 WebSocket greeting alone did not cover this browser URL-resolution defect.
-No screenshots, canvas pixels or authentication are recorded by the proof.
+No screenshots, raw canvas pixels or authentication are recorded by the proof.
+Rendering is checked through aggregate non-black coverage and color counts only.
+
+The temporary viewer adds explicit mobile keyboard/fullscreen controls without
+editing the pinned noVNC source. Remote desktop resizing replaces scaled tiny
+text; actual Chromium with a360px touch viewport proves a360x680 desktop and
+focus on noVNC's virtual keyboard element. The same actual client must render
+non-black desktop content, not only enter noVNC's connected state. This proves browser focus, not the
+physical Android IME; that observation remains user-owned. The dedicated login
+window was maximized only after its X11 PID, live image, start and owned display
+were checked. wmctrl/xwininfo are ordinary X11 inspection utilities, not services.
+Chromium remains a Termux-UID process with --no-sandbox; a private login profile
+is data separation, not OS sandbox isolation. Android browser login/autofill/
+passkeys do not automatically transfer into the remote Chromium profile.
+
+Physical mobile acceptance is still open: the user observed a black screen after
+the first mobile adjustment despite native client rendering success. The temporary
+viewer now reports only connection/dimension/rendering aggregates to a same-origin,
+capability-protected endpoint; arbitrary strings are rejected and no input, page
+text, screenshots, credentials or URLs are retained. This is diagnostic evidence,
+not a claim that the Android display/IME has been repaired.
