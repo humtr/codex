@@ -51,3 +51,10 @@ notification action. The existing termux-am-socket binary requires the complete
 command as one argument. This helper records only return metadata; capability
 URLs and browser authentication stay private. A separate-argv trial failed before
 Activity launch and was corrected after its actual one-argument URI gate passed.
+
+The original relative WebSocket path duplicated the capability directory in real
+noVNC. `open_viewer.py` now supplies an absolute path. `viewer_browser_probe.mjs`
+loads the URL from that same builder in actual native Chromium and requires
+noVNC's connected state, the exact WebSocket path and a screen canvas. A raw
+WebSocket greeting alone did not cover this browser URL-resolution defect.
+No screenshots, canvas pixels or authentication are recorded by the proof.
