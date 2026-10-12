@@ -190,8 +190,9 @@ This repository carries no external workflow skill or model configuration.
   polls. The existing key reference/tunnel ID are reused, with env-i/private HOME
   and no active TurnBroker. Local ready/healthy alone is insufficient. The same
   alias/profile/source remain a temporary experiment, not an installed service.
-  Native artifact/proof are retained under XDG cache. Plugin installation still
-  needs user confirmation; real model/tool-loop acceptance remains open.
+  Native artifact/proof are retained under XDG cache. The user confirmed plugin
+  creation/installation; real model/tool-loop acceptance remains open and the
+  execution broker is not yet connected.
   Proof: ~/.cache/codex/acceptance/web-native-tunnel.json; experiment8fce479.
 
 - Broader authorized normalization continues separately: independent AGY/OpenCode
