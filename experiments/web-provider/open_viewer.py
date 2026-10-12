@@ -18,11 +18,14 @@ def viewer_url(state):
 
 
 def main():
+    assert sys.argv[2:] in ([], ["--refresh"])
     root = Path(sys.argv[1]).resolve()
     state = json.loads((root / "viewer.json").read_text())
     if (root / 'account-view-process.json').exists():
         fit_browser(root)
     url = viewer_url(state)
+    if sys.argv[2:]:
+        url += "&refresh=" + str(time.time_ns())
     executable = Path(os.environ.get("PREFIX", "/data/data/com.termux/files/usr")) / "bin/termux-am-socket"
     # This binary accepts one command string; separate argv elements are refused.
     result = subprocess.run([str(executable), "start -a android.intent.action.VIEW -d " + url],
