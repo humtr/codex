@@ -105,7 +105,7 @@ def fit_browser(root, report=None):
                 width,height,border,depth=(ctypes.c_uint() for _ in range(4))
                 assert lib.XGetGeometry(display,window,ctypes.byref(root_window),ctypes.byref(x),ctypes.byref(y),ctypes.byref(width),ctypes.byref(height),ctypes.byref(border),ctypes.byref(depth))
                 geometry.append({'width':width.value,'height':height.value})
-            report.update(windowGeometry=geometry,desktopWidth=lib.XDisplayWidth(display,0),desktopHeight=lib.XDisplayHeight(display,0))
+            report.update(windowHandles=[hex(window) for window in fitted],windowGeometry=geometry,desktopWidth=lib.XDisplayWidth(display,0),desktopHeight=lib.XDisplayHeight(display,0))
         return len(fitted)
     finally:
         lib.XCloseDisplay(display)

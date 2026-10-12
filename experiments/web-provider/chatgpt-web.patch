@@ -1,5 +1,5 @@
 diff --git a/src/adapters/chatgpt-web/environment.ts b/src/adapters/chatgpt-web/environment.ts
-index bc9a9ff..5fb1c97 100644
+index 3e8e0a2de1271ae2a1707d2a9581e954dfe7fa27..6a152ead24490475f534c03e1a8227b788bae35f 100644
 --- a/src/adapters/chatgpt-web/environment.ts
 +++ b/src/adapters/chatgpt-web/environment.ts
 @@ -1,3 +1,4 @@
@@ -27,7 +27,7 @@ index bc9a9ff..5fb1c97 100644
  function isNativeInstruction(
    item: Record<string, unknown> | undefined,
 diff --git a/src/bridge.ts b/src/bridge.ts
-index 59449cb..13936df 100644
+index 59449cbdc134f6ea4e3dd66dbebb60f71ffa9b0a..13936df34f3867290185a3a5f7db9e311a3644da 100644
 --- a/src/bridge.ts
 +++ b/src/bridge.ts
 @@ -347,6 +347,7 @@ export function bridgeToResponsesSSE(
@@ -71,10 +71,10 @@ index 59449cb..13936df 100644
      } else {
        output.push({
 diff --git a/src/browser-login.ts b/src/browser-login.ts
-index db4ffd6..8a6faca 100644
+index db6a3a330c63d410199b05b96a8be2db9c2f0a17..7761d4f25f144fa3ec1f59f7cb5d121a132882bc 100644
 --- a/src/browser-login.ts
 +++ b/src/browser-login.ts
-@@ -154,7 +154,7 @@ function writeVerificationMarker(
+@@ -155,7 +155,7 @@ function writeVerificationMarker(
  }
  
  async function inspectStoredState(
@@ -83,7 +83,7 @@ index db4ffd6..8a6faca 100644
    storageState: NonNullable<BrowserContextOptions["storageState"]>,
  ): Promise<ChatGptWebAccountCapabilities & { url: string }> {
    const verifierBrowser = await chromium.launch({
-@@ -371,7 +371,7 @@ export async function captureSystemBrowserLoginToFile(
+@@ -375,7 +375,7 @@ export async function captureSystemBrowserLoginToFile(
  }
  
  export async function loginToChatGpt(
@@ -92,7 +92,7 @@ index db4ffd6..8a6faca 100644
    options: { timeoutMs?: number } = {},
  ): Promise<BrowserLoginResult> {
    if (!existsSync(config.chromeExecutablePath)) {
-@@ -388,6 +388,7 @@ export async function loginToChatGpt(
+@@ -392,6 +392,7 @@ export async function loginToChatGpt(
      "--disable-background-mode",
      "--no-first-run",
      "--no-default-browser-check",
@@ -100,7 +100,7 @@ index db4ffd6..8a6faca 100644
      CHATGPT_TEMPORARY_CHAT_URL,
    ], { env: process.env, stdio: "ignore" });
    const loginExit = await new Promise<number>((resolveExit, rejectExit) => {
-@@ -437,7 +438,7 @@ export async function loginToChatGpt(
+@@ -441,7 +442,7 @@ export async function loginToChatGpt(
    }
  }
  
@@ -110,7 +110,7 @@ index db4ffd6..8a6faca 100644
    const markerPath = loginVerificationMarkerPath(config.storageStatePath);
    if (!existsSync(markerPath)) return false;
 diff --git a/src/config.ts b/src/config.ts
-index 8548230..12eb910 100644
+index 85482308c429f4a0f9530e48cd2b2ac63243132c..12eb9106f1d8d54122b20ef11fd9c1606e230ea5 100644
 --- a/src/config.ts
 +++ b/src/config.ts
 @@ -368,6 +368,11 @@ export function defaultChromeExecutable(
@@ -126,7 +126,7 @@ index 8548230..12eb910 100644
      return "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
    }
 diff --git a/src/responses/parser.ts b/src/responses/parser.ts
-index ded9b12..aa9b602 100644
+index ded9b12250c0e2d6934914f77963747e3ed9834c..aa9b602dfb727fab5c1c3cc0da1ea7b111176369 100644
 --- a/src/responses/parser.ts
 +++ b/src/responses/parser.ts
 @@ -12,7 +12,7 @@ import type {
@@ -364,7 +364,7 @@ index ded9b12..aa9b602 100644
      });
    const context: CodexContext = {
 diff --git a/src/responses/schema.ts b/src/responses/schema.ts
-index 2286bab..285eb59 100644
+index 2286babd50108ff75954f90108894aeb82d76f26..285eb59dfd1bcb836f73ff7561208ab715abbd49 100644
 --- a/src/responses/schema.ts
 +++ b/src/responses/schema.ts
 @@ -1,5 +1,22 @@
@@ -399,10 +399,10 @@ index 2286bab..285eb59 100644
  });
  const customToolCallOutputItemSchema = z.object({
 diff --git a/src/server.ts b/src/server.ts
-index 380b4f3..3073955 100644
+index f0d5ca7e6339b3af750b7c31751a70f524f66870..ac6bcf960e0839b4123b14238ffaa6664fb03062 100644
 --- a/src/server.ts
 +++ b/src/server.ts
-@@ -472,7 +472,7 @@ function toolBridgeMaps(parsed: CodexParsedRequest): {
+@@ -605,7 +605,7 @@ function toolBridgeMaps(parsed: CodexParsedRequest): {
    const toolSearchToolNames = new Set<string>();
    for (const tool of parsed.context.tools ?? []) {
      if (tool.namespace) toolNsMap.set(namespacedToolName(tool.namespace, tool.name), { namespace: tool.namespace, name: tool.name });
@@ -412,7 +412,7 @@ index 380b4f3..3073955 100644
    }
    return { toolNsMap, freeformToolNames, toolSearchToolNames };
 diff --git a/tests/responses-lite-tools.test.ts b/tests/responses-lite-tools.test.ts
-index ba97f57..bb7f2b8 100644
+index ba97f57759a87307b1df7426740870d96b2f34f3..bb7f2b89101368dbd3727f225af3030b07c3011b 100644
 --- a/tests/responses-lite-tools.test.ts
 +++ b/tests/responses-lite-tools.test.ts
 @@ -37,7 +37,7 @@ function responsesLiteTools() {

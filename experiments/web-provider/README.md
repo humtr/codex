@@ -4,7 +4,8 @@ This separate branch follows repository AGENTS.md. Production configuration,
 profiles, conversations and services remain authoritative and unchanged.
 
 Selected bridge: miuuyy/codex-chatgpt-web at
-92a356fac2292e3af5a97ab7ba634edd8d38621e, version6.1.5. Frozen Bun dependencies
+7cc8b8d8aadbbf729bd2bd43ca47fa15ea9965c0, version6.1.8. The prior
+92a356f/6.1.5 baseline remains separate with its qualified native runtime. Frozen Bun dependencies
 and official Android/aarch64 Bun1.4.0 run directly on this phone. The official
 Bun archive SHA256 is42544d7438bb92c7e7df7d30b9a5858cb7a834636608e5b850f59138283567fc.
 Installed Chromium152.0.7977.82 at $PREFIX/lib/chromium/chrome completed real
@@ -79,7 +80,8 @@ instances and stops its temporary servers after the proof. Its toolbar-only imag
 is from that account-free fixture; live login screenshots/raw pixels are never
 retained. The native proof shows a40px toolbar with no control overflow at360px.
 
-Mobile connection and ChatGPT display were confirmed by the user. Repeated IME
+Mobile connection, ChatGPT display and matched horizontal width were confirmed
+by the user. The ordinary persistent browser also opened without Cloudflare. Repeated IME
 open/close worked after the former first-focus loss; the compact independent
 controls and startup-focus correction still need actual phone confirmation.
 Client diagnostics retain only connection/geometry/rendering aggregates, reject
@@ -146,3 +148,44 @@ state/verification stays intact. Profile/marker modes are700/600. This manual
 view is not model/tool-loop acceptance or an anti-bot workaround for the bridge.
 Manual verification may still need the user, and may still fail. Do not add stealth,
 CAPTCHA solvers or claim the automated provider works based on this viewer.
+
+## Current real-service frontier
+
+The ordinary persistent browser's width and absence of Cloudflare were accepted
+by the user. Reopening that same profile with Playwright is not accepted: a bounded
+first attempt reached a composer but did not prove a reply; subsequent diagnostics
+returned document403/200 and a challenge title, with no composer or model response.
+No challenge was clicked or solved. The ordinary browser was restored normally.
+Do not mistake manual browser access for automatic provider acceptance.
+`persistent_model_probe.mjs CANDIDATE GUI DATA_ROOT` is the bounded reproducer;
+it refuses a still-running qualified browser owner before touching the profile.
+Only aggregate navigation/response metadata is retained; prompt/reply bodies,
+account contents, cookies and challenge tokens are never printed or saved.
+
+The6.1.8 input uses the same frozen bun.lock and qualified Playwright correction.
+The prior Termux/wire patch applies cleanly; chatgpt-web.patch is now regenerated
+against exact7cc8b8d. Six affected suites initially passed134, skipped one Windows
+case and failed four authority tests because the calling Codex's CODEX_SQLITE_HOME
+was inherited. Removing only that variable for the owned test process makes all
+four focused cases pass; full TypeScript passes. Keep the inherited-environment
+failure visible, and isolate subsequent tests rather than relaxing authority.
+No6.1.8 real-model acceptance is claimed. Its ordinary managed-browser creation
+still launches a fresh automated browser/context, so it does not fix the403 gate.
+`mcp_catalog_probe.mjs CANDIDATE OWNED_ROOT` connects its actual native stdio child,
+checks six unique object-shaped tool schemas and closes the child. Both6.1.5 and
+6.1.8 pass this transport proof; there are zero real model/tool executions.
+
+The existing, stopped surface-probe Tunnel was temporarily connected through an
+independent alias codex-web-termux-trial and private TMPDIR profile, using its
+existing runtime-key file. Native tunnel-client0.0.14 reports running/ready/healthy;
+operating Tdev configuration and key hashes are unchanged. This is temporary
+trial runtime state with no boot service; source/binary inputs remain outside prj.
+It must be stopped/removed from local runtime metadata when the trial finishes.
+A ChatGPT-side plugin named Codex Native2 using the prepared Tunnel still needs
+confirmation. The official workflow is ChatGPT Plugins → plus → Add custom MCP
+server → Connection: Tunnel; the app creator must have Tunnels Read+Use and the
+Tunnel must belong to that ChatGPT workspace:
+https://developers.openai.com/api/docs/guides/secure-mcp-tunnels?site_locale=en
+The candidate requires a separate safe connector for Zero Risk/manual turns;
+it is not silently interchangeable with this native automatic contract. Automatic
+reply, two model-initiated tools, cancellation, compaction and resume remain open.
