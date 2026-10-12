@@ -212,9 +212,17 @@ The user also reported “app setup was rate limited”. No app creation retry o
 limit bypass was made; the user subsequently completed ordinary plugin installation after the viewer
 fix and real native tunnel connection. The temporary Tunnel itself remains ready.
 
-Current physical baseline: the user accepted scroll usability after default-manual
-keyboard, fixed desktop height and layout-poller removal. Keep this exact viewer
-behavior while investigating service integration. The same ordinary Chromium,
+Current physical baseline: scroll usability was accepted after default-manual
+keyboard, fixed desktop height and layout-poller removal. A later phone report
+reopened the horizontal-width gate. Aggregate viewer records include a zero-sized
+Android viewport and framebuffer; these invalid/background layouts must not
+resize the shared desktop. Preserve the last valid height, resize only while the
+viewer is visible with positive dimensions, and scale the framebuffer to the
+valid viewport while the remote resize completes. Keyboard-only height changes
+remain excluded. Native account-free regression passes hidden zero-layout
+preservation, a second viewer changing the shared desktop to640px while the
+480px viewer remains uncropped, visibility restoration to480px and the existing
+input/scroll/IME gates. Renewed phone acceptance remains pending. The same ordinary Chromium,
 login and form remain alive; trial tunnel status is ready/healthy and operating
 Tdev config/key hashes remain unchanged. Plugin installation is now confirmed by the user. Automated browser403 and
 model/tool-loop acceptance remain unresolved service gates.

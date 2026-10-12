@@ -12,14 +12,14 @@ const {chromium}=await import(pathToFileURL(join(candidate,'node_modules/playwri
 const executablePath=join(process.env.PREFIX,'lib/chromium/chrome');
 const args=['--no-sandbox','--disable-dev-shm-usage','--window-position=0,0'];
 const desktop=await chromium.launch({executablePath,headless:false,args});
-let viewer;let remote;let fixtureServer;let stage='launch';
+let viewer;let remote;let viewerPage;let fixtureServer;let stage='launch';
 try{
  remote=await desktop.newPage({viewport:{width:520,height:600}});
  fixtureServer=Bun.serve({hostname:'127.0.0.1',port:0,fetch(){return new Response('<title>Owned input fixture</title><style>body{margin:0;background:white}input{width:100vw;height:80vh;font:24px sans-serif;border:0}</style><input id="owned" aria-label="Owned test input"><dialog id="ownedDialog">Owned cancellation fixture</dialog><div style="height:2600px;width:1800px"></div>',{headers:{'Content-Type':'text/html;charset=utf-8','Cache-Control':'no-store'}});}});
  await remote.goto('http://127.0.0.1:'+fixtureServer.port+'/owned-fixture');
  await remote.bringToFront();
  viewer=await chromium.launch({executablePath,headless:true,args});
- const page=await viewer.newPage({viewport:{width:360,height:740},isMobile:true,hasTouch:true});
+ const page=await viewer.newPage({viewport:{width:360,height:740},isMobile:true,hasTouch:true});viewerPage=page;
  await page.goto(encoded.stdout.trim(),{waitUntil:'domcontentloaded',timeout:15000});
  stage='connect';
  await page.waitForFunction(()=>document.documentElement.classList.contains('noVNC_connected'),{},{timeout:15000});
@@ -179,6 +179,45 @@ try{
  const geometry=JSON.parse(resizedFit.stdout);
  if(geometry.windowGeometry[0].width!==480||geometry.windowGeometry[0].height!==785)throw Error('Fitted browser did not track viewer geometry');
  if(currentDesktop()!==beforeDesktop)throw Error('Page scrolling changed the X11 desktop');
+ stage='hidden-and-zero-viewport';
+ const validDesktopHeight=await page.locator('#noVNC_container').evaluate(element=>element.style.getPropertyValue('--owned-desktop-height'));
+ await page.evaluate(()=>{
+  Object.defineProperty(document,'visibilityState',{configurable:true,get:()=> 'hidden'});
+  document.dispatchEvent(new Event('visibilitychange'));
+  window.ownedWidthDescriptor=Object.getOwnPropertyDescriptor(window,'innerWidth');
+  window.ownedHeightDescriptor=Object.getOwnPropertyDescriptor(window,'innerHeight');
+  Object.defineProperty(window,'innerWidth',{configurable:true,get:()=>0});
+  Object.defineProperty(window,'innerHeight',{configurable:true,get:()=>0});
+  window.dispatchEvent(new Event('resize'));
+ });
+ await page.waitForTimeout(250);
+ const hiddenState=await page.evaluate(async()=>{
+  const {default:UI}=await import('./app/ui.js');
+  return {resize:UI.rfb.resizeSession,height:document.querySelector('#noVNC_container').style.getPropertyValue('--owned-desktop-height')};
+ });
+ if(hiddenState.resize||hiddenState.height!==validDesktopHeight||await canvas.evaluate(element=>element.width)!==480)throw Error('Hidden zero layout changed the desktop');
+ stage='shared-desktop-width-fallback';
+ const other=await viewer.newPage({viewport:{width:640,height:900},isMobile:true,hasTouch:true});
+ try{
+  await other.setViewportSize({width:640,height:900});
+  await other.goto(encoded.stdout.trim(),{waitUntil:'domcontentloaded',timeout:15000});
+  stage='secondary-viewer-connect';
+  await other.waitForFunction(()=>document.documentElement.classList.contains('noVNC_connected'),{},{timeout:15000});
+  stage='secondary-viewer-width';
+  await page.waitForFunction(()=>document.querySelector('#noVNC_container canvas').width===640,{},{timeout:5000});
+  const scaled=await canvas.boundingBox();
+  if(scaled.x<0||scaled.x+scaled.width>480.5)throw Error('Another viewer desktop width cropped the current viewer');
+ }finally{await other.context().close();}
+ await page.evaluate(()=>{
+  Object.defineProperty(window,'innerWidth',window.ownedWidthDescriptor);
+  Object.defineProperty(window,'innerHeight',window.ownedHeightDescriptor);
+  delete window.ownedWidthDescriptor;delete window.ownedHeightDescriptor;delete document.visibilityState;
+  document.dispatchEvent(new Event('visibilitychange'));
+ });
+ stage='primary-viewer-width-restored';
+ await page.waitForFunction(()=>document.querySelector('#noVNC_container canvas').width===480&&document.querySelector('#noVNC_container canvas').height===785,{},{timeout:5000});
+ const resumed=await page.evaluate(async()=>{const {default:UI}=await import('./app/ui.js');return UI.rfb.resizeSession;});
+ if(!resumed)throw Error('Visible viewer did not restore remote width');
  stage='ime-and-scroll-stability';
  const beforeImeHeight=await canvas.evaluate(element=>element.height);
  await page.setViewportSize({width:480,height:973});
@@ -215,8 +254,9 @@ try{
  const toolbarImage=join(gui,'toolbar.png');
  // The fixture is account-free. Capture only this owned toolbar, never login UI.
  await page.screenshot({path:toolbarImage,clip:{x:0,y:footer.y,width:360,height:footer.height}});
- console.log(JSON.stringify({mouseAndScrollDoNotOpen:true,initialDelayedFocusPreserved:true,repeatAfterBlur:true,staleFocusRefreshed:true,threeRealRfbInputReadbacks:true,manualAndAutomaticIndependent:true,autoOffPreserved:true,realRemoteModalCancelledByEsc:true,singleFingerRemoteScroll:true,mouseDragModePreserved:true,twoFingerRemoteScroll:true,staleWindowOwnerRefused:true,narrowBrowserWidthMatched:true,undersizedWindowFitted:true,lowerAreaScrollAfterResize:true,desktopUnchangedByScroll:true,horizontalSwipe:true,manualKeyboardDefault:true,imeLayoutSimulated:true,remoteHeightStableAcrossIme:true,returningScrollDoesNotOpenKeyboard:true,toolbarHeight:footer.height,toolbarImage}));
+ console.log(JSON.stringify({mouseAndScrollDoNotOpen:true,initialDelayedFocusPreserved:true,repeatAfterBlur:true,staleFocusRefreshed:true,threeRealRfbInputReadbacks:true,manualAndAutomaticIndependent:true,autoOffPreserved:true,realRemoteModalCancelledByEsc:true,singleFingerRemoteScroll:true,mouseDragModePreserved:true,twoFingerRemoteScroll:true,staleWindowOwnerRefused:true,narrowBrowserWidthMatched:true,undersizedWindowFitted:true,lowerAreaScrollAfterResize:true,desktopUnchangedByScroll:true,horizontalSwipe:true,manualKeyboardDefault:true,hiddenZeroLayoutPreservesDesktop:true,sharedDesktopWidthFitsViewport:true,visibleViewerRestoresWidth:true,imeLayoutSimulated:true,remoteHeightStableAcrossIme:true,returningScrollDoesNotOpenKeyboard:true,toolbarHeight:footer.height,toolbarImage}));
 }catch(error){
  const fixture=remote?await remote.evaluate(()=>{const input=document.querySelector('#owned');return {focused:document.activeElement===input,length:input?.value.length,prefix:input?.value.startsWith('owned-touch-731'),second:input?.value.includes('-second'),third:input?.value.includes('-third')};}).catch(()=>null):null;
- console.log(JSON.stringify({failedStage:stage,fixture}));throw error;
+ const layout=await viewerPage?.evaluate(async()=>{const {default:UI}=await import('./app/ui.js'); const c=document.querySelector('canvas');return {width:c?.width,height:c?.height,resize:UI.rfb?.resizeSession,scale:UI.rfb?.scaleViewport,visibility:document.visibilityState,innerWidth,innerHeight};}).catch(()=>null);
+ console.log(JSON.stringify({failedStage:stage,fixture,layout}));throw error;
 }finally{await viewer?.close();await desktop.close();fixtureServer?.stop(true);}

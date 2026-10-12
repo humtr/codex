@@ -96,13 +96,27 @@ function scrollTouch(event){
 for(const type of ['gesturestart','gesturemove','gestureend'])container.addEventListener(type,scrollTouch,true);
 // Hold desktop height across IME/address-bar changes; remote page layout stays
 // stable while the keyboard or toolbar moves. Width/orientation changes refit.
-let layoutWidth=window.innerWidth;
+let layoutWidth=0;
+function validVisibleLayout(){
+ return document.visibilityState==='visible'&&window.innerWidth>0&&window.innerHeight>40;
+}
 function holdDesktopHeight(){
+ if(!validVisibleLayout())return;
  container.style.setProperty('--owned-desktop-height',Math.max(100,window.innerHeight-40)+'px');
+ layoutWidth=window.innerWidth;
 }
 holdDesktopHeight();
 function updateVisibleControls(){
- if(window.innerWidth!==layoutWidth){layoutWidth=window.innerWidth;holdDesktopHeight();}
+ const valid=validVisibleLayout();
+ // A hidden Android tab can report 0x0. It must not resize the shared X desktop
+ // or overwrite the last valid layout. Resume on visibility/width restoration.
+ if(UI.rfb){
+  UI.rfb.resizeSession=valid;
+  // Keep the complete framebuffer visible during a resize or another viewer's
+  // size change. With matching dimensions this is naturally a 1:1 presentation.
+  UI.rfb.scaleViewport=true;
+ }
+ if(valid&&window.innerWidth!==layoutWidth)holdDesktopHeight();
  const viewport=window.visualViewport;
  const keyboardInset=viewport?Math.max(0,window.innerHeight-viewport.height-viewport.offsetTop):0;
  // Keep manual controls reachable above the Android keyboard.
@@ -110,7 +124,10 @@ function updateVisibleControls(){
 }
 window.visualViewport?.addEventListener('resize',updateVisibleControls);
 window.visualViewport?.addEventListener('scroll',updateVisibleControls);
-window.addEventListener('resize',updateVisibleControls);updateVisibleControls();
+window.addEventListener('resize',updateVisibleControls);
+document.addEventListener('visibilitychange',updateVisibleControls);
+new MutationObserver(updateVisibleControls).observe(document.documentElement,{attributes:true,attributeFilter:['class']});
+updateVisibleControls();
 fullscreenButton.onclick=()=>{
  const promise=document.fullscreenElement?document.exitFullscreen?.():document.documentElement.requestFullscreen?.();
  promise?.catch(()=>{});
