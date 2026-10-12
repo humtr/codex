@@ -212,49 +212,43 @@ This repository carries no external workflow skill or model configuration.
   and hash-verified from a private recovery archive. Automatic review rejected
   deletion; the reversible relocation preserves every original byte instead.
   Legacy credential configuration is unchanged. Empty prj/artex was removed.
-- Independent experiment/web-termux publishes34efe7f; restored viewer ise72f1e8. Native Android Bun1.4.0,
-  locked bridge6.1.8/7cc8b8d and Chromium152 have account-free DOM and actual
-  six-tool native stdio catalog proof; no catalog tool execution is implied.
-  Experimental native-chromium integration and real-Core driver are committed
-  separately from production. Direct native TypeScript passes; six affected suites
-  pass172/skip5 with940 assertions. The five browser binding cases were then run
-  against actual Android Chromium synthetic documents:5 pass/0 fail/65 assertions.
-  These DOM tests do not qualify a real ChatGPT model turn. Inert parser configuration executables are
-  confined to unit fixtures and are not runtime admission evidence.
-  Actual signed stable49 Core reached the6.1.8 browser adapter and TurnBroker with
-  a public Web model slug in disposable roots, then failed before a model reply.
-  The private-pipe Chromium host passes account-free DOM, protected descriptor,
-  bearer/origin and concurrent-connection refusal, persistent-context reconnect,
-  actual loopback network navigation and owned cleanup.
-  It preserves Chromium's actual automation properties. Its interactive trial
-  returned document403/200 with a challenge title and no composer; the user
-  confirmed the new trial failed while the original ordinary browser worked.
-  The native trial is stopped, its obsolete navigation alert removed, and the
-  original browser PID/start/image and profile preserved. No challenge solving,
-  stealth, authentication publication or production provider change was made.
-  ChatGPT Codex Native2 installation is user-confirmed. The owned trial Tunnel
-  has real Android resolver/outbound poll proof, separate from startup health,
-  with operating Tdev configuration/key hashes unchanged. This is temporary
-  trial state, not a boot service. Real model reply, two model-initiated tools,
-  cancellation, compact and resume remain unqualified.
-  The user accepted scroll/IME usability of the40px viewer toolbar,
-  independent manual/automatic keyboard, one/two-finger and horizontal scroll,
-  drag fallback and Esc. Desktop height stays fixed across keyboard/address-bar
-  changes; no layout poller or browser restart is used. The width experiment
-  dca030e had green synthetic zero-layout/multi-viewer tests but failed on the
-  phone: right-edge cropping persisted and the screen appeared black. Those
-  tests do not establish physical acceptance. e72f1e8 restores the controls and
-  fixture byte-for-byte from user-accepted023c263. The original ordinary Chromium
-  is fitted to480x785 with its PID/start/image/profile/login preserved. A fresh
-  navigation alert adds an explicit --refresh query to the original viewer URL,
-  so no manual reload is needed. The user confirmed this restored connection
-  works. Keep this accepted configuration; the rejected width behavior is not
-  active. Private proof: ~/.cache/codex/acceptance/web-viewer-width.json.
-  Browser data belongs to ~/.local/share/codex-web-experiment. Private login state
-  is mode600 and profiles are700; no main Codex/device-browser auth was imported.
-  Saved capability flags were not account eligibility proof. The separate ordinary
-  and native profiles plus automation properties remain service-debugging facts,
-  not evidence that a browser version bump resolves the challenge gate.
+- Independent experiment/web-termux publishes057d8aa. Production remains stable49;
+  the restored mobile viewer ise72f1e8 with user-accepted023c263 controls. Original
+  viewer/Tunnel connectivity and Native2 installation are confirmed. The rejected
+  dca030e width behavior is inactive. Fresh navigation uses --refresh; browser
+  login/profile and owned normal-window480x785 fitting are preserved.
+  The stale cookie-only seed had24 account cookies versus27 in the current
+  experimental profile. A read-only SQLite snapshot excludes challenge cookies
+  and other domains and reaches an authenticated unique composer. One prepared
+  empty Temporary Chat is handed off by exact owned CDP target ID and consumed
+  once; stale targets, drafts, user turns and ambiguous composers are refused.
+  This removes the redundant navigation between inspection and actual Core work.
+  Actual signed stable49 Core,6.1.8/7cc8b8d server and TurnBroker in disposable
+  roots reach authenticated surface, model/effort, exact Native2 selection, full
+  prompt/files and Send. The conversation POST returns403 plus
+  cf-mitigated:challenge; the adapter reports chatgpt_security_check. The same
+  result occurs using the unchanged full experimental browser profile in place.
+  This is the model-submission failure, not a disconnected viewer or Tunnel.
+  Real reply, two model-initiated tools, cancel, compact and resume remain open.
+  Native TypeScript passes. Six affected suites pass177/0 with1005 assertions,
+  including five actual native Chromium DOM tests. Account-free private-pipe
+  proof passes descriptor/auth/origin/concurrent-owner refusal, prepared-page
+  readback/consumption, stale-target/draft/user-turn refusal, persistent context,
+  reconnect/network and owned-process/descriptor cleanup. These gates do not
+  establish real service success. No private screenshots/conversations/keys are
+  published and no CAPTCHA solution or browser-property override is used.
+  Automatic approval review rejected an indefinite native-host hold of the live
+  experimental profile; it was not executed. The bounded human-view variant was
+  allowed: max120 seconds, no model requests while waiting, owner verification,
+  private recovery checkpoint, automatic ordinary-browser/marker restoration and
+  stale-alert removal. The latest timed view displayed a challenge title without
+  a composer, expired and restored ordinary Chrome. Human confirmation is pending.
+  Private aggregates: ~/.cache/codex/acceptance/web-current-login.json,
+  web-same-profile.json, web-human-check.json and web-warm-page.json.
+  Experimental browser data belongs to ~/.local/share/codex-web-experiment;
+  current isolated sources/checkouts remain in TMPDIR. There is no new boot
+  service, merged provider or production installer admission. Operating Tdev
+  config/key hashes and the native trial Tunnel remain unchanged.
 
 - Public update currently fetches complete payloads with a300-second per-payload
   budget. Slow large downloads can hit that limit and trigger local-derived
