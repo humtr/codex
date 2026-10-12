@@ -184,7 +184,7 @@ This repository carries no external workflow skill or model configuration.
   configuration executable; they are not model/runtime-service acceptance.
   Native headed Chromium/X11, private Unix RFB and capability-protected mobile
   viewer HTTP/WebSocket roundtrips pass. Independent experiment/web-termux now
-  publishes46a969b: compact40px manual keyboard/automatic switch, one-finger
+  publishes5a0fcfd: compact40px manual keyboard/automatic switch, one-finger
   scroll/mouse-drag mode, remote Esc and fullscreen controls. Actual native X11/RFB
   fixtures pass repeated input,2-second initial-focus retention, independent
   keyboard controls, one/two-finger scrolling, mouse dragging and remote HTML-modal
@@ -227,6 +227,18 @@ This repository carries no external workflow skill or model configuration.
   local runtime metadata when the trial finishes. ChatGPT-side Codex Native2
   plugin creation/selection is pending user menu confirmation. Actual response,
   two model-initiated tools, cancel, compact and resume remain unqualified.
+  The user then reported unusable scroll/keyboard reflow and an app-setup rate limit.
+  Actual Android metrics changed desktop785→933px on IME open. The agent-owned
+  layout poller was removed without signalling/restarting Chromium; its actual
+  PID/start/image now owns the private browser record, preserving the current form.
+  Current viewer holds desktop height across keyboard/address-bar changes, defaults
+  to manual keyboard (newv2 opt-in setting), cancels auto focus on any gesture
+  movement and sends Esc without focusing hidden input. Fullscreen fitting is
+  idempotent and no longer polls. Native account-free regression passes actual
+  vertical/horizontal scroll and models the reported IME geometry; an out-and-back
+  swipe does not focus keyboard or resize canvas/X11. This is simulated IME layout,
+  not physical Android acceptance. Fresh scroll/IME feedback is pending. App setup
+  was not retried or bypassed; its red rate-limit message remains unresolved.
   The user confirmed the logged-in composer. Normal owned-browser exit captured
   and verified new experimental auth on2026-10-12, with private mode600 state/marker;
   the bridge removed its login profile only after successful verification. Saved
