@@ -184,14 +184,20 @@ This repository carries no external workflow skill or model configuration.
   configuration executable; they are not model/runtime-service acceptance.
   Native headed Chromium/X11, private Unix RFB and capability-protected mobile
   viewer HTTP/WebSocket roundtrips pass. Independent experiment/web-termux now
-  publishes dc03675: compact40px manual keyboard/automatic switch, one-finger
+  publishes097aab5: compact40px manual keyboard/automatic switch, one-finger
   scroll/mouse-drag mode, remote Esc and fullscreen controls. Actual native X11/RFB
   fixtures pass repeated input,2-second initial-focus retention, independent
   keyboard controls, one/two-finger scrolling, mouse dragging and remote HTML-modal
   cancellation. The user's native Save dialog was separately closed with a checked
   WM_DELETE request; automated native Save creation remains unqualified. Completed
   account-free fixtures and services were cleaned; aggregate proof/toolbar image
-  stay under ~/.cache/codex/acceptance. Fresh phone scroll/Esc acceptance is pending.
+  stay under ~/.cache/codex/acceptance. The first physical scroll attempt switched
+  X11 desktops because the saved-account Chrome window was508x345 within a480x785
+  viewer. Owned PID/start/image/private environment/ancestry fitting now maximizes
+  the normal browser before return. Native regression proves stale-owner refusal,
+  lower-area page scrolling after viewer resize and no desktop change. The live
+  phone browser now fills the785px desktop height; fresh phone scroll/Esc acceptance
+  remains pending. No global desktop binding was removed to conceal the defect.
   The user confirmed the logged-in composer. Normal owned-browser exit captured
   and verified new experimental auth on2026-10-12, with private mode600 state/marker;
   the bridge removed its login profile only after successful verification. Saved
