@@ -37,6 +37,10 @@ try{
  await session.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
  if(await page.evaluate(()=>document.activeElement?.id==='noVNC_keyboardinput'))throw Error('Scroll gesture opened mobile keyboard');
  await session.detach();
+ if(await page.locator('#owned_keyboard_auto').getAttribute('aria-checked')!=='false')throw Error('Manual keyboard is not the default');
+ await canvas.tap({position:{x:330,y:220}});
+ if(await page.evaluate(()=>document.activeElement?.id==='noVNC_keyboardinput'))throw Error('Default remote tap opened keyboard');
+ await page.locator('#owned_keyboard_auto').tap();
  await canvas.tap({position:{x:330,y:220}});
  const focused=await page.evaluate(()=>document.activeElement?.id==='noVNC_keyboardinput');
  if(!focused)throw Error('First trusted touch did not focus virtual keyboard');
@@ -175,13 +179,43 @@ try{
  const geometry=JSON.parse(resizedFit.stdout);
  if(geometry.windowGeometry[0].width!==480||geometry.windowGeometry[0].height!==785)throw Error('Fitted browser did not track viewer geometry');
  if(currentDesktop()!==beforeDesktop)throw Error('Page scrolling changed the X11 desktop');
+ stage='ime-and-scroll-stability';
+ const beforeImeHeight=await canvas.evaluate(element=>element.height);
+ await page.setViewportSize({width:480,height:973});
+ await page.waitForTimeout(400);
+ if(await canvas.evaluate(element=>element.height)!==beforeImeHeight)throw Error('IME/address-bar height change resized remote desktop');
+ // Model the observed Android visual viewport while keeping the real browser's
+ // changed innerHeight. This simulates layout, not the physical Android IME.
+ await page.evaluate(()=>{
+  window.ownedImeHeight=679;
+  Object.defineProperty(window.visualViewport,'height',{configurable:true,get:()=>window.ownedImeHeight});
+  window.visualViewport.dispatchEvent(new Event('resize'));
+  document.getElementById('noVNC_keyboardinput').blur();
+ });
+ await manualButton.tap();
+ if(!await page.evaluate(()=>document.activeElement?.id==='noVNC_keyboardinput'))throw Error('Manual keyboard focus unavailable during IME layout');
+ await page.evaluate(()=>{
+  window.ownedImeHeight=window.innerHeight;
+  window.visualViewport.dispatchEvent(new Event('resize'));
+ });
+ const bounce=await page.context().newCDPSession(page);
+ const bouncePoint={id:1,x:200,y:500};
+ await bounce.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[bouncePoint]});
+ for(const shift of [50,90,5])await bounce.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{...bouncePoint,y:bouncePoint.y-shift}]});
+ await bounce.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+ await bounce.detach();
+ if(await page.evaluate(()=>document.activeElement?.id==='noVNC_keyboardinput'))throw Error('Returning scroll gesture reopened keyboard after Android Back');
+ if(await canvas.evaluate(element=>element.height)!==beforeImeHeight)throw Error('Scrolling reflowed remote desktop');
+ const desktopGeometry=spawnSync(join(process.env.PREFIX,'bin/python3'),['-B','-c','import json,sys; from fit_browser import desktop_size; print(json.dumps(desktop_size(sys.argv[1])))',gui],{cwd:source,encoding:'utf8'});
+ if(desktopGeometry.status!==0||JSON.stringify(JSON.parse(desktopGeometry.stdout))!==JSON.stringify([480,785]))throw Error('IME changed native X11 desktop geometry');
+ await page.evaluate(()=>{delete window.visualViewport.height;window.visualViewport.dispatchEvent(new Event('resize'));});
  await target.detach();await browserSession.detach();
  await page.setViewportSize({width:360,height:740});
  await page.waitForTimeout(300);
  const toolbarImage=join(gui,'toolbar.png');
  // The fixture is account-free. Capture only this owned toolbar, never login UI.
  await page.screenshot({path:toolbarImage,clip:{x:0,y:footer.y,width:360,height:footer.height}});
- console.log(JSON.stringify({mouseAndScrollDoNotOpen:true,initialDelayedFocusPreserved:true,repeatAfterBlur:true,staleFocusRefreshed:true,threeRealRfbInputReadbacks:true,manualAndAutomaticIndependent:true,autoOffPreserved:true,realRemoteModalCancelledByEsc:true,singleFingerRemoteScroll:true,mouseDragModePreserved:true,twoFingerRemoteScroll:true,staleWindowOwnerRefused:true,narrowBrowserWidthMatched:true,undersizedWindowFitted:true,lowerAreaScrollAfterResize:true,desktopUnchangedByScroll:true,horizontalSwipe:true,toolbarHeight:footer.height,toolbarImage}));
+ console.log(JSON.stringify({mouseAndScrollDoNotOpen:true,initialDelayedFocusPreserved:true,repeatAfterBlur:true,staleFocusRefreshed:true,threeRealRfbInputReadbacks:true,manualAndAutomaticIndependent:true,autoOffPreserved:true,realRemoteModalCancelledByEsc:true,singleFingerRemoteScroll:true,mouseDragModePreserved:true,twoFingerRemoteScroll:true,staleWindowOwnerRefused:true,narrowBrowserWidthMatched:true,undersizedWindowFitted:true,lowerAreaScrollAfterResize:true,desktopUnchangedByScroll:true,horizontalSwipe:true,manualKeyboardDefault:true,imeLayoutSimulated:true,remoteHeightStableAcrossIme:true,returningScrollDoesNotOpenKeyboard:true,toolbarHeight:footer.height,toolbarImage}));
 }catch(error){
  const fixture=remote?await remote.evaluate(()=>{const input=document.querySelector('#owned');return {focused:document.activeElement===input,length:input?.value.length,prefix:input?.value.startsWith('owned-touch-731'),second:input?.value.includes('-second'),third:input?.value.includes('-third')};}).catch(()=>null):null;
  console.log(JSON.stringify({failedStage:stage,fixture}));throw error;

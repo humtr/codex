@@ -1,5 +1,5 @@
 :root{--owned-toolbar-height:40px;color-scheme:dark}
-#noVNC_container{height:calc(100dvh - var(--owned-toolbar-height) - env(safe-area-inset-bottom,0px))!important}
+#noVNC_container{height:calc(var(--owned-desktop-height,calc(100dvh - var(--owned-toolbar-height))) - env(safe-area-inset-bottom,0px))!important}
 #owned_mobile_controls{position:fixed;bottom:0;left:0;right:0;z-index:9999;box-sizing:border-box;height:calc(var(--owned-toolbar-height) + env(safe-area-inset-bottom,0px));padding:2px 8px calc(2px + env(safe-area-inset-bottom,0px));display:flex;align-items:center;justify-content:center;gap:6px;background:#121820;border-top:1px solid #2a3442;color:#c9d4e3;font:12px system-ui,-apple-system,sans-serif}
 #owned_mobile_controls button{box-sizing:border-box;height:34px;min-width:36px;display:inline-flex;align-items:center;justify-content:center;gap:6px;border:0;border-radius:7px;padding:0 8px;background:transparent;color:inherit;font:inherit;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 #owned_mobile_controls button:active{background:#29384d}

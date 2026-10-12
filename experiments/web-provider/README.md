@@ -64,7 +64,9 @@ Rendering is checked through aggregate non-black coverage and color counts only.
 The temporary viewer uses a40px single-row toolbar: a manual keyboard button,
 a compact automatic-keyboard switch, scroll/drag icon, Esc and fullscreen icon. Manual open/close does
 not change the automatic preference; changing that preference does not open/close
-the keyboard. The setting stays in browser-local storage for the viewer origin.
+the keyboard. Automatic keyboard is off by default; thev2 browser-local preference deliberately
+ignores the older default-on setting. Opt-in auto remains separate from manual
+visibility, and any gesture movement/non-tap classification cancels activation.
 The controls move above the Android keyboard using visualViewport geometry.
 Original noVNC assets stay pinned and unchanged; viewer-owned JS/CSS have explicit
 capability-protected routes and contain no account information.
@@ -132,8 +134,10 @@ cropped a480px display. The owned fitter now clamps only that browser's minimum
 size hints to the display and uses its fullscreen window state. Actual X11 window
 geometry equals360x700 and480x785 in the resize regression; horizontal swiping
 changes an owned wide page's scrollX, and both directions preserve the desktop.
-The ordinary browser's existing supervisor refits only when display geometry
-changes; it adds no service and does not repeatedly steal focus on a stable display.
+The fitter is idempotent for an already-fullscreen browser and sets narrow-window
+minimum hints once. A startup supervisor then only waits for browser exit; it
+never polls/refits. Openbox handles fullscreen size changes. Browser ownership
+records use the actual Chromium PID/start/image/private environment, not a helper.
 
 Cloudflare repeated human verification in the saved-state automated browser is
 an unresolved real-service gate. Cloudflare's supported-browser documentation
@@ -189,3 +193,20 @@ https://developers.openai.com/api/docs/guides/secure-mcp-tunnels?site_locale=en
 The candidate requires a separate safe connector for Zero Risk/manual turns;
 it is not silently interchangeable with this native automatic contract. Automatic
 reply, two model-initiated tools, cancellation, compaction and resume remain open.
+
+The user reported unusable scrolling after keyboard reopening/reflow, despite the
+prior headless gesture proof. Live Android diagnostics showed desktop785→933px
+when IME changed innerHeight/visualViewport. The owned layout poller was stopped
+and removed without signalling Chromium; the current browser/form is preserved.
+Remote desktop height is now held across keyboard/address-bar changes, updating
+only for width/orientation or explicit fullscreen change. Manual keyboard defaults
+off; opt-in automatic focus is cancelled by movement at any point and by noVNC's
+non-tap classification, including an out-and-back swipe ending near its origin.
+Esc sends its key over RFB without focusing a hidden input. Native account-free
+regression models the observed Android layout with real innerHeight changes and a
+simulated visualViewport. It requires constant canvas/X11 height and no keyboard
+focus after an out-and-back scroll with stale input focus. This is layout simulation,
+not proof of the physical Android IME. Existing gesture/input/Esc/width gates pass.
+The user also reported “app setup was rate limited”. No app creation retry or rate
+limit bypass was made; app setup remains deferred until the viewer is usable and
+the platform accepts a normal request. The temporary Tunnel itself remains ready.

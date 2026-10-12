@@ -49,7 +49,7 @@ const server=Bun.serve({
  <button id="owned_keyboard" type="button" aria-pressed="false" aria-label="키보드 열기" title="키보드 열기/닫기">
   <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="3"/><path d="M6 9h1m3 0h1m3 0h1m3 0h1M6 12h1m3 0h1m3 0h1m3 0h1M7 16h10"/></svg><span>키보드</span>
  </button>
- <button id="owned_keyboard_auto" type="button" role="switch" aria-checked="true" aria-label="터치 시 자동 키보드" title="화면을 터치할 때 키보드 열기"><span class="owned_switch" aria-hidden="true"></span><span>자동</span></button>
+ <button id="owned_keyboard_auto" type="button" role="switch" aria-checked="false" aria-label="터치 시 자동 키보드" title="화면을 터치할 때 키보드 열기"><span class="owned_switch" aria-hidden="true"></span><span>자동</span></button>
  <span class="owned_divider" aria-hidden="true"></span>
  <button id="owned_scroll" type="button" aria-pressed="true" aria-label="한 손가락 스크롤 모드" title="스크롤 / 마우스 드래그"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M8 7l4-4 4 4M8 17l4 4 4-4"/></svg></button>
  <button id="owned_escape" type="button" aria-label="취소 (Esc)" title="대화상자 취소">Esc</button>

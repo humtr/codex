@@ -1,4 +1,5 @@
 import UI from './app/ui.js';
+import KeyTable from './core/input/keysym.js';
 
 const input=document.getElementById('noVNC_keyboardinput');
 const keyboardButton=document.getElementById('owned_keyboard');
@@ -6,8 +7,8 @@ const automaticButton=document.getElementById('owned_keyboard_auto');
 const fullscreenButton=document.getElementById('owned_fullscreen');
 const controls=document.getElementById('owned_mobile_controls');
 const container=document.getElementById('noVNC_container');
-let keyboardAutoEnabled=true,touchStart=null,touchProofCount=0,errorCount=0,imeGeometryObserved=false;
-try{keyboardAutoEnabled=localStorage.getItem('owned-keyboard-auto')!=='0';}catch{}
+let keyboardAutoEnabled=false,touchStart=null,touchProofCount=0,errorCount=0,imeGeometryObserved=false;
+try{keyboardAutoEnabled=localStorage.getItem('owned-keyboard-auto-v2')==='1';}catch{}
 automaticButton.setAttribute('aria-checked',String(keyboardAutoEnabled));
 
 function imeGeometryVisible(){
@@ -38,8 +39,9 @@ function manualKeyboard(){
  if(keyboardVisible())UI.hideVirtualKeyboard();else focusKeyboard();
  updateKeyboardButton();setTimeout(displayProof,500);
 }
+keyboardButton.addEventListener('pointerdown',event=>event.preventDefault());
 keyboardButton.onclick=manualKeyboard;
-document.getElementById('owned_escape').onclick=()=>UI.sendEsc();
+document.getElementById('owned_escape').onclick=()=>UI.rfb?.sendKey(KeyTable.XK_Escape,'Escape');
 const originalKeyboardButton=document.getElementById('noVNC_keyboard_button');
 originalKeyboardButton.removeEventListener('click',UI.toggleVirtualKeyboard);
 originalKeyboardButton.addEventListener('click',manualKeyboard);
@@ -48,13 +50,18 @@ automaticButton.addEventListener('pointerdown',event=>event.preventDefault());
 automaticButton.onclick=()=>{
  keyboardAutoEnabled=!keyboardAutoEnabled;
  automaticButton.setAttribute('aria-checked',String(keyboardAutoEnabled));
- try{localStorage.setItem('owned-keyboard-auto',keyboardAutoEnabled?'1':'0');}catch{}
+ try{localStorage.setItem('owned-keyboard-auto-v2',keyboardAutoEnabled?'1':'0');}catch{}
 };
 input.addEventListener('focus',updateKeyboardButton);input.addEventListener('blur',updateKeyboardButton);
 container.addEventListener('pointerdown',event=>{
+ if(document.activeElement===input&&imeGeometryObserved&&!imeGeometryVisible())input.blur();
  if(keyboardAutoEnabled&&event.pointerType==='touch'&&event.isPrimary&&event.target.tagName==='CANVAS')touchStart={id:event.pointerId,x:event.clientX,y:event.clientY};
  else touchStart=null;
 },true);
+container.addEventListener('pointermove',event=>{
+ if(touchStart&&(touchStart.id!==event.pointerId||Math.hypot(event.clientX-touchStart.x,event.clientY-touchStart.y)>12))touchStart=null;
+},true);
+container.addEventListener('gesturestart',event=>{if(event.detail.type!=='onetap')touchStart=null;},true);
 container.addEventListener('pointercancel',()=>{touchStart=null;},true);
 container.addEventListener('pointerup',event=>{
  const start=touchStart;touchStart=null;
@@ -87,7 +94,15 @@ function scrollTouch(event){
  if(event.type==='gestureend')scrollGesture=null;
 }
 for(const type of ['gesturestart','gesturemove','gestureend'])container.addEventListener(type,scrollTouch,true);
+// Hold desktop height across IME/address-bar changes; remote page layout stays
+// stable while the keyboard or toolbar moves. Width/orientation changes refit.
+let layoutWidth=window.innerWidth;
+function holdDesktopHeight(){
+ container.style.setProperty('--owned-desktop-height',Math.max(100,window.innerHeight-40)+'px');
+}
+holdDesktopHeight();
 function updateVisibleControls(){
+ if(window.innerWidth!==layoutWidth){layoutWidth=window.innerWidth;holdDesktopHeight();}
  const viewport=window.visualViewport;
  const keyboardInset=viewport?Math.max(0,window.innerHeight-viewport.height-viewport.offsetTop):0;
  // Keep manual controls reachable above the Android keyboard.
@@ -114,4 +129,5 @@ async function displayProof(){
  }
  await fetch('./display-proof',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(record)}).catch(()=>{});
 }
+document.addEventListener('fullscreenchange',()=>{holdDesktopHeight();updateVisibleControls();});
 for(const delay of [1500,5000,12000])setTimeout(displayProof,delay);

@@ -85,11 +85,13 @@ def fit_browser(root, report=None):
             # Preserve all other hints; clamp only this qualified window's minima.
             hints,supplied=SizeHints(),ctypes.c_long()
             if lib.XGetWMNormalHints(display,window,ctypes.byref(hints),ctypes.byref(supplied)) and hints.flags&(1<<4):
-                hints.min_width=min(hints.min_width,lib.XDisplayWidth(display,0))
-                hints.min_height=min(hints.min_height,lib.XDisplayHeight(display,0))
+                hints.min_width=1
+                hints.min_height=1
                 lib.XSetWMNormalHints(display,window,ctypes.byref(hints));lib.XSync(display,False)
-            for args in (['-i', '-r', hex(window), '-b', 'remove,fullscreen'],['-i', '-r', hex(window), '-b', 'add,fullscreen'],
-                         ['-i', '-r', hex(window), '-t', '0'], ['-s', '0'], ['-i', '-a', hex(window)]):
+            fullscreen=atom('_NET_WM_STATE_FULLSCREEN') in values(window,atom('_NET_WM_STATE'))
+            actions=[] if fullscreen else [['-i','-r',hex(window),'-b','add,fullscreen']]
+            actions.extend([['-i','-r',hex(window),'-t','0'],['-s','0'],['-i','-a',hex(window)]])
+            for args in actions:
                 result = subprocess.run([env['PREFIX'] + '/bin/wmctrl', *args], env=env,
                                         capture_output=True, timeout=5)
                 if result.returncode:
