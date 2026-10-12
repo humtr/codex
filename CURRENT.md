@@ -212,78 +212,47 @@ This repository carries no external workflow skill or model configuration.
   and hash-verified from a private recovery archive. Automatic review rejected
   deletion; the reversible relocation preserves every original byte instead.
   Legacy credential configuration is unchanged. Empty prj/artex was removed.
-- Independent experiment/web-termux has native Android Bun1.4.0, locked bridge6.1.5
-  and actual Chromium152 DOM proof. The earlier wire correction applies to this
-  exact bridge: original9 contract failures became26 passing HTTP/parser tests
-  after correction, plus full TypeScript verification. Parser tests use an inert
-  configuration executable; they are not model/runtime-service acceptance.
-  Native headed Chromium/X11, private Unix RFB and capability-protected mobile
-  viewer HTTP/WebSocket roundtrips pass. Independent experiment/web-termux now
-  publishes5a0fcfd: compact40px manual keyboard/automatic switch, one-finger
-  scroll/mouse-drag mode, remote Esc and fullscreen controls. Actual native X11/RFB
-  fixtures pass repeated input,2-second initial-focus retention, independent
-  keyboard controls, one/two-finger scrolling, mouse dragging and remote HTML-modal
-  cancellation. The user's native Save dialog was separately closed with a checked
-  WM_DELETE request; automated native Save creation remains unqualified. Completed
-  account-free fixtures and services were cleaned; aggregate proof/toolbar image
-  stay under ~/.cache/codex/acceptance. The first physical scroll attempt switched
-  X11 desktops because the saved-account Chrome window was508x345 within a480x785
-  viewer. Owned PID/start/image/private environment/ancestry fitting now maximizes
-  the normal browser before return. Native regression proves stale-owner refusal,
-  lower-area page scrolling after viewer resize and no desktop change. The live
-  phone browser now fills the785px desktop height; fresh phone scroll/Esc acceptance
-  remains pending. No global desktop binding was removed to conceal the defect.
-  A follow-up exposed Chromium's500px minimum cropping the480px phone width; the
-  owned fitter now clamps only that normal window's size hints and uses fullscreen.
-  Native window geometries match360x700/480x785 and horizontal swipe changes real
-  scrollX without changing desktops. Phone width/swipe acceptance remains pending.
-  Saved-state automated Chromium repeatedly hit Cloudflare human verification.
-  An ordinary persistent browser now opens without automation/debugging flags,
-  reusing private account login while excluding challenge-clearance imports. Its
-  existing supervisor refits only on display-size changes. Account data stays
-  local; no stealth or automated challenge solving is added. Actual manual
-  verification and automated-provider real-service acceptance remain open.
-  The user accepted matched width and absence of Cloudflare in the ordinary
-  persistent browser. Bounded Playwright reopening reached a composer once but
-  proved no reply; follow-up diagnostics returned document403/200/challenge title
-  without a composer. No challenge was clicked or solved; the ordinary browser is
-  restored. Private web-real-service.json records the failure separately from
-  manual acceptance. Actual native stdio MCP catalog proof returns six unique
-  object-schema tools with zero executed tools; it passes on6.1.5 and6.1.8.
-  Latest6.1.8/7cc8b8d is staged separately in TMPDIR with the same frozen lock and
-  cleanly rebased Termux/wire patch. Full TypeScript passes. Six affected suites
-  passed134/skipped one Windows case; four authority cases initially failed due
-  to inherited CODEX_SQLITE_HOME and passed their focused isolated rerun. The
-  browser-creation path remains unchanged, so a version bump is not a403 fix.
-  The existing stopped surface-probe Tunnel is attached through independent alias
-  codex-web-termux-trial and a private TMPDIR profile; native0.0.14 reports running,
-  ready and healthy after connect/status. Operating Tdev config/key hashes remain
-  unchanged. This is temporary trial state, with no boot service; stop/remove its
-  local runtime metadata when the trial finishes. ChatGPT-side Codex Native2
-  plugin creation/selection is pending user menu confirmation. Actual response,
-  two model-initiated tools, cancel, compact and resume remain unqualified.
-  The user then reported unusable scroll/keyboard reflow and an app-setup rate limit.
-  Actual Android metrics changed desktop785→933px on IME open. The agent-owned
-  layout poller was removed without signalling/restarting Chromium; its actual
-  PID/start/image now owns the private browser record, preserving the current form.
-  Current viewer holds desktop height across keyboard/address-bar changes, defaults
-  to manual keyboard (newv2 opt-in setting), cancels auto focus on any gesture
-  movement and sends Esc without focusing hidden input. Fullscreen fitting is
-  idempotent and no longer polls. Native account-free regression passes actual
-  vertical/horizontal scroll and models the reported IME geometry; an out-and-back
-  swipe does not focus keyboard or resize canvas/X11. This is simulated IME layout,
-  not physical Android acceptance by itself. The user subsequently reported normal
-  usability with this exact change; physical scroll/IME follow-up is now accepted
-  separately in web-viewer-keyboard.json. The same ordinary browser remains alive
-  and trial tunnel is ready/healthy; operating config/key hashes are unchanged. App setup
-  was not retried or bypassed; its red rate-limit message remains unresolved.
-  The user confirmed the logged-in composer. Normal owned-browser exit captured
-  and verified new experimental auth on2026-10-12, with private mode600 state/marker;
-  the bridge removed its login profile only after successful verification. Saved
-  auth reopens the experimental display. No pre-existing auth was imported and no
-  production route/service was changed. Account detection reports sol/extraHigh/pro
-  unavailable, so real model/capability/tool-loop/cancel/compact/resume acceptance
-  remains open. Browser data belongs to ~/.local/share/codex-web-experiment.
+- Independent experiment/web-termux publishesdca030e. Native Android Bun1.4.0,
+  locked bridge6.1.8/7cc8b8d and Chromium152 have account-free DOM and actual
+  six-tool native stdio catalog proof; no catalog tool execution is implied.
+  Experimental native-chromium integration and real-Core driver remain local
+  review work in TMPDIR. Direct native TypeScript passes; six affected suites
+  pass172/skip5 with940 assertions. The skipped browser binding cases do not
+  qualify live browser-turn execution. Inert parser configuration executables are
+  confined to unit fixtures and are not runtime admission evidence.
+  Actual signed stable49 Core reached the6.1.8 browser adapter and TurnBroker with
+  a public Web model slug in disposable roots, then failed before a model reply.
+  The private-pipe Chromium host passes account-free DOM, protected descriptor,
+  bearer/origin refusal, persistent-context reconnect/network and owned cleanup.
+  It preserves Chromium's actual automation properties. Its interactive trial
+  returned document403/200 with a challenge title and no composer; the user
+  confirmed the new trial failed while the original ordinary browser worked.
+  The native trial is stopped, its obsolete navigation alert removed, and the
+  original browser PID/start/image and profile preserved. No challenge solving,
+  stealth, authentication publication or production provider change was made.
+  ChatGPT Codex Native2 installation is user-confirmed. The owned trial Tunnel
+  has real Android resolver/outbound poll proof, separate from startup health,
+  with operating Tdev configuration/key hashes unchanged. This is temporary
+  trial state, not a boot service. Real model reply, two model-initiated tools,
+  cancellation, compact and resume remain unqualified.
+  The user previously accepted scroll/IME usability of the40px viewer toolbar,
+  independent manual/automatic keyboard, one/two-finger and horizontal scroll,
+  drag fallback and Esc. Desktop height stays fixed across keyboard/address-bar
+  changes; no layout poller or browser restart is used. The latest phone report
+  reopened right-edge cropping. Aggregate records include invalid0x0 viewports.
+  dca030e disables remote resizing while hidden/invalid, retains the last valid
+  height, scales during desktop-size changes and restores resizing on return.
+  Actual native X11/RFB regression passes zero-layout preservation, second-viewer
+  640px desktop fitting in a480px viewport, restored480px width and the existing
+  input/gesture/IME gates. These layout simulations do not replace phone proof;
+  renewed physical width acceptance is pending. Private proof:
+  ~/.cache/codex/acceptance/web-viewer-width.json. Refresh the existing working
+  viewer to load the new JS; retain the original ordinary browser and its form.
+  Browser data belongs to ~/.local/share/codex-web-experiment. Private login state
+  is mode600 and profiles are700; no main Codex/device-browser auth was imported.
+  Saved capability flags were not account eligibility proof. The separate ordinary
+  and native profiles plus automation properties remain service-debugging facts,
+  not evidence that a browser version bump resolves the challenge gate.
 
 - Public update currently fetches complete payloads with a300-second per-payload
   budget. Slow large downloads can hit that limit and trigger local-derived
