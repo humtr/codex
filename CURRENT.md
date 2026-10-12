@@ -212,7 +212,7 @@ This repository carries no external workflow skill or model configuration.
   and hash-verified from a private recovery archive. Automatic review rejected
   deletion; the reversible relocation preserves every original byte instead.
   Legacy credential configuration is unchanged. Empty prj/artex was removed.
-- Independent experiment/web-termux publishes057d8aa. Production remains stable49;
+- Independent experiment/web-termux preserves the failed native-host trial. Production remains stable49;
   the restored mobile viewer ise72f1e8 with user-accepted023c263 controls. Original
   viewer/Tunnel connectivity and Native2 installation are confirmed. The rejected
   dca030e width behavior is inactive. Fresh navigation uses --refresh; browser
@@ -242,7 +242,16 @@ This repository carries no external workflow skill or model configuration.
   allowed: max120 seconds, no model requests while waiting, owner verification,
   private recovery checkpoint, automatic ordinary-browser/marker restoration and
   stale-alert removal. The latest timed view displayed a challenge title without
-  a composer, expired and restored ordinary Chrome. Human confirmation is pending.
+  a composer, expired and restored ordinary Chrome. The user confirmed clicking verification returns to Verify repeatedly. This
+  fails the native-host human gate; it is not missing user input. DNS/public
+  validation JavaScript access work (HTTP200). An account-free public diagnostic
+  shows JS/cookies/WebCrypto available but no WebGL without unsafe fallback.
+  Verified apt154 was compared in TMPDIR with installed152: both support WebGL
+  with Playwright's unsafe fallback and both lack it when the flag is excluded.
+  An upgrade is therefore not proven to fix verification. No package/operating
+  graphics flag was changed; downloaded154 files were removed. The particular
+  triggering bot signal remains unproven. Keep ordinary Chrome/Native2 Tunnel
+  running; require a new technical basis before another production check.
   Private aggregates: ~/.cache/codex/acceptance/web-current-login.json,
   web-same-profile.json, web-human-check.json and web-warm-page.json.
   Experimental browser data belongs to ~/.local/share/codex-web-experiment;
