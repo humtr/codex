@@ -248,3 +248,43 @@ startup label, prove the outbound connection. The Android artifact is retained i
 ~/.cache/codex-web-experiment/tunnel-client/<SOURCE_SHA>/tunnel-client; the running
 alias/source/profile are a temporary experiment, not a durable installed service.
 Private aggregate proof: ~/.cache/codex/acceptance/web-native-tunnel.json.
+
+Native Core qualification uses the actual signed stable49 Core, actual6.1.8
+Responses server and TurnBroker in disposable roots. The driver requires an
+explicit public Web model slug and refuses native API pass-through. It reached
+the real browser adapter and failed before a model reply. Its separate processes
+and broker are removed; saved experimental login hashes remain unchanged. This
+is transport/authority proof, not real-model or model-tool-loop acceptance.
+
+`native_chromium_host.mjs PROFILE DESCRIPTOR` is an experimental Android host.
+It starts one real persistent Chromium over private DevTools FD3/FD4 and exposes
+only a bearer-gated loopback relay. Origin headers are refused. Descriptor and
+profile ownership are checked by PID/start/image, UID, modes and canonical paths;
+concurrent CDP upgrades cannot acquire the same pipe root session. Disconnect
+releases auto-attach/discovery/target sessions before the next connection. The
+host cleans its own Chromium, descriptor and short private socket scratch root.
+No unauthenticated Chromium debug port, Electron identity, stealth or challenge
+solver is used. Chromium's actual navigator.webdriver remains true.
+
+`native_chromium_probe.py BUN CANDIDATE` passes native account-free DOM readback,
+private descriptor/auth/origin/stale-owner refusal, concurrent connection refusal,
+persistent synthetic-cookie retention, reconnect plus real loopback navigation,
+and owned-process/descriptor cleanup. Bridge native TypeScript and172 affected
+unit tests pass. The five previously skipped browser-turn-binding cases were then
+run with the actual Android Chromium against synthetic documents:5 pass/0 fail,
+65 assertions. These prove renderer binding, not ChatGPT service behavior.
+
+The real native-host service attempt still returned document403/200 and a human
+verification title with zero visible composers. The user confirmed the new trial
+failed while the original ordinary browser worked. The native trial was stopped;
+its alert removed; the original browser/login/form restored and user-confirmed.
+Saved capability flags are not authentication or account eligibility proof. The
+native probe now requires exactly one visible composer and authenticated state,
+as the actual worker does. No repeated login/challenge retry is scheduled.
+
+This native-host mode is experimental programmatic configuration, not a finished
+setup/doctor/installer integration. CLI and persistent operating services remain
+unchanged. Automatic real reply, two model-initiated tools, cancellation, compact
+and resume remain open. Preserve the accepted ordinary mobile viewer while this
+service gate is unresolved; the Native2 automatic contract is not a manual/Safe
+contract substitute.

@@ -8,10 +8,11 @@ import sys
 import time
 
 
-def fit_browser(root, report=None):
+def fit_browser(root, report=None, owner_file="account-view-process.json"):
+    assert owner_file in ("account-view-process.json", "native-view-process.json")
     root = Path(root).resolve(strict=True)
     env = json.loads((root / 'environment.json').read_text())
-    owner = json.loads((root / 'account-view-process.json').read_text())
+    owner = json.loads((root / owner_file).read_text())
     process = Path('/proc') / str(owner['pid'])
     assert os.readlink(process / 'exe') == owner['image']
     assert process.joinpath('stat').read_text().rsplit(')', 1)[1].split()[19] == str(owner['start'])

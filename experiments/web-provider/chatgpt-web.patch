@@ -1,5 +1,61 @@
+diff --git a/src/adapters/chatgpt-web/browser-worker.ts b/src/adapters/chatgpt-web/browser-worker.ts
+index bbcab67..f8d21fd 100644
+--- a/src/adapters/chatgpt-web/browser-worker.ts
++++ b/src/adapters/chatgpt-web/browser-worker.ts
+@@ -1,3 +1,4 @@
++import { connectNativeChromiumHost } from "../../native-chromium-host";
+ import { randomUUID } from "node:crypto";
+ import { chmodSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
+ import { join, resolve } from "node:path";
+@@ -1447,7 +1448,7 @@ interface ChatGptSubmissionDomCache {
+ 
+ export interface ResolvedBrowserConfig {
+   appName: string;
+-  browserHost: "managed-chrome" | "launcher";
++  browserHost: "managed-chrome" | "launcher" | "native-chromium";
+   browserHostDescriptorPath?: string;
+   browserHelperScriptPath?: string;
+   browserDiagnosticsPath?: string;
+@@ -2218,8 +2219,8 @@ export function resolveBrowserConfig(provider: CodexProviderConfig): ResolvedBro
+     configured.browserDiagnosticsPath?.trim() || join(getConfigDir(), "diagnostics", "browser-turns"),
+   ));
+   const turnTimeoutMs = configured.turnTimeoutMs;
+-  if (browserHost === "launcher" && !browserHostDescriptorPath) {
+-    throw new Error("Launcher browser host requires chatgptWeb.browserHostDescriptorPath");
++  if ((browserHost === "launcher" || browserHost === "native-chromium") && !browserHostDescriptorPath) {
++    throw new Error("Selected browser host requires chatgptWeb.browserHostDescriptorPath");
+   }
+   if (browserHelperScriptPath && browserHost !== "launcher") {
+     throw new Error("Explicit browser helper script requires a launcher host");
+@@ -2560,6 +2561,13 @@ export class ChatGptBrowserWorker {
+       this.page = connection.page;
+       return this.page;
+     }
++    if (this.config.browserHost === "native-chromium") {
++      const connection = await this.ensureManagedBrowser();
++      this.browser = connection.browser;
++      this.context = connection.context;
++      this.page = await this.context.newPage();
++      return this.page;
++    }
+     if (!existsSync(this.config.storageStatePath) || !existsSync(loginVerificationMarkerPath(this.config.storageStatePath))) {
+       throw new Error(`ChatGPT web login state is missing: ${this.config.storageStatePath}`);
+     }
+@@ -2578,6 +2586,12 @@ export class ChatGptBrowserWorker {
+   private async ensureManagedBrowser(): Promise<{ browser: Browser; context: BrowserContext }> {
+     if (this.managedBrowserReady) return this.managedBrowserReady;
+     const opening = (async () => {
++      if (this.config.browserHost === "native-chromium") {
++        const connection = await connectNativeChromiumHost(this.config.browserHostDescriptorPath!);
++        this.browser = connection.browser;
++        this.context = connection.context;
++        return connection;
++      }
+       if (!existsSync(this.config.storageStatePath) || !existsSync(loginVerificationMarkerPath(this.config.storageStatePath))) {
+         throw new Error(`ChatGPT web login state is missing: ${this.config.storageStatePath}`);
+       }
 diff --git a/src/adapters/chatgpt-web/environment.ts b/src/adapters/chatgpt-web/environment.ts
-index 3e8e0a2de1271ae2a1707d2a9581e954dfe7fa27..6a152ead24490475f534c03e1a8227b788bae35f 100644
+index 3e8e0a2..6a152ea 100644
 --- a/src/adapters/chatgpt-web/environment.ts
 +++ b/src/adapters/chatgpt-web/environment.ts
 @@ -1,3 +1,4 @@
@@ -27,7 +83,7 @@ index 3e8e0a2de1271ae2a1707d2a9581e954dfe7fa27..6a152ead24490475f534c03e1a8227b7
  function isNativeInstruction(
    item: Record<string, unknown> | undefined,
 diff --git a/src/bridge.ts b/src/bridge.ts
-index 59449cbdc134f6ea4e3dd66dbebb60f71ffa9b0a..13936df34f3867290185a3a5f7db9e311a3644da 100644
+index 59449cb..13936df 100644
 --- a/src/bridge.ts
 +++ b/src/bridge.ts
 @@ -347,6 +347,7 @@ export function bridgeToResponsesSSE(
@@ -71,7 +127,7 @@ index 59449cbdc134f6ea4e3dd66dbebb60f71ffa9b0a..13936df34f3867290185a3a5f7db9e31
      } else {
        output.push({
 diff --git a/src/browser-login.ts b/src/browser-login.ts
-index db6a3a330c63d410199b05b96a8be2db9c2f0a17..7761d4f25f144fa3ec1f59f7cb5d121a132882bc 100644
+index db6a3a3..7761d4f 100644
 --- a/src/browser-login.ts
 +++ b/src/browser-login.ts
 @@ -155,7 +155,7 @@ function writeVerificationMarker(
@@ -110,9 +166,18 @@ index db6a3a330c63d410199b05b96a8be2db9c2f0a17..7761d4f25f144fa3ec1f59f7cb5d121a
    const markerPath = loginVerificationMarkerPath(config.storageStatePath);
    if (!existsSync(markerPath)) return false;
 diff --git a/src/config.ts b/src/config.ts
-index 85482308c429f4a0f9530e48cd2b2ac63243132c..12eb9106f1d8d54122b20ef11fd9c1606e230ea5 100644
+index 8548230..2248018 100644
 --- a/src/config.ts
 +++ b/src/config.ts
+@@ -11,7 +11,7 @@ import type { CodexProviderConfig } from "./types";
+ import { VERSION } from "./version";
+ 
+ export type RuntimeMode = "browser-only" | "full";
+-export type BrowserHostMode = "managed-chrome" | "launcher";
++export type BrowserHostMode = "managed-chrome" | "launcher" | "native-chromium";
+ export type BrowserInteractionMode = "automatic" | "manual";
+ export type SubagentProtocol = "compatibility-v1" | "native";
+ 
 @@ -368,6 +368,11 @@ export function defaultChromeExecutable(
    platform = process.platform,
    programFiles = process.env.PROGRAMFILES,
@@ -125,8 +190,129 @@ index 85482308c429f4a0f9530e48cd2b2ac63243132c..12eb9106f1d8d54122b20ef11fd9c160
    if (platform === "darwin") {
      return "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
    }
+@@ -420,7 +425,7 @@ function parseConfig(value: unknown, path: string): AppConfig {
+     throw new Error(`Invalid subagentProtocol in ${path}`);
+   }
+   if (parsed.host !== "127.0.0.1") throw new Error("The Responses proxy must bind to 127.0.0.1");
+-  if (parsed.browserHost !== "managed-chrome" && parsed.browserHost !== "launcher") {
++  if (parsed.browserHost !== "managed-chrome" && parsed.browserHost !== "launcher" && parsed.browserHost !== "native-chromium") {
+     throw new Error(`Invalid browserHost in ${path}`);
+   }
+   const browserInteractionMode = parsed.browserInteractionMode ?? "automatic";
+@@ -463,13 +468,13 @@ function parseConfig(value: unknown, path: string): AppConfig {
+   if (parsed.appName !== expectedAppName) {
+     throw new Error(`Active appName does not match browserInteractionMode in ${path}; rerun setup`);
+   }
+-  if (parsed.browserHost === "launcher"
++  if ((parsed.browserHost === "launcher" || parsed.browserHost === "native-chromium")
+     && (typeof parsed.browserHostDescriptorPath !== "string" || !parsed.browserHostDescriptorPath.trim())) {
+-    throw new Error(`Launcher browser host requires browserHostDescriptorPath in ${path}`);
++    throw new Error(`Selected browser host requires browserHostDescriptorPath in ${path}`);
+   }
+-  if (parsed.browserHost === "launcher"
++  if ((parsed.browserHost === "launcher" || parsed.browserHost === "native-chromium")
+     && !isAbsolute(expandUserPath(parsed.browserHostDescriptorPath!))) {
+-    throw new Error(`Launcher browserHostDescriptorPath must be absolute in ${path}`);
++    throw new Error(`Selected browserHostDescriptorPath must be absolute in ${path}`);
+   }
+   const brokerEndpoint = expandUserPath(parsed.brokerSocketPath!);
+   if (process.platform === "win32") {
+diff --git a/src/native-chromium-host.ts b/src/native-chromium-host.ts
+new file mode 100644
+index 0000000..53d546c
+--- /dev/null
++++ b/src/native-chromium-host.ts
+@@ -0,0 +1,88 @@
++import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, readlinkSync, realpathSync } from "node:fs";
++import { isAbsolute, join } from "node:path";
++import { chromium, type Browser, type BrowserContext } from "playwright-core";
++
++interface ProcessIdentity { pid: number; start: string; image: string }
++interface NativeChromiumDescriptor {
++  version: 1;
++  kind: "termux-chromium-pipe";
++  endpoint: string;
++  token: string;
++  host: ProcessIdentity;
++  browser: ProcessIdentity;
++  profile: string;
++}
++
++function assertProcess(identity: ProcessIdentity): string[] {
++  if (!identity || !Number.isSafeInteger(identity.pid) || identity.pid < 1
++    || typeof identity.start !== "string" || !/^\d{1,32}$/.test(identity.start)
++    || typeof identity.image !== "string" || !isAbsolute(identity.image)) {
++    throw new Error("Native Chromium process identity is invalid");
++  }
++  const root = `/proc/${identity.pid}`;
++  const raw = readFileSync(`${root}/stat`, "utf8");
++  const fields = raw.slice(raw.lastIndexOf(")") + 1).trim().split(/\s+/);
++  if (fields[0] === "Z" || fields[19] !== identity.start || readlinkSync(`${root}/exe`) !== identity.image) {
++    throw new Error("Native Chromium process owner is stale");
++  }
++  return fields;
++}
++
++export function readNativeChromiumDescriptor(path: string): NativeChromiumDescriptor {
++  if (process.platform !== "android" || !isAbsolute(path)) throw new Error("Native Chromium requires Android and an absolute descriptor");
++  const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
++  let value: unknown;
++  try {
++    const stat = fstatSync(fd);
++    if (!stat.isFile() || stat.uid !== process.getuid?.() || (stat.mode & 0o777) !== 0o600 || stat.size > 8192) {
++      throw new Error("Native Chromium descriptor is not private and owned");
++    }
++    value = JSON.parse(readFileSync(fd, "utf8"));
++  } finally { closeSync(fd); }
++  const descriptor = value as NativeChromiumDescriptor;
++  if (!descriptor || descriptor.version !== 1 || descriptor.kind !== "termux-chromium-pipe"
++    || typeof descriptor.token !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(descriptor.token)
++    || typeof descriptor.profile !== "string" || !isAbsolute(descriptor.profile)) {
++    throw new Error("Native Chromium descriptor has an invalid identity");
++  }
++  const endpoint = new URL(descriptor.endpoint);
++  if (endpoint.protocol !== "http:" || endpoint.hostname !== "127.0.0.1" || !endpoint.port
++    || endpoint.username || endpoint.password || endpoint.search || endpoint.hash || endpoint.pathname !== "/") {
++    throw new Error("Native Chromium CDP relay must be an authenticated loopback origin");
++  }
++  const profile = lstatSync(descriptor.profile);
++  if (!profile.isDirectory() || profile.isSymbolicLink() || profile.uid !== process.getuid?.()
++    || (profile.mode & 0o777) !== 0o700 || realpathSync(descriptor.profile) !== descriptor.profile) {
++    throw new Error("Native Chromium profile is not private and owned");
++  }
++  const host = assertProcess(descriptor.host);
++  const browser = assertProcess(descriptor.browser);
++  if (descriptor.host.image !== realpathSync(process.execPath)
++    || descriptor.browser.image !== realpathSync(join(process.env.PREFIX!, "lib/chromium/chrome"))
++    || browser[1] !== String(descriptor.host.pid)) {
++    throw new Error("Native Chromium browser is not a child of its declared host");
++  }
++  const argv = readFileSync(`/proc/${descriptor.browser.pid}/cmdline`).toString().split("\0");
++  if (!argv.includes("--remote-debugging-pipe") || !argv.includes(`--user-data-dir=${descriptor.profile}`)) {
++    throw new Error("Native Chromium browser does not own the declared pipe/profile");
++  }
++  if (host[0] === "Z") throw new Error("Native Chromium host exited");
++  return descriptor;
++}
++
++export async function connectNativeChromiumHost(path: string): Promise<{ browser: Browser; context: BrowserContext }> {
++  const descriptor = readNativeChromiumDescriptor(path);
++  const browser = await chromium.connectOverCDP(descriptor.endpoint, {
++    headers: { Authorization: `Bearer ${descriptor.token}` }, noDefaults: true, timeout: 10000,
++  });
++  try {
++    const current = readNativeChromiumDescriptor(path);
++    if (current.host.pid !== descriptor.host.pid || current.host.start !== descriptor.host.start
++      || current.token !== descriptor.token || current.browser.pid !== descriptor.browser.pid) {
++      throw new Error("Native Chromium ownership changed while connecting");
++    }
++    const context = browser.contexts()[0];
++    if (!context) throw new Error("Native Chromium persistent context is unavailable");
++    return { browser, context };
++  } catch (error) { await browser.close(); throw error; }
++}
 diff --git a/src/responses/parser.ts b/src/responses/parser.ts
-index ded9b12250c0e2d6934914f77963747e3ed9834c..aa9b602dfb727fab5c1c3cc0da1ea7b111176369 100644
+index ded9b12..aa9b602 100644
 --- a/src/responses/parser.ts
 +++ b/src/responses/parser.ts
 @@ -12,7 +12,7 @@ import type {
@@ -364,7 +550,7 @@ index ded9b12250c0e2d6934914f77963747e3ed9834c..aa9b602dfb727fab5c1c3cc0da1ea7b1
      });
    const context: CodexContext = {
 diff --git a/src/responses/schema.ts b/src/responses/schema.ts
-index 2286babd50108ff75954f90108894aeb82d76f26..285eb59dfd1bcb836f73ff7561208ab715abbd49 100644
+index 2286bab..285eb59 100644
 --- a/src/responses/schema.ts
 +++ b/src/responses/schema.ts
 @@ -1,5 +1,22 @@
@@ -399,7 +585,7 @@ index 2286babd50108ff75954f90108894aeb82d76f26..285eb59dfd1bcb836f73ff7561208ab7
  });
  const customToolCallOutputItemSchema = z.object({
 diff --git a/src/server.ts b/src/server.ts
-index f0d5ca7e6339b3af750b7c31751a70f524f66870..ac6bcf960e0839b4123b14238ffaa6664fb03062 100644
+index f0d5ca7..ac6bcf9 100644
 --- a/src/server.ts
 +++ b/src/server.ts
 @@ -605,7 +605,7 @@ function toolBridgeMaps(parsed: CodexParsedRequest): {
@@ -411,8 +597,50 @@ index f0d5ca7e6339b3af750b7c31751a70f524f66870..ac6bcf960e0839b4123b14238ffaa666
      if (tool.toolSearch) toolSearchToolNames.add(tool.name);
    }
    return { toolNsMap, freeformToolNames, toolSearchToolNames };
+diff --git a/src/types.ts b/src/types.ts
+index cccf7e1..0b9c347 100644
+--- a/src/types.ts
++++ b/src/types.ts
+@@ -268,9 +268,9 @@ export interface CodexProviderConfig {
+     appName?: string;
+     /** Whether ChatGPT DOM interaction is automatic or explicitly driven by the user. */
+     browserInteractionMode?: "automatic" | "manual";
+-    /** Explicit browser owner. Launcher mode attaches to the embedded Electron ChatGPT surface. */
+-    browserHost?: "managed-chrome" | "launcher";
+-    /** Owner-only descriptor containing the launcher's loopback CDP and control endpoints. */
++    /** Explicit browser owner. Native Chromium uses an authenticated private-pipe CDP host. */
++    browserHost?: "managed-chrome" | "launcher" | "native-chromium";
++    /** Owner-only descriptor validated for the selected browser host. */
+     browserHostDescriptorPath?: string;
+     /** Explicit browser-helper bundle. DEV builds current source; the launcher still supplies Electron-as-Node. */
+     browserHelperScriptPath?: string;
+diff --git a/tests/browser-login.test.ts b/tests/browser-login.test.ts
+index 1494513..24aeffe 100644
+--- a/tests/browser-login.test.ts
++++ b/tests/browser-login.test.ts
+@@ -22,9 +22,7 @@ test("login starts with normal Chrome and captures state in a headed Keychain-aw
+   const previousLog = process.env.CODEX_LOGIN_ARG_LOG;
+   process.env.CODEX_LOGIN_ARG_LOG = argsLog;
+   try {
+-    const config = defaultConfig("browser-only");
+-    config.chromeExecutablePath = executable;
+-    config.storageStatePath = join(root, "browser", "storage-state.json");
++    const config = { chromeExecutablePath: executable, storageStatePath: join(root, "browser", "storage-state.json") };
+     await loginToChatGpt(config, { timeoutMs: 100 }).catch(() => {});
+ 
+     const launches = readFileSync(argsLog, "utf8").trim().split("\n");
+@@ -135,8 +133,7 @@ test("passkey storage capture excludes identity-provider and partitioned state",
+ test("a storage-state file is not trusted without a verification marker", () => {
+   const root = mkdtempSync(join(tmpdir(), "codex-chatgpt-web-login-state-"));
+   try {
+-    const config = defaultConfig("browser-only");
+-    config.storageStatePath = join(root, "storage-state.json");
++    const config = { storageStatePath: join(root, "storage-state.json") };
+     writeFileSync(config.storageStatePath, "{}\n", { mode: 0o600 });
+     expect(browserLoginStateExists(config)).toBe(false);
+ 
 diff --git a/tests/responses-lite-tools.test.ts b/tests/responses-lite-tools.test.ts
-index ba97f57759a87307b1df7426740870d96b2f34f3..bb7f2b89101368dbd3727f225af3030b07c3011b 100644
+index ba97f57..af9ce05 100644
 --- a/tests/responses-lite-tools.test.ts
 +++ b/tests/responses-lite-tools.test.ts
 @@ -37,7 +37,7 @@ function responsesLiteTools() {
@@ -424,7 +652,7 @@ index ba97f57759a87307b1df7426740870d96b2f34f3..bb7f2b89101368dbd3727f225af3030b
    const parsed = parseRequest({
      model: "chatgpt-web/luna",
      input: [{ type: "additional_tools", role: "developer", tools: responsesLiteTools() }],
-@@ -50,7 +50,9 @@ test("Responses Lite exposes native exec from the default functions namespace on
+@@ -50,11 +50,29 @@ test("Responses Lite exposes native exec from the default functions namespace on
    const waitTool = parsed.context.tools?.find(tool => tool.name === "wait");
    expect(waitTool).toEqual(expect.objectContaining({ name: "wait" }));
    expect(waitTool).not.toHaveProperty("namespace");
@@ -435,3 +663,24 @@ index ba97f57759a87307b1df7426740870d96b2f34f3..bb7f2b89101368dbd3727f225af3030b
  });
  
  test("Responses Lite native exec survives a complete server request as one custom call", async () => {
+-  const config = defaultConfig("full");
++  // Inert library configuration only: the injected adapter never starts a service
++  // or executes this command. This is not installed-runtime/admission proof.
++  const previousLauncher = process.env.CODEX_CHATGPT_WEB_LAUNCHER;
++  const previousBun = process.env.CODEX_CHATGPT_WEB_BUN;
++  let config;
++  try {
++    process.env.CODEX_CHATGPT_WEB_LAUNCHER = process.platform === "win32"
++      ? `${process.env.SystemRoot}\\System32\\cmd.exe`
++      : process.env.PREFIX ? `${process.env.PREFIX}/bin/true` : "/bin/true";
++    process.env.CODEX_CHATGPT_WEB_BUN = process.env.CODEX_CHATGPT_WEB_LAUNCHER;
++    config = defaultConfig("full");
++  } finally {
++    if (previousLauncher === undefined) delete process.env.CODEX_CHATGPT_WEB_LAUNCHER;
++    else process.env.CODEX_CHATGPT_WEB_LAUNCHER = previousLauncher;
++    if (previousBun === undefined) delete process.env.CODEX_CHATGPT_WEB_BUN;
++    else process.env.CODEX_CHATGPT_WEB_BUN = previousBun;
++  }
+   config.solAvailable = false;
+   config.proAvailable = false;
+   const turnId = "turn_responses_lite_exec_regression";
