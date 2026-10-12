@@ -185,8 +185,8 @@ existing runtime-key file. Native tunnel-client0.0.14 reports running/ready/heal
 operating Tdev configuration and key hashes are unchanged. This is temporary
 trial runtime state with no boot service; source/binary inputs remain outside prj.
 It must be stopped/removed from local runtime metadata when the trial finishes.
-A ChatGPT-side plugin named Codex Native2 using the prepared Tunnel still needs
-confirmation. The official workflow is ChatGPT Plugins → plus → Add custom MCP
+The user confirmed creation and installation of Codex Native2 using the prepared
+Tunnel. This is physical setup confirmation, not model/tool-loop acceptance. The official workflow is ChatGPT Plugins → plus → Add custom MCP
 server → Connection: Tunnel; the app creator must have Tunnels Read+Use and the
 Tunnel must belong to that ChatGPT workspace:
 https://developers.openai.com/api/docs/guides/secure-mcp-tunnels?site_locale=en
@@ -209,15 +209,15 @@ focus after an out-and-back scroll with stale input focus. This regression is la
 The user subsequently reported the viewer became usable after this exact change;
 that physical acceptance is recorded independently in the private proof. Existing gesture/input/Esc/width gates pass.
 The user also reported “app setup was rate limited”. No app creation retry or rate
-limit bypass was made; app setup remains deferred until the viewer is usable and
-the platform accepts a normal request. The temporary Tunnel itself remains ready.
+limit bypass was made; the user subsequently completed ordinary plugin installation after the viewer
+fix and real native tunnel connection. The temporary Tunnel itself remains ready.
 
 Current physical baseline: the user accepted scroll usability after default-manual
 keyboard, fixed desktop height and layout-poller removal. Keep this exact viewer
 behavior while investigating service integration. The same ordinary Chromium,
 login and form remain alive; trial tunnel status is ready/healthy and operating
-Tdev config/key hashes remain unchanged. App setup rate limiting and automated
-browser403/model/tool-loop acceptance remain separate unresolved service gates.
+Tdev config/key hashes remain unchanged. Plugin installation is now confirmed by the user. Automated browser403 and
+model/tool-loop acceptance remain unresolved service gates.
 
 The first real tunnel trial used a standalone Linux/arm64 CGO-disabled CLI.
 Its startup health was green while outbound polling failed DNS against localhost53:
@@ -234,8 +234,8 @@ and tunnel ID are reused; no admin CRUD, key rotation or new tunnel was performe
 
 The same owned Native2 stdio target has env -i, a private HOME and an absent
 TurnBroker socket. Its six-tool catalog is qualified, but no real user tool can
-execute until the broker exists. Plugin creation/installation confirmation remains
-pending. The normal Chromium profile stays open and unchanged. Ordinary Linux CLI
+execute until the broker exists. The user confirmed plugin creation/installation. Actual model/tool calls remain
+unqualified, and the TurnBroker is not yet connected. The normal Chromium profile stays open and unchanged. Ordinary Linux CLI
 status still reports control-plane snapshot unknown; actual poll metrics, not that
 startup label, prove the outbound connection. The Android artifact is retained in
 ~/.cache/codex-web-experiment/tunnel-client/<SOURCE_SHA>/tunnel-client; the running
