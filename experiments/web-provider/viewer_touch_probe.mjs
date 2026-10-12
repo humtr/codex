@@ -12,10 +12,11 @@ const {chromium}=await import(pathToFileURL(join(candidate,'node_modules/playwri
 const executablePath=join(process.env.PREFIX,'lib/chromium/chrome');
 const args=['--no-sandbox','--disable-dev-shm-usage','--window-position=0,0'];
 const desktop=await chromium.launch({executablePath,headless:false,args});
-let viewer;let remote;let stage='launch';
+let viewer;let remote;let fixtureServer;let stage='launch';
 try{
  remote=await desktop.newPage({viewport:{width:520,height:600}});
- await remote.goto('data:text/html,<style>body{margin:0;background:white}input{width:100vw;height:80vh;font:24px sans-serif;border:0}</style><input id="owned" aria-label="Owned test input">');
+ fixtureServer=Bun.serve({hostname:'127.0.0.1',port:0,fetch(){return new Response('<title>Owned input fixture</title><style>body{margin:0;background:white}input{width:100vw;height:80vh;font:24px sans-serif;border:0}</style><input id="owned" aria-label="Owned test input"><dialog id="ownedDialog">Owned cancellation fixture</dialog><div style="height:2600px"></div>',{headers:{'Content-Type':'text/html;charset=utf-8','Cache-Control':'no-store'}});}});
+ await remote.goto('http://127.0.0.1:'+fixtureServer.port+'/owned-fixture');
  await remote.bringToFront();
  viewer=await chromium.launch({executablePath,headless:true,args});
  const page=await viewer.newPage({viewport:{width:360,height:740},isMobile:true,hasTouch:true});
@@ -82,15 +83,52 @@ try{
  await manualButton.tap();
  const footer=await page.locator('#owned_mobile_controls').boundingBox();
  if(!footer||footer.height>44||footer.width>360||Math.abs(footer.y+footer.height-740)>1)throw Error('Compact mobile toolbar layout failed');
- for(const id of ['owned_keyboard','owned_keyboard_auto','owned_fullscreen']){
+ for(const id of ['owned_keyboard','owned_keyboard_auto','owned_scroll','owned_escape','owned_fullscreen']){
   const box=await page.locator('#'+id).boundingBox();
   if(!box||box.x<0||box.x+box.width>360||box.y<footer.y||box.y+box.height>footer.y+footer.height)throw Error('Toolbar control overflowed viewport');
  }
+ stage='remote-dialog-escape';
+ await remote.evaluate(()=>document.querySelector('#ownedDialog').showModal());
+ await page.locator('#owned_escape').tap();
+ await remote.waitForFunction(()=>!document.querySelector('#ownedDialog').open,{},{timeout:5000});
+ stage='single-finger-scroll';
+ const single=await page.context().newCDPSession(page);
+ const singleBox=await canvas.boundingBox();
+ const singlePoint={id:1,x:singleBox.x+180,y:singleBox.y+420};
+ await single.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[singlePoint]});
+ for(const distance of [40,90,150])await single.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{...singlePoint,y:singlePoint.y-distance}]});
+ await single.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+ await single.detach();
+ await remote.waitForFunction(()=>window.scrollY>0,{},{timeout:5000});
+ await remote.evaluate(()=>window.scrollTo(0,0));
+ await page.locator('#owned_scroll').tap();
+ if(await page.locator('#owned_scroll').getAttribute('aria-pressed')!=='false')throw Error('Mouse drag mode switch failed');
+ stage='mouse-drag-fallback';
+ await remote.evaluate(()=>{window.ownedDragSeen=false;window.ownedWheels=0;document.addEventListener('wheel',()=>window.ownedWheels++);document.addEventListener('mousemove',event=>{if(event.buttons===1)window.ownedDragSeen=true;});});
+ const dragSession=await page.context().newCDPSession(page);
+ await dragSession.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[singlePoint]});
+ for(const distance of [40,90,150])await dragSession.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{...singlePoint,y:singlePoint.y-distance}]});
+ await dragSession.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+ await dragSession.detach();
+ await remote.waitForFunction(()=>window.ownedDragSeen,{},{timeout:5000});
+ if(await remote.evaluate(()=>window.ownedWheels)!==0)throw Error('Mouse drag mode incorrectly emitted scroll wheel');
+ await remote.evaluate(()=>window.scrollTo(0,0));
+ stage='two-finger-scroll';
+ const touch=await page.context().newCDPSession(page);
+ const surface=await canvas.boundingBox();
+ const fingers=[{id:1,x:surface.x+120,y:surface.y+420},{id:2,x:surface.x+220,y:surface.y+420}];
+ await touch.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:fingers});
+ for(const distance of [40,90,150]){
+  await touch.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:fingers.map(point=>({...point,y:point.y-distance}))});
+ }
+ await touch.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+ await touch.detach();
+ await remote.waitForFunction(()=>window.scrollY>0,{},{timeout:5000});
  const toolbarImage=join(gui,'toolbar.png');
  // The fixture is account-free. Capture only this owned toolbar, never login UI.
  await page.screenshot({path:toolbarImage,clip:{x:0,y:footer.y,width:360,height:footer.height}});
- console.log(JSON.stringify({mouseAndScrollDoNotOpen:true,initialDelayedFocusPreserved:true,repeatAfterBlur:true,staleFocusRefreshed:true,threeRealRfbInputReadbacks:true,manualAndAutomaticIndependent:true,autoOffPreserved:true,toolbarHeight:footer.height,toolbarImage}));
+ console.log(JSON.stringify({mouseAndScrollDoNotOpen:true,initialDelayedFocusPreserved:true,repeatAfterBlur:true,staleFocusRefreshed:true,threeRealRfbInputReadbacks:true,manualAndAutomaticIndependent:true,autoOffPreserved:true,realRemoteModalCancelledByEsc:true,singleFingerRemoteScroll:true,mouseDragModePreserved:true,twoFingerRemoteScroll:true,toolbarHeight:footer.height,toolbarImage}));
 }catch(error){
  const fixture=remote?await remote.evaluate(()=>{const input=document.querySelector('#owned');return {focused:document.activeElement===input,length:input?.value.length,prefix:input?.value.startsWith('owned-touch-731'),second:input?.value.includes('-second'),third:input?.value.includes('-third')};}).catch(()=>null):null;
  console.log(JSON.stringify({failedStage:stage,fixture}));throw error;
-}finally{await viewer?.close();await desktop.close();}
+}finally{await viewer?.close();await desktop.close();fixtureServer?.stop(true);}

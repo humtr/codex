@@ -39,6 +39,7 @@ function manualKeyboard(){
  updateKeyboardButton();setTimeout(displayProof,500);
 }
 keyboardButton.onclick=manualKeyboard;
+document.getElementById('owned_escape').onclick=()=>UI.sendEsc();
 const originalKeyboardButton=document.getElementById('noVNC_keyboard_button');
 originalKeyboardButton.removeEventListener('click',UI.toggleVirtualKeyboard);
 originalKeyboardButton.addEventListener('click',manualKeyboard);
@@ -61,6 +62,31 @@ container.addEventListener('pointerup',event=>{
  // Preserve remote click delivery; scrolling and multi-touch do not open IME.
  focusKeyboard();if(touchProofCount++<3)setTimeout(displayProof,500);
 },true);
+// Translate noVNC's single-finger drag into wheel events at its fixed origin.
+// Keep taps, two-finger scroll and pinch in the pinned gesture implementation.
+let scrollMode=true,scrollGesture=null;
+const scrollButton=document.getElementById('owned_scroll');
+scrollButton.onclick=()=>{
+ scrollMode=!scrollMode;
+ scrollButton.setAttribute('aria-pressed',String(scrollMode));
+ scrollButton.setAttribute('aria-label',scrollMode?'한 손가락 스크롤 모드':'마우스 드래그 모드');
+};
+function scrollTouch(event){
+ if(event.detail.type!=='drag'||event.target.tagName!=='CANVAS')return;
+ if(event.type==='gesturestart'){
+  if(!scrollMode)return;
+  scrollGesture={x:event.detail.clientX,y:event.detail.clientY,lastX:event.detail.clientX,lastY:event.detail.clientY};
+ }
+ if(!scrollGesture)return;
+ event.stopImmediatePropagation();
+ if(event.type==='gesturemove'){
+  const deltaX=scrollGesture.lastX-event.detail.clientX,deltaY=scrollGesture.lastY-event.detail.clientY;
+  scrollGesture.lastX=event.detail.clientX;scrollGesture.lastY=event.detail.clientY;
+  event.target.dispatchEvent(new WheelEvent('wheel',{clientX:scrollGesture.x,clientY:scrollGesture.y,deltaX,deltaY,deltaMode:0,bubbles:true,cancelable:true}));
+ }
+ if(event.type==='gestureend')scrollGesture=null;
+}
+for(const type of ['gesturestart','gesturemove','gestureend'])container.addEventListener(type,scrollTouch,true);
 function updateVisibleControls(){
  const viewport=window.visualViewport;
  const keyboardInset=viewport?Math.max(0,window.innerHeight-viewport.height-viewport.offsetTop):0;

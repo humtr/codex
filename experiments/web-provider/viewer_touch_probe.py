@@ -50,6 +50,13 @@ def main():
                '-rfbunixpath', str(root / 'rfb.sock'), '-rfbunixmode', '0600', '-rfbport', '-1',
                '-SecurityTypes', 'None', '-auth', str(root / 'xauthority'), '-nolisten', 'tcp',
                '-AlwaysShared'], 'xvnc.log', root / 'rfb.sock')
+        # Match the actual login desktop's window manager; do not run autostart.
+        with (root / 'openbox.log').open('w') as log:
+            manager = subprocess.Popen([str(prefix / 'bin/openbox')], env=env, stdout=log, stderr=log, start_new_session=True)
+        processes.append(manager)
+        time.sleep(.2)
+        if manager.poll() is not None:
+            raise RuntimeError('Owned Openbox startup failed')
         start([bun, str(source / 'termux_viewer.ts'), assets, str(root / 'rfb.sock'),
                str(root / 'viewer.json')], 'viewer.log', root / 'viewer.json')
         result = subprocess.run([bun, str(source / 'viewer_touch_probe.mjs'), candidate, str(root)],

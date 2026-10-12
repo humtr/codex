@@ -51,6 +51,8 @@ const server=Bun.serve({
  </button>
  <button id="owned_keyboard_auto" type="button" role="switch" aria-checked="true" aria-label="터치 시 자동 키보드" title="화면을 터치할 때 키보드 열기"><span class="owned_switch" aria-hidden="true"></span><span>자동</span></button>
  <span class="owned_divider" aria-hidden="true"></span>
+ <button id="owned_scroll" type="button" aria-pressed="true" aria-label="한 손가락 스크롤 모드" title="스크롤 / 마우스 드래그"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M8 7l4-4 4 4M8 17l4 4 4-4"/></svg></button>
+ <button id="owned_escape" type="button" aria-label="취소 (Esc)" title="대화상자 취소">Esc</button>
  <button id="owned_fullscreen" type="button" aria-label="전체 화면" title="전체 화면"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></svg></button>
 </div><script type="module" src="./mobile_controls.js"></script>`;
    const html=(await content.text()).replace('</body>',mobile+'</body>');

@@ -61,7 +61,7 @@ No screenshots, raw canvas pixels or authentication are recorded by the proof.
 Rendering is checked through aggregate non-black coverage and color counts only.
 
 The temporary viewer uses a40px single-row toolbar: a manual keyboard button,
-a compact automatic-keyboard switch and a fullscreen icon. Manual open/close does
+a compact automatic-keyboard switch, scroll/drag icon, Esc and fullscreen icon. Manual open/close does
 not change the automatic preference; changing that preference does not open/close
 the keyboard. The setting stays in browser-local storage for the viewer origin.
 The controls move above the Android keyboard using visualViewport geometry.
@@ -93,3 +93,22 @@ Chromium remains a Termux-UID process with --no-sandbox. A private login profile
 separates data and is not an OS sandbox. Android browser login/autofill/passkeys do
 not transfer into the remote Chromium profile. Browser/account/model/tool-loop
 acceptance remains open; normal production routing is unchanged.
+
+Single-finger dragging defaults to scroll: viewer-owned capture handlers translate
+noVNC drag gestures into wheel events at their fixed origin, leaving taps, pinch
+and two-finger scrolling in the pinned implementation. The arrow button switches
+to ordinary mouse dragging for selection. Native actual RFB proof verifies both
+scroll gestures change the owned page scroll position and mouse mode retains a
+real left-button drag without emitting scroll wheel input. Esc travels over RFB and closes a real
+HTML modal in the account-free browser fixture. The live user's native Save dialog
+was independently identified by X11 ownership and closed with WM_DELETE; spawning
+that exact Save dialog in the automated fixture did not qualify, so native Save
+cancellation by the new Esc button is still a separate physical observation.
+
+The user confirmed the authenticated composer. Normal closure of only the owned
+login browser completed storage capture and verification on2026-10-12. Private
+storage-state and verification marker are mode600; the temporary login profile
+was removed by the bridge only after successful verification. Saved authentication
+reopens the same independent experimental browser. No account data is published.
+The bridge's account detector currently reports sol/extraHigh/pro unavailable;
+model capability and real reply/tool-loop acceptance remain unqualified.
