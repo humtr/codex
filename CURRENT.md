@@ -212,18 +212,20 @@ This repository carries no external workflow skill or model configuration.
   and hash-verified from a private recovery archive. Automatic review rejected
   deletion; the reversible relocation preserves every original byte instead.
   Legacy credential configuration is unchanged. Empty prj/artex was removed.
-- Independent experiment/web-termux publishesdca030e. Native Android Bun1.4.0,
+- Independent experiment/web-termux publishes34efe7f; restored viewer ise72f1e8. Native Android Bun1.4.0,
   locked bridge6.1.8/7cc8b8d and Chromium152 have account-free DOM and actual
   six-tool native stdio catalog proof; no catalog tool execution is implied.
-  Experimental native-chromium integration and real-Core driver remain local
-  review work in TMPDIR. Direct native TypeScript passes; six affected suites
-  pass172/skip5 with940 assertions. The skipped browser binding cases do not
-  qualify live browser-turn execution. Inert parser configuration executables are
+  Experimental native-chromium integration and real-Core driver are committed
+  separately from production. Direct native TypeScript passes; six affected suites
+  pass172/skip5 with940 assertions. The five browser binding cases were then run
+  against actual Android Chromium synthetic documents:5 pass/0 fail/65 assertions.
+  These DOM tests do not qualify a real ChatGPT model turn. Inert parser configuration executables are
   confined to unit fixtures and are not runtime admission evidence.
   Actual signed stable49 Core reached the6.1.8 browser adapter and TurnBroker with
   a public Web model slug in disposable roots, then failed before a model reply.
   The private-pipe Chromium host passes account-free DOM, protected descriptor,
-  bearer/origin refusal, persistent-context reconnect/network and owned cleanup.
+  bearer/origin and concurrent-connection refusal, persistent-context reconnect,
+  actual loopback network navigation and owned cleanup.
   It preserves Chromium's actual automation properties. Its interactive trial
   returned document403/200 with a challenge title and no composer; the user
   confirmed the new trial failed while the original ordinary browser worked.
@@ -235,19 +237,19 @@ This repository carries no external workflow skill or model configuration.
   with operating Tdev configuration/key hashes unchanged. This is temporary
   trial state, not a boot service. Real model reply, two model-initiated tools,
   cancellation, compact and resume remain unqualified.
-  The user previously accepted scroll/IME usability of the40px viewer toolbar,
+  The user accepted scroll/IME usability of the40px viewer toolbar,
   independent manual/automatic keyboard, one/two-finger and horizontal scroll,
   drag fallback and Esc. Desktop height stays fixed across keyboard/address-bar
-  changes; no layout poller or browser restart is used. The latest phone report
-  reopened right-edge cropping. Aggregate records include invalid0x0 viewports.
-  dca030e disables remote resizing while hidden/invalid, retains the last valid
-  height, scales during desktop-size changes and restores resizing on return.
-  Actual native X11/RFB regression passes zero-layout preservation, second-viewer
-  640px desktop fitting in a480px viewport, restored480px width and the existing
-  input/gesture/IME gates. These layout simulations do not replace phone proof;
-  renewed physical width acceptance is pending. Private proof:
-  ~/.cache/codex/acceptance/web-viewer-width.json. Refresh the existing working
-  viewer to load the new JS; retain the original ordinary browser and its form.
+  changes; no layout poller or browser restart is used. The width experiment
+  dca030e had green synthetic zero-layout/multi-viewer tests but failed on the
+  phone: right-edge cropping persisted and the screen appeared black. Those
+  tests do not establish physical acceptance. e72f1e8 restores the controls and
+  fixture byte-for-byte from user-accepted023c263. The original ordinary Chromium
+  is fitted to480x785 with its PID/start/image/profile/login preserved. A fresh
+  navigation alert adds an explicit --refresh query to the original viewer URL,
+  so no manual reload is needed. The user confirmed this restored connection
+  works. Keep this accepted configuration; the rejected width behavior is not
+  active. Private proof: ~/.cache/codex/acceptance/web-viewer-width.json.
   Browser data belongs to ~/.local/share/codex-web-experiment. Private login state
   is mode600 and profiles are700; no main Codex/device-browser auth was imported.
   Saved capability flags were not account eligibility proof. The separate ordinary
