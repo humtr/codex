@@ -15,7 +15,7 @@ const desktop=await chromium.launch({executablePath,headless:false,args});
 let viewer;let remote;let fixtureServer;let stage='launch';
 try{
  remote=await desktop.newPage({viewport:{width:520,height:600}});
- fixtureServer=Bun.serve({hostname:'127.0.0.1',port:0,fetch(){return new Response('<title>Owned input fixture</title><style>body{margin:0;background:white}input{width:100vw;height:80vh;font:24px sans-serif;border:0}</style><input id="owned" aria-label="Owned test input"><dialog id="ownedDialog">Owned cancellation fixture</dialog><div style="height:2600px"></div>',{headers:{'Content-Type':'text/html;charset=utf-8','Cache-Control':'no-store'}});}});
+ fixtureServer=Bun.serve({hostname:'127.0.0.1',port:0,fetch(){return new Response('<title>Owned input fixture</title><style>body{margin:0;background:white}input{width:100vw;height:80vh;font:24px sans-serif;border:0}</style><input id="owned" aria-label="Owned test input"><dialog id="ownedDialog">Owned cancellation fixture</dialog><div style="height:2600px;width:1800px"></div>',{headers:{'Content-Type':'text/html;charset=utf-8','Cache-Control':'no-store'}});}});
  await remote.goto('http://127.0.0.1:'+fixtureServer.port+'/owned-fixture');
  await remote.bringToFront();
  viewer=await chromium.launch({executablePath,headless:true,args});
@@ -141,7 +141,8 @@ try{
  const fit=spawnSync(join(process.env.PREFIX,'bin/python3'),['-B',join(source,'fit_browser.py'),gui],{encoding:'utf8'});
  if(fit.status!==0||JSON.parse(fit.stdout).ownedBrowserWindowsFitted!==1)throw Error('Owned normal browser fitting failed');
  await page.waitForTimeout(300);
- if((await browserSession.send('Browser.getWindowBounds',{windowId:window.windowId})).bounds.windowState!=='maximized')throw Error('Undersized window was not maximized');
+ const fittedGeometry=JSON.parse(fit.stdout);
+ if(fittedGeometry.windowGeometry[0].width!==360||fittedGeometry.windowGeometry[0].height!==700)throw Error('Narrow browser width was still cropped');
  await page.setViewportSize({width:480,height:825});
  await page.waitForFunction(()=>document.querySelector('#noVNC_container canvas').height>=780,{},{timeout:5000});
  if(await page.locator('#owned_scroll').getAttribute('aria-pressed')!=='true')await page.locator('#owned_scroll').tap();
@@ -160,6 +161,19 @@ try{
  await resizedTouch.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
  await resizedTouch.detach();
  await remote.waitForFunction(()=>window.scrollY>0,{},{timeout:5000});
+ stage='horizontal-swipe';
+ const horizontal=await page.context().newCDPSession(page);
+ await remote.evaluate(()=>window.scrollTo(0,0));
+ const across={id:1,x:resized.x+350,y:resized.y+350};
+ await horizontal.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[across]});
+ for(const distance of [40,90,150])await horizontal.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{...across,x:across.x-distance}]});
+ await horizontal.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+ await horizontal.detach();
+ await remote.waitForFunction(()=>window.scrollX>0,{},{timeout:5000});
+ const resizedFit=spawnSync(join(process.env.PREFIX,'bin/python3'),['-B',join(source,'fit_browser.py'),gui],{encoding:'utf8'});
+ if(resizedFit.status!==0)throw Error('Resized fitting failed');
+ const geometry=JSON.parse(resizedFit.stdout);
+ if(geometry.windowGeometry[0].width!==480||geometry.windowGeometry[0].height!==785)throw Error('Fitted browser did not track viewer geometry');
  if(currentDesktop()!==beforeDesktop)throw Error('Page scrolling changed the X11 desktop');
  await target.detach();await browserSession.detach();
  await page.setViewportSize({width:360,height:740});
@@ -167,7 +181,7 @@ try{
  const toolbarImage=join(gui,'toolbar.png');
  // The fixture is account-free. Capture only this owned toolbar, never login UI.
  await page.screenshot({path:toolbarImage,clip:{x:0,y:footer.y,width:360,height:footer.height}});
- console.log(JSON.stringify({mouseAndScrollDoNotOpen:true,initialDelayedFocusPreserved:true,repeatAfterBlur:true,staleFocusRefreshed:true,threeRealRfbInputReadbacks:true,manualAndAutomaticIndependent:true,autoOffPreserved:true,realRemoteModalCancelledByEsc:true,singleFingerRemoteScroll:true,mouseDragModePreserved:true,twoFingerRemoteScroll:true,staleWindowOwnerRefused:true,undersizedWindowMaximized:true,lowerAreaScrollAfterResize:true,desktopUnchangedByScroll:true,toolbarHeight:footer.height,toolbarImage}));
+ console.log(JSON.stringify({mouseAndScrollDoNotOpen:true,initialDelayedFocusPreserved:true,repeatAfterBlur:true,staleFocusRefreshed:true,threeRealRfbInputReadbacks:true,manualAndAutomaticIndependent:true,autoOffPreserved:true,realRemoteModalCancelledByEsc:true,singleFingerRemoteScroll:true,mouseDragModePreserved:true,twoFingerRemoteScroll:true,staleWindowOwnerRefused:true,narrowBrowserWidthMatched:true,undersizedWindowFitted:true,lowerAreaScrollAfterResize:true,desktopUnchangedByScroll:true,horizontalSwipe:true,toolbarHeight:footer.height,toolbarImage}));
 }catch(error){
  const fixture=remote?await remote.evaluate(()=>{const input=document.querySelector('#owned');return {focused:document.activeElement===input,length:input?.value.length,prefix:input?.value.startsWith('owned-touch-731'),second:input?.value.includes('-second'),third:input?.value.includes('-third')};}).catch(()=>null):null;
  console.log(JSON.stringify({failedStage:stage,fixture}));throw error;

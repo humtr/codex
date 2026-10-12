@@ -124,3 +124,25 @@ the browser to508x345, verifies stale-owner refusal, maximizes it, resizes the
 viewer to480x825 and requires a lower-area gesture to scroll the real page while
 the X11 desktop remains unchanged. No global Openbox binding is removed to hide
 the defect. Actual phone follow-up remains pending.
+
+A subsequent phone trial found Chromium's500px minimum normal-window hint still
+cropped a480px display. The owned fitter now clamps only that browser's minimum
+size hints to the display and uses its fullscreen window state. Actual X11 window
+geometry equals360x700 and480x785 in the resize regression; horizontal swiping
+changes an owned wide page's scrollX, and both directions preserve the desktop.
+The ordinary browser's existing supervisor refits only when display geometry
+changes; it adds no service and does not repeatedly steal focus on a stable display.
+
+Cloudflare repeated human verification in the saved-state automated browser is
+an unresolved real-service gate. Cloudflare's supported-browser documentation
+explicitly excludes Playwright for production challenges:
+https://developers.cloudflare.com/cloudflare-challenges/reference/supported-browsers/
+For manual troubleshooting, `manual_browser.py GUI CANDIDATE BUN STATE` imports
+account login once into a private persistent profile, closes the initializer and
+runs ordinary Chromium with no automation/debugging flags or attached driver.
+It excludes challenge-clearance cookies from the import, solves no challenge,
+spoofs no browser properties, and never exposes authentication. Existing account
+state/verification stays intact. Profile/marker modes are700/600. This manual
+view is not model/tool-loop acceptance or an anti-bot workaround for the bridge.
+Manual verification may still need the user, and may still fail. Do not add stealth,
+CAPTCHA solvers or claim the automated provider works based on this viewer.
