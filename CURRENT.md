@@ -116,6 +116,8 @@ This repository carries no external workflow skill or model configuration.
   Android delivery rerun passed and doctor exited0. Twelve protected file hashes
   and fourteen preexisting live PID/start/image identities stayed unchanged;
   stable48 is the rollback target. No running conversation needed restarting.
+  The live structured plugin-installation question also produced exactly one body
+  notification, with the current conversation tag and no generic input reminder.
   Proof: ~/.cache/codex/acceptance/notification-consolidation-device.json.
 
 ## Source and installed AI
@@ -179,6 +181,18 @@ This repository carries no external workflow skill or model configuration.
   syscall already used by production arm64. This is actual stock APK/Manager proof,
   separately from phone/native Codex frontend acceptance. The reproducible manual
   workflow and fixture are retained under .github/stock-window.
+
+- Web trial tunnel DNS is now qualified separately from startup health. The
+  standalone global Linux/CGO-disabled CLI selected /etc/resolv.conf and retried
+  localhost53; Tdev's own native Android/CGO binary was already correct and is
+  unchanged. Exact OpenAI source0f870e5 built on-phone with Android/arm64 CGO
+  resolves api.openai.com and its owned trial records successful HTTP204 long
+  polls. The existing key reference/tunnel ID are reused, with env-i/private HOME
+  and no active TurnBroker. Local ready/healthy alone is insufficient. The same
+  alias/profile/source remain a temporary experiment, not an installed service.
+  Native artifact/proof are retained under XDG cache. Plugin installation still
+  needs user confirmation; real model/tool-loop acceptance remains open.
+  Proof: ~/.cache/codex/acceptance/web-native-tunnel.json; experiment8fce479.
 
 - Broader authorized normalization continues separately: independent AGY/OpenCode
   notification hooks, isolated real ChatGPT Web acceptance and the final home/usr
