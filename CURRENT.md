@@ -237,7 +237,10 @@ This repository carries no external workflow skill or model configuration.
   idempotent and no longer polls. Native account-free regression passes actual
   vertical/horizontal scroll and models the reported IME geometry; an out-and-back
   swipe does not focus keyboard or resize canvas/X11. This is simulated IME layout,
-  not physical Android acceptance. Fresh scroll/IME feedback is pending. App setup
+  not physical Android acceptance by itself. The user subsequently reported normal
+  usability with this exact change; physical scroll/IME follow-up is now accepted
+  separately in web-viewer-keyboard.json. The same ordinary browser remains alive
+  and trial tunnel is ready/healthy; operating config/key hashes are unchanged. App setup
   was not retried or bypassed; its red rate-limit message remains unresolved.
   The user confirmed the logged-in composer. Normal owned-browser exit captured
   and verified new experimental auth on2026-10-12, with private mode600 state/marker;
