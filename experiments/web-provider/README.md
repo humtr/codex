@@ -205,8 +205,16 @@ non-tap classification, including an out-and-back swipe ending near its origin.
 Esc sends its key over RFB without focusing a hidden input. Native account-free
 regression models the observed Android layout with real innerHeight changes and a
 simulated visualViewport. It requires constant canvas/X11 height and no keyboard
-focus after an out-and-back scroll with stale input focus. This is layout simulation,
-not proof of the physical Android IME. Existing gesture/input/Esc/width gates pass.
+focus after an out-and-back scroll with stale input focus. This regression is layout simulation, separate from physical Android IME proof.
+The user subsequently reported the viewer became usable after this exact change;
+that physical acceptance is recorded independently in the private proof. Existing gesture/input/Esc/width gates pass.
 The user also reported “app setup was rate limited”. No app creation retry or rate
 limit bypass was made; app setup remains deferred until the viewer is usable and
 the platform accepts a normal request. The temporary Tunnel itself remains ready.
+
+Current physical baseline: the user accepted scroll usability after default-manual
+keyboard, fixed desktop height and layout-poller removal. Keep this exact viewer
+behavior while investigating service integration. The same ordinary Chromium,
+login and form remain alive; trial tunnel status is ready/healthy and operating
+Tdev config/key hashes remain unchanged. App setup rate limiting and automated
+browser403/model/tool-loop acceptance remain separate unresolved service gates.
