@@ -184,7 +184,7 @@ This repository carries no external workflow skill or model configuration.
   configuration executable; they are not model/runtime-service acceptance.
   Native headed Chromium/X11, private Unix RFB and capability-protected mobile
   viewer HTTP/WebSocket roundtrips pass. Independent experiment/web-termux now
-  publishes37d7761: compact40px manual keyboard/automatic switch, one-finger
+  publishes46a969b: compact40px manual keyboard/automatic switch, one-finger
   scroll/mouse-drag mode, remote Esc and fullscreen controls. Actual native X11/RFB
   fixtures pass repeated input,2-second initial-focus retention, independent
   keyboard controls, one/two-finger scrolling, mouse dragging and remote HTML-modal
@@ -208,6 +208,25 @@ This repository carries no external workflow skill or model configuration.
   existing supervisor refits only on display-size changes. Account data stays
   local; no stealth or automated challenge solving is added. Actual manual
   verification and automated-provider real-service acceptance remain open.
+  The user accepted matched width and absence of Cloudflare in the ordinary
+  persistent browser. Bounded Playwright reopening reached a composer once but
+  proved no reply; follow-up diagnostics returned document403/200/challenge title
+  without a composer. No challenge was clicked or solved; the ordinary browser is
+  restored. Private web-real-service.json records the failure separately from
+  manual acceptance. Actual native stdio MCP catalog proof returns six unique
+  object-schema tools with zero executed tools; it passes on6.1.5 and6.1.8.
+  Latest6.1.8/7cc8b8d is staged separately in TMPDIR with the same frozen lock and
+  cleanly rebased Termux/wire patch. Full TypeScript passes. Six affected suites
+  passed134/skipped one Windows case; four authority cases initially failed due
+  to inherited CODEX_SQLITE_HOME and passed their focused isolated rerun. The
+  browser-creation path remains unchanged, so a version bump is not a403 fix.
+  The existing stopped surface-probe Tunnel is attached through independent alias
+  codex-web-termux-trial and a private TMPDIR profile; native0.0.14 reports running,
+  ready and healthy after connect/status. Operating Tdev config/key hashes remain
+  unchanged. This is temporary trial state, with no boot service; stop/remove its
+  local runtime metadata when the trial finishes. ChatGPT-side Codex Native2
+  plugin creation/selection is pending user menu confirmation. Actual response,
+  two model-initiated tools, cancel, compact and resume remain unqualified.
   The user confirmed the logged-in composer. Normal owned-browser exit captured
   and verified new experimental auth on2026-10-12, with private mode600 state/marker;
   the bridge removed its login profile only after successful verification. Saved
