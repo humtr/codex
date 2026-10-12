@@ -32,6 +32,8 @@ def main():
            'XAUTHORITY': str(root / 'xauthority'), 'LANG': 'C.UTF-8',
            'XDG_CONFIG_HOME': str(root / 'h/.config'), 'XDG_CACHE_HOME': str(root / 'h/.cache'),
            'XDG_DATA_HOME': str(root / 'h/.local/share')}
+    (root / 'environment.json').write_text(json.dumps(env))
+    (root / 'environment.json').chmod(0o600)
     source = Path(__file__).resolve().parent
     processes = []
     try:

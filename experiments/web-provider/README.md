@@ -112,3 +112,15 @@ was removed by the bridge only after successful verification. Saved authenticati
 reopens the same independent experimental browser. No account data is published.
 The bridge's account detector currently reports sol/extraHigh/pro unavailable;
 model capability and real reply/tool-loop acceptance remain unqualified.
+
+A real phone scroll trial exposed a separate presentation defect: the newly opened
+saved-account browser was508x345 while the viewer desktop was480x785. Wheel input
+below the window reached Openbox's desktop-scroll binding and changed desktops.
+`fit_browser.py` now maximizes and selects only a normal Chromium window whose
+PID/start/image, private HOME/DISPLAY and process ancestry match the saved viewer
+helper. It never selects dialogs or unrelated X11 clients. `open_viewer.py` fits
+that window before opening a saved-account viewer. The native regression shrinks
+the browser to508x345, verifies stale-owner refusal, maximizes it, resizes the
+viewer to480x825 and requires a lower-area gesture to scroll the real page while
+the X11 desktop remains unchanged. No global Openbox binding is removed to hide
+the defect. Actual phone follow-up remains pending.

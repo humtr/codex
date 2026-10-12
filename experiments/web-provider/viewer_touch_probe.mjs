@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
@@ -124,10 +124,50 @@ try{
  await touch.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
  await touch.detach();
  await remote.waitForFunction(()=>window.scrollY>0,{},{timeout:5000});
+ stage='live-window-size-regression';
+ const procStat=await readFile('/proc/'+process.pid+'/stat','utf8');
+ await writeFile(join(gui,'account-view-process.json'),JSON.stringify({pid:process.pid,image:process.execPath,start:procStat.slice(procStat.lastIndexOf(')')+1).trim().split(/\s+/)[19]}),{mode:0o600});
+ const browserSession=await desktop.newBrowserCDPSession();
+ const target=(await remote.context().newCDPSession(remote));
+ const info=await target.send('Target.getTargetInfo');
+ const window=await browserSession.send('Browser.getWindowForTarget',{targetId:info.targetInfo.targetId});
+ await browserSession.send('Browser.setWindowBounds',{windowId:window.windowId,bounds:{windowState:'normal'}});
+ await browserSession.send('Browser.setWindowBounds',{windowId:window.windowId,bounds:{width:508,height:345}});
+ const correctOwner=JSON.parse(await readFile(join(gui,'account-view-process.json'),'utf8'));
+ await writeFile(join(gui,'account-view-process.json'),JSON.stringify({...correctOwner,start:'0'}));
+ const stale=spawnSync(join(process.env.PREFIX,'bin/python3'),['-B',join(source,'fit_browser.py'),gui],{encoding:'utf8'});
+ if(stale.status===0)throw Error('Stale owner was allowed to fit windows');
+ await writeFile(join(gui,'account-view-process.json'),JSON.stringify(correctOwner),{mode:0o600});
+ const fit=spawnSync(join(process.env.PREFIX,'bin/python3'),['-B',join(source,'fit_browser.py'),gui],{encoding:'utf8'});
+ if(fit.status!==0||JSON.parse(fit.stdout).ownedBrowserWindowsFitted!==1)throw Error('Owned normal browser fitting failed');
+ await page.waitForTimeout(300);
+ if((await browserSession.send('Browser.getWindowBounds',{windowId:window.windowId})).bounds.windowState!=='maximized')throw Error('Undersized window was not maximized');
+ await page.setViewportSize({width:480,height:825});
+ await page.waitForFunction(()=>document.querySelector('#noVNC_container canvas').height>=780,{},{timeout:5000});
+ if(await page.locator('#owned_scroll').getAttribute('aria-pressed')!=='true')await page.locator('#owned_scroll').tap();
+ await remote.evaluate(()=>window.scrollTo(0,0));
+ await page.waitForTimeout(400);
+ const currentDesktop=()=>{
+  const result=spawnSync(join(process.env.PREFIX,'bin/wmctrl'),['-d'],{encoding:'utf8'});
+  if(result.status!==0)throw Error('Owned desktop inspection failed');
+  return result.stdout.split('\n').map(line=>line.trim().split(/\s+/)).find(parts=>parts[1]==='*')?.[0];
+ };
+ const beforeDesktop=currentDesktop();
+ const resized=await canvas.boundingBox(),resizedTouch=await page.context().newCDPSession(page);
+ const lower={id:1,x:resized.x+200,y:resized.y+600};
+ await resizedTouch.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[lower]});
+ for(const distance of [40,90,150])await resizedTouch.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{...lower,y:lower.y-distance}]});
+ await resizedTouch.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+ await resizedTouch.detach();
+ await remote.waitForFunction(()=>window.scrollY>0,{},{timeout:5000});
+ if(currentDesktop()!==beforeDesktop)throw Error('Page scrolling changed the X11 desktop');
+ await target.detach();await browserSession.detach();
+ await page.setViewportSize({width:360,height:740});
+ await page.waitForTimeout(300);
  const toolbarImage=join(gui,'toolbar.png');
  // The fixture is account-free. Capture only this owned toolbar, never login UI.
  await page.screenshot({path:toolbarImage,clip:{x:0,y:footer.y,width:360,height:footer.height}});
- console.log(JSON.stringify({mouseAndScrollDoNotOpen:true,initialDelayedFocusPreserved:true,repeatAfterBlur:true,staleFocusRefreshed:true,threeRealRfbInputReadbacks:true,manualAndAutomaticIndependent:true,autoOffPreserved:true,realRemoteModalCancelledByEsc:true,singleFingerRemoteScroll:true,mouseDragModePreserved:true,twoFingerRemoteScroll:true,toolbarHeight:footer.height,toolbarImage}));
+ console.log(JSON.stringify({mouseAndScrollDoNotOpen:true,initialDelayedFocusPreserved:true,repeatAfterBlur:true,staleFocusRefreshed:true,threeRealRfbInputReadbacks:true,manualAndAutomaticIndependent:true,autoOffPreserved:true,realRemoteModalCancelledByEsc:true,singleFingerRemoteScroll:true,mouseDragModePreserved:true,twoFingerRemoteScroll:true,staleWindowOwnerRefused:true,undersizedWindowMaximized:true,lowerAreaScrollAfterResize:true,desktopUnchangedByScroll:true,toolbarHeight:footer.height,toolbarImage}));
 }catch(error){
  const fixture=remote?await remote.evaluate(()=>{const input=document.querySelector('#owned');return {focused:document.activeElement===input,length:input?.value.length,prefix:input?.value.startsWith('owned-touch-731'),second:input?.value.includes('-second'),third:input?.value.includes('-third')};}).catch(()=>null):null;
  console.log(JSON.stringify({failedStage:stage,fixture}));throw error;
