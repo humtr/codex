@@ -218,3 +218,26 @@ behavior while investigating service integration. The same ordinary Chromium,
 login and form remain alive; trial tunnel status is ready/healthy and operating
 Tdev config/key hashes remain unchanged. App setup rate limiting and automated
 browser403/model/tool-loop acceptance remain separate unresolved service gates.
+
+The first real tunnel trial used a standalone Linux/arm64 CGO-disabled CLI.
+Its startup health was green while outbound polling failed DNS against localhost53:
+Android has no /etc/resolv.conf. Local ready/healthy is not connection acceptance.
+Tdev's separately owned bin/tunnel-client is already Android/CGO and stays unchanged.
+The trial now uses exact OpenAI source0f870e50a973fa820d4c409000059e181e8d242b,
+compiled on this phone with Go1.27.0, GOOS=android, GOARCH=arm64 and CGO_ENABLED=1.
+The build uses -trimpath, -buildvcs=false and the upstream pkg/version.GitSHA flag.
+Build/dependency caches live under XDG cache; source is an owned TMPDIR checkout.
+Native net.LookupHost succeeded and actual OpenAI long-poll successes are measured
+through the owned loopback metrics endpoint. Neither system resolver files nor
+Tdev runtime/config/key bytes were changed. The original runtime key file reference
+and tunnel ID are reused; no admin CRUD, key rotation or new tunnel was performed.
+
+The same owned Native2 stdio target has env -i, a private HOME and an absent
+TurnBroker socket. Its six-tool catalog is qualified, but no real user tool can
+execute until the broker exists. Plugin creation/installation confirmation remains
+pending. The normal Chromium profile stays open and unchanged. Ordinary Linux CLI
+status still reports control-plane snapshot unknown; actual poll metrics, not that
+startup label, prove the outbound connection. The Android artifact is retained in
+~/.cache/codex-web-experiment/tunnel-client/<SOURCE_SHA>/tunnel-client; the running
+alias/source/profile are a temporary experiment, not a durable installed service.
+Private aggregate proof: ~/.cache/codex/acceptance/web-native-tunnel.json.
