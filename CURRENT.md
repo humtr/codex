@@ -183,9 +183,22 @@ This repository carries no external workflow skill or model configuration.
   after correction, plus full TypeScript verification. Parser tests use an inert
   configuration executable; they are not model/runtime-service acceptance.
   Native headed Chromium/X11, private Unix RFB and capability-protected mobile
-  viewer HTTP/WebSocket roundtrips pass. Browser/account/model/tool-loop acceptance
-  is still pending; no existing auth was imported and no production route/service
-  was changed. New experimental browser data belongs to ~/.local/share/codex-web-experiment.
+  viewer HTTP/WebSocket roundtrips pass. Independent experiment/web-termux now
+  publishes dc03675: compact40px manual keyboard/automatic switch, one-finger
+  scroll/mouse-drag mode, remote Esc and fullscreen controls. Actual native X11/RFB
+  fixtures pass repeated input,2-second initial-focus retention, independent
+  keyboard controls, one/two-finger scrolling, mouse dragging and remote HTML-modal
+  cancellation. The user's native Save dialog was separately closed with a checked
+  WM_DELETE request; automated native Save creation remains unqualified. Completed
+  account-free fixtures and services were cleaned; aggregate proof/toolbar image
+  stay under ~/.cache/codex/acceptance. Fresh phone scroll/Esc acceptance is pending.
+  The user confirmed the logged-in composer. Normal owned-browser exit captured
+  and verified new experimental auth on2026-10-12, with private mode600 state/marker;
+  the bridge removed its login profile only after successful verification. Saved
+  auth reopens the experimental display. No pre-existing auth was imported and no
+  production route/service was changed. Account detection reports sol/extraHigh/pro
+  unavailable, so real model/capability/tool-loop/cancel/compact/resume acceptance
+  remains open. Browser data belongs to ~/.local/share/codex-web-experiment.
 
 - Public update currently fetches complete payloads with a300-second per-payload
   budget. Slow large downloads can hit that limit and trigger local-derived
