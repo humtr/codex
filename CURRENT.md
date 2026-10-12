@@ -271,3 +271,20 @@ This repository carries no external workflow skill or model configuration.
   no notification creates replacement work to retrofit old jobs.
 - Switching a live bare PTY into/out of tmux is not supported; choose a new safe
   launch. No user job was stopped to change execution mode.
+
+- Official alternatives to the failed native-browser human gate were checked.
+  Linux desktop preview now publishes ARM64; signed 26.1007.21434 installed and
+  --version passed in an owned Debian13/PRoot rootfs. The full-size shell and
+  bundled 0.162.0-alpha.17.2 stdio app-server started, but the observed UI remained
+  loading/blank at first; a longer bounded wait with --disable-dev-shm-usage
+  reached the actual sign-in screen. That is renderer proof, with no user login
+  or model acceptance. This is not Android support or a new production generation.
+  All account-free GUI trial launchers were stopped; the guest rootfs and temporary
+  source checkouts were removed. Verified package and aggregate proof stay in XDG
+  cache, with no new global command or auto-start service.
+  Official SIWC ChatGPT plan usage can instead feed the public Responses API to
+  Codex app-server with a user-granted dynamic client. Account/model entitlement,
+  protected token storage and real model/tool-loop acceptance remain unqualified;
+  existing Codex/browser credentials are not repurposed. Hosted Web tools are
+  not feature-equivalent on this route. Details and primary sources remain in
+  experiment/web-termux's experiments/web-provider/README.md.
