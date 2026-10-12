@@ -331,3 +331,61 @@ there is no pending human-input explanation or production provider admission.
 Specific bot signal causality remains unknown. Keep the connected ordinary
 browser and existing Native2 Tunnel, preserve the experiment in Git, and require
 new technical evidence before another production challenge attempt.
+
+## Official alternatives after the failed manual verification
+
+The official Linux preview now has a ChatGPT/Codex desktop package for ARM64:
+https://learn.chatgpt.com/docs/linux/linux-app
+It supports Debian13 and selected Ubuntu/Fedora/Arch desktops; Android/Termux is
+not a supported desktop distribution. This is separate from the already working
+native Termux CLI and is not a replacement production generation.
+
+The 26.1007.21434 ARM64 package was downloaded into TMPDIR. The official repository
+key fingerprint 3BFA0E4AE8B8CC16A2D9BA684A3B4A566C4660E4 matched the published
+installer; gpgv verified InRelease, its SHA256 authenticated the arm64 Packages
+index, and the complete 475083462-byte package matched
+55fae1e3fb1d6069a90620e9e70737dcf8bf2255604d157e282cc6748a1baf49.
+A separate Debian13-slim rootfs used official PRoot-Distro source 5a427a1 with an
+owned prefix/HOME and --isolated bindings. Apt dependency installation and the
+real app --version passed. Only guest packages/configuration changed; a guest
+policy-rc.d refused service starts. Public CA certificates were installed in the
+guest; the host resolver and existing runtimes were not modified.
+
+Bounded account-free Xvnc/Openbox trials use private Unix sockets/Xauthority,
+no copied login and the actual packaged executable. The app created a full-sized
+ChatGPT window and initialized its bundled 0.162.0-alpha.17.2 app-server over
+stdio. Initial snapshots showed a loading/blank shell. After a longer bounded wait
+and --disable-dev-shm-usage, the actual sign-in page rendered with both login
+choices. Rootfs CA certificates were also installed; the decisive change is not
+isolated. This is visually inspected login rendering, with no user login or
+model turn. A 10x10 utility window is not a render gate. Electron's sandbox
+was disabled only for this owned Android/PRoot trial, where Linux namespaces are
+unavailable; that does not establish desktop security or production support.
+All owned launchers are stopped after observation. The unauthenticated guest
+rootfs and both temporary source checkouts were removed after inspection. The
+verified public package and account-free render fixture stay in XDG cache for
+reuse; aggregate proof is ~/.cache/codex/acceptance/web-linux-desktop.json.
+The existing ordinary browser and Native2 tunnel are separate and preserved.
+
+A more direct official option for the Core/provider objective is ChatGPT plan
+usage through Sign in with ChatGPT, without browser model submission:
+https://developers.openai.com/siwc/token-sharing-open-source
+https://developers.openai.com/siwc/token-sharing-open-source/codex-app-server
+https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations
+Local open-source apps register a dynamic OAuth client, persist one host ID and
+ask the user for chatgpt.tokens.use.direct consent. No partner key/client secret
+is required. This is a new grant; existing Codex or browser credentials are not
+substitutes. Use the account's actual model catalog, the public Responses API,
+store=false and stream=true, and require response.completed/turn completed.
+Function/custom tools are supported in namespaces and Core can execute its own
+local tools; hosted MCP, tool_search, image generation, Code Interpreter and
+native computer use are unavailable on this route. It does not establish parity
+with every ChatGPT Web feature or the desired account/model entitlement.
+
+Official devkit source 0a36fefe was inspected, not installed or authenticated.
+Its local runtime requires an OS-backed credential encryption provider. Do not
+weaken that guard, borrow first-party OAuth client IDs or silently replace any
+active profile. The next qualification is a separate explicit user grant,
+protected token storage, a completed real account/model turn and an actual Core
+tool loop. No current trial passes those gates, and no production provider,
+auto-start service or global launcher is added.
