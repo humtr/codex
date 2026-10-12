@@ -184,7 +184,7 @@ This repository carries no external workflow skill or model configuration.
   configuration executable; they are not model/runtime-service acceptance.
   Native headed Chromium/X11, private Unix RFB and capability-protected mobile
   viewer HTTP/WebSocket roundtrips pass. Independent experiment/web-termux now
-  publishes097aab5: compact40px manual keyboard/automatic switch, one-finger
+  publishes37d7761: compact40px manual keyboard/automatic switch, one-finger
   scroll/mouse-drag mode, remote Esc and fullscreen controls. Actual native X11/RFB
   fixtures pass repeated input,2-second initial-focus retention, independent
   keyboard controls, one/two-finger scrolling, mouse dragging and remote HTML-modal
@@ -198,6 +198,16 @@ This repository carries no external workflow skill or model configuration.
   lower-area page scrolling after viewer resize and no desktop change. The live
   phone browser now fills the785px desktop height; fresh phone scroll/Esc acceptance
   remains pending. No global desktop binding was removed to conceal the defect.
+  A follow-up exposed Chromium's500px minimum cropping the480px phone width; the
+  owned fitter now clamps only that normal window's size hints and uses fullscreen.
+  Native window geometries match360x700/480x785 and horizontal swipe changes real
+  scrollX without changing desktops. Phone width/swipe acceptance remains pending.
+  Saved-state automated Chromium repeatedly hit Cloudflare human verification.
+  An ordinary persistent browser now opens without automation/debugging flags,
+  reusing private account login while excluding challenge-clearance imports. Its
+  existing supervisor refits only on display-size changes. Account data stays
+  local; no stealth or automated challenge solving is added. Actual manual
+  verification and automated-provider real-service acceptance remain open.
   The user confirmed the logged-in composer. Normal owned-browser exit captured
   and verified new experimental auth on2026-10-12, with private mode600 state/marker;
   the bridge removed its login profile only after successful verification. Saved
