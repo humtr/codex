@@ -1384,6 +1384,127 @@ fn native_completion_argv_delivers_once_ignores_stdin_and_respects_disabled_even
 }
 
 #[test]
+fn question_and_completion_update_one_conversation_notification_with_real_question_text() {
+    let root = TestRoot::new();
+    let core = write_core_probe(&root.0);
+    let providers = root.0.join("providers");
+    fs::create_dir(&providers).unwrap();
+    write_notification_provider(&providers, "termux-notification");
+    let log = root.0.join("provider.log");
+    let set = run_manager(
+        &root.0,
+        &core,
+        &[
+            "notify",
+            "set",
+            "--hooks",
+            "UserInputRequest,Stop,PreToolUse",
+        ],
+        None,
+    );
+    assert!(set.status.success());
+    let id = "01a0fc82-dc8f-7d13-bb78-7e120f1fa9b3";
+    let sync = format!(
+        r#"{{"session_id":"{id}","tool_name":"functions.request_user_input","content":"generic","tool_input":{{"questions":[{{"header":"hidden header","question":"Choose\na profile?","options":[{{"label":"private option"}}]}},{{"question":"Keep the current window?"}}]}},"cwd":"/private"}}"#
+    );
+    let asynchronous = format!(
+        r#"{{"tool_input":{{"questions":[{{"title":"Which profile?","question":"wrong field","options":["private option"]}}]}},"tool_name":"request_user_input_async","session_id":"{id}"}}"#
+    );
+    for (event, input) in [("UserInputRequest", sync), ("PreToolUse", asynchronous)] {
+        let output = run_manager_with_input(
+            &root.0,
+            &core,
+            &["notify", "emit", event],
+            &providers,
+            &log,
+            input.as_bytes(),
+        );
+        assert!(output.status.success());
+        assert!(output.stdout.is_empty() && output.stderr.is_empty());
+    }
+    let completion = format!(
+        r#"{{"type":"agent-turn-complete","thread-id":"{id}","last-assistant-message":"Which profile? Please choose in the conversation."}}"#
+    );
+    let output = run_manager_with_input(
+        &root.0,
+        &core,
+        &["notify", "emit", "Stop", &completion],
+        &providers,
+        &log,
+        b"",
+    );
+    assert!(output.status.success());
+    let calls = fs::read_to_string(&log).unwrap();
+    assert_eq!(
+        calls
+            .matches(&format!("arg=--id\narg=codex:codex-turns:{id}\n"))
+            .count(),
+        3
+    );
+    assert!(calls.contains("arg=Choose a profile? Keep the current window?\n"));
+    assert!(calls.contains("arg=Which profile?\n"));
+    assert!(calls.contains("arg=Which profile? Please choose in the conversation.\n"));
+    for private in [
+        "generic",
+        "Codex needs your input",
+        "hidden header",
+        "private option",
+        "wrong field",
+        "/private",
+    ] {
+        assert!(!calls.contains(private));
+    }
+    // A separate conversation must not overwrite the previous conversation.
+    let other_id = "01a0fc82-dc8f-7d13-bb78-7e120f1fa9b4";
+    let other = completion.replace(id, other_id);
+    run_manager_with_input(
+        &root.0,
+        &core,
+        &["notify", "emit", "Stop", &other],
+        &providers,
+        &log,
+        b"",
+    );
+    assert!(fs::read_to_string(&log)
+        .unwrap()
+        .contains(&format!("arg=--id\narg=codex:codex-turns:{other_id}\n")));
+    let before = fs::read(&log).unwrap();
+    for invalid in [
+        r#"{}"#,
+        r#"{"tool_name":"request_user_input_async","tool_input":{"questions":[]}}"#,
+        r#"{"tool_name":"request_user_input","tool_input":{"questions":[{"question":"one","question":"two"}]}}"#,
+        r#"{"tool_name":"request_user_input_async","tool_input":{"questions":[],"questions":[{"title":"wrong"}]}}"#,
+        r#"{"tool_name":"request_user_input_async","tool_name":"other","tool_input":{"questions":[{"title":"wrong"}]}}"#,
+    ] {
+        let output = run_manager_with_input(
+            &root.0,
+            &core,
+            &["notify", "emit", "UserInputRequest"],
+            &providers,
+            &log,
+            invalid.as_bytes(),
+        );
+        assert!(output.status.success());
+        assert!(output.stdout.is_empty() && output.stderr.is_empty());
+        assert_eq!(fs::read(&log).unwrap(), before);
+    }
+    let duplicate_id =
+        format!(r#"{{"session_id":"{id}","thread-id":"{id}","content":"Safe body"}}"#);
+    run_manager_with_input(
+        &root.0,
+        &core,
+        &["notify", "emit", "Stop"],
+        &providers,
+        &log,
+        duplicate_id.as_bytes(),
+    );
+    let calls = fs::read_to_string(&log).unwrap();
+    let last = calls.rsplit("provider=").next().unwrap();
+    assert!(last.contains("arg=Safe body\n"));
+    assert!(!last.contains("arg=--id\n"));
+}
+
+#[test]
 fn notification_is_single_line_while_toast_preserves_configured_newlines() {
     let root = TestRoot::new();
     let core = write_core_probe(&root.0);

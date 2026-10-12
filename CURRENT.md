@@ -98,6 +98,22 @@ This repository carries no external workflow skill or model configuration.
   directory removes that warning without weakening the upstream check. Future
   trial launches use this separation; the user's fleeting text was not captured.
 
+## Question notification consolidation
+
+- Manager now presents the allowlisted sync/async question tools' actual text,
+  never their options or other arguments. Empty question reminders are no-ops.
+  A validated conversation ID selects one Android notification per group/thread;
+  completion updates that notification rather than leaving a generic input alert.
+  Separate conversations and existing exact window return remain independent.
+- Candidate native Android Manager delivery passed against the real Termux:API:
+  sync/async question replacement, native completion replacement, two separate
+  conversations, empty-reminder suppression and removal of all owned alerts.
+  The reusable `scripts/qualify_notification_delivery.py` uses disposable state
+  and synthetic content only. Local full acceptance passes Core193/one pre-existing ignored, Manager42+56
+  and three actual path gates, builder25, Python18+59, fmt/Clippy/diff. Installed
+  stable48 is not yet changed; hosted acceptance, signed publication and bounded
+  device activation are in progress.
+
 ## Source and installed AI
 
 - AI main e8d49c3 formally includes the installed profile/auth/Manager adapter and

@@ -2615,7 +2615,10 @@ The canonical event allowlist and order are:
 notification selector, rendered as upstream `PreToolUse` with an anchored
 matcher for only `request_user_input` and `request_user_input_async` (including
 their `functions.` namespace spelling). It alerts before a structured question
-or follow-up input request; it is not `UserPromptSubmit`, which observes the
+or follow-up input request, using the actual question text from the recognized
+question tool's `tool_input.questions` rather than a second generic prompt.
+Question tools without usable question text do not emit an empty reminder.
+It is not `UserPromptSubmit`, which observes the
 user submitting input. No invented upstream event or transcript watcher is used.
 Tool-execution approvals use the separate `PermissionRequest` selector;
 selecting `UserInputRequest` alone does not subscribe to approval events.
@@ -2697,6 +2700,20 @@ nonduplicate top-level `session_id` is used only for the separately selected
 focus action described
 in Section 3. Other metadata, including commands, account/profile identifiers
 and working directories, does not become presentation content or shell input.
+For non-native hook input, the exact allowlisted `tool_name` values
+`request_user_input`, `request_user_input_async` and their `functions.` spellings
+allow presentation of `tool_input.questions`. Sync questions use their `question`
+string and async questions use their `title` string; nonempty strings are joined
+in question order. Headers, answers, options and other tool arguments are never
+forwarded. Duplicate selected fields or malformed question input are no-ops.
+Recognized question text takes precedence over generic top-level body fields.
+A notification with a valid session ID uses `--id codex:<GROUP_ID>:<session_id>`;
+question and later completion callbacks update one notification for that
+conversation instead of adding a generic reminder alongside its body. Separate
+conversations remain separate, updates still alert, and consuming a notification
+allows a later event to create a fresh one. No notification deduplication state
+is stored. Missing or duplicate/invalid session identity never coalesces unrelated
+notifications. The manual delivery test remains an independent notification.
 Native input-message arrays are ignored. The callback uses upstream's argv
 transport directly, without logging or persisting its JSON payload.
 Missing title uses `Codex`; missing body uses the fixed event status strings

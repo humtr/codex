@@ -1177,6 +1177,18 @@ fn emit_notification(context: &Context, event: &str, payload: Option<&OsStr>) {
     let Some(text) = parse_hook_json(input, payload.is_some()) else {
         return;
     };
+    if event == USER_INPUT_REQUEST_EVENT
+        && text
+            .body
+            .as_deref()
+            .is_none_or(|body| body.trim().is_empty())
+    {
+        return;
+    }
+    let notification_id = text
+        .session_id
+        .as_deref()
+        .map(|id| format!("codex:{}:{id}", config.group));
     let title = normalize_notification_text(
         text.title.as_deref().unwrap_or("Codex"),
         config.preserve_newlines,
@@ -1196,6 +1208,7 @@ fn emit_notification(context: &Context, event: &str, payload: Option<&OsStr>) {
                 &title,
                 &body,
                 &notification_focus_action(context, text.session_id.as_deref()),
+                notification_id.as_deref(),
             );
         }
         NotifyChannel::Toast => {
@@ -1207,6 +1220,7 @@ fn emit_notification(context: &Context, event: &str, payload: Option<&OsStr>) {
                 &title,
                 &body,
                 &notification_focus_action(context, text.session_id.as_deref()),
+                notification_id.as_deref(),
             );
             invoke_termux_toast(&config, &body);
         }
@@ -1321,6 +1335,7 @@ fn test_notification(context: &Context) -> Result<Option<String>, ManagerError> 
             "Codex",
             "Codex notification test",
             &notification_action(context),
+            None,
         );
         output.push_str(&format!("notification={}\n", result.as_str()));
         failed |= result != ProviderResult::Ok;
@@ -1436,6 +1451,7 @@ fn invoke_termux_notification(
     title: &str,
     body: &str,
     action: &str,
+    notification_id: Option<&str>,
 ) -> ProviderResult {
     let title = title.split_whitespace().collect::<Vec<_>>().join(" ");
     let body = body.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -1454,6 +1470,9 @@ fn invoke_termux_notification(
         .arg(title)
         .arg("--content")
         .arg(body);
+    if let Some(id) = notification_id {
+        command.arg("--id").arg(id);
+    }
     run_bounded_provider(command)
 }
 
@@ -1670,6 +1689,87 @@ impl<'a> JsonCursor<'a> {
         }
     }
 
+    fn object_fields(
+        &mut self,
+        mut field: impl FnMut(&mut Self, String) -> Option<()>,
+    ) -> Option<()> {
+        if !self.consume(b'{') {
+            return None;
+        }
+        self.skip_whitespace();
+        if self.consume(b'}') {
+            return Some(());
+        }
+        loop {
+            self.skip_whitespace();
+            let key = self.parse_string()?;
+            self.skip_whitespace();
+            if !self.consume(b':') {
+                return None;
+            }
+            self.skip_whitespace();
+            field(self, key)?;
+            self.skip_whitespace();
+            if self.consume(b'}') {
+                return Some(());
+            }
+            if !self.consume(b',') {
+                return None;
+            }
+        }
+    }
+
+    fn question_input(&mut self) -> Option<Vec<(Option<String>, Option<String>)>> {
+        let mut seen_questions = false;
+        let mut questions = Vec::new();
+        self.object_fields(|cursor, key| {
+            if key != "questions" {
+                return cursor.skip_value(1);
+            }
+            if seen_questions || !cursor.consume(b'[') {
+                return None;
+            }
+            seen_questions = true;
+            cursor.skip_whitespace();
+            if cursor.consume(b']') {
+                return Some(());
+            }
+            loop {
+                cursor.skip_whitespace();
+                let mut question = None;
+                let mut title = None;
+                let mut seen_question = false;
+                let mut seen_title = false;
+                cursor.object_fields(|cursor, key| {
+                    let (seen, text) = match key.as_str() {
+                        "question" => (&mut seen_question, &mut question),
+                        "title" => (&mut seen_title, &mut title),
+                        _ => return cursor.skip_value(3),
+                    };
+                    if *seen {
+                        return None;
+                    }
+                    *seen = true;
+                    if cursor.bytes.get(cursor.index) == Some(&b'"') {
+                        *text = Some(cursor.parse_string()?);
+                        Some(())
+                    } else {
+                        cursor.skip_value(3)
+                    }
+                })?;
+                questions.push((question, title));
+                cursor.skip_whitespace();
+                if cursor.consume(b']') {
+                    return Some(());
+                }
+                if !cursor.consume(b',') {
+                    return None;
+                }
+            }
+        })?;
+        Some(questions)
+    }
+
     fn consume_literal(&mut self, literal: &[u8]) -> bool {
         if self.bytes.get(self.index..self.index + literal.len()) == Some(literal) {
             self.index += literal.len();
@@ -1755,6 +1855,10 @@ fn parse_hook_json(input: &[u8], native_completion: bool) -> Option<HookText> {
     let mut seen_content = false;
     let mut seen_last_assistant_message = false;
     let mut seen_message = false;
+    let mut tool_name = None;
+    let mut questions = None;
+    let mut seen_tool_name = false;
+    let mut seen_tool_input = false;
     let mut seen_native_type = false;
     let mut native_type_valid = false;
     cursor.skip_whitespace();
@@ -1768,6 +1872,28 @@ fn parse_hook_json(input: &[u8], native_completion: bool) -> Option<HookText> {
             }
             cursor.skip_whitespace();
             match key.as_str() {
+                "tool_name" if !native_completion => {
+                    if seen_tool_name {
+                        return None;
+                    }
+                    seen_tool_name = true;
+                    if cursor.bytes.get(cursor.index) == Some(&b'"') {
+                        tool_name = Some(cursor.parse_string()?);
+                    } else {
+                        cursor.skip_value(0)?;
+                    }
+                }
+                "tool_input" if !native_completion => {
+                    if seen_tool_input {
+                        return None;
+                    }
+                    seen_tool_input = true;
+                    // Only interpret question structure for an allowlisted tool, after
+                    // parsing the whole payload. Other tools retain opaque arguments.
+                    let start = cursor.index;
+                    cursor.skip_value(0)?;
+                    questions = Some(&input[start..cursor.index]);
+                }
                 "type" if native_completion => {
                     if seen_native_type {
                         return None;
@@ -1852,6 +1978,25 @@ fn parse_hook_json(input: &[u8], native_completion: bool) -> Option<HookText> {
         text.session_id = None;
     }
     text.body = content.or(last_assistant_message).or(message);
+    let question_key = match tool_name.as_deref() {
+        Some("request_user_input" | "functions.request_user_input") => Some(false),
+        Some("request_user_input_async" | "functions.request_user_input_async") => Some(true),
+        _ => None,
+    };
+    if let Some(async_question) = question_key {
+        let mut cursor = JsonCursor::new(questions?);
+        let questions = cursor.question_input()?;
+        let body = questions
+            .into_iter()
+            .filter_map(|(question, title)| if async_question { title } else { question })
+            .filter(|text| !text.trim().is_empty())
+            .collect::<Vec<_>>()
+            .join(" ");
+        if body.is_empty() {
+            return None;
+        }
+        text.body = Some(body);
+    }
     Some(text)
 }
 
