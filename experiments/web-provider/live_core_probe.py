@@ -109,9 +109,15 @@ def probe(args):
                         assert owner.poll() is None, "native persistent browser host failed"
                         time.sleep(.1)
                     else: raise RuntimeError("native persistent browser host readiness failed")
-                ready = subprocess.run([str(args.bun), str(SOURCE / "native_session_probe.mjs"), str(args.candidate), str(native_descriptor), str(root / "native-session.json")], env=base_env, capture_output=True, timeout=45)
-                assert ready.returncode == 0 and (root / "native-session.json").exists(), "native session inspection failed"
-                session = json.loads((root / "native-session.json").read_text())
+                if args.prepared_native_session:
+                    assert args.existing_native_descriptor and external_owner.get("warmPageTargetId"), "prepared page must belong to the external native host"
+                    session = json.loads(args.prepared_native_session.read_text())
+                    assert session.get("emptyPreparedPageRetained") and session.get("authenticated") and session.get("composerCount") == 1
+                    proof["preparedPageInspectionReused"] = True
+                else:
+                    ready = subprocess.run([str(args.bun), str(SOURCE / "native_session_probe.mjs"), str(args.candidate), str(native_descriptor), str(root / "native-session.json"), "--retain-page"], env=base_env, capture_output=True, timeout=45)
+                    assert ready.returncode == 0 and (root / "native-session.json").exists(), "native session inspection failed"
+                    session = json.loads((root / "native-session.json").read_text())
                 proof["nativeSession"] = session
                 if not session["composerReady"]:
                     proof["blockedBeforeCoreRequest"] = True
@@ -199,16 +205,37 @@ stream_max_retries = 0
             network = Path(str(native_descriptor) + ".network") if native_descriptor else None
             proof["nativeDocumentStatuses"] = json.loads(network.read_text()) if network and network.exists() else []
             diagnostic_errors = []
+            diagnostic_states = []
             for path in (root / "web").rglob("*.json"):
                 try:
                     data = json.loads(path.read_text())
                     if isinstance(data, dict) and isinstance(data.get("error"), str):
                         error = data["error"]
-                        diagnostic_errors.append({"checkpoint": data.get("checkpoint"), "errorClasses": [name for name in ("composer", "timed out", "login", "session", "Temporary", "temporary", "closed", "Target", "page.wait", "page.goto", "Locator") if name in error]})
+                        signatures = {
+                            "browserSecurityCheck": "blocked this request with a browser security check",
+                            "connectorMenuClosed": "connector menu did not open",
+                            "connectorRowMissing": "exposed no row named",
+                            "connectorCatalogMissing": "connector catalog is missing",
+                            "connectorNotSelected": "did not select",
+                            "personalizationMissing": "verifiable personalization control",
+                            "personalizationUnavailable": "configured ChatGPT connector remained unavailable",
+                            "personalizationMenuUnavailable": "personalization menu",
+                            "personalizationDeadline": "personalization preflight exceeded",
+                            "personalizationChoiceUnavailable": "personalization choice",
+                            "attachmentIntegrity": "did not preserve the complete prompt",
+                            "attachmentCleanup": "composer state could not be cleared",
+                            "emptyComposerCleanup": "cleanup did not produce an empty composer",
+                        }
+                        diagnostic_errors.append({"checkpoint": data.get("checkpoint"), "errorClasses": [name for name in ("composer", "timed out", "login", "session", "Temporary", "temporary", "closed", "Target", "page.wait", "page.goto", "Locator", "connector", "personalization", "prompt") if name in error], "staticSignatures": [key for key, value in signatures.items() if value in error], "boundedError": re.sub(r"[A-Za-z0-9_-]{32,}", "[id]", re.sub(r"https?://[^ ]+|/[A-Za-z0-9._/-]+", "[path]", re.sub(r'"[^"\n]*"', '[quoted]', error.splitlines()[0])))[:300]})
+                    if isinstance(data, dict) and isinstance(data.get("state"), dict):
+                        state = data["state"]; composer = state.get("composer", {})
+                        diagnostic_states.append({"checkpoint": data.get("checkpoint"), "composerCount": composer.get("visibleCount"), "composerTextChars": composer.get("textChars"), "selectedConnectorCount": composer.get("exactSelectedConnectorCount"), "matchingConnectorRowCount": len(state.get("connectorRows", [])), "menuCount": len(state.get("menus", [])), "overlayCount": len(state.get("overlays", []))})
                 except (ValueError, OSError): pass
             proof["diagnosticErrorClasses"] = diagnostic_errors
+            proof["safeBrowserStateCounts"] = diagnostic_states
             proof["browserStageEvents"] = re.findall(r"stage=([a-zA-Z0-9_-]+) (started|completed|failed)", log)
-            proof["failureClasses"] = [name for name, needle in {"composerUnavailable": "composer", "modelControlUnavailable": "model", "authorityFailure": "environment", "browserBootstrapFailure": "browser", "rateLimit": "rate limit", "sessionExpired": "session"}.items() if needle in log.lower() + stderr.lower()]
+            # Do not classify failures from arbitrary successful-stage log text.
+            proof["failureClasses"] = sorted({name for row in diagnostic_errors for name in row["staticSignatures"]})
             proof["diagnosticScreenshotCount"] = len(list((root / "web").rglob("*.png")))
             assert proof["diagnosticScreenshotCount"] == 0
             # Copy only already-sanitized structural diagnostics, never raw gateway logs.
@@ -243,6 +270,7 @@ def main():
     for name in ("candidate", "bun", "storage", "broker", "proof"):
         parser.add_argument("--" + name, type=Path, required=True)
     parser.add_argument("--existing-native-descriptor", type=Path)
+    parser.add_argument("--prepared-native-session", type=Path)
     parser.add_argument("--native-host", action="store_true")
     parser.add_argument("--parent", type=Path, default=Path(os.environ["TMPDIR"]))
     args = parser.parse_args()

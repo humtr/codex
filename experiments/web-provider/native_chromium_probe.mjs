@@ -57,4 +57,46 @@ try{
  await page.goto('http://127.0.0.1:'+documentServer.port,{waitUntil:'domcontentloaded',timeout:5000});await page.locator('#network').fill('RECONNECTED_NETWORK_DOM');if(await page.locator('#result').textContent()!=='RECONNECTED_NETWORK_DOM')throw Error('Reconnected navigation is unusable');
  report.actualReconnectNetworkDomAccepted=true;report.actualReconnectDomAccepted=true;report.actualReconnectAccepted=true;await page.close();documentServer.stop(true);
 }finally{await browser2.close();}
+const temporaryChat='https://chatgpt.com/?temporary-chat=true';
+const {browser:preparer,context:prepareContext}=await connectNativeChromiumHost(join(root,'host.json'));
+let preparedId;
+try{
+ const page=await prepareContext.newPage();
+ await page.route(temporaryChat,route=>route.fulfill({status:200,contentType:'text/html',body:'<textarea id=prompt-textarea></textarea><output id=echo></output><script>document.querySelector("textarea").oninput=event=>echo.textContent=event.target.value</script>'}));
+ await page.goto(temporaryChat,{waitUntil:'domcontentloaded'});
+ const session=await prepareContext.newCDPSession(page);try{preparedId=(await session.send('Target.getTargetInfo')).targetInfo.targetId;}finally{await session.detach();}
+}finally{await preparer.close();}
+writeFileSync(join(root,'host.json'),JSON.stringify({...state,warmPageTargetId:'0'.repeat(32)}),{mode:0o600});
+let stalePageRefused=false;try{await connectNativeChromiumHost(join(root,'host.json'));}catch{stalePageRefused=true;}
+if(!stalePageRefused)throw Error('Stale prepared page was silently replaced');
+writeFileSync(join(root,'host.json'),JSON.stringify({...state,warmPageTargetId:preparedId}),{mode:0o600});
+const {browser:adopter,warmPage}=await connectNativeChromiumHost(join(root,'host.json'));
+try{
+ if(!warmPage||warmPage.url()!==temporaryChat)throw Error('Prepared empty page was not adopted');
+ if(JSON.parse(readFileSync(join(root,'host.json'),'utf8')).warmPageTargetId!==undefined)throw Error('Prepared page was not consumed once');
+ await warmPage.locator('#prompt-textarea').fill('OWNED_PREPARED_READBACK');
+ if(await warmPage.locator('#echo').textContent()!=='OWNED_PREPARED_READBACK')throw Error('Prepared page DOM changed during adoption');
+ await warmPage.evaluate(()=>{const turn=document.createElement('div');turn.setAttribute('data-message-author-role','user');document.body.appendChild(turn);});
+}finally{await adopter.close();}
+const {browser:noRepeat,warmPage:repeated}=await connectNativeChromiumHost(join(root,'host.json'));
+try{if(repeated)throw Error('Prepared page was adopted twice');}finally{await noRepeat.close();}
+const {browser:draftCleaner,context:draftContext}=await connectNativeChromiumHost(join(root,'host.json'));
+try{
+ const page=draftContext.pages().find(page=>page.url()===temporaryChat);
+ await page.locator('[data-message-author-role="user"]').evaluate(element=>element.remove());
+}finally{await draftCleaner.close();}
+writeFileSync(join(root,'host.json'),JSON.stringify({...state,warmPageTargetId:preparedId}),{mode:0o600});
+let draftRefused=false;try{await connectNativeChromiumHost(join(root,'host.json'));}catch{draftRefused=true;}
+if(!draftRefused)throw Error('A nonempty draft was adopted');
+writeFileSync(join(root,'host.json'),JSON.stringify(state),{mode:0o600});
+const {browser:userPreparer,context:userContext}=await connectNativeChromiumHost(join(root,'host.json'));
+try{
+ const page=userContext.pages().find(page=>page.url()===temporaryChat);await page.locator('#prompt-textarea').fill('');
+ await page.evaluate(()=>{const turn=document.createElement('div');turn.setAttribute('data-message-author-role','user');document.body.appendChild(turn);});
+}finally{await userPreparer.close();}
+writeFileSync(join(root,'host.json'),JSON.stringify({...state,warmPageTargetId:preparedId}),{mode:0o600});
+let existingTurnRefused=false;try{await connectNativeChromiumHost(join(root,'host.json'));}catch{existingTurnRefused=true;}
+if(!existingTurnRefused)throw Error('Existing user turn was adopted as an empty bootstrap');
+writeFileSync(join(root,'host.json'),JSON.stringify(state),{mode:0o600});
+Object.assign(report,{preparedPageStaleOwnerRefused:stalePageRefused,preparedPageReadbackAccepted:true,preparedPageConsumedOnce:true,existingDraftRefused:draftRefused,existingUserTurnRefused:existingTurnRefused,preparedFixtureActualServiceRequests:0});
 writeFileSync(join(root,'proof.json'),JSON.stringify(report),{mode:0o600});console.log(JSON.stringify(report));

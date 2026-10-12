@@ -249,42 +249,60 @@ startup label, prove the outbound connection. The Android artifact is retained i
 alias/source/profile are a temporary experiment, not a durable installed service.
 Private aggregate proof: ~/.cache/codex/acceptance/web-native-tunnel.json.
 
-Native Core qualification uses the actual signed stable49 Core, actual6.1.8
-Responses server and TurnBroker in disposable roots. The driver requires an
-explicit public Web model slug and refuses native API pass-through. It reached
-the real browser adapter and failed before a model reply. Its separate processes
-and broker are removed; saved experimental login hashes remain unchanged. This
-is transport/authority proof, not real-model or model-tool-loop acceptance.
+The native Chromium host remains an experiment. It uses one owned persistent
+profile, private DevTools pipes and a bearer-gated loopback relay. Private
+PID/start/image/profile descriptors, one-client reservations and disconnect
+cleanup are mandatory; no unauthenticated Chromium debug port, browser-property
+override or challenge solver is used. Setup/doctor/installer admission is not
+finished and this mode is not merged into the production runtime.
 
-`native_chromium_host.mjs PROFILE DESCRIPTOR` is an experimental Android host.
-It starts one real persistent Chromium over private DevTools FD3/FD4 and exposes
-only a bearer-gated loopback relay. Origin headers are refused. Descriptor and
-profile ownership are checked by PID/start/image, UID, modes and canonical paths;
-concurrent CDP upgrades cannot acquire the same pipe root session. Disconnect
-releases auto-attach/discovery/target sessions before the next connection. The
-host cleans its own Chromium, descriptor and short private socket scratch root.
-No unauthenticated Chromium debug port, Electron identity, stealth or challenge
-solver is used. Chromium's actual navigator.webdriver remains true.
+Current operating baseline is the user-confirmed ordinary browser and023c263
+mobile controls, restored ine72f1e8. Use `open_viewer.py GUI --refresh` to reopen it
+with a fresh URL query without a manual reload. Preserve the original profile,
+login and form. The rejecteddca030e width behavior is not active.
 
-`native_chromium_probe.py BUN CANDIDATE` passes native account-free DOM readback,
-private descriptor/auth/origin/stale-owner refusal, concurrent connection refusal,
-persistent synthetic-cookie retention, reconnect plus real loopback navigation,
-and owned-process/descriptor cleanup. Bridge native TypeScript and172 affected
-unit tests pass. The five previously skipped browser-turn-binding cases were then
-run with the actual Android Chromium against synthetic documents:5 pass/0 fail,
-65 assertions. These prove renderer binding, not ChatGPT service behavior.
+`fresh_login_probe.py` reads only the experimental Chrome cookie DB through a
+SQLite backup into a disposable profile. Challenge cookies and other domains
+are excluded. The old saved seed had24 account cookies while the current profile
+had27; the current snapshot reaches an authenticated unique composer. These
+snapshots and owned processes are removed after each trial.
 
-The real native-host service attempt still returned document403/200 and a human
-verification title with zero visible composers. The user confirmed the new trial
-failed while the original ordinary browser worked. The native trial was stopped;
-its alert removed; the original browser/login/form restored and user-confirmed.
-Saved capability flags are not authentication or account eligibility proof. The
-native probe now requires exactly one visible composer and authenticated state,
-as the actual worker does. No repeated login/challenge retry is scheduled.
+`native_session_probe.mjs --retain-page` prepares one empty Temporary Chat and
+hands off its exact CDP target ID through the owned descriptor. The worker
+consumes that ID once; stale targets, existing user turns, nonempty drafts and
+ambiguous editors are refused. It avoids closing the authenticated first page
+and repeating navigation during inspection and actual task startup.
 
-This native-host mode is experimental programmatic configuration, not a finished
-setup/doctor/installer integration. CLI and persistent operating services remain
-unchanged. Automatic real reply, two model-initiated tools, cancellation, compact
-and resume remain open. Preserve the accepted ordinary mobile viewer while this
-service gate is unresolved; the Native2 automatic contract is not a manual/Safe
-contract substitute.
+`live_core_probe.py` uses the actual signed stable49 Core, actual6.1.8 Responses
+server and TurnBroker in disposable roots. A public Web route is required and
+native API pass-through is refused. It reaches authenticated surface/model/effort,
+exact Native2 selection, the complete prompt/files and Send. The conversation
+POST then returns403 with `cf-mitigated: challenge`, and the actual adapter's
+`chatgpt_security_check` guard rejects the turn. That is the model submission,
+not a failure of the existing viewer or Tunnel connection. Real model reply,
+two model-initiated tools, cancellation, compact and resume remain unqualified.
+
+`profile_reuse_probe.py` confirms the same result using the unchanged experimental
+profile in place. It normally stops only the owner-verified dedicated Chrome,
+creates a private recovery checkpoint, preserves tabs and always restores ordinary
+Chrome/its owner marker in finally. Codex/Tdev/other profiles remain running.
+The human-check option waits at most120 seconds, sends its navigation notification
+when ready, makes no model request while waiting, then restores ordinary Chrome
+and removes the stale alert. The indefinite hold was rejected by automatic
+approval review and was not executed; the bounded variant was allowed. Human
+verification is a user step. The latest timed view expired and ordinary Chrome
+was restored; the requested human result is still pending.
+
+Native TypeScript passes. The six affected suites pass177/0 failures and1005
+assertions, including five actual Android Chromium DOM cases. Account-free pipe
+proof passes descriptor/auth/origin/concurrent-owner refusal, prepared-page
+consumption/readback, stale target/draft/user-turn refusal, persistent context,
+reconnect plus loopback navigation, and owned cleanup. These are transport and
+renderer gates, not a substitute for a real ChatGPT model/tool turn. Private
+aggregates: web-current-login.json, web-same-profile.json, web-human-check.json
+and web-warm-page.json under ~/.cache/codex/acceptance; credentials stay local.
+
+Cloudflare defines the challenge header and does not support automated frameworks
+for solving production challenges:
+https://developers.cloudflare.com/cloudflare-challenges/challenge-types/challenge-pages/detect-response/
+https://developers.cloudflare.com/cloudflare-challenges/reference/supported-browsers/

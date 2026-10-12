@@ -5,7 +5,8 @@ import {isAbsolute,join,dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {randomBytes,timingSafeEqual} from 'node:crypto';
 
-const [profilePath,descriptorPath]=process.argv.slice(2);
+const [profilePath,descriptorPath,restoreSession]=process.argv.slice(2);
+if(restoreSession&&restoreSession!=="--restore-session")throw Error("Invalid native startup mode");
 if(process.platform!=='android'||![profilePath,descriptorPath].every(p=>p&&isAbsolute(p)))throw Error('Native Android and absolute owned paths required');
 mkdirSync(profilePath,{recursive:true,mode:0o700});
 const profile=lstatSync(profilePath);
@@ -15,7 +16,7 @@ const token=randomBytes(32).toString('base64url');
 // Android sun_path is bounded: Chrome appends its singleton socket suffix to TMPDIR.
 const browserTemporary=mkdtempSync(join(process.env.PREFIX,'tmp','cp-'));
 chmodSync(browserTemporary,0o700);
-const host=spawn(browserImage,['--user-data-dir='+profilePath,'--remote-debugging-pipe','--no-sandbox','--disable-dev-shm-usage','--no-first-run','--no-default-browser-check','--disable-background-mode','--window-position=0,0','about:blank'],{env:{...process.env,TMPDIR:browserTemporary},stdio:['ignore','ignore','ignore','pipe','pipe']});
+const host=spawn(browserImage,['--user-data-dir='+profilePath,'--remote-debugging-pipe','--no-sandbox','--disable-dev-shm-usage','--no-first-run','--no-default-browser-check','--disable-background-mode','--window-position=0,0',...(restoreSession?['--restore-last-session']:['about:blank'])],{env:{...process.env,TMPDIR:browserTemporary},stdio:['ignore','ignore','ignore','pipe','pipe']});
 if(!host.stdio[3]?.writable||!host.stdio[4]?.readable)throw Error('Chromium private FD3/FD4 transport unavailable');
 let sequence=0,buffer=Buffer.alloc(0),peer,upgrading=false,closing=false,server;
 const pending=new Map();
@@ -39,7 +40,11 @@ host.stdio[4].on('data',chunk=>{
   let message;try{message=JSON.parse(frame.toString('utf8'));}catch{console.error('Chromium pipe invalid-frame bytes:',frame.length);void shutdown();return;}
   if(message.method==='Network.responseReceived'){
    const response=message.params?.response;
-   if(response&&message.params.type==='Document'){networkMetadata.push({status:response.status});if(networkMetadata.length>16)networkMetadata.shift();writeFileSync(descriptorPath+'.network',JSON.stringify(networkMetadata),{mode:0o600});}
+   if(response){
+    let kind=message.params.type==='Document'?'document':undefined;
+    if(!kind){try{const path=new URL(response.url).pathname;if(path.includes('/conversation'))kind='conversation';else if(path.includes('/plugins')||path.includes('/apps'))kind='connector';}catch{}}
+    if(kind){networkMetadata.push({kind,status:response.status});if(networkMetadata.length>24)networkMetadata.shift();writeFileSync(descriptorPath+'.network',JSON.stringify(networkMetadata),{mode:0o600});}
+   }
   }
   if(message.method==='Target.attachedToTarget'&&message.params?.sessionId)sessions.add(message.params.sessionId);
   if(message.method==='Target.detachedFromTarget')sessions.delete(message.params?.sessionId);
