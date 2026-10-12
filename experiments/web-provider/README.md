@@ -267,7 +267,7 @@ are excluded. The old saved seed had24 account cookies while the current profile
 had27; the current snapshot reaches an authenticated unique composer. These
 snapshots and owned processes are removed after each trial.
 
-`native_session_probe.mjs --retain-page` prepares one empty Temporary Chat and
+`native_session_probe.mjs CANDIDATE DESCRIPTOR PROOF --retain-page` prepares one empty Temporary Chat and
 hands off its exact CDP target ID through the owned descriptor. The worker
 consumes that ID once; stale targets, existing user turns, nonempty drafts and
 ambiguous editors are refused. It avoids closing the authenticated first page

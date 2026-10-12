@@ -20,7 +20,8 @@ def main():
         parser.add_argument('--'+name,type=Path,required=True)
     parser.add_argument("--human-check-seconds",type=int,default=0)
     args=parser.parse_args()
-    assert 0<=args.human_check_seconds<=120
+    if not 0<=args.human_check_seconds<=120:
+        parser.error("human check must be bounded to 0..120 seconds")
     r=args.gui.resolve(strict=True);source=Path(__file__).resolve().parent
     env=json.loads((r/'environment.json').read_text());profile=args.storage.parent/'manual-profile'
     owner_file=r/'account-view-process.json';old=json.loads(owner_file.read_text());assert identity_matches(old)
