@@ -6,14 +6,14 @@ This repository carries no external workflow skill or model configuration.
 
 ## Operating baseline
 
-- Public and installed stable48: local-hosted-0-161-0-b4126438d87d-s48,
-  CLI0.161.0, accepted implementationb412643. Publication38139742400 passed all
+- Public and installed stable49: local-hosted-0-161-0-952c3eacb22c-s49,
+  CLI0.161.0, accepted implementation952c3ea. Publication38218954233 passed all
   eight jobs, including Android execution, signing, public readback/disposable
-  update and non-forced promotion. main caller86927c1 pins that exact source.
-  Source acceptance38139038173 passed all four jobs. Frontend source73f77de
+  update and non-forced promotion. main caller71b48bf pins that exact source.
+  Source acceptance38218520434 passed all four jobs. Frontend source73f77de
   removes the bare-registration omission; native27/lint/pristine Core proof passed.
 - Local composed full acceptance passed Core193/one pre-existing ignored,
-  Manager42+55+three actual path gates, builder25, Python18+59 and fmt/Clippy/diff.
+  Manager42+56+three actual path gates, builder25, Python18+59 and fmt/Clippy/diff.
   The two first-launch startup fixtures now remove inherited window-ready state;
   their focused rerun passed after the inherited environment skipped the advisory.
 - Initial public device update hit the existing300-second large-payload transfer
@@ -21,7 +21,7 @@ This repository carries no external workflow skill or model configuration.
   boundary refused it; stable45 remained intact. This was a transport/fallback
   failure, not rejection of the paired signed stable46 release. No trust boundary
   was weakened to activate it.
-- Device activation used the normal signed `codex update --local` path, with six
+- Earlier stable48 device activation used the normal signed `codex update --local` path, with six
   identical files copied from stable47 against the signed inventory. Only metadata
   and the new frontend helper needed downloading. All eight hashes/modes and
   the public manifest signature/key verified before activation. stable47 is the
@@ -109,10 +109,14 @@ This repository carries no external workflow skill or model configuration.
   sync/async question replacement, native completion replacement, two separate
   conversations, empty-reminder suppression and removal of all owned alerts.
   The reusable `scripts/qualify_notification_delivery.py` uses disposable state
-  and synthetic content only. Local full acceptance passes Core193/one pre-existing ignored, Manager42+56
-  and three actual path gates, builder25, Python18+59, fmt/Clippy/diff. Installed
-  stable48 is not yet changed; hosted acceptance, signed publication and bounded
-  device activation are in progress.
+  and synthetic content only. Local full acceptance passes Core193/one pre-existing
+  ignored, Manager42+56 and three actual path gates, builder25, Python18+59,
+  fmt/Clippy/diff. Hosted acceptance38218520434 and publication38218954233 passed.
+  Ordinary signed `codex update` activated stable49; installed Manager's real
+  Android delivery rerun passed and doctor exited0. Twelve protected file hashes
+  and fourteen preexisting live PID/start/image identities stayed unchanged;
+  stable48 is the rollback target. No running conversation needed restarting.
+  Proof: ~/.cache/codex/acceptance/notification-consolidation-device.json.
 
 ## Source and installed AI
 

@@ -29,7 +29,9 @@ per launch, then reuses it. A tap consumes the notification; use a fresh one for
 another return. Return never starts/resumes Codex. Stock APK lacks atomic existing-
 window selection: manual rename or a closing-window race can open an inert empty terminal. `--focus termux` only brings the app forward.
 The `UserInputRequest` notification selector covers structured questions and
-follow-up input requests. Diagnosis and recovery remain available through Core
+follow-up input requests, with their question text. Each conversation updates one
+notification, so a generic input reminder cannot remain beside its follow-up body.
+Diagnosis and recovery remain available through Core
 `codex doctor`, `codex update`, and `codex update --rollback`.
 Exact contracts belong to `SPEC.md`.
 
