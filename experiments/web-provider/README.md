@@ -289,9 +289,10 @@ Chrome/its owner marker in finally. Codex/Tdev/other profiles remain running.
 The human-check option waits at most120 seconds, sends its navigation notification
 when ready, makes no model request while waiting, then restores ordinary Chrome
 and removes the stale alert. The indefinite hold was rejected by automatic
-approval review and was not executed; the bounded variant was allowed. Human
-verification is a user step. The latest timed view expired and ordinary Chrome
-was restored; the requested human result is still pending.
+approval review and was not executed; the bounded variant was allowed. The user clicked verification but reported that it returns to Verify repeatedly.
+The native-host human gate has failed; it must not be described as merely waiting
+for user input or treated as provider admission. Ordinary Chrome is restored.
+Do not schedule another identical verification view without a new technical basis.
 
 Native TypeScript passes. The six affected suites pass177/0 failures and1005
 assertions, including five actual Android Chromium DOM cases. Account-free pipe
@@ -306,3 +307,27 @@ Cloudflare defines the challenge header and does not support automated framework
 for solving production challenges:
 https://developers.cloudflare.com/cloudflare-challenges/challenge-types/challenge-pages/detect-response/
 https://developers.cloudflare.com/cloudflare-challenges/reference/supported-browsers/
+
+`native_chromium_probe.py BUN CANDIDATE --compatibility` performs an account-free
+read-only run on Cloudflare's public diagnostic site. It loads with document200,
+JavaScript/cookies/secure context/WebCrypto are available, but WebGL1/2 are absent
+and the real browser reports automation. No IP/fingerprint/body/credentials are
+output, and no production challenge is acted on. Zero recognized diagnostic
+status cells are not a passed compatibility gate. DNS and the public validation
+script are reachable (HTTP200); this does not prove every in-browser challenge
+request succeeds. Automated-browser incompatibility is supported by the repeated
+production challenge, native automation state and Cloudflare documentation; the
+specific triggering signal and any effect of missing WebGL remain unproven.
+
+The154 package was downloaded into TMPDIR and verified against the signed apt
+metadata SHA256; the installed152 browser was not upgraded. Equivalent diagnostic
+launches on152/154 both expose WebGL only with Playwright's unsafe SwiftShader
+fallback enabled; excluding it leaves WebGL1/2 unavailable on both versions.
+The version comparison therefore does not prove an upgrade fixes the challenge.
+The new binary/archive were removed after the comparison. This unsafe graphics
+fallback is not enabled in the ordinary/native operating browser.
+The user-confirmed manual verification loop fails the current native-host route;
+there is no pending human-input explanation or production provider admission.
+Specific bot signal causality remains unknown. Keep the connected ordinary
+browser and existing Native2 Tunnel, preserve the experiment in Git, and require
+new technical evidence before another production challenge attempt.

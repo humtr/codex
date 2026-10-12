@@ -11,7 +11,9 @@ import time
 
 
 def main():
-    bun, candidate = (Path(v).resolve(strict=True) for v in sys.argv[1:])
+    bun, candidate = (Path(v).resolve(strict=True) for v in sys.argv[1:3])
+    assert sys.argv[3:] in ([], ["--compatibility"]) or (len(sys.argv[3:])==2 and sys.argv[3]=="--compatibility" and Path(sys.argv[4]).is_absolute())
+    compatibility = bool(sys.argv[3:])
     prefix, parent = Path(os.environ['PREFIX']), Path(os.environ['TMPDIR'])
     source = Path(__file__).resolve().parent
     processes = []
@@ -45,7 +47,7 @@ def main():
                     raise RuntimeError('native pipe host failed before descriptor')
                 time.sleep(.1)
             else:raise RuntimeError('native pipe host readiness failed')
-            result=subprocess.run([str(bun),str(source/'native_chromium_probe.mjs'),str(candidate),str(root)],env=env,capture_output=True,text=True,timeout=45)
+            result=subprocess.run([str(bun),str(source/('native_chromium_compatibility.mjs' if compatibility else 'native_chromium_probe.mjs')),str(candidate),str(root),*sys.argv[4:]],env=env,capture_output=True,text=True,timeout=45)
             if result.returncode:
                 print('native_client_exit',result.returncode)
                 print('native_client_failure_classes',[name for name in ('WebSocket','Unauthorized','Timeout','Persistent','reconnect','DOM','headers','404','401','Unsupported','Unexpected') if name in result.stderr])
@@ -60,7 +62,7 @@ def main():
                     except subprocess.TimeoutExpired:p.kill();p.wait()
         assert not (root/'host.json').exists(),'owned descriptor remains'
         report['descriptorRemoved']=True;report['ownedProcessesExited']=all(p.poll() is not None for p in processes)
-        out=Path(os.environ['TMPDIR'])/'native-chromium-account-free-proof.json';out.write_text(json.dumps(report,indent=2)+'\n');out.chmod(0o600)
+        out=Path(os.environ['TMPDIR'])/('native-chromium-compatibility-proof.json' if compatibility else 'native-chromium-account-free-proof.json');out.write_text(json.dumps(report,indent=2)+'\n');out.chmod(0o600)
         print(json.dumps(report))
 
 
