@@ -21,10 +21,14 @@ PROOT_SOURCE = '5a427a1f924550c176ab34197e9fcf5d010fdbd9'
 SOURCE = Path(__file__).resolve().parent
 
 
-def private(path):
+def private(path, *, tighten=False):
     path.mkdir(parents=True, exist_ok=True, mode=0o700)
     st = path.lstat()
-    assert path.is_dir() and not path.is_symlink() and st.st_uid == os.getuid() and not st.st_mode & 0o077
+    assert path.is_dir() and not path.is_symlink() and st.st_uid == os.getuid()
+    if tighten:
+        path.chmod(0o700)
+    else:
+        assert not st.st_mode & 0o077
     return path
 
 
@@ -36,6 +40,31 @@ def write(path, value):
         os.replace(tmp, path)
     finally:
         if Path(tmp).exists(): Path(tmp).unlink()
+
+
+def configure_browser(home):
+    applications = private(home/'.local/share/applications', tighten=True)
+    desktop = applications/'codex-termux-auth-browser.desktop'
+    desktop.write_text('[Desktop Entry]\nType=Application\nName=Termux authentication browser\nExec=/ui/bin/xdg-open %u\nNoDisplay=true\nTerminal=false\nMimeType=x-scheme-handler/http;x-scheme-handler/https;\n')
+    desktop.chmod(0o600)
+    configuration = private(home/'.config', tighten=True)/'mimeapps.list'
+    lines = configuration.read_text().splitlines() if configuration.exists() else []
+    result=[]; in_defaults=False; added=False
+    for line in lines:
+        if line.startswith('[') and in_defaults and not added:
+            result+=['x-scheme-handler/http=codex-termux-auth-browser.desktop','x-scheme-handler/https=codex-termux-auth-browser.desktop']; added=True
+        if line=='[Default Applications]': in_defaults=True
+        elif line.startswith('['): in_defaults=False
+        if not (in_defaults and line.startswith(('x-scheme-handler/http=','x-scheme-handler/https='))): result.append(line)
+    if not added:
+        if not in_defaults: result.append('[Default Applications]')
+        result+=['x-scheme-handler/http=codex-termux-auth-browser.desktop','x-scheme-handler/https=codex-termux-auth-browser.desktop']
+    fd, temporary=tempfile.mkstemp(dir=configuration.parent,prefix='.mime-')
+    try:
+        with os.fdopen(fd,'w') as f:f.write('\n'.join(result)+'\n');f.flush();os.fsync(f.fileno())
+        os.replace(temporary,configuration)
+    finally:
+        if Path(temporary).exists():Path(temporary).unlink()
 
 
 def paths(args):
@@ -81,6 +110,7 @@ def serve(args):
     processes = []
     with tempfile.TemporaryDirectory(prefix='ld-', dir=os.environ['TMPDIR']) as temp:
         root = private(Path(temp)); home = private(data/'home')
+        configure_browser(home)
         display = next(n for n in range(128, 256) if not (prefix/'tmp'/f'.X{n}-lock').exists() and not (prefix/'tmp/.X11-unix'/f'X{n}').exists())
         def field(v): return struct.pack('!H', len(v))+v
         auth = root/'xauthority'
@@ -113,7 +143,7 @@ def serve(args):
             subprocess.run([str(prefix/'bin/wmctrl'), '-i', '-r', match[1], '-b', 'add,fullscreen'], env=native, check=True, capture_output=True, timeout=5)
             stat = (Path('/proc')/str(os.getpid())/'stat').read_text()
             write(data/'session.json', {'pid': os.getpid(), 'start': int(stat[stat.rfind(')')+2:].split()[19]), 'image': os.readlink(Path('/proc')/str(os.getpid())/'exe'), 'root': str(root), 'display': display, 'seconds': args.seconds, 'started': time.time(), 'production': False})
-            action = shlex.join([str(prefix/'bin/python'), '-B', str(SOURCE/'open_viewer.py'), str(root), '--refresh'])
+            action = shlex.join([str(prefix/'bin/python'), '-B', str(SOURCE/'open_dual_trial.py'), 'linux'])
             subprocess.run([str(prefix/'bin/termux-notification'), '--id', 'codex-linux-login', '--group', 'codex-web-experiment', '--title', 'Linux 앱 로그인', '--content', '한 번 터치해 공식 앱을 여세요. 로그인·설정은 별도로 유지됩니다.', '--action', action, '--priority', 'high'], capture_output=True, timeout=20, check=True)
             print(json.dumps({'linuxViewerReady': True, 'notificationSent': True, 'production': False}), flush=True)
             end = time.monotonic()+args.seconds
@@ -124,8 +154,9 @@ def serve(args):
                     parsed = urlparse(url)
                     if len(url) < 16384 and parsed.scheme == 'https' and parsed.hostname == 'auth.openai.com' and parsed.path.startswith('/api/accounts/') and not parsed.username and not parsed.password and not any(k in url for k in ('id_token=', 'access_token=', 'refresh_token=')):
                         # OAuth state/code challenges stay out of chat and logs.
-                        subprocess.run([str(prefix/'bin/termux-am-socket'), 'start -a android.intent.action.VIEW -d '+url], env=native, capture_output=True, timeout=20)
-                        write(data/'browser-handoff.json', {'time': time.time(), 'opened': True})
+                        result = subprocess.run([str(prefix/'bin/termux-am-socket'), 'start -a android.intent.action.VIEW -d '+url], env=native, capture_output=True, text=True, timeout=20)
+                        ok = result.returncode == 0 and 'Error:' not in result.stdout and not result.stderr
+                        write(data/'browser-handoff.json', {'time': time.time(), 'opened': ok, 'exit': result.returncode, 'activityStarted': 'Starting:' in result.stdout})
                     else: write(data/'browser-handoff.json', {'time': time.time(), 'opened': False, 'unrecognizedTarget': True})
                 time.sleep(.5)
         finally:

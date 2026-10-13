@@ -401,9 +401,23 @@ No host projects, existing profiles or real HOME are bound into the guest.
 A private Xvnc/noVNC screen retains the accepted mobile controls and fullscreens
 only this candidate's window. The scoped guest browser opener forwards only
 recognized OpenAI authorization URLs to the normal Android browser. It never
-records the URL, code or token. The fresh `Linux 앱 로그인` notification opens
-this separate screen. No boot service or global launcher is installed; a bounded
-foreground trial stops its owned processes while retaining account data.
+records the URL, code or token. Candidate HTTP/HTTPS MIME defaults select the
+owned Android handoff desktop handler, while preserving the Codex callback and
+other associations. Without this override the minimalist guest selects
+chatgpt.desktop for HTTPS and its sign-in button routes back into itself. An
+actual guest `gio open` dispatch reached the handler with an unrecognized,
+account-free target; it was refused without opening an external page. Real
+sign-in delivery remains a separate user gate. Candidate configuration folders
+created by the app with mode 0755 are tightened to 0700 after verifying ownership
+and refusing symlinks; existing configuration content is preserved.
+
+The fresh `Linux 앱 로그인` notification opens this separate screen. Both trial
+notifications resolve the current endpoint at tap time and validate the owner's
+PID, start time and executable; stale process records refuse. A controller
+restart therefore does not leave the notification pointing at an obsolete
+port/capability. No boot service or global launcher is installed; each foreground
+trial lasts at most one hour, then removes its notification and owned processes
+while retaining account data. Restart the trial before sending a fresh alert.
 
 `siwc_trial.mjs` is a separate native Android public-client qualification. It
 uses the official devkit's unmodified low-level OAuth, model and SSE modules;
@@ -437,8 +451,20 @@ Native Node24 compilation and 27 vendor OAuth/refresh/SSE tests pass. Six
 actual Android persistence/privacy/UI cases pass. The real signed stable49 Core's
 account-free app-server proof passes two correlated shell tool calls and public
 route request-shape checks, with all owned Core processes removed afterward.
-That fixture is synthetic service proof, not real subscription inference. Both
-login screens are prepared and their notifications delivered; human sign-in,
-account entitlement and completed real model/tool gates remain pending. The
-Linux candidate's guest execution and the native Termux Core execution are
-separate qualification scopes. Production remains stable49.
+That fixture is synthetic service proof, not real subscription inference. Two
+additional Android filesystem/routing tests pass: idempotent MIME defaults
+preserve other associations and harden owned candidate configuration, and a tap
+uses the current port while refusing a reused PID/start record. The delivered
+subscription page returns HTTP 200 and its inline script passes syntax checking.
+
+The user's attempted external sign-in returned `3p_login_tenant_policy_denied`.
+That reported state is preserved separately from verified credentials. The
+ChatGPT workspace Apps screen does not control external SIWC identity access;
+that policy belongs to the tenant Global admin's External access controls.
+Official plan-usage eligibility currently documents Plus/Pro, so removing a
+Business identity restriction alone would not establish plan entitlement. No
+organization policy was changed and no other account was selected automatically.
+The first-party Linux app is an independent qualification track and its actual
+login remains pending; the external identity rejection does not prove a
+first-party app rejection. Real account/model/tool acceptance remains unpassed.
+Production remains stable49.

@@ -47,7 +47,7 @@ export function validateConnection(value) {
 }
 
 export function renderLanding(nonce) {
-  return String.raw`<!doctype html><html lang="ko"><meta name="viewport" content="width=device-width, initial-scale=1"><title>ChatGPT 구독 연결 시험</title><style>body{margin:0;background:#f5f6f8;color:#15202b;font:17px system-ui}main{max-width:540px;margin:8vh auto;padding:24px}h1{font-size:27px}p{line-height:1.6}button{width:100%;padding:16px;border:0;border-radius:14px;background:#15202b;color:white;font:inherit}pre{white-space:pre-wrap;background:white;padding:16px;border-radius:14px;font:14px system-ui}a{color:#315cc2}</style><main><h1>ChatGPT 구독 연결</h1><p>이 기기의 독립된 시험 앱 <b>codex-termux-trial</b>을 연결합니다. 동의하면 구독 사용 설정에 따라 짧은 모델 응답과 Codex 도구 실행을 시험합니다.</p><button id="connect">Continue with ChatGPT</button><p><a href="https://chatgpt.com/settings/usage">사용량·연결 권한 관리</a></p><pre id="status">준비됨</pre></main><script nonce="${nonce}">const b=document.querySelector('#connect'),s=document.querySelector('#status');b.onclick=async()=>{b.disabled=true;await fetch('./connect',{method:'POST'});};async function poll(){try{const x=await(await fetch('./status')).json();b.disabled=['connecting','models','model_probe','core_probe'].includes(x.phase);s.textContent='상태: '+x.phase+'\n구독 사용 동의: '+(x.sharing?'확인됨':'대기')+'\n선택 모델: '+(x.chosenModel||'대기')+'\n실제 모델 응답: '+(x.proof?.realModelReplyAccepted?'성공':'대기')+'\n실제 Codex 도구 실행: '+(x.proof?.realCoreToolLoopAccepted?'성공':'대기')+(x.errorCode?'\n오류: '+x.errorCode:'');}catch{}setTimeout(poll,1500);}poll();</script></html>`;
+  return String.raw`<!doctype html><html lang="ko"><meta name="viewport" content="width=device-width, initial-scale=1"><title>ChatGPT 구독 연결 시험</title><style>body{margin:0;background:#f5f6f8;color:#15202b;font:17px system-ui}main{max-width:540px;margin:8vh auto;padding:24px}h1{font-size:27px}p{line-height:1.6}button{width:100%;padding:16px;border:0;border-radius:14px;background:#15202b;color:white;font:inherit}pre{white-space:pre-wrap;background:white;padding:16px;border-radius:14px;font:14px system-ui}a{color:#315cc2}</style><main><h1>ChatGPT 구독 연결</h1><p>이 기기의 독립된 시험 앱 <b>codex-termux-trial</b>을 연결합니다. 동의하면 구독 사용 설정에 따라 짧은 모델 응답과 Codex 도구 실행을 시험합니다.</p><p>구독 사용 연결은 적격 Plus·Pro 계정을 대상으로 합니다. Business 조직이 외부 로그인을 거절한 경우 이 페이지에서 조직 정책을 변경할 수 없습니다.</p><button id="connect">Continue with ChatGPT</button><p><a href="https://chatgpt.com/settings/usage">사용량·연결 권한 관리</a></p><pre id="status">준비됨</pre></main><script nonce="${nonce}">const b=document.querySelector('#connect'),s=document.querySelector('#status');b.onclick=async()=>{b.disabled=true;await fetch('./connect',{method:'POST'});};async function poll(){try{const x=await(await fetch('./status')).json();b.disabled=['connecting','models','model_probe','core_probe'].includes(x.phase);const labels={ready:'로그인을 시작해 주세요',connecting:'OpenAI 로그인·동의 대기',policy_denied:'Business 조직에서 외부 앱 로그인을 거절했습니다',models:'모델 목록 확인 중',model_probe:'모델 응답 시험 중',core_probe:'Codex 도구 실행 시험 중',complete:'연결 검증 완료',failed:'연결 확인 필요',consent_required:'구독 사용 동의 필요'};s.textContent='상태: '+(labels[x.phase]||x.phase)+'\n구독 사용 동의: '+(x.sharing?'확인됨':'대기')+'\n선택 모델: '+(x.chosenModel||'대기')+'\n실제 모델 응답: '+(x.proof?.realModelReplyAccepted?'성공':'대기')+'\n실제 Codex 도구 실행: '+(x.proof?.realCoreToolLoopAccepted?'성공':'대기')+(x.errorCode?'\n오류: '+x.errorCode:'');}catch{}setTimeout(poll,1500);}poll();</script></html>`;
 }
 
 export async function serve({sdk,root,prefix,coreProbe,seconds=1800}) {
@@ -64,12 +64,14 @@ export async function serve({sdk,root,prefix,coreProbe,seconds=1800}) {
   const capability=randomBytes(32).toString('hex');
   let connection=store.read('connection.json'),phase='ready',models=[],chosenModel=null,proof=null,errorCode=null,busy=false;
   validateConnection(connection);
+  const reported=store.read('reported-error.json');
+  if(!connection&&reported?.code==='3p_login_tenant_policy_denied'){phase='policy_denied';errorCode=reported.code;}
   const appName='codex-termux-trial';
   const headers={'Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Frame-Options':'DENY','X-Content-Type-Options':'nosniff'};
   const status=()=>publicStatus(connection,phase,models,chosenModel,proof,errorCode);
   const saveStatus=()=>{if(!lifecycle.signal.aborted)store.write('status.json',status());};
   const notify=()=>{
-    const action=[prefix+'/bin/termux-am-socket',`start -a android.intent.action.VIEW -d http://127.0.0.1:${server.port}/${capability}/`];
+    const action=[prefix+'/bin/python','-B',new URL('./open_dual_trial.py',import.meta.url).pathname,'plan'];
     // shell quoting is required for Termux:API's action string, including spaces.
     const quote=s=>"'"+s.replaceAll("'","'\\''")+"'";
     const r=spawnSync(prefix+'/bin/termux-notification',['--id','codex-plan-login','--group','codex-web-experiment','--title','공식 ChatGPT 구독 연결','--content','한 번 터치해 로그인·사용 동의를 진행하세요. 기존 Codex 프로필과 별도입니다.','--action',action.map(quote).join(' '),'--priority','high'],{timeout:20000,stdio:'ignore'});
@@ -134,7 +136,8 @@ export async function serve({sdk,root,prefix,coreProbe,seconds=1800}) {
     const html=renderLanding(nonce);
     return new Response(html,{headers:{...headers,'Content-Type':'text/html;charset=utf-8','Content-Security-Policy':`default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`}});
   }});
-  saveStatus();store.write('viewer.json',{port:server.port,capability,pid:process.pid});notify();
+  const procStat=readFileSync(`/proc/${process.pid}/stat`,'utf8');
+  saveStatus();store.write('viewer.json',{port:server.port,capability,pid:process.pid,start:Number(procStat.slice(procStat.lastIndexOf(')')+2).split(' ')[19]),image:process.execPath});notify();
   console.log(JSON.stringify({planConnectionReady:true,notificationSent:true,authenticated:connection?.status==='connected',production:false}));
   let stopping=false;
   const stop=async()=>{if(stopping)return;stopping=true;lifecycle.abort();authController?.abort();server.stop(true);if(coreChild){const child=coreChild;child.kill('SIGINT');await new Promise(done=>{child.once('exit',done);setTimeout(done,20000);});}spawnSync(prefix+'/bin/termux-notification-remove',['codex-plan-login'],{timeout:15000,stdio:'ignore'});await release();process.exit(0);};
