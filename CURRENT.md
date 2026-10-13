@@ -415,7 +415,19 @@ This repository carries no external workflow skill or model configuration.
 
   Quota proof is separate: this opt-in provider's primary requests go to the
   signed app's Chat/Instant mode. Ordinary Chat allowance is the expected
-  classification, but actual before/after account metering has not been verified.
-  Do not promise zero Codex deduction based on the UI alone. The independent SIWC
+  classification. A bounded device comparison completed one installed ChatGPT
+  profile reply and one ordinary native gpt-6.1-sol reply using the app's Business
+  login. This development session uses a different Plus account and was excluded.
+  The control used an admitted signed Core in disposable state, with no usable
+  refresh token; the original login file remained unchanged. Backend usage and
+  token-profile reads before/after and delayed reads retained 0% primary/weekly
+  usage and unchanged token counters for both paths. The positive Codex control
+  also produced no visible increment, so the small observation cannot distinguish
+  billing classification or prove zero deduction. App-server rounds percentages
+  to integers; raw server percentages were also integer-valued in this trial.
+  Aggregate proof: native-provider/quota-comparison-proof.json in the private
+  experiment data root. No quota was burned to force an increment. The Responses
+  wire version is v1 (/v1/responses), separate from the runtime bridge 6.1.5 at
+  92a356f, native CLI 0.161.0 and signed desktop app 26.1007.21434. The independent SIWC
   public Responses grant explicitly uses Codex/Work usage; Work shares Codex
   allowance. Current development in this original Codex session remains separate.
