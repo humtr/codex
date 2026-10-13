@@ -4,7 +4,7 @@ import {pathToFileURL} from 'node:url';
 import {writeFileSync,readFileSync,readlinkSync,renameSync} from 'node:fs';
 import {randomBytes,timingSafeEqual} from 'node:crypto';
 import {DesktopChatTransport} from './desktop_response_transport.mjs';
-import {DesktopTranscript,validateEnvelope,validateTextContext,DesktopCompaction} from './desktop_protocol.mjs';
+import {DesktopTranscript,validateEnvelope,validateTextContext,DesktopCompaction,desktopEstimatedUsage,markDesktopEstimatedUsage} from './desktop_protocol.mjs';
 const [candidate,desktopRoot,statePath]=process.argv.slice(2);
 process.umask(0o077);
 const source=resolve(candidate,'src');
@@ -16,7 +16,7 @@ const {extractCodexTurnIdentityFromBody}=await import(pathToFileURL(join(source,
 const {SUMMARY_PREFIX}=await import(pathToFileURL(join(source,'responses/compaction.ts')));
 const token=randomBytes(32).toString('hex'),model='chatgpt-desktop/instant';
 const transport=new DesktopChatTransport(desktopRoot);let busy=false,owner,active=false,transcript=new DesktopTranscript(),checkpoint=new DesktopCompaction(SUMMARY_PREFIX);
-const report={actualChatMode:true,model,requests:0,modelRequestedTools:0,returnedNativeResults:0,completedReplies:0,submittedRequests:0,cancelledRequests:0,retryAttempts:0,contextPackets:0,modelRequestedSearches:0,returnedNativeSearchResults:0,nativeSearchResultErrors:0,nativeSearchLoadedTools:0,compactionRequests:0,compactionSummaries:0,appliedCheckpoints:0};
+const report={actualChatMode:true,model,requests:0,modelRequestedTools:0,returnedNativeResults:0,completedReplies:0,submittedRequests:0,cancelledRequests:0,retryAttempts:0,contextPackets:0,modelRequestedSearches:0,returnedNativeSearchResults:0,nativeSearchResultErrors:0,nativeSearchLoadedTools:0,compactionRequests:0,compactionSummaries:0,appliedCheckpoints:0,estimatedUsage:true};
 function save(){const temp=statePath+'.proof.'+randomBytes(6).toString('hex');writeFileSync(temp,JSON.stringify(report),{mode:0o600,flag:'wx'});renameSync(temp,statePath+'.proof');}
 const server=Bun.serve({hostname:'127.0.0.1',port:0,idleTimeout:0,maxRequestBodySize:2*1024*1024,async fetch(req){
  const auth=Buffer.from(req.headers.get('authorization')||''),expected=Buffer.from('Bearer '+token);
@@ -46,22 +46,23 @@ const server=Bun.serve({hostname:'127.0.0.1',port:0,idleTimeout:0,maxRequestBody
  void (async()=>{
   try{
    report.returnedNativeResults=parsed.context.messages.filter(m=>m.role==='toolResult').length;const searches=parsed.context.messages.filter(m=>m.role==='toolResult'&&m.toolName==='tool_search');report.returnedNativeSearchResults=searches.length;report.nativeSearchResultErrors=searches.filter(m=>m.isError).length;report.nativeSearchLoadedTools=(Array.isArray(raw.input)?raw.input:[]).filter(m=>m.type==='tool_search_output').flatMap(m=>Array.isArray(m.tools)?m.tools:[]).reduce((n,t)=>n+(t.type==='namespace'&&Array.isArray(t.tools)?t.tools.length:1),0);save();
-   const response=await transport.exchange({instructions:parsed.context.systemPrompt||[],messages:parsed.context.messages,tools},abort.signal,()=>{report.submittedRequests++;save();},()=>{report.retryAttempts++;save();},()=>{report.contextPackets++;save();});
+   const payload={instructions:parsed.context.systemPrompt||[],messages:parsed.context.messages,tools};
+   const response=await transport.exchange(payload,abort.signal,()=>{report.submittedRequests++;save();},()=>{report.retryAttempts++;save();},()=>{report.contextPackets++;save();});
    if(response.type==='tool'){
     if(compact)throw Error('desktop_compaction_must_not_call_tools');
     const tool=validateEnvelope(response,tools);
     const callId='call_desktop_'+randomBytes(12).toString('hex');transcript.issue(callId);
     queue.push({type:'tool_call_start',id:callId,name:tool.wireName});
     queue.push({type:'tool_call_delta',arguments:tool.freeform?response.input:JSON.stringify(response.input)});queue.push({type:'tool_call_end'});report.modelRequestedTools++;if(tool.toolSearch)report.modelRequestedSearches++;
-    queue.push({type:'done',endTurn:false});
+    queue.push({type:'done',endTurn:false,usage:desktopEstimatedUsage(payload,response)});
    }else if(response.type==='final'&&typeof response.text==='string'){
     if(compact){checkpoint.offer(response.text);report.compactionSummaries++;}
-    queue.push({type:'text_delta',text:response.text,phase:'final_answer'});queue.push({type:'done',endTurn:true});report.completedReplies++;active=false;
+    queue.push({type:'text_delta',text:response.text,phase:'final_answer'});queue.push({type:'done',endTurn:true,usage:desktopEstimatedUsage(payload,response)});report.completedReplies++;active=false;
    }else throw Error('invalid_desktop_envelope');
   }catch(e){if(abort.signal.aborted)report.cancelledRequests++;active=false;transport.started=false;transport.lastCorrelation=undefined;transcript=new DesktopTranscript();checkpoint=new DesktopCompaction(SUMMARY_PREFIX);report.errorCode=/^[a-z_]+$/.test(e.message)?e.message:'desktop_adapter_failed';queue.push({type:'error',message:report.errorCode,retryable:false});}
   finally{clearInterval(heartbeat);save();queue.close();busy=false;}
  })();
- return new Response(bridgeToResponsesSSE(queue,model,namespaceMap,freeform,toolSearch,()=>abort.abort(),2000),{headers:{'Content-Type':'text/event-stream','Cache-Control':'no-store'}});
+ return new Response(markDesktopEstimatedUsage(bridgeToResponsesSSE(queue,model,namespaceMap,freeform,toolSearch,()=>abort.abort(),2000)),{headers:{'Content-Type':'text/event-stream','Cache-Control':'no-store'}});
 }});
 const stat=readFileSync(`/proc/${process.pid}/stat`,'utf8');
 writeFileSync(statePath,JSON.stringify({baseUrl:'http://127.0.0.1:'+server.port+'/v1',token,model,pid:process.pid,start:stat.slice(stat.lastIndexOf(')')+2).split(' ')[19],image:readlinkSync(`/proc/${process.pid}/exe`)}),{mode:0o600});

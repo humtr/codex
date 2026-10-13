@@ -142,19 +142,26 @@ stream_max_retries = 0
                     return row['result']
                 if 'method' in row:events.append(row)
         try:
-            deadline=time.monotonic()+(720 if args.compact else 300 if desktop else 180)
+            deadline=time.monotonic()+(1200 if args.compact else 300 if desktop else 180)
             rpc(1,'initialize',{'clientInfo':{'name':args.app_name,'title':'Codex Termux Trial','version':'0.1.0'},'capabilities':{'experimentalApi':True}},deadline)
             send({'method':'initialized','params':{}})
-            thread=rpc(2,'thread/start',{'model':args.model,'cwd':str(workspace),'approvalPolicy':'on-request','sandbox':'danger-full-access','ephemeral':not(args.cancel_resume or args.compact)},deadline)
+            thread=rpc(2,'thread/start',{'model':args.model,'cwd':str(workspace),'approvalPolicy':'on-request','sandbox':'danger-full-access','ephemeral':not(args.cancel_resume or args.compact),'config':{'model_auto_compact_token_limit':16300,'model_auto_compact_token_limit_scope':'total'} if args.mid_turn_compact else {}},deadline)
             thread_id=thread['thread']['id']
             task=f'Use the local shell tool to write exactly {marker} to proof.txt in the current directory. Use a separate second shell tool call to read it back. Reply with exactly {marker}. No other work.'
             if args.compact:
-                (workspace/'seed.txt').write_text(marker+'\n')
-                task='Read seed.txt in one native shell call. Remember the returned value as PROOF_SECRET without rereading the seed. In a separate second native shell call write that exact value to proof.txt. Final reply must be exactly that value. No other work.'
+                seed_text=marker+'\n'+('Reference-only context row; no action.\n'*220 if args.auto_compact or args.mid_turn_compact else '')
+                (workspace/'seed.txt').write_text(seed_text)
+                task='Read all of seed.txt in one native shell call. Its first line is PROOF_SECRET; the remaining lines are reference only. Remember only the first line as PROOF_SECRET without rereading the seed. In a separate second native shell call write that exact value to proof.txt. Final reply must be exactly that value. No other work.'
             initial_submitted=0;initial_cancelled=0
             proxy_proof=Path(str(args.desktop_server)+'.proof') if desktop else None
+            if desktop and not proxy_proof.exists():
+                session=json.loads((real_home/'.local/share/codex-web-experiment/linux-desktop/session.json').read_text())
+                actual=Path(session['root'])/'desktop-server.json';assert json.loads(actual.read_text())==desktop,'desktop_proof_owner_mismatch'
+                proxy_proof=Path(str(actual)+'.proof')
+
             if args.cancel_resume and proxy_proof.exists():
                 before=json.loads(proxy_proof.read_text());initial_submitted=before.get('submittedRequests',0);initial_cancelled=before.get('cancelledRequests',0)
+            initial_compaction_summaries=json.loads(proxy_proof.read_text()).get('compactionSummaries',0) if proxy_proof else 0
             started=rpc(3,'turn/start',{'threadId':thread_id,'input':[{'type':'text','text':task}]},deadline)
             if args.cancel_resume:
                 submitted=False
@@ -199,6 +206,13 @@ stream_max_retries = 0
                 while time.monotonic()<deadline:
                     row=events.pop(0) if events else receive(deadline)
                     if row is None:break
+                    item=row.get('params',{}).get('item',{})
+                    if item.get('type')=='contextCompaction':
+                        key='warmCompactionStarted' if row.get('method')=='item/started' else 'warmCompactionCompleted' if row.get('method')=='item/completed' else None
+                        if key:report[key]=item.get('id')
+                    if row.get('method')=='thread/tokenUsage/updated':
+                        report['lastTokenUsage']=row.get('params',{}).get('tokenUsage',{}).get('last',{})
+                        report.setdefault('observedContextEstimates',[]).append(report['lastTokenUsage'].get('totalTokens',0))
                     if row.get('method')=='item/completed' and row.get('params',{}).get('item',{}).get('type')=='commandExecution':
                         report['shellToolCompleted']|=row['params']['item'].get('status')=='completed' and row['params']['item'].get('exitCode')==0
                         report['successfulShellCalls']+=int(row['params']['item'].get('status')=='completed' and row['params']['item'].get('exitCode')==0)
@@ -221,13 +235,77 @@ stream_max_retries = 0
                 report['realCoreToolLoopAccepted'] &= all(report.get(k) for k in ['cancelAfterActualSubmit','nativeCancelAccepted','noToolBeforeCancel','desktopCancelSettled','nativeResumeAccepted','firstCoreStoppedBeforeResume'])
             if args.compact and report['realCoreToolLoopAccepted']:
                 report['preCompactToolLoopAccepted']=True
+                print(json.dumps({'nativeWarmupAccepted':True,'lastTokenUsage':report.get('lastTokenUsage',{})}),flush=True)
                 for name in ['seed.txt','proof.txt']:
-                    own=workspace/name;assert own.is_file() and not own.is_symlink() and own.read_text().strip()==marker
+                    own=workspace/name;assert own.is_file() and not own.is_symlink()
+                    assert own.read_text()==seed_text if name=='seed.txt' else own.read_text().strip()==marker
                     own.unlink()  # Only the two generated nonce fixtures, never user files.
-                before_compact=json.loads(proxy_proof.read_text()).get('compactionSummaries',0)
-                events.clear();rpc(8,'thread/compact/start',{'threadId':thread_id},deadline)
-                start_id=completed_id=None
-                while time.monotonic()<deadline:
+                def persisted_compactions():
+                    return sum(json.loads(line).get('type')=='compacted' for rollout in (home/'.codex/sessions').rglob('*.jsonl') for line in rollout.read_text().splitlines() if line.strip())
+                def restart_for_probe(overrides=None):
+                    nonlocal process,buffer
+                    os.killpg(process.pid,signal.SIGINT)
+                    try:process.wait(timeout=8)
+                    except subprocess.TimeoutExpired:os.killpg(process.pid,signal.SIGTERM);process.wait(timeout=5)
+                    process.stdin.close();process.stdout.close();process.stderr.close()
+                    process=subprocess.Popen([str(launcher),'app-server','--listen','stdio://'],env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,start_new_session=True)
+                    buffer='';events.clear();rpc(20,'initialize',{'clientInfo':{'name':args.app_name,'version':'0.1.0'},'capabilities':{'experimentalApi':True}},deadline);send({'method':'initialized','params':{}})
+                    resumed=rpc(21,'thread/resume',{'threadId':thread_id,'config':overrides or {},'approvalPolicy':'on-request','sandbox':'danger-full-access'},deadline)
+                    assert resumed['thread']['id']==thread_id;events.clear()
+                if args.interrupt_compact or args.failed_compact:
+                    committed_before=persisted_compactions()
+                    before_submit=json.loads(proxy_proof.read_text()).get('submittedRequests',0)
+                    before_cancel=json.loads(proxy_proof.read_text()).get('cancelledRequests',0)
+                    if args.failed_compact:
+                        env['ACCESS_TOKEN']='owned-rejected-local-proof-token';restart_for_probe()
+                    events.clear();rpc(22,'thread/compact/start',{'threadId':thread_id},deadline)
+                    compact_turn_id=None;settled=None
+                    if args.interrupt_compact:
+                        while time.monotonic()<deadline:
+                            row=receive(min(deadline,time.monotonic()+.1))
+                            if row:
+                                events.append(row)
+                                if row.get('method')=='turn/started':compact_turn_id=row.get('params',{}).get('turn',{}).get('id')
+                                if row.get('method')=='turn/completed':raise RuntimeError('compaction_finished_before_interrupt')
+                            submitted=json.loads(proxy_proof.read_text()).get('submittedRequests',0)>before_submit
+                            if submitted and compact_turn_id:break
+                        assert submitted and compact_turn_id,'compact_submit_not_observed'
+                        rpc(23,'turn/interrupt',{'threadId':thread_id,'turnId':compact_turn_id},deadline)
+                        report['compactInterruptedAfterActualSubmit']=True
+                    while time.monotonic()<deadline:
+                        row=events.pop(0) if events else receive(deadline)
+                        if not row:break
+                        if row.get('method')=='turn/completed':settled=row.get('params',{}).get('turn',{}).get('status');break
+                    expected='interrupted' if args.interrupt_compact else 'failed'
+                    assert settled==expected,'compaction_fault_not_observed'
+                    report['faultTurnStatus']=settled;report['faultCommittedNoSummary']=persisted_compactions()==committed_before
+                    assert report['faultCommittedNoSummary'],'fault_committed_history'
+                    if args.interrupt_compact:
+                        for _ in range(150):
+                            if json.loads(proxy_proof.read_text()).get('cancelledRequests',0)>before_cancel:break
+                            time.sleep(.1)
+                        report['interruptedDesktopSettled']=json.loads(proxy_proof.read_text()).get('cancelledRequests',0)>before_cancel
+                        assert report['interruptedDesktopSettled'],'desktop_interrupt_not_settled'
+                    else:env['ACCESS_TOKEN']=token
+                    restart_for_probe();events.clear()
+                    rpc(24,'turn/start',{'threadId':thread_id,'input':[{'type':'text','text':'Recall the remembered PROOF_SECRET from the completed tool outputs. Reply with exactly that value. Do not call tools.'}]},deadline);collect_turn()
+                    report['faultHistorySurvivedRestart']=report['turnCompleted'] and report['nativeReplyMatched']
+                    assert report['faultHistorySurvivedRestart'],'fault_history_lost'
+                before_compact=initial_compaction_summaries if args.mid_turn_compact else json.loads(proxy_proof.read_text()).get('compactionSummaries',0)
+                events.clear()
+                if args.mid_turn_compact:
+                    assert report.get('warmCompactionStarted') and report.get('warmCompactionCompleted')==report['warmCompactionStarted'],'mid_turn_compaction_not_observed'
+                    report['midTurnAutomaticCompaction']=True;report['automaticCompactionRequestedManually']=False
+                elif args.auto_compact:
+                    warm_tokens=report.get('lastTokenUsage',{}).get('totalTokens',0);assert warm_tokens>0,'missing_context_estimate'
+                    threshold=max(1000,warm_tokens-300);report['automaticThreshold']=threshold
+                    restart_for_probe({'model_auto_compact_token_limit':threshold,'model_auto_compact_token_limit_scope':'total'})
+                    events.clear();rpc(15,'turn/start',{'threadId':thread_id,'input':[{'type':'text','text':'Reply with exactly remembered PROOF_SECRET. Do not call tools or do other work.'}]},deadline)
+                    report['automaticCompactionRequestedManually']=False
+                else:rpc(8,'thread/compact/start',{'threadId':thread_id},deadline)
+                start_id=report.get('warmCompactionStarted') if args.mid_turn_compact else None
+                completed_id=report.get('warmCompactionCompleted') if args.mid_turn_compact else None
+                while not args.mid_turn_compact and time.monotonic()<deadline:
                     row=events.pop(0) if events else receive(deadline)
                     if row is None:break
                     item=row.get('params',{}).get('item',{})
@@ -235,8 +313,11 @@ stream_max_retries = 0
                         if row.get('method')=='item/started':start_id=item.get('id')
                         if row.get('method')=='item/completed':completed_id=item.get('id')
                     if row.get('method')=='error':raise RuntimeError('native_compaction_error')
-                    if row.get('method')=='turn/completed':break
+                    if row.get('method')=='turn/completed':
+                        if args.auto_compact:report['automaticTurnCompleted']=row.get('params',{}).get('turn',{}).get('status')=='completed'
+                        break
                 report['nativeCompactionCompleted']=bool(start_id and completed_id==start_id)
+                print(json.dumps({'nativeCompactionCompleted':report['nativeCompactionCompleted'],'automatic':args.auto_compact or args.mid_turn_compact}),flush=True)
                 report['actualChatgptCompactionSummary']=json.loads(proxy_proof.read_text()).get('compactionSummaries',0)>before_compact
                 summaries=[]
                 for rollout in (home/'.codex/sessions').rglob('*.jsonl'):
@@ -265,6 +346,9 @@ stream_max_retries = 0
                 rpc(12,'turn/start',{'threadId':thread_id,'input':[{'type':'text','text':'Reply with exactly the remembered PROOF_SECRET. Do not call tools or do other work.'}]},deadline);collect_turn()
                 report['checkpointSurvivedCoreRestart']=report['turnCompleted'] and report['nativeReplyMatched'] and report['successfulShellCalls']==calls_before
                 report['realCoreToolLoopAccepted']=all(report.get(k) for k in ['preCompactToolLoopAccepted','nativeCompactionCompleted','actualChatgptCompactionSummary','persistedSummaryContainsToolOnlySecret','postCompactNativeToolLoopAccepted','bridgeAppliedCheckpoint','compactedThreadResumed','checkpointSurvivedCoreRestart'])
+                if args.auto_compact:report['realCoreToolLoopAccepted'] &= report.get('automaticTurnCompleted',False)
+                if args.mid_turn_compact:report['realCoreToolLoopAccepted'] &= report.get('midTurnAutomaticCompaction',False)
+                if args.interrupt_compact or args.failed_compact:report['realCoreToolLoopAccepted'] &= all(report.get(k) for k in ['faultCommittedNoSummary','faultHistorySurvivedRestart'])
             if args.account_free_wire:
                 report.update({'wireFailures':wire_failures,'correlatedToolOutputs':len(transcript.outputs),'accountFreeWireAccepted':report['turnCompleted'] and report['shellToolCompleted'] and len(transcript.outputs)==2 and not wire_failures})
         finally:
@@ -282,16 +366,20 @@ stream_max_retries = 0
 
 if __name__=='__main__':
     os.umask(0o077)
-    parser=argparse.ArgumentParser();parser.add_argument('--connection',type=Path);parser.add_argument('--model',required=True);parser.add_argument('--report',type=Path,required=True);parser.add_argument('--app-name',required=True);parser.add_argument('--account-free-wire',action='store_true');parser.add_argument('--desktop-server',type=Path);parser.add_argument('--cancel-resume',action='store_true');parser.add_argument('--compact',action='store_true')
-    args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('--connection',type=Path);parser.add_argument('--model',required=True);parser.add_argument('--report',type=Path,required=True);parser.add_argument('--app-name',required=True);parser.add_argument('--account-free-wire',action='store_true');parser.add_argument('--desktop-server',type=Path);parser.add_argument('--cancel-resume',action='store_true');parser.add_argument('--compact',action='store_true');parser.add_argument('--auto-compact',action='store_true');parser.add_argument('--interrupt-compact',action='store_true');parser.add_argument('--failed-compact',action='store_true');parser.add_argument('--mid-turn-compact',action='store_true')
+    args=parser.parse_args();args.compact=args.compact or args.auto_compact or args.interrupt_compact or args.failed_compact or args.mid_turn_compact
     assert sum(bool(x) for x in (args.account_free_wire,args.connection,args.desktop_server))==1
     assert not(args.cancel_resume or args.compact) or args.desktop_server
     assert not(args.cancel_resume and args.compact)
+    assert sum(bool(x) for x in [args.auto_compact,args.interrupt_compact,args.failed_compact,args.mid_turn_compact])<=1
     signal.signal(signal.SIGTERM,lambda *_:(_ for _ in ()).throw(KeyboardInterrupt()))
     try:report=probe(args)
     except Exception as error:
         import re
         report={'realCoreToolLoopAccepted':False,'failureClass':type(error).__name__,'failureCode':str(error) if re.fullmatch('[a-z_]+',str(error)) else 'unclassified'}
+        if isinstance(error,OSError):report.update({'failureErrno':error.errno,'failureFileName':Path(error.filename).name if error.filename else None})
+        import traceback
+        report['failureLocation']=[{'file':Path(f.filename).name,'line':f.lineno,'function':f.name} for f in traceback.extract_tb(error.__traceback__)][-5:]
     if args.report.exists() or args.report.is_symlink():
         state=args.report.lstat()
         assert args.report.is_file() and not args.report.is_symlink() and state.st_uid==os.getuid() and not state.st_mode&0o077

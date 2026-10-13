@@ -1,5 +1,5 @@
 import {test,expect} from 'bun:test';
-import {DesktopTranscript,validateEnvelope,validateTextContext,DesktopSendRetry,DesktopPromptContext,desktopStages,correlatedDesktopCode,DesktopCompaction} from './desktop_protocol.mjs';
+import {DesktopTranscript,validateEnvelope,validateTextContext,DesktopSendRetry,DesktopPromptContext,desktopStages,correlatedDesktopCode,DesktopCompaction,desktopEstimatedUsage,markDesktopEstimatedUsage} from './desktop_protocol.mjs';
 const tools=[{wireName:'functions__exec_command'},{wireName:'functions__exec',freeform:true},{wireName:'tool_search',toolSearch:true}];
 test('unadvertised and malformed calls never admit',()=>{
  for(const r of [{type:'tool',name:'other',input:{}},{type:'tool',name:'functions__exec_command',input:'shell'},{type:'tool',name:'functions__exec',input:{}},{type:'tool',name:'tool_search',input:{}},{type:'final',text:{}}])expect(()=>validateEnvelope(r,tools)).toThrow();
@@ -78,4 +78,21 @@ test('only the offered native summary authorizes one epoch retirement',()=>{
  const checkpoint={role:'user',content:[{type:'text',text:'native summary prefix\nactual model summary'}]};
  expect(c.consume([checkpoint])).toBe(true);expect(c.consume([checkpoint])).toBe(false);
  expect(new DesktopCompaction('native summary prefix').consume([checkpoint])).toBe(false);
+});
+
+test('missing server usage gets a nonzero local estimate with explicit provenance',async()=>{
+ const usage=desktopEstimatedUsage({instructions:['owned'],messages:[{role:'user',content:'한글 😀'.repeat(20)}],tools:[]},{type:'final',text:'owned'});
+ expect(usage.inputTokens).toBeGreaterThan(50);expect(usage.outputTokens).toBeGreaterThan(0);expect(usage.totalTokens).toBe(usage.inputTokens+usage.outputTokens);
+ const body='event: response.output_text.delta\ndata: {"delta":"unchanged"}\n\nevent: response.completed\ndata: {"response":{"usage":{"input_tokens":10},"metadata":{"retained":"owned"}}}\n\n';
+ const bytes=new TextEncoder().encode(body),stream=new ReadableStream({start(c){for(const b of bytes)c.enqueue(new Uint8Array([b]));c.close();}});
+ const result=await new Response(markDesktopEstimatedUsage(stream)).text();
+ expect(result).toContain('data: {"delta":"unchanged"}');
+ const final=JSON.parse(result.split('data: ').at(-1));expect(final.response.metadata).toEqual({retained:'owned',termux_usage_source:'estimated_context'});expect(final.response.usage.input_tokens).toBe(10);
+});
+
+test('estimated-usage annotation preserves streaming and cancellation',async()=>{
+ let cancelled=false;const encoder=new TextEncoder();
+ const source=new ReadableStream({start(c){c.enqueue(encoder.encode('event: heartbeat\ndata: {}\n\n'));},cancel(){cancelled=true;}});
+ const reader=markDesktopEstimatedUsage(source).getReader();const first=await reader.read();expect(new TextDecoder().decode(first.value)).toBe('event: heartbeat\ndata: {}\n\n');
+ await reader.cancel();await new Promise(ok=>setTimeout(ok,20));expect(cancelled).toBe(true);
 });

@@ -3176,3 +3176,17 @@ historical producer modes. Preserve normal signature/inventory verification,
 LKG continuity, candidate site size, complete public readback, disposable consumer
 proof and non-forced exact-parent CAS. No public release or installed activation
 is implied by a development-plane change.
+
+## Opt-in signed-desktop ChatGPT provider experiment
+
+The separate web experiment may supply Chat/Instant through a private local
+Responses adapter and an explicitly selected upstream configuration profile.
+Native Core owns tool execution, permissions, history and compaction commits.
+The adapter may estimate UTF-8 context size for native budgeting when the app
+provides no authoritative token count. Terminal response metadata must identify
+this as `termux_usage_source=estimated_context`; it is not server/billing usage.
+Missing usage must not silently become a zero-context claim. Only actual matching
+native summary replay permits retirement of the adapter's live tool-call epoch.
+Interrupted or failed compaction must preserve prior native history, and a
+subsequent resumed turn must retain state learned through real tool outputs.
+No production admission or public API access follows from experimental proof.

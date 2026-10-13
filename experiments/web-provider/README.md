@@ -701,12 +701,15 @@ function/custom tools are supported. Native tool-search wire mapping is enabled
 so existing plugins are deferred by upstream. A real full-permission native
 catalog lookup now returns matched results, loads schemas and completes the
 exact final reply. The CLI omits search items, so qualification observes the
-actual Responses call/result rather than a display item. Executing discovered
-plugin actions remains a separate acceptance gate. Images/files/audio and remote encrypted compaction are refused. Native
+actual Responses call/result rather than a display item. Actual execution of a
+discovered read-only GitHub repository tool also passes the installed CLI gate.
+Images/files/audio and remote encrypted compaction are refused. Native
 Responses/memento text compaction now passes the real Core gate below. Cancellation retires the interrupted
 ChatGPT lane; native resume replays the native history into a fresh owned
-Temporary Chat. Long context, parallel sessions, extended failure recovery and
-reboot/update lifecycle need acceptance before production admission. The user
+Temporary Chat. Automatic pre-turn/mid-turn compaction and cancelled/failed
+compaction now pass the device gates below. Hours-long load, parallel sessions,
+extended failure recovery and reboot/update lifecycle still need acceptance
+before production admission. The user
 deferred physical width correction. Plus SIWC/public Responses remains a separate
 unauthenticated trial; desktop success establishes no public API entitlement.
 
@@ -727,8 +730,12 @@ continue with two new native calls from that checkpoint, then stop/resume Core
 and recall the value without a new tool. The secret was never repeated in a
 user task. Four successful native shell calls, the matched Core compaction
 item, exact offered-summary replay and persistent restart recall all passed.
-This qualifies manual local compaction; automatic mid-turn/trimming and
-cancel/failure during compaction remain separate acceptance.
+This qualifies manual local compaction. The automatic pre-turn and mid-turn
+gates also pass with matching native items and four native shell calls each.
+Cancellation after actual Chat submission and rejected local relay credentials
+commit no partial summary and retain the tool-only secret across Core restart.
+A subsequent successful summary, two new shell calls and another restart pass
+in both fault cases. No forced context trimming is substituted for compaction.
 
 Quota classification is separate from functional acceptance. This provider uses
 the signed app's Chat/Instant surface and routes native primary inference only
@@ -757,3 +764,30 @@ implements the qualified text/tools/streaming subset, not every public Responses
 feature. The runtime parser/SSE dependency is bridge **6.1.5 at 92a356f**, the
 installed native CLI is **0.161.0**, and the signed desktop app is
 **26.1007.21434**. These software versions are separate from the API path version.
+
+Automatic compaction requires local context accounting. The desktop app does not
+expose authoritative token usage. The adapter supplies an explicitly estimated
+UTF-8 context/output size to the native token budget and marks terminal Responses
+metadata `termux_usage_source=estimated_context`. These values size local context;
+they do not measure server tokens, quota deduction or billed usage. Zero is not
+an acceptable substitute for missing usage. Native Core remains the authority
+for triggering, committing and persisting automatic compaction. Device acceptance
+must show an actual automatic contextCompaction lifecycle and preserved tool-only
+state; a manually requested summary alone does not qualify automatic compaction.
+
+The device qualification driver supports `--auto-compact` for native pre-turn
+compaction, `--mid-turn-compact` for rollover between actual native shell calls,
+`--interrupt-compact` for cancellation after an observed real Chat submission,
+and `--failed-compact` for a locally rejected capability followed by recovery.
+All use admitted signed stable49 Core in disposable roots. Faulted compaction
+must commit no summary and must preserve the tool-only secret across restart;
+recovered compaction then completes, performs two native calls and survives
+another restart. Lower automatic thresholds and generated reference text belong
+only to these disposable tests, not the user's configured sessions.
+
+`native_desktop_cli_probe.py --tool-action` exercises the installed upstream
+ChatGPT configuration profile with actual catalog lookup, execution of the
+returned read-only GitHub metadata tool for humtr/codex, and native result/final
+reply correlation. This is real connector execution; earlier search-only proof
+remains separately labelled. Qualification does not authorize unrelated writes
+or messages and does not replace the installed native tool execution engine.

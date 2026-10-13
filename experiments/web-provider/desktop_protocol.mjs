@@ -111,3 +111,25 @@ export class DesktopCompaction{
   return matched;
  }
 }
+
+// A local budgeting estimate, never a claim about server token usage or billing.
+export function desktopEstimatedUsage(payload,response){
+ const size=value=>Math.ceil(new TextEncoder().encode(JSON.stringify(value)).length/3);
+ const inputTokens=size(payload),outputTokens=size(response);
+ return {inputTokens,outputTokens,totalTokens:inputTokens+outputTokens};
+}
+export function markDesktopEstimatedUsage(stream){
+ const decoder=new TextDecoder(),encoder=new TextEncoder();let buffer='';
+ const frame=value=>{
+  if(!/^event: response\.(completed|incomplete)$/m.test(value))return value;
+  return value.replace(/^data: (.*)$/m,(_,raw)=>{
+   const data=JSON.parse(raw);
+   if(data.response)data.response.metadata={...data.response.metadata,termux_usage_source:'estimated_context'};
+   return 'data: '+JSON.stringify(data);
+  });
+ };
+ return stream.pipeThrough(new TransformStream({
+  transform(chunk,c){buffer+=decoder.decode(chunk,{stream:true});let i;while((i=buffer.indexOf('\n\n'))>=0){c.enqueue(encoder.encode(frame(buffer.slice(0,i))+'\n\n'));buffer=buffer.slice(i+2);}},
+  flush(c){buffer+=decoder.decode();if(buffer)c.enqueue(encoder.encode(frame(buffer)));}
+ }));
+}
