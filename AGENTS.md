@@ -20,6 +20,12 @@ The repository owns this development plane; it needs no external workflow skill.
 
 - Turn the request into an observable outcome and finish its authorized scope.
   Resolve routine choices directly; clarify only genuinely missing information.
+- First establish the full requested capability with the permissions needed to
+  exercise it; then reduce steps, execution paths and structure using real proof.
+  Do not preemptively narrow the tool surface to make qualification convenient.
+- Authorization persists across turns. Reuse verified destination ownership and
+  session approval; resolve review objections with narrow evidence instead of
+  restarting permission discussions. Required platform controls still apply.
 - Adjust investigation and reasoning to uncertainty and consequences. Simple
   edits should stay simple; difficult architecture or diagnosis merits depth.
   No mandatory maximum effort, fixed leadership role or checkpoint cadence.
@@ -42,7 +48,7 @@ The repository owns this development plane; it needs no external workflow skill.
   checks without a change or unresolved concern.
 - rewrite/rust-core owns implementation and reusable release logic; main is a
   caller pinned to an accepted exact source. Keep independent histories separate.
-  Never force-push main or delete published branches without explicit approval.
+  Preserve published histories and use the non-forced stable promotion path.
 - Public assets are immutable. Deployment requires build/smoke, signing, complete
   public readback, disposable update proof and non-forced stable promotion.
   Device activation is separate; report physical observations separately.
@@ -50,6 +56,9 @@ The repository owns this development plane; it needs no external workflow skill.
 ## Protected state
 
 Preserve user changes, credentials, profiles, conversations and running jobs.
+Do not remove local user files as an incidental test or cleanup step. Inspect
+and preserve unique content before an authorized removal; routine cleanup covers
+only verified owned generated artifacts.
 Use disposable roots for tests. Do not edit live launcher/runtime/state except
 for a user-authorized bounded device action; never expose credential values or
 private session contents, and never modify a system resolver file. Ordinary Core

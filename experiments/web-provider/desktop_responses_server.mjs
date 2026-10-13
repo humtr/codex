@@ -15,7 +15,7 @@ const {namespacedToolName}=await import(pathToFileURL(join(source,'types.ts')));
 const {extractCodexTurnIdentityFromBody}=await import(pathToFileURL(join(source,'adapters/chatgpt-web/environment.ts')));
 const token=randomBytes(32).toString('hex'),model='chatgpt-desktop/instant';
 const transport=new DesktopChatTransport(desktopRoot);let busy=false,owner,active=false,transcript=new DesktopTranscript();
-const report={actualChatMode:true,model,requests:0,modelRequestedTools:0,returnedNativeResults:0,completedReplies:0,submittedRequests:0,cancelledRequests:0,retryAttempts:0,contextPackets:0};
+const report={actualChatMode:true,model,requests:0,modelRequestedTools:0,returnedNativeResults:0,completedReplies:0,submittedRequests:0,cancelledRequests:0,retryAttempts:0,contextPackets:0,modelRequestedSearches:0,returnedNativeSearchResults:0,nativeSearchResultErrors:0,nativeSearchLoadedTools:0};
 function save(){const temp=statePath+'.proof.'+randomBytes(6).toString('hex');writeFileSync(temp,JSON.stringify(report),{mode:0o600,flag:'wx'});renameSync(temp,statePath+'.proof');}
 const server=Bun.serve({hostname:'127.0.0.1',port:0,idleTimeout:0,maxRequestBodySize:2*1024*1024,async fetch(req){
  const auth=Buffer.from(req.headers.get('authorization')||''),expected=Buffer.from('Bearer '+token);
@@ -42,13 +42,13 @@ const server=Bun.serve({hostname:'127.0.0.1',port:0,idleTimeout:0,maxRequestBody
  const heartbeat=setInterval(()=>queue.push({type:'heartbeat'}),2000);
  void (async()=>{
   try{
-   report.returnedNativeResults=parsed.context.messages.filter(m=>m.role==='toolResult').length;save();
+   report.returnedNativeResults=parsed.context.messages.filter(m=>m.role==='toolResult').length;const searches=parsed.context.messages.filter(m=>m.role==='toolResult'&&m.toolName==='tool_search');report.returnedNativeSearchResults=searches.length;report.nativeSearchResultErrors=searches.filter(m=>m.isError).length;report.nativeSearchLoadedTools=(Array.isArray(raw.input)?raw.input:[]).filter(m=>m.type==='tool_search_output').flatMap(m=>Array.isArray(m.tools)?m.tools:[]).reduce((n,t)=>n+(t.type==='namespace'&&Array.isArray(t.tools)?t.tools.length:1),0);save();
    const response=await transport.exchange({instructions:parsed.context.systemPrompt||[],messages:parsed.context.messages,tools},abort.signal,()=>{report.submittedRequests++;save();},()=>{report.retryAttempts++;save();},()=>{report.contextPackets++;save();});
    if(response.type==='tool'){
     const tool=validateEnvelope(response,tools);
     const callId='call_desktop_'+randomBytes(12).toString('hex');transcript.issue(callId);
     queue.push({type:'tool_call_start',id:callId,name:tool.wireName});
-    queue.push({type:'tool_call_delta',arguments:tool.freeform?response.input:JSON.stringify(response.input)});queue.push({type:'tool_call_end'});report.modelRequestedTools++;
+    queue.push({type:'tool_call_delta',arguments:tool.freeform?response.input:JSON.stringify(response.input)});queue.push({type:'tool_call_end'});report.modelRequestedTools++;if(tool.toolSearch)report.modelRequestedSearches++;
     queue.push({type:'done',endTurn:false});
    }else if(response.type==='final'&&typeof response.text==='string'){
     queue.push({type:'text_delta',text:response.text,phase:'final_answer'});queue.push({type:'done',endTurn:true});report.completedReplies++;active=false;

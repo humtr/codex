@@ -618,7 +618,10 @@ launcher, service installer or native-provider passthrough.
 `desktop_response_transport.mjs` drives only an owned Temporary Chat through
 private FD3/FD4 and the existing capability-authenticated CDP relay. It binds the
 renderer identity, checks Instant and an empty composer, and correlates each
-structured reply with a fresh request marker. Large initial context is staged
+structured reply with a fresh request marker. Fresh setup waits until the old
+correlation has disappeared from the Temporary Chat. Context acknowledgement and
+work-request instructions are separate, so the model is not told to acknowledge
+and execute in the same message. Large initial context is staged
 in ordered acknowledged batches before the actual task: whole tool schemas,
 lossless ordered instruction/message fragments and an inert context phase.
 Native tool-search support avoids eagerly loading every configured plugin
@@ -679,6 +682,11 @@ second native thread during that real turn returned 409 without submitting
 another model request. Protocol checks cover staging order/lossless fragments,
 whole schemas, virtualized code blocks, immutable results and bounded retries.
 Real send-failure Retry acceptance remains distinct from these unit checks.
+`native_desktop_cli_probe.py --tool-search` separately proves real native catalog
+lookup and schema delivery without executing any discovered tool or changing
+user files. Qualification uses explicit danger-full-access/approval-never only
+in its disposable workspace; ordinary account permission preferences remain
+unchanged.
 
 Clear UI send failures use the app's own Retry control with one- then two-second
 backoff, at most two extra attempts. The original packet/correlation is retained;
@@ -690,9 +698,11 @@ A timeout with uncertain delivery does not trigger blind resubmission.
 Remaining admission limits: one physical ChatGPT lane is serialized; a second
 active thread gets a conflict rather than shared results. Text and advertised
 function/custom tools are supported. Native tool-search wire mapping is enabled
-so existing plugins are deferred by upstream; discovery schemas and result
-correlation have protocol checks, while a real plugin search/action loop remains
-a separate acceptance gate. Images/files/audio and remote compaction are refused. Cancellation retires the interrupted
+so existing plugins are deferred by upstream. A real full-permission native
+catalog lookup now returns matched results, loads schemas and completes the
+exact final reply. The CLI omits search items, so qualification observes the
+actual Responses call/result rather than a display item. Executing discovered
+plugin actions remains a separate acceptance gate. Images/files/audio and remote compaction are refused. Cancellation retires the interrupted
 ChatGPT lane; native resume replays the native history into a fresh owned
 Temporary Chat. Long context, parallel sessions, extended failure recovery and
 reboot/update lifecycle need acceptance before production admission. The user
