@@ -485,10 +485,20 @@ that policy belongs to the tenant Global admin's External access controls.
 Official plan-usage eligibility currently documents Plus/Pro, so removing a
 Business identity restriction alone would not establish plan entitlement. No
 organization policy was changed and no other account was selected automatically.
-The first-party Linux app is an independent qualification track and its actual
-login remains pending; the external identity rejection does not prove a
-first-party app rejection. Real account/model/tool acceptance remains unpassed.
-Production remains stable49.
+The first-party Linux app is an independent qualification track. User sign-in
+now completed, the Android handoff reports success, and candidate auth storage
+contains ChatGPT credentials with a Business-family (`team`) claim. The claim is
+an account label, not an independent live entitlement check. The actual bundled
+Linux Core then completed an ephemeral real-service turn in an isolated guest
+workspace: two successful shell calls wrote and read a correlated marker, and
+the completed model reply matched it. `guest-core-proof.json` contains only
+aggregate evidence; credentials stayed in the candidate home, with no existing
+Termux profile imported. The temporary workspace/event logs and owned probe
+process were removed. This establishes signed-app bundled Core inference/tool
+execution, not desktop UI or all ChatGPT Work features. A minimal user-visible
+GUI reply check remains pending. Recent app diagnostics still contain a primary
+runtime manifest 404; do not infer its resolution from the Core proof. SIWC real
+account/model/tool acceptance remains unpassed. Production remains stable49.
 
 
 ## Public Responses versus Business alternatives
@@ -507,7 +517,7 @@ nor substituting a Codex token establishes SIWC plan entitlement.
 | Platform API | Public `/v1/responses`, standard project API key | Independent API organization/access/billing, not included Business quota | No paid inference was initiated |
 | Codex access token | First-party CLI/app-server workspace credential | Official Business/Enterprise support; installed CLI has `--with-access-token` | Codex automation, not a general Responses or full ChatGPT Web grant |
 | Workspace Agents API | `api.chatgpt.com/v1/workspace_agents/{id}/trigger` | Business preview subject to workspace enablement/scopes and a published agent | Asynchronous; status polling exists, but final answer body cannot be retrieved |
-| Linux first-party app | Official desktop sign-in and product capabilities | Independent from external SIWC denial | Android/PRoot is experimental; login remains unaccepted |
+| Linux first-party app | Official desktop sign-in and product capabilities | Independent from external SIWC denial | Android/PRoot is experimental; login and bundled Core tool loop pass, GUI turn pending |
 
 A Workspace Agents bridge could start a published workflow and use an allowed
 MCP result callback to an owned broker. That is an architectural candidate,
