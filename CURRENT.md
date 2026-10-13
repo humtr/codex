@@ -341,3 +341,32 @@ This repository carries no external workflow skill or model configuration.
   supported. An MCP result callback is a possible bridge, not implemented proof.
   Ordinary API-key inference has separate API charges; no paid request or
   organization-policy change was made. See experiment README's sourced comparison.
+
+
+- Next authorized integration target: the existing native Termux Codex must select
+  an actual ChatGPT-backed custom Responses provider and complete local tool
+  roundtrips. Standalone Linux app login/GUI replies do not fulfill that target.
+  Work remains on experiment/web-termux; no production provider admission yet.
+  1. Identify the actual ChatGPT mode/model and supported transport in the signed
+     Linux candidate. Distinguish it from the successful desktop Codex mode;
+     inspect any user-supplied reference implementation before copying behavior.
+  2. Reuse the existing local Responses/protocol/broker pieces and replace only
+     the backend transport needed for the authenticated ChatGPT mode. Start with
+     one real text turn; never substitute a mock, API-key route or relabeled Codex.
+  3. Keep native Core responsible for approval and tool execution. Preserve exact
+     call IDs, tool schemas, session ownership and completed/error events through
+     the response/command/result/follow-up loop; prevent replay and cross-session
+     results. A model request must cause each executed tool call.
+  4. Qualify real native Core in disposable roots: two correlated local shell
+     operations, results returned to the same ChatGPT conversation, completed
+     follow-up, cancellation, failure, resume, compaction and concurrent-session
+     isolation. Existing fixtures are reusable protocol evidence only.
+  5. Expose the admitted provider and actual model in the installed Termux Codex
+     picker using the smallest upstream-supported configuration/client change;
+     keep optional Manager independent and ordinary OpenAI routing intact.
+  6. Only after acceptance, consolidate implementation, cleanup obsolete trials,
+     document installation/update/rollback and prepare normal release gates.
+  User reports phone horizontal width still mismatched despite X11 480px proof;
+  that physical-layout issue is explicitly deferred until integration work.
+  Plus SIWC/public api.openai.com/v1/responses remains a separate qualification
+  track; no credential grant or successful inference has been established there.
