@@ -57,17 +57,27 @@ class TrialTests(unittest.TestCase):
             v['start']+=1;p.write_text(json.dumps(v));proof.unlink();stale=subprocess.run(command,env=env,capture_output=True,timeout=5);self.assertNotEqual(stale.returncode,0);self.assertFalse(proof.exists())
 
 
-    def test_panel_reopens_private_login_target_with_explicit_marker_from_candidate_home(self):
+    def test_browser_window_selection_excludes_other_profiles_and_hidden_helpers(self):
+        tree = '\n'.join([
+            '0xe00002 "about:blank": ("chromium (/root/browser-profile)" "Chromium") 458x669+0+0',
+            '0xe00003 "other": ("chromium (/root/unrelated-profile)" "Chromium") 480x743+0+0',
+            '0xe00004 "helper": ("chromium (/root/browser-profile)" "Chromium") 10x10+0+0',
+            '0xe00005 "app": ("chatgpt (/root/profile)" "Chatgpt") 480x743+0+0'])
+        self.assertEqual(linux.browser_windows(tree), ['0xe00002'])
+
+    def test_panel_queues_linux_browser_with_explicit_marker_and_refuses_stale_owner(self):
         with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as temporary:
-            root=Path(temporary);prefix=root/'p';(prefix/'bin').mkdir(parents=True)
-            fake=prefix/'bin/termux-am-socket';fake.write_text('#!'+os.environ['PREFIX']+'/bin/python\nimport os,sys,json\nfrom pathlib import Path\nPath(os.environ["TAP_PROOF"]).write_text(json.dumps({"argv":sys.argv[1:]}))\nprint("Starting: owned activity")\n');fake.chmod(0o700)
+            root=Path(temporary);root.chmod(0o700)
             stat=(Path('/proc')/str(os.getpid())/'stat').read_text();start=int(stat[stat.rfind(')')+2:].split()[19])
-            marker=root/'session.json';marker.write_text(json.dumps({'pid':os.getpid(),'start':start,'image':os.readlink(Path('/proc')/str(os.getpid())/'exe'),'root':str(root)}));marker.chmod(0o600)
-            target=root/'browser-target.json';url='https://chatgpt.com/codex/desktop-auth?authorize_url='+quote('https://auth.openai.com/oauth/authorize?state=fixture',safe='');target.write_text(json.dumps({'url':url}));target.chmod(0o600)
-            guest=root/'guest-home';guest.mkdir();proof=root/'proof.json';env={**os.environ,'HOME':str(guest),'PREFIX':str(prefix),'TAP_PROOF':str(proof)}
+            state={'pid':os.getpid(),'start':start,'image':os.readlink(Path('/proc')/str(os.getpid())/'exe'),'root':str(root)}
+            marker=root/'session.json';marker.write_text(json.dumps(state));marker.chmod(0o600)
+            guest=root/'guest-home';guest.mkdir();env={**os.environ,'HOME':str(guest)}
             command=[os.environ['PREFIX']+'/bin/python','-B',str(SOURCE/'open_linux_browser.py'),str(marker)]
-            valid=subprocess.run(command,env=env,capture_output=True,timeout=5);self.assertEqual(valid.returncode,0);self.assertIn(url,json.loads(proof.read_text())['argv'][0])
-            target.write_text(json.dumps({'url':'https://example.invalid/unrelated'}));proof.unlink();invalid=subprocess.run(command,env=env,capture_output=True,timeout=5);self.assertNotEqual(invalid.returncode,0);self.assertFalse(proof.exists())
+            for _ in range(2):
+                valid=subprocess.run(command,env=env,capture_output=True,timeout=5);self.assertEqual(valid.returncode,0)
+            request=root/'open-browser.json';self.assertEqual(json.loads(request.read_text()),{'show':True});self.assertEqual(request.stat().st_mode & 0o777,0o600)
+            request.unlink();state['start']+=1;marker.write_text(json.dumps(state))
+            stale=subprocess.run(command,env=env,capture_output=True,timeout=5);self.assertNotEqual(stale.returncode,0);self.assertFalse(request.exists())
 
 
 if __name__=='__main__':unittest.main()

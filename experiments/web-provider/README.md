@@ -392,7 +392,7 @@ auto-start service or global launcher is added.
 
 ## Two authorized independent tracks
 
-`linux_desktop_trial.py prepare/serve` reuses the accepted signed ARM64 package
+`linux_desktop_trial.py prepare/start/serve` reuses the accepted signed ARM64 package
 in XDG cache, with a pinned PRoot-Distro source checkout in TMPDIR. The candidate
 OS lives under the version's cache/trial-prefix. Its sole permanent account,
 configuration and conversation home is
@@ -401,9 +401,15 @@ No host projects, existing profiles or real HOME are bound into the guest.
 A private Xvnc/noVNC screen retains the accepted mobile controls. A candidate-only
 tint2 panel reserves 42 pixels at the bottom; the app maximizes in the remaining
 480x743 work area instead of covering the panel. It provides a ChatGPT task button
-and a Browser button that opens the Android browser. No guest browser or
-additional desktop stack was installed. The panel helper receives the explicit
-host controller marker so its candidate HOME cannot select the wrong state. The scoped guest browser opener forwards only
+and a Browser button that opens Chromium in the same Linux desktop. Chromium
+is installed only in the candidate Debian rootfs and uses /root/browser-profile,
+separate from the app and all existing Android/native browser accounts. It opens
+about:blank once; repeated clicks raise the same owned-profile X11 window without
+creating tabs or requesting an Android activity. A 0.9 device scale allows the
+browser's minimum width to fit the mobile desktop. The helper receives the
+explicit host controller marker, validates PID/start/executable, and atomically
+queues a show request. The controller owns browser creation and cleanup.
+The separate guest authentication opener still forwards only
 recognized OpenAI authorization URLs to the normal Android browser. It never
 records the URL, code or token. Candidate HTTP/HTTPS MIME defaults select the
 owned Android handoff desktop handler, while preserving the Codex callback and
@@ -422,9 +428,9 @@ wrapper must contain exactly one authorization URL targeting the allowed OpenAI
 path; another wrapper, foreign host or token endpoint refuses. Other origins,
 credentials/token-bearing queries, fragments, nonstandard ports and raw
 whitespace also refuse. No authorization URL is rewritten. The validated pending
-URL lives only in the temporary 0700 desktop root as a 0600 file; the panel's
-Browser button reopens it, or opens the fixed ChatGPT homepage if none exists.
-Its process owner and target are checked again at click time. This fixes local
+URL lives only in the temporary 0700 desktop root as a 0600 file. Authentication
+handoff is independent of the panel Browser button; ordinary browser launch
+never reopens authentication or leaves the Linux desktop. This fixes local
 refusals, not the organization's policy or proof of completed login. Candidate configuration folders
 created by the app with mode 0755 are tightened to 0700 after verifying ownership
 and refusing symlinks; existing configuration content is preserved.
@@ -433,9 +439,13 @@ The fresh `Linux 앱 로그인` notification opens this separate screen. Both tr
 notifications resolve the current endpoint at tap time and validate the owner's
 PID, start time and executable; stale process records refuse. A controller
 restart therefore does not leave the notification pointing at an obsolete
-port/capability. No boot service or global launcher is installed; each foreground
-trial lasts at most one hour, then removes its notification and owned processes
-while retaining account data. SIGTERM also enters that cleanup before exit; an
+port/capability. No boot service or global launcher is installed. `start` runs
+the same controller detached from the tool command's lifetime, with private
+controller.log and stdin closed. Default `--seconds 0` keeps this authorized
+interactive candidate alive until the app closes or its owned controller stops;
+a positive duration up to 3600 still bounds disposable trials. Clean shutdown
+removes notifications and all owned app, browser, viewer and display processes
+while retaining candidate account data. SIGTERM also enters that cleanup before exit; an
 older controller did not do this, and its four owned orphan process groups were
 identified by the private display/root and stopped. Restart the trial before
 sending a fresh alert.
@@ -495,8 +505,10 @@ the completed model reply matched it. `guest-core-proof.json` contains only
 aggregate evidence; credentials stayed in the candidate home, with no existing
 Termux profile imported. The temporary workspace/event logs and owned probe
 process were removed. This establishes signed-app bundled Core inference/tool
-execution, not desktop UI or all ChatGPT Work features. A minimal user-visible
-GUI reply check remains pending. Recent app diagnostics still contain a primary
+execution, not desktop UI or all ChatGPT Work features. The agent sent a synthetic prompt through the actual native GUI and visually
+verified its distinct uppercase reply. That confirms a GUI response; clipboard
+readback failed and is explicitly recorded as unaccepted, rather than erasing
+the visual proof. Desktop ChatGPT Work/tool parity remains unqualified. Recent app diagnostics still contain a primary
 runtime manifest 404; do not infer its resolution from the Core proof. SIWC real
 account/model/tool acceptance remains unpassed. Production remains stable49.
 
@@ -517,7 +529,7 @@ nor substituting a Codex token establishes SIWC plan entitlement.
 | Platform API | Public `/v1/responses`, standard project API key | Independent API organization/access/billing, not included Business quota | No paid inference was initiated |
 | Codex access token | First-party CLI/app-server workspace credential | Official Business/Enterprise support; installed CLI has `--with-access-token` | Codex automation, not a general Responses or full ChatGPT Web grant |
 | Workspace Agents API | `api.chatgpt.com/v1/workspace_agents/{id}/trigger` | Business preview subject to workspace enablement/scopes and a published agent | Asynchronous; status polling exists, but final answer body cannot be retrieved |
-| Linux first-party app | Official desktop sign-in and product capabilities | Independent from external SIWC denial | Android/PRoot is experimental; login and bundled Core tool loop pass, GUI turn pending |
+| Linux first-party app | Official desktop sign-in and product capabilities | Independent from external SIWC denial | Android/PRoot is experimental; login, bundled Core tool loop and native GUI reply pass; Work parity unqualified |
 
 A Workspace Agents bridge could start a published workflow and use an allowed
 MCP result callback to an owned broker. That is an architectural candidate,
@@ -544,10 +556,44 @@ The Plus trial now has explicit user authorization to use the user's separate
 Plus account. SIWC requires user OpenAI sign-in and plan-usage consent, not a
 new Admin Console/Platform key. A fresh Plus notification was delivered; real
 consent/inference is still pending. Linux source/marker/routing regression tests
-now total four, including the panel helper running under a different candidate
-HOME and refusing an unrelated target. Actual native panel parsing, X11 window
+now total five, including the panel helper running under a different candidate
+HOME and refusing a stale process owner, and owned browser window selection
+excluding hidden helpers and other profiles. Actual native panel parsing, X11 window
 and work-area reservation pass; the owned signed-out screenshot shows Browser,
 ChatGPT and the clock without covering the app. A SIGTERM restart exited zero,
 removed the old temporary desktop and marked the stopped controller before the
 new launch. Both normal browser account state and production stable49 remain
 unchanged.
+
+
+The Linux Browser button now passes an actual native X11 click test: the first
+click opens one candidate Chromium window and the next click raises that same
+window. Its geometry is 480x743 and the private viewer returns HTTP 200. Browser
+launch requests no Android activity; only the independent OpenAI login handoff
+and notification viewer opener can leave the remote desktop. The controller
+owns browser processes and repeated clicks do not launch another process.
+Chromium's profile-specific WM_CLASS is inspected on the private display because
+this environment's _NET_CLIENT_LIST can omit that client. Hidden 10x10 helper
+windows and other profiles are excluded. Native package dependencies include
+`tint2` and `xdotool`; candidate `prepare` includes Debian Chromium. No new boot
+service, launcher in PREFIX or production profile is installed.
+
+An older foreground controller vanished while its app/display children survived.
+The stale owner marker refused notification taps, which explains why removing
+the timeout alone did not prevent a missing screen. `start` now detaches the
+same controller from the tool's session; its PID/start/image remains verifiable
+across completed commands. Old orphaned candidate process groups were identified
+by their private root/display and stopped; unused private screens were removed
+only after checking that no live process referenced them. App/browser login
+profiles stay in the candidate's permanent private home.
+
+The current detached candidate also passed a fresh actual GUI reply: native input
+sent a lowercase synthetic marker and the visible assistant reply matched the
+required uppercase marker. The app task button returns to that response from
+Chromium. Aggregate evidence is guest-core-proof.json and
+browser-panel-qualification.json, never authentication or user conversation
+contents. The previously observed clipboard-copy failure stays separately
+unaccepted. Primary runtime manifest 404 diagnostics remain, although the
+bundled Core and actual GUI reply complete; Work parity and production admission
+remain separate gates. The candidate stays open until closed, and a fresh viewer
+notification targets the current owner.

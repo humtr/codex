@@ -112,7 +112,7 @@ task_maximum_size = 250 34
 mouse_left = toggle_iconify
 button = new
 button_text = Browser
-button_tooltip = Open login in Android browser
+button_tooltip = Open Chromium in this Linux desktop
 button_font = sans bold 11
 button_font_color = #ffffff 100
 button_padding = 10 0 0
@@ -124,6 +124,15 @@ clock_padding = 8 0
 """)
     config.chmod(0o600)
     return config
+
+
+
+def browser_windows(tree):
+    # Chromium custom profiles do not always appear in _NET_CLIENT_LIST here.
+    # Inspect this private display and match only the owned profile's WM_CLASS.
+    pattern = r'(0x[0-9a-f]+)[^\n]*\("chromium \(/root/browser-profile\)" "Chromium"\)\s+(\d+)x(\d+)'
+    return [match[0] for match in re.findall(pattern, tree)
+            if int(match[1]) > 100 and int(match[2]) > 100]
 
 
 def paths(args):
@@ -150,12 +159,25 @@ def prepare(args):
         if not rootfs.exists(): subprocess.run(base+['install', '--name', 'chatgpt-trial', 'debian:13-slim'], env=env, stdout=out, stderr=out, check=True, timeout=180)
         command = '''printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d
 chmod 755 /usr/sbin/policy-rc.d
-apt-get update -o Acquire::Retries=2 && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends /candidate/chatgpt_arm64.deb ca-certificates
+apt-get update -o Acquire::Retries=2 && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends /candidate/chatgpt_arm64.deb ca-certificates chromium
 '''
         subprocess.run(base+['login', '--isolated', '--bind', str(cache)+':/candidate', 'chatgpt-trial', '--', '/bin/sh', '-c', command], env=env, stdout=out, stderr=out, check=True, timeout=900)
     private(data/'home')
     write(data/'candidate.json', {'version': VERSION, 'sha256': DIGEST, 'prootSource': PROOT_SOURCE, 'rootfs': str(rootfs), 'production': False})
     print(json.dumps({'candidatePrepared': True, 'version': VERSION, 'liveProfilesUsed': False}))
+
+
+
+def start_candidate(args):
+    _, _, data, _, _ = paths(args)
+    command = [os.environ['PREFIX']+'/bin/python', '-B', str(SOURCE/'linux_desktop_trial.py'), 'serve',
+               '--proot-source', str(args.proot_source), '--bun', str(args.bun),
+               '--novnc', str(args.novnc), '--seconds', str(args.seconds)]
+    with (data/'controller.log').open('a') as output:
+        process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=output,
+                                   stderr=output, start_new_session=True)
+    print(json.dumps({'candidateControllerStarted': True, 'pid': process.pid,
+                      'automaticExpiry': bool(args.seconds), 'production': False}))
 
 
 def serve(args):
@@ -204,10 +226,37 @@ def serve(args):
             stat = (Path('/proc')/str(os.getpid())/'stat').read_text()
             write(data/'session.json', {'pid': os.getpid(), 'start': int(stat[stat.rfind(')')+2:].split()[19]), 'image': os.readlink(Path('/proc')/str(os.getpid())/'exe'), 'root': str(root), 'display': display, 'seconds': args.seconds, 'started': time.time(), 'production': False})
             action = shlex.join([str(prefix/'bin/python'), '-B', str(SOURCE/'open_dual_trial.py'), 'linux'])
-            subprocess.run([str(prefix/'bin/termux-notification'), '--id', 'codex-linux-login', '--group', 'codex-web-experiment', '--title', 'Linux 앱 로그인', '--content', '한 번 터치해 공식 앱을 여세요. 로그인·설정은 별도로 유지됩니다.', '--action', action, '--priority', 'high'], capture_output=True, timeout=20, check=True)
+            subprocess.run([str(prefix/'bin/termux-notification'), '--id', 'codex-linux-login', '--group', 'codex-web-experiment', '--title', 'Linux 앱 화면 복귀', '--content', '한 번 터치해 Linux 화면을 여세요. Browser 버튼은 Linux Chromium을 엽니다.', '--action', action, '--priority', 'high'], capture_output=True, timeout=20, check=True)
             print(json.dumps({'linuxViewerReady': True, 'notificationSent': True, 'production': False}), flush=True)
-            end = time.monotonic()+args.seconds
-            while time.monotonic() < end and app.poll() is None:
+            browser = None
+            def show_browser():
+                nonlocal browser
+                if browser is None or browser.poll() is not None:
+                    browser_cmd = base+['login', '--isolated', '--bind', str(prefix/'tmp/.X11-unix')+':/tmp/.X11-unix',
+                                        '--bind', str(root)+':/ui', '--bind', str(home)+':/root',
+                                        '--env', f'DISPLAY=:{display}', '--env', 'XAUTHORITY=/ui/xauthority',
+                                        'chatgpt-trial', '--', '/usr/bin/chromium', '--no-sandbox', '--disable-gpu',
+                                        '--disable-dev-shm-usage', '--no-first-run', '--no-default-browser-check',
+                                        '--password-store=basic', '--user-data-dir=/root/browser-profile',
+                                        '--force-device-scale-factor=0.9', '--window-size=480,743', 'about:blank']
+                    browser = start(browser_cmd, env, 'browser.log')
+                for _ in range(150):
+                    listing = subprocess.run([str(prefix/'bin/xwininfo'), '-root', '-tree'], env=native, capture_output=True, text=True, timeout=3).stdout
+                    windows = browser_windows(listing)
+                    if windows:
+                        subprocess.run([str(prefix/'bin/wmctrl'), '-i', '-r', windows[0], '-b', 'add,maximized_vert,maximized_horz'], env=native, capture_output=True, timeout=3)
+                        subprocess.run([str(prefix/'bin/xdotool'), 'windowraise', windows[0], 'windowfocus', windows[0]], env=native, capture_output=True, timeout=3)
+                        write(data/'browser-proof.json', {'running': browser.poll() is None, 'windows': len(windows), 'androidActivityRequested': False})
+                        return
+                    if browser.poll() is not None: break
+                    time.sleep(.2)
+                write(data/'browser-proof.json', {'running': browser.poll() is None, 'windows': 0, 'androidActivityRequested': False})
+            end = time.monotonic()+args.seconds if args.seconds else None
+            while (end is None or time.monotonic() < end) and app.poll() is None:
+                request = root/'open-browser.json'
+                if request.exists():
+                    request.unlink()
+                    show_browser()
                 queued = root/'open-url'
                 if queued.exists():
                     url = queued.read_text(); queued.unlink()
@@ -234,16 +283,16 @@ def serve(args):
 if __name__ == '__main__':
     os.umask(0o077)
     parser = argparse.ArgumentParser()
-    parser.add_argument('command', choices=['prepare', 'serve'])
+    parser.add_argument('command', choices=['prepare', 'serve', 'start'])
     parser.add_argument('--proot-source', type=Path, required=True)
     parser.add_argument('--bun', type=Path)
     parser.add_argument('--novnc', type=Path)
-    parser.add_argument('--seconds', type=int, default=1800)
+    parser.add_argument('--seconds', type=int, default=0, help='0 keeps the foreground candidate open until closed; positive values bound a trial')
     args = parser.parse_args()
-    assert 1 <= args.seconds <= 3600
-    if args.command == 'serve': assert args.bun and args.novnc
+    assert 0 <= args.seconds <= 3600
+    if args.command in ('serve', 'start'): assert args.bun and args.novnc
     if args.command == 'serve':
         def stop(signum, frame):
             raise SystemExit(0)
         signal.signal(signal.SIGTERM, stop)
-    (prepare if args.command == 'prepare' else serve)(args)
+    {'prepare': prepare, 'serve': serve, 'start': start_candidate}[args.command](args)
