@@ -145,3 +145,16 @@ test('committed route boundary is a snapshot, not a mutable selector reference',
  const c=new DesktopPromptContext(),p={instructions:[],tools:[],messages:[]},route={model:'owned-model',account:'owned-account'};
  const first=c.prepare(p,route);c.accept(first.current,route);route.model='other-model';expect(c.prepare(p,route).mode).toBe('replay');
 });
+
+
+test('observed Chat families preserve actual effort semantics and Pro is separate',()=>{
+ for(const model of ['chatgpt-desktop/gpt-6','chatgpt-desktop/gpt-5.6-sol']){
+  for(const [effort,label] of [['none','Instant'],['medium','Medium'],['high','High'],['xhigh','Extra High']]){
+   const route=validateDesktopRoute({model,reasoning:{effort}});expect(route.model).toBe(model);expect(route.label).toBe(label);expect(route.mode).toBe('standard');
+  }
+  const pro=validateDesktopRoute({model:model+'-pro'});expect(pro.mode).toBe('pro');expect(pro.label).toBe('Pro');
+  expect(()=>validateDesktopRoute({model:model+'-pro',reasoning:{effort:'xhigh'}})).toThrow('unsupported_desktop_route');
+ }
+ for(const model of ['chatgpt-desktop/gpt-6-sol','chatgpt-desktop/__proto__','chatgpt-desktop/unknown'])expect(()=>validateDesktopRoute({model})).toThrow('unsupported_desktop_route');
+ for(const effort of ['low','max','ultra','constructor'])expect(()=>validateDesktopRoute({model:'chatgpt-desktop/gpt-6',reasoning:{effort}})).toThrow('unsupported_desktop_route');
+});

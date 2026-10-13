@@ -49,8 +49,20 @@ def install(server,codex_home,template,runtime=None):
                   'context_window':32768,'max_context_window':32768,'auto_compact_token_limit':None,
                   'prefer_websockets':False,'supports_reasoning_effort_updates':False,'default_reasoning_level':'none',
                   'supported_reasoning_levels':[{'effort':'none','description':'ChatGPT Instant'}],
-                  'tool_mode':'direct','multi_agent_version':'v1','model_messages':{'instructions_template':'You are Codex, a coding agent. Follow the user task and execute only advertised tools through the native client.','instructions_variables':None},'input_modalities':['text'],'supports_search_tool':True,'visibility':'list','supported_in_api':True})
-    catalog=data/'models.json';write(catalog,{'models':[model]})
+                  'tool_mode':'direct','multi_agent_version':'v1','model_messages':{'instructions_template':'You are Codex, a coding agent. Follow the user task and execute only advertised tools through the native client.','instructions_variables':None},'input_modalities':['text'],'supports_search_tool':True,'visibility':'hide','supported_in_api':True})
+    # Model identity and effort come from the physically observed Chat controls.
+    from copy import deepcopy
+    descriptions={'none':'Instant','medium':'Medium','high':'High','xhigh':'Extra High'}
+    entries=[model]
+    for family,label in [('gpt-6','GPT-6'),('gpt-5.6-sol','GPT-5.6 Sol')]:
+        standard=deepcopy(model);standard.update({'visibility':'list','slug':'chatgpt-desktop/'+family,'display_name':'ChatGPT · '+label,
+            'description':'Signed-app Chat '+label+'; selects the observed family and power before submission',
+            'supports_reasoning_effort_updates':True,'supported_reasoning_levels':[{'effort':effort,'description':name} for effort,name in descriptions.items()]})
+        pro=deepcopy(model);pro.update({'visibility':'list','slug':'chatgpt-desktop/'+family+'-pro','display_name':'ChatGPT · '+label+' Pro',
+            'description':'Pro: execution unverified at user request; automated tests never send Pro inference',
+            'supported_reasoning_levels':[{'effort':'none','description':'Pro (execution unverified)'}]})
+        entries.extend([standard,pro])
+    catalog=data/'models.json';write(catalog,{'models':entries})
     helper=Path(__file__).resolve()
     auth_args=['-B',str(helper),'token',str(binding)]
     if runtime is not None:
@@ -59,7 +71,7 @@ def install(server,codex_home,template,runtime=None):
         assert all(installed[k]==value[k] for k in ['baseUrl','token','model'])
         auth_args=['-B',str(Path(installed['source'])/'desktop_lifecycle.py'),'token','--runtime',str(runtime)]
     block=f'''{BEGIN}
-model = {json.dumps(value['model'])}
+model = "chatgpt-desktop/gpt-6"
 model_provider = "{PROVIDER}"
 model_reasoning_effort = "none"
 model_catalog_json = {json.dumps(str(catalog))}

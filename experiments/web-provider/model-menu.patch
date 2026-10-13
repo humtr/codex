@@ -1,0 +1,716 @@
+diff --git a/codex-rs/tui/src/app.rs b/codex-rs/tui/src/app.rs
+index 206171b..0915019 100644
+--- a/codex-rs/tui/src/app.rs
++++ b/codex-rs/tui/src/app.rs
+@@ -234,6 +234,8 @@ mod model_defaults;
+ mod new_session;
+ #[cfg(unix)]
+ pub(crate) mod profile_manager;
++#[cfg(unix)]
++pub(crate) mod chat_model_reentry;
+ mod turn_tips;
+ pub(crate) use new_session::has_launch_setting;
+ mod clipboard;
+diff --git a/codex-rs/tui/src/app/chat_model_reentry.rs b/codex-rs/tui/src/app/chat_model_reentry.rs
+new file mode 100644
+index 0000000..5f7cdfe
+--- /dev/null
++++ b/codex-rs/tui/src/app/chat_model_reentry.rs
+@@ -0,0 +1,365 @@
++//! Re-enter the same durable thread because upstream provider updates are launch-scoped.
++use super::App;
++use crate::app_server_session::AppServerSession;
++use crate::termux_chat_models;
++use codex_config::ConfigLayerSource;
++use codex_protocol::openai_models::ReasoningEffort;
++use std::os::unix::fs::MetadataExt;
++use std::os::unix::process::CommandExt;
++use std::path::PathBuf;
++use std::time::Duration;
++
++#[derive(Debug, thiserror::Error)]
++#[error("Chat model provider re-entry")]
++pub(crate) struct ChatModelReentry {
++    core: PathBuf,
++    args: Vec<String>,
++    cwd: PathBuf,
++    home: PathBuf,
++    return_profile: Option<String>,
++}
++impl ChatModelReentry {
++    pub(crate) fn from_error(error: &std::io::Error) -> Option<&Self> {
++        error.get_ref()?.downcast_ref::<Self>()
++    }
++    fn command(&self) -> std::process::Command {
++        let mut command = std::process::Command::new(&self.core);
++        command
++            .args(&self.args)
++            .current_dir(&self.cwd)
++            .env("CODEX_HOME", &self.home);
++        if let Some(profile) = &self.return_profile {
++            command.env("CODEX_CHAT_RETURN_PROFILE", profile);
++        } else {
++            command.env_remove("CODEX_CHAT_RETURN_PROFILE");
++        }
++        command
++    }
++    pub(crate) fn exec(&self) -> std::io::Error {
++        self.command().exec()
++    }
++}
++fn config_profile(config: &crate::legacy_core::config::Config) -> Option<String> {
++    config
++        .config_layer_stack
++        .layers_high_to_low()
++        .find_map(|layer| match &layer.name {
++            ConfigLayerSource::User {
++                profile: Some(profile),
++                ..
++            } => Some(profile.clone()),
++            _ => None,
++        })
++}
++fn safe_profile(profile: &str) -> bool {
++    profile.len() <= 64
++        && !profile.is_empty()
++        && profile
++            .bytes()
++            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
++}
++
++pub(super) async fn prepare(
++    app: &mut App,
++    server: &mut AppServerSession,
++    model: String,
++    effort: Option<ReasoningEffort>,
++) -> Option<ChatModelReentry> {
++    let thread = app.chat_widget.thread_id().filter(|thread| {
++        matches!(
++            app.app_server_target,
++            crate::AppServerTarget::LocalDaemon { .. }
++        ) && app.chat_widget.composer_is_empty()
++            && app.dynamic_tool_tasks.is_empty()
++            && app.chat_widget.can_change_working_directory(*thread)
++    });
++    let Some(thread) = thread else {
++        app.chat_widget.add_error_message("Provider switching requires an idle primary conversation without pending input or tool calls.".into());
++        return None;
++    };
++    let config = app.chat_widget.config_ref();
++    let effort = effort.unwrap_or(ReasoningEffort::None);
++    if !termux_chat_models::switch_required(&config.model_provider_id, &model)
++        || config
++            .config_layer_stack
++            .required_model_provider()
++            .is_some()
++        || !termux_chat_models::admits(config, &model, &effort)
++    {
++        app.chat_widget
++            .add_error_message("Selected model/provider is unavailable.".into());
++        return None;
++    }
++    let core = PathBuf::from(std::env::var_os("CODEX_PROFILE_CORE").unwrap_or_default());
++    if !std::fs::symlink_metadata(&core).is_ok_and(|m| {
++        core.is_absolute()
++            && m.is_file()
++            && m.uid() == unsafe { libc::geteuid() }
++            && m.mode() & 0o022 == 0
++            && m.mode() & 0o111 != 0
++    }) {
++        return None;
++    }
++    let entering = model.starts_with("chatgpt-desktop/");
++    let saved = if entering {
++        config_profile(config)
++    } else {
++        std::env::var("CODEX_CHAT_RETURN_PROFILE").ok()
++    };
++    if saved
++        .as_ref()
++        .is_some_and(|p| !safe_profile(p) || p == "chatgpt")
++    {
++        return None;
++    }
++    let mut args = Vec::new();
++    if entering {
++        args.extend(["--profile".into(), "chatgpt".into()]);
++    } else if let Some(profile) = &saved {
++        args.extend(["--profile".into(), profile.clone()]);
++    }
++    // Preserve explicit non-routing session settings rather than silently dropping them.
++    for layer in config.config_layer_stack.layers_low_to_high() {
++        if matches!(layer.name, ConfigLayerSource::SessionFlags)
++            && let Some(table) = layer.config.as_table()
++        {
++            for (key, value) in table {
++                if !matches!(
++                    key.as_str(),
++                    "model"
++                        | "model_provider"
++                        | "model_providers"
++                        | "model_catalog_json"
++                        | "model_reasoning_effort"
++                        | "profile"
++                ) {
++                    args.extend(["-c".into(), format!("{key}={value}")]);
++                }
++            }
++        }
++    }
++    let Some(permission) = config.permissions.active_permission_profile() else {
++        app.chat_widget.add_error_message(
++            "Current permission identity must be preserved before switching provider.".into(),
++        );
++        return None;
++    };
++    let policy = toml::Value::try_from(config.permissions.approval_policy.value()).ok()?;
++    let reviewer = toml::Value::try_from(config.approvals_reviewer).ok()?;
++    args.extend([
++        "-c".into(),
++        format!(
++            "default_permissions={}",
++            serde_json::to_string(&permission.id).ok()?
++        ),
++        "-c".into(),
++        format!("approval_policy={policy}"),
++        "-c".into(),
++        format!("approvals_reviewer={reviewer}"),
++        "-c".into(),
++        format!(
++            "model_reasoning_effort={}",
++            serde_json::to_string(effort.as_str()).ok()?
++        ),
++    ]);
++    args.extend(["resume".into(), thread.to_string(), "--model".into(), model]);
++    let request = ChatModelReentry {
++        core,
++        args,
++        cwd: config.cwd.to_path_buf(),
++        home: config.codex_home.to_path_buf(),
++        return_profile: if entering { saved } else { None },
++    };
++    if !matches!(
++        tokio::time::timeout(
++            Duration::from_secs(3),
++            super::profile_manager::ensure_resumable(server, thread)
++        )
++        .await,
++        Ok(true)
++    ) {
++        app.chat_widget.add_error_message(
++            "Current conversation could not be saved for model provider switching.".into(),
++        );
++        return None;
++    }
++    Some(request)
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    #[test]
++    fn termux_chat_models_reentry_keeps_same_home_cwd_thread_and_configuration_identity() {
++        let request = ChatModelReentry {
++            core: PathBuf::from("/owned/codex"),
++            args: vec![
++                "--profile".into(),
++                "chatgpt".into(),
++                "resume".into(),
++                "owned-thread".into(),
++                "--model".into(),
++                "chatgpt-desktop/gpt-6".into(),
++            ],
++            cwd: PathBuf::from("/owned/work"),
++            home: PathBuf::from("/owned/account"),
++            return_profile: Some("api".into()),
++        };
++        let cmd = request.command();
++        assert_eq!(
++            cmd.get_current_dir(),
++            Some(std::path::Path::new("/owned/work"))
++        );
++        assert_eq!(
++            cmd.get_args().collect::<Vec<_>>(),
++            request
++                .args
++                .iter()
++                .map(std::ffi::OsStr::new)
++                .collect::<Vec<_>>()
++        );
++        assert!(
++            cmd.get_envs().any(
++                |(k, v)| k == "CODEX_HOME" && v == Some(std::ffi::OsStr::new("/owned/account"))
++            )
++        );
++        assert!(cmd.get_envs().any(
++            |(k, v)| k == "CODEX_CHAT_RETURN_PROFILE" && v == Some(std::ffi::OsStr::new("api"))
++        ));
++        assert!(safe_profile("work-2"));
++        assert!(!safe_profile("../other"));
++    }
++    #[tokio::test]
++    async fn termux_chat_models_provider_reentry_refuses_busy_queued_side_draft_and_pending_tools()
++    {
++        assert_eq!(std::env::var_os("CODEX_PROFILE_CORE"), Some("".into()));
++        let (fixture, _events, _ops) =
++            super::super::super::tests::make_test_app_with_channels().await;
++        let (mut server, _, proxy) =
++            super::super::super::tests::session_lifecycle_requests::start_recording_app_server(
++                &fixture.config,
++                None,
++                None,
++            )
++            .await
++            .unwrap();
++        for state in [
++            "busy",
++            "queued",
++            "side",
++            "embedded",
++            "unavailable",
++            "draft",
++            "tool",
++            "no-thread",
++        ] {
++            let (mut app, mut events, mut ops) =
++                super::super::super::tests::make_test_app_with_channels().await;
++            let thread = codex_protocol::ThreadId::new();
++            let cwd = app.config.cwd.to_path_buf();
++            if state != "no-thread" {
++                app.chat_widget.handle_thread_session(
++                    super::super::super::tests::test_thread_session(thread, cwd.clone()),
++                );
++            }
++            if state != "embedded" {
++                app.app_server_target = crate::AppServerTarget::LocalDaemon {
++                    allow_embedded_fallback: false,
++                    endpoint: crate::RemoteAppServerEndpoint::UnixSocket {
++                        socket_path: codex_utils_absolute_path::AbsolutePathBuf::try_from(
++                            cwd.join("owned-profile.sock"),
++                        )
++                        .unwrap(),
++                    },
++                };
++            }
++            if matches!(state, "busy" | "queued") {
++                app.chat_widget.handle_server_notification(
++                    super::super::super::tests::turn_started_notification(thread, "profile-turn"),
++                    None,
++                );
++            }
++            if state == "queued" {
++                for text in ["/model", "keep this input"] {
++                    app.chat_widget.apply_external_edit(text.to_string());
++                    app.chat_widget
++                        .handle_key_event(crossterm::event::KeyEvent::new(
++                            crossterm::event::KeyCode::Tab,
++                            crossterm::event::KeyModifiers::NONE,
++                        ));
++                }
++                app.chat_widget.handle_server_notification(
++                    super::super::super::tests::turn_completed_notification(
++                        thread,
++                        "profile-turn",
++                        codex_app_server_protocol::TurnStatus::Completed,
++                    ),
++                    None,
++                );
++            }
++            if state == "side" {
++                app.chat_widget.set_side_conversation_active(true);
++            }
++            if state == "draft" {
++                app.chat_widget
++                    .apply_external_edit("keep my draft".to_string());
++            }
++            if state == "tool" {
++                app.dynamic_tool_tasks.insert(
++                    codex_app_server_protocol::RequestId::String("owned-tool".to_string()),
++                    ("owned".to_string(), tokio::spawn(std::future::pending())),
++                );
++            }
++            while events.try_recv().is_ok() {}
++            while ops.try_recv().is_ok() {}
++            let queued = app.chat_widget.queued_user_message_texts();
++            if state == "queued" {
++                assert_eq!(queued, vec!["keep this input"]);
++            }
++            if state == "unavailable" {
++                assert!(app.chat_widget.can_change_working_directory(thread));
++            }
++            assert!(
++                prepare(
++                    &mut app,
++                    &mut server,
++                    "chatgpt-desktop/gpt-6".to_string(),
++                    Some(ReasoningEffort::Medium)
++                )
++                .await
++                .is_none()
++            );
++            assert_eq!(app.chat_widget.queued_user_message_texts(), queued);
++            if state == "draft" {
++                assert_eq!(
++                    app.chat_widget.composer_text_with_pending(),
++                    "keep my draft"
++                );
++            }
++            if state == "tool" {
++                let (_, task) = app
++                    .dynamic_tool_tasks
++                    .remove(&codex_app_server_protocol::RequestId::String(
++                        "owned-tool".to_string(),
++                    ))
++                    .unwrap();
++                assert!(!task.is_finished());
++                task.abort(); // Only the fixture's own pending task is cleaned up.
++            }
++            assert!(
++                ops.try_recv().is_err(),
++                "must not submit or interrupt work: {state}"
++            );
++            for event in std::iter::from_fn(|| events.try_recv().ok()) {
++                assert!(!matches!(
++                    event,
++                    crate::app_event::AppEvent::CodexOp(
++                        crate::app_command::AppCommand::UserTurn { .. }
++                            | crate::app_command::AppCommand::Interrupt
++                    )
++                ));
++            }
++        }
++        proxy.abort();
++    }
++}
+diff --git a/codex-rs/tui/src/app/event_dispatch.rs b/codex-rs/tui/src/app/event_dispatch.rs
+index 1a85b4c..002cc0d 100644
+--- a/codex-rs/tui/src/app/event_dispatch.rs
++++ b/codex-rs/tui/src/app/event_dispatch.rs
+@@ -2052,6 +2052,12 @@ impl App {
+                 self.update_luna_reserve_reasoning(app_server, thread_id, effort)
+                     .await;
+             }
++            #[cfg(unix)]
++            AppEvent::SelectChatModelProvider { model, effort } => {
++                if let Some(request)=chat_model_reentry::prepare(self,app_server,model,effort).await {
++                    return Err(std::io::Error::other(request).into());
++                }
++            }
+             AppEvent::UpdateModel(model) => {
+                 if self
+                     .active_thread_model_setting_update_params(model.clone())
+diff --git a/codex-rs/tui/src/app/profile_manager.rs b/codex-rs/tui/src/app/profile_manager.rs
+index 2be4494..b55c7b7 100644
+--- a/codex-rs/tui/src/app/profile_manager.rs
++++ b/codex-rs/tui/src/app/profile_manager.rs
+@@ -251,7 +251,7 @@ pub(super) async fn prepare(
+ }
+ 
+ /// Only native durability is needed; saved chats do not hydrate their history.
+-async fn ensure_resumable(
++pub(super) async fn ensure_resumable(
+     app_server: &mut crate::app_server_session::AppServerSession,
+     thread: codex_protocol::ThreadId,
+ ) -> bool {
+diff --git a/codex-rs/tui/src/app_event.rs b/codex-rs/tui/src/app_event.rs
+index 4e7a525..e98de3d 100644
+--- a/codex-rs/tui/src/app_event.rs
++++ b/codex-rs/tui/src/app_event.rs
+@@ -1189,6 +1189,8 @@ pub(crate) enum AppEvent {
+ 
+     /// Update the current model slug in the running app and widget.
+     UpdateModel(String),
++    #[cfg(unix)]
++    SelectChatModelProvider { model: String, effort: Option<ReasoningEffort> },
+ 
+     /// Apply a final Astra picker action and offer the flourish only if it changed the model on
+     /// its original task. Automatic model updates do not use this event.
+diff --git a/codex-rs/tui/src/chatwidget/model_popups.rs b/codex-rs/tui/src/chatwidget/model_popups.rs
+index 03efe31..54c333b 100644
+--- a/codex-rs/tui/src/chatwidget/model_popups.rs
++++ b/codex-rs/tui/src/chatwidget/model_popups.rs
+@@ -80,6 +80,8 @@ impl ChatWidget {
+     }
+ 
+     pub(crate) fn open_model_popup_with_presets(&mut self, presets: Vec<ModelPreset>) {
++        #[cfg(unix)]
++        let presets=crate::termux_chat_models::augment(&self.config,presets);
+         if self.restrict_model_picker_to_luna_reserve() {
+             self.open_luna_reserve_model_popup(presets, MODEL_SELECTION_VIEW_ID);
+             return;
+@@ -234,6 +236,9 @@ impl ChatWidget {
+         presets: Vec<ModelPreset>,
+         view_id: &'static str,
+     ) {
++        #[cfg(unix)]
++        let presets=crate::termux_chat_models::augment(&self.config,presets);
++        let presets:Vec<_>=presets.into_iter().filter(|m|m.show_in_picker).collect();
+         if presets.is_empty() {
+             self.bottom_pane.dismiss_view_by_id(view_id);
+             self.add_info_message(
+@@ -296,6 +301,10 @@ impl ChatWidget {
+         effort_for_action: Option<ReasoningEffortConfig>,
+         should_prompt_plan_mode_scope: bool,
+     ) -> Vec<SelectionAction> {
++        #[cfg(unix)]
++        if crate::termux_permissions::enabled() && crate::termux_chat_models::switch_required(&self.config.model_provider_id,&model_for_action) {
++            return vec![Box::new(move |tx|tx.send(AppEvent::SelectChatModelProvider {model:model_for_action.clone(),effort:effort_for_action.clone()}))];
++        }
+         let warning = effort_for_action
+             .as_ref()
+             .and_then(|effort| self.ultra_reasoning_concurrency_warning(effort));
+diff --git a/codex-rs/tui/src/chatwidget/session_model_selection.rs b/codex-rs/tui/src/chatwidget/session_model_selection.rs
+index ac9b5c8..95fc968 100644
+--- a/codex-rs/tui/src/chatwidget/session_model_selection.rs
++++ b/codex-rs/tui/src/chatwidget/session_model_selection.rs
+@@ -47,6 +47,8 @@ impl ChatWidget {
+         model: String,
+         effort: Option<ReasoningEffortConfig>,
+     ) -> Option<SelectionSecondaryAction> {
++        #[cfg(unix)]
++        if crate::termux_permissions::enabled() && crate::termux_chat_models::switch_required(&self.config.model_provider_id,&model) { return None; }
+         // Reserve selections are already session-only.
+         if model == LUNA_RESERVE_MODEL {
+             return None;
+diff --git a/codex-rs/tui/src/lib.rs b/codex-rs/tui/src/lib.rs
+index 857bb7c..f1c4d23 100644
+--- a/codex-rs/tui/src/lib.rs
++++ b/codex-rs/tui/src/lib.rs
+@@ -178,6 +178,8 @@ mod markdown_stream;
+ mod markdown_text_merge;
+ mod mention_codec;
+ mod model_catalog;
++#[cfg(unix)]
++mod termux_chat_models;
+ mod model_migration;
+ mod motion;
+ mod multi_agents;
+@@ -1108,6 +1110,10 @@ pub async fn run_main(
+         {
+             return Err(reentry.exec());
+         }
++        #[cfg(unix)]
++        if let Err(err) = &result
++            && let Some(reentry) = app::chat_model_reentry::ChatModelReentry::from_error(err)
++        { return Err(reentry.exec()); }
+         match result {
+             Err(err) if startup_draft::StartupCancelled::matches(&err) => Ok(AppExitInfo {
+                 token_usage: TokenUsage::default(),
+diff --git a/codex-rs/tui/src/termux_chat_models.rs b/codex-rs/tui/src/termux_chat_models.rs
+new file mode 100644
+index 0000000..a657f6e
+--- /dev/null
++++ b/codex-rs/tui/src/termux_chat_models.rs
+@@ -0,0 +1,212 @@
++//! Optional installed Chat catalog; ordinary upstream model actions remain intact.
++use crate::legacy_core::config::Config;
++use codex_protocol::openai_models::{ModelInfo, ModelPreset, ReasoningEffort};
++use serde::Deserialize;
++use std::collections::HashSet;
++use std::fs::File;
++use std::io::Read;
++use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
++use std::path::Path;
++
++pub(crate) const PROVIDER: &str = "chatgpt_desktop_trial";
++const BEGIN: &str = "# codex-web-experiment ChatGPT profile begin\n";
++
++pub(crate) fn private_bytes(path: &Path, limit: u64) -> Option<Vec<u8>> {
++    let mut file = File::options()
++        .read(true)
++        .custom_flags(libc::O_NOFOLLOW)
++        .open(path)
++        .ok()?;
++    let meta = file.metadata().ok()?;
++    if !meta.is_file()
++        || meta.uid() != unsafe { libc::geteuid() }
++        || meta.mode() & 0o077 != 0
++        || meta.len() > limit
++    {
++        return None;
++    }
++    let mut bytes = Vec::new();
++    file.by_ref().take(limit + 1).read_to_end(&mut bytes).ok()?;
++    (bytes.len() as u64 <= limit).then_some(bytes)
++}
++
++pub(crate) fn valid_chat(model: &str, effort: &ReasoningEffort) -> bool {
++    match model {
++        "chatgpt-desktop/gpt-6" | "chatgpt-desktop/gpt-5.6-sol" => matches!(
++            effort,
++            ReasoningEffort::None
++                | ReasoningEffort::Medium
++                | ReasoningEffort::High
++                | ReasoningEffort::XHigh
++        ),
++        "chatgpt-desktop/gpt-6-pro" | "chatgpt-desktop/gpt-5.6-sol-pro" => {
++            *effort == ReasoningEffort::None
++        }
++        _ => false,
++    }
++}
++
++pub(crate) fn switch_required(provider: &str, model: &str) -> bool {
++    (provider == PROVIDER) != model.starts_with("chatgpt-desktop/")
++}
++
++#[derive(Deserialize)]
++struct Catalog {
++    models: Vec<ModelInfo>,
++}
++
++fn chat_catalog(config: &Config) -> Option<Vec<ModelPreset>> {
++    let profile = String::from_utf8(private_bytes(
++        &config.codex_home.join("chatgpt.config.toml"),
++        65536,
++    )?)
++    .ok()?;
++    if !profile.starts_with(BEGIN) {
++        return None;
++    }
++    let value: toml::Value = profile.parse().ok()?;
++    if value.get("model_provider")?.as_str()? != PROVIDER {
++        return None;
++    }
++    let path = Path::new(value.get("model_catalog_json")?.as_str()?);
++    if !path.is_absolute() {
++        return None;
++    }
++    let catalog: Catalog = serde_json::from_slice(&private_bytes(path, 4 * 1024 * 1024)?).ok()?;
++    let models: Vec<ModelPreset> = catalog
++        .models
++        .into_iter()
++        .map(Into::into)
++        .filter(|m: &ModelPreset| {
++            m.show_in_picker
++                && valid_chat(&m.model, &m.default_reasoning_effort)
++                && !m.supported_reasoning_efforts.is_empty()
++                && m.supported_reasoning_efforts
++                    .iter()
++                    .all(|e| valid_chat(&m.model, &e.effort))
++        })
++        .collect();
++    (!models.is_empty()).then_some(models)
++}
++
++pub(crate) fn augment(config: &Config, mut models: Vec<ModelPreset>) -> Vec<ModelPreset> {
++    if !crate::termux_permissions::enabled()
++        || !matches!(config.model_provider_id.as_str(), "openai" | PROVIDER)
++        || config
++            .config_layer_stack
++            .required_model_provider()
++            .is_some()
++        || std::env::var_os("CODEX_PROFILE_CORE").is_none()
++    {
++        return models;
++    }
++    let Some(chat) = chat_catalog(config) else {
++        return models;
++    };
++    let mut seen: HashSet<String> = models.iter().map(|m| m.model.clone()).collect();
++    if config.model_provider_id == PROVIDER
++        && let Some(bytes) = private_bytes(
++            &config.codex_home.join("models_cache.json"),
++            4 * 1024 * 1024,
++        )
++        && let Ok(native) = serde_json::from_slice::<Catalog>(&bytes)
++    {
++        for model in native.models.into_iter().map(ModelPreset::from) {
++            if model.show_in_picker
++                && !model.model.starts_with("chatgpt-desktop/")
++                && seen.insert(model.model.clone())
++            {
++                models.push(model);
++            }
++        }
++    }
++    for model in chat {
++        if seen.insert(model.model.clone()) {
++            models.push(model);
++        }
++    }
++    models
++}
++
++pub(crate) fn admits(config: &Config, model: &str, effort: &ReasoningEffort) -> bool {
++    if model.starts_with("chatgpt-desktop/") {
++        return valid_chat(model, effort)
++            && chat_catalog(config).is_some_and(|catalog| {
++                catalog.iter().any(|m| {
++                    m.model == model
++                        && m.supported_reasoning_efforts
++                            .iter()
++                            .any(|e| e.effort == *effort)
++                })
++            });
++    }
++    private_bytes(
++        &config.codex_home.join("models_cache.json"),
++        4 * 1024 * 1024,
++    )
++    .and_then(|bytes| serde_json::from_slice::<Catalog>(&bytes).ok())
++    .is_some_and(|catalog| {
++        catalog.models.iter().any(|m| {
++            m.slug == model
++                && m.supported_reasoning_levels
++                    .iter()
++                    .any(|e| e.effort == *effort)
++        })
++    })
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    #[test]
++    fn termux_chat_models_routes_preserve_family_power_and_pro_is_separate() {
++        for model in ["chatgpt-desktop/gpt-6", "chatgpt-desktop/gpt-5.6-sol"] {
++            for effort in [
++                ReasoningEffort::None,
++                ReasoningEffort::Medium,
++                ReasoningEffort::High,
++                ReasoningEffort::XHigh,
++            ] {
++                assert!(valid_chat(model, &effort));
++            }
++            for effort in [
++                ReasoningEffort::Low,
++                ReasoningEffort::Max,
++                ReasoningEffort::Ultra,
++            ] {
++                assert!(!valid_chat(model, &effort));
++            }
++        }
++        assert!(valid_chat(
++            "chatgpt-desktop/gpt-6-pro",
++            &ReasoningEffort::None
++        ));
++        assert!(!valid_chat(
++            "chatgpt-desktop/gpt-6-pro",
++            &ReasoningEffort::XHigh
++        ));
++        assert!(!valid_chat(
++            "chatgpt-desktop/gpt-6-sol",
++            &ReasoningEffort::None
++        ));
++        assert!(switch_required("openai", "chatgpt-desktop/gpt-6"));
++        assert!(switch_required(PROVIDER, "gpt-6.1-sol"));
++        assert!(!switch_required(PROVIDER, "chatgpt-desktop/gpt-5.6-sol"));
++        assert!(!switch_required("openai", "gpt-6.1-sol"));
++    }
++    #[test]
++    fn termux_chat_models_private_catalog_refuses_symlink_nonprivate_and_oversize() {
++        use std::os::unix::fs::{PermissionsExt, symlink};
++        let temp = tempfile::tempdir().unwrap();
++        let file = temp.path().join("catalog");
++        std::fs::write(&file, b"fixture").unwrap();
++        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
++        assert_eq!(private_bytes(&file, 8), Some(b"fixture".to_vec()));
++        assert!(private_bytes(&file, 2).is_none());
++        let link = temp.path().join("link");
++        symlink(&file, &link).unwrap();
++        assert!(private_bytes(&link, 8).is_none());
++        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
++        assert!(private_bytes(&file, 8).is_none());
++    }
++}

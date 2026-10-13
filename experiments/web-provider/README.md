@@ -916,3 +916,40 @@ tool call. The adapter process itself stays alive through that GUI restart.
 Aggregate proof: native-provider/lifecycle-checkpoint-proof.json. Four actual
 native commands and the admitted persisted checkpoint pass; estimated token
 counts remain local sizing only, and no server KV retention is assumed.
+
+
+Experimental model selection (not yet production native frontend admission)
+
+The installed profile now uses the observed Chat family GPT-6, with a separate
+GPT-5.6 Sol option. Actual UI selection/readback passes Instant, Medium, High and
+Extra High in both families. The names map to native none/medium/high/xhigh; the
+UI's internal `standard`, `extended` and `max` IDs are not API effort names.
+GPT-6 Sol belongs to Work/Codex, so it is not fabricated as a Chat choice. The
+legacy Instant wire slug remains a hidden explicit GPT-6/Instant alias.
+
+Each family has a separate Pro entry described as execution unverified. The user
+explicitly prohibits real Pro qualification because each request uses its quota.
+All maintained native inference drivers assert non-Pro slugs and override their
+model explicitly, even if a user later persists Pro as a profile default. Pro was
+neither selected nor submitted in physical qualification. Static route validation
+and observed UI metadata are its only proof; they do not certify inference.
+
+Actual installed GPT-6/Medium native qualification passes two write/read shell
+calls and exact correlated final reply (gpt6-medium-proof.json). GPT-5.6 Sol reached
+one real shell call but its following response timed out in Instant and Medium;
+those failed gates remain gpt56-{instant,medium}-proof.json and are not acceptance.
+Creating temporary Chat replaces the UI asynchronously: selection now waits for
+the real selector, instead of trying to click it before the view is ready.
+Reasoning-mode reply waits allow a bounded ten minutes; ambiguous failures still
+retire the cursor without replaying a native action automatically.
+
+`model-menu.patch` is a separate frontend overlay on the accepted native.patch.
+It appends the installed marked Chat catalog to the upstream /model picker and
+retains the ordinary model/effort UI. Cross-provider choices use native durable
+thread persistence, cleanup, then Core re-entry in the same home/window; pending
+input/tools/side conversations refuse. It restores the prior configuration
+profile when returning to a native model, and carries the active permission and
+reviewer. It does not pretend that upstream thread/settings/update can change
+provider. Native build, unit/lint and actual device transition remain required.
+`web-model-menu-native.yml` qualifies the exact official0.161 source plus both
+frontend patches without publishing or promoting a production runtime.

@@ -27,6 +27,16 @@ class ProfileTests(unittest.TestCase):
         path=self.home/'chatgpt.config.toml';d=tomllib.loads(path.read_text());self.assertEqual(d['model_provider'],'chatgpt_desktop_trial');self.assertNotIn('profiles',d);self.assertEqual(path.stat().st_mode&0o777,0o600)
         self.value['baseUrl']='http://127.0.0.1:12346/v1';self.save();self.install();self.assertEqual(self.config.read_text(),self.original)
         self.assertEqual(tomllib.loads(path.read_text())['model_providers']['chatgpt_desktop_trial']['base_url'],self.value['baseUrl'])
+    def test_catalog_exposes_observed_families_efforts_and_unexecuted_pro_without_inventing_sol(self):
+        self.install();catalog=json.loads((self.root/'.local/share/codex-web-experiment/native-provider/models.json').read_text())['models']
+        by_id={m['slug']:m for m in catalog}
+        self.assertEqual(by_id['chatgpt-desktop/instant']['visibility'],'hide')
+        self.assertNotIn('chatgpt-desktop/gpt-6-sol',by_id)
+        for family in ['gpt-6','gpt-5.6-sol']:
+            self.assertEqual([e['effort'] for e in by_id['chatgpt-desktop/'+family]['supported_reasoning_levels']],['none','medium','high','xhigh'])
+            pro=by_id['chatgpt-desktop/'+family+'-pro'];self.assertIn('unverified',pro['description']);self.assertEqual(len(pro['supported_reasoning_levels']),1)
+        self.assertEqual(tomllib.loads((self.home/'chatgpt.config.toml').read_text())['model'],'chatgpt-desktop/gpt-6')
+
     def test_existing_user_named_profile_refuses_without_mutation(self):
         target=self.home/'chatgpt.config.toml';target.write_text('model="user-choice"\n');target.chmod(0o600)
         with self.assertRaises(AssertionError):self.install()

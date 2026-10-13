@@ -30,6 +30,7 @@ def probe(args):
     real_home=Path.home();host_prefix=Path(os.environ['PREFIX'])
     desktop=None
     if args.desktop_server:
+        assert args.model in ['chatgpt-desktop/instant','chatgpt-desktop/gpt-6','chatgpt-desktop/gpt-5.6-sol'], 'automated Pro inference prohibited'
         record=args.desktop_server.lstat()
         assert not args.desktop_server.is_symlink() and record.st_uid==os.getuid() and not record.st_mode&0o077
         desktop=json.loads(args.desktop_server.read_text())

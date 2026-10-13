@@ -1,12 +1,13 @@
 import {connectDesktop,desktopConnection} from './desktop_cdp.mjs';
 import {DesktopSendRetry,DesktopPromptContext,desktopStages,correlatedDesktopCode} from './desktop_protocol.mjs';
+import {selectDesktopRoute,assertDesktopRoute,chatModelRoute} from './desktop_model_controls.mjs';
 import {randomBytes} from 'node:crypto';
 const delay=ms=>new Promise(ok=>setTimeout(ok,ms));
 const retries=`[...document.querySelectorAll('button')].filter(e=>/^(Retry|Try again)$/i.test((e.getAttribute('aria-label')||e.textContent||'').trim())&&e.getBoundingClientRect().width>0)`;
 export class DesktopChatTransport{
  constructor(root){this.root=root;this.started=false;this.busy=false;}
- retire(){this.started=false;this.targetId=undefined;this.lastCorrelation=undefined;this.context=undefined;this.generation=undefined;this.routeIdentity=undefined;}
- async exchange(payload,signal,onSubmitted=()=>{},onRetry=()=>{},onContext=()=>{},route={provider:"chatgpt-desktop",model:"chatgpt-desktop/instant",effort:"none"}){
+ retire(){this.started=false;this.targetId=undefined;this.lastCorrelation=undefined;this.context=undefined;this.generation=undefined;this.routeIdentity=undefined;this.selectedControl=undefined;}
+ async exchange(payload,signal,onSubmitted=()=>{},onRetry=()=>{},onContext=()=>{},route=chatModelRoute({model:'chatgpt-desktop/instant'})){
   if(this.busy)throw Error('desktop_chat_busy');this.busy=true;
   let c,sent=false,draftCorrelation,draftText;
   try{
@@ -21,12 +22,13 @@ export class DesktopChatTransport{
     this.context=new DesktopPromptContext();
     for(const type of ['keyDown','keyUp'])await c.request('Input.dispatchKeyEvent',{type,modifiers:10,key:'N',code:'KeyN',windowsVirtualKeyCode:78});
     await delay(250);
-   }
-   const snapshot=`JSON.stringify({modelIsInstant:[...document.querySelectorAll('button[aria-label="Select ChatGPT model"]')].some(e=>e.getBoundingClientRect().width>0&&(e.textContent||'').includes('Instant')),ownedContinuation:(document.body.textContent||'').includes(${JSON.stringify(this.lastCorrelation||'')}),cleanContext:!(document.body.textContent||'').includes('DESKTOP_'),temporary:[...document.querySelectorAll('button,span,h1,h2')].some(e=>/^(Temporary Chat|Temporary chat|Unpersonalized)$/.test(e.textContent?.trim())),editors:[...document.querySelectorAll('[contenteditable="true"]')].filter(e=>e.getBoundingClientRect().width>0).map(e=>!(e.textContent||'').trim())})`;
+    this.selectedControl=await selectDesktopRoute(c,route);
+   }else this.selectedControl=await assertDesktopRoute(c,route);
+   const snapshot=`JSON.stringify({modelMatchesRoute:[...document.querySelectorAll('button[aria-label="Select ChatGPT model"]')].some(e=>e.getBoundingClientRect().width>0&&(e.textContent||'').endsWith(${JSON.stringify(route.label)})),ownedContinuation:(document.body.textContent||'').includes(${JSON.stringify(this.lastCorrelation||'')}),cleanContext:!(document.body.textContent||'').includes('DESKTOP_'),temporary:[...document.querySelectorAll('button,span,h1,h2')].some(e=>/^(Temporary Chat|Temporary chat|Unpersonalized)$/.test(e.textContent?.trim())),editors:[...document.querySelectorAll('[contenteditable="true"]')].filter(e=>e.getBoundingClientRect().width>0).map(e=>!(e.textContent||'').trim())})`;
    let before;
-   for(let i=0;i<100;i++){signal?.throwIfAborted();before=JSON.parse(await c.evaluate(snapshot));if(before.modelIsInstant&&(this.started?before.ownedContinuation:before.cleanContext&&before.temporary)&&before.editors.length===1&&before.editors[0])break;await delay(500);}
+   for(let i=0;i<100;i++){signal?.throwIfAborted();before=JSON.parse(await c.evaluate(snapshot));if(before.modelMatchesRoute&&(this.started?before.ownedContinuation:before.cleanContext&&before.temporary)&&before.editors.length===1&&before.editors[0])break;await delay(500);}
    if(!this.started&&!before.cleanContext)throw Error('fresh_temporary_context_required');
-   if(!before.modelIsInstant)throw Error('desktop_model_changed');
+   if(!before.modelMatchesRoute)throw Error('desktop_model_changed');
    if((!this.started&&!before.temporary)||(this.started&&(!this.lastCorrelation||!before.ownedContinuation))||before.editors.length!==1||!before.editors[0])throw Error('owned_empty_temporary_composer_required');
    const boundary={route,generation:c.generation};
    const prepared=this.context.prepare(payload,boundary);let result;
@@ -55,7 +57,8 @@ export class DesktopChatTransport{
     if(!submitted)throw Error('desktop_submission_not_observed');
     if(stage.phase==='request')onSubmitted();
     let previous='',stable=0;const retry=new DesktopSendRetry();result=undefined;
-    for(let i=0;i<150;i++){
+    const responseDeadline=Date.now()+(route.effort==='none'&&route.mode!=='pro'?130000:600000);
+    for(let i=0;Date.now()<responseDeadline;i++){
      signal?.throwIfAborted();
      const state=JSON.parse(await c.evaluate(`JSON.stringify({codes:[...document.querySelectorAll('pre code')].map(e=>e.textContent),generating:[...document.querySelectorAll('button')].some(e=>/^stop(?:\\b|$)/i.test(e.getAttribute('aria-label')||e.textContent||'')&&e.getBoundingClientRect().width>0),sendFailed:${retries}.length>0,security:[...document.querySelectorAll('[role="alert"],h1,h2,[data-testid="challenge-stage"]')].some(e=>/verify you are human|security check|cloudflare/i.test(e.textContent||'')&&e.getBoundingClientRect().width>0)})`));
      if(state.security)throw Error('desktop_security_check');

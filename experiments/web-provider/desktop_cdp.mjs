@@ -48,7 +48,11 @@ export async function connectDesktop(root,targetId){
   }
   if(!session)throw Error('actual_chat_mode_not_selected');
  }catch(e){socket.close();throw e;}
- return {targetId:selected,generation,async evaluate(expression){const {result,exceptionDetails}=await request('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true},session);if(exceptionDetails)throw Error('owned_dom_evaluation_failed');return result.value;},
+ return {targetId:selected,generation,async evaluate(expression){const {result,exceptionDetails}=await request('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true},session);if(exceptionDetails){
+    const message=exceptionDetails.exception?.description?.split('\n')[0]?.replace(/^Error: /,'');
+    const allowed=['owned_closed_model_selector_required','desktop_family_unavailable','owned_empty_composer_required'];
+    throw Error(allowed.includes(message)?message:'owned_dom_evaluation_failed');
+   }return result.value;},
   request:(method,params)=>request(method,params,session),
   close:()=>socket.close()};
 }

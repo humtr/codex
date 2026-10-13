@@ -1,0 +1,286 @@
+name: Experimental Chat model menu native qualification
+on:
+  push:
+    branches: [experiment/web-termux]
+    paths:
+      - '.github/workflows/web-model-menu-native.yml'
+      - 'experiments/web-provider/model-menu.patch'
+permissions:
+  contents: read
+concurrency:
+  group: web-model-menu-native
+  cancel-in-progress: false
+jobs:
+  upstream-baseline:
+    name: Build and test experimental native model selection
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    env:
+      UPSTREAM_SHA: 979011409de0a60b52f179721948e65531d26144
+      RUST_VERSION: 1.95.0
+      RUSTUP_TOOLCHAIN: 1.95.0
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_DEV_INCREMENTAL: 'false'
+      CARGO_PROFILE_DEV_OPT_LEVEL: '1'
+      CARGO_PROFILE_TEST_OPT_LEVEL: '0'
+      CARGO_PROFILE_RELEASE_OPT_LEVEL: 'z'
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '1'
+      CARGO_PROFILE_RELEASE_STRIP: 'symbols'
+      CARGO_BUILD_JOBS: '3'
+      CODEX_PROFILE_CORE: ''
+    steps:
+      - name: Fetch exact frontend authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init experiment
+          git -C experiment remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git -C experiment fetch --no-tags --depth=1 origin "$GITHUB_SHA"
+          git -C experiment checkout --detach FETCH_HEAD
+          test "$(git -C experiment rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git -C experiment status --porcelain)"
+      - name: Fetch exact unmodified official source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init upstream
+          git -C upstream remote add origin https://github.com/openai/codex.git
+          git -C upstream fetch --no-tags --depth=1 origin "$UPSTREAM_SHA"
+          git -C upstream checkout --detach FETCH_HEAD
+          test "$(git -C upstream rev-parse HEAD)" = "$UPSTREAM_SHA"
+          test -z "$(git -C upstream status --porcelain)"
+      - name: Provision ephemeral source build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install "$RUST_VERSION" --profile minimal --component rustfmt,clippy --target aarch64-unknown-linux-musl
+          test "$(uname -m)" = aarch64
+      - name: Install official release Zig toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/zig-linux-aarch64-0.14.0.tar.xz"
+          curl --fail --silent --show-error https://ziglang.org/download/0.14.0/zig-linux-aarch64-0.14.0.tar.xz -o "$archive"
+          echo "ab64e3ea277f6fc5f3d723dcd95d9ce1ab282c8ed0f431b4de880d30df891e4f  $archive" | sha256sum -c -
+          tar -xJf "$archive" -C "$RUNNER_TEMP"
+          tool="$RUNNER_TEMP/zig-linux-aarch64-0.14.0"
+          test "$("$tool/zig" version)" = 0.14.0
+          echo "$tool" >> "$GITHUB_PATH"
+      - name: Use exact upstream musl native dependency tooling
+        shell: bash
+        env:
+          TARGET: aarch64-unknown-linux-musl
+          APT_UPDATE_ARGS: -qq
+          APT_INSTALL_ARGS: --no-install-recommends
+          OPENSSL_BUILD_JOBS: '3'
+        run: |
+          set -euo pipefail
+          bash upstream/.github/scripts/install-musl-build-tools.sh
+          echo 'AWS_LC_SYS_NO_JITTER_ENTROPY=1' >> "$GITHUB_ENV"
+          echo 'AWS_LC_SYS_NO_JITTER_ENTROPY_aarch64_unknown_linux_musl=1' >> "$GITHUB_ENV"
+      - name: Restore isolated frontend compile cache
+        id: compile-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            upstream/codex-rs/target
+          key: profile-tui-display-aarch64-musl-1.95.0-97901140-${{ github.sha }}
+          restore-keys: |
+            profile-tui-display-aarch64-musl-1.95.0-97901140-
+            profile-tui-display-aarch64-musl-1.95.0-a956835d-
+      - name: Normalize release workspace versions only
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s experiment/frontend/manager-tui -p 'test_*.py'
+          python3 experiment/frontend/manager-tui/normalize_lock.py upstream/codex-rs --audit "$RUNNER_TEMP/profile-tui-lock-audit.json"
+      - name: Apply bounded native profile patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 experiment/frontend/manager-tui/check_command_boundary.py upstream
+          pristine="$RUNNER_TEMP/profile-tui-pristine/codex-rs/tui/src"
+          mkdir -p "$pristine"
+          cp upstream/codex-rs/tui/src/slash_command.rs "$pristine/slash_command.rs"
+          git -C upstream apply --check "$GITHUB_WORKSPACE/experiment/frontend/manager-tui/native.patch"
+          git -C upstream apply "$GITHUB_WORKSPACE/experiment/frontend/manager-tui/native.patch"
+          git -C upstream apply --check "$GITHUB_WORKSPACE/experiment/experiments/web-provider/model-menu.patch"
+          git -C upstream apply "$GITHUB_WORKSPACE/experiment/experiments/web-provider/model-menu.patch"
+          python3 experiment/frontend/manager-tui/check_command_boundary.py "$RUNNER_TEMP/profile-tui-pristine" --patched upstream
+          git -C upstream diff --check
+          test "$(git -C upstream diff --name-only -- codex-rs/core)" = ''
+      - name: Preserve freshness of byte-identical upstream packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd upstream
+          python3 - <<'PYTHON'
+          import os, subprocess
+          epoch = int(subprocess.check_output(['git', 'show', '-s', '--format=%ct', 'HEAD']))
+          changed = set(subprocess.check_output(['git', 'diff', '--name-only'], text=True).splitlines())
+          paths = subprocess.check_output(['git', 'ls-files', '-z', '--', 'codex-rs']).decode().split('\0')
+          for path in paths:
+              if path and path not in changed and not path.startswith('codex-rs/tui/'):
+                  os.utime(path, (epoch, epoch), follow_symlinks=False)
+          PYTHON
+          git diff --check
+      - name: Provision pinned upstream test and formatting tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools="$RUNNER_TEMP/profile-test-tools"
+          mkdir -p "$tools"
+          acquire() {
+            local url="$1" digest="$2" name="$3"
+            curl --location --fail --silent --show-error "$url" -o "$tools/$name.tar.gz"
+            echo "$digest  $tools/$name.tar.gz" | sha256sum -c -
+            mkdir "$tools/$name"
+            tar -xzf "$tools/$name.tar.gz" -C "$tools/$name"
+            find "$tools/$name" -type f -name "$name" -exec cp {} "$tools/$name-bin" \;
+            test -x "$tools/$name-bin"
+            mkdir -p "$tools/bin"
+            cp "$tools/$name-bin" "$tools/bin/$name"
+          }
+          acquire https://github.com/casey/just/releases/download/1.51.0/just-1.51.0-aarch64-unknown-linux-musl.tar.gz ed7ec466b77709198fd4afed253dba0270203ba5eb1c006bee2b0139090284f5 just
+          acquire https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.146/cargo-nextest-0.9.146-aarch64-unknown-linux-musl.tar.gz 62ae8b4ad034704f67417f8ed8b897566d82359ab44952729b925fb37eeb7622 cargo-nextest
+          acquire https://github.com/facebook/dotslash/releases/download/v0.5.9/dotslash-linux-musl.aarch64.tar.gz 11323ef72fac5885d7c54bff70d666486bd800a8d908d0acd3bd838fd8a9b0db dotslash
+          acquire https://github.com/astral-sh/uv/releases/download/0.12.23/uv-aarch64-unknown-linux-gnu.tar.gz 6524bd338177ed50d035d39354e12545e993bbeba2ecbddf0480c5b3a81d313f uv
+          echo "$tools/bin" >> "$GITHUB_PATH"
+      - name: Format and inspect native profile scope
+        id: native-format
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd upstream
+          just fmt
+          git diff --check
+          git add -N codex-rs/tui
+          git diff -- codex-rs/tui > "$RUNNER_TEMP/profile-tui-formatted.patch"
+          python3 - <<'PYTHON'
+          import subprocess
+          files = subprocess.check_output(['git', 'diff', '--name-only'], text=True).splitlines()
+          assert all(p == 'codex-rs/Cargo.lock' or p.startswith('codex-rs/tui/') for p in files), files
+          PYTHON
+      - name: Build actual patched CLI with pinned external dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd upstream/codex-rs
+          cargo "+$RUST_VERSION" build --release --locked --target aarch64-unknown-linux-musl -p codex-cli --bin codex
+          git diff --check
+      - name: Execute and identify native frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary="$GITHUB_WORKSPACE/upstream/codex-rs/target/aarch64-unknown-linux-musl/release/codex"
+          test -x "$binary"
+          file "$binary" | grep -F 'ARM aarch64'
+          if readelf -l "$binary" | grep -F INTERP; then exit 1; fi
+          root="$RUNNER_TEMP/manager-tui-native"
+          mkdir -p "$root/home" "$root/home/.codex" "$root/tmp" "$root/artifact"
+          chmod 0700 "$root/home" "$root/home/.codex" "$root/tmp"
+          env -i HOME="$root/home" CODEX_HOME="$root/home/.codex" TMPDIR="$root/tmp" PATH=/usr/bin:/bin "$binary" --version > "$root/artifact/version.txt"
+          env -i HOME="$root/home" CODEX_HOME="$root/home/.codex" TMPDIR="$root/tmp" PATH=/usr/bin:/bin "$binary" --help > "$root/artifact/help.txt"
+          printf 'codex-cli 0.161.0\n' > "$root/version.expected"
+          cmp "$root/version.expected" "$root/artifact/version.txt"
+          cp "$binary" "$root/artifact/codex"
+          cp "$RUNNER_TEMP/profile-tui-lock-audit.json" "$root/artifact/lock-audit.json"
+          cp "$RUNNER_TEMP/profile-tui-formatted.patch" "$root/artifact/native.patch"
+          sha256sum "$root/artifact/codex" > "$root/artifact/sha256.txt"
+          printf 'upstream_sha=%s\nsource_sha=%s\ntarget=aarch64-unknown-linux-musl\nprofile=release opt-level=z codegen-units=1 strip=symbols\n' "$UPSTREAM_SHA" "$GITHUB_SHA" > "$root/artifact/source.txt"
+          cat "$root/artifact/version.txt" "$root/artifact/source.txt" "$root/artifact/sha256.txt"
+      - name: Upload unsigned frontend candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: web-model-menu-native
+          path: ${{ runner.temp }}/manager-tui-native/artifact
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 1
+      - name: Prepare bounded nonowner ownership fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(id -u)" != 0
+          fixture="$(mktemp -d "$RUNNER_TEMP/profile-core-owner.XXXXXX")/core"
+          cat > "$fixture" <<'CORE_FIXTURE'
+          #!/bin/sh
+          printf '%s\n' '{"schema":"codex-manager-profiles-v1","profiles":["default"],"current":"default","current_source":"default","saved_default":"default"}'
+          CORE_FIXTURE
+          chmod 0755 "$fixture"
+          sudo chown 0 "$fixture"
+          echo "CODEX_PROFILE_NONOWNER_CORE=$fixture" >> "$GITHUB_ENV"
+      - name: Focused actual native TUI regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd upstream
+          just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-tui --lib -E 'test(termux_chat_models) | test(profile_transport) | test(termux_permissions) | test(termux_terminal) | test(profile_manager) | test(switch_command) | test(side_conversation_hides_commands_without_side_flag)' 2>&1 | tee "$RUNNER_TEMP/profile-tui-focused.log"
+          python3 "$GITHUB_WORKSPACE/experiment/frontend/manager-tui/check_command_boundary.py" "$RUNNER_TEMP/profile-tui-pristine" --patched "$GITHUB_WORKSPACE/upstream" --test-log "$RUNNER_TEMP/profile-tui-focused.log"
+      - name: Inspect TUI lint fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd upstream
+          # This is a validation-only compiler capacity allowance. The release
+          # CLI above was built from pristine Core; no Core edit enters an asset.
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          import subprocess
+          core = Path('codex-rs/core/src/lib.rs')
+          original = core.read_bytes()
+          pristine = subprocess.check_output(['git', 'show', 'HEAD:codex-rs/core/src/lib.rs'])
+          if original != pristine:
+              raise RuntimeError('upstream Core source must remain pristine')
+          annotated = b'#![recursion_limit = "256"]\n' + original
+          core.write_bytes(annotated)
+          try:
+              result = subprocess.run(['just', 'fix', '--locked', '--target',
+                                       'aarch64-unknown-linux-musl', '-p', 'codex-tui'])
+              if core.read_bytes() != annotated:
+                  raise RuntimeError('lint changed upstream Core source')
+              result.check_returncode()
+          finally:
+              core.write_bytes(original)
+          PYTHON
+          git diff --exit-code -- codex-rs/core
+          git diff -- codex-rs/tui > "$RUNNER_TEMP/profile-tui-linted.patch"
+          cmp "$RUNNER_TEMP/profile-tui-formatted.patch" "$RUNNER_TEMP/profile-tui-linted.patch"
+          python3 - <<'PYTHON'
+          import subprocess
+          files = subprocess.check_output(['git', 'diff', '--name-only'], text=True).splitlines()
+          assert all(p == 'codex-rs/Cargo.lock' or p.startswith('codex-rs/tui/') for p in files), files
+          PYTHON
+      - name: Retain native focus and pending snapshots
+        if: ${{ !cancelled() && steps.native-format.outcome != 'skipped' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: web-model-menu-native-proof
+          path: |
+            ${{ runner.temp }}/profile-tui-focused.log
+            ${{ runner.temp }}/profile-tui-formatted.patch
+            ${{ runner.temp }}/profile-tui-linted.patch
+            upstream/codex-rs/tui/src/app/snapshots/*profile_manager*.snap*
+          if-no-files-found: error
+          retention-days: 3
+      - name: Retain isolated partial compile cache
+        if: ${{ !cancelled() && steps.compile-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            upstream/codex-rs/target
+          key: profile-tui-display-aarch64-musl-1.95.0-97901140-${{ github.sha }}
+      - name: Retain failed native build diagnosis
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: web-model-menu-native-diagnosis
+          path: |
+            ${{ runner.temp }}/profile-tui-lock-audit.json
+            ${{ github.workspace }}/upstream/codex-rs/target/**/config.log
+          if-no-files-found: warn
+          retention-days: 3

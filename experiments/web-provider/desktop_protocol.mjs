@@ -135,9 +135,5 @@ export function markDesktopEstimatedUsage(stream){
  }));
 }
 
-// The current physically qualified route; broader menus require real UI proof.
-export function validateDesktopRoute(raw){
- const effort=raw.reasoning?.effort;
- if(raw.model!=='chatgpt-desktop/instant'||(effort!==undefined&&effort!==null&&effort!=='none')||(raw.reasoning?.mode!==undefined&&raw.reasoning.mode!=='standard'))throw Error('unsupported_desktop_route');
- return {provider:'chatgpt-desktop',model:raw.model,effort:'none',mode:'standard'};
-}
+// Route validation is shared with the actual observed UI controls.
+export {chatModelRoute as validateDesktopRoute} from './desktop_model_controls.mjs';

@@ -3246,3 +3246,44 @@ native actions. Normal Codex without this opt-in profile stays independent, and
 no boot service, duplicate updater, alternate Core launcher or history store is
 introduced. Ownership markers for in-progress starts may settle a caller timeout;
 they grant no right to signal an unverified process.
+
+### Observed Chat model controls and Pro qualification exception
+
+The opt-in Chat catalog uses actual signed-app family labels: GPT-6 and GPT-5.6
+Sol. GPT-6 Sol is a Work/Codex family and must not be advertised as ordinary Chat.
+The observed Chat power controls are Instant, Medium, High and Extra High. Map
+those actual labels explicitly to native none/medium/high/xhigh; never invent a
+Low choice or equate UI's internal standard/extended/max identifiers with API
+reasoning enums. Preserve the legacy Instant slug as an explicit GPT-6/Instant
+alias. Family, mode and selected control must agree before submission.
+
+At the user's explicit direction, observed Pro options may be listed as execution
+unverified without a real qualification request. All automated inference/tool,
+continuation and quota tests must exclude Pro. Pro has its own model route, not an
+alias of Extra High. Locked/unavailable controls fail before submission and are
+never bypassed. A Pro selection can execute only on the user's actual work path;
+metadata inspection and offline validation do not constitute inference acceptance.
+Changing a family/power retires the old cursor and replays Core's projection into
+fresh owned temporary context. Existing user drafts and ongoing jobs remain intact.
+
+### Experimental native /model bridge
+
+A qualified local Termux frontend may append the installed marked Chat catalog to
+ordinary /model, retaining every native model and using the upstream effort UI.
+Absence or invalidity of that optional installation leaves ordinary Codex intact.
+The adapter profile is not a Manager login identity. Its selection must keep
+CODEX_HOME, cwd, the durable thread and its permission/reviewer choices unchanged.
+Cross-provider selection requires an idle primary conversation, no draft, queued
+input or pending tool, and native persistence before terminal cleanup/re-entry.
+Upstream0.161 does not update provider in thread/settings/update; the experimental
+frontend therefore resumes the saved thread with the selected configuration
+profile rather than pretending that changing only a model slug changed provider.
+Within a Chat provider, ordinary upstream model/effort updates remain authoritative.
+The public stock profile remains a fallback. Returning to a native model restores
+the prior named configuration profile (or the base profile) in the same home.
+The extension must not overwrite base config routing or grant permissions. Managed
+provider restrictions take precedence. A stale cached native menu entry grants no
+entitlement; the native backend still validates access. No new notification window
+or parallel Codex instance is created by re-entry. Production admission requires
+native build/tests and actual device provider-transition proof, independently from
+adapter family/effort proof.
