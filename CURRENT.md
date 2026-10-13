@@ -273,12 +273,17 @@ This repository carries no external workflow skill or model configuration.
   launch. No user job was stopped to change execution mode.
 
 - Two independent official alternatives are prepared in experiment/web-termux
-  at8f9652d.
+  at38c19f2.
   Signed Linux ARM64 desktop 26.1007.21434 installs in a Debian13/PRoot candidate
   under XDG cache; account data stays separately in
   ~/.local/share/codex-web-experiment/linux-desktop/home. The login page rendered
-  in bounded trials. Its current private phone viewer is running and a fresh
-  notification was delivered; actual user login/guest-tool acceptance is pending.
+  in bounded trials. Candidate HTTP(S) MIME defaults now route the app's sign-in
+  to its scoped Android handler rather than back into chatgpt.desktop. Guest GIO
+  dispatch reached that handler using an unrecognized account-free target, which
+  was refused. Real first-party login/guest-tool acceptance remains pending.
+  Fresh notifications resolve the current endpoint at tap time and verify owner
+  PID/start/executable. Trials expire after at most one hour and retain account
+  data; restart the owned trial before sending a new alert.
   Native SIWC public-client qualification has a separate loopback consent page
   and owner-only records in ~/.local/share/codex-web-experiment/siwc. It uses the
   unmodified official devkit OAuth/SSE modules, with the official guide's 0600
@@ -288,5 +293,13 @@ This repository carries no external workflow skill or model configuration.
   OpenAI consent. Native Node compilation/vendor 27, Android persistence/privacy/UI 6
   and repository Python 18+59 pass. Signed stable49's account-free app-server gate
   passes two correlated actual shell calls and direct-route body-shape checks.
-  That is synthetic service proof; real account/model/tool-loop gates await user
-  consent. Production remains stable49; no global launcher or boot service changed.
+  Two new actual Android MIME/routing cases also pass; current viewer HTTP and
+  delivered page JavaScript pass. That Core fixture is synthetic service proof.
+  The user's external sign-in returned 3p_login_tenant_policy_denied, preserved
+  separately from verified credentials. ChatGPT workspace Apps settings do not
+  govern this tenant policy; Global admin External access does. Official plan
+  usage eligibility documents Plus/Pro, so policy access alone is not proof of
+  Business entitlement. No organization setting or selected account was changed.
+  Real account/model/tool-loop gates remain unpassed. Linux first-party login is
+  an independent gate; the external rejection does not establish its outcome.
+  Production remains stable49; no global launcher or boot service changed.
