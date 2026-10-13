@@ -272,19 +272,21 @@ This repository carries no external workflow skill or model configuration.
 - Switching a live bare PTY into/out of tmux is not supported; choose a new safe
   launch. No user job was stopped to change execution mode.
 
-- Official alternatives to the failed native-browser human gate were checked.
-  Linux desktop preview now publishes ARM64; signed 26.1007.21434 installed and
-  --version passed in an owned Debian13/PRoot rootfs. The full-size shell and
-  bundled 0.162.0-alpha.17.2 stdio app-server started, but the observed UI remained
-  loading/blank at first; a longer bounded wait with --disable-dev-shm-usage
-  reached the actual sign-in screen. That is renderer proof, with no user login
-  or model acceptance. This is not Android support or a new production generation.
-  All account-free GUI trial launchers were stopped; the guest rootfs and temporary
-  source checkouts were removed. Verified package and aggregate proof stay in XDG
-  cache, with no new global command or auto-start service.
-  Official SIWC ChatGPT plan usage can instead feed the public Responses API to
-  Codex app-server with a user-granted dynamic client. Account/model entitlement,
-  protected token storage and real model/tool-loop acceptance remain unqualified;
-  existing Codex/browser credentials are not repurposed. Hosted Web tools are
-  not feature-equivalent on this route. Details and primary sources remain in
-  experiment/web-termux's experiments/web-provider/README.md.
+- Two independent official alternatives are prepared in experiment/web-termux
+  at8f9652d.
+  Signed Linux ARM64 desktop 26.1007.21434 installs in a Debian13/PRoot candidate
+  under XDG cache; account data stays separately in
+  ~/.local/share/codex-web-experiment/linux-desktop/home. The login page rendered
+  in bounded trials. Its current private phone viewer is running and a fresh
+  notification was delivered; actual user login/guest-tool acceptance is pending.
+  Native SIWC public-client qualification has a separate loopback consent page
+  and owner-only records in ~/.local/share/codex-web-experiment/siwc. It uses the
+  unmodified official devkit OAuth/SSE modules, with the official guide's 0600
+  file storage rather than the devkit's encrypted high-level store. Current
+  Termux Keystore supports signatures, not encryption; no new key service or
+  existing credential reuse is introduced. Its fresh notification starts manual
+  OpenAI consent. Native Node compilation/vendor 27, Android persistence/privacy/UI 6
+  and repository Python 18+59 pass. Signed stable49's account-free app-server gate
+  passes two correlated actual shell calls and direct-route body-shape checks.
+  That is synthetic service proof; real account/model/tool-loop gates await user
+  consent. Production remains stable49; no global launcher or boot service changed.
