@@ -273,7 +273,7 @@ This repository carries no external workflow skill or model configuration.
   launch. No user job was stopped to change execution mode.
 
 - Two independent official alternatives are prepared in experiment/web-termux
-  at842ebcc.
+  at76a7e4a.
   Signed Linux ARM64 desktop 26.1007.21434 installs in a Debian13/PRoot candidate
   under XDG cache; account data stays separately in
   ~/.local/share/codex-web-experiment/linux-desktop/home. The login page rendered
@@ -288,8 +288,15 @@ This repository carries no external workflow skill or model configuration.
   candidate HOME. A private tint2 panel shows Browser, ChatGPT and clock; actual
   X11 proof reserves 42px and maximizes the app in 480x743. Browser reopens the
   validated pending URL from the temporary private root or the fixed homepage.
-  Real login/guest-tool acceptance remains pending. SIGTERM now enters owned-process cleanup; four orphan groups
-  left by an older controller were identified by private root/display and stopped.
+  Linux user login completed and candidate auth is ChatGPT with a Business-family
+  team claim. The bundled Linux Core passed a real-service ephemeral turn in an
+  isolated guest workspace: two successful shell calls wrote/read a correlated
+  marker and the final model reply matched it. The owner-only aggregate is
+  linux-desktop/guest-core-proof.json; test files/logs/processes were removed.
+  No ordinary Termux profile was imported. Desktop GUI reply/Work acceptance
+  remains pending, and recent app diagnostics still contain a runtime manifest
+  404. Guest Core proof does not establish its resolution. SIGTERM now enters
+  owned-process cleanup; four older orphan groups were safely stopped.
   Fresh notifications resolve the current endpoint at tap time and verify owner
   PID/start/executable. Trials expire after at most one hour and retain account
   data; restart the owned trial before sending a new alert.
@@ -311,8 +318,8 @@ This repository carries no external workflow skill or model configuration.
   Business entitlement. No organization setting or selected account was changed.
   The user now selects their separate Plus account for the SIWC qualification;
   a fresh alert requests OpenAI login and plan-use consent, with no Admin/API key.
-  Real account/model/tool-loop gates remain unpassed. Linux first-party login is
-  an independent gate; the external rejection does not establish its outcome.
+  SIWC real account/model/tool-loop gates remain unpassed. Linux first-party
+  login and guest Core now pass independently of the external identity rejection.
   Production remains stable49; no global launcher or boot service changed.
 
   Public Responses research: SIWC uses api.openai.com/v1/responses and currently
