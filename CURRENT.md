@@ -273,14 +273,19 @@ This repository carries no external workflow skill or model configuration.
   launch. No user job was stopped to change execution mode.
 
 - Two independent official alternatives are prepared in experiment/web-termux
-  at38c19f2.
+  at6645648.
   Signed Linux ARM64 desktop 26.1007.21434 installs in a Debian13/PRoot candidate
   under XDG cache; account data stays separately in
   ~/.local/share/codex-web-experiment/linux-desktop/home. The login page rendered
   in bounded trials. Candidate HTTP(S) MIME defaults now route the app's sign-in
   to its scoped Android handler rather than back into chatgpt.desktop. Guest GIO
   dispatch reached that handler using an unrecognized account-free target, which
-  was refused. Real first-party login/guest-tool acceptance remains pending.
+  was refused. Signed-app URL construction revealed a separate refusal: it uses
+  /oauth/authorize, initially excluded by the local handoff. That path is now
+  accepted with target/token guards; the additional Android regression passes.
+  The corrected candidate is running, but real login/guest-tool acceptance
+  remains pending. SIGTERM now enters owned-process cleanup; four orphan groups
+  left by an older controller were identified by private root/display and stopped.
   Fresh notifications resolve the current endpoint at tap time and verify owner
   PID/start/executable. Trials expire after at most one hour and retain account
   data; restart the owned trial before sending a new alert.
@@ -303,3 +308,12 @@ This repository carries no external workflow skill or model configuration.
   Real account/model/tool-loop gates remain unpassed. Linux first-party login is
   an independent gate; the external rejection does not establish its outcome.
   Production remains stable49; no global launcher or boot service changed.
+
+  Public Responses research: SIWC uses api.openai.com/v1/responses and currently
+  documents Plus/Pro plan eligibility. Business Codex access tokens are official
+  CLI/app-server credentials, not general public API credentials. Workspace
+  Agents offers Business preview with an independent api.chatgpt.com trigger,
+  scoped token and asynchronous status polling; final answer retrieval is not
+  supported. An MCP result callback is a possible bridge, not implemented proof.
+  Ordinary API-key inference has separate API charges; no paid request or
+  organization-policy change was made. See experiment README's sourced comparison.
