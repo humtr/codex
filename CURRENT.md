@@ -344,7 +344,7 @@ This repository carries no external workflow skill or model configuration.
 
 
 - Native Termux ChatGPT provider now has real experimental acceptance on
-  experiment/web-termux at13ef310. The signed Linux app's actual ChatGPT / Chat / Instant
+  experiment/web-termux at40008b0. The signed Linux app's actual ChatGPT / Chat / Instant
   surface supplies the backend; desktop Codex mode, a mock, extracted first-party
   token and public API-key inference are not substitutes. A private FD3/FD4 relay
   reuses the existing native Bun host. The local authenticated /v1/responses
@@ -386,26 +386,39 @@ This repository carries no external workflow skill or model configuration.
   native lane returned409 without a model request. Concurrent-request reservation
   now begins before body parsing; malformed requests release it. Only one physical
   desktop lane is supported; cross-session parallelism is not production-admitted.
-  Manual native Responses/memento compaction now passes in the experiment: a
+  Native Responses/memento compaction now passes in the experiment: a
   secret learned only from actual shell output survives summary/persistence,
   two new native calls and Core stop/resume without repeating it in user input.
   Four shell calls and an exact same-thread summary checkpoint applied. Core
   owns history replacement; only the offered summary’s exact replay retires old
-  live call checks. Automatic mid-turn/trimming and interrupted compaction still
-  need acceptance. Text, advertised function/custom tools and native search
+  live call checks. Automatic pre-turn and mid-turn compaction also pass using
+  lower thresholds only in disposable tests. Four real native calls per proof,
+  matching compaction item IDs, persisted tool-only state and Core restart/resume
+  passed. Cancellation after observed actual Chat submission and locally rejected
+  relay authentication each committed no partial summary; restart preserved old
+  state, then successful compaction and another restart passed. Missing desktop
+  token usage previously became zero, suppressing accumulated-context accounting.
+  The adapter now supplies UTF-8 size estimates for native context budgeting and
+  marks terminal metadata termux_usage_source=estimated_context. These counts
+  are neither authoritative server usage nor evidence of quota/billing deduction.
+  Text, advertised function/custom tools and native search
   wire mapping are present; image/file/audio context is refused. Actual native
   catalog search now passes: a model-requested lookup returns
   a correlated successful native result, nonempty loaded schemas and an exact
   final nonce, with full permissions in the disposable qualification workspace.
   CLI JSON omits search items; the probe observes the actual matched Responses
-  result rather than relying on CLI display. Discovered tool actions, longer
-  contexts and update/reboot lifecycle remain separate gates. Cancellation retires
+  result rather than relying on CLI display. Actual discovered-tool execution also
+  passes: installed --profile chatgpt performs native catalog search, executes
+  the returned read-only GitHub repository metadata tool for humtr/codex and
+  receives the real result/final reply. Image/file/audio support, hours-long load
+  and update/reboot lifecycle remain separate gates. Cancellation retires
   the interrupted ChatGPT temporary lane;
   native resume replays its history into a fresh owned lane.
   Proof: ~/.local/share/codex-web-experiment/native-provider/{installed-cli,
-  staged-cli,cancel-resume,compact,tool-search,tui,isolation,http-concurrency}-proof.json.
+  staged-cli,cancel-resume,compact,auto-compact,mid-turn-compact,interrupt-compact,
+  failed-compact,tool-search,discovered-tool,tui,isolation,http-concurrency}-proof.json.
   Experimental
-  protocol tests11/57 assertions, profile/routing Python5+5 and repository Python
+  protocol tests13/65 assertions, profile/routing Python5+5 and repository Python
   18+59 passed. Unchanged production Rust/release evidence above remains applicable;
   no new signed production publication is claimed.
   User reports phone horizontal width still mismatched despite X11 480px proof;
