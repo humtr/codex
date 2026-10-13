@@ -1,0 +1,153 @@
+"""Owned Linux desktop candidate; private account data survives disposable OS tests."""
+import argparse
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import secrets
+import shlex
+import signal
+import struct
+import subprocess
+import tempfile
+import time
+from urllib.parse import urlparse
+
+VERSION = '26.1007.21434'
+DIGEST = '55fae1e3fb1d6069a90620e9e70737dcf8bf2255604d157e282cc6748a1baf49'
+PROOT_SOURCE = '5a427a1f924550c176ab34197e9fcf5d010fdbd9'
+SOURCE = Path(__file__).resolve().parent
+
+
+def private(path):
+    path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    st = path.lstat()
+    assert path.is_dir() and not path.is_symlink() and st.st_uid == os.getuid() and not st.st_mode & 0o077
+    return path
+
+
+def write(path, value):
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix='.state-')
+    try:
+        with os.fdopen(fd, 'w') as f:
+            json.dump(value, f); f.write('\n'); f.flush(); os.fsync(f.fileno())
+        os.replace(tmp, path)
+    finally:
+        if Path(tmp).exists(): Path(tmp).unlink()
+
+
+def paths(args):
+    prefix = Path(os.environ['PREFIX'])
+    cache = private(Path.home()/'.cache/codex-web-experiment/linux-desktop'/VERSION)
+    data = private(Path.home()/'.local/share/codex-web-experiment/linux-desktop')
+    tool = args.proot_source.resolve(strict=True)
+    assert subprocess.check_output(['git', '-C', str(tool), 'rev-parse', 'HEAD'], text=True).strip() == PROOT_SOURCE
+    assert not subprocess.check_output(['git', '-C', str(tool), 'status', '--porcelain'], text=True).strip()
+    env = {'HOME': str(private(cache/'setup-home')), 'TMPDIR': str(prefix/'tmp'), 'PATH': str(prefix/'bin'),
+           'TERMUX__PREFIX': str(private(cache/'trial-prefix')), 'TERMUX__HOME': str(cache/'setup-home'),
+           'PD_PROOT_BIN': str(prefix/'bin/proot'), 'PYTHONPATH': str(tool), 'LANG': 'C.UTF-8', 'PD_FORCE_NO_COLORS': '1'}
+    base = [str(prefix/'bin/python'), '-c', 'from proot_distro.cli import main; main()']
+    return prefix, cache, data, env, base
+
+
+def prepare(args):
+    prefix, cache, data, env, base = paths(args)
+    archive = cache/'chatgpt_arm64.deb'
+    with archive.open('rb') as f: digest = hashlib.file_digest(f, 'sha256').hexdigest()
+    assert digest == DIGEST, 'accepted public package changed'
+    rootfs = cache/'trial-prefix/var/lib/proot-distro/containers/chatgpt-trial/rootfs'
+    with (cache/'prepare.log').open('w') as out:
+        if not rootfs.exists(): subprocess.run(base+['install', '--name', 'chatgpt-trial', 'debian:13-slim'], env=env, stdout=out, stderr=out, check=True, timeout=180)
+        command = '''printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d
+chmod 755 /usr/sbin/policy-rc.d
+apt-get update -o Acquire::Retries=2 && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends /candidate/chatgpt_arm64.deb ca-certificates
+'''
+        subprocess.run(base+['login', '--isolated', '--bind', str(cache)+':/candidate', 'chatgpt-trial', '--', '/bin/sh', '-c', command], env=env, stdout=out, stderr=out, check=True, timeout=900)
+    private(data/'home')
+    write(data/'candidate.json', {'version': VERSION, 'sha256': DIGEST, 'prootSource': PROOT_SOURCE, 'rootfs': str(rootfs), 'production': False})
+    print(json.dumps({'candidatePrepared': True, 'version': VERSION, 'liveProfilesUsed': False}))
+
+
+def serve(args):
+    prefix, cache, data, env, base = paths(args)
+    assert (data/'candidate.json').is_file(), 'prepare the candidate first'
+    previous = json.loads((data/'session.json').read_text()) if (data/'session.json').exists() else {}
+    if previous.get('pid') and (Path('/proc')/str(previous['pid'])).exists():
+        raise RuntimeError('another recorded candidate controller is alive')
+    lock_fd = os.open(data/'.session-lock', os.O_CREAT|os.O_RDWR|os.O_NOFOLLOW, 0o600)
+    fcntl.flock(lock_fd, fcntl.LOCK_EX|fcntl.LOCK_NB)
+    processes = []
+    with tempfile.TemporaryDirectory(prefix='ld-', dir=os.environ['TMPDIR']) as temp:
+        root = private(Path(temp)); home = private(data/'home')
+        display = next(n for n in range(128, 256) if not (prefix/'tmp'/f'.X{n}-lock').exists() and not (prefix/'tmp/.X11-unix'/f'X{n}').exists())
+        def field(v): return struct.pack('!H', len(v))+v
+        auth = root/'xauthority'
+        auth.write_bytes(struct.pack('!H',65535)+field(b'localhost')+field(str(display).encode())+field(b'MIT-MAGIC-COOKIE-1')+field(secrets.token_bytes(16))); auth.chmod(0o600)
+        native = {'HOME': str(home), 'TMPDIR': str(prefix/'tmp'), 'PATH': str(prefix/'bin'), 'PREFIX': str(prefix), 'DISPLAY': f':{display}', 'XAUTHORITY': str(auth), 'LANG': 'C.UTF-8'}
+        write(root/'environment.json', native)
+        opener = private(root/'bin')/'xdg-open'
+        opener.write_text('#!/bin/sh\nset -eu\ntest "$#" = 1\numask 077\nprintf "%s" "$1" > /ui/open-url.tmp\nmv /ui/open-url.tmp /ui/open-url\n')
+        opener.chmod(0o700)
+        def start(command, environment, log):
+            with (root/log).open('w') as out: p = subprocess.Popen(command, env=environment, stdout=out, stderr=out, start_new_session=True)
+            processes.append(p); return p
+        try:
+            x = start([str(prefix/'bin/Xvnc'), f':{display}', '-geometry', '480x785', '-depth', '24', '-rfbunixpath', str(root/'rfb.sock'), '-rfbunixmode', '0600', '-rfbport', '-1', '-SecurityTypes', 'None', '-auth', str(auth), '-nolisten', 'tcp'], native, 'xvnc.log')
+            for _ in range(80):
+                if (root/'rfb.sock').exists(): break
+                assert x.poll() is None; time.sleep(.1)
+            else: raise RuntimeError('private display unavailable')
+            start([str(prefix/'bin/openbox')], native, 'openbox.log')
+            viewer = start([str(args.bun), str(SOURCE/'termux_viewer.ts'), str(args.novnc), str(root/'rfb.sock'), str(root/'viewer.json')], native, 'viewer.log')
+            cmd = base+['login', '--isolated', '--bind', str(prefix/'tmp/.X11-unix')+':/tmp/.X11-unix', '--bind', str(root)+':/ui', '--bind', str(home)+':/root', '--env', f'DISPLAY=:{display}', '--env', 'XAUTHORITY=/ui/xauthority', '--env', 'BROWSER=/ui/bin/xdg-open', '--env', 'PATH=/ui/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin', 'chatgpt-trial', '--', '/usr/bin/dbus-run-session', '--', '/usr/bin/chatgpt', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage', '--user-data-dir=/root/profile']
+            app = start(cmd, env, 'app.log')
+            for _ in range(160):
+                assert app.poll() is None and viewer.poll() is None, 'candidate exited before rendering'
+                tree = subprocess.run([str(prefix/'bin/xwininfo'), '-root', '-tree'], env=native, capture_output=True, text=True, timeout=3).stdout
+                match = re.search(r'(0x[0-9a-f]+) "ChatGPT".*?\b(?:[2-9]\d{2,}|1\d{3,})x(?:[2-9]\d{2,}|1\d{3,})\+', tree)
+                if match and (root/'viewer.json').exists(): break
+                time.sleep(.5)
+            else: raise RuntimeError('candidate window did not appear')
+            subprocess.run([str(prefix/'bin/wmctrl'), '-i', '-r', match[1], '-b', 'add,fullscreen'], env=native, check=True, capture_output=True, timeout=5)
+            stat = (Path('/proc')/str(os.getpid())/'stat').read_text()
+            write(data/'session.json', {'pid': os.getpid(), 'start': int(stat[stat.rfind(')')+2:].split()[19]), 'image': os.readlink(Path('/proc')/str(os.getpid())/'exe'), 'root': str(root), 'display': display, 'seconds': args.seconds, 'started': time.time(), 'production': False})
+            action = shlex.join([str(prefix/'bin/python'), '-B', str(SOURCE/'open_viewer.py'), str(root), '--refresh'])
+            subprocess.run([str(prefix/'bin/termux-notification'), '--id', 'codex-linux-login', '--group', 'codex-web-experiment', '--title', 'Linux 앱 로그인', '--content', '한 번 터치해 공식 앱을 여세요. 로그인·설정은 별도로 유지됩니다.', '--action', action, '--priority', 'high'], capture_output=True, timeout=20, check=True)
+            print(json.dumps({'linuxViewerReady': True, 'notificationSent': True, 'production': False}), flush=True)
+            end = time.monotonic()+args.seconds
+            while time.monotonic() < end and app.poll() is None:
+                queued = root/'open-url'
+                if queued.exists():
+                    url = queued.read_text(); queued.unlink()
+                    parsed = urlparse(url)
+                    if len(url) < 16384 and parsed.scheme == 'https' and parsed.hostname == 'auth.openai.com' and parsed.path.startswith('/api/accounts/') and not parsed.username and not parsed.password and not any(k in url for k in ('id_token=', 'access_token=', 'refresh_token=')):
+                        # OAuth state/code challenges stay out of chat and logs.
+                        subprocess.run([str(prefix/'bin/termux-am-socket'), 'start -a android.intent.action.VIEW -d '+url], env=native, capture_output=True, timeout=20)
+                        write(data/'browser-handoff.json', {'time': time.time(), 'opened': True})
+                    else: write(data/'browser-handoff.json', {'time': time.time(), 'opened': False, 'unrecognizedTarget': True})
+                time.sleep(.5)
+        finally:
+            for p in reversed(processes):
+                if p.poll() is None:
+                    os.killpg(p.pid, signal.SIGTERM)
+                    try: p.wait(timeout=8)
+                    except subprocess.TimeoutExpired: os.killpg(p.pid, signal.SIGKILL); p.wait(timeout=5)
+            subprocess.run([str(prefix/'bin/termux-notification-remove'), 'codex-linux-login'], capture_output=True, timeout=15)
+            write(data/'session.json', {'running': False, 'production': False, 'stopped': time.time()})
+            os.close(lock_fd)
+
+
+if __name__ == '__main__':
+    os.umask(0o077)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('command', choices=['prepare', 'serve'])
+    parser.add_argument('--proot-source', type=Path, required=True)
+    parser.add_argument('--bun', type=Path)
+    parser.add_argument('--novnc', type=Path)
+    parser.add_argument('--seconds', type=int, default=1800)
+    args = parser.parse_args()
+    assert 1 <= args.seconds <= 3600
+    if args.command == 'serve': assert args.bun and args.novnc
+    (prepare if args.command == 'prepare' else serve)(args)

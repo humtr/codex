@@ -389,3 +389,56 @@ active profile. The next qualification is a separate explicit user grant,
 protected token storage, a completed real account/model turn and an actual Core
 tool loop. No current trial passes those gates, and no production provider,
 auto-start service or global launcher is added.
+
+## Two authorized independent tracks
+
+`linux_desktop_trial.py prepare/serve` reuses the accepted signed ARM64 package
+in XDG cache, with a pinned PRoot-Distro source checkout in TMPDIR. The candidate
+OS lives under the version's cache/trial-prefix. Its sole permanent account,
+configuration and conversation home is
+~/.local/share/codex-web-experiment/linux-desktop/home, bound as guest /root.
+No host projects, existing profiles or real HOME are bound into the guest.
+A private Xvnc/noVNC screen retains the accepted mobile controls and fullscreens
+only this candidate's window. The scoped guest browser opener forwards only
+recognized OpenAI authorization URLs to the normal Android browser. It never
+records the URL, code or token. The fresh `Linux 앱 로그인` notification opens
+this separate screen. No boot service or global launcher is installed; a bounded
+foreground trial stops its owned processes while retaining account data.
+
+`siwc_trial.mjs` is a separate native Android public-client qualification. It
+uses the official devkit's unmodified low-level OAuth, model and SSE modules;
+the devkit's encrypted high-level ConnectionStore is not used or weakened.
+Termux:API's available Keystore interface supports signatures, not credential
+encryption. This trial instead implements the official sign-in guide's atomic,
+owner-only file storage under ~/.local/share/codex-web-experiment/siwc (directory
+0700, records 0600). Tokens remain plaintext inside Android's app-private storage;
+this is file protection, not an OS-backed encryption claim or a new key service.
+A single lease serializes this qualification process and rotating token writes.
+The stable host ID, issued registration and verified account remain distinct;
+pending refreshes are preserved but are not authorized for inference until the
+vendor verifies them. Symlinks, nonprivate records and malformed connections
+refuse. Existing Codex/browser accounts are never imported or modified.
+
+The private loopback page for `공식 ChatGPT 구독 연결` has one Continue with
+ChatGPT action. Only same-origin POST starts OAuth; a capability gates every
+route. The normal Android browser displays OpenAI's own registration/consent
+screen for codex-termux-trial. A successful callback validates PKCE/state and
+OIDC signature/issuer/audience/nonce before saving credentials. Direct scope is
+required; no API-key billing fallback exists. Model discovery uses the actual
+account catalog, preferring gpt-6.1-sol when listed. A short exact reply must
+complete before `siwc_core_probe.py` drives the signed installed Core's actual
+app-server and shell tools in a disposable HOME/PREFIX/workspace. The bearer
+credential is passed only to the Core process; its shell environment is explicit
+and excludes the token. Only completed turn, successful shell execution and the
+owned output marker establish a real tool-loop gate. No current user data is
+submitted, and logs/status contain no tokens, callback codes or response bodies.
+
+Native Node24 compilation and 27 vendor OAuth/refresh/SSE tests pass. Six
+actual Android persistence/privacy/UI cases pass. The real signed stable49 Core's
+account-free app-server proof passes two correlated shell tool calls and public
+route request-shape checks, with all owned Core processes removed afterward.
+That fixture is synthetic service proof, not real subscription inference. Both
+login screens are prepared and their notifications delivered; human sign-in,
+account entitlement and completed real model/tool gates remain pending. The
+Linux candidate's guest execution and the native Termux Core execution are
+separate qualification scopes. Production remains stable49.
