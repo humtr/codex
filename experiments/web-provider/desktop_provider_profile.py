@@ -57,7 +57,7 @@ def install(server,codex_home,template,runtime=None):
         from desktop_lifecycle import record,endpoint
         installed=record(runtime);endpoint(installed)
         assert all(installed[k]==value[k] for k in ['baseUrl','token','model'])
-        auth_args=['-B',str(helper.parent/'desktop_lifecycle.py'),'token','--runtime',str(runtime)]
+        auth_args=['-B',str(Path(installed['source'])/'desktop_lifecycle.py'),'token','--runtime',str(runtime)]
     block=f'''{BEGIN}
 model = {json.dumps(value['model'])}
 model_provider = "{PROVIDER}"

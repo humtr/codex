@@ -53,10 +53,11 @@ class LifecycleTests(unittest.TestCase):
     def test_auth_profile_timeout_and_permanent_helper(self):
         import desktop_provider_profile as profile
         home=self.root/'home';home.mkdir(mode=0o700);template=self.root/'models.json';template.write_text('{"models":[{}]}')
+        self.runtime['source']=str(self.root/'installed/source');write(self.path,self.runtime)
         value=dict(self.runtime);value.update({'pid':os.getpid(),'start':0,'image':'image'})
         with patch.object(profile,'server_record',return_value=value),patch.dict(os.environ,{'HOME':str(self.root)}):profile.install(self.root/'server.json',home,template,self.path)
         import tomllib
         d=tomllib.loads((home/'chatgpt.config.toml').read_text())['model_providers']['chatgpt_desktop_trial']
-        self.assertEqual(d['base_url'],self.runtime['baseUrl']);self.assertEqual(d['auth']['timeout_ms'],120000);self.assertIn('desktop_lifecycle.py',d['auth']['args'][1])
+        self.assertEqual(d['base_url'],self.runtime['baseUrl']);self.assertEqual(d['auth']['timeout_ms'],120000);self.assertEqual(d['auth']['args'][1],str(self.root/'installed/source/desktop_lifecycle.py'))
 
 if __name__=='__main__':unittest.main()
