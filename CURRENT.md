@@ -344,7 +344,7 @@ This repository carries no external workflow skill or model configuration.
 
 
 - Native Termux ChatGPT provider now has real experimental acceptance on
-  experiment/web-termux at3483d0a. The signed Linux app's actual ChatGPT / Chat / Instant
+  experiment/web-termux at13ef310. The signed Linux app's actual ChatGPT / Chat / Instant
   surface supplies the backend; desktop Codex mode, a mock, extracted first-party
   token and public API-key inference are not substitutes. A private FD3/FD4 relay
   reuses the existing native Bun host. The local authenticated /v1/responses
@@ -385,8 +385,14 @@ This repository carries no external workflow skill or model configuration.
   Capability-free/browser-origin HTTP probes returned401 and an active second
   native lane returned409 without a model request. Concurrent-request reservation
   now begins before body parsing; malformed requests release it. Only one physical
-  desktop lane is supported; cross-session parallelism and compaction are not
-  production-admitted. Text, advertised function/custom tools and native search
+  desktop lane is supported; cross-session parallelism is not production-admitted.
+  Manual native Responses/memento compaction now passes in the experiment: a
+  secret learned only from actual shell output survives summary/persistence,
+  two new native calls and Core stop/resume without repeating it in user input.
+  Four shell calls and an exact same-thread summary checkpoint applied. Core
+  owns history replacement; only the offered summary’s exact replay retires old
+  live call checks. Automatic mid-turn/trimming and interrupted compaction still
+  need acceptance. Text, advertised function/custom tools and native search
   wire mapping are present; image/file/audio context is refused. Actual native
   catalog search now passes: a model-requested lookup returns
   a correlated successful native result, nonempty loaded schemas and an exact
@@ -397,12 +403,19 @@ This repository carries no external workflow skill or model configuration.
   the interrupted ChatGPT temporary lane;
   native resume replays its history into a fresh owned lane.
   Proof: ~/.local/share/codex-web-experiment/native-provider/{installed-cli,
-  staged-cli,cancel-resume,tool-search,tui,isolation,http-concurrency}-proof.json.
+  staged-cli,cancel-resume,compact,tool-search,tui,isolation,http-concurrency}-proof.json.
   Experimental
-  protocol tests9/49 assertions, profile/routing Python5+5 and repository Python
+  protocol tests11/57 assertions, profile/routing Python5+5 and repository Python
   18+59 passed. Unchanged production Rust/release evidence above remains applicable;
   no new signed production publication is claimed.
   User reports phone horizontal width still mismatched despite X11 480px proof;
   that physical-layout issue remains explicitly deferred. Plus SIWC/public
   api.openai.com/v1/responses remains a separate unauthenticated qualification
   track; desktop success does not grant public API access.
+
+  Quota proof is separate: this opt-in provider's primary requests go to the
+  signed app's Chat/Instant mode. Ordinary Chat allowance is the expected
+  classification, but actual before/after account metering has not been verified.
+  Do not promise zero Codex deduction based on the UI alone. The independent SIWC
+  public Responses grant explicitly uses Codex/Work usage; Work shares Codex
+  allowance. Current development in this original Codex session remains separate.
