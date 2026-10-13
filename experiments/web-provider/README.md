@@ -733,8 +733,27 @@ cancel/failure during compaction remain separate acceptance.
 Quota classification is separate from functional acceptance. This provider uses
 the signed app's Chat/Instant surface and routes native primary inference only
 to the local bridge. Expected metering is the logged-in app account's ordinary
-Chat allowance, but a before/after billing-counter comparison is not yet
-qualified; zero Codex deduction must not be claimed from the mode label alone.
+Chat allowance. A bounded device comparison now completed one installed
+`codex --profile chatgpt exec` Chat/Instant reply and one ordinary native
+`gpt-6.1-sol` reply using the signed app's Business login. The reference Codex
+session uses a different Plus account, so its counters were excluded. The native
+control used an admitted signed Core in disposable state with a non-refreshing
+authentication copy; the original login file remained unchanged. Read-only
+backend usage and token-profile measurements before, immediately after and
+after delayed reads all retained 0% primary/weekly usage and unchanged token
+counters. The positive Codex control also caused no visible increment, so this
+small comparison cannot prove billing classification or zero Codex deduction.
+App-server rounds usage percentages to integers; the raw server response was
+also integer-valued in this observation. No quota was burned to force a visible
+increment. Private aggregate proof is
+`~/.local/share/codex-web-experiment/native-provider/quota-comparison-proof.json`.
+
 The independent official SIWC plan route consumes the Codex/Work allowance, and
 Work shares usage with Codex. Sources: [SIWC usage](https://learn.chatgpt.com/docs/sign-in-with-chatgpt)
 and [Work/Codex pricing](https://learn.chatgpt.com/docs/pricing).
+
+The wire API version is **v1**, `POST /v1/responses`; the private local adapter
+implements the qualified text/tools/streaming subset, not every public Responses
+feature. The runtime parser/SSE dependency is bridge **6.1.5 at 92a356f**, the
+installed native CLI is **0.161.0**, and the signed desktop app is
+**26.1007.21434**. These software versions are separate from the API path version.
