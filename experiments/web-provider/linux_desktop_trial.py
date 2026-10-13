@@ -172,7 +172,7 @@ def start_candidate(args):
     _, _, data, _, _ = paths(args)
     command = [os.environ['PREFIX']+'/bin/python', '-B', str(SOURCE/'linux_desktop_trial.py'), 'serve',
                '--proot-source', str(args.proot_source), '--bun', str(args.bun),
-               '--novnc', str(args.novnc), '--seconds', str(args.seconds)]
+               '--novnc', str(args.novnc), '--seconds', str(args.seconds), *(['--inspect'] if args.inspect else [])]
     with (data/'controller.log').open('a') as output:
         process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=output,
                                    stderr=output, start_new_session=True)
@@ -214,7 +214,14 @@ def serve(args):
             start([str(prefix/'bin/tint2'), '-c', str(panel_config(root, prefix))], native, 'panel.log')
             viewer = start([str(args.bun), str(SOURCE/'termux_viewer.ts'), str(args.novnc), str(root/'rfb.sock'), str(root/'viewer.json')], native, 'viewer.log')
             cmd = base+['login', '--isolated', '--bind', str(prefix/'tmp/.X11-unix')+':/tmp/.X11-unix', '--bind', str(root)+':/ui', '--bind', str(home)+':/root', '--env', f'DISPLAY=:{display}', '--env', 'XAUTHORITY=/ui/xauthority', '--env', 'BROWSER=/ui/bin/xdg-open', '--env', 'PATH=/ui/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin', 'chatgpt-trial', '--', '/usr/bin/dbus-run-session', '--', '/usr/bin/chatgpt', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage', '--user-data-dir=/root/profile']
-            app = start(cmd, env, 'app.log')
+            if args.inspect:
+                command = root/'app-command.json'
+                write(command, {'argv': cmd, 'environment': env})
+                private(home/'profile', tighten=True)
+                app = start([str(args.bun), str(SOURCE/'native_chromium_host.mjs'), str(home/'profile'),
+                             str(root/'desktop-host.json'), '--guest-desktop', str(command)], native, 'app.log')
+            else:
+                app = start(cmd, env, 'app.log')
             for _ in range(160):
                 assert app.poll() is None and viewer.poll() is None, 'candidate exited before rendering'
                 tree = subprocess.run([str(prefix/'bin/xwininfo'), '-root', '-tree'], env=native, capture_output=True, text=True, timeout=3).stdout
@@ -287,6 +294,7 @@ if __name__ == '__main__':
     parser.add_argument('--proot-source', type=Path, required=True)
     parser.add_argument('--bun', type=Path)
     parser.add_argument('--novnc', type=Path)
+    parser.add_argument('--inspect', action='store_true', help='Expose only private CDP pipes through the authenticated owned relay')
     parser.add_argument('--seconds', type=int, default=0, help='0 keeps the foreground candidate open until closed; positive values bound a trial')
     args = parser.parse_args()
     assert 0 <= args.seconds <= 3600

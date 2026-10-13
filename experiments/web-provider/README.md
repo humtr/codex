@@ -1,7 +1,9 @@
 # Termux ChatGPT Web experiment
 
 This separate branch follows repository AGENTS.md. Production configuration,
-profiles, conversations and services remain authoritative and unchanged.
+profiles, conversations and services remain authoritative. The desktop-provider
+trial adds only an explicitly selected upstream configuration profile; base
+configuration and the signed Core/Manager installation remain unchanged.
 
 Selected bridge: miuuyy/codex-chatgpt-web at
 7cc8b8d8aadbbf729bd2bd43ca47fa15ea9965c0, version6.1.8. The prior
@@ -16,7 +18,8 @@ Playwright1.62.0 bundle. It verifies before/after hashes, owns only a TMPDIR che
 and does not spoof process.platform or download a substitute browser. Bridge CLI
 startup and DOM interaction pass after the correction.
 
-Model/tool acceptance remains open. Use a new private experimental browser profile;
+Browser/tunnel model acceptance remains open. The separate signed-desktop transport
+now passes actual ChatGPT/native-Termux tool proof below. Use a new private experimental browser profile;
 do not import an existing browser or Codex account. Keep authentication local and
 out of Git/logs. Do not run the candidate's ordinary setup: it installs services and
 rewrites Codex routing. Exercise its server with owned configuration and a disposable
@@ -597,3 +600,101 @@ unaccepted. Primary runtime manifest 404 diagnostics remain, although the
 bundled Core and actual GUI reply complete; Work parity and production admission
 remain separate gates. The candidate stays open until closed, and a fresh viewer
 notification targets the current owner.
+
+## Actual ChatGPT in native Termux Codex
+
+The signed Linux app's **ChatGPT → Chat → Instant** surface now supplies an
+opt-in local Responses provider. This is a UI transport to actual ChatGPT, not
+a renamed bundled Codex backend, public OpenAI API inference, or SIWC credentials.
+`chatgpt-desktop/instant` names the bridge's selected UI mode; it does not assert
+an independently verified underlying model slug. The Linux app stays an
+experimental Debian/PRoot host on this Android device.
+
+The path is native installed Termux Codex → authenticated loopback
+`/v1/responses` → signed app ChatGPT → native approved tools → ChatGPT follow-up.
+`desktop_responses_server.mjs` reuses parser, wire names and SSE serialization
+from the qualified 92a356f bridge checkout, without starting its browser adapter,
+launcher, service installer or native-provider passthrough.
+`desktop_response_transport.mjs` drives only an owned Temporary Chat through
+private FD3/FD4 and the existing capability-authenticated CDP relay. It binds the
+renderer identity, checks Instant and an empty composer, and correlates each
+structured reply with a fresh request marker. Large initial context is staged
+in ordered acknowledged batches before the actual task: whole tool schemas,
+lossless ordered instruction/message fragments and an inert context phase.
+Native tool-search support avoids eagerly loading every configured plugin
+schema. Small requests stay direct. Subsequent requests send only new native messages
+and changed instructions/tool lists; changed historical prefixes are refused
+instead of silently losing context. Submission uses the app’s enabled Send
+control rather than relying on Enter. Core owns approval and actual tool
+execution. Exact tool results and immutable call-ID replay checks stay in the
+local adapter; no guest Linux tool impersonates native Termux execution.
+
+After starting the already prepared Linux candidate with `--inspect`, select
+ChatGPT/Chat/Instant in its own UI. Start the bounded experiment using the
+accepted native Bun and bridge checkout:
+
+```sh
+"$BUN" experiments/web-provider/desktop_responses_server.mjs \
+  "$BRIDGE_CHECKOUT" "$DESKTOP_ROOT" "$DESKTOP_ROOT/desktop-server.json"
+```
+
+Keep that process and the owned Linux candidate running. From another terminal,
+install the opt-in config in the account home you intend to use:
+
+```sh
+python -B experiments/web-provider/desktop_provider_profile.py \
+  --server "$DESKTOP_ROOT/desktop-server.json" \
+  --codex-home "${CODEX_HOME:-$HOME/.codex}" \
+  --catalog-template "$UPSTREAM_161/codex-rs/models-manager/models.json"
+codex --profile chatgpt
+```
+
+The user wants eventual ordinary model selection; `--profile chatgpt` is the
+accepted intermediate qualification workflow. `/model` shows this profile’s
+model, but switching providers from the normal picker is not implemented.
+
+The current 0.161 client reads `chatgpt.config.toml`; the earlier inline
+`[profiles.chatgpt]` form is rejected by this client. This upstream **configuration
+profile** is separate from a Manager login account. Resolve the account normally,
+then select the config. `/model` displays **ChatGPT · Instant** in this profile.
+An ordinary `codex` launch keeps its normal provider and model. Profile creation
+refuses an existing user-owned `chatgpt.config.toml` and validates the local
+server PID/start/image, private capability file and loopback endpoint. Restarting
+the server changes its capability/port; reinstall this owned config after
+restart. Authentication stays command-backed and private; no API/Admin key,
+first-party token extraction, production daemon or boot service is required.
+Rollback removes only this marked experiment's `chatgpt.config.toml`; never
+restore a whole base config over subsequent user edits.
+
+Real signed native stable49 acceptance completed two separate local shell
+operations, file readback, returned results and an exact final nonce. A stronger
+run submitted a real desktop turn, interrupted before any tool, stopped the
+first Core, resumed the same native thread in a new Core and completed the two
+commands and final reply. The native TUI also opened `/model` and showed
+the ChatGPT/Instant entry. `native_desktop_cli_probe.py` qualifies the actual
+installed `codex --profile chatgpt exec` path separately from a disposable Core. Browser-only fixtures are not these proofs. The actual installed command also
+completed a 90,000-character staged native context with two real commands and an
+exact final reply. Capability-free/browser-origin requests returned 401, and a
+second native thread during that real turn returned 409 without submitting
+another model request. Protocol checks cover staging order/lossless fragments,
+whole schemas, virtualized code blocks, immutable results and bounded retries.
+Real send-failure Retry acceptance remains distinct from these unit checks.
+
+Clear UI send failures use the app's own Retry control with one- then two-second
+backoff, at most two extra attempts. The original packet/correlation is retained;
+no extra prompt is inserted. Cancellation stops retries, and an already arrived
+correlated reply is consumed before any retry. Exhaustion, security checks,
+unsupported context, stale owners and invalid tool replies are explicit errors.
+A timeout with uncertain delivery does not trigger blind resubmission.
+
+Remaining admission limits: one physical ChatGPT lane is serialized; a second
+active thread gets a conflict rather than shared results. Text and advertised
+function/custom tools are supported. Native tool-search wire mapping is enabled
+so existing plugins are deferred by upstream; discovery schemas and result
+correlation have protocol checks, while a real plugin search/action loop remains
+a separate acceptance gate. Images/files/audio and remote compaction are refused. Cancellation retires the interrupted
+ChatGPT lane; native resume replays the native history into a fresh owned
+Temporary Chat. Long context, parallel sessions, extended failure recovery and
+reboot/update lifecycle need acceptance before production admission. The user
+deferred physical width correction. Plus SIWC/public Responses remains a separate
+unauthenticated trial; desktop success establishes no public API entitlement.

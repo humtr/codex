@@ -28,7 +28,16 @@ def sha(path):
 
 def probe(args):
     real_home=Path.home();host_prefix=Path(os.environ['PREFIX'])
-    if args.account_free_wire:token='owned-synthetic-wire-token'
+    desktop=None
+    if args.desktop_server:
+        record=args.desktop_server.lstat()
+        assert not args.desktop_server.is_symlink() and record.st_uid==os.getuid() and not record.st_mode&0o077
+        desktop=json.loads(args.desktop_server.read_text())
+        from urllib.parse import urlparse
+        endpoint=urlparse(desktop['baseUrl']);assert endpoint.scheme=='http' and endpoint.hostname=='127.0.0.1' and endpoint.port and endpoint.path=='/v1'
+        proc=Path('/proc')/str(desktop['pid']);stat=(proc/'stat').read_text();assert stat[stat.rfind(')')+2:].split()[19]==desktop['start'] and os.readlink(proc/'exe')==desktop['image']
+        assert desktop['model']==args.model;token=desktop['token']
+    elif args.account_free_wire:token='owned-synthetic-wire-token'
     else:
         record=args.connection.lstat()
         assert not args.connection.is_symlink() and record.st_uid==os.getuid() and not record.st_mode&0o077
@@ -39,7 +48,7 @@ def probe(args):
     activation=dict(x.split('=',1) for x in (real_home/'.local/share/codex/core/activation-state').read_text().splitlines() if '=' in x)
     generation=real_home/'.local/lib/codex/core/generations'/activation['current']
     fields=parse_descriptor(generation/'generation.meta');_,inventory=parse_manifest(generation/'release.manifest')
-    report={'realService':not args.account_free_wire,'nativeCoreGeneration':fields['generation_id'],'model':args.model,'realCoreToolLoopAccepted':False,'turnCompleted':False,'shellToolCompleted':False,'workspaceMarkerVerified':False}
+    report={'realService':not args.account_free_wire,'nativeCoreGeneration':fields['generation_id'],'model':args.model,'realCoreToolLoopAccepted':False,'turnCompleted':False,'shellToolCompleted':False,'workspaceMarkerVerified':False,'successfulShellCalls':0,'nativeReplyMatched':False}
     with tempfile.TemporaryDirectory(prefix='plan-core-',dir=os.environ['TMPDIR']) as temporary:
         root=Path(temporary);root.chmod(0o700)
         home,prefix,workspace=root/'h',root/'p',root/'w'
@@ -56,7 +65,7 @@ def probe(args):
         shutil.copy2(host_prefix/'etc/resolv.conf',prefix/'etc/resolv.conf')
         (home/'.local/share/codex/core/activation-state').write_text(fixture_activation_state(fields['generation_id'],public))
         marker=os.urandom(16).hex();backend=None;wire_failures=[];transcript=Transcript(marker)
-        base_url='https://api.openai.com/v1'
+        base_url=desktop['baseUrl'] if desktop else 'https://api.openai.com/v1'
         if args.account_free_wire:
             (workspace/'nonce.txt').write_text(marker+'\n');(workspace/'proof.txt').write_text(marker+'\n')
             class Handler(http.server.BaseHTTPRequestHandler):
@@ -133,18 +142,63 @@ stream_max_retries = 0
                     return row['result']
                 if 'method' in row:events.append(row)
         try:
-            deadline=time.monotonic()+180
+            deadline=time.monotonic()+(300 if desktop else 180)
             rpc(1,'initialize',{'clientInfo':{'name':args.app_name,'title':'Codex Termux Trial','version':'0.1.0'},'capabilities':{'experimentalApi':True}},deadline)
             send({'method':'initialized','params':{}})
-            thread=rpc(2,'thread/start',{'model':args.model,'cwd':str(workspace),'approvalPolicy':'on-request','sandbox':'danger-full-access','ephemeral':True},deadline)
+            thread=rpc(2,'thread/start',{'model':args.model,'cwd':str(workspace),'approvalPolicy':'on-request','sandbox':'danger-full-access','ephemeral':not args.cancel_resume},deadline)
             thread_id=thread['thread']['id']
-            task=f'Use the local shell tool to write exactly {marker} to proof.txt in the current directory. Use the shell tool to read it back. Reply with exactly {marker}. No other work.'
-            rpc(3,'turn/start',{'threadId':thread_id,'input':[{'type':'text','text':task}]},deadline)
+            task=f'Use the local shell tool to write exactly {marker} to proof.txt in the current directory. Use a separate second shell tool call to read it back. Reply with exactly {marker}. No other work.'
+            initial_submitted=0;initial_cancelled=0
+            proxy_proof=Path(str(args.desktop_server)+'.proof') if desktop else None
+            if args.cancel_resume and proxy_proof.exists():
+                before=json.loads(proxy_proof.read_text());initial_submitted=before.get('submittedRequests',0);initial_cancelled=before.get('cancelledRequests',0)
+            started=rpc(3,'turn/start',{'threadId':thread_id,'input':[{'type':'text','text':task}]},deadline)
+            if args.cancel_resume:
+                submitted=False
+                while time.monotonic()<deadline:
+                    if proxy_proof.exists() and json.loads(proxy_proof.read_text()).get('submittedRequests',0)>initial_submitted:
+                        submitted=True;break
+                    row=receive(min(deadline,time.monotonic()+.1))
+                    if row:
+                        if row.get('method')=='turn/completed':raise RuntimeError('desktop_ended_before_cancel_submit')
+                        events.append(row)
+                report['cancelAfterActualSubmit']=submitted
+                if not submitted:raise RuntimeError('desktop_submit_not_observed')
+                rpc(4,'turn/interrupt',{'threadId':thread_id,'turnId':started['turn']['id']},deadline)
+                before_cancel_commands=0
+                while time.monotonic()<deadline:
+                    row=events.pop(0) if events else receive(deadline)
+                    if row is None:break
+                    if row.get('method')=='item/completed' and row.get('params',{}).get('item',{}).get('type')=='commandExecution':before_cancel_commands+=1
+                    if row.get('method')=='turn/completed':
+                        report['nativeCancelAccepted']=row.get('params',{}).get('turn',{}).get('status')=='interrupted';break
+                report['noToolBeforeCancel']=before_cancel_commands==0
+                for _ in range(100):
+                    if proxy_proof.exists() and json.loads(proxy_proof.read_text()).get('cancelledRequests',0)>initial_cancelled:break
+                    time.sleep(.1)
+                report['desktopCancelSettled']=proxy_proof.exists() and json.loads(proxy_proof.read_text()).get('cancelledRequests',0)>initial_cancelled
+                os.killpg(process.pid,signal.SIGINT)
+                try:process.wait(timeout=8)
+                except subprocess.TimeoutExpired:
+                    os.killpg(process.pid,signal.SIGTERM);process.wait(timeout=5)
+                report['firstCoreStoppedBeforeResume']=process.poll() is not None
+                process.stdin.close();process.stdout.close();process.stderr.close()
+                process=subprocess.Popen([str(launcher),'app-server','--listen','stdio://'],env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,start_new_session=True)
+                buffer='';events.clear()
+                rpc(5,'initialize',{'clientInfo':{'name':args.app_name,'title':'Codex Termux Trial','version':'0.1.0'},'capabilities':{'experimentalApi':True}},deadline)
+                send({'method':'initialized','params':{}})
+                resumed=rpc(6,'thread/resume',{'threadId':thread_id,'approvalPolicy':'on-request','sandbox':'danger-full-access'},deadline)
+                report['nativeResumeAccepted']=resumed['thread']['id']==thread_id
+                events.clear()
+                rpc(7,'turn/start',{'threadId':thread_id,'input':[{'type':'text','text':'Continue after the cancelled turn. '+task}]},deadline)
             while time.monotonic()<deadline:
                 row=events.pop(0) if events else receive(deadline)
                 if row is None:break
                 if row.get('method')=='item/completed' and row.get('params',{}).get('item',{}).get('type')=='commandExecution':
                     report['shellToolCompleted']|=row['params']['item'].get('status')=='completed' and row['params']['item'].get('exitCode')==0
+                    report['successfulShellCalls']+=int(row['params']['item'].get('status')=='completed' and row['params']['item'].get('exitCode')==0)
+                if row.get('method')=='item/completed' and row.get('params',{}).get('item',{}).get('type')=='agentMessage':
+                    report['nativeReplyMatched']|=row['params']['item'].get('text','').strip()==marker
                 if row.get('method')=='turn/completed':
                     turn=row.get('params',{}).get('turn',{});report['turnCompleted']=turn.get('status')=='completed'
                     error=turn.get('error')
@@ -156,7 +210,9 @@ stream_max_retries = 0
                     report['unexpectedServerRequest']=True
             marker_file=workspace/'proof.txt'
             report['workspaceMarkerVerified']=marker_file.is_file() and marker_file.read_text().strip()==marker
-            report['realCoreToolLoopAccepted']=not args.account_free_wire and report['turnCompleted'] and report['shellToolCompleted'] and report['workspaceMarkerVerified']
+            report['realCoreToolLoopAccepted']=not args.account_free_wire and report['turnCompleted'] and report['shellToolCompleted'] and report['workspaceMarkerVerified'] and report['successfulShellCalls']>=2 and report['nativeReplyMatched']
+            if args.cancel_resume:
+                report['realCoreToolLoopAccepted'] &= all(report.get(k) for k in ['cancelAfterActualSubmit','nativeCancelAccepted','noToolBeforeCancel','desktopCancelSettled','nativeResumeAccepted','firstCoreStoppedBeforeResume'])
             if args.account_free_wire:
                 report.update({'wireFailures':wire_failures,'correlatedToolOutputs':len(transcript.outputs),'accountFreeWireAccepted':report['turnCompleted'] and report['shellToolCompleted'] and len(transcript.outputs)==2 and not wire_failures})
         finally:
@@ -174,12 +230,15 @@ stream_max_retries = 0
 
 if __name__=='__main__':
     os.umask(0o077)
-    parser=argparse.ArgumentParser();parser.add_argument('--connection',type=Path);parser.add_argument('--model',required=True);parser.add_argument('--report',type=Path,required=True);parser.add_argument('--app-name',required=True);parser.add_argument('--account-free-wire',action='store_true')
+    parser=argparse.ArgumentParser();parser.add_argument('--connection',type=Path);parser.add_argument('--model',required=True);parser.add_argument('--report',type=Path,required=True);parser.add_argument('--app-name',required=True);parser.add_argument('--account-free-wire',action='store_true');parser.add_argument('--desktop-server',type=Path);parser.add_argument('--cancel-resume',action='store_true')
     args=parser.parse_args()
-    assert args.account_free_wire or args.connection
+    assert sum(bool(x) for x in (args.account_free_wire,args.connection,args.desktop_server))==1
+    assert not args.cancel_resume or args.desktop_server
     signal.signal(signal.SIGTERM,lambda *_:(_ for _ in ()).throw(KeyboardInterrupt()))
     try:report=probe(args)
-    except Exception as error:report={'realCoreToolLoopAccepted':False,'failureClass':type(error).__name__}
+    except Exception as error:
+        import re
+        report={'realCoreToolLoopAccepted':False,'failureClass':type(error).__name__,'failureCode':str(error) if re.fullmatch('[a-z_]+',str(error)) else 'unclassified'}
     if args.report.exists() or args.report.is_symlink():
         state=args.report.lstat()
         assert args.report.is_file() and not args.report.is_symlink() and state.st_uid==os.getuid() and not state.st_mode&0o077

@@ -5,8 +5,18 @@ import {isAbsolute,join,dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {randomBytes,timingSafeEqual} from 'node:crypto';
 
-const [profilePath,descriptorPath,restoreSession]=process.argv.slice(2);
-if(restoreSession&&restoreSession!=="--restore-session")throw Error("Invalid native startup mode");
+const [profilePath,descriptorPath,restoreSession,guestCommandPath]=process.argv.slice(2);
+const guestDesktop=restoreSession==='--guest-desktop';
+if(restoreSession&&restoreSession!=="--restore-session"&&!guestDesktop)throw Error("Invalid native startup mode");
+let guestCommand;
+if(guestDesktop){
+ if(!guestCommandPath||!isAbsolute(guestCommandPath))throw Error('Owned guest command required');
+ const stat=lstatSync(guestCommandPath);
+ if(!stat.isFile()||stat.isSymbolicLink()||stat.uid!==process.getuid()||(stat.mode&0o777)!==0o600)throw Error('Private guest command required');
+ guestCommand=JSON.parse(readFileSync(guestCommandPath,'utf8'));
+ if(!Array.isArray(guestCommand.argv)||guestCommand.argv[0]!==process.env.PREFIX+'/bin/python'||!guestCommand.argv.includes('--isolated')||!guestCommand.argv.includes('/usr/bin/chatgpt')||!guestCommand.argv.includes('--user-data-dir=/root/profile'))throw Error('Unexpected owned guest command');
+}
+
 if(process.platform!=='android'||![profilePath,descriptorPath].every(p=>p&&isAbsolute(p)))throw Error('Native Android and absolute owned paths required');
 mkdirSync(profilePath,{recursive:true,mode:0o700});
 const profile=lstatSync(profilePath);
@@ -16,7 +26,9 @@ const token=randomBytes(32).toString('base64url');
 // Android sun_path is bounded: Chrome appends its singleton socket suffix to TMPDIR.
 const browserTemporary=mkdtempSync(join(process.env.PREFIX,'tmp','cp-'));
 chmodSync(browserTemporary,0o700);
-const host=spawn(browserImage,['--user-data-dir='+profilePath,'--remote-debugging-pipe','--no-sandbox','--disable-dev-shm-usage','--no-first-run','--no-default-browser-check','--disable-background-mode','--window-position=0,0',...(restoreSession?['--restore-last-session']:['about:blank'])],{env:{...process.env,TMPDIR:browserTemporary},stdio:['ignore','ignore','ignore','pipe','pipe']});
+const host=guestDesktop
+ ?spawn(guestCommand.argv[0],[...guestCommand.argv.slice(1),'--remote-debugging-pipe'],{env:guestCommand.environment,stdio:['ignore','ignore','ignore','pipe','pipe']})
+ :spawn(browserImage,['--user-data-dir='+profilePath,'--remote-debugging-pipe','--no-sandbox','--disable-dev-shm-usage','--no-first-run','--no-default-browser-check','--disable-background-mode','--window-position=0,0',...(restoreSession?['--restore-last-session']:['about:blank'])],{env:{...process.env,TMPDIR:browserTemporary},stdio:['ignore','ignore','ignore','pipe','pipe']});
 if(!host.stdio[3]?.writable||!host.stdio[4]?.readable)throw Error('Chromium private FD3/FD4 transport unavailable');
 let sequence=0,buffer=Buffer.alloc(0),peer,upgrading=false,closing=false,server;
 const pending=new Map();
@@ -128,7 +140,7 @@ try{
   return new Response('Not found',{status:404});
  }});
  bootstrapStage="process-identity";
- const descriptor={version:1,kind:'termux-chromium-pipe',endpoint:'http://127.0.0.1:'+server.port,token,
+ const descriptor={version:1,kind:guestDesktop?'termux-electron-pipe':'termux-chromium-pipe',endpoint:'http://127.0.0.1:'+server.port,token,
   host:processIdentity(process.pid),browser:processIdentity(host.pid),profile:realpathSync(profilePath)};
  bootstrapStage="descriptor-publication";
  writeFileSync(descriptorPath,JSON.stringify(descriptor),{mode:0o600,flag:'wx'});
