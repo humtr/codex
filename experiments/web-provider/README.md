@@ -398,8 +398,12 @@ OS lives under the version's cache/trial-prefix. Its sole permanent account,
 configuration and conversation home is
 ~/.local/share/codex-web-experiment/linux-desktop/home, bound as guest /root.
 No host projects, existing profiles or real HOME are bound into the guest.
-A private Xvnc/noVNC screen retains the accepted mobile controls and fullscreens
-only this candidate's window. The scoped guest browser opener forwards only
+A private Xvnc/noVNC screen retains the accepted mobile controls. A candidate-only
+tint2 panel reserves 42 pixels at the bottom; the app maximizes in the remaining
+480x743 work area instead of covering the panel. It provides a ChatGPT task button
+and a Browser button that opens the Android browser. No guest browser or
+additional desktop stack was installed. The panel helper receives the explicit
+host controller marker so its candidate HOME cannot select the wrong state. The scoped guest browser opener forwards only
 recognized OpenAI authorization URLs to the normal Android browser. It never
 records the URL, code or token. Candidate HTTP/HTTPS MIME defaults select the
 owned Android handoff desktop handler, while preserving the Codex callback and
@@ -409,12 +413,19 @@ actual guest `gio open` dispatch reached the handler with an unrecognized,
 account-free target; it was refused without opening an external page. Real
 sign-in delivery remains a separate user gate. Subsequent signed-app source
 inspection found that the actual first-party URL constructor uses
-`https://auth.openai.com/oauth/authorize`, while the initial handoff allowed only
-`/api/accounts/` paths. The official authorization path is now accepted too;
-other origins, credentials/token-bearing queries, fragments, nonstandard ports
-and raw whitespace refuse. An Android regression case covers the actual vendor
-path and rejected targets. This fixes the local refusal, not the organization's
-policy or proof of completed login. Candidate configuration folders
+`https://auth.openai.com/oauth/authorize`. The app's actual default button first
+wraps that URL in `https://chatgpt.com/codex/desktop-auth?authorize_url=...`.
+An owned X11 button click reached the guest handler with that outer URL; its
+query values were kept out of diagnostic output and the private diagnostic copy
+was removed. Both the direct and default wrapped paths are accepted now. The
+wrapper must contain exactly one authorization URL targeting the allowed OpenAI
+path; another wrapper, foreign host or token endpoint refuses. Other origins,
+credentials/token-bearing queries, fragments, nonstandard ports and raw
+whitespace also refuse. No authorization URL is rewritten. The validated pending
+URL lives only in the temporary 0700 desktop root as a 0600 file; the panel's
+Browser button reopens it, or opens the fixed ChatGPT homepage if none exists.
+Its process owner and target are checked again at click time. This fixes local
+refusals, not the organization's policy or proof of completed login. Candidate configuration folders
 created by the app with mode 0755 are tightened to 0700 after verifying ownership
 and refusing symlinks; existing configuration content is preserved.
 
@@ -517,3 +528,16 @@ Sources consulted on 2026-10-13:
 - [Workspace Agents Business preview](https://developers.openai.com/cookbook/articles/chatgpt-agents-sales-meeting-prep)
 - [API credential types](https://developers.openai.com/api/reference/overview)
 - [Independent API usage pricing](https://learn.chatgpt.com/docs/auth)
+
+
+The Plus trial now has explicit user authorization to use the user's separate
+Plus account. SIWC requires user OpenAI sign-in and plan-usage consent, not a
+new Admin Console/Platform key. A fresh Plus notification was delivered; real
+consent/inference is still pending. Linux source/marker/routing regression tests
+now total four, including the panel helper running under a different candidate
+HOME and refusing an unrelated target. Actual native panel parsing, X11 window
+and work-area reservation pass; the owned signed-out screenshot shows Browser,
+ChatGPT and the clock without covering the app. A SIGTERM restart exited zero,
+removed the old temporary desktop and marked the stopped controller before the
+new launch. Both normal browser account state and production stable49 remain
+unchanged.

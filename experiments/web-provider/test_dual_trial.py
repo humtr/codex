@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from urllib.parse import quote
 
 SOURCE = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location('linux_trial', SOURCE/'linux_desktop_trial.py')
@@ -25,6 +26,12 @@ class TrialTests(unittest.TestCase):
     def test_official_desktop_authorize_path_is_forwarded_without_accepting_other_targets(self):
         self.assertTrue(linux.authorization_url('https://auth.openai.com/oauth/authorize?response_type=code&code_challenge=fixture'))
         self.assertTrue(linux.authorization_url('https://auth.openai.com/api/accounts/authorize?state=fixture'))
+        wrapped = 'https://chatgpt.com/codex/desktop-auth?authorize_url='
+        self.assertTrue(linux.authorization_url(wrapped+quote('https://auth.openai.com/oauth/authorize?state=fixture', safe='')))
+        self.assertFalse(linux.authorization_url(wrapped+quote('https://example.invalid/oauth/authorize', safe='')))
+        self.assertFalse(linux.authorization_url(wrapped+quote('https://auth.openai.com/oauth/token', safe='')))
+        self.assertFalse(linux.authorization_url(wrapped+quote(wrapped, safe='')))
+        self.assertFalse(linux.authorization_url(wrapped+quote('https://auth.openai.com/oauth/authorize', safe='')+'&authorize_url=other'))
         for url in ['http://auth.openai.com/oauth/authorize',
                     'https://auth.openai.com.example.invalid/oauth/authorize',
                     'https://auth.openai.com:8443/oauth/authorize',
@@ -48,6 +55,19 @@ class TrialTests(unittest.TestCase):
             first=subprocess.run(command,env=env,capture_output=True,timeout=5);self.assertEqual(first.returncode,0);self.assertIn(':12001/',json.loads(proof.read_text())['argv'][0])
             v['port']=12002;p.write_text(json.dumps(v));second=subprocess.run(command,env=env,capture_output=True,timeout=5);self.assertEqual(second.returncode,0);self.assertIn(':12002/',json.loads(proof.read_text())['argv'][0])
             v['start']+=1;p.write_text(json.dumps(v));proof.unlink();stale=subprocess.run(command,env=env,capture_output=True,timeout=5);self.assertNotEqual(stale.returncode,0);self.assertFalse(proof.exists())
+
+
+    def test_panel_reopens_private_login_target_with_explicit_marker_from_candidate_home(self):
+        with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as temporary:
+            root=Path(temporary);prefix=root/'p';(prefix/'bin').mkdir(parents=True)
+            fake=prefix/'bin/termux-am-socket';fake.write_text('#!'+os.environ['PREFIX']+'/bin/python\nimport os,sys,json\nfrom pathlib import Path\nPath(os.environ["TAP_PROOF"]).write_text(json.dumps({"argv":sys.argv[1:]}))\nprint("Starting: owned activity")\n');fake.chmod(0o700)
+            stat=(Path('/proc')/str(os.getpid())/'stat').read_text();start=int(stat[stat.rfind(')')+2:].split()[19])
+            marker=root/'session.json';marker.write_text(json.dumps({'pid':os.getpid(),'start':start,'image':os.readlink(Path('/proc')/str(os.getpid())/'exe'),'root':str(root)}));marker.chmod(0o600)
+            target=root/'browser-target.json';url='https://chatgpt.com/codex/desktop-auth?authorize_url='+quote('https://auth.openai.com/oauth/authorize?state=fixture',safe='');target.write_text(json.dumps({'url':url}));target.chmod(0o600)
+            guest=root/'guest-home';guest.mkdir();proof=root/'proof.json';env={**os.environ,'HOME':str(guest),'PREFIX':str(prefix),'TAP_PROOF':str(proof)}
+            command=[os.environ['PREFIX']+'/bin/python','-B',str(SOURCE/'open_linux_browser.py'),str(marker)]
+            valid=subprocess.run(command,env=env,capture_output=True,timeout=5);self.assertEqual(valid.returncode,0);self.assertIn(url,json.loads(proof.read_text())['argv'][0])
+            target.write_text(json.dumps({'url':'https://example.invalid/unrelated'}));proof.unlink();invalid=subprocess.run(command,env=env,capture_output=True,timeout=5);self.assertNotEqual(invalid.returncode,0);self.assertFalse(proof.exists())
 
 
 if __name__=='__main__':unittest.main()
