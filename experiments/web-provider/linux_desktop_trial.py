@@ -13,7 +13,7 @@ import struct
 import subprocess
 import tempfile
 import time
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 
 VERSION = '26.1007.21434'
 DIGEST = '55fae1e3fb1d6069a90620e9e70737dcf8bf2255604d157e282cc6748a1baf49'
@@ -65,6 +65,19 @@ def configure_browser(home):
         os.replace(temporary,configuration)
     finally:
         if Path(temporary).exists():Path(temporary).unlink()
+
+
+
+def authorization_url(url):
+    try:
+        parsed = urlparse(url)
+        return (len(url) < 16384 and not any(c.isspace() for c in url) and parsed.scheme == 'https'
+                and parsed.hostname == 'auth.openai.com' and parsed.port in (None, 443)
+                and not parsed.username and not parsed.password and not parsed.fragment
+                and (parsed.path == '/oauth/authorize' or parsed.path.startswith('/api/accounts/'))
+                and not {'id_token', 'access_token', 'refresh_token'}.intersection(parse_qs(parsed.query, keep_blank_values=True)))
+    except ValueError:
+        return False
 
 
 def paths(args):
@@ -151,8 +164,7 @@ def serve(args):
                 queued = root/'open-url'
                 if queued.exists():
                     url = queued.read_text(); queued.unlink()
-                    parsed = urlparse(url)
-                    if len(url) < 16384 and parsed.scheme == 'https' and parsed.hostname == 'auth.openai.com' and parsed.path.startswith('/api/accounts/') and not parsed.username and not parsed.password and not any(k in url for k in ('id_token=', 'access_token=', 'refresh_token=')):
+                    if authorization_url(url):
                         # OAuth state/code challenges stay out of chat and logs.
                         result = subprocess.run([str(prefix/'bin/termux-am-socket'), 'start -a android.intent.action.VIEW -d '+url], env=native, capture_output=True, text=True, timeout=20)
                         ok = result.returncode == 0 and 'Error:' not in result.stdout and not result.stderr
@@ -181,4 +193,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
     assert 1 <= args.seconds <= 3600
     if args.command == 'serve': assert args.bun and args.novnc
+    if args.command == 'serve':
+        def stop(signum, frame):
+            raise SystemExit(0)
+        signal.signal(signal.SIGTERM, stop)
     (prepare if args.command == 'prepare' else serve)(args)

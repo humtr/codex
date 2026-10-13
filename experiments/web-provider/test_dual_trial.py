@@ -22,6 +22,21 @@ class TrialTests(unittest.TestCase):
             self.assertEqual(before.count('x-scheme-handler/https=codex-termux-auth-browser.desktop'),1)
             self.assertEqual(before.count('x-scheme-handler/http=codex-termux-auth-browser.desktop'),1)
 
+    def test_official_desktop_authorize_path_is_forwarded_without_accepting_other_targets(self):
+        self.assertTrue(linux.authorization_url('https://auth.openai.com/oauth/authorize?response_type=code&code_challenge=fixture'))
+        self.assertTrue(linux.authorization_url('https://auth.openai.com/api/accounts/authorize?state=fixture'))
+        for url in ['http://auth.openai.com/oauth/authorize',
+                    'https://auth.openai.com.example.invalid/oauth/authorize',
+                    'https://auth.openai.com:8443/oauth/authorize',
+                    'https://user@auth.openai.com/oauth/authorize',
+                    'https://auth.openai.com/oauth/token',
+                    'https://auth.openai.com/oauth/authorize#secret',
+                    'https://auth.openai.com/oauth/authorize?%61ccess_token=fixture',
+                    'https://auth.openai.com/oauth/authorize?access_token=',
+                    'https://auth.openai.com/oauth/authorize?state=fixture -n other.app']:
+            with self.subTest(url=url):
+                self.assertFalse(linux.authorization_url(url))
+
     def test_tap_resolves_current_endpoint_and_refuses_reused_process(self):
         with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as temporary:
             root=Path(temporary);home=root/'h';prefix=root/'p';data=home/'.local/share/codex-web-experiment/siwc';data.mkdir(parents=True,mode=0o700);(prefix/'bin').mkdir(parents=True)

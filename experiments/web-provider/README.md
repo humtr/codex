@@ -407,7 +407,14 @@ other associations. Without this override the minimalist guest selects
 chatgpt.desktop for HTTPS and its sign-in button routes back into itself. An
 actual guest `gio open` dispatch reached the handler with an unrecognized,
 account-free target; it was refused without opening an external page. Real
-sign-in delivery remains a separate user gate. Candidate configuration folders
+sign-in delivery remains a separate user gate. Subsequent signed-app source
+inspection found that the actual first-party URL constructor uses
+`https://auth.openai.com/oauth/authorize`, while the initial handoff allowed only
+`/api/accounts/` paths. The official authorization path is now accepted too;
+other origins, credentials/token-bearing queries, fragments, nonstandard ports
+and raw whitespace refuse. An Android regression case covers the actual vendor
+path and rejected targets. This fixes the local refusal, not the organization's
+policy or proof of completed login. Candidate configuration folders
 created by the app with mode 0755 are tightened to 0700 after verifying ownership
 and refusing symlinks; existing configuration content is preserved.
 
@@ -417,7 +424,10 @@ PID, start time and executable; stale process records refuse. A controller
 restart therefore does not leave the notification pointing at an obsolete
 port/capability. No boot service or global launcher is installed; each foreground
 trial lasts at most one hour, then removes its notification and owned processes
-while retaining account data. Restart the trial before sending a fresh alert.
+while retaining account data. SIGTERM also enters that cleanup before exit; an
+older controller did not do this, and its four owned orphan process groups were
+identified by the private display/root and stopped. Restart the trial before
+sending a fresh alert.
 
 `siwc_trial.mjs` is a separate native Android public-client qualification. It
 uses the official devkit's unmodified low-level OAuth, model and SSE modules;
@@ -468,3 +478,42 @@ The first-party Linux app is an independent qualification track and its actual
 login remains pending; the external identity rejection does not prove a
 first-party app rejection. Real account/model/tool acceptance remains unpassed.
 Production remains stable49.
+
+
+## Public Responses versus Business alternatives
+
+The SIWC plan-usage qualification calls the public
+`POST https://api.openai.com/v1/responses` with the consented OAuth token,
+`store=false`, and `stream=true`. Its official Core provider uses the public
+base URL and `wire_api=responses`; it does not authenticate with the ordinary
+Codex profile. Current open-source eligibility documents Plus/Pro. The reported
+Business tenant identity denial is real, but neither changing External access
+nor substituting a Codex token establishes SIWC plan entitlement.
+
+| Route | Contract | Business relevance | Qualification limit |
+| --- | --- | --- | --- |
+| SIWC plan usage | Public `/v1/responses`, user-granted OAuth scopes | Business eligibility not established; this account was rejected | Real model/tool gates unpassed |
+| Platform API | Public `/v1/responses`, standard project API key | Independent API organization/access/billing, not included Business quota | No paid inference was initiated |
+| Codex access token | First-party CLI/app-server workspace credential | Official Business/Enterprise support; installed CLI has `--with-access-token` | Codex automation, not a general Responses or full ChatGPT Web grant |
+| Workspace Agents API | `api.chatgpt.com/v1/workspace_agents/{id}/trigger` | Business preview subject to workspace enablement/scopes and a published agent | Asynchronous; status polling exists, but final answer body cannot be retrieved |
+| Linux first-party app | Official desktop sign-in and product capabilities | Independent from external SIWC denial | Android/PRoot is experimental; login remains unaccepted |
+
+A Workspace Agents bridge could start a published workflow and use an allowed
+MCP result callback to an owned broker. That is an architectural candidate,
+not an implemented or verified provider. Wrapping its trigger in a local
+Responses-shaped endpoint would not create native Responses streaming, model
+selection, cancellation or full tool-loop parity. The callback and agent's
+permissions would first need end-to-end proof. A standard project API key uses
+separate API charges; the existing Admin API key is for administration and is
+not an inference credential. No credential was repurposed or organizational
+setting changed during this investigation.
+
+Sources consulted on 2026-10-13:
+- [SIWC models and inference](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference)
+- [SIWC Core configuration](https://developers.openai.com/siwc/token-sharing-open-source/codex-app-server)
+- [Open-source eligibility](https://developers.openai.com/siwc/quickstart)
+- [Business Codex access tokens](https://learn.chatgpt.com/docs/enterprise/access-tokens)
+- [Workspace trigger and result limitations](https://developers.openai.com/workspace-agents/trigger-runs)
+- [Workspace Agents Business preview](https://developers.openai.com/cookbook/articles/chatgpt-agents-sales-meeting-prep)
+- [API credential types](https://developers.openai.com/api/reference/overview)
+- [Independent API usage pricing](https://learn.chatgpt.com/docs/auth)
