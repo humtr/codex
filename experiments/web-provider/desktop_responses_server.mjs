@@ -4,7 +4,7 @@ import {pathToFileURL} from 'node:url';
 import {writeFileSync,readFileSync,readlinkSync,renameSync} from 'node:fs';
 import {randomBytes,timingSafeEqual} from 'node:crypto';
 import {DesktopChatTransport} from './desktop_response_transport.mjs';
-import {DesktopTranscript,validateEnvelope,validateTextContext,DesktopCompaction,desktopEstimatedUsage,markDesktopEstimatedUsage} from './desktop_protocol.mjs';
+import {DesktopTranscript,validateEnvelope,validateTextContext,DesktopCompaction,desktopEstimatedUsage,markDesktopEstimatedUsage,validateDesktopRoute} from './desktop_protocol.mjs';
 const [candidate,desktopRoot,statePath]=process.argv.slice(2);
 process.umask(0o077);
 const source=resolve(candidate,'src');
@@ -26,14 +26,14 @@ const server=Bun.serve({hostname:'127.0.0.1',port:0,idleTimeout:0,maxRequestBody
  if(path!=='/v1/responses'||req.method!=='POST')return new Response('Not found',{status:404});
  if(busy)return formatErrorResponse(409,'invalid_request_error','desktop_chat_busy');
  busy=true;
- let raw,parsed;try{raw=await req.json();if(raw.model!==model||raw.stream!==true||raw.previous_response_id)throw Error('unsupported_desktop_request');parsed=parseRequest(raw);validateTextContext(raw,parsed);if(parsed._opaqueMultiAgentV2Payload)throw Error('opaque_context_unavailable');}catch{busy=false;return formatErrorResponse(400,'invalid_request_error','unsupported_desktop_request');}
+ let raw,parsed,route;try{raw=await req.json();route=validateDesktopRoute(raw);if(raw.model!==model||raw.stream!==true||raw.previous_response_id)throw Error('unsupported_desktop_request');parsed=parseRequest(raw);validateTextContext(raw,parsed);if(parsed._opaqueMultiAgentV2Payload)throw Error('opaque_context_unavailable');}catch{busy=false;return formatErrorResponse(400,'invalid_request_error','unsupported_desktop_request');}
  const identity=extractCodexTurnIdentityFromBody(raw),key=identity.threadId||req.headers.get('session_id')||req.headers.get('x-codex-thread-id');
  if(!key){busy=false;return formatErrorResponse(400,'invalid_request_error','native_thread_identity_required');}
  if(owner&&key!==owner){
   if(active){busy=false;return formatErrorResponse(409,'invalid_request_error','desktop_thread_owner_conflict');}
-  transport.started=false;transport.lastCorrelation=undefined;transcript=new DesktopTranscript();checkpoint=new DesktopCompaction(SUMMARY_PREFIX);
+  transport.retire();transcript=new DesktopTranscript();checkpoint=new DesktopCompaction(SUMMARY_PREFIX);
  }
- if(checkpoint.consume(parsed.context.messages)){transcript=new DesktopTranscript();transport.started=false;transport.lastCorrelation=undefined;report.appliedCheckpoints++;}
+ if(checkpoint.consume(parsed.context.messages)){transcript=new DesktopTranscript();transport.retire();report.appliedCheckpoints++;}
  try{transcript.receive(parsed.context.messages);}catch{busy=false;return formatErrorResponse(400,'invalid_request_error','native_tool_result_mismatch');}
  owner=key;active=true;report.errorCode=null;
  report.requests++;report.contextChars=JSON.stringify(parsed.context).length;report.toolCount=parsed.context.tools?.length||0;report.instructionChars=(parsed.context.systemPrompt||[]).join('\n').length;report.hasNativeThreadKey=!!key;save();
@@ -47,7 +47,7 @@ const server=Bun.serve({hostname:'127.0.0.1',port:0,idleTimeout:0,maxRequestBody
   try{
    report.returnedNativeResults=parsed.context.messages.filter(m=>m.role==='toolResult').length;const searches=parsed.context.messages.filter(m=>m.role==='toolResult'&&m.toolName==='tool_search');report.returnedNativeSearchResults=searches.length;report.nativeSearchResultErrors=searches.filter(m=>m.isError).length;report.nativeSearchLoadedTools=(Array.isArray(raw.input)?raw.input:[]).filter(m=>m.type==='tool_search_output').flatMap(m=>Array.isArray(m.tools)?m.tools:[]).reduce((n,t)=>n+(t.type==='namespace'&&Array.isArray(t.tools)?t.tools.length:1),0);save();
    const payload={instructions:parsed.context.systemPrompt||[],messages:parsed.context.messages,tools};
-   const response=await transport.exchange(payload,abort.signal,()=>{report.submittedRequests++;save();},()=>{report.retryAttempts++;save();},()=>{report.contextPackets++;save();});
+   const response=await transport.exchange(payload,abort.signal,()=>{report.submittedRequests++;save();},()=>{report.retryAttempts++;save();},()=>{report.contextPackets++;save();},route);
    if(response.type==='tool'){
     if(compact)throw Error('desktop_compaction_must_not_call_tools');
     const tool=validateEnvelope(response,tools);
@@ -59,7 +59,7 @@ const server=Bun.serve({hostname:'127.0.0.1',port:0,idleTimeout:0,maxRequestBody
     if(compact){checkpoint.offer(response.text);report.compactionSummaries++;}
     queue.push({type:'text_delta',text:response.text,phase:'final_answer'});queue.push({type:'done',endTurn:true,usage:desktopEstimatedUsage(payload,response)});report.completedReplies++;active=false;
    }else throw Error('invalid_desktop_envelope');
-  }catch(e){if(abort.signal.aborted)report.cancelledRequests++;active=false;transport.started=false;transport.lastCorrelation=undefined;transcript=new DesktopTranscript();checkpoint=new DesktopCompaction(SUMMARY_PREFIX);report.errorCode=/^[a-z_]+$/.test(e.message)?e.message:'desktop_adapter_failed';queue.push({type:'error',message:report.errorCode,retryable:false});}
+  }catch(e){if(abort.signal.aborted)report.cancelledRequests++;active=false;transport.retire();transcript=new DesktopTranscript();checkpoint=new DesktopCompaction(SUMMARY_PREFIX);report.errorCode=/^[a-z_]+$/.test(e.message)?e.message:'desktop_adapter_failed';queue.push({type:'error',message:report.errorCode,retryable:false});}
   finally{clearInterval(heartbeat);save();queue.close();busy=false;}
  })();
  return new Response(markDesktopEstimatedUsage(bridgeToResponsesSSE(queue,model,namespaceMap,freeform,toolSearch,()=>abort.abort(),2000)),{headers:{'Content-Type':'text/event-stream','Cache-Control':'no-store'}});

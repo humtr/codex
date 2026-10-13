@@ -1,6 +1,6 @@
 import {readFileSync,lstatSync,readlinkSync} from 'node:fs';
 import {join} from 'node:path';
-export async function connectDesktop(root,targetId){
+export function desktopConnection(root){
  const file=join(root,'desktop-host.json'),stat=lstatSync(file);
  if(!stat.isFile()||stat.isSymbolicLink()||stat.uid!==process.getuid()||(stat.mode&0o777)!==0o600||stat.size>8192)throw Error('private_descriptor_required');
  const d=JSON.parse(readFileSync(file,'utf8')),u=new URL(d.endpoint);
@@ -10,6 +10,10 @@ export async function connectDesktop(root,targetId){
   const raw=readFileSync(`/proc/${identity.pid}/stat`,'utf8'),fields=raw.slice(raw.lastIndexOf(')')+1).trim().split(/\s+/);
   if(fields[0]==='Z'||fields[19]!==identity.start||readlinkSync(`/proc/${identity.pid}/exe`)!==identity.image)throw Error('stale_owner');
  }
+ return {descriptor:d,generation:JSON.stringify([root,d.host.pid,d.host.start,d.browser.pid,d.browser.start,d.endpoint])};
+}
+export async function connectDesktop(root,targetId){
+ const {descriptor:d,generation}=desktopConnection(root);
  const socket=new WebSocket(d.endpoint.replace('http:','ws:')+'/cdp',{headers:{Authorization:'Bearer '+d.token}});
  let sequence=0;const pending=new Map();
  const rejectAll=()=>{for(const p of pending.values()){clearTimeout(p.timer);p.reject(Error('owned_relay_closed'));}pending.clear();};
@@ -21,6 +25,7 @@ export async function connectDesktop(root,targetId){
  try{
   for(let attempt=0;attempt<20&&!session;attempt++){
    const {targetInfos}=await request('Target.getTargets');
+   if(targetId&&!targetInfos.some(t=>t.type==='page'&&t.targetId===targetId&&t.url.startsWith('app://-/')))targetId=undefined;
    for(const target of targetInfos.filter(t=>t.type==='page'&&t.url.startsWith('app://-/')&&(!targetId||t.targetId===targetId))){
     const {sessionId}=await request('Target.attachToTarget',{targetId:target.targetId,flatten:true});
     const {result}=await request('Runtime.evaluate',{expression:`[...document.querySelectorAll('button')].some(e=>e.textContent?.trim()==='Chat'&&e.getAttribute('aria-pressed')==='true')||[...document.querySelectorAll('button[aria-label="Select ChatGPT model"]')].some(e=>e.getBoundingClientRect().width>0)`,returnByValue:true},sessionId);
@@ -30,7 +35,7 @@ export async function connectDesktop(root,targetId){
   }
   if(!session)throw Error('actual_chat_mode_not_selected');
  }catch(e){socket.close();throw e;}
- return {targetId:selected,async evaluate(expression){const {result,exceptionDetails}=await request('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true},session);if(exceptionDetails)throw Error('owned_dom_evaluation_failed');return result.value;},
+ return {targetId:selected,generation,async evaluate(expression){const {result,exceptionDetails}=await request('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true},session);if(exceptionDetails)throw Error('owned_dom_evaluation_failed');return result.value;},
   request:(method,params)=>request(method,params,session),
   close:()=>socket.close()};
 }

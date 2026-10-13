@@ -47,17 +47,18 @@ export class DesktopSendRetry{
 }
 
 export class DesktopPromptContext{
- constructor(){this.previous=undefined;}
- prepare(payload){
+ constructor(){this.previous=undefined;this.boundary=undefined;}
+ prepare(payload,boundary){
   const current={...payload,messages:payload.messages.map(({timestamp,...message})=>message)};
-  if(!this.previous)return {delta:current,current};
+  const changed=this.previous&&JSON.stringify(boundary)!==JSON.stringify(this.boundary);
+  if(!this.previous||changed)return {delta:current,current,boundary,mode:'replay',reason:changed?'route_or_transport_changed':'no_resident_context'};
   const old=this.previous;
   if(current.messages.length<old.messages.length||old.messages.some((m,i)=>JSON.stringify(m)!==JSON.stringify(current.messages[i])))throw Error('desktop_context_replaced');
   const delta={messages:current.messages.slice(old.messages.length)};
   for(const key of ['instructions','tools'])if(JSON.stringify(current[key])!==JSON.stringify(old[key]))delta[key]=current[key];
-  return {delta,current};
+  return {delta,current,boundary,mode:'append',reason:'owned_prefix_matches'};
  }
- accept(current){this.previous=current;}
+ accept(current,boundary){this.previous=current;this.boundary=boundary===undefined?undefined:JSON.parse(JSON.stringify(boundary));}
 }
 
 // Context is inert until the final request; schemas remain whole and ordered.
@@ -132,4 +133,11 @@ export function markDesktopEstimatedUsage(stream){
   transform(chunk,c){buffer+=decoder.decode(chunk,{stream:true});let i;while((i=buffer.indexOf('\n\n'))>=0){c.enqueue(encoder.encode(frame(buffer.slice(0,i))+'\n\n'));buffer=buffer.slice(i+2);}},
   flush(c){buffer+=decoder.decode();if(buffer)c.enqueue(encoder.encode(frame(buffer)));}
  }));
+}
+
+// The current physically qualified route; broader menus require real UI proof.
+export function validateDesktopRoute(raw){
+ const effort=raw.reasoning?.effort;
+ if(raw.model!=='chatgpt-desktop/instant'||(effort!==undefined&&effort!==null&&effort!=='none')||(raw.reasoning?.mode!==undefined&&raw.reasoning.mode!=='standard'))throw Error('unsupported_desktop_route');
+ return {provider:'chatgpt-desktop',model:raw.model,effort:'none',mode:'standard'};
 }

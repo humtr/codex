@@ -88,7 +88,7 @@ def probe(args):
             threading.Thread(target=backend.serve_forever,daemon=True).start();base_url=f'http://127.0.0.1:{backend.server_port}/v1'
         config=f'''model = {json.dumps(args.model)}
 model_provider = "openai_chatgpt_plan"
-model_reasoning_effort = "low"
+model_reasoning_effort = {json.dumps("none" if desktop else "low")}
 approval_policy = "on-request"
 approvals_reviewer = "auto_review"
 sandbox_mode = "danger-full-access"

@@ -791,3 +791,64 @@ returned read-only GitHub metadata tool for humtr/codex, and native result/final
 reply correlation. This is real connector execution; earlier search-only proof
 remains separately labelled. Qualification does not authorize unrelated writes
 or messages and does not replace the installed native tool execution engine.
+
+Continuation architecture and scenario costs
+
+Core owns the canonical transcript, actual tool results and committed summary.
+The adapter holds only one disposable cursor for its physically resident context.
+Neither the configuration profile nor a future /model menu owns another history.
+Route identity comprises provider, effective account/workspace, model and the
+actual supported mode/effort. Connection generation and checkpoint epoch are
+separate: a live model name alone does not prove its previous context survived.
+
+| Event | Native record | Adapter transmission | Cache status |
+| --- | --- | --- | --- |
+| Same route, live owned context, append-only history | Retain | New messages only; changed settings explicit | Unknown unless provider reports a hit |
+| Model or provider changes | Retain compatible history | Replay current Core projection | Reuse not assumed |
+| Effort changes | Retain | Proven in-context update if supported; otherwise replay | Settings may affect matching |
+| Instructions/tools change | Retain | Explicit replacements plus new messages | Changed prefix may miss |
+| Account/workspace changes | Require explicit authorized target | Fresh isolated replay | Never assume cross-account reuse |
+| App/relay generation changes | Retain | Fresh replay even if model name is identical | Unknown |
+| Adapter/Core restarts | Resume persisted Core thread | Replay after validating owned endpoint | Unknown |
+| KV entry expires while context is still resident | Retain | Continue normal append | Miss does not affect correctness |
+| Native compaction commits | Retain committed checkpoint and suffix | Exact admitted checkpoint, then fresh replay | New prefix, unknown |
+| Failed/cancelled/ambiguous send | Preserve completed native state | Retire affected cursor; next explicit continuation replays | No blind send/action retry |
+| Native tool still running or awaiting approval | Settle or interrupt through Core | Route change waits for native boundary | No re-execution of old call |
+| Unsupported model/effort/context format | Preserve | Refuse before inference | No silent substitution |
+
+Let P be stable prefix bytes, H the remaining canonical history, D newly added
+bytes, K the committed summary and W protocol-envelope overhead. Logical send
+sizes are warm append D+W, cold replay P+H+D+W, and checkpoint replay P+K+D+W.
+Configuration replacements add their actual byte size. If P=8KB, H=16KB, D=0.4KB
+and K=2KB, these are 0.4KB+W, 24.4KB+W and 10.4KB+W respectively. These are
+illustrative serialization costs, not server token/billing measurements. Actual
+staging adds one envelope per packet. Prompt cache hits can reduce server work
+without reducing wire bytes; loss of a hit must not erase native history.
+Published API rates and cache-hit diagnostics cannot price this signed-app Chat
+path. Keep observed usage, local estimates and unknown cache state separate.
+
+The implementation now keys the existing prefix cursor by route and connection
+generation, commits it only after actual correlated delivery, and replays on
+boundary changes. Returning A→B→A replays unless A's context is genuinely still
+resident; no unbounded per-model tabs, cache daemon or parallel session database
+is added. Only Instant/none is currently physically qualified. Other families,
+Pro execution and reasoning levels must be discovered and verified against the
+logged-in app's actual controls before advertisement. A family selector and an
+effort selector are required by the user; naming all of them Instant is not a
+substitute. UI modes are not assumed to equal API reasoning enum values.
+The existing --profile workflow remains the fallback. Durable app/adapter
+bootstrap, recovery without refreshing config paths, and normal /model integration
+are still separate work; this cursor foundation does not claim they are complete.
+
+Sources: [cache diagnostics](https://developers.openai.com/api/docs/guides/prompt-caching/diagnostics),
+[ChatGPT model availability](https://learn.chatgpt.com/docs/models?surface=web).
+
+`desktop_draft_probe.mjs` tests the actual owned GUI while no generation or
+user draft is present. It inserts one generated fixture, closes its inspection
+connection before invoking the real transport (the relay permits one CDP peer),
+requires refusal before send with the fixture unchanged, then clears only the
+exact normalized fixture and records booleans. It never uses a user's draft as
+test input. Connection/route transitions, immutable boundary snapshots and stale
+owner refusal pass17 protocol tests/83 assertions; unsupported route HTTP probes
+return400 with no inference. Real catalog/tool execution, automatic compaction,
+four native shell calls and persisted restart/resume also pass this foundation.

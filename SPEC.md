@@ -3190,3 +3190,35 @@ native summary replay permits retirement of the adapter's live tool-call epoch.
 Interrupted or failed compaction must preserve prior native history, and a
 subsequent resumed turn must retain state learned through real tool outputs.
 No production admission or public API access follows from experimental proof.
+
+### Continuation, routing and cache independence
+
+Core's ordered history and committed checkpoints are the only conversation
+truth. Adapter cursors are disposable projections, never a second session store.
+A route is provider + effective account/workspace + model + supported effort/mode;
+transport generation and Core checkpoint epoch are separate boundaries. Only a
+qualified account/model/effort combination may be advertised or executed.
+Selecting /model must not imply moving Manager account homes or switching the
+signed desktop's login. The opt-in --profile path remains the fallback consumer
+of the same routing and recovery behavior.
+
+The live projection may append deltas only when its route, owned remote context
+and transport generation still match, and old messages remain an exact prefix.
+A verified new connection/model/account requires full Core replay or a native
+committed checkpoint plus suffix, without fabricating missing tool results or
+translating unavailable encrypted/multimodal state into text. Pending native tools
+must settle before a route switch; interrupted/ambiguous delivery cannot replay
+a tool action automatically. Returning to a route does not imply that its former
+remote context or server KV cache still exists. History replacement requires the
+existing exact native checkpoint admission, not arbitrary prefix truncation.
+
+Stable instructions and tool order should be preserved; configuration updates
+are explicit. KV cache reuse is provider-owned and may disappear at any time.
+Cache hit, miss and unknown must be distinguished; local byte/token estimates
+are never cache-hit or billing evidence. Correctness and resume cannot require
+KV retention, hidden instructions or a cache export API. Only observed supported
+capabilities are exposed; model families, Pro execution and reasoning effort are
+separate dimensions, not assumed aliases. Unsupported combinations fail before
+inference instead of silently running Instant or another model.
+Recovery must check for a pre-existing draft before creating fresh remote
+context; it may clear only its exactly matched generated draft, never user input.

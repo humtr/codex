@@ -1,17 +1,23 @@
-import {connectDesktop} from './desktop_cdp.mjs';
+import {connectDesktop,desktopConnection} from './desktop_cdp.mjs';
 import {DesktopSendRetry,DesktopPromptContext,desktopStages,correlatedDesktopCode} from './desktop_protocol.mjs';
 import {randomBytes} from 'node:crypto';
 const delay=ms=>new Promise(ok=>setTimeout(ok,ms));
 const retries=`[...document.querySelectorAll('button')].filter(e=>/^(Retry|Try again)$/i.test((e.getAttribute('aria-label')||e.textContent||'').trim())&&e.getBoundingClientRect().width>0)`;
 export class DesktopChatTransport{
  constructor(root){this.root=root;this.started=false;this.busy=false;}
- async exchange(payload,signal,onSubmitted=()=>{},onRetry=()=>{},onContext=()=>{}){
+ retire(){this.started=false;this.targetId=undefined;this.lastCorrelation=undefined;this.context=undefined;this.generation=undefined;this.routeIdentity=undefined;}
+ async exchange(payload,signal,onSubmitted=()=>{},onRetry=()=>{},onContext=()=>{},route={provider:"chatgpt-desktop",model:"chatgpt-desktop/instant",effort:"none"}){
   if(this.busy)throw Error('desktop_chat_busy');this.busy=true;
   let c,sent=false,draftCorrelation,draftText;
   try{
    signal?.throwIfAborted();
-   c=await connectDesktop(this.root,this.targetId);this.targetId=c.targetId;
+   const generation=desktopConnection(this.root).generation;
+   if(this.generation!==generation||this.routeIdentity!==JSON.stringify(route))this.retire();
+   const oldTarget=this.targetId;
+   c=await connectDesktop(this.root,oldTarget);if(oldTarget&&c.targetId!==oldTarget)this.retire();this.targetId=c.targetId;
    if(!this.started){
+    const dirty=await c.evaluate(`[...document.querySelectorAll('[contenteditable="true"]')].some(e=>e.getBoundingClientRect().width>0&&(e.textContent||'').trim())`);
+    if(dirty)throw Error('unowned_draft_must_be_preserved');
     this.context=new DesktopPromptContext();
     for(const type of ['keyDown','keyUp'])await c.request('Input.dispatchKeyEvent',{type,modifiers:10,key:'N',code:'KeyN',windowsVirtualKeyCode:78});
     await delay(250);
@@ -22,7 +28,8 @@ export class DesktopChatTransport{
    if(!this.started&&!before.cleanContext)throw Error('fresh_temporary_context_required');
    if(!before.modelIsInstant)throw Error('desktop_model_changed');
    if((!this.started&&!before.temporary)||(this.started&&(!this.lastCorrelation||!before.ownedContinuation))||before.editors.length!==1||!before.editors[0])throw Error('owned_empty_temporary_composer_required');
-   const prepared=this.context.prepare(payload);let result;
+   const boundary={route,generation:c.generation};
+   const prepared=this.context.prepare(payload,boundary);let result;
    for(const stage of desktopStages(prepared.delta)){
     const correlation=draftCorrelation='DESKTOP_'+randomBytes(12).toString('hex');
     const packet={correlation,...stage};
@@ -68,7 +75,7 @@ export class DesktopChatTransport{
     if(stage.phase==='context'){if(result.type!=='ack')throw Error('desktop_context_not_acknowledged');onContext();}
     this.lastCorrelation=correlation;
    }
-   this.context.accept(prepared.current);return result;
+   this.context.accept(prepared.current,boundary);this.generation=c.generation;this.routeIdentity=JSON.stringify(route);return result;
   }catch(e){
    if(c&&(sent||signal?.aborted))await c.evaluate(`(()=>{const e=[...document.querySelectorAll('button')].find(e=>/^stop(?:\\b|$)/i.test(e.getAttribute('aria-label')||e.textContent||'')&&e.getBoundingClientRect().width>0);if(e)e.click();return !!e;})()`).catch(()=>{});
    if(c&&draftText){
@@ -78,7 +85,7 @@ export class DesktopChatTransport{
      for(const type of ['keyDown','keyUp'])await c.request('Input.dispatchKeyEvent',{type,modifiers:0,key:'Backspace',code:'Backspace',windowsVirtualKeyCode:8}).catch(()=>{});
     }
    }
-   throw e;
+   this.retire();throw e;
   }finally{c?.close();this.busy=false;}
  }
 }

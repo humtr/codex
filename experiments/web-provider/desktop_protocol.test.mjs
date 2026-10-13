@@ -1,5 +1,8 @@
+import {desktopConnection} from './desktop_cdp.mjs';
+import {mkdtempSync,writeFileSync,readFileSync,readlinkSync,rmSync} from 'node:fs';
+import {join} from 'node:path';
 import {test,expect} from 'bun:test';
-import {DesktopTranscript,validateEnvelope,validateTextContext,DesktopSendRetry,DesktopPromptContext,desktopStages,correlatedDesktopCode,DesktopCompaction,desktopEstimatedUsage,markDesktopEstimatedUsage} from './desktop_protocol.mjs';
+import {DesktopTranscript,validateEnvelope,validateTextContext,DesktopSendRetry,DesktopPromptContext,desktopStages,correlatedDesktopCode,DesktopCompaction,desktopEstimatedUsage,markDesktopEstimatedUsage,validateDesktopRoute} from './desktop_protocol.mjs';
 const tools=[{wireName:'functions__exec_command'},{wireName:'functions__exec',freeform:true},{wireName:'tool_search',toolSearch:true}];
 test('unadvertised and malformed calls never admit',()=>{
  for(const r of [{type:'tool',name:'other',input:{}},{type:'tool',name:'functions__exec_command',input:'shell'},{type:'tool',name:'functions__exec',input:{}},{type:'tool',name:'tool_search',input:{}},{type:'final',text:{}}])expect(()=>validateEnvelope(r,tools)).toThrow();
@@ -95,4 +98,39 @@ test('estimated-usage annotation preserves streaming and cancellation',async()=>
  const source=new ReadableStream({start(c){c.enqueue(encoder.encode('event: heartbeat\ndata: {}\n\n'));},cancel(){cancelled=true;}});
  const reader=markDesktopEstimatedUsage(source).getReader();const first=await reader.read();expect(new TextDecoder().decode(first.value)).toBe('event: heartbeat\ndata: {}\n\n');
  await reader.cancel();await new Promise(ok=>setTimeout(ok,20));expect(cancelled).toBe(true);
+});
+
+test('route and transport transitions replay while unchanged owned context appends',()=>{
+ const p={instructions:['prefix'],messages:[{role:'user',content:'owned task'}],tools:[]};
+ const a={provider:'chat',account:'owned-a',model:'sol',effort:'low',generation:'one'};
+ const cursor=new DesktopPromptContext();let prepared=cursor.prepare(p,a);expect(prepared.mode).toBe('replay');cursor.accept(prepared.current,a);
+ const next={...p,messages:[...p.messages,{role:'assistant',content:'result'}]};
+ expect(cursor.prepare(next,a).mode).toBe('append');
+ for(const changed of [{...a,provider:'codex'},{...a,account:'owned-b'},{...a,model:'pro'},{...a,effort:'xhigh'},{...a,generation:'two'}])expect(cursor.prepare(next,changed).mode).toBe('replay');
+ // Preparation is not delivery: an interrupted switch does not commit a cursor.
+ expect(cursor.prepare(next,a).mode).toBe('append');
+ const target={...a,model:'pro'};prepared=cursor.prepare(next,target);cursor.accept(prepared.current,target);
+ expect(cursor.prepare(next,a).mode).toBe('replay');
+ expect(()=>cursor.prepare({...p,messages:[]},target)).toThrow('desktop_context_replaced');
+});
+test('unqualified model effort and Pro mode refuse rather than silently running Instant',()=>{
+ expect(validateDesktopRoute({model:'chatgpt-desktop/instant'}).effort).toBe('none');
+ expect(()=>validateDesktopRoute({model:'chatgpt-desktop/instant',reasoning:{effort:'none',mode:'standard'}})).not.toThrow();
+ for(const raw of [{model:'gpt-6-sol'},{model:'chatgpt-desktop/instant',reasoning:{effort:'xhigh'}},{model:'chatgpt-desktop/instant',reasoning:{mode:'pro'}}])expect(()=>validateDesktopRoute(raw)).toThrow('unsupported_desktop_route');
+});
+
+test('connection generation follows the verified relay identity, not just model name',()=>{
+ const root=mkdtempSync(join(process.env.TMPDIR,'desktop-route-'));
+ try{
+  const raw=readFileSync(`/proc/${process.pid}/stat`,'utf8'),start=raw.slice(raw.lastIndexOf(')')+2).split(' ')[19],identity={pid:process.pid,start,image:readlinkSync(`/proc/${process.pid}/exe`)};
+  const d={kind:'termux-electron-pipe',endpoint:'http://127.0.0.1:12345',token:'a'.repeat(43),host:identity,browser:identity};
+  const file=join(root,'desktop-host.json');writeFileSync(file,JSON.stringify(d),{mode:0o600});const first=desktopConnection(root).generation;
+  writeFileSync(file,JSON.stringify({...d,endpoint:'http://127.0.0.1:12346'}));expect(desktopConnection(root).generation).not.toBe(first);
+  writeFileSync(file,JSON.stringify({...d,browser:{...identity,start:String(Number(start)+1)}}));expect(()=>desktopConnection(root)).toThrow('stale_owner');
+ }finally{rmSync(root,{recursive:true});}
+});
+
+test('committed route boundary is a snapshot, not a mutable selector reference',()=>{
+ const c=new DesktopPromptContext(),p={instructions:[],tools:[],messages:[]},route={model:'owned-model',account:'owned-account'};
+ const first=c.prepare(p,route);c.accept(first.current,route);route.model='other-model';expect(c.prepare(p,route).mode).toBe('replay');
 });
