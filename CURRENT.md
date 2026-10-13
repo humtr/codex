@@ -413,7 +413,11 @@ This repository carries no external workflow skill or model configuration.
   the checkpoint. The owned Linux controller was then stopped: the same living
   adapter recovered the app and recalled the secret without another shell call.
   lifecycle-checkpoint-proof.json confirms four native calls, actual committed
-  summary and checkpoint survival through both Core and whole-app restart.
+  summary and checkpoint survival through both Core and whole-app restart. Final path
+  acceptance also invokes the auth command for all three marked homes privately,
+  verifies its capability without exposing stdout and requires the installed
+  source path rather than the calling checkout. lifecycle-auth-path-proof.json
+  records that all helpers and the adapter image match the selected installation.
   Clear send failures now use the app's Retry control with1/2-second backoff and
   at most two extra attempts. Cancellation, already received correlated replies
   and ambiguous delivery prevent retry. Bounded retries and their failure policy
