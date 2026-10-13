@@ -273,7 +273,7 @@ This repository carries no external workflow skill or model configuration.
   launch. No user job was stopped to change execution mode.
 
 - Two independent official alternatives are prepared in experiment/web-termux
-  at6645648.
+  at842ebcc.
   Signed Linux ARM64 desktop 26.1007.21434 installs in a Debian13/PRoot candidate
   under XDG cache; account data stays separately in
   ~/.local/share/codex-web-experiment/linux-desktop/home. The login page rendered
@@ -281,10 +281,14 @@ This repository carries no external workflow skill or model configuration.
   to its scoped Android handler rather than back into chatgpt.desktop. Guest GIO
   dispatch reached that handler using an unrecognized account-free target, which
   was refused. Signed-app URL construction revealed a separate refusal: it uses
-  /oauth/authorize, initially excluded by the local handoff. That path is now
-  accepted with target/token guards; the additional Android regression passes.
-  The corrected candidate is running, but real login/guest-tool acceptance
-  remains pending. SIGTERM now enters owned-process cleanup; four orphan groups
+  /oauth/authorize. An actual guest button click also identified the default
+  chatgpt.com/codex/desktop-auth wrapper carrying authorize_url. Both paths are
+  accepted now, with exactly one nested OpenAI target and no URL rewriting.
+  Four Android MIME/routing/target cases pass, including the panel helper under
+  candidate HOME. A private tint2 panel shows Browser, ChatGPT and clock; actual
+  X11 proof reserves 42px and maximizes the app in 480x743. Browser reopens the
+  validated pending URL from the temporary private root or the fixed homepage.
+  Real login/guest-tool acceptance remains pending. SIGTERM now enters owned-process cleanup; four orphan groups
   left by an older controller were identified by private root/display and stopped.
   Fresh notifications resolve the current endpoint at tap time and verify owner
   PID/start/executable. Trials expire after at most one hour and retain account
@@ -305,6 +309,8 @@ This repository carries no external workflow skill or model configuration.
   govern this tenant policy; Global admin External access does. Official plan
   usage eligibility documents Plus/Pro, so policy access alone is not proof of
   Business entitlement. No organization setting or selected account was changed.
+  The user now selects their separate Plus account for the SIWC qualification;
+  a fresh alert requests OpenAI login and plan-use consent, with no Admin/API key.
   Real account/model/tool-loop gates remain unpassed. Linux first-party login is
   an independent gate; the external rejection does not establish its outcome.
   Production remains stable49; no global launcher or boot service changed.
