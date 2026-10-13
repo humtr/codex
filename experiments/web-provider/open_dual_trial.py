@@ -17,7 +17,8 @@ def record(path):
 def owner(state):
     pid = state['pid']; assert type(pid) is int and pid > 0
     root = Path('/proc')/str(pid); text = (root/'stat').read_text()
-    assert int(text[text.rfind(')')+2:].split()[19]) == state['start']
+    fields=text[text.rfind(')')+2:].split()
+    assert fields[0]!='Z' and int(fields[19]) == state['start']
     assert os.readlink(root/'exe') == state['image']
 
 

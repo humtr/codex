@@ -3222,3 +3222,27 @@ separate dimensions, not assumed aliases. Unsupported combinations fail before
 inference instead of silently running Instant or another model.
 Recovery must check for a pre-existing draft before creating fresh remote
 context; it may clear only its exactly matched generated draft, never user input.
+
+### Opt-in bootstrap and installation authority
+
+The explicitly selected trial profile may bootstrap its own adapter/GUI through
+upstream command-backed provider authentication. The loopback address and private
+capability persist across restarts; changing an owner PID is not a reason to
+rewrite the user's config. A private runtime record owns the accepted installation
+paths. Executable/source/asset dependencies must live in XDG lib/cache, separate
+from persistent login data and disposable TMPDIR sockets. Reinstall may reuse the
+verified installed payload after temporary dependency checkouts disappear.
+
+Starts must be bounded and serialized. Check PID/start/executable before reuse;
+prove a local listener possesses its capability before sending that bearer.
+Android's restricted /proc network view must not weaken this check: a fresh
+nonce/HMAC readiness challenge can establish possession without revealing the
+capability. An occupied foreign port refuses without killing its owner. Normal
+TCP TIME_WAIT is not a live foreign listener; the bind probe must match the
+server's SO_REUSEADDR semantics. Keep live controllers and user drafts intact.
+A verified GUI generation change retires the adapter cursor and replays only
+Core's canonical projection. Never automatically replay ambiguous inference or
+native actions. Normal Codex without this opt-in profile stays independent, and
+no boot service, duplicate updater, alternate Core launcher or history store is
+introduced. Ownership markers for in-progress starts may settle a caller timeout;
+they grant no right to signal an unverified process.

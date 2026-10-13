@@ -11,8 +11,10 @@ def probe(staged_context=False,tool_search=False,tool_action=False):
         from desktop_provider_profile import server_record
         data=Path.home()/'.local/share/codex-web-experiment'
         binding=server_record(data/'native-provider/server.json')
-        session=json.loads((data/'linux-desktop/session.json').read_text());native_proof=Path(session['root'])/'desktop-server.json.proof'
-        actual=server_record(Path(session['root'])/'desktop-server.json');assert actual==binding
+        session=json.loads((data/'linux-desktop/session.json').read_text());runtime=data/'native-provider/runtime.json'
+        server_path=data/'native-provider/server.json' if runtime.exists() else Path(session['root'])/'desktop-server.json'
+        native_proof=Path(str(server_path)+'.proof')
+        actual=server_record(server_path);assert actual==binding
         before=json.loads(native_proof.read_text())
     with tempfile.TemporaryDirectory(prefix='chatgpt-installed-exec-',dir=os.environ['TMPDIR']) as tmp:
         root=Path(tmp)

@@ -156,7 +156,8 @@ stream_max_retries = 0
             proxy_proof=Path(str(args.desktop_server)+'.proof') if desktop else None
             if desktop and not proxy_proof.exists():
                 session=json.loads((real_home/'.local/share/codex-web-experiment/linux-desktop/session.json').read_text())
-                actual=Path(session['root'])/'desktop-server.json';assert json.loads(actual.read_text())==desktop,'desktop_proof_owner_mismatch'
+                installed=real_home/'.local/share/codex-web-experiment/native-provider/runtime.json'
+                actual=real_home/'.local/share/codex-web-experiment/native-provider/server.json' if installed.exists() else Path(session['root'])/'desktop-server.json';assert json.loads(actual.read_text())==desktop,'desktop_proof_owner_mismatch'
                 proxy_proof=Path(str(actual)+'.proof')
 
             if args.cancel_resume and proxy_proof.exists():
@@ -342,10 +343,19 @@ stream_max_retries = 0
                 buffer='';events.clear();rpc(10,'initialize',{'clientInfo':{'name':args.app_name,'title':'Codex Termux Trial','version':'0.1.0'},'capabilities':{'experimentalApi':True}},deadline);send({'method':'initialized','params':{}})
                 resumed=rpc(11,'thread/resume',{'threadId':thread_id,'approvalPolicy':'on-request','sandbox':'danger-full-access'},deadline)
                 report['compactedThreadResumed']=resumed['thread']['id']==thread_id
+                if args.restart_desktop:
+                    from desktop_lifecycle_probe import stop_owned
+                    desktop_session=real_home/'.local/share/codex-web-experiment/linux-desktop/session.json'
+                    old_desktop=stop_owned(desktop_session)
+                    report['desktopStoppedBeforeNativeResumeTurn']=True
                 calls_before=report['successfulShellCalls'];events.clear()
                 rpc(12,'turn/start',{'threadId':thread_id,'input':[{'type':'text','text':'Reply with exactly the remembered PROOF_SECRET. Do not call tools or do other work.'}]},deadline);collect_turn()
                 report['checkpointSurvivedCoreRestart']=report['turnCompleted'] and report['nativeReplyMatched'] and report['successfulShellCalls']==calls_before
+                if args.restart_desktop:
+                    new_desktop=json.loads(desktop_session.read_text())
+                    report['checkpointSurvivedDesktopRestart']=report['checkpointSurvivedCoreRestart'] and new_desktop['pid']!=old_desktop['pid'] and new_desktop['root']!=old_desktop['root']
                 report['realCoreToolLoopAccepted']=all(report.get(k) for k in ['preCompactToolLoopAccepted','nativeCompactionCompleted','actualChatgptCompactionSummary','persistedSummaryContainsToolOnlySecret','postCompactNativeToolLoopAccepted','bridgeAppliedCheckpoint','compactedThreadResumed','checkpointSurvivedCoreRestart'])
+                if args.restart_desktop:report['realCoreToolLoopAccepted'] &= report.get('checkpointSurvivedDesktopRestart',False)
                 if args.auto_compact:report['realCoreToolLoopAccepted'] &= report.get('automaticTurnCompleted',False)
                 if args.mid_turn_compact:report['realCoreToolLoopAccepted'] &= report.get('midTurnAutomaticCompaction',False)
                 if args.interrupt_compact or args.failed_compact:report['realCoreToolLoopAccepted'] &= all(report.get(k) for k in ['faultCommittedNoSummary','faultHistorySurvivedRestart'])
@@ -366,10 +376,11 @@ stream_max_retries = 0
 
 if __name__=='__main__':
     os.umask(0o077)
-    parser=argparse.ArgumentParser();parser.add_argument('--connection',type=Path);parser.add_argument('--model',required=True);parser.add_argument('--report',type=Path,required=True);parser.add_argument('--app-name',required=True);parser.add_argument('--account-free-wire',action='store_true');parser.add_argument('--desktop-server',type=Path);parser.add_argument('--cancel-resume',action='store_true');parser.add_argument('--compact',action='store_true');parser.add_argument('--auto-compact',action='store_true');parser.add_argument('--interrupt-compact',action='store_true');parser.add_argument('--failed-compact',action='store_true');parser.add_argument('--mid-turn-compact',action='store_true')
+    parser=argparse.ArgumentParser();parser.add_argument('--connection',type=Path);parser.add_argument('--model',required=True);parser.add_argument('--report',type=Path,required=True);parser.add_argument('--app-name',required=True);parser.add_argument('--account-free-wire',action='store_true');parser.add_argument('--desktop-server',type=Path);parser.add_argument('--cancel-resume',action='store_true');parser.add_argument('--compact',action='store_true');parser.add_argument('--auto-compact',action='store_true');parser.add_argument('--interrupt-compact',action='store_true');parser.add_argument('--failed-compact',action='store_true');parser.add_argument('--mid-turn-compact',action='store_true');parser.add_argument('--restart-desktop',action='store_true')
     args=parser.parse_args();args.compact=args.compact or args.auto_compact or args.interrupt_compact or args.failed_compact or args.mid_turn_compact
     assert sum(bool(x) for x in (args.account_free_wire,args.connection,args.desktop_server))==1
     assert not(args.cancel_resume or args.compact) or args.desktop_server
+    assert not args.restart_desktop or (args.desktop_server and args.compact)
     assert not(args.cancel_resume and args.compact)
     assert sum(bool(x) for x in [args.auto_compact,args.interrupt_compact,args.failed_compact,args.mid_turn_compact])<=1
     signal.signal(signal.SIGTERM,lambda *_:(_ for _ in ()).throw(KeyboardInterrupt()))

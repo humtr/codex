@@ -25,7 +25,7 @@ def server_record(path):
     return value
 
 
-def install(server,codex_home,template):
+def install(server,codex_home,template,runtime=None):
     value=server_record(server)
     home=private(codex_home)
     config=home/'config.toml'
@@ -52,6 +52,12 @@ def install(server,codex_home,template):
                   'tool_mode':'direct','multi_agent_version':'v1','model_messages':{'instructions_template':'You are Codex, a coding agent. Follow the user task and execute only advertised tools through the native client.','instructions_variables':None},'input_modalities':['text'],'supports_search_tool':True,'visibility':'list','supported_in_api':True})
     catalog=data/'models.json';write(catalog,{'models':[model]})
     helper=Path(__file__).resolve()
+    auth_args=['-B',str(helper),'token',str(binding)]
+    if runtime is not None:
+        from desktop_lifecycle import record,endpoint
+        installed=record(runtime);endpoint(installed)
+        assert all(installed[k]==value[k] for k in ['baseUrl','token','model'])
+        auth_args=['-B',str(helper.parent/'desktop_lifecycle.py'),'token','--runtime',str(runtime)]
     block=f'''{BEGIN}
 model = {json.dumps(value['model'])}
 model_provider = "{PROVIDER}"
@@ -67,7 +73,8 @@ request_max_retries = 0
 stream_max_retries = 0
 [model_providers.{PROVIDER}.auth]
 command = {json.dumps(os.environ['PREFIX']+'/bin/python')}
-args = {json.dumps(['-B',str(helper),'token',str(binding)])}
+args = {json.dumps(auth_args)}
+timeout_ms = 120000
 cwd = {json.dumps(str(data))}
 refresh_interval_ms = 30000
 {END}

@@ -140,8 +140,15 @@ def paths(args):
     cache = private(Path.home()/'.cache/codex-web-experiment/linux-desktop'/VERSION)
     data = private(Path.home()/'.local/share/codex-web-experiment/linux-desktop')
     tool = args.proot_source.resolve(strict=True)
-    assert subprocess.check_output(['git', '-C', str(tool), 'rev-parse', 'HEAD'], text=True).strip() == PROOT_SOURCE
-    assert not subprocess.check_output(['git', '-C', str(tool), 'status', '--porcelain'], text=True).strip()
+    exported=tool/'.codex-provider-source.json'
+    if exported.exists():
+        from open_dual_trial import record
+        manifest=record(exported);assert manifest['commit']==PROOT_SOURCE
+        actual={str(p.relative_to(tool)):hashlib.sha256(p.read_bytes()).hexdigest() for p in tool.rglob('*') if p.is_file() and p!=exported and '__pycache__' not in p.parts}
+        assert actual==manifest['files'], 'installed proot source changed'
+    else:
+        assert subprocess.check_output(['git', '-C', str(tool), 'rev-parse', 'HEAD'], text=True).strip() == PROOT_SOURCE
+        assert not subprocess.check_output(['git', '-C', str(tool), 'status', '--porcelain'], text=True).strip()
     env = {'HOME': str(private(cache/'setup-home')), 'TMPDIR': str(prefix/'tmp'), 'PATH': str(prefix/'bin'),
            'TERMUX__PREFIX': str(private(cache/'trial-prefix')), 'TERMUX__HOME': str(cache/'setup-home'),
            'PD_PROOT_BIN': str(prefix/'bin/proot'), 'PYTHONPATH': str(tool), 'LANG': 'C.UTF-8', 'PD_FORCE_NO_COLORS': '1'}
@@ -183,8 +190,8 @@ def start_candidate(args):
 def serve(args):
     prefix, cache, data, env, base = paths(args)
     assert (data/'candidate.json').is_file(), 'prepare the candidate first'
-    previous = json.loads((data/'session.json').read_text()) if (data/'session.json').exists() else {}
-    if previous.get('pid') and (Path('/proc')/str(previous['pid'])).exists():
+    from desktop_lifecycle import live
+    if live(data/'session.json'):
         raise RuntimeError('another recorded candidate controller is alive')
     lock_fd = os.open(data/'.session-lock', os.O_CREAT|os.O_RDWR|os.O_NOFOLLOW, 0o600)
     fcntl.flock(lock_fd, fcntl.LOCK_EX|fcntl.LOCK_NB)

@@ -1,6 +1,15 @@
 import {readFileSync,lstatSync,readlinkSync} from 'node:fs';
 import {join} from 'node:path';
+export function resolveDesktopRoot(path){
+ const stat=lstatSync(path);
+ if(stat.isDirectory())return path; // Existing disposable qualification interface.
+ if(!stat.isFile()||stat.isSymbolicLink()||stat.uid!==process.getuid()||(stat.mode&0o777)!==0o600||stat.size>8192)throw Error('private_session_required');
+ const d=JSON.parse(readFileSync(path,'utf8')),raw=readFileSync(`/proc/${d.pid}/stat`,'utf8'),fields=raw.slice(raw.lastIndexOf(')')+1).trim().split(/\s+/);
+ if(!Number.isSafeInteger(d.pid)||d.pid<1||fields[0]==='Z'||fields[19]!==String(d.start)||readlinkSync(`/proc/${d.pid}/exe`)!==d.image||typeof d.root!=='string')throw Error('stale_desktop_controller');
+ return d.root;
+}
 export function desktopConnection(root){
+ root=resolveDesktopRoot(root);
  const file=join(root,'desktop-host.json'),stat=lstatSync(file);
  if(!stat.isFile()||stat.isSymbolicLink()||stat.uid!==process.getuid()||(stat.mode&0o777)!==0o600||stat.size>8192)throw Error('private_descriptor_required');
  const d=JSON.parse(readFileSync(file,'utf8')),u=new URL(d.endpoint);
@@ -13,6 +22,7 @@ export function desktopConnection(root){
  return {descriptor:d,generation:JSON.stringify([root,d.host.pid,d.host.start,d.browser.pid,d.browser.start,d.endpoint])};
 }
 export async function connectDesktop(root,targetId){
+ root=resolveDesktopRoot(root);
  const {descriptor:d,generation}=desktopConnection(root);
  const socket=new WebSocket(d.endpoint.replace('http:','ws:')+'/cdp',{headers:{Authorization:'Bearer '+d.token}});
  let sequence=0;const pending=new Map();
@@ -29,6 +39,9 @@ export async function connectDesktop(root,targetId){
    for(const target of targetInfos.filter(t=>t.type==='page'&&t.url.startsWith('app://-/')&&(!targetId||t.targetId===targetId))){
     const {sessionId}=await request('Target.attachToTarget',{targetId:target.targetId,flatten:true});
     const {result}=await request('Runtime.evaluate',{expression:`[...document.querySelectorAll('button')].some(e=>e.textContent?.trim()==='Chat'&&e.getAttribute('aria-pressed')==='true')||[...document.querySelectorAll('button[aria-label="Select ChatGPT model"]')].some(e=>e.getBoundingClientRect().width>0)`,returnByValue:true},sessionId);
+    if(!result.value){
+     await request('Runtime.evaluate',{expression:`(()=>{if([...document.querySelectorAll('[contenteditable="true"]')].some(e=>e.getBoundingClientRect().width>0&&(e.textContent||'').trim())||[...document.querySelectorAll('button')].some(e=>/^stop(?:\\b|$)/i.test(e.getAttribute('aria-label')||'')&&e.getBoundingClientRect().width>0))return false;const es=[...document.querySelectorAll('button')].filter(e=>e.textContent?.trim()==='Chat'&&e.getBoundingClientRect().width>0);if(es.length===1){es[0].click();return true;}return false;})()`,returnByValue:true},sessionId);
+    }
     if(result.value){session=sessionId;selected=target.targetId;break;}await request('Target.detachFromTarget',{sessionId});
    }
    if(!session)await new Promise(ok=>setTimeout(ok,500));

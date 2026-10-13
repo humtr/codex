@@ -130,6 +130,17 @@ test('connection generation follows the verified relay identity, not just model 
  }finally{rmSync(root,{recursive:true});}
 });
 
+test('current controller marker resolves a new generation and refuses stale ownership',()=>{
+ const base=mkdtempSync(join(process.env.TMPDIR,'desktop-marker-'));
+ try{
+  const raw=readFileSync(`/proc/${process.pid}/stat`,'utf8'),start=raw.slice(raw.lastIndexOf(')')+2).split(' ')[19],identity={pid:process.pid,start,image:readlinkSync(`/proc/${process.pid}/exe`)};
+  const file=join(base,'session.json');writeFileSync(file,JSON.stringify({...identity,root:base}),{mode:0o600});
+  writeFileSync(join(base,'desktop-host.json'),JSON.stringify({kind:'termux-electron-pipe',endpoint:'http://127.0.0.1:12345',token:'a'.repeat(43),host:identity,browser:identity}),{mode:0o600});
+  expect(desktopConnection(file).generation).toBe(desktopConnection(base).generation);
+  writeFileSync(file,JSON.stringify({...identity,start:String(Number(start)+1),root:base}));expect(()=>desktopConnection(file)).toThrow('stale_desktop_controller');
+ }finally{rmSync(base,{recursive:true});}
+});
+
 test('committed route boundary is a snapshot, not a mutable selector reference',()=>{
  const c=new DesktopPromptContext(),p={instructions:[],tools:[],messages:[]},route={model:'owned-model',account:'owned-account'};
  const first=c.prepare(p,route);c.accept(first.current,route);route.model='other-model';expect(c.prepare(p,route).mode).toBe('replay');

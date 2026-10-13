@@ -836,9 +836,9 @@ Pro execution and reasoning levels must be discovered and verified against the
 logged-in app's actual controls before advertisement. A family selector and an
 effort selector are required by the user; naming all of them Instant is not a
 substitute. UI modes are not assumed to equal API reasoning enum values.
-The existing --profile workflow remains the fallback. Durable app/adapter
-bootstrap, recovery without refreshing config paths, and normal /model integration
-are still separate work; this cursor foundation does not claim they are complete.
+The existing --profile workflow remains the fallback. The on-demand lifecycle
+below now supplies durable app/adapter bootstrap without refreshing config paths.
+Normal /model family/effort integration remains a separate acceptance task.
 
 Sources: [cache diagnostics](https://developers.openai.com/api/docs/guides/prompt-caching/diagnostics),
 [ChatGPT model availability](https://learn.chatgpt.com/docs/models?surface=web).
@@ -849,6 +849,70 @@ connection before invoking the real transport (the relay permits one CDP peer),
 requires refusal before send with the fixture unchanged, then clears only the
 exact normalized fixture and records booleans. It never uses a user's draft as
 test input. Connection/route transitions, immutable boundary snapshots and stale
-owner refusal pass17 protocol tests/83 assertions; unsupported route HTTP probes
+owner refusal pass18 protocol tests/85 assertions; unsupported route HTTP probes
 return400 with no inference. Real catalog/tool execution, automatic compaction,
 four native shell calls and persisted restart/resume also pass this foundation.
+
+On-demand lifecycle contract (experimental, separate from stable Core)
+
+The opt-in configuration profile may use the upstream command-backed auth hook
+for bootstrap. Its private loopback address/capability stay fixed across adapter
+restart; the private runtime record is the one installation authority. Source,
+Bun, exported pinned PRoot and noVNC assets live under XDG lib; only disposable
+GUI sockets/control files live in TMPDIR. The existing signed package cache and
+persistent signed-app login home remain separate and unchanged. The bridge
+parser/tool mapper/SSE exports are bundled from the exact qualified bridge source.
+
+Bootstrap is bounded and serialized, starts only the selected trial processes,
+and checks PID/start/executable ownership before using any local listener. An
+unknown occupied port is refused without sending it the capability or killing
+its owner. Existing live controllers are preserved. The adapter resolves the
+current private controller marker each request; a changed app generation retires
+its cursor and replays the canonical Core projection. Recovery starts before
+submission and never retries an ambiguous inference or native action. Expired
+login, unsupported model/mode, user drafts and foreign ownership remain errors.
+No boot service, alternate Core launcher or second session database is added.
+Ordinary Codex without this explicit profile does not bootstrap the trial.
+
+`install_desktop_provider.py` installs from local pinned dependencies and migrates
+only this experiment's marked config profiles. `desktop_lifecycle.py token` is
+an auth command: its stdout is private credential material, never a diagnostic.
+Use `ensure` for a credential-free health result. Settling and stopping the old
+owned adapter/controller is a separate bounded migration step; the installer
+never kills a running job. Updating this opt-in installation preserves its
+address, login home, Core transcript and unchanged base config.
+
+
+Device lifecycle acceptance now covers the installed --profile command after
+adapter termination and whole owned controller termination: each turn completed
+actual write/read shell calls and exact final reply. Six simultaneous bootstrap
+clients all succeeded through one adapter. Base config, marked trial config and
+existing auth hashes stayed unchanged throughout the fault test. Permanent
+payload-only reinstall (no TMPDIR dependency sources supplied) reused the exact
+same installation twice. Aggregate proof is native-provider/lifecycle-proof.json;
+source-installed migration proof is lifecycle-migration-proof.json. The concurrency
+regression was a false foreign-owner diagnosis of TIME_WAIT, fixed by matching
+SO_REUSEADDR. Foreign listening sockets still refuse before startup; the readiness
+challenge test proves no bearer is sent to a fake listener. Local tests include
+12 lifecycle/profile and5 desktop/browser routing cases; repository Python18+59
+and protocol18/85 pass. Hours-long soak, physical phone reboot and expired-login
+recovery remain distinct from these bounded process-fault tests.
+
+For reinstall from the repository or installed source, run the maintained installer
+with `--home CODEX_HOME` (repeat for each owned marked home). Without dependency
+arguments it verifies/reuses the current installed payload and permanent catalog.
+First migration supplies all four qualified bridge/PRoot/noVNC/Bun paths and a
+catalog template. No user auth is copied into the payload. Dependencies and the
+accepted effective bridge source/licenses remain available without temporary
+checkouts. Authentication helper stdout must never be used as a health diagnostic.
+
+
+Native checkpoint recovery also passes the physical app-generation boundary:
+`siwc_core_probe.py --compact --restart-desktop` learns a secret only from native
+tool output, removes its original owned fixtures, commits the actual summary,
+executes two more native tools, restarts/resumes Core, stops the verified owned
+controller and recalls the secret after automatic app recovery without another
+tool call. The adapter process itself stays alive through that GUI restart.
+Aggregate proof: native-provider/lifecycle-checkpoint-proof.json. Four actual
+native commands and the admitted persisted checkpoint pass; estimated token
+counts remain local sizing only, and no server KV retention is assumed.
