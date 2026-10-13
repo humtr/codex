@@ -343,30 +343,57 @@ This repository carries no external workflow skill or model configuration.
   organization-policy change was made. See experiment README's sourced comparison.
 
 
-- Next authorized integration target: the existing native Termux Codex must select
-  an actual ChatGPT-backed custom Responses provider and complete local tool
-  roundtrips. Standalone Linux app login/GUI replies do not fulfill that target.
-  Work remains on experiment/web-termux; no production provider admission yet.
-  1. Identify the actual ChatGPT mode/model and supported transport in the signed
-     Linux candidate. Distinguish it from the successful desktop Codex mode;
-     inspect any user-supplied reference implementation before copying behavior.
-  2. Reuse the existing local Responses/protocol/broker pieces and replace only
-     the backend transport needed for the authenticated ChatGPT mode. Start with
-     one real text turn; never substitute a mock, API-key route or relabeled Codex.
-  3. Keep native Core responsible for approval and tool execution. Preserve exact
-     call IDs, tool schemas, session ownership and completed/error events through
-     the response/command/result/follow-up loop; prevent replay and cross-session
-     results. A model request must cause each executed tool call.
-  4. Qualify real native Core in disposable roots: two correlated local shell
-     operations, results returned to the same ChatGPT conversation, completed
-     follow-up, cancellation, failure, resume, compaction and concurrent-session
-     isolation. Existing fixtures are reusable protocol evidence only.
-  5. Expose the admitted provider and actual model in the installed Termux Codex
-     picker using the smallest upstream-supported configuration/client change;
-     keep optional Manager independent and ordinary OpenAI routing intact.
-  6. Only after acceptance, consolidate implementation, cleanup obsolete trials,
-     document installation/update/rollback and prepare normal release gates.
+- Native Termux ChatGPT provider now has real experimental acceptance on
+  experiment/web-termux atb3a5415. The signed Linux app's actual ChatGPT / Chat / Instant
+  surface supplies the backend; desktop Codex mode, a mock, extracted first-party
+  token and public API-key inference are not substitutes. A private FD3/FD4 relay
+  reuses the existing native Bun host. The local authenticated /v1/responses
+  adapter reuses qualified bridge92a356f parsing, wire names and SSE; native signed
+  stable49 retains approval and all actual local tool execution.
+  Real disposable native Core proof completed two separate shell operations,
+  returned exact results and matched the final nonce. Actual submission was then
+  cancelled before any tool; the first Core exited, a new Core resumed the same
+  native thread and completed both commands/final reply. Installed
+  `codex --profile chatgpt exec` also completed two native commands and exact
+  readback/reply. Its initial profile now advertises native tool search, reducing
+  eager tools from220 to16 while leaving existing plugin configuration intact.
+  A90,000-character native context passed11 acknowledged setup packets before the
+  real task, then completed the same two-command loop. Whole schemas and ordered
+  lossless instruction/message fragments are retained; subsequent requests send
+  only native context additions and changed definitions. Virtualized DOM code
+  blocks are matched by correlation instead of index. Actual upstream TUI /model
+  displayed ChatGPT / Instant under this configuration profile.
+  The user prefers eventual normal model selection; --profile chatgpt is accepted
+  as the current qualification workflow. Normal /model provider switching remains
+  a later integration task, not a completed behavior. This is an opt-in upstream
+  configuration profile, separate from Manager login
+  accounts. Current0.161 uses chatgpt.config.toml, not a legacy inline profiles
+  table. Base config hashes stay unchanged; ordinary Codex routing and signed
+  production binaries remain stable49. Local relay authentication is private and
+  command-backed, with PID/start/image and loopback checks. Restarting the trial
+  changes its port/capability and requires refreshing the marked trial profile.
+  The GUI/controller and adapter must remain running; no boot service or second
+  production launcher is installed. The working checkout stays under TMPDIR;
+  candidate login and aggregate proof stay in private XDG data/cache.
+  Clear send failures now use the app's Retry control with1/2-second backoff and
+  at most two extra attempts. Cancellation, already received correlated replies
+  and ambiguous delivery prevent retry. Bounded retries and their failure policy
+  have protocol tests; real induced UI Retry recovery is still unqualified.
+  Capability-free/browser-origin HTTP probes returned401 and an active second
+  native lane returned409 without a model request. Concurrent-request reservation
+  now begins before body parsing; malformed requests release it. Only one physical
+  desktop lane is supported; cross-session parallelism and compaction are not
+  production-admitted. Text, advertised function/custom tools and native search
+  wire mapping are present; image/file/audio context is refused. Native discovery
+  result/action acceptance, longer contexts and update/reboot lifecycle remain
+  separate gates. Cancellation retires the interrupted ChatGPT temporary lane;
+  native resume replays its history into a fresh owned lane.
+  Proof: ~/.local/share/codex-web-experiment/native-provider/{installed-cli,
+  staged-cli,cancel-resume,tui,isolation,http-concurrency}-proof.json. Experimental
+  protocol tests9/49 assertions, profile/routing Python5+5 and repository Python
+  18+59 passed. Unchanged production Rust/release evidence above remains applicable;
+  no new signed production publication is claimed.
   User reports phone horizontal width still mismatched despite X11 480px proof;
-  that physical-layout issue is explicitly deferred until integration work.
-  Plus SIWC/public api.openai.com/v1/responses remains a separate qualification
-  track; no credential grant or successful inference has been established there.
+  that physical-layout issue remains explicitly deferred. Plus SIWC/public
+  api.openai.com/v1/responses remains a separate unauthenticated qualification
+  track; desktop success does not grant public API access.
