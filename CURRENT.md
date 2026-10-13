@@ -344,7 +344,7 @@ This repository carries no external workflow skill or model configuration.
 
 
 - Native Termux ChatGPT provider now has real experimental acceptance on
-  experiment/web-termux atb3a5415. The signed Linux app's actual ChatGPT / Chat / Instant
+  experiment/web-termux at3483d0a. The signed Linux app's actual ChatGPT / Chat / Instant
   surface supplies the backend; desktop Codex mode, a mock, extracted first-party
   token and public API-key inference are not substitutes. A private FD3/FD4 relay
   reuses the existing native Bun host. The local authenticated /v1/responses
@@ -361,7 +361,10 @@ This repository carries no external workflow skill or model configuration.
   real task, then completed the same two-command loop. Whole schemas and ordered
   lossless instruction/message fragments are retained; subsequent requests send
   only native context additions and changed definitions. Virtualized DOM code
-  blocks are matched by correlation instead of index. Actual upstream TUI /model
+  blocks are matched by correlation instead of index. Setup-ack and actual-work
+  instructions are separate. The sender waits for the app’s actual generation
+  and Send readiness; cleanup clears only an exactly matched own draft.
+  Actual upstream TUI /model
   displayed ChatGPT / Instant under this configuration profile.
   The user prefers eventual normal model selection; --profile chatgpt is accepted
   as the current qualification workflow. Normal /model provider switching remains
@@ -384,12 +387,18 @@ This repository carries no external workflow skill or model configuration.
   now begins before body parsing; malformed requests release it. Only one physical
   desktop lane is supported; cross-session parallelism and compaction are not
   production-admitted. Text, advertised function/custom tools and native search
-  wire mapping are present; image/file/audio context is refused. Native discovery
-  result/action acceptance, longer contexts and update/reboot lifecycle remain
-  separate gates. Cancellation retires the interrupted ChatGPT temporary lane;
+  wire mapping are present; image/file/audio context is refused. Actual native
+  catalog search now passes: a model-requested lookup returns
+  a correlated successful native result, nonempty loaded schemas and an exact
+  final nonce, with full permissions in the disposable qualification workspace.
+  CLI JSON omits search items; the probe observes the actual matched Responses
+  result rather than relying on CLI display. Discovered tool actions, longer
+  contexts and update/reboot lifecycle remain separate gates. Cancellation retires
+  the interrupted ChatGPT temporary lane;
   native resume replays its history into a fresh owned lane.
   Proof: ~/.local/share/codex-web-experiment/native-provider/{installed-cli,
-  staged-cli,cancel-resume,tui,isolation,http-concurrency}-proof.json. Experimental
+  staged-cli,cancel-resume,tool-search,tui,isolation,http-concurrency}-proof.json.
+  Experimental
   protocol tests9/49 assertions, profile/routing Python5+5 and repository Python
   18+59 passed. Unchanged production Rust/release evidence above remains applicable;
   no new signed production publication is claimed.
