@@ -4,7 +4,7 @@ import {pathToFileURL} from 'node:url';
 import {writeFileSync,readFileSync,readlinkSync,renameSync} from 'node:fs';
 import {randomBytes,timingSafeEqual} from 'node:crypto';
 import {DesktopChatTransport} from './desktop_response_transport.mjs';
-import {DesktopTranscript,validateEnvelope,validateTextContext} from './desktop_protocol.mjs';
+import {DesktopTranscript,validateEnvelope,validateTextContext,DesktopCompaction} from './desktop_protocol.mjs';
 const [candidate,desktopRoot,statePath]=process.argv.slice(2);
 process.umask(0o077);
 const source=resolve(candidate,'src');
@@ -13,9 +13,10 @@ const {AsyncEventQueue}=await import(pathToFileURL(join(source,'event-queue.ts')
 const {bridgeToResponsesSSE,formatErrorResponse}=await import(pathToFileURL(join(source,'bridge.ts')));
 const {namespacedToolName}=await import(pathToFileURL(join(source,'types.ts')));
 const {extractCodexTurnIdentityFromBody}=await import(pathToFileURL(join(source,'adapters/chatgpt-web/environment.ts')));
+const {SUMMARY_PREFIX}=await import(pathToFileURL(join(source,'responses/compaction.ts')));
 const token=randomBytes(32).toString('hex'),model='chatgpt-desktop/instant';
-const transport=new DesktopChatTransport(desktopRoot);let busy=false,owner,active=false,transcript=new DesktopTranscript();
-const report={actualChatMode:true,model,requests:0,modelRequestedTools:0,returnedNativeResults:0,completedReplies:0,submittedRequests:0,cancelledRequests:0,retryAttempts:0,contextPackets:0,modelRequestedSearches:0,returnedNativeSearchResults:0,nativeSearchResultErrors:0,nativeSearchLoadedTools:0};
+const transport=new DesktopChatTransport(desktopRoot);let busy=false,owner,active=false,transcript=new DesktopTranscript(),checkpoint=new DesktopCompaction(SUMMARY_PREFIX);
+const report={actualChatMode:true,model,requests:0,modelRequestedTools:0,returnedNativeResults:0,completedReplies:0,submittedRequests:0,cancelledRequests:0,retryAttempts:0,contextPackets:0,modelRequestedSearches:0,returnedNativeSearchResults:0,nativeSearchResultErrors:0,nativeSearchLoadedTools:0,compactionRequests:0,compactionSummaries:0,appliedCheckpoints:0};
 function save(){const temp=statePath+'.proof.'+randomBytes(6).toString('hex');writeFileSync(temp,JSON.stringify(report),{mode:0o600,flag:'wx'});renameSync(temp,statePath+'.proof');}
 const server=Bun.serve({hostname:'127.0.0.1',port:0,idleTimeout:0,maxRequestBodySize:2*1024*1024,async fetch(req){
  const auth=Buffer.from(req.headers.get('authorization')||''),expected=Buffer.from('Bearer '+token);
@@ -30,13 +31,15 @@ const server=Bun.serve({hostname:'127.0.0.1',port:0,idleTimeout:0,maxRequestBody
  if(!key){busy=false;return formatErrorResponse(400,'invalid_request_error','native_thread_identity_required');}
  if(owner&&key!==owner){
   if(active){busy=false;return formatErrorResponse(409,'invalid_request_error','desktop_thread_owner_conflict');}
-  transport.started=false;transport.lastCorrelation=undefined;transcript=new DesktopTranscript();
+  transport.started=false;transport.lastCorrelation=undefined;transcript=new DesktopTranscript();checkpoint=new DesktopCompaction(SUMMARY_PREFIX);
  }
+ if(checkpoint.consume(parsed.context.messages)){transcript=new DesktopTranscript();transport.started=false;transport.lastCorrelation=undefined;report.appliedCheckpoints++;}
  try{transcript.receive(parsed.context.messages);}catch{busy=false;return formatErrorResponse(400,'invalid_request_error','native_tool_result_mismatch');}
  owner=key;active=true;report.errorCode=null;
  report.requests++;report.contextChars=JSON.stringify(parsed.context).length;report.toolCount=parsed.context.tools?.length||0;report.instructionChars=(parsed.context.systemPrompt||[]).join('\n').length;report.hasNativeThreadKey=!!key;save();
  const queue=new AsyncEventQueue(),abort=new AbortController();req.signal.addEventListener('abort',()=>abort.abort(),{once:true});if(req.signal.aborted)abort.abort();
- const tools=(parsed.context.tools||[]).map(t=>({...t,wireName:namespacedToolName(t.namespace,t.name)}));
+ const compact=parsed._compactionRequest===true;if(compact)report.compactionRequests++;
+ const tools=(compact?[]:parsed.context.tools||[]).map(t=>({...t,wireName:namespacedToolName(t.namespace,t.name)}));
  const namespaceMap=new Map(tools.filter(t=>t.namespace).map(t=>[t.wireName,{namespace:t.namespace,name:t.name}]));
  const freeform=new Set(tools.filter(t=>t.freeform).map(t=>t.wireName)),toolSearch=new Set(tools.filter(t=>t.toolSearch).map(t=>t.wireName));
  const heartbeat=setInterval(()=>queue.push({type:'heartbeat'}),2000);
@@ -45,15 +48,17 @@ const server=Bun.serve({hostname:'127.0.0.1',port:0,idleTimeout:0,maxRequestBody
    report.returnedNativeResults=parsed.context.messages.filter(m=>m.role==='toolResult').length;const searches=parsed.context.messages.filter(m=>m.role==='toolResult'&&m.toolName==='tool_search');report.returnedNativeSearchResults=searches.length;report.nativeSearchResultErrors=searches.filter(m=>m.isError).length;report.nativeSearchLoadedTools=(Array.isArray(raw.input)?raw.input:[]).filter(m=>m.type==='tool_search_output').flatMap(m=>Array.isArray(m.tools)?m.tools:[]).reduce((n,t)=>n+(t.type==='namespace'&&Array.isArray(t.tools)?t.tools.length:1),0);save();
    const response=await transport.exchange({instructions:parsed.context.systemPrompt||[],messages:parsed.context.messages,tools},abort.signal,()=>{report.submittedRequests++;save();},()=>{report.retryAttempts++;save();},()=>{report.contextPackets++;save();});
    if(response.type==='tool'){
+    if(compact)throw Error('desktop_compaction_must_not_call_tools');
     const tool=validateEnvelope(response,tools);
     const callId='call_desktop_'+randomBytes(12).toString('hex');transcript.issue(callId);
     queue.push({type:'tool_call_start',id:callId,name:tool.wireName});
     queue.push({type:'tool_call_delta',arguments:tool.freeform?response.input:JSON.stringify(response.input)});queue.push({type:'tool_call_end'});report.modelRequestedTools++;if(tool.toolSearch)report.modelRequestedSearches++;
     queue.push({type:'done',endTurn:false});
    }else if(response.type==='final'&&typeof response.text==='string'){
+    if(compact){checkpoint.offer(response.text);report.compactionSummaries++;}
     queue.push({type:'text_delta',text:response.text,phase:'final_answer'});queue.push({type:'done',endTurn:true});report.completedReplies++;active=false;
    }else throw Error('invalid_desktop_envelope');
-  }catch(e){if(abort.signal.aborted)report.cancelledRequests++;active=false;transport.started=false;transport.lastCorrelation=undefined;transcript=new DesktopTranscript();report.errorCode=/^[a-z_]+$/.test(e.message)?e.message:'desktop_adapter_failed';queue.push({type:'error',message:report.errorCode,retryable:false});}
+  }catch(e){if(abort.signal.aborted)report.cancelledRequests++;active=false;transport.started=false;transport.lastCorrelation=undefined;transcript=new DesktopTranscript();checkpoint=new DesktopCompaction(SUMMARY_PREFIX);report.errorCode=/^[a-z_]+$/.test(e.message)?e.message:'desktop_adapter_failed';queue.push({type:'error',message:report.errorCode,retryable:false});}
   finally{clearInterval(heartbeat);save();queue.close();busy=false;}
  })();
  return new Response(bridgeToResponsesSSE(queue,model,namespaceMap,freeform,toolSearch,()=>abort.abort(),2000),{headers:{'Content-Type':'text/event-stream','Cache-Control':'no-store'}});

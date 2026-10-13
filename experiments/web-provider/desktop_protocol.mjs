@@ -24,7 +24,7 @@ export function validateEnvelope(response,tools){
 }
 
 export function validateTextContext(raw,parsed){
- if(parsed._compactionRequest)throw Error('desktop_compaction_unavailable');
+ if(parsed._compactionRequest&&parsed._compactionResponseFormat!=='message')throw Error('desktop_compaction_unavailable');
  const unsupported=new Set(['input_image','input_file','input_audio','image','audio','file']);
  for(const item of Array.isArray(raw.input)?raw.input:[]){
   for(const parts of [item.content,item.output]){
@@ -95,4 +95,19 @@ export function correlatedDesktopCode(codes,correlation){
   try{const v=JSON.parse(codes[i]);if(v.correlation===correlation&&['ack','tool','final'].includes(v.type))return codes[i];}catch{}
  }
  return '';
+}
+
+// Native Core owns history replacement; only the actual offered summary retires this epoch.
+export class DesktopCompaction{
+ constructor(prefix){this.prefix=prefix;this.expected=undefined;}
+ offer(summary){
+  if(typeof summary!=='string'||!summary.trim())throw Error('desktop_empty_compaction_summary');
+  this.expected=(this.prefix+'\n'+summary).trim();
+ }
+ consume(messages){
+  if(!this.expected)return false;
+  const matched=messages.some(m=>m.role==='user'&&(typeof m.content==='string'?m.content:Array.isArray(m.content)?m.content.filter(p=>p.type==='text').map(p=>p.text).join(''):'').trim()===this.expected);
+  if(matched)this.expected=undefined;
+  return matched;
+ }
 }

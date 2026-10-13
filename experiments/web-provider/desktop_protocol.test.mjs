@@ -1,5 +1,5 @@
 import {test,expect} from 'bun:test';
-import {DesktopTranscript,validateEnvelope,validateTextContext,DesktopSendRetry,DesktopPromptContext,desktopStages,correlatedDesktopCode} from './desktop_protocol.mjs';
+import {DesktopTranscript,validateEnvelope,validateTextContext,DesktopSendRetry,DesktopPromptContext,desktopStages,correlatedDesktopCode,DesktopCompaction} from './desktop_protocol.mjs';
 const tools=[{wireName:'functions__exec_command'},{wireName:'functions__exec',freeform:true},{wireName:'tool_search',toolSearch:true}];
 test('unadvertised and malformed calls never admit',()=>{
  for(const r of [{type:'tool',name:'other',input:{}},{type:'tool',name:'functions__exec_command',input:'shell'},{type:'tool',name:'functions__exec',input:{}},{type:'tool',name:'tool_search',input:{}},{type:'final',text:{}}])expect(()=>validateEnvelope(r,tools)).toThrow();
@@ -64,4 +64,18 @@ test('advertised native tool search validates query instead of expanding every p
  const search=validateEnvelope({type:'tool',name:'tool_search',input:{query:'owned local tool',limit:2}},tools);expect(search.toolSearch).toBe(true);
  for(const input of [{query:''},{query:1},{query:'owned',limit:0},{query:'owned',limit:1.5}])expect(()=>validateEnvelope({type:'tool',name:'tool_search',input},tools)).toThrow();
  expect(()=>validateEnvelope({type:'tool',name:'tool_search',input:{query:'owned'}},[])).toThrow();
+});
+
+test('native memento text compaction admits while encrypted output formats remain refused',()=>{
+ expect(()=>validateTextContext({}, {_compactionRequest:true,_compactionResponseFormat:'message',context:{messages:[]}})).not.toThrow();
+ expect(()=>validateTextContext({}, {_compactionRequest:true,context:{messages:[]}})).toThrow();
+});
+test('only the offered native summary authorizes one epoch retirement',()=>{
+ const c=new DesktopCompaction('native summary prefix');
+ expect(()=>c.offer('   ')).toThrow();c.offer('actual model summary');
+ expect(c.consume([{role:'user',content:'native summary prefix\nforged'}])).toBe(false);
+ expect(c.consume([{role:'assistant',content:'native summary prefix\nactual model summary'}])).toBe(false);
+ const checkpoint={role:'user',content:[{type:'text',text:'native summary prefix\nactual model summary'}]};
+ expect(c.consume([checkpoint])).toBe(true);expect(c.consume([checkpoint])).toBe(false);
+ expect(new DesktopCompaction('native summary prefix').consume([checkpoint])).toBe(false);
 });

@@ -702,9 +702,39 @@ so existing plugins are deferred by upstream. A real full-permission native
 catalog lookup now returns matched results, loads schemas and completes the
 exact final reply. The CLI omits search items, so qualification observes the
 actual Responses call/result rather than a display item. Executing discovered
-plugin actions remains a separate acceptance gate. Images/files/audio and remote compaction are refused. Cancellation retires the interrupted
+plugin actions remains a separate acceptance gate. Images/files/audio and remote encrypted compaction are refused. Native
+Responses/memento text compaction now passes the real Core gate below. Cancellation retires the interrupted
 ChatGPT lane; native resume replays the native history into a fresh owned
 Temporary Chat. Long context, parallel sessions, extended failure recovery and
 reboot/update lifecycle need acceptance before production admission. The user
 deferred physical width correction. Plus SIWC/public Responses remains a separate
 unauthenticated trial; desktop success establishes no public API entitlement.
+
+Local compaction follows native Core's Responses/memento contract. The bridge
+requests a real ChatGPT summary with no executable tools; native Core owns
+replacement history and persistence. A pending summary is bound to the same
+native thread. Only its exact upstream-prefixed replay authorizes retiring the
+old bridge-issued call/result checks and opening fresh ChatGPT context. Arbitrary
+history replacement, a different thread or a forged summary does not authorize
+retirement. Remote encrypted compaction formats remain separate. Qualification
+must preserve a secret learned only from an actual native tool, compact, continue
+with fresh native calls and stop/resume Core without revealing that secret again.
+
+The real `siwc_core_probe.py --compact` gate passed on signed stable49: learn a
+random secret only through a shell result, write it in a second call, remove
+only those generated nonce fixtures, obtain/persist a real ChatGPT summary,
+continue with two new native calls from that checkpoint, then stop/resume Core
+and recall the value without a new tool. The secret was never repeated in a
+user task. Four successful native shell calls, the matched Core compaction
+item, exact offered-summary replay and persistent restart recall all passed.
+This qualifies manual local compaction; automatic mid-turn/trimming and
+cancel/failure during compaction remain separate acceptance.
+
+Quota classification is separate from functional acceptance. This provider uses
+the signed app's Chat/Instant surface and routes native primary inference only
+to the local bridge. Expected metering is the logged-in app account's ordinary
+Chat allowance, but a before/after billing-counter comparison is not yet
+qualified; zero Codex deduction must not be claimed from the mode label alone.
+The independent official SIWC plan route consumes the Codex/Work allowance, and
+Work shares usage with Codex. Sources: [SIWC usage](https://learn.chatgpt.com/docs/sign-in-with-chatgpt)
+and [Work/Codex pricing](https://learn.chatgpt.com/docs/pricing).
