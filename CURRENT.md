@@ -273,7 +273,7 @@ This repository carries no external workflow skill or model configuration.
   launch. No user job was stopped to change execution mode.
 
 - Two independent official alternatives are prepared in experiment/web-termux
-  at76a7e4a.
+  at6bbb383.
   Signed Linux ARM64 desktop 26.1007.21434 installs in a Debian13/PRoot candidate
   under XDG cache; account data stays separately in
   ~/.local/share/codex-web-experiment/linux-desktop/home. The login page rendered
@@ -284,22 +284,33 @@ This repository carries no external workflow skill or model configuration.
   /oauth/authorize. An actual guest button click also identified the default
   chatgpt.com/codex/desktop-auth wrapper carrying authorize_url. Both paths are
   accepted now, with exactly one nested OpenAI target and no URL rewriting.
-  Four Android MIME/routing/target cases pass, including the panel helper under
-  candidate HOME. A private tint2 panel shows Browser, ChatGPT and clock; actual
-  X11 proof reserves 42px and maximizes the app in 480x743. Browser reopens the
-  validated pending URL from the temporary private root or the fixed homepage.
+  Five Android MIME/routing/target cases pass, including the panel helper under
+  candidate HOME and owned browser window selection. A private tint2 panel shows
+  Browser, ChatGPT and clock. Browser now opens candidate Debian Chromium in the
+  same Linux display, separate from the Android authentication handoff. Actual
+  panel clicks open one browser, reuse its same window and fit 480x743. Its
+  /root/browser-profile is separate from the app and existing browser accounts;
+  controller-owned browser processes are included in shutdown cleanup.
   Linux user login completed and candidate auth is ChatGPT with a Business-family
   team claim. The bundled Linux Core passed a real-service ephemeral turn in an
   isolated guest workspace: two successful shell calls wrote/read a correlated
   marker and the final model reply matched it. The owner-only aggregate is
   linux-desktop/guest-core-proof.json; test files/logs/processes were removed.
-  No ordinary Termux profile was imported. Desktop GUI reply/Work acceptance
-  remains pending, and recent app diagnostics still contain a runtime manifest
-  404. Guest Core proof does not establish its resolution. SIGTERM now enters
+  No ordinary Termux profile was imported. Actual native GUI input and visually
+  inspected distinct uppercase reply now pass, including on the current detached
+  controller. The ChatGPT task button returns from Chromium to the response.
+  Clipboard readback remains unaccepted. Desktop Work parity and runtime manifest
+  404 remain separate unresolved concerns; successful Core/GUI replies do not
+  establish complete product parity. SIGTERM now enters
   owned-process cleanup; four older orphan groups were safely stopped.
   Fresh notifications resolve the current endpoint at tap time and verify owner
-  PID/start/executable. Trials expire after at most one hour and retain account
-  data; restart the owned trial before sending a new alert.
+  PID/start/executable. Default seconds=0 now keeps the authorized interactive
+  desktop open until the app/controller closes; positive bounds up to 3600 still
+  support disposable trials. The start action detaches the same controller from
+  tool-command lifetime after a previous foreground owner vanished and left its
+  children alive. Old owned orphan groups and unused private screens were safely
+  cleaned. No new system service or global launcher was added. Browser aggregate
+  proof is linux-desktop/browser-panel-qualification.json; viewer HTTP 200 passes.
   Native SIWC public-client qualification has a separate loopback consent page
   and owner-only records in ~/.local/share/codex-web-experiment/siwc. It uses the
   unmodified official devkit OAuth/SSE modules, with the official guide's 0600
