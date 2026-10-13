@@ -384,18 +384,36 @@ This repository carries no external workflow skill or model configuration.
   catalog lookup/tool execution and automatic compaction plus four native calls
   and restart/resume passed with the route-aware cursor. Live draft protection
   refused replay before sending and preserved the generated draft fixture.
-  Account/multi-model selection and whole-app restart remain distinct acceptance;
-  a synthetic route transition test is not an entitlement or cache-hit proof.
+  Account/multi-model selection remains distinct acceptance; a synthetic route
+  transition test is not an entitlement or cache-hit proof. Bounded adapter and
+  whole-controller process restart now pass actual installed CLI tool turns.
   This is an opt-in upstream
   configuration profile, separate from Manager login
   accounts. Current0.161 uses chatgpt.config.toml, not a legacy inline profiles
   table. Base config hashes stay unchanged; ordinary Codex routing and signed
   production binaries remain stable49. Local relay authentication is private and
-  command-backed, with PID/start/image and loopback checks. Restarting the trial
-  changes its port/capability and requires refreshing the marked trial profile.
-  The GUI/controller and adapter must remain running; no boot service or second
-  production launcher is installed. The working checkout stays under TMPDIR;
-  candidate login and aggregate proof stay in private XDG data/cache.
+  command-backed, with PID/start/image and loopback checks. The opt-in auth command
+  now serializes bounded on-demand GUI/adapter bootstrap. Its address/capability
+  stay fixed across restarts; no profile rewrite is required. Runtime/source/Bun,
+  pinned exported PRoot and noVNC assets live in ~/.local/lib/codex-web-experiment;
+  runtime.json in private native-provider data is the installation authority.
+  Only transient GUI sockets/control roots remain in TMPDIR. Reinstall reuses
+  verified permanent dependencies after temporary checkouts disappear. No boot
+  service or second production launcher is installed. Base config, marked trial
+  config and auth hashes stay unchanged through faults. Android denies /proc/net
+  listener inspection, so fresh HMAC readiness challenges prove possession before
+  transmitting the bearer; foreign listeners receive no capability. The bind
+  probe uses SO_REUSEADDR to distinguish ordinary TIME_WAIT from a live owner.
+  Six concurrent starts, adapter termination/profile recovery and whole-controller
+  termination/recovery each passed, with actual native write/read calls. Proof is
+  native-provider/{lifecycle,lifecycle-migration}-proof.json. Physical phone reboot,
+  hours-long load and expired-login recovery remain distinct qualification. After
+  learning a secret solely through a real tool result, removing its original
+  fixtures, compacting and running two more native shell calls, a new Core resumed
+  the checkpoint. The owned Linux controller was then stopped: the same living
+  adapter recovered the app and recalled the secret without another shell call.
+  lifecycle-checkpoint-proof.json confirms four native calls, actual committed
+  summary and checkpoint survival through both Core and whole-app restart.
   Clear send failures now use the app's Retry control with1/2-second backoff and
   at most two extra attempts. Cancellation, already received correlated replies
   and ambiguous delivery prevent retry. Bounded retries and their failure policy
@@ -429,14 +447,15 @@ This repository carries no external workflow skill or model configuration.
   passes: installed --profile chatgpt performs native catalog search, executes
   the returned read-only GitHub repository metadata tool for humtr/codex and
   receives the real result/final reply. Image/file/audio support, hours-long load
-  and update/reboot lifecycle remain separate gates. Cancellation retires
+  and physical phone reboot remain separate gates. Process lifecycle passes above.
+  Cancellation retires
   the interrupted ChatGPT temporary lane;
   native resume replays its history into a fresh owned lane.
   Proof: ~/.local/share/codex-web-experiment/native-provider/{installed-cli,
   staged-cli,cancel-resume,compact,auto-compact,mid-turn-compact,interrupt-compact,
   failed-compact,tool-search,discovered-tool,tui,isolation,http-concurrency}-proof.json.
   Experimental
-  protocol tests17/83 assertions, profile/routing Python5+5 and repository Python
+  protocol tests18/85 assertions, lifecycle/profile/routing Python12+5 and repository Python
   18+59 passed. Unchanged production Rust/release evidence above remains applicable;
   no new signed production publication is claimed.
   User reports phone horizontal width still mismatched despite X11 480px proof;
