@@ -344,7 +344,7 @@ This repository carries no external workflow skill or model configuration.
 
 
 - Native Termux ChatGPT provider now has real experimental acceptance on
-  experiment/web-termux at40008b0. The signed Linux app's actual ChatGPT / Chat / Instant
+  experiment/web-termux at6a1715e. The signed Linux app's actual ChatGPT / Chat / Instant
   surface supplies the backend; desktop Codex mode, a mock, extracted first-party
   token and public API-key inference are not substitutes. A private FD3/FD4 relay
   reuses the existing native Bun host. The local authenticated /v1/responses
@@ -368,7 +368,25 @@ This repository carries no external workflow skill or model configuration.
   displayed ChatGPT / Instant under this configuration profile.
   The user prefers eventual normal model selection; --profile chatgpt is accepted
   as the current qualification workflow. Normal /model provider switching remains
-  a later integration task, not a completed behavior. This is an opt-in upstream
+  a later integration task, not a completed behavior. The required order is to
+  complete durable --profile bootstrap/recovery, retain it as fallback, then
+  integrate /model family selection and each actually supported effort/Pro mode.
+  GPT-6 Sol, GPT-5.6 Sol and GPT-6 Pro are requested examples, not yet verified
+  app entitlements. Instant is a mode, not a substitute for a family selector.
+  The continuation architecture keeps Core history/checkpoints authoritative and
+  one disposable adapter cursor. Route/account/model/effort or verified connection
+  generation changes require replay; unchanged owned context receives deltas.
+  Server KV hit/miss/unknown remains independent from correctness and local context
+  estimates. Scenario serialization costs and native/desktop boundaries live in
+  the experiment README/SPEC. The current route now refuses unqualified model,
+  effort and Pro tuples before inference instead of ignoring requested effort.
+  Live unsupported tuples returned400 without an inference request; actual
+  catalog lookup/tool execution and automatic compaction plus four native calls
+  and restart/resume passed with the route-aware cursor. Live draft protection
+  refused replay before sending and preserved the generated draft fixture.
+  Account/multi-model selection and whole-app restart remain distinct acceptance;
+  a synthetic route transition test is not an entitlement or cache-hit proof.
+  This is an opt-in upstream
   configuration profile, separate from Manager login
   accounts. Current0.161 uses chatgpt.config.toml, not a legacy inline profiles
   table. Base config hashes stay unchanged; ordinary Codex routing and signed
@@ -418,7 +436,7 @@ This repository carries no external workflow skill or model configuration.
   staged-cli,cancel-resume,compact,auto-compact,mid-turn-compact,interrupt-compact,
   failed-compact,tool-search,discovered-tool,tui,isolation,http-concurrency}-proof.json.
   Experimental
-  protocol tests13/65 assertions, profile/routing Python5+5 and repository Python
+  protocol tests17/83 assertions, profile/routing Python5+5 and repository Python
   18+59 passed. Unchanged production Rust/release evidence above remains applicable;
   no new signed production publication is claimed.
   User reports phone horizontal width still mismatched despite X11 480px proof;
