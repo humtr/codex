@@ -103,11 +103,11 @@ export class DesktopAppTransport{
     const prompt=desktopPrompt(stage,correlation);
     attempted=true;
     const submitted=await client.evaluate(expression((key,lane,prompt,model)=>{
-     const s=window[key],l=s.lanes.get(lane);l.pending=true;l.error=false;l.controller=new AbortController();
+     const s=window[key],l=s.lanes.get(lane);l.pending=true;l.submitted=false;l.acceptedAt=undefined;l.error=false;l.controller=new AbortController();
      // Omit conversationOrigin: the ordinary Chat origin is null. 'chat' is
      // not an accepted wire origin. The app constructs the complete request.
      l.submission=s.m.yRt(s.scope,{conversationId:l.id,parentMessageId:l.parent,prompt,...model,isTemporaryChat:true,requireResponseAcceptance:true,startupSignal:l.controller.signal})
-      .then(result=>{l.pending=false;l.submitted=!!result;return !!result;},()=>{l.pending=false;l.error=true;return false;});
+      .then(result=>{l.pending=false;l.submitted=!!result;if(result)l.acceptedAt=Date.now();return !!result;},()=>{l.pending=false;l.error=true;return false;});
      return true;
     },key,this.lane,prompt,internalModel(route)));
     if(!submitted)throw Error('desktop_internal_submit_failed');
@@ -122,10 +122,10 @@ export class DesktopAppTransport{
       // Reading only this owned conversation; old/setup envelopes cannot
       // satisfy a later request because the exact correlation is required.
       const replies=messages.filter(m=>m.status==='finished_successfully').map(m=>({id:m.id,text:m.content?.parts?.filter(p=>typeof p==='string').join('')||''})).filter(m=>m.text.includes(correlation));
-      return {pending:l.pending,submitted:l.submitted,error:l.error,codes:replies.map(m=>m.text),parents:replies.map(m=>m.id)};
+      return {pending:l.pending,submitted:l.submitted,acceptedAt:l.acceptedAt,error:l.error,codes:replies.map(m=>m.text),parents:replies.map(m=>m.id)};
      },key,this.lane,correlation));
      if(state.missing||state.error)throw Error('desktop_internal_submit_failed');
-     if(state.submitted&&!acknowledged){acknowledged=true;if(stage.phase==='request')onSubmitted();}
+     if(state.submitted&&!acknowledged){acknowledged=true;if(stage.phase==='request')onSubmitted({acceptedAt:state.acceptedAt});}
      const candidates=state.codes.flatMap(text=>{const blocks=[...text.matchAll(/```(?:json)?\s*([\s\S]*?)```/g)].map(m=>m[1]);return blocks.length?blocks:[text];});
      const code=correlatedDesktopCode(candidates,correlation);
      let value;try{value=JSON.parse(code);}catch{}
