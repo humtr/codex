@@ -13,10 +13,10 @@ index 206171b..0915019 100644
  mod clipboard;
 diff --git a/codex-rs/tui/src/app/chat_model_reentry.rs b/codex-rs/tui/src/app/chat_model_reentry.rs
 new file mode 100644
-index 0000000..24c6c7c
+index 0000000..a6bf043
 --- /dev/null
 +++ b/codex-rs/tui/src/app/chat_model_reentry.rs
-@@ -0,0 +1,378 @@
+@@ -0,0 +1,401 @@
 +//! Re-enter the same durable thread because upstream provider updates are launch-scoped.
 +use super::App;
 +use crate::app_server_session::AppServerSession;
@@ -71,11 +71,7 @@ index 0000000..24c6c7c
 +        })
 +}
 +fn safe_profile(profile: &str) -> bool {
-+    profile.len() <= 64
-+        && !profile.is_empty()
-+        && profile
-+            .bytes()
-+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
++    profile.parse::<codex_config::ProfileV2Name>().is_ok()
 +}
 +
 +pub(super) async fn prepare(
@@ -98,7 +94,7 @@ index 0000000..24c6c7c
 +    };
 +    let config = app.chat_widget.config_ref();
 +    let effort = effort.unwrap_or(ReasoningEffort::None);
-+    if !termux_chat_models::switch_required(&config.model_provider_id, &model)
++    if !termux_chat_models::needs_reentry(&config.model_provider_id, &model)
 +        || config
 +            .config_layer_stack
 +            .required_model_provider()
@@ -120,8 +116,9 @@ index 0000000..24c6c7c
 +        return None;
 +    }
 +    let entering = model.starts_with("chatgpt-desktop/");
-+    let saved = if entering {
-+        config_profile(config)
++    let current_profile = config_profile(config);
++    let saved = if current_profile.as_deref() != Some("chatgpt") {
++        current_profile.clone()
 +    } else {
 +        std::env::var("CODEX_CHAT_RETURN_PROFILE").ok()
 +    };
@@ -132,7 +129,7 @@ index 0000000..24c6c7c
 +        return None;
 +    }
 +    let mut args = Vec::new();
-+    if entering {
++    if entering && current_profile.as_deref() == Some("chatgpt") {
 +        args.extend(["--profile".into(), "chatgpt".into()]);
 +    } else if let Some(profile) = &saved {
 +        args.extend(["--profile".into(), profile.clone()]);
@@ -147,30 +144,56 @@ index 0000000..24c6c7c
 +                    key.as_str(),
 +                    "model"
 +                        | "model_provider"
-+                        | "model_providers"
 +                        | "model_catalog_json"
 +                        | "model_reasoning_effort"
 +                        | "profile"
++                        | "sandbox_mode"
++                        | "default_permissions"
 +                ) {
 +                    args.extend(["-c".into(), format!("{key}={value}")]);
 +                }
 +            }
 +        }
 +    }
-+    let Some(permission) = config.permissions.active_permission_profile() else {
-+        app.chat_widget.add_error_message(
-+            "Current permission identity must be preserved before switching provider.".into(),
-+        );
-+        return None;
++    if entering {
++        // Keep the selected user configuration and add only the installed route.
++        // Named permission definitions, MCP settings and secrets stay in files.
++        let routing = termux_chat_models::installed_routing(config)?;
++        let provider = routing
++            .get("model_providers")?
++            .get(termux_chat_models::PROVIDER)?;
++        args.extend([
++            "-c".into(),
++            format!("model_provider={:?}", termux_chat_models::PROVIDER),
++            "-c".into(),
++            format!("model_catalog_json={}", routing.get("model_catalog_json")?),
++            "-c".into(),
++            format!(
++                "model_providers.{}={provider}",
++                termux_chat_models::PROVIDER
++            ),
++        ]);
++    }
++    let permission_flag = if let Some(permission) = config.permissions.active_permission_profile() {
++        format!(
++            "default_permissions={}",
++            serde_json::to_string(&permission.id).ok()?
++        )
++    } else {
++        use codex_protocol::protocol::SandboxPolicy;
++        let mode = match config.legacy_sandbox_policy() {
++            SandboxPolicy::DangerFullAccess => "danger-full-access",
++            SandboxPolicy::WorkspaceWrite { .. } => "workspace-write",
++            SandboxPolicy::ReadOnly { .. } => "read-only",
++            _ => return None,
++        };
++        format!("sandbox_mode={mode:?}")
 +    };
 +    let policy = toml::Value::try_from(config.permissions.approval_policy.value()).ok()?;
 +    let reviewer = toml::Value::try_from(config.approvals_reviewer).ok()?;
 +    args.extend([
 +        "-c".into(),
-+        format!(
-+            "default_permissions={}",
-+            serde_json::to_string(&permission.id).ok()?
-+        ),
++        permission_flag,
 +        "-c".into(),
 +        format!("approval_policy={policy}"),
 +        "-c".into(),
@@ -439,7 +462,7 @@ index 4e7a525..e98de3d 100644
      /// Apply a final Astra picker action and offer the flourish only if it changed the model on
      /// its original task. Automatic model updates do not use this event.
 diff --git a/codex-rs/tui/src/chatwidget/model_popups.rs b/codex-rs/tui/src/chatwidget/model_popups.rs
-index 03efe31..54c333b 100644
+index 03efe31..b0c3317 100644
 --- a/codex-rs/tui/src/chatwidget/model_popups.rs
 +++ b/codex-rs/tui/src/chatwidget/model_popups.rs
 @@ -80,6 +80,8 @@ impl ChatWidget {
@@ -447,7 +470,7 @@ index 03efe31..54c333b 100644
  
      pub(crate) fn open_model_popup_with_presets(&mut self, presets: Vec<ModelPreset>) {
 +        #[cfg(unix)]
-+        let presets=crate::termux_chat_models::augment(&self.config,presets);
++        let presets = crate::termux_chat_models::augment(&self.config, presets);
          if self.restrict_model_picker_to_luna_reserve() {
              self.open_luna_reserve_model_popup(presets, MODEL_SELECTION_VIEW_ID);
              return;
@@ -456,32 +479,46 @@ index 03efe31..54c333b 100644
          view_id: &'static str,
      ) {
 +        #[cfg(unix)]
-+        let presets=crate::termux_chat_models::augment(&self.config,presets);
-+        let presets:Vec<_>=presets.into_iter().filter(|m|m.show_in_picker).collect();
++        let presets = crate::termux_chat_models::augment(&self.config, presets);
++        let presets: Vec<_> = presets.into_iter().filter(|m| m.show_in_picker).collect();
          if presets.is_empty() {
              self.bottom_pane.dismiss_view_by_id(view_id);
              self.add_info_message(
-@@ -296,6 +301,10 @@ impl ChatWidget {
+@@ -296,6 +301,20 @@ impl ChatWidget {
          effort_for_action: Option<ReasoningEffortConfig>,
          should_prompt_plan_mode_scope: bool,
      ) -> Vec<SelectionAction> {
 +        #[cfg(unix)]
-+        if crate::termux_permissions::enabled() && crate::termux_chat_models::switch_required(&self.config.model_provider_id,&model_for_action) {
-+            return vec![Box::new(move |tx|tx.send(AppEvent::SelectChatModelProvider {model:model_for_action.clone(),effort:effort_for_action.clone()}))];
++        if crate::termux_permissions::enabled()
++            && crate::termux_chat_models::needs_reentry(
++                &self.config.model_provider_id,
++                &model_for_action,
++            )
++        {
++            return vec![Box::new(move |tx| {
++                tx.send(AppEvent::SelectChatModelProvider {
++                    model: model_for_action.clone(),
++                    effort: effort_for_action.clone(),
++                })
++            })];
 +        }
          let warning = effort_for_action
              .as_ref()
              .and_then(|effort| self.ultra_reasoning_concurrency_warning(effort));
 diff --git a/codex-rs/tui/src/chatwidget/session_model_selection.rs b/codex-rs/tui/src/chatwidget/session_model_selection.rs
-index ac9b5c8..95fc968 100644
+index ac9b5c8..ebdcad9 100644
 --- a/codex-rs/tui/src/chatwidget/session_model_selection.rs
 +++ b/codex-rs/tui/src/chatwidget/session_model_selection.rs
-@@ -47,6 +47,8 @@ impl ChatWidget {
+@@ -47,6 +47,12 @@ impl ChatWidget {
          model: String,
          effort: Option<ReasoningEffortConfig>,
      ) -> Option<SelectionSecondaryAction> {
 +        #[cfg(unix)]
-+        if crate::termux_permissions::enabled() && crate::termux_chat_models::switch_required(&self.config.model_provider_id,&model) { return None; }
++        if crate::termux_permissions::enabled()
++            && crate::termux_chat_models::needs_reentry(&self.config.model_provider_id, &model)
++        {
++            return None;
++        }
          // Reserve selections are already session-only.
          if model == LUNA_RESERVE_MODEL {
              return None;
@@ -511,10 +548,10 @@ index 857bb7c..f1c4d23 100644
                  token_usage: TokenUsage::default(),
 diff --git a/codex-rs/tui/src/termux_chat_models.rs b/codex-rs/tui/src/termux_chat_models.rs
 new file mode 100644
-index 0000000..a657f6e
+index 0000000..35b4e3e
 --- /dev/null
 +++ b/codex-rs/tui/src/termux_chat_models.rs
-@@ -0,0 +1,212 @@
+@@ -0,0 +1,296 @@
 +//! Optional installed Chat catalog; ordinary upstream model actions remain intact.
 +use crate::legacy_core::config::Config;
 +use codex_protocol::openai_models::{ModelInfo, ModelPreset, ReasoningEffort};
@@ -563,8 +600,8 @@ index 0000000..a657f6e
 +    }
 +}
 +
-+pub(crate) fn switch_required(provider: &str, model: &str) -> bool {
-+    (provider == PROVIDER) != model.starts_with("chatgpt-desktop/")
++pub(crate) fn needs_reentry(provider: &str, model: &str) -> bool {
++    provider == PROVIDER || model.starts_with("chatgpt-desktop/")
 +}
 +
 +#[derive(Deserialize)]
@@ -572,7 +609,7 @@ index 0000000..a657f6e
 +    models: Vec<ModelInfo>,
 +}
 +
-+fn chat_catalog(config: &Config) -> Option<Vec<ModelPreset>> {
++pub(crate) fn installed_routing(config: &Config) -> Option<toml::Value> {
 +    let profile = String::from_utf8(private_bytes(
 +        &config.codex_home.join("chatgpt.config.toml"),
 +        65536,
@@ -582,9 +619,67 @@ index 0000000..a657f6e
 +        return None;
 +    }
 +    let value: toml::Value = profile.parse().ok()?;
++    checked_routing(value)
++}
++
++fn checked_routing(value: toml::Value) -> Option<toml::Value> {
 +    if value.get("model_provider")?.as_str()? != PROVIDER {
 +        return None;
 +    }
++    let provider = value.get("model_providers")?.get(PROVIDER)?.as_table()?;
++    // Only command-backed references enter argv, never a bearer or API key.
++    if provider.keys().any(|key| {
++        !matches!(
++            key.as_str(),
++            "name"
++                | "base_url"
++                | "wire_api"
++                | "requires_openai_auth"
++                | "supports_websockets"
++                | "request_max_retries"
++                | "stream_max_retries"
++                | "auth"
++        )
++    }) {
++        return None;
++    }
++    let auth = provider.get("auth")?.as_table()?;
++    if auth.keys().any(|key| {
++        !matches!(
++            key.as_str(),
++            "command" | "args" | "timeout_ms" | "cwd" | "refresh_interval_ms"
++        )
++    }) {
++        return None;
++    }
++    let args = auth.get("args")?.as_array()?;
++    if args.len() != 5
++        || args[0].as_str()? != "-B"
++        || args[2].as_str()? != "token"
++        || args[3].as_str()? != "--runtime"
++        || !Path::new(args[1].as_str()?).is_absolute()
++        || Path::new(args[1].as_str()?).file_name()? != "desktop_lifecycle.py"
++        || !Path::new(args[4].as_str()?).is_absolute()
++    {
++        return None;
++    }
++    let endpoint: url::Url = provider.get("base_url")?.as_str()?.parse().ok()?;
++    if endpoint.scheme() != "http"
++        || endpoint.host_str() != Some("127.0.0.1")
++        || endpoint.port().is_none()
++        || endpoint.path() != "/v1"
++        || !endpoint.username().is_empty()
++        || endpoint.password().is_some()
++        || endpoint.query().is_some()
++        || endpoint.fragment().is_some()
++    {
++        return None;
++    }
++    Some(value)
++}
++
++fn chat_catalog(config: &Config) -> Option<Vec<ModelPreset>> {
++    let value = installed_routing(config)?;
 +    let path = Path::new(value.get("model_catalog_json")?.as_str()?);
 +    if !path.is_absolute() {
 +        return None;
@@ -676,6 +771,32 @@ index 0000000..a657f6e
 +mod tests {
 +    use super::*;
 +    #[test]
++    fn termux_chat_models_routing_carries_command_references_without_secret_headers() {
++        let mut value: toml::Value = toml::from_str(
++            r#"
++model_provider = "chatgpt_desktop_trial"
++model_catalog_json = "/owned/models.json"
++[model_providers.chatgpt_desktop_trial]
++base_url = "http://127.0.0.1:12345/v1"
++wire_api = "responses"
++requires_openai_auth = false
++[model_providers.chatgpt_desktop_trial.auth]
++command = "/owned/python"
++args = ["-B", "/owned/desktop_lifecycle.py", "token", "--runtime", "/owned/runtime.json"]
++"#,
++        )
++        .unwrap();
++        assert!(checked_routing(value.clone()).is_some());
++        value["model_providers"][PROVIDER]["http_headers"] = toml::Value::Table(toml::Table::new());
++        assert!(checked_routing(value.clone()).is_none());
++        value["model_providers"][PROVIDER]
++            .as_table_mut()
++            .unwrap()
++            .remove("http_headers");
++        value["model_providers"][PROVIDER]["base_url"] = "https://unowned.example/v1".into();
++        assert!(checked_routing(value).is_none());
++    }
++    #[test]
 +    fn termux_chat_models_routes_preserve_family_power_and_pro_is_separate() {
 +        for model in ["chatgpt-desktop/gpt-6", "chatgpt-desktop/gpt-5.6-sol"] {
 +            for effort in [
@@ -706,10 +827,10 @@ index 0000000..a657f6e
 +            "chatgpt-desktop/gpt-6-sol",
 +            &ReasoningEffort::None
 +        ));
-+        assert!(switch_required("openai", "chatgpt-desktop/gpt-6"));
-+        assert!(switch_required(PROVIDER, "gpt-6.1-sol"));
-+        assert!(!switch_required(PROVIDER, "chatgpt-desktop/gpt-5.6-sol"));
-+        assert!(!switch_required("openai", "gpt-6.1-sol"));
++        assert!(needs_reentry("openai", "chatgpt-desktop/gpt-6"));
++        assert!(needs_reentry(PROVIDER, "gpt-6.1-sol"));
++        assert!(needs_reentry(PROVIDER, "chatgpt-desktop/gpt-5.6-sol"));
++        assert!(!needs_reentry("openai", "gpt-6.1-sol"));
 +    }
 +    #[test]
 +    fn termux_chat_models_private_catalog_refuses_symlink_nonprivate_and_oversize() {

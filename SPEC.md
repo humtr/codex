@@ -16,6 +16,12 @@ update authority is maintained.
   frontend with embedded upstream execution. Explicit remote/executor routing,
   unsupported workspace flags and noninteractive commands retain their ordinary
   runtime path. An optional frontend is never required for Core operation.
+  The optional marked ChatGPT model pilot keeps the selected configuration
+  profile, home, permissions/reviewer and durable thread. Chat model/effort
+  choices apply to the current session through Core re-entry and never persist
+  a Chat slug into an ordinary Codex default. The command-backed provider stays
+  owned by the marked standalone profile; only its nonsecret routing references
+  enter invocation overrides. The standalone --profile chatgpt remains available.
   An optional source-built Manager TUI is the third signed helper at `helpers/2`,
   identified by `termux-manager-tui-v1:UPSTREAM_VERSION`. The first two helpers
   retain the accepted browser identities. Its version must exactly match the

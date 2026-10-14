@@ -33,7 +33,7 @@ def sha(path):
         return hashlib.file_digest(f, 'sha256').hexdigest()
 
 
-def fixture(root, core, frontend):
+def fixture(root, core, frontend, named_permission=False):
     real_home = Path.home()
     activation = dict(line.split('=', 1) for line in
         (real_home / '.local/share/codex/core/activation-state').read_text().splitlines() if '=' in line)
@@ -105,6 +105,11 @@ def fixture(root, core, frontend):
         '[features]\nmemories = false\n[model_providers.openai]\n'
         'base_url = "http://127.0.0.1:9/v1"\nrequires_openai_auth = false\n')
     (home / '.codex/config.toml').chmod(0o600)
+    if named_permission:
+        (home / '.codex/owned-config.config.toml').write_text(
+            'default_permissions = "owned"\n[permissions.owned.filesystem]\n":root" = "write"\n'
+            '[permissions.owned.network]\nenabled = true\n')
+        (home / '.codex/owned-config.config.toml').chmod(0o600)
     selected_home = Path(os.environ.get('CODEX_HOME', real_home / '.codex'))
     profile = (selected_home / 'chatgpt.config.toml').read_text()
     assert profile.startswith('# codex-web-experiment ChatGPT profile begin\n')
@@ -119,16 +124,18 @@ def fixture(root, core, frontend):
     return home, prefix, env
 
 
-def probe(core, frontend):
+def probe(core, frontend, named_permission=False):
     with tempfile.TemporaryDirectory(prefix='chat-model-menu-', dir=os.environ['TMPDIR']) as tmp:
         root = Path(tmp)
-        home, prefix, env = fixture(root, core, frontend)
+        home, prefix, env = fixture(root, core, frontend, named_permission)
+        preserved = {p: sha(p) for p in (home / '.codex').glob('*.toml')}
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 40, 130, 0, 0))
         def session():
             os.setsid()
             fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
-        process = subprocess.Popen([str(prefix / 'bin/codex'), '--no-daemon', '--no-alt-screen'],
+        launch = ['--profile', 'owned-config'] if named_permission else ['--no-daemon']
+        process = subprocess.Popen([str(prefix / 'bin/codex'), *launch, '--no-alt-screen'],
             env=env, cwd=root / 'w', stdin=slave, stdout=slave, stderr=slave, preexec_fn=session)
         os.close(slave)
         def collect(seconds):
@@ -162,7 +169,9 @@ def probe(core, frontend):
             os.write(master, b'\x1b[H\r');entered = collect(15)
             assert process.poll() is None, 'chat_reentry_failed'
             argv = Path(f'/proc/{process.pid}/cmdline').read_bytes().split(b'\0')
-            assert b'chatgpt-desktop/gpt-6' in argv and b'chatgpt' in argv, 'chat_reentry_failed'
+            assert b'chatgpt-desktop/gpt-6' in argv and b'model_provider="chatgpt_desktop_trial"' in argv, 'chat_reentry_failed'
+            permission = b'default_permissions="owned"' if named_permission else b'sandbox_mode="danger-full-access"'
+            assert permission in argv and b'approvals_reviewer="user"' in argv and b'approval_policy="never"' in argv, 'permission_selection_changed'
             assert Path(f'/proc/{process.pid}/exe').resolve().name == '2', 'qualified_frontend_lost'
             files = list((home / '.codex/sessions').rglob('*.jsonl'))
             assert len(files) == 1, 'same_thread_not_preserved'
@@ -178,8 +187,10 @@ def probe(core, frontend):
             state = dict(part.split(b'=', 1) for part in Path(f'/proc/{process.pid}/environ').read_bytes().split(b'\0') if b'=' in part)
             assert state[b'CODEX_HOME'] == os.fsencode(home / '.codex')
             assert b'CODEX_CHAT_RETURN_PROFILE' not in state
+            assert all(sha(p) == digest for p, digest in preserved.items()), 'configuration_files_changed'
             return {'samePidAndPty': True, 'chatEntered': True, 'nativeReturned': True,
                 'sameHomeAndThread': True, 'qualifiedFrontendRetained': True,
+                'originalConfigurationPreserved': True, 'namedPermissionRequested': named_permission,
                 'noAuthCopied': True, 'modelInferenceSubmitted': False, 'proInference': False, 'productionChanged': False}
         finally:
             if process.poll() is None:
@@ -197,9 +208,10 @@ if __name__ == '__main__':
     parser.add_argument('--core', type=Path, required=True)
     parser.add_argument('--frontend', type=Path, required=True)
     parser.add_argument('--report', type=Path, required=True)
+    parser.add_argument('--named-permission', action='store_true')
     args = parser.parse_args()
     try:
-        report = probe(args.core, args.frontend)
+        report = probe(args.core, args.frontend, args.named_permission)
     except Exception as error:
         report = {'accepted': False, 'failureClass': type(error).__name__,
             'failureCode': str(error) if re.fullmatch('[a-z_]+', str(error)) else 'unclassified'}

@@ -953,11 +953,15 @@ reuses an already expanded verified model menu instead of toggling it closed.
 
 `model-menu.patch` is a separate frontend overlay on the accepted native.patch.
 It appends the installed marked Chat catalog to the upstream /model picker and
-retains the ordinary model/effort UI. Cross-provider choices use native durable
+retains the ordinary model/effort UI. Chat choices use native durable
 thread persistence, cleanup, then Core re-entry in the same home/window; pending
-input/tools/side conversations refuse. It restores the prior configuration
-profile when returning to a native model, and carries the active permission and
-reviewer. It does not pretend that upstream thread/settings/update can change
+input/tools/side conversations refuse. The selected configuration profile and
+its settings stay selected, including named permission definitions and MCP
+configuration. Only command-backed nonsecret Chat routing references enter
+overrides. Chat choices are session-only and never persist a Chat slug into an
+ordinary Codex default. Named or legacy permissions and the reviewer are carried
+explicitly; returning from standalone --profile chatgpt uses the original/base
+configuration. It does not pretend that upstream thread/settings/update can change
 provider. Native build, unit/lint and actual device transition remain required.
 `web-model-menu-native.yml` qualifies the exact official0.161 source plus both
 frontend patches without publishing or promoting a production runtime.
