@@ -377,6 +377,10 @@ This repository carries no external workflow skill or model configuration.
   are now distinct on the experiment branch. First repair actual model-use boundaries.
   The pinned bridge already contains full-mode MCP result continuation, which our
   adapter has not connected; targeted reuse takes priority over a new broker.
+  Ten further source comparisons support app-native submission plus targeted MCP
+  continuation as the current candidate, not wholesale launcher/runtime adoption.
+  Browserless Codex proxies and official SIWC use a different inference/allowance
+  route; no superior ordinary-Chat protocol or quota-saving measurement is proved.
   Then qualify native Chat tool-result continuation through the existing adapter
   before expanding its architecture. Detailed scope and the no-inference stage-cost
   measurement live in experiment/web-termux CURRENT.md. No provider/runtime changes
