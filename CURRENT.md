@@ -390,9 +390,20 @@ This repository carries no external workflow skill or model configuration.
   or new Chat inference are authorized by these review notes.
   The experiment source now repairs bounded identity/zstd HTTP decoding and
   pre-parser rejection of unreadable compaction. Actual Android offline HTTP,
-  merged-catalog and existing-broker IPC proofs pass. Native turn/interrupt only
-  closes the provider stream, so retained-turn MCP integration still needs an
-  explicit stop path. No installed runtime change or Chat inference was performed.
+  merged-catalog and existing-broker IPC proofs pass. Experiment678dbaa adds
+  upstream-resolved catalog transfer through Core's existing server coordinator;
+  ab35549 records actual Android admission with12 tools, content-bound reuse,
+  changed-catalog isolation, retained thread access and Manager owner discovery.
+  Native siblings/default sockets remain distinct, without duplicating the config
+  loader or routing native inference through the optional adapter. Local77 Python
+  and323 Rust tests pass (one existing ignored resolver smoke), plus fmt/Clippy.
+  Frontend native qualification38654727667 and actual TUI integration remain gates.
+  A second read-only native connection also observes the exact persisted turn
+  become interrupted during an owned local command, whose process exits; stop
+  sends no additional provider HTTP request. This control candidate is not wired
+  to MCP, and ephemeral threads reject the tested history APIs. Keep cancellation
+  behavior until those gaps are resolved. No installed runtime change or Chat
+  inference was performed; production remains stable51/provider46db05e.
 - `/model` is the primary opt-in selection; `--profile chatgpt` is its fallback.
   stable51 includes the qualified native menu and generic shared config projection.
   The provider remains an opt-in experiment, not a bundled Core dependency.
