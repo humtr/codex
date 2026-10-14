@@ -367,9 +367,20 @@ This repository carries no external workflow skill or model configuration.
   passes two real native guardian requests; the initial incomplete sibling stays
   failed evidence. No Pro inference or first-party token extraction occurred.
   The app/display remain dependencies. Generic shared-profile registration and
-  the model overlay are undergoing combined39-test native qualification;
-  signed stable50 and running clients remain the operating baseline until that
-  publication and bounded device activation pass.
+  the model overlay pass combined39-test native qualification38552383479 at
+  source5f8ff12. Real Android legacy/named model round trips use only the shared
+  registration, preserve configuration/permissions and return to the original
+  backend in the same PID/PTY/thread. Local full acceptance and hosted38552682462
+  pass atffc5bee; the immutable frontend input is pinned in the producer.
+  Installed provider6991e4e68429aad31ce9 (source3b1d9fa) passes native commands,
+  guardian and tool-search proofs. Six existing homes use the canonical private
+  core/config/profiles/chatgpt.config.toml. After owned app/adapter restart,
+  actual submission cancellation, cold native same-thread resume and two real
+  commands/final reply pass again. App-owned login remains separate from Codex
+  account profiles. Proofs: chat-internal-cancel-resume-retry.json and
+  chat-model-shared-device-{legacy,named}.json in the acceptance cache.
+  Signed stable50 and running clients remain the baseline until publication and
+  bounded device activation pass.
 - Native Termux ChatGPT provider has real experimental acceptance on
   experiment/web-termux at410231f. The signed Linux app's actual ChatGPT / Chat / Instant
   surface supplies the backend; desktop Codex mode, a mock, extracted first-party
