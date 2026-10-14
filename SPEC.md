@@ -30,6 +30,8 @@ update authority is maintained.
   no first-party bearer is extracted or substituted for Chat inference. Each
   native thread, including guardian children, owns a separate temporary Chat
   conversation and tool ledger. Different threads may generate concurrently;
+  Continuations explicitly parent the next submission to that lane's completed,
+  correlated assistant reply, never a global UI selection or another lane's node.
   duplicate requests for one thread refuse without replacing its active work.
   Cancellation affects only that owned conversation. Reconnecting or compaction
   may retire an owned cursor and replay Core's canonical context; no native tool

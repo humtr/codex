@@ -91,7 +91,7 @@ def probe(args):
             threading.Thread(target=backend.serve_forever,daemon=True).start();base_url=f'http://127.0.0.1:{backend.server_port}/v1'
         config=f'''model = {json.dumps(args.model)}
 model_provider = "openai_chatgpt_plan"
-model_reasoning_effort = {json.dumps("none" if desktop else "low")}
+model_reasoning_effort = {json.dumps((getattr(args,'effort',None) or 'none') if desktop else 'low')}
 approval_policy = "on-request"
 approvals_reviewer = "auto_review"
 sandbox_mode = "danger-full-access"
@@ -116,6 +116,14 @@ supports_websockets = false
 request_max_retries = 0
 stream_max_retries = 0
 '''
+        if desktop:
+            # Match the installed model's native catalog/search capabilities.
+            # An unknown model fallback eagerly expands unrelated schemas and
+            # does not exercise the actual installed provider configuration.
+            catalog = real_home/'.local/share/codex-web-experiment/native-provider/models.json'
+            assert catalog.is_file() and not catalog.is_symlink()
+            assert any(m['slug']==args.model for m in json.loads(catalog.read_text())['models'])
+            config='model_catalog_json = '+json.dumps(str(catalog))+'\n'+config
         (home/'.codex/config.toml').write_text(config)
         env={'HOME':str(home),'PREFIX':str(prefix),'PATH':str(prefix/'bin')+':'+str(host_prefix/'bin'),'TMPDIR':str(root/'t'),'LANG':'C.UTF-8','CODEX_HOME':str(home/'.codex'),'ACCESS_TOKEN':token,'SSL_CERT_FILE':str(prefix/'etc/tls/cert.pem'),'TERM':'xterm-256color','SHELL':str(host_prefix/'bin/bash')}
         process=subprocess.Popen([str(launcher),'app-server','--listen','stdio://'],env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,start_new_session=True)
@@ -364,6 +372,9 @@ stream_max_retries = 0
                 if args.interrupt_compact or args.failed_compact:report['realCoreToolLoopAccepted'] &= all(report.get(k) for k in ['faultCommittedNoSummary','faultHistorySurvivedRestart'])
             if args.account_free_wire:
                 report.update({'wireFailures':wire_failures,'correlatedToolOutputs':len(transcript.outputs),'accountFreeWireAccepted':report['turnCompleted'] and report['shellToolCompleted'] and len(transcript.outputs)==2 and not wire_failures})
+        except Exception as error:
+            error.probe_report = report.copy()
+            raise
         finally:
             if process.poll() is None:
                 process.stdin.close()
@@ -380,6 +391,7 @@ stream_max_retries = 0
 if __name__=='__main__':
     os.umask(0o077)
     parser=argparse.ArgumentParser();parser.add_argument('--connection',type=Path);parser.add_argument('--model',required=True);parser.add_argument('--report',type=Path,required=True);parser.add_argument('--app-name',required=True);parser.add_argument('--account-free-wire',action='store_true');parser.add_argument('--desktop-server',type=Path);parser.add_argument('--cancel-resume',action='store_true');parser.add_argument('--compact',action='store_true');parser.add_argument('--auto-compact',action='store_true');parser.add_argument('--interrupt-compact',action='store_true');parser.add_argument('--failed-compact',action='store_true');parser.add_argument('--mid-turn-compact',action='store_true');parser.add_argument('--restart-desktop',action='store_true')
+    parser.add_argument('--effort',choices=['none','medium','high','xhigh'])
     args=parser.parse_args();args.compact=args.compact or args.auto_compact or args.interrupt_compact or args.failed_compact or args.mid_turn_compact
     assert sum(bool(x) for x in (args.account_free_wire,args.connection,args.desktop_server))==1
     assert not(args.cancel_resume or args.compact) or args.desktop_server
@@ -390,7 +402,8 @@ if __name__=='__main__':
     try:report=probe(args)
     except Exception as error:
         import re
-        report={'realCoreToolLoopAccepted':False,'failureClass':type(error).__name__,'failureCode':str(error) if re.fullmatch('[a-z_]+',str(error)) else 'unclassified'}
+        report=getattr(error,'probe_report',{})
+        report.update({'realCoreToolLoopAccepted':False,'failureClass':type(error).__name__,'failureCode':str(error) if re.fullmatch('[a-z_]+',str(error)) else 'unclassified'})
         if isinstance(error,OSError):report.update({'failureErrno':error.errno,'failureFileName':Path(error.filename).name if error.filename else None})
         import traceback
         report['failureLocation']=[{'file':Path(f.filename).name,'line':f.lineno,'function':f.name} for f in traceback.extract_tb(error.__traceback__)][-5:]

@@ -67,6 +67,12 @@ export function internalModel(route){
  return {model:family+'-thinking',thinkingEffort:effort};
 }
 
+export function linkOwnedReply(key,lane,parent,correlation){
+ const s=window[key],l=s?.lanes.get(lane),m=l&&Object.values(s.scope.get(s.m.JRn,l.id)||{}).find(n=>n.message?.id===parent)?.message;
+ if(!m||m.author?.role!=='assistant'||m.status!=='finished_successfully'||!m.content?.parts?.some(p=>typeof p==='string'&&p.includes(correlation)))return false;
+ l.parent=parent;return true;
+}
+
 export class DesktopAppTransport{
  constructor(root){this.root=root;this.lane='lane_'+randomBytes(16).toString('hex');this.busy=false;this.retire();}
  retire(){this.started=false;this.context=undefined;this.generation=undefined;this.routeIdentity=undefined;this.reset=true;}
@@ -94,7 +100,7 @@ export class DesktopAppTransport{
      const s=window[key],l=s.lanes.get(lane);l.pending=true;l.error=false;l.controller=new AbortController();
      // Omit conversationOrigin: the ordinary Chat origin is null. 'chat' is
      // not an accepted wire origin. The app constructs the complete request.
-     l.submission=s.m.yRt(s.scope,{conversationId:l.id,prompt,...model,isTemporaryChat:true,requireResponseAcceptance:true,startupSignal:l.controller.signal})
+     l.submission=s.m.yRt(s.scope,{conversationId:l.id,parentMessageId:l.parent,prompt,...model,isTemporaryChat:true,requireResponseAcceptance:true,startupSignal:l.controller.signal})
       .then(result=>{l.pending=false;l.submitted=!!result;return !!result;},()=>{l.pending=false;l.error=true;return false;});
      return true;
     },key,this.lane,prompt,internalModel(route)));
@@ -109,14 +115,20 @@ export class DesktopAppTransport{
       const messages=Object.values(s.scope.get(s.m.JRn,l.id)||{}).map(n=>n.message).filter(m=>m?.author?.role==='assistant');
       // Reading only this owned conversation; old/setup envelopes cannot
       // satisfy a later request because the exact correlation is required.
-      const codes=messages.filter(m=>m.status==='finished_successfully').map(m=>m.content?.parts?.filter(p=>typeof p==='string').join('')||'').filter(t=>t.includes(correlation));
-      return {pending:l.pending,submitted:l.submitted,error:l.error,codes};
+      const replies=messages.filter(m=>m.status==='finished_successfully').map(m=>({id:m.id,text:m.content?.parts?.filter(p=>typeof p==='string').join('')||''})).filter(m=>m.text.includes(correlation));
+      return {pending:l.pending,submitted:l.submitted,error:l.error,codes:replies.map(m=>m.text),parents:replies.map(m=>m.id)};
      },key,this.lane,correlation));
      if(state.missing||state.error)throw Error('desktop_internal_submit_failed');
      if(state.submitted&&!acknowledged){acknowledged=true;if(stage.phase==='request')onSubmitted();}
      const candidates=state.codes.flatMap(text=>{const blocks=[...text.matchAll(/```(?:json)?\s*([\s\S]*?)```/g)].map(m=>m[1]);return blocks.length?blocks:[text];});
      const code=correlatedDesktopCode(candidates,correlation);
-     try{const value=JSON.parse(code);if(value.correlation===correlation){result=value;break;}}catch{}
+     let value;try{value=JSON.parse(code);}catch{}
+     if(value?.correlation===correlation){
+      const parent=state.parents[state.codes.findIndex(text=>text.includes(code))];
+      const linked=await client.evaluate(expression(linkOwnedReply,key,this.lane,parent,correlation));
+      if(!linked)throw Error('desktop_internal_parent_missing');
+      result=value;break;
+     }
      await delay(200);
     }
     if(!result)throw Error('desktop_response_timeout');
