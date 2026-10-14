@@ -1,10 +1,27 @@
-import {isGuardianContinuation,desktopOutputInstructions} from './desktop_protocol.mjs';
+import {isGuardianContinuation,desktopOutputInstructions,admitDesktopRequest,recordDesktopSubmission} from './desktop_protocol.mjs';
 import {desktopConnection} from './desktop_cdp.mjs';
 import {mkdtempSync,writeFileSync,readFileSync,readlinkSync,rmSync} from 'node:fs';
 import {join} from 'node:path';
 import {test,expect} from 'bun:test';
 import {DesktopTranscript,validateEnvelope,validateTextContext,DesktopSendRetry,DesktopPromptContext,desktopStages,correlatedDesktopCode,DesktopCompaction,desktopEstimatedUsage,markDesktopEstimatedUsage,validateDesktopRoute} from './desktop_protocol.mjs';
 const tools=[{wireName:'functions__exec_command'},{wireName:'functions__exec',freeform:true},{wireName:'tool_search',toolSearch:true}];
+test('setup submissions remain counted when their ACK fails; legacy work count stays separate',()=>{
+ const report={observedChatSubmissions:0,submittedContextRequests:0,submittedRequests:0,submittedProRequests:0,contextPackets:0,submissionSources:{app_accepted:0,ui_observed:0}};
+ recordDesktopSubmission(report,{phase:'context',source:'app_accepted'},{mode:'standard'});
+ expect(report.observedChatSubmissions).toBe(1);expect(report.submittedContextRequests).toBe(1);expect(report.contextPackets).toBe(0);expect(report.submittedRequests).toBe(0);
+ recordDesktopSubmission(report,{phase:'request',source:'ui_observed'},{mode:'standard'});
+ expect(report.observedChatSubmissions).toBe(2);expect(report.submittedRequests).toBe(1);expect(report.submittedProRequests).toBe(0);expect(report.submissionSources).toEqual({app_accepted:1,ui_observed:1});
+ const previous=JSON.stringify(report);expect(()=>recordDesktopSubmission(report,{phase:'request',source:'guess'},{mode:'standard'})).toThrow('invalid_desktop_submission');expect(JSON.stringify(report)).toBe(previous);
+});
+test('request admission distinguishes unsupported boundaries without leaking parser details',()=>{
+ const raw={model:'chatgpt-desktop/gpt-6',stream:true,input:[]};
+ const parse=()=>({context:{messages:[]}});
+ expect(admitDesktopRequest(raw,parse).route.family).toBe('GPT-6');
+ for(const [value,code] of [[null,'invalid_desktop_request'],[{...raw,model:'native'},'unsupported_desktop_route'],[{...raw,stream:false},'desktop_stream_required'],[{...raw,previous_response_id:'private'},'desktop_response_cursor_unavailable']])expect(()=>admitDesktopRequest(value,parse)).toThrow(code);
+ expect(()=>admitDesktopRequest(raw,()=>{throw Error('private authentication and conversation');})).toThrow('desktop_request_parse_failed');
+ expect(()=>admitDesktopRequest(raw,()=>{throw Error('Unsupported routed tool declaration');})).toThrow('desktop_tool_declaration_unsupported');
+ expect(()=>admitDesktopRequest(raw,()=>({...parse(),_opaqueMultiAgentV2Payload:true}))).toThrow('opaque_context_unavailable');
+});
 test('unadvertised and malformed calls never admit',()=>{
  for(const r of [{type:'tool',name:'other',input:{}},{type:'tool',name:'functions__exec_command',input:'shell'},{type:'tool',name:'functions__exec',input:{}},{type:'tool',name:'tool_search',input:{}},{type:'final',text:{}}])expect(()=>validateEnvelope(r,tools)).toThrow();
  expect(validateEnvelope({type:'tool',name:'functions__exec_command',input:{cmd:'owned'}},tools).wireName).toBe('functions__exec_command');
@@ -48,12 +65,27 @@ test('large setup is acknowledged in order with whole schemas and the actual tas
  const instructions=['original instructions'.repeat(2000)];const tools=Array.from({length:20},(_,i)=>({wireName:'native_'+i,parameters:{description:'schema'.repeat(600)}}));
  const previous={role:'user',content:'preserve 😀 all context '.repeat(2000)},work={role:'user',content:'actual task'};
  const stages=desktopStages({instructions,tools,messages:[previous,work]});
- expect(stages.length).toBeGreaterThan(3);expect(stages.at(-1)).toEqual({phase:'request',messages:[work]});expect(stages.slice(0,-1).every(s=>s.phase==='context')).toBe(true);
+ expect(stages.length).toBeGreaterThan(3);expect(stages.at(-1).phase).toBe('request');expect(stages.at(-1).messages.at(-1)).toEqual(work);expect(stages.slice(0,-1).every(s=>s.phase==='context')).toBe(true);
  expect(stages.flatMap(s=>s.tools||[])).toEqual(tools);
  const parts=kind=>stages.filter(s=>s.fragment?.kind===kind).map(s=>s.fragment.text).join('');
  expect(JSON.parse(parts('instructions'))).toEqual(instructions);expect(JSON.parse(parts('message'))).toEqual(previous);
- expect(stages.every(s=>JSON.stringify(s).length<40100)).toBe(true);
+ expect(stages.every(s=>JSON.stringify(s).length<=40000)).toBe(true);
  expect(()=>desktopStages({messages:[work],tools:[{wireName:'huge',parameters:{description:'x'.repeat(50000)}}]})).toThrow('desktop_tool_schema_too_large');
+});
+
+test('cold history packing reduces setup replies without dropping order or schemas',()=>{
+ const packet={instructions:['i'.repeat(1000)],tools:Array.from({length:5},(_,i)=>({wireName:'tool_'+i,description:'d'.repeat(1000),schema:{type:'object',properties:{}}})),messages:Array.from({length:24},(_,i)=>({role:i%2?'assistant':'user',content:'m'.repeat(1800)}))};
+ const stages=desktopStages(packet);expect(stages.length).toBe(2);expect(stages[0].phase).toBe('context');expect(stages[1].phase).toBe('request');
+ expect(stages.flatMap(s=>s.instructions||[])).toEqual(packet.instructions);expect(stages.flatMap(s=>s.tools||[])).toEqual(packet.tools);expect(stages.flatMap(s=>s.messages||[])).toEqual(packet.messages);
+ expect(stages.filter(s=>s.toolUpdate==='replace')).toHaveLength(1);expect(stages.every(s=>s.tools===undefined||s.tools.length>0)).toBe(true);expect(stages.every(s=>JSON.stringify(s).length<=40000)).toBe(true);
+});
+
+test('packed tool updates replace once then append; explicit empty reset is retained',()=>{
+ const tools=Array.from({length:8},(_,i)=>({wireName:'tool_'+i,description:'d'.repeat(220)}));
+ const stages=desktopStages({instructions:['i'.repeat(380)],tools,messages:[{role:'user',content:'work'}]},700);
+ expect(stages.flatMap(s=>s.tools||[])).toEqual(tools);expect(stages.filter(s=>s.tools!==undefined).map(s=>s.toolUpdate)).toEqual(['replace',...Array(stages.filter(s=>s.tools!==undefined).length-1).fill('append')]);
+ const reset=desktopStages({instructions:['i'.repeat(900)],tools:[],messages:[{role:'user',content:'work'}]},700);expect(reset.filter(s=>s.tools!==undefined)).toHaveLength(1);expect(reset.find(s=>s.tools!==undefined).tools).toEqual([]);expect(reset.find(s=>s.tools!==undefined).toolUpdate).toBe('replace');
+ expect(stages.every(s=>JSON.stringify(s).length<=700)).toBe(true);
 });
 
 test('current correlation survives virtualized or reordered code blocks without accepting echoed packets',()=>{

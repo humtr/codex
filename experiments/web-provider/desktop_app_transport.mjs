@@ -125,7 +125,7 @@ export class DesktopAppTransport{
       return {pending:l.pending,submitted:l.submitted,acceptedAt:l.acceptedAt,error:l.error,codes:replies.map(m=>m.text),parents:replies.map(m=>m.id)};
      },key,this.lane,correlation));
      if(state.missing||state.error)throw Error('desktop_internal_submit_failed');
-     if(state.submitted&&!acknowledged){acknowledged=true;if(stage.phase==='request')onSubmitted({acceptedAt:state.acceptedAt});}
+     if(state.submitted&&!acknowledged){acknowledged=true;onSubmitted({phase:stage.phase,source:'app_accepted',acceptedAt:state.acceptedAt});}
      const candidates=state.codes.flatMap(text=>{const blocks=[...text.matchAll(/```(?:json)?\s*([\s\S]*?)```/g)].map(m=>m[1]);return blocks.length?blocks:[text];});
      const code=correlatedDesktopCode(candidates,correlation);
      let value;try{value=JSON.parse(code);}catch{}

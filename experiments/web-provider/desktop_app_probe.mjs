@@ -8,12 +8,12 @@ const payload=nonce=>({instructions:[],messages:[{role:'user',content:'Reply wit
 const nonces=[0,1].map(i=>'APP_'+i+'_'+randomBytes(8).toString('hex'));
 const lanes=nonces.map(()=>new DesktopAppTransport(session)),times=[{},{}];
 const responses=await Promise.all(lanes.map(async(lane,i)=>{
- const value=await lane.exchange(payload(nonces[i]),AbortSignal.timeout(180000),({acceptedAt})=>{times[i].submitted=acceptedAt;},()=>{},()=>{},chatModelRoute({model:'chatgpt-desktop/gpt-6',reasoning:{effort:'medium'}}));
+ const value=await lane.exchange(payload(nonces[i]),AbortSignal.timeout(180000),({phase,acceptedAt})=>{if(phase==='request')times[i].submitted=acceptedAt;},()=>{},()=>{},chatModelRoute({model:'chatgpt-desktop/gpt-6',reasoning:{effort:'medium'}}));
  times[i].completed=Date.now();return value.type==='final'&&value.text?.trim()===nonces[i];
 }));
 const overlapping=Math.max(...times.map(t=>t.submitted))<Math.min(...times.map(t=>t.completed));
 const cancelled=new DesktopAppTransport(session),survivor=new DesktopAppTransport(session),abort=new AbortController(),survivorNonce='SURVIVE_'+randomBytes(8).toString('hex');
-const cancelling=cancelled.exchange(payload('CANCEL_'+randomBytes(8).toString('hex')),abort.signal,()=>abort.abort()).then(()=>false,e=>abort.signal.aborted&&e.name==='AbortError');
+const cancelling=cancelled.exchange(payload('CANCEL_'+randomBytes(8).toString('hex')),abort.signal,({phase})=>{if(phase==='request')abort.abort();}).then(()=>false,e=>abort.signal.aborted&&e.name==='AbortError');
 const surviving=survivor.exchange(payload(survivorNonce),AbortSignal.timeout(130000));
 const [cancelledOwn,value]=await Promise.all([cancelling,surviving]);
 const survived=value.type==='final'&&value.text?.trim()===survivorNonce;

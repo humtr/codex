@@ -38,7 +38,8 @@ read-only repository call passes in wrlab. A controlled no-inference native cata
 comparison returns8 GitHub matches in wrlab and0 in szob; app login does not grant
 another native account's connector tools. Failed/timeout trials remain evidence.
 
-25 protocol/app tests and15 desktop/profile tests pass. GPT-6 Instant/Medium/High/
+29 protocol/app tests and15 desktop/profile tests pass for the current source.
+Packing/admission/accounting changes are not yet installed. GPT-6 Instant/Medium/High/
 Extra High actual tool loops pass; Pro inference is prohibited and was not sent.
 GPT-5.6 remains deferred. Automatic/fault compaction under the new internal path,
 multimodal input, hours-long load, physical reboot and phone layout remain separate
@@ -50,11 +51,13 @@ chat-final-medium-overlap-cancel.json and chat-final-installed-inventory.json.
 
 ## ChatGPT model errors: next work
 
-Status: unresolved; investigation only on 2026-10-14. User-visible failure:
+Status: runtime repair unresolved; controlled diagnosis and adapter changes on
+2026-10-14 are source-only. User-visible failure:
 `stream disconnected before completion: error sending request`. Device stable51
 and provider 0de70e3072a4b8e87a31/source 46db05e were inspected without changing
 runtime, configuration, conversations or authentication. The installed protocol,
-app transport, Responses server and profile source match the maintained files.
+app transport, Responses server and profile source matched the maintained files
+before this source change; installation remains unchanged.
 
 Confirmed observations:
 
@@ -65,6 +68,16 @@ Confirmed observations:
   captured. Do not assume a particular check failed from the generic code alone.
   Frontend picker visibility/provider selection does not prove that the backend
   loaded the intended model catalog and request capabilities.
+  The no-inference `native_catalog_request_probe.py` now reproduces this boundary
+  through the installed official Android backend in disposable homes: per-thread
+  catalog override still produces unknown-model metadata and an unsupported routed
+  `web_search` declaration (43,348 JSON characters in the owned fixture); the same
+  catalog loaded at server startup produces an admitted request (16,894 characters).
+  This proves a controlled mechanism, not the uncaptured historical rejected field.
+  Actual wire bodies are42,543 and16,387 bytes respectively; the character counts
+  above reserialize the owned JSON and are not the measured HTTP byte lengths.
+  Production model lookup ignores the per-thread `ModelsManagerConfig.model_catalog`;
+  frontend projection alone cannot repair the startup-scoped catalog.
 - At 13:26:59 UTC, the existing long thread's pre-turn ModelDownshift compaction
   sends model `gpt-6.1-sol` to the newly selected loopback Chat endpoint. The HTTP
   send fails (`is_timeout=false`, `is_connect=false`) and the backend records
@@ -78,6 +91,9 @@ Confirmed observations:
   the failure totals 2,277,814 bytes since the last compact; this is not a measured
   HTTP body. The ceiling is a confirmed limitation and a plausible contributor
   to the send failure, not a proven explanation of that exact failed request.
+  `desktop_server_admission_probe.py` reproduces both a header-only 413 and a
+  BrokenPipeError while sending an oversized body. The missing historical body
+  size remains unproved; the ceiling is unchanged pending handoff/cold-replay proof.
 - The adapter is alive and its read-only readiness response verifies against
   its existing private binding. Zero admitted-request/submission counters do not
   mean zero HTTP arrivals: the observed 400 occurs before admission accounting.
@@ -90,9 +106,14 @@ publish prompts, tool results, credentials or raw conversation records.
 
 Required follow-up, before claiming ordinary `/model` use is qualified:
 
-1. Trace model catalog/capability propagation into the shared backend and identify
-   the exact admission failure using metadata-only diagnostics. Verify a fresh
-   thread's real request shape and tools, not just menu/argv/thread routing.
+1. Apply selected metadata at the official backend startup boundary while preserving
+   native siblings' defaults and exact runtime ownership. Reuse Core's server path;
+   do not add an executor/model service or disable tools for fallback metadata.
+   Prefer a bounded catalog-specific startup scope to duplicating the upstream
+   config loader or patching pristine Core. Qualify catalog content changes, reuse
+   and retirement; a filename alone is insufficient and active siblings must survive.
+   Honoring config.model_catalog during upstream lookup is a smaller upstream fix,
+   not authority to source-build a parallel backend.
 2. Establish a compatible old-provider compaction/new-provider resume boundary
    for long histories, preserving canonical history, permissions and sibling
    routes. Do not bypass the defect by deleting history or silently truncating it.
@@ -106,10 +127,93 @@ Required follow-up, before claiming ordinary `/model` use is qualified:
    manual internal compaction and inference-free menu round trips retain their
    narrow scope; they are not proof for these failing combinations.
 
-Implementation and any real Chat inference trials are deferred. Explain their
-necessity and expected message submissions to the user before performing them.
+Runtime/catalog/compaction repair and real Chat inference remain deferred; this
+source change supplies admission/packing/accounting groundwork below. Explain
+trial necessity and expected submissions before performing real inference.
 Chat message submission/limit accounting is a separate review, not a diagnosis
 or resolution of these model-use failures.
+
+## ChatGPT provider cost and debt reduction
+
+The selected objective is to improve ChatGPT as a model inside local Codex with
+the least maintenance and message-submission cost. tdev progress/control proposals
+belong to a separate session; neither its runtime nor a new workflow controller,
+display or autonomous agent is a prerequisite for this provider.
+
+Current findings and source changes on 2026-10-14:
+
+- An offline synthetic packet of 50,410 bytes (five tool definitions, 24 history
+  messages and instructions) previously became27 stages:26 context ACKs and one
+  work request. Ordered packing now produces2 stages: one context ACK and one
+  work request. This evaluates the previous commit and current code on the identical
+  fixture using only `desktopStages`; no Chat message was submitted and no
+  quota was measured. Splitting every old message and issuing an empty tool-reset
+  ACK separately are avoidable submission overhead, not a provider requirement.
+- The signed app has `extraDeveloperInstructions`, `prependMessages` and a real
+  tool-result continuation export (`bRt`/`Nwi`). These are investigation candidates,
+  not acceptance. Its generated local function signatures are currently only
+  Work/Codex `handoff` and are empty in Temporary Chat; `Jui` supplies no arbitrary
+  local tool names. `toolOrigin` marks an SDK follow-up prompt, so changing the
+  author label alone does not establish native tool continuation or quota savings.
+- The installed payload already has one bundled wire bridge and one adapter.
+  UI fallback still carries a second submission/retry/ownership implementation;
+  noVNC/display control and numerous qualification sources are shipped alongside
+  inference code. Keep necessary signed-app/X dependencies until independently
+  qualified alternatives exist; a headless or token-extraction shortcut is unproved.
+
+Source-only implementation packs whole schemas/history with one final work phase,
+preserves oversized instruction/message fragments and explicit empty tool resets,
+and refuses an oversized whole schema before submission. Existing warm deltas
+and canonical history ownership remain. Fixed admission codes reveal no request
+or error bodies; authenticated arrivals/rejections are distinct from admitted work.
+Work submissions retain their counter; setup submissions are observed before ACK,
+so an accepted setup with a failed ACK is still counted. Total observed submissions
+separate app acceptance from weaker GUI observation; retries and completed ACKs
+remain separate. None of these counters measures chat-limit deductions.
+
+Remaining order; no runtime activation or real Chat submission performed:
+
+1. Repair the recorded catalog/admission, provider-crossing compaction and body-size
+   boundaries. Preserve ordinary upstream execution and one authoritative history.
+   Do not hide incompatibility by dropping tool/context features, silently trimming
+   history or forking pristine upstream Core.
+2. Qualify implemented ACK packing/accounting through actual submission, preserving
+   the first tool-list reset and warm deltas. Assess the app's native
+   instruction/history parameters before assuming the old UI character limit is
+   necessary internally. Preserve data roles, whole schemas and final-work separation.
+   Offline replay/byte-boundary tests precede any real submit. Measure work, setup,
+   tool-result, guardian, compact and retry submissions independently of quota.
+3. Qualify a minimal native-Chat MCP continuation in the existing adapter/tunnel
+   path, without tdev as executor or another agent. Chat-issued calls should become
+   ordinary Core tool calls; actual Core results should satisfy the original MCP
+   call while the same Chat turn continues. This is a transport replacement, not
+   a script that invokes Codex recursively. Preserve all advertised native tools,
+   reviewer/approval, cancellation, call identity and independent thread ownership.
+   The app turn must survive an expected Responses tool boundary but stop on actual
+   cancellation; account/plugin/Temporary Chat availability and MCP timeouts are
+   explicit feasibility gates. Do not build a general broker before this tiny proof.
+4. After acceptance, keep one inference transport, make GUI viewing optional and
+   package reachable runtime dependencies separately from tests/history. Remove
+   a replaced path only after its full affected acceptance. If native continuation
+   is unavailable, retain the optimized text adapter with its explicit per-judgment
+   submission ceiling rather than accumulating speculative compatibility layers.
+
+The first real native-MCP proof would use one user message for two harmless Core
+tool calls and a final answer, versus three work submissions through today's text
+loop, plus any separately counted setup/review overhead. These are submission
+expectations, not chat-limit deduction claims. Explain the exact candidate and
+budget before real inference/provider changes; Pro inference remains prohibited.
+
+Private no-inference proofs: `~/.cache/codex/acceptance/chat-stage-packing.json`,
+`chat-catalog-request.json`, `chat-adapter-admission.json` and
+`chat-debt-full-check.log`. HTTP proof covers five admission rejections,401 without
+auth, the body ceiling, and zero admitted work/Chat submissions. Protocol/app tests
+pass29/174 assertions and desktop/lifecycle tests pass15. This is not a real Chat
+quality, ACK/cancellation observation or provider-switch qualification. User data,
+credentials, active runtime and conversations are preserved.
+`scripts/check.sh full` passes77 Python and323 Rust tests, formatting, Clippy and
+diff checks; the separate Android HTTP/catalog proofs above cover the affected
+real request paths without inference. An installed/live Chat gate remains open.
 
 ## Independent window return and optional tmux
 

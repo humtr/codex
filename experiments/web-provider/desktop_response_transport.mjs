@@ -57,7 +57,7 @@ export class DesktopChatTransport{
      if(submitted)break;await delay(500);
     }
     if(!submitted)throw Error('desktop_submission_not_observed');
-    if(stage.phase==='request')onSubmitted();
+    onSubmitted({phase:stage.phase,source:'ui_observed'});
     let previous='',stable=0;const retry=new DesktopSendRetry();result=undefined;
     const responseDeadline=Date.now()+(route.effort==='none'&&route.mode!=='pro'?130000:600000);
     for(let i=0;Date.now()<responseDeadline;i++){

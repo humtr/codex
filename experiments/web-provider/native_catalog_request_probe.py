@@ -1,0 +1,143 @@
+"""Capture real official-backend request metadata in disposable Android state.
+
+Both endpoints are deterministic local fixtures. No Chat or API inference, auth
+copy, production state change, or private conversation content is involved.
+"""
+import argparse
+import http.server
+import json
+import os
+from pathlib import Path
+import signal
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+
+
+def probe(source, runtime, bun, bridge, catalog):
+    sys.path.insert(0, str(source / 'scripts'))
+    from qualify_tasks import Ws
+    native = json.loads((source / 'scripts/fixtures/permission-model.json').read_text())
+    chat = next(m for m in json.loads(catalog.read_text())['models'] if m['slug']=='chatgpt-desktop/gpt-6')
+    captured = []
+
+    class Model(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *_):
+            pass
+
+        def do_POST(self):
+            raw = self.rfile.read(int(self.headers['Content-Length']))
+            body = json.loads(raw)
+            captured.append({'model': body.get('model'), 'bytes': len(raw), 'serializedCharacters': len(json.dumps(body)),
+                             'keys': sorted(body), 'inputTypes': sorted({str(i.get('type')) for i in body.get('input', [])}),
+                             'toolTypes': sorted({str(t.get('type')) for t in body.get('tools', [])})})
+            protocol = Path(__file__).with_name('desktop_protocol.mjs')
+            code = 'const {parseRequest}=await import('+json.dumps(str(bridge))+');const {admitDesktopRequest}=await import('+json.dumps(str(protocol))+');const raw=JSON.parse(await Bun.stdin.text());try{admitDesktopRequest(raw,parseRequest);console.log("admitted");}catch(e){console.log(e.message);}'
+            admission = subprocess.run([str(bun), '--eval', code], input=json.dumps(body),
+                                       text=True, capture_output=True, check=True)
+            captured[-1]['adapterAdmission'] = admission.stdout.strip()
+            item = {'id': 'msg_owned', 'type': 'message', 'role': 'assistant',
+                    'content': [{'type': 'output_text', 'text': 'OWNED_OK', 'annotations': []}]}
+            response = {'id': 'resp_owned', 'object': 'response', 'model': body['model'],
+                        'status': 'completed', 'output': [item],
+                        'usage': {'input_tokens': 10, 'output_tokens': 10, 'total_tokens': 20}}
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/event-stream')
+            self.end_headers()
+            events = [('response.created', {'response': dict(response, status='in_progress', output=[])}),
+                      ('response.output_item.added', {'output_index': 0, 'item': item}),
+                      ('response.output_text.delta', {'item_id': item['id'], 'output_index': 0,
+                                                      'content_index': 0, 'delta': 'OWNED_OK'}),
+                      ('response.output_item.done', {'output_index': 0, 'item': item}),
+                      ('response.completed', {'response': response})]
+            for name, data in events:
+                self.wfile.write(('event: ' + name + '\ndata: ' + json.dumps(dict(data, type=name)) + '\n\n').encode())
+            self.wfile.flush()
+
+    model = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Model)
+    threading.Thread(target=model.serve_forever, daemon=True).start()
+    report = {}
+    try:
+        with tempfile.TemporaryDirectory(prefix='c-', dir=os.environ['TMPDIR']) as tmp:
+            root = Path(tmp)
+            home, config, work = root/'h', root/'cfg', root/'w'
+            for path in [home, config, work]:
+                path.mkdir(mode=0o700)
+            native_path, chat_path = root/'native.json', root/'chat.json'
+            native_path.write_text(json.dumps({'models': [native]}))
+            chat_path.write_text(json.dumps({'models': [chat]}))
+            (home/'config.toml').write_text('model = "gpt-6.1-sol"\nmodel_catalog_json = ' + json.dumps(str(native_path)) + '\ncheck_for_update_on_startup = false\n[features]\nmemories = false\nplugins = false\n')
+            endpoint = f'http://127.0.0.1:{model.server_port}/v1'
+            env = {k: v for k, v in os.environ.items() if not k.startswith(('CODEX_', 'OPENAI_', 'LD_'))}
+            env.update(HOME=str(root), CODEX_HOME=str(home), OPENAI_BASE_URL=endpoint,
+                       OPENAI_API_KEY='owned-inert-fixture', RUST_LOG='warn')
+            descriptors = [os.open(p, os.O_RDONLY) for p in [Path(os.environ['PREFIX'])/'etc/resolv.conf', config, Path(os.environ['TMPDIR'])]]
+
+            def fds():
+                for fd, target in zip(descriptors, [33, 34, 35]):
+                    os.dup2(fd, target, inheritable=True)
+
+            for mode in ['thread-override', 'startup-catalog']:
+                socket = root/('s0' if mode == 'thread-override' else 's1')
+                argv = [str(runtime)]
+                if mode == 'startup-catalog':
+                    argv += ['-c', 'model_catalog_json='+json.dumps(str(chat_path))]
+                argv += ['app-server', '--listen', 'unix://'+str(socket)]
+                with (root/(mode+'.log')).open('w+') as log:
+                    child = subprocess.Popen(argv, env=env, cwd=work, stdout=log, stderr=log,
+                                             close_fds=False, preexec_fn=fds, start_new_session=True)
+                    wire = None
+                    try:
+                        deadline = time.monotonic()+20
+                        while not socket.exists():
+                            if child.poll() is not None:
+                                log.flush();log.seek(0)
+                                raise AssertionError('official_backend_start_failed: '+log.read()[-1500:])
+                            assert time.monotonic()<deadline, 'official_backend_start_timeout'
+                            time.sleep(.05)
+                        wire = Ws(str(socket), uri_path='/rpc')
+                        result = wire.call('thread/start', {'model': chat['slug'], 'modelProvider': 'owned',
+                            'cwd': str(work), 'ephemeral': True, 'approvalPolicy': 'never', 'sandbox': 'danger-full-access',
+                            'config': {'model_catalog_json': str(chat_path), 'model_reasoning_effort': 'none', 'model_providers.owned': {
+                                'name': 'Owned fixture', 'base_url': endpoint, 'wire_api': 'responses', 'requires_openai_auth': False}}})
+                        thread = result['thread']['id']
+                        wire.call('turn/start', {'threadId': thread, 'input': [{'type': 'text', 'text': 'Reply OWNED_OK.', 'text_elements': []}]})
+                        while True:
+                            event = wire.receive()
+                            if event.get('method') == 'turn/completed':
+                                assert event['params']['turn']['status']=='completed', 'owned_turn_failed'
+                                break
+                        log.flush();log.seek(0)
+                        report[mode] = dict(captured[-1], fallbackMetadata=('Unknown model '+chat['slug']) in log.read())
+                    finally:
+                        if wire:
+                            wire.close()
+                        if child.poll() is None:
+                            os.killpg(child.pid, signal.SIGTERM)
+                        child.wait(timeout=10)
+            for fd in descriptors:
+                os.close(fd)
+    finally:
+        model.shutdown();model.server_close()
+    assert report['thread-override']['fallbackMetadata']
+    assert not report['startup-catalog']['fallbackMetadata']
+    assert report['thread-override']['adapterAdmission']=='desktop_tool_declaration_unsupported'
+    assert report['startup-catalog']['adapterAdmission']=='admitted'
+    return report
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--source', type=Path, required=True)
+    parser.add_argument('--runtime', type=Path, required=True)
+    parser.add_argument('--report', type=Path, required=True)
+    parser.add_argument('--bun', type=Path, required=True)
+    parser.add_argument('--bridge', type=Path, required=True)
+    parser.add_argument('--catalog', type=Path, required=True)
+    args = parser.parse_args()
+    result = probe(args.source, args.runtime, args.bun, args.bridge, args.catalog)
+    args.report.write_text(json.dumps(result, indent=2)+'\n')
+    args.report.chmod(0o600)
+    print(json.dumps(result))

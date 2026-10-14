@@ -827,11 +827,28 @@ The implementation now keys the existing prefix cursor by route and connection
 generation, commits it only after actual correlated delivery, and replays on
 boundary changes. Returning A→B→A replays unless A's context is genuinely still
 resident; no unbounded per-model tabs, cache daemon or parallel session database
-is added. Only Instant/none is currently physically qualified. Other families,
-Pro execution and reasoning levels must be discovered and verified against the
-logged-in app's actual controls before advertisement. A family selector and an
+is added. GPT-6 Instant/Medium/High/Extra High have direct-profile tool-loop
+qualification; Pro inference remains prohibited and GPT-5.6 deferred. Actual
+shared-backend `/model` inference and long-thread provider transitions remain
+unqualified despite the earlier menu-only gate. A family selector and an
 effort selector are required by the user; naming all of them Instant is not a
 substitute. UI modes are not assumed to equal API reasoning enum values.
+
+Context staging keeps complete ordered schemas and messages in bounded packets,
+combining instructions, tool-list replacement and history when they fit. Only the
+last packet requests actual work; previous packets remain inert setup. A tool-list
+reset shares the first batch rather than consuming a separate empty-list ACK.
+Large instruction/message fragments retain their exact order and UTF-16 boundaries;
+an oversized whole tool schema refuses before submission. The serialized packet
+budget includes its phase marker. Packing never drops context or repeats native
+effects. Packet counts describe potential Chat submissions, not quota deductions.
+The proof keeps legacy `submittedRequests` as work submissions. New
+`submittedContextRequests` records setup before ACK and `observedChatSubmissions`
+includes both. `submissionSources` separates app acceptance from weaker GUI
+observation; `contextPackets` counts completed ACKs and `retryAttempts` counts retry
+attempts. Neither measures extra messages or quota deductions. Authenticated
+`arrivals`/`admissionFailures` precede admitted work, with fixed codes and no private
+parser details. These changes are source-only until real qualification.
 The existing --profile workflow remains the fallback. The on-demand lifecycle
 below now supplies durable app/adapter bootstrap without refreshing config paths.
 Normal /model family/effort integration remains a separate acceptance task.

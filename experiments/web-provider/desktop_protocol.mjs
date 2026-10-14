@@ -1,3 +1,4 @@
+import {chatModelRoute as validateDesktopRoute} from './desktop_model_controls.mjs';
 // Only bridge-issued calls participate in this live transcript; archived Core history stays Core-owned.
 export class DesktopTranscript{
  constructor(){this.calls=new Map();}
@@ -48,6 +49,27 @@ export function validateTextContext(raw,parsed){
  }
 }
 
+// Never expose parser errors: they can contain private request content.
+export function admitDesktopRequest(raw,parseRequest){
+ if(!raw||typeof raw!=='object'||Array.isArray(raw))throw Error('invalid_desktop_request');
+ const route=validateDesktopRoute(raw),outputInstructions=desktopOutputInstructions(raw);
+ if(raw.stream!==true)throw Error('desktop_stream_required');
+ if(raw.previous_response_id)throw Error('desktop_response_cursor_unavailable');
+ let parsed;try{parsed=parseRequest(raw);}catch(e){throw Error(e?.message==='Unsupported routed tool declaration'?'desktop_tool_declaration_unsupported':'desktop_request_parse_failed');}
+ validateTextContext(raw,parsed);
+ if(parsed._opaqueMultiAgentV2Payload)throw Error('opaque_context_unavailable');
+ return {parsed,route,outputInstructions};
+}
+
+// Submission observation precedes the reply/ACK; neither observation proves quota.
+export function recordDesktopSubmission(report,event,route){
+ if(!['context','request'].includes(event.phase)||!['app_accepted','ui_observed'].includes(event.source))throw Error('invalid_desktop_submission');
+ report.observedChatSubmissions++;
+ report.submissionSources[event.source]++;
+ if(event.phase==='context')report.submittedContextRequests++;
+ else{report.submittedRequests++;if(route.mode==='pro')report.submittedProRequests++;}
+}
+
 export class DesktopSendRetry{
  constructor(){this.attempts=0;}
  next({failed,generating,hasReply},signal){
@@ -73,33 +95,39 @@ export class DesktopPromptContext{
  accept(current,boundary){this.previous=current;this.boundary=boundary===undefined?undefined:JSON.parse(JSON.stringify(boundary));}
 }
 
-// Context is inert until the final request; schemas remain whole and ordered.
+// Pack ordered context into bounded packets; only the final packet starts work.
 export function desktopStages(delta,limit=40000){
- if(JSON.stringify(delta).length<=limit)return [{phase:'request',...delta}];
- const stages=[],messages=delta.messages||[],work=messages.at(-1);let group=0;
- const add=value=>{if(JSON.stringify(value).length>limit)throw Error('desktop_context_unit_too_large');stages.push({phase:'context',...value});};
+ if(!Number.isSafeInteger(limit)||limit<256)throw Error('invalid_desktop_stage_limit');
+ const fits=value=>JSON.stringify(value).length<=limit;
+ const complete={phase:'request',...delta};if(fits(complete))return [complete];
+ const stages=[],messages=delta.messages||[],work=messages.at(-1);let group=0,toolUpdate='replace',packet={phase:'context'};
+ const flush=()=>{if(Object.keys(packet).length>1){stages.push(packet);if(packet.tools!==undefined)toolUpdate='append';packet={phase:'context'};}};
+ const append=(field,value,array=false)=>{
+  const next=()=>({...packet,[field]:array?[...(packet[field]||[]),value]:value,...(field==='tools'?{toolUpdate}:{})});
+  let candidate=next();if(!fits(candidate)){flush();candidate=next();}
+  if(!fits(candidate))throw Error(field==='tools'?'desktop_tool_schema_too_large':'desktop_context_unit_too_large');
+  packet=candidate;
+ };
  const fragment=(kind,value)=>{
+  flush();
   const id=group++,text=JSON.stringify(value),size=Math.floor(limit/3),parts=[];
   for(let start=0;start<text.length;){let end=Math.min(text.length,start+size);const last=text.charCodeAt(end-1);if(end<text.length&&last>=0xd800&&last<=0xdbff)end--;parts.push(text.slice(start,end));start=end;}
-  parts.forEach((text,index)=>add({fragment:{id,kind,index,total:parts.length,text}}));
+  parts.forEach((text,index)=>{const value={phase:'context',fragment:{id,kind,index,total:parts.length,text}};if(!fits(value))throw Error('desktop_context_unit_too_large');stages.push(value);});
  };
  if(delta.instructions!==undefined){
-  if(JSON.stringify({instructions:delta.instructions}).length<=limit)add({instructions:delta.instructions});else fragment('instructions',delta.instructions);
+  if(fits({phase:'context',instructions:delta.instructions}))append('instructions',delta.instructions);else fragment('instructions',delta.instructions);
  }
  if(delta.tools!==undefined){
-  let batch=[];add({tools:[],toolUpdate:'replace'});
-  for(const tool of delta.tools){
-   if(JSON.stringify({tools:[tool]}).length>limit)throw Error('desktop_tool_schema_too_large');
-   if(JSON.stringify({tools:[...batch,tool]}).length>limit){add({tools:batch,toolUpdate:'append'});batch=[];}
-   batch.push(tool);
-  }
-  if(batch.length)add({tools:batch,toolUpdate:'append'});
+  if(!delta.tools.length)append('tools',[]);
+  for(const tool of delta.tools)append('tools',tool,true);
  }
  for(const message of messages.slice(0,-1)){
-  if(JSON.stringify({messages:[message]}).length<=limit)add({messages:[message]});else fragment('message',message);
+  if(fits({phase:'context',messages:[message]}))append('messages',message,true);else fragment('message',message);
  }
- if(work&&JSON.stringify({messages:[work]}).length<=limit)stages.push({phase:'request',messages:[work]});
- else{if(work)fragment('message',work);stages.push({phase:'request',messages:[]});}
+ let final={...packet,phase:'request',messages:[...(packet.messages||[]),...(work?[work]:[])]};
+ if(!fits(final)){flush();final={phase:'request',messages:work?[work]:[]};}
+ if(!fits(final)){fragment('message',work);final={phase:'request',messages:[]};}
+ stages.push(final);
  return stages;
 }
 
@@ -156,4 +184,4 @@ export function markDesktopEstimatedUsage(stream){
 }
 
 // Route validation is shared with the actual observed UI controls.
-export {chatModelRoute as validateDesktopRoute} from './desktop_model_controls.mjs';
+export {validateDesktopRoute};

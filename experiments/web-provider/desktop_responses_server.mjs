@@ -6,7 +6,7 @@ import {randomBytes,timingSafeEqual,createHmac} from 'node:crypto';
 import {desktopModelCatalog} from './desktop_model_controls.mjs';
 import {desktopConnection} from './desktop_cdp.mjs';
 import {DesktopTransport} from './desktop_response_transport.mjs';
-import {DesktopTranscript,desktopOutputInstructions,validateEnvelope,validateTextContext,DesktopCompaction,desktopEstimatedUsage,markDesktopEstimatedUsage,validateDesktopRoute} from './desktop_protocol.mjs';
+import {DesktopTranscript,admitDesktopRequest,recordDesktopSubmission,validateEnvelope,DesktopCompaction,desktopEstimatedUsage,markDesktopEstimatedUsage} from './desktop_protocol.mjs';
 const [candidate,desktopRoot,statePath,runtimePath]=process.argv.slice(2);
 process.umask(0o077);
 const source=resolve(candidate,'src');
@@ -39,6 +39,8 @@ function newLane(key,parent){return {key,parent,active:false,busy:false,transpor
 const lanes=new Map();
 const report={actualChatMode:true,model,requests:0,modelRequestedTools:0,returnedNativeResults:0,completedReplies:0,submittedRequests:0,cancelledRequests:0,retryAttempts:0,contextPackets:0,submittedProRequests:0,modelRequestedSearches:0,returnedNativeSearchResults:0,nativeSearchResultErrors:0,nativeSearchLoadedTools:0,compactionRequests:0,compactionSummaries:0,appliedCheckpoints:0,estimatedUsage:true};
 report.guardianRequests=0;report.ownerConflicts=0;report.guardianInterleaves=0;report.guardianParentReplays=0;report.guardianIndependentConversations=0;report.maxConcurrentRequests=0;
+report.arrivals=0;report.admissionFailures={};
+report.observedChatSubmissions=0;report.submittedContextRequests=0;report.submissionSources={app_accepted:0,ui_observed:0};
 function save(){const temp=statePath+'.proof.'+randomBytes(6).toString('hex');writeFileSync(temp,JSON.stringify(report),{mode:0o600,flag:'wx'});renameSync(temp,statePath+'.proof');}
 const server=Bun.serve({hostname:'127.0.0.1',port:runtime?Number(new URL(runtime.baseUrl).port):0,idleTimeout:0,maxRequestBodySize:2*1024*1024,async fetch(req){
  const path=new URL(req.url).pathname;
@@ -51,11 +53,17 @@ const server=Bun.serve({hostname:'127.0.0.1',port:runtime?Number(new URL(runtime
  if(auth.length!==expected.length||!timingSafeEqual(auth,expected)||req.headers.has('origin'))return new Response('Unauthorized',{status:401});
  if(path==='/v1/models'&&req.method==='GET')return Response.json({object:'list',data:[{id:model,object:'model',owned_by:'chatgpt-desktop'},...desktopModelCatalog().map(m=>({id:m.slug,object:'model',owned_by:'chatgpt-desktop'}))]});
  if(path!=='/v1/responses'||req.method!=='POST')return new Response('Not found',{status:404});
- let raw,parsed,route,outputInstructions;try{raw=await req.json();const observed=extractCodexTurnIdentityFromBody(raw);if(observed.agentName==='guardian'||observed.subagentKind==='guardian'||req.headers.get('x-openai-subagent')==='guardian'){report.guardianRequests++;save();}route=validateDesktopRoute(raw);outputInstructions=desktopOutputInstructions(raw);if(raw.stream!==true||raw.previous_response_id)throw Error('unsupported_desktop_request');parsed=parseRequest(raw);validateTextContext(raw,parsed);if(parsed._opaqueMultiAgentV2Payload)throw Error('opaque_context_unavailable');}catch{return formatErrorResponse(400,'invalid_request_error','unsupported_desktop_request');}
+ report.arrivals++;
+ let raw,parsed,route,outputInstructions;
+ try{raw=await req.json();}catch{report.admissionFailures.invalid_desktop_json=(report.admissionFailures.invalid_desktop_json||0)+1;save();return formatErrorResponse(400,'invalid_request_error','invalid_desktop_json');}
+ try{
+  ({parsed,route,outputInstructions}=admitDesktopRequest(raw,parseRequest));
+ }catch(e){const code=/^(?:invalid_desktop_request|unsupported_desktop_route|unsupported_desktop_output_format|desktop_stream_required|desktop_response_cursor_unavailable|desktop_request_parse_failed|desktop_tool_declaration_unsupported|desktop_compaction_unavailable|desktop_text_only|opaque_context_unavailable)$/.test(e.message)?e.message:'invalid_desktop_request';report.admissionFailures[code]=(report.admissionFailures[code]||0)+1;save();return formatErrorResponse(400,'invalid_request_error',code);}
  const identity=extractCodexTurnIdentityFromBody(raw),key=identity.threadId||req.headers.get('session_id')||req.headers.get('x-codex-thread-id');
  if(!key)return formatErrorResponse(400,'invalid_request_error','native_thread_identity_required');
  const parent=identity.parentThreadId||req.headers.get('x-codex-parent-thread-id');
  const guardian=identity.agentName==='guardian'||identity.subagentKind==='guardian'||req.headers.get('x-openai-subagent')==='guardian';
+ if(guardian)report.guardianRequests++;
  let lane=lanes.get(key);
  if(!lane){
   lane=newLane(key,guardian?parent:undefined);
@@ -80,7 +88,7 @@ const server=Bun.serve({hostname:'127.0.0.1',port:runtime?Number(new URL(runtime
    lane.resultCount=Math.max(lane.resultCount,parsed.context.messages.filter(m=>m.role==='toolResult').length);report.returnedNativeResults=[...lanes.values()].reduce((n,l)=>n+l.resultCount,0);const searches=parsed.context.messages.filter(m=>m.role==='toolResult'&&m.toolName==='tool_search');report.returnedNativeSearchResults=searches.length;report.nativeSearchResultErrors=searches.filter(m=>m.isError).length;report.nativeSearchLoadedTools=(Array.isArray(raw.input)?raw.input:[]).filter(m=>m.type==='tool_search_output').flatMap(m=>Array.isArray(m.tools)?m.tools:[]).reduce((n,t)=>n+(t.type==='namespace'&&Array.isArray(t.tools)?t.tools.length:1),0);save();
    const payload={instructions:[...(parsed.context.systemPrompt||[]),...outputInstructions],messages:parsed.context.messages,tools};
    await ensureDesktop(abort.signal);
-   const response=await transport.exchange(payload,abort.signal,()=>{report.submittedRequests++;if(route.mode==='pro')report.submittedProRequests++;save();},()=>{report.retryAttempts++;save();},()=>{report.contextPackets++;save();},route);
+   const response=await transport.exchange(payload,abort.signal,event=>{recordDesktopSubmission(report,event,route);save();},()=>{report.retryAttempts++;save();},()=>{report.contextPackets++;save();},route);
    report.selectedControl=transport.selectedControl;
    if(response.type==='tool'){
     if(compact)throw Error('desktop_compaction_must_not_call_tools');
