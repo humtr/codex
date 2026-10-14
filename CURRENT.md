@@ -369,6 +369,16 @@ This repository carries no external workflow skill or model configuration.
 
 ## ChatGPT model pilot
 
+- Current work minimizes debt and message submissions in the standalone ChatGPT
+  provider. tdev progress/control proposals are separate-session work, not a
+  dependency. Source-only ordered packing reduces an owned 50,410-character
+  fixture from27 submissions to2 while preserving schemas/history; no Chat quota
+  deduction is measured. Admission errors and context/work submission accounting
+  are now distinct on the experiment branch. First repair actual model-use boundaries;
+  then qualify native Chat tool-result continuation through the existing adapter
+  before expanding its architecture. Detailed scope and the no-inference stage-cost
+  measurement live in experiment/web-termux CURRENT.md. No provider/runtime changes
+  or new Chat inference are authorized by these review notes.
 - `/model` is the primary opt-in selection; `--profile chatgpt` is its fallback.
   stable51 includes the qualified native menu and generic shared config projection.
   The provider remains an opt-in experiment, not a bundled Core dependency.
