@@ -11,11 +11,14 @@ clients retain their executable until exit; no preview construction or parallel
 update authority is maintained.
 
 - The official adapted `runtime` remains the sole server/execution backend.
-  Qualified Manager TUI selection is independent of local daemon reuse:
-  interactive `--profile`/`-c`/`--no-daemon` launches may use the same admitted
-  frontend with embedded upstream execution. Explicit remote/executor routing,
-  unsupported workspace flags and noninteractive commands retain their ordinary
-  runtime path. An optional frontend is never required for Core operation.
+  Qualified Manager TUI selection supports local `--profile`/`-c` launches
+  through the same official app-server. The frontend forwards selected user
+  profile and invocation settings through upstream thread configuration APIs;
+  they never replace the daemon's defaults or another conversation's settings.
+  It does not start a source-built embedded execution backend. Explicit
+  `--no-daemon`, remote/executor routing, unsupported workspace flags and
+  noninteractive commands retain their ordinary runtime path. An optional
+  frontend is never required for Core operation.
   The optional marked ChatGPT model pilot keeps the selected configuration
   profile, home, permissions/reviewer and durable thread. Chat model/effort
   choices apply to the current session through Core re-entry and never persist

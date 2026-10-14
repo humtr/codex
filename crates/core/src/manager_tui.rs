@@ -53,7 +53,16 @@ pub(super) fn local_interactive(args: &[OsString]) -> bool {
             arg.to_str().is_some_and(|arg| {
                 matches!(
                     arg,
-                    "--remote" | "--oss" | "--help" | "-h" | "--version" | "-V"
+                    "--remote"
+                        | "--no-daemon"
+                        | "--oss"
+                        | "--strict-config"
+                        | "--dangerously-bypass-hook-trust"
+                        | "--search"
+                        | "--help"
+                        | "-h"
+                        | "--version"
+                        | "-V"
                 ) || arg.starts_with("--remote=")
             })
         })
@@ -70,10 +79,7 @@ pub(super) fn capability_args(mut args: Vec<OsString>, available: bool) -> Vec<O
     args
 }
 
-fn native_args(socket: Option<&Path>, original: &[OsString]) -> io::Result<Vec<OsString>> {
-    let Some(socket) = socket else {
-        return Ok(original.to_vec());
-    };
+fn native_args(socket: &Path, original: &[OsString]) -> io::Result<Vec<OsString>> {
     let socket = socket
         .to_str()
         .filter(|_| socket.is_absolute())
@@ -85,7 +91,7 @@ fn native_args(socket: Option<&Path>, original: &[OsString]) -> io::Result<Vec<O
 
 pub(super) fn launch(
     frontend: &OsStr,
-    socket: Option<&Path>,
+    socket: &Path,
     profile: &Path,
     original: &[OsString],
     resolver: &Path,
@@ -203,12 +209,11 @@ mod tests {
     #[test]
     fn manager_tui_socket_route_preserves_non_utf8_and_upstream_workspace_options() {
         let args = vec!["resume".into(), OsString::from_vec(vec![0xff])];
-        let planned = native_args(Some(Path::new("/owned/s")), &args).unwrap();
+        let planned = native_args(Path::new("/owned/s"), &args).unwrap();
         assert_eq!(&planned[2..], args);
         assert_eq!(planned[0], "--remote");
         assert_eq!(planned[1], "unix:///owned/s");
-        assert!(native_args(Some(Path::new("relative")), &args).is_err());
-        assert_eq!(native_args(None, &args).unwrap(), args);
+        assert!(native_args(Path::new("relative"), &args).is_err());
         assert!(supported(&args));
         for arg in [
             "--add-dir",
@@ -225,15 +230,18 @@ mod tests {
         for args in [
             vec!["--profile", "chatgpt"],
             vec!["resume", "owned", "-c", "model_reasoning_effort=medium"],
-            vec!["--no-daemon"],
             vec!["--enable=owned"],
         ] {
             let argv: Vec<OsString> = args.into_iter().map(Into::into).collect();
             assert!(local_interactive(&argv));
             assert!(!super::super::shared_server::eligible(&argv));
-            assert_eq!(native_args(None, &argv).unwrap(), argv);
+            assert_eq!(
+                &native_args(Path::new("/owned/s"), &argv).unwrap()[2..],
+                argv
+            );
         }
         for args in [
+            vec!["--no-daemon"],
             vec!["exec"],
             vec!["app-server"],
             vec!["login"],

@@ -44,7 +44,9 @@ def fixture(root, core, frontend, named_permission=False):
     assert all(sha(installed / name) == digest for name, digest, _ in inventory)
     generation = root / 'local-chat-model-fixture'
     materialize_signed_generation(installed, generation)
+    core_mode = (generation / 'core').stat().st_mode & 0o777
     shutil.copy2(core, generation / 'core')
+    (generation / 'core').chmod(core_mode)
     raw = frontend.read_bytes()
     changed = 0
     for old, new, count in [
@@ -57,8 +59,9 @@ def fixture(root, core, frontend, named_permission=False):
         changed += sum(a != b for a, b in zip(old, new)) * count
         raw = raw.replace(old, new)
     assert changed == 54
+    frontend_mode = (generation / 'helpers/2').stat().st_mode & 0o777
     (generation / 'helpers/2').write_bytes(raw)
-    (generation / 'helpers/2').chmod(0o755)
+    (generation / 'helpers/2').chmod(frontend_mode)
     text = (generation / 'generation.meta').read_text()
     text = text.replace(fields['generation_id'], generation.name)
     lines = []
@@ -102,9 +105,10 @@ def fixture(root, core, frontend, named_permission=False):
         'model = "gpt-6.1-sol"\nmodel_reasoning_effort = "none"\n'
         'model_catalog_json = ' + json.dumps(str(home / '.codex/native-models.json')) + '\n'
         'approval_policy = "never"\napprovals_reviewer = "user"\nsandbox_mode = "danger-full-access"\n'
-        '[features]\nmemories = false\n[model_providers.openai]\n'
-        'base_url = "http://127.0.0.1:9/v1"\nrequires_openai_auth = false\n')
+        '[features]\nmemories = false\n')
     (home / '.codex/config.toml').chmod(0o600)
+    (home / '.codex/auth.json').write_text(json.dumps({'OPENAI_API_KEY': 'owned-inert-fixture', 'auth_mode': 'apikey'}))
+    (home / '.codex/auth.json').chmod(0o600)
     if named_permission:
         (home / '.codex/owned-config.config.toml').write_text(
             'default_permissions = "owned"\n[permissions.owned.filesystem]\n":root" = "write"\n'
@@ -112,20 +116,29 @@ def fixture(root, core, frontend, named_permission=False):
         (home / '.codex/owned-config.config.toml').chmod(0o600)
     selected_home = Path(os.environ.get('CODEX_HOME', real_home / '.codex'))
     profile = (selected_home / 'chatgpt.config.toml').read_text()
+    catalog_path = home / '.codex/chat-models.json'
+    catalog_path.write_bytes((trial / 'models.json').read_bytes())
+    catalog_path.chmod(0o600)
+    profile = re.sub(r'^model_catalog_json = .*$', 'model_catalog_json = ' + json.dumps(str(catalog_path)), profile, flags=re.M)
     assert profile.startswith('# codex-web-experiment ChatGPT profile begin\n')
     (home / '.codex/chatgpt.config.toml').write_text(profile)
     (home / '.codex/chatgpt.config.toml').chmod(0o600)
-    env = dict(os.environ, HOME=str(home), CODEX_HOME=str(home / '.codex'), PREFIX=str(prefix),
-        TMPDIR=str(root / 't'), PATH=str(prefix / 'bin') + ':' + str(host_prefix / 'bin'), TERM='xterm-256color')
+    env = dict(HOME=str(home), CODEX_HOME=str(home / '.codex'), PREFIX=str(prefix),
+        TMPDIR=os.environ['TMPDIR'], PATH=str(prefix / 'bin') + ':' + str(host_prefix / 'bin'),
+        TERM='xterm-256color', LANG='C.UTF-8', SHELL=str(host_prefix / 'bin/bash'),
+        SSL_CERT_FILE=str(prefix / 'etc/tls/cert.pem'))
     for name in ['OPENAI_API_KEY', 'CODEX_ACCESS_TOKEN', 'ACCESS_TOKEN', 'CODEX_SQLITE_HOME',
         'CODEX_PROFILE_CORE', 'CODEX_CHAT_RETURN_PROFILE', 'CODEX_EXEC_SERVER_URL',
         'TERMUX_SESSION_ID', 'CODEX_TERMUX_WINDOW_TOKEN', 'CODEX_TERMUX_WINDOW_READY', 'CODEX_TERMUX_SESSION_ORIGIN']:
         env.pop(name, None)
+    # Built-in providers cannot be redefined; upstream supports these env overrides.
+    env['OPENAI_BASE_URL'] = 'http://127.0.0.1:9/v1'
+    env['OPENAI_API_KEY'] = 'owned-inert-fixture'
     return home, prefix, env
 
 
 def probe(core, frontend, named_permission=False):
-    with tempfile.TemporaryDirectory(prefix='chat-model-menu-', dir=os.environ['TMPDIR']) as tmp:
+    with tempfile.TemporaryDirectory(prefix='mm-', dir=os.environ['TMPDIR']) as tmp:
         root = Path(tmp)
         home, prefix, env = fixture(root, core, frontend, named_permission)
         preserved = {p: sha(p) for p in (home / '.codex').glob('*.toml')}
@@ -134,24 +147,28 @@ def probe(core, frontend, named_permission=False):
         def session():
             os.setsid()
             fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
-        launch = ['--profile', 'owned-config'] if named_permission else ['--no-daemon']
+        launch = ['--profile', 'owned-config'] if named_permission else []
         process = subprocess.Popen([str(prefix / 'bin/codex'), *launch, '--no-alt-screen'],
             env=env, cwd=root / 'w', stdin=slave, stdout=slave, stderr=slave, preexec_fn=session)
         os.close(slave)
         def collect(seconds):
             output = b''
             deadline = time.monotonic() + seconds
-            while time.monotonic() < deadline and process.poll() is None:
+            while time.monotonic() < deadline:
                 if select.select([master], [], [], .1)[0]:
                     try:
                         chunk = os.read(master, 65536)
                     except OSError:
+                        break
+                    if not chunk:
                         break
                     for query, response in [(b'\x1b[6n', b'\x1b[1;1R'), (b'\x1b[c', b'\x1b[?1;2c'),
                         (b'\x1b]10;?', b'\x1b]10;rgb:ffff/ffff/ffff\x1b\\'), (b'\x1b]11;?', b'\x1b]11;rgb:0000/0000/0000\x1b\\')]:
                         if query in chunk:
                             os.write(master, response)
                     output = (output + chunk)[-131072:]
+                elif process.poll() is not None:
+                    break
             return re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', output.decode(errors='replace'))
         def model_menu():
             for byte in b'/model':
@@ -163,7 +180,11 @@ def probe(core, frontend, named_permission=False):
             if 'trust' in initial.lower():
                 os.write(master, b'\r');initial += collect(4)
             before = model_menu()
-            assert 'ChatGPT' in before and 'GPT-6' in before, 'chat_choices_absent'
+            private_env = dict(part.split(b'=',1) for part in Path(f'/proc/{process.pid}/environ').read_bytes().split(b'\0') if b'=' in part) if process.poll() is None else {}
+            print(json.dumps({'coreBridgePresent':b'CODEX_PROFILE_CORE' in private_env,'fixtureHomeSelected':private_env.get(b'CODEX_HOME')==os.fsencode(home/'.codex')}))
+            if not ('ChatGPT' in before and 'GPT-6' in before):
+                print(json.dumps({'startupKeywords': {k: (initial+before).lower().count(k) for k in ['error','trust','login','sign in','select model','disabled until startup','unavailable','permission','profile','failed','unexpected argument','invalid','manifest','signature','current generation','cannot link']}, 'running':process.poll() is None, 'exit':process.poll(), 'bytes':len(initial+before), 'ownedStartupFailure': (initial+before).replace(str(root), '<fixture>')[:5000], 'imageName':Path(f'/proc/{process.pid}/exe').resolve().name if process.poll() is None else None}))
+                raise AssertionError('chat_choices_absent')
             os.write(master, b'\x1b[H\x1b[B\r');reasoning = collect(2)
             assert 'Instant' in reasoning, 'chat_reasoning_absent'
             os.write(master, b'\x1b[H\r');entered = collect(15)
@@ -199,6 +220,19 @@ def probe(core, frontend, named_permission=False):
                     process.wait(timeout=5)
                 except subprocess.TimeoutExpired:
                     os.killpg(process.pid, signal.SIGTERM);process.wait(timeout=5)
+            # The official fixture backend has its own session. Retire only
+            # processes proven to execute this disposable generation's runtime.
+            expected_runtime = home / '.local/lib/codex/core/generations/local-chat-model-fixture/runtime'
+            for record in (home / '.local/share/codex/core/servers').glob('*/pid'):
+                try:
+                    pid = int(record.read_text().strip())
+                    if Path(f'/proc/{pid}/exe').resolve() == expected_runtime:
+                        os.kill(pid, signal.SIGTERM)
+                        deadline = time.monotonic() + 5
+                        while time.monotonic() < deadline and Path(f'/proc/{pid}/exe').exists():
+                            time.sleep(.05)
+                except (OSError, ValueError):
+                    pass
             os.close(master)
 
 

@@ -31,7 +31,7 @@ export async function connectDesktop(root,targetId){
  socket.onclose=rejectAll;
  await new Promise((ok,no)=>{const timer=setTimeout(()=>{socket.close();no(Error('owned_relay_connect_timeout'));},10000);socket.onopen=()=>{clearTimeout(timer);ok();};socket.onerror=()=>{clearTimeout(timer);no(Error('owned_relay_connect_failed'));};});
  function request(method,params={},sessionId){const id=++sequence;return new Promise((resolve,reject)=>{const timer=setTimeout(()=>{pending.delete(id);reject(Error('owned_cdp_timeout_'+method));},15000);pending.set(id,{resolve,reject,timer,method});socket.send(JSON.stringify({id,method,params,...(sessionId?{sessionId}:{})}));});}
- let session,selected;
+ let session,selected;const openedTemporary=new Set();
  try{
   for(let attempt=0;attempt<20&&!session;attempt++){
    const {targetInfos}=await request('Target.getTargets');
@@ -39,6 +39,12 @@ export async function connectDesktop(root,targetId){
    for(const target of targetInfos.filter(t=>t.type==='page'&&t.url.startsWith('app://-/')&&(!targetId||t.targetId===targetId))){
     const {sessionId}=await request('Target.attachToTarget',{targetId:target.targetId,flatten:true});
     const {result}=await request('Runtime.evaluate',{expression:`[...document.querySelectorAll('button')].some(e=>e.textContent?.trim()==='Chat'&&e.getAttribute('aria-pressed')==='true')||[...document.querySelectorAll('button[aria-label="Select ChatGPT model"]')].some(e=>e.getBoundingClientRect().width>0)`,returnByValue:true},sessionId);
+    if(!result.value&&!openedTemporary.has(target.targetId)){
+     // Closing a settled temporary lane can leave the app on Home. Recover
+     // through its public new-temporary-chat shortcut without touching a draft.
+     const {result:home}=await request('Runtime.evaluate',{expression:`(()=>{const visible=e=>e.getBoundingClientRect().width>0;return ![...document.querySelectorAll('[contenteditable="true"]')].some(visible)&&![...document.querySelectorAll('button')].some(e=>visible(e)&&/^stop(?:\\b|$)/i.test(e.getAttribute('aria-label')||''))&&[...document.querySelectorAll('button')].filter(e=>visible(e)&&(e.textContent?.trim()==='Home'||e.getAttribute('aria-label')==='Home')).length===1;})()`,returnByValue:true},sessionId);
+     if(home.value){openedTemporary.add(target.targetId);for(const type of ['keyDown','keyUp'])await request('Input.dispatchKeyEvent',{type,modifiers:10,key:'N',code:'KeyN',windowsVirtualKeyCode:78},sessionId);}
+    }
     if(!result.value){
      await request('Runtime.evaluate',{expression:`(()=>{if([...document.querySelectorAll('[contenteditable="true"]')].some(e=>e.getBoundingClientRect().width>0&&(e.textContent||'').trim())||[...document.querySelectorAll('button')].some(e=>/^stop(?:\\b|$)/i.test(e.getAttribute('aria-label')||'')&&e.getBoundingClientRect().width>0))return false;const es=[...document.querySelectorAll('button')].filter(e=>e.textContent?.trim()==='Chat'&&e.getBoundingClientRect().width>0);if(es.length===1){es[0].click();return true;}return false;})()`,returnByValue:true},sessionId);
     }

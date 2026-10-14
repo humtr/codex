@@ -52,7 +52,7 @@ const server=Bun.serve({hostname:'127.0.0.1',port:runtime?Number(new URL(runtime
  if(path!=='/v1/responses'||req.method!=='POST')return new Response('Not found',{status:404});
  if(busy)return formatErrorResponse(409,'invalid_request_error','desktop_chat_busy');
  busy=true;
- let raw,parsed,route;try{raw=await req.json();const observed=extractCodexTurnIdentityFromBody(raw);if(observed.agentName==='guardian'||observed.subagentKind==='guardian'){report.guardianRequests++;save();}route=validateDesktopRoute(raw);if(raw.stream!==true||raw.previous_response_id)throw Error('unsupported_desktop_request');parsed=parseRequest(raw);validateTextContext(raw,parsed);if(parsed._opaqueMultiAgentV2Payload)throw Error('opaque_context_unavailable');}catch{busy=false;return formatErrorResponse(400,'invalid_request_error','unsupported_desktop_request');}
+ let raw,parsed,route;try{raw=await req.json();const observed=extractCodexTurnIdentityFromBody(raw);if(observed.agentName==='guardian'||observed.subagentKind==='guardian'||req.headers.get('x-openai-subagent')==='guardian'){report.guardianRequests++;save();}route=validateDesktopRoute(raw);if(raw.stream!==true||raw.previous_response_id)throw Error('unsupported_desktop_request');parsed=parseRequest(raw);validateTextContext(raw,parsed);if(parsed._opaqueMultiAgentV2Payload)throw Error('opaque_context_unavailable');}catch{busy=false;return formatErrorResponse(400,'invalid_request_error','unsupported_desktop_request');}
  const identity=extractCodexTurnIdentityFromBody(raw),key=identity.threadId||req.headers.get('session_id')||req.headers.get('x-codex-thread-id');
  if(!key){busy=false;return formatErrorResponse(400,'invalid_request_error','native_thread_identity_required');}
  if(owner&&key!==owner){

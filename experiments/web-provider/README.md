@@ -966,11 +966,19 @@ provider. Native build, unit/lint and actual device transition remain required.
 `web-model-menu-native.yml` qualifies the exact official0.161 source plus both
 frontend patches without publishing or promoting a production runtime.
 
-The experimental Core now separates admitted frontend selection from shared
-daemon eligibility. Local interactive profile/config overrides retain the
-qualified frontend with embedded upstream execution; noninteractive commands,
-explicit remote/executor routes and unsupported workspace flags keep their
-ordinary runtime path. The Core still works without an optional Manager/frontend.
-This is necessary for same-window /model re-entry to retain its return menu.
-Device Core/frontend composition and full acceptance remain required before
-production admission; the installed signed stable49 launcher is unchanged.
+The experimental Core keeps the admitted frontend on the official app-server
+for local interactive profile/config overrides. Selected profile and invocation
+settings go through the upstream per-thread configuration API, including provider
+references and named permission definitions; daemon defaults and other threads
+are unchanged. No source-built embedded backend or extra server is introduced.
+Explicit --no-daemon/remote/executor routes, unsupported workspace flags and
+noninteractive commands retain the ordinary official runtime path. Optional
+Manager/frontend absence still leaves Core usable. Device round-trip proof and
+full acceptance remain required; installed signed stable49 is unchanged.
+
+A settled temporary Chat can return to the desktop Home page. The adapter uses
+the public Ctrl+Shift+N shortcut only on a verified Home surface with no visible
+composer or Stop control; ordinary drafts stay protected. Quick Chat is not a
+model transport. Full-access harmless shell commands may require no approval,
+so the autoreviewer fixture installs a prompt rule only in a disposable config
+home and requires a real guardian request as well as the two native calls.
