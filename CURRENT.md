@@ -48,6 +48,69 @@ chat-internal-discovered-tool-wrlab.json, native-account-catalog-comparison.json
 chat-final-concurrent-guardian.json, chat-final-app-acceptance-timing.json,
 chat-final-medium-overlap-cancel.json and chat-final-installed-inventory.json.
 
+## ChatGPT model errors: next work
+
+Status: unresolved; investigation only on 2026-10-14. User-visible failure:
+`stream disconnected before completion: error sending request`. Device stable51
+and provider 0de70e3072a4b8e87a31/source 46db05e were inspected without changing
+runtime, configuration, conversations or authentication. The installed protocol,
+app transport, Responses server and profile source match the maintained files.
+
+Confirmed observations:
+
+- At 13:26:26-13:26:27 UTC, the shared backend logs unknown model
+  `chatgpt-desktop/gpt-6` and uses fallback metadata. Its fresh-thread request
+  reaches loopback `/v1/responses`, which returns 400 `unsupported_desktop_request`.
+  The error covers multiple admission checks; the exact rejected field is not
+  captured. Do not assume a particular check failed from the generic code alone.
+  Frontend picker visibility/provider selection does not prove that the backend
+  loaded the intended model catalog and request capabilities.
+- At 13:26:59 UTC, the existing long thread's pre-turn ModelDownshift compaction
+  sends model `gpt-6.1-sol` to the newly selected loopback Chat endpoint. The HTTP
+  send fails (`is_timeout=false`, `is_connect=false`) and the backend records
+  `Failed to run pre-sampling compact`. Upstream previous-model compaction uses
+  `with_model(previous_model)` while preserving the current provider; a provider
+  transition therefore needs an explicit compatible compaction handoff.
+- `desktop_responses_server.mjs` sets `maxRequestBodySize:2*1024*1024` before
+  context staging. Two deliberately invalid local requests, which cannot reach
+  Chat submission, return 400 at approximately 1 KiB and 413 above 2 MiB. The adapter
+  proof file remains byte-identical. Active-history payload serialization before
+  the failure totals 2,277,814 bytes since the last compact; this is not a measured
+  HTTP body. The ceiling is a confirmed limitation and a plausible contributor
+  to the send failure, not a proven explanation of that exact failed request.
+- The adapter is alive and its read-only readiness response verifies against
+  its existing private binding. Zero admitted-request/submission counters do not
+  mean zero HTTP arrivals: the observed 400 occurs before admission accounting.
+  No Chat inference or chat-limit consumption experiment was performed. Nothing
+  observed establishes a Chat message-limit, Cloudflare or login rejection.
+
+Evidence remains private in `~/.codex/logs_2.sqlite` and the affected rollout's
+metadata. Use the timestamps and error targets above to inspect narrowly; do not
+publish prompts, tool results, credentials or raw conversation records.
+
+Required follow-up, before claiming ordinary `/model` use is qualified:
+
+1. Trace model catalog/capability propagation into the shared backend and identify
+   the exact admission failure using metadata-only diagnostics. Verify a fresh
+   thread's real request shape and tools, not just menu/argv/thread routing.
+2. Establish a compatible old-provider compaction/new-provider resume boundary
+   for long histories, preserving canonical history, permissions and sibling
+   routes. Do not bypass the defect by deleting history or silently truncating it.
+3. Measure actual serialized request bytes and handle the body ceiling explicitly
+   before app context staging. Distinguish oversized input, unsupported shape
+   and network failures in the user-visible error; increasing the ceiling alone
+   does not solve route/catalog or compaction incompatibility.
+4. Qualify fresh selection, long native-to-Chat and Chat-to-native switching,
+   pre-turn compaction, restart/resume, sibling isolation and preserved native
+   tools on the actual installed Android path. Earlier direct-profile tool loops,
+   manual internal compaction and inference-free menu round trips retain their
+   narrow scope; they are not proof for these failing combinations.
+
+Implementation and any real Chat inference trials are deferred. Explain their
+necessity and expected message submissions to the user before performing them.
+Chat message submission/limit accounting is a separate review, not a diagnosis
+or resolution of these model-use failures.
+
 ## Independent window return and optional tmux
 
 - `codex termux launch` selects an existing profile with Up/Down and Enter;
