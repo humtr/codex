@@ -381,9 +381,9 @@ This repository carries no external workflow skill or model configuration.
   continuation as the current candidate, not wholesale launcher/runtime adoption.
   Browserless Codex proxies and official SIWC use a different inference/allowance
   route; no superior ordinary-Chat protocol or quota-saving measurement is proved.
-  AgentDock/CCCC add execution-lifetime and delivery/completion references. CCCC's
-  Dots/MCP Events path is a conditional browserless candidate with separate usage,
-  account, model/effort and thread-isolation gates; no live host proof was performed.
+  AgentDock/CCCC add execution-lifetime and delivery/completion references. Dots
+  is excluded from current work at the user's request; its historical source
+  comparison does not create a provider dependency or implementation follow-up.
   Then qualify native Chat tool-result continuation through the existing adapter
   before expanding its architecture. Detailed scope and the no-inference stage-cost
   measurement live in experiment/web-termux CURRENT.md. No provider/runtime changes
