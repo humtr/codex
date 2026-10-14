@@ -366,20 +366,41 @@ This repository carries no external workflow skill or model configuration.
   and Send readiness; cleanup clears only an exactly matched own draft.
   Actual upstream TUI /model
   displayed ChatGPT / Instant under this configuration profile.
-  The user prefers eventual normal model selection; --profile chatgpt is accepted
-  as the current qualification workflow. Normal /model provider switching remains
-  a later integration task, not a completed behavior. The required order is to
-  complete durable --profile bootstrap/recovery, retain it as fallback, then
-  integrate /model family selection and each actually supported effort/Pro mode.
-  GPT-6 Sol, GPT-5.6 Sol and GPT-6 Pro are requested examples, not yet verified
-  app entitlements. Instant is a mode, not a substitute for a family selector.
+  The installed profile now defaults to actual Chat GPT-6. Physical selector
+  readback passes Instant, Medium, High and Extra High for GPT-6 and GPT-5.6 Sol,
+  mapped to native none/medium/high/xhigh. GPT-6 Sol is a Work/Codex model and is
+  not advertised as Chat. Installed GPT-6 Instant and Medium each pass two actual
+  native write/read calls and exact final reply. GPT-5.6 Sol executes one real
+  tool but fails continuation in Instant and Medium; it is explicitly deferred
+  at the user's request. These failures remain evidence, not accepted capability.
+  Separate Pro choices carry an execution-unverified label. The user forbids
+  automated Pro inference; maintained qualification drivers explicitly select
+  only non-Pro models. Pro was neither selected nor submitted during these tests.
+  The separate model-menu.patch overlay augments the upstream picker and uses
+  same-home/thread/window Core re-entry for launch-scoped provider changes;
+  active tools, queued input and side conversations refuse. --profile chatgpt
+  remains the fallback. ARM64 build passed38486943408; test compilation failed
+  on fixture module paths. Corrected build38491159481 at158401f passed; unit/lint
+  is pending.71587f2 additionally fixes the Core route: interactive --profile/-c
+  must retain the same admitted frontend while avoiding shared-daemon reuse.
+  Local full acceptance passes Core194/one pre-existing ignored, Manager42+55+
+  three actual path gates, builder25, Python18+59 and fmt/Clippy/diff. The native
+  model overlay allows idle primary embedded execution for this route.
+  Its exact-source native38492427969, actual device model round trip and production
+  admission remain required. No experiment code has entered signed stable49.
   The continuation architecture keeps Core history/checkpoints authoritative and
   one disposable adapter cursor. Route/account/model/effort or verified connection
   generation changes require replay; unchanged owned context receives deltas.
   Server KV hit/miss/unknown remains independent from correctness and local context
   estimates. Scenario serialization costs and native/desktop boundaries live in
-  the experiment README/SPEC. The current route now refuses unqualified model,
-  effort and Pro tuples before inference instead of ignoring requested effort.
+  the experiment README/SPEC. The current route refuses unsupported model/effort
+  tuples before inference instead of ignoring requested effort. Supported
+  family/power selection uses the signed app's actual controls and checks them
+  before every continuation. A new GPT-6 checkpoint fault trial passed compression,
+  four tools and persisted resume; the first whole-app restart failed on a
+  restored expanded selector.158401f waits for a fresh owned view and reuses that
+  menu. Its GPT-6 checkpoint rerun passes four actual tools, committed tool-only
+  memory, Core restart/resume and whole-app restart (gpt6-checkpoint-proof.json).
   Live unsupported tuples returned400 without an inference request; actual
   catalog lookup/tool execution and automatic compaction plus four native calls
   and restart/resume passed with the route-aware cursor. Live draft protection
