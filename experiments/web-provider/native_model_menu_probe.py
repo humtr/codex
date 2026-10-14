@@ -122,8 +122,10 @@ def fixture(root, core, frontend, named_permission=False):
     catalog_path.chmod(0o600)
     profile = re.sub(r'^model_catalog_json = .*$', 'model_catalog_json = ' + json.dumps(str(catalog_path)), profile, flags=re.M)
     assert profile.startswith('# codex-web-experiment ChatGPT profile begin\n')
-    (home / '.codex/chatgpt.config.toml').write_text(profile)
-    (home / '.codex/chatgpt.config.toml').chmod(0o600)
+    registry=home/'.local/share/codex/core/config/profiles'
+    registry.mkdir(mode=0o700)
+    (registry/'chatgpt.config.toml').write_text(profile)
+    (registry/'chatgpt.config.toml').chmod(0o600)
     env = dict(HOME=str(home), CODEX_HOME=str(home / '.codex'), PREFIX=str(prefix),
         TMPDIR=os.environ['TMPDIR'], PATH=str(prefix / 'bin') + ':' + str(host_prefix / 'bin'),
         TERM='xterm-256color', LANG='C.UTF-8', RUST_LOG='codex_tui::termux_chat_models=debug', SHELL=str(host_prefix / 'bin/bash'),
@@ -266,6 +268,7 @@ def probe(core, frontend, named_permission=False):
             assert not modified, 'configuration_files_changed'
             return {'samePidAndPty': True, 'chatEntered': True, 'nativeReturned': True,
                 'sameHomeAndThread': True, 'qualifiedFrontendRetained': True,'officialBackendRetained':True,'backendProviderRoundTrip':True,'otherThreadKeepsServerDefaults':True,
+                'sharedRegistrationUsed': (home/'.codex/chatgpt.config.toml').is_symlink(),
                 'originalConfigurationPreserved': True, 'namedPermissionRequested': named_permission,
                 'noAuthCopied': True, 'modelInferenceSubmitted': False, 'proInference': False, 'productionChanged': False}
         finally:
