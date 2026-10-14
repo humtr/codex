@@ -247,6 +247,8 @@ GitHub source comparison pins (read-only; no candidate code executed or installe
 | DeepCogNeural/codex-gpt-bridge | fe923d5 | Chat-to-Codex invokes official codex mcp-server; inverse ask_chatgpt uses paid Responses API. Different inference/accounting route. |
 | lanqian528/chat2api | a63a90c | Direct private conversation protocol, last inspected commit2025-03-28. action=next per request, token/challenge maintenance, text projection of server tools; no demonstrated Core tool-result continuation. |
 | littleCat212/bridgeGPT | e85e369 /5.0.6 | GitHub API confirms a miuuyy fork; same MCP broker design. Not independent evidence of a better architecture. |
+| uvwt/agentdock | 8c23892 | Independent Go MCP executor, no model inference/Responses provider. Commands live under runtime context rather than request context; request cancellation yields a retained running session. Explicit kill waits for process-tree exit and reports timeout/failure. Optional ACP hosts another agent rather than replacing its model. |
+| ChesterRa/cccc | 953ad1f /0.4.43 preparation | Native Rust coordination daemon with browser-delivered Chat actors and direct MCP workspace tools, not a Responses provider. Separates delivery/read/reply/completion; code mode batches nested tools. Also implements a browserless Dots/MCP Events route, subject to different host/usage/identity constraints. |
 
 Primary reusable flow: one accepted Chat task calls the tunnel MCP; the broker
 emits that pending call through native Responses/SSE, Core executes it, and the
@@ -301,6 +303,48 @@ candidate code or installer was executed. Acceptance still requires one accepted
 Chat task, two harmless Core calls/results and final output, with each setup,
 review, retry and compact submission counted separately; long calls, parallel
 calls, cancellation and observation reconnect must not duplicate native actions.
+
+AgentDock/CCCC add useful execution and lifecycle evidence, not a reason to add
+another tool executor or collaboration daemon. AgentDock command.go explicitly
+keeps an operation alive after its MCP request ends and command.go:killSession
+waits for process-tree exit before reporting killed. Copy that distinction into
+the existing Core-to-MCP binding: sampler/observer cancellation is not user-stop;
+explicit stop must halt new admission and confirm the owned execution outcome.
+Its task checkpoint store does not retain a model's hidden work state. Linux
+arm64 release targets do not establish Android/Termux compatibility.
+
+CCCC code_mode.rs runs a Node cell with yielding/nested tools and revalidates
+Actor generation/binding. That can reduce tool round trips and intermediate
+model-facing output for known batches, but is not an autonomous model loop or
+measured Chat-limit reduction. Its local_tools.rs executes CCCC's own repo/shell/
+Git tools. Wrapping that runtime would duplicate Core's executor and approvals.
+Reuse delivery-versus-completion semantics and exact host-session pairing instead;
+do not infer work completion, user-visible delivery or a stopped cloud generation
+from a webhook receipt or an Actor access revocation.
+
+CCCC's Dots path is a materially different browserless initiation candidate:
+MCP2.0 event callback wakes a saved host task; runtime_wait_next_turn claims exact
+queued work; temporary execution authority permits tools and exact completion.
+The implementation serializes accepted work and binds one Dot to one Actor/Group
+per connector; shared Dot memory is not independent per-Core-thread context.
+No Codex Responses mapping or per-request model/effort control is established.
+Its in-process HTTP fixtures explicitly do not contact ChatGPT. Source inspection
+is not real Dots subscription/callback/account qualification.
+
+[Official MCP Events](https://developers.openai.com/plugins/build/mcp-events)
+supports Work Cloud and Dots, requires protocol2026-07-28, persistent webhook
+subscriptions and verified outbound callbacks; it is not an ordinary Chat
+message-submission API. [Dots access and usage](https://learn.chatgpt.com/docs/dots)
+lists Pro100/200/500, Business Premium and Enterprise rollout. Dot conversations
+do not count toward Chat limits; delegated Work/Codex still uses those products'
+allowance and deeper work has its own allowance. Do not promise free unlimited
+inference or availability to this user's Plus/unspecified Business account.
+Before replacing the app transport, require actual entitlement, an event-triggered
+Core tool/result/final roundtrip, independent thread context, observed model/effort,
+cancellation and account usage classification. This remains conditional research,
+not a second production transport or approval to spend Pro/other model allowance.
+Neither candidate code nor tests/installer was executed; no Chat task, subscription,
+callback, user state or operational runtime was changed during this source review.
 
 ## Independent window return and optional tmux
 
