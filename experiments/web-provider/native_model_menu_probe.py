@@ -24,7 +24,7 @@ import tomllib
 
 SOURCE = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(SOURCE / 'scripts'))
-from qualify_tasks import fixture_activation_state, materialize_signed_generation
+from qualify_tasks import Ws, fixture_activation_state, materialize_signed_generation
 from rald3_preflight import parse_descriptor
 from rald5_publication import parse_manifest
 
@@ -34,7 +34,7 @@ def sha(path):
         return hashlib.file_digest(f, 'sha256').hexdigest()
 
 
-def fixture(root, core, frontend, named_permission=False):
+def fixture(root, core, frontend, named_permission=False, manager=None):
     real_home = Path.home()
     activation = dict(line.split('=', 1) for line in
         (real_home / '.local/share/codex/core/activation-state').read_text().splitlines() if '=' in line)
@@ -48,6 +48,10 @@ def fixture(root, core, frontend, named_permission=False):
     core_mode = (generation / 'core').stat().st_mode & 0o777
     shutil.copy2(core, generation / 'core')
     (generation / 'core').chmod(core_mode)
+    if manager:
+        manager_mode = (generation / 'manager').stat().st_mode & 0o777
+        shutil.copy2(manager, generation / 'manager')
+        (generation / 'manager').chmod(manager_mode)
     raw = frontend.read_bytes()
     changed = 0
     for old, new, count in [
@@ -69,6 +73,8 @@ def fixture(root, core, frontend, named_permission=False):
     for line in text.splitlines():
         if line.startswith('core_artifact_digest\t'):
             line = 'core_artifact_digest\t' + sha(generation / 'core')
+        elif manager and line.startswith('manager_artifact_digest\t'):
+            line = 'manager_artifact_digest\t' + sha(generation / 'manager')
         elif line.startswith('helper\ttermux-manager-tui-v1:'):
             line = 'helper\ttermux-manager-tui-v1:0.161.0\t' + sha(generation / 'helpers/2')
         lines.append(line)
@@ -141,33 +147,29 @@ def fixture(root, core, frontend, named_permission=False):
 
 
 def backend_thread(home, thread, check_defaults=False):
-    servers = list((home / '.local/share/codex/core/servers').glob('*/s'))
-    assert len(servers) == 1, 'official_backend_socket_missing'
-    pid = int(servers[0].with_name('pid').read_text().strip())
+    servers = [p for family in ['servers', 'catalogs']
+        for p in (home / '.local/share/codex/core' / family).glob('*/s')]
     expected = home / '.local/lib/codex/core/generations/local-chat-model-fixture/runtime'
-    assert Path(f'/proc/{pid}/exe').resolve() == expected, 'official_backend_lost'
-    # Qualification-only dependency stays isolated in XDG cache.
-    cache = Path(os.environ.get('XDG_CACHE_HOME', Path.home() / '.cache'))
-    sys.path.insert(0, str(cache / 'codex/acceptance/ws-client-17.2'))
-    from websockets.sync.client import unix_connect
-    with unix_connect(str(servers[0]), uri='ws://localhost/rpc', open_timeout=5,
-        close_timeout=2, max_size=4*1024*1024, compression=None) as wire:
-        def request(number, method, params):
-            wire.send(json.dumps({'id':number,'method':method,'params':params}))
-            for _ in range(100):
-                row=json.loads(wire.recv(timeout=5))
-                if row.get('id') == number:
-                    assert 'error' not in row, 'official_backend_read_failed'
-                    return row['result']
-            raise AssertionError('official_backend_read_failed')
-        request(1, 'initialize', {'clientInfo':{'name':'owned-model-menu-proof','version':'1'},'capabilities':{'experimentalApi':True}})
-        wire.send('{"method":"initialized","params":{}}')
-        current = request(2, 'thread/read', {'threadId':thread,'includeTurns':False})['thread']
-        if check_defaults:
-            control = request(3, 'thread/start', {'model':'gpt-6.1-sol','cwd':str(home.parent/'w'),
-                'ephemeral':True,'approvalPolicy':'never','sandbox':'danger-full-access'})
-            assert control['thread']['modelProvider']=='openai', 'server_defaults_changed'
-        return current
+    found = []
+    for socket in servers:
+        pid = int(socket.with_name('pid').read_text().strip())
+        assert Path(f'/proc/{pid}/exe').resolve() == expected, 'official_backend_lost'
+        wire = Ws(socket, uri_path='/rpc')
+        try:
+            loaded = wire.call('thread/loaded/list', {'limit':100})
+            assert not loaded.get('nextCursor'), 'owned_loaded_fixture_exceeded_page'
+            if thread not in loaded['data']:
+                continue
+            current = wire.call('thread/read', {'threadId':thread,'includeTurns':False})['thread']
+            if check_defaults:
+                control = wire.call('thread/start', {'model':'gpt-6.1-sol','cwd':str(home.parent/'w'),
+                    'ephemeral':True,'approvalPolicy':'never','sandbox':'danger-full-access'})
+                assert control['thread']['modelProvider']=='openai', 'server_defaults_changed'
+            found.append(current)
+        finally:
+            wire.close()
+    assert len(found)==1, 'official_backend_owner_missing_or_ambiguous'
+    return found[0]
 
 
 def probe(core, frontend, named_permission=False):
@@ -282,7 +284,8 @@ def probe(core, frontend, named_permission=False):
             # The official fixture backend has its own session. Retire only
             # processes proven to execute this disposable generation's runtime.
             expected_runtime = home / '.local/lib/codex/core/generations/local-chat-model-fixture/runtime'
-            for record in (home / '.local/share/codex/core/servers').glob('*/pid'):
+            for record in (p for family in ['servers', 'catalogs']
+                for p in (home / '.local/share/codex/core' / family).glob('*/pid')):
                 try:
                     pid = int(record.read_text().strip())
                     if Path(f'/proc/{pid}/exe').resolve() == expected_runtime:

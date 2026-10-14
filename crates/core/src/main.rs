@@ -1424,6 +1424,30 @@ where
         let _ = shared_profiles::project(config_dir.as_ref(), &profile);
     }
     use std::io::IsTerminal as _;
+    if options.planned_args == [OsStr::new(shared_server::CATALOG_COMMAND)] {
+        let prepare = || -> std::io::Result<_> {
+            let catalog = shared_server::read_catalog(std::io::stdin().lock())?;
+            let home = std::env::var_os("HOME")
+                .map(std::path::PathBuf::from)
+                .ok_or_else(|| std::io::Error::other("catalog server requires HOME"))?;
+            shared_server::ensure_catalog(
+                selection.runtime.program_path,
+                &upstream_execution_home(&home),
+                &home.join(".local/share/codex/core"),
+                resolver_path.as_ref(),
+                config_dir.as_ref(),
+                &env_plan,
+                Some(&catalog),
+            )
+        };
+        match prepare() {
+            Ok(socket) => {
+                println!("{}", socket.display());
+                std::process::exit(0);
+            }
+            Err(error) => return RuntimeLaunchError::Config(error),
+        }
+    }
     if std::io::stdin().is_terminal()
         && std::io::stdout().is_terminal()
         && (shared_server::eligible(options.planned_args)

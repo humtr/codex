@@ -60,7 +60,13 @@ app transport, Responses server and profile source matched the maintained files
 before this source change; installation remains unchanged. Candidate admission
 repairs now handle identity/zstd bodies at16 MiB encoded/32 MiB decoded and reject
 opaque/corrupt compaction before parser placeholder conversion. These changes
-are not yet installed and do not repair backend catalog or cross-provider resume.
+are not yet installed. The candidate now carries the upstream-resolved catalog
+from the local frontend to Core's existing backend coordinator. Core's private
+catalog operation passes actual Android request admission with12 tools, same-byte
+server reuse, changed-byte separation, previous-thread readability and Manager
+writer discovery. The self-contained probe no longer requires an untracked model
+fixture or a newer checkout's WebSocket helper. Runtime remains unchanged;
+frontend compilation/device integration and cross-provider resume are unqualified.
 
 Confirmed observations:
 
@@ -113,18 +119,19 @@ publish prompts, tool results, credentials or raw conversation records.
 
 Required follow-up, before claiming ordinary `/model` use is qualified:
 
-1. Apply selected metadata at the official backend startup boundary while preserving
-   native siblings' defaults and exact runtime ownership. Reuse Core's server path;
-   do not add an executor/model service or disable tools for fallback metadata.
-   Evaluate the existing bridge's merged native/Web catalog and model-based
-   dispatch before adding catalog-specific server scopes. Its current built-in
-   OpenAI provider route avoids per-model provider re-entry, but must not make
-   ordinary native Core depend on an optional adapter or require native login for
-   otherwise independent Chat use. Never duplicate the upstream config loader or
-   patch pristine Core. Qualify catalog content changes, reuse
-   and retirement; a filename alone is insufficient and active siblings must survive.
-   Honoring config.model_catalog during upstream lookup is a smaller upstream fix,
-   not authority to source-build a parallel backend.
+1. Finish frontend build and actual TUI qualification of resolved-catalog startup.
+   The minimal candidate uses the frontend's existing upstream config loader and
+   Core's existing server/retirement implementation, without a TOML loader, new
+   executor, dependency or proxy for native inference. A global merged catalog/
+   model router was considered: it also changes native inference, auth and compact
+   routing and would introduce an optional adapter dependency into that path.
+   The bounded startup fix therefore precedes reload removal. Catalogs are keyed
+   by exact bytes/home/runtime, not model/effort or a mutable source filename.
+   Their private `catalogs` records leave the native `servers` rendezvous unchanged;
+   current Manager discovers both, while older readers can ignore the new family.
+   Keep per-account native inference and otherwise independent Chat login.
+   Qualify the actual frontend selection/resume path, native siblings and retired
+   catalog generations before activation. No pristine upstream backend is patched.
 2. Establish a compatible old-provider compaction/new-provider resume boundary
    for long histories, preserving canonical history, permissions and sibling
    routes. Do not bypass the defect by deleting history or silently truncating it.

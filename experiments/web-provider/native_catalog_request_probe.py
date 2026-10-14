@@ -16,10 +16,10 @@ import threading
 import time
 
 
-def probe(source, runtime, bun, bridge, catalog):
+def probe(source, runtime, bun, bridge, catalog, core=None, frontend=None, manager=None):
     sys.path.insert(0, str(source / 'scripts'))
     from qualify_tasks import Ws
-    native = json.loads((source / 'scripts/fixtures/permission-model.json').read_text())
+    native = json.loads(Path(__file__).with_name('native_catalog_fixture.json').read_text())
     chat = next(m for m in json.loads(catalog.read_text())['models'] if m['slug']=='chatgpt-desktop/gpt-6')
     captured = []
     interrupt_fixture = threading.Event()
@@ -79,8 +79,14 @@ def probe(source, runtime, bun, bridge, catalog):
         with tempfile.TemporaryDirectory(prefix='c-', dir=os.environ['TMPDIR']) as tmp:
             root = Path(tmp)
             home, config, work = root/'h', root/'cfg', root/'w'
+            core_env = None
+            if core:
+                from native_model_menu_probe import fixture
+                home, prefix, core_env = fixture(root, core, frontend, manager=manager)
             for path in [home, config, work]:
-                path.mkdir(mode=0o700)
+                path.mkdir(mode=0o700, exist_ok=True)
+            if core:
+                home = home/'.codex'
             native_path, chat_path, merged_path = root/'native.json', root/'chat.json', root/'merged.json'
             native_path.write_text(json.dumps({'models': [native]}))
             chat_path.write_text(json.dumps({'models': [chat]}))
@@ -96,7 +102,14 @@ def probe(source, runtime, bun, bridge, catalog):
                 for fd, target in zip(descriptors, [33, 34, 35]):
                     os.dup2(fd, target, inheritable=True)
 
-            for index, mode in enumerate(['thread-override', 'startup-catalog', 'startup-merged-catalog']):
+            modes = ['thread-override', 'startup-catalog', 'startup-merged-catalog']
+            if core:
+                modes.append('core-resolved-catalog')
+                core_env['OPENAI_BASE_URL'] = endpoint
+            for index, mode in enumerate(modes):
+                interrupt_fixture.clear()
+                stream_started.clear()
+                stream_closed.clear()
                 socket = root/('s'+str(index))
                 argv = [str(runtime)]
                 if mode == 'startup-catalog':
@@ -104,21 +117,42 @@ def probe(source, runtime, bun, bridge, catalog):
                 elif mode == 'startup-merged-catalog':
                     argv += ['-c', 'model_catalog_json='+json.dumps(str(merged_path))]
                 argv += ['app-server', '--listen', 'unix://'+str(socket)]
+                owned_servers = []
+
+                def core_catalog(value):
+                    result = subprocess.run([str(prefix/'bin/codex'), '__app-server-catalog-v1'],
+                        input=json.dumps(value).encode(), env=core_env, cwd=work,
+                        capture_output=True, timeout=25)
+                    assert result.returncode == 0, 'core_catalog_start_failed: '+result.stderr.decode()[-1500:]
+                    prepared = Path(result.stdout.decode().strip())
+                    assert prepared.is_absolute() and len(result.stdout)<=108, 'invalid_core_socket'
+                    pid = int(prepared.with_name('pid').read_text())
+                    expected = root/'h/.local/lib/codex/core/generations/local-chat-model-fixture/runtime'
+                    assert Path(f'/proc/{pid}/exe').resolve() == expected
+                    owned_servers.append((pid, expected))
+                    return prepared, pid
+
                 with (root/(mode+'.log')).open('w+') as log:
-                    child = subprocess.Popen(argv, env=env, cwd=work, stdout=log, stderr=log,
-                                             close_fds=False, preexec_fn=fds, start_new_session=True)
+                    child = None
+                    if mode == 'core-resolved-catalog':
+                        socket, server_pid = core_catalog({'models': [chat]})
+                        reused, reused_pid = core_catalog({'models': [chat]})
+                        assert reused == socket and reused_pid == server_pid, 'resolved_catalog_not_reused'
+                    else:
+                        child = subprocess.Popen(argv, env=env, cwd=work, stdout=log, stderr=log,
+                                                 close_fds=False, preexec_fn=fds, start_new_session=True)
                     wire = None
                     try:
                         deadline = time.monotonic()+20
                         while not socket.exists():
-                            if child.poll() is not None:
+                            if child and child.poll() is not None:
                                 log.flush();log.seek(0)
                                 raise AssertionError('official_backend_start_failed: '+log.read()[-1500:])
                             assert time.monotonic()<deadline, 'official_backend_start_timeout'
                             time.sleep(.05)
                         wire = Ws(str(socket), uri_path='/rpc')
                         result = wire.call('thread/start', {'model': chat['slug'], 'modelProvider': 'owned',
-                            'cwd': str(work), 'ephemeral': True, 'approvalPolicy': 'never', 'sandbox': 'danger-full-access',
+                            'cwd': str(work), 'ephemeral': mode != 'core-resolved-catalog', 'approvalPolicy': 'never', 'sandbox': 'danger-full-access',
                             'config': {'model_catalog_json': str(chat_path), 'model_reasoning_effort': 'none', 'model_providers.owned': {
                                 'name': 'Owned fixture', 'base_url': endpoint, 'wire_api': 'responses', 'requires_openai_auth': False}}})
                         thread = result['thread']['id']
@@ -130,6 +164,18 @@ def probe(source, runtime, bun, bridge, catalog):
                                 break
                         log.flush();log.seek(0)
                         report[mode] = dict(captured[-1], fallbackMetadata=('Unknown model '+chat['slug']) in log.read())
+                        if mode == 'core-resolved-catalog':
+                            report[mode]['fallbackMetadata'] = None # Core owns stderr; request shape is the proof here.
+                            changed = dict(chat, display_name='Owned catalog revision')
+                            other, other_pid = core_catalog({'models': [changed]})
+                            assert other != socket and other_pid != server_pid, 'changed_catalog_reused_stale_server'
+                            assert wire.call('thread/read', {'threadId': thread})['thread']['id']==thread
+                            status = subprocess.run([str(prefix/'bin/codex'), 'termux', 'task', 'status'],
+                                env=core_env, cwd=work, capture_output=True, timeout=20)
+                            assert status.returncode==0, 'manager_catalog_discovery_failed: '+status.stderr.decode()[-1000:]
+                            assert thread in status.stdout.decode(), 'catalog_writer_not_discovered'
+                            report[mode].update(sameCatalogReused=True, changedCatalogNewServer=True,
+                                previousThreadReadable=True, managerDiscoversWriter=True, chatSubmissions=0)
                         if mode == 'startup-merged-catalog':
                             before = len(paths)
                             interrupt_fixture.set()
@@ -148,9 +194,18 @@ def probe(source, runtime, bun, bridge, catalog):
                     finally:
                         if wire:
                             wire.close()
-                        if child.poll() is None:
-                            os.killpg(child.pid, signal.SIGTERM)
-                        child.wait(timeout=10)
+                        if child:
+                            if child.poll() is None:
+                                os.killpg(child.pid, signal.SIGTERM)
+                            child.wait(timeout=10)
+                        for pid, expected in set(owned_servers):
+                            if Path(f'/proc/{pid}/exe').resolve() == expected:
+                                os.kill(pid, signal.SIGTERM)
+                        deadline = time.monotonic()+10
+                        for pid, expected in set(owned_servers):
+                            while Path(f'/proc/{pid}/exe').resolve()==expected:
+                                assert time.monotonic()<deadline, 'owned_core_server_exit_timeout'
+                                time.sleep(.05)
             for fd in descriptors:
                 os.close(fd)
     finally:
@@ -165,6 +220,9 @@ def probe(source, runtime, bun, bridge, catalog):
     assert report['startup-merged-catalog']['adapterToolCount'] == report['startup-catalog']['adapterToolCount'] > 0
     assert report['interrupt-wire']['providerStreamClosed']
     assert report['interrupt-wire']['httpPaths'] == ['/v1/responses']
+    if core:
+        assert report['core-resolved-catalog']['adapterAdmission']=='admitted'
+        assert report['core-resolved-catalog']['adapterToolCount']==report['startup-catalog']['adapterToolCount']
     return report
 
 
@@ -176,8 +234,12 @@ if __name__ == '__main__':
     parser.add_argument('--bun', type=Path, required=True)
     parser.add_argument('--bridge', type=Path, required=True)
     parser.add_argument('--catalog', type=Path, required=True)
+    parser.add_argument('--core', type=Path)
+    parser.add_argument('--frontend', type=Path)
+    parser.add_argument('--manager', type=Path)
     args = parser.parse_args()
-    result = probe(args.source, args.runtime, args.bun, args.bridge, args.catalog)
+    assert bool(args.core)==bool(args.frontend)==bool(args.manager), 'supply the complete disposable candidate trio'
+    result = probe(args.source, args.runtime, args.bun, args.bridge, args.catalog, args.core, args.frontend, args.manager)
     args.report.write_text(json.dumps(result, indent=2)+'\n')
     args.report.chmod(0o600)
     print(json.dumps(result))

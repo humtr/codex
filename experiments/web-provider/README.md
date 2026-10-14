@@ -1089,3 +1089,13 @@ also proves merged startup catalog admission and actual turn/interrupt stream
 closure. The provider receives no separate interruption request, so stream closure
 cannot be ignored until a qualified explicit cancellation path exists. Neither
 fixture starts real Chat inference or changes an account's settings/history.
+
+The next source candidate passes the frontend's upstream-resolved catalog through
+Core's private stdin operation into the same official backend startup path.
+An Android disposable signed Core/Manager fixture verifies admitted requests with
+12 tools, reuse for identical bytes, a new server for changed bytes, retained
+access to the previous thread and current-writer discovery. Catalog namespaces
+do not replace the default native socket; ordinary Core still works independently
+of this adapter. This is source and fake-response proof. Frontend compilation,
+actual TUI integration, long-history provider handoff and retained-turn MCP stop
+remain acceptance gates; installed stable51/provider46db05e is unchanged.

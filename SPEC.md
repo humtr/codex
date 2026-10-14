@@ -3104,6 +3104,24 @@ private snapshot of the Core-owned defaults/requirements for that identity. A su
 record, directory or runtime is rejected. Startup is bounded; failure does not
 invoke an installer or execute any package outside signed generations. Explicit
 user embedded/remote/configuration selections retain their upstream semantics.
+
+A qualified local Manager frontend may submit its upstream-resolved model catalog
+to Core's private `__app-server-catalog-v1` operation on stdin (at most4 MiB).
+Core returns only the exact qualified server socket, and uses the existing server
+coordinator, environment, descriptor and retirement path. Catalog bytes, profile
+home and runtime jointly identify reuse; a changed catalog at the same source
+filename must not reuse stale metadata. Core stores an immutable private snapshot
+and supplies its path only to backend startup, never to ordinary upstream argv.
+It does not interpret profile TOML, resolve provider credentials or start another
+executor. The frontend remains responsible for loading selected user/CLI/project
+configuration with upstream code. Existing native servers and active siblings
+remain intact. Remote/embedded launches are unaffected; failure to prepare a
+requested catalog is explicit, never a fallback to an unqualified embedded backend.
+Catalog server records live under Core's private `catalogs` namespace and never
+retarget the default `servers` rendezvous. This keeps older Core/Manager readers
+from rejecting a new-format record during rollback. Current Manager discovery
+validates both families, including exact catalog content, runtime and peer PID;
+generation retirement applies the same existing-client/writer protections to both.
 Core launches no upstream daemon updater and never creates a packages tree.
 The historical public daemon/remote-control lifecycle fence remains in force.
 
