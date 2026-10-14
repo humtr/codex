@@ -32,7 +32,7 @@ index 683c548..0915019 100644
  }
 @@ -1165,6 +1168,8 @@ impl App {
      }
- 
+
      fn render_chat_widget_frame(&mut self, tui: &mut tui::Tui, screen_size: Size) -> Result<Rect> {
 +        #[cfg(unix)]
 +        crate::termux_terminal::sync(self.chat_widget.thread_id().map(|id| id.to_string()));
@@ -1417,7 +1417,7 @@ index b35b1a5..598e5e1 100644
 @@ -6504,7 +6504,7 @@ async fn replace_goal_confirmation_snapshot() {
      );
  }
- 
+
 -fn test_thread_session(thread_id: ThreadId, cwd: PathBuf) -> ThreadSessionState {
 +pub(super) fn test_thread_session(thread_id: ThreadId, cwd: PathBuf) -> ThreadSessionState {
      ThreadSessionState {
@@ -1426,7 +1426,7 @@ index b35b1a5..598e5e1 100644
 @@ -7159,7 +7159,7 @@ fn test_turn(turn_id: &str, status: TurnStatus, items: Vec<ThreadItem>) -> Turn
      }
  }
- 
+
 -fn turn_started_notification(thread_id: ThreadId, turn_id: &str) -> ServerNotification {
 +pub(super) fn turn_started_notification(thread_id: ThreadId, turn_id: &str) -> ServerNotification {
      ServerNotification::TurnStarted(TurnStartedNotification {
@@ -1435,7 +1435,7 @@ index b35b1a5..598e5e1 100644
 @@ -7169,7 +7169,7 @@ fn turn_started_notification(thread_id: ThreadId, turn_id: &str) -> ServerNotifi
      })
  }
- 
+
 -fn turn_completed_notification(
 +pub(super) fn turn_completed_notification(
      thread_id: ThreadId,
@@ -1448,17 +1448,17 @@ index 0961865..7bc311e 100644
 @@ -40,8 +40,8 @@ use tokio::task::JoinHandle;
  use tokio_tungstenite::accept_async;
  use tokio_tungstenite::tungstenite::Message;
- 
+
 -pub(super) type RecordedRequests = Arc<Mutex<Vec<JSONRPCRequest>>>;
 -pub(super) type RecordingAppServer = (AppServerSession, RecordedRequests, JoinHandle<Result<()>>);
 +pub(in crate::app) type RecordedRequests = Arc<Mutex<Vec<JSONRPCRequest>>>;
 +pub(in crate::app) type RecordingAppServer = (AppServerSession, RecordedRequests, JoinHandle<Result<()>>);
- 
+
  #[tokio::test]
  async fn daybreak_command_persists_and_confirms_each_selection() -> Result<()> {
 @@ -340,7 +340,7 @@ fn take_backfill_counts(requests: &RecordedRequests) -> (usize, usize) {
  }
- 
+
  /// Starts an embedded app server behind a loopback WebSocket proxy that records JSON-RPC methods.
 -pub(super) async fn start_recording_app_server(
 +pub(in crate::app) async fn start_recording_app_server(
@@ -1468,7 +1468,7 @@ index 0961865..7bc311e 100644
 @@ -827,7 +827,10 @@ fn create_history_rollout(
      Ok(ThreadId::from_string(&thread_id)?)
  }
- 
+
 -pub(super) fn recorded_params(requests: &RecordedRequests, method: &str) -> Vec<serde_json::Value> {
 +pub(in crate::app) fn recorded_params(
 +    requests: &RecordedRequests,
@@ -1501,7 +1501,7 @@ index 3185d8a..e98de3d 100644
 @@ -593,6 +593,12 @@ pub(crate) enum AppEvent {
      /// Open the resume picker inside the running TUI session.
      OpenResumePicker,
- 
+
 +    /// Open the Manager execution-profile view without changing accounts.
 +    #[cfg(unix)]
 +    OpenProfilePicker,
@@ -1510,14 +1510,14 @@ index 3185d8a..e98de3d 100644
 +
      /// Open the Claude Code migration picker inside the running TUI session.
      OpenExternalAgentConfigMigration,
- 
+
 @@ -1183,6 +1189,8 @@ pub(crate) enum AppEvent {
- 
+
      /// Update the current model slug in the running app and widget.
      UpdateModel(String),
 +    #[cfg(unix)]
 +    SelectChatModelProvider { model: String, effort: Option<ReasoningEffort> },
- 
+
      /// Apply a final Astra picker action and offer the flourish only if it changed the model on
      /// its original task. Automatic model updates do not use this event.
 diff --git a/codex-rs/tui/src/app_server_session.rs b/codex-rs/tui/src/app_server_session.rs
@@ -1629,7 +1629,7 @@ index d2c3249..cfb9ec1 100644
 @@ -3457,6 +3495,45 @@ mod tests {
          assert_eq!(fork.config, Some(expected_config));
      }
- 
+
 +    #[tokio::test]
 +    async fn termux_chat_models_local_thread_keeps_profile_and_session_settings() -> Result<()> {
 +        let home = tempfile::tempdir()?;
@@ -1696,7 +1696,7 @@ index 8921eaa..586517b 100644
 +++ b/codex-rs/tui/src/bottom_pane/chat_composer.rs
 @@ -477,6 +477,10 @@ pub enum InputResult {
  }
- 
+
  fn parent_owned_command_is_allowed(command: SlashCommand, args: &str) -> bool {
 +    #[cfg(unix)]
 +    if command == SlashCommand::Switch && args.is_empty() {
@@ -1725,7 +1725,7 @@ index 15dac97..6842c87 100644
 @@ -439,6 +439,7 @@ use crate::streaming::controller::PlanStreamController;
  use crate::streaming::controller::StreamController;
  use crate::workspace_command::WorkspaceCommandRunner;
- 
+
 +use crate::termux_permissions::builtin_approval_presets;
  use chrono::Local;
  use codex_app_server_protocol::AskForApproval;
@@ -1737,7 +1737,7 @@ index 15dac97..6842c87 100644
 -use codex_utils_approval_presets::builtin_approval_presets;
  use strum::IntoEnumIterator;
  use unicode_segmentation::UnicodeSegmentation;
- 
+
 @@ -458,7 +458,6 @@ const USER_SHELL_COMMAND_HELP_TITLE: &str = "Prefix a command with ! to run it l
  const USER_SHELL_COMMAND_HELP_HINT: &str = "Example: !ls";
  const ASK_FOR_APPROVAL_LABEL: &str = "Ask for approval";
@@ -1745,14 +1745,14 @@ index 15dac97..6842c87 100644
 -const AUTO_REVIEW_DESCRIPTION: &str = "Only ask for actions detected as potentially unsafe";
  const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
  const DEFAULT_STATUS_LINE_ITEMS: [&str; 3] = ["model-with-reasoning", "current-dir", "thread-name"];
- 
+
 diff --git a/codex-rs/tui/src/chatwidget/model_popups.rs b/codex-rs/tui/src/chatwidget/model_popups.rs
 index 03efe31..b0c3317 100644
 --- a/codex-rs/tui/src/chatwidget/model_popups.rs
 +++ b/codex-rs/tui/src/chatwidget/model_popups.rs
 @@ -80,6 +80,8 @@ impl ChatWidget {
      }
- 
+
      pub(crate) fn open_model_popup_with_presets(&mut self, presets: Vec<ModelPreset>) {
 +        #[cfg(unix)]
 +        let presets = crate::termux_chat_models::augment(&self.config, presets);
@@ -1847,7 +1847,7 @@ index 5ebd1db..cfa8a29 100644
 +++ b/codex-rs/tui/src/chatwidget/permissions_menu.rs
 @@ -5,6 +5,9 @@ use crate::permission_discovery::PermissionDiscovery;
  use codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_DANGER_FULL_ACCESS;
- 
+
  pub(super) fn permission_preset_description(preset: &ApprovalPreset) -> &'static str {
 +    if crate::termux_permissions::enabled() && preset.id == "auto" {
 +        return preset.description;
@@ -1955,7 +1955,7 @@ index 8f84887..98b55c3 100644
 +            SlashCommand::Switch => QueueDrain::Stop,
          }
      }
- 
+
 diff --git a/codex-rs/tui/src/chatwidget/termux_permission_popups_tests.rs b/codex-rs/tui/src/chatwidget/termux_permission_popups_tests.rs
 new file mode 100644
 index 0000000..7dc0f94
@@ -2284,7 +2284,7 @@ index 945041b..764c243 100644
              SlashCommand::Delete => "permanently delete this session",
              SlashCommand::Clear => "clear the terminal and start a new chat",
 @@ -193,6 +197,10 @@ impl SlashCommand {
- 
+
      /// Whether this command remains available inside an active side conversation.
      pub fn available_in_side_conversation(self) -> bool {
 +        #[cfg(unix)]
@@ -2295,7 +2295,7 @@ index 945041b..764c243 100644
              self,
              SlashCommand::Copy
 @@ -218,6 +226,10 @@ impl SlashCommand {
- 
+
      /// Commands that do not require a writable current thread. The server must still be connected.
      pub(crate) fn available_when_thread_unavailable(self) -> bool {
 +        #[cfg(unix)]
