@@ -1,3 +1,4 @@
+import {isGuardianContinuation,desktopOutputInstructions} from './desktop_protocol.mjs';
 import {desktopConnection} from './desktop_cdp.mjs';
 import {mkdtempSync,writeFileSync,readFileSync,readlinkSync,rmSync} from 'node:fs';
 import {join} from 'node:path';
@@ -157,4 +158,26 @@ test('observed Chat families preserve actual effort semantics and Pro is separat
  }
  for(const model of ['chatgpt-desktop/gpt-6-sol','chatgpt-desktop/__proto__','chatgpt-desktop/unknown'])expect(()=>validateDesktopRoute({model})).toThrow('unsupported_desktop_route');
  for(const effort of ['low','max','ultra','constructor'])expect(()=>validateDesktopRoute({model:'chatgpt-desktop/gpt-6',reasoning:{effort}})).toThrow('unsupported_desktop_route');
+});
+
+
+test('only a guardian with an outstanding native parent call may interleave',()=>{
+ const parent=new DesktopTranscript(),child=new DesktopTranscript();
+ const relation={key:'child',parent:'parent',guardian:true,owner:'parent',active:true,pending:false};
+ expect(isGuardianContinuation(relation)).toBe(false);
+ parent.issue('owned-parent-call');relation.pending=parent.hasPending();expect(isGuardianContinuation(relation)).toBe(true);
+ for(const invalid of [{guardian:false},{parent:'unrelated'},{key:'parent'},{active:false},{owner:undefined}])expect(isGuardianContinuation({...relation,...invalid})).toBe(false);
+ child.issue('owned-review-call');child.receive([{role:'toolResult',toolCallId:'owned-review-call',content:'review-owned-result'}]);
+ expect(child.hasPending()).toBe(false);expect(parent.hasPending()).toBe(true);
+ parent.receive([{role:'toolResult',toolCallId:'owned-parent-call',content:'parent-owned-result'}]);expect(parent.hasPending()).toBe(false);
+ expect(isGuardianContinuation({...relation,pending:parent.hasPending()})).toBe(false);
+});
+
+test('native structured reviewer output reaches the desktop without inventing a decision',()=>{
+ expect(desktopOutputInstructions({})).toEqual([]);
+ expect(desktopOutputInstructions({text:{format:{type:'text'}}})).toEqual([]);
+ const format={type:'json_schema',name:'decision',strict:true,schema:{type:'object',properties:{decision:{enum:['allow','deny']}},required:['decision'],additionalProperties:false}};
+ expect(desktopOutputInstructions({text:{format}})[0]).toContain(JSON.stringify(format));
+ expect(desktopOutputInstructions({text:{format:{type:'json_object'}}})[0]).toContain('JSON object');
+ for(const bad of [{type:'unknown'},{type:'json_schema'},{type:'json_schema',schema:[]}])expect(()=>desktopOutputInstructions({text:{format:bad}})).toThrow('unsupported_desktop_output_format');
 });

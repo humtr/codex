@@ -25,6 +25,11 @@ update authority is maintained.
   a Chat slug into an ordinary Codex default. The command-backed provider stays
   owned by the marked standalone profile; only its nonsecret routing references
   enter invocation overrides. The standalone --profile chatgpt remains available.
+  The experimental desktop adapter serializes actual submissions. A native
+  guardian child may interrupt its verified parent only while that parent awaits
+  an issued tool result. Child/parent ledgers stay separate, the parent cursor is
+  retired, and its next request replays Core's canonical context. An unrelated
+  active owner remains a conflict; reviewer selection is never bypassed.
   An optional source-built Manager TUI is the third signed helper at `helpers/2`,
   identified by `termux-manager-tui-v1:UPSTREAM_VERSION`. The first two helpers
   retain the accepted browser identities. Its version must exactly match the

@@ -982,3 +982,12 @@ composer or Stop control; ordinary drafts stay protected. Quick Chat is not a
 model transport. Full-access harmless shell commands may require no approval,
 so the autoreviewer fixture installs a prompt rule only in a disposable config
 home and requires a real guardian request as well as the two native calls.
+
+Native guardian turns have independent disposable ledgers. An authenticated
+child can interleave only when its parent id matches the active primary owner
+and an adapter-issued native tool call is outstanding. Switching the shared app
+surface retires its cursor; parent continuation replays canonical Core context,
+including the real approved/denied native tool result. Unrelated active owners
+remain conflicts. Native structured output schemas reach the actual Chat model;
+the adapter never generates an approval decision. Actual rule/reviewer/native
+round-trip acceptance is required in addition to protocol checks.

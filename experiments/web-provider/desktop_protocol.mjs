@@ -12,6 +12,18 @@ export class DesktopTranscript{
   }
  }
  issue(id){if(this.calls.has(id))throw Error('duplicate_desktop_call');this.calls.set(id,{});}
+ hasPending(){return [...this.calls.values()].some(call=>call.result===undefined);}
+}
+// Native review is a related child turn, not a replacement primary owner.
+export function isGuardianContinuation({key,parent,guardian,owner,active,pending}){
+ return !!guardian&&!!owner&&key!==owner&&parent===owner&&!!active&&!!pending;
+}
+export function desktopOutputInstructions(raw){
+ const format=raw.text?.format;
+ if(!format||format.type==='text')return [];
+ if(format.type==='json_object')return ['The native final reply must be a JSON object; put its exact JSON serialization in the final envelope text.'];
+ if(format.type!=='json_schema'||!format.schema||typeof format.schema!=='object'||Array.isArray(format.schema))throw Error('unsupported_desktop_output_format');
+ return ['The native final reply must match this exact output format. Put its JSON serialization in the final envelope text: '+JSON.stringify(format)];
 }
 export function validateEnvelope(response,tools){
  if(response.type==='final'&&typeof response.text==='string')return undefined;
