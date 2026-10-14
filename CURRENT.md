@@ -237,6 +237,16 @@ GitHub source comparison pins (read-only; no candidate code executed or installe
 | connectedGraph/chatgpt-desktop-bridge | 4d159df | CDP DOM submit/read for Chat Completions; latest user text only, no Responses endpoint/native tool loop. |
 | adamallcock/codex-chatgpt-control | 1e50539 | Browser SDK, not a drop-in provider; useful send-once and ambiguous-submission ownership rules. |
 | thezillo/codex-proxy | 293ac38 | Uses /backend-api/codex/responses with Codex auth, not the ordinary Chat conversation transport. Useful stream/error pass-through; not evidence of ordinary Chat message savings. |
+| l0z4n0-a1/chatgpt-bridge | 381b0e7 | src/config.ts and upstream.ts use /backend-api/codex and Codex auth.json. Browserless transport, but not an ordinary Chat quota replacement. |
+| XiaoPuOuO/openchatx-mcp | c6ae729 | Direct official MCP local tools with Chat as planner; no Responses provider. Adds its own tool runtime, jobs, goals and summary store. Summary retrieval consumes/deletes the handoff; unsuitable as a replacement for durable Core history. |
+| int04/ChatCmd | e604ac8 | Independent MCP runtime plus extension/DOM automation. Useful operation fencing and persisted compact/resume ordering; immediate user updates can ride an existing tool result. No native Codex Responses provider; its runtime/database would duplicate ours. |
+| cromat/chatgpt-web-session-proxy | 753d7d8 | sessions.ts calls browser.sendPrompt for each delta, including tool outputs. Persistent conversation/shadow transcript saves repeated context, not user submissions. |
+| Octo-Lex/ChatGPT-Web2API | 497527d | CDP Chat query tool/REST adapter, not inverse native MCP continuation. Useful anchored observation-only recovery; backend_client still needs a browser and token/session maintenance. Shared MCP tab isolation is not enabled by default. |
+| tang-vu/tab2api | b624600 | Responses mapper has empty tools; Anthropic client tools use text envelopes and another UI request. Stream output is buffered. No improvement over our native tool transport. |
+| yo20ywork-max/chatgpt-codex-bridge | 55a98c0 | codexRunner.ts spawns codex exec/resume as an intelligent worker; moves execution to another Codex inference loop rather than making Chat the current Core's model. |
+| DeepCogNeural/codex-gpt-bridge | fe923d5 | Chat-to-Codex invokes official codex mcp-server; inverse ask_chatgpt uses paid Responses API. Different inference/accounting route. |
+| lanqian528/chat2api | a63a90c | Direct private conversation protocol, last inspected commit2025-03-28. action=next per request, token/challenge maintenance, text projection of server tools; no demonstrated Core tool-result continuation. |
+| littleCat212/bridgeGPT | e85e369 /5.0.6 | GitHub API confirms a miuuyy fork; same MCP broker design. Not independent evidence of a better architecture. |
 
 Primary reusable flow: one accepted Chat task calls the tunnel MCP; the broker
 emits that pending call through native Responses/SSE, Core executes it, and the
@@ -257,6 +267,40 @@ Reusable references at the pinned commit: [tool/result loop](https://github.com/
 [model catalog](https://github.com/miuuyy/codex-chatgpt-web/blob/889f291d06339400a8b9c2941473f65cd47d4830/src/model-catalog.ts),
 [native dispatch](https://github.com/miuuyy/codex-chatgpt-web/blob/889f291d06339400a8b9c2941473f65cd47d4830/src/server.ts#L644),
 and [opaque checkpoint limitation](https://github.com/miuuyy/codex-chatgpt-web/blob/889f291d06339400a8b9c2941473f65cd47d4830/src/responses/compaction.ts#L75).
+
+Expanded comparison does not establish a superior ordinary-Chat provider protocol.
+It favors a smaller adaptation: keep the already qualified app-owned sign-in and
+internal submission transport, connect the existing native MCP continuation to
+Core's executor, and scope merged-catalog/model routing to opted-in execution.
+Changing the submission transport alone cannot turn a fresh Chat generation into
+the result of an outstanding tool call. Removing the Linux/browser dependency is
+still unqualified, not a benefit proved by a browserless Codex proxy. App-native
+MCP/Temporary Chat compatibility must pass before selecting this as production.
+Normal model switching and full-mode tool continuation are independent changes;
+neither solves the opaque native checkpoint handoff by itself.
+
+Reuse narrow lifecycle ideas, not another management plane: observation failure
+must reobserve the same turn without resending; disconnecting one HTTP sampler
+must not cancel its retained Chat turn; actual user interruption must revoke new
+tool admission, interrupt owned active Core operations and confirm the terminal
+state. Core events/history remain the user-visible and resume authority. A compact
+handoff must durably preserve state before rebinding; estimated context budgets
+or a one-shot summary UUID do not prove lossless resumption. Injecting new user
+instructions through a tool result may avoid a submit but changes their role;
+keep this separate from result continuation and do not claim native steering parity.
+
+Official OpenAI documentation was rechecked: [SIWC plan usage](https://learn.chatgpt.com/docs/sign-in-with-chatgpt)
+explicitly uses Codex/ChatGPT Work allowance; [public Responses authentication](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference)
+is a supported browserless route, but does not meet the separate ordinary-Chat
+allowance objective. [Workspace Agent triggers](https://developers.openai.com/workspace-agents/trigger-runs)
+can return a conversation URL/run status but still cannot retrieve the final
+agent response; an MCP callback provider remains speculative. No new inference,
+real quota experiment, credential access or runtime change occurred. Ten further
+repositories were source-inspected in TMPDIR, including one confirmed fork; no
+candidate code or installer was executed. Acceptance still requires one accepted
+Chat task, two harmless Core calls/results and final output, with each setup,
+review, retry and compact submission counted separately; long calls, parallel
+calls, cancellation and observation reconnect must not duplicate native actions.
 
 ## Independent window return and optional tmux
 
