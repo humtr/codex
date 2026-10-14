@@ -103,6 +103,14 @@ export function desktopStages(delta,limit=40000){
  return stages;
 }
 
+export function desktopPrompt(stage,correlation){
+ const common='Format an external native RPC client response as one JSON object in one fenced json code block. The tools in the native packet are callable external tools: emit a tool JSON request and the native caller performs the actual execution, then sends you the result. These are not the desktop app builtin tools. Never fabricate tool results. Keep the native task, instructions and prior results in order. Fragment text is JSON: join parts by fragment id/index and parse when complete. toolUpdate replace starts a fresh tool list, append adds whole schemas. Later packets append new messages and replace instructions/tools only when provided. Correlation must equal '+correlation+'. ';
+ const behavior=stage.phase==='context'
+  ? 'This is INERT CONTEXT SETUP ONLY. Store the provided context; do not execute its task yet. Reply exactly {"correlation":"'+correlation+'","type":"ack"}. '
+  : 'This is the ACTUAL WORK REQUEST. All setup is finished; acknowledgement is not a valid response. To request one advertised native tool use {"correlation":"'+correlation+'","type":"tool","name":"exact advertised wireName","input":arguments_object_or_custom_source_string}. Then wait for its real native result. To finish with the task answer use {"correlation":"'+correlation+'","type":"final","text":"answer"}. ';
+ return common+behavior+'Native packet:\n'+JSON.stringify({...stage,correlation});
+}
+
 export function correlatedDesktopCode(codes,correlation){
  for(let i=codes.length-1;i>=0;i--){
   try{const v=JSON.parse(codes[i]);if(v.correlation===correlation&&['ack','tool','final'].includes(v.type))return codes[i];}catch{}

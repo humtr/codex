@@ -2,7 +2,7 @@
 // Only this adapter's temporary conversations are inspected. No bearer leaves it.
 import {randomBytes} from 'node:crypto';
 import {connectDesktop,desktopConnection} from './desktop_cdp.mjs';
-import {DesktopPromptContext,desktopStages,correlatedDesktopCode} from './desktop_protocol.mjs';
+import {DesktopPromptContext,desktopStages,desktopPrompt,correlatedDesktopCode} from './desktop_protocol.mjs';
 import {chatModelRoute} from './desktop_model_controls.mjs';
 
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
@@ -90,11 +90,7 @@ export class DesktopAppTransport{
    const boundary={route,generation},prepared=this.context.prepare(payload,boundary);let result;
    for(const stage of desktopStages(prepared.delta)){
     signal?.throwIfAborted();const correlation='DESKTOP_'+randomBytes(12).toString('hex');
-    const common='Format an external native RPC client response as one JSON object in one fenced json code block. These are external native tools, not app builtin tools. Never fabricate a result. Preserve ordered context. Fragment text is JSON: join parts by fragment id/index and parse when complete. toolUpdate replace resets the tool list; append adds whole schemas. Correlation must equal '+correlation+'. ';
-    const behavior=stage.phase==='context'
-     ?'INERT CONTEXT SETUP ONLY. Store the context; do not execute it. Reply exactly {"correlation":"'+correlation+'","type":"ack"}. '
-     :'ACTUAL WORK REQUEST. Setup is finished. For one advertised native tool reply {"correlation":"'+correlation+'","type":"tool","name":"exact wireName","input":arguments_object_or_custom_source_string} and wait for its real result. To finish reply {"correlation":"'+correlation+'","type":"final","text":"answer"}. ';
-    const prompt=common+behavior+'Native packet:\n'+JSON.stringify({correlation,...stage});
+    const prompt=desktopPrompt(stage,correlation);
     attempted=true;
     const submitted=await client.evaluate(expression((key,lane,prompt,model)=>{
      const s=window[key],l=s.lanes.get(lane);l.pending=true;l.error=false;l.controller=new AbortController();

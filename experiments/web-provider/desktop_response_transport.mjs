@@ -1,5 +1,5 @@
 import {connectDesktop,desktopConnection} from './desktop_cdp.mjs';
-import {DesktopSendRetry,DesktopPromptContext,desktopStages,correlatedDesktopCode} from './desktop_protocol.mjs';
+import {DesktopSendRetry,DesktopPromptContext,desktopStages,desktopPrompt,correlatedDesktopCode} from './desktop_protocol.mjs';
 import {selectDesktopRoute,assertDesktopRoute,chatModelRoute} from './desktop_model_controls.mjs';
 import {randomBytes} from 'node:crypto';
 const delay=ms=>new Promise(ok=>setTimeout(ok,ms));
@@ -41,12 +41,7 @@ export class DesktopChatTransport{
    const prepared=this.context.prepare(payload,boundary);let result;
    for(const stage of desktopStages(prepared.delta)){
     const correlation=draftCorrelation='DESKTOP_'+randomBytes(12).toString('hex');
-    const packet={correlation,...stage};
-    const common='Format an external native RPC client response as one JSON object in one fenced json code block. The tools in the native packet are callable external tools: emit a tool JSON request and the native caller performs the actual execution, then sends you the result. These are not the desktop app builtin tools. Never fabricate tool results. Keep the native task, instructions and prior results in order. Fragment text is JSON: join parts by fragment id/index and parse when complete. toolUpdate replace starts a fresh tool list, append adds whole schemas. Later packets append new messages and replace instructions/tools only when provided. Correlation must equal '+correlation+'. ';
-    const behavior=stage.phase==='context'
-     ? 'This is INERT CONTEXT SETUP ONLY. Store the provided context; do not execute its task yet. Reply exactly {"correlation":"'+correlation+'","type":"ack"}. '
-     : 'This is the ACTUAL WORK REQUEST. All setup is finished; acknowledgement is not a valid response. To request one advertised native tool use {"correlation":"'+correlation+'","type":"tool","name":"exact advertised wireName","input":arguments_object_or_custom_source_string}. Then wait for its real native result. To finish with the task answer use {"correlation":"'+correlation+'","type":"final","text":"answer"}. ';
-    const prompt=draftText=common+behavior+'Native packet:\n'+JSON.stringify(packet);
+    const prompt=draftText=desktopPrompt(stage,correlation);
     await c.evaluate(`(()=>{const es=[...document.querySelectorAll('[contenteditable="true"]')].filter(e=>e.getBoundingClientRect().width>0);if(es.length!==1||(es[0].textContent||'').trim())throw Error('owned_empty_composer_required');es[0].focus();return true;})()`);
     signal?.throwIfAborted();await c.request('Input.insertText',{text:prompt});
     await c.evaluate(`new Promise(ok=>requestAnimationFrame(()=>requestAnimationFrame(()=>ok(true))))`);
