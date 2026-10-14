@@ -14,13 +14,13 @@ import re
 import select
 import shutil
 import signal
-import socket
 import struct
 import subprocess
 import sys
 import tempfile
 import termios
 import time
+import tomllib
 
 SOURCE = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(SOURCE / 'scripts'))
@@ -106,7 +106,7 @@ def fixture(root, core, frontend, named_permission=False):
         'model = "gpt-6.1-sol"\nmodel_reasoning_effort = "none"\n'
         'model_catalog_json = ' + json.dumps(str(home / '.codex/native-models.json')) + '\n'
         'approval_policy = "never"\napprovals_reviewer = "user"\nsandbox_mode = "danger-full-access"\ncheck_for_update_on_startup = false\n'
-        '[features]\nmemories = false\n')
+        '[tui]\nscreen_reader_detection_done = true\n[features]\nmemories = false\n')
     (home / '.codex/config.toml').chmod(0o600)
     (home / '.codex/auth.json').write_text(json.dumps({'OPENAI_API_KEY': 'owned-inert-fixture', 'auth_mode': 'apikey'}))
     (home / '.codex/auth.json').chmod(0o600)
@@ -138,26 +138,34 @@ def fixture(root, core, frontend, named_permission=False):
     return home, prefix, env
 
 
-def backend_thread(home, thread):
+def backend_thread(home, thread, check_defaults=False):
     servers = list((home / '.local/share/codex/core/servers').glob('*/s'))
     assert len(servers) == 1, 'official_backend_socket_missing'
     pid = int(servers[0].with_name('pid').read_text().strip())
     expected = home / '.local/lib/codex/core/generations/local-chat-model-fixture/runtime'
     assert Path(f'/proc/{pid}/exe').resolve() == expected, 'official_backend_lost'
-    with socket.socket(socket.AF_UNIX) as channel:
-        channel.settimeout(5);channel.connect(str(servers[0]))
-        with channel.makefile('rwb') as wire:
-            def request(number, method, params):
-                wire.write(json.dumps({'id':number,'method':method,'params':params}).encode()+b'\n');wire.flush()
-                for _ in range(100):
-                    row=json.loads(wire.readline(4*1024*1024))
-                    if row.get('id') == number:
-                        assert 'error' not in row, 'official_backend_read_failed'
-                        return row['result']
-                raise AssertionError('official_backend_read_failed')
-            request(1, 'initialize', {'clientInfo':{'name':'owned-model-menu-proof','version':'1'},'capabilities':{'experimentalApi':True}})
-            wire.write(b'{"method":"initialized"}\n');wire.flush()
-            return request(2, 'thread/read', {'threadId':thread,'includeTurns':False})['thread']
+    # Qualification-only dependency stays isolated in XDG cache.
+    cache = Path(os.environ.get('XDG_CACHE_HOME', Path.home() / '.cache'))
+    sys.path.insert(0, str(cache / 'codex/acceptance/ws-client-17.2'))
+    from websockets.sync.client import unix_connect
+    with unix_connect(str(servers[0]), uri='ws://localhost/rpc', open_timeout=5,
+        close_timeout=2, max_size=4*1024*1024, compression=None) as wire:
+        def request(number, method, params):
+            wire.send(json.dumps({'id':number,'method':method,'params':params}))
+            for _ in range(100):
+                row=json.loads(wire.recv(timeout=5))
+                if row.get('id') == number:
+                    assert 'error' not in row, 'official_backend_read_failed'
+                    return row['result']
+            raise AssertionError('official_backend_read_failed')
+        request(1, 'initialize', {'clientInfo':{'name':'owned-model-menu-proof','version':'1'},'capabilities':{'experimentalApi':True}})
+        wire.send('{"method":"initialized","params":{}}')
+        current = request(2, 'thread/read', {'threadId':thread,'includeTurns':False})['thread']
+        if check_defaults:
+            control = request(3, 'thread/start', {'model':'gpt-6.1-sol','cwd':str(home.parent/'w'),
+                'ephemeral':True,'approvalPolicy':'never','sandbox':'danger-full-access'})
+            assert control['thread']['modelProvider']=='openai', 'server_defaults_changed'
+        return current
 
 
 def probe(core, frontend, named_permission=False):
@@ -165,6 +173,7 @@ def probe(core, frontend, named_permission=False):
         root = Path(tmp)
         home, prefix, env = fixture(root, core, frontend, named_permission)
         preserved = {p: sha(p) for p in (home / '.codex').glob('*.toml')}
+        preserved_values = {p:tomllib.loads(p.read_text()) for p in preserved}
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 40, 130, 0, 0))
         def session():
@@ -198,20 +207,25 @@ def probe(core, frontend, named_permission=False):
                 os.write(master, bytes([byte]));time.sleep(.07)
             os.write(master, b'\r')
             return collect(3)
+        def choose(menu, pattern):
+            matches = re.findall(pattern, menu)
+            assert matches, 'model_choice_index_absent'
+            index = int(matches[-1])
+            assert 1 <= index <= 9, 'model_choice_index_unbounded'
+            os.write(master, b'\x1b[H' + b'\x1b[B' * (index - 1) + b'\r')
+            return collect(2)
         try:
             initial = collect(8)
             if 'trust' in initial.lower():
                 os.write(master, b'\r');initial += collect(4)
             before = model_menu()
-            private_env = dict(part.split(b'=',1) for part in Path(f'/proc/{process.pid}/environ').read_bytes().split(b'\0') if b'=' in part) if process.poll() is None else {}
-            print(json.dumps({'coreBridgePresent':b'CODEX_PROFILE_CORE' in private_env,'fixtureHomeSelected':private_env.get(b'CODEX_HOME')==os.fsencode(home/'.codex')}))
             if not ('ChatGPT' in before and 'GPT-6' in before):
-                print(json.dumps({'startupKeywords': {k: (initial+before).lower().count(k) for k in ['error','trust','login','sign in','select model','disabled until startup','unavailable','permission','profile','failed','unexpected argument','invalid','manifest','signature','current generation','cannot link']}, 'running':process.poll() is None, 'exit':process.poll(), 'bytes':len(initial+before), 'ownedStartupFailure': (initial+before).replace(str(root), '<fixture>')[:5000], 'imageName':Path(f'/proc/{process.pid}/exe').resolve().name if process.poll() is None else None}))
+                print(json.dumps({'startupKeywords': {k: (initial+before).lower().count(k) for k in ['error','trust','login','sign in','select model','disabled until startup','unavailable','permission','profile','failed','unexpected argument','invalid','manifest','signature','current generation','cannot link']}, 'running':process.poll() is None, 'exit':process.poll(), 'bytes':len(initial+before), 'ownedStartupFailure': (initial+before).replace(str(root), '<fixture>')[:2000] if process.poll() is not None else None, 'imageName':Path(f'/proc/{process.pid}/exe').resolve().name if process.poll() is None else None}))
                 log = home / '.codex/log/codex-tui.log'
                 if log.is_file():
                     print(json.dumps({'ownedCatalogDiagnostics':[line.split('DEBUG',1)[-1].strip() for line in log.read_text().splitlines() if 'termux_chat_models' in line][-10:]}))
                 raise AssertionError('chat_choices_absent')
-            os.write(master, b'\x1b[H\x1b[B\r');reasoning = collect(2)
+            reasoning = choose(before, r'(\d+)\.\s+ChatGPT\s*·\s*GPT-6(?!\s+Pro\b)')
             assert 'Instant' in reasoning, 'chat_reasoning_absent'
             os.write(master, b'\x1b[H\r');entered = collect(15)
             assert process.poll() is None, 'chat_reentry_failed'
@@ -224,12 +238,12 @@ def probe(core, frontend, named_permission=False):
             assert len(files) == 1, 'same_thread_not_preserved'
             thread_file = files[0]
             thread = json.loads(thread_file.read_text().splitlines()[0])['payload']['id']
-            actual_chat = backend_thread(home, thread)
+            actual_chat = backend_thread(home, thread, check_defaults=True)
             assert actual_chat['modelProvider'] == 'chatgpt_desktop_trial' and actual_chat['model'] == 'chatgpt-desktop/gpt-6', 'chat_backend_route_not_selected'
             assert actual_chat['reasoningEffort'] == 'none', 'chat_backend_effort_not_selected'
             returning = model_menu()
             assert 'Owned Codex' in returning, 'native_return_choice_absent'
-            os.write(master, b'\x1b[H\r');native_reasoning = collect(2)
+            native_reasoning = choose(returning, r'(\d+)\.\s+Owned Codex')
             assert 'Instant' in native_reasoning, 'native_reasoning_absent'
             os.write(master, b'\x1b[H\r');returned = collect(15)
             assert process.poll() is None, 'native_reentry_failed'
@@ -240,9 +254,18 @@ def probe(core, frontend, named_permission=False):
             state = dict(part.split(b'=', 1) for part in Path(f'/proc/{process.pid}/environ').read_bytes().split(b'\0') if b'=' in part)
             assert state[b'CODEX_HOME'] == os.fsencode(home / '.codex')
             assert b'CODEX_CHAT_RETURN_PROFILE' not in state
-            assert all(sha(p) == digest for p, digest in preserved.items()), 'configuration_files_changed'
+            def changed_keys(a,b,prefix=''):
+                result=[]
+                for key in a.keys()|b.keys():
+                    path=prefix+key
+                    if isinstance(b.get(key),dict) and (isinstance(a.get(key),dict) or key not in a):result+=changed_keys(a.get(key,{}),b[key],path+'.')
+                    elif a.get(key)!=b.get(key):result.append(path)
+                return result
+            modified={p.name:changed_keys(preserved_values[p],tomllib.loads(p.read_text())) for p,digest in preserved.items() if sha(p)!=digest}
+            if modified:print(json.dumps({'ownedConfigurationChanges':modified}))
+            assert not modified, 'configuration_files_changed'
             return {'samePidAndPty': True, 'chatEntered': True, 'nativeReturned': True,
-                'sameHomeAndThread': True, 'qualifiedFrontendRetained': True,'officialBackendRetained':True,'backendProviderRoundTrip':True,
+                'sameHomeAndThread': True, 'qualifiedFrontendRetained': True,'officialBackendRetained':True,'backendProviderRoundTrip':True,'otherThreadKeepsServerDefaults':True,
                 'originalConfigurationPreserved': True, 'namedPermissionRequested': named_permission,
                 'noAuthCopied': True, 'modelInferenceSubmitted': False, 'proInference': False, 'productionChanged': False}
         finally:

@@ -1004,3 +1004,30 @@ TOML document in the pinned0.9 dependency; installed routing uses toml::from_str
 Native return explicitly chooses OpenAI because an omitted provider can restore
 the persisted Chat route during resume. Device round-trip acceptance remains
 required before production admission.
+
+Exact native qualification38510380995 atd1b433c passes build,35 actual TUI tests,
+lint and pristine upstream Core checks. On the phone, native_model_menu_probe.py
+passes both base configuration and --profile owned-config/named permissions:
+/model enters Chat GPT-6/Instant and returns to native OpenAI, with the same
+PID/PTY/home/thread and unchanged configuration files. The official backend's
+loaded thread confirms both provider/model changes, and an independent ephemeral
+thread retains server defaults. No model inference or production activation is
+performed by this menu fixture. Pro is never selected by its model-name matcher.
+The fixture completes upstream screen-reader initialization before hashing config,
+so an ordinary first-launch UI preference write is not confused with model persistence.
+Private aggregate proofs: ~/.cache/codex/acceptance/chat-model-menu-device-legacy.json
+and chat-model-menu-device-named.json. Its qualification-only Unix WebSocket
+reader uses websockets17.2 in isolated XDG cache, not the provider runtime:
+
+```sh
+python -m pip install --no-deps --no-compile \
+  --target "${XDG_CACHE_HOME:-$HOME/.cache}/codex/acceptance/ws-client-17.2" websockets==17.2
+```
+
+GPT-6 High and Extra High also pass two actual native shell operations and exact
+final reply using the installed --profile chatgpt route. Instant, Medium, High
+and Extra High now all have actual native tool-loop evidence; Pro remains
+execution-unverified and GPT-5.6 remains deferred. Private reports:
+gpt6-high-proof.json and gpt6-xhigh-proof.json in the same acceptance cache.
+Formal production admission of the model overlay remains separate; signed
+stable49 and existing user jobs retain their current binaries.
