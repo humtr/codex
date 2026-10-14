@@ -161,6 +161,10 @@ def backend_thread(home, thread, check_defaults=False):
             if thread not in loaded['data']:
                 continue
             current = wire.call('thread/read', {'threadId':thread,'includeTurns':False})['thread']
+            if current['modelProvider']=='chatgpt_desktop_trial':
+                assert socket.parent.parent.name=='catalogs', 'frontend_did_not_bind_resolved_catalog'
+                models = json.loads(socket.with_name('models.json').read_text())['models']
+                assert any(m['slug']=='chatgpt-desktop/gpt-6' for m in models), 'backend_chat_catalog_missing'
             if check_defaults:
                 control = wire.call('thread/start', {'model':'gpt-6.1-sol','cwd':str(home.parent/'w'),
                     'ephemeral':True,'approvalPolicy':'never','sandbox':'danger-full-access'})
@@ -270,7 +274,7 @@ def probe(core, frontend, named_permission=False):
             assert not modified, 'configuration_files_changed'
             assert (home/'.codex/chatgpt.config.toml').is_symlink(), 'shared_registration_not_projected'
             return {'samePidAndPty': True, 'chatEntered': True, 'nativeReturned': True,
-                'sameHomeAndThread': True, 'qualifiedFrontendRetained': True,'officialBackendRetained':True,'backendProviderRoundTrip':True,'otherThreadKeepsServerDefaults':True,
+                'sameHomeAndThread': True, 'qualifiedFrontendRetained': True,'officialBackendRetained':True,'backendProviderRoundTrip':True,'backendChatCatalogBound':True,'otherThreadKeepsServerDefaults':True,
                 'sharedRegistrationUsed': (home/'.codex/chatgpt.config.toml').is_symlink(),
                 'originalConfigurationPreserved': True, 'namedPermissionRequested': named_permission,
                 'noAuthCopied': True, 'modelInferenceSubmitted': False, 'proInference': False, 'productionChanged': False}

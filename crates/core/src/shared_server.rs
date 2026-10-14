@@ -447,7 +447,7 @@ fn retire_family(
     generations: &Path,
     keep: &std::collections::HashSet<String>,
 ) -> io::Result<()> {
-    let entries = match fs::read_dir(&servers) {
+    let entries = match fs::read_dir(servers) {
         Ok(entries) => entries,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
         Err(e) => return Err(e),
@@ -515,7 +515,7 @@ fn retire_family(
                     return Err(e);
                 }
                 fs::remove_dir_all(&directory)?;
-                File::open(&servers)?.sync_all()?;
+                File::open(servers)?.sync_all()?;
                 continue;
             }
             Err(e) => return Err(e),

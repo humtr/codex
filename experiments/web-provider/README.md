@@ -1099,3 +1099,8 @@ do not replace the default native socket; ordinary Core still works independentl
 of this adapter. This is source and fake-response proof. Frontend compilation,
 actual TUI integration, long-history provider handoff and retained-turn MCP stop
 remain acceptance gates; installed stable51/provider46db05e is unchanged.
+The same offline fixture now executes and interrupts an owned native command.
+A separate read-only RPC connection sees its exact turn become interrupted while
+the ordinary test process exits, without a new provider HTTP request. Ephemeral
+threads reject the tested history APIs, so this is only a persisted-thread control
+candidate. No retained Chat turn or quota-saving claim follows from that proof.

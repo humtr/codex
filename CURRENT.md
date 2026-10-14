@@ -67,6 +67,13 @@ server reuse, changed-byte separation, previous-thread readability and Manager
 writer discovery. The self-contained probe no longer requires an untracked model
 fixture or a newer checkout's WebSocket helper. Runtime remains unchanged;
 frontend compilation/device integration and cross-provider resume are unqualified.
+Local affected acceptance passes77 Python tests and323 Rust tests, with one
+existing ignored resolver smoke, plus fmt/Clippy/diff. The first full run was
+invalidated by overlapping rebuild of its executable; the sequential rerun also
+exposed a fixture-only107-byte socket overflow after its test counter grew.
+The fixture path is now shorter. A final full test run passes; two redundant
+borrows found by Clippy were corrected and lint passes separately. These are
+source gates, not a signed release or completed model-use acceptance.
 
 Confirmed observations:
 
@@ -132,6 +139,10 @@ Required follow-up, before claiming ordinary `/model` use is qualified:
    Keep per-account native inference and otherwise independent Chat login.
    Qualify the actual frontend selection/resume path, native siblings and retired
    catalog generations before activation. No pristine upstream backend is patched.
+   Once startup is qualified, bypass re-entry for changes within the same Chat
+   provider using upstream model/effort actions; keep the session-only guard
+   independent so Chat slugs cannot become the native default. Cross-provider
+   re-entry and its compaction handoff remain separate from this smaller saving.
 2. Establish a compatible old-provider compaction/new-provider resume boundary
    for long histories, preserving canonical history, permissions and sibling
    routes. Do not bypass the defect by deleting history or silently truncating it.
@@ -259,6 +270,19 @@ user-stop from socket closure alone. Keep its existing cancellation behavior
 until an exact-thread/turn control path is qualified; simply detaching req.signal
 would break stop while enabling retained MCP continuation. Code paths and fixtures
 remain opt-in source work; production stable51 and installed provider46db05e remain.
+
+Additional Android no-inference proof (`chat-core-resolved-catalog.json`) reaches
+the real native exec_command, interrupts while that owned Python process is
+running, and observes the same turn through a second connection using only
+thread/turns/list. Its state changes inProgress→interrupted, its request metadata
+contains the exact native thread/turn pair, and that regular test process exits.
+No new provider HTTP request accompanies stop. Thus bounded authoritative native
+state observation is a candidate control path without another service or executor;
+it is not yet connected to the retained broker. The same runtime rejects both
+turns/list and full-history read for ephemeral threads. Native server/turn binding,
+ephemeral/reviewer cancellation, reconnect and resistant process-tree handling
+remain gates; this ordinary process is not evidence of general forced termination.
+Do not silently downgrade ephemeral tools or resume a stopped turn to observe it.
 
 GitHub source comparison pins (read-only; no candidate code executed or installed):
 
