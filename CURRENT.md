@@ -6,33 +6,25 @@ This repository carries no external workflow skill or model configuration.
 
 ## Operating baseline
 
-- Public and installed stable49: local-hosted-0-161-0-952c3eacb22c-s49,
-  CLI0.161.0, accepted implementation952c3ea. Publication38218954233 passed all
+- Public and installed stable50: local-hosted-0-161-0-b88ac14e86dd-s50,
+  CLI0.161.0, accepted implementationb88ac14. Publication38541477055 passed all
   eight jobs, including Android execution, signing, public readback/disposable
-  update and non-forced promotion. main caller71b48bf pins that exact source.
-  Source acceptance38218520434 passed all four jobs. Frontend source73f77de
-  removes the bare-registration omission; native27/lint/pristine Core proof passed.
-- Local composed full acceptance passed Core193/one pre-existing ignored,
-  Manager42+56+three actual path gates, builder25, Python18+59 and fmt/Clippy/diff.
+  update and non-forced promotion. main callerba1c745 pins that exact source.
+  Frontend source795a064/native38530530528 passed29 tests, lint and pristine Core
+  proof; its installed FD-adapted SHA256 is
+  34d56224fcae93dfcc95f2e5f3c8a95ff2d54828fed79fef19c3716a4d9861b4.
+- Local full acceptance passed Core, Manager, builder25, Python18+59 and
+  fmt/Clippy/diff; the pre-existing ignored resolver test remains excluded.
   The two first-launch startup fixtures now remove inherited window-ready state;
   their focused rerun passed after the inherited environment skipped the advisory.
-- Initial public device update hit the existing300-second large-payload transfer
-  limit and fell through to local-derived update, whose same-version frontend
-  boundary refused it; stable45 remained intact. This was a transport/fallback
-  failure, not rejection of the paired signed stable46 release. No trust boundary
-  was weakened to activate it.
-- Earlier stable48 device activation used the normal signed `codex update --local` path, with six
-  identical files copied from stable47 against the signed inventory. Only metadata
-  and the new frontend helper needed downloading. All eight hashes/modes and
-  the public manifest signature/key verified before activation. stable47 is the
-  bounded rollback target; older busy images stay retained. A subsequent ordinary
-  update was a no-op. Core/Manager/upstream doctor passed, twelve configuration/auth
-  files and fifteen installed process PID/start/image identities stayed unchanged.
-  Private proof: ~/.cache/codex/acceptance/stable48-device.json.
-- /switch frontend raw00842f35/adaptede29c5625, official source97901140.
-  Native27/lint/pristine Core qualification38135821930 at73f77de applies to the
-  exact admitted frontend. New launches use the new signed
-  generation; current running clients keep their old image until normal exit.
+- Ordinary signed `codex update` activated stable50; its repeat was a no-op.
+  All eight installed hashes/modes and the manifest signature verified against
+  the existing trusted key. Core/Manager/upstream doctor passed; twelve
+  configuration/auth files and fifteen installed process PID/start/image
+  identities stayed unchanged. Private proof:
+  ~/.cache/codex/acceptance/stable50-device.json. stable49 remains the rollback
+  generation, and older busy images stay retained. New launches select stable50;
+  current running clients retain their old image until normal exit.
 
 ## Termux permission resume correction
 
@@ -51,7 +43,11 @@ This repository carries no external workflow skill or model configuration.
   Private aggregate proofs: ~/.cache/codex/acceptance/permission-lifecycle-{native-model,named,stale}.json.
   The reusable script owns its signed disposable roots and needs no Chat provider
   installation or external Python package. Local full checks pass; changed producer
-  admission and all Python18+59 tests also pass. Signed device activation is pending.
+  admission and all Python18+59 tests also pass. Signed stable50 is published and
+  installed; the running old client needs a normal restart to apply it. `/switch`
+  uses same-conversation native resume in the destination account home, so this
+  correction also covers its qualified local cold-resume path. Existing live
+  writer reattachment keeps that writer's permissions and does not take it over.
 
 ## Independent window return and optional tmux
 
