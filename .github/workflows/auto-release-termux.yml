@@ -21,9 +21,9 @@ jobs:
       actions: read
       pages: write
       id-token: write
-    uses: humtr/codex/.github/workflows/auto-release-termux.yml@b88ac14e86ddb46fd8376314d7d8a930e95efb6f
+    uses: humtr/codex/.github/workflows/auto-release-termux.yml@17e1b52b0d77484818049b9ff7111e74621c0690
     with:
-      source_sha: b88ac14e86ddb46fd8376314d7d8a930e95efb6f
+      source_sha: 17e1b52b0d77484818049b9ff7111e74621c0690
       publish: ${{ github.event_name == 'schedule' || inputs.publish }}
       rebuild_current: ${{ github.event_name == 'workflow_dispatch' && inputs.rebuild_current }}
     secrets:
