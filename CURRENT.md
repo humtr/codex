@@ -109,14 +109,24 @@ Required follow-up, before claiming ordinary `/model` use is qualified:
 1. Apply selected metadata at the official backend startup boundary while preserving
    native siblings' defaults and exact runtime ownership. Reuse Core's server path;
    do not add an executor/model service or disable tools for fallback metadata.
-   Prefer a bounded catalog-specific startup scope to duplicating the upstream
-   config loader or patching pristine Core. Qualify catalog content changes, reuse
+   Evaluate the existing bridge's merged native/Web catalog and model-based
+   dispatch before adding catalog-specific server scopes. Its current built-in
+   OpenAI provider route avoids per-model provider re-entry, but must not make
+   ordinary native Core depend on an optional adapter or require native login for
+   otherwise independent Chat use. Never duplicate the upstream config loader or
+   patch pristine Core. Qualify catalog content changes, reuse
    and retirement; a filename alone is insufficient and active siblings must survive.
    Honoring config.model_catalog during upstream lookup is a smaller upstream fix,
    not authority to source-build a parallel backend.
 2. Establish a compatible old-provider compaction/new-provider resume boundary
    for long histories, preserving canonical history, permissions and sibling
    routes. Do not bypass the defect by deleting history or silently truncating it.
+   A new offline fixture proves the bundled parser accepts an opaque native
+   `compaction.encrypted_content` and replaces it with OPAQUE_COMPACTION_NOTE.
+   The adapter's existing guard catches opaque agent payloads, not this checkpoint
+   loss. This is an additional repair gate: preserve/produce readable canonical
+   context or explicitly refuse; a successful HTTP reply with a placeholder is
+   not compatible resume. No real/private checkpoint was read or submitted.
 3. Measure actual serialized request bytes and handle the body ceiling explicitly
    before app context staging. Distinguish oversized input, unsupported shape
    and network failures in the user-visible error; increasing the ceiling alone
@@ -183,7 +193,9 @@ Remaining order; no runtime activation or real Chat submission performed:
    necessary internally. Preserve data roles, whole schemas and final-work separation.
    Offline replay/byte-boundary tests precede any real submit. Measure work, setup,
    tool-result, guardian, compact and retry submissions independently of quota.
-3. Qualify a minimal native-Chat MCP continuation in the existing adapter/tunnel
+3. Qualify a minimal native-Chat MCP continuation using the existing bridge's
+   full-mode broker/turn-execution code, already present in installed source,
+   through the existing adapter/tunnel
    path, without tdev as executor or another agent. Chat-issued calls should become
    ordinary Core tool calls; actual Core results should satisfy the original MCP
    call while the same Chat turn continues. This is a transport replacement, not
@@ -214,6 +226,37 @@ credentials, active runtime and conversations are preserved.
 `scripts/check.sh full` passes77 Python and323 Rust tests, formatting, Clippy and
 diff checks; the separate Android HTTP/catalog proofs above cover the affected
 real request paths without inference. An installed/live Chat gate remains open.
+
+GitHub source comparison pins (read-only; no candidate code executed or installed):
+
+| Repository | Inspected HEAD | Relevant result |
+|---|---|---|
+| miuuyy/codex-chatgpt-web | 889f291 /6.1.9 | Full MCP requests suspend until Core returns exact call IDs; HTTP sampling rounds reuse that Chat response. Merged native/Web catalog and model dispatch preserve the built-in provider. Installed bridge remains92a356f /6.1.5; only parser/SSE helpers are bundled into our active adapter, not its full-mode transport. |
+| a252937166/codex-chatgpt-web-bridge | 85cc3d0 | Each sample and protocol-repair attempt submits another browser prompt. Native proof documented against0.144.6 is a mock sequence. Tool-result truncation and opaque-checkpoint placeholders are unsuitable for lossless adoption. |
+| guberm/chatgpt-web-provider | e18fc0d | Responses-shaped browser facade; stream:true returns501 and no native tool loop. Unverified model selection can still report the requested model. |
+| connectedGraph/chatgpt-desktop-bridge | 4d159df | CDP DOM submit/read for Chat Completions; latest user text only, no Responses endpoint/native tool loop. |
+| adamallcock/codex-chatgpt-control | 1e50539 | Browser SDK, not a drop-in provider; useful send-once and ambiguous-submission ownership rules. |
+| thezillo/codex-proxy | 293ac38 | Uses /backend-api/codex/responses with Codex auth, not the ordinary Chat conversation transport. Useful stream/error pass-through; not evidence of ordinary Chat message savings. |
+
+Primary reusable flow: one accepted Chat task calls the tunnel MCP; the broker
+emits that pending call through native Responses/SSE, Core executes it, and the
+next HTTP request's function_call_output resolves the original MCP promise. Chat
+continues the same response rather than receiving another user prompt. The current
+adapter instead calls app yRt once per JSON judgment/result packet. MCP full mode
+therefore offers a concrete submission-reduction candidate, not measured quota
+savings. Initial multipart setup, reviews, compaction, retries and new user turns
+remain separate costs. Its90s MCP deadline,30s agent-wait polling, exact call/result
+ledger and observer-versus-turn cancellation deserve targeted reuse, not the
+whole desktop launcher/installer or broad native V1 downgrade.
+
+Do not copy the source blindly: its opaque native compaction replay degrades to
+a note, while transparent ocx1 summaries are readable. Its browser integration and
+account-bound proofs do not establish our signed Linux-app/CDP or Android path.
+Reusable references at the pinned commit: [tool/result loop](https://github.com/miuuyy/codex-chatgpt-web/blob/889f291d06339400a8b9c2941473f65cd47d4830/src/adapters/chatgpt-web/index.ts#L1302),
+[pending MCP resolution](https://github.com/miuuyy/codex-chatgpt-web/blob/889f291d06339400a8b9c2941473f65cd47d4830/src/adapters/chatgpt-web/turn-broker.ts#L496),
+[model catalog](https://github.com/miuuyy/codex-chatgpt-web/blob/889f291d06339400a8b9c2941473f65cd47d4830/src/model-catalog.ts),
+[native dispatch](https://github.com/miuuyy/codex-chatgpt-web/blob/889f291d06339400a8b9c2941473f65cd47d4830/src/server.ts#L644),
+and [opaque checkpoint limitation](https://github.com/miuuyy/codex-chatgpt-web/blob/889f291d06339400a8b9c2941473f65cd47d4830/src/responses/compaction.ts#L75).
 
 ## Independent window return and optional tmux
 
