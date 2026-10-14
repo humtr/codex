@@ -369,8 +369,10 @@ This repository carries no external workflow skill or model configuration.
   The installed profile now defaults to actual Chat GPT-6. Physical selector
   readback passes Instant, Medium, High and Extra High for GPT-6 and GPT-5.6 Sol,
   mapped to native none/medium/high/xhigh. GPT-6 Sol is a Work/Codex model and is
-  not advertised as Chat. Installed GPT-6 Instant and Medium each pass two actual
-  native write/read calls and exact final reply. GPT-5.6 Sol executes one real
+  not advertised as Chat. Installed GPT-6 Instant, Medium, High and Extra High
+  each pass two actual native write/read calls and exact final reply. The last
+  two use gpt6-high-proof.json and gpt6-xhigh-proof.json in the acceptance cache.
+  GPT-5.6 Sol executes one real
   tool but fails continuation in Instant and Medium; it is explicitly deferred
   at the user's request. These failures remain evidence, not accepted capability.
   Separate Pro choices carry an execution-unverified label. The user forbids
@@ -379,17 +381,25 @@ This repository carries no external workflow skill or model configuration.
   The separate model-menu.patch overlay augments the upstream picker and uses
   same-home/thread/window Core re-entry for launch-scoped provider changes;
   active tools, queued input and side conversations refuse. --profile chatgpt
-  remains the fallback. ARM64 build passed38486943408; test compilation failed
-  on fixture module paths. Corrected build38491159481 at158401f passed; unit/lint
-  is pending.71587f2 additionally fixes the Core route: interactive --profile/-c
-  must retain the same admitted frontend while avoiding shared-daemon reuse.
-  Local full acceptance passes Core194/one pre-existing ignored, Manager42+55+
-  three actual path gates, builder25, Python18+59 and fmt/Clippy/diff. The native
-  model overlay allows idle primary embedded execution for this route.
-  Its exact-source native38492427969, actual device model round trip and production
-  admission remain required. No experiment code has entered signed stable49.
+  remains the fallback. Exact-source native38510380995 atd1b433c passes ARM64
+  build,35 actual TUI tests, lint and pristine upstream Core checks. The revised
+  overlay uses the official app-server for profile/invocation settings
+  through upstream per-thread configuration, rather than introducing an embedded
+  source-built execution backend. Explicit --no-daemon keeps the ordinary
+  official runtime path. Local full checks pass Core194/one pre-existing ignored,
+  Manager42+55+three path gates, builder25, Python18+59 and fmt/Clippy/diff.
+  Installed routing uses the document parser and native return explicitly selects
+  OpenAI instead of restoring the saved Chat provider. Real phone menu gates pass
+  for base configuration and a selected named-permission profile: same PID/PTY,
+  home/thread, unchanged configuration, admitted frontend and official backend;
+  thread/read confirms both model/provider changes and an independent ephemeral
+  thread retains server defaults. Private proofs are chat-model-menu-device-legacy.json
+  and chat-model-menu-device-named.json in the acceptance cache. The fixture
+  completes normal upstream screen-reader initialization before config hashing.
+  Prototype source410231f remains separate; production admission is still pending.
+  No experiment code has entered signed stable49.
   The continuation architecture keeps Core history/checkpoints authoritative and
-  one disposable adapter cursor. Route/account/model/effort or verified connection
+  disposable adapter cursors. Route/account/model/effort or verified connection
   generation changes require replay; unchanged owned context receives deltas.
   Server KV hit/miss/unknown remains independent from correctness and local context
   estimates. Scenario serialization costs and native/desktop boundaries live in
@@ -401,6 +411,17 @@ This repository carries no external workflow skill or model configuration.
   restored expanded selector.158401f waits for a fresh owned view and reuses that
   menu. Its GPT-6 checkpoint rerun passes four actual tools, committed tool-only
   memory, Core restart/resume and whole-app restart (gpt6-checkpoint-proof.json).
+  The installed experimental adapter atcc28b07 also passes a real GPT-6 native
+  guardian review: an owned prompt rule requires approval, one guardian request
+  interleaves, parent canonical context replays, two native commands complete and
+  the exact final reply matches with zero owner conflicts. Child/parent ledgers
+  remain separate; unrelated active owners still refuse. Native structured output
+  reaches the Chat model without an adapter-generated approval decision. The new
+  guardian-lane checkpoint proof passes four actual tools, summary persistence,
+  Core restart and whole signed-app restart. Private aggregate proofs are
+  ~/.cache/codex/acceptance/gpt6-autoreview-rule-proof.json and
+  gpt6-checkpoint-guardian-lanes-proof.json. Home recovery uses the app's public
+  new-temporary-chat shortcut only with no visible composer or Stop control.
   Live unsupported tuples returned400 without an inference request; actual
   catalog lookup/tool execution and automatic compaction plus four native calls
   and restart/resume passed with the route-aware cursor. Live draft protection
