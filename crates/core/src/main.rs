@@ -11,6 +11,8 @@ mod rollback_guard;
 #[cfg(unix)]
 mod shared_layout;
 #[cfg(unix)]
+mod shared_profiles;
+#[cfg(unix)]
 mod shared_server;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1415,10 +1417,19 @@ where
     {
         return RuntimeLaunchError::Config(error);
     }
+    if let Some(home) = std::env::var_os("HOME") {
+        let profile = upstream_execution_home(&std::path::PathBuf::from(home));
+        // Optional shared config cannot make ordinary Core operation unavailable.
+        // Existing account-local files always take precedence.
+        let _ = shared_profiles::project(config_dir.as_ref(), &profile);
+    }
     use std::io::IsTerminal as _;
     if std::io::stdin().is_terminal()
         && std::io::stdout().is_terminal()
-        && shared_server::eligible(options.planned_args)
+        && (shared_server::eligible(options.planned_args)
+            || (options.manager_available
+                && options.manager_tui_available
+                && manager_tui::local_interactive(options.planned_args)))
     {
         let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
         if let Some(home) = home {

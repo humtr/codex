@@ -45,6 +45,29 @@ pub(super) fn supported(args: &[OsString]) -> bool {
     })
 }
 
+pub(super) fn local_interactive(args: &[OsString]) -> bool {
+    super::shared_server::interactive(args)
+        && supported(args)
+        && std::env::var_os("CODEX_EXEC_SERVER_URL").is_none()
+        && !args.iter().any(|arg| {
+            arg.to_str().is_some_and(|arg| {
+                matches!(
+                    arg,
+                    "--remote"
+                        | "--no-daemon"
+                        | "--oss"
+                        | "--strict-config"
+                        | "--dangerously-bypass-hook-trust"
+                        | "--search"
+                        | "--help"
+                        | "-h"
+                        | "--version"
+                        | "-V"
+                ) || arg.starts_with("--remote=")
+            })
+        })
+}
+
 pub(super) fn capability_args(mut args: Vec<OsString>, available: bool) -> Vec<OsString> {
     if args
         .first()
@@ -199,6 +222,37 @@ mod tests {
             "--worktree=owned",
         ] {
             assert!(!supported(&[arg.into()]));
+        }
+    }
+
+    #[test]
+    fn local_frontend_preserves_invocation_settings_without_shared_daemon_reuse() {
+        for args in [
+            vec!["--profile", "chatgpt"],
+            vec!["resume", "owned", "-c", "model_reasoning_effort=medium"],
+            vec!["--enable=owned"],
+        ] {
+            let argv: Vec<OsString> = args.into_iter().map(Into::into).collect();
+            assert!(local_interactive(&argv));
+            assert!(!super::super::shared_server::eligible(&argv));
+            assert_eq!(
+                &native_args(Path::new("/owned/s"), &argv).unwrap()[2..],
+                argv
+            );
+        }
+        for args in [
+            vec!["--no-daemon"],
+            vec!["exec"],
+            vec!["app-server"],
+            vec!["login"],
+            vec!["--version"],
+            vec!["--remote=unix:///owned"],
+            vec!["--oss"],
+            vec!["--worktree"],
+            vec!["--add-dir=/owned"],
+        ] {
+            let argv: Vec<OsString> = args.into_iter().map(Into::into).collect();
+            assert!(!local_interactive(&argv), "{argv:?}");
         }
     }
 }

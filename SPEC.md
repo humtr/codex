@@ -11,6 +11,26 @@ clients retain their executable until exit; no preview construction or parallel
 update authority is maintained.
 
 - The official adapted `runtime` remains the sole server/execution backend.
+  Qualified local frontend launches forward selected upstream `--profile` and
+  invocation settings through its per-thread config APIs, preserving daemon
+  defaults and other threads. Explicit remote/executor/`--no-daemon` and
+  noninteractive routes retain the official runtime path. Optional frontend
+  absence never makes Core unavailable.
+  An opt-in installed Chat model catalog augments `/model`; its marked private
+  config owns command-backed, nonsecret routing references. Model/provider changes
+  re-enter Core with the same home, durable thread, permissions/reviewer and
+  terminal. Active work, pending input/tools or side conversations refuse the
+  transition. Selected config profiles survive; no Chat slug is persisted into
+  an ordinary default. `--profile chatgpt` remains an upstream config fallback,
+  distinct from Manager login accounts. Model/effort metadata is not an entitlement
+  proof; deferred families and unexecuted Pro choices are labelled accordingly.
+  Core's existing private config directory may contain `profiles/NAME.config.toml`.
+  Launch projects missing upstream filenames into an owned execution home with
+  atomic no-replace symlinks; existing local overrides win. Shared profile sources
+  must be private owned regular files and the registry a private owned real
+  directory. No account auth/base config is merged or replaced. This generic
+  path adaptation works independently of Manager/provider lifecycle; missing or
+  unavailable optional registration never prevents ordinary Core launch.
   An optional source-built Manager TUI is the third signed helper at `helpers/2`,
   identified by `termux-manager-tui-v1:UPSTREAM_VERSION`. The first two helpers
   retain the accepted browser identities. Its version must exactly match the

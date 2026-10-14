@@ -51,6 +51,16 @@ login and settings while preserving shared conversations. Rename/delete reject
 an account still in use or selected as the saved default; choose another default
 and close its running clients/servers first.
 
+Upstream configuration profiles (`codex --profile NAME`) are separate from these
+login accounts. Optional shared configs live at
+`~/.local/share/codex/core/config/profiles/NAME.config.toml`; Core registers a
+missing filename in each owned execution home. Existing local configs take
+priority, and base settings/login files stay unchanged. The opt-in ChatGPT pilot
+uses this common registration; `/model` selects its model and supported effort,
+while `--profile chatgpt` remains the fallback. The pilot's signed Linux app still
+owns its login and Chat inference. Setup/qualification is maintained on
+[experiment/web-termux](https://github.com/humtr/codex/blob/experiment/web-termux/experiments/web-provider/README.md).
+
 ## Fresh install
 
 A fresh Termux environment needs the existing Termux shell, curl, and OpenSSL.

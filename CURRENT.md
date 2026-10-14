@@ -358,16 +358,18 @@ This repository carries no external workflow skill or model configuration.
   organization-policy change was made. See experiment README's sourced comparison.
 
 
-- Deferred ChatGPT goal: make /model the primary entrypoint with one shared ChatGPT
-  registration; keep --profile chatgpt as an automatically prepared fallback.
-  Investigate the signed app's internal Chat submit/update functions before
-  relying on DOM automation. Keep login/refresh inside the app; assign each Codex
-  thread an independent Chat conversation/target and verify two simultaneous
-  generations, result isolation and cancellation. Hidden app execution is the
-  initial target, not a claim that Electron or its display dependencies disappear.
-  Retain the qualified UI transport as fallback. Public API/SIWC or bundled Work
-  inference does not substitute for the actual Chat path. This work is deferred
-  until the Termux sandbox-policy regression is resolved.
+- ChatGPT follow-on work is active after the stable50 sandbox fix: one shared
+  config registration with --profile chatgpt as fallback, /model as the primary
+  choice, and app-owned Chat submit/cancel/state with independent conversations.
+  The experimental internal path passes exact overlapping GPT-6 replies,
+  cancellation with a surviving sibling, two real Android clients/four native
+  commands and automatic shared-profile projection. Its guardian retry also
+  passes two real native guardian requests; the initial incomplete sibling stays
+  failed evidence. No Pro inference or first-party token extraction occurred.
+  The app/display remain dependencies. Generic shared-profile registration and
+  the model overlay are undergoing combined39-test native qualification;
+  signed stable50 and running clients remain the operating baseline until that
+  publication and bounded device activation pass.
 - Native Termux ChatGPT provider has real experimental acceptance on
   experiment/web-termux at410231f. The signed Linux app's actual ChatGPT / Chat / Instant
   surface supplies the backend; desktop Codex mode, a mock, extracted first-party
