@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {internalModel,linkOwnedReply} from './desktop_app_transport.mjs';
+import {internalModel,linkOwnedReply,waitForAppScope} from './desktop_app_transport.mjs';
 import {chatModelRoute} from './desktop_model_controls.mjs';
 import {DesktopTransport} from './desktop_response_transport.mjs';
 test('Chat control identities map to app submit arguments, not Codex model aliases',()=>{
@@ -22,6 +22,12 @@ test('continuation links only a completed correlated assistant in its owned conv
   reply.author.role='assistant';assert.equal(linkOwnedReply('test','lane','answer','DESKTOP_owned'),true);assert.equal(lane.parent,'answer');
   assert.equal(linkOwnedReply('test','missing','answer','DESKTOP_owned'),false);
  }finally{delete globalThis.window;}
+});
+test('app startup waits for its scope without treating initialization as an absent capability',async()=>{
+ const states=['starting','starting',true];let pauses=0;
+ await waitForAppScope(async()=>states.shift(),30000,async()=>{pauses++;});assert.equal(pauses,2);
+ await assert.rejects(()=>waitForAppScope(async()=>false),/desktop_internal_unavailable/);
+ await assert.rejects(()=>waitForAppScope(async()=>'starting',0),/desktop_internal_unavailable/);
 });
 test('UI fallback protects pending owner and allows isolated guardian replay; ambiguous errors never switch transports',async()=>{
  const lane=(key,parent)=>{const t=new DesktopTransport('/owned-app',{key,parent});t.internal={exchange:async()=>{throw Error('desktop_internal_unavailable');}};t.ui={exchange:async()=>({type:'tool'}),retire:()=>{t.retired=true;}};return t;};

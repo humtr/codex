@@ -24,13 +24,23 @@ function prepare(key,module){
     if(typeof value?.get==='function'&&typeof value?.set==='function'&&value.node&&value.chain&&value.query){scope=value;break;}
    }
   }
-  if(!scope)return false;
+  if(!scope)return 'starting';
   let m;try{m=await import(module);m.gRt();}catch{return false;}
   if(!['yRt','eHt','aCn'].every(n=>typeof m[n]==='function')||!['JRn','VRn','FRn','czn'].every(n=>m[n]?.kind))return false;
   window[key]={scope,m,lanes:new Map()};return true;
  })();
 }
 const expression=(fn,...args)=>`(${fn.toString()})(${args.map(v=>JSON.stringify(v)).join(',')})`;
+
+export async function waitForAppScope(discover,timeoutMs=30000,pause=delay){
+ const deadline=Date.now()+timeoutMs;
+ while(true){
+  const state=await discover();
+  if(state===true)return;
+  if(state!=='starting'||Date.now()>=deadline)throw Error('desktop_internal_unavailable');
+  await pause(200);
+ }
+}
 
 async function acquire(root){
  const generation=desktopConnection(root).generation;
@@ -40,7 +50,7 @@ async function acquire(root){
   pool={generation,refs:0};pools.set(root,pool);
   pool.pending=connectDesktop(root,undefined,{app:true}).then(async client=>{
    pool.client=client;
-   if(!await client.evaluate(expression(prepare,key,MODULE)))throw Error('desktop_internal_unavailable');
+   await waitForAppScope(()=>client.evaluate(expression(prepare,key,MODULE)));
    return client;
   });
  }
