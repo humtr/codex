@@ -266,6 +266,7 @@ def probe(core, frontend, named_permission=False):
             modified={p.name:changed_keys(preserved_values[p],tomllib.loads(p.read_text())) for p,digest in preserved.items() if sha(p)!=digest}
             if modified:print(json.dumps({'ownedConfigurationChanges':modified}))
             assert not modified, 'configuration_files_changed'
+            assert (home/'.codex/chatgpt.config.toml').is_symlink(), 'shared_registration_not_projected'
             return {'samePidAndPty': True, 'chatEntered': True, 'nativeReturned': True,
                 'sameHomeAndThread': True, 'qualifiedFrontendRetained': True,'officialBackendRetained':True,'backendProviderRoundTrip':True,'otherThreadKeepsServerDefaults':True,
                 'sharedRegistrationUsed': (home/'.codex/chatgpt.config.toml').is_symlink(),
