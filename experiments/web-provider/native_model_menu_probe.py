@@ -14,6 +14,7 @@ import re
 import select
 import shutil
 import signal
+import socket
 import struct
 import subprocess
 import sys
@@ -104,7 +105,7 @@ def fixture(root, core, frontend, named_permission=False):
     (home / '.codex/config.toml').write_text(
         'model = "gpt-6.1-sol"\nmodel_reasoning_effort = "none"\n'
         'model_catalog_json = ' + json.dumps(str(home / '.codex/native-models.json')) + '\n'
-        'approval_policy = "never"\napprovals_reviewer = "user"\nsandbox_mode = "danger-full-access"\n'
+        'approval_policy = "never"\napprovals_reviewer = "user"\nsandbox_mode = "danger-full-access"\ncheck_for_update_on_startup = false\n'
         '[features]\nmemories = false\n')
     (home / '.codex/config.toml').chmod(0o600)
     (home / '.codex/auth.json').write_text(json.dumps({'OPENAI_API_KEY': 'owned-inert-fixture', 'auth_mode': 'apikey'}))
@@ -125,7 +126,7 @@ def fixture(root, core, frontend, named_permission=False):
     (home / '.codex/chatgpt.config.toml').chmod(0o600)
     env = dict(HOME=str(home), CODEX_HOME=str(home / '.codex'), PREFIX=str(prefix),
         TMPDIR=os.environ['TMPDIR'], PATH=str(prefix / 'bin') + ':' + str(host_prefix / 'bin'),
-        TERM='xterm-256color', LANG='C.UTF-8', SHELL=str(host_prefix / 'bin/bash'),
+        TERM='xterm-256color', LANG='C.UTF-8', RUST_LOG='codex_tui::termux_chat_models=debug', SHELL=str(host_prefix / 'bin/bash'),
         SSL_CERT_FILE=str(prefix / 'etc/tls/cert.pem'))
     for name in ['OPENAI_API_KEY', 'CODEX_ACCESS_TOKEN', 'ACCESS_TOKEN', 'CODEX_SQLITE_HOME',
         'CODEX_PROFILE_CORE', 'CODEX_CHAT_RETURN_PROFILE', 'CODEX_EXEC_SERVER_URL',
@@ -135,6 +136,28 @@ def fixture(root, core, frontend, named_permission=False):
     env['OPENAI_BASE_URL'] = 'http://127.0.0.1:9/v1'
     env['OPENAI_API_KEY'] = 'owned-inert-fixture'
     return home, prefix, env
+
+
+def backend_thread(home, thread):
+    servers = list((home / '.local/share/codex/core/servers').glob('*/s'))
+    assert len(servers) == 1, 'official_backend_socket_missing'
+    pid = int(servers[0].with_name('pid').read_text().strip())
+    expected = home / '.local/lib/codex/core/generations/local-chat-model-fixture/runtime'
+    assert Path(f'/proc/{pid}/exe').resolve() == expected, 'official_backend_lost'
+    with socket.socket(socket.AF_UNIX) as channel:
+        channel.settimeout(5);channel.connect(str(servers[0]))
+        with channel.makefile('rwb') as wire:
+            def request(number, method, params):
+                wire.write(json.dumps({'id':number,'method':method,'params':params}).encode()+b'\n');wire.flush()
+                for _ in range(100):
+                    row=json.loads(wire.readline(4*1024*1024))
+                    if row.get('id') == number:
+                        assert 'error' not in row, 'official_backend_read_failed'
+                        return row['result']
+                raise AssertionError('official_backend_read_failed')
+            request(1, 'initialize', {'clientInfo':{'name':'owned-model-menu-proof','version':'1'},'capabilities':{'experimentalApi':True}})
+            wire.write(b'{"method":"initialized"}\n');wire.flush()
+            return request(2, 'thread/read', {'threadId':thread,'includeTurns':False})['thread']
 
 
 def probe(core, frontend, named_permission=False):
@@ -184,6 +207,9 @@ def probe(core, frontend, named_permission=False):
             print(json.dumps({'coreBridgePresent':b'CODEX_PROFILE_CORE' in private_env,'fixtureHomeSelected':private_env.get(b'CODEX_HOME')==os.fsencode(home/'.codex')}))
             if not ('ChatGPT' in before and 'GPT-6' in before):
                 print(json.dumps({'startupKeywords': {k: (initial+before).lower().count(k) for k in ['error','trust','login','sign in','select model','disabled until startup','unavailable','permission','profile','failed','unexpected argument','invalid','manifest','signature','current generation','cannot link']}, 'running':process.poll() is None, 'exit':process.poll(), 'bytes':len(initial+before), 'ownedStartupFailure': (initial+before).replace(str(root), '<fixture>')[:5000], 'imageName':Path(f'/proc/{process.pid}/exe').resolve().name if process.poll() is None else None}))
+                log = home / '.codex/log/codex-tui.log'
+                if log.is_file():
+                    print(json.dumps({'ownedCatalogDiagnostics':[line.split('DEBUG',1)[-1].strip() for line in log.read_text().splitlines() if 'termux_chat_models' in line][-10:]}))
                 raise AssertionError('chat_choices_absent')
             os.write(master, b'\x1b[H\x1b[B\r');reasoning = collect(2)
             assert 'Instant' in reasoning, 'chat_reasoning_absent'
@@ -197,6 +223,10 @@ def probe(core, frontend, named_permission=False):
             files = list((home / '.codex/sessions').rglob('*.jsonl'))
             assert len(files) == 1, 'same_thread_not_preserved'
             thread_file = files[0]
+            thread = json.loads(thread_file.read_text().splitlines()[0])['payload']['id']
+            actual_chat = backend_thread(home, thread)
+            assert actual_chat['modelProvider'] == 'chatgpt_desktop_trial' and actual_chat['model'] == 'chatgpt-desktop/gpt-6', 'chat_backend_route_not_selected'
+            assert actual_chat['reasoningEffort'] == 'none', 'chat_backend_effort_not_selected'
             returning = model_menu()
             assert 'Owned Codex' in returning, 'native_return_choice_absent'
             os.write(master, b'\x1b[H\r');native_reasoning = collect(2)
@@ -205,12 +235,14 @@ def probe(core, frontend, named_permission=False):
             assert process.poll() is None, 'native_reentry_failed'
             assert b'gpt-6.1-sol' in Path(f'/proc/{process.pid}/cmdline').read_bytes().split(b'\0'), 'native_reentry_failed'
             assert list((home / '.codex/sessions').rglob('*.jsonl')) == [thread_file], 'return_thread_changed'
+            actual_native = backend_thread(home, thread)
+            assert actual_native['modelProvider'] == 'openai' and actual_native['model'] == 'gpt-6.1-sol', 'native_backend_route_not_restored'
             state = dict(part.split(b'=', 1) for part in Path(f'/proc/{process.pid}/environ').read_bytes().split(b'\0') if b'=' in part)
             assert state[b'CODEX_HOME'] == os.fsencode(home / '.codex')
             assert b'CODEX_CHAT_RETURN_PROFILE' not in state
             assert all(sha(p) == digest for p, digest in preserved.items()), 'configuration_files_changed'
             return {'samePidAndPty': True, 'chatEntered': True, 'nativeReturned': True,
-                'sameHomeAndThread': True, 'qualifiedFrontendRetained': True,
+                'sameHomeAndThread': True, 'qualifiedFrontendRetained': True,'officialBackendRetained':True,'backendProviderRoundTrip':True,
                 'originalConfigurationPreserved': True, 'namedPermissionRequested': named_permission,
                 'noAuthCopied': True, 'modelInferenceSubmitted': False, 'proInference': False, 'productionChanged': False}
         finally:

@@ -13,10 +13,10 @@ index 206171b..0915019 100644
  mod clipboard;
 diff --git a/codex-rs/tui/src/app/chat_model_reentry.rs b/codex-rs/tui/src/app/chat_model_reentry.rs
 new file mode 100644
-index 0000000..93e9e00
+index 0000000..9aaa9cc
 --- /dev/null
 +++ b/codex-rs/tui/src/app/chat_model_reentry.rs
-@@ -0,0 +1,402 @@
+@@ -0,0 +1,408 @@
 +//! Re-enter the same durable thread because upstream provider updates are launch-scoped.
 +use super::App;
 +use crate::app_server_session::AppServerSession;
@@ -173,6 +173,12 @@ index 0000000..93e9e00
 +                termux_chat_models::PROVIDER
 +            ),
 +        ]);
++    }
++    if !entering {
++        // Resume otherwise restores the saved Chat provider when the base
++        // configuration omits an explicit provider. Native picker entries are
++        // the upstream OpenAI catalog, so request that provider explicitly.
++        args.extend(["-c".into(), "model_provider=\"openai\"".into()]);
 +    }
 +    let permission_flag = if let Some(permission) = config.permissions.active_permission_profile() {
 +        format!(
@@ -672,10 +678,10 @@ index 857bb7c..f1c4d23 100644
                  token_usage: TokenUsage::default(),
 diff --git a/codex-rs/tui/src/termux_chat_models.rs b/codex-rs/tui/src/termux_chat_models.rs
 new file mode 100644
-index 0000000..29ccac9
+index 0000000..486624b
 --- /dev/null
 +++ b/codex-rs/tui/src/termux_chat_models.rs
-@@ -0,0 +1,336 @@
+@@ -0,0 +1,338 @@
 +//! Optional installed Chat catalog; ordinary upstream model actions remain intact.
 +use crate::legacy_core::config::Config;
 +use codex_protocol::openai_models::{ModelInfo, ModelPreset, ReasoningEffort};
@@ -742,7 +748,9 @@ index 0000000..29ccac9
 +    if !profile.starts_with(BEGIN) {
 +        return None;
 +    }
-+    let value: toml::Value = profile.parse().ok()?;
++    // Value::from_str parses one TOML value in the pinned 0.9 release,
++    // while a standalone configuration file is a TOML document.
++    let value: toml::Value = toml::from_str(&profile).ok()?;
 +    checked_routing(value)
 +}
 +

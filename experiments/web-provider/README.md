@@ -991,3 +991,16 @@ including the real approved/denied native tool result. Unrelated active owners
 remain conflicts. Native structured output schemas reach the actual Chat model;
 the adapter never generates an approval decision. Actual rule/reviewer/native
 round-trip acceptance is required in addition to protocol checks.
+
+The GPT-6 owned-rule gate now passes one actual native guardian review, one
+parent replay, two approved native shell operations and exact final reply with
+zero owner conflicts. gpt6-autoreview-rule-proof.json records the aggregate.
+The same adapter also passes four native calls, actual summary persistence and
+Core plus whole signed-app restart in gpt6-checkpoint-guardian-lanes-proof.json.
+The strengthened native menu fixture reads the official backend's thread/model/
+provider, rather than treating argv or menu rendering as proof of routing.
+Its real-file regression exposed Value::from_str parsing a scalar instead of a
+TOML document in the pinned0.9 dependency; installed routing uses toml::from_str.
+Native return explicitly chooses OpenAI because an omitted provider can restore
+the persisted Chat route during resume. Device round-trip acceptance remains
+required before production admission.
