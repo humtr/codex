@@ -1048,6 +1048,23 @@ index 0961865..7bc311e 100644
      requests
          .lock()
          .expect("request recorder lock")
+diff --git a/codex-rs/tui/src/app/thread_routing.rs b/codex-rs/tui/src/app/thread_routing.rs
+index 7965778..d15b0c9 100644
+--- a/codex-rs/tui/src/app/thread_routing.rs
++++ b/codex-rs/tui/src/app/thread_routing.rs
+@@ -901,6 +901,12 @@ impl App {
+                         explicit_profile
+                             .and_then(RuntimePermissionProfileOverride::turn_permission_profile),
+                     );
++                    crate::termux_permissions::validate(
++                        &config.permissions.effective_permission_profile(),
++                        crate::termux_permissions::enabled()
++                            && app_server.thread_params_mode()
++                                == crate::app_server_session::ThreadParamsMode::Embedded,
++                    )?;
+                     let response = app_server
+                         .turn_start(
+                             thread_id,
 diff --git a/codex-rs/tui/src/app_event.rs b/codex-rs/tui/src/app_event.rs
 index 3185d8a..4e7a525 100644
 --- a/codex-rs/tui/src/app_event.rs
@@ -1065,6 +1082,64 @@ index 3185d8a..4e7a525 100644
      /// Open the Claude Code migration picker inside the running TUI session.
      OpenExternalAgentConfigMigration,
 
+diff --git a/codex-rs/tui/src/app_server_session.rs b/codex-rs/tui/src/app_server_session.rs
+index d2c3249..37ae922 100644
+--- a/codex-rs/tui/src/app_server_session.rs
++++ b/codex-rs/tui/src/app_server_session.rs
+@@ -776,6 +776,11 @@ impl AppServerSession {
+         remote_cwd_override: Option<&std::path::Path>,
+         selected_profile: Option<&PermissionProfileSelection>,
+     ) -> Result<AppServerStartedThread> {
++        crate::termux_permissions::validate(
++            &config.permissions.effective_permission_profile(),
++            crate::termux_permissions::enabled()
++                && self.thread_params_mode() == ThreadParamsMode::Embedded,
++        )?;
+         let request_id = self.next_request_id();
+         let session_config = self.session_config_with_effective_service_tier(config);
+         let mut params = thread_start_params_from_config(
+@@ -941,6 +946,11 @@ impl AppServerSession {
+         permission_mode: ForkPermissionMode,
+         config_source: ForkConfigSource,
+     ) -> Result<AppServerStartedThread> {
++        crate::termux_permissions::validate(
++            &config.permissions.effective_permission_profile(),
++            crate::termux_permissions::enabled()
++                && self.thread_params_mode() == ThreadParamsMode::Embedded,
++        )?;
+         let fork_parent = match presentation {
+             ForkPresentation::Regular => self
+                 .thread_read(thread_id, /*include_turns*/ false)
+@@ -2176,6 +2186,11 @@ fn thread_resume_params_from_config(
+         ),
+         ..ThreadResumeParams::default()
+     };
++    let permission_overrides = crate::termux_permissions::resume_permissions(
++        &config.permissions.effective_permission_profile(),
++        permission_overrides,
++        crate::termux_permissions::enabled() && thread_params_mode == ThreadParamsMode::Embedded,
++    );
+     if thread_params_mode == ThreadParamsMode::Remote || !permission_overrides.approval_policy {
+         params.approval_policy = None;
+     }
+diff --git a/codex-rs/tui/src/app_server_session/rollout_history.rs b/codex-rs/tui/src/app_server_session/rollout_history.rs
+index 07cf41b..85d9ea1 100644
+--- a/codex-rs/tui/src/app_server_session/rollout_history.rs
++++ b/codex-rs/tui/src/app_server_session/rollout_history.rs
+@@ -155,6 +155,13 @@ impl AppServerSession {
+         model_settings: ResumeModelSettings,
+         permission_overrides: crate::resume_permissions::ResumePermissions,
+     ) -> Result<AppServerStartedThread> {
++        if model_settings != ResumeModelSettings::PreserveExistingThread {
++            crate::termux_permissions::validate(
++                &config.permissions.effective_permission_profile(),
++                crate::termux_permissions::enabled()
++                    && self.thread_params_mode() == super::ThreadParamsMode::Embedded,
++            )?;
++        }
+         let session_config = if matches!(
+             model_settings,
+             ResumeModelSettings::RestoreFromThread | ResumeModelSettings::PreserveExistingThread
 diff --git a/codex-rs/tui/src/bottom_pane/chat_composer.rs b/codex-rs/tui/src/bottom_pane/chat_composer.rs
 index 8921eaa..586517b 100644
 --- a/codex-rs/tui/src/bottom_pane/chat_composer.rs
@@ -1610,15 +1685,16 @@ index 945041b..764c243 100644
              | SlashCommand::Delete
 diff --git a/codex-rs/tui/src/termux_permissions.rs b/codex-rs/tui/src/termux_permissions.rs
 new file mode 100644
-index 0000000..bfec411
+index 0000000..1eed6f9
 --- /dev/null
 +++ b/codex-rs/tui/src/termux_permissions.rs
-@@ -0,0 +1,57 @@
+@@ -0,0 +1,87 @@
 +//! Permission presentation for the explicit Termux frontend experiment.
 +use codex_protocol::models::ActivePermissionProfile;
 +use codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_DANGER_FULL_ACCESS;
 +use codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_WORKSPACE;
 +use codex_protocol::models::PermissionProfile;
++use codex_protocol::permissions::FileSystemSandboxKind;
 +use codex_utils_approval_presets::ApprovalPreset;
 +use std::ffi::OsStr;
 +use std::path::Path;
@@ -1629,6 +1705,35 @@ index 0000000..bfec411
 +
 +pub(crate) fn enabled() -> bool {
 +    has_bridge(std::env::var_os("CODEX_PROFILE_CORE").as_deref())
++}
++
++fn supported(profile: &PermissionProfile) -> bool {
++    let file_system = profile.file_system_sandbox_policy();
++    let external = file_system.kind == FileSystemSandboxKind::ExternalSandbox;
++    (external || profile.network_sandbox_policy().is_enabled())
++        && (external || file_system.has_full_disk_write_access())
++}
++
++pub(crate) fn validate(profile: &PermissionProfile, termux: bool) -> color_eyre::Result<()> {
++    if termux && !supported(profile) {
++        color_eyre::eyre::bail!(
++            "Termux cannot enforce Linux filesystem/network sandbox permissions. Select Ask for approval, Approve for me or Full Access in /permissions; no sandbox policy has been weakened."
++        );
++    }
++    Ok(())
++}
++
++pub(crate) fn resume_permissions(
++    profile: &PermissionProfile,
++    mut requested: crate::resume_permissions::ResumePermissions,
++    termux: bool,
++) -> crate::resume_permissions::ResumePermissions {
++    // The qualified local launch selection wins over obsolete saved Linux
++    // sandbox settings. Approval policy/reviewer remain independently restored.
++    if termux && supported(profile) {
++        requested.profile = true;
++    }
++    requested
 +}
 +
 +pub(crate) fn auto_profile_id(termux: bool) -> &'static str {
@@ -1673,11 +1778,48 @@ index 0000000..bfec411
 +mod tests;
 diff --git a/codex-rs/tui/src/termux_permissions_tests.rs b/codex-rs/tui/src/termux_permissions_tests.rs
 new file mode 100644
-index 0000000..f08b463
+index 0000000..f848882
 --- /dev/null
 +++ b/codex-rs/tui/src/termux_permissions_tests.rs
-@@ -0,0 +1,68 @@
+@@ -0,0 +1,105 @@
 +use super::*;
++
++#[test]
++fn termux_permissions_resume_defaults_override_only_saved_sandbox_selection() {
++    let requested = crate::resume_permissions::ResumePermissions::default();
++    let resolved = resume_permissions(&PermissionProfile::Disabled, requested, true);
++    assert!(resolved.profile);
++    assert!(!resolved.approval_policy);
++    assert!(!resolved.approvals_reviewer);
++    assert!(!resolved.workspace_roots);
++    assert_eq!(
++        resume_permissions(&PermissionProfile::Disabled, requested, false),
++        requested
++    );
++    assert_eq!(
++        resume_permissions(&PermissionProfile::workspace_write(), requested, true),
++        requested
++    );
++    assert_eq!(
++        resume_permissions(&PermissionProfile::read_only(), requested, true),
++        requested
++    );
++}
++
++#[test]
++fn termux_permissions_reject_restricted_requests_without_weakening_or_changing_linux() {
++    for profile in [
++        PermissionProfile::read_only(),
++        PermissionProfile::workspace_write(),
++    ] {
++        let before = profile.clone();
++        let error = validate(&profile, true).unwrap_err().to_string();
++        assert!(error.contains("Termux cannot enforce"));
++        assert_eq!(profile, before);
++        assert!(validate(&profile, false).is_ok());
++    }
++    assert!(validate(&PermissionProfile::Disabled, true).is_ok());
++}
 +
 +#[test]
 +fn termux_permissions_require_an_explicit_absolute_bridge() {
@@ -1747,7 +1889,7 @@ index 0000000..f08b463
 +}
 diff --git a/codex-rs/tui/src/termux_terminal.rs b/codex-rs/tui/src/termux_terminal.rs
 new file mode 100644
-index 0000000..82311af
+index 0000000..a84022e
 --- /dev/null
 +++ b/codex-rs/tui/src/termux_terminal.rs
 @@ -0,0 +1,221 @@

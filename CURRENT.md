@@ -343,8 +343,18 @@ This repository carries no external workflow skill or model configuration.
   organization-policy change was made. See experiment README's sourced comparison.
 
 
-- Native Termux ChatGPT provider now has real experimental acceptance on
-  experiment/web-termux at6a1715e. The signed Linux app's actual ChatGPT / Chat / Instant
+- Deferred ChatGPT goal: make /model the primary entrypoint with one shared ChatGPT
+  registration; keep --profile chatgpt as an automatically prepared fallback.
+  Investigate the signed app's internal Chat submit/update functions before
+  relying on DOM automation. Keep login/refresh inside the app; assign each Codex
+  thread an independent Chat conversation/target and verify two simultaneous
+  generations, result isolation and cancellation. Hidden app execution is the
+  initial target, not a claim that Electron or its display dependencies disappear.
+  Retain the qualified UI transport as fallback. Public API/SIWC or bundled Work
+  inference does not substitute for the actual Chat path. This work is deferred
+  until the Termux sandbox-policy regression is resolved.
+- Native Termux ChatGPT provider has real experimental acceptance on
+  experiment/web-termux at410231f. The signed Linux app's actual ChatGPT / Chat / Instant
   surface supplies the backend; desktop Codex mode, a mock, extracted first-party
   token and public API-key inference are not substitutes. A private FD3/FD4 relay
   reuses the existing native Bun host. The local authenticated /v1/responses

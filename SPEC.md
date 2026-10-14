@@ -949,6 +949,13 @@ permission shortcuts must preserve the supported no-sandbox execution policy.
 reviewer. `Approve for me` selects `danger-full-access`, `on-request` and
 `auto_review`. `Full Access` selects `danger-full-access` and `never`. Changing
 reviewer must not select Linux workspace sandboxing or restart a shared server.
+Qualified local frontend resume must explicitly carry the effective supported
+Termux permission selection even when it came from Core's system defaults, so
+saved Linux sandbox settings cannot override that selection. Preserve saved
+approval policy and reviewer unless the user supplied a current replacement.
+Fork and side conversations inherit the resulting actual parent selection.
+Reject an effective explicitly restricted/custom policy before a new local
+thread/turn request; never silently reinterpret it as unrestricted execution.
 The Termux picker and shortcuts exclude the unsupported Read Only choice;
 explicit CLI sandbox requests remain Core usage failures. User-supplied
 named/custom profiles retain upstream semantics. This adaptation
