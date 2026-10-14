@@ -29,8 +29,9 @@ Scope before considering an unavailable-capability fallback. The app and display
 remain dependencies; no debug TCP port or extracted first-party token is introduced.
 
 Real GPT-6 overlap/cancel-sibling, two native clients/four commands and two actual
-reviews pass. App acceptance timestamps fix misleading overlap measurements for
-short replies; cancellation/sibling checks already passed in those trials. Manual
+reviews pass. App acceptance timestamps measure overlap directly. Tiny Instant replies can
+finish before the sibling starts; a bounded Medium trial proves actual overlap
+and cancellation/sibling survival. Earlier non-overlap trials stay failed evidence. Manual
 Medium compaction passes persisted tool-only state, four native commands and both
 Core/whole-app restart/resume. GitHub catalog search plus the actual discovered
 read-only repository call passes in wrlab. A controlled no-inference native catalog
@@ -44,7 +45,8 @@ multimodal input, hours-long load, physical reboot and phone layout remain separ
 gates. Historical GUI qualification is not blanket internal-path acceptance.
 Private proofs: ~/.cache/codex/acceptance/chat-internal-checkpoint-startup-wait.json,
 chat-internal-discovered-tool-wrlab.json, native-account-catalog-comparison.json,
-chat-final-concurrent-guardian.json and chat-final-app-acceptance-timing.json.
+chat-final-concurrent-guardian.json, chat-final-app-acceptance-timing.json,
+chat-final-medium-overlap-cancel.json and chat-final-installed-inventory.json.
 
 ## Independent window return and optional tmux
 
