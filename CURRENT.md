@@ -411,7 +411,7 @@ This repository carries no external workflow skill or model configuration.
   restored expanded selector.158401f waits for a fresh owned view and reuses that
   menu. Its GPT-6 checkpoint rerun passes four actual tools, committed tool-only
   memory, Core restart/resume and whole-app restart (gpt6-checkpoint-proof.json).
-  The installed experimental adapter atcc28b07 also passes a real GPT-6 native
+  The guardian implementation atcc28b07 also passes a real GPT-6 native
   guardian review: an owned prompt rule requires approval, one guardian request
   interleaves, parent canonical context replays, two native commands complete and
   the exact final reply matches with zero owner conflicts. Child/parent ledgers
@@ -422,6 +422,11 @@ This repository carries no external workflow skill or model configuration.
   ~/.cache/codex/acceptance/gpt6-autoreview-rule-proof.json and
   gpt6-checkpoint-guardian-lanes-proof.json. Home recovery uses the app's public
   new-temporary-chat shortcut only with no visible composer or Stop control.
+  Installed experimental payload2c01935cff10b2c33257 matches source410231f and its
+  complete immutable inventory. The current wrlab home also has the marked ChatGPT
+  profile; its installed auth helper passes without model inference. Ten protected
+  base-config/auth/launcher/activation hashes remain unchanged across the profile
+  reinstall. The production launcher still uses signed stable49.
   Live unsupported tuples returned400 without an inference request; actual
   catalog lookup/tool execution and automatic compaction plus four native calls
   and restart/resume passed with the route-aware cursor. Live draft protection
