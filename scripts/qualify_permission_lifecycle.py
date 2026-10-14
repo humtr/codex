@@ -313,18 +313,24 @@ def probe(args):
             drain(master,.4);os.write(master,b'\r')
             wait(master,lambda:bool(set(loaded())-before_side))
             child=next(iter(set(loaded())-before_side))
-            side=None
-            for line in (root/'trace-1').read_text(errors='replace').splitlines():
-                if child not in line or 'sandbox' not in line:continue
-                for quoted in re.findall(r'"(?:\\.|[^"\\])*"',line):
-                    try:data=ast.literal_eval(quoted)
-                    except (ValueError,SyntaxError):continue
-                    for brace in re.finditer(r'\{',data):
-                        try:d=json.JSONDecoder().raw_decode(data[brace.start():])[0]
-                        except ValueError:continue
-                        result=d.get('result',{}) if isinstance(d,dict) else {}
-                        if result.get('thread',{}).get('id')==child and 'sandbox' in result:
-                            side={k:result.get(k) for k in ['sandbox','approvalPolicy','approvalsReviewer','activePermissionProfile']}
+            def side_response():
+                # Backend visibility can precede delivery to the frontend.
+                # Wait for the actual fork response rather than sampling its
+                # trace once immediately after the backend lists the child.
+                for line in (root/'trace-1').read_text(errors='replace').splitlines():
+                    if child not in line or 'sandbox' not in line:continue
+                    for quoted in re.findall(r'"(?:\\.|[^"\\])*"',line):
+                        try:data=ast.literal_eval(quoted)
+                        except (ValueError,SyntaxError):continue
+                        for brace in re.finditer(r'\{',data):
+                            try:d=json.JSONDecoder().raw_decode(data[brace.start():])[0]
+                            except ValueError:continue
+                            result=d.get('result',{}) if isinstance(d,dict) else {}
+                            if result.get('thread',{}).get('id')==child and 'sandbox' in result:
+                                return {k:result.get(k) for k in ['sandbox','approvalPolicy','approvalsReviewer','activePermissionProfile']}
+                return None
+            wait(master,side_response)
+            side=side_response()
             assert side and side['sandbox']['type']=='dangerFullAccess',side
             rpc(home,'turn/start',{'threadId':child,'input':[{'type':'text','text':'PL_SIDE','text_elements':[]}]})
             wait(master,lambda:(work/'PL_SIDE').is_file() and counts['nativeResults']>=3)
