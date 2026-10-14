@@ -374,8 +374,10 @@ This repository carries no external workflow skill or model configuration.
   dependency. Source-only ordered packing reduces an owned 50,410-character
   fixture from27 submissions to2 while preserving schemas/history; no Chat quota
   deduction is measured. Admission errors and context/work submission accounting
-  are now distinct on the experiment branch. First repair actual model-use boundaries;
-  then qualify native Chat tool-result continuation through the existing adapter
+  are now distinct on the experiment branch. First repair actual model-use boundaries.
+  The pinned bridge already contains full-mode MCP result continuation, which our
+  adapter has not connected; targeted reuse takes priority over a new broker.
+  Then qualify native Chat tool-result continuation through the existing adapter
   before expanding its architecture. Detailed scope and the no-inference stage-cost
   measurement live in experiment/web-termux CURRENT.md. No provider/runtime changes
   or new Chat inference are authorized by these review notes.
@@ -437,7 +439,10 @@ This repository carries no external workflow skill or model configuration.
   wrlab. Native account tool availability is separate from shared Chat app login.
   Failed/timeout trials stay retained as evidence. Automatic/fault compaction,
   multimodal context, hours-long load and physical phone reboot remain separate
-  internal qualification. Phone horizontal width remains deferred. Unsupported context/routes fail rather than lose data.
+  internal qualification. Phone horizontal width remains deferred. Opaque agent
+  payloads/routes refuse, but a newly reproduced bundled-parser gap replaces an
+  unreadable native compaction checkpoint with a note. Readable canonical handoff
+  or explicit refusal remains required; this is not qualified lossless resume.
 - `/v1/responses` is the wire interface, not an API entitlement. Requests use the
   signed app's Chat mode; measured native context usage is an estimate, not a
   billing/KV-cache proof. Earlier quota comparison observed no increment even in
