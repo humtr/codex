@@ -1,0 +1,47 @@
+// Exercise the installed broker's real Unix IPC without Chat, Core inference or a tunnel.
+import {mkdtempSync,rmSync,writeFileSync} from 'node:fs';
+import {join,resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
+import {strict as assert} from 'node:assert';
+const [source,reportPath]=process.argv.slice(2);
+if(!source||!reportPath)throw Error('usage: desktop_broker_probe.mjs bridge-source report');
+const {TurnBroker,callTurnBroker,closeTurnBrokers}=await import(pathToFileURL(resolve(source,'adapters/chatgpt-web/turn-broker.ts')));
+const root=mkdtempSync(join(process.env.TMPDIR,'mcp-')),socket=join(root,'b');
+const result={chatSubmissions:0,coreInference:false,liveMcp:false};
+const observed=p=>p.then(value=>({value}),error=>({error}));
+try{
+ const broker=TurnBroker.forSocket(socket);
+ const environment={cwd:root,roots:[root],writableRoots:[root],sandboxPolicy:{type:'dangerFullAccess'},tools:[{name:'owned',description:'Owned offline fixture',parameters:{type:'object'}}]};
+ const token=await broker.register(environment,60000,'owned-offline');
+ const claim=await callTurnBroker(socket,{method:'claim',token});
+ const invoke=n=>callTurnBroker(socket,{method:'invoke',bindingId:claim.bindingId,wireName:'owned',arguments:{n}},null);
+ const first=observed(invoke(1)),second=observed(invoke(2));
+ const batch=await broker.nextToolBatch(token,AbortSignal.timeout(3000));
+ assert.equal(batch.length,2);assert.notEqual(batch[0].callId,batch[1].callId);
+ assert.deepEqual(await broker.nextToolBatch(token),batch);result.parallelBatchAndExactReplay=true;
+ const ids=batch.map(t=>t.callId);
+ for(const call of batch)broker.completeTool(token,call.callId,{content:[{type:'text',text:String(call.arguments.n)}]});
+ assert.equal((await first).value.content[0].text,'1');assert.equal((await second).value.content[0].text,'2');
+ assert.throws(()=>broker.completeTool(token,ids[0],{content:[]}));result.pendingPromisesResolvedOnce=true;
+ const observer=new AbortController(),wait=observed(broker.nextToolBatch(token,observer.signal));observer.abort();
+ assert.equal((await wait).error.name,'AbortError');
+ const third=observed(invoke(3)),next=await broker.nextToolBatch(token,AbortSignal.timeout(3000));
+ broker.completeTool(token,next[0].callId,{content:[{type:'text',text:'3'}]});
+ assert.equal((await third).value.content[0].text,'3');result.observerAbortPreservesTurn=true;
+ assert.equal(broker.beginCompletionFence(token),undefined);
+ await callTurnBroker(socket,{method:'activity_complete',token,activityId:claim.activityId});
+ const revision=broker.beginCompletionFence(token);assert.equal(typeof revision,'number');
+ const fourth=observed(invoke(4));await broker.nextToolBatch(token,AbortSignal.timeout(3000));
+ assert.equal(broker.commitCompletionFence(token,revision),false);result.pendingCallsFenceCompletion=true;
+ broker.revoke(token,new Error('owned_explicit_stop'));
+ assert.match((await fourth).error.message,/owned_explicit_stop/);
+ const late=await observed(invoke(5));assert.ok(late.error);result.explicitRevokeRejectsPendingAndLateCalls=true;
+ const foreign=await broker.register(environment,60000,'owned-sibling');
+ const sibling=await callTurnBroker(socket,{method:'claim',token:foreign});
+ const siblingCall=observed(callTurnBroker(socket,{method:'invoke',bindingId:sibling.bindingId,wireName:'owned',arguments:{n:6}},null));
+ const siblingBatch=await broker.nextToolBatch(foreign,AbortSignal.timeout(3000));
+ broker.completeTool(foreign,siblingBatch[0].callId,{content:[{type:'text',text:'6'}]});
+ assert.equal((await siblingCall).value.content[0].text,'6');result.siblingSurvives=true;
+ writeFileSync(reportPath,JSON.stringify(result,null,2)+'\n',{mode:0o600});
+ console.log(JSON.stringify(result));
+}finally{await closeTurnBrokers();rmSync(root,{recursive:true});}

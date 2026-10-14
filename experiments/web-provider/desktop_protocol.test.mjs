@@ -26,6 +26,21 @@ test('unadvertised and malformed calls never admit',()=>{
  for(const r of [{type:'tool',name:'other',input:{}},{type:'tool',name:'functions__exec_command',input:'shell'},{type:'tool',name:'functions__exec',input:{}},{type:'tool',name:'tool_search',input:{}},{type:'final',text:{}}])expect(()=>validateEnvelope(r,tools)).toThrow();
  expect(validateEnvelope({type:'tool',name:'functions__exec_command',input:{cmd:'owned'}},tools).wireName).toBe('functions__exec_command');
 });
+test('stored opaque or corrupt compaction refuses before the parser can lose it',()=>{
+ let parsed=false;const parse=()=>{parsed=true;return {context:{messages:[]}};};
+ for(const type of ['compaction','compaction_summary','context_compaction']){
+  for(const encrypted_content of ['private-native-checkpoint','ocx1:','ocx1:@@==','ocx1:/w==','ocx1:IA==',undefined]){
+   if(type==='context_compaction'&&encrypted_content===undefined)continue;
+   parsed=false;
+   expect(()=>admitDesktopRequest({model:'chatgpt-desktop/gpt-6',stream:true,input:[{type,encrypted_content}]},parse)).toThrow('opaque_context_unavailable');
+   expect(parsed).toBe(false);
+  }
+ }
+ const summary='Completed owned edit; pending verification 한글 😀';
+ for(const item of [{type:'compaction',encrypted_content:'ocx1:'+Buffer.from(summary).toString('base64')},{type:'context_compaction'},{role:'user',content:summary}]){
+  expect(()=>admitDesktopRequest({model:'chatgpt-desktop/gpt-6',stream:true,input:[item]},parse)).not.toThrow();
+ }
+});
 test('issued call requires exactly one correlated result and immutable replay',()=>{
  const t=new DesktopTranscript();t.issue('owned');
  expect(()=>t.receive([])).toThrow();

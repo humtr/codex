@@ -50,11 +50,27 @@ export function validateTextContext(raw,parsed){
 }
 
 // Never expose parser errors: they can contain private request content.
+function validateStoredCompaction(raw){
+ for(const item of Array.isArray(raw.input)?raw.input:[]){
+  const type=item?.type;
+  if(!['compaction','compaction_summary','context_compaction'].includes(type))continue;
+  if(type==='context_compaction'&&item.encrypted_content===undefined)continue;
+  const envelope=item.encrypted_content;
+  if(typeof envelope!=='string'||!envelope.startsWith('ocx1:'))throw Error('opaque_context_unavailable');
+  const encoded=envelope.slice(5);
+  if(!encoded||encoded.length%4!==0||! /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded))throw Error('opaque_context_unavailable');
+  const bytes=Buffer.from(encoded,'base64');
+  if(bytes.toString('base64')!==encoded)throw Error('opaque_context_unavailable');
+  let summary;try{summary=new TextDecoder('utf-8',{fatal:true}).decode(bytes);}catch{throw Error('opaque_context_unavailable');}
+  if(!summary.trim())throw Error('opaque_context_unavailable');
+ }
+}
 export function admitDesktopRequest(raw,parseRequest){
  if(!raw||typeof raw!=='object'||Array.isArray(raw))throw Error('invalid_desktop_request');
  const route=validateDesktopRoute(raw),outputInstructions=desktopOutputInstructions(raw);
  if(raw.stream!==true)throw Error('desktop_stream_required');
  if(raw.previous_response_id)throw Error('desktop_response_cursor_unavailable');
+ validateStoredCompaction(raw);
  let parsed;try{parsed=parseRequest(raw);}catch(e){throw Error(e?.message==='Unsupported routed tool declaration'?'desktop_tool_declaration_unsupported':'desktop_request_parse_failed');}
  validateTextContext(raw,parsed);
  if(parsed._opaqueMultiAgentV2Payload)throw Error('opaque_context_unavailable');

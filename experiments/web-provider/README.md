@@ -1072,3 +1072,20 @@ szob has no GitHub catalog matches. Shared Chat app login does not confer native
 connector permissions. Concurrent native clients and guardian children keep their
 independent conversations; app acceptance timestamps, rather than polling time,
 measure overlap. See CURRENT.md for the current qualified scope and private proofs.
+
+Current source-only admission repairs accept identity/zstd bodies up to16 MiB
+encoded and32 MiB expanded, validate UTF-8 and distinguish malformed JSON,
+compression and unsupported encoding before Chat submission. Stored opaque or
+corrupt compaction envelopes are rejected before the shared parser can replace
+them with a placeholder. This prevents silent context loss; it does not make
+native encrypted checkpoints readable. Installed provider46db05e retains the old
+2 MiB ceiling until separate activation and affected live qualification.
+
+The offline `desktop_broker_probe.mjs` exercises the existing pinned broker's Unix
+IPC without a tunnel or model; it proves result resolution, replay and observer/
+revoke isolation, not live Chat continuation. `native_catalog_request_probe.py`
+uses the installed official backend against local fake endpoints only. It now
+also proves merged startup catalog admission and actual turn/interrupt stream
+closure. The provider receives no separate interruption request, so stream closure
+cannot be ignored until a qualified explicit cancellation path exists. Neither
+fixture starts real Chat inference or changes an account's settings/history.

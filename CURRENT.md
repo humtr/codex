@@ -38,7 +38,7 @@ read-only repository call passes in wrlab. A controlled no-inference native cata
 comparison returns8 GitHub matches in wrlab and0 in szob; app login does not grant
 another native account's connector tools. Failed/timeout trials remain evidence.
 
-29 protocol/app tests and15 desktop/profile tests pass for the current source.
+34 protocol/app/body tests (225 assertions) and15 desktop/profile tests pass for the current source.
 Packing/admission/accounting changes are not yet installed. GPT-6 Instant/Medium/High/
 Extra High actual tool loops pass; Pro inference is prohibited and was not sent.
 GPT-5.6 remains deferred. Automatic/fault compaction under the new internal path,
@@ -57,7 +57,10 @@ Status: runtime repair unresolved; controlled diagnosis and adapter changes on
 and provider 0de70e3072a4b8e87a31/source 46db05e were inspected without changing
 runtime, configuration, conversations or authentication. The installed protocol,
 app transport, Responses server and profile source matched the maintained files
-before this source change; installation remains unchanged.
+before this source change; installation remains unchanged. Candidate admission
+repairs now handle identity/zstd bodies at16 MiB encoded/32 MiB decoded and reject
+opaque/corrupt compaction before parser placeholder conversion. These changes
+are not yet installed and do not repair backend catalog or cross-provider resume.
 
 Confirmed observations:
 
@@ -93,7 +96,11 @@ Confirmed observations:
   to the send failure, not a proven explanation of that exact failed request.
   `desktop_server_admission_probe.py` reproduces both a header-only 413 and a
   BrokenPipeError while sending an oversized body. The missing historical body
-  size remains unproved; the ceiling is unchanged pending handoff/cold-replay proof.
+  size remains unproved; the installed ceiling is unchanged. Candidate HTTP
+  acceptance admits decoding of owned3 MiB identity/zstd packets, categorizes
+  invalid encoding/compression/UTF-8 and bounds expanded data before Chat access.
+  A33 MiB compressed expansion returns typed413; over16 MiB wire requests can
+  still fail with BrokenPipe during an early413. No unlimited-size claim follows.
 - The adapter is alive and its read-only readiness response verifies against
   its existing private binding. Zero admitted-request/submission counters do not
   mean zero HTTP arrivals: the observed 400 occurs before admission accounting.
@@ -137,8 +144,9 @@ Required follow-up, before claiming ordinary `/model` use is qualified:
    manual internal compaction and inference-free menu round trips retain their
    narrow scope; they are not proof for these failing combinations.
 
-Runtime/catalog/compaction repair and real Chat inference remain deferred; this
-source change supplies admission/packing/accounting groundwork below. Explain
+Runtime/catalog/cross-provider compaction repair and real Chat inference remain
+unfinished; bounded body decoding and pre-parser checkpoint rejection now have
+source fixes and actual Android no-inference proof. Explain
 trial necessity and expected submissions before performing real inference.
 Chat message submission/limit accounting is a separate review, not a diagnosis
 or resolution of these model-use failures.
@@ -217,15 +225,33 @@ expectations, not chat-limit deduction claims. Explain the exact candidate and
 budget before real inference/provider changes; Pro inference remains prohibited.
 
 Private no-inference proofs: `~/.cache/codex/acceptance/chat-stage-packing.json`,
-`chat-catalog-request.json`, `chat-adapter-admission.json` and
-`chat-debt-full-check.log`. HTTP proof covers five admission rejections,401 without
-auth, the body ceiling, and zero admitted work/Chat submissions. Protocol/app tests
-pass29/174 assertions and desktop/lifecycle tests pass15. This is not a real Chat
+`chat-catalog-request.json`, `chat-admission-bounded-repair.json`,
+`chat-catalog-merged-offline.json` and `chat-existing-broker-offline.json`.
+Current HTTP proof covers ten distinct admission/decode/checkpoint failures,
+401 without auth, large identity/zstd requests, compressed expansion bounds and
+zero admitted work/Chat submissions. Protocol/app/body tests pass34/225 assertions
+and desktop/lifecycle tests pass15. This is not a real Chat
 quality, ACK/cancellation observation or provider-switch qualification. User data,
 credentials, active runtime and conversations are preserved.
 `scripts/check.sh full` passes77 Python and323 Rust tests, formatting, Clippy and
 diff checks; the separate Android HTTP/catalog proofs above cover the affected
 real request paths without inference. An installed/live Chat gate remains open.
+
+The installed6.1.5 broker was exercised over its real temporary Unix socket:
+parallel exact-ID replay, one-time pending result resolution, completion fences,
+observer abort with retained turn, explicit revoke/late-call rejection and sibling
+survival pass. No Chat, tunnel or Core inference occurred; this proves reusable
+broker mechanics, not a live connector or durable pending promises after restart.
+The official installed Android backend also accepts a synthetic merged startup
+catalog with the same12 parsed native tools as its Chat-only startup catalog;
+per-thread override still fails. This qualifies startup metadata placement only,
+not a production merged catalog or reload-free route. An actual turn/interrupt in
+that disposable backend closes the model SSE connection and emits no additional
+provider HTTP request. Therefore the current adapter cannot identify explicit
+user-stop from socket closure alone. Keep its existing cancellation behavior
+until an exact-thread/turn control path is qualified; simply detaching req.signal
+would break stop while enabling retained MCP continuation. Code paths and fixtures
+remain opt-in source work; production stable51 and installed provider46db05e remain.
 
 GitHub source comparison pins (read-only; no candidate code executed or installed):
 

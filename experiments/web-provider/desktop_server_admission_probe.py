@@ -59,21 +59,65 @@ def probe(bun, bridge):
                     assert status==400
                     assert json.loads(response)['error']['message']==code
                     codes.append(code)
+                extra_codes = []
+                for body, headers, expected_status, code in [
+                    (b'private', {'Content-Encoding': 'gzip'}, 415, 'desktop_encoding_unsupported'),
+                    (b'private', {'Content-Encoding': 'zstd'}, 400, 'invalid_desktop_compression'),
+                    (b'"\xff"', {}, 400, 'invalid_desktop_utf8'),
+                    (json.dumps({'model': 'chatgpt-desktop/gpt-6', 'stream': True,
+                                 'input': [{'type': 'compaction', 'encrypted_content': 'OWNED_OPAQUE'}]}).encode(), {}, 400, 'opaque_context_unavailable'),
+                ]:
+                    status, response = request('/v1/responses', body, headers=headers)
+                    assert status == expected_status
+                    assert json.loads(response)['error']['message'] == code
+                    extra_codes.append(code)
+                large = json.dumps({'model': 'native', 'stream': True, 'input': 'x'*(3*1024*1024)}).encode()
+                status, response = request('/v1/responses', large)
+                assert status == 400
+                assert json.loads(response)['error']['message'] == 'unsupported_desktop_route'
+                packed = subprocess.run([str(bun), '--eval',
+                    'process.stdout.write(Bun.zstdCompressSync(await Bun.stdin.bytes()));'],
+                    input=large, capture_output=True, check=True).stdout
+                status, response = request('/v1/responses', packed, headers={'Content-Encoding': 'zstd'})
+                assert status == 400
+                assert json.loads(response)['error']['message'] == 'unsupported_desktop_route'
+                bomb = subprocess.run([str(bun), '--eval',
+                    'process.stdout.write(Bun.zstdCompressSync(new Uint8Array(33*1024*1024)));'],
+                    capture_output=True, check=True).stdout
+                status, response = request('/v1/responses', bomb, headers={'Content-Encoding': 'zstd'})
+                assert status == 413
+                assert json.loads(response)['error']['message'] == 'desktop_decoded_request_too_large'
+                extra_codes.append('desktop_decoded_request_too_large')
                 body_send_error = None
                 try:
-                    status, _ = request('/v1/responses', b'"'+b'x'*(2*1024*1024)+b'"')
+                    status, _ = request('/v1/responses', b'"'+b'x'*(16*1024*1024)+b'"')
                 except urllib.error.URLError as error:
                     assert isinstance(error.reason, BrokenPipeError)
                     body_send_error = 'broken_pipe'
-                status, _ = request('/v1/responses', b'', headers={'Content-Length': str(2*1024*1024+2)})
+                status, _ = request('/v1/responses', b'', headers={'Content-Length': str(16*1024*1024+2)})
                 assert status==413
+                try:
+                    status, response = request('/v1/responses', iter([b'x'*(1024*1024)]*17),
+                                               headers={'Transfer-Encoding': 'chunked'})
+                    assert status == 413
+                    assert json.loads(response)['error']['message'] == 'desktop_request_too_large'
+                    chunked_limit = 'typed_413'
+                except urllib.error.URLError as error:
+                    assert isinstance(error.reason, BrokenPipeError)
+                    chunked_limit = 'broken_pipe'
                 report = json.loads(state.with_suffix('.json.proof').read_text())
                 assert report['requests']==report['submittedRequests']==report['contextPackets']==0
                 assert report['observedChatSubmissions']==report['submittedContextRequests']==0
                 assert report['submissionSources']=={'app_accepted': 0, 'ui_observed': 0}
-                assert report['arrivals']==len(cases)
-                assert report['admissionFailures']==dict.fromkeys(codes, 1)
+                # Bun's outer body ceiling can reject before entering fetch.
+                assert report['arrivals'] >= len(cases)+len(extra_codes)+2
+                for code in codes+extra_codes:
+                    expected_count = 3 if code == 'unsupported_desktop_route' else 1
+                    assert report['admissionFailures'][code] == expected_count
                 return {'ready': True, 'unauthorizedStatus': 401, 'rejectionCodes': codes,
+                        'extraRejectionCodes': extra_codes, 'largeIdentityAndZstd': True,
+                        'wireLimitBytes': 16*1024*1024, 'decodedLimitBytes': 32*1024*1024,
+                        'chunkedWireLimit': chunked_limit,
                         'oversizeStatus': status, 'oversizeBodySendError': body_send_error,
                         'arrivals': report['arrivals'], 'admittedRequests': 0, 'chatSubmissions': 0}
             finally:

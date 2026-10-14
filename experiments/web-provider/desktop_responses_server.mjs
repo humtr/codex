@@ -6,6 +6,7 @@ import {randomBytes,timingSafeEqual,createHmac} from 'node:crypto';
 import {desktopModelCatalog} from './desktop_model_controls.mjs';
 import {desktopConnection} from './desktop_cdp.mjs';
 import {DesktopTransport} from './desktop_response_transport.mjs';
+import {readDesktopRequest,DesktopBodyError,DESKTOP_DECODED_LIMIT} from './desktop_http.mjs';
 import {DesktopTranscript,admitDesktopRequest,recordDesktopSubmission,validateEnvelope,DesktopCompaction,desktopEstimatedUsage,markDesktopEstimatedUsage} from './desktop_protocol.mjs';
 const [candidate,desktopRoot,statePath,runtimePath]=process.argv.slice(2);
 process.umask(0o077);
@@ -42,7 +43,9 @@ report.guardianRequests=0;report.ownerConflicts=0;report.guardianInterleaves=0;r
 report.arrivals=0;report.admissionFailures={};
 report.observedChatSubmissions=0;report.submittedContextRequests=0;report.submissionSources={app_accepted:0,ui_observed:0};
 function save(){const temp=statePath+'.proof.'+randomBytes(6).toString('hex');writeFileSync(temp,JSON.stringify(report),{mode:0o600,flag:'wx'});renameSync(temp,statePath+'.proof');}
-const server=Bun.serve({hostname:'127.0.0.1',port:runtime?Number(new URL(runtime.baseUrl).port):0,idleTimeout:0,maxRequestBodySize:2*1024*1024,async fetch(req){
+// Leave room for the streaming reader to report the smaller wire ceiling itself,
+// including chunked bodies without Content-Length. Bun retains a hard outer cap.
+const server=Bun.serve({hostname:'127.0.0.1',port:runtime?Number(new URL(runtime.baseUrl).port):0,idleTimeout:0,maxRequestBodySize:DESKTOP_DECODED_LIMIT,async fetch(req){
  const path=new URL(req.url).pathname;
  if(path==='/__desktop_ready'&&req.method==='GET'&&!req.headers.has('origin')){
   const nonce=req.headers.get('x-termux-trial-challenge')||'';
@@ -55,7 +58,7 @@ const server=Bun.serve({hostname:'127.0.0.1',port:runtime?Number(new URL(runtime
  if(path!=='/v1/responses'||req.method!=='POST')return new Response('Not found',{status:404});
  report.arrivals++;
  let raw,parsed,route,outputInstructions;
- try{raw=await req.json();}catch{report.admissionFailures.invalid_desktop_json=(report.admissionFailures.invalid_desktop_json||0)+1;save();return formatErrorResponse(400,'invalid_request_error','invalid_desktop_json');}
+ try{raw=await readDesktopRequest(req);}catch(e){const known=e instanceof DesktopBodyError,code=known?e.message:'desktop_body_read_failed';report.admissionFailures[code]=(report.admissionFailures[code]||0)+1;save();return formatErrorResponse(known?e.status:400,'invalid_request_error',code);}
  try{
   ({parsed,route,outputInstructions}=admitDesktopRequest(raw,parseRequest));
  }catch(e){const code=/^(?:invalid_desktop_request|unsupported_desktop_route|unsupported_desktop_output_format|desktop_stream_required|desktop_response_cursor_unavailable|desktop_request_parse_failed|desktop_tool_declaration_unsupported|desktop_compaction_unavailable|desktop_text_only|opaque_context_unavailable)$/.test(e.message)?e.message:'invalid_desktop_request';report.admissionFailures[code]=(report.admissionFailures[code]||0)+1;save();return formatErrorResponse(400,'invalid_request_error',code);}

@@ -22,22 +22,29 @@ def probe(source, runtime, bun, bridge, catalog):
     native = json.loads((source / 'scripts/fixtures/permission-model.json').read_text())
     chat = next(m for m in json.loads(catalog.read_text())['models'] if m['slug']=='chatgpt-desktop/gpt-6')
     captured = []
+    interrupt_fixture = threading.Event()
+    stream_started = threading.Event()
+    stream_closed = threading.Event()
+    paths = []
 
     class Model(http.server.BaseHTTPRequestHandler):
         def log_message(self, *_):
             pass
 
         def do_POST(self):
+            paths.append(self.path)
             raw = self.rfile.read(int(self.headers['Content-Length']))
             body = json.loads(raw)
             captured.append({'model': body.get('model'), 'bytes': len(raw), 'serializedCharacters': len(json.dumps(body)),
                              'keys': sorted(body), 'inputTypes': sorted({str(i.get('type')) for i in body.get('input', [])}),
                              'toolTypes': sorted({str(t.get('type')) for t in body.get('tools', [])})})
             protocol = Path(__file__).with_name('desktop_protocol.mjs')
-            code = 'const {parseRequest}=await import('+json.dumps(str(bridge))+');const {admitDesktopRequest}=await import('+json.dumps(str(protocol))+');const raw=JSON.parse(await Bun.stdin.text());try{admitDesktopRequest(raw,parseRequest);console.log("admitted");}catch(e){console.log(e.message);}'
+            code = 'const {parseRequest}=await import('+json.dumps(str(bridge))+');const {admitDesktopRequest}=await import('+json.dumps(str(protocol))+');const raw=JSON.parse(await Bun.stdin.text());try{const {parsed}=admitDesktopRequest(raw,parseRequest);console.log(JSON.stringify({status:"admitted",tools:parsed.context.tools.length}));}catch(e){console.log(JSON.stringify({status:e.message}));}'
             admission = subprocess.run([str(bun), '--eval', code], input=json.dumps(body),
                                        text=True, capture_output=True, check=True)
-            captured[-1]['adapterAdmission'] = admission.stdout.strip()
+            admitted = json.loads(admission.stdout)
+            captured[-1]['adapterAdmission'] = admitted['status']
+            captured[-1]['adapterToolCount'] = admitted.get('tools')
             item = {'id': 'msg_owned', 'type': 'message', 'role': 'assistant',
                     'content': [{'type': 'output_text', 'text': 'OWNED_OK', 'annotations': []}]}
             response = {'id': 'resp_owned', 'object': 'response', 'model': body['model'],
@@ -52,9 +59,18 @@ def probe(source, runtime, bun, bridge, catalog):
                                                       'content_index': 0, 'delta': 'OWNED_OK'}),
                       ('response.output_item.done', {'output_index': 0, 'item': item}),
                       ('response.completed', {'response': response})]
-            for name, data in events:
+            for name, data in events[:3] if interrupt_fixture.is_set() else events:
                 self.wfile.write(('event: ' + name + '\ndata: ' + json.dumps(dict(data, type=name)) + '\n\n').encode())
             self.wfile.flush()
+            if interrupt_fixture.is_set():
+                stream_started.set()
+                deadline = time.monotonic()+10
+                while time.monotonic()<deadline:
+                    try:
+                        self.wfile.write(b': owned fixture heartbeat\n\n');self.wfile.flush()
+                    except (BrokenPipeError, ConnectionResetError):
+                        stream_closed.set();break
+                    time.sleep(.05)
 
     model = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Model)
     threading.Thread(target=model.serve_forever, daemon=True).start()
@@ -65,9 +81,10 @@ def probe(source, runtime, bun, bridge, catalog):
             home, config, work = root/'h', root/'cfg', root/'w'
             for path in [home, config, work]:
                 path.mkdir(mode=0o700)
-            native_path, chat_path = root/'native.json', root/'chat.json'
+            native_path, chat_path, merged_path = root/'native.json', root/'chat.json', root/'merged.json'
             native_path.write_text(json.dumps({'models': [native]}))
             chat_path.write_text(json.dumps({'models': [chat]}))
+            merged_path.write_text(json.dumps({'models': [native, chat]}))
             (home/'config.toml').write_text('model = "gpt-6.1-sol"\nmodel_catalog_json = ' + json.dumps(str(native_path)) + '\ncheck_for_update_on_startup = false\n[features]\nmemories = false\nplugins = false\n')
             endpoint = f'http://127.0.0.1:{model.server_port}/v1'
             env = {k: v for k, v in os.environ.items() if not k.startswith(('CODEX_', 'OPENAI_', 'LD_'))}
@@ -79,11 +96,13 @@ def probe(source, runtime, bun, bridge, catalog):
                 for fd, target in zip(descriptors, [33, 34, 35]):
                     os.dup2(fd, target, inheritable=True)
 
-            for mode in ['thread-override', 'startup-catalog']:
-                socket = root/('s0' if mode == 'thread-override' else 's1')
+            for index, mode in enumerate(['thread-override', 'startup-catalog', 'startup-merged-catalog']):
+                socket = root/('s'+str(index))
                 argv = [str(runtime)]
                 if mode == 'startup-catalog':
                     argv += ['-c', 'model_catalog_json='+json.dumps(str(chat_path))]
+                elif mode == 'startup-merged-catalog':
+                    argv += ['-c', 'model_catalog_json='+json.dumps(str(merged_path))]
                 argv += ['app-server', '--listen', 'unix://'+str(socket)]
                 with (root/(mode+'.log')).open('w+') as log:
                     child = subprocess.Popen(argv, env=env, cwd=work, stdout=log, stderr=log,
@@ -111,6 +130,21 @@ def probe(source, runtime, bun, bridge, catalog):
                                 break
                         log.flush();log.seek(0)
                         report[mode] = dict(captured[-1], fallbackMetadata=('Unknown model '+chat['slug']) in log.read())
+                        if mode == 'startup-merged-catalog':
+                            before = len(paths)
+                            interrupt_fixture.set()
+                            started = wire.call('turn/start', {'threadId': thread, 'input': [
+                                {'type': 'text', 'text': 'Owned interrupt fixture.', 'text_elements': []}]})
+                            assert stream_started.wait(5), 'provider_stream_not_started'
+                            wire.call('turn/interrupt', {'threadId': thread, 'turnId': started['turn']['id']})
+                            while True:
+                                event = wire.receive()
+                                if event.get('method') == 'turn/completed':
+                                    outcome = event['params']['turn']['status'];break
+                            assert outcome == 'interrupted'
+                            closed = stream_closed.wait(3)
+                            report['interrupt-wire'] = {'turnStatus': outcome, 'providerStreamClosed': closed,
+                                'httpPaths': paths[before:], 'chatSubmissions': 0}
                     finally:
                         if wire:
                             wire.close()
@@ -125,6 +159,12 @@ def probe(source, runtime, bun, bridge, catalog):
     assert not report['startup-catalog']['fallbackMetadata']
     assert report['thread-override']['adapterAdmission']=='desktop_tool_declaration_unsupported'
     assert report['startup-catalog']['adapterAdmission']=='admitted'
+    assert not report['startup-merged-catalog']['fallbackMetadata']
+    assert report['startup-merged-catalog']['adapterAdmission']=='admitted'
+    assert report['startup-merged-catalog']['toolTypes'] == report['startup-catalog']['toolTypes']
+    assert report['startup-merged-catalog']['adapterToolCount'] == report['startup-catalog']['adapterToolCount'] > 0
+    assert report['interrupt-wire']['providerStreamClosed']
+    assert report['interrupt-wire']['httpPaths'] == ['/v1/responses']
     return report
 
 

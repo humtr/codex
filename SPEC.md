@@ -3223,6 +3223,16 @@ Interrupted or failed compaction must preserve prior native history, and a
 subsequent resumed turn must retain state learned through real tool outputs.
 No production admission or public API access follows from experimental proof.
 
+The adapter accepts identity and zstd request bodies with a 16 MiB encoded and
+32 MiB decoded ceiling, before any Chat submission or context staging. Decode
+incrementally with fatal UTF-8 validation; report unsupported encoding, malformed
+compressed data, invalid JSON and exceeded limits separately using content-free
+errors. Transport ceilings are not model context limits or admission of a larger
+model window. Authentication still precedes application decoding. Unreadable or
+malformed stored compaction envelopes must fail before the shared parser replaces
+them with a placeholder. Only a nonempty, valid UTF-8 transparent bridge summary
+or canonical native text checkpoint may be replayed; never silently discard state.
+
 ### Continuation, routing and cache independence
 
 Core's ordered history and committed checkpoints are the only conversation
