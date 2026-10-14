@@ -469,10 +469,10 @@ index 4e7a525..e98de3d 100644
      /// Apply a final Astra picker action and offer the flourish only if it changed the model on
      /// its original task. Automatic model updates do not use this event.
 diff --git a/codex-rs/tui/src/app_server_session.rs b/codex-rs/tui/src/app_server_session.rs
-index d2c3249..83ccc8d 100644
+index 37ae922..cfb9ec1 100644
 --- a/codex-rs/tui/src/app_server_session.rs
 +++ b/codex-rs/tui/src/app_server_session.rs
-@@ -1848,10 +1848,32 @@ fn approvals_reviewer_override_from_config(
+@@ -1858,10 +1858,32 @@ fn approvals_reviewer_override_from_config(
  fn config_request_overrides_from_config(
      config: &Config,
      thread_params_mode: ThreadParamsMode,
@@ -506,7 +506,7 @@ index d2c3249..83ccc8d 100644
              codex_config::merge_toml_values(&mut session_config, &layer.config);
          }
      }
-@@ -1860,18 +1882,19 @@ fn config_request_overrides_from_config(
+@@ -1870,18 +1892,19 @@ fn config_request_overrides_from_config(
          .into_iter()
          .flatten()
          .filter(|(key, _)| {
@@ -538,7 +538,7 @@ index d2c3249..83ccc8d 100644
          })
          .filter_map(|(key, value)| {
              serde_json::to_value(value)
-@@ -3457,6 +3480,45 @@ mod tests {
+@@ -3472,6 +3495,45 @@ mod tests {
          assert_eq!(fork.config, Some(expected_config));
      }
  
@@ -678,10 +678,10 @@ index 857bb7c..f1c4d23 100644
                  token_usage: TokenUsage::default(),
 diff --git a/codex-rs/tui/src/termux_chat_models.rs b/codex-rs/tui/src/termux_chat_models.rs
 new file mode 100644
-index 0000000..486624b
+index 0000000..157dfce
 --- /dev/null
 +++ b/codex-rs/tui/src/termux_chat_models.rs
-@@ -0,0 +1,338 @@
+@@ -0,0 +1,389 @@
 +//! Optional installed Chat catalog; ordinary upstream model actions remain intact.
 +use crate::legacy_core::config::Config;
 +use codex_protocol::openai_models::{ModelInfo, ModelPreset, ReasoningEffort};
@@ -740,18 +740,34 @@ index 0000000..486624b
 +}
 +
 +pub(crate) fn installed_routing(config: &Config) -> Option<toml::Value> {
-+    let profile = String::from_utf8(private_bytes(
-+        &config.codex_home.join("chatgpt.config.toml"),
-+        65536,
-+    )?)
-+    .ok()?;
++    let local = config.codex_home.join("chatgpt.config.toml");
++    let shared = std::env::var_os("HOME").map(|home| {
++        std::path::PathBuf::from(home)
++            .join(".local/share/codex/core/config/profiles/chatgpt.config.toml")
++    });
++    let path = routing_profile_path(&local, shared.as_deref())?;
++    let profile = String::from_utf8(private_bytes(&path, 65536)?).ok()?;
 +    if !profile.starts_with(BEGIN) {
 +        return None;
 +    }
-+    // Value::from_str parses one TOML value in the pinned 0.9 release,
-+    // while a standalone configuration file is a TOML document.
 +    let value: toml::Value = toml::from_str(&profile).ok()?;
 +    checked_routing(value)
++}
++
++fn routing_profile_path(local: &Path, shared: Option<&Path>) -> Option<std::path::PathBuf> {
++    match std::fs::symlink_metadata(local) {
++        Ok(meta)
++            if meta.file_type().is_symlink()
++                && meta.uid() == unsafe { libc::geteuid() }
++                && shared.is_some()
++                && std::fs::read_link(local).ok().as_deref() == shared =>
++        {
++            shared.map(Path::to_path_buf)
++        }
++        Ok(_) => Some(local.to_path_buf()),
++        Err(error) if error.kind() == std::io::ErrorKind::NotFound => shared.map(Path::to_path_buf),
++        Err(_) => None,
++    }
 +}
 +
 +fn checked_routing(value: toml::Value) -> Option<toml::Value> {
@@ -1018,5 +1034,40 @@ index 0000000..486624b
 +        assert!(private_bytes(&link, 8).is_none());
 +        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
 +        assert!(private_bytes(&file, 8).is_none());
++    }
++
++    #[test]
++    fn termux_chat_models_shared_registration_alias_and_fallback_without_local_copy() {
++        use std::os::unix::fs::symlink;
++        let root = tempfile::tempdir().unwrap();
++        let shared = root.path().join("shared.config.toml");
++        let local = root.path().join("chatgpt.config.toml");
++        assert_eq!(
++            routing_profile_path(&local, Some(&shared)),
++            Some(shared.clone())
++        );
++        symlink(&shared, &local).unwrap();
++        assert_eq!(routing_profile_path(&local, Some(&shared)), Some(shared));
++    }
++
++    #[test]
++    fn termux_chat_models_local_override_and_foreign_alias_never_fall_through_to_shared() {
++        use std::os::unix::fs::symlink;
++        let root = tempfile::tempdir().unwrap();
++        let shared = root.path().join("shared.config.toml");
++        let local = root.path().join("chatgpt.config.toml");
++        std::fs::write(&local, "model=\"user-choice\"\n").unwrap();
++        assert_eq!(
++            routing_profile_path(&local, Some(&shared)),
++            Some(local.clone())
++        );
++        assert_eq!(routing_profile_path(&local, None), Some(local.clone()));
++        std::fs::remove_file(&local).unwrap();
++        symlink("user-missing", &local).unwrap();
++        assert_eq!(
++            routing_profile_path(&local, Some(&shared)),
++            Some(local.clone())
++        );
++        assert!(private_bytes(&local, 65536).is_none());
 +    }
 +}

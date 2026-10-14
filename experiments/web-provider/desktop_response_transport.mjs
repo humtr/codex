@@ -99,6 +99,32 @@ export class DesktopChatTransport{
   }finally{c?.close();this.busy=false;}
  }
 }
+// UI fallback retains its single-surface exclusion. Internal discovery failures
+// before submission are the only failures eligible for fallback.
+let uiBusy=false,uiOwner;
+export class DesktopTransport{
+ constructor(root,identity={}){this.root=root;this.identity=identity;this.internal=undefined;this.ui=undefined;}
+ retire(){this.internal?.retire();this.ui?.retire();}
+ async exchange(...args){
+  const {DesktopAppTransport}=await import('./desktop_app_transport.mjs');
+  this.internal??=new DesktopAppTransport(this.root);
+  try{const result=await this.internal.exchange(...args);this.selectedControl=this.internal.selectedControl;return result;}
+  catch(e){if(e.message!=='desktop_internal_unavailable')throw e;}
+  if(uiBusy)throw Error('desktop_chat_busy');uiBusy=true;
+  let parent=this.fallbackParent;
+  try{
+   if(uiOwner&&uiOwner!==this){
+    if(this.identity.parent!==uiOwner.identity.key||!uiOwner.pendingResult)throw Error('desktop_thread_owner_conflict');
+    parent=uiOwner;this.fallbackParent=parent;parent.ui?.retire();this.ui?.retire();
+   }
+   uiOwner=this;this.ui??=new DesktopChatTransport(this.root);
+   const result=await this.ui.exchange(...args);this.pendingResult=result.type==='tool';
+   if(!this.pendingResult){uiOwner=parent;this.fallbackParent=undefined;}
+   this.selectedControl={...this.ui.selectedControl,transport:'ui-fallback'};return result;
+  }catch(e){if(uiOwner===this)uiOwner=parent;this.ui?.retire();throw e;}
+  finally{uiBusy=false;}
+ }
+}
 if(import.meta.main){
  const t=new DesktopChatTransport(process.argv[2]),nonce='transport_'+randomBytes(10).toString('hex');
  const r=await t.exchange({instructions:[],messages:[{role:'user',content:'Reply with the uppercase of '+nonce}],tools:[]},AbortSignal.timeout(130000));

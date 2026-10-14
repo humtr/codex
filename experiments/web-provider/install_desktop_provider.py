@@ -12,7 +12,7 @@ import tarfile
 import tempfile
 from desktop_lifecycle import DATA,RUNTIME,endpoint,ensure
 from open_dual_trial import record
-from desktop_provider_profile import install,server_record
+from desktop_provider_profile import install,server_record,register_home
 from linux_desktop_trial import PROOT_SOURCE,private,write
 
 SOURCE=Path(__file__).resolve().parent
@@ -98,11 +98,6 @@ def activate(args):
     if RUNTIME.exists() or RUNTIME.is_symlink():ensure(RUNTIME)
     previous=server_record(DATA/'server.json')
     endpoint(previous)
-    for home in args.home:
-        target=home/'chatgpt.config.toml'
-        if target.exists():
-            from desktop_provider_profile import BEGIN
-            assert target.read_text().startswith(BEGIN), 'existing_user_profile_conflict'
     target,manifest=build(args)
     runtime={k:previous[k] for k in ['baseUrl','token','model']}
     runtime.update({'source':str(target/'source'),'bun':str(target/'bun'),'bridge':str(target/'bridge.mjs'),'proot':str(target/'proot'),'novnc':str(target/'novnc'),
@@ -111,11 +106,14 @@ def activate(args):
         old=record(RUNTIME);assert all(old[k]==runtime[k] for k in ['baseUrl','token','model'])
     # Do not stop processes here. Migration/qualification must settle native jobs first.
     write(RUNTIME,runtime)
-    for home in args.home:install(DATA/'server.json',home,args.catalog,RUNTIME)
-    print(json.dumps({'installed':True,'permanentPaths':True,'bridgeBundled':True,'production':False,'installation':target.name}))
+    registry=private(Path.home()/'.local/share/codex/core/config/profiles')
+    install(DATA/'server.json',registry,args.catalog,RUNTIME)
+    shared=registry/'chatgpt.config.toml'
+    registrations=[register_home(home,shared) for home in args.home]
+    print(json.dumps({'installed':True,'permanentPaths':True,'bridgeBundled':True,'sharedRegistration':True,'homesRegistered':sum(registrations),'localOverridesPreserved':len(registrations)-sum(registrations),'production':False,'installation':target.name}))
 
 
 if __name__=='__main__':
     os.umask(0o077)
-    p=argparse.ArgumentParser();p.add_argument('--bridge',type=Path);p.add_argument('--proot',type=Path);p.add_argument('--novnc',type=Path);p.add_argument('--bun',type=Path);p.add_argument('--catalog',type=Path,default=DATA/'models.json');p.add_argument('--home',type=Path,action='append',required=True);a=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('--bridge',type=Path);p.add_argument('--proot',type=Path);p.add_argument('--novnc',type=Path);p.add_argument('--bun',type=Path);p.add_argument('--catalog',type=Path,default=DATA/'models.json');p.add_argument('--home',type=Path,action='append',default=[]);a=p.parse_args()
     activate(a)

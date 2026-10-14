@@ -25,11 +25,22 @@ update authority is maintained.
   a Chat slug into an ordinary Codex default. The command-backed provider stays
   owned by the marked standalone profile; only its nonsecret routing references
   enter invocation overrides. The standalone --profile chatgpt remains available.
-  The experimental desktop adapter serializes actual submissions. A native
-  guardian child may interrupt its verified parent only while that parent awaits
-  an issued tool result. Child/parent ledgers stay separate, the parent cursor is
-  retired, and its next request replays Core's canonical context. An unrelated
-  active owner remains a conflict; reviewer selection is never bypassed.
+  The experimental desktop adapter uses the signed app's own Chat submission,
+  cancellation and conversation state. App login/refresh stays inside the app;
+  no first-party bearer is extracted or substituted for Chat inference. Each
+  native thread, including guardian children, owns a separate temporary Chat
+  conversation and tool ledger. Different threads may generate concurrently;
+  duplicate requests for one thread refuse without replacing its active work.
+  Cancellation affects only that owned conversation. Reconnecting or compaction
+  may retire an owned cursor and replay Core's canonical context; no native tool
+  is replayed without its real result. UI transport remains a serialized fallback
+  only when internal capability is unavailable before submission. Ambiguous
+  submission failures never silently resubmit through another transport.
+  Shared configuration profiles have one private registry in Core's existing
+  config directory. Launch may project missing upstream profile filenames into
+  an account home, preserving existing user-owned profiles, base config and
+  authentication. This generic path adaptation is independent of Manager and
+  provider lifecycle; no additional daemon, transcript or login authority exists.
   An optional source-built Manager TUI is the third signed helper at `helpers/2`,
   identified by `termux-manager-tui-v1:UPSTREAM_VERSION`. The first two helpers
   retain the accepted browser identities. Its version must exactly match the

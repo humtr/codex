@@ -21,7 +21,7 @@ export function desktopConnection(root){
  }
  return {descriptor:d,generation:JSON.stringify([root,d.host.pid,d.host.start,d.browser.pid,d.browser.start,d.endpoint])};
 }
-export async function connectDesktop(root,targetId){
+export async function connectDesktop(root,targetId,options={}){
  root=resolveDesktopRoot(root);
  const {descriptor:d,generation}=desktopConnection(root);
  const socket=new WebSocket(d.endpoint.replace('http:','ws:')+'/cdp',{headers:{Authorization:'Bearer '+d.token}});
@@ -38,6 +38,7 @@ export async function connectDesktop(root,targetId){
    if(targetId&&!targetInfos.some(t=>t.type==='page'&&t.targetId===targetId&&t.url.startsWith('app://-/')))targetId=undefined;
    for(const target of targetInfos.filter(t=>t.type==='page'&&t.url.startsWith('app://-/')&&(!targetId||t.targetId===targetId))){
     const {sessionId}=await request('Target.attachToTarget',{targetId:target.targetId,flatten:true});
+    if(options.app){session=sessionId;selected=target.targetId;break;}
     const {result}=await request('Runtime.evaluate',{expression:`[...document.querySelectorAll('button')].some(e=>e.textContent?.trim()==='Chat'&&e.getAttribute('aria-pressed')==='true')||[...document.querySelectorAll('button[aria-label="Select ChatGPT model"]')].some(e=>e.getBoundingClientRect().width>0)`,returnByValue:true},sessionId);
     if(!result.value&&!openedTemporary.has(target.targetId)){
      // Closing a settled temporary lane can leave the app on Home. Recover

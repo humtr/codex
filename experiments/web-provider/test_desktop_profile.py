@@ -57,4 +57,22 @@ class ProfileTests(unittest.TestCase):
         self.config.write_text(self.original+'\n'+profile.BEGIN+'\n[profiles.chatgpt]\nmodel="trial"\n'+profile.END+'\n')
         self.install();self.assertEqual(tomllib.loads(self.config.read_text()),tomllib.loads(self.original))
 
+    def test_shared_registration_reaches_new_home_and_preserves_local_overrides(self):
+        self.install();shared=self.home/'chatgpt.config.toml'
+        second=self.root/'second';second.mkdir(mode=0o700)
+        self.assertTrue(profile.register_home(second,shared))
+        self.assertEqual((second/'chatgpt.config.toml').readlink(),shared)
+        self.assertTrue(profile.register_home(second,shared))
+        third=self.root/'third';third.mkdir(mode=0o700)
+        local=third/'chatgpt.config.toml';local.write_text('model="user-model"\n');local.chmod(0o600)
+        self.assertFalse(profile.register_home(third,shared))
+        self.assertEqual(local.read_text(),'model="user-model"\n')
+
+    def test_shared_migration_rejects_edits_even_inside_an_experiment_marker(self):
+        self.install();shared=self.home/'chatgpt.config.toml'
+        second=self.root/'second';second.mkdir(mode=0o700)
+        local=second/'chatgpt.config.toml';local.write_text(shared.read_text().replace('model_reasoning_effort = "none"','model_reasoning_effort = "high"'));local.chmod(0o600)
+        before=local.read_bytes();self.assertFalse(profile.register_home(second,shared))
+        self.assertEqual(local.read_bytes(),before)
+
 if __name__=='__main__':unittest.main()

@@ -17,6 +17,37 @@ PROFILE='chatgpt'
 PROVIDER='chatgpt_desktop_trial'
 
 
+def register_home(home,shared):
+    """One authoritative config; an account's explicit local override wins."""
+    home=private(home);target=home/(PROFILE+'.config.toml')
+    if target.is_symlink():return target.readlink()==shared
+    if target.exists():
+        st=target.lstat()
+        assert target.is_file() and st.st_uid==os.getuid() and not st.st_mode&0o077
+        before=target.read_bytes()
+        if not before.startswith(BEGIN.encode()):return False
+        old=tomllib.loads(before.decode());new=tomllib.loads(shared.read_text())
+        def normalized(value):
+            args=value.get('model_providers',{}).get(PROVIDER,{}).get('auth',{}).get('args')
+            if not isinstance(args,list) or len(args)!=5 or args[0]!='-B' or args[2]!='token':return value
+            path=Path(args[1]);root=Path.home()/'.local/lib/codex-web-experiment'
+            if not path.is_relative_to(root) or path.name!='desktop_lifecycle.py':return value
+            args[1]='<owned-immutable-lifecycle>'
+            return value
+        if normalized(old)!=normalized(new):return False
+        # Replace only an exact earlier generated config, never arbitrary edits.
+        assert target.read_bytes()==before and target.lstat().st_ino==st.st_ino
+        fd,tmp=tempfile.mkstemp(dir=home,prefix='.shared-chatgpt-');os.close(fd);Path(tmp).unlink()
+        try:
+            Path(tmp).symlink_to(shared);os.replace(tmp,target)
+        finally:
+            if Path(tmp).is_symlink():Path(tmp).unlink()
+    else:
+        try:target.symlink_to(shared)
+        except FileExistsError:return False
+    return True
+
+
 def server_record(path):
     value=record(path);owner({**value,'start':int(value['start'])})
     u=urlparse(value['baseUrl'])

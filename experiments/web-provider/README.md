@@ -627,34 +627,29 @@ lossless ordered instruction/message fragments and an inert context phase.
 Native tool-search support avoids eagerly loading every configured plugin
 schema. Small requests stay direct. Subsequent requests send only new native messages
 and changed instructions/tool lists; changed historical prefixes are refused
-instead of silently losing context. Submission uses the app’s enabled Send
-control rather than relying on Enter. Core owns approval and actual tool
+instead of silently losing context. The default transport uses the app’s internal Chat submission; the serialized
+UI fallback uses its enabled Send control. Core owns approval and actual tool
 execution. Exact tool results and immutable call-ID replay checks stay in the
 local adapter; no guest Linux tool impersonates native Termux execution.
 
-After starting the already prepared Linux candidate with `--inspect`, select
-ChatGPT/Chat/Instant in its own UI. Start the bounded experiment using the
-accepted native Bun and bridge checkout:
+The installed opt-in provider has one shared registration:
+`~/.local/share/codex/core/config/profiles/chatgpt.config.toml`. Its command-backed
+login helper bootstraps the existing app/adapter on demand. The qualified Core
+projects a missing configuration-profile name into any owned account home;
+existing local overrides win. Manager is not required for this path adaptation.
+The installer accepts no `--home` for registration alone; explicit `--home PATH`
+can register existing homes on older installed Cores. It converts only an exact
+previous generated config into an alias, preserving edited local profiles.
 
 ```sh
-"$BUN" experiments/web-provider/desktop_responses_server.mjs \
-  "$BRIDGE_CHECKOUT" "$DESKTOP_ROOT" "$DESKTOP_ROOT/desktop-server.json"
-```
-
-Keep that process and the owned Linux candidate running. From another terminal,
-install the opt-in config in the account home you intend to use:
-
-```sh
-python -B experiments/web-provider/desktop_provider_profile.py \
-  --server "$DESKTOP_ROOT/desktop-server.json" \
-  --codex-home "${CODEX_HOME:-$HOME/.codex}" \
-  --catalog-template "$UPSTREAM_161/codex-rs/models-manager/models.json"
+python -B experiments/web-provider/install_desktop_provider.py
 codex --profile chatgpt
 ```
 
-The user wants eventual ordinary model selection; `--profile chatgpt` is the
-accepted intermediate qualification workflow. `/model` shows this profile’s
-model, but switching providers from the normal picker is not implemented.
+`--profile chatgpt` remains the fallback. The separately qualified `/model`
+overlay uses the same shared registration from an ordinary launch, keeping the
+account home, durable thread, permissions and terminal. Neither route is a
+Manager login profile or a change to the ordinary default model.
 
 The current 0.161 client reads `chatgpt.config.toml`; the earlier inline
 `[profiles.chatgpt]` form is rejected by this client. This upstream **configuration
@@ -666,7 +661,8 @@ server PID/start/image, private capability file and loopback endpoint. Restartin
 the server changes its capability/port; reinstall this owned config after
 restart. Authentication stays command-backed and private; no API/Admin key,
 first-party token extraction, production daemon or boot service is required.
-Rollback removes only this marked experiment's `chatgpt.config.toml`; never
+Rollback removes only the verified shared registration and aliases owned by this
+experiment; existing local overrides remain. Never
 restore a whole base config over subsequent user edits.
 
 Real signed native stable49 acceptance completed two separate local shell
@@ -983,14 +979,27 @@ model transport. Full-access harmless shell commands may require no approval,
 so the autoreviewer fixture installs a prompt rule only in a disposable config
 home and requires a real guardian request as well as the two native calls.
 
-Native guardian turns have independent disposable ledgers. An authenticated
-child can interleave only when its parent id matches the active primary owner
-and an adapter-issued native tool call is outstanding. Switching the shared app
-surface retires its cursor; parent continuation replays canonical Core context,
-including the real approved/denied native tool result. Unrelated active owners
-remain conflicts. Native structured output schemas reach the actual Chat model;
-the adapter never generates an approval decision. Actual rule/reviewer/native
-round-trip acceptance is required in addition to protocol checks.
+Native threads and guardian children have independent temporary Chat
+conversations, ledgers and prompt cursors. The signed app's exported submit,
+cancel and per-conversation state replace composer typing/Send clicking.
+Its normal Chat origin is omitted (the literal `chat` is not a valid wire origin).
+App authentication and token refresh stay in the app. A shared private CDP
+connection carries concurrent operations without introducing a debug TCP port.
+The app and display are still dependencies; hidden execution is not a claim
+that Electron was removed. Cancellation aborts only the exact owned conversation.
+Unsupported internal discovery can fall back before submission to the prior UI
+path, with a single owner and guardian replay; ambiguous submission failures
+never switch transports or repeat an external native action.
+
+`desktop_app_probe.mjs` requires two exact overlapping GPT-6 replies and a
+cancelled lane whose sibling survives. `desktop_native_concurrency_probe.py`
+requires two actual Android Core clients, four native commands, isolated exact
+markers/replies, global profile projection and unchanged base config. Its
+`--autoreview` variant also requires actual native guardian requests in an
+independent Chat conversation. Both prohibit Pro inference. A first guardian
+trial had one incomplete sibling; it remains failed evidence. The bounded retry
+passed both clients and two actual guardian requests. Reports live in the private
+acceptance cache, not this source tree.
 
 The GPT-6 owned-rule gate now passes one actual native guardian review, one
 parent replay, two approved native shell operations and exact final reply with

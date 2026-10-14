@@ -34,6 +34,19 @@ This repository carries no external workflow skill or model configuration.
   all six maintained frontend inputs are unchanged. New launches use the new signed
   generation; current running clients keep their old image until normal exit.
 
+## ChatGPT internal transport and shared registration
+
+The signed app's submit/cancel/state own a separate temporary conversation per
+native thread, including guardian children; credentials stay inside the app.
+Actual GPT-6 overlap/cancel-sibling proof passes. Two native Android clients pass
+four commands, exact isolated markers/replies and shared-profile projection.
+A guardian retry passes both clients and two actual reviews; its initial incomplete
+sibling remains failed evidence. Full local checks,23 protocol/app tests and15
+desktop/profile tests pass. Root stable50 fixes the sandbox regression; this pilot
+now uses the same native baseline. Combined39-test model/global alias qualification
+and signed/device activation are in progress. No Pro inference was performed.
+Private proofs: ~/.cache/codex/acceptance/chat-{app-concurrency-cancel,native-dual-shared-profile,native-dual-guardian-retry}.json.
+
 ## Independent window return and optional tmux
 
 - `codex termux launch` selects an existing profile with Up/Down and Enter;
