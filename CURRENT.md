@@ -6,33 +6,10 @@ This repository carries no external workflow skill or model configuration.
 
 ## Operating baseline
 
-- Public and installed stable47: local-hosted-0-161-0-24ad60da232d-s47,
-  CLI0.161.0, accepted implementation24ad60d. Publication38134363609 passed all
-  eight jobs, including Android execution, signing, public readback/disposable
-  update and non-forced promotion. main callera19e0b4 pins that exact source.
-  Source acceptance38134059541 passed all four jobs. Frontend source29b2584
-  remains the installed artifact; its bare-registration omission is open below.
-- Local composed full acceptance passed Core193/one pre-existing ignored,
-  Manager42+55+three actual path gates, builder25, Python18+59 and fmt/Clippy/diff.
-  The two first-launch startup fixtures now remove inherited window-ready state;
-  their focused rerun passed after the inherited environment skipped the advisory.
-- Initial public device update hit the existing300-second large-payload transfer
-  limit and fell through to local-derived update, whose same-version frontend
-  boundary refused it; stable45 remained intact. This was a transport/fallback
-  failure, not rejection of the paired signed stable46 release. No trust boundary
-  was weakened to activate it.
-- Device activation used the normal signed `codex update --local` path, with five
-  identical large/helper files copied from stable46 against the signed inventory.
-  Core/Manager/meta came from immutable public assets. All eight hashes/modes and
-  the public manifest signature/key verified before activation. stable46 is the
-  bounded rollback target; older busy images stay retained. A subsequent ordinary
-  update was a no-op. Core/Manager/upstream doctor passed, twelve configuration/auth
-  files and fifteen installed process PID/start/image identities stayed unchanged.
-  Private proof: ~/.cache/codex/acceptance/stable47-device.json.
-- /switch frontend rawdcf76b3c/adaptedcd4a6619, official source97901140.
-  Native27/lint/pristine Core qualification38032317709 at29b2584 remains applicable:
-  all six maintained frontend inputs are unchanged. New launches use the new signed
-  generation; current running clients keep their old image until normal exit.
+Signed production authority is [rewrite/rust-core CURRENT.md](https://github.com/humtr/codex/blob/rewrite/rust-core/CURRENT.md).
+The current device/public generation is stable50 (CLI0.161.0); older installed
+processes retain their loaded images. This branch owns opt-in provider experiments,
+not a parallel production activation pointer or release authority.
 
 ## ChatGPT internal transport and shared registration
 
