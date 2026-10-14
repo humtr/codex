@@ -25,7 +25,7 @@ from rald5_publication import parse_manifest, raw_public_key
 
 
 class Ws:
-    def __init__(self, path):
+    def __init__(self, path, uri_path="/"):
         self.socket = socket.socket(socket.AF_UNIX)
         self.socket.settimeout(12)
         self.socket.connect(os.path.realpath(path))
@@ -33,7 +33,7 @@ class Ws:
         self.next = 0
         self.closed = set()
         key = base64.b64encode(os.urandom(16)).decode()
-        self.socket.sendall((f"GET / HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n").encode())
+        self.socket.sendall((f"GET {uri_path} HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n").encode())
         while b"\r\n\r\n" not in self.pending:
             self.pending += self.socket.recv(65536)
         header, self.pending = self.pending.split(b"\r\n\r\n", 1)

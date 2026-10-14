@@ -34,6 +34,25 @@ This repository carries no external workflow skill or model configuration.
   exact admitted frontend. New launches use the new signed
   generation; current running clients keep their old image until normal exit.
 
+## Termux permission resume correction
+
+- Source795a064 fixes native local resume dropping Core's no-sandbox default and
+  restoring obsolete saved workspace permissions. Approval policy/reviewer remain
+  independent; explicit restricted settings fail before local thread/turn requests.
+- Native38530530528 passes exact ARM64 build,29 actual TUI tests, lint and pristine
+  upstream Core/dependencies. Raw frontend SHA256c2a75d4c594c3008001bd71c5fc5308c75d7e79a7dbd9b8a4aa42296a6b64523.
+  Producer admission now requires that29-test set and the immutable795a064 input.
+- Android legacy and named-profile fixtures each pass three actual commands and
+  three guardian requests through fresh launch, cold resume and /btw. Seeded saved
+  workspace settings become the current supported selection; named identity and
+  on-request/auto_review remain intact. An older frontend negative control restores
+  workspace settings instead. The deterministic model tests approval plumbing,
+  not model judgment, and submits no real inference or account credentials.
+  Private aggregate proofs: ~/.cache/codex/acceptance/permission-lifecycle-{native-model,named,stale}.json.
+  The reusable script owns its signed disposable roots and needs no Chat provider
+  installation or external Python package. Local full checks pass; changed producer
+  admission and all Python18+59 tests also pass. Signed device activation is pending.
+
 ## Independent window return and optional tmux
 
 - `codex termux launch` selects an existing profile with Up/Down and Enter;
