@@ -37,6 +37,7 @@ async function ensureDesktop(signal){
 }
 const transport=new DesktopChatTransport(desktopRoot);let busy=false,owner,active=false,transcript=new DesktopTranscript(),checkpoint=new DesktopCompaction(SUMMARY_PREFIX);
 const report={actualChatMode:true,model,requests:0,modelRequestedTools:0,returnedNativeResults:0,completedReplies:0,submittedRequests:0,cancelledRequests:0,retryAttempts:0,contextPackets:0,submittedProRequests:0,modelRequestedSearches:0,returnedNativeSearchResults:0,nativeSearchResultErrors:0,nativeSearchLoadedTools:0,compactionRequests:0,compactionSummaries:0,appliedCheckpoints:0,estimatedUsage:true};
+report.guardianRequests=0;report.ownerConflicts=0;
 function save(){const temp=statePath+'.proof.'+randomBytes(6).toString('hex');writeFileSync(temp,JSON.stringify(report),{mode:0o600,flag:'wx'});renameSync(temp,statePath+'.proof');}
 const server=Bun.serve({hostname:'127.0.0.1',port:runtime?Number(new URL(runtime.baseUrl).port):0,idleTimeout:0,maxRequestBodySize:2*1024*1024,async fetch(req){
  const path=new URL(req.url).pathname;
@@ -51,11 +52,11 @@ const server=Bun.serve({hostname:'127.0.0.1',port:runtime?Number(new URL(runtime
  if(path!=='/v1/responses'||req.method!=='POST')return new Response('Not found',{status:404});
  if(busy)return formatErrorResponse(409,'invalid_request_error','desktop_chat_busy');
  busy=true;
- let raw,parsed,route;try{raw=await req.json();route=validateDesktopRoute(raw);if(raw.stream!==true||raw.previous_response_id)throw Error('unsupported_desktop_request');parsed=parseRequest(raw);validateTextContext(raw,parsed);if(parsed._opaqueMultiAgentV2Payload)throw Error('opaque_context_unavailable');}catch{busy=false;return formatErrorResponse(400,'invalid_request_error','unsupported_desktop_request');}
+ let raw,parsed,route;try{raw=await req.json();const observed=extractCodexTurnIdentityFromBody(raw);if(observed.agentName==='guardian'||observed.subagentKind==='guardian'){report.guardianRequests++;save();}route=validateDesktopRoute(raw);if(raw.stream!==true||raw.previous_response_id)throw Error('unsupported_desktop_request');parsed=parseRequest(raw);validateTextContext(raw,parsed);if(parsed._opaqueMultiAgentV2Payload)throw Error('opaque_context_unavailable');}catch{busy=false;return formatErrorResponse(400,'invalid_request_error','unsupported_desktop_request');}
  const identity=extractCodexTurnIdentityFromBody(raw),key=identity.threadId||req.headers.get('session_id')||req.headers.get('x-codex-thread-id');
  if(!key){busy=false;return formatErrorResponse(400,'invalid_request_error','native_thread_identity_required');}
  if(owner&&key!==owner){
-  if(active){busy=false;return formatErrorResponse(409,'invalid_request_error','desktop_thread_owner_conflict');}
+  if(active){report.ownerConflicts++;save();busy=false;return formatErrorResponse(409,'invalid_request_error','desktop_thread_owner_conflict');}
   transport.retire();transcript=new DesktopTranscript();checkpoint=new DesktopCompaction(SUMMARY_PREFIX);
  }
  if(checkpoint.consume(parsed.context.messages)){transcript=new DesktopTranscript();transport.retire();report.appliedCheckpoints++;}

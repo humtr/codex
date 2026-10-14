@@ -548,10 +548,10 @@ index 857bb7c..f1c4d23 100644
                  token_usage: TokenUsage::default(),
 diff --git a/codex-rs/tui/src/termux_chat_models.rs b/codex-rs/tui/src/termux_chat_models.rs
 new file mode 100644
-index 0000000..35b4e3e
+index 0000000..65f96f3
 --- /dev/null
 +++ b/codex-rs/tui/src/termux_chat_models.rs
-@@ -0,0 +1,296 @@
+@@ -0,0 +1,302 @@
 +//! Optional installed Chat catalog; ordinary upstream model actions remain intact.
 +use crate::legacy_core::config::Config;
 +use codex_protocol::openai_models::{ModelInfo, ModelPreset, ReasoningEffort};
@@ -787,7 +787,13 @@ index 0000000..35b4e3e
 +        )
 +        .unwrap();
 +        assert!(checked_routing(value.clone()).is_some());
-+        value["model_providers"][PROVIDER]["http_headers"] = toml::Value::Table(toml::Table::new());
++        value["model_providers"][PROVIDER]
++            .as_table_mut()
++            .unwrap()
++            .insert(
++                "http_headers".into(),
++                toml::Value::Table(toml::Table::new()),
++            );
 +        assert!(checked_routing(value.clone()).is_none());
 +        value["model_providers"][PROVIDER]
 +            .as_table_mut()
