@@ -705,7 +705,7 @@ index 857bb7c..f6f4bba 100644
                  token_usage: TokenUsage::default(),
 diff --git a/codex-rs/tui/src/termux_backend_catalog.rs b/codex-rs/tui/src/termux_backend_catalog.rs
 new file mode 100644
-index 0000000..8d37ee5
+index 0000000..713bd46
 --- /dev/null
 +++ b/codex-rs/tui/src/termux_backend_catalog.rs
 @@ -0,0 +1,107 @@
@@ -796,8 +796,8 @@ index 0000000..8d37ee5
 +    }
 +
 +    #[tokio::test]
-+    async fn termux_backend_catalog_transfers_exact_resolved_bytes_and_home() -> anyhow::Result<()>
-+    {
++    async fn termux_backend_catalog_transfers_exact_resolved_bytes_and_home()
++    -> color_eyre::Result<()> {
 +        let root = tempfile::tempdir()?;
 +        let core = root.path().join("core");
 +        let home = root.path().join("home");

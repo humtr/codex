@@ -250,8 +250,9 @@ def probe(core, frontend, named_permission=False):
             assert actual_chat['modelProvider'] == 'chatgpt_desktop_trial' and actual_chat['model'] == 'chatgpt-desktop/gpt-6', 'chat_backend_route_not_selected'
             assert actual_chat['reasoningEffort'] == 'none', 'chat_backend_effort_not_selected'
             returning = model_menu()
-            assert 'Owned Codex' in returning, 'native_return_choice_absent'
-            native_reasoning = choose(returning, r'(\d+)\.\s+Owned Codex')
+            # Cursor-positioned terminal updates may omit literal spaces.
+            assert re.search(r'\d+\.\s*Owned\s*Codex', returning), 'native_return_choice_absent'
+            native_reasoning = choose(returning, r'(\d+)\.\s*Owned\s*Codex')
             assert 'Instant' in native_reasoning, 'native_reasoning_absent'
             os.write(master, b'\x1b[H\r');returned = collect(15)
             assert process.poll() is None, 'native_reentry_failed'
