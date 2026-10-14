@@ -339,12 +339,37 @@ lists Pro100/200/500, Business Premium and Enterprise rollout. Dot conversations
 do not count toward Chat limits; delegated Work/Codex still uses those products'
 allowance and deeper work has its own allowance. Do not promise free unlimited
 inference or availability to this user's Plus/unspecified Business account.
-Before replacing the app transport, require actual entitlement, an event-triggered
-Core tool/result/final roundtrip, independent thread context, observed model/effort,
-cancellation and account usage classification. This remains conditional research,
-not a second production transport or approval to spend Pro/other model allowance.
+Dots is excluded from current work at the user's request because it is not
+available now. These findings are historical comparison only: no event transport,
+subscription, entitlement investigation or Dots implementation is an active task.
 Neither candidate code nor tests/installer was executed; no Chat task, subscription,
 callback, user state or operational runtime was changed during this source review.
+
+Concrete review scope without Dots; these are acceptance targets, not implemented
+repairs or approval for live provider activation:
+
+| Boundary / actual code | Investigation or candidate change | Required proof |
+|---|---|---|
+| Native catalog and /model: frontend/manager-tui/native.patch, native_catalog_request_probe.py | Verify the actual backend startup catalog and capabilities; evaluate an opt-in merged catalog/model route before removing ChatModelReentry. Preserve independent native execution and app-owned Chat login, including an empty Codex home. | Actual backend requests use selected metadata; native-to-Chat-to-native retains thread/PTY/configuration/permissions. Adapter absence cannot break ordinary native launch. /switch account re-entry is separate. |
+| HTTP admission: desktop_responses_server.mjs fetch/req.json, desktop_protocol.mjs admitDesktopRequest | Measure wire bytes and Content-Encoding; qualify bounded decoding/size errors before context staging. Reject unreadable native checkpoints before the parser replaces them with a note. | Auth/shape/size/checkpoint failures are distinguishable with zero Chat submissions; complete supported schemas/history are retained. A higher byte ceiling alone is not a repair. |
+| Tool/result continuation: desktop_responses_server.mjs transport.exchange; bundled turn-broker/turn-execution | Map real Chat MCP calls to native calls; the following function_call_output resolves that exact pending invocation instead of submitting another yRt prompt. Reuse the existing broker; Core alone executes and approves. | Offline two-call/parallel/duplicate/missing-result fixtures first; then one accepted Chat task, two real harmless Core calls and final reply without result-phase user submits. App MCP/Temporary Chat availability is a gate; Work-only local function exports are not proof. |
+| Lifetime and explicit stop: server req.signal/SSE close callback, desktop_app_transport.mjs catch/retire | Trace how upstream turn/interrupt reaches the adapter. Separate an expected tool-round boundary and observer loss from actual user interruption using proven signals. Do not merely detach AbortController. | Disconnect does not resubmit or duplicate an action; explicit stop prevents later call admission, interrupts owned Core work and reports confirmed termination or unresolved state. If the wire cannot distinguish stop, resolve that boundary before retaining live Chat turns. |
+| Visible progress and completion: adapter queue/SSE, app owned-conversation state, native TUI events | Relay host-visible text and actual Core tool events; distinguish accepted, generating, tool-running, waiting, interrupted, failed and final. Heartbeats/readiness are not work progress. | Fault-injected stream loss while tools run leaves observable progress; restored view shows the latest result once. Do not mark task success from HTTP200, a finished tool or a server counter. Physical TUI observation is required. |
+| Restart, ownership and compaction: DesktopTranscript, lane keys, guardian children, DesktopCompaction | Check exact thread/turn/call ownership and completed-result reuse; preserve readable canonical context before route/chat rebinding. Qualify which pending host calls survive each restart; never assume an in-memory promise is durable. | A/B concurrent lanes and guardian remain separate; stale replies fail; completed mutations are not rerun. Long native/Chat transitions and cold resume retain requirements/results. Unrecoverable pending execution is explicit rather than silently replayed. |
+| Setup/retry cost: desktopStages, DesktopPromptContext, recordDesktopSubmission; app instruction/history parameters | Evaluate one initial task/context transfer and warm deltas, preserving roles and whole tool schemas. Count setup/work/result/review/retry/compact separately; do not relabel user messages as tool output to claim savings. | Same offline fixture and actual accepted-submit evidence agree; no hidden ACK/retry submits. Reviewer tools remain active. Counters describe submissions, not Chat-limit deductions. |
+| Batching and dependency reduction: existing Core tool surface, install_desktop_provider.py and transport selection | Consider CCCC-style batching only through the native advertised tools/approval path and only when intermediate model judgment is unnecessary. After acceptance, package only reachable dependencies and retire superseded transport logic. | Tool capability/approval/cancellation/media semantics remain; compare round trips, latency and output volume without claimed quota savings. No second executor, Node service, workflow daemon or runtime under prj. Keep necessary app/display dependencies until their removal is proved. |
+
+Execution order: offline admission/catalog/opaque-checkpoint repair and continuation/
+cancellation fixtures; then the smallest account-bound MCP feasibility proof;
+then affected real model switching, long-history/resume, sibling/reviewer and TUI
+visibility acceptance; finally remove replaced code/dependencies and publish through
+normal release gates. Stop expanding the MCP candidate if app/plugin compatibility
+or reliable cancellation is unavailable. Pro inference remains prohibited;
+GPT-6 Instant is the first live model. The initial live proof expects one work
+submission, with any first-time setup counted and budgeted separately in advance.
+Do not immediately duplicate it through the old path: its known two-call flow uses
+three work submissions. State the exact trial, submission bound and stop condition
+before any real Chat use; later fault/switch/review trials need separate budgets.
 
 ## Independent window return and optional tmux
 
