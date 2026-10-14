@@ -983,6 +983,11 @@ Native threads and guardian children have independent temporary Chat
 conversations, ledgers and prompt cursors. The signed app's exported submit,
 cancel and per-conversation state replace composer typing/Send clicking.
 Its normal Chat origin is omitted (the literal `chat` is not a valid wire origin).
+Each continuation explicitly parents its next submission to the owned completed
+correlated assistant reply. Internal startup waits for the app Scope rather than
+misclassifying a restoring app as an absent capability. Both transports share the
+qualified external-tool instructions.
+
 App authentication and token refresh stay in the app. A shared private CDP
 connection carries concurrent operations without introducing a debug TCP port.
 The app and display are still dependencies; hidden execution is not a claim
@@ -1014,7 +1019,7 @@ Native return explicitly chooses OpenAI because an omitted provider can restore
 the persisted Chat route during resume. Device round-trip acceptance remains
 required before production admission.
 
-Exact native qualification38510380995 atd1b433c passes build,35 actual TUI tests,
+Historical native qualification38510380995 atd1b433c passes build,35 actual TUI tests,
 lint and pristine upstream Core checks. On the phone, native_model_menu_probe.py
 passes both base configuration and --profile owned-config/named permissions:
 /model enters Chat GPT-6/Instant and returns to native OpenAI, with the same
@@ -1040,3 +1045,13 @@ execution-unverified and GPT-5.6 remains deferred. Private reports:
 gpt6-high-proof.json and gpt6-xhigh-proof.json in the same acceptance cache.
 Formal production admission of the model overlay remains separate; signed
 stable49 and existing user jobs retain their current binaries.
+
+
+Current combined native qualification38552383479/source5f8ff12 passes39 actual TUI
+regressions and is published/installed as signed stable51. Provider source46db05e
+also passes real manual compaction with four native commands and Core/whole-app
+restart. Actual GitHub discovered-tool execution passes in the wrlab native home;
+szob has no GitHub catalog matches. Shared Chat app login does not confer native
+connector permissions. Concurrent native clients and guardian children keep their
+independent conversations; app acceptance timestamps, rather than polling time,
+measure overlap. See CURRENT.md for the current qualified scope and private proofs.

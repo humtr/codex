@@ -7,22 +7,44 @@ This repository carries no external workflow skill or model configuration.
 ## Operating baseline
 
 Signed production authority is [rewrite/rust-core CURRENT.md](https://github.com/humtr/codex/blob/rewrite/rust-core/CURRENT.md).
-The current device/public generation is stable50 (CLI0.161.0); older installed
+The current device/public generation is stable51 (CLI0.161.0); older installed
 processes retain their loaded images. This branch owns opt-in provider experiments,
 not a parallel production activation pointer or release authority.
 
 ## ChatGPT internal transport and shared registration
 
-The signed app's submit/cancel/state own a separate temporary conversation per
-native thread, including guardian children; credentials stay inside the app.
-Actual GPT-6 overlap/cancel-sibling proof passes. Two native Android clients pass
-four commands, exact isolated markers/replies and shared-profile projection.
-A guardian retry passes both clients and two actual reviews; its initial incomplete
-sibling remains failed evidence. Full local checks,23 protocol/app tests and15
-desktop/profile tests pass. Root stable50 fixes the sandbox regression; this pilot
-now uses the same native baseline. Combined39-test model/global alias qualification
-and signed/device activation are in progress. No Pro inference was performed.
-Private proofs: ~/.cache/codex/acceptance/chat-{app-concurrency-cancel,native-dual-shared-profile,native-dual-guardian-retry}.json.
+Signed stable51 includes the qualified model menu and shared configuration path;
+full source acceptance38557124149 and signed publication38557559491 pass. Native
+qualification38552383479/source5f8ff12 passes39 actual TUI tests, lint and pristine
+Core/dependency proof. Actual legacy/named model round trips preserve PID/PTY,
+account home, native thread and permissions; installed new-home projection plus
+real native commands passes without copied auth or base config changes.
+
+Installed experimental provider0de70e3072a4b8e87a31 uses source46db05e. The signed
+app's submit/cancel/state own separate temporary conversations per native thread
+and guardian child; credentials stay in the app. Continuations explicitly link to
+the lane's completed correlated assistant. Internal and GUI transports share the
+qualified external-tool/context instructions. App startup waits for its actual
+Scope before considering an unavailable-capability fallback. The app and display
+remain dependencies; no debug TCP port or extracted first-party token is introduced.
+
+Real GPT-6 overlap/cancel-sibling, two native clients/four commands and two actual
+reviews pass. App acceptance timestamps fix misleading overlap measurements for
+short replies; cancellation/sibling checks already passed in those trials. Manual
+Medium compaction passes persisted tool-only state, four native commands and both
+Core/whole-app restart/resume. GitHub catalog search plus the actual discovered
+read-only repository call passes in wrlab. A controlled no-inference native catalog
+comparison returns8 GitHub matches in wrlab and0 in szob; app login does not grant
+another native account's connector tools. Failed/timeout trials remain evidence.
+
+25 protocol/app tests and15 desktop/profile tests pass. GPT-6 Instant/Medium/High/
+Extra High actual tool loops pass; Pro inference is prohibited and was not sent.
+GPT-5.6 remains deferred. Automatic/fault compaction under the new internal path,
+multimodal input, hours-long load, physical reboot and phone layout remain separate
+gates. Historical GUI qualification is not blanket internal-path acceptance.
+Private proofs: ~/.cache/codex/acceptance/chat-internal-checkpoint-startup-wait.json,
+chat-internal-discovered-tool-wrlab.json, native-account-catalog-comparison.json,
+chat-final-concurrent-guardian.json and chat-final-app-acceptance-timing.json.
 
 ## Independent window return and optional tmux
 
