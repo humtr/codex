@@ -388,6 +388,11 @@ This repository carries no external workflow skill or model configuration.
   before expanding its architecture. Detailed scope and the no-inference stage-cost
   measurement live in experiment/web-termux CURRENT.md. No provider/runtime changes
   or new Chat inference are authorized by these review notes.
+  The experiment source now repairs bounded identity/zstd HTTP decoding and
+  pre-parser rejection of unreadable compaction. Actual Android offline HTTP,
+  merged-catalog and existing-broker IPC proofs pass. Native turn/interrupt only
+  closes the provider stream, so retained-turn MCP integration still needs an
+  explicit stop path. No installed runtime change or Chat inference was performed.
 - `/model` is the primary opt-in selection; `--profile chatgpt` is its fallback.
   stable51 includes the qualified native menu and generic shared config projection.
   The provider remains an opt-in experiment, not a bundled Core dependency.
