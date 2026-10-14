@@ -37,7 +37,9 @@ def probe(args):
         from urllib.parse import urlparse
         endpoint=urlparse(desktop['baseUrl']);assert endpoint.scheme=='http' and endpoint.hostname=='127.0.0.1' and endpoint.port and endpoint.path=='/v1'
         proc=Path('/proc')/str(desktop['pid']);stat=(proc/'stat').read_text();assert stat[stat.rfind(')')+2:].split()[19]==desktop['start'] and os.readlink(proc/'exe')==desktop['image']
-        assert desktop['model']==args.model;token=desktop['token']
+        # The private binding identifies the service, not the requested family.
+        # Per-request routing is validated by the adapter before Chat submission.
+        assert desktop['model']=='chatgpt-desktop/instant';token=desktop['token']
     elif args.account_free_wire:token='owned-synthetic-wire-token'
     else:
         record=args.connection.lstat()

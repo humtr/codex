@@ -58,6 +58,8 @@ def install(server,codex_home,template,runtime=None):
         standard=deepcopy(model);standard.update({'visibility':'list','slug':'chatgpt-desktop/'+family,'display_name':'ChatGPT · '+label,
             'description':'Signed-app Chat '+label+'; selects the observed family and power before submission',
             'supports_reasoning_effort_updates':True,'supported_reasoning_levels':[{'effort':effort,'description':name} for effort,name in descriptions.items()]})
+        if family=='gpt-5.6-sol':
+            standard['description']='Deferred: UI selection verified, multi-tool execution unqualified after continuation timeouts'
         pro=deepcopy(model);pro.update({'visibility':'list','slug':'chatgpt-desktop/'+family+'-pro','display_name':'ChatGPT · '+label+' Pro',
             'description':'Pro: execution unverified at user request; automated tests never send Pro inference',
             'supported_reasoning_levels':[{'effort':'none','description':'Pro (execution unverified)'}]})

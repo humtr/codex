@@ -29,7 +29,9 @@ async function open(c){
  }
  if(!available)throw Error('desktop_model_selector_unavailable');
  await idle(c);
- await c.evaluate(`(()=>{const es=[...document.querySelectorAll('button[aria-label="Select ChatGPT model"]')].filter(e=>e.getBoundingClientRect().width>0);if(es.length!==1||es[0].getAttribute('aria-expanded')==='true')throw Error('owned_closed_model_selector_required');es[0].click();})()`);await delay(100);
+ // App restoration can retain an expanded selector. Reuse it rather than
+ // toggling it shut; state() still verifies the exact family/power controls.
+ await c.evaluate(`(()=>{const es=[...document.querySelectorAll('button[aria-label="Select ChatGPT model"]')].filter(e=>e.getBoundingClientRect().width>0);if(es.length!==1)throw Error('owned_closed_model_selector_required');if(es[0].getAttribute('aria-expanded')!=='true')es[0].click();})()`);await delay(100);
 }
 async function close(c){for(const type of ['keyDown','keyUp'])await c.request('Input.dispatchKeyEvent',{type,key:'Escape',code:'Escape',windowsVirtualKeyCode:27});}
 async function state(c){

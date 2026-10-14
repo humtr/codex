@@ -934,8 +934,10 @@ model explicitly, even if a user later persists Pro as a profile default. Pro wa
 neither selected nor submitted in physical qualification. Static route validation
 and observed UI metadata are its only proof; they do not certify inference.
 
-Actual installed GPT-6/Medium native qualification passes two write/read shell
-calls and exact correlated final reply (gpt6-medium-proof.json). GPT-5.6 Sol reached
+Actual installed GPT-6/Instant and Medium native qualification each passes two
+write/read shell calls and exact correlated final reply
+(gpt6-{instant,medium}-proof.json). GPT-6 is the default and current qualification
+priority; GPT-5.6 Sol is explicitly deferred in the picker description. It reached
 one real shell call but its following response timed out in Instant and Medium;
 those failed gates remain gpt56-{instant,medium}-proof.json and are not acceptance.
 Creating temporary Chat replaces the UI asynchronously: selection now waits for

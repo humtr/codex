@@ -13,10 +13,10 @@ index 206171b..0915019 100644
  mod clipboard;
 diff --git a/codex-rs/tui/src/app/chat_model_reentry.rs b/codex-rs/tui/src/app/chat_model_reentry.rs
 new file mode 100644
-index 0000000..5f7cdfe
+index 0000000..e107e45
 --- /dev/null
 +++ b/codex-rs/tui/src/app/chat_model_reentry.rs
-@@ -0,0 +1,365 @@
+@@ -0,0 +1,379 @@
 +//! Re-enter the same durable thread because upstream provider updates are launch-scoped.
 +use super::App;
 +use crate::app_server_session::AppServerSession;
@@ -209,6 +209,19 @@ index 0000000..5f7cdfe
 +mod tests {
 +    use super::*;
 +    #[test]
++    fn termux_chat_models_session_flags_preserve_nested_toml_values() {
++        let table: toml::Table = toml::from_str(
++            "approval_policy = \"on-request\"\n[features]\nmemories = false\n[shell_environment_policy]\ninherit = \"none\"\nset = { PATH = \"/owned/bin\", PROOF = \"quoted \\\"value\\\"\" }\n",
++        ).unwrap();
++        for (key, value) in table {
++            let flag = format!("{key}={value}");
++            let (path, raw) = flag.split_once('=').unwrap();
++            let parsed: toml::Table = toml::from_str(&format!("_x_ = {raw}")).unwrap();
++            assert_eq!(path, key);
++            assert_eq!(parsed.get("_x_"), Some(&value));
++        }
++    }
++    #[test]
 +    fn termux_chat_models_reentry_keeps_same_home_cwd_thread_and_configuration_identity() {
 +        let request = ChatModelReentry {
 +            core: PathBuf::from("/owned/codex"),
@@ -252,10 +265,9 @@ index 0000000..5f7cdfe
 +    async fn termux_chat_models_provider_reentry_refuses_busy_queued_side_draft_and_pending_tools()
 +    {
 +        assert_eq!(std::env::var_os("CODEX_PROFILE_CORE"), Some("".into()));
-+        let (fixture, _events, _ops) =
-+            super::super::super::tests::make_test_app_with_channels().await;
++        let (fixture, _events, _ops) = super::super::tests::make_test_app_with_channels().await;
 +        let (mut server, _, proxy) =
-+            super::super::super::tests::session_lifecycle_requests::start_recording_app_server(
++            super::super::tests::session_lifecycle_requests::start_recording_app_server(
 +                &fixture.config,
 +                None,
 +                None,
@@ -273,13 +285,15 @@ index 0000000..5f7cdfe
 +            "no-thread",
 +        ] {
 +            let (mut app, mut events, mut ops) =
-+                super::super::super::tests::make_test_app_with_channels().await;
++                super::super::tests::make_test_app_with_channels().await;
 +            let thread = codex_protocol::ThreadId::new();
 +            let cwd = app.config.cwd.to_path_buf();
 +            if state != "no-thread" {
-+                app.chat_widget.handle_thread_session(
-+                    super::super::super::tests::test_thread_session(thread, cwd.clone()),
-+                );
++                app.chat_widget
++                    .handle_thread_session(super::super::tests::test_thread_session(
++                        thread,
++                        cwd.clone(),
++                    ));
 +            }
 +            if state != "embedded" {
 +                app.app_server_target = crate::AppServerTarget::LocalDaemon {
@@ -294,7 +308,7 @@ index 0000000..5f7cdfe
 +            }
 +            if matches!(state, "busy" | "queued") {
 +                app.chat_widget.handle_server_notification(
-+                    super::super::super::tests::turn_started_notification(thread, "profile-turn"),
++                    super::super::tests::turn_started_notification(thread, "profile-turn"),
 +                    None,
 +                );
 +            }
@@ -308,7 +322,7 @@ index 0000000..5f7cdfe
 +                        ));
 +                }
 +                app.chat_widget.handle_server_notification(
-+                    super::super::super::tests::turn_completed_notification(
++                    super::super::tests::turn_completed_notification(
 +                        thread,
 +                        "profile-turn",
 +                        codex_app_server_protocol::TurnStatus::Completed,

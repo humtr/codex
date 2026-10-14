@@ -21,7 +21,14 @@ export class DesktopChatTransport{
     if(dirty)throw Error('unowned_draft_must_be_preserved');
     this.context=new DesktopPromptContext();
     for(const type of ['keyDown','keyUp'])await c.request('Input.dispatchKeyEvent',{type,modifiers:10,key:'N',code:'KeyN',windowsVirtualKeyCode:78});
-    await delay(250);
+    // Wait for the fresh owned view, not a selector from the restoring old view.
+    let fresh=false;
+    for(let i=0;i<100;i++){
+     signal?.throwIfAborted();
+     fresh=await c.evaluate(`(()=>{const visible=e=>e.getBoundingClientRect().width>0,es=[...document.querySelectorAll('[contenteditable="true"]')].filter(visible);return es.length===1&&!(es[0].textContent||'').trim()&&!(document.body.textContent||'').includes('DESKTOP_')&&[...document.querySelectorAll('button,span,h1,h2')].some(e=>visible(e)&&/^(Temporary Chat|Temporary chat|Unpersonalized)$/.test(e.textContent?.trim()))&&!([...document.querySelectorAll('button')].some(e=>visible(e)&&/^stop(?:\\b|$)/i.test(e.getAttribute('aria-label')||'')));})()`);
+     if(fresh)break;await delay(500);
+    }
+    if(!fresh)throw Error('owned_empty_temporary_composer_required');
     this.selectedControl=await selectDesktopRoute(c,route);
    }else this.selectedControl=await assertDesktopRoute(c,route);
    const snapshot=`JSON.stringify({modelMatchesRoute:[...document.querySelectorAll('button[aria-label="Select ChatGPT model"]')].some(e=>e.getBoundingClientRect().width>0&&(e.textContent||'').endsWith(${JSON.stringify(route.label)})),ownedContinuation:(document.body.textContent||'').includes(${JSON.stringify(this.lastCorrelation||'')}),cleanContext:!(document.body.textContent||'').includes('DESKTOP_'),temporary:[...document.querySelectorAll('button,span,h1,h2')].some(e=>/^(Temporary Chat|Temporary chat|Unpersonalized)$/.test(e.textContent?.trim())),editors:[...document.querySelectorAll('[contenteditable="true"]')].filter(e=>e.getBoundingClientRect().width>0).map(e=>!(e.textContent||'').trim())})`;

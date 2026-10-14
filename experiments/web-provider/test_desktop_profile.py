@@ -32,6 +32,7 @@ class ProfileTests(unittest.TestCase):
         by_id={m['slug']:m for m in catalog}
         self.assertEqual(by_id['chatgpt-desktop/instant']['visibility'],'hide')
         self.assertNotIn('chatgpt-desktop/gpt-6-sol',by_id)
+        self.assertIn('Deferred',by_id['chatgpt-desktop/gpt-5.6-sol']['description'])
         for family in ['gpt-6','gpt-5.6-sol']:
             self.assertEqual([e['effort'] for e in by_id['chatgpt-desktop/'+family]['supported_reasoning_levels']],['none','medium','high','xhigh'])
             pro=by_id['chatgpt-desktop/'+family+'-pro'];self.assertIn('unverified',pro['description']);self.assertEqual(len(pro['supported_reasoning_levels']),1)
