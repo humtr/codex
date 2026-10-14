@@ -1444,7 +1444,7 @@ where
                         {
                             return RuntimeLaunchError::Exec(manager_tui::launch(
                                 frontend.asset_path,
-                                &_socket,
+                                Some(&_socket),
                                 &profile,
                                 options.planned_args,
                                 resolver_path.as_ref(),
@@ -1456,6 +1456,34 @@ where
                 }
                 Err(error) => return RuntimeLaunchError::Config(error),
             }
+        }
+    }
+    // Invocation configuration controls daemon reuse, not frontend admission.
+    // The qualified local frontend supports embedded execution with its own
+    // profile/settings while the unchanged upstream runtime remains the backend.
+    if std::io::stdin().is_terminal()
+        && std::io::stdout().is_terminal()
+        && options.manager_available
+        && options.manager_tui_available
+        && manager_tui::local_interactive(options.planned_args)
+    {
+        if let (Some(frontend), Some(home)) = (
+            selection
+                .helpers
+                .iter()
+                .find(|helper| helper.identity.starts_with(manager_tui::PREFIX)),
+            std::env::var_os("HOME").map(std::path::PathBuf::from),
+        ) {
+            let profile = upstream_execution_home(&home);
+            return RuntimeLaunchError::Exec(manager_tui::launch(
+                frontend.asset_path,
+                None,
+                &profile,
+                options.planned_args,
+                resolver_path.as_ref(),
+                config_dir.as_ref(),
+                &env_plan,
+            ));
         }
     }
     RuntimeLaunchError::Exec(exec_runtime(

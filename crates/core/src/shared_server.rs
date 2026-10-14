@@ -16,7 +16,7 @@ fn invalid() -> io::Error {
     io::Error::other("shared server state is unavailable or does not match the qualified runtime")
 }
 
-pub(super) fn eligible(args: &[OsString]) -> bool {
+pub(super) fn interactive(args: &[OsString]) -> bool {
     let command = super::upstream_root_command_index(args).and_then(|i| args[i].to_str());
     !matches!(
         command,
@@ -53,30 +53,36 @@ pub(super) fn eligible(args: &[OsString]) -> bool {
                 | "features"
                 | "help"
         )
-    ) && !args.iter().any(|arg| {
-        let Some(arg) = arg.to_str() else {
-            return false;
-        };
-        arg == "--no-daemon"
-            || arg == "--oss"
-            || arg == "--strict-config"
-            || arg == "--dangerously-bypass-hook-trust"
-            || arg == "--search"
-            || arg == "-p"
-            || arg.starts_with("--profile")
-            || arg == "--remote"
-            || arg.starts_with("--remote=")
-            || arg == "--enable"
-            || arg.starts_with("--enable=")
-            || arg == "--disable"
-            || arg.starts_with("--disable=")
-            || arg.starts_with("-c")
-            || arg.starts_with("--config")
-            || arg == "--help"
-            || arg == "-h"
-            || arg == "--version"
-            || arg == "-V"
-    }) && std::env::var_os("CODEX_EXEC_SERVER_URL").is_none()
+    )
+}
+
+pub(super) fn eligible(args: &[OsString]) -> bool {
+    interactive(args)
+        && !args.iter().any(|arg| {
+            let Some(arg) = arg.to_str() else {
+                return false;
+            };
+            arg == "--no-daemon"
+                || arg == "--oss"
+                || arg == "--strict-config"
+                || arg == "--dangerously-bypass-hook-trust"
+                || arg == "--search"
+                || arg == "-p"
+                || arg.starts_with("--profile")
+                || arg == "--remote"
+                || arg.starts_with("--remote=")
+                || arg == "--enable"
+                || arg.starts_with("--enable=")
+                || arg == "--disable"
+                || arg.starts_with("--disable=")
+                || arg.starts_with("-c")
+                || arg.starts_with("--config")
+                || arg == "--help"
+                || arg == "-h"
+                || arg == "--version"
+                || arg == "-V"
+        })
+        && std::env::var_os("CODEX_EXEC_SERVER_URL").is_none()
 }
 
 pub(super) fn private_dir(path: &Path) -> io::Result<()> {

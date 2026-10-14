@@ -13,10 +13,10 @@ index 206171b..0915019 100644
  mod clipboard;
 diff --git a/codex-rs/tui/src/app/chat_model_reentry.rs b/codex-rs/tui/src/app/chat_model_reentry.rs
 new file mode 100644
-index 0000000..e107e45
+index 0000000..24c6c7c
 --- /dev/null
 +++ b/codex-rs/tui/src/app/chat_model_reentry.rs
-@@ -0,0 +1,379 @@
+@@ -0,0 +1,378 @@
 +//! Re-enter the same durable thread because upstream provider updates are launch-scoped.
 +use super::App;
 +use crate::app_server_session::AppServerSession;
@@ -87,7 +87,7 @@ index 0000000..e107e45
 +    let thread = app.chat_widget.thread_id().filter(|thread| {
 +        matches!(
 +            app.app_server_target,
-+            crate::AppServerTarget::LocalDaemon { .. }
++            crate::AppServerTarget::LocalDaemon { .. } | crate::AppServerTarget::Embedded
 +        ) && app.chat_widget.composer_is_empty()
 +            && app.dynamic_tool_tasks.is_empty()
 +            && app.chat_widget.can_change_working_directory(*thread)
@@ -278,7 +278,6 @@ index 0000000..e107e45
 +            "busy",
 +            "queued",
 +            "side",
-+            "embedded",
 +            "unavailable",
 +            "draft",
 +            "tool",

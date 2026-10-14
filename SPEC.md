@@ -11,6 +11,11 @@ clients retain their executable until exit; no preview construction or parallel
 update authority is maintained.
 
 - The official adapted `runtime` remains the sole server/execution backend.
+  Qualified Manager TUI selection is independent of local daemon reuse:
+  interactive `--profile`/`-c`/`--no-daemon` launches may use the same admitted
+  frontend with embedded upstream execution. Explicit remote/executor routing,
+  unsupported workspace flags and noninteractive commands retain their ordinary
+  runtime path. An optional frontend is never required for Core operation.
   An optional source-built Manager TUI is the third signed helper at `helpers/2`,
   identified by `termux-manager-tui-v1:UPSTREAM_VERSION`. The first two helpers
   retain the accepted browser identities. Its version must exactly match the

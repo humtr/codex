@@ -945,6 +945,12 @@ the real selector, instead of trying to click it before the view is ready.
 Reasoning-mode reply waits allow a bounded ten minutes; ambiguous failures still
 retire the cursor without replaying a native action automatically.
 
+The GPT-6 checkpoint fault rerun passes four actual native calls, committed
+tool-only memory, Core restart/resume and whole signed-app restart
+(gpt6-checkpoint-proof.json). The initial app restart failed on a restored open
+selector. The corrected path first verifies a fresh empty Temporary Chat and
+reuses an already expanded verified model menu instead of toggling it closed.
+
 `model-menu.patch` is a separate frontend overlay on the accepted native.patch.
 It appends the installed marked Chat catalog to the upstream /model picker and
 retains the ordinary model/effort UI. Cross-provider choices use native durable
@@ -955,3 +961,12 @@ reviewer. It does not pretend that upstream thread/settings/update can change
 provider. Native build, unit/lint and actual device transition remain required.
 `web-model-menu-native.yml` qualifies the exact official0.161 source plus both
 frontend patches without publishing or promoting a production runtime.
+
+The experimental Core now separates admitted frontend selection from shared
+daemon eligibility. Local interactive profile/config overrides retain the
+qualified frontend with embedded upstream execution; noninteractive commands,
+explicit remote/executor routes and unsupported workspace flags keep their
+ordinary runtime path. The Core still works without an optional Manager/frontend.
+This is necessary for same-window /model re-entry to retain its return menu.
+Device Core/frontend composition and full acceptance remain required before
+production admission; the installed signed stable49 launcher is unchanged.
