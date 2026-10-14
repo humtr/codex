@@ -6,25 +6,34 @@ This repository carries no external workflow skill or model configuration.
 
 ## Operating baseline
 
-- Public and installed stable50: local-hosted-0-161-0-b88ac14e86dd-s50,
-  CLI0.161.0, accepted implementationb88ac14. Publication38541477055 passed all
-  eight jobs, including Android execution, signing, public readback/disposable
-  update and non-forced promotion. main callerba1c745 pins that exact source.
-  Frontend source795a064/native38530530528 passed29 tests, lint and pristine Core
-  proof; its installed FD-adapted SHA256 is
-  34d56224fcae93dfcc95f2e5f3c8a95ff2d54828fed79fef19c3716a4d9861b4.
-- Local full acceptance passed Core, Manager, builder25, Python18+59 and
-  fmt/Clippy/diff; the pre-existing ignored resolver test remains excluded.
-  The two first-launch startup fixtures now remove inherited window-ready state;
-  their focused rerun passed after the inherited environment skipped the advisory.
-- Ordinary signed `codex update` activated stable50; its repeat was a no-op.
-  All eight installed hashes/modes and the manifest signature verified against
-  the existing trusted key. Core/Manager/upstream doctor passed; twelve
-  configuration/auth files and fifteen installed process PID/start/image
-  identities stayed unchanged. Private proof:
-  ~/.cache/codex/acceptance/stable50-device.json. stable49 remains the rollback
-  generation, and older busy images stay retained. New launches select stable50;
-  current running clients retain their old image until normal exit.
+- Public and installed stable51: local-hosted-0-161-0-17e1b52b0d77-s51,
+  CLI0.161.0, accepted implementation17e1b52. Publication38557559491 passes all
+  eight jobs: Android execution, signing, complete public readback/disposable
+  update and non-forced promotion. main caller49b304f pins that exact source;
+  promotion53bd199 preserves the caller and independently advances the signed index.
+- Frontend source5f8ff12/native38552383479 passes39 actual TUI regressions, lint
+  and pristine official Core/dependency proof. Its raw SHA256 is
+  947225e0667f4f976a754b2e5d8eae694e29a2769beaf7e93d88516b696f1447;
+  installed FD-adapted SHA256 is
+  cbf04684fe9e938076e96a989a3c7c71f5cbfa76a47bd469de1a018c526cc127.
+  Producer admission binds the immutable input0b5149e0 to that exact39-test run.
+- Full local acceptance passes Core197/one pre-existing ignored, Manager42+56
+  and three actual path gates, builder25, Python18+59, fmt/Clippy/diff.
+  Hosted full acceptance38552682462 and38557124149 pass. Proof-only effb9fd
+  passes scoped38557658154 without claiming another runtime build.
+- Ordinary signed `codex update` activates stable51; its repeat is a no-op.
+  All eight installed hashes/modes and manifest signature verify; twelve base
+  config/auth files and six existing PID/start/image identities are unchanged.
+  Immediate activation gate preserved all six process identities. A later user
+  /switch re-execs the same frontend PID/start onto stable51, as expected.
+  Later proof: stable51-device-after-profile-switch.json in the acceptance cache;
+  the original immediate green gate is recorded in this session tool output. stable50 is the
+  rollback generation. Current running clients keep their image until normal exit.
+- Core/Manager doctor is healthy with zero failures. Official upstream doctor
+  reports unknown configured title item thread-name and three rollout/DB
+  consistency issues; user title/history files were not edited to conceal them.
+  Upstream0.162.1 is available but unqualified; this release intentionally keeps
+  the accepted0.161 backend. These state/version notes are separate follow-ups.
 
 ## Termux permission resume correction
 
@@ -33,7 +42,7 @@ This repository carries no external workflow skill or model configuration.
   independent; explicit restricted settings fail before local thread/turn requests.
 - Native38530530528 passes exact ARM64 build,29 actual TUI tests, lint and pristine
   upstream Core/dependencies. Raw frontend SHA256c2a75d4c594c3008001bd71c5fc5308c75d7e79a7dbd9b8a4aa42296a6b64523.
-  Producer admission now requires that29-test set and the immutable795a064 input.
+  This is the historical stable50 input; stable51 admits the combined39-test set.
 - Android legacy and named-profile fixtures each pass three actual commands and
   three guardian requests through fresh launch, cold resume and /btw. Seeded saved
   workspace settings become the current supported selection; named identity and
@@ -227,7 +236,7 @@ This repository carries no external workflow skill or model configuration.
   and hash-verified from a private recovery archive. Automatic review rejected
   deletion; the reversible relocation preserves every original byte instead.
   Legacy credential configuration is unchanged. Empty prj/artex was removed.
-- Independent experiment/web-termux preserves the failed native-host trial. Production remains stable49;
+- Historical stable49 Web trial in experiment/web-termux preserves the failed native-host trial;
   the restored mobile viewer ise72f1e8 with user-accepted023c263 controls. Original
   viewer/Tunnel connectivity and Native2 installation are confirmed. The rejected
   dca030e width behavior is inactive. Fresh navigation uses --refresh; browser
@@ -358,215 +367,77 @@ This repository carries no external workflow skill or model configuration.
   organization-policy change was made. See experiment README's sourced comparison.
 
 
-- ChatGPT follow-on work is active after the stable50 sandbox fix: one shared
-  config registration with --profile chatgpt as fallback, /model as the primary
-  choice, and app-owned Chat submit/cancel/state with independent conversations.
-  The experimental internal path passes exact overlapping GPT-6 replies,
-  cancellation with a surviving sibling, two real Android clients/four native
-  commands and automatic shared-profile projection. Its guardian retry also
-  passes two real native guardian requests; the initial incomplete sibling stays
-  failed evidence. No Pro inference or first-party token extraction occurred.
-  The app/display remain dependencies. Generic shared-profile registration and
-  the model overlay pass combined39-test native qualification38552383479 at
-  source5f8ff12. Real Android legacy/named model round trips use only the shared
-  registration, preserve configuration/permissions and return to the original
-  backend in the same PID/PTY/thread. Local full acceptance and hosted38552682462
-  pass atffc5bee; the immutable frontend input is pinned in the producer.
-  Installed provider6991e4e68429aad31ce9 (source3b1d9fa) passes native commands,
-  guardian and tool-search proofs. Six existing homes use the canonical private
-  core/config/profiles/chatgpt.config.toml. After owned app/adapter restart,
-  actual submission cancellation, cold native same-thread resume and two real
-  commands/final reply pass again. App-owned login remains separate from Codex
-  account profiles. Proofs: chat-internal-cancel-resume-retry.json and
-  chat-model-shared-device-{legacy,named}.json in the acceptance cache.
-  Signed stable50 and running clients remain the baseline until publication and
-  bounded device activation pass.
-- Native Termux ChatGPT provider has real experimental acceptance on
-  experiment/web-termux at410231f. The signed Linux app's actual ChatGPT / Chat / Instant
-  surface supplies the backend; desktop Codex mode, a mock, extracted first-party
-  token and public API-key inference are not substitutes. A private FD3/FD4 relay
-  reuses the existing native Bun host. The local authenticated /v1/responses
-  adapter reuses qualified bridge92a356f parsing, wire names and SSE; native signed
-  stable49 retains approval and all actual local tool execution.
-  Real disposable native Core proof completed two separate shell operations,
-  returned exact results and matched the final nonce. Actual submission was then
-  cancelled before any tool; the first Core exited, a new Core resumed the same
-  native thread and completed both commands/final reply. Installed
-  `codex --profile chatgpt exec` also completed two native commands and exact
-  readback/reply. Its initial profile now advertises native tool search, reducing
-  eager tools from220 to16 while leaving existing plugin configuration intact.
-  A90,000-character native context passed11 acknowledged setup packets before the
-  real task, then completed the same two-command loop. Whole schemas and ordered
-  lossless instruction/message fragments are retained; subsequent requests send
-  only native context additions and changed definitions. Virtualized DOM code
-  blocks are matched by correlation instead of index. Setup-ack and actual-work
-  instructions are separate. The sender waits for the app’s actual generation
-  and Send readiness; cleanup clears only an exactly matched own draft.
-  Actual upstream TUI /model
-  displayed ChatGPT / Instant under this configuration profile.
-  The installed profile now defaults to actual Chat GPT-6. Physical selector
-  readback passes Instant, Medium, High and Extra High for GPT-6 and GPT-5.6 Sol,
-  mapped to native none/medium/high/xhigh. GPT-6 Sol is a Work/Codex model and is
-  not advertised as Chat. Installed GPT-6 Instant, Medium, High and Extra High
-  each pass two actual native write/read calls and exact final reply. The last
-  two use gpt6-high-proof.json and gpt6-xhigh-proof.json in the acceptance cache.
-  GPT-5.6 Sol executes one real
-  tool but fails continuation in Instant and Medium; it is explicitly deferred
-  at the user's request. These failures remain evidence, not accepted capability.
-  Separate Pro choices carry an execution-unverified label. The user forbids
-  automated Pro inference; maintained qualification drivers explicitly select
-  only non-Pro models. Pro was neither selected nor submitted during these tests.
-  The separate model-menu.patch overlay augments the upstream picker and uses
-  same-home/thread/window Core re-entry for launch-scoped provider changes;
-  active tools, queued input and side conversations refuse. --profile chatgpt
-  remains the fallback. Exact-source native38510380995 atd1b433c passes ARM64
-  build,35 actual TUI tests, lint and pristine upstream Core checks. The revised
-  overlay uses the official app-server for profile/invocation settings
-  through upstream per-thread configuration, rather than introducing an embedded
-  source-built execution backend. Explicit --no-daemon keeps the ordinary
-  official runtime path. Local full checks pass Core194/one pre-existing ignored,
-  Manager42+55+three path gates, builder25, Python18+59 and fmt/Clippy/diff.
-  Installed routing uses the document parser and native return explicitly selects
-  OpenAI instead of restoring the saved Chat provider. Real phone menu gates pass
-  for base configuration and a selected named-permission profile: same PID/PTY,
-  home/thread, unchanged configuration, admitted frontend and official backend;
-  thread/read confirms both model/provider changes and an independent ephemeral
-  thread retains server defaults. Private proofs are chat-model-menu-device-legacy.json
-  and chat-model-menu-device-named.json in the acceptance cache. The fixture
-  completes normal upstream screen-reader initialization before config hashing.
-  Prototype source410231f remains separate; production admission is still pending.
-  No experiment code has entered signed stable49.
-  The continuation architecture keeps Core history/checkpoints authoritative and
-  disposable adapter cursors. Route/account/model/effort or verified connection
-  generation changes require replay; unchanged owned context receives deltas.
-  Server KV hit/miss/unknown remains independent from correctness and local context
-  estimates. Scenario serialization costs and native/desktop boundaries live in
-  the experiment README/SPEC. The current route refuses unsupported model/effort
-  tuples before inference instead of ignoring requested effort. Supported
-  family/power selection uses the signed app's actual controls and checks them
-  before every continuation. A new GPT-6 checkpoint fault trial passed compression,
-  four tools and persisted resume; the first whole-app restart failed on a
-  restored expanded selector.158401f waits for a fresh owned view and reuses that
-  menu. Its GPT-6 checkpoint rerun passes four actual tools, committed tool-only
-  memory, Core restart/resume and whole-app restart (gpt6-checkpoint-proof.json).
-  The guardian implementation atcc28b07 also passes a real GPT-6 native
-  guardian review: an owned prompt rule requires approval, one guardian request
-  interleaves, parent canonical context replays, two native commands complete and
-  the exact final reply matches with zero owner conflicts. Child/parent ledgers
-  remain separate; unrelated active owners still refuse. Native structured output
-  reaches the Chat model without an adapter-generated approval decision. The new
-  guardian-lane checkpoint proof passes four actual tools, summary persistence,
-  Core restart and whole signed-app restart. Private aggregate proofs are
-  ~/.cache/codex/acceptance/gpt6-autoreview-rule-proof.json and
-  gpt6-checkpoint-guardian-lanes-proof.json. Home recovery uses the app's public
-  new-temporary-chat shortcut only with no visible composer or Stop control.
-  Installed experimental payload2c01935cff10b2c33257 matches source410231f and its
-  complete immutable inventory. The current wrlab home also has the marked ChatGPT
-  profile; its installed auth helper passes without model inference. Ten protected
-  base-config/auth/launcher/activation hashes remain unchanged across the profile
-  reinstall. The production launcher still uses signed stable49.
-  Live unsupported tuples returned400 without an inference request; actual
-  catalog lookup/tool execution and automatic compaction plus four native calls
-  and restart/resume passed with the route-aware cursor. Live draft protection
-  refused replay before sending and preserved the generated draft fixture.
-  Account/multi-model selection remains distinct acceptance; a synthetic route
-  transition test is not an entitlement or cache-hit proof. Bounded adapter and
-  whole-controller process restart now pass actual installed CLI tool turns.
-  This is an opt-in upstream
-  configuration profile, separate from Manager login
-  accounts. Current0.161 uses chatgpt.config.toml, not a legacy inline profiles
-  table. Base config hashes stay unchanged; ordinary Codex routing and signed
-  production binaries remain stable49. Local relay authentication is private and
-  command-backed, with PID/start/image and loopback checks. The opt-in auth command
-  now serializes bounded on-demand GUI/adapter bootstrap. Its address/capability
-  stay fixed across restarts; no profile rewrite is required. Runtime/source/Bun,
-  pinned exported PRoot and noVNC assets live in ~/.local/lib/codex-web-experiment;
-  runtime.json in private native-provider data is the installation authority.
-  Only transient GUI sockets/control roots remain in TMPDIR. Reinstall reuses
-  verified permanent dependencies after temporary checkouts disappear. No boot
-  service or second production launcher is installed. Base config, marked trial
-  config and auth hashes stay unchanged through faults. Android denies /proc/net
-  listener inspection, so fresh HMAC readiness challenges prove possession before
-  transmitting the bearer; foreign listeners receive no capability. The bind
-  probe uses SO_REUSEADDR to distinguish ordinary TIME_WAIT from a live owner.
-  Six concurrent starts, adapter termination/profile recovery and whole-controller
-  termination/recovery each passed, with actual native write/read calls. Proof is
-  native-provider/{lifecycle,lifecycle-migration}-proof.json. Physical phone reboot,
-  hours-long load and expired-login recovery remain distinct qualification. After
-  learning a secret solely through a real tool result, removing its original
-  fixtures, compacting and running two more native shell calls, a new Core resumed
-  the checkpoint. The owned Linux controller was then stopped: the same living
-  adapter recovered the app and recalled the secret without another shell call.
-  lifecycle-checkpoint-proof.json confirms four native calls, actual committed
-  summary and checkpoint survival through both Core and whole-app restart. Final path
-  acceptance also invokes the auth command for all three marked homes privately,
-  verifies its capability without exposing stdout and requires the installed
-  source path rather than the calling checkout. lifecycle-auth-path-proof.json
-  records that all helpers and the adapter image match the selected installation.
-  Clear send failures now use the app's Retry control with1/2-second backoff and
-  at most two extra attempts. Cancellation, already received correlated replies
-  and ambiguous delivery prevent retry. Bounded retries and their failure policy
-  have protocol tests; real induced UI Retry recovery is still unqualified.
-  Capability-free/browser-origin HTTP probes returned401 and an active second
-  native lane returned409 without a model request. Concurrent-request reservation
-  now begins before body parsing; malformed requests release it. Only one physical
-  desktop lane is supported; cross-session parallelism is not production-admitted.
-  Native Responses/memento compaction now passes in the experiment: a
-  secret learned only from actual shell output survives summary/persistence,
-  two new native calls and Core stop/resume without repeating it in user input.
-  Four shell calls and an exact same-thread summary checkpoint applied. Core
-  owns history replacement; only the offered summary’s exact replay retires old
-  live call checks. Automatic pre-turn and mid-turn compaction also pass using
-  lower thresholds only in disposable tests. Four real native calls per proof,
-  matching compaction item IDs, persisted tool-only state and Core restart/resume
-  passed. Cancellation after observed actual Chat submission and locally rejected
-  relay authentication each committed no partial summary; restart preserved old
-  state, then successful compaction and another restart passed. Missing desktop
-  token usage previously became zero, suppressing accumulated-context accounting.
-  The adapter now supplies UTF-8 size estimates for native context budgeting and
-  marks terminal metadata termux_usage_source=estimated_context. These counts
-  are neither authoritative server usage nor evidence of quota/billing deduction.
-  Text, advertised function/custom tools and native search
-  wire mapping are present; image/file/audio context is refused. Actual native
-  catalog search now passes: a model-requested lookup returns
-  a correlated successful native result, nonempty loaded schemas and an exact
-  final nonce, with full permissions in the disposable qualification workspace.
-  CLI JSON omits search items; the probe observes the actual matched Responses
-  result rather than relying on CLI display. Actual discovered-tool execution also
-  passes: installed --profile chatgpt performs native catalog search, executes
-  the returned read-only GitHub repository metadata tool for humtr/codex and
-  receives the real result/final reply. Image/file/audio support, hours-long load
-  and physical phone reboot remain separate gates. Process lifecycle passes above.
-  Cancellation retires
-  the interrupted ChatGPT temporary lane;
-  native resume replays its history into a fresh owned lane.
-  Proof: ~/.local/share/codex-web-experiment/native-provider/{installed-cli,
-  staged-cli,cancel-resume,compact,auto-compact,mid-turn-compact,interrupt-compact,
-  failed-compact,tool-search,discovered-tool,tui,isolation,http-concurrency}-proof.json.
-  Experimental
-  protocol tests18/85 assertions, lifecycle/profile/routing Python12+5 and repository Python
-  18+59 passed. Unchanged production Rust/release evidence above remains applicable;
-  no new signed production publication is claimed.
-  User reports phone horizontal width still mismatched despite X11 480px proof;
-  that physical-layout issue remains explicitly deferred. Plus SIWC/public
-  api.openai.com/v1/responses remains a separate unauthenticated qualification
-  track; desktop success does not grant public API access.
+## ChatGPT model pilot
 
-  Quota proof is separate: this opt-in provider's primary requests go to the
-  signed app's Chat/Instant mode. Ordinary Chat allowance is the expected
-  classification. A bounded device comparison completed one installed ChatGPT
-  profile reply and one ordinary native gpt-6.1-sol reply using the app's Business
-  login. This development session uses a different Plus account and was excluded.
-  The control used an admitted signed Core in disposable state, with no usable
-  refresh token; the original login file remained unchanged. Backend usage and
-  token-profile reads before/after and delayed reads retained 0% primary/weekly
-  usage and unchanged token counters for both paths. The positive Codex control
-  also produced no visible increment, so the small observation cannot distinguish
-  billing classification or prove zero deduction. App-server rounds percentages
-  to integers; raw server percentages were also integer-valued in this trial.
-  Aggregate proof: native-provider/quota-comparison-proof.json in the private
-  experiment data root. No quota was burned to force an increment. The Responses
-  wire version is v1 (/v1/responses), separate from the runtime bridge 6.1.5 at
-  92a356f, native CLI 0.161.0 and signed desktop app 26.1007.21434. The independent SIWC
-  public Responses grant explicitly uses Codex/Work usage; Work shares Codex
-  allowance. Current development in this original Codex session remains separate.
+- `/model` is the primary opt-in selection; `--profile chatgpt` is its fallback.
+  stable51 includes the qualified native menu and generic shared config projection.
+  The provider remains an opt-in experiment, not a bundled Core dependency.
+  One private core/config/profiles/chatgpt.config.toml owns the registration;
+  six existing homes have aliases. An empty new home on installed stable51
+  automatically receives its alias and completes two native commands/exact reply
+  without creating base config or copying authentication. Manager is unnecessary
+  for projection; local profile overrides win. Native model/account defaults stay
+  unchanged, and app Chat login remains independent of Codex account selection.
+- Actual Android `/model` round trips in legacy and named-permission fixtures
+  enter Chat GPT-6/Instant and return to OpenAI. Same PID/PTY/home/thread,
+  immutable frontend, official backend and configuration/permissions are retained;
+  thread/read verifies both routes and a sibling retains server defaults. No model
+  inference or Pro selection occurs in this menu gate. Combined frontend fresh,
+  cold-resume and /btw fixtures pass six native commands and six guardian requests,
+  retaining no-sandbox and independent auto_review selection. The lifecycle proof
+  waits for the delivered fork response; an earlier unsynchronized sample failed.
+- Provider0de70e3072a4b8e87a31 is installed from experiment source46db05e.
+  The signed Linux app26.1007.21434 owns actual
+  Chat submit/cancel/state, login and token refresh. Independent temporary Chat
+  conversations/ledgers/cursors serve native threads and guardian children through
+  one private FD/CDP connection; no UI Send clicks or extracted first-party tokens
+  are required. App/display remain dependencies. UI fallback is serialized and
+  allowed only before submission; ambiguous failures never replay a native action.
+- Real overlapping GPT-6 replies, cancelled-lane/surviving-sibling proof, two native
+  Android clients/four commands and two actual guardian reviews pass. The initial
+  incomplete guardian sibling remains failed evidence; its bounded retry passes.
+  Final two-client/four-command concurrency and two guardian reviews pass on the
+  corrected transport. Installed guardian and native catalog-search proofs pass.
+  App/adapter restart
+  followed by actual submit/cancel, cold same-thread Core resume and two native
+  commands/exact reply also passes. Native Core owns local execution, approval,
+  history and checkpoints; the adapter converts only advertised text/tool wire.
+- Instant/Medium/High/Extra High each pass two actual native commands and exact
+  final reply through the new internal transport. Pro entries stay execution
+  unverified: automated Pro inference is prohibited and was not performed.
+  GPT-5.6 remains deferred after earlier continuation failures. Internal Medium
+  compaction now passes four commands, actual summary/secret persistence and both
+  Core and whole-app restart/resume. The candidate's shortened execution/context
+  instructions were restored to the qualified shared UI prompt; reply parenting
+  is explicit and startup waits for the actual app scope before choosing fallback.
+  GitHub catalog search and the actual discovered read-only repository call pass
+  in wrlab. Compared szob returns no GitHub matches for the same native query;
+  a no-inference controlled comparison returns0 GitHub matches there and8 in
+  wrlab. Native account tool availability is separate from shared Chat app login.
+  Failed/timeout trials stay retained as evidence. Automatic/fault compaction,
+  multimodal context, hours-long load and physical phone reboot remain separate
+  internal qualification. Phone horizontal width remains deferred. Unsupported context/routes fail rather than lose data.
+- `/v1/responses` is the wire interface, not an API entitlement. Requests use the
+  signed app's Chat mode; measured native context usage is an estimate, not a
+  billing/KV-cache proof. Earlier quota comparison observed no increment even in
+  the positive Codex control, so it cannot prove zero Codex deduction. Plus SIWC
+  public Responses access is a separate unqualified track; desktop Chat acceptance
+  does not grant it. No paid API-key inference or organization-policy change occurred.
+- Maintained setup and detailed contracts live on experiment/web-termux. Private
+  evidence in ~/.cache/codex/acceptance includes chat-model-shared-device-{legacy,
+  named}.json, chat-combined-permissions-{synchronized,named}.json,
+  chat-internal-{cancel-resume-retry,installed-guardian,installed-search,
+  installed-medium,installed-high,installed-xhigh}.json, chat-stable51-new-home.json
+  and chat-{app-concurrency-cancel,native-dual-shared-profile,
+  native-dual-guardian-retry}.json. Final internal proofs include
+  chat-internal-checkpoint-startup-wait.json, chat-internal-discovered-tool-wrlab.json,
+  native-account-catalog-comparison.json, chat-final-concurrent-guardian.json
+  chat-final-app-acceptance-timing.json, chat-final-medium-overlap-cancel.json
+  and chat-final-installed-inventory.json. App submission timestamps now come
+  from response acceptance inside the app; polling timestamps were too late
+  to prove overlap for very short replies. Tiny Instant responses can also finish
+  before the sibling is accepted; those overlap trials remain false rather than
+  becoming proof of a transport defect. Medium proves actual overlapping app
+  acceptance, and the independent native guardian gate proves concurrent requests.
+  Cancellation and surviving sibling succeeded in the earlier short-reply trials. No user credentials or
+  conversation bodies are published with the proofs.
