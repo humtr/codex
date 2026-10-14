@@ -386,6 +386,17 @@ This repository carries no external workflow skill or model configuration.
   cold-resume and /btw fixtures pass six native commands and six guardian requests,
   retaining no-sandbox and independent auto_review selection. The lifecycle proof
   waits for the delivered fork response; an earlier unsynchronized sample failed.
+- Real-use failures on 2026-10-14 remain unresolved. The shared backend logs an
+  unknown Chat model; a fresh request reaches the local adapter but returns 400
+  `unsupported_desktop_request`. Switching the existing long thread attempts
+  previous-model `gpt-6.1-sol` compaction through the newly selected Chat endpoint
+  and fails before sampling. The adapter's 2 MiB body ceiling independently
+  returns 413 in a no-inference local probe; retained active-history serialization
+  exceeds that ceiling, but the failing HTTP body's actual size is unmeasured.
+  These are integration gaps, not evidence of a Chat message-limit rejection.
+  Prior menu-only and direct-profile proofs do not qualify long-thread switching
+  with actual inference. Detailed evidence, uncertainty and required regression
+  scope are maintained in [experiment follow-up](https://github.com/humtr/codex/blob/experiment/web-termux/CURRENT.md#chatgpt-model-errors-next-work).
 - Provider0de70e3072a4b8e87a31 is installed from experiment source46db05e.
   The signed Linux app26.1007.21434 owns actual
   Chat submit/cancel/state, login and token refresh. Independent temporary Chat
