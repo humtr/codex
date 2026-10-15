@@ -102,7 +102,15 @@ absolute and uses from_absolute_path_checked; added tilde/UTF-8 cases. Both
 frontend patches apply against pristine97901140, and the exact helper passes its
 2 Android-host tests with the real upstream path dependency (hostRust1.99,
 separately resolved dependencies). Complete pinnedRust1.95 native frontend
-qualification38699918319 is running; the helper test alone is not that gate.
+qualification38699918319 passes all jobs: actual ARM64 CLI build/execution,
+41 actual TUI regressions (including both backend catalog tests), lint and
+pristine upstream Core checks. Its exact raw frontend4fa1a4f0 also passes the fresh Android
+/model Chat/native round trip in disposable signed state: same PID/PTY/home/thread,
+actual catalog-bound backend routes, unchanged configuration and sibling defaults.
+This submits no inference and changes no operating installation. Private proof:
+chat-catalog-menu-38699918319-device.json and its exact-input binding. Earlier
+named-permission and --profile proofs cover unchanged routing inputs. The helper
+test alone is not the whole native qualification gate.
 Cross-provider compaction/resume and real Chat model-use remain unqualified.
 Local affected acceptance passes77 Python tests and323 Rust tests, with one
 existing ignored resolver smoke, plus fmt/Clippy/diff. The first full run was
