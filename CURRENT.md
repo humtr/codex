@@ -391,11 +391,36 @@ This repository carries no external workflow skill or model configuration.
   accompany gateway calls, adding no report-only inference round. Two prior
   three-start tool-loop trials failed the report gate and remain recorded; current
   source fixes that omission. Core remains the only executor/history owner.
+  Experiment615c9f5 adds actual native-command interruption and resume with the
+  original result plus genuine new input in one completion. Core's interruption
+  notice and new instruction share one ordered user message. The signed-app/Core
+  trial passes with2 user messages,2 tool messages and3 starts; the file's content,
+  inode, mtime and size remain unchanged. All three public reports persist and
+  cold Core/TUI restore them without inference. `turn/interrupt` alone can leave
+  unified-exec running: explicit exact-thread background-terminal termination
+  confirms exit with no provider request. A further real-Core offline proof
+  confirms removal from Core's terminal registry. Ordinary Ctrl-C was not changed.
+  Source tests pass52 local-return Bun cases,2 metadata hook cases and34
+  experiment Python cases. Unchanged Rust acceptance remains323 tests/one
+  pre-existing ignored, fmt/Clippy. These are candidate gates.
   The source selector is explicit; installed provider46db05e/bridge92a356f stays
-  unchanged, with561 manifest hashes verified. MCP settlement, full stop/recovery,
-  approvals, independent-owner and long-history/context acceptance remain before
-  default selection or activation. Detailed current state and private proof names:
+  unchanged, with561 manifest hashes verified. MCP settlement, generation-time
+  stop/observation recovery, approvals, independent-owner and long-history/context
+  acceptance remain before default selection or activation. Detailed current state and private proof names:
   [experiment CURRENT](https://github.com/humtr/codex/blob/experiment/web-termux/CURRENT.md#native-local-return-candidate-current-implementation-and-proof).
+  Experimentec9f1f0's bounded ordinary-model MCP metadata proof passes:1 outbound
+  GPT-6 Instant app dispatch/1 user message, exact-token inventory call through the real trial
+  tunnel, exact-ID error return and final response, without another adapter submit.
+  Metadata-only predecessors used0 Chat. This proves connector/error continuation,
+  not successful Core settlement or Chat allowance deductions. App-dispatch count
+  does not measure hidden host inference rounds. RPC ID0 is reused across distinct
+  calls; pinned tunnel0f870e5 serializes shared stdio and tombstones/aliases expired
+  IDs, so global RPC-ID deduplication is invalid. Its deadline does not establish
+  stopped Core work. The official hosted120-second absolute deadline also includes
+  queue time and is not extended by progress; long approval/execution needs a
+  separately qualified continuation. Existing Tdev clients/profiles remain intact;
+  the owned desktop/tunnel stop after the test. Independent retained MCP settlement
+  is the next implementation, sharing the existing native projection/executor.
   The following earlier reviews are background, not a competing implementation
   order. Source-only ordered packing reduces an owned 50,410-character
   fixture from27 submissions to2 while preserving schemas/history; no Chat quota
@@ -429,7 +454,18 @@ This repository carries no external workflow skill or model configuration.
   Release frontend38654727667 builds; actual Android legacy/named and upstream
   --profile chatgpt round trips pass with backend catalog binding and no inference.
   That first CI failed compiling a new test before execution; a20c58d fixes its
-  error conversion. Native qualification38657053854 remains pending. This is not
+  error conversion. Run38657053854 then failed the socket-output rejection test:
+  upstream's path conversion resolves relative paths. Fixf5e7304 checks the raw
+  absolute path and uses the checked constructor; relative/tilde/invalid UTF-8
+  cases refuse. The exact helper passes2 Android-host tests using the real upstream
+  path implementation; the original parser fails the negative control. Pinned
+  native frontend qualification38699918319 passes all jobs: ARM64 CLI build/
+  execution,41 actual TUI tests, lint and pristine upstream Core checks. Its exact
+  raw frontend4fa1a4f0 passes a fresh actual Android
+  /model Chat/native round trip in disposable signed state, preserving PID/PTY,
+  home/thread, resolved backend catalog, configuration and sibling defaults.
+  No inference or operating activation occurs. Private proof and exact-input
+  binding: chat-catalog-menu-38699918319-device{,-binding}.json. This is not
   acceptance of long-history cross-provider compaction or real model-use repair.
   A second read-only native connection also observes the exact persisted turn
   become interrupted during an owned local command, whose process exits; stop
