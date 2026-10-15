@@ -225,8 +225,9 @@ Current findings and source changes on 2026-10-14:
   ACK separately are avoidable submission overhead, not a provider requirement.
 - The signed app has `extraDeveloperInstructions`, `prependMessages` and a real
   tool-result continuation export (`bRt`/`Nwi`). A bounded live local-function
-  proof below now qualifies one arbitrary echo function and exact tool-role return
-  on GPT-6, not the full Core adapter. Its generated local function signatures are only
+  proof below now qualifies a single arbitrary local function with up to eight
+  sequential tool-role returns per user request on GPT-6, not the full Core adapter.
+  Its generated local function signatures are only
   Work/Codex `handoff` and are empty in Temporary Chat; `Jui` supplies no arbitrary
   local tool names. `toolOrigin` marks an SDK follow-up prompt, so changing the
   author label alone does not establish native tool continuation or quota savings.
@@ -261,7 +262,7 @@ local-function feasibility below includes real Chat inference, not activation:
    tool-result, guardian, compact and retry submissions independently of quota.
 3. Evaluate the now-proved app-native local-function request/result path first.
    Bridge its actual calls to ordinary Core calls and return exact results through
-   bRt, without a second executor, MCP broker or tunnel. The one-function probe
+   bRt, without a second executor, MCP broker or tunnel. The single-signature chain probe
    does not qualify all advertised schemas/tools, Core approval, cancellation,
    transcript streaming, independent owners or cold resume. Ordinary retained
    Chat, rather than Temporary Chat, was tested; history/privacy policy must be
@@ -407,16 +408,16 @@ initial prompt. The following finished GPT-6 answer exactly matched that proof.
   ID. No new result-phase user submission, textual imitation or Work handoff.
 - Actual call and final model metadata both gpt-6; final end_turn=true. Server
   injected user_editable_context is not an additional client user submission.
-  This observed the completed final message, not a qualification of the complete
-  second stream's terminal delivery or actual native TUI transcript rendering.
+  This first probe observed the completed final message; the progressive proof
+  below additionally qualifies native terminal delivery, not native TUI rendering.
 - working_turn_id and turn_exchange_id differ between call and final, including
   the tool result. This proves paired native result return within one conversation;
   it does NOT prove a single retained host turn or unchanged quota accounting.
   Chat message-limit deductions are unmeasured. Two inference dispatches must not
   be advertised as one inference merely because only one user message was sent.
 - No transport errors were observed. A separate low-level retry counter was not
-  instrumented; two app streamPost entries are the observed boundary, not an
-  exhaustive network retry/limit audit. Do not repeat inference to hit a limit.
+  instrumented in this first probe; the progressive proof below removes generation
+  retry options and counts actual pre-dispatch starts. Neither is a quota audit.
 - Initial browser-interception attempt could have dispatched one additional
   request through native IPC; its actual usage is unknown, at most one intended
   initial request. Its earlier zero-dispatch assumption was corrected in the
@@ -425,6 +426,50 @@ initial prompt. The following finished GPT-6 answer exactly matched that proof.
   Probe functions only constructed a result in memory; no Core tools or user
   workspace files were executed/changed. This is transport feasibility, not a
   release or complete Codex development acceptance.
+
+### Progressive sequential returns on 2026-10-15
+
+One initial client user message in each isolated non-Temporary Chat requested
+2, 4 or 8 sequential calls. Each tool result supplied a new unpredictable next
+token and a random receipt. Future valid arguments were unavailable before the
+preceding result; the final reply had to reproduce all receipts in order exactly.
+Thus these are dependent model/tool round trips, not preplanned parallel calls,
+a long script or fake tool text. GPT-6 Instant and the app's existing bRt path
+were used throughout, with no Pro, MCP, tunnel or new result-phase user prompts.
+
+| Results returned in one user request | Client user submissions | Tool-only submissions | Actual inference starts | Terminal streams | Elapsed seconds | Accepted |
+| --- | --- | --- | --- | --- | --- | --- |
+| 2 | 1 | 2 | 3 | 3 | 34.9 | yes |
+| 4 | 1 | 4 | 5 | 5 | 52.1 | yes |
+| 8 | 1 | 8 | 9 | 9 | 60.8 | yes |
+
+Each chain's server-issued call IDs were unique; all 14 results were paired with
+their exact original call IDs. All next-token dependencies and complete final receipts matched. Each chain
+kept one server conversation, with actual call/final model metadata gpt-6.
+All 17 native streams emitted normal onComplete reason=done; no transport error,
+unexpected final or generation replay occurred. The per-request wrapper removed
+the native generation retry option, rejected duplicate call/result dispatches and
+counted onBeforeRequestStart, improving on the first probe's streamPost-only count.
+Completion-client/API wrapper identities were restored after each chain.
+
+The original two-result harness expected reason=completed rather than the app's
+actual done, so its initial acceptance boolean was false despite all observed
+operations/finals/terminal events passing. That classifier alone was corrected;
+the original raw report and exact source hash were retained. Existing two-result
+evidence was reclassified from its recorded events, without repeating inference;
+only the remaining 4/8 scenarios were then run. Aggregate: 3 client user submits,
+14 tool-only returns and 17 actual request starts, as initially budgeted.
+
+Working-turn IDs and turn-exchange IDs each had 3, 5 and 9 distinct values,
+respectively. "One user request" is therefore not proof of one retained server
+working-turn/exchange ID. Chat-limit deduction is still unmeasured; no inference
+or quota saving is inferred from role counts. Core tool execution, approvals,
+native transcript rendering and stop/resume remain separate integration gates.
+
+Private aggregate: ~/.cache/codex/acceptance/chat-local-function-chain.json.
+Original/corrected exact executed source hashes are preserved under
+~/.cache/codex/acceptance/chat-local-function-chain-source. The original first
+classifier report is retained separately; no installer/provider was activated.
 
 Prefer this native path for the next adapter candidate because it fits Codex's
 existing call/result HTTP boundary without an additional remote MCP broker/tunnel.
