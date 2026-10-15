@@ -123,10 +123,31 @@ def fixture(root, core, frontend):
     return home, prefix, env
 
 
+def server_paths(home):
+    expected=home/'.local/lib/codex/core/generations/local-permission-fixture/runtime'
+    paths=[]
+    for family in ['servers','catalogs']:
+        for path in (home/'.local/share/codex/core'/family).glob('*/s'):
+            try:
+                pid=int(path.with_name('pid').read_text())
+                if Path(f'/proc/{pid}/exe').resolve()==expected:paths.append(path)
+            except (OSError,ValueError):pass
+    return paths
+
+
 def rpc(home, method, params):
-    paths=list((home/'.local/share/codex/core/servers').glob('*/s'))
-    assert len(paths)==1, 'one owned server required'
-    ws=Ws(str(paths[0].resolve()), uri_path='/rpc')
+    matches=[];loaded=[]
+    for path in server_paths(home):
+        ws=Ws(str(path.resolve()),uri_path='/rpc')
+        try:
+            data=ws.call('thread/loaded/list',{'limit':100})
+            assert not data.get('nextCursor'),'owned loaded fixture exceeded page'
+            loaded.extend(data['data'])
+            if params.get('threadId') in data['data']:matches.append(path)
+        finally:ws.close()
+    if method=='thread/loaded/list':return {'data':loaded}
+    assert len(matches)==1,'one owned thread server required'
+    ws=Ws(str(matches[0].resolve()), uri_path='/rpc')
     try:return ws.call(method,params)
     finally:ws.close()
 
@@ -260,8 +281,8 @@ def probe(args):
         def stop(process,master):
             os.killpg(process.pid,signal.SIGTERM)
             # Cold resume proof: retire only this fixture's own official server.
-            for record in (home/'.local/share/codex/core/servers').glob('*/pid'):
-                pid=int(record.read_text())
+            for path in server_paths(home):
+                pid=int(path.with_name('pid').read_text())
                 try:
                     if Path(f'/proc/{pid}/exe').resolve().is_relative_to(home):os.kill(pid,signal.SIGTERM)
                 except OSError:pass
@@ -270,7 +291,7 @@ def probe(args):
             drain(master)
 
         def loaded():
-            if not list((home/'.local/share/codex/core/servers').glob('*/s')):return []
+            if not server_paths(home):return []
             try:return rpc(home,'thread/loaded/list',{})['data']
             except (OSError,TimeoutError):return []
 
@@ -284,7 +305,7 @@ def probe(args):
 
         try:
             process,master=start()
-            wait(master,lambda:any((home/'.local/share/codex/core/servers').glob('*/s')))
+            wait(master,lambda:bool(server_paths(home)))
             wait(master,lambda:len(loaded())==1)
             ids=loaded();assert len(ids)==1,ids;thread=ids[0]
             rpc(home,'turn/start',{'threadId':thread,'input':[{'type':'text','text':'PL_MAIN','text_elements':[]}]})
@@ -343,9 +364,9 @@ def probe(args):
                     os.killpg(process.pid,signal.SIGTERM)
                     try:process.wait(timeout=8)
                     except subprocess.TimeoutExpired:os.killpg(process.pid,signal.SIGKILL);process.wait()
-            for record in (home/'.local/share/codex/core/servers').glob('*/pid'):
+            for path in server_paths(home):
                 try:
-                    pid=int(record.read_text())
+                    pid=int(path.with_name('pid').read_text())
                     if Path(f'/proc/{pid}/exe').resolve().is_relative_to(home):os.kill(pid,signal.SIGTERM)
                 except (OSError,ValueError):pass
             # Only this test's own runtime/plugin workers have cwd below its root.

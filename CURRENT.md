@@ -6,6 +6,34 @@ This repository carries no external workflow skill or model configuration.
 
 ## Operating baseline
 
+- Next release integration: b0badff adds the resolved-catalog Core/Manager path
+  and combines it with the current production frontend. c2db8f7 removes two
+  duplicate module declarations exposed by the first native compile; the failed
+  run38713848189 remains negative evidence. Local full acceptance passes
+  Core198/one existing ignored, Manager42+56+three path gates, builder25,
+  Python18+59 and fmt/Clippy. Hosted source38713848122 and corrected38726029296
+  pass. Corrected frontend38726029331 passes build/execution, all41 native tests,
+  lint and pristine upstream Core/dependencies. Raw23e34867 is bound to immutable
+  input045a7055 under manager-tui-native-v0.161.0-c2db8f7. Actual Android legacy/named/--profile menu round trips
+  pass with the new raw frontend and current Core, preserving PID/PTY/home/thread,
+  selected permissions, config and sibling defaults. Core/Manager catalog proof
+  separately passes12-tool admission, byte-bound reuse/isolation, previous thread
+  reads and Manager discovery. Both legacy/named permission lifecycle fixtures pass
+  six actual Android commands and six guardian reviews through launch/cold resume
+  and /btw. The first permission observer timed out because it queried only the
+  old namespace; it now binds the exact fixture runtime and loaded thread across
+  both families, including owned cleanup. Negative observer evidence is retained.
+  Private aggregate: stable52-device-qualified.json. No new stable generation
+  is published or activated from these source results. Preserve existing
+  permission/profile/window changes; never merge the older experiment wholesale.
+- Installed ChatGPT cold bootstrap and actual command/report loop now also pass:
+  stop only the previously proved idle trial adapter/controller, launch from the
+  durable runtime descriptor, then execute two commands and restore all public
+  report phases in a cold Core/TUI. Observed1 user message/2 tool-role returns/
+  3 model starts, no Pro/retry. Protected config/auth/state and Tdev identities
+  remain unchanged. Proofs: chat-local-installed-cold-{bootstrap,runtime}.json
+  and chat-local-cold-protected.json. This does not identify the first failed
+  cold-start's cause or qualify long cross-provider compaction and MCP recovery.
 - Opt-in ChatGPT provider is now installed as d7513cc7785f3d5dbcef, source717bd94
   on experiment/web-termux, with durable `returnTransport=local`. The installed
   shared authentication command and actual service pass two real stable51 Core
