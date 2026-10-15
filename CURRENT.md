@@ -420,7 +420,35 @@ This repository carries no external workflow skill or model configuration.
   queue time and is not extended by progress; long approval/execution needs a
   separately qualified continuation. Existing Tdev clients/profiles remain intact;
   the owned desktop/tunnel stop after the test. Independent retained MCP settlement
-  is the next implementation, sharing the existing native projection/executor.
+  shares the existing native projection/executor as described next.
+  Experimentc140859 implements that independent return path as three small modules:
+  ephemeral owner/call/result binding, MCP stdio endpoint and signed-app transport.
+  It exposes native_catalog/native_tool and reuses DesktopToolSession; Core remains
+  the only executor/history owner. Tokens bind backend/thread/turn, logical call_id
+  survives RPC-ID reuse, duplicate calls share one result and changed input refuses.
+  Disconnected IPC observers retain results; explicit retirement rejects late work.
+  Terminal host completion cannot admit queued Core actions. App-observer failure
+  still closes its remote lane and blocks replay; full recovery is not qualified.
+  Actual Android stable51 Core + independent stdio/Unix/HTTP candidate passes two
+  commands, exact result returns, all three report phases, canonical persistence,
+  cold TUI restore and owned socket/root cleanup. The host is deterministic; this
+  is zero-Chat integration proof. The signed-app pre-send check also passes0 starts
+  with local Work/handoff declarations absent. Local-return regression remains
+  green. Bun70 full plus11 affected tests after the final guard, Python34 and18+59
+  pass; unchanged Rust323 and native41 proofs are reused. Installed561 files and
+  existing Tdev processes remain unchanged. The historical six-tool connector
+  catalog still needs new-endpoint discovery/positive host qualification; approvals,
+  long waits, actual host receipt, app-observer recovery and media remain open.
+  Private proof: chat-independent-mcp-core-qualified.json,
+  chat-independent-mcp-app-dry.json and chat-local-after-mcp-offline.json.
+  Zero-model discovery against the new endpoint confirms the remaining gate:
+  the host still returns6 historical definitions and sends no stdio request.
+  Readiness/polling pass but fresh-catalog acceptance correctly fails. The helper
+  now requires both app-visible native_catalog/native_tool and an actual2-tool
+  tools/list response;3 affected Python tests reject cached/stale evidence. Keep
+  the raw failure chat-independent-mcp-discovery.json. Identify the supported
+  custom-app schema refresh before a live positive trial; no Chat prompt, account
+  reconnect or operating provider change was used to work around the cache.
   The following earlier reviews are background, not a competing implementation
   order. Source-only ordered packing reduces an owned 50,410-character
   fixture from27 submissions to2 while preserving schemas/history; no Chat quota
