@@ -69,3 +69,11 @@ test('tool-role result submissions are counted separately from user messages',()
  assert.equal(report.observedChatSubmissions,1);assert.equal(report.toolResultSubmissions,2);
  assert.equal(report.submittedRequests,1);
 });
+test('message counts, including parallel results and new user input, stay separate from model dispatches',()=>{
+ const r={observedChatSubmissions:0,submittedRequests:0,submissionSources:{}};
+ recordDesktopSubmission(r,{phase:'request',source:'app_dispatched',kind:'mixed',userMessages:2,toolMessages:3},{mode:'instant'});
+ assert.equal(r.observedChatSubmissions,2);assert.equal(r.toolResultSubmissions,3);
+ assert.equal(r.submittedRequests,1);assert.equal(r.observedNativeDispatches,1);
+ assert.throws(()=>recordDesktopSubmission(r,{phase:'request',source:'app_dispatched',kind:'tool',userMessages:1,toolMessages:1},{}),/invalid_desktop_submission/);
+ assert.equal(r.observedNativeDispatches,1);
+});

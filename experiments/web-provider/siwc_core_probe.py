@@ -204,6 +204,8 @@ stream_max_retries = 0
             task=f'Use the local shell tool to write exactly {marker} to proof.txt in the current directory. Use a separate second shell tool call to read it back. Reply with exactly {marker}. No other work.'
             if getattr(args,'transcript_check',False):
                 task=f'First say LOCAL_INITIAL_REPORT in commentary. Use the local shell tool to write exactly {marker} to proof.txt in the current directory. After its result say LOCAL_INTERMEDIATE_REPORT in commentary. Use a separate second shell tool call to read it back. Your final answer must be exactly {marker}. Do no other work.'
+            if getattr(args,'interrupt_tool',False):
+                task=f'First say LOCAL_INITIAL_REPORT. Run exactly one shell command with yield_time_ms 30000: printf %s {marker} > proof.txt; echo $$ > command.pid; sleep 45; printf MUTATION_REPLAYED >> proof.txt. Wait for its result. Final answer exactly {marker}. Do no other work.'
             if args.compact:
                 seed_text=marker+'\n'+('Reference-only context row; no action.\n'*220 if args.auto_compact or args.mid_turn_compact else '')
                 (workspace/'seed.txt').write_text(seed_text)
@@ -277,6 +279,7 @@ stream_max_retries = 0
                         report['nativeReplyMatched']|=row['params']['item'].get('text','').strip()==marker
                     if row.get('method')=='turn/completed':
                         turn=row.get('params',{}).get('turn',{});report['turnCompleted']=turn.get('status')=='completed'
+                        report['lastTurnStatus']=turn.get('status')
                         error=turn.get('error')
                         if error:report['turnErrorCode']=error.get('codexErrorInfo','unclassified')
                         break
@@ -284,10 +287,61 @@ stream_max_retries = 0
                         # Unexpected permission/tool requests are not auto-approved by this driver.
                         send({'id':row['id'],'error':{'code':-32601,'message':'Unexpected request in owned proof'}})
                         report['unexpectedServerRequest']=True
+            if getattr(args,'interrupt_tool',False):
+                pid_file=workspace/'command.pid'
+                while time.monotonic()<deadline and not pid_file.exists():
+                    row=receive(min(deadline,time.monotonic()+.1))
+                    if row:
+                        if row.get('method')=='turn/completed':raise RuntimeError('command_ended_before_interrupt')
+                        events.append(row)
+                assert pid_file.is_file(),'native_command_not_observed'
+                pid=int(pid_file.read_text().strip());command_proc=Path('/proc')/str(pid)
+                initial_marker_stat=(workspace/'proof.txt').stat()
+                assert command_proc.resolve().parent==Path('/proc') and (command_proc/'cwd').resolve()==workspace
+                assert marker.encode() in (command_proc/'cmdline').read_bytes(),'native_command_owner_mismatch'
+                def command_identity():
+                    try:
+                        stat=(command_proc/'stat').read_text();fields=stat[stat.rfind(')')+2:].split()
+                        report['nativeCommandState']=fields[0]
+                        return None if fields[0] in ['Z','X'] else fields[19]
+                    except FileNotFoundError:return None
+                identity=command_identity();assert identity
+                requests_before_stop=json.loads(proxy_proof.read_text())['requests']
+                rpc(41,'turn/interrupt',{'threadId':thread_id,'turnId':started['turn']['id']},deadline)
+                collect_turn()
+                report['nativeToolStopAccepted']=report.get('lastTurnStatus')=='interrupted'
+                for _ in range(50):
+                    if command_identity()!=identity:break
+                    time.sleep(.1)
+                report['turnInterruptLeftCommandRunning']=command_identity()==identity
+                if report['turnInterruptLeftCommandRunning']:
+                    # Interrupting model work need not terminate upstream-owned
+                    # background terminals. Use its explicit scoped control,
+                    # never guess an OS process or kill unrelated jobs.
+                    terminals=rpc(43,'thread/backgroundTerminals/list',{'threadId':thread_id,'limit':100},deadline)
+                    owned=[t for t in terminals['data'] if t['cwd']==str(workspace) and marker in t['command']]
+                    assert len(owned)==1,'native_terminal_owner_not_unique'
+                    terminated=rpc(44,'thread/backgroundTerminals/terminate',{'threadId':thread_id,'processId':owned[0]['processId']},deadline)
+                    report['explicitTerminalTermination']=terminated.get('terminated') is True
+                    remaining=rpc(45,'thread/backgroundTerminals/list',{'threadId':thread_id,'limit':100},deadline)
+                    report['ownedTerminalRemovedFromCore']=all(t['processId']!=owned[0]['processId'] for t in remaining['data'])
+                    assert report['ownedTerminalRemovedFromCore'],'native_terminal_registry_not_settled'
+                    for _ in range(50):
+                        if command_identity()!=identity:break
+                        time.sleep(.1)
+                report['nativeCommandExitedAfterStop']=command_identity()!=identity
+                report['stopWithoutProviderRequest']=json.loads(proxy_proof.read_text())['requests']==requests_before_stop
+                assert all(report.get(k) for k in ['nativeToolStopAccepted','nativeCommandExitedAfterStop','stopWithoutProviderRequest']),'native_stop_not_qualified'
+                events.clear()
+                rpc(42,'turn/start',{'threadId':thread_id,'input':[{'type':'text','text':f'Say LOCAL_INTERMEDIATE_REPORT. Read the current proof.txt with one shell call. Preserve the file; do not rerun the interrupted command. Final answer exactly {marker}. No other work.'}]},deadline)
             collect_turn()
             marker_file=workspace/'proof.txt'
             report['workspaceMarkerVerified']=marker_file.is_file() and marker_file.read_text().strip()==marker
-            report['realCoreToolLoopAccepted']=not args.account_free_wire and report['turnCompleted'] and report['shellToolCompleted'] and report['workspaceMarkerVerified'] and report['successfulShellCalls']>=2 and report['nativeReplyMatched']
+            report['realCoreToolLoopAccepted']=not args.account_free_wire and report['turnCompleted'] and report['shellToolCompleted'] and report['workspaceMarkerVerified'] and report['successfulShellCalls']>=(1 if getattr(args,'interrupt_tool',False) else 2) and report['nativeReplyMatched']
+            if getattr(args,'interrupt_tool',False):
+                current=marker_file.stat()
+                report['resumePreservedExistingFile']=all(getattr(initial_marker_stat,k)==getattr(current,k) for k in ['st_ino','st_mtime_ns','st_size'])
+                report['realCoreToolLoopAccepted'] &= report['resumePreservedExistingFile']
             if getattr(args,'transcript_check',False):
                 stored=rpc(81,'thread/read',{'threadId':thread_id,'includeTurns':True},deadline)
                 items=[item for turn in stored['thread']['turns'] for item in turn['items']]

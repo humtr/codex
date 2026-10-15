@@ -37,7 +37,7 @@ def bounded_app(runtime_path):
                 except subprocess.TimeoutExpired:child.kill();child.wait(timeout=5)
 
 
-def probe(bun, bridge, session=None, trace_path=None):
+def probe(bun, bridge, session=None, trace_path=None,interrupt_tool=False):
     with tempfile.TemporaryDirectory(prefix='local-core-', dir=os.environ['TMPDIR']) as temporary:
         root = Path(temporary)
         with (root/'adapter.log').open('w') as log:
@@ -45,7 +45,7 @@ def probe(bun, bridge, session=None, trace_path=None):
                 command=[str(bun),str(Path(__file__).with_name('desktop_local_core_trace.mjs')),str(bridge),str(session),str(root)]
             else:
                 command=[str(bun),str(Path(__file__).with_name('desktop_local_core_fixture.mjs')),str(bridge),str(root)]
-            child = subprocess.Popen(command, stdout=log, stderr=log, env={**os.environ,'CODEX_CHAT_RETURN_TRANSPORT':'local','CODEX_CHAT_LOCAL_MAX_DISPATCHES':'3'})
+            child = subprocess.Popen(command, stdout=log, stderr=log, env={**os.environ,'CODEX_CHAT_RETURN_TRANSPORT':'local','CODEX_CHAT_LOCAL_MAX_DISPATCHES':'3','CODEX_LOCAL_PROBE_INTERRUPT_TOOL':'1' if interrupt_tool else '0'})
             try:
                 binding = root/'server.json'
                 deadline = time.monotonic()+10
@@ -56,8 +56,12 @@ def probe(bun, bridge, session=None, trace_path=None):
                 args = argparse.Namespace(desktop_server=binding, model='chatgpt-desktop/gpt-6',
                     account_free_wire=False, compact=False, cancel_resume=False,
                     app_name='owned-local-return-fixture', effort='none', transcript_check=True,
-                    mid_turn_compact=False,tui_trace_path=root/'native-tui.txt')
-                result = core_probe(args)
+                    mid_turn_compact=False,tui_trace_path=root/'native-tui.txt',interrupt_tool=interrupt_tool)
+                try:result = core_probe(args)
+                except Exception as error:
+                    result=getattr(error,'probe_report',{})
+                    result.setdefault('realCoreToolLoopAccepted',False)
+                    result['probeFailureClass']=type(error).__name__
                 state = json.loads(Path(str(binding)+'.proof').read_text())
                 if trace_path and (root/'public-trace.json').exists():
                     trace_path.write_bytes((root/'public-trace.json').read_bytes());trace_path.chmod(0o600)
@@ -73,7 +77,7 @@ def probe(bun, bridge, session=None, trace_path=None):
                     fixtureToolSubmissions=state['toolResultSubmissions'],
                     fixtureDispatches=state.get('selectedControl', {}).get('dispatches'),
                     adapterError=state.get('errorCode'), nativeFailure=state.get('nativeFailure'), returnTransport=state['returnTransport'])
-                result['accepted'] = result.pop('realCoreToolLoopAccepted') and result['fixtureUserSubmissions']==1 and result['fixtureToolSubmissions']==2 and result['fixtureDispatches']==3 and not result['adapterError'] and all(result.get(k,False) for k in ['persistedReportCheck','coldTranscriptRestored','resumeWithoutModelRequest','renderWithoutModelRequest']) and all(result.get('renderedTranscript',{}).get(k) for k in ['initial','intermediate','final'])
+                result['accepted'] = result.pop('realCoreToolLoopAccepted') and result['fixtureUserSubmissions']==(2 if interrupt_tool else 1) and result['fixtureToolSubmissions']==2 and result['fixtureDispatches']==3 and not result['adapterError'] and all(result.get(k,False) for k in ['persistedReportCheck','coldTranscriptRestored','resumeWithoutModelRequest','renderWithoutModelRequest']) and all(result.get('renderedTranscript',{}).get(k) for k in ['initial','intermediate','final'])
                 return result
             finally:
                 child.terminate()
@@ -90,15 +94,16 @@ if __name__ == '__main__':
         parser.add_argument('--'+name, type=Path, required=True)
     parser.add_argument('--live-session',type=Path,help='Explicit bounded live proof, at most three native generation starts; never Pro')
     parser.add_argument('--bounded-runtime',type=Path,help='Start an otherwise stopped trial app for at most 300 seconds and close only that owned controller')
+    parser.add_argument('--interrupt-tool',action='store_true',help='Interrupt an owned real native command, then resume without replaying its mutation')
     args = parser.parse_args()
     assert not(args.live_session and args.bounded_runtime)
     trace=args.report.with_name(args.report.stem+'-public-trace.json')
     if args.bounded_runtime:
         with bounded_app(args.bounded_runtime) as runtime:
             assert Path(runtime['bun'])==args.bun and Path(runtime['bridge'])==args.bridge
-            result=probe(args.bun,args.bridge,Path(runtime['session']),trace)
+            result=probe(args.bun,args.bridge,Path(runtime['session']),trace,args.interrupt_tool)
     else:
-        result = probe(args.bun, args.bridge,args.live_session,trace)
+        result = probe(args.bun, args.bridge,args.live_session,trace,args.interrupt_tool)
     args.report.write_text(json.dumps(result, indent=2)+'\n')
     args.report.chmod(0o600)
     print(json.dumps(result))

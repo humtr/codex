@@ -53,6 +53,30 @@ GPT-6 Instant. Use private report paths. The bounded runtime refuses an already
 running desktop and stops only its own controller. See CURRENT.md for exact proofs,
 failed-trial costs and remaining gates; do not use this probe as an installer.
 
+`desktop_local_core_probe.py --interrupt-tool` adds a real native-command stop and
+resume scenario. It uses upstream thread interruption and, if the command remains
+running, exact-thread background-terminal termination. This test is explicit full
+stop, not a change to ordinary Ctrl-C semantics. The result and real resume input
+share one completion; adjacent Core user records share one actual Chat message.
+The live proof passes with2 user messages,2 returned tool messages and3 starts,
+preserving the existing file and cold TUI transcript. Default probes remain offline.
+
+For zero-model MCP inspection use `desktop_mcp_inspect.mjs RUNTIME REPORT NAME
+--tools-from-cache` inside a bounded owned app. It uses the existing installed
+connection's cached identity and a private metadata query client. It does not
+install a plugin, execute tools, change Tdev or prove retained MCP settlement.
+The current name remains a user-selected existing connection, not a wire constant.
+
+`desktop_mcp_channel_probe.py` temporarily connects only a stopped trial tunnel,
+checking for another owner first. Its stdlib stdio tap rejects development tools;
+only a read-only inventory request with a synthetic unregistered turn token reaches
+the historical target. The resulting refusal traverses the real tunnel and is
+paired by RPC ID. `tools/list` alone was cached. Actual initialization observed
+2025-11-25; it was not repeated in the subsequent retained-connection observation.
+This qualifies metadata/error delivery, with zero Chat inference and no Core work.
+It is not independent retained MCP settlement or ordinary-model acceptance.
+See CURRENT.md for the separate raw/assessed evidence and120-second host boundary.
+
 There is no required `Codex Native2` protocol name. That was the upstream browser
 default copied into our old probe. The signed-app text adapter does not select an
 MCP connector at all. Browser probes now require `--connector-name` matching the

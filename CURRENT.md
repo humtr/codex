@@ -94,8 +94,15 @@ fixtures pass entry into Chat and return to native, including backend catalog
 binding, same PID/PTY/thread/home, sibling defaults and preserved configuration.
 The upstream `--profile chatgpt` fallback passes the same actual Android
 round-trip probe with zero inference, alongside legacy/named permission cases.
-The first CI fails before test execution on an error-type conversion in the new
-test, fixed in a20c58d; complete native qualification38657053854 is pending.
+The first CI failed before test execution on an error-type conversion in the new
+test, fixed in a20c58d. Run38657053854 then built the CLI but failed the actual
+TUI socket-output rejection test: upstream AbsolutePathBuf::from_absolute_path
+resolves relative input against CWD. Fixf5e7304 checks the original path is
+absolute and uses from_absolute_path_checked; added tilde/UTF-8 cases. Both
+frontend patches apply against pristine97901140, and the exact helper passes its
+2 Android-host tests with the real upstream path dependency (hostRust1.99,
+separately resolved dependencies). Complete pinnedRust1.95 native frontend
+qualification38699918319 is running; the helper test alone is not that gate.
 Cross-provider compaction/resume and real Chat model-use remain unqualified.
 Local affected acceptance passes77 Python tests and323 Rust tests, with one
 existing ignored resolver smoke, plus fmt/Clippy/diff. The first full run was
@@ -278,19 +285,93 @@ before its API can start; registration/restoration is inert. The real HTTP adapt
 with deterministic app port also passes two actual Core commands, gateway reports,
 cold persistence and TUI rendering (`chat-local-core-render-offline.json`). These
 are explicitly distinguished from signed-app/model proof. Private synthetic traces
-allow report mapping to be replayed without new inference. Affected Bun tests50,
-experiment Python tests32 and repository Python gates18+59 pass. The unchanged
+allow report mapping to be replayed without new inference. Affected Bun tests52,
+experiment Python tests34 and repository Python gates18+59 pass. The unchanged
 Rust inputs passed the full gate:323 tests, one existing ignored resolver smoke,
 fmt/Clippy. Installed payload561 file hashes match its manifest, source46db05e/
 bridge92a356f; no operating activation or public release occurred.
 
-Next: qualify the selected ordinary-Chat MCP connector/channel before independently
-implementing retained settlement through the same projection. Then qualify actual
+### Interrupted tools and MCP discovery
+
+The local source now returns pending tool outputs and new Core user/developer
+context in one native completion. Adjacent user records, including Core's
+interruption notice, become one actual user message with preserved content/order.
+There is no extra tool-only generation before the genuine resume request. Missing,
+duplicated or reordered results/input refuse before dispatch. Accounting separates
+actual user messages, tool messages and model starts, including parallel batches.
+
+`chat-local-stop-resume-live.json` in the private acceptance root passes actual
+signed-app GPT-6 Instant + Core: interrupt the initial native command, explicitly
+terminate its background terminal, return its exact output plus new user input,
+read the current file and answer correctly. Content/inode/mtime/size remain
+unchanged, so the existing mutation was not replayed. All three reports persist
+and cold Core/TUI restore them with no new model request. This follow-up's only
+real Chat trial observed2 user messages,2 tool messages and3 model starts, no Pro
+or retry. Earlier interrupt-only/fixture failures used zero Chat and remain saved.
+
+Control distinction: `turn/interrupt` acknowledges an interrupted turn while an
+upstream unified-exec command may still run. The fixture lists terminals in its
+exact thread, matches its owned command/cwd and calls the existing upstream
+`thread/backgroundTerminals/terminate` with that processId. The command exits
+without another provider request. Zombie state is distinguished from a running
+PID. No OS-PID guessing or other job termination is introduced. This qualifies
+explicit control; ordinary Ctrl-C has not been changed to kill all background jobs.
+
+`desktop_mcp_inspect.mjs` performs signed-app metadata inspection with model starts
+blocked and an explicit existing connection name. Global durable app-list refresh
+timed out. Cached plugin lookup plus a private query client's first-party known-ID
+read succeeds: the existing `Codex Native2` connection exposes6 definitions,
+codex_exec, codex_write_stdin, codex_apply_patch, codex_view_image,
+codex_tool_inventory and codex_tool_call. These are the historical reference
+server's definitions, not our independent settlement transport. This discovery
+invoked no tools, changed no global query/online settings or exported credentials. Proofs:
+`chat-mcp-app-list-timeout.json`, `chat-mcp-app-discovery.json` and
+`chat-mcp-known-app-tools.json`. The old isolated trial tunnel is stopped; the two
+running tunnel processes belong to Tdev and were preserved.
+
+The subsequent bounded real-channel probe starts only the otherwise stopped trial
+tunnel, pins its Android binary, requires a positive control-plane poll and wraps
+the existing trial stdio target. `tools/list` returns from host cache with no stdio
+request; it is not live-channel proof. Two later metadata inventory requests use
+unregistered synthetic turn tokens and invoke no Core work. StdIO observes actual
+MCP2025-11-25 initialize/response (client capability keys experimental/extensions,
+server tools), exact tools/call request/response IDs and isError refusal. The
+first-party app receives expected HTTP400 identifying the absent broker/turn.
+The next observation does not repeat initialize; do not require fresh negotiation
+for every retained host connection or assume a new backend version from a new ID.
+Extension values were not captured; this does not establish Tasks or sampling.
+
+`chat-mcp-channel-qualified.json` is an explicitly labelled offline assessment of
+`chat-mcp-channel-wire-refusal.json` and `chat-mcp-channel-metadata.json`, with
+their hashes preserved. It qualifies negative metadata delivery only, not an
+ordinary Chat model, successful Core settlement or the full MCP lifecycle. The
+raw trials with their original failed fresh-initialize gate remain unchanged.
+All channel trials used zero Chat/model requests; the real development-model
+budget remains the three-start local stop/resume trial above. Trial profiles,
+keys and operating Tdev profiles remain unchanged; owned tunnels/app are stopped.
+A fixture failure came from importing user-site PyYAML under an isolated HOME;
+the stdio tap now uses only Python's standard library and private JSON argv input.
+
+The current [official Secure MCP Tunnel documentation](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels)
+specifies a default120-second absolute hosted request budget, including queue
+time; progress does not extend it. This refines the earlier source-only timeout
+review below. It is a hosted-channel limit, not a universal MCP deadline. Long Core
+tools and user approval can exceed it; progress cannot solve that boundary. The
+independent MCP path must qualify host async/poll support or an equivalent safe
+continuation while Core retains ownership, rather than imposing a short native
+tool timeout or replaying the action. Preserve Core execution errors as result
+data; distinguish them from genuine MCP transport/auth/owner errors. The observed
+negative widget RPC does not prove the ordinary model's success/error handling.
+
+Next: independently implement retained MCP settlement through the shared projection,
+using the observed stdio boundary; qualify actual ordinary-model connector binding
+before its live two-call proof. Keep the bounded negative metadata probe separate
+from full-mode acceptance. Then qualify actual
 approval/reviewer and user-input interactions, stop during generation and native
 execution, observer loss/recovery, independent owners, warm/cold continuation,
-catalog/search/custom tools and long-history/cross-provider compaction. The new
-local path currently rejects new user/developer input interleaved with pending
-results instead of dropping it; implement and prove that interruption/resume case.
+catalog/search/custom tools and long-history/cross-provider compaction. The local
+native-command interruption/resume case is now passed above; generation-time
+cancellation and observation-only detach/recovery remain separate gates.
 The shared server still has explicit media/opaque-history admission limits; do not
 claim the complete native tool/context surface is qualified from this shell task.
 Only after those gates compare costs and select/install a default. Keep both

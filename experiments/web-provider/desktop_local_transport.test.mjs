@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {DesktopLocalTransport,installLocalAppHooks,localAppOperation,invokeLocalOperation} from './desktop_local_transport.mjs';
+import {DesktopLocalTransport,installLocalAppHooks,localAppOperation,invokeLocalOperation,pendingNativeContext} from './desktop_local_transport.mjs';
 import {chatModelRoute} from './desktop_model_controls.mjs';
 
 const tools=[{name:'shell',wireName:'shell',parameters:{type:'object'}},{name:'patch',wireName:'patch',freeform:true}];
@@ -15,7 +15,7 @@ function fixture(rounds){
   if(method==='close')return true;
   if(method==='submit'){submits.push(data);round++;return true;}
   const messages=rounds[round].map(m=>m.call?{id:m.call.id,author:{role:'assistant'},recipient:'local.'+gateway,status:'finished_successfully',content:{content_type:'code',text:JSON.stringify({name:m.call.name,input:m.call.input,report:m.call.report??''})}}:m);
-  return {messages,accepted:true,roundDispatched:1,terminals:['done'],userSubmissions:1,toolSubmissions:round,dispatches:round+1};
+  return {messages,accepted:true,roundDispatched:1,terminals:['done'],userSubmissions:submits.reduce((n,s)=>n+(s.prompt?1:0)+(s.contextMessages||[]).filter(m=>m.role==='user').length,0),toolSubmissions:submits.reduce((n,s)=>n+(s.results?.length||0),0),dispatches:round+1};
  }});
  const exchange=(payload=task)=>transport.exchange(payload,undefined,e=>events.push(e),undefined,undefined,route,e=>events.push(e));
  return {transport,submits,events,operations,exchange,releases:()=>releases};
@@ -36,6 +36,22 @@ test('local calls -> exact Core outputs -> final report: no result-phase user pr
   assert.deepEqual(f.events.filter(e=>e.type==='text_delta').map(e=>e.text),['확인합니다.','다음 확인입니다.','완료했습니다.']);
   assert.equal(f.transport.selectedControl.dispatches,3);
  }finally{await f.transport.close();}assert.equal(f.releases(),1);
+});
+test('an interrupted result and genuine new user instruction resume together, without another tool-only generation',async()=>{
+ const f=fixture([[{call:{id:'interrupted',name:'shell',input:'{}'}}],[publicText('final','resumed','final')]]);
+ try{
+  await f.exchange();
+  const result={role:'toolResult',toolCallId:'interrupted',toolName:'shell',content:'Command interrupted',isError:true};
+  const user={role:'user',content:'Continue from the latest files. Do not rerun the interrupted mutation.'};
+  const final=await f.exchange({...task,messages:[...task.messages,result,user]});
+  assert.equal(final.text,'resumed');assert.equal(f.submits.length,2);
+  assert.deepEqual(f.submits[1].contextMessages,[user]);assert.equal(f.submits[1].results[0].result.isError,true);
+  assert.equal(f.submits[1].prompt,undefined);
+  assert.deepEqual(f.events.filter(e=>e.kind).map(e=>[e.kind,e.userMessages,e.toolMessages]),[['user',1,0],['mixed',1,1]]);
+  assert.equal(f.transport.selectedControl.dispatches,2);
+ }finally{await f.transport.close();}
+ const batch=[{call:{id:'interrupted'}}];
+ assert.throws(()=>pendingNativeContext([{role:'user',content:'earlier'},{role:'toolResult',toolCallId:'interrupted'}],batch),/pending_context_order/);
 });
 test('parallel outputs return in one batch; missing or duplicate results cannot start generation',async()=>{
  const f=fixture([[{call:{id:'a',name:'shell',input:'{}'}},{call:{id:'b',name:'shell',input:'{}'}}],[publicText('final','done','final')]]);
@@ -106,6 +122,12 @@ test('batched app result publication uses tool messages, preserves IDs and exclu
   mapping.new={message:publicText('new','fresh','final')};assert.deepEqual((await localAppOperation('fixture','a','snapshot')).messages.map(m=>m.id),['new']);
   await localAppOperation('fixture','a','submit',{model:{model:'gpt-6'},results:[{id:'third',result:{content:'c'}}]});
   assert.equal(writes[1].kind,'single');assert.equal(writes[1].data.callId,'third');
+  await localAppOperation('fixture','a','submit',{model:{model:'gpt-6'},results:[{id:'fourth',result:{content:'interrupted',isError:true}}],contextMessages:[{role:'user',content:'turn aborted'},{role:'user',content:'resume latest'}]});
+  const mixed=writes[2].data;
+  assert.equal(mixed.userCompletionMessages.message.author.role,'user');
+  assert.deepEqual(mixed.prependMessages.map(m=>[m.author.role,JSON.parse(m.content.text).call_id]),[['tool','fourth']]);
+  assert.ok(mixed.userCompletionMessages.message.content.parts[0].includes('resume latest'));
+  assert.ok(mixed.userCompletionMessages.message.content.parts[0].includes('turn aborted'));
  }finally{delete globalThis.window;}
 });
 test('an ambiguous dispatched failure blocks a new generation even after retire',async()=>{

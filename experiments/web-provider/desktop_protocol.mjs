@@ -80,10 +80,14 @@ export function admitDesktopRequest(raw,parseRequest){
 // Submission observation precedes the reply/ACK; neither observation proves quota.
 export function recordDesktopSubmission(report,event,route){
  if(!['context','request'].includes(event.phase)||!['app_accepted','app_dispatched','ui_observed'].includes(event.source))throw Error('invalid_desktop_submission');
- if(event.kind==='tool'){report.toolResultSubmissions=(report.toolResultSubmissions||0)+1;return;}
- if(event.kind!==undefined&&event.kind!=='user')throw Error('invalid_desktop_submission');
- report.observedChatSubmissions++;
+ if(![undefined,'user','tool','mixed'].includes(event.kind))throw Error('invalid_desktop_submission');
+ const users=event.userMessages??(event.kind==='tool'?0:1),tools=event.toolMessages??(['tool','mixed'].includes(event.kind)?1:0);
+ if(!Number.isSafeInteger(users)||users<0||!Number.isSafeInteger(tools)||tools<0||users+tools===0||event.kind==='tool'&&users!==0||!['tool','mixed'].includes(event.kind)&&tools!==0||event.kind==='mixed'&&(!users||!tools))throw Error('invalid_desktop_submission');
+ report.toolResultSubmissions=(report.toolResultSubmissions||0)+tools;
+ report.observedChatSubmissions+=users;
  report.submissionSources[event.source]=(report.submissionSources[event.source]||0)+1;
+ if(event.source==='app_dispatched')report.observedNativeDispatches=(report.observedNativeDispatches||0)+1;
+ if(!users)return;
  if(event.phase==='context')report.submittedContextRequests++;
  else{report.submittedRequests++;if(route.mode==='pro')report.submittedProRequests++;}
 }

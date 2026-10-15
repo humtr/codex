@@ -6,6 +6,18 @@ import {DesktopToolSession,localToolCall,localToolSignature} from './desktop_too
 
 const expression=(fn,...args)=>`(${fn.toString()})(${args.map(x=>JSON.stringify(x)??'undefined').join(',')},(${installLocalAppHooks.toString()}))`;
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
+export function pendingNativeContext(messages,batch){
+ if(!batch.length)return [];
+ const ids=new Set(batch.map(x=>x.call.id));
+ const end=messages.reduce((last,m,i)=>m.role==='toolResult'&&ids.has(m.toolCallId)?i:last,-1);
+ const context=[];
+ for(const [index,message] of messages.entries()){
+  if(!['user','developer','agentMessage'].includes(message.role))continue;
+  if(message.role==='agentMessage'||index<end||end<0)throw Error('desktop_native_pending_context_order');
+  context.push(message);
+ }
+ return context;
+}
 export async function invokeLocalOperation(lease,lane,method,data){
  const code=expression(localAppOperation,lease.scopeKey,lane,method,data);
  const allowed=['desktop_internal_unavailable','desktop_native_capability_unavailable','desktop_native_declaration_unavailable','desktop_native_owner_conflict','desktop_native_owner_missing','desktop_native_operation_invalid','desktop_native_trial_budget_invalid','desktop_native_trial_budget_exhausted','desktop_native_dispatch_replayed','desktop_native_dispatch_invalid'];
@@ -57,14 +69,14 @@ export function installLocalAppHooks(s,shared){
     if(!ids||l.dispatches.has(ids))throw Error('desktop_native_dispatch_replayed');
     const roles=request.messages.map(m=>m.author?.role);
     // Mwi's extraDeveloperInstructions are Csi system messages on this app wire.
-    if(roles.some(r=>!['user','tool','system','assistant'].includes(r))||!roles.includes('user')&&!roles.includes('tool')||l.requestKind==='tool'&&roles.includes('user'))throw Error('desktop_native_dispatch_invalid');
+    if(roles.some(r=>!['user','tool','system','assistant'].includes(r))||!roles.includes('user')&&!roles.includes('tool')||l.requestKind==='tool'&&roles.includes('user')||l.requestKind==='mixed'&&(!roles.includes('user')||!roles.includes('tool')))throw Error('desktop_native_dispatch_invalid');
     l.dispatches.add(ids);l.roundDispatched++;
     const before=opts.chatgptSse?.onBeforeRequestStart;
     return state.saved.streamPost.call(this,path,{...opts,retry:undefined,chatgptSse:{...opts.chatgptSse,onBeforeRequestStart(r){
      if(l.starts.has(ids))throw Error('desktop_native_dispatch_replayed');
      if(s.nativeBudget&&s.nativeBudget.used>=s.nativeBudget.limit)throw Error('desktop_native_trial_budget_exhausted');
      before?.(r);if(s.nativeBudget)s.nativeBudget.used++;l.starts.add(ids);
-     if(roles.includes('user'))l.userSubmissions++;else l.toolSubmissions++;
+     l.userSubmissions+=roles.filter(r=>r==='user').length;l.toolSubmissions+=roles.filter(r=>r==='tool').length;
     }}});
    };
    api.streamPost=state.wrapped.streamPost;
@@ -91,17 +103,25 @@ export async function localAppOperation(key,lane,operation,data={},installHooks)
  if(operation==='submit'){
   l.olderIds=new Set(Object.values(s.scope.get(s.m.JRn,l.id)||{}).map(n=>n.message?.id).filter(Boolean));
   l.messages.clear();l.terminals=[];l.roundDispatched=0;l.accepted=false;l.error=undefined;
-  l.requestKind=data.results?.length?'tool':'user';
+  l.requestKind=data.results?.length?(data.contextMessages?.some(m=>m.role==='user')?'mixed':'tool'):'user';
   const model=data.model,onServerThreadIdChange=id=>{l.serverId=id;};
   l.controller=new AbortController();
   const options={conversationId:l.id,isTemporaryChat:false,...model,onServerThreadIdChange};
   let pending;
-  if(data.results?.length===1&&!data.developerInstructions?.length){
+  if(data.results?.length===1&&!data.developerInstructions?.length&&!data.contextMessages?.length){
    const r=data.results[0];pending=s.m.bRt(s.scope,{...options,callId:r.id,toolName:l.signature.name,result:r.result});
   }else if(data.results?.length){
    // Same Hwi wire shape; prepend all but the last result so a parallel batch
    // resumes once, after all outputs, instead of generating once per output.
    const messages=data.results.map(r=>({author:{metadata:{},name:l.signature.name,role:'tool'},channel:'commentary',content:{content_type:'code',text:JSON.stringify({call_id:r.id,result:r.result,tool:l.signature.name})},create_time:null,end_turn:null,id:crypto.randomUUID(),metadata:{is_visually_hidden_from_conversation:true},recipient:'all',status:'finished_successfully',update_time:null,weight:1}));
+   const groups=[];
+   for(const m of data.contextMessages||[]){
+    if(!['user','developer'].includes(m.role))throw Error('desktop_native_dispatch_invalid');
+    if(groups.at(-1)?.role===m.role)groups.at(-1).messages.push(m);else groups.push({role:m.role,messages:[m]});
+   }
+   for(const group of groups){
+    messages.push({id:crypto.randomUUID(),author:{role:group.role==='user'?'user':'system'},content:{content_type:'text',parts:['Native ordered '+group.role+' context:\n'+JSON.stringify(group.messages)]},metadata:{is_visually_hidden_from_conversation:group.role!=='user'},recipient:'all',status:'finished_successfully',end_turn:null});
+   }
    pending=s.m.yRt(s.scope,{...options,prompt:'',daybreakContinuationMessageId:data.results[0].id,prependMessages:messages.slice(0,-1),
     userCompletionMessages:{message:messages.at(-1),extraDeveloperInstructionMessages:(data.developerInstructions||[]).map(text=>({id:crypto.randomUUID(),author:{role:'system'},content:{content_type:'text',parts:[text]},metadata:{is_visually_hidden_from_conversation:true}}))},requireResponseAcceptance:true,startupSignal:l.controller.signal});
   }else{
@@ -149,7 +169,7 @@ export class DesktopLocalTransport{
   const lease=this.lease;if(!lease)return;
   this.lease=undefined;
   this.closing=(async()=>{try{await this.invoke(lease,this.lane,'close');}
-   finally{lease.release();this.dispatched=0;}})();
+   finally{lease.release();this.dispatched=0;this.observedCounts=undefined;}})();
   try{await this.closing;}finally{this.closing=undefined;}
  }
  async prepare(){
@@ -175,7 +195,7 @@ export class DesktopLocalTransport{
    const op=(method,data)=>this.invoke(this.lease,this.lane,method,data);
    const boundary={route,generation:this.lease.client.generation};
    const prepared=this.context.prepare(payload,boundary),batch=this.projection.results(payload.messages);
-   if(batch.length&&prepared.delta.messages.some(m=>['user','developer','agentMessage'].includes(m.role)))throw Error('desktop_native_pending_input_unavailable');
+   const contextMessages=pendingNativeContext(prepared.delta.messages,batch);
    const instructions=[];
    if(prepared.delta.instructions!==undefined)instructions.push(...prepared.delta.instructions);
    if(prepared.delta.tools!==undefined)instructions.push('Native Codex tool catalog (preserve names, schemas and custom input):\n'+JSON.stringify(payload.tools));
@@ -183,12 +203,16 @@ export class DesktopLocalTransport{
     instructions.unshift('You are the model doing this native Codex development task. Give genuine user-facing initial replies, intermediate reports and a final answer. Include your brief public initial reply in the first tool call report field, and useful intermediate findings in later tool call report fields. Core displays that field as commentary before executing the tool, without another model round. Honor requested report text. Use only local.'+this.gateway+' for native tools; never imitate a tool call or fabricate its result. For JSON tools encode arguments as input JSON; custom/freeform input is exact source. Never hand off to Work/Codex or use desktop builtin tools instead.');
    }
    sent=true;
-   await op('submit',{model,developerInstructions:instructions,...batch.length?{results:batch.map(({call,result})=>({id:call.id,result}))}:{prompt:this.lane+'\nNative ordered task context:\n'+JSON.stringify(prepared.delta.messages)}});
+   await op('submit',{model,developerInstructions:instructions,...batch.length?{results:batch.map(({call,result})=>({id:call.id,result})),contextMessages}:{prompt:this.lane+'\nNative ordered task context:\n'+JSON.stringify(prepared.delta.messages)}});
    if(batch.length)this.projection.returned(batch);
    let acknowledged=false;const deadline=Date.now()+this.timeoutMs,roundCalls=[];
    while(Date.now()<deadline){
     signal?.throwIfAborted();const state=await op('snapshot');
-    if(state.dispatches>(this.dispatched||0)&&!acknowledged){acknowledged=true;onSubmitted({phase:'request',source:'app_dispatched',kind:batch.length?'tool':'user',dispatchedAt:Date.now()});}
+    if(state.dispatches>(this.dispatched||0)&&!acknowledged){
+     const userMessages=state.userSubmissions-(this.observedCounts?.user||0),toolMessages=state.toolSubmissions-(this.observedCounts?.tool||0);
+     acknowledged=true;onSubmitted({phase:'request',source:'app_dispatched',kind:toolMessages?(userMessages?'mixed':'tool'):'user',userMessages,toolMessages,dispatchedAt:Date.now()});
+     this.observedCounts={user:state.userSubmissions,tool:state.toolSubmissions};
+    }
     if(state.error){this.diagnostic=state.submitFailure;throw Error(state.error);}
     let final;
     for(const message of state.messages){

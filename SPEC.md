@@ -3286,6 +3286,13 @@ selection is explicit at candidate startup and stable across a pending call.
 Neither a local function result nor an MCP response is a new user instruction.
 Count user submissions, tool-role submissions, model dispatches and local HTTP
 sampling rounds separately; no such count establishes Chat allowance deduction.
+If Core resumes an interrupted native tool with its exact result and a genuinely
+new user instruction, return both in one ordered native completion: original tool
+results precede the new input. Count both submission kinds and one model start;
+do not create an extra tool-only generation or fabricate a user continuation.
+Coalesce adjacent Core user-context records (including its interruption notice)
+into one actual user message while preserving their content and order.
+Incomplete, duplicated or reordered pending results must refuse before dispatch.
 
 Local-function calls may use a schema-preserving catalog with a typed gateway
 for arbitrary native tool names and JSON/custom input. Original remote call IDs
