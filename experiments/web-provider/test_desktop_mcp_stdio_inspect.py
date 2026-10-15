@@ -1,4 +1,5 @@
 """The metadata tap forwards only the explicit unbound inventory call."""
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -62,6 +63,8 @@ for line in sys.stdin:
         self.assertEqual(wire[0]['protocolVersion'], '2025-11-25')
         request, response = wire[-2:]
         self.assertTrue(request['metadataProbe'])
+        self.assertEqual(request['turnTokenSha256'],
+                         hashlib.sha256(b'owned_unbound_test').hexdigest())
         self.assertEqual(request['id'], response['id'])
         self.assertEqual(response['method'], 'tools/call')
         self.assertNotIn('owned_unbound_test', json.dumps(wire))

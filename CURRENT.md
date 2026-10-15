@@ -346,8 +346,7 @@ Extension values were not captured; this does not establish Tasks or sampling.
 their hashes preserved. It qualifies negative metadata delivery only, not an
 ordinary Chat model, successful Core settlement or the full MCP lifecycle. The
 raw trials with their original failed fresh-initialize gate remain unchanged.
-All channel trials used zero Chat/model requests; the real development-model
-budget remains the three-start local stop/resume trial above. Trial profiles,
+These metadata-only channel trials used zero Chat/model requests. Trial profiles,
 keys and operating Tdev profiles remain unchanged; owned tunnels/app are stopped.
 A fixture failure came from importing user-site PyYAML under an isolated HOME;
 the stdio tap now uses only Python's standard library and private JSON argv input.
@@ -363,9 +362,46 @@ tool timeout or replaying the action. Preserve Core execution errors as result
 data; distinguish them from genuine MCP transport/auth/owner errors. The observed
 negative widget RPC does not prove the ordinary model's success/error handling.
 
+`chat-mcp-ordinary-model.json` subsequently passes ordinary signed-app GPT-6
+Instant connector binding. Preannounced budget:1 initial Chat submission, no Pro
+or automatic retry. One outbound app request contains1 user message and0 tool
+messages. Exactly1 inventory call reaches the actual stdio target with the exact
+synthetic token hash and returns an exact-ID isError; the model then produces the
+requested final marker. The app store observes2 assistant tool calls and2 tool
+messages; their kinds were not exported. This proves the host can continue after
+a genuine MCP error without another adapter user submission. It does not prove
+successful Core settlement, model billing/allowance deduction, or an internal
+model-generation count. `modelStarts=1` here measures the native app dispatch,
+not hidden host inference rounds. The raw report's constant coreExecutions field
+is a fixture restriction, not an independent execution audit.
+
+The trial keeps both operating Tdev clients and original profiles unchanged;
+its owned tunnel and desktop are closed. `chat-mcp-ordinary-dry.json` qualifies
+the pre-send guard at0 starts. The subsequent source additionally removes local
+Work/handoff declarations for this metadata-only probe, refuses them again at
+the API boundary, preserves unowned traffic and restores exact method identities.
+Two direct hook tests cover exclusion, restoration and the single-start budget;
+`chat-mcp-ordinary-executor-guard-dry.json` passes with0 starts. Do not count these source
+hardening checks as a repeat live connector trial. This follow-up phase used the
+3 native app starts in the Core stop/resume trial plus1 in the MCP metadata trial;
+no automatic inference retries or Pro calls occurred.
+
+The wire ID is0 again in the ordinary-model call although the synthetic token is
+different from earlier widget calls. It cannot be a global native-call identity.
+Pinned tunnel source0f870e5 forwards logical calls on shared process-affine stdio
+and serializes request lifecycles; after a deadline it preserves the pipes,
+tombstones the expired ID, and aliases a later colliding ID while dropping the
+old response (`pkg/mcpclient/{shared_connection_transport,
+serialized_forwarding_transport}.go`). It does not guarantee that expired work
+stops or that a late output reaches the host. Independent settlement therefore
+needs its own owner-scoped logical call identity/result retention and a confirmed
+delivery distinction; do not deduplicate different invocations by raw RPC ID or
+repair the host by forcing IDs to stay fixed. Protocol2026 self-contained support
+in the tunnel source is not ordinary-model Tasks/async acceptance.
+
 Next: independently implement retained MCP settlement through the shared projection,
-using the observed stdio boundary; qualify actual ordinary-model connector binding
-before its live two-call proof. Keep the bounded negative metadata probe separate
+using the observed ordinary-model/stdio boundary and explicit native call identity.
+Keep the bounded negative metadata probe separate
 from full-mode acceptance. Then qualify actual
 approval/reviewer and user-input interactions, stop during generation and native
 execution, observer loss/recovery, independent owners, warm/cold continuation,

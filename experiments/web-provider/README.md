@@ -77,6 +77,16 @@ This qualifies metadata/error delivery, with zero Chat inference and no Core wor
 It is not independent retained MCP settlement or ordinary-model acceptance.
 See CURRENT.md for the separate raw/assessed evidence and120-second host boundary.
 
+`--ordinary-model` explicitly permits1 GPT-6 Instant app dispatch through
+`desktop_mcp_model_probe.mjs`; default inspection still uses0. The metadata tap
+forbids development execution, the app probe disables local Work/handoff tools,
+and the exact synthetic token hash and RPC response must match. No retries/Pro.
+The initial live trial passes connector invocation, expected error and final
+answer with1 outbound user message. It is not a real Core result-return trial.
+Run the app probe with `--dry-run` to block before native dispatch instead.
+These app-dispatch/message counters do not measure hidden host model rounds or
+Chat allowance deductions. See CURRENT.md for proof/source-hardening distinctions.
+
 There is no required `Codex Native2` protocol name. That was the upstream browser
 default copied into our old probe. The signed-app text adapter does not select an
 MCP connector at all. Browser probes now require `--connector-name` matching the

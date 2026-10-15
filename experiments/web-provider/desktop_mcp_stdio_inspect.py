@@ -27,7 +27,9 @@ async def main(target, evidence):
                 params=row.get('params',{})
                 safe.update(protocolVersion=params.get('protocolVersion'),capabilities=list(params.get('capabilities',{})))
             metadata_call=method=='tools/call' and row.get('params',{}).get('name')=='codex_tool_inventory' and str(row.get('params',{}).get('arguments',{}).get('turn_token','')).startswith('owned_unbound_')
-            if method=='tools/call':safe['metadataProbe']=metadata_call
+            if method=='tools/call':
+                safe['metadataProbe']=metadata_call
+                if metadata_call:safe['turnTokenSha256']=hashlib.sha256(row['params']['arguments']['turn_token'].encode()).hexdigest()
             note(safe)
             if method=='tools/call' and not metadata_call:
                 # A metadata probe must not start real development work.

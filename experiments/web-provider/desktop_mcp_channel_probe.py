@@ -1,4 +1,4 @@
-"""Bounded real tunnel metadata proof; no Chat inference or tool execution."""
+"""Bounded metadata proof; no execution. --ordinary-model permits one Chat start."""
 import argparse
 import hashlib
 import json
@@ -34,7 +34,8 @@ def run(args):
                 path=Path(parts[parts.index('--profile-dir')+1])/(parts[parts.index('--profile')+1]+'.yaml')
                 assert yaml.safe_load(path.read_text()).get('control_plane',{}).get('tunnel_id')!=trial_id,'existing_tunnel_owner_must_be_preserved'
         except (FileNotFoundError,PermissionError,ProcessLookupError):continue
-    result={'qualification':'metadata-negative-delivery-only','ordinaryChatModel':False,'modelStarts':0,'toolExecutions':0,'operatingProviderChanged':False,'profileSha256':before[args.profile],'tunnelBinarySha256':TUNNEL_SHA}
+    ordinary=getattr(args,'ordinary_model',False)
+    result={'qualification':'ordinary-model-negative-delivery-only' if ordinary else 'metadata-negative-delivery-only','ordinaryChatModel':ordinary,'modelStarts':None if ordinary else 0,'nativeToolExecutionsPermitted':False,'operatingProviderChanged':False,'profileSha256':before[args.profile],'tunnelBinarySha256':TUNNEL_SHA}
     with tempfile.TemporaryDirectory(prefix='mcp-channel-',dir=os.environ['TMPDIR']) as temporary:
         root=Path(temporary);root.chmod(0o700)
         profiles=root/'profiles';profiles.mkdir(mode=0o700)
@@ -72,7 +73,9 @@ def run(args):
                     time.sleep(.2)
                 assert result.get('actualControlPlanePoll'),'actual_poll_required'
                 with bounded_app(args.runtime) as runtime:
-                    proc=subprocess.run([runtime['bun'],str(SOURCE/'desktop_mcp_inspect.mjs'),str(args.runtime),str(root/'app.json'),args.connector_name,'--tools-from-cache','--channel-inventory'],capture_output=True,timeout=125)
+                    command=[runtime['bun'],str(SOURCE/('desktop_mcp_model_probe.mjs' if ordinary else 'desktop_mcp_inspect.mjs')),str(args.runtime),str(root/'app.json'),args.connector_name]
+                    if not ordinary:command+=['--tools-from-cache','--channel-inventory']
+                    proc=subprocess.run(command,capture_output=True,timeout=125)
                     result['appExitCode']=proc.returncode
             except Exception as error:
                 result['failureClass']=type(error).__name__
@@ -100,13 +103,21 @@ def run(args):
     # This gate proves only the negative delivery, not new session negotiation.
     result['wireAccepted']=bool(all(result.get(k) for k in ['localReady','actualControlPlanePoll','metadataRequestValidated','actualMetadataRefusalReturned','ownedTunnelStopped','protectedProfilesUnchanged']) and result.get('metadataCalls')==1)
     app=result.get('app',{})
-    result['accepted']=bool(result['wireAccepted'] and result.get('appExitCode')==0 and app.get('metadataCall') and app.get('errorFlags',{}).get('unbound') and app.get('modelStarts')==0 and app.get('blockedAttempts')==0)
+    if ordinary:
+        result['modelStarts']=app.get('modelStarts')
+        result['submissionUnknown']=app.get('submissionUnknown',result['modelStarts'] is None)
+        result['exactModelTurnToken']=any(r.get('metadataProbe') and r.get('turnTokenSha256')==app.get('turnTokenSha256') for r in result['wire'])
+        result['accepted']=bool(result['wireAccepted'] and result['exactModelTurnToken'] and result.get('appExitCode')==0 and app.get('accepted') and app.get('modelStarts')==1 and app.get('userMessages')==1 and app.get('toolMessages')==0 and not result['submissionUnknown'])
+    else:
+        result['accepted']=bool(result['wireAccepted'] and result.get('appExitCode')==0 and app.get('metadataCall') and app.get('errorFlags',{}).get('unbound') and app.get('modelStarts')==0 and app.get('blockedAttempts')==0)
     return result
 
 
 if __name__=='__main__':
     os.umask(0o077);parser=argparse.ArgumentParser()
     for name in ['binary','profile','runtime','report']:parser.add_argument('--'+name,type=Path,required=True)
-    parser.add_argument('--connector-name',required=True);args=parser.parse_args()
+    parser.add_argument('--connector-name',required=True)
+    parser.add_argument('--ordinary-model',action='store_true',help='Explicit live ordinary-Chat test, at most one app request start; no Pro/retry/native execution')
+    args=parser.parse_args()
     report=run(args);args.report.write_text(json.dumps(report,indent=2)+'\n');args.report.chmod(0o600)
     print(json.dumps(report));raise SystemExit(0 if report['accepted'] else 1)
