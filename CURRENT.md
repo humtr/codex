@@ -6,6 +6,24 @@ This repository carries no external workflow skill or model configuration.
 
 ## Operating baseline
 
+- Opt-in ChatGPT provider is now installed as d7513cc7785f3d5dbcef, source717bd94
+  on experiment/web-termux, with durable `returnTransport=local`. The installed
+  shared authentication command and actual service pass two real stable51 Core
+  commands, initial/intermediate/final public reports, persisted history, cold
+  Core resume and actual TUI rendering. Observed1 user message/2 tool-role returns/
+  3 app starts; Chat allowance deduction remains unmeasured. All590 new payload
+  files verify; the old561-file payload,13 protected config/auth/state files and
+  both existing Tdev process identities are unchanged. Full checks pass Rust323/
+  one existing ignored, Python18+59, fmt/Clippy; experiment Python41 and Bun71.
+  A first cold-start trial failed before any Chat submission; after inert native
+  Scope checks and adapter restart the installed path passed. The original cause
+  is unconfirmed; content-free class/source-line diagnosis is now installed.
+  Private proofs: chat-local-installed-runtime.json,
+  chat-local-installed-runtime-first-failure.json, chat-local-install-protected.json.
+  This is user-authorized device experiment activation, not public stable/Core
+  promotion. Core/frontend remain stable51; the newer merged-catalog correction
+  and independent MCP host path remain uninstalled/unqualified respectively.
+  The newly installed service was qualified through shared `--profile chatgpt`.
 - Public and installed stable51: local-hosted-0-161-0-17e1b52b0d77-s51,
   CLI0.161.0, accepted implementation17e1b52. Publication38557559491 passes all
   eight jobs: Android execution, signing, complete public readback/disposable
@@ -403,10 +421,12 @@ This repository carries no external workflow skill or model configuration.
   Source tests pass52 local-return Bun cases,2 metadata hook cases and34
   experiment Python cases. Unchanged Rust acceptance remains323 tests/one
   pre-existing ignored, fmt/Clippy. These are candidate gates.
-  The source selector is explicit; installed provider46db05e/bridge92a356f stays
-  unchanged, with561 manifest hashes verified. MCP settlement, generation-time
+  During that source qualification provider46db05e/bridge92a356f stayed
+  unchanged, with561 manifest hashes verified. The authorized local installation
+  is now recorded in Operating baseline. MCP settlement, generation-time
   stop/observation recovery, approvals, independent-owner and long-history/context
-  acceptance remain before default selection or activation. Detailed current state and private proof names:
+  acceptance remain open; device experimental activation is not their full
+  qualification or a public promotion. Detailed current state and private proof names:
   [experiment CURRENT](https://github.com/humtr/codex/blob/experiment/web-termux/CURRENT.md#native-local-return-candidate-current-implementation-and-proof).
   Experimentec9f1f0's bounded ordinary-model MCP metadata proof passes:1 outbound
   GPT-6 Instant app dispatch/1 user message, exact-token inventory call through the real trial
@@ -499,8 +519,9 @@ This repository carries no external workflow skill or model configuration.
   become interrupted during an owned local command, whose process exits; stop
   sends no additional provider HTTP request. This control candidate is not wired
   to MCP, and ephemeral threads reject the tested history APIs. Keep cancellation
-  behavior until those gaps are resolved. No installed runtime change or Chat
-  inference was performed; production remains stable51/provider46db05e.
+  behavior until those gaps are resolved. Those source tests performed no runtime
+  activation or Chat inference. Current device provider and unchanged signed
+  stable51 baseline are recorded in Operating baseline.
   Review-only CoS reference: totec448-spec/chat-on-steroids2.1.37 at2d1c86e adds
   precise caller attribution, retained result-delivery and ambiguous-dispatch
   invariants. It is its own MCP executor, not a Responses provider. Automatic
