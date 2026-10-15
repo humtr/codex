@@ -467,8 +467,15 @@ This repository carries no external workflow skill or model configuration.
   schemas, approval, stop/resume and transcript remain gates. GPT Actions
   is a real non-MCP REST path, but belongs to Custom GPTs; official plugin migration
   does not carry custom actions over. It is not a recommended new long-term base.
-  Prefer the qualified native return path for the next candidate before adding an
-  MCP broker/tunnel. Detailed live/source evidence is on experiment/web-termux;
+  Source tracing explains the boundary: bRt creates a fresh tool message without
+  original working/exchange metadata and starts action=next. Correct call-ID
+  pairing does not imply a retained host exchange. The app uses those IDs for
+  grouping/stream correlation; no ID-to-ordinary-Chat-limit mapping was established.
+  Scoped approval/async ID inheritance is not a generic callback guarantee.
+  Native remains a low-debt candidate, not a demonstrated quota-saving winner;
+  compare a true awaited callback and a properly scoped Chat counter before that
+  choice. Follow-up ID review used zero inference and changed no runtime.
+  Detailed live/source evidence is on experiment/web-termux;
   private proofs are ~/.cache/codex/acceptance/chat-local-function-live.json and
   chat-local-function-chain.json. Two app streamPost entries were observed in
   the first successful probe; an earlier browser
