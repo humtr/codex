@@ -257,9 +257,10 @@ Remaining order; no runtime activation or real Chat submission performed:
    necessary internally. Preserve data roles, whole schemas and final-work separation.
    Offline replay/byte-boundary tests precede any real submit. Measure work, setup,
    tool-result, guardian, compact and retry submissions independently of quota.
-3. Qualify a minimal native-Chat MCP continuation using the existing bridge's
-   full-mode broker/turn-execution code, already present in installed source,
-   through the existing adapter/tunnel
+3. Independently implement a minimal native-Chat MCP continuation, using miuuyy's
+   full-mode flow as a reference rather than importing its broker/turn executor.
+   Use AgentDock as the lifecycle reference, adapted to our exact Core turn APIs.
+   Exercise the existing adapter/tunnel
    path, without tdev as executor or another agent. Chat-issued calls should become
    ordinary Core tool calls; actual Core results should satisfy the original MCP
    call while the same Chat turn continues. This is a transport replacement, not
@@ -293,11 +294,82 @@ credentials, active runtime and conversations are preserved.
 diff checks; the separate Android HTTP/catalog proofs above cover the affected
 real request paths without inference. An installed/live Chat gate remains open.
 
-The installed6.1.5 broker was exercised over its real temporary Unix socket:
+Historical reference proof: the installed6.1.5 broker was exercised over its real temporary Unix socket:
 parallel exact-ID replay, one-time pending result resolution, completion fences,
 observer abort with retained turn, explicit revoke/late-call rejection and sibling
 survival pass. No Chat, tunnel or Core inference occurred; this proves reusable
 broker mechanics, not a live connector or durable pending promises after restart.
+
+## Chat On Steroids reference review
+
+Review-only source inspection on2026-10-15: original repository
+totec448-spec/chat-on-steroids, commit2d1c86efed698ed759e17efded4e12ca2d78b28e,
+package2.1.37/MIT. GitHub identifies dikoweii/chatonsteroids as its fork, not an
+independent design. The reference was cloned only under TMPDIR; no dependencies,
+installer, service, extension, tests or Chat inference were executed. Its tests
+were read as intended regression coverage, not reproduced acceptance.
+
+The product is a browser ChatGPT-to-local-MCP executor with its own sessions,
+not a Codex Responses model provider. Do not adopt its executor, durable history,
+Goal helper, browser extension or desktop app as another operating authority.
+Useful principles to implement independently in this repository:
+
+- `src/main/session/correlation.ts` joins provider request IDs to exact observed
+  conversations; active tab, timing and tool names are not owner evidence. One
+  workflow request ID can contain many tool calls. Our binding additionally needs
+  Core home/backend/thread/turn, remote conversation/generation and distinct call
+  IDs; never use a workflow ID as per-call deduplication. This reference's browser
+  evidence cannot be assumed present in our signed app.
+- `src/main/codex/unified-exec.ts:acknowledgeCompletedOutput/offerCompletedOutput`
+  retain output until publication and a later owner receipt, reoffering a failed
+  publication without rerunning the command. Socket finish is weaker than remote
+  receipt, and neither proves user-visible rendering. Use exact Core results for
+  retained MCP responses; do not copy its process manager or treat its later-call
+  receipt heuristic as exact per-call acknowledgement.
+- `src/main/mcp/call-context.ts` separates machine-changing work from recorder
+  settlement. Our compaction/switch barrier must settle real Core operations and
+  canonical history before rebinding; an HTTP response ending or a bookkeeping
+  counter reaching zero cannot establish that the machine stopped changing.
+- `src/main/session/continuation.ts` separates preparation from ambiguous dispatch,
+  reserves a single replacement owner, and commits durable state before publishing
+  the new mapping. A dispatched-but-unconfirmed prompt is not automatically
+  replayed. Adapt this invariant to Core-owned checkpoints, not a second session
+  WAL. An adapter restart does not make old in-memory MCP promises recoverable.
+- `src/main/mcp/code-mode-tool.ts` batches nested tool calls and emits selected
+  outputs; this is bounded composition, not another model reasoning loop. Keep
+  the native Core tool surface, including existing code mode; add no QuickJS
+  runtime, reduced schemas or duplicate filesystem/network executor. Batching may
+  reduce calls/context but does not measure Chat-limit deduction.
+- `src/main/bridge.ts:stopSessionTurn` exposes exact-turn stop pending and explicitly
+  leaves native cancellation unconfirmed. This is a useful display distinction,
+  not a proof of killed local work. Our lifecycle implementation follows the
+  requested AgentDock distinction: observation detach, explicit stop, confirmed
+  Core/tool outcome and unknown/timeout must remain different states.
+
+Avoid adopting automatic recovery/Goal as an inference-free fix.
+`docs/recovery-inventory.md` describes bounded reload/reopen repairs that may queue
+automatic Continue; these can add Chat submissions. `src/main/goal.ts` selects
+another model/helper to author follow-up user messages, so it adds both decisions
+and submissions. `src/main/session/finish.ts` holds a tool for up to25 seconds and
+returns HELD/RELEASED; its own comment says HELD is an instruction, not a server
+lock on finalization. It can return eligible queued input through a tool result,
+but cannot establish user/developer role equivalence, perpetual turn retention,
+reliable provider stop, or quota savings. Do not add this as a mandatory finish
+tool or Pro test.
+
+Implementation consequence: retain the previously selected split (miuuyy flow
+reference, AgentDock lifecycle reference, independently written Core binding).
+CoS adds exact ownership, result-delivery and ambiguous-dispatch regression cases;
+it does not replace our signed-app transport or resolve its MCP/Temporary Chat
+availability gate. Next offline proof must use two sequential and parallel native
+calls, duplicate/reordered result delivery, observer detach/reconnect, exact-turn
+stop and sibling survival, interrupted compaction, and restart with ambiguous
+dispatch. Assert zero result-phase user submits and no repeated native effects.
+Then the minimal separately explained real trial is one accepted non-Pro Chat
+task with two harmless Core calls and a final answer, with context/retry/review
+submissions counted separately. User-visible progress, stop outcome and latest
+Core resume need actual client observations; server send/output retention alone
+are insufficient. No implementation or operational change followed this review.
 The official installed Android backend also accepts a synthetic merged startup
 catalog with the same12 parsed native tools as its Chat-only startup catalog;
 per-thread override still fails. This qualifies startup metadata placement only,
