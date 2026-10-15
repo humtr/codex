@@ -7,7 +7,7 @@ This repository carries no external workflow skill or model configuration.
 ## Operating baseline
 
 Signed production authority is [rewrite/rust-core CURRENT.md](https://github.com/humtr/codex/blob/rewrite/rust-core/CURRENT.md).
-The current device/public generation is stable51 (CLI0.161.0); older installed
+The current device/public generation is stable52 (CLI0.161.0); older installed
 processes retain their loaded images. This branch owns opt-in provider experiments,
 not a parallel production activation pointer or release authority.
 
@@ -28,8 +28,10 @@ are now installed; retain the negative proof instead of calling it a fixed cause
 Private proofs: chat-local-installed-runtime.json,
 chat-local-installed-runtime-first-failure.json and chat-local-install-protected.json.
 The independent MCP candidate remains unselected and its cached host schema is
-unqualified. Core/frontend remain signed stable51: the newer upstream-resolved
-catalog correction is source/device-qualified, not an installed public release.
+unqualified. Core/frontend are signed stable52: the upstream-resolved catalog
+correction passes source/device qualification and ordinary signed activation.
+Fourteen protected files and seven live process identities survive activation;
+no additional Chat inference was submitted. Production CURRENT owns that proof.
 Use the shared `--profile chatgpt` path for this newly installed qualification.
 
 ## Implementation ownership and connector identity
@@ -201,23 +203,12 @@ publish prompts, tool results, credentials or raw conversation records.
 
 Required follow-up, before claiming ordinary `/model` use is qualified:
 
-1. Finish frontend build and actual TUI qualification of resolved-catalog startup.
-   The minimal candidate uses the frontend's existing upstream config loader and
-   Core's existing server/retirement implementation, without a TOML loader, new
-   executor, dependency or proxy for native inference. A global merged catalog/
-   model router was considered: it also changes native inference, auth and compact
-   routing and would introduce an optional adapter dependency into that path.
-   The bounded startup fix therefore precedes reload removal. Catalogs are keyed
-   by exact bytes/home/runtime, not model/effort or a mutable source filename.
-   Their private `catalogs` records leave the native `servers` rendezvous unchanged;
-   current Manager discovers both, while older readers can ignore the new family.
-   Keep per-account native inference and otherwise independent Chat login.
-   Qualify the actual frontend selection/resume path, native siblings and retired
-   catalog generations before activation. No pristine upstream backend is patched.
-   Once startup is qualified, bypass re-entry for changes within the same Chat
-   provider using upstream model/effort actions; keep the session-only guard
-   independent so Chat slugs cannot become the native default. Cross-provider
-   re-entry and its compaction handoff remain separate from this smaller saving.
+1. Catalog startup is qualified and installed in signed stable52; do not repeat
+   its passing native41-test and Android menu/permission gates without changed
+   inputs. For a smaller later saving, bypass frontend re-entry for changes within
+   the same Chat provider using upstream model/effort actions. Keep the session-only
+   guard independent so Chat slugs cannot become the native default. Cross-provider
+   re-entry and its compaction handoff remain separate from this optimization.
 2. Establish a compatible old-provider compaction/new-provider resume boundary
    for long histories, preserving canonical history, permissions and sibling
    routes. Do not bypass the defect by deleting history or silently truncating it.
@@ -237,9 +228,10 @@ Required follow-up, before claiming ordinary `/model` use is qualified:
    manual internal compaction and inference-free menu round trips retain their
    narrow scope; they are not proof for these failing combinations.
 
-Runtime/catalog/cross-provider compaction repair and real Chat inference remain
-unfinished; bounded body decoding and pre-parser checkpoint rejection now have
-source fixes and actual Android no-inference proof. Explain
+Catalog routing is released in stable52; the installed local transport has the
+bounded real Core loop proof recorded above. Long cross-provider compaction and
+its real-inference combinations remain unfinished. Bounded body decoding and
+pre-parser checkpoint rejection have source fixes and Android no-inference proof. Explain
 trial necessity and expected submissions before performing real inference.
 Chat message submission/limit accounting is a separate review, not a diagnosis
 or resolution of these model-use failures.
