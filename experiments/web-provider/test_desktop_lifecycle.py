@@ -35,6 +35,20 @@ class LifecycleTests(unittest.TestCase):
         with patch.object(life,'ready',return_value=False),patch.object(life,'live',return_value={'pid':os.getpid()}),patch.object(life,'desktop') as desktop:
             with self.assertRaisesRegex(RuntimeError,'live_adapter_not_ready'):life.ensure(self.path)
             desktop.assert_not_called()
+    def test_installed_transport_must_match_authenticated_binding(self):
+        value={**self.runtime,'returnTransport':'text'}
+        self.assertTrue(life.server_matches(self.runtime,value))
+        configured={**self.runtime,'returnTransport':'local'}
+        self.assertFalse(life.server_matches(configured,value))
+        self.assertTrue(life.server_matches(configured,{**value,'returnTransport':'local'}))
+    def test_failed_startup_settles_only_new_adapter(self):
+        self.runtime.update(source=str(self.root),bun='owned-bun',bridge='owned-bridge');write(self.path,self.runtime)
+        log=self.root/'adapter.log'
+        with patch.object(life,'ready',return_value=False),patch.object(life,'live',return_value=None),patch.object(life,'port_free'),patch.object(life,'desktop'),patch.object(life,'wait_for',side_effect=RuntimeError('trial_startup_timeout')),patch.object(life.subprocess,'Popen') as spawn:
+            spawn.return_value.poll.return_value=None
+            with self.assertRaisesRegex(RuntimeError,'trial_startup_timeout'):life.ensure(self.path)
+            spawn.return_value.terminate.assert_called_once();spawn.return_value.wait.assert_called_once_with(timeout=5)
+        self.assertTrue(log.exists())
     def test_readiness_never_sends_bearer_to_unproven_listener(self):
         import http.server,threading
         seen=[]

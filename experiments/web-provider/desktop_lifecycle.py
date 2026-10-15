@@ -90,7 +90,8 @@ def desktop(runtime,deadline):
 
 
 def server_matches(runtime,server):
-    return bool(server and all(server.get(k)==runtime[k] for k in ['baseUrl','token','model']))
+    return bool(server and all(server.get(k)==runtime[k] for k in ['baseUrl','token','model'])
+                and ('returnTransport' not in runtime or server.get('returnTransport')==runtime['returnTransport']))
 
 
 def ready(runtime):
@@ -130,7 +131,14 @@ def ensure(path=RUNTIME,*,desktop_only=False,timeout=110):
             command=[runtime['bun'],str(Path(runtime['source'])/'desktop_responses_server.mjs'),runtime['bridge'],runtime['session'],runtime['binding'],str(path)]
             with (data/'adapter.log').open('a') as output:
                 child=subprocess.Popen(command,stdin=subprocess.DEVNULL,stdout=output,stderr=output,start_new_session=True)
-            wait_for(lambda:ready(runtime),deadline,child)
+            try:wait_for(lambda:ready(runtime),deadline,child)
+            except Exception:
+                # Only the child created by this bootstrap, never an existing
+                # adapter or the shared signed desktop.
+                if child.poll() is None:child.terminate()
+                try:child.wait(timeout=5)
+                except subprocess.TimeoutExpired:child.kill();child.wait(timeout=5)
+                raise
         return runtime
     finally:os.close(fd)
 

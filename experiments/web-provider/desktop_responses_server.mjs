@@ -39,7 +39,7 @@ async function ensureDesktop(signal){
  try{signal.throwIfAborted();if(await child.exited!==0)throw Error('desktop_bootstrap_failed');signal.throwIfAborted();}
  finally{signal.removeEventListener('abort',cancel);}
 }
-const returnTransport=process.env.CODEX_CHAT_RETURN_TRANSPORT||'text';
+const returnTransport=runtime?.returnTransport??process.env.CODEX_CHAT_RETURN_TRANSPORT??'text';
 if(!['text','local','mcp'].includes(returnTransport))throw Error('unsupported_chat_return_transport');
 const mcpConnectorName=process.env.CODEX_CHAT_MCP_CONNECTOR_NAME;
 if(returnTransport==='mcp'&&!mcpConnectorName?.trim())throw Error('mcp_connector_required');
@@ -128,7 +128,7 @@ const server=Bun.serve({hostname:'127.0.0.1',port:runtime?Number(new URL(runtime
 }});
 const stat=readFileSync(`/proc/${process.pid}/stat`,'utf8');
 const stateTemporary=statePath+'.'+randomBytes(6).toString('hex');
-writeFileSync(stateTemporary,JSON.stringify({baseUrl:'http://127.0.0.1:'+server.port+'/v1',token,model,pid:process.pid,start:stat.slice(stat.lastIndexOf(')')+2).split(' ')[19],image:readlinkSync(`/proc/${process.pid}/exe`),...mcpSocket?{mcpSocket}:{}}),{mode:0o600,flag:'wx'});renameSync(stateTemporary,statePath);
+writeFileSync(stateTemporary,JSON.stringify({baseUrl:'http://127.0.0.1:'+server.port+'/v1',token,model,pid:process.pid,start:stat.slice(stat.lastIndexOf(')')+2).split(' ')[19],image:readlinkSync(`/proc/${process.pid}/exe`),returnTransport,...mcpSocket?{mcpSocket}:{}}),{mode:0o600,flag:'wx'});renameSync(stateTemporary,statePath);
 save();
 console.log(JSON.stringify({desktopResponsesReady:true,model,production:false}));
 let stopping=false;

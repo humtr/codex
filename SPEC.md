@@ -3279,10 +3279,16 @@ history. No second executor, model agent, job service or transcript database is
 introduced. Tools include namespaces, custom/freeform and deferred search; a
 transport gateway must not silently remove or rewrite these capabilities.
 
-The default installed text/envelope transport is historical qualification only.
-Keep it unchanged until a new candidate passes affected acceptance; never switch
-an already dispatched task to another transport on an ambiguous failure. Route
-selection is explicit at candidate startup and stable across a pending call.
+The installed text/envelope transport is historical qualification only.
+An explicitly authorized experimental installation may select the qualified local
+path in its private runtime descriptor. Reinstallation preserves that selection;
+an inherited shell environment cannot override it. This is not a public stable
+promotion or qualification of the unfinished MCP/observer-recovery paths. Never
+switch an already dispatched task to another transport on an ambiguous failure.
+Installation refuses a live adapter before changing its descriptor, starts and
+authenticates the new adapter, and restores the previous descriptor on startup
+failure. It does not stop existing user tasks or replace an active desktop.
+Route selection is explicit at candidate startup and stable across a pending call.
 Neither a local function result nor an MCP response is a new user instruction.
 Count user submissions, tool-role submissions, model dispatches and local HTTP
 sampling rounds separately; no such count establishes Chat allowance deduction.

@@ -10,7 +10,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
-from desktop_lifecycle import DATA,RUNTIME,endpoint,ensure
+from desktop_lifecycle import DATA,RUNTIME,endpoint,ensure,live
 from open_dual_trial import record
 from desktop_provider_profile import install,server_record,register_home
 from linux_desktop_trial import PROOT_SOURCE,private,write
@@ -95,25 +95,35 @@ def build(args):
 
 
 def activate(args):
-    if RUNTIME.exists() or RUNTIME.is_symlink():ensure(RUNTIME)
-    previous=server_record(DATA/'server.json')
+    old=record(RUNTIME) if RUNTIME.exists() or RUNTIME.is_symlink() else None
+    if old and live(Path(old['binding'])):raise RuntimeError('provider_update_requires_stopped_adapter')
+    previous=old if old else server_record(DATA/'server.json')
     endpoint(previous)
     target,manifest=build(args)
     runtime={k:previous[k] for k in ['baseUrl','token','model']}
     runtime.update({'source':str(target/'source'),'bun':str(target/'bun'),'bridge':str(target/'bridge.mjs'),'proot':str(target/'proot'),'novnc':str(target/'novnc'),
-                    'session':str(Path.home()/'.local/share/codex-web-experiment/linux-desktop/session.json'),'binding':str(DATA/'server.json'),'installation':str(target), 'production':False})
-    if RUNTIME.exists():
-        old=record(RUNTIME);assert all(old[k]==runtime[k] for k in ['baseUrl','token','model'])
-    # Do not stop processes here. Migration/qualification must settle native jobs first.
+                    'session':str(Path.home()/'.local/share/codex-web-experiment/linux-desktop/session.json'),'binding':str(DATA/'server.json'),'installation':str(target), 'production':False,
+                    'returnTransport':getattr(args,'return_transport',None) or previous.get('returnTransport','text')})
+    assert runtime['returnTransport'] in ['text','local'],'installed_return_transport_unqualified'
+    # Recheck after building; never replace the descriptor of a newly started job.
+    if old:
+        assert record(RUNTIME)==old,'runtime_changed_during_install'
+        if live(Path(old['binding'])):raise RuntimeError('provider_update_requires_stopped_adapter')
     write(RUNTIME,runtime)
+    try:ensure(RUNTIME)
+    except Exception:
+        # Bootstrap has settled its own failed adapter; no old task was stopped.
+        if old:write(RUNTIME,old)
+        else:RUNTIME.unlink()
+        raise
     registry=private(Path.home()/'.local/share/codex/core/config/profiles')
     install(DATA/'server.json',registry,args.catalog,RUNTIME)
     shared=registry/'chatgpt.config.toml'
     registrations=[register_home(home,shared) for home in args.home]
-    print(json.dumps({'installed':True,'permanentPaths':True,'bridgeBundled':True,'sharedRegistration':True,'homesRegistered':sum(registrations),'localOverridesPreserved':len(registrations)-sum(registrations),'production':False,'installation':target.name}))
+    print(json.dumps({'installed':True,'permanentPaths':True,'bridgeBundled':True,'sharedRegistration':True,'homesRegistered':sum(registrations),'localOverridesPreserved':len(registrations)-sum(registrations),'production':False,'installation':target.name,'returnTransport':runtime['returnTransport']}))
 
 
 if __name__=='__main__':
     os.umask(0o077)
-    p=argparse.ArgumentParser();p.add_argument('--bridge',type=Path);p.add_argument('--proot',type=Path);p.add_argument('--novnc',type=Path);p.add_argument('--bun',type=Path);p.add_argument('--catalog',type=Path,default=DATA/'models.json');p.add_argument('--home',type=Path,action='append',default=[]);a=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('--bridge',type=Path);p.add_argument('--proot',type=Path);p.add_argument('--novnc',type=Path);p.add_argument('--bun',type=Path);p.add_argument('--catalog',type=Path,default=DATA/'models.json');p.add_argument('--home',type=Path,action='append',default=[]);p.add_argument('--return-transport',choices=['text','local']);a=p.parse_args()
     activate(a)
