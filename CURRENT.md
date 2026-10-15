@@ -433,9 +433,14 @@ This repository carries no external workflow skill or model configuration.
   fails: internal app-store reads reduce visible-DOM dependence but still require
   the app renderer/Scope/CDP. Current finished-only reads, generic abort-on-error
   cleanup and provider-independent heartbeat need separate lifecycle/visibility
-  treatment. Plan default factual native status plus optional expanded output and
-  exact-conversation viewer; observer/display recovery must add no user prompts,
-  restart no actions and never equate heartbeat with progress. Actual rendering,
+  treatment. Responses-specific review narrows display to existing native Core
+  events first; extra status/viewer features are optional, not a provider gate.
+  Sampling completion is distinct from a Core turn ending. HTTP cancellation can
+  mean genuine Ctrl-C, while during tool execution no Responses request may be
+  open. Retained MCP mode therefore requires qualified exact-turn control evidence;
+  never detach all HTTP aborts or assume arbitrary stream replay is supported.
+  Observer/display recovery must add no user prompts, restart no actions and never
+  equate heartbeat with progress. Actual rendering,
   observer-loss, heartbeat-only, stop and resume gates remain unqualified; detailed
   findings and fault matrix are in experiment/web-termux CURRENT.md.
 - `/model` is the primary opt-in selection; `--profile chatgpt` is its fallback.
