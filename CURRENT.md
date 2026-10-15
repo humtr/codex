@@ -386,8 +386,10 @@ This repository carries no external workflow skill or model configuration.
   fixture from27 submissions to2 while preserving schemas/history; no Chat quota
   deduction is measured. Admission errors and context/work submission accounting
   are now distinct on the experiment branch. First repair actual model-use boundaries.
-  The pinned bridge already contains full-mode MCP result continuation, which our
-  adapter has not connected; targeted reuse takes priority over a new broker.
+  The pinned bridge contains full-mode MCP result continuation, which our adapter
+  has not connected. At the user's direction, independently write our continuation
+  using miuuyy's flow and AgentDock's lifecycle as references, adapted to Core's
+  exact turn APIs; do not import their executors or another management plane.
   Ten further source comparisons support app-native submission plus targeted MCP
   continuation as the current candidate, not wholesale launcher/runtime adoption.
   Browserless Codex proxies and official SIWC use a different inference/allowance
@@ -419,6 +421,14 @@ This repository carries no external workflow skill or model configuration.
   to MCP, and ephemeral threads reject the tested history APIs. Keep cancellation
   behavior until those gaps are resolved. No installed runtime change or Chat
   inference was performed; production remains stable51/provider46db05e.
+  Review-only CoS reference: totec448-spec/chat-on-steroids2.1.37 at2d1c86e adds
+  precise caller attribution, retained result-delivery and ambiguous-dispatch
+  invariants. It is its own MCP executor, not a Responses provider. Automatic
+  Continue/Goal may add user submissions; session_finish's HELD is a model
+  instruction, not a provider finalization lock. Detailed source paths, limits
+  and independent implementation consequences are in experiment/web-termux
+  CURRENT.md. Reference code/tests were inspected but not executed; no Chat
+  submissions or runtime changes occurred.
 - `/model` is the primary opt-in selection; `--profile chatgpt` is its fallback.
   stable51 includes the qualified native menu and generic shared config projection.
   The provider remains an opt-in experiment, not a bundled Core dependency.
