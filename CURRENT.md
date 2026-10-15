@@ -55,6 +55,17 @@ This repository carries no external workflow skill or model configuration.
   retains0.161. Existing upstream title/history doctor warnings remain separate;
   user title/history data is not edited to conceal them.
 
+## Chat provider work ownership
+
+The [experiment current state and complete backlog](https://github.com/humtr/codex/blob/experiment/web-termux/CURRENT.md#active-remaining-work)
+owns the twelve remaining Chat-provider work areas, deferred models/media/phone
+presentation and their evidence boundaries. The current user-trial MCP tool-name
+failure is reproduced at the adapter admission boundary; candidate source repairs
+canonical catalog presentation, old-round observations and completed-sample
+recovery. Do not describe this source work as an installed or stable provider fix.
+Core stable52 remains independently accepted; unrelated upstream/update/doctor
+maintenance is separate from Chat acceptance.
+
 ## Termux permission resume correction
 
 - Source795a064 fixes native local resume dropping Core's no-sandbox default and
