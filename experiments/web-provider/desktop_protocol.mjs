@@ -1,3 +1,4 @@
+import {createHash} from 'node:crypto';
 import {chatModelRoute as validateDesktopRoute} from './desktop_model_controls.mjs';
 // Only bridge-issued calls participate in this live transcript; archived Core history stays Core-owned.
 export class DesktopTranscript{
@@ -26,11 +27,20 @@ export function desktopOutputInstructions(raw){
  if(format.type!=='json_schema'||!format.schema||typeof format.schema!=='object'||Array.isArray(format.schema))throw Error('unsupported_desktop_output_format');
  return ['The native final reply must match this exact output format. Put its JSON serialization in the final envelope text: '+JSON.stringify(format)];
 }
+export function requireAdvertisedTool(name,tools){
+ const tool=tools.find(t=>t.wireName===name);
+ if(tool)return tool;
+ const digest=value=>createHash('sha256').update(value).digest('hex');
+ const error=Error('unadvertised_tool');
+ error.toolDiagnostic={nameDigest:digest(String(name)),catalogDigest:digest(JSON.stringify(tools)),toolCount:tools.length,
+  nameClass:tools.some(t=>t.name===name)?'bare_name':tools.some(t=>t.namespace&&`${t.namespace}.${t.name}`===name)?'dotted_namespace':
+   tools.some(t=>t.namespace===name)?'namespace_only':'unknown'};
+ throw error;
+}
 export function validateEnvelope(response,tools){
  if(response.type==='final'&&typeof response.text==='string')return undefined;
  if(response.type!=='tool')throw Error('invalid_desktop_envelope');
- const tool=tools.find(t=>t.wireName===response.name);
- if(!tool)throw Error('unadvertised_tool');
+ const tool=requireAdvertisedTool(response.name,tools);
  if(tool.toolSearch&&(typeof response.input?.query!=='string'||!response.input.query.trim()||(response.input.limit!==undefined&&(!Number.isInteger(response.input.limit)||response.input.limit<1))))throw Error('invalid_tool_search');
  if(tool.freeform?typeof response.input!=='string':(!response.input||typeof response.input!=='object'||Array.isArray(response.input)))throw Error('invalid_tool_input');
  return tool;

@@ -130,11 +130,77 @@ test('batched app result publication uses tool messages, preserves IDs and exclu
   assert.ok(mixed.userCompletionMessages.message.content.parts[0].includes('turn aborted'));
  }finally{delete globalThis.window;}
 });
-test('an ambiguous dispatched failure blocks a new generation even after retire',async()=>{
- const f=fixture([[{call:{id:'a',name:'foreign',input:'{}'}}]]);
+test('a completed rejected sample requires new input, then rebuilds canonical history without replaying work',async()=>{
+ const f=fixture([[{call:{id:'rejected',name:'foreign',input:'{}'}}],[publicText('recovered','recovered','final')]]);
  await assert.rejects(()=>f.exchange(),/unadvertised_tool/);assert.equal(f.submits.length,1);
+ assert.equal(f.events.filter(e=>e.type==='tool_call_start').length,0);
+ assert.equal(f.transport.toolDiagnostic.nameClass,'unknown');
  f.transport.retire();await f.transport.retiring;
- await assert.rejects(()=>f.exchange(),/delivery_unknown/);assert.equal(f.submits.length,1);
+ await assert.rejects(()=>f.exchange(),/recovery_requires_new_input/);assert.equal(f.submits.length,1);
+ await assert.rejects(()=>f.exchange({...task,messages:[{role:'user',content:'replaced original history'}]}),/recovery_requires_new_input/);
+ const history=[...task.messages,{role:'assistant',content:'preserved result'},{role:'user',content:'Continue from the latest results.'}];
+ const acquire=f.transport.acquire;f.transport.acquire=async()=>{throw Error('owned_prepare_failed');};
+ await assert.rejects(()=>f.exchange({...task,messages:history}),/owned_prepare_failed/);
+ f.transport.acquire=acquire;
+ await assert.rejects(()=>f.exchange(),/recovery_requires_new_input/);assert.equal(f.submits.length,1);
+ const final=await f.exchange({...task,messages:history});
+ assert.equal(final.text,'recovered');assert.equal(f.submits.length,2);
+ assert.deepEqual(JSON.parse(f.submits[1].prompt.split('Native ordered task context:\n')[1]),history);
+ assert.ok(f.submits[1].developerInstructions.some(s=>s.includes('Native Codex tool catalog')));
+ await f.transport.close();
+});
+test('unknown dispatch outcome and failed cleanup remain blocked even with new user input',async()=>{
+ for(const failedCleanup of [false,true]){
+  const f=fixture([[{call:{id:'a',name:'foreign',input:'{}'}}]]),invoke=f.transport.invoke;
+  f.transport.invoke=async(...args)=>{
+   if(args[2]===(failedCleanup?'close':'snapshot'))throw Error('owned_observer_lost');
+   return invoke(...args);
+  };
+  await assert.rejects(()=>f.exchange(),failedCleanup?/unadvertised_tool/:/owned_observer_lost/);
+  f.transport.retire();await f.transport.retiring;
+  await assert.rejects(()=>f.exchange({...task,messages:[...task.messages,{role:'user',content:'resume'}]}),/delivery_unknown/);
+  assert.equal(f.submits.length,1);
+ }
+});
+test('dynamic search publishes a single canonical namespace name and returns the exact discovered call',async()=>{
+ const search={name:'tool_search',wireName:'tool_search',toolSearch:true,parameters:{type:'object'}};
+ const discovered={name:'_tdev_read',namespace:'mcp__codex_apps__tdev',wireName:'mcp__codex_apps__tdev___tdev_read',parameters:{type:'object',properties:{path:{type:'string'}}}};
+ const f=fixture([[{call:{id:'search',name:'tool_search',input:'{"query":"read"}'}}],
+  [{call:{id:'read',name:discovered.wireName,input:'{"path":"owned"}'}}],[publicText('final','done','final')]]);
+ const first={...task,tools:[search]};await f.exchange(first);
+ const messages=[...task.messages,{role:'toolResult',toolCallId:'search',toolName:'tool_search',content:'loaded '+discovered.wireName}];
+ const result=await f.exchange({...first,messages,tools:[search,discovered]});
+ assert.equal(result.calls[0].name,discovered.wireName);
+ const instruction=f.submits[1].developerInstructions.find(s=>s.startsWith('Native Codex tool catalog'));
+ const catalog=JSON.parse(instruction.slice(instruction.indexOf('\n')+1));
+ assert.deepEqual(catalog[1],{parameters:discovered.parameters,name:discovered.wireName});
+ assert.equal(f.submits[1].prompt,undefined);
+ messages.push({role:'toolResult',toolCallId:'read',toolName:'_tdev_read',toolNamespace:discovered.namespace,content:'owned output'});
+ await f.exchange({...first,messages,tools:[search,discovered]});
+ assert.deepEqual(f.submits.slice(1).map(s=>s.results.map(r=>r.id)),[['search'],['read']]);
+ await f.transport.close();
+});
+test('native calls wait for host completion and a later invalid call never publishes partial work',async()=>{
+ const f=fixture([[{call:{id:'valid',name:'shell',input:'{}'}}]]),invoke=f.transport.invoke;let snapshots=0;
+ f.transport.invoke=async(...args)=>{
+  const state=await invoke(...args);if(args[2]!=='snapshot')return state;
+  if(++snapshots===1)return {...state,terminals:[]};
+  return {...state,messages:[...state.messages,{id:'invalid',author:{role:'assistant'},recipient:state.messages[0].recipient,status:'finished_successfully',content:{text:JSON.stringify({name:'foreign',input:'{}',report:''})}}]};
+ };
+ await assert.rejects(()=>f.exchange(),/unadvertised_tool/);
+ assert.equal(f.events.filter(e=>e.type==='tool_call_start').length,0);
+ assert.equal(snapshots,2);assert.equal(f.submits.length,1);
+});
+test('decoded callbacks exclude prior message IDs and prior round completion/error',()=>{
+ const client={prepareCompletionStream:r=>r,startCompletionStream:o=>o},api={streamPost:(_path,o)=>o},gate={};
+ const s={scope:{get:n=>n===gate?true:client},m:{oMn:{}}};installLocalAppHooks(s,{HAt:gate,$wt:api});
+ const lane={id:'owned',signature:{name:'gateway'},messages:new Map(),olderIds:new Set(['old']),epoch:1,terminals:[]};s.native.lanes.set('a',lane);
+ const start=()=>client.startCompletionStream({request:{conversation_id:'owned',local_function_signatures:[{name:'handoff'}]}});
+ const first=start();first.onUpdate({message:{id:'old',author:{role:'assistant'}}});assert.equal(lane.messages.size,0);
+ lane.epoch=2;first.onDecodedEvent({message:{id:'late',author:{role:'assistant'}}});first.onComplete({reason:'done'});first.onError({});
+ assert.equal(lane.messages.size,0);assert.deepEqual(lane.terminals,[]);assert.equal(lane.error,undefined);
+ const second=start();second.onDecodedEvent({message:{id:'fresh',author:{role:'assistant'}}});second.onComplete({reason:'done'});
+ assert.deepEqual([...lane.messages.keys()],['fresh']);assert.deepEqual(lane.terminals,['done']);
 });
 test('serialized renderer operations accept omitted data and return only safe error codes',async()=>{
  const s={scope:{get:()=>({})},m:{JRn:{}},native:{lanes:new Map([['a',{id:'owned',messages:new Map(),olderIds:new Set(),starts:new Set(),terminals:[]} ]])}};

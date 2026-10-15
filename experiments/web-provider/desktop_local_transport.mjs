@@ -2,7 +2,7 @@
 import {randomBytes} from 'node:crypto';
 import {acquireDesktopApp,internalModel} from './desktop_app_transport.mjs';
 import {DesktopPromptContext} from './desktop_protocol.mjs';
-import {DesktopToolSession,localToolCall,localToolSignature} from './desktop_tool_session.mjs';
+import {DesktopToolSession,localToolCall,localToolSignature,localToolCatalog} from './desktop_tool_session.mjs';
 
 const expression=(fn,...args)=>`(${fn.toString()})(${args.map(x=>JSON.stringify(x)??'undefined').join(',')},(${installLocalAppHooks.toString()}))`;
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
@@ -50,12 +50,12 @@ export function installLocalAppHooks(s,shared){
      // This owned task exposes Core's catalog, not a second Work/Codex executor.
      const augmented={...request,local_function_signatures:[l.signature]};
      if(name==='prepareCompletionStream')return state.saved[name].call(this,augmented,args[1]);
-     const opts={...args[0],request:augmented};
+     const opts={...args[0],request:augmented},epoch=l.epoch;
      for(const event of ['onDecodedEvent','onUpdate']){
-      const original=opts[event];opts[event]=u=>{let m=u?.update?.message??u?.message;if(m?.message)m=m.message;if(m?.id&&m.author)l.messages.set(m.id,m);return original?.(u);};
+      const original=opts[event];opts[event]=u=>{let m=u?.update?.message??u?.message;if(m?.message)m=m.message;if(l.epoch===epoch&&m?.id&&m.author&&!l.olderIds?.has(m.id))l.messages.set(m.id,m);return original?.(u);};
      }
-     const complete=opts.onComplete;opts.onComplete=u=>{l.terminals.push(u.reason);return complete?.(u);};
-     const error=opts.onError;opts.onError=u=>{l.error='desktop_native_stream_failed';return error?.(u);};
+     const complete=opts.onComplete;opts.onComplete=u=>{if(l.epoch===epoch)l.terminals.push(u.reason);return complete?.(u);};
+     const error=opts.onError;opts.onError=u=>{if(l.epoch===epoch)l.error='desktop_native_stream_failed';return error?.(u);};
      return state.saved[name].call(this,opts);
     };
     client[name]=state.wrapped[name];
@@ -101,6 +101,7 @@ export async function localAppOperation(key,lane,operation,data={},installHooks)
  }
  const state=s.native,l=state?.lanes.get(lane);if(!l)throw Error('desktop_native_owner_missing');
  if(operation==='submit'){
+  l.epoch=(l.epoch||0)+1;
   l.olderIds=new Set(Object.values(s.scope.get(s.m.JRn,l.id)||{}).map(n=>n.message?.id).filter(Boolean));
   l.messages.clear();l.terminals=[];l.roundDispatched=0;l.accepted=false;l.error=undefined;
   l.requestKind=data.results?.length?(data.contextMessages?.some(m=>m.role==='user')?'mixed':'tool'):'user';
@@ -127,7 +128,9 @@ export async function localAppOperation(key,lane,operation,data={},installHooks)
   }else{
    pending=s.m.yRt(s.scope,{...options,prompt:data.prompt,extraDeveloperInstructions:data.developerInstructions||[],requireResponseAcceptance:true,startupSignal:l.controller.signal});
   }
-  Promise.resolve(pending).then(v=>{l.accepted=!!v;},error=>{
+  const epoch=l.epoch;
+  Promise.resolve(pending).then(v=>{if(l.epoch===epoch)l.accepted=!!v;},error=>{
+   if(l.epoch!==epoch)return;
    l.error='desktop_native_submit_failed';
    const code=error?.errorCode;
    l.submitFailure={status:Number.isInteger(error?.status)?error.status:null,
@@ -181,9 +184,13 @@ export class DesktopLocalTransport{
  retire(){this.retiring=this.close().catch(()=>{});this.context=new DesktopPromptContext();this.projection=new DesktopToolSession();this.routeIdentity=undefined;}
  async exchange(payload,signal,onSubmitted=()=>{},_onRetry=()=>{},_onContext=()=>{},route,emit=()=>{}){
   if(this.busy)throw Error('desktop_chat_busy');this.busy=true;
-  let sent=false;
+  let sent=false,settled=false,published=false,prepared;
   try{
    signal?.throwIfAborted();if(this.blocked)throw Error('desktop_native_delivery_unknown');await this.retiring;
+   if(this.rejectedContext){
+    const current=payload.messages.map(({timestamp,...m})=>m),old=this.rejectedContext;
+    if(current.length<=old.length||old.some((m,i)=>JSON.stringify(m)!==JSON.stringify(current[i]))||!current.slice(old.length).some(m=>m.role==='user'))throw Error('desktop_native_recovery_requires_new_input');
+   }
    const model=internalModel(route),identity=JSON.stringify(route);
    if(this.routeIdentity&&this.routeIdentity!==identity){
     if(this.projection.pending().length)throw Error('desktop_native_pending_route_change');
@@ -194,18 +201,19 @@ export class DesktopLocalTransport{
    }
    const op=(method,data)=>this.invoke(this.lease,this.lane,method,data);
    const boundary={route,generation:this.lease.client.generation};
-   const prepared=this.context.prepare(payload,boundary),batch=this.projection.results(payload.messages);
+   prepared=this.context.prepare(payload,boundary);const batch=this.projection.results(payload.messages);
    const contextMessages=pendingNativeContext(prepared.delta.messages,batch);
    const instructions=[];
    if(prepared.delta.instructions!==undefined)instructions.push(...prepared.delta.instructions);
-   if(prepared.delta.tools!==undefined)instructions.push('Native Codex tool catalog (preserve names, schemas and custom input):\n'+JSON.stringify(payload.tools));
+   if(prepared.delta.tools!==undefined)instructions.push('Native Codex tool catalog (call the exact name; preserve schemas and custom input):\n'+JSON.stringify(localToolCatalog(payload.tools)));
    if(!batch.length){
     instructions.unshift('You are the model doing this native Codex development task. Give genuine user-facing initial replies, intermediate reports and a final answer. Include your brief public initial reply in the first tool call report field, and useful intermediate findings in later tool call report fields. Core displays that field as commentary before executing the tool, without another model round. Honor requested report text. Use only local.'+this.gateway+' for native tools; never imitate a tool call or fabricate its result. For JSON tools encode arguments as input JSON; custom/freeform input is exact source. Never hand off to Work/Codex or use desktop builtin tools instead.');
    }
    sent=true;
    await op('submit',{model,developerInstructions:instructions,...batch.length?{results:batch.map(({call,result})=>({id:call.id,result})),contextMessages}:{prompt:this.lane+'\nNative ordered task context:\n'+JSON.stringify(prepared.delta.messages)}});
+   this.rejectedContext=undefined;
    if(batch.length)this.projection.returned(batch);
-   let acknowledged=false;const deadline=Date.now()+this.timeoutMs,roundCalls=[];
+   let acknowledged=false;const deadline=Date.now()+this.timeoutMs,roundCalls=new Map();
    while(Date.now()<deadline){
     signal?.throwIfAborted();const state=await op('snapshot');
     if(state.dispatches>(this.dispatched||0)&&!acknowledged){
@@ -214,30 +222,50 @@ export class DesktopLocalTransport{
      this.observedCounts={user:state.userSubmissions,tool:state.toolSubmissions};
     }
     if(state.error){this.diagnostic=state.submitFailure;throw Error(state.error);}
-    let final;
-    for(const message of state.messages){
-     this.projection.text(message,emit);
-     const call=localToolCall(message,this.gateway,payload.tools);
-     if(call&&!this.projection.calls.has(call.id)){this.projection.issue(call,payload.tools,emit);roundCalls.push(call);}
-     const publicMessage=this.projection.messages.get(message.id);
-     if(message.status==='finished_successfully'&&message.end_turn===true&&publicMessage?.phase==='final_answer')final=publicMessage.text;
-    }
     if(state.terminals.length){
      if(state.roundDispatched!==1||state.terminals.length!==1||state.terminals[0]!=='done')throw Error('desktop_native_stream_incomplete');
      if(!acknowledged)throw Error('desktop_native_dispatch_unobserved');
+     settled=true;
+    }
+    // Validate each observed batch before publishing any native call. Wait for
+    // the actual host terminal so an invalid later call cannot leak partial work.
+    for(const message of state.messages){
+     const call=localToolCall(message,this.gateway,payload.tools);
+     if(!call||this.projection.calls.has(call.id))continue;
+     const old=roundCalls.get(call.id);
+     if(old&&JSON.stringify(old)!==JSON.stringify(call))throw Error('desktop_native_call_changed');
+     roundCalls.set(call.id,call);
+    }
+    let final;
+    for(const message of state.messages){
+     this.projection.text(message,emit);
+     const publicMessage=this.projection.messages.get(message.id);
+     if(message.status==='finished_successfully'&&message.end_turn===true&&publicMessage?.phase==='final_answer')final=publicMessage.text;
+    }
+    if(settled){
      this.dispatched=state.dispatches;
      this.context.accept(prepared.current,boundary);this.routeIdentity=identity;
      this.selectedControl={...model,transport:'signed-app-local',ordinaryChat:true,independentConversation:true,userSubmissions:state.userSubmissions,toolSubmissions:state.toolSubmissions,dispatches:state.dispatches};
-     if(final!==undefined){if(roundCalls.length)throw Error('desktop_native_final_with_pending_calls');return {type:'final',text:final,streamed:true};}
-     if(roundCalls.length)return {type:'tools',calls:roundCalls,streamed:true};
+     if(final!==undefined){if(roundCalls.size)throw Error('desktop_native_final_with_pending_calls');return {type:'final',text:final,streamed:true};}
+     if(roundCalls.size){
+      for(const call of roundCalls.values()){published=true;this.projection.issue(call,payload.tools,emit);}
+      return {type:'tools',calls:[...roundCalls.values()],streamed:true};
+     }
      throw Error('desktop_native_empty_response');
     }
     await this.pause(100);
    }
    throw Error('desktop_response_timeout');
   }catch(error){
+   this.toolDiagnostic=error.toolDiagnostic;
    if(sent)this.blocked=true;
-   if(sent||!this.routeIdentity){await this.close().catch(()=>{});this.context=new DesktopPromptContext();this.projection=new DesktopToolSession();this.routeIdentity=undefined;}
+   if(sent||!this.routeIdentity){
+    let closed=false;try{await this.close();closed=true;}catch{}
+    if(sent&&settled&&!published&&closed&&error.message==='unadvertised_tool'){
+     this.blocked=false;this.rejectedContext=prepared.current.messages;
+    }
+    this.context=new DesktopPromptContext();this.projection=new DesktopToolSession();this.routeIdentity=undefined;
+   }
    throw error;
   }finally{this.busy=false;}
  }

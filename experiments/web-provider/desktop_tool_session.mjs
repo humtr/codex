@@ -1,9 +1,14 @@
 // Transport-neutral projection. Core remains the only executor and history owner.
-import {validateEnvelope} from './desktop_protocol.mjs';
+import {requireAdvertisedTool,validateEnvelope} from './desktop_protocol.mjs';
+
+// Only the canonical name is callable; bare source names stay in the Core map.
+export function localToolCatalog(tools){
+ return tools.map(({name,namespace,wireName,...schema})=>({...schema,name:wireName}));
+}
 
 export function localToolSignature(name){
  return {name,type:'kwargs',description:'Invoke one exact native Codex tool from the supplied catalog. The native Core executes it and returns the result. Never fabricate execution.',params:[
-  {name:'name',required:true,type:{type:'string',description:'Exact wireName in the current native tool catalog.'}},
+  {name:'name',required:true,type:{type:'string',description:'Exact name in the supplied native tool catalog, including all namespace characters. Never derive names from shell configuration.'}},
   {name:'input',required:true,type:{type:'string',description:'For a JSON tool: JSON-encoded arguments object. For a custom/freeform tool: its exact source string.'}},
   {name:'report',required:true,type:{type:'string',description:'Brief user-facing progress report before this tool, in the user language. Include the initial reply on the first call and useful intermediate findings later. Empty only when no useful update. Public prose only; never private reasoning.'}},
  ]};
@@ -13,8 +18,7 @@ export function localToolCall(message,gateway,tools){
  if(message.author?.role!=='assistant'||message.recipient!=='local.'+gateway||message.status!=='finished_successfully')return;
  let args;try{args=JSON.parse(message.content?.text);args=args.kwargs??args;}catch{throw Error('desktop_native_call_invalid');}
  if(typeof args.name!=='string'||typeof args.input!=='string'||typeof args.report!=='string')throw Error('desktop_native_call_invalid');
- const tool=tools.find(t=>t.wireName===args.name);
- if(!tool)throw Error('unadvertised_tool');
+ const tool=requireAdvertisedTool(args.name,tools);
  let input=args.input;if(!tool.freeform)try{input=JSON.parse(input);}catch{throw Error('invalid_tool_input');}
  validateEnvelope({type:'tool',name:args.name,input},tools);
  return {id:message.id,name:args.name,input,report:args.report};

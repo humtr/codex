@@ -37,8 +37,9 @@ def bounded_app(runtime_path):
                 except subprocess.TimeoutExpired:child.kill();child.wait(timeout=5)
 
 
-def probe(bun, bridge, session=None, trace_path=None,interrupt_tool=False,return_transport='local'):
+def probe(bun, bridge, session=None, trace_path=None,interrupt_tool=False,return_transport='local',reject_tool=False):
     assert return_transport in ['local','mcp']
+    assert not reject_tool or not(session or interrupt_tool or return_transport!='local'),'rejection_fixture_is_offline_only'
     assert return_transport!='mcp' or not(session or interrupt_tool),'mcp_live_control_not_qualified'
     with tempfile.TemporaryDirectory(prefix='local-core-', dir=os.environ['TMPDIR']) as temporary:
         root = Path(temporary)
@@ -47,7 +48,7 @@ def probe(bun, bridge, session=None, trace_path=None,interrupt_tool=False,return
                 command=[str(bun),str(Path(__file__).with_name('desktop_local_core_trace.mjs')),str(bridge),str(session),str(root)]
             else:
                 command=[str(bun),str(Path(__file__).with_name('desktop_mcp_core_fixture.mjs' if return_transport=='mcp' else 'desktop_local_core_fixture.mjs')),str(bridge),str(root)]
-            child = subprocess.Popen(command, stdout=log, stderr=log, env={**os.environ,'CODEX_CHAT_RETURN_TRANSPORT':'local','CODEX_CHAT_LOCAL_MAX_DISPATCHES':'3','CODEX_LOCAL_PROBE_INTERRUPT_TOOL':'1' if interrupt_tool else '0'})
+            child = subprocess.Popen(command, stdout=log, stderr=log, env={**os.environ,'CODEX_CHAT_RETURN_TRANSPORT':'local','CODEX_CHAT_LOCAL_MAX_DISPATCHES':'3','CODEX_LOCAL_PROBE_INTERRUPT_TOOL':'1' if interrupt_tool else '0','CODEX_LOCAL_PROBE_REJECT_TOOL':'1' if reject_tool else '0'})
             try:
                 binding = root/'server.json'
                 deadline = time.monotonic()+10
@@ -58,7 +59,7 @@ def probe(bun, bridge, session=None, trace_path=None,interrupt_tool=False,return
                 args = argparse.Namespace(desktop_server=binding, model='chatgpt-desktop/gpt-6',
                     account_free_wire=False, compact=False, cancel_resume=False,
                     app_name='owned-local-return-fixture', effort='none', transcript_check=True,
-                    mid_turn_compact=False,tui_trace_path=root/'native-tui.txt',interrupt_tool=interrupt_tool)
+                    mid_turn_compact=False,tui_trace_path=root/'native-tui.txt',interrupt_tool=interrupt_tool,reject_tool=reject_tool)
                 try:result = core_probe(args)
                 except Exception as error:
                     result=getattr(error,'probe_report',{})
@@ -78,12 +79,14 @@ def probe(bun, bridge, session=None, trace_path=None,interrupt_tool=False,return
                     fixtureUserSubmissions=state['observedChatSubmissions'],
                     fixtureToolSubmissions=state['toolResultSubmissions'],
                     fixtureDispatches=state.get('selectedControl', {}).get('dispatches'),
+                    fixtureTotalDispatches=state.get('observedNativeDispatches',0),
                     adapterError=state.get('errorCode'), nativeFailure=state.get('nativeFailure'), returnTransport=state['returnTransport'])
                 if return_transport=='mcp':
                     proof=root/'mcp-fixture-proof.json'
                     result['mcpWire']=json.loads(proof.read_text()) if proof.exists() else {}
                     result['returnedNativeResults']=state['returnedNativeResults']
-                result['accepted'] = result.pop('realCoreToolLoopAccepted') and result['fixtureUserSubmissions']==(2 if interrupt_tool else 1) and result['fixtureToolSubmissions']==(0 if return_transport=='mcp' else 2) and result['fixtureDispatches']==(1 if return_transport=='mcp' else 3) and not result['adapterError'] and all(result.get(k,False) for k in ['persistedReportCheck','coldTranscriptRestored','resumeWithoutModelRequest','renderWithoutModelRequest']) and all(result.get('renderedTranscript',{}).get(k) for k in ['initial','intermediate','final'])
+                result['accepted'] = result.pop('realCoreToolLoopAccepted') and result['fixtureUserSubmissions']==(2 if interrupt_tool or reject_tool else 1) and result['fixtureToolSubmissions']==(0 if return_transport=='mcp' else 2) and result['fixtureDispatches']==(1 if return_transport=='mcp' else 2 if reject_tool else 3) and not result['adapterError'] and all(result.get(k,False) for k in ['persistedReportCheck','coldTranscriptRestored','resumeWithoutModelRequest','renderWithoutModelRequest']) and all(result.get('renderedTranscript',{}).get(k) for k in ['initial','intermediate','final'])
+                if reject_tool:result['accepted'] &= all(result.get(k) for k in ['rejectedSampleObserved','noAutomaticResubmit','recoveryPreservedExistingFile']) and result['successfulShellCalls']==2 and result['persistedNativeCommands']==2 and result['fixtureTotalDispatches']==4
                 if return_transport=='mcp':result['accepted'] &= result['mcpWire'].get('exactCoreReturns')==2 and result['returnedNativeResults']==2
                 return result
             finally:
@@ -107,9 +110,11 @@ if __name__ == '__main__':
     parser.add_argument('--live-session',type=Path,help='Explicit bounded live proof, at most three native generation starts; never Pro')
     parser.add_argument('--bounded-runtime',type=Path,help='Start an otherwise stopped trial app for at most 300 seconds and close only that owned controller')
     parser.add_argument('--interrupt-tool',action='store_true',help='Interrupt an owned real native command, then resume without replaying its mutation')
+    parser.add_argument('--reject-tool',action='store_true',help='Offline only: reject a completed tool sample, then recover with new input without repeating a completed command')
     parser.add_argument('--return-transport',choices=['local','mcp'],default='local',help='mcp is an offline real-Core/stdio qualification; no live Chat acceptance implied')
     args = parser.parse_args()
     assert not(args.live_session and args.bounded_runtime)
+    assert not args.reject_tool or not(args.live_session or args.bounded_runtime or args.interrupt_tool or args.return_transport!='local')
     assert args.return_transport!='mcp' or not(args.live_session or args.bounded_runtime or args.interrupt_tool),'mcp_live_control_not_qualified'
     trace=args.report.with_name(args.report.stem+'-public-trace.json')
     if args.bounded_runtime:
@@ -117,7 +122,7 @@ if __name__ == '__main__':
             assert Path(runtime['bun'])==args.bun and Path(runtime['bridge'])==args.bridge
             result=probe(args.bun,args.bridge,Path(runtime['session']),trace,args.interrupt_tool,args.return_transport)
     else:
-        result = probe(args.bun, args.bridge,args.live_session,trace,args.interrupt_tool,args.return_transport)
+        result = probe(args.bun, args.bridge,args.live_session,trace,args.interrupt_tool,args.return_transport,args.reject_tool)
     args.report.write_text(json.dumps(result, indent=2)+'\n')
     args.report.chmod(0o600)
     print(json.dumps(result))

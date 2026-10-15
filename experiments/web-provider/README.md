@@ -26,6 +26,24 @@ neither is the active dependency. Bundled dependency source and licenses remain
 preserved by the installer; changing product names does not change authorship.
 Current acceptance and unresolved work belong to CURRENT.md.
 
+Provider checks run from the repository root with the qualified Bun executable:
+`"$BUN" test ./experiments/web-provider/*.test.mjs` and
+`python -B -m unittest discover -s experiments/web-provider -p 'test_*.py'`.
+The adjacent `chatgpt_contract.test.ts` is a fixture for the dependency checkout's
+`tests/` directory (its imports target that checkout's `src/`), not this standalone
+provider suite. Do not collect it with an unscoped `bun test` here.
+
+The current source candidate gives the model one canonical callable name per
+tool, filters old-round callbacks, and records content-free rejected-name/catalog
+fingerprints. A normally completed invalid sample can recover only after owned
+cleanup and new user input preserving canonical history; uncertain delivery stays
+blocked. No automatic inference retry or guessed tool alias is introduced.
+`desktop_local_core_probe.py --reject-tool` tests this with actual signed Core,
+a deterministic host and zero Chat: one write, rejection, explicit user resume,
+one read, unchanged file and cold transcript/TUI restoration. This flag refuses
+all live-session/bounded-runtime combinations. These source changes are not
+installed until an explicitly bounded provider activation is performed.
+
 The current development target has two return transports sharing one Core tool
 and transcript path: signed-app local functions (`local`) and retained remote
 MCP settlement (`mcp`). The local-function 2/4/8-return probes are passed wire

@@ -3305,6 +3305,21 @@ for arbitrary native tool names and JSON/custom input. Original remote call IDs
 must bind the exact Core outputs, including batched calls. The gateway is a wire
 adapter only. Model-authored initial replies, commentary and final output must
 be forwarded in order, once; private reasoning and control JSON are not reports.
+The model-visible gateway catalog exposes one canonical `name` per native tool,
+including its exact flattened namespace; internal bare-name/wire-name alternatives
+must not compete as callable names. The execution-side map retains the native
+namespace and full schema. Unknown names remain rejected, never guessed or aliased.
+Only bounded content-free fingerprints/classifications of rejected names/catalogs
+may enter diagnostics; never store raw arguments or private reports as diagnosis.
+
+A completed sample rejected before any native call is published is distinct from
+unknown dispatched delivery. Do not resubmit it automatically. After a verified
+normal terminal and owned lane cleanup, a genuinely new user instruction with
+unchanged canonical history may establish a new remote context. An unchanged
+request, replaced history, uncertain terminal or failed cleanup cannot authorize
+replay. Explicit cancellation and observer loss remain separately classified.
+Callbacks from older rounds and old message IDs cannot publish current work.
+
 The same gateway call may carry a model-authored public `report` alongside its
 native tool name/input. Project that report as commentary before the tool call;
 never pass it into native tool arguments or add a report-only model round. An

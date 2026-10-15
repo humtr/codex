@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {DesktopToolSession,localToolCall} from './desktop_tool_session.mjs';
+import {DesktopToolSession,localToolCall,localToolCatalog} from './desktop_tool_session.mjs';
 import {recordDesktopSubmission} from './desktop_protocol.mjs';
 
 const tools=[{wireName:'shell',parameters:{}},{wireName:'patch',freeform:true},{wireName:'mcp__github__read',parameters:{}},{wireName:'tool_search',toolSearch:true}];
@@ -35,6 +35,18 @@ test('native gateway preserves namespaces, custom source and discovery arguments
  assert.throws(()=>localToolCall(request('foreign','{}'),'gateway',tools),/unadvertised_tool/);
  assert.throws(()=>localToolCall(request('shell','not JSON'),'gateway',tools),/invalid_tool_input/);
  assert.throws(()=>localToolCall(request('tool_search','{"query":""}'),'gateway',tools),/invalid_tool_search/);
+});
+test('catalog has one exact callable name; invalid names keep only bounded content-free diagnosis',()=>{
+ const native={name:'_read',namespace:'mcp__owned',wireName:'mcp__owned___read',freeform:true,description:'source',parameters:{type:'string'}};
+ assert.deepEqual(localToolCatalog([native]),[{freeform:true,description:'source',parameters:{type:'string'},name:'mcp__owned___read'}]);
+ for(const [name,kind] of [['_read','bare_name'],['mcp__owned._read','dotted_namespace'],['mcp__owned','namespace_only'],['private user content','unknown']]){
+  assert.throws(()=>record(name),error=>{
+   assert.equal(error.message,'unadvertised_tool');assert.equal(error.toolDiagnostic.nameClass,kind);
+   assert.match(error.toolDiagnostic.nameDigest,/^[a-f0-9]{64}$/);assert.match(error.toolDiagnostic.catalogDigest,/^[a-f0-9]{64}$/);
+   assert.equal(error.toolDiagnostic.toolCount,1);assert.ok(!JSON.stringify(error.toolDiagnostic).includes(name));return true;
+  });
+ }
+ function record(name){return localToolCall({id:'rejected',author:{role:'assistant'},recipient:'local.gateway',status:'finished_successfully',content:{text:JSON.stringify({name,input:'private arguments',report:'private report'})}},'gateway',[native]);}
 });
 test('a gateway report is public commentary before its tool, without duplicate prose or native argument changes',()=>{
  const s=new DesktopToolSession(),events=[],emit=e=>events.push(e);

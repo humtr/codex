@@ -91,7 +91,7 @@ const server=Bun.serve({hostname:'127.0.0.1',port:runtime?Number(new URL(runtime
  let {transport,transcript,checkpoint}=lane;
  if(checkpoint.consume(parsed.context.messages)){lane.transcript=transcript=new DesktopTranscript();transport.retire();report.appliedCheckpoints++;}
  try{transcript.receive(parsed.context.messages);}catch{lane.busy=false;return formatErrorResponse(400,'invalid_request_error','native_tool_result_mismatch');}
- lane.active=true;report.errorCode=null;report.route=route;
+ lane.active=true;report.errorCode=null;report.route=route;delete report.failureSite;delete report.nativeFailure;delete report.toolDiagnostic;
  report.requests++;report.contextChars=JSON.stringify(parsed.context).length;report.toolCount=parsed.context.tools?.length||0;report.instructionChars=(parsed.context.systemPrompt||[]).join('\n').length;report.hasNativeThreadKey=!!key;save();
  const queue=new AsyncEventQueue(),abort=new AbortController();req.signal.addEventListener('abort',()=>abort.abort(),{once:true});if(req.signal.aborted)abort.abort();
  const compact=parsed._compactionRequest===true;if(compact)report.compactionRequests++;
@@ -121,7 +121,7 @@ const server=Bun.serve({hostname:'127.0.0.1',port:runtime?Number(new URL(runtime
     if(compact){checkpoint.offer(response.text);report.compactionSummaries++;}
     if(!response.streamed)queue.push({type:'text_delta',text:response.text,phase:'final_answer'});queue.push({type:'done',endTurn:true,usage:desktopEstimatedUsage(payload,response)});report.completedReplies++;lane.active=false;
    }else throw Error('invalid_desktop_envelope');
-   }catch(e){if(abort.signal.aborted)report.cancelledRequests++;lane.active=false;report.nativeFailure=transport.diagnostic;
+   }catch(e){if(abort.signal.aborted)report.cancelledRequests++;lane.active=false;report.nativeFailure=transport.diagnostic;report.toolDiagnostic=transport.toolDiagnostic;
     // Content-free local diagnosis: never persist raw exception messages, paths,
     // requests or credentials when a standard error is outside our public codes.
     const frame=e.stack?.split('\n').map(f=>f.match(/\b(desktop_[a-z_]+\.mjs):(\d+):\d+/)).find(Boolean);

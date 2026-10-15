@@ -336,6 +336,18 @@ stream_max_retries = 0
                 rpc(42,'turn/start',{'threadId':thread_id,'input':[{'type':'text','text':f'Say LOCAL_INTERMEDIATE_REPORT. Read the current proof.txt with one shell call. Preserve the file; do not rerun the interrupted command. Final answer exactly {marker}. No other work.'}]},deadline)
             collect_turn()
             marker_file=workspace/'proof.txt'
+            if getattr(args,'reject_tool',False):
+                rejected=json.loads(proxy_proof.read_text())
+                report['rejectedSampleObserved']=report.get('lastTurnStatus')=='failed' and rejected.get('errorCode')=='unadvertised_tool'
+                assert report['rejectedSampleObserved'] and report['successfulShellCalls']==1,'expected_rejected_sample_missing'
+                before=marker_file.stat();requests=rejected['requests']
+                time.sleep(.3)
+                report['noAutomaticResubmit']=json.loads(proxy_proof.read_text())['requests']==requests
+                assert report['noAutomaticResubmit'],'unexpected_automatic_resubmit'
+                events.clear()
+                rpc(61,'turn/start',{'threadId':thread_id,'input':[{'type':'text','text':f'Recover from the rejected tool. Say LOCAL_INTERMEDIATE_REPORT. Read the current proof.txt with one shell call, preserving the completed write. Final answer exactly {marker}. No other work.'}]},deadline)
+                collect_turn();after=marker_file.stat()
+                report['recoveryPreservedExistingFile']=all(getattr(before,k)==getattr(after,k) for k in ['st_ino','st_mtime_ns','st_size'])
             report['workspaceMarkerVerified']=marker_file.is_file() and marker_file.read_text().strip()==marker
             report['realCoreToolLoopAccepted']=not args.account_free_wire and report['turnCompleted'] and report['shellToolCompleted'] and report['workspaceMarkerVerified'] and report['successfulShellCalls']>=(1 if getattr(args,'interrupt_tool',False) else 2) and report['nativeReplyMatched']
             if getattr(args,'interrupt_tool',False):
