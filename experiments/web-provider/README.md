@@ -20,7 +20,7 @@ actual submissions separately from HTTP rounds and unverified plan-limit debits.
 | Browser/MCP full-mode implementation | Third-party candidate used by older probes. Source is retained in `bridge-source`; its presence does not connect it to our active adapter. |
 | Candidate retained MCP return | Independently written `desktop_mcp_{broker,stdio,transport}.mjs`; shared `DesktopToolSession` projection and actual Core execution. Source/offline acceptance only, not the installed provider. |
 
-Installed payload `d7513cc7785f3d5dbcef` uses source717bd94 and the6.1.5 bridge
+Installed payload `9014deaf810ff40a583d` uses sourcee27ab09 and the6.1.5 bridge
 commit above. The6.1.8 browser candidate and6.1.9 research are separate inputs;
 neither is the active dependency. Bundled dependency source and licenses remain
 preserved by the installer; changing product names does not change authorship.
@@ -41,8 +41,14 @@ blocked. No automatic inference retry or guessed tool alias is introduced.
 `desktop_local_core_probe.py --reject-tool` tests this with actual signed Core,
 a deterministic host and zero Chat: one write, rejection, explicit user resume,
 one read, unchanged file and cold transcript/TUI restoration. This flag refuses
-all live-session/bounded-runtime combinations. These source changes are not
-installed until an explicitly bounded provider activation is performed.
+all live-session/bounded-runtime combinations. These corrections are now installed as9014deaf810ff40a583d. Actual GPT-6 Instant
+acceptance additionally passes search, automatic review, a private native MCP
+read, final response and cold TUI restore; this does not qualify the alternative
+remote MCP return transport. The temporary four-start trial limit is removed.
+`desktop_local_core_probe.py --mcp-discovery` reproduces this actual Core/search/
+stdio route offline with a deterministic guardian port and zero Chat. The
+installed-service live proof uses a separate bounded call; never silently make
+this fixture flag spend Chat or treat fake review as real model judgment.
 
 The current development target has two return transports sharing one Core tool
 and transcript path: signed-app local functions (`local`) and retained remote

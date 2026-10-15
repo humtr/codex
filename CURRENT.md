@@ -12,15 +12,27 @@ acceptance cache. No external workflow skill or separate task ledger is required
   Publication38733863985 and ordinary device activation pass. Fourteen protected
   files and seven process identities survive activation. Stable51 is rollback.
   Native41-test/source/device catalog and permission gates are qualified.
-- Installed opt-in Chat provider: d7513cc7785f3d5dbcef, source717bd94,
-  `returnTransport=local`,590 verified payload files. Prior561-file payload retained.
+- Installed opt-in Chat provider:9014deaf810ff40a583d, sourcee27ab09,
+  `returnTransport=local`,590 verified payload files. Prior d7513cc7785f3d5dbcef
+  and561-file recovery payloads are retained.
   This provider is experimental; Core stable publication does not make it a fully
   qualified public Chat provider. No later source edit is implicitly installed.
-- Actual installed signed-app + stable51 Core proof: one Chat user message,
+- Earlier installed signed-app + stable51 Core proof: one Chat user message,
   two real commands/tool-role returns, three model starts; initial/intermediate/
   final reports, canonical persistence and cold Core/TUI restore pass. Fresh
   cold bootstrap also passes. Chat allowance deduction remains unknown.
   First cold-start failure preceded dispatch; its original cause is unconfirmed.
+- New installed signed-app + stable52 Core proof passes actual tool search, exact
+  underscore-prefixed discovered MCP tool admission, automatic approval review,
+  one real isolated stdio MCP read, original-call result return, final marker,
+  all three report phases and cold Core/TUI restore. GPT-6 Instant,26.071s total,
+  observed2 user submissions (primary + guardian),2 tool returns,4 model starts,
+  no Pro/retry. This is the local return transport calling a native MCP tool,
+  not qualification of the separate remote MCP return transport. Runtime endpoint/
+  capability and13 base auth/config/state files are preserved, as are seven
+  existing process identities. All590 payload hashes verify. Trial start budget
+  was removed; the ordinary installed provider is ready. Proofs:
+  chat-owned-mcp-installed-live.json and chat-tool-recovery-operating-final.json.
 - Ordinary GPT-6 Instant/Medium/High/Extra High tool loops passed on the earlier
   internal transport. This is useful historical proof, not blanket qualification
   of the newly installed local-return lifecycle, MCP or long-context combinations.
@@ -118,7 +130,7 @@ own owners; do not reintroduce Tdev changes as the solution to this provider tas
 
 ## Current source qualification
 
-Provider suite passes77 Bun tests and41 Python tests; the15 affected local
+Provider suite passes77 Bun tests and42 Python tests; the15 affected local
 transport tests cover pre-submit recovery failure and a message arriving before
 its terminal, in addition to the initial correction.
 An initial unscoped Bun collection also picked the dependency-only TypeScript
@@ -135,11 +147,23 @@ from two on the replacement lane. The fixture flag refuses live-app options.
 Proofs: chat-tool-recovery-{core,core-rejection,core-terminal,negative-control}.json
 and chat-tool-recovery-{bun-terminal,python-final,local-final}.log in the private cache.
 Unchanged Rust/frontend production gates remain reusable; no native inputs changed.
-Immutable candidate 9014deaf810ff40a583d (sourcee27ab09)
-passes all590 payload hashes. It is staged beside the unchanged installed provider;
-the superseded owned candidate was removed. Aggregate: chat-tool-recovery-qualified.json.
-Operating provider activation and a bounded actual Chat trial remain outstanding;
-source/offline success is not the user's physical MCP retry acceptance.
+Immutable9014deaf810ff40a583d/sourcee27ab09 is now activated and live-qualified
+as recorded in Operating baseline. Aggregate source/offline proof remains
+chat-tool-recovery-qualified.json; activation/actual model proof is separate.
+The user's original rejected name was never recorded, so the exact original cause
+and physical retry of that private conversation are not retroactively proved.
+Broader tool/long-context/lifecycle work remains open.
+
+The new --mcp-discovery fixture uses actual signed Core and a private read-only
+stdio server. Search loads one exact namespace tool, auto_review stays active,
+and a deterministic guardian reply tests plumbing rather than model judgment.
+The first two offline attempts failed because this new fixture lacked guardian
+support; negative results are retained and no Chat was used. After adding the
+structured guardian port, the complete offline path passes. Its42 Python tests
+include the marker server's discovery/read/no-modification test. This fixture flag
+refuses live-app options; actual installed HTTP validation uses the same native
+Core scenario separately, with the real model and a bounded startup budget.
+No user Tdev service, account home or conversation is used as fixture state.
 
 ## Evidence and limits to retain
 

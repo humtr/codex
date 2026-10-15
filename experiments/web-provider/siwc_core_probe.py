@@ -167,6 +167,10 @@ stream_max_retries = 0
             assert catalog.is_file() and not catalog.is_symlink()
             assert any(m['slug']==args.model for m in json.loads(catalog.read_text())['models'])
             config='model_catalog_json = '+json.dumps(str(catalog))+'\n'+config
+        if getattr(args,'mcp_discovery',False):
+            assert desktop and not(args.compact or args.cancel_resume or getattr(args,'interrupt_tool',False) or getattr(args,'reject_tool',False))
+            (workspace/'proof.txt').write_text(marker)
+            config+='\n[mcp_servers.owned_catalog]\ncommand = '+json.dumps(str(host_prefix/'bin/python'))+'\nargs = '+json.dumps(['-B',str(SOURCE/'owned_catalog_mcp.py'),str(workspace/'proof.txt'),str(workspace/'mcp-evidence.json')])+'\n'
         (home/'.codex/config.toml').write_text(config)
         env={'HOME':str(home),'PREFIX':str(prefix),'PATH':str(prefix/'bin')+':'+str(host_prefix/'bin'),'TMPDIR':str(root/'t'),'LANG':'C.UTF-8','CODEX_HOME':str(home/'.codex'),'ACCESS_TOKEN':token,'SSL_CERT_FILE':str(prefix/'etc/tls/cert.pem'),'TERM':'xterm-256color','SHELL':str(host_prefix/'bin/bash')}
         process=subprocess.Popen([str(launcher),'app-server','--listen','stdio://'],env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,start_new_session=True)
@@ -206,6 +210,8 @@ stream_max_retries = 0
                 task=f'First say LOCAL_INITIAL_REPORT in commentary. Use the local shell tool to write exactly {marker} to proof.txt in the current directory. After its result say LOCAL_INTERMEDIATE_REPORT in commentary. Use a separate second shell tool call to read it back. Your final answer must be exactly {marker}. Do no other work.'
             if getattr(args,'interrupt_tool',False):
                 task=f'First say LOCAL_INITIAL_REPORT. Run exactly one shell command with yield_time_ms 30000: printf %s {marker} > proof.txt; echo $$ > command.pid; sleep 45; printf MUTATION_REPLAYED >> proof.txt. Wait for its result. Final answer exactly {marker}. Do no other work.'
+            if getattr(args,'mcp_discovery',False):
+                task='First say LOCAL_INITIAL_REPORT in commentary. Use tool_search to discover the owned_catalog MCP server tool _read_marker. After discovery say LOCAL_INTERMEDIATE_REPORT in commentary, then call the exact discovered namespaced _read_marker tool once with empty arguments. Reply with exactly the marker returned by that tool. Do not use shell, read files directly, or do other work.'
             if args.compact:
                 seed_text=marker+'\n'+('Reference-only context row; no action.\n'*220 if args.auto_compact or args.mid_turn_compact else '')
                 (workspace/'seed.txt').write_text(seed_text)
@@ -275,6 +281,8 @@ stream_max_retries = 0
                     if row.get('method')=='item/completed' and row.get('params',{}).get('item',{}).get('type')=='commandExecution':
                         report['shellToolCompleted']|=row['params']['item'].get('status')=='completed' and row['params']['item'].get('exitCode')==0
                         report['successfulShellCalls']+=int(row['params']['item'].get('status')=='completed' and row['params']['item'].get('exitCode')==0)
+                    if getattr(args,'mcp_discovery',False) and row.get('method')=='item/completed' and item.get('type')=='mcpToolCall':
+                        report['ownedMcpStatus']=item.get('status');report['ownedMcpError']=item.get('error')
                     if row.get('method')=='item/completed' and row.get('params',{}).get('item',{}).get('type')=='agentMessage':
                         report['nativeReplyMatched']|=row['params']['item'].get('text','').strip()==marker
                     if row.get('method')=='turn/completed':
@@ -350,6 +358,10 @@ stream_max_retries = 0
                 report['recoveryPreservedExistingFile']=all(getattr(before,k)==getattr(after,k) for k in ['st_ino','st_mtime_ns','st_size'])
             report['workspaceMarkerVerified']=marker_file.is_file() and marker_file.read_text().strip()==marker
             report['realCoreToolLoopAccepted']=not args.account_free_wire and report['turnCompleted'] and report['shellToolCompleted'] and report['workspaceMarkerVerified'] and report['successfulShellCalls']>=(1 if getattr(args,'interrupt_tool',False) else 2) and report['nativeReplyMatched']
+            if getattr(args,'mcp_discovery',False):
+                evidence=workspace/'mcp-evidence.json'
+                report['ownedMcpCalls']=json.loads(evidence.read_text()).get('actualCalls',0) if evidence.exists() else 0
+                report['realCoreToolLoopAccepted']=report['turnCompleted'] and report['workspaceMarkerVerified'] and report['nativeReplyMatched'] and report['ownedMcpCalls']==1 and report['successfulShellCalls']==0
             if getattr(args,'interrupt_tool',False):
                 current=marker_file.stat()
                 report['resumePreservedExistingFile']=all(getattr(initial_marker_stat,k)==getattr(current,k) for k in ['st_ino','st_mtime_ns','st_size'])
@@ -366,6 +378,9 @@ stream_max_retries = 0
                 report['nativeReports']=evidence
                 report['persistedReportCheck']=all(sum(item[k] for item in evidence)==1 for k in ['initial','intermediate','final'])
                 report['persistedNativeCommands']=sum(item.get('type')=='commandExecution' and item.get('status')=='completed' for item in items)
+                if getattr(args,'mcp_discovery',False):
+                    report['persistedMcpCalls']=sum(item.get('type')=='mcpToolCall' for item in items)
+                    report['persistedToolSearches']=sum(item.get('type')=='toolSearch' for item in items)
                 before_requests=json.loads(Path(str(args.desktop_server)+'.proof').read_text())['requests']
                 os.killpg(process.pid,signal.SIGINT)
                 try:process.wait(timeout=8)
