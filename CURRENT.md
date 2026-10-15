@@ -407,10 +407,58 @@ delivery distinction; do not deduplicate different invocations by raw RPC ID or
 repair the host by forcing IDs to stay fixed. Protocol2026 self-contained support
 in the tunnel source is not ordinary-model Tasks/async acceptance.
 
-Next: independently implement retained MCP settlement through the shared projection,
-using the observed ordinary-model/stdio boundary and explicit native call identity.
-Keep the bounded negative metadata probe separate
-from full-mode acceptance. Then qualify actual
+### Independent retained MCP source candidate
+
+Repository-owned `desktop_mcp_broker.mjs`, `desktop_mcp_stdio.mjs` and
+`desktop_mcp_transport.mjs` now connect retained MCP invocations to the existing
+DesktopToolSession/Responses projection. No reference broker/MCP executor is
+imported. The endpoint advertises `native_catalog` and `native_tool`; connector
+display names are explicit user configuration. The exact catalog retains schemas,
+namespaces, custom/freeform and deferred discovery. Backend/thread/turn tokens and
+logical call_id identify actions independently of reusable RPC IDs. Identical
+logical retries attach to a pending/cached result; altered input/report refuses.
+Parallel result validation and call admission are atomic. Returned Core errors
+remain result data; genuine protocol/ownership errors remain MCP errors.
+
+The source Responses selector now accepts explicit `mcp` plus connector name and
+publishes its private ephemeral Unix socket in the owner-only binding. This adds
+no operating service or session database. Shutdown removes that owned socket/root.
+Lost IPC observers detach only their waiter, preserving the operation/result;
+explicit token retirement rejects pending/late calls while siblings survive.
+No local write is labelled host receipt. Lost app observation currently closes
+the remote lane and blocks ambiguous replay; it is not automatic observer recovery.
+Core interruption/background-terminal termination remain distinct controls.
+Queued work after observed host terminal completion refuses before Core issuance.
+Pending new user steering on this MCP path explicitly refuses; the qualified
+mixed local-return behavior is unchanged, not silently substituted.
+
+Private `chat-independent-mcp-core-qualified.json` passes the actual signed
+stable51 Core + independent MCP stdio process/Unix broker + source HTTP adapter:
+two native commands, exact original-call results, reused wire ID0 without repeated
+effects, initial/intermediate/final reports, canonical persistence, cold Core/TUI
+restore without model submission and owned socket/root cleanup. The remote host
+is deterministic;1 initial fixture submit and0 result-phase user submits are
+fixture accounting, not new Chat/host/allowance proof. Real Chat submissions in
+this implementation phase:0. The first two failed fixture trials used a1s shell
+yield and mistook background-session results for completion; the fixture now waits
+the same30s as the accepted local path. Raw failures are retained. No runtime tool
+surface was narrowed to make the proof pass.
+
+`chat-local-after-mcp-offline.json` passes the unchanged local two-command path,
+reports and cold TUI restore through the updated server. The entire Bun suite
+passed70 tests before the final terminal-state guard; the11 affected MCP tests
+pass after adding that guard. Experiment Python34 and repository Python18+59 pass;
+Rust/frontend inputs are unchanged, so prior full323-test/fmt/Clippy and native
+41-test proof still apply. `chat-independent-mcp-app-dry.json` additionally passes
+actual signed-app create/submit preparation with0 starts, and no local Work/handoff
+declarations. The real native-start function is intercepted before it can submit;
+original methods/owned desktop are restored. This is pre-send proof, not live MCP
+Core settlement. The existing connector still advertises six historical tools;
+the new two-tool catalog needs an explicit bounded refresh/binding trial.
+
+Next: qualify the independently implemented endpoint's actual host discovery and
+positive Core result delivery with a separately explained non-Pro trial budget.
+Keep the earlier metadata-only success separate from full-mode acceptance. Then qualify actual
 approval/reviewer and user-input interactions, stop during generation and native
 execution, observer loss/recovery, independent owners, warm/cold continuation,
 catalog/search/custom tools and long-history/cross-provider compaction. The local

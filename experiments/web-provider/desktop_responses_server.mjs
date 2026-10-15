@@ -1,12 +1,14 @@
 // Thin candidate adapter; parsing, tool wire mapping and SSE reuse the existing bridge.
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {writeFileSync,readFileSync,readlinkSync,renameSync} from 'node:fs';
+import {writeFileSync,readFileSync,readlinkSync,renameSync,mkdtempSync,rmSync} from 'node:fs';
 import {randomBytes,timingSafeEqual,createHmac} from 'node:crypto';
 import {desktopModelCatalog} from './desktop_model_controls.mjs';
 import {desktopConnection} from './desktop_cdp.mjs';
 import {DesktopTransport} from './desktop_response_transport.mjs';
 import {DesktopLocalTransport} from './desktop_local_transport.mjs';
+import {DesktopMcpTransport} from './desktop_mcp_transport.mjs';
+import {DesktopMcpBroker,serveMcpBroker} from './desktop_mcp_broker.mjs';
 import {readDesktopRequest,DesktopBodyError,DESKTOP_DECODED_LIMIT} from './desktop_http.mjs';
 import {DesktopTranscript,admitDesktopRequest,recordDesktopSubmission,validateEnvelope,DesktopCompaction,desktopEstimatedUsage,markDesktopEstimatedUsage} from './desktop_protocol.mjs';
 const [candidate,desktopRoot,statePath,runtimePath]=process.argv.slice(2);
@@ -38,10 +40,15 @@ async function ensureDesktop(signal){
  finally{signal.removeEventListener('abort',cancel);}
 }
 const returnTransport=process.env.CODEX_CHAT_RETURN_TRANSPORT||'text';
-if(!['text','local'].includes(returnTransport))throw Error('unsupported_chat_return_transport');
+if(!['text','local','mcp'].includes(returnTransport))throw Error('unsupported_chat_return_transport');
+const mcpConnectorName=process.env.CODEX_CHAT_MCP_CONNECTOR_NAME;
+if(returnTransport==='mcp'&&!mcpConnectorName?.trim())throw Error('mcp_connector_required');
 const maxLocalDispatches=process.env.CODEX_CHAT_LOCAL_MAX_DISPATCHES===undefined?undefined:Number(process.env.CODEX_CHAT_LOCAL_MAX_DISPATCHES);
 if(maxLocalDispatches!==undefined&&(!Number.isSafeInteger(maxLocalDispatches)||maxLocalDispatches<1))throw Error('invalid_chat_trial_budget');
-function newLane(key,parent){return {key,parent,active:false,busy:false,transport:returnTransport==='local'?new DesktopLocalTransport(desktopRoot,{maxDispatches:maxLocalDispatches}):new DesktopTransport(desktopRoot,{key,parent}),transcript:new DesktopTranscript(),checkpoint:new DesktopCompaction(SUMMARY_PREFIX),resultCount:0};}
+const mcpRoot=returnTransport==='mcp'?mkdtempSync(join(process.env.TMPDIR,'cm-')):undefined;
+const mcpSocket=mcpRoot&&join(mcpRoot,'s'),mcpBroker=mcpRoot&&new DesktopMcpBroker();
+const stopMcp=mcpBroker&&await serveMcpBroker(mcpBroker,mcpSocket);
+function newLane(key,parent){return {key,parent,active:false,busy:false,transport:returnTransport==='mcp'?new DesktopMcpTransport(desktopRoot,{broker:mcpBroker,connectorName:mcpConnectorName}):returnTransport==='local'?new DesktopLocalTransport(desktopRoot,{maxDispatches:maxLocalDispatches}):new DesktopTransport(desktopRoot,{key,parent}),transcript:new DesktopTranscript(),checkpoint:new DesktopCompaction(SUMMARY_PREFIX),resultCount:0};}
 const lanes=new Map();
 const report={actualChatMode:true,model,requests:0,modelRequestedTools:0,returnedNativeResults:0,completedReplies:0,submittedRequests:0,cancelledRequests:0,retryAttempts:0,contextPackets:0,submittedProRequests:0,modelRequestedSearches:0,returnedNativeSearchResults:0,nativeSearchResultErrors:0,nativeSearchLoadedTools:0,compactionRequests:0,compactionSummaries:0,appliedCheckpoints:0,estimatedUsage:true};
 report.guardianRequests=0;report.ownerConflicts=0;report.guardianInterleaves=0;report.guardianParentReplays=0;report.guardianIndependentConversations=0;report.maxConcurrentRequests=0;
@@ -95,7 +102,7 @@ const server=Bun.serve({hostname:'127.0.0.1',port:runtime?Number(new URL(runtime
  void (async()=>{
   try{
    lane.resultCount=Math.max(lane.resultCount,parsed.context.messages.filter(m=>m.role==='toolResult').length);report.returnedNativeResults=[...lanes.values()].reduce((n,l)=>n+l.resultCount,0);const searches=parsed.context.messages.filter(m=>m.role==='toolResult'&&m.toolName==='tool_search');report.returnedNativeSearchResults=searches.length;report.nativeSearchResultErrors=searches.filter(m=>m.isError).length;report.nativeSearchLoadedTools=(Array.isArray(raw.input)?raw.input:[]).filter(m=>m.type==='tool_search_output').flatMap(m=>Array.isArray(m.tools)?m.tools:[]).reduce((n,t)=>n+(t.type==='namespace'&&Array.isArray(t.tools)?t.tools.length:1),0);save();
-   const payload={instructions:[...(parsed.context.systemPrompt||[]),...outputInstructions],messages:parsed.context.messages,tools};
+   const payload={instructions:[...(parsed.context.systemPrompt||[]),...outputInstructions],messages:parsed.context.messages,tools,...returnTransport==='mcp'?{owner:{backend:statePath,thread:key,turn:identity.turnId}}:{}};
    await ensureDesktop(abort.signal);
    const response=await transport.exchange(payload,abort.signal,event=>{recordDesktopSubmission(report,event,route);save();},()=>{report.retryAttempts++;save();},()=>{report.contextPackets++;save();},route,event=>queue.push(event));
    report.selectedControl=transport.selectedControl;
@@ -121,8 +128,8 @@ const server=Bun.serve({hostname:'127.0.0.1',port:runtime?Number(new URL(runtime
 }});
 const stat=readFileSync(`/proc/${process.pid}/stat`,'utf8');
 const stateTemporary=statePath+'.'+randomBytes(6).toString('hex');
-writeFileSync(stateTemporary,JSON.stringify({baseUrl:'http://127.0.0.1:'+server.port+'/v1',token,model,pid:process.pid,start:stat.slice(stat.lastIndexOf(')')+2).split(' ')[19],image:readlinkSync(`/proc/${process.pid}/exe`)}),{mode:0o600,flag:'wx'});renameSync(stateTemporary,statePath);
+writeFileSync(stateTemporary,JSON.stringify({baseUrl:'http://127.0.0.1:'+server.port+'/v1',token,model,pid:process.pid,start:stat.slice(stat.lastIndexOf(')')+2).split(' ')[19],image:readlinkSync(`/proc/${process.pid}/exe`),...mcpSocket?{mcpSocket}:{}}),{mode:0o600,flag:'wx'});renameSync(stateTemporary,statePath);
 save();
 console.log(JSON.stringify({desktopResponsesReady:true,model,production:false}));
 let stopping=false;
-const stop=async()=>{if(stopping)return;stopping=true;server.stop(true);if(returnTransport==='local')await Promise.allSettled([...lanes.values()].map(l=>l.transport.close()));else{const {closeOwnedAppConversations}=await import('./desktop_app_transport.mjs');await closeOwnedAppConversations(desktopRoot);}process.exit(0);};process.once('SIGTERM',()=>void stop());process.once('SIGINT',()=>void stop());
+const stop=async()=>{if(stopping)return;stopping=true;server.stop(true);if(['local','mcp'].includes(returnTransport))await Promise.allSettled([...lanes.values()].map(l=>l.transport.close()));else{const {closeOwnedAppConversations}=await import('./desktop_app_transport.mjs');await closeOwnedAppConversations(desktopRoot);}if(stopMcp)await stopMcp();if(mcpRoot)rmSync(mcpRoot,{recursive:true});process.exit(0);};process.once('SIGTERM',()=>void stop());process.once('SIGINT',()=>void stop());

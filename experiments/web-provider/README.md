@@ -18,6 +18,7 @@ actual submissions separately from HTTP rounds and unverified plan-limit debits.
 | Signed-app discovery, submission, cancellation, independent lanes, lifecycle and request admission | This repository's `desktop_*.mjs` and lifecycle/profile Python code. |
 | Request parser, event queue, tool-name mapping, Responses SSE/errors, turn identity and summary prefix | Reused from [miuuyy/codex-chatgpt-web](https://github.com/miuuyy/codex-chatgpt-web/tree/92a356fac2292e3af5a97ab7ba634edd8d38621e), version6.1.5, with `desktop-bridge-615.patch`. `install_desktop_provider.py` lists the exact bundled exports. |
 | Browser/MCP full-mode implementation | Third-party candidate used by older probes. Source is retained in `bridge-source`; its presence does not connect it to our active adapter. |
+| Candidate retained MCP return | Independently written `desktop_mcp_{broker,stdio,transport}.mjs`; shared `DesktopToolSession` projection and actual Core execution. Source/offline acceptance only, not the installed provider. |
 
 Installed payload `0de70e3072a4b8e87a31` uses source46db05e and the6.1.5 bridge
 commit above. The6.1.8 browser candidate and6.1.9 research are separate inputs;
@@ -45,8 +46,8 @@ acceptance remain required before default selection or installation.
 
 For a disposable candidate server, set `CODEX_CHAT_RETURN_TRANSPORT=local`;
 `CODEX_CHAT_LOCAL_MAX_DISPATCHES=3` bounds actual native starts during a qualified
-three-generation trial. The default remains `text`, and an unimplemented `mcp`
-selector refuses rather than silently using another transport. Tests:
+three-generation trial. The default remains `text`; transport selection never
+silently falls back after dispatch. Tests:
 `desktop_local_core_probe.py` uses a deterministic app port and zero Chat by default;
 `--live-session` or `--bounded-runtime` explicitly opts into up to three starts of
 GPT-6 Instant. Use private report paths. The bounded runtime refuses an already
@@ -60,6 +61,27 @@ stop, not a change to ordinary Ctrl-C semantics. The result and real resume inpu
 share one completion; adjacent Core user records share one actual Chat message.
 The live proof passes with2 user messages,2 returned tool messages and3 starts,
 preserving the existing file and cold TUI transcript. Default probes remain offline.
+
+The independent `mcp` candidate requires an explicit
+`CODEX_CHAT_MCP_CONNECTOR_NAME`. Its private server binding publishes `mcpSocket`;
+the owned trial tunnel must run `bun desktop_mcp_stdio.mjs SOCKET` against that
+socket. It exposes `native_catalog`/`native_tool`, with no legacy shell aliases or
+required app display name. Tokens bind backend/thread/turn; logical `call_id`
+binds an action, separately from reusable JSON-RPC IDs. This is ephemeral IPC
+inside the adapter, not another service, executor or conversation database.
+The existing trial connector still has the historical six-tool catalog. Refresh
+and qualify its new catalog before a live trial; changing labels alone does not
+connect it. The installed runtime/profile is unchanged.
+
+`desktop_local_core_probe.py --return-transport mcp` uses the real independent
+stdio server and Unix IPC with a deterministic host. It passes two actual signed
+Core commands, exact original-call returns, initial/intermediate/final TUI reports,
+canonical persistence and cold restore, with0 real Chat submissions. It also
+checks owned socket/root cleanup. The normal `local` fixture remains independent.
+MCP live-session/interrupt flags refuse here until their control path is qualified.
+Observer/stdio disconnect retains results; app-observer failure currently closes
+the remote lane and blocks replay. Full observer recovery, generation-time stop,
+host receipt after long approval/execution and media remain separate gates.
 
 For zero-model MCP inspection use `desktop_mcp_inspect.mjs RUNTIME REPORT NAME
 --tools-from-cache` inside a bounded owned app. It uses the existing installed

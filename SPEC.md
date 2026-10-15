@@ -3308,6 +3308,28 @@ public output, not extraction of private reasoning.
 Host terminal completion is required before returning a terminal sample. A
 finished sampling response carrying tool calls is not the end of Core's task.
 
+The independently written MCP candidate exposes `native_catalog` and
+`native_tool`, without a required connector display name or legacy executor.
+An unpredictable turn token binds the exact backend/thread/turn; each invocation
+also supplies a logical `call_id`. JSON-RPC IDs identify only that wire request.
+Identical logical retries attach to the original call/result; changed input or
+report under that identity refuses. Keep the full current Core catalog, including
+custom/freeform input and native deferred discovery, as data rather than deriving
+a second tool runtime from shell shortcuts. Updated catalogs apply only after
+pending results have settled.
+
+The parent adapter retains each original invocation until the exact Core result
+arrives, returns that result without a new Chat submission, and projects public
+reports through the same transcript path as local functions. Native execution
+errors are returned as result data, distinct from MCP transport/ownership errors.
+Observer/stdio disconnect detaches a waiter, not the Core operation or retained
+result. Local socket write completion is not host receipt or user-visible proof.
+Tokens and call bindings are transient: a lost adapter cannot reconstruct an
+in-memory host promise or automatically replay work. Explicit retirement rejects
+late calls and does not claim that native background commands have stopped.
+Hosted request deadlines are not extended or bypassed by local retention; long
+execution/approval and host continuation remain separate acceptance requirements.
+
 Start with source/offline integration of the already proved local-function path,
 then add MCP against the same projection. Each path must independently pass
 native display/persistence, approval, explicit stop, observation recovery,
