@@ -229,7 +229,7 @@ export class DesktopLocalTransport{
     }
     // Validate each observed batch before publishing any native call. Wait for
     // the actual host terminal so an invalid later call cannot leak partial work.
-    for(const message of state.messages){
+    if(settled)for(const message of state.messages){
      const call=localToolCall(message,this.gateway,payload.tools);
      if(!call||this.projection.calls.has(call.id))continue;
      const old=roundCalls.get(call.id);

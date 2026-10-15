@@ -191,6 +191,15 @@ test('native calls wait for host completion and a later invalid call never publi
  assert.equal(f.events.filter(e=>e.type==='tool_call_start').length,0);
  assert.equal(snapshots,2);assert.equal(f.submits.length,1);
 });
+test('an invalid message observed before its terminal is classified only after the normal terminal arrives',async()=>{
+ const f=fixture([[{call:{id:'invalid',name:'foreign',input:'{}'}}]]),invoke=f.transport.invoke;let snapshots=0;
+ f.transport.invoke=async(...args)=>{
+  const state=await invoke(...args);return args[2]==='snapshot'&&++snapshots===1?{...state,terminals:[]}:state;
+ };
+ await assert.rejects(()=>f.exchange(),/unadvertised_tool/);
+ assert.equal(snapshots,2);assert.equal(f.transport.blocked,false);assert.ok(f.transport.rejectedContext);
+ assert.equal(f.events.filter(e=>e.type==='tool_call_start').length,0);
+});
 test('decoded callbacks exclude prior message IDs and prior round completion/error',()=>{
  const client={prepareCompletionStream:r=>r,startCompletionStream:o=>o},api={streamPost:(_path,o)=>o},gate={};
  const s={scope:{get:n=>n===gate?true:client},m:{oMn:{}}};installLocalAppHooks(s,{HAt:gate,$wt:api});

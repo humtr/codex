@@ -102,7 +102,8 @@ own owners; do not reintroduce Tdev changes as the solution to this provider tas
   defects still do not establish which caused the user's particular rejected name.
 - The installed source marks every post-submit error delivery-unknown. The
   candidate permits recovery only after normal host terminal, zero published
-  native calls and successful owned cleanup; unchanged requests/replaced history
+  native calls and successful owned cleanup; classification waits for the actual
+  terminal even if an invalid message arrives first. Unchanged requests/replaced history
   refuse until new user input preserves the canonical prefix. Unknown delivery
   and failed cleanup stay blocked. Calls wait for terminal and whole-batch
   validation, so a later invalid call cannot publish earlier partial work.
@@ -117,11 +118,12 @@ own owners; do not reintroduce Tdev changes as the solution to this provider tas
 
 ## Current source qualification
 
-Provider suite passes76 Bun tests and41 Python tests; the14 affected local
-transport tests also pass after the final pre-submit recovery-guard correction.
+Provider suite passes77 Bun tests and41 Python tests; the15 affected local
+transport tests cover pre-submit recovery failure and a message arriving before
+its terminal, in addition to the initial correction.
 An initial unscoped Bun collection also picked the dependency-only TypeScript
 fixture and failed its relative imports. The documented provider scope is now
-explicit *.test.mjs; the proper76-test gate passes. Do not call the first gate green.
+explicit *.test.mjs; the proper provider gate passes. Do not call the first gate green.
 
 Actual signed stable52 Core with the deterministic app port passes the ordinary
 two-command/report/cold-TUI path. The added offline-only --reject-tool gate passes
@@ -130,8 +132,8 @@ new user recovery, one real read, unchanged inode/mtime/size, exactly two persis
 commands and initial/intermediate/final cold-TUI restore. No Chat inference is
 submitted by these fixtures. Counters distinguish four total fixture dispatches
 from two on the replacement lane. The fixture flag refuses live-app options.
-Proofs: chat-tool-recovery-{core,core-rejection,negative-control}.json and
-chat-tool-recovery-{bun-scoped,python-final,local-final}.log in the private cache.
+Proofs: chat-tool-recovery-{core,core-rejection,core-terminal,negative-control}.json
+and chat-tool-recovery-{bun-terminal,python-final,local-final}.log in the private cache.
 Unchanged Rust/frontend production gates remain reusable; no native inputs changed.
 Operating provider activation and a bounded actual Chat trial remain outstanding;
 source/offline success is not the user's physical MCP retry acceptance.
