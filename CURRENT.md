@@ -406,43 +406,71 @@ Current-source findings (no inference or fault injection):
   documentation confirms these distinct events; installed-version support and
   reconnect/subscription semantics still need their own affected-path proof.
 
-Recommended independent design, pending implementation:
+Responses-specific correction after source/protocol review:
 
-1. Keep internal inference/continuation as the default. Add a minimal factual
-   status in the existing Codex UI by default: awaiting provider, executing tools,
-   awaiting approval/input, observation unavailable, stopping, confirmed terminal.
-   Keep transport reachability, last observed activity age and actual work progress
-   separate. A spin animation or heartbeat must never refresh the work timestamp.
-   No invented percentage, generated reassurance or claim of ongoing reasoning.
-2. Offer optional expanded native tool/output details and an explicit owned Chat
-   viewer. The viewer must attach to the same actual conversation/turn without a
-   new user submit, recreation, stop, reload or mode change; omit the option if
-   exact attachment cannot be qualified. Merely reopening today's UI transport
-   does not prove this: its current fallback can construct another temporary lane.
-   Display failure is an observation fallback, never an inference fallback after
-   submission. Changing display mode must preserve all tools, permissions and
-   model/effort, and must not increase Chat submissions.
-3. Recover observation of the same owner/generation first. Keep the MCP call and
-   Core result IDs; replay only retained delivery, never actions. If the provider
-   or exact owner cannot be verified, report unknown and fence new admission,
-   rather than guessing stopped/running or automatically resending. Separate a
-   deliberate execution deadline from display/observer inactivity. Explicit stop
-   still closes admission, interrupts the exact Core turn, cancels its remote
-   generation and reports confirmed/partial/unknown outcomes independently.
-4. Keep canonical Core history and native item delivery; any small adapter status
-   projection is disposable and contains no alternate history. Prefer existing
-   frontend events/status surface. If extra transport telemetry is needed, use
-   the adapter's existing authenticated local boundary with exact home/backend/
-   thread/turn binding and content-free fields, no new daemon or fake model text.
-   Do not repeatedly thread/resume merely to observe; it can alter subscriptions.
+The normal local flow is Core request -> adapter Responses SSE/tool-call items ->
+completed sampling response -> Core tools/approvals -> next Responses request
+carrying exact tool results. A response.completed with tool calls does not finish
+Core's user turn. In our proposed MCP mode, the remote MCP invocation may remain
+pending across these separate HTTP responses; its native result resolves that
+invocation instead of becoming another Chat user message. The HTTP request,
+remote Chat turn, MCP invocation, native Core turn and visible client are separate
+lifetimes. The public /v1 format does not grant public Responses background/retrieve
+or streaming-resume semantics to this adapter. It currently rejects
+previous_response_id; do not promise cursor-based reconnection without implementing
+and qualifying it.
+
+Narrowed independent design, pending implementation:
+
+1. Keep native Codex UI/CLI as the primary output, using existing Core tool,
+   approval/input, output and turn-completion events. The provider returns actual
+   supported Responses items/deltas; it does not synthesize assistant messages for
+   transport status or duplicate Core execution tracking. A custom SSE status or
+   heartbeat is ignored by the existing parser and cannot implement the proposed
+   detailed UI by itself. Validate today's native display before adding any new
+   status surface. Fine-grained provider waiting/observation age is an optional
+   client integration, not required for the Responses/tool-result loop.
+2. Hidden provider operation reduces dependence on visible Chat rendering, but
+   not yet on app renderer/Scope/CDP. Do not infer incident probabilities or say
+   all Chat UI freezes are bypassed. Distinguish render-only silence, app observer
+   failure, Responses transport failure and Core native execution. MCP calls and
+   results can demonstrate tool progress independently of visible Chat text; when
+   no such activity is observed, show waiting/unknown instead of model progress.
+3. Do not universally ignore Responses cancellation. During inference, Core's
+   actual interrupt can close the same HTTP stream as a network/consumer failure.
+   During native tool execution there may be no outstanding Responses HTTP at all,
+   so HTTP callbacks alone cannot cancel a retained remote turn. Current abort
+   cleanup is not categorically wrong for the existing request-bound text mode;
+   the future retained mode needs exact home/backend/thread/turn control evidence
+   to separate sampling completion, observer loss, real cancellation and Core
+   departure. The persisted Android observer proof is partial; ephemeral and
+   notification reattachment remain gates. Keep request-bound semantics for
+   clients without the qualified control binding; do not enable detached mode
+   that leaves Ctrl-C ineffective. Confirm Core interruption separately from
+   remote cancellation and already-dispatched background process survival.
+4. Preserve same-call result delivery and never replay ambiguous submissions or
+   mutations. Observer-only recovery may re-read the same live store/turn and
+   deliver retained results; it must not turn into a new Chat submit or arbitrary
+   Responses replay. A verified terminal Core turn closes remote tool admission;
+   unknown ownership cannot grant new work. Keep this lifecycle mechanism small,
+   within the existing adapter/Core boundary, with no new execution service.
+5. Expanded native output remains an optional presentation feature; a same-chat
+   viewer is lower-priority diagnostics and not part of Responses correctness or
+   an inference fallback. Today's UI fallback submits work through another path;
+   do not repurpose it as observation after an accepted request. Add neither a
+   second progress registry nor an authenticated status endpoint speculatively.
+   Only a demonstrated gap in native display can justify the smallest extra
+   client status projection. Chat viewing must not become an admission gate.
 
 Qualification must separate these fault cases: freeze only visible rendering
 while Scope/tool activity continues; disconnect only the observer and reconnect
 to the same turn; hold provider output with only adapter heartbeats; drop a tool
 result response after the native effect; stop during a live native operation;
-restart adapter with ambiguous dispatch. Verify actual client labels/output and
-last-activity age, no duplicate mutations, zero extra user submits for observation
-and display toggles, same call/result ownership and latest Core state on resume.
+restart adapter with ambiguous dispatch; cancel during native execution when no
+Responses request is open. Verify existing native client output and terminal
+state first; test any added labels/last-activity age separately. Require no duplicate mutations, zero extra
+user submits for observation/display toggles, same call/result ownership and
+latest Core state on resume.
 No heartbeat-only trace may show verified progress, and stop requested may not
 show stopped until evidence arrives. Existing read-only Android turn observation
 proves a narrower non-ephemeral mechanism; it does not qualify full notification
