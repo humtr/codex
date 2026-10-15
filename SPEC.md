@@ -3250,6 +3250,25 @@ Interrupted or failed compaction must preserve prior native history, and a
 subsequent resumed turn must retain state learned through real tool outputs.
 No production admission or public API access follows from experimental proof.
 
+Chat-as-model acceptance includes the normal native Codex transcript: genuine
+model-authored user-facing intermediate reports, exact native tool requests and
+Core-owned execution/results, followed by the final answer. A spinner/status
+projection, final answer alone or a separate Chat viewer does not satisfy this.
+Translate actual public assistant reports into supported Responses assistant
+message items with commentary/final_answer phases and valid text deltas/item
+completion; do not invent reports from heartbeat or expose internal RPC envelopes
+as conversation text. Core owns persistence, approvals, replay and execution.
+The same native call IDs/results must resolve retained remote MCP invocations;
+never execute tools independently in the Chat bridge. Native tool invocations,
+including MCP tools already available to Core, retain their actual tool surface.
+Remote-only builtin actions must not be fabricated as native executions.
+Observation reconnect and successive sampling responses must not duplicate
+reports, reorder them around calls or replay mutations. Reading/forwarding an
+existing report must not submit another Chat user message. Complete report
+delivery/persistence and warm/cold resume require actual native-client proof;
+token-by-token timing depends on the qualified remote event source, not merely
+on exposing a streaming Responses endpoint.
+
 The adapter accepts identity and zstd request bodies with a 16 MiB encoded and
 32 MiB decoded ceiling, before any Chat submission or context staging. Decode
 incrementally with fatal UTF-8 validation; report unsupported encoding, malformed

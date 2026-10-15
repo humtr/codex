@@ -422,6 +422,27 @@ and qualifying it.
 
 Narrowed independent design, pending implementation:
 
+The user further clarified that actual model-authored intermediate reports and
+the full native tool transcript are required, not just liveness labels. This is
+provider output completeness, distinct from optional fine-grained transport UI.
+Current completed-envelope exchange returns only tool or final; the adapter
+queues final_answer text only and does not forward intermediate reports. This
+is our adapter limitation, not a Responses/Core restriction. Pinned upstream0.161
+responses.rs parses commentary message items and its existing test preserves
+that phase. The reused wire emitter also supports commentary text items/deltas;
+neither establishes that our remote source currently captures those reports.
+Independently implement an ordered event projection from actual remote assistant
+reports and MCP calls into Responses items, keep calls executing through Core,
+and return exact Core results into the original remote MCP requests. Final-only
+JSON polling must not remain the sole interface for the full-mode candidate.
+Qualify the app's user-facing message event source; if text delivery is absent,
+an explicit same-turn MCP report event is a possible separately tested alternative,
+not an extra user prompt or proof of zero tool-round-trip cost. Do not expose
+partial JSON control data or relabel private reasoning as a user-facing report.
+Require message/call ordering, stable report identity/deduplication across sampling
+rounds/reconnect, native rendered transcript plus persisted warm/cold resume, and
+unchanged submission counts for forwarding. No real Chat trial was performed.
+
 1. Keep native Codex UI/CLI as the primary output, using existing Core tool,
    approval/input, output and turn-completion events. The provider returns actual
    supported Responses items/deltas; it does not synthesize assistant messages for
