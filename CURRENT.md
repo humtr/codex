@@ -382,7 +382,22 @@ This repository carries no external workflow skill or model configuration.
   helper tests and the installed6.1.5 provider mapping pass with zero Chat submits.
 - Current work minimizes debt and message submissions in the standalone ChatGPT
   provider. tdev progress/control proposals are separate-session work, not a
-  dependency. Source-only ordered packing reduces an owned 50,410-character
+  dependency. On2026-10-15 experimentdcf286c's independently written `local` return
+  candidate passed actual signed-app GPT-6 Instant + Android Core stable51 proof:
+  two real dependent shell commands, genuine model-authored initial/intermediate/
+  final reports, canonical persistence, fresh Core resume and actual TUI rendering.
+  It observed1 initial user submission,2 tool-role returns and3 model starts;
+  those counts do not establish Chat message-limit deductions. Public reports
+  accompany gateway calls, adding no report-only inference round. Two prior
+  three-start tool-loop trials failed the report gate and remain recorded; current
+  source fixes that omission. Core remains the only executor/history owner.
+  The source selector is explicit; installed provider46db05e/bridge92a356f stays
+  unchanged, with561 manifest hashes verified. MCP settlement, full stop/recovery,
+  approvals, independent-owner and long-history/context acceptance remain before
+  default selection or activation. Detailed current state and private proof names:
+  [experiment CURRENT](https://github.com/humtr/codex/blob/experiment/web-termux/CURRENT.md#native-local-return-candidate-current-implementation-and-proof).
+  The following earlier reviews are background, not a competing implementation
+  order. Source-only ordered packing reduces an owned 50,410-character
   fixture from27 submissions to2 while preserving schemas/history; no Chat quota
   deduction is measured. Admission errors and context/work submission accounting
   are now distinct on the experiment branch. First repair actual model-use boundaries.
@@ -399,8 +414,9 @@ This repository carries no external workflow skill or model configuration.
   comparison does not create a provider dependency or implementation follow-up.
   Then qualify native Chat tool-result continuation through the existing adapter
   before expanding its architecture. Detailed scope and the no-inference stage-cost
-  measurement live in experiment/web-termux CURRENT.md. No provider/runtime changes
-  or new Chat inference are authorized by these review notes.
+  measurement live in experiment/web-termux CURRENT.md. Source implementation and
+  explicitly budgeted live proof were subsequently authorized; no operating
+  provider/runtime activation follows from these experiment results.
   The experiment source now repairs bounded identity/zstd HTTP decoding and
   pre-parser rejection of unreadable compaction. Actual Android offline HTTP,
   merged-catalog and existing-broker IPC proofs pass. Experiment678dbaa adds
