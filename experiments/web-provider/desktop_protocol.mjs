@@ -79,9 +79,11 @@ export function admitDesktopRequest(raw,parseRequest){
 
 // Submission observation precedes the reply/ACK; neither observation proves quota.
 export function recordDesktopSubmission(report,event,route){
- if(!['context','request'].includes(event.phase)||!['app_accepted','ui_observed'].includes(event.source))throw Error('invalid_desktop_submission');
+ if(!['context','request'].includes(event.phase)||!['app_accepted','app_dispatched','ui_observed'].includes(event.source))throw Error('invalid_desktop_submission');
+ if(event.kind==='tool'){report.toolResultSubmissions=(report.toolResultSubmissions||0)+1;return;}
+ if(event.kind!==undefined&&event.kind!=='user')throw Error('invalid_desktop_submission');
  report.observedChatSubmissions++;
- report.submissionSources[event.source]++;
+ report.submissionSources[event.source]=(report.submissionSources[event.source]||0)+1;
  if(event.phase==='context')report.submittedContextRequests++;
  else{report.submittedRequests++;if(route.mode==='pro')report.submittedProRequests++;}
 }

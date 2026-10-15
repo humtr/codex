@@ -42,7 +42,7 @@ export async function waitForAppScope(discover,timeoutMs=30000,pause=delay){
  }
 }
 
-async function acquire(root){
+export async function acquireDesktopApp(root){
  const generation=desktopConnection(root).generation;
  let pool=pools.get(root);
  if(pool&&pool.generation!==generation){pool.client?.close();pools.delete(root);pool=undefined;}
@@ -56,13 +56,13 @@ async function acquire(root){
  }
  pool.refs++;
  const release=()=>{if(--pool.refs===0){pool.client?.close();if(pools.get(root)===pool)pools.delete(root);}};
- try{return {client:await pool.pending,release};}catch(e){release();throw e;}
+ try{return {client:await pool.pending,scopeKey:key,release};}catch(e){release();throw e;}
 }
 
 export async function closeOwnedAppConversations(root){
  let lease;
  try{
-  lease=await acquire(root);
+  lease=await acquireDesktopApp(root);
   await lease.client.evaluate(expression(key=>{const s=window[key];if(s){for(const l of s.lanes.values()){l.controller?.abort();s.m.eHt(s.scope,l.id);}delete window[key];}return true;},key));
  }catch{}finally{lease?.release();}
 }
@@ -90,7 +90,7 @@ export class DesktopAppTransport{
   if(this.busy)throw Error('desktop_chat_busy');this.busy=true;
   let lease,client,attempted=false;
   try{
-   signal?.throwIfAborted();lease=await acquire(this.root);client=lease.client;
+   signal?.throwIfAborted();lease=await acquireDesktopApp(this.root);client=lease.client;
    const routeIdentity=JSON.stringify(route),generation=client.generation;
    if(this.generation!==generation||this.routeIdentity!==routeIdentity)this.retire();
    if(this.reset){

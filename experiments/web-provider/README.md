@@ -25,6 +25,34 @@ neither is the active dependency. Bundled dependency source and licenses remain
 preserved by the installer; changing product names does not change authorship.
 Current acceptance and unresolved work belong to CURRENT.md.
 
+The current development target has two return transports sharing one Core tool
+and transcript path: signed-app local functions (`local`) and retained remote
+MCP settlement (`mcp`). The local-function 2/4/8-return probes are passed wire
+proof, not installed Core integration. Implementation proceeds shared projection,
+local integration, MCP integration, then native transcript/lifecycle acceptance.
+The installed text relay remains until the replacement is qualified. Neither
+transport may resubmit an ambiguous task through the other or claim Chat-limit
+savings from request counts. See SPEC.md's two-return-transport contract.
+
+The source `local` candidate now passes an actual signed-app GPT-6 Instant task:
+two real Core commands, model-authored initial/intermediate/final reports, canonical
+history, cold Core restore and actual Codex TUI rendering. It observed one initial
+user submission, two tool-role returns and three native model starts. Chat-limit
+deduction remains unmeasured. Reports accompany the same gateway calls; they do
+not require another user prompt or report-only inference round. No operating
+provider/profile has been replaced. MCP, complete lifecycle and broader tool/context
+acceptance remain required before default selection or installation.
+
+For a disposable candidate server, set `CODEX_CHAT_RETURN_TRANSPORT=local`;
+`CODEX_CHAT_LOCAL_MAX_DISPATCHES=3` bounds actual native starts during a qualified
+three-generation trial. The default remains `text`, and an unimplemented `mcp`
+selector refuses rather than silently using another transport. Tests:
+`desktop_local_core_probe.py` uses a deterministic app port and zero Chat by default;
+`--live-session` or `--bounded-runtime` explicitly opts into up to three starts of
+GPT-6 Instant. Use private report paths. The bounded runtime refuses an already
+running desktop and stops only its own controller. See CURRENT.md for exact proofs,
+failed-trial costs and remaining gates; do not use this probe as an installer.
+
 There is no required `Codex Native2` protocol name. That was the upstream browser
 default copied into our old probe. The signed-app text adapter does not select an
 MCP connector at all. Browser probes now require `--connector-name` matching the

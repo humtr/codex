@@ -13,6 +13,11 @@ import sys
 import tempfile
 import time
 import threading
+import fcntl
+import pty
+import re
+import struct
+import termios
 from protocol import Transcript, events as response_events
 
 SOURCE = Path(__file__).resolve().parent
@@ -24,6 +29,44 @@ from rald5_publication import parse_manifest
 
 def sha(path):
     with path.open('rb') as f: return hashlib.file_digest(f, 'sha256').hexdigest()
+
+
+def render_transcript(launcher, workspace, env, thread_id, marker, trace_path=None):
+    """Render only an owned persisted fixture; never send a user/model turn."""
+    master, slave=pty.openpty()
+    fcntl.ioctl(slave,termios.TIOCSWINSZ,struct.pack('HHHH',60,120,0,0))
+    def session():
+        os.setsid();fcntl.ioctl(slave,termios.TIOCSCTTY,0)
+    child=subprocess.Popen([str(launcher),'--no-daemon','--no-alt-screen','resume',thread_id],cwd=workspace,
+        env=env,stdin=slave,stdout=slave,stderr=slave,preexec_fn=session,close_fds=True)
+    os.close(slave);output=b'';trusted=False;rendered={}
+    try:
+        deadline=time.monotonic()+20
+        while time.monotonic()<deadline and child.poll() is None:
+            if not select.select([master],[],[],.1)[0]:continue
+            try:chunk=os.read(master,65536)
+            except OSError:break
+            for query,response in [(b'\x1b[6n',b'\x1b[1;1R'),(b'\x1b[c',b'\x1b[?1;2c'),
+                (b'\x1b]10;?',b'\x1b]10;rgb:ffff/ffff/ffff\x1b\\'),(b'\x1b]11;?',b'\x1b]11;rgb:0000/0000/0000\x1b\\')]:
+                if query in chunk:os.write(master,response)
+            output+=chunk
+            text=re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]','',output.decode(errors='replace'))
+            if not trusted and re.search(r'do you trust|trust this (?:directory|folder|workspace)',text,re.I):
+                os.write(master,b'\r');trusted=True
+            # User task and command echo contain the same markers: require the
+            # native assistant bullet, not a substring anywhere in the screen.
+            rendered={key:bool(re.search(r'(?:^|\n)\s*•\s*'+re.escape(value),text)) for key,value in
+                [('initial','LOCAL_INITIAL_REPORT'),('intermediate','LOCAL_INTERMEDIATE_REPORT'),('final',marker)]}
+            if all(rendered.values()):return {**rendered,'nativeTuiRunning':True}
+        return rendered
+    finally:
+        if trace_path:
+            trace_path.write_bytes(output);trace_path.chmod(0o600)
+        if child.poll() is None:
+            os.killpg(child.pid,signal.SIGINT)
+            try:child.wait(timeout=3)
+            except subprocess.TimeoutExpired:os.killpg(child.pid,signal.SIGTERM);child.wait(timeout=5)
+        os.close(master)
 
 
 def probe(args):
@@ -156,9 +199,11 @@ stream_max_retries = 0
             deadline=time.monotonic()+(1200 if args.compact else 300 if desktop else 180)
             rpc(1,'initialize',{'clientInfo':{'name':args.app_name,'title':'Codex Termux Trial','version':'0.1.0'},'capabilities':{'experimentalApi':True}},deadline)
             send({'method':'initialized','params':{}})
-            thread=rpc(2,'thread/start',{'model':args.model,'cwd':str(workspace),'approvalPolicy':'on-request','sandbox':'danger-full-access','ephemeral':not(args.cancel_resume or args.compact),'config':{'model_auto_compact_token_limit':16300,'model_auto_compact_token_limit_scope':'total'} if args.mid_turn_compact else {}},deadline)
+            thread=rpc(2,'thread/start',{'model':args.model,'cwd':str(workspace),'approvalPolicy':'on-request','sandbox':'danger-full-access','ephemeral':not(args.cancel_resume or args.compact or getattr(args,'transcript_check',False)),'config':{'model_auto_compact_token_limit':16300,'model_auto_compact_token_limit_scope':'total'} if args.mid_turn_compact else {}},deadline)
             thread_id=thread['thread']['id']
             task=f'Use the local shell tool to write exactly {marker} to proof.txt in the current directory. Use a separate second shell tool call to read it back. Reply with exactly {marker}. No other work.'
+            if getattr(args,'transcript_check',False):
+                task=f'First say LOCAL_INITIAL_REPORT in commentary. Use the local shell tool to write exactly {marker} to proof.txt in the current directory. After its result say LOCAL_INTERMEDIATE_REPORT in commentary. Use a separate second shell tool call to read it back. Your final answer must be exactly {marker}. Do no other work.'
             if args.compact:
                 seed_text=marker+'\n'+('Reference-only context row; no action.\n'*220 if args.auto_compact or args.mid_turn_compact else '')
                 (workspace/'seed.txt').write_text(seed_text)
@@ -243,6 +288,39 @@ stream_max_retries = 0
             marker_file=workspace/'proof.txt'
             report['workspaceMarkerVerified']=marker_file.is_file() and marker_file.read_text().strip()==marker
             report['realCoreToolLoopAccepted']=not args.account_free_wire and report['turnCompleted'] and report['shellToolCompleted'] and report['workspaceMarkerVerified'] and report['successfulShellCalls']>=2 and report['nativeReplyMatched']
+            if getattr(args,'transcript_check',False):
+                stored=rpc(81,'thread/read',{'threadId':thread_id,'includeTurns':True},deadline)
+                items=[item for turn in stored['thread']['turns'] for item in turn['items']]
+                def report_evidence(values):
+                    return [{'phase':item.get('phase'),'initial':'LOCAL_INITIAL_REPORT' in item.get('text',''),
+                        'intermediate':'LOCAL_INTERMEDIATE_REPORT' in item.get('text',''),
+                        'final':item.get('text','').strip()==marker,'characters':len(item.get('text',''))}
+                        for item in values if item.get('type')=='agentMessage']
+                evidence=report_evidence(items)
+                report['nativeReports']=evidence
+                report['persistedReportCheck']=all(sum(item[k] for item in evidence)==1 for k in ['initial','intermediate','final'])
+                report['persistedNativeCommands']=sum(item.get('type')=='commandExecution' and item.get('status')=='completed' for item in items)
+                before_requests=json.loads(Path(str(args.desktop_server)+'.proof').read_text())['requests']
+                os.killpg(process.pid,signal.SIGINT)
+                try:process.wait(timeout=8)
+                except subprocess.TimeoutExpired:os.killpg(process.pid,signal.SIGTERM);process.wait(timeout=5)
+                process.stdin.close();process.stdout.close();process.stderr.close()
+                process=subprocess.Popen([str(launcher),'app-server','--listen','stdio://'],env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,start_new_session=True)
+                buffer='';events.clear()
+                rpc(82,'initialize',{'clientInfo':{'name':args.app_name,'version':'0.1.0'},'capabilities':{'experimentalApi':True}},deadline)
+                send({'method':'initialized','params':{}})
+                resumed=rpc(83,'thread/resume',{'threadId':thread_id,'approvalPolicy':'on-request','sandbox':'danger-full-access'},deadline)
+                cold=rpc(84,'thread/read',{'threadId':thread_id,'includeTurns':True},deadline)
+                cold_items=[item for turn in cold['thread']['turns'] for item in turn['items']]
+                report['coldTranscriptRestored']=resumed['thread']['id']==thread_id and report_evidence(cold_items)==evidence
+                report['resumeWithoutModelRequest']=json.loads(Path(str(args.desktop_server)+'.proof').read_text())['requests']==before_requests
+                os.killpg(process.pid,signal.SIGINT)
+                try:process.wait(timeout=8)
+                except subprocess.TimeoutExpired:os.killpg(process.pid,signal.SIGTERM);process.wait(timeout=5)
+                # The fixture has no operating shared-server installation. The
+                # qualified launcher still provides the signed runtime's FDs.
+                report['renderedTranscript']=render_transcript(launcher,workspace,env,thread_id,marker,getattr(args,'tui_trace_path',None))
+                report['renderWithoutModelRequest']=json.loads(Path(str(args.desktop_server)+'.proof').read_text())['requests']==before_requests
             if args.cancel_resume:
                 report['realCoreToolLoopAccepted'] &= all(report.get(k) for k in ['cancelAfterActualSubmit','nativeCancelAccepted','noToolBeforeCancel','desktopCancelSettled','nativeResumeAccepted','firstCoreStoppedBeforeResume'])
             if args.compact and report['realCoreToolLoopAccepted']:

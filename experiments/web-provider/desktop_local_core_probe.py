@@ -1,0 +1,105 @@
+"""Actual signed Android Core + real adapter; deterministic app port, zero Chat."""
+import argparse
+from contextlib import contextmanager
+import json
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import time
+from siwc_core_probe import probe as core_probe
+
+
+@contextmanager
+def bounded_app(runtime_path):
+    from desktop_lifecycle import desktop_ready, live
+    stat=runtime_path.lstat()
+    assert not runtime_path.is_symlink() and stat.st_uid==os.getuid() and stat.st_mode&0o777==0o600
+    runtime=json.loads(runtime_path.read_text());session=Path(runtime['session'])
+    assert not live(session), 'existing_desktop_must_be_preserved'
+    with tempfile.TemporaryDirectory(prefix='local-app-',dir=os.environ['TMPDIR']) as temporary:
+        with (Path(temporary)/'controller.log').open('w') as log:
+            child=subprocess.Popen(['python','-B',str(Path(runtime['source'])/'linux_desktop_trial.py'),'serve',
+                '--proot-source',runtime['proot'],'--bun',runtime['bun'],'--novnc',runtime['novnc'],
+                '--seconds','300','--inspect'],stdout=log,stderr=log)
+            try:
+                deadline=time.monotonic()+60
+                while True:
+                    owner=live(session)
+                    if owner and owner['pid']==child.pid and desktop_ready(session):break
+                    assert child.poll() is None,'bounded_app_start_failed'
+                    assert time.monotonic()<deadline,'bounded_app_start_timeout'
+                    time.sleep(.2)
+                yield runtime
+            finally:
+                if child.poll() is None:child.terminate()
+                try:child.wait(timeout=20)
+                except subprocess.TimeoutExpired:child.kill();child.wait(timeout=5)
+
+
+def probe(bun, bridge, session=None, trace_path=None):
+    with tempfile.TemporaryDirectory(prefix='local-core-', dir=os.environ['TMPDIR']) as temporary:
+        root = Path(temporary)
+        with (root/'adapter.log').open('w') as log:
+            if session:
+                command=[str(bun),str(Path(__file__).with_name('desktop_local_core_trace.mjs')),str(bridge),str(session),str(root)]
+            else:
+                command=[str(bun),str(Path(__file__).with_name('desktop_local_core_fixture.mjs')),str(bridge),str(root)]
+            child = subprocess.Popen(command, stdout=log, stderr=log, env={**os.environ,'CODEX_CHAT_RETURN_TRANSPORT':'local','CODEX_CHAT_LOCAL_MAX_DISPATCHES':'3'})
+            try:
+                binding = root/'server.json'
+                deadline = time.monotonic()+10
+                while not binding.exists():
+                    assert child.poll() is None, 'fixture_start_failed'
+                    assert time.monotonic()<deadline, 'fixture_start_timeout'
+                    time.sleep(.05)
+                args = argparse.Namespace(desktop_server=binding, model='chatgpt-desktop/gpt-6',
+                    account_free_wire=False, compact=False, cancel_resume=False,
+                    app_name='owned-local-return-fixture', effort='none', transcript_check=True,
+                    mid_turn_compact=False,tui_trace_path=root/'native-tui.txt')
+                result = core_probe(args)
+                state = json.loads(Path(str(binding)+'.proof').read_text())
+                if trace_path and (root/'public-trace.json').exists():
+                    trace_path.write_bytes((root/'public-trace.json').read_bytes());trace_path.chmod(0o600)
+                if trace_path and args.tui_trace_path.exists():
+                    tui_trace=trace_path.with_name(trace_path.stem+'-tui.txt')
+                    tui_trace.write_bytes(args.tui_trace_path.read_bytes());tui_trace.chmod(0o600)
+                if state.get('errorCode') and (root/'fixture-result.json').exists():
+                    # Owned deterministic results only; no actual account/model data.
+                    result['fixtureResultDiagnostic'] = json.loads((root/'fixture-result.json').read_text())
+                result.update(realService=bool(session), actualSignedApp=bool(session), deterministicAppPort=not bool(session),
+                    chatSubmissions=state['observedChatSubmissions'] if session else 0, proInference=False, productionChanged=False,
+                    fixtureUserSubmissions=state['observedChatSubmissions'],
+                    fixtureToolSubmissions=state['toolResultSubmissions'],
+                    fixtureDispatches=state.get('selectedControl', {}).get('dispatches'),
+                    adapterError=state.get('errorCode'), nativeFailure=state.get('nativeFailure'), returnTransport=state['returnTransport'])
+                result['accepted'] = result.pop('realCoreToolLoopAccepted') and result['fixtureUserSubmissions']==1 and result['fixtureToolSubmissions']==2 and result['fixtureDispatches']==3 and not result['adapterError'] and all(result.get(k,False) for k in ['persistedReportCheck','coldTranscriptRestored','resumeWithoutModelRequest','renderWithoutModelRequest']) and all(result.get('renderedTranscript',{}).get(k) for k in ['initial','intermediate','final'])
+                return result
+            finally:
+                child.terminate()
+                try:
+                    child.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    child.kill(); child.wait(timeout=5)
+
+
+if __name__ == '__main__':
+    os.umask(0o077)
+    parser = argparse.ArgumentParser()
+    for name in ['bun', 'bridge', 'report']:
+        parser.add_argument('--'+name, type=Path, required=True)
+    parser.add_argument('--live-session',type=Path,help='Explicit bounded live proof, at most three native generation starts; never Pro')
+    parser.add_argument('--bounded-runtime',type=Path,help='Start an otherwise stopped trial app for at most 300 seconds and close only that owned controller')
+    args = parser.parse_args()
+    assert not(args.live_session and args.bounded_runtime)
+    trace=args.report.with_name(args.report.stem+'-public-trace.json')
+    if args.bounded_runtime:
+        with bounded_app(args.bounded_runtime) as runtime:
+            assert Path(runtime['bun'])==args.bun and Path(runtime['bridge'])==args.bridge
+            result=probe(args.bun,args.bridge,Path(runtime['session']),trace)
+    else:
+        result = probe(args.bun, args.bridge,args.live_session,trace)
+    args.report.write_text(json.dumps(result, indent=2)+'\n')
+    args.report.chmod(0o600)
+    print(json.dumps(result))
+    raise SystemExit(0 if result['accepted'] else 1)

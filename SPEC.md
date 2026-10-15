@@ -3269,6 +3269,48 @@ delivery/persistence and warm/cold resume require actual native-client proof;
 token-by-token timing depends on the qualified remote event source, not merely
 on exposing a streaming Responses endpoint.
 
+### Two return transports, one native execution and transcript
+
+The experiment qualifies two explicitly selected tool-return transports: `local`
+uses the signed app's actual local-function call and tool-role result submission;
+`mcp` completes the original remote MCP invocation. Both use the same native
+tool surface, Responses event projection, approval/reviewer and canonical Core
+history. No second executor, model agent, job service or transcript database is
+introduced. Tools include namespaces, custom/freeform and deferred search; a
+transport gateway must not silently remove or rewrite these capabilities.
+
+The default installed text/envelope transport is historical qualification only.
+Keep it unchanged until a new candidate passes affected acceptance; never switch
+an already dispatched task to another transport on an ambiguous failure. Route
+selection is explicit at candidate startup and stable across a pending call.
+Neither a local function result nor an MCP response is a new user instruction.
+Count user submissions, tool-role submissions, model dispatches and local HTTP
+sampling rounds separately; no such count establishes Chat allowance deduction.
+
+Local-function calls may use a schema-preserving catalog with a typed gateway
+for arbitrary native tool names and JSON/custom input. Original remote call IDs
+must bind the exact Core outputs, including batched calls. The gateway is a wire
+adapter only. Model-authored initial replies, commentary and final output must
+be forwarded in order, once; private reasoning and control JSON are not reports.
+The same gateway call may carry a model-authored public `report` alongside its
+native tool name/input. Project that report as commentary before the tool call;
+never pass it into native tool arguments or add a report-only model round. An
+empty report is allowed when there is no useful update. Adjacent identical public
+prose and gateway reports must not display twice. These reports are explicit
+public output, not extraction of private reasoning.
+Host terminal completion is required before returning a terminal sample. A
+finished sampling response carrying tool calls is not the end of Core's task.
+
+Start with source/offline integration of the already proved local-function path,
+then add MCP against the same projection. Each path must independently pass
+native display/persistence, approval, explicit stop, observation recovery,
+parallel-owner isolation and warm/cold resume. A passed echo probe is not full
+Core acceptance. Use owned synthetic data for ordinary-Chat qualification; the
+local-function proof used non-Temporary Chat. Production history/retention behavior
+must be explicit before applying this mode to existing user conversations.
+The `/model` entry is primary and `--profile chatgpt` selects the same provider.
+Pro inference remains prohibited; explain the expected live-trial budget first.
+
 The adapter accepts identity and zstd request bodies with a 16 MiB encoded and
 32 MiB decoded ceiling, before any Chat submission or context staging. Decode
 incrementally with fatal UTF-8 validation; report unsupported encoding, malformed

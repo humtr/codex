@@ -209,6 +209,93 @@ or resolution of these model-use failures.
 
 ## ChatGPT provider cost and debt reduction
 
+Current authorized implementation order: repair the known admission/runtime
+boundaries; implement a shared native call/transcript projection; connect the
+already proved non-MCP local-function return to real Core; connect an independently
+written MCP settlement transport to that same projection; qualify lifecycle,
+resume, complete native tools and actual TUI; compare submissions/dispatches and
+any observable Chat allowance separately; select/install the qualified default.
+Both return transports remain selectable. Earlier local-first/MCP-first research
+recommendations below are historical evidence, not competing current plans.
+Source edits, isolated checks and pushes are authorized. Explain live Chat budgets
+before trials; no Pro, implicit replay or unannounced operating activation.
+The installed46db05e text adapter remains unchanged during source qualification.
+
+### Native local-return candidate: current implementation and proof
+
+On2026-10-15 the source candidate connects the signed app's real local functions
+to the existing Responses bridge and actual signed Android Core stable51. Select
+it explicitly with `CODEX_CHAT_RETURN_TRANSPORT=local` when starting the candidate
+server; omission retains the installed historical `text` behavior. `mcp` is not
+implemented/accepted by this candidate yet. Do not activate it by changing an
+operating profile or replacing the installed provider.
+
+- `desktop_tool_session.mjs` owns transport-neutral public report/native-call
+  projection and exact result pairing. `desktop_local_transport.mjs` registers a
+  per-owner typed gateway containing the current complete native catalog. Core
+  still executes JSON, namespaced, custom/freeform and discovered tools; the
+  gateway only carries names/input and model-authored public reports. No tool
+  executor, second agent, transcript database or new service was added.
+- The gateway's `report` field projects genuine model-authored commentary before
+  its tool, without a report-only call or generation. Initial live trials completed
+  both real commands but omitted the requested ordinary prose reports. The public
+  synthetic trace established that those messages were absent, not just hidden
+  by the Codex renderer. Earlier phase/whitespace changes alone did not fix that.
+  Explicit public report metadata fixed the tested path; private analysis remains
+  excluded. Duplicate source reports/calls and changed/missing outputs refuse.
+- The app's actual native API dispatch is observed; browser fetch interception
+  cannot guard its IPC. The native `handoff` capability must exist before our owned
+  declaration is substituted. Other conversations/requests pass through untouched.
+  Native retry is disabled; an ambiguous dispatched failure blocks replay and
+  cross-transport fallback. Trial budgets count actual request starts across owners.
+  Overlapping cleanup releases the app owner once; the last owner restores exact
+  original methods, including after cancellation/error.
+- Mwi's `extraDeveloperInstructions` become hidden `system` messages through Csi
+  on this exact app version. An earlier guard incorrectly expected developer roles;
+  inert dispatch inspection identified and fixed this. A separate preflight
+  serialization defect with omitted arguments was also fixed before further work.
+
+Actual signed-app/Core acceptance passed:
+`~/.cache/codex/acceptance/chat-local-core-live-gateway-reports.json`.
+GPT-6 Instant authored the initial report, two dependent real shell requests,
+intermediate report and exact nonce final answer. Core executed both commands in
+disposable state; its canonical history contains all three reports and two commands.
+A fresh Core process restored the same transcript; the actual qualified Core
+launcher/TUI (`--no-daemon resume`) rendered each assistant report/final with native
+assistant bullets. Resuming and rendering sent no additional provider requests.
+This is Android PTY renderer proof, not a user's physical phone observation.
+
+The accepted live task observed1 initial user submission,2 tool-role submissions
+and3 native model starts. Two preceding successful tool-loop trials each also
+observed3 starts but failed the report gate; preserve those failures rather than
+counting only the final trial's cost. A role-guard failure recorded0 observed
+starts. None of these observations measures Chat message-limit deductions.
+Synthetic ordinary Chat was used, not Temporary Chat; no existing conversation,
+account home, credential or running user task was used as a fixture.
+
+Zero-inference evidence: `chat-local-app-dry.json` blocks the actual native client
+before its API can start; registration/restoration is inert. The real HTTP adapter
+with deterministic app port also passes two actual Core commands, gateway reports,
+cold persistence and TUI rendering (`chat-local-core-render-offline.json`). These
+are explicitly distinguished from signed-app/model proof. Private synthetic traces
+allow report mapping to be replayed without new inference. Affected Bun tests50,
+experiment Python tests32 and repository Python gates18+59 pass. The unchanged
+Rust inputs passed the full gate:323 tests, one existing ignored resolver smoke,
+fmt/Clippy. Installed payload561 file hashes match its manifest, source46db05e/
+bridge92a356f; no operating activation or public release occurred.
+
+Next: qualify the selected ordinary-Chat MCP connector/channel before independently
+implementing retained settlement through the same projection. Then qualify actual
+approval/reviewer and user-input interactions, stop during generation and native
+execution, observer loss/recovery, independent owners, warm/cold continuation,
+catalog/search/custom tools and long-history/cross-provider compaction. The new
+local path currently rejects new user/developer input interleaved with pending
+results instead of dropping it; implement and prove that interruption/resume case.
+The shared server still has explicit media/opaque-history admission limits; do not
+claim the complete native tool/context surface is qualified from this shell task.
+Only after those gates compare costs and select/install a default. Keep both
+authorized return transports in scope; do not silently collapse the plan to one.
+
 The selected objective is to improve ChatGPT as a model inside local Codex with
 the least maintenance and message-submission cost. tdev progress/control proposals
 belong to a separate session; neither its runtime nor a new workflow controller,
@@ -247,8 +334,9 @@ so an accepted setup with a failed ACK is still counted. Total observed submissi
 separate app acceptance from weaker GUI observation; retries and completed ACKs
 remain separate. None of these counters measures chat-limit deductions.
 
-Remaining adoption order; the installed provider remains unchanged. The separate
-local-function feasibility below includes real Chat inference, not activation:
+Historical pre-integration findings follow. The current implementation order and
+qualification state above supersede the earlier adoption recommendations; the
+installed provider remains unchanged:
 
 1. Repair the recorded catalog/admission, provider-crossing compaction and body-size
    boundaries. Preserve ordinary upstream execution and one authoritative history.
@@ -271,7 +359,7 @@ local-function feasibility below includes real Chat inference, not activation:
    invoke Codex recursively. AgentDock lifecycle and miuuyy retained-MCP flow remain
    references where relevant; independently implemented MCP is a comparison,
    not a mandatory added dependency or a proven quota-saving winner.
-4. After acceptance, keep one inference transport, make GUI viewing optional and
+4. The earlier recommendation was to keep one inference transport, make GUI viewing optional and
    package reachable runtime dependencies separately from tests/history. Remove
    a replaced path only after its full affected acceptance. If native continuation
    is unavailable, retain the optimized text adapter with its explicit per-judgment
