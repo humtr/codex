@@ -121,7 +121,12 @@ const server=Bun.serve({hostname:'127.0.0.1',port:runtime?Number(new URL(runtime
     if(compact){checkpoint.offer(response.text);report.compactionSummaries++;}
     if(!response.streamed)queue.push({type:'text_delta',text:response.text,phase:'final_answer'});queue.push({type:'done',endTurn:true,usage:desktopEstimatedUsage(payload,response)});report.completedReplies++;lane.active=false;
    }else throw Error('invalid_desktop_envelope');
-   }catch(e){if(abort.signal.aborted)report.cancelledRequests++;lane.active=false;report.nativeFailure=transport.diagnostic;transport.retire();lane.transcript=new DesktopTranscript();lane.checkpoint=new DesktopCompaction(SUMMARY_PREFIX);report.errorCode=/^[a-z_]+$/.test(e.message)?e.message:'desktop_adapter_failed';queue.push({type:'error',message:report.errorCode,retryable:false});}
+   }catch(e){if(abort.signal.aborted)report.cancelledRequests++;lane.active=false;report.nativeFailure=transport.diagnostic;
+    // Content-free local diagnosis: never persist raw exception messages, paths,
+    // requests or credentials when a standard error is outside our public codes.
+    const frame=e.stack?.split('\n').map(f=>f.match(/\b(desktop_[a-z_]+\.mjs):(\d+):\d+/)).find(Boolean);
+    report.failureSite={kind:['Error','TypeError','ReferenceError','RangeError','AbortError'].includes(e.name)?e.name:'unknown',frame:frame?frame[1]+':'+frame[2]:null};
+    transport.retire();lane.transcript=new DesktopTranscript();lane.checkpoint=new DesktopCompaction(SUMMARY_PREFIX);report.errorCode=/^[a-z_]+$/.test(e.message)?e.message:'desktop_adapter_failed';queue.push({type:'error',message:report.errorCode,retryable:false});}
   finally{clearInterval(heartbeat);lane.busy=false;save();queue.close();}
  })();
  return new Response(markDesktopEstimatedUsage(bridgeToResponsesSSE(queue,raw.model,namespaceMap,freeform,toolSearch,()=>abort.abort(),2000)),{headers:{'Content-Type':'text/event-stream','Cache-Control':'no-store'}});
