@@ -135,6 +135,9 @@ from two on the replacement lane. The fixture flag refuses live-app options.
 Proofs: chat-tool-recovery-{core,core-rejection,core-terminal,negative-control}.json
 and chat-tool-recovery-{bun-terminal,python-final,local-final}.log in the private cache.
 Unchanged Rust/frontend production gates remain reusable; no native inputs changed.
+Immutable candidate 9014deaf810ff40a583d (sourcee27ab09)
+passes all590 payload hashes. It is staged beside the unchanged installed provider;
+the superseded owned candidate was removed. Aggregate: chat-tool-recovery-qualified.json.
 Operating provider activation and a bounded actual Chat trial remain outstanding;
 source/offline success is not the user's physical MCP retry acceptance.
 
