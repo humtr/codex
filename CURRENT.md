@@ -450,6 +450,18 @@ This repository carries no external workflow skill or model configuration.
   items; independently bridge actual remote reports/MCP calls into ordered
   Responses items without additional user prompts, duplicate text or a second
   executor. Remote report capture, render/persistence and reconnect remain gates.
+  Non-MCP source investigation inspected 19 exact-revision repositories and matched
+  three JS assets to the installed 26.1007.21434 app.asar. The app has an actual
+  tool-role result constructor (Nwi/Hwi), but Temporary Chat declares no local
+  functions and the observed other declaration is only handoff. Arbitrary ordinary
+  Chat tool admission remains unproved. role=tool serialization/follow-up alone
+  does not establish paired continuation or message-limit savings. GPT Actions
+  is a real non-MCP REST path, but belongs to Custom GPTs; official plugin migration
+  does not carry custom actions over. It is not a recommended new long-term base.
+  Check the app-native declaration/result feasibility before an MCP-only choice;
+  detailed evidence and a proposed at-most-2-dispatch non-Pro probe are recorded
+  on experiment/web-termux. No inference, reference program execution, runtime
+  change or quota experiment was performed.
 - `/model` is the primary opt-in selection; `--profile chatgpt` is its fallback.
   stable51 includes the qualified native menu and generic shared config projection.
   The provider remains an opt-in experiment, not a bundled Core dependency.
