@@ -34,6 +34,22 @@ Fourteen protected files and seven live process identities survive activation;
 no additional Chat inference was submitted. Production CURRENT owns that proof.
 Use the shared `--profile chatgpt` path for this newly installed qualification.
 
+## Current user-trial tool dispatch failure
+
+The user's MCP-list trial reaches local shell execution and successful dynamic
+search, but then fails at desktop_tool_session.mjs:17 with unadvertised_tool.
+That is the local gateway's exact-name admission check, before the rejected call
+is forwarded to Core/Tdev. The latest search loaded eight tools. An offline
+fixture using those namespace/name shapes passes the installed parser and exact
+wire-name announcement. No extra Chat request was sent. The actual rejected name
+and exact live catalog were not persisted, so name formatting, stale callback
+replay and live-catalog loss remain competing explanations. Do not call this a
+Tdev auth or network diagnosis. A second defect is visible in source: every error
+after submission sets blocked, including deterministic response validation; retire
+does not clear it. Separate known validation failure from unknown delivery and
+qualify recovery without replaying completed work. Content-free evidence:
+chat-local-unadvertised-tool-diagnosis.json in the private acceptance cache.
+
 ## Implementation ownership and connector identity
 
 The Chat provider is this repository's integration with reused miuuyy6.1.5
