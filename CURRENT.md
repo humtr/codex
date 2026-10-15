@@ -300,6 +300,121 @@ observer abort with retained turn, explicit revoke/late-call rejection and sibli
 survival pass. No Chat, tunnel or Core inference occurred; this proves reusable
 broker mechanics, not a live connector or durable pending promises after restart.
 
+## Non-MCP return paths: source investigation
+
+Review on 2026-10-15 separates three different claims: no new user-role message,
+completion of a real pending remote tool call, and reduced Chat message-limit
+deduction. None implies the others. The /v1/responses facade is our local input
+contract, not proof of any of those upstream capabilities. No real Chat request,
+dependency/installer execution, token extraction, account mutation or runtime
+change was performed. References stayed under TMPDIR. Public-source searches
+included browser/Responses bridges, raw conversation adapters, native tool
+serialization, Actions/OpenAPI, MCP executors and Codex/SIWC proxies. Nineteen
+repositories were source-inspected at exact revisions below; GitHub indexing,
+fork duplication and private code make a claim of reviewing all repositories
+unjustified. Failed/empty exact-string searches are not evidence of absence.
+
+| Reference | Exact revision | Actual return-path finding |
+| --- | --- | --- |
+| suphotP/chatgpt-api | f998a6d83f324cb3187396dd7efced0c40f29601 | openai_compat.py builds a prompt from tool history and supplies one user Message; transport.py builds action=next. |
+| cromat/chatgpt-web-session-proxy | 753d7d8c5f0fa3fe5f342839b016dfb18b781b0b | transcript.ts renders tool_result tags; sessions.ts sends that delta with browser.sendPrompt. Same conversation, new user submission. |
+| a252937166/codex-chatgpt-web-bridge | 85cc3d01c99bc49be6baf039db556e82bbbe33d2 | bridge/prompt_renderer.py embeds normalized input and schemas in a JSON prompt; Responses output support does not establish native remote tool return. |
+| WackyDawg/free-gpt-api | ef6f8be46d43c46c4a96ec9186d0f849d91f1ae0 | browser interception initially looks role-preserving, but tools.util.js:toUpstreamMessage explicitly converts tool to user before constructing wireMessages. |
+| FlameFront-end/chatgpt-gateway | 83ed19bd8ad9716fe805b5b767e678dd0d2e8395 | openai_routes.py formats tool results into a textual transcript/prompt. |
+| 6Kmfi6HP/chatgpt2api-cf | de9dad362df615c1d52fa728c07fb957835d8888 | toolcall.ts preserves author.role=tool/name; translate.ts/index.ts replay full history in a fresh anonymous action=next conversation. A non-user DTO candidate, not paired pending-call or authenticated subscription proof. |
+| xtekky/gpt4free | 74661d164023bb3d4830fe51aa6e76749c781bc2 | needs_auth/OpenaiChat.py:create_messages preserves message roles; it sends action=next and can select a suffix after the last assistant. supports_native_tools alone does not prove arbitrary registered local functions or plan charging. |
+| lanqian528/chat2api | a63a90cec90dea3fea3e272d22f8c5799de14e30 | ChatService.py sends action=next; chatFormat.py primarily projects server-owned tool output. Its continue route is not a demonstrated local result callback. Historical source, not present Android acceptance. |
+| acheong08/ChatGPT | 9167b325addc7d3520987face684e8230bd62b46 | V1.py post_messages accepts supplied messages, ordinary ask creates user frames; continue_write sends action=continue. Historical raw protocol, no current arbitrary-tool binding proof. |
+| qoli/SwiftChat-Public | f805bc361c88e7ccf563649c8624de972aa702b2 | adapter/network conversation constructs user messages and advertises local.continue_in_work. App-context transport also inserts user context. No demonstrated generic local tool-result bridge. |
+| B4PT0R/codex-backend-sdk | 7619373551e478a7ac714a042a65f2653715f868 | resources/chatgpt.py exposes raw prepare/create/resume stream bodies; Codex Responses is a separate surface. Raw body access is not an accepted-tool or quota proof. |
+| 10/chatgpt-codex-proxy | efff4bd335c8d270605175bf42050286940b9a6d | internal/codex/http_client.go uses /codex/responses, a different inference route from ordinary Chat. |
+| miuuyy/codex-chatgpt-web | 889f291d06339400a8b9c2941473f65cd47d4830 | Retained full-mode path uses MCP broker invocation/result resolution. Not independent evidence of a non-MCP callback. |
+| diegosouzapw/OmniRoute | 795c5932594fbe270faa3217f2734e0c8b6fe8a5 | Clean-room executor rejects tools/tool messages in chatgptWebExecutorAdapter.ts; its chatgpt-web-codex path imports vendored miuuyy/TurnBroker. Generic webTools emulation is not a new native return path. |
+| hutiefang76/chatgpt-codex | a8e2026541c173d9dc3aa9ee6ead1e644d2c1689 | chatgpt_codex/openapi.py plus server.py expose actual HTTPS Actions request/JSON response around their own workspace tools/executor. Valid non-MCP callback family, not a native Codex provider. |
+| TuanDanny/AgentBridge | 87712a28c6a8a3e1fa655703572b86025c1d250a | OpenAPI GPT Actions relay routes return paired metadata/session/project reads; the relay schema explicitly excludes shell/write capability. Do not mistake the relay for complete development execution. |
+| leeguooooo/chatgpt-use | ecb204d4f4a4aef127851240af17dcf1a321afbc | Remote MCP pull provides genuine autonomous tool calls; separate browser prompting/daemon is not a non-MCP full-result provider. |
+| rp10000/chatgpt-native-bridge | 0f2829ef0c26d1fc4c8f6af31daa565edc7ef67c | src/mcp-server.js uses MCP stdio/Streamable HTTP and its own executor; a Codex handoff rather than a Responses model bridge. |
+| hypnguyen1209/codex-free | 3085b9174250fe490b5442d4545fe3730b86e023 | src/server.rs is rmcp/Streamable HTTP; bridge/tools own execution. No alternative ordinary-Chat callback established. |
+
+Independent installed-app investigation is separate from those repositories.
+The three inspected extracted JS assets match the actual 26.1007.21434 app.asar
+byte-for-byte. Main asset SHA256:
+a9f4a1a86c7486b97b750b97296d83c8c8c67074144480b697244f0c8b6ef720.
+Read-only analysis traces these build-specific functions, without invoking them:
+
+- `Nwi` (export bRt) calls the actual submit path with `Hwi(callId,result,toolName)`.
+  Hwi builds author.role=tool, code content with call_id/result/tool, hidden visual
+  metadata, and Nwi preserves the original call's daybreak choice. This is an
+  actual first-party non-MCP local-tool result construction path, not a user-role
+  JSON prompt. Its existence does not establish access for arbitrary native tools.
+- The paired declaration path `Pin` returns [] for Temporary Chat and otherwise
+  only the predefined handoff function; `Jui` is empty in this build. Feature/
+  mode gates control local_function_signatures. The missing evidence is server
+  admission of arbitrary functions for the user's ordinary Chat model/context,
+  plus valid call/result ownership. Do not claim impossible, or already available.
+- `Mwi`/yRt accepts userCompletionMessages, but existing call sites include edit/
+  resubmit and draft construction. It is an alternate message construction input,
+  not proof of an unrestricted public function-calling interface.
+- `Ssi` with toolOrigin sets role=tool but also chatgpt_sdk_followup_prompt=true;
+  it does not itself bind a result to a pending call. This is a distinct follow-up
+  candidate. Fwi still chooses action=next unless a separate stream continuation
+  is present. Neither role=tool nor action=next alone determines billing or Chat
+  turn semantics; changing only a role/name cannot qualify message savings.
+- `/f/conversation/resume` reattaches an existing stream with conversation/offset/
+  resume state. It is useful observation-recovery evidence, not an arbitrary
+  local-tool result submission API. Likewise action=continue used by older
+  bridges resumes generation and is not proof of a paired function result.
+
+Official-source cross-check:
+[GPT Actions](https://developers.openai.com/api/docs/actions/introduction) provides
+a genuine REST request/response tool path without MCP; its
+[production contract](https://developers.openai.com/api/docs/actions/production)
+sets a 45s round-trip timeout and HTTPS port 443 requirement. Actions are a
+capability inside Custom GPTs, not another name for GPTs. These are Custom GPTs,
+not ordinary unrestricted Chat. The
+[official migration guide](https://learn.chatgpt.com/docs/migrate-custom-gpts)
+explains the Enterprise migration to plugins: plugins package skills, apps or
+both; custom actions do not transfer and need supported apps or a custom MCP
+replacement. This is not automatic preservation of the old REST callback, and
+the guide does not establish one universal retirement date. Treat Actions as a verified
+architectural counterexample to "MCP is mandatory", not a recommended new
+long-lived dependency. Existing Actions repositories do not change that lifecycle.
+Public Responses API/SIWC offer native tool-result inputs, but
+[SIWC usage](https://learn.chatgpt.com/docs/sign-in-with-chatgpt) is a separate
+Work/Codex allowance route; it does not establish the ordinary-Chat objective.
+
+Decision and minimal remaining evidence:
+
+1. Retract any unconditional claim that no non-MCP return path exists. REST
+   Actions and the app's local result constructor exist. No inspected source
+   proves a ready, durable ordinary-Chat arbitrary-tool callback with all required
+   models/efforts, full Core tools and measured Chat-limit savings on this phone.
+2. Before committing to an MCP-only implementation, give the app's local-function
+   path one bounded feasibility gate: can it advertise a harmless function on the
+   actual selected ordinary Chat model, receive a server-authored pending call,
+   and accept that call's result without a new user-role message? Check supported
+   declaration/capability admission first; do not bypass account/feature controls.
+   Keep real auth in the app. No invented pending IDs, handoff-to-Work substitution or silent
+   user-message fallback may count as success. If host admission is unavailable,
+   stop that candidate instead of developing a function registry/executor.
+3. Separately assess role-preserving follow-up, which could avoid another user
+   frame without preserving the same host turn. Full-history replay and anonymous
+   account behavior cannot qualify it for the user's signed-in subscription.
+   Any future test must inspect actual accepted message roles, call pairing,
+   model identity and stream outcome; quota stays unknown absent authoritative
+   metadata or a separately budgeted comparison. No repeated test to hit a limit.
+4. Smallest proposed real probe (not run): one GPT-6 Instant initial user submit
+   advertising one harmless echo function, then one exact tool-result dispatch
+   if a genuine call is returned. At most 2 inference dispatches, expected 1 new
+   user-role message; up to 2 generations may count against a plan. If the first
+   request rejects or returns text-only, stop after 1; no retries, Pro, file
+   changes, existing conversation reuse or automatic transport fallback. Explain
+   the need/scope/budget before any later quota-consuming probe; this review
+   does not execute it. Durable cancellation, transcript/reasoning and cold-resume qualification
+   follow only if feasibility passes; no existing compatibility is removed.
+
+Sanitized source manifest: ~/.cache/codex/acceptance/chat-non-mcp-return-source-review.json.
+
 ## Chat On Steroids reference review
 
 Review-only source inspection on2026-10-15: original repository
