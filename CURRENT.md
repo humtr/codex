@@ -370,6 +370,85 @@ task with two harmless Core calls and a final answer, with context/retry/review
 submissions counted separately. User-visible progress, stop outcome and latest
 Core resume need actual client observations; server send/output retention alone
 are insufficient. No implementation or operational change followed this review.
+
+## Output silence and user-visible progress: additional review
+
+The user reports that most apparent ChatGPT output freezes still allow ongoing
+reasoning/tool work. Treat that as an important user observation, not a measured
+90-percent incident classification or proof of one root cause. Silence must not
+trigger stop, Continue, a new conversation or replay by itself. Execution,
+provider observation and user-visible rendering are distinct states.
+
+Current-source findings (no inference or fault injection):
+
+- `desktop_app_transport.mjs` submits through the signed app's internal function
+  and reads its Scope/JRn conversation store, rather than scraping rendered reply
+  text. A stalled visible transcript with a healthy store need not block this
+  path. However initial Scope discovery uses React hooks/DOM and each later read
+  uses Runtime.evaluate in the app renderer. Renderer stalls, app/store/stream
+  failures and CDP loss remain dependencies. This is not an independent backend
+  service or proof that the user's freezes are harmless here.
+- Only finished_successfully assistant messages with the exact correlation are
+  returned; partial progress is not projected. Instant has a130s deadline, other
+  non-Pro modes600s. The catch path attempts controller abort/eHt/lane deletion
+  after any attempted submission, including observer failures. That cleanup is
+  incompatible with blindly retaining a future MCP turn across observer loss;
+  classify failure before cleanup. A timeout or successful cancellation request
+  does not prove stopped generation/tool work.
+- `desktop_responses_server.mjs` injects heartbeat every2s independently of provider
+  progress. The reused bridge emits a parser-ignored response.heartbeat; this can
+  keep transport alive but cannot prove provider liveness, useful progress or
+  user delivery. Native tool items/deltas are actual Core evidence, while the
+  current proof counters are global aggregates, not a per-turn progress UI.
+- Upstream0.161 TUI already renders turn lifecycle, item/command output and
+  completion/interruption from app-server notifications. Reuse this path, rather
+  than another tool runtime or fabricated assistant commentary. Official app-server
+  documentation confirms these distinct events; installed-version support and
+  reconnect/subscription semantics still need their own affected-path proof.
+
+Recommended independent design, pending implementation:
+
+1. Keep internal inference/continuation as the default. Add a minimal factual
+   status in the existing Codex UI by default: awaiting provider, executing tools,
+   awaiting approval/input, observation unavailable, stopping, confirmed terminal.
+   Keep transport reachability, last observed activity age and actual work progress
+   separate. A spin animation or heartbeat must never refresh the work timestamp.
+   No invented percentage, generated reassurance or claim of ongoing reasoning.
+2. Offer optional expanded native tool/output details and an explicit owned Chat
+   viewer. The viewer must attach to the same actual conversation/turn without a
+   new user submit, recreation, stop, reload or mode change; omit the option if
+   exact attachment cannot be qualified. Merely reopening today's UI transport
+   does not prove this: its current fallback can construct another temporary lane.
+   Display failure is an observation fallback, never an inference fallback after
+   submission. Changing display mode must preserve all tools, permissions and
+   model/effort, and must not increase Chat submissions.
+3. Recover observation of the same owner/generation first. Keep the MCP call and
+   Core result IDs; replay only retained delivery, never actions. If the provider
+   or exact owner cannot be verified, report unknown and fence new admission,
+   rather than guessing stopped/running or automatically resending. Separate a
+   deliberate execution deadline from display/observer inactivity. Explicit stop
+   still closes admission, interrupts the exact Core turn, cancels its remote
+   generation and reports confirmed/partial/unknown outcomes independently.
+4. Keep canonical Core history and native item delivery; any small adapter status
+   projection is disposable and contains no alternate history. Prefer existing
+   frontend events/status surface. If extra transport telemetry is needed, use
+   the adapter's existing authenticated local boundary with exact home/backend/
+   thread/turn binding and content-free fields, no new daemon or fake model text.
+   Do not repeatedly thread/resume merely to observe; it can alter subscriptions.
+
+Qualification must separate these fault cases: freeze only visible rendering
+while Scope/tool activity continues; disconnect only the observer and reconnect
+to the same turn; hold provider output with only adapter heartbeats; drop a tool
+result response after the native effect; stop during a live native operation;
+restart adapter with ambiguous dispatch. Verify actual client labels/output and
+last-activity age, no duplicate mutations, zero extra user submits for observation
+and display toggles, same call/result ownership and latest Core state on resume.
+No heartbeat-only trace may show verified progress, and stop requested may not
+show stopped until evidence arrives. Existing read-only Android turn observation
+proves a narrower non-ephemeral mechanism; it does not qualify full notification
+reattachment or ephemeral monitoring. Start with offline fixtures; explain the
+scope and expected submissions before a bounded real non-Pro trial. This review
+changed documentation only; no runtime, provider or Chat conversation was changed.
 The official installed Android backend also accepts a synthetic merged startup
 catalog with the same12 parsed native tools as its Chat-only startup catalog;
 per-thread override still fails. This qualifies startup metadata placement only,
