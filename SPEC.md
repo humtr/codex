@@ -3282,6 +3282,10 @@ separate dimensions, not assumed aliases. Unsupported combinations fail before
 inference instead of silently running Instant or another model.
 Recovery must check for a pre-existing draft before creating fresh remote
 context; it may clear only its exactly matched generated draft, never user input.
+The signed-app internal transport must positively identify its main application
+page before acquiring a Scope. An app:// launcher or auxiliary page is not a
+model target. Discovery is bounded and must not create windows, change modes,
+submit a prompt or touch drafts while skipping an auxiliary page.
 
 ### Opt-in bootstrap and installation authority
 

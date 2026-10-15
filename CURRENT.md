@@ -66,7 +66,12 @@ catalog operation passes actual Android request admission with12 tools, same-byt
 server reuse, changed-byte separation, previous-thread readability and Manager
 writer discovery. The self-contained probe no longer requires an untracked model
 fixture or a newer checkout's WebSocket helper. Runtime remains unchanged;
-frontend compilation/device integration and cross-provider resume are unqualified.
+release frontend38654727667 builds and both legacy/named-permission Android TUI
+fixtures pass entry into Chat and return to native, including backend catalog
+binding, same PID/PTY/thread/home, sibling defaults and preserved configuration.
+The first CI fails before test execution on an error-type conversion in the new
+test, fixed in a20c58d; complete native qualification38657053854 is pending.
+Cross-provider compaction/resume and real Chat model-use remain unqualified.
 Local affected acceptance passes77 Python tests and323 Rust tests, with one
 existing ignored resolver smoke, plus fmt/Clippy/diff. The first full run was
 invalidated by overlapping rebuild of its executable; the sequential rerun also
@@ -74,6 +79,14 @@ exposed a fixture-only107-byte socket overflow after its test counter grew.
 The fixture path is now shorter. A final full test run passes; two redundant
 borrows found by Clippy were corrected and lint passes separately. These are
 source gates, not a signed release or completed model-use acceptance.
+An additional installed-app read-only check found two app:// pages after cold
+startup: the small launcher is first and lacks the main model/Scope context.
+The source CDP path now positively selects the main app using the pinned model/
+Chat-Work UI capabilities, detaches the launcher, and reuses the selected page.
+Actual Android discovery and35 Bun tests/230 assertions pass without submission.
+Only the previously installed desktop app was restarted after verifying its
+controller/host/browser were dead; no binary, login or provider setting changed.
+MCP plugin attachment is still unqualified; menu visibility is not tool-call proof.
 
 Confirmed observations:
 

@@ -1104,3 +1104,9 @@ A separate read-only RPC connection sees its exact turn become interrupted while
 the ordinary test process exits, without a new provider HTTP request. Ephemeral
 threads reject the tested history APIs, so this is only a persisted-thread control
 candidate. No retained Chat turn or quota-saving claim follows from that proof.
+
+Cold startup may expose the app's launcher before its main window. The candidate
+internal CDP path now requires main-app UI capabilities, skips the launcher without
+clicks and preserves explicit target reuse. An owned WebSocket regression and
+actual Android discovery pass. This source repair is not yet installed; the
+existing app was only restarted for read-only inspection, without a Chat prompt.

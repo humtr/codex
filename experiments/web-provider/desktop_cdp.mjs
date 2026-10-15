@@ -33,12 +33,18 @@ export async function connectDesktop(root,targetId,options={}){
  function request(method,params={},sessionId){const id=++sequence;return new Promise((resolve,reject)=>{const timer=setTimeout(()=>{pending.delete(id);reject(Error('owned_cdp_timeout_'+method));},15000);pending.set(id,{resolve,reject,timer,method});socket.send(JSON.stringify({id,method,params,...(sessionId?{sessionId}:{})}));});}
  let session,selected;const openedTemporary=new Set();
  try{
-  for(let attempt=0;attempt<20&&!session;attempt++){
+  for(let attempt=0;attempt<(options.app?60:20)&&!session;attempt++){
    const {targetInfos}=await request('Target.getTargets');
    if(targetId&&!targetInfos.some(t=>t.type==='page'&&t.targetId===targetId&&t.url.startsWith('app://-/')))targetId=undefined;
    for(const target of targetInfos.filter(t=>t.type==='page'&&t.url.startsWith('app://-/')&&(!targetId||t.targetId===targetId))){
     const {sessionId}=await request('Target.attachToTarget',{targetId:target.targetId,flatten:true});
-    if(options.app){session=sessionId;selected=target.targetId;break;}
+    if(options.app){
+     // The app also opens a small launcher, with its own empty composer. Its
+     // Scope is not the main conversation/model context. Discovery never clicks.
+     const {result}=await request('Runtime.evaluate',{expression:`(()=>{if(document.querySelector('button[aria-label="Select ChatGPT model"]'))return true;const labels=new Set([...document.querySelectorAll('button,span')].map(e=>e.textContent?.trim()));return labels.has('Chat')&&labels.has('Work');})()`,returnByValue:true},sessionId);
+     if(result.value===true){session=sessionId;selected=target.targetId;break;}
+     await request('Target.detachFromTarget',{sessionId});continue;
+    }
     const {result}=await request('Runtime.evaluate',{expression:`[...document.querySelectorAll('button')].some(e=>e.textContent?.trim()==='Chat'&&e.getAttribute('aria-pressed')==='true')||[...document.querySelectorAll('button[aria-label="Select ChatGPT model"]')].some(e=>e.getBoundingClientRect().width>0)`,returnByValue:true},sessionId);
     if(!result.value&&!openedTemporary.has(target.targetId)){
      // Closing a settled temporary lane can leave the app on Home. Recover
