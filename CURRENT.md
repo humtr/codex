@@ -456,16 +456,22 @@ This repository carries no external workflow skill or model configuration.
   functions and normal default declaration is handoff. A subsequent authorized
   live probe on GPT-6 Instant appended one arbitrary echo signature: a real server
   call, exact call-ID tool-role return through bRt and an unpredictable exact final
-  proof all passed. One user submission plus one tool-only result request kept
-  the server conversation; working_turn_id/turn_exchange_id changed. Single host
+  proof all passed. Subsequent dependent chains of 2/4/8 results each used one
+  client user submission and 2/4/8 exact tool-only returns. All 17 actual request
+  starts and terminal reason=done events passed, including complete unpredictable
+  final receipts; generation retries were disabled and wrappers restored.
+  The two-result harness's completed-vs-done classifier was corrected from recorded
+  events without repeating inference. Each chain kept its server conversation;
+  working_turn_id/turn_exchange_id had 3/5/9 distinct values. Single host
   turn retention and Chat-limit savings are unproved. Full Core integration,
   schemas, approval, stop/resume and transcript remain gates. GPT Actions
   is a real non-MCP REST path, but belongs to Custom GPTs; official plugin migration
   does not carry custom actions over. It is not a recommended new long-term base.
   Prefer the qualified native return path for the next candidate before adding an
   MCP broker/tunnel. Detailed live/source evidence is on experiment/web-termux;
-  private proof is ~/.cache/codex/acceptance/chat-local-function-live.json. Two
-  app streamPost entries were observed in the successful probe; an earlier browser
+  private proofs are ~/.cache/codex/acceptance/chat-local-function-live.json and
+  chat-local-function-chain.json. Two app streamPost entries were observed in
+  the first successful probe; an earlier browser
   interception attempt may have sent one additional request and was disclosed.
   No installed provider activation, credential extraction, reference program
   execution or quota-limit experiment occurred; temporary app wrappers were restored.
