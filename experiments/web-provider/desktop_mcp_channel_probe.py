@@ -20,6 +20,13 @@ SOURCE=Path(__file__).resolve().parent
 TUNNEL_SHA='65b1517bed8828de7a81c825a3a223cd400960b793099b8109cba06e2dcc1eb5'
 
 
+def qualify_independent_discovery(result, connector_name):
+    app=result.get('app',{})
+    result['freshIndependentCatalog']=any(a.get('name')==connector_name and a.get('toolNames')==['native_catalog','native_tool'] for a in app.get('apps',[]))
+    result['independentCatalogWire']=any(row.get('direction')=='response' and row.get('method')=='tools/list' and row.get('toolCount')==2 for row in result['wire'])
+    return bool(all(result.get(k) for k in ['localReady','actualControlPlanePoll','ownedTunnelStopped','protectedProfilesUnchanged','freshIndependentCatalog','independentCatalogWire']) and result.get('appExitCode')==0 and result.get('metadataCalls')==0 and app.get('modelStarts')==0 and app.get('blockedAttempts')==0)
+
+
 def run(args):
     assert hashlib.sha256(args.binary.read_bytes()).hexdigest()==TUNNEL_SHA
     protected=[args.profile,*list((Path.home()/'.config/tunnel-client').glob('*.yaml'))]
@@ -35,6 +42,8 @@ def run(args):
                 assert yaml.safe_load(path.read_text()).get('control_plane',{}).get('tunnel_id')!=trial_id,'existing_tunnel_owner_must_be_preserved'
         except (FileNotFoundError,PermissionError,ProcessLookupError):continue
     ordinary=getattr(args,'ordinary_model',False)
+    independent=getattr(args,'independent_discovery',False)
+    assert not(ordinary and independent),'choose_one_probe_mode'
     result={'qualification':'ordinary-model-negative-delivery-only' if ordinary else 'metadata-negative-delivery-only','ordinaryChatModel':ordinary,'modelStarts':None if ordinary else 0,'nativeToolExecutionsPermitted':False,'operatingProviderChanged':False,'profileSha256':before[args.profile],'tunnelBinarySha256':TUNNEL_SHA}
     with tempfile.TemporaryDirectory(prefix='mcp-channel-',dir=os.environ['TMPDIR']) as temporary:
         root=Path(temporary);root.chmod(0o700)
@@ -46,6 +55,11 @@ def run(args):
         assert '--broker-socket' in original,'explicit_unbound_broker_required'
         assert not Path(original[original.index('--broker-socket')+1]).exists(),'existing_broker_must_be_preserved'
         result['targetBrokerAbsent']=True
+        if independent:
+            runtime=json.loads(args.runtime.read_text())
+            original=[runtime['bun'],str(SOURCE/'desktop_mcp_stdio.mjs'),str(root/'unbound-socket')]
+            result.update(qualification='independent-catalog-discovery-only',independentEndpoint=True,
+                          targetArgvSha256=hashlib.sha256(json.dumps(original).encode()).hexdigest())
         target=root/'target.json';target.write_text(json.dumps(original));target.chmod(0o600)
         config['mcp']['commands'][0]['command']=shlex.join([sys.executable,'-B',str(SOURCE/'desktop_mcp_stdio_inspect.py'),str(target),str(root/'wire.jsonl')])
         config['health']={'listen_addr':'127.0.0.1:0','url_file':str(root/'health.url')}
@@ -74,7 +88,9 @@ def run(args):
                 assert result.get('actualControlPlanePoll'),'actual_poll_required'
                 with bounded_app(args.runtime) as runtime:
                     command=[runtime['bun'],str(SOURCE/('desktop_mcp_model_probe.mjs' if ordinary else 'desktop_mcp_inspect.mjs')),str(args.runtime),str(root/'app.json'),args.connector_name]
-                    if not ordinary:command+=['--tools-from-cache','--channel-inventory']
+                    if not ordinary:
+                        command+=['--tools-from-cache']
+                        if not independent:command+=['--channel-inventory']
                     proc=subprocess.run(command,capture_output=True,timeout=125)
                     result['appExitCode']=proc.returncode
             except Exception as error:
@@ -103,7 +119,9 @@ def run(args):
     # This gate proves only the negative delivery, not new session negotiation.
     result['wireAccepted']=bool(all(result.get(k) for k in ['localReady','actualControlPlanePoll','metadataRequestValidated','actualMetadataRefusalReturned','ownedTunnelStopped','protectedProfilesUnchanged']) and result.get('metadataCalls')==1)
     app=result.get('app',{})
-    if ordinary:
+    if independent:
+        result['accepted']=qualify_independent_discovery(result,args.connector_name)
+    elif ordinary:
         result['modelStarts']=app.get('modelStarts')
         result['submissionUnknown']=app.get('submissionUnknown',result['modelStarts'] is None)
         result['exactModelTurnToken']=any(r.get('metadataProbe') and r.get('turnTokenSha256')==app.get('turnTokenSha256') for r in result['wire'])
@@ -118,6 +136,7 @@ if __name__=='__main__':
     for name in ['binary','profile','runtime','report']:parser.add_argument('--'+name,type=Path,required=True)
     parser.add_argument('--connector-name',required=True)
     parser.add_argument('--ordinary-model',action='store_true',help='Explicit live ordinary-Chat test, at most one app request start; no Pro/retry/native execution')
+    parser.add_argument('--independent-discovery',action='store_true',help='Zero-inference catalog read against our unbound independent endpoint; no tools/call')
     args=parser.parse_args()
     report=run(args);args.report.write_text(json.dumps(report,indent=2)+'\n');args.report.chmod(0o600)
     print(json.dumps(report));raise SystemExit(0 if report['accepted'] else 1)

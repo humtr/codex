@@ -109,6 +109,12 @@ Run the app probe with `--dry-run` to block before native dispatch instead.
 These app-dispatch/message counters do not measure hidden host model rounds or
 Chat allowance deductions. See CURRENT.md for proof/source-hardening distinctions.
 
+`--independent-discovery` temporarily uses our unbound stdio endpoint and reads
+the existing connector's metadata without inference or tools/call. Acceptance
+requires both the new app-visible names and an actual tools/list wire response;
+cached old tools or readiness alone fail. The first trial still sees the old6
+definitions and no stdio traffic. A supported connector refresh is the next gate.
+
 There is no required `Codex Native2` protocol name. That was the upstream browser
 default copied into our old probe. The signed-app text adapter does not select an
 MCP connector at all. Browser probes now require `--connector-name` matching the

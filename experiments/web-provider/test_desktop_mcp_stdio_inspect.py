@@ -11,6 +11,20 @@ import unittest
 
 
 class MetadataTapTests(unittest.TestCase):
+    def test_independent_discovery_requires_new_catalog_on_app_and_actual_wire(self):
+        from desktop_mcp_channel_probe import qualify_independent_discovery
+        proof=dict(localReady=True,actualControlPlanePoll=True,ownedTunnelStopped=True,
+                   protectedProfilesUnchanged=True,appExitCode=0,metadataCalls=0,wire=[],
+                   app=dict(modelStarts=0,blockedAttempts=0,apps=[dict(name='owned',toolNames=['native_catalog','native_tool'])]))
+        self.assertFalse(qualify_independent_discovery(proof,'owned'))
+        proof['wire']=[dict(direction='response',method='tools/list',toolCount=2)]
+        self.assertTrue(qualify_independent_discovery(proof,'owned'))
+        proof['app']['apps'][0]['toolNames']=['codex_exec','codex_tool_call']
+        self.assertFalse(qualify_independent_discovery(proof,'owned'))
+        proof['app']['apps'][0]['toolNames']=['native_catalog','native_tool']
+        proof['app']['modelStarts']=1
+        self.assertFalse(qualify_independent_discovery(proof,'owned'))
+
     def probe(self, call):
         with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as temporary:
             root = Path(temporary)

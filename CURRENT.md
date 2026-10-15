@@ -456,6 +456,22 @@ original methods/owned desktop are restored. This is pre-send proof, not live MC
 Core settlement. The existing connector still advertises six historical tools;
 the new two-tool catalog needs an explicit bounded refresh/binding trial.
 
+`chat-independent-mcp-discovery.json` performs that first zero-model read with
+the independently written endpoint in a copied trial profile. The tunnel is
+locally ready and actually polls, but the first-party known-ID metadata query
+still returns the old6 definitions and sends no stdio request at all. The fresh
+catalog gate correctly fails; this is not evidence that our server rejected
+discovery. Original trial/Tdev profiles remain unchanged and the owned desktop/
+tunnel stop. The tightened reusable gate additionally requires actual tools/list
+wire response with2 tools, so neither a cached listing nor successful startup
+alone qualifies discovery. Its three affected Python tests pass, including stale
+catalog, cache-only and accidental-inference negative controls. This investigation
+adds no Chat submissions. Source inspection finds a sidebar widget reload and
+an all-links BLOCKING metadata refresh; neither is proof of a targeted custom
+connector schema refresh. Do not use reconnect/reinstall or repeat Chat prompts
+as an unverified shortcut. Identify and exercise the supported custom-app refresh,
+then require both the app's two-tool listing and the actual stdio response.
+
 Next: qualify the independently implemented endpoint's actual host discovery and
 positive Core result delivery with a separately explained non-Pro trial budget.
 Keep the earlier metadata-only success separate from full-mode acceptance. Then qualify actual
