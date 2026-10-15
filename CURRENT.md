@@ -369,6 +369,17 @@ This repository carries no external workflow skill or model configuration.
 
 ## ChatGPT model pilot
 
+- Ownership correction: the active Chat provider reuses miuuyy6.1.5 request/SSE,
+  tool mapping, queue, turn identity and summary helpers. Our signed-app
+  transport/lifecycle and Core/Manager integration do not make it an independently
+  written Responses implementation. Full-mode MCP source is present but not wired
+  into the active text relay; tool results currently cause another Chat user
+  submission. `Codex Native2` was an upstream browser default copied into an old
+  probe, not an MCP wire requirement. Experimental browser entrypoints now require
+  the existing connector's explicit display name without a fixed brand/prefix;
+  active app routing needs no such name. Existing connections, installed payload
+  and dependency licenses remain unchanged. Three selector/CLI tests, five browser
+  helper tests and the installed6.1.5 provider mapping pass with zero Chat submits.
 - Current work minimizes debt and message submissions in the standalone ChatGPT
   provider. tdev progress/control proposals are separate-session work, not a
   dependency. Source-only ordered packing reduces an owned 50,410-character
@@ -397,7 +408,11 @@ This repository carries no external workflow skill or model configuration.
   Native siblings/default sockets remain distinct, without duplicating the config
   loader or routing native inference through the optional adapter. Local77 Python
   and323 Rust tests pass (one existing ignored resolver smoke), plus fmt/Clippy.
-  Frontend native qualification38654727667 and actual TUI integration remain gates.
+  Release frontend38654727667 builds; actual Android legacy/named and upstream
+  --profile chatgpt round trips pass with backend catalog binding and no inference.
+  That first CI failed compiling a new test before execution; a20c58d fixes its
+  error conversion. Native qualification38657053854 remains pending. This is not
+  acceptance of long-history cross-provider compaction or real model-use repair.
   A second read-only native connection also observes the exact persisted turn
   become interrupted during an owned local command, whose process exits; stop
   sends no additional provider HTTP request. This control candidate is not wired
