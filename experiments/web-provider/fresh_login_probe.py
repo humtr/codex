@@ -17,6 +17,7 @@ import subprocess
 import tempfile
 import time
 import secrets
+from live_core_probe import connector_config
 
 
 def identity_matches(owner):
@@ -32,7 +33,9 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     for name in ('gui','candidate','bun','storage','broker','proof'):
         parser.add_argument('--'+name,type=Path,required=True)
+    parser.add_argument('--connector-name',required=True,help='Exact existing ChatGPT connector display name')
     args=parser.parse_args()
+    connector_config(args.connector_name)
     prefix=Path(os.environ['PREFIX']);parent=Path(os.environ['TMPDIR']);source=Path(__file__).resolve().parent
     original=json.loads((args.gui/'account-view-process.json').read_text());assert identity_matches(original)
     manual=args.storage.parent/'manual-profile'
@@ -93,7 +96,7 @@ def main():
             assert result.returncode==0,'Session inspection failed; private details not logged'
             report['nativeSession']=json.loads((root/'session.json').read_text())
             if report['nativeSession'].get('composerReady'):
-                result=subprocess.run([str(prefix/'bin/python3'),'-B',str(source/'live_core_probe.py'),'--candidate',str(args.candidate),'--bun',str(args.bun),'--storage',str(args.storage),'--broker',str(args.broker),'--proof',str(root/'core.json'),'--native-host','--existing-native-descriptor',str(descriptor),'--prepared-native-session',str(root/'session.json')],env=dict(environment,HOME=os.environ["HOME"],TMPDIR=str(parent)),capture_output=True,timeout=160)
+                result=subprocess.run([str(prefix/'bin/python3'),'-B',str(source/'live_core_probe.py'),'--connector-name',args.connector_name,'--candidate',str(args.candidate),'--bun',str(args.bun),'--storage',str(args.storage),'--broker',str(args.broker),'--proof',str(root/'core.json'),'--native-host','--existing-native-descriptor',str(descriptor),'--prepared-native-session',str(root/'session.json')],env=dict(environment,HOME=os.environ["HOME"],TMPDIR=str(parent)),capture_output=True,timeout=160)
                 assert (root/'core.json').exists(),'Core proof absent'
                 report['core']=json.loads((root/'core.json').read_text())
                 report['realModelReplyAccepted']=report['core'].get('realModelReplyAccepted') is True

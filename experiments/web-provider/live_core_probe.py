@@ -26,11 +26,19 @@ from rald3_preflight import parse_descriptor
 from rald5_publication import parse_manifest
 
 
+def connector_config(name):
+    """A browser selector supplied by its owner, never an MCP protocol identity."""
+    if not isinstance(name, str) or not name.strip() or name != name.strip() or len(name) > 80 or any(not c.isprintable() for c in name):
+        raise ValueError("connector name must be 1–80 printable characters without surrounding whitespace")
+    return {"appName": name, "automaticAppName": name}
+
+
 def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def probe(args):
+    connector = connector_config(args.connector_name)
     host_prefix = Path(os.environ["PREFIX"])
     real_home = Path.home()
     activation = dict(line.split("=", 1) for line in (real_home / ".local/share/codex/core/activation-state").read_text().splitlines() if "=" in line)
@@ -130,7 +138,7 @@ def probe(args):
             gateway.write_text(f'''import {{defaultConfig}} from {json.dumps(str(args.candidate / "src/config.ts"))};
 import {{startServer}} from {json.dumps(str(args.candidate / "src/server.ts"))};
 import {{writeFileSync}} from 'node:fs';
-const config={{...defaultConfig('full'),port:0,appName:'Codex Native2',automaticAppName:'Codex Native2',chromeExecutablePath:{json.dumps(str(host_prefix / "lib/chromium/chrome"))},storageStatePath:{json.dumps(str(args.storage))},brokerSocketPath:{json.dumps(str(args.broker))},headed:true,...{json.dumps(capabilities)},...{json.dumps({"browserHost": "native-chromium", "browserHostDescriptorPath": str(native_descriptor)} if native_descriptor else {})} ,stallTimeoutSec:60,experimentalFreshConversationPerTurn:true}};
+const config={{...defaultConfig('full'),port:0,...{json.dumps(connector)},chromeExecutablePath:{json.dumps(str(host_prefix / "lib/chromium/chrome"))},storageStatePath:{json.dumps(str(args.storage))},brokerSocketPath:{json.dumps(str(args.broker))},headed:true,...{json.dumps(capabilities)},...{json.dumps({"browserHost": "native-chromium", "browserHostDescriptorPath": str(native_descriptor)} if native_descriptor else {})} ,stallTimeoutSec:60,experimentalFreshConversationPerTurn:true}};
 const server=startServer(config);
 const observations=[];
 const recorder=Bun.serve({{hostname:'127.0.0.1',port:0,idleTimeout:0,async fetch(req){{
@@ -269,6 +277,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("candidate", "bun", "storage", "broker", "proof"):
         parser.add_argument("--" + name, type=Path, required=True)
+    parser.add_argument("--connector-name", required=True, help="Exact existing ChatGPT connector display name; no fixed name or prefix")
     parser.add_argument("--existing-native-descriptor", type=Path)
     parser.add_argument("--prepared-native-session", type=Path)
     parser.add_argument("--native-host", action="store_true")

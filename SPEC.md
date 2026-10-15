@@ -3229,6 +3229,15 @@ is implied by a development-plane change.
 
 ## Opt-in signed-desktop ChatGPT provider experiment
 
+The experiment must distinguish repository-owned transport/execution integration
+from reused third-party protocol code. An MCP connector's display name is not a
+protocol version, execution authority or proof of native continuation. Historical
+browser probes must receive the installed connector name explicitly, without a
+mandatory brand/prefix or silent renaming of existing account connections. The
+signed-app text adapter has no MCP display-name prerequisite. Preserve upstream
+licenses and exact dependency provenance; replacing a label does not qualify an
+independent implementation or connect the still-unqualified MCP continuation.
+
 The separate web experiment may supply Chat/Instant through a private local
 Responses adapter and an explicitly selected upstream configuration profile.
 Native Core owns tool execution, permissions, history and compaction commits.

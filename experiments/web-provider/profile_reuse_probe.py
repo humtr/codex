@@ -12,14 +12,17 @@ import tempfile
 import time
 from fresh_login_probe import identity_matches
 from fit_browser import fit_browser
+from live_core_probe import connector_config
 
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     for name in ('gui','candidate','bun','storage','broker','proof'):
         parser.add_argument('--'+name,type=Path,required=True)
+    parser.add_argument('--connector-name',required=True,help='Exact existing ChatGPT connector display name')
     parser.add_argument("--human-check-seconds",type=int,default=0)
     args=parser.parse_args()
+    connector_config(args.connector_name)
     if not 0<=args.human_check_seconds<=120:
         parser.error("human check must be bounded to 0..120 seconds")
     r=args.gui.resolve(strict=True);source=Path(__file__).resolve().parent
@@ -84,7 +87,7 @@ def main():
             state['boundedHumanCheckCompleted']=True
         elif state['session'].get('composerReady'):
             target=r/'same-profile-core.json'
-            result=subprocess.run([env['PREFIX']+'/bin/python3','-B',str(source/'live_core_probe.py'),'--candidate',str(args.candidate),'--bun',str(args.bun),'--storage',str(args.storage),'--broker',str(args.broker),'--proof',str(target),'--native-host','--existing-native-descriptor',str(descriptor),'--prepared-native-session',str(proof)],env=dict(env,HOME=os.environ['HOME'],TMPDIR=os.environ['TMPDIR']),capture_output=True,timeout=160)
+            result=subprocess.run([env['PREFIX']+'/bin/python3','-B',str(source/'live_core_probe.py'),'--connector-name',args.connector_name,'--candidate',str(args.candidate),'--bun',str(args.bun),'--storage',str(args.storage),'--broker',str(args.broker),'--proof',str(target),'--native-host','--existing-native-descriptor',str(descriptor),'--prepared-native-session',str(proof)],env=dict(env,HOME=os.environ['HOME'],TMPDIR=os.environ['TMPDIR']),capture_output=True,timeout=160)
             assert target.exists(),'actual Core proof absent'
             state['core']=json.loads(target.read_text());state['realModelReplyAccepted']=state['core'].get('realModelReplyAccepted') is True
         else:state['blockedBeforeCoreRequest']=True

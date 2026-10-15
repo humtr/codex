@@ -1,14 +1,42 @@
-# Termux ChatGPT Web experiment
+# Codex Chat provider experiment
 
 This separate branch follows repository AGENTS.md. Production configuration,
 profiles, conversations and services remain authoritative. The desktop-provider
 trial adds only an explicitly selected upstream configuration profile; base
 configuration and the signed Core/Manager installation remain unchanged.
 
-Selected bridge: miuuyy/codex-chatgpt-web at
-7cc8b8d8aadbbf729bd2bd43ca47fa15ea9965c0, version6.1.8. The prior
-92a356f/6.1.5 baseline remains separate with its qualified native runtime. Frozen Bun dependencies
-and official Android/aarch64 Bun1.4.0 run directly on this phone. The official
+This is a repository-owned integration using third-party protocol code, not an
+independently written Responses implementation or an official Responses service.
+The active signed-app adapter is a text/tool-envelope relay. Its next native tool
+result currently becomes another Chat user-message submission. Full MCP
+continuation is a proposed transport change, not an installed capability. Count
+actual submissions separately from HTTP rounds and unverified plan-limit debits.
+
+| Component | Ownership and active use |
+| --- | --- |
+| Execution, approval/reviewer, native history, profile and model selection | Official Codex runtime plus this repository's Core/Manager integration. |
+| Signed-app discovery, submission, cancellation, independent lanes, lifecycle and request admission | This repository's `desktop_*.mjs` and lifecycle/profile Python code. |
+| Request parser, event queue, tool-name mapping, Responses SSE/errors, turn identity and summary prefix | Reused from [miuuyy/codex-chatgpt-web](https://github.com/miuuyy/codex-chatgpt-web/tree/92a356fac2292e3af5a97ab7ba634edd8d38621e), version6.1.5, with `desktop-bridge-615.patch`. `install_desktop_provider.py` lists the exact bundled exports. |
+| Browser/MCP full-mode implementation | Third-party candidate used by older probes. Source is retained in `bridge-source`; its presence does not connect it to our active adapter. |
+
+Installed payload `0de70e3072a4b8e87a31` uses source46db05e and the6.1.5 bridge
+commit above. The6.1.8 browser candidate and6.1.9 research are separate inputs;
+neither is the active dependency. Bundled dependency source and licenses remain
+preserved by the installer; changing product names does not change authorship.
+Current acceptance and unresolved work belong to CURRENT.md.
+
+There is no required `Codex Native2` protocol name. That was the upstream browser
+default copied into our old probe. The signed-app text adapter does not select an
+MCP connector at all. Browser probes now require `--connector-name` matching the
+existing installed ChatGPT connection exactly, with no forced prefix. For a new
+trial, `Codex Chat Bridge` is a suggested display name. Existing connections keep
+their names; pass their actual name explicitly instead of recreating them. A
+display name selects a UI item; it is not execution ownership or schema identity.
+
+The following sections retain historical experiment evidence; they do not
+override the active component map or CURRENT.md.
+
+Frozen Bun dependencies and official Android/aarch64 Bun1.4.0 run directly on this phone. The official
 Bun archive SHA256 is42544d7438bb92c7e7df7d30b9a5858cb7a834636608e5b850f59138283567fc.
 Installed Chromium152.0.7977.82 at $PREFIX/lib/chromium/chrome completed real
 Playwright DOM input/click/readback from native Bun on Android. No account was used.

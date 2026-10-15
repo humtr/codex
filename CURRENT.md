@@ -11,6 +11,29 @@ The current device/public generation is stable51 (CLI0.161.0); older installed
 processes retain their loaded images. This branch owns opt-in provider experiments,
 not a parallel production activation pointer or release authority.
 
+## Implementation ownership and connector identity
+
+The Chat provider is this repository's integration with reused miuuyy6.1.5
+protocol helpers, not an independent Responses implementation. The installer
+bundles its parser, event queue, SSE/errors, tool mapping, turn identity and
+summary prefix; patched dependency source and licenses are retained. Our
+signed-app transport, lifecycle and Core/Manager integration own the active path.
+The full-mode MCP broker exists in dependency source but is not connected to it.
+Tool-result continuation currently submits another Chat user message. Native
+Core execution proof does not establish same-Chat-turn MCP continuation.
+
+`Codex Native2` was copied from the upstream browser default into an old real
+probe. It is not a required MCP wire name or a signed-app route dependency.
+Historical browser entrypoints now require an explicit `--connector-name`,
+forwarded unchanged to browser selection without a required brand/prefix.
+Existing remote connections and installed payload are unchanged. Future work
+must qualify native MCP continuation and genuine cancellation before claiming
+reduced submissions; renaming is not that implementation.
+Three offline selector/entrypoint tests and five affected browser-helper tests
+pass. Actual installed6.1.5 `providerConfig` forwards four explicit names,
+including non-Codex and Korean labels, without a prefix requirement. This is
+selector-mapping proof, not live MCP attachment. No Chat message was submitted.
+
 ## ChatGPT internal transport and shared registration
 
 Signed stable51 includes the qualified model menu and shared configuration path;
@@ -69,6 +92,8 @@ fixture or a newer checkout's WebSocket helper. Runtime remains unchanged;
 release frontend38654727667 builds and both legacy/named-permission Android TUI
 fixtures pass entry into Chat and return to native, including backend catalog
 binding, same PID/PTY/thread/home, sibling defaults and preserved configuration.
+The upstream `--profile chatgpt` fallback passes the same actual Android
+round-trip probe with zero inference, alongside legacy/named permission cases.
 The first CI fails before test execution on an error-type conversion in the new
 test, fixed in a20c58d; complete native qualification38657053854 is pending.
 Cross-provider compaction/resume and real Chat model-use remain unqualified.
