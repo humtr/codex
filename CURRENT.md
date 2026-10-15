@@ -429,6 +429,15 @@ This repository carries no external workflow skill or model configuration.
   and independent implementation consequences are in experiment/web-termux
   CURRENT.md. Reference code/tests were inspected but not executed; no Chat
   submissions or runtime changes occurred.
+  Additional output-silence review preserves execution when rendering/observation
+  fails: internal app-store reads reduce visible-DOM dependence but still require
+  the app renderer/Scope/CDP. Current finished-only reads, generic abort-on-error
+  cleanup and provider-independent heartbeat need separate lifecycle/visibility
+  treatment. Plan default factual native status plus optional expanded output and
+  exact-conversation viewer; observer/display recovery must add no user prompts,
+  restart no actions and never equate heartbeat with progress. Actual rendering,
+  observer-loss, heartbeat-only, stop and resume gates remain unqualified; detailed
+  findings and fault matrix are in experiment/web-termux CURRENT.md.
 - `/model` is the primary opt-in selection; `--profile chatgpt` is its fallback.
   stable51 includes the qualified native menu and generic shared config projection.
   The provider remains an opt-in experiment, not a bundled Core dependency.
