@@ -224,8 +224,9 @@ Current findings and source changes on 2026-10-14:
   quota was measured. Splitting every old message and issuing an empty tool-reset
   ACK separately are avoidable submission overhead, not a provider requirement.
 - The signed app has `extraDeveloperInstructions`, `prependMessages` and a real
-  tool-result continuation export (`bRt`/`Nwi`). These are investigation candidates,
-  not acceptance. Its generated local function signatures are currently only
+  tool-result continuation export (`bRt`/`Nwi`). A bounded live local-function
+  proof below now qualifies one arbitrary echo function and exact tool-role return
+  on GPT-6, not the full Core adapter. Its generated local function signatures are only
   Work/Codex `handoff` and are empty in Temporary Chat; `Jui` supplies no arbitrary
   local tool names. `toolOrigin` marks an SDK follow-up prompt, so changing the
   author label alone does not establish native tool continuation or quota savings.
@@ -245,7 +246,8 @@ so an accepted setup with a failed ACK is still counted. Total observed submissi
 separate app acceptance from weaker GUI observation; retries and completed ACKs
 remain separate. None of these counters measures chat-limit deductions.
 
-Remaining order; no runtime activation or real Chat submission performed:
+Remaining adoption order; the installed provider remains unchanged. The separate
+local-function feasibility below includes real Chat inference, not activation:
 
 1. Repair the recorded catalog/admission, provider-crossing compaction and body-size
    boundaries. Preserve ordinary upstream execution and one authoritative history.
@@ -257,25 +259,23 @@ Remaining order; no runtime activation or real Chat submission performed:
    necessary internally. Preserve data roles, whole schemas and final-work separation.
    Offline replay/byte-boundary tests precede any real submit. Measure work, setup,
    tool-result, guardian, compact and retry submissions independently of quota.
-3. Independently implement a minimal native-Chat MCP continuation, using miuuyy's
-   full-mode flow as a reference rather than importing its broker/turn executor.
-   Use AgentDock as the lifecycle reference, adapted to our exact Core turn APIs.
-   Exercise the existing adapter/tunnel
-   path, without tdev as executor or another agent. Chat-issued calls should become
-   ordinary Core tool calls; actual Core results should satisfy the original MCP
-   call while the same Chat turn continues. This is a transport replacement, not
-   a script that invokes Codex recursively. Preserve all advertised native tools,
-   reviewer/approval, cancellation, call identity and independent thread ownership.
-   The app turn must survive an expected Responses tool boundary but stop on actual
-   cancellation; account/plugin/Temporary Chat availability and MCP timeouts are
-   explicit feasibility gates. Do not build a general broker before this tiny proof.
+3. Evaluate the now-proved app-native local-function request/result path first.
+   Bridge its actual calls to ordinary Core calls and return exact results through
+   bRt, without a second executor, MCP broker or tunnel. The one-function probe
+   does not qualify all advertised schemas/tools, Core approval, cancellation,
+   transcript streaming, independent owners or cold resume. Ordinary retained
+   Chat, rather than Temporary Chat, was tested; history/privacy policy must be
+   explicit before adoption. Preserve all existing native capabilities and do not
+   invoke Codex recursively. AgentDock lifecycle and miuuyy retained-MCP flow remain
+   references where relevant; independently implemented MCP is a comparison or
+   fallback if native admission/semantics fail, not a mandatory added dependency.
 4. After acceptance, keep one inference transport, make GUI viewing optional and
    package reachable runtime dependencies separately from tests/history. Remove
    a replaced path only after its full affected acceptance. If native continuation
    is unavailable, retain the optimized text adapter with its explicit per-judgment
    submission ceiling rather than accumulating speculative compatibility layers.
 
-The first real native-MCP proof would use one user message for two harmless Core
+An alternative real native-MCP proof would use one user message for two harmless Core
 tool calls and a final answer, versus three work submissions through today's text
 loop, plus any separately counted setup/review overhead. These are submission
 expectations, not chat-limit deduction claims. Explain the exact candidate and
@@ -346,12 +346,13 @@ Read-only analysis traces these build-specific functions, without invoking them:
   Hwi builds author.role=tool, code content with call_id/result/tool, hidden visual
   metadata, and Nwi preserves the original call's daybreak choice. This is an
   actual first-party non-MCP local-tool result construction path, not a user-role
-  JSON prompt. Its existence does not establish access for arbitrary native tools.
+  JSON prompt. The subsequent live proof below establishes one arbitrary function,
+  not arbitrary full Core tool compatibility.
 - The paired declaration path `Pin` returns [] for Temporary Chat and otherwise
   only the predefined handoff function; `Jui` is empty in this build. Feature/
-  mode gates control local_function_signatures. The missing evidence is server
-  admission of arbitrary functions for the user's ordinary Chat model/context,
-  plus valid call/result ownership. Do not claim impossible, or already available.
+  mode gates control local_function_signatures. The live proof below now establishes
+  server admission and exact call/result ownership for one ordinary GPT-6 function.
+  Other models, full schemas, Temporary Chat and quota savings remain unqualified.
 - `Mwi`/yRt accepts userCompletionMessages, but existing call sites include edit/
   resubmit and draft construction. It is an alternate message construction input,
   not proof of an unrestricted public function-calling interface.
@@ -383,35 +384,60 @@ Public Responses API/SIWC offer native tool-result inputs, but
 [SIWC usage](https://learn.chatgpt.com/docs/sign-in-with-chatgpt) is a separate
 Work/Codex allowance route; it does not establish the ordinary-Chat objective.
 
-Decision and minimal remaining evidence:
+### Live app-native feasibility on 2026-10-15
 
-1. Retract any unconditional claim that no non-MCP return path exists. REST
-   Actions and the app's local result constructor exist. No inspected source
-   proves a ready, durable ordinary-Chat arbitrary-tool callback with all required
-   models/efforts, full Core tools and measured Chat-limit savings on this phone.
-2. Before committing to an MCP-only implementation, give the app's local-function
-   path one bounded feasibility gate: can it advertise a harmless function on the
-   actual selected ordinary Chat model, receive a server-authored pending call,
-   and accept that call's result without a new user-role message? Check supported
-   declaration/capability admission first; do not bypass account/feature controls.
-   Keep real auth in the app. No invented pending IDs, handoff-to-Work substitution or silent
-   user-message fallback may count as success. If host admission is unavailable,
-   stop that candidate instead of developing a function registry/executor.
-3. Separately assess role-preserving follow-up, which could avoid another user
-   frame without preserving the same host turn. Full-history replay and anonymous
-   account behavior cannot qualify it for the user's signed-in subscription.
-   Any future test must inspect actual accepted message roles, call pairing,
-   model identity and stream outcome; quota stays unknown absent authoritative
-   metadata or a separately budgeted comparison. No repeated test to hit a limit.
-4. Smallest proposed real probe (not run): one GPT-6 Instant initial user submit
-   advertising one harmless echo function, then one exact tool-result dispatch
-   if a genuine call is returned. At most 2 inference dispatches, expected 1 new
-   user-role message; up to 2 generations may count against a plan. If the first
-   request rejects or returns text-only, stop after 1; no retries, Pro, file
-   changes, existing conversation reuse or automatic transport fallback. Explain
-   the need/scope/budget before any later quota-consuming probe; this review
-   does not execute it. Durable cancellation, transcript/reasoning and cold-resume qualification
-   follow only if feasibility passes; no existing compatibility is removed.
+User authorized the bounded live probe, then authorized necessary further proof
+after an initial interception error. Existing installed app/login, GPT-6 Instant,
+non-Temporary ordinary Chat; no Pro, auth extraction, account/gate change, MCP,
+tunnel, provider activation or product source modification. App capability HAt
+was allowed. Its native completion client, not browser Fetch/CDP network events,
+is the real request boundary. A true pre-dispatch client fixture blocked the
+request and verified original local_function_signatures=[handoff] without inference.
+
+The live fixture temporarily appended one kwargs function, codex_probe_echo, to
+the existing native request declaration. It used the app's own identity, request
+construction/integrity and streaming. The server emitted a real assistant code
+message to local.codex_probe_echo with the exact challenge argument and
+end_turn=false. The probe used that server message ID in the existing bRt return
+export. Its JSON result contained a fresh random proof string absent from the
+initial prompt. The following finished GPT-6 answer exactly matched that proof.
+
+- Two app streamPost entries: one user-only request, then one tool-only result
+  request. The second kept the same server conversation and exact original call
+  ID. No new result-phase user submission, textual imitation or Work handoff.
+- Actual call and final model metadata both gpt-6; final end_turn=true. Server
+  injected user_editable_context is not an additional client user submission.
+  This observed the completed final message, not a qualification of the complete
+  second stream's terminal delivery or actual native TUI transcript rendering.
+- working_turn_id and turn_exchange_id differ between call and final, including
+  the tool result. This proves paired native result return within one conversation;
+  it does NOT prove a single retained host turn or unchanged quota accounting.
+  Chat message-limit deductions are unmeasured. Two inference dispatches must not
+  be advertised as one inference merely because only one user message was sent.
+- No transport errors were observed. A separate low-level retry counter was not
+  instrumented; two app streamPost entries are the observed boundary, not an
+  exhaustive network retry/limit audit. Do not repeat inference to hit a limit.
+- Initial browser-interception attempt could have dispatched one additional
+  request through native IPC; its actual usage is unknown, at most one intended
+  initial request. Its earlier zero-dispatch assumption was corrected in the
+  private proof. User approved further necessary testing after disclosure.
+- Both completion-client methods and the app API wrapper were restored by identity.
+  Probe functions only constructed a result in memory; no Core tools or user
+  workspace files were executed/changed. This is transport feasibility, not a
+  release or complete Codex development acceptance.
+
+Prefer this native path for the next adapter candidate because it fits Codex's
+existing call/result HTTP boundary without an additional remote MCP broker/tunnel.
+Still qualify full native schemas, real Core execution/reviewer, multi-step and
+parallel call identity, cancellation versus observer closure, intermediate/final
+transcript, cross-model history/compaction and cold resume. Update SPEC before
+adopting different public history/transport behavior. Keep the installed fallback
+until that acceptance; preserve independent ordinary Core launch.
+
+Private proof: ~/.cache/codex/acceptance/chat-local-function-live.json. Exact
+executed one-off probe sources/hashes are archived under
+~/.cache/codex/acceptance/chat-local-function-probe; they are evidence, not a new
+installed command, runtime authority or maintained workflow.
 
 Sanitized source manifest: ~/.cache/codex/acceptance/chat-non-mcp-return-source-review.json.
 
