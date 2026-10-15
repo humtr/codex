@@ -443,6 +443,13 @@ This repository carries no external workflow skill or model configuration.
   equate heartbeat with progress. Actual rendering,
   observer-loss, heartbeat-only, stop and resume gates remain unqualified; detailed
   findings and fault matrix are in experiment/web-termux CURRENT.md.
+  Clarified acceptance requires ChatGPT's genuine intermediate reports and native
+  tool execution/results in the normal Codex transcript, persisted for resume;
+  a spinner, final-only reply or separate viewer is insufficient. Current adapter
+  emits only tool/final envelopes. Pinned upstream already parses commentary
+  items; independently bridge actual remote reports/MCP calls into ordered
+  Responses items without additional user prompts, duplicate text or a second
+  executor. Remote report capture, render/persistence and reconnect remain gates.
 - `/model` is the primary opt-in selection; `--profile chatgpt` is its fallback.
   stable51 includes the qualified native menu and generic shared config projection.
   The provider remains an opt-in experiment, not a bundled Core dependency.
