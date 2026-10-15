@@ -471,8 +471,62 @@ Original/corrected exact executed source hashes are preserved under
 ~/.cache/codex/acceptance/chat-local-function-chain-source. The original first
 classifier report is retained separately; no installer/provider was activated.
 
-Prefer this native path for the next adapter candidate because it fits Codex's
-existing call/result HTTP boundary without an additional remote MCP broker/tunnel.
+### Identity and exchange boundary source review
+
+Follow-up review on 2026-10-15 used the exact installed app asset, pinned public
+adapter/parser sources and existing live receipts. No inference, app restart,
+provider change or Chat usage-counter request was made. The observed IDs are distinct:
+
+| Identity | What the current proof establishes |
+| --- | --- |
+| conversation_id | Unchanged inside each 2/4/8 chain. |
+| assistant tool-call message ID / result call_id | The result carries the exact original call ID; pairing is preserved. |
+| result message ID | A new message ID is expected for the newly appended tool result. |
+| working_turn_id / turn_exchange_id | Response metadata contains 3/5/9 distinct values; these do not identify the entire client user request in this path. |
+
+Nwi/bRt creates a fresh Hwi tool message and calls Fwi. Hwi puts the real call_id
+in code content but its metadata contains only the visual-hidden marker; neither
+original working_turn_id nor turn_exchange_id is copied. Fwi defaults to
+action=next unless an explicit continuation/regeneration is supplied. Nwi supplies
+neither, so each return starts another native completion stream. Original call-ID
+pairing and preservation of the server conversation therefore coexist with a new
+completion exchange. daybreakContinuationMessageId restores the original security/
+program choice; its name is not evidence of a retained Chat exchange.
+
+The app uses these metadata IDs for message grouping, active-work association,
+stream correlation and analytics. An independently inspected
+[stream parser](https://github.com/tianya518/gptclient-go/blob/c5ae5466b87c0f50cc50bba28444ac72f93b5278/sentinel/chat_stream.go#L126)
+also uses turn_exchange_id to select conversation-turn WebSocket topics. These
+are concrete consumers, not an authoritative allowance-unit definition. The app
+has separate conversation_detail_metadata limits_progress/model_limits/blocked_features
+and model_cap_exceeded versus work_usage_limit_exceeded handling. No source
+reviewed establishes ID changes as ordinary Chat message-limit deductions. Public
+Responses function-calling rules and Work/Codex pricing are not substitutes for
+that missing ordinary-Chat evidence.
+
+Existing-ID propagation exists in narrower first-party paths: Mwi copies the
+working ID for a recognized MCP-elicitation approval; Fwi can carry an original
+exchange ID for a real active async steering context. This does not establish a
+generic echo-call continuation contract. resume retrieves an existing delivery
+stream and does not accept arbitrary tool results; steer needs real active async
+ownership. Re-labelling arbitrary local output as an approval/steering response
+is not a valid repair. Copying old metadata alone might change grouping without
+preserving backend execution or reducing usage. Whether an exact legitimate
+inherited ID is honored for this callback remains untested; current receipts did
+not retain per-dispatch outgoing ID fields and cannot answer that causally.
+
+The native route remains a low-debt candidate because it fits Codex's existing
+HTTP call/result boundary without another broker/tunnel. It is not yet selected
+as a quota-saving route. The relevant comparison is true server-awaited callback
+versus a new next completion, plus actual ordinary-Chat allowance evidence.
+miuuyy's pinned completeTool resolves a pending MCP invocation instead of starting
+another Chat prompt; that is a distinct continuation reference, not proof of
+on-device ID retention or quota savings. First check for a correctly scoped Chat
+counter without inference. Only if observable, budget a small before/after loop;
+do not spend requests merely to force metadata IDs or exhaust a limit. Otherwise
+retain the explicit uncertainty. Source manifest/function offsets:
+~/.cache/codex/acceptance/chat-turn-identity-source-review.json.
+
 Still qualify full native schemas, real Core execution/reviewer, multi-step and
 parallel call identity, cancellation versus observer closure, intermediate/final
 transcript, cross-model history/compaction and cold resume. Update SPEC before
