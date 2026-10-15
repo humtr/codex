@@ -7,9 +7,9 @@ configuration and the signed Core/Manager installation remain unchanged.
 
 This is a repository-owned integration using third-party protocol code, not an
 independently written Responses implementation or an official Responses service.
-The active signed-app adapter is a text/tool-envelope relay. Its next native tool
-result currently becomes another Chat user-message submission. Full MCP
-continuation is a proposed transport change, not an installed capability. Count
+The installed signed-app adapter uses local functions: native tool results return
+as tool-role messages, rather than new Chat user-message submissions. Independent
+MCP continuation is source/offline-qualified, not an installed capability. Count
 actual submissions separately from HTTP rounds and unverified plan-limit debits.
 
 | Component | Ownership and active use |
@@ -20,7 +20,7 @@ actual submissions separately from HTTP rounds and unverified plan-limit debits.
 | Browser/MCP full-mode implementation | Third-party candidate used by older probes. Source is retained in `bridge-source`; its presence does not connect it to our active adapter. |
 | Candidate retained MCP return | Independently written `desktop_mcp_{broker,stdio,transport}.mjs`; shared `DesktopToolSession` projection and actual Core execution. Source/offline acceptance only, not the installed provider. |
 
-Installed payload `0de70e3072a4b8e87a31` uses source46db05e and the6.1.5 bridge
+Installed payload `d7513cc7785f3d5dbcef` uses source717bd94 and the6.1.5 bridge
 commit above. The6.1.8 browser candidate and6.1.9 research are separate inputs;
 neither is the active dependency. Bundled dependency source and licenses remain
 preserved by the installer; changing product names does not change authorship.
@@ -31,7 +31,7 @@ and transcript path: signed-app local functions (`local`) and retained remote
 MCP settlement (`mcp`). The local-function 2/4/8-return probes are passed wire
 proof, not installed Core integration. Implementation proceeds shared projection,
 local integration, MCP integration, then native transcript/lifecycle acceptance.
-The installed text relay remains until the replacement is qualified. Neither
+The explicitly authorized device installation now uses `local`. Neither
 transport may resubmit an ambiguous task through the other or claim Chat-limit
 savings from request counts. See SPEC.md's two-return-transport contract.
 
@@ -40,13 +40,14 @@ two real Core commands, model-authored initial/intermediate/final reports, canon
 history, cold Core restore and actual Codex TUI rendering. It observed one initial
 user submission, two tool-role returns and three native model starts. Chat-limit
 deduction remains unmeasured. Reports accompany the same gateway calls; they do
-not require another user prompt or report-only inference round. No operating
-provider/profile has been replaced. MCP, complete lifecycle and broader tool/context
-acceptance remain required before default selection or installation.
+not require another user prompt or report-only inference round. The public Core
+release is unchanged. The installed service also passes this full
+two-command/report/resume path; complete lifecycle and broader tool/context
+acceptance remain open. It is an opt-in experiment, not public stable promotion.
 
 For a disposable candidate server, set `CODEX_CHAT_RETURN_TRANSPORT=local`;
 `CODEX_CHAT_LOCAL_MAX_DISPATCHES=3` bounds actual native starts during a qualified
-three-generation trial. The default remains `text`; transport selection never
+three-generation trial. Disposable servers default to `text`; transport selection never
 silently falls back after dispatch. Tests:
 `desktop_local_core_probe.py` uses a deterministic app port and zero Chat by default;
 `--live-session` or `--bounded-runtime` explicitly opts into up to three starts of
@@ -71,7 +72,7 @@ binds an action, separately from reusable JSON-RPC IDs. This is ephemeral IPC
 inside the adapter, not another service, executor or conversation database.
 The existing trial connector still has the historical six-tool catalog. Refresh
 and qualify its new catalog before a live trial; changing labels alone does not
-connect it. The installed runtime/profile is unchanged.
+connect it. Installing the qualified local path does not activate this MCP path.
 
 `desktop_local_core_probe.py --return-transport mcp` uses the real independent
 stdio server and Unix IPC with a deterministic host. It passes two actual signed

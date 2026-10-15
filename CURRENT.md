@@ -11,6 +11,27 @@ The current device/public generation is stable51 (CLI0.161.0); older installed
 processes retain their loaded images. This branch owns opt-in provider experiments,
 not a parallel production activation pointer or release authority.
 
+The user-authorized device provider is now d7513cc7785f3d5dbcef/source717bd94,
+with `returnTransport=local` persisted in its private runtime descriptor. Normal
+shared-profile authentication and actual installed HTTP service pass two real
+stable51 Core commands, all three public report phases, canonical persistence,
+cold Core resume and actual TUI rendering. Observed1 Chat user submission,
+2 tool-role returns and3 model starts; Chat allowance deduction remains unknown.
+All590 installed files verify. Full source checks pass323 Rust tests/one existing
+ignored, Python18+59, fmt/Clippy; experiment Python41 and Bun71 pass.
+Thirteen protected config/auth/state hashes and both existing Tdev identities
+are unchanged. The prior561-file provider is retained unchanged for recovery.
+The first installed cold-start trial failed before any Chat submission with a
+generic adapter error; native Scope acquisition and a fresh adapter then passed.
+The original cause is unconfirmed. Content-free class/source-line diagnostics
+are now installed; retain the negative proof instead of calling it a fixed cause.
+Private proofs: chat-local-installed-runtime.json,
+chat-local-installed-runtime-first-failure.json and chat-local-install-protected.json.
+The independent MCP candidate remains unselected and its cached host schema is
+unqualified. Core/frontend remain signed stable51: the newer upstream-resolved
+catalog correction is source/device-qualified, not an installed public release.
+Use the shared `--profile chatgpt` path for this newly installed qualification.
+
 ## Implementation ownership and connector identity
 
 The Chat provider is this repository's integration with reused miuuyy6.1.5
@@ -19,14 +40,15 @@ bundles its parser, event queue, SSE/errors, tool mapping, turn identity and
 summary prefix; patched dependency source and licenses are retained. Our
 signed-app transport, lifecycle and Core/Manager integration own the active path.
 The full-mode MCP broker exists in dependency source but is not connected to it.
-Tool-result continuation currently submits another Chat user message. Native
-Core execution proof does not establish same-Chat-turn MCP continuation.
+The historical text relay submits results as new Chat user messages. The installed
+local path instead uses actual tool-role returns; it does not establish the
+independent MCP candidate's host settlement or Chat allowance deduction.
 
 `Codex Native2` was copied from the upstream browser default into an old real
 probe. It is not a required MCP wire name or a signed-app route dependency.
 Historical browser entrypoints now require an explicit `--connector-name`,
 forwarded unchanged to browser selection without a required brand/prefix.
-Existing remote connections and installed payload are unchanged. Future work
+Existing remote connections are unchanged. Future work
 must qualify native MCP continuation and genuine cancellation before claiming
 reduced submissions; renaming is not that implementation.
 Three offline selector/entrypoint tests and five affected browser-helper tests
@@ -43,7 +65,7 @@ Core/dependency proof. Actual legacy/named model round trips preserve PID/PTY,
 account home, native thread and permissions; installed new-home projection plus
 real native commands passes without copied auth or base config changes.
 
-Installed experimental provider0de70e3072a4b8e87a31 uses source46db05e. The signed
+Historical experimental provider0de70e3072a4b8e87a31 used source46db05e. The signed
 app's submit/cancel/state own separate temporary conversations per native thread
 and guardian child; credentials stay in the app. Continuations explicitly link to
 the lane's completed correlated assistant. Internal and GUI transports share the
@@ -62,7 +84,7 @@ comparison returns8 GitHub matches in wrlab and0 in szob; app login does not gra
 another native account's connector tools. Failed/timeout trials remain evidence.
 
 34 protocol/app/body tests (225 assertions) and15 desktop/profile tests pass for the current source.
-Packing/admission/accounting changes are not yet installed. GPT-6 Instant/Medium/High/
+These baseline proofs predate the local-return activation above. GPT-6 Instant/Medium/High/
 Extra High actual tool loops pass; Pro inference is prohibited and was not sent.
 GPT-5.6 remains deferred. Automatic/fault compaction under the new internal path,
 multimodal input, hours-long load, physical reboot and phone layout remain separate
@@ -234,16 +256,18 @@ Both return transports remain selectable. Earlier local-first/MCP-first research
 recommendations below are historical evidence, not competing current plans.
 Source edits, isolated checks and pushes are authorized. Explain live Chat budgets
 before trials; no Pro, implicit replay or unannounced operating activation.
-The installed46db05e text adapter remains unchanged during source qualification.
+The retained46db05e text payload is unchanged; the active device uses the local
+installation recorded in Operating baseline.
 
 ### Native local-return candidate: current implementation and proof
 
 On2026-10-15 the source candidate connects the signed app's real local functions
 to the existing Responses bridge and actual signed Android Core stable51. Select
 it explicitly with `CODEX_CHAT_RETURN_TRANSPORT=local` when starting the candidate
-server; omission retains the installed historical `text` behavior. `mcp` is not
-implemented/accepted by this candidate yet. Do not activate it by changing an
-operating profile or replacing the installed provider.
+server; omission retains historical `text` behavior for disposable servers.
+Installed descriptors select the transport before shell environment overrides.
+The independently implemented `mcp` candidate remains unqualified on the live host.
+The authorized local installation is recorded in Operating baseline.
 
 - `desktop_tool_session.mjs` owns transport-neutral public report/native-call
   projection and exact result pairing. `desktop_local_transport.mjs` registers a
