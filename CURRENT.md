@@ -475,6 +475,23 @@ This repository carries no external workflow skill or model configuration.
   Native remains a low-debt candidate, not a demonstrated quota-saving winner;
   compare a true awaited callback and a properly scoped Chat counter before that
   choice. Follow-up ID review used zero inference and changed no runtime.
+  The subsequent complete tool-lifecycle review supersedes local-function-first
+  implementation: declaration, Core execution, MCP settlement, approval/input,
+  projection and cancellation must be understood before the next trial. The app's
+  direct bRt import callers publish accepted/rejected handoff results; ordinary
+  remote MCP transcript parsing and widget RPCs are separate. Reference full mode
+  resolves the pending MCP Promise from Core's result without a new Chat submit;
+  the installed adapter bundles only parser/SSE helpers, not that full mode.
+  Version matters:2026 MCP adds requestState/inputResponses with fresh RPC IDs
+  and request-SSE-close cancellation, unlike2025 resumable HTTP. These RPC IDs
+  are distinct from Chat working/exchange IDs and prove no allowance deduction.
+  Official tunnel stdio also serializes calls and retires late response IDs;
+  broker parallel proof is not through-tunnel proof. No inference, app launch,
+  provider change or implementation followed this review. The next gates are
+  actual channel/version/capabilities, then a separately budgeted two-call Chat
+  proof and native transcript/stop/resume acceptance. Detailed call graphs,
+  unknowns and evidence order are on experiment/web-termux CURRENT.md;
+  private manifest: chat-tool-system-source-review.json in the acceptance cache.
   Detailed live/source evidence is on experiment/web-termux;
   private proofs are ~/.cache/codex/acceptance/chat-local-function-live.json and
   chat-local-function-chain.json. Two app streamPost entries were observed in
