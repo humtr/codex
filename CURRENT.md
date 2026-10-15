@@ -260,16 +260,17 @@ local-function feasibility below includes real Chat inference, not activation:
    necessary internally. Preserve data roles, whole schemas and final-work separation.
    Offline replay/byte-boundary tests precede any real submit. Measure work, setup,
    tool-result, guardian, compact and retry submissions independently of quota.
-3. Evaluate the now-proved app-native local-function request/result path first.
-   Bridge its actual calls to ordinary Core calls and return exact results through
-   bRt, without a second executor, MCP broker or tunnel. The single-signature chain probe
+3. Establish the complete tool lifecycle before choosing a transport: the system
+   review below supersedes a local-function-first implementation order. Compare
+   the proved app-native next-completion callback with actual MCP settlement,
+   including the negotiated protocol and host capabilities. The single-signature chain probe
    does not qualify all advertised schemas/tools, Core approval, cancellation,
    transcript streaming, independent owners or cold resume. Ordinary retained
    Chat, rather than Temporary Chat, was tested; history/privacy policy must be
    explicit before adoption. Preserve all existing native capabilities and do not
    invoke Codex recursively. AgentDock lifecycle and miuuyy retained-MCP flow remain
-   references where relevant; independently implemented MCP is a comparison or
-   fallback if native admission/semantics fail, not a mandatory added dependency.
+   references where relevant; independently implemented MCP is a comparison,
+   not a mandatory added dependency or a proven quota-saving winner.
 4. After acceptance, keep one inference transport, make GUI viewing optional and
    package reachable runtime dependencies separately from tests/history. Remove
    a replaced path only after its full affected acceptance. If native continuation
@@ -539,6 +540,157 @@ executed one-off probe sources/hashes are archived under
 installed command, runtime authority or maintained workflow.
 
 Sanitized source manifest: ~/.cache/codex/acceptance/chat-non-mcp-return-source-review.json.
+
+### Complete tool lifecycle: architecture before further trials
+
+The current instruction is knowledge first, then targeted proof. This review
+performed no inference, app launch, plugin call, runtime/provider change or
+implementation edit. Earlier callback trials remain evidence only for their
+specific route. Neither ID inheritance nor MCP is selected as the remedy yet.
+
+Authority and source scope:
+
+- Current adapter source: desktop_responses_server.mjs, desktop_app_transport.mjs,
+  desktop_response_transport.mjs, desktop_protocol.mjs and the installer. The
+  installed provider still uses the text/envelope path; the installer exports
+  parser/SSE/identity helpers from bridge6.1.5, not its full-mode adapter or broker.
+  Installed source46db05e/bridge92a356f was separately read back: app transport,
+  Responses server and installer match their installation-manifest hashes; the
+  app transport submits through yRt and has no bRt or broker settlement path.
+- Installed signed app26.1007.21434: scanned all15,080 packed JavaScript files
+  (397,083,009 bytes) for the local declaration/result and MCP entry points.
+  Traced the relevant main/renderer assets byte-for-byte from app.asar. This is
+  static source coverage, not execution coverage or visibility into Chat servers.
+- Unmodified affected Core files in upstream checkout979011409de0a60b52f179721948e65531d26144;
+  miuuyy reference889f291d06339400a8b9c2941473f65cd47d4830;
+  official tunnel source0f870e50a973fa820d4c409000059e181e8d242b.
+  Other modified files/worktrees were preserved. Source findings do not qualify
+  the installed binary or imply running these reference programs.
+- Official OpenAI function/MCP/plugin docs and the actual2025-11-25 and
+  2026-07-28 MCP specifications. Protocol availability is not account/host support.
+
+Tool families and result owners:
+
+| Path | Declaration, execution and return | What it does not establish |
+| --- | --- | --- |
+| Current installed Chat text adapter | Core schemas/history become context/work prompts; Chat emits a JSON tool envelope; adapter creates a local call ID; Core executes; the next result packet is submitted through yRt as another user message. | A local /v1/responses endpoint does not turn upstream Chat into the public Responses service. |
+| Public Responses function/custom tools | Client declares tools, receives call IDs, executes, then sends matching function/custom outputs in a later model request. | One Responses request does not automatically own this external execution loop. |
+| Chat app local functions | Uci/Pin declare handoff by default; the proved arbitrary signature was a temporary request override. Nwi/bRt creates a tool-role result and Fwi starts action=next. | This is not the normal MCP result handler or retained exchange proof. |
+| Chat remote MCP/connector | Host discovers schemas, invokes the tool server and consumes its protocol result; normal execution belongs to that server, which can instead relay to Core. | Tool execution must not also occur in an adapter executor; ordinary Chat quota treatment remains unknown. |
+| Codex/Work MCP client | Core discovers/normalizes MCP schemas, executes through its MCP handler and emits canonical tool/result/progress items. That result becomes the next provider input. | Core's local MCP support does not grant an ordinary Chat model a remotely reachable connector. These are opposite sides of our proposed relay. |
+| Plugin/widget initiated tool call | Widget bridge sends MCP through ecosystem/call_mcp or /ps/mcp and returns the result to the widget; a separate toolOrigin prompt may request model follow-up. | A widget RPC result is not automatically inserted into a pending model call. |
+| Approval, elicitation, authentication and request_user_input | Scoped control responses answer an actual outstanding request. They can preserve recognized working metadata and use separate UI/API paths. | These are not generic containers for arbitrary shell/tool results. |
+| MCP sampling, Tasks and Events | Optional host capabilities for nested model sampling, durable asynchronous tools, or subscribed host wakeups. | SDK types do not prove Chat supports them; Events docs target Work/Cloud/dots, not an ordinary-Chat return shortcut. |
+
+The official [function flow](https://developers.openai.com/api/docs/guides/function-calling)
+requires client-side result submission; the [hosted MCP flow](https://developers.openai.com/api/docs/guides/tools-connectors-mcp)
+instead consumes remote results inside the service and can make multiple calls
+in one API request. These are API contracts, not ordinary Chat usage-policy proof.
+The [plugin MCP model](https://developers.openai.com/plugins/concepts/mcp-server)
+likewise distinguishes server execution/results from optional UI. Model-visible
+content/structuredContent and client-only _meta have different destinations;
+preserving only text can lose media or structured results.
+
+Concrete call graphs:
+
+1. Core tools/router.rs:build_tool_call distinguishes function, custom and
+   client-executed tool-search calls. stream_events_utils.rs records the real
+   call before scheduling its execution and sets needs_follow_up. The session
+   sampling loop uses that outcome for its next request. McpHandler delegates to
+   handle_mcp_tool_call with the real cancellation token and Core approval policy;
+   this is where a user's existing MCP tool is executed. Preserve code mode,
+   deferred tool search, parallel eligibility and typed result paths.
+2. In the reference relay, mcp-server.ts:withClaimedTurn/invoke awaits the broker;
+   TurnBroker.dispatch creates a per-invocation call ID and pending Promise;
+   nextToolBatch exposes that call as native Responses output. Core's later
+   function_call_output reaches index.ts:1316 and completeTool, which checks
+   pending/delivered identity and resolves the original Promise. invoke returns
+   asMcpResult; the MCP SDK emits the matching JSON-RPC response. No yRt/Nwi call
+   occurs in this result branch. A local HTTP sampling response can finish while
+   the remote MCP call is still pending. New RPC/call IDs for other calls are
+   expected; the cross-boundary mapping, not a constant global ID, is required.
+3. In the signed app, the only direct imported bRt call sites found in the packed
+   assets are app-primary's accepted/rejected handoff publication. Pin declares
+   that handoff; it does not advertise the Core catalog. The transcript parser
+   GT/v0t/y0t separately consumes remote api_tool.call_tool and tool messages with
+   invoked_resource/chatgpt_sdk metadata. Its resource/invocation_uuid pairing is
+   presentation logic, unsuitable as a unique execution/deduplication key.
+4. Widget bridge sya/rya is another client: ecosystem or /ps/mcp dispatch, exact
+   RPC response-ID validation, account checks and a bounded input-required loop.
+   It returns to the widget. Following this path does not expose the closed host's
+   ordinary model-tool scheduler or a generic model-result submission function.
+   Electron also has a separate thread/turn/call-bound app-tools pipe; do not
+   confuse its tools/call method with a Chat subscription provider.
+
+Version-specific lifecycle correction:
+
+- [2025 MCP HTTP](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)
+  can retain a request across disconnect and optionally resume SSE by cursor;
+  cancellation is explicit. Its stdio transport uses request-ID cancellation.
+- [2026 MCP HTTP](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http)
+  treats closing a request's SSE as cancelling that request and does not support
+  Last-Event-ID replay. Therefore observer-detach rules must name the layer and
+  actual version; never apply the old HTTP rule universally to a new MCP leg.
+- [2026 tools](https://modelcontextprotocol.io/specification/2026-07-28/server/tools)
+  can return input_required. The client retries with requestState/inputResponses
+  and a new RPC ID. The app's widget rya loop implements this2026 mechanism,
+  advertises form elicitation, and caps rounds at32. It does not advertise
+  sampling there. This is evidence for that widget path only, not ordinary model
+  connector support or permission to substitute arbitrary Core outputs.
+- [MRTR](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr)
+  replaces independent reverse requests; state and input-response IDs bind the
+  logical operation across RPCs. This differs from our observed Chat working/
+  exchange IDs. New transport IDs do not establish a new logical tool execution
+  or Chat limit deduction. Re-entry must not rerun a completed mutation.
+- [Tasks](https://tasks.extensions.modelcontextprotocol.io/specification/draft/tasks)
+  requires explicit client capability, durable task identity and separate cancel;
+  no such capability was proved for our ordinary Chat connection. Sampling also
+  requires explicit support and creates model work, not an inference-free result
+  channel. Neither should be added just to evade the known deadline.
+- The reference's90s timeout is its implementation policy; its comment about a
+  two-minute tunnel deadline is not a universal protocol contract. Official tunnel
+  source carries per-command response_timeout. Its stdio forwarding serializes
+  request lifecycles and retires late response IDs without killing shared pipes.
+  Therefore broker parallel fixtures do not prove through-tunnel parallelism;
+  one long wait may block other owners. Probe the selected channel/version rather
+  than copying a fixed timeout or the reference's30s agent polling policy.
+
+No complete closed-server understanding is claimed. Still unknown: actual
+ordinary-Chat connector routing/version/capabilities, whether working/exchange
+identity survives normal tool settlement, its stop/stream-recovery semantics,
+and which observable ordinary-Chat usage counter (if any) measures deduction.
+The app's native IPC also means browser fetch interception is not a valid guard
+for new Chat inference. Source/SDK support cannot fill these gaps.
+
+Selected next evidence, not yet executed:
+
+1. With zero inference, inspect only owned discovery/initialize metadata and the
+   actual tunnel channel. Establish supported tools, protocol/capabilities,
+   cancellation and deadline behavior. Do not call sampling or change plugins.
+   Reuse the existing accepted broker fixtures where their exact inputs apply;
+   exercise the real SDK/selected tunnel in a disposable echo fixture for missing
+   version/serialization/late-response cases. Never use operating credentials or
+   user files as fixture output. Source-only review does not mark these green.
+2. Then explain and budget one ordinary GPT-6 Instant user task with two dependent,
+   harmless Core tool calls and a random receipt final. Target one initial Chat
+   submit, zero result-phase Chat submits, two true MCP settlements; observe actual
+   native IPC dispatch, remote request/result mapping, host metadata and terminal
+   event. Budget setup/reviewer generations separately before dispatch. Do not
+   auto-retry an ambiguous send or immediately rerun the native-function control.
+3. Qualify native rendered/persisted commentary/calls/results/final, approval and
+   request_user_input, observation loss versus explicit stop, exact current Core
+   resume, parallel owners and late/duplicate delivery. Recovery republishes an
+   existing result rather than rerunning execution. A host callback/HTTP success
+   alone does not pass rendering or confirmed-stop acceptance.
+4. Compare submission counts and any actually available correctly scoped Chat
+   limit evidence separately. A missing counter leaves the allowance question
+   open; do not exhaust a cap to infer it. Only then choose one production path,
+   independently implement the minimum adapter settlement/event translation,
+   update SPEC for history/privacy/lifecycle changes and retire superseded code.
+
+Sanitized source hashes/call-site offsets and versioned references:
+~/.cache/codex/acceptance/chat-tool-system-source-review.json.
+This phase used zero Chat submissions and activated no provider.
 
 ## Chat On Steroids reference review
 
@@ -887,7 +1039,7 @@ repairs or approval for live provider activation:
 |---|---|---|
 | Native catalog and /model: frontend/manager-tui/native.patch, native_catalog_request_probe.py | Verify the actual backend startup catalog and capabilities; evaluate an opt-in merged catalog/model route before removing ChatModelReentry. Preserve independent native execution and app-owned Chat login, including an empty Codex home. | Actual backend requests use selected metadata; native-to-Chat-to-native retains thread/PTY/configuration/permissions. Adapter absence cannot break ordinary native launch. /switch account re-entry is separate. |
 | HTTP admission: desktop_responses_server.mjs fetch/req.json, desktop_protocol.mjs admitDesktopRequest | Measure wire bytes and Content-Encoding; qualify bounded decoding/size errors before context staging. Reject unreadable native checkpoints before the parser replaces them with a note. | Auth/shape/size/checkpoint failures are distinguishable with zero Chat submissions; complete supported schemas/history are retained. A higher byte ceiling alone is not a repair. |
-| Tool/result continuation: desktop_responses_server.mjs transport.exchange; bundled turn-broker/turn-execution | Map real Chat MCP calls to native calls; the following function_call_output resolves that exact pending invocation instead of submitting another yRt prompt. Reuse the existing broker; Core alone executes and approves. | Offline two-call/parallel/duplicate/missing-result fixtures first; then one accepted Chat task, two real harmless Core calls and final reply without result-phase user submits. App MCP/Temporary Chat availability is a gate; Work-only local function exports are not proof. |
+| Tool/result continuation: desktop_responses_server.mjs transport.exchange; reference turn-broker/turn-execution | Compare the real host return paths before selection. For MCP, independently implement only the required call/result settlement and event translation; Core alone executes and approves. Existing packaged parser helpers are not an installed full-mode broker. | Protocol/version/capability and selected-channel proof precede the two-call live trial. Reuse valid offline duplicate/missing-result evidence. App MCP/Temporary Chat availability is a gate; Work-only local function exports are not proof. |
 | Lifetime and explicit stop: server req.signal/SSE close callback, desktop_app_transport.mjs catch/retire | Trace how upstream turn/interrupt reaches the adapter. Separate an expected tool-round boundary and observer loss from actual user interruption using proven signals. Do not merely detach AbortController. | Disconnect does not resubmit or duplicate an action; explicit stop prevents later call admission, interrupts owned Core work and reports confirmed termination or unresolved state. If the wire cannot distinguish stop, resolve that boundary before retaining live Chat turns. |
 | Visible progress and completion: adapter queue/SSE, app owned-conversation state, native TUI events | Relay host-visible text and actual Core tool events; distinguish accepted, generating, tool-running, waiting, interrupted, failed and final. Heartbeats/readiness are not work progress. | Fault-injected stream loss while tools run leaves observable progress; restored view shows the latest result once. Do not mark task success from HTTP200, a finished tool or a server counter. Physical TUI observation is required. |
 | Restart, ownership and compaction: DesktopTranscript, lane keys, guardian children, DesktopCompaction | Check exact thread/turn/call ownership and completed-result reuse; preserve readable canonical context before route/chat rebinding. Qualify which pending host calls survive each restart; never assume an in-memory promise is durable. | A/B concurrent lanes and guardian remain separate; stale replies fail; completed mutations are not rerun. Long native/Chat transitions and cold resume retain requirements/results. Unrecoverable pending execution is explicit rather than silently replayed. |
