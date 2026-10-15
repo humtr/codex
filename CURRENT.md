@@ -6,80 +6,54 @@ This repository carries no external workflow skill or model configuration.
 
 ## Operating baseline
 
-- Next release integration: b0badff adds the resolved-catalog Core/Manager path
-  and combines it with the current production frontend. c2db8f7 removes two
-  duplicate module declarations exposed by the first native compile; the failed
-  run38713848189 remains negative evidence. Local full acceptance passes
-  Core198/one existing ignored, Manager42+56+three path gates, builder25,
-  Python18+59 and fmt/Clippy. Hosted source38713848122 and corrected38726029296
-  pass. Corrected frontend38726029331 passes build/execution, all41 native tests,
-  lint and pristine upstream Core/dependencies. Raw23e34867 is bound to immutable
-  input045a7055 under manager-tui-native-v0.161.0-c2db8f7. Actual Android legacy/named/--profile menu round trips
-  pass with the new raw frontend and current Core, preserving PID/PTY/home/thread,
-  selected permissions, config and sibling defaults. Core/Manager catalog proof
-  separately passes12-tool admission, byte-bound reuse/isolation, previous thread
-  reads and Manager discovery. Both legacy/named permission lifecycle fixtures pass
-  six actual Android commands and six guardian reviews through launch/cold resume
-  and /btw. The first permission observer timed out because it queried only the
-  old namespace; it now binds the exact fixture runtime and loaded thread across
-  both families, including owned cleanup. Negative observer evidence is retained.
-  Private aggregate: stable52-device-qualified.json. No new stable generation
-  is published or activated from these source results. Preserve existing
-  permission/profile/window changes; never merge the older experiment wholesale.
-- Installed ChatGPT cold bootstrap and actual command/report loop now also pass:
-  stop only the previously proved idle trial adapter/controller, launch from the
-  durable runtime descriptor, then execute two commands and restore all public
-  report phases in a cold Core/TUI. Observed1 user message/2 tool-role returns/
-  3 model starts, no Pro/retry. Protected config/auth/state and Tdev identities
-  remain unchanged. Proofs: chat-local-installed-cold-{bootstrap,runtime}.json
-  and chat-local-cold-protected.json. This does not identify the first failed
-  cold-start's cause or qualify long cross-provider compaction and MCP recovery.
-- Opt-in ChatGPT provider is now installed as d7513cc7785f3d5dbcef, source717bd94
-  on experiment/web-termux, with durable `returnTransport=local`. The installed
-  shared authentication command and actual service pass two real stable51 Core
-  commands, initial/intermediate/final public reports, persisted history, cold
-  Core resume and actual TUI rendering. Observed1 user message/2 tool-role returns/
-  3 app starts; Chat allowance deduction remains unmeasured. All590 new payload
-  files verify; the old561-file payload,13 protected config/auth/state files and
-  both existing Tdev process identities are unchanged. Full checks pass Rust323/
-  one existing ignored, Python18+59, fmt/Clippy; experiment Python41 and Bun71.
-  A first cold-start trial failed before any Chat submission; after inert native
-  Scope checks and adapter restart the installed path passed. The original cause
-  is unconfirmed; content-free class/source-line diagnosis is now installed.
-  Private proofs: chat-local-installed-runtime.json,
-  chat-local-installed-runtime-first-failure.json, chat-local-install-protected.json.
-  This is user-authorized device experiment activation, not public stable/Core
-  promotion. Core/frontend remain stable51; the newer merged-catalog correction
-  and independent MCP host path remain uninstalled/unqualified respectively.
-  The newly installed service was qualified through shared `--profile chatgpt`.
-- Public and installed stable51: local-hosted-0-161-0-17e1b52b0d77-s51,
-  CLI0.161.0, accepted implementation17e1b52. Publication38557559491 passes all
-  eight jobs: Android execution, signing, complete public readback/disposable
-  update and non-forced promotion. main caller49b304f pins that exact source;
-  promotion53bd199 preserves the caller and independently advances the signed index.
-- Frontend source5f8ff12/native38552383479 passes39 actual TUI regressions, lint
-  and pristine official Core/dependency proof. Its raw SHA256 is
-  947225e0667f4f976a754b2e5d8eae694e29a2769beaf7e93d88516b696f1447;
-  installed FD-adapted SHA256 is
-  cbf04684fe9e938076e96a989a3c7c71f5cbfa76a47bd469de1a018c526cc127.
-  Producer admission binds the immutable input0b5149e0 to that exact39-test run.
-- Full local acceptance passes Core197/one pre-existing ignored, Manager42+56
-  and three actual path gates, builder25, Python18+59, fmt/Clippy/diff.
-  Hosted full acceptance38552682462 and38557124149 pass. Proof-only effb9fd
-  passes scoped38557658154 without claiming another runtime build.
-- Ordinary signed `codex update` activates stable51; its repeat is a no-op.
-  All eight installed hashes/modes and manifest signature verify; twelve base
-  config/auth files and six existing PID/start/image identities are unchanged.
-  Immediate activation gate preserved all six process identities. A later user
-  /switch re-execs the same frontend PID/start onto stable51, as expected.
-  Later proof: stable51-device-after-profile-switch.json in the acceptance cache;
-  the original immediate green gate is recorded in this session tool output. stable50 is the
-  rollback generation. Current running clients keep their image until normal exit.
-- Core/Manager doctor is healthy with zero failures. Official upstream doctor
-  reports unknown configured title item thread-name and three rollout/DB
-  consistency issues; user title/history files were not edited to conceal them.
-  Upstream0.162.1 is available but unqualified; this release intentionally keeps
-  the accepted0.161 backend. These state/version notes are separate follow-ups.
+- Public and installed stable52: local-hosted-0-161-0-e8dc2d76195f-s52,
+  CLI0.161.0, accepted implementation e8dc2d7. Publication38733863985 passes all
+  eight release stages, including Android execution, signing, complete public
+  readback/disposable update and non-forced promotion. main caller ad3e723 pins
+  that source; promotion149b30b preserves the caller and advances the signed index.
+- Ordinary signed `codex update` activates stable52; repeat update is a no-op.
+  Core/Manager doctor is healthy with no failures. All eight installed hashes,
+  modes and the manifest signature verify; fourteen existing config/auth/provider
+  files and seven current PID/start/image identities remain unchanged. Stable51
+  is retained for rollback. Existing clients retain their loaded images until
+  normal restart or frontend re-entry. Private proof: stable52-device-activation.json.
+- The resolved-catalog Core/Manager path preserves the current production
+  permission/profile/window behavior. Local full acceptance passes Core198/one
+  existing ignored, Manager42+56+three path gates, builder25, Python18+59 and
+  fmt/Clippy. Exact-source hosted acceptance38731009205 passes. Corrected native
+  frontend38726029331 passes build/execution, all41 actual TUI tests, lint and
+  pristine upstream Core/dependency proof. Raw frontend23e34867 is bound to
+  immutable archive045a7055 under manager-tui-native-v0.161.0-c2db8f7; its installed
+  FD-adapted SHA256 is7cfb36562d44777f6b68ee425eac7cdf3cec631a4e8f93912eb1a7ce0e556beb.
+- Actual Android legacy/named/--profile menu round trips pass with that frontend
+  and current Core, preserving PID/PTY/home/thread, permissions, config and sibling
+  defaults. Catalog proof separately passes12-tool admission, byte-bound reuse/
+  isolation, old-thread reads and Manager discovery. Both permission fixtures pass
+  six real Android commands and six guardian reviews through launch/cold resume
+  and /btw. These fixtures submit no Chat inference. Private aggregate:
+  stable52-native-device-qualified.json. The failed first native compile exposed
+  duplicate declarations, corrected in c2db8f7; the old permission observer queried
+  only core/servers and now locates its exact owned fixture in both server families.
+  Retain those negative results without treating observer failure as product proof.
+- Opt-in ChatGPT provider remains d7513cc7785f3d5dbcef/source717bd94 on
+  experiment/web-termux, with durable `returnTransport=local`; all590 payload files
+  verify and the old561-file payload remains intact. Installed authentication and
+  actual HTTP service passed two real stable51 Core commands, initial/intermediate/
+  final reports, canonical persistence, cold Core resume and actual TUI rendering.
+  A fresh installed cold bootstrap also passed:1 Chat user message,2 tool-role
+  returns,3 model starts, no Pro/retry. These counts do not measure Chat allowance
+  deduction. Private proofs: chat-local-installed-runtime.json and
+  chat-local-installed-cold-{bootstrap,runtime}.json. No Chat inference was repeated
+  for stable52 activation. The original first-start failure preceded dispatch;
+  its cause remains unconfirmed and content-free class/source-line diagnosis is installed.
+- The independent MCP candidate remains unselected: the host still caches its
+  old connector schema and has not qualified the new tools. Long cross-provider
+  compaction is also unqualified; opaque native checkpoints are rejected before
+  placeholder conversion rather than silently losing context. These are separate
+  follow-ups, not completed by the catalog release. Same-Chat model changes still
+  re-enter the frontend. Upstream0.162+ remains unqualified; this release intentionally
+  retains0.161. Existing upstream title/history doctor warnings remain separate;
+  user title/history data is not edited to conceal them.
 
 ## Termux permission resume correction
 
