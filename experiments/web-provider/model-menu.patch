@@ -708,7 +708,7 @@ new file mode 100644
 index 0000000..713bd46
 --- /dev/null
 +++ b/codex-rs/tui/src/termux_backend_catalog.rs
-@@ -0,0 +1,107 @@
+@@ -0,0 +1,112 @@
 +//! Upstream loads configuration; Core binds its resolved catalog to the backend.
 +use codex_utils_absolute_path::AbsolutePathBuf;
 +use std::os::unix::fs::MetadataExt;
@@ -770,9 +770,9 @@ index 0000000..713bd46
 +fn decode_socket(bytes: &[u8]) -> color_eyre::Result<AbsolutePathBuf> {
 +    let path = std::str::from_utf8(bytes)?
 +        .strip_suffix('\n')
-+        .filter(|s| !s.is_empty() && s.len() <= 107 && !s.contains(['\n', '\r', '\0']))
++        .filter(|s| Path::new(s).is_absolute() && s.len() <= 107 && !s.contains(['\n', '\r', '\0']))
 +        .ok_or_else(|| color_eyre::eyre::eyre!("invalid qualified backend socket"))?;
-+    Ok(AbsolutePathBuf::from_absolute_path(path)?)
++    Ok(AbsolutePathBuf::from_absolute_path_checked(path)?)
 +}
 +
 +#[cfg(test)]
@@ -785,12 +785,17 @@ index 0000000..713bd46
 +        assert!(decode_socket(b"/owned/s\n").is_ok());
 +        for value in [
 +            &b"relative\n"[..],
++            b"~/owned/s\n",
 +            b"/owned/s",
 +            b"/owned/s\nextra\n",
 +            b"/owned/\0s\n",
 +            b"/owned/s\r\n",
++            b"\xff\n",
 +        ] {
-+            assert!(decode_socket(value).is_err());
++            assert!(
++                decode_socket(value).is_err(),
++                "accepted invalid socket output: {value:?}"
++            );
 +        }
 +        assert!(decode_socket(format!("/{}\n", "s".repeat(107)).as_bytes()).is_err());
 +    }
