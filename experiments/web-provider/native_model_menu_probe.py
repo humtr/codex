@@ -176,7 +176,7 @@ def backend_thread(home, thread, check_defaults=False):
     return found[0]
 
 
-def probe(core, frontend, named_permission=False):
+def probe(core, frontend, named_permission=False, chat_profile=False):
     with tempfile.TemporaryDirectory(prefix='mm-', dir=os.environ['TMPDIR']) as tmp:
         root = Path(tmp)
         home, prefix, env = fixture(root, core, frontend, named_permission)
@@ -187,7 +187,7 @@ def probe(core, frontend, named_permission=False):
         def session():
             os.setsid()
             fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
-        launch = ['--profile', 'owned-config'] if named_permission else []
+        launch = ['--profile', 'chatgpt'] if chat_profile else ['--profile', 'owned-config'] if named_permission else []
         process = subprocess.Popen([str(prefix / 'bin/codex'), *launch, '--no-alt-screen'],
             env=env, cwd=root / 'w', stdin=slave, stdout=slave, stderr=slave, preexec_fn=session)
         os.close(slave)
@@ -278,6 +278,7 @@ def probe(core, frontend, named_permission=False):
                 'sameHomeAndThread': True, 'qualifiedFrontendRetained': True,'officialBackendRetained':True,'backendProviderRoundTrip':True,'backendChatCatalogBound':True,'otherThreadKeepsServerDefaults':True,
                 'sharedRegistrationUsed': (home/'.codex/chatgpt.config.toml').is_symlink(),
                 'originalConfigurationPreserved': True, 'namedPermissionRequested': named_permission,
+                'chatProfileRequested':chat_profile,
                 'noAuthCopied': True, 'modelInferenceSubmitted': False, 'proInference': False, 'productionChanged': False}
         finally:
             if process.poll() is None:
@@ -310,9 +311,11 @@ if __name__ == '__main__':
     parser.add_argument('--frontend', type=Path, required=True)
     parser.add_argument('--report', type=Path, required=True)
     parser.add_argument('--named-permission', action='store_true')
+    parser.add_argument('--chat-profile', action='store_true')
     args = parser.parse_args()
     try:
-        report = probe(args.core, args.frontend, args.named_permission)
+        assert not (args.chat_profile and args.named_permission), 'choose_one_profile_fixture'
+        report = probe(args.core, args.frontend, args.named_permission, args.chat_profile)
     except Exception as error:
         report = {'accepted': False, 'failureClass': type(error).__name__,
             'failureCode': str(error) if re.fullmatch('[a-z_]+', str(error)) else 'unclassified'}
