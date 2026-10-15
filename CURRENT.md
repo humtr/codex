@@ -35,17 +35,19 @@ This repository carries no external workflow skill or model configuration.
   duplicate declarations, corrected in c2db8f7; the old permission observer queried
   only core/servers and now locates its exact owned fixture in both server families.
   Retain those negative results without treating observer failure as product proof.
-- Opt-in ChatGPT provider remains d7513cc7785f3d5dbcef/source717bd94 on
-  experiment/web-termux, with durable `returnTransport=local`; all590 payload files
-  verify and the old561-file payload remains intact. Installed authentication and
-  actual HTTP service passed two real stable51 Core commands, initial/intermediate/
-  final reports, canonical persistence, cold Core resume and actual TUI rendering.
-  A fresh installed cold bootstrap also passed:1 Chat user message,2 tool-role
-  returns,3 model starts, no Pro/retry. These counts do not measure Chat allowance
-  deduction. Private proofs: chat-local-installed-runtime.json and
-  chat-local-installed-cold-{bootstrap,runtime}.json. No Chat inference was repeated
-  for stable52 activation. The original first-start failure preceded dispatch;
-  its cause remains unconfirmed and content-free class/source-line diagnosis is installed.
+- Installed opt-in ChatGPT provider is9014deaf810ff40a583d/sourcee27ab09,
+  with durable `returnTransport=local`; all590 payload files verify and older
+  payloads remain available for recovery. Actual installed signed-app + stable52
+  Core passes tool discovery, exact namespaced MCP admission, real auto_review,
+  one isolated stdio MCP read, result return, initial/intermediate/final reports
+  and cold Core/TUI restore. GPT-6 Instant:2 actual user messages (main + guardian),
+  2 tool-role returns,4 model starts,26.071s total, no Pro/retry. These are observed
+  submissions, not Chat allowance deductions. Auth/endpoint and13 base config/
+  auth/state files plus seven process identities are unchanged. The trial budget
+  was removed and normal operation is ready. Private proof:
+  chat-owned-mcp-installed-live.json and chat-tool-recovery-operating-final.json.
+  Earlier stable51 two-command/cold-bootstrap proofs remain narrow history. The
+  first-start failure and original user-trial rejected name remain unconfirmed.
 - The independent MCP candidate remains unselected: the host still caches its
   old connector schema and has not qualified the new tools. Long cross-provider
   compaction is also unqualified; opaque native checkpoints are rejected before
@@ -60,9 +62,10 @@ This repository carries no external workflow skill or model configuration.
 The [experiment current state and complete backlog](https://github.com/humtr/codex/blob/experiment/web-termux/CURRENT.md#active-remaining-work)
 owns the twelve remaining Chat-provider work areas, deferred models/media/phone
 presentation and their evidence boundaries. The current user-trial MCP tool-name
-failure is reproduced at the adapter admission boundary; candidate source repairs
-canonical catalog presentation, old-round observations and completed-sample
-recovery. Do not describe this source work as an installed or stable provider fix.
+failure is reproduced at the adapter admission boundary. Canonical catalog,
+old-round observation and completed-sample recovery fixes are now installed in
+the opt-in provider, with native MCP live proof above. This remains experimental,
+not a public stable Chat-provider promotion or full lifecycle qualification.
 Core stable52 remains independently accepted; unrelated upstream/update/doctor
 maintenance is separate from Chat acceptance.
 
