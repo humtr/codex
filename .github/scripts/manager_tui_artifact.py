@@ -85,7 +85,7 @@ def verify(args):
     if args.proof.is_symlink() or proof.is_symlink():
         raise ValueError("native proof root is not an owned directory")
     log = bounded_read(proof / "profile-tui-focused.log", 16 * 1024 * 1024, "native tests").decode()
-    if nonzero_tests(log) != 39:
+    if nonzero_tests(log) != 41:
         raise ValueError("actual native regression set is not qualified")
     formatted = bounded_read(proof / "profile-tui-formatted.patch", 1024 * 1024, "formatted native patch")
     linted = bounded_read(proof / "profile-tui-linted.patch", 1024 * 1024, "linted native patch")

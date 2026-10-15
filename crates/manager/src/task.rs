@@ -356,6 +356,9 @@ fn private(path: &Path, directory: bool) -> Result<(), ManagerError> {
     Ok(())
 }
 fn record(path: &Path) -> Result<Vec<u8>, ManagerError> {
+    bounded_record(path, 16384)
+}
+fn bounded_record(path: &Path, limit: u64) -> Result<Vec<u8>, ManagerError> {
     private(path, false)?;
     let mut file = OpenOptions::new()
         .read(true)
@@ -364,15 +367,15 @@ fn record(path: &Path) -> Result<Vec<u8>, ManagerError> {
         .map_err(|_| ERR_TASK)?;
     let mut bytes = Vec::new();
     Read::by_ref(&mut file)
-        .take(16385)
+        .take(limit + 1)
         .read_to_end(&mut bytes)
         .map_err(|_| ERR_TASK)?;
-    if bytes.len() > 16384 {
+    if bytes.len() as u64 > limit {
         return Err(ERR_TASK);
     }
     Ok(bytes)
 }
-fn namespace(home: &Path, program: &Path) -> String {
+fn catalog_namespace(home: &Path, program: &Path, catalog: Option<&[u8]>) -> String {
     let mut hash = 0xcbf29ce484222325u64;
     for b in home
         .as_os_str()
@@ -383,6 +386,11 @@ fn namespace(home: &Path, program: &Path) -> String {
     {
         hash = (hash ^ u64::from(*b)).wrapping_mul(0x100000001b3);
     }
+    if let Some(catalog) = catalog {
+        for b in b"\0catalog-v1\0".iter().chain(catalog) {
+            hash = (hash ^ u64::from(*b)).wrapping_mul(0x100000001b3);
+        }
+    }
     format!("{hash:016x}")
 }
 pub(super) fn profile_in_use(context: &Context, home: &Path) -> Result<bool, ManagerError> {
@@ -390,7 +398,18 @@ pub(super) fn profile_in_use(context: &Context, home: &Path) -> Result<bool, Man
 }
 
 fn servers(context: &Context) -> Result<Vec<Server>, ManagerError> {
-    let root = context.home.join(".local/share/codex/core/servers");
+    let mut servers = Vec::new();
+    for family in ["servers", "catalogs"] {
+        servers.extend(server_family(context, family)?);
+        if servers.len() > MAX_SERVERS {
+            return Err(ERR_TASK);
+        }
+    }
+    Ok(servers)
+}
+
+fn server_family(context: &Context, family: &str) -> Result<Vec<Server>, ManagerError> {
+    let root = context.home.join(".local/share/codex/core").join(family);
     if inspect_path(&root)? == PathPresence::Missing {
         return Ok(Vec::new());
     }
@@ -406,8 +425,21 @@ fn servers(context: &Context) -> Result<Vec<Server>, ManagerError> {
         let mut fields = binding.split(|b| *b == 0);
         let home = PathBuf::from(OsString::from_vec(fields.next().ok_or(ERR_TASK)?.to_vec()));
         let program = PathBuf::from(OsString::from_vec(fields.next().ok_or(ERR_TASK)?.to_vec()));
-        if fields.next().is_some()
-            || dir.file_name() != Some(OsStr::new(&namespace(&home, &program)))
+        let catalog = match fields.next() {
+            None => None,
+            Some(b"catalog-v1") if fields.next().is_none() => {
+                Some(bounded_record(&dir.join("models.json"), 4 * 1024 * 1024)?)
+            }
+            _ => return Err(ERR_TASK),
+        };
+        if catalog.is_some() != (family == "catalogs")
+            || catalog.as_ref().is_some_and(Vec::is_empty)
+            || dir.file_name()
+                != Some(OsStr::new(&catalog_namespace(
+                    &home,
+                    &program,
+                    catalog.as_deref(),
+                )))
         {
             return Err(ERR_TASK);
         }

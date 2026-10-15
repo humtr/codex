@@ -112,7 +112,12 @@ pub(super) fn private_dir(path: &Path) -> io::Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
 fn namespace(home: &Path, program: &OsStr) -> String {
+    catalog_namespace(home, program, None)
+}
+
+fn catalog_namespace(home: &Path, program: &OsStr, catalog: Option<&[u8]>) -> String {
     // The exact owner record below makes a hash collision a rejection, not aliasing.
     let mut value = 0xcbf29ce484222325_u64;
     for b in home
@@ -124,17 +129,38 @@ fn namespace(home: &Path, program: &OsStr) -> String {
     {
         value = (value ^ u64::from(*b)).wrapping_mul(0x100000001b3);
     }
+    if let Some(catalog) = catalog {
+        for b in b"\0catalog-v1\0".iter().chain(catalog) {
+            value = (value ^ u64::from(*b)).wrapping_mul(0x100000001b3);
+        }
+    }
     format!("{value:016x}")
 }
 
 fn read_record(path: &Path) -> io::Result<Vec<u8>> {
+    read_bounded(path, 16384)
+}
+
+const CATALOG_LIMIT: u64 = 4 * 1024 * 1024;
+pub(super) const CATALOG_COMMAND: &str = "__app-server-catalog-v1";
+
+pub(super) fn read_catalog(input: impl Read) -> io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    input.take(CATALOG_LIMIT + 1).read_to_end(&mut bytes)?;
+    if bytes.is_empty() || bytes.len() as u64 > CATALOG_LIMIT {
+        return Err(invalid());
+    }
+    Ok(bytes)
+}
+
+fn read_bounded(path: &Path, limit: u64) -> io::Result<Vec<u8>> {
     let m = fs::symlink_metadata(path)?;
-    if !m.is_file() || m.file_type().is_symlink() || m.len() > 16384 {
+    if !m.is_file() || m.file_type().is_symlink() || m.len() > limit {
         return Err(invalid());
     }
     let mut bytes = Vec::new();
-    File::open(path)?.take(16385).read_to_end(&mut bytes)?;
-    if bytes.len() > 16384 {
+    File::open(path)?.take(limit + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > limit {
         return Err(invalid());
     }
     Ok(bytes)
@@ -210,10 +236,29 @@ pub(super) fn ensure(
     config: &Path,
     env: &super::TermuxBaseEnvPlan,
 ) -> io::Result<PathBuf> {
+    ensure_catalog(program, profile, state, resolver, config, env, None)
+}
+
+pub(super) fn ensure_catalog(
+    program: &OsStr,
+    profile: &Path,
+    state: &Path,
+    resolver: &Path,
+    config: &Path,
+    env: &super::TermuxBaseEnvPlan,
+    catalog: Option<&[u8]>,
+) -> io::Result<PathBuf> {
+    if catalog.is_some_and(|c| c.is_empty() || c.len() as u64 > CATALOG_LIMIT) {
+        return Err(invalid());
+    }
     private_dir(profile)?;
-    let servers = state.join("servers");
+    let servers = state.join(if catalog.is_some() {
+        "catalogs"
+    } else {
+        "servers"
+    });
     private_dir(&servers)?;
-    let directory = servers.join(namespace(profile, program));
+    let directory = servers.join(catalog_namespace(profile, program, catalog));
     private_dir(&directory)?;
     let lock = File::open(&directory)?;
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -228,12 +273,24 @@ pub(super) fn ensure(
     let mut binding = Vec::from(profile.as_os_str().as_bytes());
     binding.push(0);
     binding.extend_from_slice(program.as_bytes());
+    if catalog.is_some() {
+        binding.extend_from_slice(b"\0catalog-v1");
+    }
     let owner = directory.join("owner");
     match read_record(&owner) {
         Ok(b) if b == binding => (),
         Ok(_) => return Err(invalid()),
         Err(e) if e.kind() == io::ErrorKind::NotFound => write_record(&owner, &binding)?,
         Err(e) => return Err(e),
+    }
+    let catalog_path = directory.join("models.json");
+    if let Some(catalog) = catalog {
+        match read_bounded(&catalog_path, CATALOG_LIMIT) {
+            Ok(old) if old == catalog => (),
+            Ok(_) => return Err(invalid()),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => write_record(&catalog_path, catalog)?,
+            Err(e) => return Err(e),
+        }
     }
     let socket = directory.join("s");
     if socket.as_os_str().as_bytes().len() > 107 {
@@ -242,21 +299,23 @@ pub(super) fn ensure(
     let logical_dir = profile.join("app-server-control");
     private_dir(&logical_dir)?;
     let logical = logical_dir.join("app-server-control.sock");
-    match fs::symlink_metadata(&logical) {
-        Ok(m) if m.file_type().is_symlink() => {
-            let previous = fs::read_link(&logical)?;
-            if previous != socket {
-                // Only our bound namespace may be retargeted on generation change.
-                if previous.parent().and_then(Path::parent) != Some(servers.as_path())
-                    || previous.file_name() != Some(OsStr::new("s"))
-                {
-                    return Err(invalid());
+    if catalog.is_none() {
+        match fs::symlink_metadata(&logical) {
+            Ok(m) if m.file_type().is_symlink() => {
+                let previous = fs::read_link(&logical)?;
+                if previous != socket {
+                    // Only our bound namespace may be retargeted on generation change.
+                    if previous.parent().and_then(Path::parent) != Some(servers.as_path())
+                        || previous.file_name() != Some(OsStr::new("s"))
+                    {
+                        return Err(invalid());
+                    }
                 }
             }
+            Ok(_) => return Err(invalid()),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => (),
+            Err(e) => return Err(e),
         }
-        Ok(_) => return Err(invalid()),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => (),
-        Err(e) => return Err(e),
     }
     let temporary_root = env
         .assignments
@@ -313,6 +372,15 @@ pub(super) fn ensure(
     if !running {
         let fds = super::RuntimeFdSources::open(resolver, &snapshot)?;
         let mut command = Command::new(program);
+        if catalog.is_some() {
+            command.args([
+                "-c".to_owned(),
+                format!(
+                    "model_catalog_json=\"{}\"",
+                    super::json_escape(catalog_path.to_str().ok_or_else(invalid)?)
+                ),
+            ]);
+        }
         command
             .args([OsStr::new("app-server"), OsStr::new("--listen")])
             .arg(format!("unix://{}", socket.to_str().ok_or_else(invalid)?))
@@ -354,7 +422,7 @@ pub(super) fn ensure(
             return Err(error);
         }
     }
-    if fs::read_link(&logical).ok().as_ref() != Some(&socket) {
+    if catalog.is_none() && fs::read_link(&logical).ok().as_ref() != Some(&socket) {
         let temporary = logical.with_extension(format!("tmp-{}", std::process::id()));
         std::os::unix::fs::symlink(&socket, &temporary)?;
         fs::rename(&temporary, &logical)?;
@@ -368,13 +436,23 @@ pub(super) fn retire_unused(
     generations: &Path,
     keep: &std::collections::HashSet<String>,
 ) -> io::Result<()> {
-    let servers = state.join("servers");
-    let entries = match fs::read_dir(&servers) {
+    for family in ["servers", "catalogs"] {
+        retire_family(&state.join(family), generations, keep)?;
+    }
+    Ok(())
+}
+
+fn retire_family(
+    servers: &Path,
+    generations: &Path,
+    keep: &std::collections::HashSet<String>,
+) -> io::Result<()> {
+    let entries = match fs::read_dir(servers) {
         Ok(entries) => entries,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
         Err(e) => return Err(e),
     };
-    private_dir(&servers)?;
+    private_dir(servers)?;
     for entry in entries {
         let entry = entry?;
         let directory = entry.path();
@@ -386,7 +464,18 @@ pub(super) fn retire_unused(
         let mut parts = owner.split(|b| *b == 0);
         let profile = Path::new(OsStr::from_bytes(parts.next().ok_or_else(invalid)?));
         let program = OsStr::from_bytes(parts.next().ok_or_else(invalid)?);
-        if parts.next().is_some() || entry.file_name() != OsStr::new(&namespace(profile, program)) {
+        let catalog = match parts.next() {
+            None => None,
+            Some(b"catalog-v1") if parts.next().is_none() => {
+                Some(read_bounded(&directory.join("models.json"), CATALOG_LIMIT)?)
+            }
+            _ => return Err(invalid()),
+        };
+        if catalog.is_some() != (servers.file_name() == Some(OsStr::new("catalogs")))
+            || catalog.as_ref().is_some_and(Vec::is_empty)
+            || entry.file_name()
+                != OsStr::new(&catalog_namespace(profile, program, catalog.as_deref()))
+        {
             return Err(invalid());
         }
         let path = Path::new(program);
@@ -426,7 +515,7 @@ pub(super) fn retire_unused(
                     return Err(e);
                 }
                 fs::remove_dir_all(&directory)?;
-                File::open(&servers)?.sync_all()?;
+                File::open(servers)?.sync_all()?;
                 continue;
             }
             Err(e) => return Err(e),
@@ -520,8 +609,13 @@ mod tests {
 use std::{env,fs,io::Read,os::unix::net::UnixListener};
 fn main() {
  let a:Vec<String>=env::args().collect();
- assert_eq!(&a[1..3], &["app-server", "--listen"]);
- let path=a[3].strip_prefix("unix://").unwrap();
+ let start=if a.get(1).map(String::as_str)==Some("-c") {
+  let path=a[2].strip_prefix("model_catalog_json=\"").unwrap().strip_suffix('"').unwrap();
+  assert!(!fs::read(path).unwrap().is_empty());
+  3
+ } else {1};
+ assert_eq!(&a[start..start+2], &["app-server", "--listen"]);
+ let path=a[start+2].strip_prefix("unix://").unwrap();
  let c=fs::read_to_string("/proc/self/fd/34/config.toml").unwrap();
  assert!(c.contains("danger-full-access"));
  assert!(!fs::read("/proc/self/fd/33").unwrap().is_empty());
@@ -553,7 +647,7 @@ fn main() {
 
     #[test]
     fn shared_server_reuse_refreshes_config_without_restarting_active_server() {
-        let root = crate::tests::temp_root("shared-server-refresh");
+        let root = crate::tests::temp_root("server-refresh");
         let program = server_fixture(&root);
         let state = root.join("state");
         let config = root.join("config");
@@ -665,6 +759,110 @@ fn main() {
                 .unwrap()
                 .success()
         );
+        crate::tests::remove_temp_root(root);
+    }
+
+    #[test]
+    fn resolved_catalog_contents_bind_reuse_without_changing_native_siblings() {
+        let root = crate::tests::temp_root("catalog-server");
+        let program = server_fixture(&root);
+        let state = root.join("state");
+        let config = root.join("config");
+        private_dir(&state).unwrap();
+        private_dir(&config).unwrap();
+        let resolver = root.join("resolver");
+        fs::write(&resolver, b"nameserver 127.0.0.1\n").unwrap();
+        fs::write(
+            config.join("config.toml"),
+            crate::render_core_notification_config(&[]),
+        )
+        .unwrap();
+        let env = crate::TermuxBaseEnvPlan {
+            assignments: vec![("TMPDIR".into(), root.as_os_str().into())],
+            removals: vec![],
+        };
+        let profile = root.join("profile");
+        let start = |catalog| {
+            ensure_catalog(
+                program.as_os_str(),
+                &profile,
+                &state,
+                &resolver,
+                &config,
+                &env,
+                catalog,
+            )
+            .unwrap()
+        };
+        let native = start(None);
+        let native_pid = read_record(&native.parent().unwrap().join("pid")).unwrap();
+        let one = start(Some(br#"{"models":[{"slug":"first"}]}"#));
+        let one_pid = read_record(&one.parent().unwrap().join("pid")).unwrap();
+        let held = UnixStream::connect(&one).unwrap();
+        assert_eq!(start(Some(br#"{"models":[{"slug":"first"}]}"#)), one);
+        assert_eq!(
+            read_record(&one.parent().unwrap().join("pid")).unwrap(),
+            one_pid
+        );
+        let two = start(Some(br#"{"models":[{"slug":"second"}]}"#));
+        assert_ne!(one, two);
+        assert_ne!(native, one);
+        assert_eq!(
+            fs::read_link(profile.join("app-server-control/app-server-control.sock")).unwrap(),
+            native
+        );
+        assert_eq!(start(None), native);
+        assert_eq!(
+            read_record(&native.parent().unwrap().join("pid")).unwrap(),
+            native_pid
+        );
+        assert!(bound_connection(
+            &one,
+            &one.parent().unwrap().join("pid"),
+            program.as_os_str()
+        )
+        .unwrap());
+        assert_eq!(
+            fs::read(one.parent().unwrap().join("models.json")).unwrap(),
+            br#"{"models":[{"slug":"first"}]}"#
+        );
+        assert!(read_catalog(&b""[..]).is_err());
+        assert!(read_catalog(std::io::repeat(b'x').take(CATALOG_LIMIT + 1)).is_err());
+        assert!(ensure_catalog(
+            program.as_os_str(),
+            &profile,
+            &state,
+            &resolver,
+            &config,
+            &env,
+            Some(b"")
+        )
+        .is_err());
+        // A changed or substituted snapshot never acquires the original identity.
+        fs::write(one.parent().unwrap().join("models.json"), b"changed").unwrap();
+        assert!(ensure_catalog(
+            program.as_os_str(),
+            &profile,
+            &state,
+            &resolver,
+            &config,
+            &env,
+            Some(br#"{"models":[{"slug":"first"}]}"#)
+        )
+        .is_err());
+        drop(held);
+        for socket in [native, one, two] {
+            let pid =
+                String::from_utf8(read_record(&socket.parent().unwrap().join("pid")).unwrap())
+                    .unwrap();
+            assert!(
+                Command::new(crate::tests::resolve_test_tool("kill").unwrap())
+                    .args(["-TERM", pid.trim()])
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+        }
         crate::tests::remove_temp_root(root);
     }
 
@@ -844,8 +1042,16 @@ fn main() {
         let busy_socket =
             ensure(program.as_os_str(), &busy, &state, &resolver, &config, &env).unwrap();
         let idle = root.join("idle");
-        let idle_socket =
-            ensure(program.as_os_str(), &idle, &state, &resolver, &config, &env).unwrap();
+        let idle_socket = ensure_catalog(
+            program.as_os_str(),
+            &idle,
+            &state,
+            &resolver,
+            &config,
+            &env,
+            Some(br#"{"models":[{"slug":"retired"}]}"#),
+        )
+        .unwrap();
         let busy_pid =
             String::from_utf8(read_record(&busy_socket.parent().unwrap().join("pid")).unwrap())
                 .unwrap();

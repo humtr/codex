@@ -1,5 +1,5 @@
 diff --git a/codex-rs/tui/src/app.rs b/codex-rs/tui/src/app.rs
-index 683c548..0915019 100644
+index 683c548..c78dc42 100644
 --- a/codex-rs/tui/src/app.rs
 +++ b/codex-rs/tui/src/app.rs
 @@ -152,7 +152,6 @@ use codex_otel::SessionTelemetry;
@@ -10,7 +10,16 @@ index 683c548..0915019 100644
  use codex_protocol::models::PermissionProfile;
  use codex_protocol::openai_models::ModelAvailabilityNux;
  use codex_protocol::openai_models::ModelPreset;
-@@ -233,6 +232,10 @@ mod managed_worktree_creation;
+@@ -213,6 +212,8 @@ mod app_server_events;
+ pub(crate) mod app_server_requests;
+ mod backend_banner_fallback;
+ mod background_requests;
++#[cfg(unix)]
++pub(crate) mod chat_model_reentry;
+ mod composer_hints;
+ mod config_persistence;
+ mod connector_mentions;
+@@ -233,6 +234,10 @@ mod managed_worktree_creation;
  mod misalignment_policy;
  mod model_defaults;
  mod new_session;
@@ -21,7 +30,7 @@ index 683c548..0915019 100644
  mod turn_tips;
  pub(crate) use new_session::has_launch_setting;
  mod clipboard;
-@@ -429,7 +432,7 @@ fn auto_review_mode() -> AutoReviewMode {
+@@ -429,7 +434,7 @@ fn auto_review_mode() -> AutoReviewMode {
          approval_policy: AskForApproval::OnRequest,
          approvals_reviewer: ApprovalsReviewer::AutoReview,
          active_permission_profile: ActivePermissionProfile::new(
@@ -30,7 +39,7 @@ index 683c548..0915019 100644
          ),
      }
  }
-@@ -1165,6 +1168,8 @@ impl App {
+@@ -1165,6 +1170,8 @@ impl App {
      }
 
      fn render_chat_widget_frame(&mut self, tui: &mut tui::Tui, screen_size: Size) -> Result<Rect> {
@@ -1442,21 +1451,22 @@ index b35b1a5..598e5e1 100644
      turn_id: &str,
      status: TurnStatus,
 diff --git a/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs b/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs
-index 0961865..7bc311e 100644
+index 0961865..a1b1410 100644
 --- a/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs
 +++ b/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs
-@@ -40,8 +40,8 @@ use tokio::task::JoinHandle;
+@@ -40,8 +40,9 @@ use tokio::task::JoinHandle;
  use tokio_tungstenite::accept_async;
  use tokio_tungstenite::tungstenite::Message;
 
 -pub(super) type RecordedRequests = Arc<Mutex<Vec<JSONRPCRequest>>>;
 -pub(super) type RecordingAppServer = (AppServerSession, RecordedRequests, JoinHandle<Result<()>>);
 +pub(in crate::app) type RecordedRequests = Arc<Mutex<Vec<JSONRPCRequest>>>;
-+pub(in crate::app) type RecordingAppServer = (AppServerSession, RecordedRequests, JoinHandle<Result<()>>);
++pub(in crate::app) type RecordingAppServer =
++    (AppServerSession, RecordedRequests, JoinHandle<Result<()>>);
 
  #[tokio::test]
  async fn daybreak_command_persists_and_confirms_each_selection() -> Result<()> {
-@@ -340,7 +340,7 @@ fn take_backfill_counts(requests: &RecordedRequests) -> (usize, usize) {
+@@ -340,7 +341,7 @@ fn take_backfill_counts(requests: &RecordedRequests) -> (usize, usize) {
  }
 
  /// Starts an embedded app server behind a loopback WebSocket proxy that records JSON-RPC methods.
@@ -1465,7 +1475,7 @@ index 0961865..7bc311e 100644
      config: &Config,
      blocked_thread_list: Option<(ThreadId, oneshot::Sender<()>, oneshot::Receiver<()>)>,
      failed_thread_name: Option<&'static str>,
-@@ -827,7 +827,10 @@ fn create_history_rollout(
+@@ -827,7 +828,10 @@ fn create_history_rollout(
      Ok(ThreadId::from_string(&thread_id)?)
  }
 
@@ -1495,7 +1505,7 @@ index 7965778..d15b0c9 100644
                          .turn_start(
                              thread_id,
 diff --git a/codex-rs/tui/src/app_event.rs b/codex-rs/tui/src/app_event.rs
-index 3185d8a..e98de3d 100644
+index 3185d8a..f95c234 100644
 --- a/codex-rs/tui/src/app_event.rs
 +++ b/codex-rs/tui/src/app_event.rs
 @@ -593,6 +593,12 @@ pub(crate) enum AppEvent {
@@ -1511,12 +1521,15 @@ index 3185d8a..e98de3d 100644
      /// Open the Claude Code migration picker inside the running TUI session.
      OpenExternalAgentConfigMigration,
 
-@@ -1183,6 +1189,8 @@ pub(crate) enum AppEvent {
+@@ -1183,6 +1189,11 @@ pub(crate) enum AppEvent {
 
      /// Update the current model slug in the running app and widget.
      UpdateModel(String),
 +    #[cfg(unix)]
-+    SelectChatModelProvider { model: String, effort: Option<ReasoningEffort> },
++    SelectChatModelProvider {
++        model: String,
++        effort: Option<ReasoningEffort>,
++    },
 
      /// Apply a final Astra picker action and offer the flourish only if it changed the model on
      /// its original task. Automatic model updates do not use this event.
@@ -2104,7 +2117,7 @@ index 0000000..b7c8c76
 @@ -0,0 +1 @@
 +{"models": [{"slug": "chatgpt-desktop/instant", "prefer_websockets": false, "support_verbosity": true, "default_verbosity": "low", "apply_patch_tool_type": "freeform", "web_search_tool_type": "text_and_image", "input_modalities": ["text"], "supports_image_detail_original": true, "truncation_policy": {"mode": "tokens", "limit": 10000}, "supports_parallel_tool_calls": true, "tool_mode": "direct", "multi_agent_version": "v1", "multi_agent_reasoning_effort": "xhigh", "use_responses_lite": true, "supports_reasoning_effort_updates": false, "include_skills_usage_instructions": false, "include_apps_usage_instructions": false, "include_plugin_usage_instructions": false, "guardian": null, "node_repl_auto_review_required": true, "node_repl_disabled": false, "requires_sandboxed_review": false, "auto_review_model_override": null, "model_specialty": null, "context_window": 32768, "max_context_window": 32768, "auto_compact_token_limit": null, "comp_hash": "3000", "default_reasoning_summary": "none", "display_name": "ChatGPT \u00b7 Instant", "description": "Actual ChatGPT Chat mode through the local Linux desktop bridge (experimental)", "default_reasoning_level": "none", "supported_reasoning_levels": [{"effort": "none", "description": "ChatGPT Instant"}], "shell_type": "shell_command", "visibility": "hide", "minimal_client_version": "0.153.0", "supported_in_api": true, "availability_nux": null, "upgrade": null, "priority": 2, "model_messages": {"instructions_template": "You are Codex, a coding agent. Follow the user task and execute only advertised tools through the native client.", "instructions_variables": null}, "experimental_supported_tools": ["send_user_message_async", "clock"], "available_in_plans": ["business", "edu", "edu_plus", "edu_pro", "education", "ent26", "enterprise", "enterprise_cbp_automation", "enterprise_cbp_trial", "enterprise_cbp_usage_based", "finserv", "free", "free_workspace", "go", "hc", "k12", "plus", "pro", "prolite", "promax", "quorum", "sci", "self_serve_business_prolite", "self_serve_business_usage_based", "team"], "supports_search_tool": true, "supports_experimental_context": false, "default_service_tier": null, "service_tiers": [{"id": "priority", "name": "Fast", "description": "2x speed, increased usage"}], "additional_speed_tiers": ["fast"], "supports_reasoning_summary_parameter": true, "supports_reasoning_summaries": true}, {"slug": "chatgpt-desktop/gpt-6", "prefer_websockets": false, "support_verbosity": true, "default_verbosity": "low", "apply_patch_tool_type": "freeform", "web_search_tool_type": "text_and_image", "input_modalities": ["text"], "supports_image_detail_original": true, "truncation_policy": {"mode": "tokens", "limit": 10000}, "supports_parallel_tool_calls": true, "tool_mode": "direct", "multi_agent_version": "v1", "multi_agent_reasoning_effort": "xhigh", "use_responses_lite": true, "supports_reasoning_effort_updates": true, "include_skills_usage_instructions": false, "include_apps_usage_instructions": false, "include_plugin_usage_instructions": false, "guardian": null, "node_repl_auto_review_required": true, "node_repl_disabled": false, "requires_sandboxed_review": false, "auto_review_model_override": null, "model_specialty": null, "context_window": 32768, "max_context_window": 32768, "auto_compact_token_limit": null, "comp_hash": "3000", "default_reasoning_summary": "none", "display_name": "ChatGPT \u00b7 GPT-6", "description": "Signed-app Chat GPT-6; selects the observed family and power before submission", "default_reasoning_level": "none", "supported_reasoning_levels": [{"effort": "none", "description": "Instant"}, {"effort": "medium", "description": "Medium"}, {"effort": "high", "description": "High"}, {"effort": "xhigh", "description": "Extra High"}], "shell_type": "shell_command", "visibility": "list", "minimal_client_version": "0.153.0", "supported_in_api": true, "availability_nux": null, "upgrade": null, "priority": 2, "model_messages": {"instructions_template": "You are Codex, a coding agent. Follow the user task and execute only advertised tools through the native client.", "instructions_variables": null}, "experimental_supported_tools": ["send_user_message_async", "clock"], "available_in_plans": ["business", "edu", "edu_plus", "edu_pro", "education", "ent26", "enterprise", "enterprise_cbp_automation", "enterprise_cbp_trial", "enterprise_cbp_usage_based", "finserv", "free", "free_workspace", "go", "hc", "k12", "plus", "pro", "prolite", "promax", "quorum", "sci", "self_serve_business_prolite", "self_serve_business_usage_based", "team"], "supports_search_tool": true, "supports_experimental_context": false, "default_service_tier": null, "service_tiers": [{"id": "priority", "name": "Fast", "description": "2x speed, increased usage"}], "additional_speed_tiers": ["fast"], "supports_reasoning_summary_parameter": true, "supports_reasoning_summaries": true}, {"slug": "chatgpt-desktop/gpt-6-pro", "prefer_websockets": false, "support_verbosity": true, "default_verbosity": "low", "apply_patch_tool_type": "freeform", "web_search_tool_type": "text_and_image", "input_modalities": ["text"], "supports_image_detail_original": true, "truncation_policy": {"mode": "tokens", "limit": 10000}, "supports_parallel_tool_calls": true, "tool_mode": "direct", "multi_agent_version": "v1", "multi_agent_reasoning_effort": "xhigh", "use_responses_lite": true, "supports_reasoning_effort_updates": false, "include_skills_usage_instructions": false, "include_apps_usage_instructions": false, "include_plugin_usage_instructions": false, "guardian": null, "node_repl_auto_review_required": true, "node_repl_disabled": false, "requires_sandboxed_review": false, "auto_review_model_override": null, "model_specialty": null, "context_window": 32768, "max_context_window": 32768, "auto_compact_token_limit": null, "comp_hash": "3000", "default_reasoning_summary": "none", "display_name": "ChatGPT \u00b7 GPT-6 Pro", "description": "Pro: execution unverified at user request; automated tests never send Pro inference", "default_reasoning_level": "none", "supported_reasoning_levels": [{"effort": "none", "description": "Pro (execution unverified)"}], "shell_type": "shell_command", "visibility": "list", "minimal_client_version": "0.153.0", "supported_in_api": true, "availability_nux": null, "upgrade": null, "priority": 2, "model_messages": {"instructions_template": "You are Codex, a coding agent. Follow the user task and execute only advertised tools through the native client.", "instructions_variables": null}, "experimental_supported_tools": ["send_user_message_async", "clock"], "available_in_plans": ["business", "edu", "edu_plus", "edu_pro", "education", "ent26", "enterprise", "enterprise_cbp_automation", "enterprise_cbp_trial", "enterprise_cbp_usage_based", "finserv", "free", "free_workspace", "go", "hc", "k12", "plus", "pro", "prolite", "promax", "quorum", "sci", "self_serve_business_prolite", "self_serve_business_usage_based", "team"], "supports_search_tool": true, "supports_experimental_context": false, "default_service_tier": null, "service_tiers": [{"id": "priority", "name": "Fast", "description": "2x speed, increased usage"}], "additional_speed_tiers": ["fast"], "supports_reasoning_summary_parameter": true, "supports_reasoning_summaries": true}, {"slug": "chatgpt-desktop/gpt-5.6-sol", "prefer_websockets": false, "support_verbosity": true, "default_verbosity": "low", "apply_patch_tool_type": "freeform", "web_search_tool_type": "text_and_image", "input_modalities": ["text"], "supports_image_detail_original": true, "truncation_policy": {"mode": "tokens", "limit": 10000}, "supports_parallel_tool_calls": true, "tool_mode": "direct", "multi_agent_version": "v1", "multi_agent_reasoning_effort": "xhigh", "use_responses_lite": true, "supports_reasoning_effort_updates": true, "include_skills_usage_instructions": false, "include_apps_usage_instructions": false, "include_plugin_usage_instructions": false, "guardian": null, "node_repl_auto_review_required": true, "node_repl_disabled": false, "requires_sandboxed_review": false, "auto_review_model_override": null, "model_specialty": null, "context_window": 32768, "max_context_window": 32768, "auto_compact_token_limit": null, "comp_hash": "3000", "default_reasoning_summary": "none", "display_name": "ChatGPT \u00b7 GPT-5.6 Sol", "description": "Deferred: UI selection verified, multi-tool execution unqualified after continuation timeouts", "default_reasoning_level": "none", "supported_reasoning_levels": [{"effort": "none", "description": "Instant"}, {"effort": "medium", "description": "Medium"}, {"effort": "high", "description": "High"}, {"effort": "xhigh", "description": "Extra High"}], "shell_type": "shell_command", "visibility": "list", "minimal_client_version": "0.153.0", "supported_in_api": true, "availability_nux": null, "upgrade": null, "priority": 2, "model_messages": {"instructions_template": "You are Codex, a coding agent. Follow the user task and execute only advertised tools through the native client.", "instructions_variables": null}, "experimental_supported_tools": ["send_user_message_async", "clock"], "available_in_plans": ["business", "edu", "edu_plus", "edu_pro", "education", "ent26", "enterprise", "enterprise_cbp_automation", "enterprise_cbp_trial", "enterprise_cbp_usage_based", "finserv", "free", "free_workspace", "go", "hc", "k12", "plus", "pro", "prolite", "promax", "quorum", "sci", "self_serve_business_prolite", "self_serve_business_usage_based", "team"], "supports_search_tool": true, "supports_experimental_context": false, "default_service_tier": null, "service_tiers": [{"id": "priority", "name": "Fast", "description": "2x speed, increased usage"}], "additional_speed_tiers": ["fast"], "supports_reasoning_summary_parameter": true, "supports_reasoning_summaries": true}, {"slug": "chatgpt-desktop/gpt-5.6-sol-pro", "prefer_websockets": false, "support_verbosity": true, "default_verbosity": "low", "apply_patch_tool_type": "freeform", "web_search_tool_type": "text_and_image", "input_modalities": ["text"], "supports_image_detail_original": true, "truncation_policy": {"mode": "tokens", "limit": 10000}, "supports_parallel_tool_calls": true, "tool_mode": "direct", "multi_agent_version": "v1", "multi_agent_reasoning_effort": "xhigh", "use_responses_lite": true, "supports_reasoning_effort_updates": false, "include_skills_usage_instructions": false, "include_apps_usage_instructions": false, "include_plugin_usage_instructions": false, "guardian": null, "node_repl_auto_review_required": true, "node_repl_disabled": false, "requires_sandboxed_review": false, "auto_review_model_override": null, "model_specialty": null, "context_window": 32768, "max_context_window": 32768, "auto_compact_token_limit": null, "comp_hash": "3000", "default_reasoning_summary": "none", "display_name": "ChatGPT \u00b7 GPT-5.6 Sol Pro", "description": "Pro: execution unverified at user request; automated tests never send Pro inference", "default_reasoning_level": "none", "supported_reasoning_levels": [{"effort": "none", "description": "Pro (execution unverified)"}], "shell_type": "shell_command", "visibility": "list", "minimal_client_version": "0.153.0", "supported_in_api": true, "availability_nux": null, "upgrade": null, "priority": 2, "model_messages": {"instructions_template": "You are Codex, a coding agent. Follow the user task and execute only advertised tools through the native client.", "instructions_variables": null}, "experimental_supported_tools": ["send_user_message_async", "clock"], "available_in_plans": ["business", "edu", "edu_plus", "edu_pro", "education", "ent26", "enterprise", "enterprise_cbp_automation", "enterprise_cbp_trial", "enterprise_cbp_usage_based", "finserv", "free", "free_workspace", "go", "hc", "k12", "plus", "pro", "prolite", "promax", "quorum", "sci", "self_serve_business_prolite", "self_serve_business_usage_based", "team"], "supports_search_tool": true, "supports_experimental_context": false, "default_service_tier": null, "service_tiers": [{"id": "priority", "name": "Fast", "description": "2x speed, increased usage"}], "additional_speed_tiers": ["fast"], "supports_reasoning_summary_parameter": true, "supports_reasoning_summaries": true}]}
 diff --git a/codex-rs/tui/src/lib.rs b/codex-rs/tui/src/lib.rs
-index 14d1c97..f1c4d23 100644
+index 14d1c97..03889f7 100644
 --- a/codex-rs/tui/src/lib.rs
 +++ b/codex-rs/tui/src/lib.rs
 @@ -131,7 +131,11 @@ mod experimental_features;
@@ -2128,7 +2141,41 @@ index 14d1c97..f1c4d23 100644
  mod model_migration;
  mod motion;
  mod multi_agents;
-@@ -1025,7 +1031,7 @@ fn app_server_target_for_launch(
+@@ -221,6 +227,10 @@ mod terminal_palette;
+ mod terminal_probe;
+ mod terminal_title;
+ mod terminal_visualization_instructions;
++#[cfg(unix)]
++mod termux_backend_catalog;
++#[cfg(unix)]
++mod termux_chat_models;
+ mod text_formatting;
+ mod text_selection;
+ mod theme_picker;
+@@ -560,6 +570,22 @@ async fn start_app_server(
+     environment_manager: Arc<EnvironmentManager>,
+     embedded_network_policy: codex_app_server_client::EmbeddedNetworkPolicy,
+ ) -> color_eyre::Result<AppServerClient> {
++    #[cfg(unix)]
++    if crate::termux_permissions::enabled()
++        && matches!(target, AppServerTarget::LocalDaemon { .. })
++        && let Some(catalog) = config.model_catalog.as_ref()
++    {
++        let core = std::env::var_os("CODEX_PROFILE_CORE")
++            .map(std::path::PathBuf::from)
++            .ok_or_else(|| color_eyre::eyre::eyre!("qualified Core is unavailable"))?;
++        let bytes = serde_json::to_vec(catalog)?;
++        let socket_path =
++            termux_backend_catalog::prepare(&core, &config.codex_home, &bytes).await?;
++        *target = AppServerTarget::LocalDaemon {
++            endpoint: RemoteAppServerEndpoint::UnixSocket { socket_path },
++            allow_embedded_fallback: false,
++        };
++    }
+     let connection = if matches!(target, AppServerTarget::Embedded) {
+         None
+     } else {
+@@ -1025,7 +1051,7 @@ fn app_server_target_for_launch(
          return Ok(AppServerTarget::Embedded);
      }
      Ok(match explicit_remote_endpoint {
@@ -2137,7 +2184,7 @@ index 14d1c97..f1c4d23 100644
          // A shared daemon cannot adopt this invocation's executor selection.
          None if can_reuse_implicit_local_daemon && exec_server_url.is_none() => {
              default_daemon_socket.map_or(AppServerTarget::Embedded, |socket_path| {
-@@ -1091,14 +1097,24 @@ pub async fn run_main(
+@@ -1091,14 +1117,26 @@ pub async fn run_main(
      startup_recovery::scope(async move {
          // Startup retains a large future for the whole session. Keep it off callers' stacks,
          // which also need room to construct a replacement chat widget on `/new`.
@@ -2153,13 +2200,15 @@ index 14d1c97..f1c4d23 100644
 +        #[cfg(unix)]
 +        if let Err(err) = &result
 +            && let Some(reentry) = app::profile_manager::ProfileReentry::from_error(err)
-         {
++        {
 +            return Err(reentry.exec());
 +        }
 +        #[cfg(unix)]
 +        if let Err(err) = &result
 +            && let Some(reentry) = app::chat_model_reentry::ChatModelReentry::from_error(err)
-+        { return Err(reentry.exec()); }
+         {
++            return Err(reentry.exec());
++        }
 +        match result {
              Err(err) if startup_draft::StartupCancelled::matches(&err) => Ok(AppExitInfo {
                  token_usage: TokenUsage::default(),
@@ -2314,20 +2363,141 @@ index 945041b..764c243 100644
              SlashCommand::New
              | SlashCommand::Archive
              | SlashCommand::Delete
+diff --git a/codex-rs/tui/src/termux_backend_catalog.rs b/codex-rs/tui/src/termux_backend_catalog.rs
+new file mode 100644
+index 0000000..e79a36f
+--- /dev/null
++++ b/codex-rs/tui/src/termux_backend_catalog.rs
+@@ -0,0 +1,112 @@
++//! Upstream loads configuration; Core binds its resolved catalog to the backend.
++use codex_utils_absolute_path::AbsolutePathBuf;
++use std::os::unix::fs::MetadataExt;
++use std::path::Path;
++use std::process::Stdio;
++use std::time::Duration;
++use tokio::io::AsyncReadExt;
++use tokio::io::AsyncWriteExt;
++use tokio::process::Command;
++
++const LIMIT: usize = 4 * 1024 * 1024;
++
++pub(crate) async fn prepare(
++    core: &Path,
++    home: &Path,
++    catalog: &[u8],
++) -> color_eyre::Result<AbsolutePathBuf> {
++    let metadata = std::fs::symlink_metadata(core)?;
++    if !core.is_absolute()
++        || !metadata.is_file()
++        || metadata.uid() != unsafe { libc::geteuid() }
++        || metadata.mode() & 0o022 != 0
++        || metadata.mode() & 0o111 == 0
++        || catalog.is_empty()
++        || catalog.len() > LIMIT
++    {
++        color_eyre::eyre::bail!("qualified catalog startup is unavailable");
++    }
++    tokio::time::timeout(Duration::from_secs(20), async {
++        let mut child = Command::new(core)
++            .arg("__app-server-catalog-v1")
++            .env("CODEX_HOME", home)
++            .stdin(Stdio::piped())
++            .stdout(Stdio::piped())
++            .stderr(Stdio::null())
++            .kill_on_drop(true)
++            .spawn()?;
++        let mut input = child.stdin.take().expect("piped catalog stdin");
++        input.write_all(catalog).await?;
++        input.shutdown().await?;
++        drop(input);
++        let mut output = Vec::new();
++        child
++            .stdout
++            .take()
++            .expect("piped catalog stdout")
++            .take(109)
++            .read_to_end(&mut output)
++            .await?;
++        if output.len() > 108 || !child.wait().await?.success() {
++            color_eyre::eyre::bail!("qualified backend catalog startup failed");
++        }
++        decode_socket(&output)
++    })
++    .await
++    .map_err(|_| color_eyre::eyre::eyre!("qualified backend catalog startup timed out"))?
++}
++
++fn decode_socket(bytes: &[u8]) -> color_eyre::Result<AbsolutePathBuf> {
++    let path = std::str::from_utf8(bytes)?
++        .strip_suffix('\n')
++        .filter(|s| Path::new(s).is_absolute() && s.len() <= 107 && !s.contains(['\n', '\r', '\0']))
++        .ok_or_else(|| color_eyre::eyre::eyre!("invalid qualified backend socket"))?;
++    Ok(AbsolutePathBuf::from_absolute_path_checked(path)?)
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use std::os::unix::fs::PermissionsExt;
++
++    #[test]
++    fn termux_backend_catalog_rejects_non_socket_output() {
++        assert!(decode_socket(b"/owned/s\n").is_ok());
++        for value in [
++            &b"relative\n"[..],
++            b"~/owned/s\n",
++            b"/owned/s",
++            b"/owned/s\nextra\n",
++            b"/owned/\0s\n",
++            b"/owned/s\r\n",
++            b"\xff\n",
++        ] {
++            assert!(
++                decode_socket(value).is_err(),
++                "accepted invalid socket output: {value:?}"
++            );
++        }
++        assert!(decode_socket(format!("/{}\n", "s".repeat(107)).as_bytes()).is_err());
++    }
++
++    #[tokio::test]
++    async fn termux_backend_catalog_transfers_exact_resolved_bytes_and_home()
++    -> color_eyre::Result<()> {
++        let root = tempfile::tempdir()?;
++        let core = root.path().join("core");
++        let home = root.path().join("home");
++        std::fs::create_dir(&home)?;
++        std::fs::write(
++            &core,
++            "#!/bin/sh\n[ \"$#\" = 1 ] && [ \"$1\" = __app-server-catalog-v1 ] || exit 2\ncat > \"$CODEX_HOME/catalog\"\nprintf '/owned/s\\n'\n",
++        )?;
++        std::fs::set_permissions(&core, std::fs::Permissions::from_mode(0o700))?;
++        let bytes = br#"{"models":[{"slug":"owned"}]}"#;
++        let socket = prepare(&core, &home, bytes).await?;
++        assert_eq!(socket.as_path(), Path::new("/owned/s"));
++        assert_eq!(std::fs::read(home.join("catalog"))?, bytes);
++        std::fs::set_permissions(&core, std::fs::Permissions::from_mode(0o777))?;
++        assert!(prepare(&core, &home, bytes).await.is_err());
++        Ok(())
++    }
++}
 diff --git a/codex-rs/tui/src/termux_chat_models.rs b/codex-rs/tui/src/termux_chat_models.rs
 new file mode 100644
-index 0000000..157dfce
+index 0000000..5daa224
 --- /dev/null
 +++ b/codex-rs/tui/src/termux_chat_models.rs
-@@ -0,0 +1,389 @@
+@@ -0,0 +1,393 @@
 +//! Optional installed Chat catalog; ordinary upstream model actions remain intact.
 +use crate::legacy_core::config::Config;
-+use codex_protocol::openai_models::{ModelInfo, ModelPreset, ReasoningEffort};
++use codex_protocol::openai_models::ModelInfo;
++use codex_protocol::openai_models::ModelPreset;
++use codex_protocol::openai_models::ReasoningEffort;
 +use serde::Deserialize;
 +use std::collections::HashSet;
 +use std::fs::File;
 +use std::io::Read;
-+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
++use std::os::unix::fs::MetadataExt;
++use std::os::unix::fs::OpenOptionsExt;
 +use std::path::Path;
 +
 +pub(crate) const PROVIDER: &str = "chatgpt_desktop_trial";
@@ -2660,7 +2830,8 @@ index 0000000..157dfce
 +    }
 +    #[test]
 +    fn termux_chat_models_private_catalog_refuses_symlink_nonprivate_and_oversize() {
-+        use std::os::unix::fs::{PermissionsExt, symlink};
++        use std::os::unix::fs::PermissionsExt;
++        use std::os::unix::fs::symlink;
 +        let temp = tempfile::tempdir().unwrap();
 +        let file = temp.path().join("catalog");
 +        std::fs::write(&file, b"fixture").unwrap();
@@ -2915,20 +3086,26 @@ index 0000000..f848882
 +}
 diff --git a/codex-rs/tui/src/termux_terminal.rs b/codex-rs/tui/src/termux_terminal.rs
 new file mode 100644
-index 0000000..a84022e
+index 0000000..0bc0ac8
 --- /dev/null
 +++ b/codex-rs/tui/src/termux_terminal.rs
-@@ -0,0 +1,221 @@
+@@ -0,0 +1,229 @@
 +//! Foreground identity for the optional Termux Manager; title display stays upstream.
-+use std::fs::{File, OpenOptions};
++use std::fs::File;
++use std::fs::OpenOptions;
 +use std::io;
 +use std::os::fd::AsRawFd;
-+use std::os::unix::fs::{FileExt, MetadataExt, OpenOptionsExt};
++use std::os::unix::fs::FileExt;
++use std::os::unix::fs::MetadataExt;
++use std::os::unix::fs::OpenOptionsExt;
 +use std::path::Path;
-+use std::process::{Command, Stdio};
-+use std::sync::{Mutex, OnceLock};
++use std::process::Command;
++use std::process::Stdio;
++use std::sync::Mutex;
++use std::sync::OnceLock;
 +use std::thread;
-+use std::time::{Duration, Instant};
++use std::time::Duration;
++use std::time::Instant;
 +
 +struct Slot {
 +    file: File,
@@ -3045,10 +3222,12 @@ index 0000000..a84022e
 +    fn foreground_slot_updates_without_title_or_manager() {
 +        let mut slot = Slot::new().unwrap();
 +        let path = format!("/proc/self/fd/{}", slot.file.as_raw_fd());
-+        assert!(std::fs::read_link(&path)
-+            .unwrap()
-+            .to_string_lossy()
-+            .ends_with(" (deleted)"));
++        assert!(
++            std::fs::read_link(&path)
++                .unwrap()
++                .to_string_lossy()
++                .ends_with(" (deleted)")
++        );
 +        assert_eq!(slot.file.metadata().unwrap().mode() & 0o777, 0o600);
 +        assert_ne!(
 +            unsafe { libc::fcntl(slot.file.as_raw_fd(), libc::F_GETFD) } & libc::FD_CLOEXEC,
