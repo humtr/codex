@@ -2,7 +2,7 @@
 import {randomBytes} from 'node:crypto';
 import {acquireDesktopApp,internalModel} from './desktop_app_transport.mjs';
 import {DesktopPromptContext} from './desktop_protocol.mjs';
-import {DesktopToolSession,localToolCall,localToolSignature,localToolCatalog} from './desktop_tool_session.mjs';
+import {DesktopToolSession,localToolSignature,localToolCatalog} from './desktop_tool_session.mjs';
 
 const expression=(fn,...args)=>`(${fn.toString()})(${args.map(x=>JSON.stringify(x)??'undefined').join(',')},(${installLocalAppHooks.toString()}))`;
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
@@ -207,10 +207,10 @@ export class DesktopLocalTransport{
    if(prepared.delta.instructions!==undefined)instructions.push(...prepared.delta.instructions);
    if(prepared.delta.tools!==undefined)instructions.push('Native Codex tool catalog (call the exact name; preserve schemas and custom input):\n'+JSON.stringify(localToolCatalog(payload.tools)));
    if(!batch.length){
-    instructions.unshift('You are the model doing this native Codex development task. Give genuine user-facing initial replies, intermediate reports and a final answer. Include your brief public initial reply in the first tool call report field, and useful intermediate findings in later tool call report fields. Core displays that field as commentary before executing the tool, without another model round. Honor requested report text. Use only local.'+this.gateway+' for native tools; never imitate a tool call or fabricate its result. For JSON tools encode arguments as input JSON; custom/freeform input is exact source. Never hand off to Work/Codex or use desktop builtin tools instead.');
+    instructions.unshift('You are the model doing this native Codex development task. Give genuine user-facing initial replies, intermediate reports and a final answer. Include your brief public initial reply in the first tool call report field, and useful intermediate findings in later tool call report fields. Core displays that field as commentary before executing the tool, without another model round. Honor requested report text. Use only local.'+this.gateway+' for native tools; never imitate a tool call or fabricate its result. For JSON tools encode arguments as input JSON; custom/freeform input is exact source. For independent tools use calls: a JSON-encoded array of {name,input} pairs, omitting singular name/input. Core executes each separately and returns all results in one original tool response. Never batch dependent steps or guess results. Never hand off to Work/Codex or use desktop builtin tools instead.');
    }
    sent=true;
-   await op('submit',{model,developerInstructions:instructions,...batch.length?{results:batch.map(({call,result})=>({id:call.id,result})),contextMessages}:{prompt:this.lane+'\nNative ordered task context:\n'+JSON.stringify(prepared.delta.messages)}});
+   await op('submit',{model,developerInstructions:instructions,...batch.length?{results:this.projection.hostResults(batch),contextMessages}:{prompt:this.lane+'\nNative ordered task context:\n'+JSON.stringify(prepared.delta.messages)}});
    this.rejectedContext=undefined;
    if(batch.length)this.projection.returned(batch);
    let acknowledged=false;const deadline=Date.now()+this.timeoutMs,roundCalls=new Map();
@@ -230,13 +230,13 @@ export class DesktopLocalTransport{
     // Validate each observed batch before publishing any native call. Wait for
     // the actual host terminal so an invalid later call cannot leak partial work.
     if(settled)for(const message of state.messages){
-     const call=localToolCall(message,this.gateway,payload.tools);
-     if(!call)continue;
+     for(const call of this.projection.decode(message,this.gateway,payload.tools)){
      const prior=this.projection.calls.get(call.id);
      if(prior){if(JSON.stringify(prior.call)!==JSON.stringify(call))throw Error('desktop_native_call_changed');continue;}
      const old=roundCalls.get(call.id);
      if(old&&JSON.stringify(old)!==JSON.stringify(call))throw Error('desktop_native_call_changed');
      roundCalls.set(call.id,call);
+     }
     }
     let final;
     for(const message of state.messages){

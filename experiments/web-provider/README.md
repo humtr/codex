@@ -53,6 +53,29 @@ write/read→final answer in33.035s, with persisted/rendered/cold-restored repor
 Observed1 user message,3 tool returns and4 model starts; no Pro or retry. This
 measures submissions, not Chat-plan allowance deductions.
 
+The current source additionally supports explicit local gateway batching through
+`calls`, a JSON-encoded array of independent name/input pairs. Core still approves,
+executes and records each tool separately; the exact results return together on
+one original host call. This candidate passes real GPT-6 Instant + stable53 Core:
+background workers overlap, all native surface/report/restore gates pass,8 model
+starts/6 tool returns/2 user messages,0 Pro/retry. See `batch-qualification.json`.
+Operating9dd288 remains unchanged; this is a source candidate, not activation or
+public stable provider qualification. Chat allowance deduction remains unknown.
+
+Reproduce the deterministic actual-Core batch surface test without real Chat:
+
+```sh
+CODEX_CHAT_CORE_PROOF_SOURCE="$HOME/prj/codex" python -B \
+  experiments/web-provider/desktop_surface_probe.py \
+  --output "$HOME/.cache/codex/acceptance/NEW-UNUSED-PROOF-DIRECTORY"
+```
+
+An explicit `--live --source-candidate` uses current source with installed immutable
+dependencies and the signed app, without changing the operating descriptor. Explain
+cost first: at most12 model starts including guardian, no Pro/automatic retry.
+Without `--source-candidate`, live proof exercises installed product bytes instead.
+Native question answers in this probe come from a driver, not a physical user tap.
+
 Offline real-Core recovery proof, without a Chat request:
 
 ```sh

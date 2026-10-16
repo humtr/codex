@@ -1,5 +1,6 @@
 // Transport-neutral projection. Core remains the only executor and history owner.
 import {requireAdvertisedTool,validateEnvelope} from './desktop_protocol.mjs';
+import {createHash} from 'node:crypto';
 
 // Only the canonical name is callable; bare source names stay in the Core map.
 export function localToolCatalog(tools){
@@ -7,11 +8,31 @@ export function localToolCatalog(tools){
 }
 
 export function localToolSignature(name){
- return {name,type:'kwargs',description:'Invoke one exact native Codex tool from the supplied catalog. The native Core executes it and returns the result. Never fabricate execution.',params:[
-  {name:'name',required:true,type:{type:'string',description:'Exact name in the supplied native tool catalog, including all namespace characters. Never derive names from shell configuration.'}},
-  {name:'input',required:true,type:{type:'string',description:'For a JSON tool: JSON-encoded arguments object. For a custom/freeform tool: its exact source string.'}},
+ return {name,type:'kwargs',description:'Invoke native Codex tools from the supplied catalog. Use calls for independent tools together, or name/input for one tool. Core approves and executes each tool. Never fabricate execution.',params:[
+  {name:'name',required:false,type:{type:'string',description:'Singular call only: exact name in the native catalog, including namespace characters. Omit when using calls.'}},
+  {name:'input',required:false,type:{type:'string',description:'Singular call only: JSON-encoded argument object, or exact custom/freeform source. Omit when using calls.'}},
+  {name:'calls',required:false,type:{type:'string',description:'JSON-encoded array of 1–32 independent {name,input} objects. Each name is exact; each input is a STRING encoding JSON arguments or exact freeform source. All results return together. Never batch a step needing another entry’s result. Omit name/input when using calls.'}},
   {name:'report',required:true,type:{type:'string',description:'Brief user-facing progress report before this tool, in the user language. Include the initial reply on the first call and useful intermediate findings later. Empty only when no useful update. Public prose only; never private reasoning.'}},
  ]};
+}
+
+// A host call may carry independent tools even when the host emits only one
+// local-function message per sampling. No execution or argument inference here.
+export function localToolCalls(message,gateway,tools){
+ if(message.author?.role!=='assistant'||message.recipient!=='local.'+gateway||message.status!=='finished_successfully')return [];
+ if(typeof message.id!=='string'||!message.id)throw Error('desktop_native_call_invalid');
+ let args;try{args=JSON.parse(message.content?.text);args=args.kwargs??args;}catch{throw Error('desktop_native_call_invalid');}
+ if(!args||typeof args!=='object'||Array.isArray(args))throw Error('desktop_native_call_invalid');
+ if(!Object.hasOwn(args,'calls'))return [localToolCall(message,gateway,tools)];
+ if(typeof args.calls!=='string'||typeof args.report!=='string'||Object.hasOwn(args,'name')||Object.hasOwn(args,'input'))throw Error('desktop_native_call_invalid');
+ let entries;try{entries=JSON.parse(args.calls);}catch{throw Error('desktop_native_call_invalid');}
+ if(!Array.isArray(entries)||!entries.length||entries.length>32)throw Error('desktop_native_call_invalid');
+ return entries.map((entry,index)=>{
+  if(!entry||typeof entry!=='object'||Array.isArray(entry)||typeof entry.name!=='string'||typeof entry.input!=='string')throw Error('desktop_native_call_invalid');
+  const id='call_batch_'+createHash('sha256').update(JSON.stringify([message.id,index])).digest('hex');
+  const call=localToolCall({...message,id,content:{text:JSON.stringify({name:entry.name,input:entry.input,report:index===0?args.report:''})}},gateway,tools);
+  return {...call,hostCallId:message.id,batchIndex:index,batchSize:entries.length};
+ });
 }
 
 export function localToolCall(message,gateway,tools){
@@ -44,7 +65,13 @@ function projectedTool(call,tools){
 }
 
 export class DesktopToolSession{
- constructor(){this.calls=new Map();this.messages=new Map();this.activeMessage=undefined;this.lastPublicText=undefined;}
+ constructor(){this.calls=new Map();this.hostCalls=new Map();this.messages=new Map();this.activeMessage=undefined;this.lastPublicText=undefined;}
+ decode(message,gateway,tools){
+  const calls=localToolCalls(message,gateway,tools);if(!calls.length)return calls;
+  const encoded=JSON.stringify(calls),old=this.hostCalls.get(message.id);
+  if(old!==undefined&&old!==encoded)throw Error('desktop_native_call_changed');
+  this.hostCalls.set(message.id,encoded);return calls;
+ }
  pending(){return [...this.calls.values()].filter(c=>c.result===undefined);}
  issue(call,tools,emit){
   if(typeof call.id!=='string'||!call.id)throw Error('desktop_native_call_invalid');
@@ -100,5 +127,19 @@ export class DesktopToolSession{
   const ids=new Set();
   for(const {call} of batch){const entry=this.calls.get(call.id);if(!entry||entry.result!==undefined||ids.has(call.id))throw Error('desktop_native_result_replayed');ids.add(call.id);}
   for(const {call,result} of batch)this.calls.get(call.id).result=result;
+ }
+ hostResults(batch){
+  const groups=new Map(),seen=new Set();
+  for(const {call,result} of batch){
+   if(seen.has(call.id))throw Error('native_tool_result_missing_or_duplicate');seen.add(call.id);
+   const id=call.hostCallId??call.id;
+   if(!groups.has(id))groups.set(id,[]);groups.get(id).push({call,result});
+  }
+  return [...groups].map(([id,entries])=>{
+   if(entries[0].call.hostCallId===undefined){if(entries.length!==1)throw Error('desktop_native_call_changed');return {id,result:entries[0].result};}
+   const sorted=entries.toSorted((a,b)=>a.call.batchIndex-b.call.batchIndex),size=sorted[0].call.batchSize;
+   if(sorted.length!==size||sorted.some(({call},i)=>call.hostCallId!==id||call.batchSize!==size||call.batchIndex!==i))throw Error('native_tool_result_missing_or_duplicate');
+   return {id,result:{results:sorted.map(({call,result})=>({id:call.id,name:call.name,...result}))}};
+  });
  }
 }

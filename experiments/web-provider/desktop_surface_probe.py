@@ -35,11 +35,11 @@ class Surface:
             '1. Use tool_search to discover owned_catalog _read_marker. '
             '2. Call that exact discovered MCP tool ONCE; use the actual returned marker. '
             '3. Use the advertised custom/freeform apply_patch tool to create proof.txt containing exactly the marker and a newline. '
-            '4. In ONE sampling response issue TWO separate calls through the local gateway to the JSON exec_command tool: '
+            '4. In ONE local gateway call use its calls parameter: a JSON-encoded array of TWO independent name/input pairs for the JSON exec_command tool: '
             'python worker.py A and python worker.py B, each login=false, yield_time_ms=1000, max_output_tokens=200. '
             'Do not load login profiles or start Termux services in this isolated test home. '
             'Issue both calls together without waiting for the first result; do not combine them in a shell command. '
-            '5. Poll the TWO returned background session IDs with write_stdin, chars="", yield_time_ms=10000 until both A_DONE and B_DONE arrive. Never restart either command. '
+            '5. Again use one gateway calls array to poll the TWO returned background session IDs with write_stdin, chars="", yield_time_ms=10000 until both A_DONE and B_DONE arrive. Never restart either command. '
             '6. Say LOCAL_INTERMEDIATE_REPORT once. Call request_user_input with exactly one question: id fixture_choice, header Surface, question "Choose KEEP for this disposable test?", two options KEEP and OTHER with descriptions. '
             'The test driver will answer KEEP through the native question-response API. Wait for that actual answer. '
             '7. Final answer exactly the marker. Do not fake tool outputs, skip a required tool, run additional commands, or read credentials. If a tool is missing, explain and stop.')
@@ -92,8 +92,9 @@ def run(args):
     with tempfile.TemporaryDirectory(prefix='surface-', dir=os.environ['TMPDIR']) as temporary:
         root = Path(temporary)
         if args.live:
+            candidate = SOURCE if args.source_candidate else installed/'source'
             wrapper = root/'bounded.mjs'
-            wrapper.write_text('import {DesktopLocalTransport} from '+json.dumps((installed/'source/desktop_local_transport.mjs').as_uri())+';\nconst root=process.argv[4];\nconst p=DesktopLocalTransport.prototype.prepare;DesktopLocalTransport.prototype.prepare=function(...args){this.maxDispatches=20;return p.apply(this,args);};\nconst e=DesktopLocalTransport.prototype.exchange,b=[];\nDesktopLocalTransport.prototype.exchange=async function(...args){const r=await e.apply(this,args);b.push({type:r.type,calls:(r.calls||[]).map(c=>({id:c.id,name:c.name}))});(await import("node:fs")).writeFileSync(root+"/surface-batches.json",JSON.stringify(b),{mode:0o600});return r;};\nawait import('+json.dumps((installed/'source/desktop_local_core_trace.mjs').as_uri())+');\n')
+            wrapper.write_text('import {DesktopLocalTransport} from '+json.dumps((candidate/'desktop_local_transport.mjs').as_uri())+';\nconst root=process.argv[4];\nconst p=DesktopLocalTransport.prototype.prepare;DesktopLocalTransport.prototype.prepare=function(...args){this.maxDispatches=12;return p.apply(this,args);};\nconst e=DesktopLocalTransport.prototype.exchange,b=[];\nDesktopLocalTransport.prototype.exchange=async function(...args){const r=await e.apply(this,args);b.push({type:r.type,calls:(r.calls||[]).map(c=>({id:c.id,name:c.name}))});(await import("node:fs")).writeFileSync(root+"/surface-batches.json",JSON.stringify(b),{mode:0o600});return r;};\nawait import('+json.dumps((candidate/'desktop_local_core_trace.mjs').as_uri())+');\n')
             command = [runtime['bun'],str(wrapper),runtime['bridge'],runtime['session'],str(root)]
         else:
             command = [runtime['bun'],str(SOURCE/'desktop_surface_fixture.mjs'),runtime['bridge'],str(root)]
@@ -124,7 +125,8 @@ def run(args):
                 (args.output/'adapter-proof.json').write_text(json.dumps(proof,indent=2)+'\n')
                 batches=json.loads((args.output/'surface-batches.json').read_text()) if (args.output/'surface-batches.json').exists() else json.loads((args.output/'surface-host.json').read_text()) if (args.output/'surface-host.json').exists() else []
                 batch_sizes=[len(b.get('calls',b.get('callIds',[]))) for b in batches]
-                result.update(realService=args.live,actualSignedApp=args.live,installedPayload=installed.name,actualChatUserSubmissions=proof['observedChatSubmissions'] if args.live else 0,
+                result.update(realService=args.live,actualSignedApp=args.live,installedPayload=installed.name,sourceCandidate=args.source_candidate,
+                    productDigests={n:hashlib.sha256(((SOURCE if args.source_candidate or not args.live else installed/'source')/n).read_bytes()).hexdigest() for n in ['desktop_tool_session.mjs','desktop_local_transport.mjs']},actualChatUserSubmissions=proof['observedChatSubmissions'] if args.live else 0,
                     observedUserSubmissions=proof['observedChatSubmissions'],toolReturns=proof['toolResultSubmissions'],
                     modelStarts=proof.get('observedNativeDispatches',0),guardianRequests=proof['guardianRequests'],
                     automaticRetries=proof['retryAttempts'],proStarts=proof['submittedProRequests'],adapterError=proof.get('errorCode'),
@@ -151,6 +153,7 @@ def run(args):
 if __name__=='__main__':
     os.umask(0o077)
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--live',action='store_true',help='Explicit actual GPT-6 Instant trial, at most20 model starts including guardian; no Pro or automatic retry')
+    p.add_argument('--live',action='store_true',help='Explicit actual GPT-6 Instant trial, at most12 model starts including guardian; no Pro or automatic retry')
+    p.add_argument('--source-candidate',action='store_true',help='Use this source worktree with existing installed immutable dependencies; do not change operating runtime')
     p.add_argument('--output',required=True,type=Path)
     raise SystemExit(0 if run(p.parse_args()) else 1)

@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {DesktopToolSession,localToolCall,localToolCatalog} from './desktop_tool_session.mjs';
+import {DesktopToolSession,localToolCall,localToolCalls,localToolSignature,localToolCatalog} from './desktop_tool_session.mjs';
 import {recordDesktopSubmission} from './desktop_protocol.mjs';
 
 const tools=[{wireName:'shell',parameters:{}},{wireName:'patch',freeform:true},{wireName:'mcp__github__read',parameters:{}},{wireName:'tool_search',toolSearch:true}];
@@ -107,4 +107,52 @@ test('message counts, including parallel results and new user input, stay separa
  assert.equal(r.submittedRequests,1);assert.equal(r.observedNativeDispatches,1);
  assert.throws(()=>recordDesktopSubmission(r,{phase:'request',source:'app_dispatched',kind:'tool',userMessages:1,toolMessages:1},{}),/invalid_desktop_submission/);
  assert.equal(r.observedNativeDispatches,1);
+});
+
+test('explicit gateway batch keeps per-tool arguments and stable Core IDs, one report and one original host result',()=>{
+ const entries=[{name:'shell',input:'{"cmd":"pwd"}'},{name:'patch',input:'*** Begin Patch\n*** End Patch'},{name:'mcp__github__read',input:'{"path":"owned"}'},{name:'shell',input:'{"cmd":'}];
+ const request=(calls=entries)=>({id:'original-host',author:{role:'assistant'},recipient:'local.gateway',status:'finished_successfully',content:{text:JSON.stringify({kwargs:{calls:JSON.stringify(calls),report:'Public batch report'}})}});
+ const s=new DesktopToolSession(),events=[],calls=s.decode(request(),'gateway',tools);
+ assert.equal(calls.length,4);assert.equal(new Set(calls.map(c=>c.id)).size,4);
+ assert.deepEqual(localToolCalls(request(),'gateway',tools),calls);
+ assert.notEqual(localToolCalls({...request(),id:'other-host'},'gateway',tools)[0].id,calls[0].id);
+ assert.equal(calls[1].input,entries[1].input);assert.equal(calls[3].rawArguments,entries[3].input);
+ for(const c of calls)s.issue(c,tools,e=>events.push(e));
+ assert.deepEqual(events.filter(e=>e.type==='text_delta').map(e=>e.text),['Public batch report']);
+ assert.throws(()=>s.decode(request(entries.slice(0,2)),'gateway',tools),/call_changed/);
+ const results=calls.map((c,i)=>({role:'toolResult',toolCallId:c.id,content:i===3?'Core parse error':i===1?'Command interrupted':'output-'+i,isError:i===1||i===3}));
+ assert.throws(()=>s.results(results.slice(0,3)),/missing_or_duplicate/);
+ const batch=s.results(results.toReversed()),host=s.hostResults(batch);
+ assert.equal(host.length,1);assert.equal(host[0].id,'original-host');
+ assert.deepEqual(host[0].result.results,calls.map((c,i)=>({id:c.id,name:c.name,content:results[i].content,isError:results[i].isError})));
+ assert.throws(()=>s.hostResults(batch.slice(0,3)),/missing_or_duplicate/);
+ assert.throws(()=>s.hostResults([...batch,batch[0]]),/missing_or_duplicate/);
+ s.returned(batch);assert.throws(()=>s.returned(batch),/replayed/);
+ const sig=localToolSignature('gateway');assert.equal(sig.params.find(p=>p.name==='calls').required,false);
+});
+test('batch envelope fails atomically for malformed, mixed, oversized or unknown entries',()=>{
+ const envelope=args=>({id:'host',author:{role:'assistant'},recipient:'local.gateway',status:'finished_successfully',content:{text:JSON.stringify(args)}});
+ const entry={name:'shell',input:'{}'};
+ for(const args of [
+  {calls:'bad',report:''},{calls:'[]',report:''},{calls:'{}',report:''},{calls:[],report:''},
+  {calls:JSON.stringify([entry]),report:3},{calls:JSON.stringify([entry]),report:'',name:'shell',input:'{}'},
+  {calls:JSON.stringify([entry,null]),report:''},{calls:JSON.stringify([entry,{name:'shell',input:{}}]),report:''},
+  {calls:JSON.stringify(Array(33).fill(entry)),report:''},
+ ])assert.throws(()=>localToolCalls(envelope(args),'gateway',tools),/call_invalid/);
+ const s=new DesktopToolSession();
+ assert.throws(()=>s.decode(envelope({calls:JSON.stringify([entry,{name:'unknown',input:'{}'}]),report:''}),'gateway',tools),/unadvertised_tool/);
+ assert.equal(s.calls.size,0);assert.equal(s.hostCalls.size,0);
+ assert.deepEqual(localToolCalls({...envelope({}),recipient:'local.foreign'},'gateway',tools),[]);
+});
+
+test('several original host calls keep separate returns while batching only their own children',()=>{
+ const request=(id,args)=>({id,author:{role:'assistant'},recipient:'local.gateway',status:'finished_successfully',content:{text:JSON.stringify(args)}});
+ const s=new DesktopToolSession(),entries=[{name:'shell',input:'{}'},{name:'patch',input:'source'}];
+ const calls=[...s.decode(request('host-one',{calls:JSON.stringify(entries),report:''}),'gateway',tools),
+  ...s.decode(request('host-two',{calls:JSON.stringify([entries[0]]),report:''}),'gateway',tools),
+  ...s.decode(request('host-single',{...entries[0],report:''}),'gateway',tools)];
+ for(const call of calls)s.issue(call,tools,()=>{});
+ const batch=s.results(calls.map(call=>({role:'toolResult',toolCallId:call.id,content:call.id})));
+ const returned=s.hostResults(batch);assert.deepEqual(returned.map(r=>r.id),['host-one','host-two','host-single']);
+ assert.deepEqual(returned.slice(0,2).map(r=>r.result.results.length),[2,1]);assert.equal(returned[2].result.content,'host-single');
 });

@@ -14,7 +14,7 @@ function fixture(rounds){
   if(method==='create'){gateway=data.signature.name;return true;}
   if(method==='close')return true;
   if(method==='submit'){submits.push(data);round++;return true;}
-  const messages=rounds[round].map(m=>m.call?{id:m.call.id,author:{role:'assistant'},recipient:'local.'+gateway,status:'finished_successfully',content:{content_type:'code',text:JSON.stringify({name:m.call.name,input:m.call.input,report:m.call.report??''})}}:m);
+  const messages=rounds[round].map(m=>m.call?{id:m.call.id,author:{role:'assistant'},recipient:'local.'+gateway,status:'finished_successfully',content:{content_type:'code',text:JSON.stringify(m.call.calls?{calls:JSON.stringify(m.call.calls),report:m.call.report??''}:{name:m.call.name,input:m.call.input,report:m.call.report??''})}}:m);
   return {messages,accepted:true,roundDispatched:1,terminals:['done'],userSubmissions:submits.reduce((n,s)=>n+(s.prompt?1:0)+(s.contextMessages||[]).filter(m=>m.role==='user').length,0),toolSubmissions:submits.reduce((n,s)=>n+(s.results?.length||0),0),dispatches:round+1};
  }});
  const exchange=(payload=task)=>transport.exchange(payload,undefined,e=>events.push(e),undefined,undefined,route,e=>events.push(e));
@@ -258,4 +258,36 @@ test('a completed call ID cannot be silently repurposed for different arguments'
  const f=fixture([[{call:{id:'same',name:'shell',input:'{}'}}],[{call:{id:'same',name:'shell',input:'{"cmd":"changed"}'}}]]);
  await f.exchange();await assert.rejects(()=>f.exchange({...task,messages:[...task.messages,{role:'toolResult',toolCallId:'same',content:'completed'}]}),/call_changed/);
  assert.equal(f.events.filter(e=>e.type==='tool_call_start').length,1);assert.equal(f.transport.blocked,true);await f.transport.close();
+});
+
+test('one host batch projects distinct Core tools and returns exact results once on its original host call',async()=>{
+ const f=fixture([[{call:{id:'host-batch',calls:[{name:'shell',input:'{"cmd":"pwd"}'},{name:'patch',input:'source'}],report:'Batch progress'}}],[publicText('final','done','final')]]);
+ try{
+  const first=await f.exchange();assert.equal(first.calls.length,2);
+  assert.deepEqual(f.events.filter(e=>e.type==='tool_call_start').map(e=>e.name),['shell','patch']);
+  const results=first.calls.map((c,i)=>({role:'toolResult',toolCallId:c.id,toolName:c.name,content:i?'Command interrupted':'ok',isError:i===1}));
+  await assert.rejects(()=>f.exchange({...task,messages:[...task.messages,results[0]]}),/missing_or_duplicate/);
+  assert.equal(f.submits.length,1);
+  const last=await f.exchange({...task,messages:[...task.messages,...results.toReversed()]});assert.equal(last.text,'done');
+  assert.equal(f.submits[1].results.length,1);assert.equal(f.submits[1].results[0].id,'host-batch');
+  assert.deepEqual(f.submits[1].results[0].result.results.map(r=>[r.id,r.name,r.content,r.isError]),first.calls.map((c,i)=>[c.id,c.name,results[i].content,results[i].isError]));
+  assert.deepEqual(f.events.filter(e=>e.kind).map(e=>[e.userMessages,e.toolMessages]),[[1,0],[0,1]]);
+ }finally{await f.transport.close();}
+});
+test('invalid later batch entry cannot leak a tool or cause automatic replay',async()=>{
+ const f=fixture([[{call:{id:'host-batch',calls:[{name:'shell',input:'{}'},{name:'foreign',input:'{}'}]}}]]);
+ await assert.rejects(()=>f.exchange(),/unadvertised_tool/);
+ assert.equal(f.events.filter(e=>e.type==='tool_call_start').length,0);
+ await assert.rejects(()=>f.exchange(),/recovery_requires_new_input/);assert.equal(f.submits.length,1);
+});
+
+test('cancellation after a batch return dispatch retires the lane and never replays siblings on resume',async()=>{
+ const f=fixture([[{call:{id:'host-batch',calls:[{name:'shell',input:'{}'},{name:'patch',input:'source'}]}}],[publicText('final','late','final')]]);
+ const first=await f.exchange(),controller=new AbortController(),invoke=f.transport.invoke;
+ const results=first.calls.map(c=>({role:'toolResult',toolCallId:c.id,toolName:c.name,content:'exact Core result'}));
+ f.transport.invoke=async(...args)=>{const value=await invoke(...args);if(args[2]==='submit')controller.abort(Error('owned_cancel'));return value;};
+ await assert.rejects(()=>f.transport.exchange({...task,messages:[...task.messages,...results]},controller.signal,undefined,undefined,undefined,route),/owned_cancel/);
+ assert.equal(f.submits.length,2);assert.equal(f.submits[1].results.length,1);assert.equal(f.submits[1].results[0].id,'host-batch');assert.equal(f.releases(),1);
+ await assert.rejects(()=>f.exchange({...task,messages:[...task.messages,...results,{role:'user',content:'resume'}]}),/delivery_unknown/);
+ assert.equal(f.submits.length,2);assert.equal(f.events.filter(e=>e.type==='tool_call_start').length,2);
 });

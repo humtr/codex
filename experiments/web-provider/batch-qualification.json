@@ -1,0 +1,183 @@
+{
+  "scope": "Explicit local gateway batching; candidate source, existing installed dependencies and signed app, stable53 Core; operating provider unchanged",
+  "staticRequestInspection": {
+    "appVersion": "26.1007.21434",
+    "method": "Read static signed app.asar assets; no request sent or renderer modified",
+    "assets": [
+      {
+        "asset": "app-initial-ed5807835d97.js",
+        "sha256": "a9f4a1a86c7486b97b750b97296d83c8c8c67074144480b697244f0c8b6ef720",
+        "parallelToolCallsOccurrences": 0,
+        "parallel_tool_callsOccurrences": 1,
+        "local_function_signaturesOccurrences": 5
+      },
+      {
+        "asset": "app-shared-2d77298f0100.js",
+        "sha256": "2ebc161f0135eb7c78f14505687cf3e2aa6ed4570570061860886d4aa5de8dd0",
+        "parallelToolCallsOccurrences": 0,
+        "parallel_tool_callsOccurrences": 0,
+        "local_function_signaturesOccurrences": 0
+      }
+    ],
+    "parallelOccurrenceContext": "supports_parallel_tool_calls in Codex MCP configuration schema; not ordinary Chat local-function request",
+    "conclusion": "No explicit Chat local-function parallel switch found in these request builders; host capability remains unproven",
+    "actualChatSubmissions": 0
+  },
+  "offline": {
+    "accepted": true,
+    "actualSignedApp": false,
+    "nativeCoreGeneration": "local-hosted-0-163-0-36bfeed4ea58-s53",
+    "productDigests": {
+      "desktop_tool_session.mjs": "b7ae482e25c7af69eaaf47f2f195a4863c1c83772b24dc12fdbdc6041d26e8e4",
+      "desktop_local_transport.mjs": "6303164bc50e392b87b8d8858c7b50fb838fd95280a248ccc98f5c0c4527f78c"
+    },
+    "actualChatUserSubmissions": 0,
+    "toolReturns": 6,
+    "modelStarts": 8,
+    "guardianRequests": 1,
+    "automaticRetries": 0,
+    "proStarts": 0,
+    "batchSizes": [
+      1,
+      1,
+      0,
+      1,
+      2,
+      2,
+      1,
+      0
+    ],
+    "parallelBatchObserved": true,
+    "elapsedSeconds": 12.716,
+    "surface": {
+      "mcpCalls": 1,
+      "freeformPatches": 1,
+      "successfulCommands": 2,
+      "backgroundPolls": 2,
+      "backgroundOverlap": true,
+      "startGapSeconds": 0.0112275,
+      "questionRequests": 1,
+      "questionResolved": true,
+      "answerReturnedToModel": true,
+      "answerSource": "explicit deterministic test driver, not physical user interaction",
+      "persistedFileChanges": 1,
+      "accepted": true
+    },
+    "persistedReportCheck": true,
+    "coldTranscriptRestored": true,
+    "resumeWithoutModelRequest": true,
+    "renderWithoutModelRequest": true,
+    "renderedTranscript": {
+      "initial": true,
+      "intermediate": true,
+      "final": true,
+      "nativeTuiRunning": true
+    },
+    "ownedCoreExited": true,
+    "ownedAdapterExited": true,
+    "temporaryRootRemoved": true,
+    "probeSha256": "066708c21c05152ac6d881306416df4e1298ff65a047fd4842208d6c1714fa5e",
+    "fixtureSha256": "c8d37cae110eb3b1a7e8ccb7b9ab37647a6c19dc450cf92eed394056cd1fd7c9"
+  },
+  "live": {
+    "accepted": true,
+    "actualSignedApp": true,
+    "nativeCoreGeneration": "local-hosted-0-163-0-36bfeed4ea58-s53",
+    "productDigests": {
+      "desktop_tool_session.mjs": "b7ae482e25c7af69eaaf47f2f195a4863c1c83772b24dc12fdbdc6041d26e8e4",
+      "desktop_local_transport.mjs": "6303164bc50e392b87b8d8858c7b50fb838fd95280a248ccc98f5c0c4527f78c"
+    },
+    "actualChatUserSubmissions": 2,
+    "toolReturns": 6,
+    "modelStarts": 8,
+    "guardianRequests": 1,
+    "automaticRetries": 0,
+    "proStarts": 0,
+    "batchSizes": [
+      1,
+      1,
+      0,
+      1,
+      2,
+      2,
+      1,
+      0
+    ],
+    "parallelBatchObserved": true,
+    "elapsedSeconds": 66.79,
+    "surface": {
+      "mcpCalls": 1,
+      "freeformPatches": 1,
+      "successfulCommands": 2,
+      "backgroundPolls": 2,
+      "backgroundOverlap": true,
+      "startGapSeconds": 0.048284271,
+      "questionRequests": 1,
+      "questionResolved": true,
+      "answerReturnedToModel": true,
+      "answerSource": "explicit deterministic test driver, not physical user interaction",
+      "persistedFileChanges": 1,
+      "accepted": true
+    },
+    "persistedReportCheck": true,
+    "coldTranscriptRestored": true,
+    "resumeWithoutModelRequest": true,
+    "renderWithoutModelRequest": true,
+    "renderedTranscript": {
+      "initial": true,
+      "intermediate": true,
+      "final": true,
+      "nativeTuiRunning": true
+    },
+    "ownedCoreExited": true,
+    "ownedAdapterExited": true,
+    "temporaryRootRemoved": true,
+    "probeSha256": "920add5be3035df6a8c1a7517eb629cf2f6f6c8ab25d6327a005888872c952b1",
+    "fixtureSha256": "c8d37cae110eb3b1a7e8ccb7b9ab37647a6c19dc450cf92eed394056cd1fd7c9"
+  },
+  "originalHostCorrelation": {
+    "originalHostBatches": 2,
+    "stableChildCalls": 4,
+    "allChildCallsAndResultsInCanonicalHistory": true,
+    "idDerivation": "sha256(JSON.stringify([originalHostMessageId,entryIndex]))"
+  },
+  "preservation": {
+    "installedFilesVerified": 595,
+    "protectedAuthConfigAndRuntimeUnchanged": 13,
+    "installedPayloadUnchanged": true,
+    "ordinaryAdapterReady": true,
+    "signedDesktopReady": true
+  },
+  "checks": {
+    "node": 52,
+    "bunAdditional": 37,
+    "python": 42,
+    "failures": 0
+  },
+  "previousSerialSample": {
+    "modelStarts": 10,
+    "toolReturns": 8,
+    "userSubmissions": 2,
+    "elapsedSeconds": 68.173,
+    "backgroundOverlap": false
+  },
+  "limits": [
+    "One bounded Instant sample, not a benchmark or proof of arbitrary parallel reasoning.",
+    "Observed messages and starts do not establish Chat allowance deductions.",
+    "Native question uses an explicit deterministic RPC answer, not a physical user tap.",
+    "Cold verification compares public reports and native TUI rendering; complete tool records retained separately.",
+    "No operating provider activation, Core release, Pro inference, automatic retry or remote conversation deletion."
+  ],
+  "privateEvidenceDirectory": "~/.cache/codex/acceptance/chat-batch-live-1",
+  "hashes": {
+    "adapter-proof.json": "1844d95eeaeb4c7d113efa8205364a031dea1c3e02c3fa9ac64ec1ebfe962bea",
+    "correlation.json": "053dfddef37f5eeafcc66380768ff06a587a8328b7c701b2285bc146569efb9b",
+    "native-items.json": "6d127d348f3e474e5e2613a468103461d79bed9277ef82fac0a32dd74a2e7815",
+    "native-tools.json": "cfe76c57d2cf074b8ccdaaff61e874d3db8b70c3083aea0a643220105ca1e9ed",
+    "preservation.json": "8832c2af1c011cde7594da9c28de64f202d79f25cc7d6f6b6b64bdd055d6feba",
+    "public-trace.json": "d4eb6591f5f1c21b958c138fb47c4d86ddb20a1852d3017dd8cbb8765a1984d7",
+    "result.json": "ab5aa93288c9c94b77647df021dd2af8409bab0d74907e8b0a4124942ee228ff",
+    "surface-batches.json": "fdd94154100b01d57a023d4b0db5ddbc38b7d12b5a1f59765e927eb1b0fa3c53",
+    "tui.txt": "fabadc7b8e47ada75e07770e72da503637b959c44b569b0df4af82241c2cb1c2"
+  }
+}

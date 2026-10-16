@@ -17,6 +17,7 @@ DesktopLocalTransport.prototype.exchange=function(payload,...rest){
      state.marker=data.prompt.match(/marker is ([a-f0-9]{32})/)?.[1];
      if(!state.guardian&&!state.marker)throw Error('fixture_marker_missing');
     }else if(!data.results?.length||data.prompt)throw Error('fixture_tool_return_required');
+    if(!state.guardian&&[5,6].includes(state.round)){const expected=state.round===5?'surface-start-batch':'surface-poll-batch';if(data.results.length!==1||data.results[0].id!==expected||data.results[0].result.results?.length!==2)throw Error('fixture_original_batch_result_required');}
     state.user=(state.user??0)+(data.prompt?1:0)+(data.contextMessages||[]).filter(m=>m.role==='user').length;
     state.returns=(state.returns??0)+(data.results?.length??0);return true;
    }
@@ -32,9 +33,13 @@ DesktopLocalTransport.prototype.exchange=function(payload,...rest){
    else if(state.round===4)messages=['A','B'].map(label=>call('surface-'+label,tool('exec_command'),{cmd:'python worker.py '+label,login:false,yield_time_ms:1000,max_output_tokens:200}));
    else if(state.round===5){
     const results=state.payload.messages.filter(m=>m.role==='toolResult');
-    messages=['A','B'].map(label=>{const result=results.find(m=>m.toolCallId==='surface-'+label),match=JSON.stringify(result?.content).match(/session ID (\d+)/);if(!match)throw Error('fixture_background_session_missing');return call('surface-poll-'+label,tool('write_stdin'),{session_id:Number(match[1]),chars:'',yield_time_ms:10000,max_output_tokens:200});});
+    messages=['A','B'].map(label=>{const child=[...this.projection.calls.values()].find(({call})=>call.hostCallId==='surface-start-batch'&&call.batchIndex===(label==='A'?0:1));const result=results.find(m=>m.toolCallId===child?.call.id),match=JSON.stringify(result?.content).match(/session ID (\d+)/);if(!match)throw Error('fixture_background_session_missing');return call('surface-poll-'+label,tool('write_stdin'),{session_id:Number(match[1]),chars:'',yield_time_ms:10000,max_output_tokens:200});});
    }else if(state.round===6)messages=[call('surface-question',tool('request_user_input'),{questions:[{id:'fixture_choice',header:'Surface',question:'Choose KEEP for this disposable test?',options:[{label:'KEEP',description:'Keep the fixture result.'},{label:'OTHER',description:'Other fixture choice.'}]}]},'LOCAL_INTERMEDIATE_REPORT')];
    else messages=[final(state.marker)];
+   if(!state.guardian&&[4,5].includes(state.round)){
+    const entries=messages.map(m=>{const {name,input}=JSON.parse(m.content.text);return {name,input};});
+    messages=[{...messages[0],id:state.round===4?'surface-start-batch':'surface-poll-batch',content:{content_type:'code',text:JSON.stringify({calls:JSON.stringify(entries),report:''})}}];
+   }
    const row={guardian:state.guardian,round:state.round,callIds:messages.filter(m=>m.recipient?.startsWith('local.')).map(m=>m.id)};
    if(!observations.some(r=>JSON.stringify(r)===JSON.stringify(row)))observations.push(row);
    writeFileSync(root+'/surface-host.json',JSON.stringify(observations),{mode:0o600});
@@ -43,7 +48,10 @@ DesktopLocalTransport.prototype.exchange=function(payload,...rest){
  }
  this.surface.payload=payload;this.surface.tools=payload.tools;
  this.surface.guardian=payload.instructions.some(s=>s.startsWith('The native final reply must match this exact output format.')&&s.includes('"outcome"'));
- return exchange.call(this,payload,...rest);
+ return exchange.call(this,payload,...rest).then(result=>{
+  observations.push({nativeProjection:true,type:result.type,calls:(result.calls||[]).map(c=>({id:c.id,name:c.name,hostCallId:c.hostCallId}))});
+  writeFileSync(root+'/surface-batches.json',JSON.stringify(observations.filter(r=>r.nativeProjection)),{mode:0o600});return result;
+ });
 };
 process.env.CODEX_CHAT_RETURN_TRANSPORT='local';
 process.argv=[process.argv[0],process.argv[1],bridge,root+'/no-app',root+'/server.json'];

@@ -3324,6 +3324,17 @@ namespace and full schema. Unknown names remain rejected, never guessed or alias
 Only bounded content-free fingerprints/classifications of rejected names/catalogs
 may enter diagnostics; never store raw arguments or private reports as diagnosis.
 
+The local gateway may explicitly carry a JSON-encoded `calls` array of 1–32
+independent native name/input pairs instead of a singular name/input. Dependent
+steps must wait for results. Validate the complete array before publishing any
+native call. Derive stable, separate Core IDs from the original host call and
+entry position; Core still owns each tool's approval, execution and transcript.
+Return all exact child results, including errors or cancellation, in one result
+on that original host call. Missing/duplicate/changed results refuse dispatch;
+never rerun a sibling or submit a user continuation to complete a batch. A
+batch's public report appears once before its first child. This is explicit wire
+batching, not a promise that the host generates multiple function messages.
+
 A completed sample rejected before any native call is published is distinct from
 unknown dispatched delivery. Do not resubmit it automatically. After a verified
 normal terminal and owned lane cleanup, a genuinely new user instruction with

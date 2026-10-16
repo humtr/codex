@@ -71,7 +71,7 @@ work on tool input/admission and recovery, followed by native development covera
 | --- | --- | --- |
 | 1 | Tool identity and dynamic discovery | Exact names/search/freeform admission retained; actual0.163 offline search/discovered MCP path passes. New ordinary-function raw-input recovery is source/offline-qualified below; installed/live coverage of the complete tool contract remains. |
 | 2 | Failure recovery | Installed local transport passes actual signed-app/stable53 malformed JSON→Core error→model correction with one user message. Arrays/whitespace and other recovery cases pass offline; further live error surfaces remain. Completed pre-dispatch rejections require genuine new input; unknown delivery stays blocked without work replay. |
-| 3 | Complete native development surface | Actual installed trial passes MCP/search, real guardian, freeform patch, background polling, native question RPC and reports/restore. Live calls serialized and workers did not overlap; overall FAIL. Offline same-sampling batches execute concurrently. Parallel host/request controls and an explicit batching fallback need investigation; physical question UI remains unqualified. |
+| 3 | Complete native development surface | Installed legacy single-call trial failed parallel execution. New explicit gateway batch candidate passes actual GPT-6 Instant/stable53 MCP/search, guardian, freeform patch, overlapping background starts/polls, question RPC/driver answer and reports/restore. Candidate is not activated; physical question UI remains unqualified. |
 | 4 | Long context and switching | Preserve canonical requirements/results through automatic/fault compaction, native-to-Chat/Chat-to-native switching, restart and cold resume. Reject unreadable opaque checkpoints before placeholder conversion; never silently truncate history. |
 | 5 | Lifetime and owners | Qualify generation stop, native command stop, observation-only loss/reconnect, app/adapter restarts, concurrent tasks/accounts and guardian isolation. A turn interrupt is distinct from termination of an already-running unified-exec process. |
 | 6 | Transcript and visible progress | Relay actual model initial/intermediate/final reports and native tool results once, in order. Verify real TUI visibility/persistence and resumed latest state during injected output/observer loss. Heartbeat is not model progress. |
@@ -193,9 +193,9 @@ counts persisted malformed calls and matching Core errors before accepting the
 successful corrected commands. The new test driver does not change installed
 product bytes. Provider Python42 tests pass after that driver addition. No Pro,
 automatic generation retry, native config/auth rewrite or remote chat deletion was
-performed. Next is full native development-surface qualification (MCP, custom/
-freeform, parallel/background tools, reviewer and user input), then long-development
-and context/lifecycle evaluation. Same-Chat reload/performance follows correctness.
+performed. The subsequent surface and explicit-batch qualifications below establish
+a broader candidate capability; long-development/context/lifecycle evaluation and
+physical question UI remain pending. Same-Chat reload/performance follows correctness.
 
 ### Native development-surface trial: partial live pass, overall FAIL
 
@@ -236,14 +236,55 @@ changed. A generated live-wrapper argv/output-root problem was caught and fixed
 before inference; chat-surface-entry-proof.json executes that exact setup with a
 fake port, never a model. Full wrapper/fixture source is committed for reproduction.
 
-Next: inspect actual app request/response parallel controls without inference.
-If multicall generation is not reliable, qualify an explicitly declared batch in
-the local gateway: one original host call maps to stable per-tool Core call IDs,
-individual native schema/approval/execution and one aggregate original-call return.
-Never invent multiple completed actions from a single call or add an executor.
-Requalify ordering, mixed errors, cancellation, exact-once returns and persisted
-transcript before a new bounded live batch proof. Keep long-development/context/
-lifetime gates unfinished; do not claim the full surface is qualified.
+### Explicit gateway batching: candidate live PASS
+
+Static inspection of signed app26.1007.21434's exact request-builder assets found
+no ordinary Chat local-function parallel switch. The only parallel_tool_calls
+occurrence is supports_parallel_tool_calls in the Codex MCP configuration schema.
+Asset digests and occurrence counts are preserved in batch-qualification.json;
+this inspection submits no request and does not prove an immutable host limitation.
+
+The local gateway now declares optional `calls`: a JSON-encoded array of1–32
+independent exact native name/input pairs, retaining the singular form. It validates
+the complete array before native publication, derives deterministic separate Core
+IDs from original host ID/position, and returns all exact results together on the
+one original host call. Each native approval/execution/result remains individually
+recorded by Core. Public report appears once. Unknown names, changed host groups,
+missing/duplicate results and uncertain cancellation do not authorize partial
+publication, an invented result, sibling replay or a new user continuation.
+No Core code, executor, service or installed runtime changes were needed.
+
+Actual signed-app + stable53 Core + candidate source passes in66.790s on GPT-6
+Instant: two commands start0.048s apart and overlap; one explicit start batch and
+one poll batch each contain two native calls. MCP discovery/read, real guardian,
+freeform patch, question RPC/explicit driver answer and all three public report
+phases pass. Native calls and exact results persist; public reports cold-restore
+and render in actual native TUI without inference. Derived child IDs for both
+original host batches match all four canonical call/result pairs. This is not a
+physical user-input UI test or a long-development/context/lifecycle qualification.
+
+Observed2 user messages (1 primary +1 guardian),6 host tool-role returns and8 model
+starts;0 Pro/retry. The earlier serial sample used2/8/10 respectively. Total time
+66.790s versus68.173s does not establish a significant speedup from one trial.
+Neither observed counts nor timing establish Chat allowance deductions or a quota
+saving. The deterministic actual-Core fixture also passes with0 real Chat and
+start gap0.011s, requiring one original host result for each child pair.
+
+Checks:52 Node tests +37 additional Bun tests +42 provider Python tests pass;
+required docs/diff checks pass. Product-file digests are identical between offline
+and live trials. Private proof: ~/.cache/codex/acceptance/chat-batch-live-1/{result,
+adapter-proof,native-tools,native-items,surface-batches,public-trace,correlation,
+preservation}.json and tui.txt; offline chat-batch-offline-1. Committed sanitized
+batch-qualification.json preserves counters, limits, source/probe hashes and trace
+checksums. All595 installed files and13 protected auth/config/runtime descriptors
+are unchanged. Ordinary adapter and signed desktop remain ready. Owned test
+adapter/Core/workspace roots exited and were removed; no existing task was stopped.
+
+Candidate source is qualified, not installed: operating9dd288/source0ee0f59 still
+uses singular calls. Activation must respect the existing installer's refusal to
+replace a live adapter. Next work is the long-development/context/lifecycle gates;
+physical question UI and later provider activation remain explicit outstanding
+scopes. Keep the previous serial failure as negative evidence.
 
 ### Deferred and conditional scope
 
