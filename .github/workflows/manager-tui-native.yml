@@ -246,8 +246,9 @@ jobs:
         run: |
           set -euo pipefail
           cd upstream
-          # This is a validation-only compiler capacity allowance. The release
-          # CLI above was built from pristine Core; no Core edit enters an asset.
+          # Validation-only compiler capacity and ARM64 fstatfs type allowances.
+          # The CLI above contains pristine Core/daemon_startup; neither temporary
+          # allowance enters an asset or suppresses a lint in maintained code.
           python3 - <<'PYTHON'
           from pathlib import Path
           import subprocess
@@ -257,17 +258,32 @@ jobs:
           if original != pristine:
               raise RuntimeError('upstream Core source must remain pristine')
           annotated = b'#![recursion_limit = "256"]\n' + original
-          core.write_bytes(annotated)
+          daemon = Path('codex-rs/tui/src/daemon_startup.rs')
+          daemon_original = daemon.read_bytes()
+          if daemon_original != subprocess.check_output(['git', 'show', 'HEAD:codex-rs/tui/src/daemon_startup.rs']):
+              raise RuntimeError('upstream daemon startup source must remain pristine')
+          needle = b'pub fn uses_wsl_drvfs('
+          if daemon_original.count(needle) != 1:
+              raise RuntimeError('unqualified upstream WSL filesystem probe')
+          # f_type is u64 on aarch64-musl and signed on other upstream targets.
+          # Keep the portable upstream cast, rather than auto-fixing it for one ABI.
+          daemon_annotated = daemon_original.replace(needle, b'#[allow(clippy::unnecessary_cast)]\n' + needle)
           try:
+              core.write_bytes(annotated)
+              daemon.write_bytes(daemon_annotated)
               result = subprocess.run(['just', 'fix', '--locked', '--target',
                                        'aarch64-unknown-linux-musl', '-p', 'codex-tui'])
               if core.read_bytes() != annotated:
                   raise RuntimeError('lint changed upstream Core source')
+              if daemon.read_bytes() != daemon_annotated:
+                  raise RuntimeError('lint changed upstream daemon startup source')
               result.check_returncode()
           finally:
               core.write_bytes(original)
+              daemon.write_bytes(daemon_original)
           PYTHON
           git diff --exit-code -- codex-rs/core
+          git diff --exit-code -- codex-rs/tui/src/daemon_startup.rs
           git diff -- codex-rs/tui > "$RUNNER_TEMP/profile-tui-linted.patch"
           cmp "$RUNNER_TEMP/profile-tui-formatted.patch" "$RUNNER_TEMP/profile-tui-linted.patch"
           python3 - <<'PYTHON'

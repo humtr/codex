@@ -112,6 +112,27 @@ and adding a trailing newline. Each output matches expected bytes, the owned
 fixture is removed, and no account/network is used. Private proof:
 upstream-0.163.0/android-line-endings.json. This is engine proof, separate from
 the maintained frontend's still-pending copy/scroll/link interaction tests.
+Final Android Core-only lifecycle proof passes all30 production-builder/install/
+update/rollback steps with unchanged Manager reuse and owned user-state retention
+(core-independence-final.json). Native shared pin/unpin/pin and a new client's
+pinned-list readback also pass (android-pinning.json); TUI p-key dispatch remains
+pending. Actual native CodeMode settlement helpers return fulfilled/rejected
+records over two loopback Responses requests (android-settled-helpers.json).
+That fixture's final text delta omitted item-added, producing an observer warning;
+its evidence covers helper execution/return only, not transcript rendering. All
+three fixtures are removed and submit zero actual ChatGPT messages.
+Production bootstrap plus signed0.163→0.161→0.163 transitions pass with an actual
+loopback turn: both engines read/resume the same conversation UUID and final
+message. Fifteen steps, one loopback model request, no actual ChatGPT submissions,
+owned fixture removed (android-transition.json). Earlier fixture URL/mode/fresh-
+install setup refusals are retained separately, not classified as product defects.
+The first compiled0.163 frontend passes41 actual TUI regressions but fails the
+format/lint identity gate: Clippy removes a portable upstream WSL fstatfs cast on
+aarch64-musl. Native lint now temporarily allows that single upstream function's
+unnecessary_cast lint, verifies its pristine bytes and restores them on all
+outcomes; maintained code has no added lint allowance. Neither this allowance nor
+the existing Core recursion limit enters the release executable. Qualification of
+the final daemon-boundary fix and0.162 feature set is still pending.
 
 ### Owners and retained execution necessities
 
