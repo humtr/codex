@@ -30,19 +30,23 @@ This repository carries no external workflow skill or model configuration.
   p-key pin/unpin, CodeMode helpers, Retry-After, patch line endings, retained
   history and old/new Core update/rollback. Detailed evidence and scope are below.
   No real Chat inference or account credentials are used by this upgrade.
-- Installed opt-in ChatGPT provider is9014deaf810ff40a583d/sourcee27ab09,
-  with durable `returnTransport=local`; all590 payload files verify and older
-  payloads remain available for recovery. Actual installed signed-app + stable52
-  Core passes tool discovery, exact namespaced MCP admission, real auto_review,
-  one isolated stdio MCP read, result return, initial/intermediate/final reports
-  and cold Core/TUI restore. GPT-6 Instant:2 actual user messages (main + guardian),
-  2 tool-role returns,4 model starts,26.071s total, no Pro/retry. These are observed
-  submissions, not Chat allowance deductions. Auth/endpoint and13 base config/
-  auth/state files plus seven process identities are unchanged. The trial budget
-  was removed and normal operation is ready. Private proof:
-  chat-owned-mcp-installed-live.json and chat-tool-recovery-operating-final.json.
-  Earlier stable51 two-command/cold-bootstrap proofs remain narrow history. The
-  first-start failure and original user-trial rejected name remain unconfirmed.
+- Installed opt-in ChatGPT provider is9dd2881029f69124a63a/source0ee0f59,
+  with durable `returnTransport=local`; all595 installed files including its
+  manifest verify. Earlier9014deaf and recovery payloads remain available.
+  Actual installed signed-app + stable53 Core passes malformed JSON→correlated
+  Core error→model correction→one write/one read→final answer in33.035s on GPT-6
+  Instant (gpt-6/thinkingEffort=null). Exactly one malformed call and matching
+  Core error persist. Initial/intermediate/final reports render in native TUI
+  and survive cold Core restart without new inference. Observed1 user message,
+  3 tool returns,4 model starts,0 guardian/Pro/retry; not Chat-limit debits.
+  The bounded trial adapter used installed product bytes, then exited and removed
+  its temporary root; ordinary bootstrap is ready with no trial budget. Endpoint/
+  capability and12 existing auth/config files plus13 process identities survive.
+  Private evidence: chat-tool-recovery-operating-next/{live-result,live-adapter-proof,
+  operating-final}.json. Earlier9014deaf + stable52 live MCP/search/auto_review
+  proof remains narrow historical evidence, not requalification of every surface
+  on the new pair. First-start and original user-trial tool-name causes remain
+  unconfirmed. Complete Chat-provider lifecycle qualification remains separate.
 - The independent MCP candidate remains unselected: the host still caches its
   old connector schema and has not qualified the new tools. Long cross-provider
   compaction is also unqualified; opaque native checkpoints are rejected before
@@ -61,8 +65,8 @@ failure is reproduced at the adapter admission boundary. Canonical catalog,
 old-round observation and completed-sample recovery fixes are now installed in
 the opt-in provider, with native MCP live proof above. This remains experimental,
 not a public stable Chat-provider promotion or full lifecycle qualification.
-The provider retains its stable52 live-inference proof; stable53 Core admission
-and unrelated update/doctor maintenance are separate from Chat acceptance.
+The provider has narrow stable53 live recovery acceptance above; unrelated Core
+update/doctor maintenance and broader Chat lifecycle acceptance remain separate.
 
 Experiment source0ee0f59 fixes ordinary malformed/non-object JSON argument aborts:
 Core receives the exact attempted wire, returns its own error on the original call,
@@ -70,10 +74,10 @@ and a model correction can continue without an adapter-created user prompt. Thre
 actual stable53 Core cases (malformed JSON, array, whitespace) plus baseline,
 rejected-sample recovery and native MCP discovery pass with a deterministic app
 port, rendered/persisted/cold-restored reports and zero Chat submissions. Node46,
-Bun83, provider Python42 and source Python18+59 pass. This candidate is pushed but
-not installed; installed provider9014deaf and its earlier live-inference evidence
-remain unchanged. Next is bounded operating-provider activation/live acceptance,
-then full native development coverage and long-context/lifecycle work. Detailed
+Bun83, provider Python42 and source Python18+59 pass. The repair is installed as
+9dd288 and passes the actual GPT-6 Instant/stable53 malformed-input recovery trial
+above. Next is full native development coverage and long-context/lifecycle work.
+Detailed
 scope and remaining exclusions stay in the experiment's current-state document.
 
 ## Final Core / Manager responsibility boundary
@@ -81,7 +85,7 @@ scope and remaining exclusions stay in the experiment's current-state document.
 Finalized2026-10-16 on rewrite/rust-core. SPEC4.5/4.6 owns the contract. The
 responsibility extraction and independent execution are complete. The separately
 qualified0.163 upgrade is now public/device stable53; optional provider improvements
-remain separate. Provider live-inference qualification on stable53 is still pending.
+remain separate. Complete Chat-provider lifecycle qualification remains pending.
 No actual Chat inference is part of this boundary/upgrade qualification.
 
 ### Accepted0.163 upgrade
