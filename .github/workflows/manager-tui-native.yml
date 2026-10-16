@@ -236,10 +236,31 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cd upstream/codex-rs
-          cargo "+$RUST_VERSION" build --release --locked --target aarch64-unknown-linux-musl -p codex-code-mode-host --bin codex-code-mode-host
+          # Production uses the official host, whose V8 build has its own release
+          # tooling. Exercise those exact authenticated bytes instead of adding
+          # another host/V8 producer to this frontend build.
+          host="$RUNNER_TEMP/profile-code-mode-host"
+          mkdir -m 0700 "$host"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --connect-timeout 15 --max-time 180 --max-filesize 536870912 \
+            https://github.com/openai/codex/releases/download/rust-v0.163.0/codex-package-aarch64-unknown-linux-musl.tar.gz \
+            --output "$host/package.tar.gz"
+          echo "9d8ecf2d19d3e184877983902d6c85de48b3888dcb72c382a8a0c975845927fb  $host/package.tar.gz" | sha256sum -c -
+          python3 - <<'PYTHON'
+          import os, shutil, tarfile
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']) / 'profile-code-mode-host'
+          with tarfile.open(root / 'package.tar.gz', 'r:gz') as archive:
+              member = archive.getmember('bin/codex-code-mode-host')
+              if not member.isfile() or not 0 < member.size <= 128 * 1024 * 1024:
+                  raise RuntimeError('invalid official code-mode host')
+              with archive.extractfile(member) as source, (root / 'codex-code-mode-host').open('xb') as target:
+                  shutil.copyfileobj(source, target)
+          (root / 'codex-code-mode-host').chmod(0o755)
+          PYTHON
+          "$host/codex-code-mode-host" --help > "$host/help.txt"
           export CARGO_BIN_EXE_codex="$GITHUB_WORKSPACE/upstream/codex-rs/target/aarch64-unknown-linux-musl/release/codex"
-          export CARGO_BIN_EXE_codex_code_mode_host="$GITHUB_WORKSPACE/upstream/codex-rs/target/aarch64-unknown-linux-musl/release/codex-code-mode-host"
+          export CARGO_BIN_EXE_codex_code_mode_host="$host/codex-code-mode-host"
           PYTHONDONTWRITEBYTECODE=1 python3 "$GITHUB_WORKSPACE/experiment/frontend/manager-tui/check_upstream_features.py" --run "$GITHUB_WORKSPACE/upstream" --logs "$RUNNER_TEMP"
       - name: Inspect TUI lint fixes
         shell: bash

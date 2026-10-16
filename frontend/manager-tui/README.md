@@ -38,9 +38,13 @@ preview assets remain protected until their clients exit.
 The frontend passes its upstream-resolved model catalog to Core's existing
 backend coordinator before local startup. Exact catalog bytes, execution home
 and signed backend identify reuse; native/default siblings keep their own socket.
-Manager discovers both native and catalog-bound writers. The 41-test native gate
-includes catalog handoff and socket-output rejection alongside existing profile,
-permission, window and upstream command regressions.
+Manager discovers both native and catalog-bound writers. The42-test candidate
+gate includes catalog handoff, socket-output rejection and Core daemon ownership
+alongside profile, permission, window and upstream command regressions. Separate
+upstream-feature gates exercise0.162's managed worktrees, shared pinning, copy/
+scroll/links, startup defaults, provider capabilities, CodeMode settlement/search,
+Retry-After and patch line endings. Every topic requires an actual passing test;
+source inclusion or a nonempty aggregate suite does not qualify a missing topic.
 
 Local resume carries the supported Termux permission selection even when Core's
 system default supplied it. Saved approval policy/reviewer remain independent.

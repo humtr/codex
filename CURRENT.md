@@ -133,6 +133,13 @@ unnecessary_cast lint, verifies its pristine bytes and restores them on all
 outcomes; maintained code has no added lint allowance. Neither this allowance nor
 the existing Core recursion limit enters the release executable. Qualification of
 the final daemon-boundary fix and0.162 feature set is still pending.
+Native38891870711 now passes the42-test candidate set. Its extra feature stage
+fails before running those tests because a standalone host build tries an absent
+denoland V8 musl asset. The test stage now uses the digest-verified official0.163
+package's host, exactly as production does, instead of introducing a second V8/
+host build authority. This is a fixture setup failure, not executed feature proof.
+Actual Android HTTP429/Retry-After:2 recovery completes after2.026s with two
+loopback requests (android-retry-after.json); no actual ChatGPT messages are sent.
 
 ### Owners and retained execution necessities
 
