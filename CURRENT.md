@@ -30,23 +30,29 @@ This repository carries no external workflow skill or model configuration.
   p-key pin/unpin, CodeMode helpers, Retry-After, patch line endings, retained
   history and old/new Core update/rollback. Detailed evidence and scope are below.
   No real Chat inference or account credentials are used by this upgrade.
-- Installed opt-in ChatGPT provider is9dd2881029f69124a63a/source0ee0f59,
-  with durable `returnTransport=local`; all595 installed files including its
-  manifest verify. Earlier9014deaf and recovery payloads remain available.
-  Actual installed signed-app + stable53 Core passes malformed JSON→correlated
-  Core error→model correction→one write/one read→final answer in33.035s on GPT-6
-  Instant (gpt-6/thinkingEffort=null). Exactly one malformed call and matching
-  Core error persist. Initial/intermediate/final reports render in native TUI
-  and survive cold Core restart without new inference. Observed1 user message,
-  3 tool returns,4 model starts,0 guardian/Pro/retry; not Chat-limit debits.
-  The bounded trial adapter used installed product bytes, then exited and removed
-  its temporary root; ordinary bootstrap is ready with no trial budget. Endpoint/
-  capability and12 existing auth/config files plus13 process identities survive.
-  Private evidence: chat-tool-recovery-operating-next/{live-result,live-adapter-proof,
-  operating-final}.json. Earlier9014deaf + stable52 live MCP/search/auto_review
-  proof remains narrow historical evidence, not requalification of every surface
-  on the new pair. First-start and original user-trial tool-name causes remain
-  unconfirmed. Complete Chat-provider lifecycle qualification remains separate.
+- Installed opt-in ChatGPT provider:85e8f9127b98b12bb311/source7b8e541,
+  durable `returnTransport=local`; all599 files verify. Prior9dd288/source0ee0f59
+  and earlier payloads remain available. Authorized activation prebuilt the new
+  payload and rechecked zero lifetime requests/arrivals before normally stopping
+  only the idle old adapter. Endpoint/capability,12 base auth/config hashes and
+  the signed desktop identity are preserved. Ordinary bootstrap and authenticated
+  catalog reads pass; no trial budget is applied to the operating adapter.
+- Actual signed-app + stable53 Core + installed85e8f9 passes bounded iterative
+  development: original tests fail, model repairs library/CLI, unchanged tests
+  and independent holdouts pass, native manual compaction preserves a tool-only
+  token, continued tests pass and completed source inode/mtime/content survive.
+  Cold Core inference remembers the token without tools. Initial/intermediate/
+  final reports persist and render in native TUI.121.865s,4 user submissions,
+  8 host tool returns,12 model starts,1 summary/checkpoint,0 guardian/Pro/retry;
+  these are not Chat-limit debits. Test adapter/Core/roots exit and are removed.
+  The signed app and provider remain alive during cold Core verification; their
+  own restart/lost-context and hours-long development remain unqualified.
+- Earlier source7b8e541 batch proof passes actual MCP/search, real guardian,
+  freeform patch, overlapping background tools/polls and native question/driver
+  answer with report/cold-TUI restoration:2 user messages,6 returns,8 model starts.
+  Prior9dd288 malformed-argument→actual Core error→correction proof remains useful;
+  new installed product retains its fix unchanged. Physical question interaction
+  and complete Chat-provider lifecycle/public qualification remain separate.
 - The independent MCP candidate remains unselected: the host still caches its
   old connector schema and has not qualified the new tools. Long cross-provider
   compaction is also unqualified; opaque native checkpoints are rejected before
@@ -68,46 +74,24 @@ not a public stable Chat-provider promotion or full lifecycle qualification.
 The provider has narrow stable53 live recovery acceptance above; unrelated Core
 update/doctor maintenance and broader Chat lifecycle acceptance remain separate.
 
-Experiment source0ee0f59 fixes ordinary malformed/non-object JSON argument aborts:
-Core receives the exact attempted wire, returns its own error on the original call,
-and a model correction can continue without an adapter-created user prompt. Three
-actual stable53 Core cases (malformed JSON, array, whitespace) plus baseline,
-rejected-sample recovery and native MCP discovery pass with a deterministic app
-port, rendered/persisted/cold-restored reports and zero Chat submissions. Node46,
-Bun83, provider Python42 and source Python18+59 pass. The repair is installed as
-9dd288 and passes the actual GPT-6 Instant/stable53 malformed-input recovery trial
-above. Follow-up sourcef16db36 adds a reproducible full-surface test and committed
-surface-qualification.json. Its actual68.173s trial passes native MCP/search, real
-reviewer, freeform patch, background start/poll/finish, question RPC/driver answer
-and report persistence/cold restore/native rendering, but overall FAIL: Chat emits
-only single-call samples and workers do not overlap. Offline same-sampling pairs
-execute concurrently. One serial sample does not establish host impossibility.
-Observed primary1 + guardian1 user submissions,8 tool returns,10 model starts,
-0 Pro/retry; allowance debits remain unknown. Private raw traces/checksums are in
-~/.cache/codex/acceptance/chat-surface-live-1; public sanitized evidence and scripts
-are on experiment/web-termux. Twelve existing auth/config files and595 installed
-payload files remain unchanged; owned test roots/adapters/workers are removed.
-Follow-up candidate7b8e541 adds explicit gateway batching and passes actual GPT-6
-Instant + signed app + stable53 Core. Static app request-builder inspection found
-no ordinary Chat local-function parallel switch; the parallel field belongs to the
-Codex MCP configuration schema. One original host call now carries independent
-native tools with separate stable Core IDs, approvals/execution/history and one
-aggregate exact result return. No Core change or second executor is added.
-The live candidate overlaps two workers (start gap0.048s), with native MCP/search,
-real guardian, freeform patch, background polling, question RPC/driver answer and
-initial/intermediate/final report persistence/cold restore/native TUI all passing.
-Observed model starts10→8 and host tool returns8→6 versus the earlier serial sample;
-user messages remain2 (primary + guardian). Total66.790s versus68.173s is not a
-significant-speedup claim or a Chat-limit-debit measurement.0 Pro/retry.52 Node,
-37 additional Bun and42 provider Python tests pass. Exact child call/result IDs
-match canonical history. Public sanitized batch-qualification.json and private
-~/.cache/codex/acceptance/chat-batch-live-1 retain evidence and source/trace hashes.
-Operating9dd288/source0ee0f59 remains unchanged and ready; all595 installed files
-and13 protected auth/config/runtime descriptors verify. Candidate activation must
-respect the installer's live-adapter refusal. No existing task was stopped.
-Next: provider activation when safe and long development/context/lifecycle gates;
-physical question taps remain untested. Detailed scope and remaining exclusions
-stay in the experiment's current-state document.
+Source7b8e541 adds explicit gateway batches: one host local-function call carries
+independent native tools, each with stable Core identity/approval/execution/history,
+then receives one aggregate exact return. Core itself is unchanged. A serial live
+sample previously failed parallel acceptance; the new path overlaps workers and
+reduces observed starts10→8 and host returns8→6, with user messages unchanged at2.
+The121.865s installed development/compaction/cold Core trial above is a separate
+bounded acceptance, not an hours-long benchmark or Chat allowance experiment.
+
+Current evidence and reusable scripts are on experiment/web-termux atd26722c:
+`batch-qualification.json` and `development-qualification.json`. Private evidence
+is ~/.cache/codex/acceptance/chat-batch-activation and
+chat-development-installed-live-1, including model-developed code, native records,
+command outputs, source/trace hashes and actual rendered TUI.42 provider Python
+checks,18+59 source Python checks and deterministic Core development/batch surface
+pass after test-driver changes; unchanged product reuses52 Node +37 additional Bun
+proof. No existing user task was stopped. Next: automatic/fault compaction and
+provider/app lifecycle, then longer development/concurrent-owner qualification.
+The experiment's current-state document owns remaining scope and exclusions.
 
 ## Final Core / Manager responsibility boundary
 
