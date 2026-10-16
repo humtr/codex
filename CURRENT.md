@@ -50,13 +50,18 @@ acceptance cache. No external workflow skill or separate task ledger is required
 
 This is the complete active backlog for ChatGPT as a development model in local
 Codex. Completion means actual native execution and user-visible behavior, not
-HTTP success, a server counter or a cached tool listing. Work in priority order;
-reuse unchanged green evidence rather than repeatedly rerunning it.
+HTTP success, a server counter or a cached tool listing. The user's2026-10-16
+priority is responsibility realignment first, owned by
+[rewrite/rust-core's responsibility/update plan](https://github.com/humtr/codex/blob/rewrite/rust-core/CURRENT.md#core--manager-responsibility-and-update-plan).
+Complete the actual ownership/interface separation before the improvements below;
+do not merely rename components or expand code that will then need moving.
+Only baseline-preserving changes required by a separation slice belong in that
+phase. Reuse unchanged green evidence rather than repeatedly rerunning it.
 
 | Order | Work | Acceptance / current gap |
 | --- | --- | --- |
-| 1 | Tool identity and dynamic discovery | Diagnose the current unadvertised_tool. Preserve namespace, schemas, freeform and searched tools; exact advertised names must survive search, compaction and continuation. No guessed aliases or weakened admission. |
-| 2 | Failure recovery | Distinguish a known completed invalid sample from unknown delivery. No permanent poison from a recoverable validation error, automatic resubmission, repeated mutation or cross-transport fallback. |
+| 1 | Tool identity and dynamic discovery | Preserve installed unadvertised_tool corrections and exact namespace/schema/freeform/search admission. Add the newly observed input-encoding failure to the complete tool contract audit; do not weaken admission or invent aliases to qualify it. |
+| 2 | Failure recovery | Correct the observed invalid_tool_input turn abort and discover additional error paths. Distinguish unexecuted invalid input, completed invalid samples and unknown delivery. Where safe, return a correlated tool error for model correction; no automatic work replay, permanent poison or cross-transport fallback. |
 | 3 | Complete native development surface | Qualify MCP search/call/result, custom/freeform tools, parallel batches, background terminals, approvals/reviewer and user questions on the installed path. Two shell commands are insufficient. |
 | 4 | Long context and switching | Preserve canonical requirements/results through automatic/fault compaction, native-to-Chat/Chat-to-native switching, restart and cold resume. Reject unreadable opaque checkpoints before placeholder conversion; never silently truncate history. |
 | 5 | Lifetime and owners | Qualify generation stop, native command stop, observation-only loss/reconnect, app/adapter restarts, concurrent tasks/accounts and guardian isolation. A turn interrupt is distinct from termination of an already-running unified-exec process. |
@@ -68,10 +73,70 @@ reuse unchanged green evidence rather than repeatedly rerunning it.
 | 11 | Operating lifecycle | Qualify long-running use, physical reboot, cold bootstrap, install/update/reinstall/rollback, app-version compatibility and explicit remote history retention. Preserve auth, settings, conversations and running user jobs. |
 | 12 | Simplify and release | Package only reachable dependencies after proof, retire replaced text/GUI submission paths where safe, keep accurate attribution, concise current docs and one installation authority. Qualify/sign/publish/activate the Chat provider through an explicit final release scope. |
 
-First finish1/2, then3, then4/5. Performance and alternative transport work must
-not obscure a broken basic native tool loop. Source/offline implementation and
-pushes are authorized. Explain necessity, scope and expected Chat submissions
-before live trials or operating provider changes; do not stop existing tasks.
+After responsibility realignment, first finish1/2, then3, then4/5. Performance
+and alternative transport work must not obscure a broken basic native tool loop.
+Source/offline implementation and pushes retain their existing authorization, but
+the user has not requested starting these deferred implementation tasks yet.
+Explain necessity, scope and expected Chat submissions before live trials or
+operating provider changes; do not stop existing tasks.
+
+### Deferred functional improvements and current evaluation
+
+- Same-Chat /model changes: exact no-op does nothing; model/effort-only selection
+  uses native session updates, retaining the UI and compatible owned Chat context.
+  Separate real provider/account changes from these updates. Current frontend
+  predicate and provider route-change reset both require correction.
+- Context projection: remove redundant prior-assistant replay and the user-visible
+  JSON context envelope. Preserve roles and original instruction authority. Consider
+  minimal bootstrap plus instruction/tool discovery over existing result channels,
+  without optionalizing mandatory guidance, narrowing native capabilities or adding
+  a second executor. Measure model starts and input size, not just visual hiding.
+- Remote history: design explicit retained/grouped, temporary and cleanup choices.
+  Preserve the user's ability to inspect Codex work in the ChatGPT app; grouping
+  alone is not a storage bound. Verify actual temporary-chat personalization and
+  tool behavior before offering it. Existing close uses cancellation eHt, not
+  deletion; isTemporaryChat is currently false. No existing remote chat deletion
+  is authorized by this plan. Provider owns transport/retention; Manager owns UX.
+- Approval defaults: native ~/.codex has auto_review, but an observed managed home has
+  no reviewer default; an observed frontend explicitly carries reviewer=user.
+  Preserve no-sandbox capability independently of the reviewer. Align selected
+  common/account defaults and fresh/resume/switch/model transitions in the proper
+  policy owner rather than forcing auto_review from Core.
+- Known and additional tool errors: audit encoding, schema/search/freeform/batch
+  admission, delayed callbacks and failure recovery. Use reproducible negative
+  cases and actual native-path regression tests. Unexecuted input errors should
+  be correctable by the model where safe; uncertain dispatch must never replay a
+  mutation. Do not silently repair arbitrary JSON or pretend an invalid call ran.
+- Long development is a required product gate. Evaluate an isolated real repository
+  with autonomous issue selection, justified changes, failure/repair/retest loops,
+  complete regression checks, context pressure, interruption/resume and accurate
+  progress. Diagnose transport failures separately from model judgment. No source
+  writes, live account changes or publication in the original target repository.
+
+Current installed9014deaf/sourcee27ab09 evaluation evidence:
+
+- GPT-6 Extra High simple coding passes in61.815s: four real commands plus one
+  patch, initial2/3 test failures corrected to3/3 passes, syntax check succeeds,
+  test source unchanged. Observed signed-app control is gpt-6-thinking/max;
+  one user submission, five tool returns, six model starts. This narrow result
+  does not qualify autonomous repository work or actual guardian invocation.
+  Proof: chat-xhigh-code-vmz8xwtg/report.json in the private acceptance cache.
+- Autonomous improvement of an exact tracked copy of ai1f958e5 fails after39.548s.
+  Environment-only Unix path overflow was corrected before the trial; baseline
+  full verification then passes48/warn0/fail0. The model completes two exploratory
+  commands and reports intent, but no edit or regression loop. The next call
+  passes exact tool-name admission and fails parsing a non-freeform input string
+  as JSON at desktop_tool_session.mjs:22. The adapter aborts the turn before
+  publishing that call; the exact malformed argument is not retained. This is
+  the confirmed boundary, not proof of a particular quoting mistake or poor model
+  development judgment. One user submission, two returns, three model starts;
+  no guardian/compaction/retry/Pro. All50 protected source/config hashes remain
+  unchanged, no code diff or remaining owned process, temporary roots removed.
+  Proof: chat-ai-long-8k18zos4/report.json in the private acceptance cache.
+
+These observations add no new implementation or provider activation. The user
+selected responsibility work first after the tests; defer repairs and a new
+Chat-consuming development attempt until that ordering permits them.
 
 ### Deferred and conditional scope
 
