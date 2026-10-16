@@ -46,11 +46,73 @@ index 1b07e98..c5daa41 100644
          self.sync_thread_title_progress();
          self.chat_widget
              .set_sparkle_terminal_focus(tui.is_terminal_focused());
+diff --git a/codex-rs/tui/src/app/daemon_menu.rs b/codex-rs/tui/src/app/daemon_menu.rs
+index ada9e88..a526271 100644
+--- a/codex-rs/tui/src/app/daemon_menu.rs
++++ b/codex-rs/tui/src/app/daemon_menu.rs
+@@ -27,6 +27,13 @@ impl Renderable for DaemonMenuHeader {
+
+ impl App {
+     pub(super) async fn verify_managed_daemon(&mut self) {
++        #[cfg(unix)]
++        if crate::profile_transport::core_owned(
++            &self.app_server_target,
++            crate::termux_permissions::enabled(),
++        ) {
++            return;
++        }
+         // A discovered socket alone does not prove it belongs to a managed daemon.
+         // Probe only when the user opens a view that offers restart, never during startup.
+         if !self.reconnect.offline
+@@ -50,7 +57,13 @@ impl App {
+             .map(|connection| format!("Running daemon: {}", connection.version))
+             .unwrap_or_else(|| "Not connected to the local background server.".to_string());
+         let mut header = vec![Line::from("Daemon".bold()), Line::from(status.dim())];
+-        let unavailable = if matches!(self.app_server_target, AppServerTarget::Remote { .. }) {
++        let core_owned = crate::profile_transport::core_owned(
++            &self.app_server_target,
++            crate::termux_permissions::enabled(),
++        );
++        let unavailable = if core_owned {
++            Some("This server is managed by Termux Core. Use codex update for updates.")
++        } else if matches!(self.app_server_target, AppServerTarget::Remote { .. }) {
+             Some(
+                 "Manage this server on its host. Local daemon updates are unavailable for remote connections.",
+             )
+@@ -95,7 +108,7 @@ impl App {
+         .collect();
+         items.push(SelectionItem {
+             name: "Restart background server".to_string(),
+-            is_disabled: !self
++            is_disabled: core_owned || !self
+                 .chat_widget
+                 .remote_connection
+                 .as_ref()
 diff --git a/codex-rs/tui/src/app/event_dispatch.rs b/codex-rs/tui/src/app/event_dispatch.rs
-index a7f7f1e..a65e2ba 100644
+index a7f7f1e..c49f5bc 100644
 --- a/codex-rs/tui/src/app/event_dispatch.rs
 +++ b/codex-rs/tui/src/app/event_dispatch.rs
-@@ -484,6 +484,16 @@ impl App {
+@@ -139,6 +139,19 @@ impl App {
+             return Ok(AppRunControl::Continue);
+         }
+
++        #[cfg(unix)]
++        if crate::profile_transport::daemon_action_blocked(
++            &self.app_server_target,
++            &event,
++            crate::termux_permissions::enabled(),
++        ) {
++            self.chat_widget.add_info_message(
++                "This server is managed by Termux Core. Use codex update for updates.".to_string(),
++                /*hint*/ None,
++            );
++            return Ok(AppRunControl::Continue);
++        }
++
+         if matches!(event, AppEvent::OpenDaemonMenu | AppEvent::OpenWarnings) {
+             self.verify_managed_daemon().await;
+         }
+@@ -484,6 +497,16 @@ impl App {
              AppEvent::OpenResumePicker => {
                  self.pending_open_resume_picker = true;
              }
@@ -67,7 +129,7 @@ index a7f7f1e..a65e2ba 100644
              AppEvent::OpenExternalAgentConfigMigration => {
                  let cwd = if self.chat_widget.thread_id().is_some()
                      || !app_server.uses_remote_workspace()
-@@ -2110,6 +2120,12 @@ impl App {
+@@ -2110,6 +2133,12 @@ impl App {
                  self.update_luna_reserve_reasoning(app_server, thread_id, effort)
                      .await;
              }

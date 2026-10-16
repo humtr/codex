@@ -54,3 +54,23 @@ fn profile_transport_websocket_stays_remote_even_with_preview_bridge() {
     assert!(target.uses_remote_workspace());
     assert!(matches!(target, AppServerTarget::Remote { .. }));
 }
+
+#[test]
+fn profile_transport_core_daemon_actions_refuse_without_affecting_remote_or_read_only_views() {
+    use crate::app_event::AppEvent;
+    use crate::update_action::DaemonUpdateSource;
+    let local = target(unix(), true);
+    let remote = target(unix(), false);
+    for event in [
+        AppEvent::ConfirmDaemonRestart,
+        AppEvent::RunDaemonRestart,
+        AppEvent::ConfirmDaemonUpdate(DaemonUpdateSource::PublicStable),
+        AppEvent::RunDaemonUpdate(DaemonUpdateSource::ThisCli),
+    ] {
+        assert!(daemon_action_blocked(&local, &event, true));
+        assert!(!daemon_action_blocked(&local, &event, false));
+        assert!(!daemon_action_blocked(&remote, &event, true));
+    }
+    assert!(!daemon_action_blocked(&local, &AppEvent::OpenDaemonMenu, true));
+    assert!(!daemon_action_blocked(&local, &AppEvent::OpenWarnings, true));
+}

@@ -49,7 +49,7 @@ class NativeArtifactTests(unittest.TestCase):
         (artifact / "native.patch").write_bytes(patch)
         proof = root / "proof" / "_temp"
         proof.mkdir(parents=True)
-        (proof / "profile-tui-focused.log").write_text("Summary [3s] 41 tests run: 41 passed, 5632 skipped\n")
+        (proof / "profile-tui-focused.log").write_text("Summary [3s] 42 tests run: 42 passed, 5632 skipped\n")
         for name in ("profile-tui-formatted.patch", "profile-tui-linted.patch"):
             (proof / name).write_bytes(patch)
         run = {"id": 123, "path": qualifier.INPUTS[0], "event": "push",
@@ -101,8 +101,8 @@ class NativeArtifactTests(unittest.TestCase):
                 elif fault in ("zero", "failed-tests", "old-tests"):
                     (proof / "profile-tui-focused.log").write_text(
                         "Summary [3s] 0 tests run: 0 passed\n" if fault == "zero"
-                        else "Summary [3s] 39 tests run: 39 passed\n" if fault == "old-tests"
-                        else "Summary [3s] 41 tests run: 40 passed, 1 failed\n")
+                        else "Summary [3s] 41 tests run: 41 passed\n" if fault == "old-tests"
+                        else "Summary [3s] 42 tests run: 41 passed, 1 failed\n")
                 elif fault == "lint": (proof / "profile-tui-linted.patch").write_bytes(b"changed\n")
                 result = self.invoke(fixture, version, digest)
                 self.assertEqual(result.returncode == 0, fault is None, result.stderr)

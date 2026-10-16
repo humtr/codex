@@ -14,6 +14,22 @@ pub(super) fn core_owned(target: &AppServerTarget, termux: bool) -> bool {
         )
 }
 
+/// Native package lifecycle cannot replace a Core-qualified server or generation.
+pub(super) fn daemon_action_blocked(
+    target: &AppServerTarget,
+    event: &crate::app_event::AppEvent,
+    termux: bool,
+) -> bool {
+    core_owned(target, termux)
+        && matches!(
+            event,
+            crate::app_event::AppEvent::ConfirmDaemonRestart
+                | crate::app_event::AppEvent::RunDaemonRestart
+                | crate::app_event::AppEvent::ConfirmDaemonUpdate(_)
+                | crate::app_event::AppEvent::RunDaemonUpdate(_)
+        )
+}
+
 pub(super) fn target(endpoint: RemoteAppServerEndpoint, termux: bool) -> AppServerTarget {
     if termux && matches!(endpoint, RemoteAppServerEndpoint::UnixSocket { .. }) {
         AppServerTarget::LocalDaemon {
