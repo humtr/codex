@@ -75,7 +75,8 @@ def stop_owned(path):
     value=live(path);assert value,'verified_owned_process_required'
     owner({**value,'start':int(value['start'])});os.kill(value['pid'],signal.SIGTERM)
     for _ in range(150):
-        if not live(path):return value
+        try:owner({**value,'start':int(value['start'])})
+        except (OSError,AssertionError):return value
         time.sleep(.1)
     raise RuntimeError('owned_trial_did_not_stop')
 

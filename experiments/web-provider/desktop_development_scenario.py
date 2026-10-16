@@ -53,6 +53,8 @@ class Development:
         for name, text in [('catalog.py', CATALOG), ('cli.py', CLI), ('test_catalog.py', TESTS), ('README.md', README), ('project-token.txt', marker+'\n')]:
             (workspace/name).write_text(text)
         self.protected = {name: hashlib.sha256((workspace/name).read_bytes()).hexdigest() for name in ['test_catalog.py', 'README.md']}
+        if self.compaction=='mid-turn':
+            config='model_auto_compact_token_limit = 8500\nmodel_auto_compact_token_limit_scope = "total"\n'+config
         return config
 
     def task(self, _marker):
@@ -142,7 +144,12 @@ class Development:
             else:
                 restart()
             events.clear()
-        if self.compaction=='automatic':
+        if self.compaction=='mid-turn':
+            self.continuity['midTurnAutomaticCompactionObserved']=bool(report.get('warmCompactionStarted') and report.get('warmCompactionCompleted'))
+            self.continuity['noManualCompactionRequested']=True
+            assert self.continuity['midTurnAutomaticCompactionObserved'],'mid_turn_compaction_missing'
+            restart({'model_auto_compact_token_limit':1000000,'model_auto_compact_token_limit_scope':'total'})
+        elif self.compaction=='automatic':
             warm = report.get('lastTokenUsage', {}).get('totalTokens', 0)
             assert warm>1000, 'missing_warm_context_estimate'
             threshold=max(1000,warm-300)
@@ -152,7 +159,7 @@ class Development:
                 'Recall the synthetic project token from the completed tool history/checkpoint. Reply with exactly that token. Do not call tools or redo any work.'}]},deadline)
         else:
             rpc(101, 'thread/compact/start', {'threadId': thread}, deadline)
-        collect()
+        if self.compaction!='mid-turn':collect()
         if self.compaction=='automatic':
             self.continuity['automaticTurnCompleted']=report['turnCompleted'] and report['nativeReplyMatched']
             self.continuity['noManualCompactionRequested']=True
@@ -176,6 +183,8 @@ class Development:
         self.continuity['completedImplementationsNotRewritten'] = all(hashlib.sha256((workspace/n).read_bytes()).hexdigest() == d for n, d in self.source_hashes.items())
 
     def verify_cold(self, rpc, collect, thread, deadline, report, events):
+        if hasattr(self,'restart_app'):
+            self.continuity.update(self.restart_app())
         commands = len(self.commands)
         events.clear()
         rpc(103, 'turn/start', {'threadId': thread, 'input': [{'type': 'text', 'text':

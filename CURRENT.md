@@ -13,9 +13,9 @@ acceptance cache. No external workflow skill or separate task ledger is required
   branch. Actual version and Core/Manager doctor confirm device selection; stable52
   is retained for rollback. Production upgrade proof and Chat inference acceptance
   remain separate; the new narrow stable53 live proof is described below.
-- Installed opt-in Chat provider:23a08e9e0b6ead12cf11, source2245164,
-  `returnTransport=local`,604 installed files verified including its manifest.
-  Prior85e8f9127b98b12bb311/source7b8e541 and earlier payloads are retained.
+- Installed opt-in Chat provider:0eb431a078aab6c1ad6b, sourceef2a15a,
+  `returnTransport=local`,527 installed files verified including its manifest.
+  Prior23a08e9/source2245164,85e8f9/source7b8e541 and earlier payloads are retained.
   Explicit gateway batches are now installed. Activation stopped only the verified
   idle old adapter (zero requests/arrivals since start); endpoint/capability,12 base
   auth/config hashes and the signed desktop identity are unchanged. Bootstrap and
@@ -65,7 +65,16 @@ acceptance cache. No external workflow skill or separate task ledger is required
 
 ## Active remaining work
 
-Installed2245164: optional tool `report` omission no longer
+The latest527-file payload packages26 runtime source/asset files instead of the
+whole experiment directory;24 execution modules/assets match the accepted604-file
+payload byte for byte. Development drivers/reports remain in Git. Packaged Python
+imports, three JS/TS entry builds and actual HTTP admission all pass. Actual device
+activation preserves12 base auth/config files, app identity and endpoint/capability.
+Reinstall527→rollback604→restore527 verifies all inventories; six simultaneous
+bootstrap clients pass,0 Chat submissions. Evidence is in continuity-qualification
+and private chat-runtime-package-{activation,proof,install-cycle} records.
+
+Installed execution modules retain2245164 fixes: optional tool `report` omission no longer
 rejects valid calls; malformed present metadata still refuses. Same-Chat route
 changes preserve the idle lane/context, and warm requests omit already-resident
 public replies and unchanged bootstrap instructions. Cancel recovery requires new
@@ -103,8 +112,32 @@ source inputs before execution. Two actual concurrent native clients in separate
 account homes also pass exact writes/reads/replies through one local adapter,
 shared profile fallback and an independent guardian conversation:3 user messages,
 5 tool returns,8 starts,0 owner conflicts/Pro/retry; both base configs unchanged.
-Provider suite94 Bun tests/42 Python tests pass; native TUI build/Android selection
-proof is in progress. Evidence:
+The current source suite passes98 Bun tests/44 Python tests. Source-candidate
+text projection separates the current request from hidden user-scoped canonical
+context, retaining original role/content/order. An actual Android request capture
+shows that the custom-provider wire drops per-content harness classifications;
+XML text matching is therefore not used to hide input. Literal XML in the current
+request remains visible. Cold archived calls remain inert lossless hidden context.
+Actual signed-app/stable53 short generation proof passes in149.820s:4 user-message
+objects,2 tool-role returns,4 model starts,0 Pro/retry. After a settled turn, the
+signed app restarts, the original adapter survives, and a cold Core request recalls
+the tool-only value without tools or rewriting the completed file. Native reports
+persist, restore and render. Own app-state readback has1 hidden environment record
+and0 visible ones. Physical user-window observation remains separate.
+
+The combined mid-turn/app-restart trial is retained as FAIL:4 summaries/checkpoints,
+15 actual user-message objects,12 tool returns,18 starts. Work repair and compaction
+progressed, but a retiring bootstrap-controller race blocked restart; the pending
+wait now admits controller exit and the targeted regression passes. No quota-saving
+or whole-case live pass is claimed. Mid-turn with the current projection passes
+actual Core/offline with0 Chat. The short positive proof independently qualifies
+app-generation reconstruction. The single-CDP relay also requires test observers
+to reuse the owner's lease; the test-only inspector does so without a new service.
+
+The operating527-file provider still uses its prior path until bounded activation;
+old remote test chats are not rewritten or deleted. Private zero-Chat proof:
+chat-context-native-wire-shapes.json. Native TUI build/Android selection proof is
+in progress. Evidence:
 `experiments/web-provider/continuity-qualification.json` and private cache
 `chat-{automatic-core-live-1,repository-candidate-live-2,interrupted-compaction-offline-4,failed-compaction-offline-1}`.
 
@@ -142,7 +175,9 @@ operating provider changes; do not stop existing tasks.
 - Same-Chat /model changes: exact no-op does nothing; model/effort-only selection
   uses native session updates, retaining the UI and compatible owned Chat context.
   Separate real provider/account changes from these updates. Current frontend
-  predicate and provider route-change reset both require correction.
+  predicate is corrected on production source90781cd/4b349a9; same-Chat route
+  preservation is installed. Actual Android no-op/model/effort selection passes
+  without frontend exec or inference; new43-test native CI/release remains pending.
 - Context projection: remove redundant prior-assistant replay and the user-visible
   JSON context envelope. Preserve roles and original instruction authority. Consider
   minimal bootstrap plus instruction/tool discovery over existing result channels,

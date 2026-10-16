@@ -56,7 +56,7 @@ export async function acquireDesktopApp(root){
  }
  pool.refs++;
  const release=()=>{if(--pool.refs===0){pool.client?.close();if(pools.get(root)===pool)pools.delete(root);}};
- try{return {client:await pool.pending,scopeKey:key,release};}catch(e){release();throw e;}
+ try{return {client:await pool.pending,scopeKey:key,release,currentGeneration:()=>desktopConnection(root).generation};}catch(e){release();throw e;}
 }
 
 export async function closeOwnedAppConversations(root){

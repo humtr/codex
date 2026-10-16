@@ -24,6 +24,29 @@ function residentDelta(prepared,projection){
  }
  return messages;
 }
+export function localTextMessages(messages){
+ const result=[];
+ const append=(role,text,hidden=false)=>{
+  if(result.at(-1)?.role===role&&!!result.at(-1).hidden===hidden)result.at(-1).text+='\n\n'+text;
+  else result.push({role,text,...hidden?{hidden:true}:{}});
+ };
+ for(const [index,message] of messages.entries()){
+  const role=message.role==='agentMessage'?'assistant':message.role;
+  if(!['user','developer','assistant'].includes(role))return;
+  const content=message.content;
+  const text=typeof content==='string'?content:Array.isArray(content)&&content.every(p=>p.type==='text'&&typeof p.text==='string')?content.map(p=>p.text).join(''):undefined;
+  if(text===undefined)return;
+  append(role,text,role==='user'&&index<messages.length-1);
+ }
+ return result.at(-1)?.role==='user'?result:undefined;
+}
+export function localTaskMessages(messages,lane){
+ const plain=localTextMessages(messages);
+ if(plain)return plain;
+ const tail=localTextMessages(messages.slice(-1));
+ const context=tail?messages.slice(0,-1):messages;
+ return [...(context.length?[{role:'user',text:lane+'\nNative ordered task context:\n'+JSON.stringify(context),hidden:true}]:[]),...(tail||[])];
+}
 export function pendingNativeContext(messages,batch){
  if(!batch.length)return [];
  const ids=new Set(batch.map(x=>x.call.id));
@@ -54,7 +77,8 @@ export function installLocalAppHooks(s,shared){
     if(exact)return exact;
     const declared=lanes.find(l=>Array.isArray(request?.local_function_signatures)&&request.local_function_signatures.some(f=>f.name===l.signature.name));
     if(declared)return declared;
-    return lanes.find(l=>!l.serverId&&Array.isArray(request?.messages)&&request.messages.some(m=>m.author?.role==='user'&&Array.isArray(m.content?.parts)&&m.content.parts.some(p=>typeof p==='string'&&p.startsWith(l.marker+'\n'))));
+    return lanes.find(l=>!l.serverId&&Array.isArray(request?.messages)&&request.messages.some(m=>
+     m.metadata?.codex_native_lane===l.marker||m.author?.role==='user'&&Array.isArray(m.content?.parts)&&m.content.parts.some(p=>typeof p==='string'&&p.startsWith(l.marker+'\n'))));
    };
    for(const name of ['prepareCompletionStream','startCompletionStream']){
     state.saved[name]=client[name];
@@ -141,11 +165,23 @@ export async function localAppOperation(key,lane,operation,data={},installHooks)
     if(!['user','developer'].includes(m.role))throw Error('desktop_native_dispatch_invalid');
     if(groups.at(-1)?.role===m.role)groups.at(-1).messages.push(m);else groups.push({role:m.role,messages:[m]});
    }
-   for(const group of groups){
+   if(data.contextTextMessages)for(const m of data.contextTextMessages){
+    messages.push({id:crypto.randomUUID(),author:{role:m.role==='developer'?'system':m.role},content:{content_type:'text',parts:[m.text]},metadata:{is_visually_hidden_from_conversation:m.role==='developer'||m.hidden===true},recipient:'all',status:'finished_successfully',end_turn:null});
+   }
+   else for(const group of groups){
     messages.push({id:crypto.randomUUID(),author:{role:group.role==='user'?'user':'system'},content:{content_type:'text',parts:['Native ordered '+group.role+' context:\n'+JSON.stringify(group.messages)]},metadata:{is_visually_hidden_from_conversation:group.role!=='user'},recipient:'all',status:'finished_successfully',end_turn:null});
    }
    pending=s.m.yRt(s.scope,{...options,prompt:'',daybreakContinuationMessageId:data.results[0].id,prependMessages:messages.slice(0,-1),
     userCompletionMessages:{message:messages.at(-1),extraDeveloperInstructionMessages:(data.developerInstructions||[]).map(text=>({id:crypto.randomUUID(),author:{role:'system'},content:{content_type:'text',parts:[text]},metadata:{is_visually_hidden_from_conversation:true}}))},requireResponseAcceptance:true,startupSignal:l.controller.signal});
+  }else if(data.taskMessages?.length){
+   const messages=data.taskMessages.map(m=>({id:crypto.randomUUID(),author:{role:m.role==='developer'?'system':m.role},
+    content:{content_type:'text',parts:[m.text]},metadata:{is_visually_hidden_from_conversation:m.role==='developer'||m.hidden===true,codex_native_lane:l.marker},
+    recipient:'all',status:'finished_successfully',end_turn:m.role==='assistant'?true:null}));
+   // Imported assistant text must never appear as freshly streamed output.
+   for(const message of messages)l.olderIds.add(message.id);
+   pending=s.m.yRt(s.scope,{...options,prompt:'',prependMessages:messages.slice(0,-1),
+    userCompletionMessages:{message:messages.at(-1),extraDeveloperInstructionMessages:(data.developerInstructions||[]).map(text=>({id:crypto.randomUUID(),author:{role:'system'},content:{content_type:'text',parts:[text]},metadata:{is_visually_hidden_from_conversation:true}}))},
+    requireResponseAcceptance:true,startupSignal:l.controller.signal});
   }else{
    pending=s.m.yRt(s.scope,{...options,prompt:data.prompt,extraDeveloperInstructions:data.developerInstructions||[],requireResponseAcceptance:true,startupSignal:l.controller.signal});
   }
@@ -205,6 +241,7 @@ export class DesktopLocalTransport{
  async prepare(){
   await this.retiring;if(this.lease)return;
   this.lease=await this.acquire(this.root);
+  this.generation=this.lease.client.generation;
   try{await this.invoke(this.lease,this.lane,'create',{signature:localToolSignature(this.gateway),marker:this.lane,maxDispatches:this.maxDispatches});}
   catch(error){await this.close().catch(()=>{});throw error;}
  }
@@ -214,6 +251,13 @@ export class DesktopLocalTransport{
   let sent=false,settled=false,published=false,prepared;
   try{
    signal?.throwIfAborted();if(this.blocked)throw Error('desktop_native_delivery_unknown');await this.retiring;
+   if(this.lease?.currentGeneration&&this.lease.currentGeneration()!==this.generation){
+    // A positively identified new app generation cannot receive returns on the
+    // old local-function lane. Reconstruct from Core's canonical history before
+    // dispatch; never replay a native command or retry uncertain delivery.
+    this.lease.release();this.lease=undefined;this.dispatched=0;this.observedCounts=undefined;
+    this.context=new DesktopPromptContext();this.projection=new DesktopToolSession();this.routeIdentity=undefined;
+   }
    if(this.rejectedContext){
     const current=recoveryMessages(payload).map(({timestamp,...m})=>m),old=this.rejectedContext;
     if(current.length<=old.length||old.some((m,i)=>JSON.stringify(m)!==JSON.stringify(current[i]))||!current.slice(old.length).some(m=>m.role==='user'))throw Error('desktop_native_recovery_requires_new_input');
@@ -238,7 +282,9 @@ export class DesktopLocalTransport{
     instructions.unshift('You are the model doing this native Codex development task. Give genuine user-facing initial replies, intermediate reports and a final answer. Include your brief public initial reply in the first tool call report field, and useful intermediate findings in later tool call report fields. Core displays that field as commentary before executing the tool, without another model round. Honor requested report text. Use only local.'+this.gateway+' for native tools; never imitate a tool call or fabricate its result. For JSON tools encode arguments as input JSON; custom/freeform input is exact source. For independent tools use calls: a JSON-encoded array of {name,input} pairs, omitting singular name/input. Core executes each separately and returns all results in one original tool response. Never batch dependent steps or guess results. Never hand off to Work/Codex or use desktop builtin tools instead.');
    }
    sent=true;
-   await op('submit',{model,developerInstructions:instructions,...batch.length?{results:this.projection.hostResults(batch),contextMessages}:{prompt:this.lane+'\nNative ordered task context:\n'+JSON.stringify(residentDelta(prepared,this.projection))}});
+   const delta=residentDelta(prepared,this.projection),taskMessages=localTaskMessages(delta,this.lane);
+   await op('submit',{model,developerInstructions:instructions,...batch.length?{results:this.projection.hostResults(batch),contextMessages,contextTextMessages:localTextMessages(contextMessages)}:
+    {taskMessages}});
    this.rejectedContext=undefined;
    if(batch.length)this.projection.returned(batch);
    let acknowledged=false;const deadline=Date.now()+this.timeoutMs,roundCalls=new Map();

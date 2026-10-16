@@ -72,8 +72,10 @@ def desktop(runtime,deadline):
         if desktop_ready(session):return
     pending=session.parent/'bootstrap-controller.json'
     if live(pending):
-        wait_for(lambda:desktop_ready(session),deadline)
-        return
+        # A retiring controller may still be alive just after it publishes its
+        # stopped session. Wait for readiness OR its exit, then start a successor.
+        wait_for(lambda:desktop_ready(session) or not live(pending),deadline)
+        if desktop_ready(session):return
     command=[sys.executable,'-B',str(Path(runtime['source'])/'linux_desktop_trial.py'),'serve',
              '--proot-source',runtime['proot'],'--bun',runtime['bun'],'--novnc',runtime['novnc'],'--seconds','0','--inspect']
     log=Path(runtime['session']).parent/'controller.log'

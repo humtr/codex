@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {DesktopLocalTransport,installLocalAppHooks,localAppOperation,invokeLocalOperation,pendingNativeContext} from './desktop_local_transport.mjs';
+import {DesktopLocalTransport,installLocalAppHooks,localAppOperation,invokeLocalOperation,pendingNativeContext,localTextMessages,localTaskMessages} from './desktop_local_transport.mjs';
 import {chatModelRoute} from './desktop_model_controls.mjs';
 
 const tools=[{name:'shell',wireName:'shell',parameters:{type:'object'}},{name:'patch',wireName:'patch',freeform:true}];
@@ -15,7 +15,7 @@ function fixture(rounds){
   if(method==='close')return true;
   if(method==='submit'){submits.push(data);round++;return true;}
   const messages=rounds[round].map(m=>m.call?{id:m.call.id,author:{role:'assistant'},recipient:'local.'+gateway,status:'finished_successfully',content:{content_type:'code',text:JSON.stringify(m.call.calls?{calls:JSON.stringify(m.call.calls),report:m.call.report??''}:{name:m.call.name,input:m.call.input,report:m.call.report??''})}}:m);
-  return {messages,accepted:true,roundDispatched:1,terminals:['done'],userSubmissions:submits.reduce((n,s)=>n+(s.prompt?1:0)+(s.contextMessages||[]).filter(m=>m.role==='user').length,0),toolSubmissions:submits.reduce((n,s)=>n+(s.results?.length||0),0),dispatches:round+1};
+  return {messages,accepted:true,roundDispatched:1,terminals:['done'],userSubmissions:submits.reduce((n,s)=>n+(s.prompt?1:0)+(s.taskMessages||[]).filter(m=>m.role==='user').length+(s.contextMessages||[]).filter(m=>m.role==='user').length,0),toolSubmissions:submits.reduce((n,s)=>n+(s.results?.length||0),0),dispatches:round+1};
  }});
  const exchange=(payload=task)=>transport.exchange(payload,undefined,e=>events.push(e),undefined,undefined,route,e=>events.push(e));
  return {transport,submits,events,operations,exchange,releases:()=>releases};
@@ -31,7 +31,7 @@ test('local calls -> exact Core outputs -> final report: no result-phase user pr
   messages.push({role:'assistant',content:[{type:'toolCall',id:'host-second',name:'patch',arguments:{input:'*** Begin Patch\n*** End Patch'}}]},{role:'toolResult',toolCallId:'host-second',toolName:'patch',content:'applied',isError:false});
   const final=await f.exchange({...task,messages});assert.equal(final.text,'완료했습니다.');assert.equal(final.streamed,true);
   assert.deepEqual(f.submits.slice(1).map(s=>s.results.map(r=>r.id)),[['host-first'],['host-second']]);
-  assert.ok(f.submits[0].prompt);assert.ok(f.submits.slice(1).every(s=>s.prompt===undefined));
+  assert.deepEqual(f.submits[0].taskMessages,[{role:'user',text:'owned task'}]);assert.ok(f.submits.slice(1).every(s=>s.prompt===undefined));
   assert.deepEqual(f.events.filter(e=>e.kind).map(e=>e.kind),['user','tool','tool']);
   assert.deepEqual(f.events.filter(e=>e.type==='text_delta').map(e=>e.text),['확인합니다.','다음 확인입니다.','완료했습니다.']);
   assert.equal(f.transport.selectedControl.dispatches,3);
@@ -78,6 +78,8 @@ test('native hooks isolate owners, reject automatic generation replay and restor
  const s={scope,m};installLocalAppHooks(s,{HAt:gate,$wt:api});
  const lane=id=>({id,signature:{name:id},marker:id,messages:new Map(),dispatches:new Set(),starts:new Set(),terminals:[],roundDispatched:0,userSubmissions:0,toolSubmissions:0});
  const a=lane('a'),b=lane('b');s.native.lanes.set('a',a);s.native.lanes.set('b',b);
+ const plainInitial={local_function_signatures:[{name:'handoff'}],messages:[{id:'plain-a',author:{role:'user'},metadata:{codex_native_lane:'a'},content:{parts:['actual plain task']}}]};
+ assert.equal(client.prepareCompletionStream(plainInitial).local_function_signatures[0].name,'a');
  const request=id=>({conversation_id:id,local_function_signatures:[{name:'handoff'}],messages:[{id:'user-'+id,author:{role:'user'},content:{parts:[id]}}]});
  const foreign={conversation_id:'foreign',messages:[]};assert.equal(client.prepareCompletionStream(foreign),foreign);
  const initial=request('a');initial.messages.push({id:'instruction',author:{role:'system'},content:{parts:['native instructions']}});
@@ -152,6 +154,52 @@ test('batched app result publication uses tool messages, preserves IDs and exclu
   assert.ok(mixed.userCompletionMessages.message.content.parts[0].includes('turn aborted'));
  }finally{delete globalThis.window;}
 });
+test('plain native text preserves ordered app roles and cannot replay imported assistant output',async()=>{
+ const source=[{role:'developer',content:'trusted instructions'},{role:'user',content:[{type:'text',text:'first task'}]},
+  {role:'assistant',content:[{type:'text',text:'completed earlier answer'}]},{role:'user',content:'actual next question'}];
+ const taskMessages=localTextMessages(source);
+ assert.deepEqual(taskMessages.map(m=>m.role),['developer','user','assistant','user']);
+ assert.deepEqual(localTextMessages([{role:'user',content:'environment context'},{role:'user',content:'actual task'}]),
+  [{role:'user',text:'environment context',hidden:true},{role:'user',text:'actual task'}]);
+ assert.equal(localTextMessages([{role:'assistant',content:[{type:'toolCall',id:'archived'}]},{role:'user',content:'next'}]),undefined);
+ assert.equal(localTextMessages([{role:'toolResult',content:'untrusted output'},{role:'user',content:'next'}]),undefined);
+ const writes=[],mapping={};
+ const s={scope:{get:()=>mapping},m:{JRn:{},yRt:async(_s,data)=>{writes.push(data);for(const m of data.prependMessages)mapping[m.id]={message:m};return true;}}};
+ s.native={lanes:new Map([['a',{id:'owned',marker:'owned-lane',signature:{name:'gateway'},messages:new Map(),starts:new Set()}]])};
+ globalThis.window={fixture:s};
+ try{
+  await localAppOperation('fixture','a','submit',{model:{model:'gpt-6'},taskMessages,developerInstructions:['catalog']});
+  const data=writes[0],messages=[...data.prependMessages,data.userCompletionMessages.message];
+  assert.equal(data.prompt,'');assert.deepEqual(messages.map(m=>m.author.role),['system','user','assistant','user']);
+  assert.deepEqual(messages.map(m=>m.content.parts[0]),['trusted instructions','first task','completed earlier answer','actual next question']);
+  assert.ok(messages.every(m=>m.metadata.codex_native_lane==='owned-lane'));
+  assert.deepEqual((await localAppOperation('fixture','a','snapshot')).messages,[]);
+  mapping.fresh={message:publicText('fresh','new reply','final')};
+  assert.deepEqual((await localAppOperation('fixture','a','snapshot')).messages.map(m=>m.id),['fresh']);
+ }finally{delete globalThis.window;}
+});
+test('canonical context stays user-scoped and hidden while literal current XML remains visible',async()=>{
+ const environment='<environment_context><cwd>/owned/fixture</cwd></environment_context>';
+ const taskMessages=localTextMessages([{role:'user',content:environment},{role:'user',content:'actual request '+environment}]);
+ assert.deepEqual(taskMessages,[{role:'user',text:environment,hidden:true},{role:'user',text:'actual request '+environment}]);
+ assert.deepEqual(localTextMessages([{role:'user',content:environment}]),[{role:'user',text:environment}]);
+ const archived=[{role:'user',content:environment},{role:'assistant',content:[{type:'toolCall',id:'old',name:'exec',arguments:{cmd:'completed'}}]},
+  {role:'toolResult',toolCallId:'old',content:'already completed'}];
+ const cold=localTaskMessages([...archived,{role:'user',content:'continue'}],'owned-lane');
+ assert.deepEqual(cold,[{role:'user',text:'owned-lane\nNative ordered task context:\n'+JSON.stringify(archived),hidden:true},{role:'user',text:'continue'}]);
+ assert.deepEqual(localTaskMessages(archived,'owned-lane'),[{role:'user',text:'owned-lane\nNative ordered task context:\n'+JSON.stringify(archived),hidden:true}]);
+ const writes=[],s={scope:{get:()=>({})},m:{JRn:{},yRt:async(_s,data)=>{writes.push(data);return true;}}};
+ s.native={lanes:new Map([['a',{id:'owned',marker:'owned-lane',signature:{name:'gateway'},messages:new Map(),starts:new Set()}]])};
+ globalThis.window={fixture:s};
+ try{
+  await localAppOperation('fixture','a','submit',{model:{model:'gpt-6'},taskMessages});
+  const messages=[...writes[0].prependMessages,writes[0].userCompletionMessages.message];
+  assert.deepEqual(messages.map(m=>m.author.role),['user','user']);
+  assert.deepEqual(messages.map(m=>m.metadata.is_visually_hidden_from_conversation),[true,false]);
+  assert.deepEqual(messages.map(m=>m.content.parts[0]),taskMessages.map(m=>m.text));
+  assert.equal(writes.length,1);
+ }finally{delete globalThis.window;}
+});
 test('a completed rejected sample requires new input, then rebuilds canonical history without replaying work',async()=>{
  const f=fixture([[{call:{id:'rejected',name:'foreign',input:'{}'}}],[publicText('recovered','recovered','final')]]);
  await assert.rejects(()=>f.exchange(),/unadvertised_tool/);assert.equal(f.submits.length,1);
@@ -167,7 +215,7 @@ test('a completed rejected sample requires new input, then rebuilds canonical hi
  await assert.rejects(()=>f.exchange(),/recovery_requires_new_input/);assert.equal(f.submits.length,1);
  const final=await f.exchange({...task,messages:history});
  assert.equal(final.text,'recovered');assert.equal(f.submits.length,2);
- assert.deepEqual(JSON.parse(f.submits[1].prompt.split('Native ordered task context:\n')[1]),history);
+ assert.deepEqual(f.submits[1].taskMessages,localTaskMessages(history,f.transport.lane));
  assert.ok(f.submits[1].developerInstructions.some(s=>s.includes('Native Codex tool catalog')));
  await f.transport.close();
 });
@@ -243,7 +291,7 @@ test('serialized renderer operations accept omitted data and return only safe er
 });
 test('overlapping cleanup releases its app owner once; a failed retire cannot become an unhandled rejection',async()=>{
  let finish,releases=0,closes=0;
- const transport=new DesktopLocalTransport('/owned',{acquire:async()=>({release(){releases++;}}),
+ const transport=new DesktopLocalTransport('/owned',{acquire:async()=>({client:{generation:1},release(){releases++;}}),
   invoke:async(_lease,_lane,method)=>{if(method==='close'){closes++;await new Promise(resolve=>{finish=resolve;});throw Error('desktop_disconnected');}return true;}});
  await transport.prepare();
  const first=transport.close();transport.retire();
@@ -325,7 +373,7 @@ test('same Chat model/effort update retains the owned lane and sends only genuin
   await f.transport.exchange({...task,messages},undefined,undefined,undefined,undefined,chatModelRoute({model:'chatgpt-desktop/gpt-6',reasoning:{effort:'medium'}}));
   assert.equal(f.operations.filter(x=>x==='create').length,1);assert.equal(f.releases(),0);
   assert.equal(f.submits[1].model.model,'gpt-6-thinking');assert.equal(f.submits[1].model.thinkingEffort,'standard');
-  assert.ok(!f.submits[1].prompt.includes('owned task'));assert.ok(!f.submits[1].prompt.includes('first answer'));
+  assert.deepEqual(f.submits[1].taskMessages,[{role:'user',text:'second question'}]);
   assert.equal(f.submits[1].developerInstructions.length,0);
  }finally{await f.transport.close();}
 });
@@ -333,10 +381,10 @@ test('warm deduplication preserves unseen assistant history; a cold lane replays
  const f=fixture([[publicText('first','known answer','final')],[publicText('next','new answer','final')],[publicText('cold','cold answer','final')]]);
  const messages=[...task.messages,{role:'assistant',content:[{type:'text',text:'unseen canonical answer'}]},{role:'user',content:'next'}];
  await f.exchange();await f.exchange({...task,messages});
- assert.ok(f.submits[1].prompt.includes('unseen canonical answer'));
+ assert.ok(JSON.stringify(f.submits[1].taskMessages).includes('unseen canonical answer'));
  f.transport.retire();await f.transport.retiring;
  await f.exchange({...task,messages});
- assert.ok(f.submits[2].prompt.includes('owned task'));assert.ok(f.submits[2].prompt.includes('unseen canonical answer'));
+ assert.ok(JSON.stringify(f.submits[2].taskMessages).includes('owned task'));assert.ok(JSON.stringify(f.submits[2].taskMessages).includes('unseen canonical answer'));
  assert.ok(f.submits[2].developerInstructions.length>0);
  await f.transport.close();
 });
@@ -355,5 +403,20 @@ test('cancelled compaction excludes its transient prompt, but cannot automatical
  const result=await f.exchange({...task,messages:[...history,{role:'user',content:'Continue from completed work'}]});
  assert.equal(result.text,'recovered');assert.equal(f.submits.length,3);
  assert.equal(f.events.filter(e=>e.type==='tool_call_start').length,0);
+ await f.transport.close();
+});
+test('identified app replacement reconstructs canonical completed results without replaying old tools',async()=>{
+ const f=fixture([[{call:{id:'before-restart',name:'shell',input:'{"cmd":"owned mutation"}'}}],[publicText('recovered','recovered after app restart','final')]]);
+ let generation=1;
+ const acquire=f.transport.acquire;
+ f.transport.acquire=async()=>({...await acquire(),currentGeneration:()=>generation});
+ const first=await f.exchange();assert.equal(first.calls.length,1);generation=2;
+ const messages=[...task.messages,{role:'assistant',content:[{type:'toolCall',id:first.calls[0].id,name:'shell',arguments:{cmd:'owned mutation'}}]},
+  {role:'toolResult',toolCallId:first.calls[0].id,toolName:'shell',content:'exact completed result',isError:false}];
+ const final=await f.exchange({...task,messages});
+ assert.equal(final.text,'recovered after app restart');assert.equal(f.releases(),1);
+ assert.equal(f.operations.filter(m=>m==='create').length,2);assert.equal(f.submits.length,2);
+ assert.equal(f.submits[1].results,undefined);assert.ok(f.submits[1].taskMessages.some(m=>m.hidden&&m.text.includes('exact completed result')));
+ assert.equal(f.events.filter(e=>e.type==='tool_call_start').length,1);
  await f.transport.close();
 });

@@ -12,7 +12,7 @@ DesktopLocalTransport.prototype.exchange=function(payload,...args){
    if(method==='submit'){
     state.round++;
     if(state.round>(state.guardian?1:3))throw Error('fixture_generation_replayed');
-    if(state.round===1){if(!data.prompt||data.results)throw Error('fixture_initial_request_required');}
+    if(state.round===1){if(!data.prompt&&!data.taskMessages?.length||data.results)throw Error('fixture_initial_request_required');}
     else{
      if(data.prompt!==undefined||data.results?.length!==1||data.results[0].id!=='discovery-'+(state.round-1)||data.results[0].result.isError)throw Error('fixture_result_mismatch');
      if(state.round===3){state.marker=JSON.stringify(data.results[0].result.content).match(/\b[0-9a-f]{32}\b/)?.[0];if(!state.marker){writeFileSync(root+'/fixture-result.json',JSON.stringify({ownedSyntheticMcpResult:data.results[0].result}),{mode:0o600});throw Error('fixture_mcp_marker_missing');}}

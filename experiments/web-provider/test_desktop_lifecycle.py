@@ -35,6 +35,22 @@ class LifecycleTests(unittest.TestCase):
         with patch.object(life,'ready',return_value=False),patch.object(life,'live',return_value={'pid':os.getpid()}),patch.object(life,'desktop') as desktop:
             with self.assertRaisesRegex(RuntimeError,'live_adapter_not_ready'):life.ensure(self.path)
             desktop.assert_not_called()
+    def test_retiring_pending_controller_exit_allows_successor_instead_of_readiness_timeout(self):
+        import time
+        from types import SimpleNamespace
+        self.runtime.update(source=str(self.root),bun='owned-bun',proot='owned-proot',novnc='owned-novnc')
+        pending=self.root/'bootstrap-controller.json';observations=[];started=[]
+        def live(path):
+            if path!=pending:return None
+            observations.append(path)
+            return {'pid':1} if len(observations)==1 else None
+        def spawn(*args,**kwargs):
+            started.append(True)
+            return SimpleNamespace(pid=os.getpid(),poll=lambda:None)
+        with patch.object(life,'live',side_effect=live),patch.object(life,'desktop_ready',side_effect=lambda _:bool(started)),patch.object(life.subprocess,'Popen',side_effect=spawn) as process:
+            life.desktop(self.runtime,time.monotonic()+.1)
+            process.assert_called_once()
+        self.assertGreaterEqual(len(observations),2)
     def test_installed_transport_must_match_authenticated_binding(self):
         value={**self.runtime,'returnTransport':'text'}
         self.assertTrue(life.server_matches(self.runtime,value))

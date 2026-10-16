@@ -32,7 +32,7 @@ DesktopLocalTransport.prototype.exchange=function(payload,...rest){
   this.invoke=async(_lease,_lane,method,data)=>{
    if(method==='create'){state.gateway=data.signature.name;state.user=0;state.returns=0;state.starts=0;return true;}
    if(method==='close')return true;
-   if(method==='submit'){state.round++;state.starts++;state.user+=(data.prompt?1:0);state.returns+=data.results?.length??0;return true;}
+   if(method==='submit'){state.round++;state.starts++;state.user+=(data.prompt?1:0)+(data.taskMessages||[]).filter(m=>m.role==='user').length;state.returns+=data.results?.length??0;if(process.env.CODEX_CHAT_DEVELOPMENT_COMPACTION==='mid-turn'&&state.payload.compaction)state.midCompactCount=(state.midCompactCount||0)+1;return true;}
    if(method!=='snapshot')throw Error('development_fixture_invalid_operation');
    const tool=name=>{const t=state.payload.tools.find(t=>t.name===name);if(!t)throw Error('development_fixture_missing_'+name);return t;};
    const call=(id,name,input,report='')=>{const t=tool(name);return {id,author:{role:'assistant'},recipient:'local.'+state.gateway,status:'finished_successfully',content:{content_type:'code',text:JSON.stringify({name:t.wireName,input:t.freeform?input:JSON.stringify(input),report})}};};
@@ -43,6 +43,11 @@ DesktopLocalTransport.prototype.exchange=function(payload,...rest){
    }
    let round=state.round;
    const automatic=process.env.CODEX_CHAT_DEVELOPMENT_COMPACTION==='automatic';
+   const midTurn=process.env.CODEX_CHAT_DEVELOPMENT_COMPACTION==='mid-turn';
+   if(midTurn){
+    if(state.payload.compaction)return {messages:[final('Preserve completed changes and token '+state.secret+'. Continue actual remaining tests/repair without repeating completed edits.')],accepted:true,roundDispatched:1,terminals:['done'],userSubmissions:state.user,toolSubmissions:state.returns,dispatches:state.starts};
+    round-=state.midCompactCount||0;if(round>=5)round++;
+   }
    const interrupted=process.env.CODEX_CHAT_DEVELOPMENT_COMPACTION==='interrupted';
    if(interrupted&&round===5)return {messages:[],accepted:true,roundDispatched:1,terminals:[],userSubmissions:state.user,toolSubmissions:state.returns,dispatches:state.starts};
    if(interrupted&&round===6)return {messages:[final(state.secret)],accepted:true,roundDispatched:1,terminals:['done'],userSubmissions:state.user,toolSubmissions:state.returns,dispatches:state.starts};

@@ -20,11 +20,12 @@ actual submissions separately from HTTP rounds and unverified plan-limit debits.
 | Browser/MCP full-mode implementation | Third-party candidate used by older probes. Source is retained in `bridge-source`; its presence does not connect it to our active adapter. |
 | Candidate retained MCP return | Independently written `desktop_mcp_{broker,stdio,transport}.mjs`; shared `DesktopToolSession` projection and actual Core execution. Source/offline acceptance only, not the installed provider. |
 
-Installed payload `23a08e9e0b6ead12cf11` uses source2245164 and the6.1.5 bridge
-commit above. Previous85e8f9/source7b8e541 and earlier installations remain available for rollback. The6.1.8 browser candidate and6.1.9 research are separate inputs;
-neither is the active dependency. Bundled dependency source and licenses remain
-preserved by the installer; changing product names does not change authorship.
-Current acceptance and unresolved work belong to CURRENT.md.
+The private `native-provider/runtime.json` selects the immutable installed payload;
+its `.installation.json` verifies every source/dependency file. CURRENT.md owns
+operating version and acceptance state. Previous payloads remain available for
+rollback. The6.1.8 browser candidate and6.1.9 research are separate inputs; neither
+is the active dependency. Bundled dependency source/licenses remain preserved.
+Changing product names does not change authorship.
 
 Provider checks run from the repository root with the qualified Bun executable:
 `"$BUN" test ./experiments/web-provider/*.test.mjs` and
@@ -91,8 +92,18 @@ not hours-long, app-restart or physical-user acceptance.
 Runtime packaging selects26 source/asset files and retains required third-party
 sources/licenses separately. Packaged Python bootstrap imports, three JS/TS entry
 builds and actual adapter admission pass without account state or Chat submission.
-Trial drivers/reports remain in Git rather than installed dependencies. This
-packaging change still needs activation; current installed23a08e9 has604 files.
+Trial drivers/reports remain in Git rather than installed dependencies. The
+527-file runtime is activated; reinstall/rollback/restore and six simultaneous
+bootstrap clients pass without Chat submission or account/config changes.
+
+The current source keeps the final user request visible, while earlier canonical
+user context (including environment records) stays user-scoped and visually hidden.
+It does not identify context by XML spelling: literal XML in the final request
+remains visible. Cold archived tool history remains a lossless hidden envelope,
+never executable app tool calls. This removes UI clutter without input compression,
+extra setup generations, or a claim about Chat allowance savings. Count every
+submitted user object, including hidden context. Existing remote chats are retained.
+This change is not implicitly installed; CURRENT.md identifies operating bytes.
 
 Offline real-Core recovery proof, without a Chat request:
 

@@ -20,8 +20,8 @@ DesktopLocalTransport.prototype.exchange=function(...args){
    if(method==='submit'){
     f.round++;if(f.round>(rejectTool||invalidTool?4:3))throw Error('fixture_unexpected_generation');
     if(f.round===1){
-     if(!data.prompt||data.results)throw Error('fixture_user_request_required');
-     const context=JSON.parse(data.prompt.slice(data.prompt.indexOf('Native ordered task context:\n')+'Native ordered task context:\n'.length));
+     if(!data.prompt&&!data.taskMessages?.length||data.results)throw Error('fixture_user_request_required');
+     const context=data.taskMessages?.map(m=>({role:m.role,content:m.text}))??JSON.parse(data.prompt.slice(data.prompt.indexOf('Native ordered task context:\n')+'Native ordered task context:\n'.length));
      f.marker=context.at(-1).content.match(/write exactly ([0-9a-f]{32}) to proof\.txt/)?.[1]??context.at(-1).content.match(/printf %s ([0-9a-f]{32}) > proof\.txt/)?.[1];
      if(!f.marker)throw Error('fixture_nonce_missing');
     }else if(rejectTool&&f.round===3){

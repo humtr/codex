@@ -3308,8 +3308,8 @@ If Core resumes an interrupted native tool with its exact result and a genuinely
 new user instruction, return both in one ordered native completion: original tool
 results precede the new input. Count both submission kinds and one model start;
 do not create an extra tool-only generation or fabricate a user continuation.
-Coalesce adjacent Core user-context records (including its interruption notice)
-into one actual user message while preserving their content and order.
+Coalesce adjacent Core user-context records with the same display visibility
+while preserving their content and order. Keep the current visible request separate.
 Incomplete, duplicated or reordered pending results must refuse before dispatch.
 
 Local-function calls may use a schema-preserving catalog with a typed gateway
@@ -3350,6 +3350,11 @@ This does not certify termination of native background commands; Core
 owns their exact results and explicit termination. Unknown non-aborted delivery
 or failed cleanup remains blocked.
 Callbacks from older rounds and old message IDs cannot publish current work.
+Before dispatch, a positively identified new signed-app generation retires stale
+local connection state and reconstructs context from Core's canonical history,
+including completed tool outputs. It never resubmits a native tool or returns an
+old local-function call into a new app lane. Unknown delivery remains blocked;
+an app restart does not by itself authorize retrying an uncertain request.
 
 The same gateway call may carry a model-authored public `report` alongside its
 native tool name/input. Project that report as commentary before the tool call;
@@ -3360,6 +3365,20 @@ public output, not extraction of private reasoning.
 The report field is optional presentation metadata. Its absence means no report;
 it must not reject an otherwise valid native invocation. A supplied value must
 still be text, and no progress text is invented by the adapter.
+For ordered text-only native context, preserve user/developer/assistant roles in
+the app request and submit the user's actual text without a JSON history envelope.
+Previously imported assistant messages are inert history, never current output or
+tool requests. Context containing archived native calls keeps the lossless ordered
+envelope until exact role/call-result reconstruction is qualified. This fallback
+does not add setup turns. Warm resident assistant output need not be resent.
+Keep the current final user request visible and separate from the preceding
+canonical context. Context-only user records retain their exact user authority,
+content and order, but are hidden in the app conversation display; never infer
+context from XML tag spelling. Literal environment XML in the current request
+remains visible. Cold archived native calls keep their lossless ordered envelope
+in a hidden user context record; do not convert them into executable app calls.
+Neither hiding nor co-submitting context establishes any Chat-limit saving; count
+all actual user-message objects and model starts separately.
 Host terminal completion is required before returning a terminal sample. A
 finished sampling response carrying tool calls is not the end of Core's task.
 

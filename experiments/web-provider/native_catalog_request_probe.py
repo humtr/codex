@@ -46,6 +46,15 @@ def probe(source, runtime, bun, bridge, catalog, core=None, frontend=None, manag
                              'keys': sorted(body), 'inputTypes': sorted({str(i.get('type')) for i in body.get('input', [])}),
                              'toolTypes': sorted({str(t.get('type')) for t in body.get('tools', [])})})
             captured[-1]['nativeTurnIdentityPresent'] = bool(metadata.get('thread_id') and metadata.get('turn_id'))
+            captured[-1]['classifiedEnvironmentParts'] = sum(
+                kind=='environments.environment_context' for item in body.get('input', [])
+                for kind in (item.get('internal_chat_message_metadata_passthrough') or {}).get('content_item_kinds', []))
+            captured[-1]['userInputShapes'] = [
+                {'parts':len(item.get('content',[])),
+                 'environmentParts':sum(part.get('type')=='input_text' and part.get('text','').lstrip().startswith('<environment_context>')
+                     for part in item.get('content',[]) if isinstance(part,dict)),
+                 'metadataKeys':sorted((item.get('internal_chat_message_metadata_passthrough') or {}).keys())}
+                for item in body.get('input',[]) if item.get('role')=='user' and isinstance(item.get('content'),list)]
             protocol = Path(__file__).with_name('desktop_protocol.mjs')
             code = 'const {parseRequest}=await import('+json.dumps(str(bridge))+');const {admitDesktopRequest}=await import('+json.dumps(str(protocol))+');const raw=JSON.parse(await Bun.stdin.text());try{const {parsed}=admitDesktopRequest(raw,parseRequest);console.log(JSON.stringify({status:"admitted",tools:parsed.context.tools.length}));}catch(e){console.log(JSON.stringify({status:e.message}));}'
             admission = subprocess.run([str(bun), '--eval', code], input=json.dumps(body),

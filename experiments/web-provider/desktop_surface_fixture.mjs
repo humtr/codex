@@ -13,12 +13,12 @@ DesktopLocalTransport.prototype.exchange=function(payload,...rest){
    if(method==='submit'){
     state.round++;if(state.round>10)throw Error('fixture_unexpected_generation');
     if(state.round===1){
-     if(!data.prompt)throw Error('fixture_initial_input_required');
-     state.marker=data.prompt.match(/marker is ([a-f0-9]{32})/)?.[1];
+     if(!data.prompt&&!data.taskMessages?.length)throw Error('fixture_initial_input_required');
+     state.marker=(data.prompt??JSON.stringify(data.taskMessages)).match(/marker is ([a-f0-9]{32})/)?.[1];
      if(!state.guardian&&!state.marker)throw Error('fixture_marker_missing');
     }else if(!data.results?.length||data.prompt)throw Error('fixture_tool_return_required');
     if(!state.guardian&&[5,6].includes(state.round)){const expected=state.round===5?'surface-start-batch':'surface-poll-batch';if(data.results.length!==1||data.results[0].id!==expected||data.results[0].result.results?.length!==2)throw Error('fixture_original_batch_result_required');}
-    state.user=(state.user??0)+(data.prompt?1:0)+(data.contextMessages||[]).filter(m=>m.role==='user').length;
+    state.user=(state.user??0)+(data.prompt?1:0)+(data.taskMessages||[]).filter(m=>m.role==='user').length+(data.contextMessages||[]).filter(m=>m.role==='user').length;
     state.returns=(state.returns??0)+(data.results?.length??0);return true;
    }
    if(method!=='snapshot')throw Error('fixture_operation_invalid');

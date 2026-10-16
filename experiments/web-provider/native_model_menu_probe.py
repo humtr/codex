@@ -39,7 +39,8 @@ def fixture(root, core, frontend, named_permission=False, manager=None):
     home, prefix, env = permission_fixture(root, core, frontend, manager)
     native_path = home/'.codex/native-models.json'
     catalog = json.loads(native_path.read_text())
-    catalog['models'][0].update(display_name='Owned Codex', visibility='list')
+    catalog['models'][0].update(display_name='Owned Codex', visibility='list',default_reasoning_level='none',
+        supported_reasoning_levels=[{'effort':e,'description':'Owned selection fixture'} for e in ['none','medium','high','xhigh']])
     for name in ['native-models.json','models_cache.json']:
         (home/'.codex'/name).write_text(json.dumps(catalog))
     if named_permission:
