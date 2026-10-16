@@ -1314,16 +1314,13 @@ fn notification_test_timeout_terminates_api_helper_descendants() {
     // kill(group, SIGKILL) is asynchronous for grandchildren. Reaping the shell
     // does not guarantee the kernel has scheduled its killed child yet.
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
-    loop {
-        let Ok(stat) = fs::read_to_string(proc.join("stat")) else {
-            break;
-        };
+    while let Ok(stat) = fs::read_to_string(proc.join("stat")) {
         let state = stat.rsplit_once(") ").unwrap().1.chars().next();
         if matches!(state, Some('Z' | 'X')) {
             break;
         }
         assert!(
-            matches!(state, Some('Z' | 'X')) || std::time::Instant::now() < deadline,
+            std::time::Instant::now() < deadline,
             "owned helper survived group kill: {state:?}"
         );
         std::thread::sleep(std::time::Duration::from_millis(10));
