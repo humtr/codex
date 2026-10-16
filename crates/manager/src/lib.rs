@@ -5,6 +5,8 @@ mod profile_resume;
 mod profile_view;
 use profile_view::format_current;
 mod origin;
+mod runtime_config;
+mod shared_profiles;
 mod task;
 mod terminal;
 mod tmux_launch;
@@ -312,6 +314,9 @@ where
 }
 
 fn run_inner(args: Vec<OsString>) -> Result<Option<String>, ManagerError> {
+    if is_exact(args.first(), "__runtime-config-v1") {
+        return runtime_config::prepare(&capture_context()?, &args[1..]);
+    }
     if is_exact(args.first(), "__terminal-capabilities-v1") {
         if !is_exact(args.get(2), "--") {
             return Err(ERR_USAGE);

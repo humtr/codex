@@ -32,6 +32,11 @@ def qualify(generation, parent, public_key):
             path.mkdir(parents=True, exist_ok=True, mode=0o700)
         core = prefix / "bin/codex"
         shutil.copy2(generation / "core", core)
+        # Signed-generation admission uses the fixture PREFIX, not host PATH.
+        # Provision the actual verifier without importing host credentials/state.
+        openssl = shutil.which("openssl")
+        assert openssl is not None, "OpenSSL is required for signed native proof"
+        (prefix / "bin/openssl").symlink_to(openssl)
         (prefix / "etc/resolv.conf").write_text("nameserver 127.0.0.1\n")
         (prefix / "etc/tls/cert.pem").write_text("owned\n")
         (home / ".local/share/codex/core/activation-state").write_text(fixture_activation_state(identity, public_key))
@@ -51,6 +56,11 @@ requires_openai_auth = false
         (home / ".codex/config.toml").write_text(config)
         profiles = home / ".local/share/codex/manager/profiles"
         clients, servers = [], set()
+
+        def server_directories():
+            state = home / ".local/share/codex/core"
+            return [path for family in ["servers", "catalogs"]
+                    for path in (state / family).glob("*")]
 
         def run(*args, account=None, success=True):
             selected = dict(env)
@@ -86,7 +96,7 @@ requires_openai_auth = false
                 except OSError:
                     pass
                 assert process.poll() is None, f"owned native client exited: {diagnostic!r}"
-                for path in (home / ".local/share/codex/core/servers").glob("*"):
+                for path in server_directories():
                     if (path / "owner").exists() and (path / "pid").exists() and (path / "owner").read_bytes().split(b"\0")[0] == os.fsencode(account):
                         pid = int((path / "pid").read_text())
                         if (path / "s").exists() and Path(f"/proc/{pid}/exe").resolve() == native / "runtime":
@@ -106,7 +116,7 @@ requires_openai_auth = false
                         process.wait()
                 os.close(master)
             clients.clear()
-            for path in (home / ".local/share/codex/core/servers").glob("*"):
+            for path in server_directories():
                 if (path / "pid").exists():
                     servers.add(int((path / "pid").read_text()))
             for pid in servers:

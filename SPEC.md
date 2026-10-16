@@ -25,12 +25,14 @@ update authority is maintained.
   distinct from Manager login accounts. Model/effort metadata is not an entitlement
   proof; deferred families and unexecuted Pro choices are labelled accordingly.
   Core's existing private config directory may contain `profiles/NAME.config.toml`.
-  Launch projects missing upstream filenames into an owned execution home with
+  Manager launch preparation projects missing upstream filenames into an owned execution home with
   atomic no-replace symlinks; existing local overrides win. Shared profile sources
   must be private owned regular files and the registry a private owned real
-  directory. No account auth/base config is merged or replaced. This generic
-  path adaptation works independently of Manager/provider lifecycle; missing or
-  unavailable optional registration never prevents ordinary Core launch.
+  directory. No account auth/base config is merged or replaced. Core does not
+  interpret the registry. Previously registered files remain usable without
+  Manager; absent Manager skips new convenience registration, while native
+  account-local upstream profiles continue to work. Missing or unavailable
+  optional registration never prevents ordinary Core launch.
   An optional source-built Manager TUI is the third signed helper at `helpers/2`,
   identified by `termux-manager-tui-v1:UPSTREAM_VERSION`. The first two helpers
   retain the accepted browser identities. Its version must exactly match the
@@ -803,7 +805,9 @@ Manager must not directly write Core generations, pointers, manifests, locks,
 runtime state, resolver data, or activation journals. A Manager request that
 would mutate Core state must use a versioned, runtime-validated Core contract.
 The Manager may create and update only its declared state and an explicitly
-created profile-home directory. It must not copy, parse, summarize, or rewrite
+created profile-home directory, plus the no-replace shared configuration-profile
+links in a validated selected upstream home described below. It must not copy,
+parse, summarize, or rewrite
 authentication files, cookies, OAuth material, arbitrary upstream state, or
 session transcript content. Profile execution changes `CODEX_HOME` only in the
 child environment and returns through the stable Core entrypoint; it never
@@ -818,7 +822,8 @@ doctor, Core update, or Core rollback unavailable. Manager v1 has no external ne
 package-manager, OpenSSL, bwrap, resolver, or generation-discovery authority.
 Profile registration creates only Manager metadata and a private new account
 home. Selection affects only the child invocation; execution readiness and
-shared-path preparation belong to Core before upstream launch.
+shared conversation-path preparation belong to Core before upstream launch.
+Optional shared configuration-profile projection belongs to Manager preparation.
 
 An installed generation's unavailable Manager is reported at the Manager
 boundary and by doctor; it does not invalidate the independently usable Core
@@ -861,8 +866,10 @@ launch. Authentication, conversation persistence and thread lifecycle remain
 upstream-owned. Session conveniences, if selected in a later contract, must use
 upstream-supported discovery/resume rather than a second transcript index.
 
-Notification policy and Termux delivery belong to Manager; Core projects its
-validated selections onto the upstream hook configuration. Delivery failure must
+Notification policy, upstream hook rendering and Termux delivery belong to Manager.
+Core combines its execution defaults with a bounded configuration fragment from
+the admitted Manager; it does not parse Manager notification records or event names.
+Delivery failure must
 not fail an upstream turn. Public-path proof must establish the intended event
 and delivery behavior; a configuration record or generated command alone is not
 proof of the user's completed task. Legacy functionality is evaluated against
@@ -988,6 +995,36 @@ preserve the server PID, directory inode, credentials and running threads.
 Subsequent native config reads and new/resumed thread configuration must see
 current Manager hook selection. Do not restart active writers or add CLI
 overrides to make notification changes visible.
+
+#### Optional Manager configuration preparation
+
+Before final runtime execution, Core may call the admitted generation's Manager
+with `__runtime-config-v1 CONFIG_DIRECTORY`. This private endpoint requires the
+existing Core handoff, never starts a runtime or performs inference/network work,
+and receives no upstream workload arguments. It returns UTF-8 bytes beginning with
+`codex-manager-runtime-config-v1\n`, followed by the Manager-owned upstream TOML
+fragment. The entire response is limited to 8 KiB (inside the existing 16-KiB
+shared-server configuration bound) and the call to two seconds;
+stdin and stderr are not inherited. Core checks the envelope, byte bound, UTF-8
+and absence of NUL, and atomically publishes the fragment after its execution
+defaults through the existing FD-34 config.toml. Upstream still owns TOML parsing
+and configuration precedence. No account config.toml or credential is rewritten.
+
+Manager reads its own notification policy and renders the same existing native
+completion callback and hook matchers. Missing configuration enables no automatic
+hooks; malformed configuration does not become default notification enrollment.
+The same preparation owns optional shared `*.config.toml` projection from the
+private CONFIG_DIRECTORY/profiles registry into the selected upstream home.
+Existing local files and dangling links take precedence, and projection does not
+copy authentication or conversation data. Projection remains best effort.
+
+An absent Manager causes no call. A failed, incompatible, oversized or timed-out
+response is discarded with a concise warning, leaving the Core execution defaults
+usable; it must not replay the workload or run an alternate executor. The legacy
+`# codex-termux-notify-v1` file prefix remains solely as the ownership marker for
+safe replacement of existing Core system configuration. Shared-server snapshots
+consume the same combined file without a second policy renderer. Managed-home
+leases and shared conversation preparation remain Core-owned in this slice.
 
 ### Termux permission selection
 
@@ -2718,17 +2755,15 @@ and parent synchronization. A successful `notify set` emits exactly `saved\n`.
 It never writes an upstream profile, Core generation, activation state, or
 notification payload.
 
-For an ordinary upstream launch, Core may read this exact bounded Manager
-record read-only. Core independently validates its path, mode, bound, version
-and complete record shape, then returns only selected hook names. It does not
-apply channel, text, toast or focus policy, publish Manager state, or deliver
-notifications. No second projection record/schema is introduced. Core alone
-renders the enabled hooks into its own managed
-`config.toml`; Manager never writes that Core directory. The generated file is
-owned by Core, carries a fixed `codex-termux-notify-v1` marker, contains the
-accepted Core execution defaults and selected notification callbacks, and is
-atomically
-replaced before runtime exec. Core replaces a missing file or its own marker
+For an ordinary upstream launch, the admitted Manager reads this exact bounded
+record and validates its path, mode, bound, version and complete shape. Manager
+renders the selected native callbacks and hooks through the bounded private
+configuration preparation endpoint above. Core neither reads the record nor
+recognizes notification events. No persistent projection record/schema is
+introduced, and Manager never writes Core's system configuration. Core combines
+its execution defaults with the returned fragment and atomically replaces its
+own `config.toml` before runtime exec. The generated file retains the fixed
+`codex-termux-notify-v1` ownership marker. Core replaces a missing file or its own marker
 file only; conflicting foreign state is preserved and rejected before execution.
 This Core-owned configuration conflict is distinct from invalid optional
 Manager state. Each enabled event is mapped

@@ -63,11 +63,15 @@ mod tests {
     struct Root(std::path::PathBuf);
     impl Drop for Root {
         fn drop(&mut self) {
-            crate::tests::remove_temp_root(&self.0);
+            fs::remove_dir_all(&self.0).unwrap();
         }
     }
     fn roots() -> (Root, std::path::PathBuf, std::path::PathBuf) {
-        let root = Root(crate::tests::temp_root("shared-config-profiles"));
+        let id = super::super::TEMP_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let root = Root(
+            std::env::temp_dir().join(format!("manager-shared-config-{}-{id}", std::process::id())),
+        );
+        fs::create_dir(&root.0).unwrap();
         let config = root.0.join("config");
         let home = root.0.join("home");
         fs::create_dir_all(config.join("profiles")).unwrap();

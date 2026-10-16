@@ -3,6 +3,8 @@ use std::ffi::{OsStr, OsString};
 #[cfg(unix)]
 mod maintenance;
 #[cfg(unix)]
+mod manager_config;
+#[cfg(unix)]
 mod manager_tui;
 #[cfg(unix)]
 mod profile_lease;
@@ -10,8 +12,6 @@ mod profile_lease;
 mod rollback_guard;
 #[cfg(unix)]
 mod shared_layout;
-#[cfg(unix)]
-mod shared_profiles;
 #[cfg(unix)]
 mod shared_server;
 
@@ -1359,9 +1359,9 @@ impl std::error::Error for RuntimeLaunchError {
 /// FD 33/34 handling, environment fencing, raw argv, and final `exec` process semantics.
 #[cfg(unix)]
 #[derive(Debug, Clone, Copy)]
-struct QualifiedRuntimeLaunchOptions<'args> {
+struct QualifiedRuntimeLaunchOptions<'args, 'manager, 'asset> {
     planned_args: &'args [OsString],
-    manager_available: bool,
+    manager: ManagerArtifact<'manager, 'asset>,
     manager_tui_available: bool,
 }
 
@@ -1373,7 +1373,7 @@ fn launch_qualified_runtime<'selection, 'asset, R, C>(
     cert_dir: Option<&OsStr>,
     resolver_path: R,
     config_dir: C,
-    options: QualifiedRuntimeLaunchOptions<'_>,
+    options: QualifiedRuntimeLaunchOptions<'_, '_, '_>,
 ) -> RuntimeLaunchError
 where
     R: AsRef<std::path::Path>,
@@ -1412,16 +1412,12 @@ where
         Ok(None) => (),
         Err(error) => return RuntimeLaunchError::Config(error),
     }
-    if let Err(error) =
-        prepare_core_notification_config(config_dir.as_ref(), options.manager_available)
-    {
+    if let Err(error) = validate_core_config(config_dir.as_ref()) {
         return RuntimeLaunchError::Config(error);
     }
-    if let Some(home) = std::env::var_os("HOME") {
-        let profile = upstream_execution_home(&std::path::PathBuf::from(home));
-        // Optional shared config cannot make ordinary Core operation unavailable.
-        // Existing account-local files always take precedence.
-        let _ = shared_profiles::project(config_dir.as_ref(), &profile);
+    let fragment = manager_config::optional(options.manager, config_dir.as_ref());
+    if let Err(error) = prepare_core_config(config_dir.as_ref(), &fragment) {
+        return RuntimeLaunchError::Config(error);
     }
     use std::io::IsTerminal as _;
     if options.planned_args == [OsStr::new(shared_server::CATALOG_COMMAND)] {
@@ -1451,7 +1447,7 @@ where
     if std::io::stdin().is_terminal()
         && std::io::stdout().is_terminal()
         && (shared_server::eligible(options.planned_args)
-            || (options.manager_available
+            || (matches!(options.manager, ManagerArtifact::Available(_))
                 && options.manager_tui_available
                 && manager_tui::local_interactive(options.planned_args)))
     {
@@ -1468,7 +1464,7 @@ where
                 &env_plan,
             ) {
                 Ok(_socket) => {
-                    if options.manager_available
+                    if matches!(options.manager, ManagerArtifact::Available(_))
                         && options.manager_tui_available
                         && manager_tui::supported(options.planned_args)
                     {
@@ -1506,29 +1502,20 @@ where
 const CODEX_SQLITE_HOME_ENV: &str = "CODEX_SQLITE_HOME";
 #[cfg(unix)]
 const CORE_SHARED_REQUIREMENTS_MARKER: &str = "# codex-termux-shared-state-v1\n";
+// Retain the existing file ownership marker across upgrades.
 #[cfg(unix)]
-const CORE_NOTIFY_RECORD_MAX_BYTES: usize = 4096;
+const CORE_SYSTEM_CONFIG_MARKER: &str = "# codex-termux-notify-v1\n";
 
 #[cfg(unix)]
-const CORE_NOTIFY_EVENTS: [&str; 11] = [
-    "SessionStart",
-    "PreToolUse",
-    "PermissionRequest",
-    "PostToolUse",
-    "PreCompact",
-    "PostCompact",
-    "UserPromptSubmit",
-    "SubagentStart",
-    "SubagentStop",
-    "UserInputRequest",
-    "Stop",
-];
+fn render_core_config(fragment: &[u8]) -> Vec<u8> {
+    let mut bytes = CORE_SYSTEM_CONFIG_MARKER.as_bytes().to_vec();
+    bytes.extend_from_slice(b"sandbox_mode = \"danger-full-access\"\nmcp_oauth_credentials_store = \"file\"\nthread_unload_delay_secs = 0\n\n");
+    bytes.extend_from_slice(fragment);
+    bytes
+}
 
 #[cfg(unix)]
-const CORE_NOTIFY_MARKER: &str = "# codex-termux-notify-v1\n";
-
-#[cfg(unix)]
-fn core_notify_safe_absolute_path(path: &std::path::Path) -> bool {
+fn core_safe_absolute_path(path: &std::path::Path) -> bool {
     path.is_absolute()
         && path.components().all(|component| {
             matches!(
@@ -1536,220 +1523,6 @@ fn core_notify_safe_absolute_path(path: &std::path::Path) -> bool {
                 std::path::Component::RootDir | std::path::Component::Normal(_)
             )
         })
-}
-
-#[cfg(unix)]
-fn core_notify_real_path(path: &std::path::Path) -> Option<std::path::PathBuf> {
-    if !core_notify_safe_absolute_path(path) {
-        return None;
-    }
-    let mut current = std::path::PathBuf::from("/");
-    let components: Vec<_> = path
-        .components()
-        .filter_map(|component| match component {
-            std::path::Component::RootDir => None,
-            std::path::Component::Normal(value) => Some(value.to_owned()),
-            _ => None,
-        })
-        .collect();
-    for (index, component) in components.iter().enumerate() {
-        current.push(component);
-        let metadata = std::fs::symlink_metadata(&current).ok()?;
-        if metadata.file_type().is_symlink()
-            || (index + 1 != components.len() && !metadata.is_dir())
-        {
-            return None;
-        }
-    }
-    Some(path.to_owned())
-}
-
-#[cfg(unix)]
-fn core_manager_notify_path() -> Option<std::path::PathBuf> {
-    let home = std::env::var_os("HOME").map(std::path::PathBuf::from)?;
-    core_notify_real_path(&home)?;
-    let config = home.join(".local/share/codex/manager/notifications/config-v1");
-    core_notify_real_path(&config)
-}
-
-#[cfg(unix)]
-fn core_notify_record_field<'a>(line: Option<&'a str>, key: &str) -> Option<&'a str> {
-    line?.strip_prefix(&format!("{key}\t"))
-}
-
-#[cfg(unix)]
-fn core_notify_valid_bool(value: &str) -> bool {
-    matches!(value, "0" | "1")
-}
-
-#[cfg(unix)]
-fn core_notify_valid_color(value: &str) -> bool {
-    if value == "empty" {
-        return true;
-    }
-    let bytes = value.as_bytes();
-    bytes.len() == 7
-        && bytes[0] == b'#'
-        && bytes[1..].iter().all(u8::is_ascii_hexdigit)
-        && value
-            .chars()
-            .skip(1)
-            .all(|character| !character.is_ascii_uppercase())
-}
-
-#[cfg(unix)]
-fn core_notify_parse_hooks(value: &str) -> Option<Vec<&'static str>> {
-    if value == "none" {
-        return Some(Vec::new());
-    }
-    if value == "all" {
-        return Some(CORE_NOTIFY_EVENTS.to_vec());
-    }
-    if value.is_empty() {
-        return None;
-    }
-    let mut enabled = [false; CORE_NOTIFY_EVENTS.len()];
-    for item in value.split(',') {
-        let index = CORE_NOTIFY_EVENTS.iter().position(|event| *event == item)?;
-        if enabled[index] {
-            return None;
-        }
-        enabled[index] = true;
-    }
-    Some(
-        CORE_NOTIFY_EVENTS
-            .iter()
-            .enumerate()
-            .filter_map(|(index, event)| enabled[index].then_some(*event))
-            .collect(),
-    )
-}
-
-#[cfg(unix)]
-fn core_notify_parse_record(bytes: &[u8]) -> Option<Vec<&'static str>> {
-    let text = std::str::from_utf8(bytes).ok()?;
-    let mut lines = text.split('\n');
-    if lines.next() != Some("codex-manager-notify-v1") {
-        return None;
-    }
-    let channel = core_notify_record_field(lines.next(), "channel")?;
-    if !matches!(channel, "notification" | "toast" | "both") {
-        return None;
-    }
-    let hooks = core_notify_parse_hooks(core_notify_record_field(lines.next(), "hooks")?)?;
-    let content_chars = core_notify_record_field(lines.next(), "content_chars")?;
-    if content_chars.is_empty()
-        || content_chars.bytes().any(|byte| !byte.is_ascii_digit())
-        || content_chars.parse::<usize>().ok()? > 4096
-    {
-        return None;
-    }
-    if !core_notify_valid_bool(core_notify_record_field(lines.next(), "preserve_newlines")?) {
-        return None;
-    }
-    let gravity = core_notify_record_field(lines.next(), "toast_gravity")?;
-    if !matches!(gravity, "top" | "middle" | "bottom") {
-        return None;
-    }
-    if !core_notify_valid_bool(core_notify_record_field(lines.next(), "toast_short")?) {
-        return None;
-    }
-    if !core_notify_valid_color(core_notify_record_field(lines.next(), "toast_background")?)
-        || !core_notify_valid_color(core_notify_record_field(lines.next(), "toast_color")?)
-    {
-        return None;
-    }
-    let group = core_notify_record_field(lines.next(), "group")?;
-    let group_bytes = group.as_bytes();
-    if group_bytes.is_empty()
-        || group_bytes.len() > 64
-        || !group_bytes[0].is_ascii_alphanumeric()
-        || !group_bytes
-            .iter()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
-    {
-        return None;
-    }
-    if lines.next() != Some("") || lines.next().is_some() {
-        return None;
-    }
-    Some(hooks)
-}
-
-#[cfg(unix)]
-fn core_read_manager_notify_hooks() -> Option<Vec<&'static str>> {
-    use std::io::Read as _;
-    use std::os::unix::fs::PermissionsExt;
-
-    let path = core_manager_notify_path()?;
-    let metadata = std::fs::symlink_metadata(&path).ok()?;
-    if metadata.file_type().is_symlink()
-        || !metadata.is_file()
-        || metadata.permissions().mode() & 0o7777 != 0o600
-    {
-        return None;
-    }
-    let mut file = std::fs::File::open(path).ok()?;
-    let mut bytes = Vec::new();
-    file.by_ref()
-        .take((CORE_NOTIFY_RECORD_MAX_BYTES + 1) as u64)
-        .read_to_end(&mut bytes)
-        .ok()?;
-    if bytes.len() > CORE_NOTIFY_RECORD_MAX_BYTES {
-        return None;
-    }
-    core_notify_parse_record(&bytes)
-}
-
-#[cfg(unix)]
-fn core_notify_status_message(event: &str) -> &'static str {
-    match event {
-        "SessionStart" => "Notify session start",
-        "PreToolUse" => "Notify tool start",
-        "PermissionRequest" => "Notify permission request",
-        "PostToolUse" => "Notify tool finish",
-        "PreCompact" => "Notify before compact",
-        "PostCompact" => "Notify after compact",
-        "UserPromptSubmit" => "Notify prompt submit",
-        "SubagentStart" => "Notify subagent start",
-        "SubagentStop" => "Notify subagent stop",
-        "UserInputRequest" => "Codex needs your input",
-        _ => "Notify Codex event",
-    }
-}
-
-#[cfg(unix)]
-fn render_core_notification_config(events: &[&str]) -> Vec<u8> {
-    let mut output = String::from(CORE_NOTIFY_MARKER);
-    output.push_str(
-        "sandbox_mode = \"danger-full-access\"\nmcp_oauth_credentials_store = \"file\"\nthread_unload_delay_secs = 0\n\n",
-    );
-    if events.contains(&"Stop") {
-        // Upstream clears native notify for internal memory consolidation.
-        output.push_str("notify = [\"codex\", \"termux\", \"notify\", \"emit\", \"Stop\"]\n\n");
-    }
-    for event in events {
-        if *event == "Stop" || (*event == "UserInputRequest" && events.contains(&"PreToolUse")) {
-            continue;
-        }
-        let hook = if *event == "UserInputRequest" {
-            "PreToolUse"
-        } else {
-            event
-        };
-        output.push_str(&format!("[[hooks.{hook}]]\n"));
-        if *event == "UserInputRequest" {
-            output.push_str(&format!(
-                "matcher = \"{}\"\n",
-                core_toml_basic_string(r"^(functions\.)?request_user_input(_async)?$")
-            ));
-        }
-        output.push_str(&format!(
-            "\n[[hooks.{hook}.hooks]]\ntype = \"command\"\ncommand = \"codex termux notify emit {event}\"\ntimeout = 15\nstatusMessage = \"{}\"\n\n",
-            core_notify_status_message(event)
-        ));
-    }
-    output.into_bytes()
 }
 
 #[cfg(unix)]
@@ -1883,12 +1656,8 @@ fn prepare_core_shared_state_requirements(
 }
 
 #[cfg(unix)]
-fn prepare_core_notification_config(
-    config_dir: &std::path::Path,
-    manager_available: bool,
-) -> std::io::Result<()> {
-    use std::io::{Read as _, Write as _};
-    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+fn validate_core_config(config_dir: &std::path::Path) -> std::io::Result<()> {
+    use std::io::Read as _;
 
     let Ok(directory_metadata) = std::fs::symlink_metadata(config_dir) else {
         return Err(std::io::Error::other(
@@ -1907,31 +1676,36 @@ fn prepare_core_notification_config(
                 "Core system configuration is unavailable or not Core-owned",
             ));
         }
-        if metadata.len() < CORE_NOTIFY_MARKER.len() as u64 {
+        if metadata.len() < CORE_SYSTEM_CONFIG_MARKER.len() as u64 {
             return Err(std::io::Error::other(
                 "Core system configuration is unavailable or not Core-owned",
             ));
         }
         let existing = std::fs::File::open(&destination).ok().and_then(|file| {
             let mut bytes = Vec::new();
-            file.take(CORE_NOTIFY_MARKER.len() as u64)
+            file.take(CORE_SYSTEM_CONFIG_MARKER.len() as u64)
                 .read_to_end(&mut bytes)
                 .ok()?;
             Some(bytes)
         });
-        if existing.as_deref() != Some(CORE_NOTIFY_MARKER.as_bytes()) {
+        if existing.as_deref() != Some(CORE_SYSTEM_CONFIG_MARKER.as_bytes()) {
             return Err(std::io::Error::other(
                 "Core system configuration is unavailable or not Core-owned",
             ));
         }
     }
-    let events = manager_available
-        .then(core_read_manager_notify_hooks)
-        .flatten()
-        .unwrap_or_default();
-    let bytes = render_core_notification_config(&events);
+    Ok(())
+}
+
+#[cfg(unix)]
+fn prepare_core_config(config_dir: &std::path::Path, fragment: &[u8]) -> std::io::Result<()> {
+    use std::io::Write as _;
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    validate_core_config(config_dir)?;
+    let destination = config_dir.join("config.toml");
+    let bytes = render_core_config(fragment);
     let temporary = config_dir.join(format!(
-        ".codex-termux-notify-{}-{}",
+        ".codex-termux-config-{}-{}",
         std::process::id(),
         LOCAL_STAGING_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
@@ -3215,10 +2989,7 @@ fn execute_public_dispatch<
                     context.config_dir,
                     QualifiedRuntimeLaunchOptions {
                         planned_args: &args,
-                        manager_available: matches!(
-                            context.manager_artifact,
-                            ManagerArtifact::Available(_)
-                        ),
+                        manager: context.manager_artifact,
                         manager_tui_available: context.manager_tui_available,
                     },
                 ),
@@ -12681,17 +12452,15 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn test_tc3_mcp_file_store_policy_is_exact() {
-        let empty = render_core_notification_config(&[]);
+        let empty = render_core_config(&[]);
         assert_eq!(
             empty,
             b"# codex-termux-notify-v1\nsandbox_mode = \"danger-full-access\"\nmcp_oauth_credentials_store = \"file\"\nthread_unload_delay_secs = 0\n\n".to_vec()
         );
-        let with_hook =
-            String::from_utf8(render_core_notification_config(&["SessionStart"])).unwrap();
-        assert!(with_hook
-            .starts_with("# codex-termux-notify-v1\nsandbox_mode = \"danger-full-access\"\nmcp_oauth_credentials_store = \"file\"\nthread_unload_delay_secs = 0\n\n"));
-        assert!(with_hook.contains("[[hooks.SessionStart]]"));
-        assert!(!with_hook.contains("keyring"));
+        let with_fragment =
+            String::from_utf8(render_core_config(b"# optional fragment\n")).unwrap();
+        assert!(with_fragment.ends_with("# optional fragment\n"));
+        assert!(!with_fragment.contains("keyring"));
     }
 
     #[cfg(unix)]
@@ -13059,27 +12828,90 @@ mod tests {
         let root = temp_root("full-access-config");
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("config.toml"), b"foreign = true\n").unwrap();
-        assert!(prepare_core_notification_config(&root, false).is_err());
+        assert!(prepare_core_config(&root, &[]).is_err());
         assert_eq!(
             std::fs::read(root.join("config.toml")).unwrap(),
             b"foreign = true\n"
         );
         std::fs::remove_file(root.join("config.toml")).unwrap();
-        prepare_core_notification_config(&root, false).unwrap();
+        prepare_core_config(&root, &[]).unwrap();
         assert_eq!(
             std::fs::read(root.join("config.toml")).unwrap(),
-            render_core_notification_config(&[])
+            render_core_config(&[])
         );
-        prepare_core_notification_config(&root, false).unwrap();
+        prepare_core_config(&root, &[]).unwrap();
         std::fs::remove_file(root.join("config.toml")).unwrap();
         std::fs::write(root.join("foreign"), b"foreign = true\n").unwrap();
         std::os::unix::fs::symlink(root.join("foreign"), root.join("config.toml")).unwrap();
-        assert!(prepare_core_notification_config(&root, false).is_err());
+        assert!(prepare_core_config(&root, &[]).is_err());
         assert_eq!(
             std::fs::read(root.join("foreign")).unwrap(),
             b"foreign = true\n"
         );
         remove_temp_root(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn admitted_manager_fragment_reaches_runtime_and_absence_clears_stale_policy() {
+        let (root, runtime, resolver, config) = prepare_exec_fixture("manager-config-projection");
+        // A generic payload fixture: Core must not parse a Manager policy record.
+        let fragment = b"# optional upstream configuration\n[features]\nexample = true\n";
+        std::fs::write(root.join("manager-fragment"), fragment).unwrap();
+        let result = run_product_probe("notify-projection", &root, &runtime, &resolver, &config);
+        assert_eq!(result.status.code(), Some(0));
+        assert_eq!(result.stdout, b"codex-upstream 9.9.9\n");
+        assert_eq!(result.stderr, b"version-stderr\n");
+        assert_eq!(
+            std::fs::read(config.join("config.toml")).unwrap(),
+            render_core_config(fragment)
+        );
+
+        // Invalid opaque bytes never contaminate the system file or prevent exec.
+        std::fs::write(root.join("manager-fragment"), b"\xff").unwrap();
+        let rejected = run_product_probe("notify-projection", &root, &runtime, &resolver, &config);
+        assert_eq!(rejected.status.code(), Some(0));
+        assert_eq!(rejected.stdout, result.stdout);
+        assert!(String::from_utf8(rejected.stderr)
+            .unwrap()
+            .contains("optional Manager configuration unavailable"));
+        assert_eq!(
+            std::fs::read(config.join("config.toml")).unwrap(),
+            render_core_config(&[])
+        );
+
+        std::fs::write(root.join("manager-fragment"), fragment).unwrap();
+        let absent = run_product_probe(
+            "notify-projection-unavailable",
+            &root,
+            &runtime,
+            &resolver,
+            &config,
+        );
+        assert_eq!(absent.stdout, result.stdout);
+        assert_eq!(absent.stderr, result.stderr);
+        assert_eq!(
+            std::fs::read(config.join("config.toml")).unwrap(),
+            render_core_config(&[])
+        );
+
+        std::fs::write(config.join("config.toml"), b"foreign = true\n").unwrap();
+        let conflict = run_product_probe(
+            "notify-projection-conflict",
+            &root,
+            &runtime,
+            &resolver,
+            &config,
+        );
+        assert!(!conflict
+            .stdout
+            .windows(result.stdout.len())
+            .any(|bytes| bytes == result.stdout));
+        assert_eq!(
+            std::fs::read(config.join("config.toml")).unwrap(),
+            b"foreign = true\n"
+        );
+        remove_temp_root(root);
     }
 
     pub(crate) fn temp_root(label: &str) -> std::path::PathBuf {
@@ -13125,6 +12957,11 @@ mod tests {
         let shell = std::str::from_utf8(shell.as_bytes()).expect("test shell path must be UTF-8");
         let path = root.join("fake-codex");
         let body = r#"
+if [ "$1" = "__runtime-config-v1" ]; then
+  printf 'codex-manager-runtime-config-v1\n'
+  if [ -f "$HOME/manager-fragment" ]; then cat "$HOME/manager-fragment"; fi
+  exit 0
+fi
 if [ -n "${CODEX_TEST_ARGS_FILE:-}" ]; then
   printf '%s\n' "$@" > "$CODEX_TEST_ARGS_FILE"
 fi
@@ -13386,6 +13223,9 @@ exit 73
         command
             .arg("tests::product_exec_probe")
             .arg("--exact")
+            // Capture the actual exec boundary's stderr, not libtest's buffer
+            // (which disappears when the probe replaces itself with runtime).
+            .arg("--nocapture")
             .env(PROBE_ROLE, "1")
             .env(PROBE_SCENARIO, scenario)
             .env(PROBE_ROOT, root)
@@ -13543,149 +13383,6 @@ exit 73
         assert_eq!(
             std::fs::read(config.join("requirements.toml")).unwrap(),
             operator_requirements
-        );
-        remove_temp_root(root);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn notification_input_request_projects_actual_upstream_matcher_without_duplicates() {
-        let narrow = core_notify_parse_hooks("Stop,UserInputRequest,PermissionRequest").unwrap();
-        assert_eq!(
-            narrow,
-            vec!["PermissionRequest", "UserInputRequest", "Stop"]
-        );
-        let config = String::from_utf8(render_core_notification_config(&narrow)).unwrap();
-        assert!(config.contains(
-            "[[hooks.PreToolUse]]\nmatcher = \"^(functions\\\\.)?request_user_input(_async)?$\"\n"
-        ));
-        assert!(config.contains("command = \"codex termux notify emit UserInputRequest\""));
-        assert!(config.contains("[[hooks.PreToolUse.hooks]]"));
-        assert!(!config.contains("[[hooks.UserInputRequest"));
-        assert_eq!(config.matches("timeout = 15").count(), 2);
-        assert!(config.contains("notify = [\"codex\", \"termux\", \"notify\", \"emit\", \"Stop\"]"));
-        assert!(!config.contains("hooks.Stop"));
-        for events in [
-            vec!["PreToolUse", "UserInputRequest"],
-            core_notify_parse_hooks("all").unwrap(),
-        ] {
-            let rendered = String::from_utf8(render_core_notification_config(&events)).unwrap();
-            assert_eq!(rendered.matches("[[hooks.PreToolUse]]").count(), 1);
-            assert!(!rendered.contains("emit UserInputRequest"));
-        }
-        assert!(core_notify_parse_hooks("UserInputRequest,UserInputRequest").is_none());
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn test_mgr3_notification_record_projects_hooks_on_real_upstream_launch() {
-        use std::os::unix::fs::PermissionsExt;
-
-        let (root, runtime, resolver, config) = prepare_exec_fixture("notify-projection");
-        let notifications = root.join(".local/share/codex/manager/notifications");
-        std::fs::create_dir_all(&notifications).unwrap();
-        for directory in [
-            root.join(".local"),
-            root.join(".local/share"),
-            root.join(".local/share/codex"),
-            root.join(".local/share/codex/manager"),
-            notifications.clone(),
-        ] {
-            std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
-        }
-        let record = b"codex-manager-notify-v1\nchannel\tboth\nhooks\tStop,SessionStart\ncontent_chars\t0\npreserve_newlines\t1\ntoast_gravity\ttop\ntoast_short\t0\ntoast_background\tempty\ntoast_color\tempty\ngroup\tcodex-turns\n";
-        let record_path = notifications.join("config-v1");
-        std::fs::write(&record_path, record).unwrap();
-        std::fs::set_permissions(&record_path, std::fs::Permissions::from_mode(0o600)).unwrap();
-
-        let projected = run_product_probe("notify-projection", &root, &runtime, &resolver, &config);
-        assert_eq!(projected.status.code(), Some(0));
-        assert_eq!(projected.stdout, b"codex-upstream 9.9.9\n");
-        assert_eq!(projected.stderr, b"version-stderr\n");
-        let expected = concat!(
-            "# codex-termux-notify-v1\n",
-            "sandbox_mode = \"danger-full-access\"\n",
-            "mcp_oauth_credentials_store = \"file\"\n",
-            "thread_unload_delay_secs = 0\n",
-            "\n",
-            "notify = [\"codex\", \"termux\", \"notify\", \"emit\", \"Stop\"]\n",
-            "\n",
-            "[[hooks.SessionStart]]\n",
-            "\n",
-            "[[hooks.SessionStart.hooks]]\n",
-            "type = \"command\"\n",
-            "command = \"codex termux notify emit SessionStart\"\n",
-            "timeout = 15\n",
-            "statusMessage = \"Notify session start\"\n",
-            "\n",
-        );
-        assert_eq!(
-            std::fs::read_to_string(config.join("config.toml")).unwrap(),
-            expected
-        );
-        assert_eq!(
-            core_notify_parse_record(record).unwrap(),
-            vec!["SessionStart", "Stop"]
-        );
-        assert!(core_notify_parse_record(b"codex-manager-notify-v1\nhooks\tStop\n").is_none());
-
-        let input_record = String::from_utf8(record.to_vec()).unwrap().replace(
-            "hooks\tStop,SessionStart",
-            "hooks\tStop,UserInputRequest,PermissionRequest",
-        );
-        std::fs::write(&record_path, &input_record).unwrap();
-        let input_projection =
-            run_product_probe("notify-projection", &root, &runtime, &resolver, &config);
-        assert_eq!(input_projection.status.code(), Some(0));
-        assert_eq!(input_projection.stdout, b"codex-upstream 9.9.9\n");
-        let events = core_notify_parse_record(input_record.as_bytes()).unwrap();
-        assert_eq!(
-            std::fs::read(config.join("config.toml")).unwrap(),
-            render_core_notification_config(&events)
-        );
-        assert!(events.contains(&"UserInputRequest"));
-
-        let unavailable = run_product_probe(
-            "notify-projection-unavailable",
-            &root,
-            &runtime,
-            &resolver,
-            &config,
-        );
-        assert_eq!(unavailable.status.code(), Some(0));
-        assert_eq!(
-            std::fs::read_to_string(config.join("config.toml")).unwrap(),
-            "# codex-termux-notify-v1\nsandbox_mode = \"danger-full-access\"\nmcp_oauth_credentials_store = \"file\"\nthread_unload_delay_secs = 0\n\n"
-        );
-
-        std::fs::write(
-            &record_path,
-            b"codex-manager-notify-v1\nchannel\tboth\nhooks\tnone\ncontent_chars\t0\npreserve_newlines\t1\ntoast_gravity\ttop\ntoast_short\t0\ntoast_background\tempty\ntoast_color\tempty\ngroup\tcodex-turns\n",
-        )
-        .unwrap();
-        let cleared = run_product_probe("notify-projection", &root, &runtime, &resolver, &config);
-        assert_eq!(cleared.status.code(), Some(0));
-        assert_eq!(
-            std::fs::read_to_string(config.join("config.toml")).unwrap(),
-            "# codex-termux-notify-v1\nsandbox_mode = \"danger-full-access\"\nmcp_oauth_credentials_store = \"file\"\nthread_unload_delay_secs = 0\n\n"
-        );
-        std::fs::write(config.join("config.toml"), b"user_setting = true\n").unwrap();
-        std::fs::write(&record_path, record).unwrap();
-        let preserved = run_product_probe(
-            "notify-projection-conflict",
-            &root,
-            &runtime,
-            &resolver,
-            &config,
-        );
-        assert_eq!(preserved.status.code(), Some(0));
-        assert!(!preserved
-            .stdout
-            .windows(b"codex-upstream 9.9.9".len())
-            .any(|w| w == b"codex-upstream 9.9.9"));
-        assert_eq!(
-            std::fs::read_to_string(config.join("config.toml")).unwrap(),
-            "user_setting = true\n"
         );
         remove_temp_root(root);
     }
@@ -13913,7 +13610,7 @@ exit 73
                 "/missing/config",
                 QualifiedRuntimeLaunchOptions {
                     planned_args: &planned,
-                    manager_available: false,
+                    manager: ManagerArtifact::Unavailable,
                     manager_tui_available: false,
                 },
             ),
@@ -15203,7 +14900,11 @@ snooze_until	0
                 let state_before = std::fs::read(&state_path).unwrap();
                 let descriptor_before = std::fs::read(generation.join("generation.meta")).unwrap();
                 let config = root.join("home/.local/share/codex/core/config/config.toml");
-                std::fs::write(&config, render_core_notification_config(&["Stop"])).unwrap();
+                std::fs::write(
+                    &config,
+                    render_core_config(b"# obsolete Manager fragment\n"),
+                )
+                .unwrap();
                 for scenario in ["version", "doctor", "manager"] {
                     let result = std::process::Command::new(std::env::current_exe().unwrap())
                         .args(["tests::public_main_probe", "--exact", "--nocapture"])
@@ -15221,10 +14922,7 @@ snooze_until	0
                             assert_eq!(result.status.code(), Some(0), "{defect}: {result:?}");
                             assert!(result.stdout.ends_with(b"codex-upstream 9.9.9\n"));
                             assert_eq!(result.stderr, b"version-stderr\n");
-                            assert_eq!(
-                                std::fs::read(&config).unwrap(),
-                                render_core_notification_config(&[])
-                            );
+                            assert_eq!(std::fs::read(&config).unwrap(), render_core_config(&[]));
                         }
                         "doctor" => {
                             assert_eq!(result.status.code(), Some(1), "{defect}: {result:?}");

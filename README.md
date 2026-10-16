@@ -53,9 +53,11 @@ and close its running clients/servers first.
 
 Upstream configuration profiles (`codex --profile NAME`) are separate from these
 login accounts. Optional shared configs live at
-`~/.local/share/codex/core/config/profiles/NAME.config.toml`; Core registers a
+`~/.local/share/codex/core/config/profiles/NAME.config.toml`; Manager registers a
 missing filename in each owned execution home. Existing local configs take
-priority, and base settings/login files stay unchanged. The opt-in ChatGPT pilot
+priority, and base settings/login files stay unchanged. Existing registrations
+and account-local upstream profiles work without Manager; new shared registration
+requires Manager. The opt-in ChatGPT pilot
 uses this common registration; `/model` selects its model and supported effort,
 while `--profile chatgpt` remains the fallback. The pilot's signed Linux app still
 owns its login and Chat inference. Setup/qualification is maintained on

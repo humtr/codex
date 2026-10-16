@@ -86,7 +86,7 @@ pub(super) fn eligible(args: &[OsString]) -> bool {
 }
 
 pub(super) fn private_dir(path: &Path) -> io::Result<()> {
-    if !super::core_notify_safe_absolute_path(path) {
+    if !super::core_safe_absolute_path(path) {
         return Err(invalid());
     }
     // Reject substituted parents as well as the final directory.
@@ -655,11 +655,7 @@ fn main() {
         private_dir(&config).unwrap();
         let resolver = root.join("resolver");
         fs::write(&resolver, b"nameserver 127.0.0.1\n").unwrap();
-        fs::write(
-            config.join("config.toml"),
-            crate::render_core_notification_config(&[]),
-        )
-        .unwrap();
+        fs::write(config.join("config.toml"), crate::render_core_config(&[])).unwrap();
         let env = crate::TermuxBaseEnvPlan {
             assignments: vec![("TMPDIR".into(), root.as_os_str().into())],
             removals: vec![],
@@ -679,8 +675,8 @@ fn main() {
         let pid_text = String::from_utf8(pid.clone()).unwrap();
         let server_config = PathBuf::from(format!("/proc/{}/fd/34", pid_text.trim()));
         let inode = fs::metadata(&server_config).unwrap().ino();
-        for events in [vec!["SessionStart"], vec![]] {
-            let bytes = crate::render_core_notification_config(&events);
+        for fragment in [b"# Manager configuration\n".as_slice(), b"".as_slice()] {
+            let bytes = crate::render_core_config(fragment);
             fs::write(config.join("config.toml"), &bytes).unwrap();
             fs::write(
                 config.join("requirements.toml"),
@@ -772,11 +768,7 @@ fn main() {
         private_dir(&config).unwrap();
         let resolver = root.join("resolver");
         fs::write(&resolver, b"nameserver 127.0.0.1\n").unwrap();
-        fs::write(
-            config.join("config.toml"),
-            crate::render_core_notification_config(&[]),
-        )
-        .unwrap();
+        fs::write(config.join("config.toml"), crate::render_core_config(&[])).unwrap();
         let env = crate::TermuxBaseEnvPlan {
             assignments: vec![("TMPDIR".into(), root.as_os_str().into())],
             removals: vec![],
@@ -874,11 +866,7 @@ fn main() {
         private_dir(&state).unwrap();
         let config = root.join("config");
         private_dir(&config).unwrap();
-        fs::write(
-            config.join("config.toml"),
-            crate::render_core_notification_config(&[]),
-        )
-        .unwrap();
+        fs::write(config.join("config.toml"), crate::render_core_config(&[])).unwrap();
         let resolver = root.join("resolver");
         fs::write(&resolver, b"nameserver 127.0.0.1\n").unwrap();
         let env = crate::TermuxBaseEnvPlan {
@@ -1024,11 +1012,7 @@ fn main() {
         private_dir(&state).unwrap();
         let config = root.join("config");
         private_dir(&config).unwrap();
-        fs::write(
-            config.join("config.toml"),
-            crate::render_core_notification_config(&[]),
-        )
-        .unwrap();
+        fs::write(config.join("config.toml"), crate::render_core_config(&[])).unwrap();
         let resolver = root.join("resolver");
         fs::write(&resolver, b"nameserver 127.0.0.1\n").unwrap();
         let env = crate::TermuxBaseEnvPlan {

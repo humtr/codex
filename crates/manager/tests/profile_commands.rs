@@ -86,6 +86,133 @@ fn base_manager_command(home: &Path, core: &Path) -> Command {
     command
 }
 
+#[test]
+fn runtime_config_preparation_owns_hooks_and_shared_profiles_without_executing_work() {
+    let root = TestRoot::new();
+    let core = write_core_probe(&root.0);
+    let home = root.0.join("home");
+    let config = root.0.join("config");
+    let account = home.join(".codex");
+    fs::create_dir_all(&account).unwrap();
+    fs::create_dir(&config).unwrap();
+    fs::write(account.join("config.toml"), b"# account settings\n").unwrap();
+    fs::write(account.join("auth.json"), b"private fixture auth\n").unwrap();
+    fs::write(config.join("config.toml"), b"# Core alone publishes this\n").unwrap();
+    let query = || {
+        base_manager_command(&home, &core)
+            .arg("__runtime-config-v1")
+            .arg(&config)
+            .output()
+            .unwrap()
+    };
+    let empty = query();
+    assert!(empty.status.success(), "{empty:?}");
+    assert_eq!(empty.stdout, b"codex-manager-runtime-config-v1\n");
+    assert!(empty.stderr.is_empty());
+    assert!(!home.join(".local").exists());
+
+    let set = run_manager(
+        &home,
+        &core,
+        &[
+            "notify",
+            "set",
+            "--hooks",
+            "Stop,UserInputRequest,SessionStart",
+        ],
+        None,
+    );
+    assert!(set.status.success(), "{set:?}");
+    let record = home.join(".local/share/codex/manager/notifications/config-v1");
+    let before = fs::read(&record).unwrap();
+    fs::create_dir(config.join("profiles")).unwrap();
+    fs::set_permissions(config.join("profiles"), fs::Permissions::from_mode(0o700)).unwrap();
+    let source = config.join("profiles/shared.config.toml");
+    fs::write(&source, b"model = \"fixture\"\n").unwrap();
+    fs::set_permissions(&source, fs::Permissions::from_mode(0o600)).unwrap();
+    let prepared = query();
+    assert!(prepared.status.success(), "{prepared:?}");
+    let text = String::from_utf8(prepared.stdout).unwrap();
+    assert!(text.starts_with("codex-manager-runtime-config-v1\nnotify = "));
+    assert!(text.contains("[[hooks.SessionStart]]"));
+    assert!(text.contains("matcher = \"^(functions\\\\.)?request_user_input(_async)?$\""));
+    assert!(!text.contains("hooks.Stop"));
+    assert!(!text.contains("sandbox_mode"));
+    assert_eq!(
+        fs::read_link(account.join("shared.config.toml")).unwrap(),
+        source
+    );
+    assert_eq!(fs::read(&record).unwrap(), before);
+    assert_eq!(
+        fs::read(account.join("config.toml")).unwrap(),
+        b"# account settings\n"
+    );
+    assert_eq!(
+        fs::read(account.join("auth.json")).unwrap(),
+        b"private fixture auth\n"
+    );
+    assert_eq!(
+        fs::read(config.join("config.toml")).unwrap(),
+        b"# Core alone publishes this\n"
+    );
+
+    // Explicit selected homes get the same convenience; an existing local profile wins.
+    let other = home.join("other");
+    fs::create_dir(&other).unwrap();
+    fs::write(other.join("shared.config.toml"), b"# local override\n").unwrap();
+    let selected = base_manager_command(&home, &core)
+        .env("CODEX_HOME", &other)
+        .arg("__runtime-config-v1")
+        .arg(&config)
+        .output()
+        .unwrap();
+    assert!(selected.status.success());
+    assert_eq!(
+        fs::read(other.join("shared.config.toml")).unwrap(),
+        b"# local override\n"
+    );
+
+    fs::write(&record, b"malformed\n").unwrap();
+    let invalid = query();
+    assert_eq!(invalid.status.code(), Some(1));
+    assert!(invalid.stdout.is_empty());
+}
+
+#[test]
+fn runtime_config_endpoint_requires_exact_handoff_and_safe_directory() {
+    let root = TestRoot::new();
+    let core = write_core_probe(&root.0);
+    let denied = Command::new(manager_binary())
+        .env_clear()
+        .arg("__runtime-config-v1")
+        .arg(&root.0)
+        .output()
+        .unwrap();
+    assert!(!denied.status.success());
+    assert!(denied.stdout.is_empty());
+    for args in [
+        vec![],
+        vec![root.0.as_os_str(), std::ffi::OsStr::new("extra")],
+    ] {
+        let result = base_manager_command(&root.0, &core)
+            .arg("__runtime-config-v1")
+            .args(args)
+            .output()
+            .unwrap();
+        assert_eq!(result.status.code(), Some(2));
+        assert!(result.stdout.is_empty());
+    }
+    let link = root.0.join("linked-config");
+    std::os::unix::fs::symlink(&root.0, &link).unwrap();
+    let invalid = base_manager_command(&root.0, &core)
+        .arg("__runtime-config-v1")
+        .arg(link)
+        .output()
+        .unwrap();
+    assert_eq!(invalid.status.code(), Some(1));
+    assert!(invalid.stdout.is_empty());
+}
+
 fn run_manager(
     home: &Path,
     core: &Path,
@@ -1184,11 +1311,22 @@ fn notification_test_timeout_terminates_api_helper_descendants() {
     assert!(start.elapsed() < std::time::Duration::from_secs(8));
     let pid = fs::read_to_string(child_pid).unwrap();
     let proc = PathBuf::from("/proc").join(pid.trim());
-    if let Ok(stat) = fs::read_to_string(proc.join("stat")) {
-        assert!(matches!(
-            stat.rsplit_once(") ").unwrap().1.chars().next(),
-            Some('Z' | 'X')
-        ));
+    // kill(group, SIGKILL) is asynchronous for grandchildren. Reaping the shell
+    // does not guarantee the kernel has scheduled its killed child yet.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+    loop {
+        let Ok(stat) = fs::read_to_string(proc.join("stat")) else {
+            break;
+        };
+        let state = stat.rsplit_once(") ").unwrap().1.chars().next();
+        if matches!(state, Some('Z' | 'X')) {
+            break;
+        }
+        assert!(
+            matches!(state, Some('Z' | 'X')) || std::time::Instant::now() < deadline,
+            "owned helper survived group kill: {state:?}"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
     }
 }
 

@@ -106,8 +106,9 @@ all six base assets, and cannot enter the integrated signing/promotion path.
 The normal feature-preserving stable admission is unchanged. This is independent
 qualification, not completion of Core policy extraction or independent default
 upgrades. Main's published caller and device remain stable52 until an accepted
-source is separately pinned and activated. Remaining implementation starts with
-the Manager launch-policy and execution-safety slices below.
+source is separately pinned and activated. Manager configuration extraction follows
+below; account/default routing, managed-home safety and server/catalog ownership
+still require their remaining alignment slices.
 
 Local acceptance for this slice passes full workspace checks: Core198 with one
 pre-existing ignored case, Manager42+56+three path gates, builder25, Python18+66,
@@ -128,6 +129,36 @@ workspace and Android focused proofs) and independent base qualification38839831
 are separate from the physical-device proof above. No public release or device
 activation has been performed by this slice.
 
+### Manager configuration preparation slice
+
+Core no longer reads notification/config-v1, names notification events, renders
+hook policy or walks the shared configuration-profile registry. The admitted
+Manager's private __runtime-config-v1 endpoint renders existing native callbacks
+and matchers and owns no-replace shared profile projection. Core retains only a
+bounded local envelope exchange and atomic publication after its execution
+defaults; shared-server snapshots consume those same bytes. The response limit
+is8 KiB within the existing16-KiB snapshot bound, deadline2s, no inherited stdin or
+stderr, no inference, workload arguments or alternate execution. Failed responses
+warn once and leave the base runtime usable; absent Manager needs no query.
+Previously registered/native local profiles remain usable without Manager.
+
+Managed-home mutation leases, shared conversation layout, default-account routing,
+frontend/server selection and catalog decisions have not been extracted by this
+slice. Existing filesystem layout, public entrypoints, notification delivery and
+window/title handling stay in place. No installed runtime or account state has
+been edited. Core and Manager have no new compile-time dependency on each other.
+
+Qualification in progress: native Android ordinary completion/memory exclusion
+passes with a loopback Responses fixture and no real Chat inference. Full local
+and exact-source hosted acceptance are not yet recorded as complete. The first
+Core test run exposed a libtest stderr buffer lost at exec; --nocapture fixes the
+observer and the failed case now passes. Existing notification descendant cleanup
+asserted immediately after asynchronous SIGKILL; the observer now waits a bounded
+second for disappearance/death, retaining the actual survival failure. Native
+profile qualification also lacked OpenSSL in its synthetic PREFIX; provision the
+real verifier there before signed admission. These are test-harness corrections,
+not evidence of a production callback, process cleanup or trust failure.
+
 Source baseline is rewrite/rust-core6bf9f6b; device/public baseline is stable52,
 upstream0.161.0. Relevant observed coupling:
 
@@ -138,9 +169,10 @@ upstream0.161.0. Relevant observed coupling:
 - frontend/manager-tui/native.patch touches36 upstream TUI files including tests,
   snapshots and fixtures. It does not patch the upstream execution-engine source.
   Its source APIs still require revision-specific maintenance and compilation.
-- Core launch reads Manager notification policy, generates event-specific hooks,
-  recognizes Manager profile paths, projects shared configuration profiles and
-  prepares shared conversation layout. These exceed a pure Android adapter.
+- At that baseline Core launch read Manager notification policy, generated
+  event-specific hooks and projected shared configuration profiles; the slice
+  above extracts those policies. It still recognizes managed profile paths and
+  prepares shared conversation layout; their policy/safety split remains open.
 - shared_server.rs combines necessary signed-runtime/socket binding with catalog
   snapshots and reuse decisions needed by the enhanced frontend. Release-builder
   also maintains exact-version binary permission/UDS patches. Moving files between
