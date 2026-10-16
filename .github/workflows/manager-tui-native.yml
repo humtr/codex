@@ -6,6 +6,7 @@ on:
       - '.github/workflows/manager-tui-native.yml'
       - 'frontend/manager-tui/native.patch'
       - 'frontend/manager-tui/src/**'
+      - 'frontend/manager-tui/src/**'
       - 'frontend/manager-tui/apply.py'
       - 'frontend/manager-tui/test_apply.py'
       - 'frontend/manager-tui/normalize_lock.py'

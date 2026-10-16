@@ -2,6 +2,27 @@ use super::*;
 
 #[tokio::test]
 async fn termux_chat_models_same_provider_uses_only_changed_session_actions_without_persistence() {
+    if !crate::termux_permissions::enabled() {
+        // The ordinary upstream test process deliberately has no Termux bridge.
+        // Exercise the actual runtime branch in an isolated child, without
+        // mutating process-global environment around async widget construction.
+        let result = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "chatwidget::model_popups::termux_chat_model_selection_tests::termux_chat_models_same_provider_uses_only_changed_session_actions_without_persistence",
+                "--nocapture",
+            ])
+            .env("CODEX_PROFILE_CORE", "/owned/core")
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert!(String::from_utf8_lossy(&result.stdout).contains("1 passed"));
+        return;
+    }
     assert!(crate::termux_permissions::enabled());
     for (model, effort, expected_model, expected_effort) in [
         (

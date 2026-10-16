@@ -50,7 +50,7 @@ class NativeArtifactTests(unittest.TestCase):
         (artifact / "native.patch").write_bytes(patch)
         proof = root / "proof" / "_temp"
         proof.mkdir(parents=True)
-        (proof / "profile-tui-focused.log").write_text("Summary [3s] 42 tests run: 42 passed, 5632 skipped\n")
+        (proof / "profile-tui-focused.log").write_text("Summary [3s] 43 tests run: 43 passed, 5632 skipped\n")
         for suite, (package, _, topics) in SUITES.items():
             (proof / f"profile-tui-upstream-{suite}.log").write_text(
                 "".join(f"PASS [0.01s] {package} {name}\n" for name in topics.values()) +
@@ -107,7 +107,7 @@ class NativeArtifactTests(unittest.TestCase):
                     (proof / "profile-tui-focused.log").write_text(
                         "Summary [3s] 0 tests run: 0 passed\n" if fault == "zero"
                         else "Summary [3s] 41 tests run: 41 passed\n" if fault == "old-tests"
-                        else "Summary [3s] 42 tests run: 41 passed, 1 failed\n")
+                        else "Summary [3s] 43 tests run: 42 passed, 1 failed\n")
                 elif fault == "lint": (proof / "profile-tui-linted.patch").write_bytes(b"changed\n")
                 elif fault == "upstream-proof": (proof / "profile-tui-upstream-engine.log").unlink()
                 result = self.invoke(fixture, version, digest)
