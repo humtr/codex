@@ -17,11 +17,30 @@ export function localToolSignature(name){
 export function localToolCall(message,gateway,tools){
  if(message.author?.role!=='assistant'||message.recipient!=='local.'+gateway||message.status!=='finished_successfully')return;
  let args;try{args=JSON.parse(message.content?.text);args=args.kwargs??args;}catch{throw Error('desktop_native_call_invalid');}
- if(typeof args.name!=='string'||typeof args.input!=='string'||typeof args.report!=='string')throw Error('desktop_native_call_invalid');
+ if(!args||typeof args!=='object'||Array.isArray(args)||typeof args.name!=='string'||typeof args.input!=='string'||typeof args.report!=='string')throw Error('desktop_native_call_invalid');
  const tool=requireAdvertisedTool(args.name,tools);
- let input=args.input;if(!tool.freeform)try{input=JSON.parse(input);}catch{throw Error('invalid_tool_input');}
+ let input=args.input;
+ if(!tool.freeform){
+  try{input=JSON.parse(input);}catch{input=undefined;}
+  // Ordinary function arguments belong to Core's parser. Preserve a rejected
+  // nonempty wire string so its real error can return on the original app call.
+  // Search has a different Responses wire (object arguments), not this path.
+  if(!input||typeof input!=='object'||Array.isArray(input)){
+   if(tool.toolSearch||!args.input.length)throw Error('invalid_tool_input');
+   return {id:message.id,name:args.name,rawArguments:args.input,report:args.report};
+  }
+ }
  validateEnvelope({type:'tool',name:args.name,input},tools);
  return {id:message.id,name:args.name,input,report:args.report};
+}
+
+function projectedTool(call,tools){
+ if(call.rawArguments===undefined)return validateEnvelope({type:'tool',name:call.name,input:call.input},tools);
+ const tool=requireAdvertisedTool(call.name,tools);
+ if(tool.freeform||tool.toolSearch||typeof call.rawArguments!=='string'||!call.rawArguments.length||call.input!==undefined)throw Error('desktop_native_call_invalid');
+ let value;try{value=JSON.parse(call.rawArguments);}catch{}
+ if(value&&typeof value==='object'&&!Array.isArray(value))throw Error('desktop_native_call_invalid');
+ return tool;
 }
 
 export class DesktopToolSession{
@@ -31,14 +50,14 @@ export class DesktopToolSession{
   if(typeof call.id!=='string'||!call.id)throw Error('desktop_native_call_invalid');
   const old=this.calls.get(call.id);
   if(old){if(JSON.stringify(old.call)!==JSON.stringify(call))throw Error('desktop_native_call_changed');return;}
-  const tool=validateEnvelope({type:'tool',name:call.name,input:call.input},tools);
+  const tool=projectedTool(call,tools);
   if(typeof call.report==='string'&&call.report.trim()&&call.report.trim()!==this.lastPublicText?.trim()){
    this.text({id:'report:'+call.id,author:{role:'assistant'},recipient:'all',channel:'commentary',
     content:{content_type:'text',parts:[call.report]},status:'finished_successfully',end_turn:false},emit);
   }
   this.calls.set(call.id,{call});this.activeMessage=undefined;this.lastPublicText=undefined;
   emit({type:'tool_call_start',id:call.id,name:call.name});
-  emit({type:'tool_call_delta',arguments:tool.freeform?call.input:JSON.stringify(call.input)});
+  emit({type:'tool_call_delta',arguments:call.rawArguments??(tool.freeform?call.input:JSON.stringify(call.input))});
   emit({type:'tool_call_end'});
  }
  text(message,emit){

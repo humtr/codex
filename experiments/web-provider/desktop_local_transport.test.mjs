@@ -229,3 +229,33 @@ test('overlapping cleanup releases its app owner once; a failed retire cannot be
  finish();await assert.rejects(first,/desktop_disconnected/);await transport.retiring;
  assert.equal(releases,1);
 });
+test('a real Core argument error returns to its original call before a fresh model correction, without user resubmit',async()=>{
+ const f=fixture([[{call:{id:'bad',name:'shell',input:'{"cmd":'}}],
+  [{call:{id:'corrected',name:'shell',input:'{"cmd":"pwd"}'}}],[publicText('final','done','final')]]);
+ const first=await f.exchange();assert.equal(first.calls[0].rawArguments,'{"cmd":');
+ const messages=[...task.messages,{role:'assistant',content:[{type:'toolCall',id:'bad',name:'shell',arguments:'{"cmd":'}]},
+  {role:'toolResult',toolCallId:'bad',toolName:'shell',content:'failed to parse function arguments',isError:true}];
+ const corrected=await f.exchange({...task,messages});assert.equal(corrected.calls[0].id,'corrected');
+ messages.push({role:'toolResult',toolCallId:'corrected',toolName:'shell',content:'/owned'});
+ assert.equal((await f.exchange({...task,messages})).text,'done');
+ assert.deepEqual(f.events.filter(e=>e.type==='tool_call_delta').map(e=>e.arguments),['{"cmd":','{"cmd":"pwd"}']);
+ assert.deepEqual(f.events.filter(e=>e.kind).map(e=>e.kind),['user','tool','tool']);
+ assert.equal(f.submits[1].results[0].id,'bad');assert.equal(f.submits[1].results[0].result.isError,true);
+ assert.ok(f.submits.slice(1).every(s=>s.prompt===undefined));await f.transport.close();
+});
+test('a completed pre-dispatch input rejection accepts genuine new input, but unknown delivery stays blocked',async()=>{
+ for(const input of ['', 'not JSON']){
+  const f=fixture([[{call:{id:'rejected',name:input?'tool_search':'shell',input}}],[publicText('final','recovered','final')]]);
+  const payload={...task,tools:[...tools,{wireName:'tool_search',toolSearch:true}]};
+  await assert.rejects(()=>f.exchange(payload),/invalid_tool_input/);assert.equal(f.transport.blocked,false);
+  await assert.rejects(()=>f.exchange(payload),/recovery_requires_new_input/);
+  assert.equal(f.events.filter(e=>e.type==='tool_call_start').length,0);
+  assert.equal((await f.exchange({...payload,messages:[...task.messages,{role:'user',content:'resume'}]})).text,'recovered');
+  assert.equal(f.submits.length,2);await f.transport.close();
+ }
+});
+test('a completed call ID cannot be silently repurposed for different arguments',async()=>{
+ const f=fixture([[{call:{id:'same',name:'shell',input:'{}'}}],[{call:{id:'same',name:'shell',input:'{"cmd":"changed"}'}}]]);
+ await f.exchange();await assert.rejects(()=>f.exchange({...task,messages:[...task.messages,{role:'toolResult',toolCallId:'same',content:'completed'}]}),/call_changed/);
+ assert.equal(f.events.filter(e=>e.type==='tool_call_start').length,1);assert.equal(f.transport.blocked,true);await f.transport.close();
+});

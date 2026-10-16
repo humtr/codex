@@ -75,13 +75,37 @@ function validateStoredCompaction(raw){
   if(!summary.trim())throw Error('opaque_context_unavailable');
  }
 }
+// The reused parser accepts only object-valued function history. Core can also
+// persist a rejected raw argument string. Normalize solely for that parser and
+// restore the exact original in ordered context; never change the native wire,
+// function output, name/namespace, or its call/result pairing checks.
+export function parseNativeToolHistory(raw,parseRequest){
+ const rejected=new Map();
+ const input=Array.isArray(raw.input)?raw.input.map(item=>{
+  if(item?.type!=='function_call'||typeof item.arguments!=='string'||!item.arguments.length)return item;
+  let value;try{value=JSON.parse(item.arguments);}catch{}
+  if(value&&typeof value==='object'&&!Array.isArray(value))return item;
+  if(typeof item.call_id!=='string'||!item.call_id||rejected.has(item.call_id))throw Error('invalid_desktop_history');
+  rejected.set(item.call_id,item.arguments);return {...item,arguments:'{}'};
+ }):raw.input;
+ const parsed=parseRequest(rejected.size?{...raw,input}:raw);
+ for(const message of parsed.context.messages){
+  if(message.role!=='assistant'||!Array.isArray(message.content))continue;
+  for(const part of message.content)if(part.type==='toolCall'&&rejected.has(part.id)){
+   part.arguments=rejected.get(part.id);rejected.delete(part.id);
+  }
+ }
+ if(rejected.size)throw Error('invalid_desktop_history');
+ return parsed;
+}
+
 export function admitDesktopRequest(raw,parseRequest){
  if(!raw||typeof raw!=='object'||Array.isArray(raw))throw Error('invalid_desktop_request');
  const route=validateDesktopRoute(raw),outputInstructions=desktopOutputInstructions(raw);
  if(raw.stream!==true)throw Error('desktop_stream_required');
  if(raw.previous_response_id)throw Error('desktop_response_cursor_unavailable');
  validateStoredCompaction(raw);
- let parsed;try{parsed=parseRequest(raw);}catch(e){throw Error(e?.message==='Unsupported routed tool declaration'?'desktop_tool_declaration_unsupported':'desktop_request_parse_failed');}
+ let parsed;try{parsed=parseNativeToolHistory(raw,parseRequest);}catch(e){throw Error(e?.message==='Unsupported routed tool declaration'?'desktop_tool_declaration_unsupported':'desktop_request_parse_failed');}
  validateTextContext(raw,parsed);
  if(parsed._opaqueMultiAgentV2Payload)throw Error('opaque_context_unavailable');
  return {parsed,route,outputInstructions};

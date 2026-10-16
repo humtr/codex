@@ -38,6 +38,18 @@ update authority is maintained.
   is replayed without its real result. UI transport remains a serialized fallback
   only when internal capability is unavailable before submission. Ambiguous
   submission failures never silently resubmit through another transport.
+  On the local-function transport, an exact advertised ordinary JSON tool's
+  nonempty malformed/non-object arguments are preserved verbatim on the Responses
+  function-call wire. Core owns parsing, error results and execution: the adapter
+  neither repairs arguments nor invents a tool result. Core's correlated error
+  returns on the original app call, allowing a fresh model correction without a
+  new Chat user message. Canonical history retains the invalid raw arguments on
+  replay; parser adaptation must not erase them or relax call/result pairing.
+  Custom/freeform bytes and exact tool names remain unchanged. Unknown tools,
+  malformed gateway envelopes, empty JSON input and invalid tool-search input
+  remain pre-dispatch rejections; a normally completed unexecuted sample may
+  recover with new canonical user input after successful owned cleanup. Unknown
+  delivery or partially published work remains blocked against automatic replay.
   Shared configuration profiles have one private registry in Core's existing
   config directory. Launch may project missing upstream profile filenames into
   an account home, preserving existing user-owned profiles, base config and

@@ -231,7 +231,9 @@ export class DesktopLocalTransport{
     // the actual host terminal so an invalid later call cannot leak partial work.
     if(settled)for(const message of state.messages){
      const call=localToolCall(message,this.gateway,payload.tools);
-     if(!call||this.projection.calls.has(call.id))continue;
+     if(!call)continue;
+     const prior=this.projection.calls.get(call.id);
+     if(prior){if(JSON.stringify(prior.call)!==JSON.stringify(call))throw Error('desktop_native_call_changed');continue;}
      const old=roundCalls.get(call.id);
      if(old&&JSON.stringify(old)!==JSON.stringify(call))throw Error('desktop_native_call_changed');
      roundCalls.set(call.id,call);
@@ -261,7 +263,7 @@ export class DesktopLocalTransport{
    if(sent)this.blocked=true;
    if(sent||!this.routeIdentity){
     let closed=false;try{await this.close();closed=true;}catch{}
-    if(sent&&settled&&!published&&closed&&error.message==='unadvertised_tool'){
+    if(sent&&settled&&!published&&closed&&['unadvertised_tool','invalid_tool_input','invalid_tool_search','desktop_native_call_invalid'].includes(error.message)){
      this.blocked=false;this.rejectedContext=prepared.current.messages;
     }
     this.context=new DesktopPromptContext();this.projection=new DesktopToolSession();this.routeIdentity=undefined;

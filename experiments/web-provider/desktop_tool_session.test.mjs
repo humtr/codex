@@ -33,8 +33,27 @@ test('native gateway preserves namespaces, custom source and discovery arguments
  assert.equal(localToolCall(request('patch','*** Begin Patch\n*** End Patch'),'gateway',tools).input,'*** Begin Patch\n*** End Patch');
  assert.equal(localToolCall(request('shell','{}'),'other',tools),undefined);
  assert.throws(()=>localToolCall(request('foreign','{}'),'gateway',tools),/unadvertised_tool/);
- assert.throws(()=>localToolCall(request('shell','not JSON'),'gateway',tools),/invalid_tool_input/);
+ assert.equal(localToolCall(request('shell','not JSON'),'gateway',tools).rawArguments,'not JSON');
  assert.throws(()=>localToolCall(request('tool_search','{"query":""}'),'gateway',tools),/invalid_tool_search/);
+});
+test('malformed ordinary arguments stay exact for Core errors; names, freeform and search retain their boundaries',()=>{
+ const request=(name,input)=>({id:'bad',author:{role:'assistant'},recipient:'local.gateway',status:'finished_successfully',content:{text:JSON.stringify({name,input,report:''})}});
+ for(const input of ['not JSON','{"cmd":','[1,2]','null','true','42','"string"',' \n']){
+  const call=localToolCall(request('shell',input),'gateway',tools),s=new DesktopToolSession(),events=[];
+  assert.equal(call.rawArguments,input);assert.equal(call.input,undefined);
+  s.issue(call,tools,e=>events.push(e));s.issue(call,tools,e=>events.push(e));
+  assert.deepEqual(events.filter(e=>e.type==='tool_call_delta').map(e=>e.arguments),[input]);
+  const batch=s.results([{role:'toolResult',toolCallId:'bad',content:'actual Core parse error',isError:true}]);
+  s.returned(batch);assert.equal(s.pending().length,0);assert.equal(batch[0].result.isError,true);
+ }
+ assert.throws(()=>localToolCall(request('shell',''),'gateway',tools),/invalid_tool_input/);
+ assert.throws(()=>localToolCall(request('tool_search','broken'),'gateway',tools),/invalid_tool_input/);
+ assert.throws(()=>localToolCall(request('foreign','broken'),'gateway',tools),/unadvertised_tool/);
+ assert.equal(localToolCall(request('patch','broken'),'gateway',tools).input,'broken');
+ for(const call of [{id:'a',name:'patch',rawArguments:'bad'},{id:'a',name:'tool_search',rawArguments:'bad'},
+  {id:'a',name:'shell',rawArguments:'{}'},{id:'a',name:'shell',rawArguments:'bad',input:{cmd:'do not execute'}}]){
+  assert.throws(()=>new DesktopToolSession().issue(call,tools,()=>assert.fail('no partial call')),/call_invalid/);
+ }
 });
 test('catalog has one exact callable name; invalid names keep only bounded content-free diagnosis',()=>{
  const native={name:'_read',namespace:'mcp__owned',wireName:'mcp__owned___read',freeform:true,description:'source',parameters:{type:'string'}};

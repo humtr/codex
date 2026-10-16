@@ -8,10 +8,11 @@ acceptance cache. No external workflow skill or separate task ledger is required
 
 ## Operating baseline
 
-- Public/device Core and frontend: signed stable52, CLI0.161.0, source e8dc2d7.
-  Publication38733863985 and ordinary device activation pass. Fourteen protected
-  files and seven process identities survive activation. Stable51 is rollback.
-  Native41-test/source/device catalog and permission gates are qualified.
+- Public/device Core and frontend: signed stable53, CLI0.163.0, source36bfeed.
+  Release38904810656 and source/native/device qualification pass on the production
+  branch. Actual version and Core/Manager doctor confirm device selection; stable52
+  is retained for rollback. Earlier live provider inference below used stable52;
+  production upgrade proof is not a new Chat-provider inference qualification.
 - Installed opt-in Chat provider:9014deaf810ff40a583d, sourcee27ab09,
   `returnTransport=local`,590 verified payload files. Prior d7513cc7785f3d5dbcef
   and561-file recovery payloads are retained.
@@ -50,18 +51,14 @@ acceptance cache. No external workflow skill or separate task ledger is required
 
 This is the complete active backlog for ChatGPT as a development model in local
 Codex. Completion means actual native execution and user-visible behavior, not
-HTTP success, a server counter or a cached tool listing. The user's2026-10-16
-priority is responsibility realignment first, owned by
-[rewrite/rust-core's responsibility/update plan](https://github.com/humtr/codex/blob/rewrite/rust-core/CURRENT.md#core--manager-responsibility-and-update-plan).
-Complete the actual ownership/interface separation before the improvements below;
-do not merely rename components or expand code that will then need moving.
-Only baseline-preserving changes required by a separation slice belong in that
-phase. Reuse unchanged green evidence rather than repeatedly rerunning it.
+HTTP success, a server counter or a cached tool listing. Responsibility realignment
+and the0.163 production upgrade are complete on rewrite/rust-core. The user's next-work instruction now authorizes offline source
+work on tool input/admission and recovery, followed by native development coverage.
 
 | Order | Work | Acceptance / current gap |
 | --- | --- | --- |
-| 1 | Tool identity and dynamic discovery | Preserve installed unadvertised_tool corrections and exact namespace/schema/freeform/search admission. Add the newly observed input-encoding failure to the complete tool contract audit; do not weaken admission or invent aliases to qualify it. |
-| 2 | Failure recovery | Correct the observed invalid_tool_input turn abort and discover additional error paths. Distinguish unexecuted invalid input, completed invalid samples and unknown delivery. Where safe, return a correlated tool error for model correction; no automatic work replay, permanent poison or cross-transport fallback. |
+| 1 | Tool identity and dynamic discovery | Exact names/search/freeform admission retained; actual0.163 offline search/discovered MCP path passes. New ordinary-function raw-input recovery is source/offline-qualified below; installed/live coverage of the complete tool contract remains. |
+| 2 | Failure recovery | Ordinary malformed/non-object arguments now reach Core unchanged, and its exact error returns on the original app call. Source/offline proof passes; operating activation/live acceptance and other error paths remain. Completed pre-dispatch rejections require genuine new input; unknown delivery remains blocked, with no work replay. |
 | 3 | Complete native development surface | Qualify MCP search/call/result, custom/freeform tools, parallel batches, background terminals, approvals/reviewer and user questions on the installed path. Two shell commands are insufficient. |
 | 4 | Long context and switching | Preserve canonical requirements/results through automatic/fault compaction, native-to-Chat/Chat-to-native switching, restart and cold resume. Reject unreadable opaque checkpoints before placeholder conversion; never silently truncate history. |
 | 5 | Lifetime and owners | Qualify generation stop, native command stop, observation-only loss/reconnect, app/adapter restarts, concurrent tasks/accounts and guardian isolation. A turn interrupt is distinct from termination of an already-running unified-exec process. |
@@ -75,8 +72,8 @@ phase. Reuse unchanged green evidence rather than repeatedly rerunning it.
 
 After responsibility realignment, first finish1/2, then3, then4/5. Performance
 and alternative transport work must not obscure a broken basic native tool loop.
-Source/offline implementation and pushes retain their existing authorization, but
-the user has not requested starting these deferred implementation tasks yet.
+Source/offline implementation and pushes are authorized by the current next-work
+instruction. Operating provider activation and live trials remain separate.
 Explain necessity, scope and expected Chat submissions before live trials or
 operating provider changes; do not stop existing tasks.
 
@@ -134,9 +131,56 @@ Current installed9014deaf/sourcee27ab09 evaluation evidence:
   unchanged, no code diff or remaining owned process, temporary roots removed.
   Proof: chat-ai-long-8k18zos4/report.json in the private acceptance cache.
 
-These observations add no new implementation or provider activation. The user
-selected responsibility work first after the tests; defer repairs and a new
-Chat-consuming development attempt until that ordering permits them.
+These earlier observations remain the operating-provider baseline. The source
+repair below follows completed responsibility work; it has not replaced the
+installed provider or repeated real Chat inference.
+
+### Current source repair and offline qualification
+
+Ordinary advertised JSON tools retain malformed/non-object nonempty input as raw
+Responses function arguments. Core parses them, creates the actual correlated
+error, and remains the sole executor. The next tool-role app message returns that
+error on the original call ID; a new corrected call follows in the same native
+turn. No guessed JSON, adapter-created tool result, new Chat user prompt or automatic
+command replay is added. The owned history shim gives the unchanged dependency
+parser an object-only validation view, then restores exact rejected arguments in
+ordered context. Native wire, results, names/namespaces and pairing stay intact;
+the reused parser/SSE dependency and production Core require no modifications.
+
+A completed call ID reused with different content now refuses instead of silently
+ignoring it. Normally completed pre-dispatch input/search/gateway rejections allow
+new-input recovery only after successful cleanup; missing/duplicate/changed results,
+partial publication and ambiguous delivery still cannot trigger automatic replay.
+Empty ordinary JSON strings and tool-search validation remain explicit rejections;
+custom/freeform source remains byte-exact. MCP-return malformed input is not newly
+qualified by this local-transport change.
+
+Actual Android stable53 Core + real HTTP/Responses adapter + deterministic app
+port passes three separate malformed JSON/array/whitespace cases. Each returns the
+actual Core error on the original ID, preserves raw history, runs exactly two
+corrected shell commands, renders initial/intermediate/final reports and restores
+those reports after cold Core restart without another model request. Each case has
+one synthetic user submission, three tool returns and four synthetic dispatches;
+actual Chat submissions=0. Baseline, rejected-sample/new-input recovery and native
+search/discovered MCP execution also pass on0.163 with persisted/restored/rendered
+reports. They use temporary roots removed by the probes, not real user repositories.
+Test-only CODEX_CHAT_CORE_PROOF_SOURCE selects the matching production validators
+for the installed runtime; it is not a provider launch/runtime dependency.
+
+Checks:46 Node tests,83 Bun tests,42 provider Python tests and source Python18+59
+pass. Native evidence in the private acceptance cache: chat-invalid-input-core-next,
+chat-invalid-input-array-core-next, chat-invalid-input-whitespace-core-next and
+chat-tool-next-{baseline,rejected,discovery}.json. The first malformed-input probe
+correctly failed report-count acceptance because its fixture emitted two identical
+intermediate markers; the corrected fixture emits one and all gates pass. This was
+an observer/fixture defect, not accepted product proof.
+
+Installed provider remains9014deaf/sourcee27ab09. No operating provider activation,
+real signed-app inference, Pro use, native config/auth changes or remote chat deletion
+occurred. Next: activate this concrete candidate when appropriate, then a bounded
+GPT-6 Instant error/correction proof (explain expected submissions first), followed
+by the full native development surface and long-development evaluation. Source
+proof must not be described as installed/live Chat acceptance or a Chat-limit saving.
 
 ### Deferred and conditional scope
 

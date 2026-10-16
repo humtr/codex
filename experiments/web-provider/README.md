@@ -35,13 +35,39 @@ provider suite. Do not collect it with an unscoped `bun test` here.
 
 The current source candidate gives the model one canonical callable name per
 tool, filters old-round callbacks, and records content-free rejected-name/catalog
-fingerprints. A normally completed invalid sample can recover only after owned
+fingerprints. A normally completed pre-dispatch rejection can recover only after owned
 cleanup and new user input preserving canonical history; uncertain delivery stays
 blocked. No automatic inference retry or guessed tool alias is introduced.
+
+The current source also preserves nonempty malformed/non-object ordinary JSON
+arguments on the native function-call wire. Core returns the real argument error;
+the local transport returns it on the original call, so the model can correct it
+without a new user prompt. A narrow owned history shim preserves those exact raw
+arguments through the unchanged dependency parser. No command is retried by the
+adapter and no guessed input or synthetic tool result is substituted. Empty JSON
+input, unknown tools and invalid search/gateway envelopes remain pre-dispatch
+rejections with new-input recovery after completed cleanup; unknown delivery stays
+blocked. This source change is not yet the installed provider.
+
+Offline real-Core recovery proof, without a Chat request:
+
+```sh
+CODEX_CHAT_CORE_PROOF_SOURCE="$HOME/prj/codex" python -B \
+  experiments/web-provider/desktop_local_core_probe.py \
+  --bun "$BUN" --bridge "$BRIDGE" --invalid-tool \
+  --report "$TMPDIR/chat-input-recovery.json"
+```
+
+The proof-source path selects the installed Core's qualified validators when this
+experiment checkout predates that release. It is used only by test code. Repeat
+with `--invalid-input array` or `--invalid-input whitespace` for those negative cases.
+
 `desktop_local_core_probe.py --reject-tool` tests this with actual signed Core,
 a deterministic host and zero Chat: one write, rejection, explicit user resume,
 one read, unchanged file and cold transcript/TUI restoration. This flag refuses
-all live-session/bounded-runtime combinations. These corrections are now installed as9014deaf810ff40a583d. Actual GPT-6 Instant
+all live-session/bounded-runtime combinations. Earlier canonical-name and completed-
+sample corrections are installed as9014deaf810ff40a583d; the raw-argument repair
+above remains source/offline-qualified. Actual GPT-6 Instant
 acceptance additionally passes search, automatic review, a private native MCP
 read, final response and cold TUI restore; this does not qualify the alternative
 remote MCP return transport. The temporary four-start trial limit is removed.

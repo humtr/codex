@@ -21,7 +21,11 @@ import termios
 from protocol import Transcript, events as response_events
 
 SOURCE = Path(__file__).resolve().parent
-sys.path.insert(0, str(SOURCE.parents[1]/'scripts'))
+# Test-only authority: a provider checkout may predate the installed signed Core.
+# Reuse its qualified release validators instead of weakening version admission.
+CORE_PROOF_SOURCE = Path(os.environ.get('CODEX_CHAT_CORE_PROOF_SOURCE', SOURCE.parents[1])).resolve()
+sys.path.insert(0, str(CORE_PROOF_SOURCE/'scripts'))
+sys.path.insert(0, str(CORE_PROOF_SOURCE/'.github/scripts'))
 from qualify_tasks import fixture_activation_state, materialize_signed_generation
 from rald3_preflight import parse_descriptor
 from rald5_publication import parse_manifest
